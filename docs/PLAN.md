@@ -4,7 +4,7 @@ The milestones build Leaf Me Alone in the order that retires the biggest risks f
 
 Each task is tagged with its lane: `[NET]`, `[PLAY]`, or `[SHARED]`. Tasks marked `(human)` need someone to click through the Godot editor, Steam, GitHub, or Apple's tools. An agent should prepare everything around them and then tell the developer exactly what to do. Agents check off tasks in their own lane only, and only after the task's checks have actually been run.
 
-Current milestone: **M3**
+Current milestone: **M4**
 
 ---
 
@@ -115,17 +115,17 @@ Done when four players, including one on Windows, can play store to lot to payou
 The threat arrives (BL-005, BL-012). Proximity voice lands here because this is where it starts to matter.
 
 NET
-- [ ] `[NET]` Run event director: pluggable trigger rules for the families in the workbook's Run Events sheet, chances, escalation, cap, and cooldown from `Balance`, and phase events broadcast with server-time starts (OQ-009).
-- [ ] `[NET]` NPC sync: host-owned crew members spawned by `NpcSpawner`, smoothed on clients.
-- [ ] `[NET]` Captures and cohorts: host-side capture checks with a tunable forgiving radius, the batching window (OQ-025), roster freeze, and the van ride with seats filled from the roster.
+- [x] `[NET]` Run event director: pluggable trigger rules for the families in the workbook's Run Events sheet, chances, escalation, cap, and cooldown from `Balance`, and phase events broadcast with server-time starts (OQ-009).
+- [x] `[NET]` NPC sync: host-owned crew members spawned by `NpcSpawner`, smoothed on clients.
+- [x] `[NET]` Captures and cohorts: host-side capture checks with a tunable forgiving radius, the batching window (OQ-025), roster freeze, and the van ride with seats filled from the roster.
 - [ ] `[NET]` Proximity voice as specified in `NETCODE.md`, including the macOS microphone entitlement check in an exported build on both platforms.
-- [ ] `[NET]` Extend the smoke test: a capture produces a cohort whose van seat count matches.
+- [x] `[NET]` Extend the smoke test: a capture produces a cohort whose van seat count matches.
 
 PLAY
-- [ ] `[PLAY]` Crew behavior in `npcs/`: arrival, chasing with NavigationAgent3D, searching, and capturing, using placeholder visuals and the placeholder name `[CREW NAME]` until the design names them (OQ-012).
+- [x] `[PLAY]` Crew behavior in `npcs/`: arrival, chasing with NavigationAgent3D, searching, and capturing, using placeholder visuals and the placeholder name `[CREW NAME]` until the design names them (OQ-012).
 - [ ] `[PLAY]` Warning and foreshadow cues (sound, radio, visual) for each phase, timed to the phase events.
 - [ ] `[PLAY]` Counterplay version zero: running, hiding behind or inside things, and breaking line of sight (OQ-010).
-- [ ] `[PLAY]` The van with visible occupants that always match the captured roster for 1 to 8 captured players (OQ-026).
+- [x] `[PLAY]` The van with visible occupants that always match the captured roster for 1 to 8 captured players (OQ-026).
 - [ ] `[PLAY]` Voice: AudioStreamPlayer3D on each head, a speaking indicator over each player and in the lobby, and a voice settings screen.
 
 Done when a run event can fire, players can escape or be caught, the van always shows exactly the captured players, voices fade with distance, and it all works across Mac and Windows.
