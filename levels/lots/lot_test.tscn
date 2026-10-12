@@ -53,6 +53,13 @@ shape = SubResource("BoxShape_house")
 mesh = SubResource("BoxMesh_house")
 surface_material_override/0 = SubResource("Material_house")
 
+[node name="Label" type="Label3D" parent="House"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.1, 0)
+billboard = 1
+font_size = 72
+outline_size = 12
+text = "House"
+
 [node name="Fence" type="StaticBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.6, -12)
 
@@ -62,6 +69,13 @@ shape = SubResource("BoxShape_fence")
 [node name="Mesh" type="MeshInstance3D" parent="Fence"]
 mesh = SubResource("BoxMesh_fence")
 surface_material_override/0 = SubResource("Material_fence")
+
+[node name="Label" type="Label3D" parent="Fence"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
+billboard = 1
+font_size = 72
+outline_size = 12
+text = "Fence"
 
 [node name="SpawnPoints" type="Node3D" parent="."]
 
@@ -80,11 +94,14 @@ script = ExtResource("2_leaves")
 [node name="TrashCan" parent="." instance=ExtResource("3_prop")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.2, 4)
 color = Color(0.25, 0.28, 0.3, 1)
+label = "Trash can"
 
 [node name="Wheelbarrow" parent="." instance=ExtResource("3_prop")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.2, -2)
 color = Color(0.55, 0.22, 0.18, 1)
+label = "Wheelbarrow"
 
 [node name="Gnome" parent="." instance=ExtResource("3_prop")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.2, 2)
 color = Color(0.2, 0.45, 0.28, 1)
+label = "Gnome"

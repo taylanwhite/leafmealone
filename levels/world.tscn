@@ -71,6 +71,13 @@ shape = SubResource("BoxShape_counter")
 mesh = SubResource("BoxMesh_counter")
 surface_material_override/0 = SubResource("Material_counter")
 
+[node name="Label" type="Label3D" parent="StoreZone/Counter"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
+billboard = 1
+font_size = 72
+outline_size = 12
+text = "Counter"
+
 [node name="Sign" type="Label3D" parent="StoreZone"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -8)
 text = "Homie Depot"
@@ -81,6 +88,13 @@ outline_size = 12
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.05, 8)
 mesh = SubResource("BoxMesh_gate")
 surface_material_override/0 = SubResource("Material_counter")
+
+[node name="Label" type="Label3D" parent="StoreZone/TruckPad"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+billboard = 1
+font_size = 72
+outline_size = 12
+text = "Truck"
 
 [node name="StoreSpawnPoints" type="Node3D" parent="StoreZone"]
 unique_name_in_owner = true

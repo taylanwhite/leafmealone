@@ -35,6 +35,14 @@ unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)
 mesh = SubResource("BoxMesh_prop")
 
+[node name="Label" type="Label3D" parent="Visual"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0)
+billboard = 1
+font_size = 72
+outline_size = 12
+text = "Prop"
+
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
 replication_interval = 0.05
 replication_config = SubResource("SceneReplicationConfig_prop")

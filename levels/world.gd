@@ -58,6 +58,7 @@ func _spawn_bag(at: Vector3) -> void:
 	var bag := BAG_SCENE.instantiate()
 	bag.name = "Bag%d" % _bag_serial
 	bag.set("color", Color(0.42, 0.52, 0.24, 1))
+	bag.set("label", "Leaf bag")
 	%RuntimeProps.add_child(bag, true)
 	bag.global_position = at + Vector3(0.0, 0.6, 0.0)
 
