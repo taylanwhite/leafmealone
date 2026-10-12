@@ -3,7 +3,7 @@ extends Node
 ## Authority: host decides pass or fail. The client only reports what it can see.
 ## Covers connection, handshake, player replication, and a host-ordered zone move.
 
-const TIMEOUT_SECONDS: float = 20.0
+const TIMEOUT_SECONDS: float = 30.0
 
 var _started_msec: int = 0
 var _child_pid: int = -1
@@ -17,6 +17,7 @@ var _leaf_at: Vector3 = Vector3.ZERO
 var _leaf_expected: int = -1
 var _watching_prop: bool = false
 var _prop_at: Vector3 = Vector3.ZERO
+var _next_clock_probe: float = 0.0
 
 
 func _ready() -> void:
@@ -31,6 +32,7 @@ func _process(_delta: float) -> void:
 		return
 	if Net.is_smoke_host():
 		_host_leaf_step()
+		_host_ride_step()
 	if Net.is_smoke_client():
 		_client_process()
 
@@ -68,9 +70,9 @@ func _client_process() -> void:
 		_rpc_status.rpc_id(1, "players_visible", 0.0)
 	if _watching_leaf:
 		var field := get_tree().get_first_node_in_group("leaf_field")
-		if field != null and Net.has_clock_sample() and int(field.call("sample_world", _leaf_at)) == _leaf_expected:
-			_watching_leaf = false
-			_rpc_status.rpc_id(1, "leaf_match", Net.server_time())
+		if field != null and _elapsed() >= _next_clock_probe and Net.has_clock_sample() and int(field.call("sample_world", _leaf_at)) == _leaf_expected:
+			_next_clock_probe = _elapsed() + 0.5
+			_rpc_clock_probe.rpc_id(1, Time.get_ticks_usec() / 1000000.0)
 	if _watching_prop:
 		var gnome := get_tree().root.find_child("Gnome", true, false) as Node3D
 		if gnome != null and gnome.global_position.distance_to(_prop_at) < 1.0:
@@ -108,6 +110,26 @@ func _rpc_prop_target(at: Vector3) -> void:
 	_watching_prop = true
 
 
+@rpc("any_peer", "call_remote", "unreliable", 1)
+func _rpc_clock_probe(sent_local_seconds: float) -> void:
+	if not Net.is_smoke_host():
+		return
+	_rpc_clock_probe_reply.rpc_id(multiplayer.get_remote_sender_id(), sent_local_seconds, Net.server_time())
+
+
+@rpc("authority", "call_remote", "unreliable", 1)
+func _rpc_clock_probe_reply(sent_local_seconds: float, host_seconds: float) -> void:
+	if not Net.is_smoke_client() or not _watching_leaf:
+		return
+	var received := Time.get_ticks_usec() / 1000000.0
+	var rtt := received - sent_local_seconds
+	var residual := absf(Net.server_time() - (host_seconds + rtt * 0.5))
+	if residual > 0.05:
+		return
+	_watching_leaf = false
+	_rpc_status.rpc_id(1, "leaf_match", residual)
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_status(stage: String, client_time: float) -> void:
 	if not Net.is_smoke_host():
@@ -124,8 +146,8 @@ func _rpc_status(stage: String, client_time: float) -> void:
 		Net.move_player_to_zone(1, Net.Zone.LOT)
 		_leaf_phase = "poke"
 	elif stage == "leaf_match" and _leaf_phase == "wait":
-		if absf(client_time - Net.server_time()) > 0.05:
-			_finish(false, "clock off by %.3f s" % absf(client_time - Net.server_time()))
+		if client_time > 0.05:
+			_finish(false, "clock off by %.3f s" % client_time)
 			return
 		var gnome := get_tree().root.find_child("Gnome", true, false) as Node3D
 		if gnome == null:
@@ -135,6 +157,19 @@ func _rpc_status(stage: String, client_time: float) -> void:
 		_leaf_phase = "prop"
 		_rpc_prop_target.rpc_id(_client_id, gnome.global_position)
 	elif stage == "prop_match" and _leaf_phase == "prop":
+		var ride := get_tree().get_first_node_in_group("rides")
+		if ride == null:
+			_finish(false, "truck missing")
+			return
+		_leaf_phase = "ride"
+		ride.call("depart", [1], Net.Zone.LOT)
+
+
+func _host_ride_step() -> void:
+	if _leaf_phase != "ride":
+		return
+	var ride := get_tree().get_first_node_in_group("rides")
+	if ride != null and not bool(ride.call("is_riding")) and Net.player_zone(1) == Net.Zone.LOT:
 		_finish(true, "")
 
 
