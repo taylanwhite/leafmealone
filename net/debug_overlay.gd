@@ -21,6 +21,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
 		visible = not visible
 		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_F6:
+		if not Net.is_host():
+			return
+		var director := get_tree().get_first_node_in_group("run_director")
+		if director != null:
+			director.call("force_event")
+		get_viewport().set_input_as_handled()
 
 
 func _process(_delta: float) -> void:
@@ -38,6 +46,7 @@ func _readout() -> String:
 	lines.append("clock offset %.3f s  rtt %.3f s" % [Net.clock_offset_seconds(), Net.clock_rtt_seconds()])
 	lines.append("synchronizers %d" % _synchronizer_count())
 	lines.append("bandwidth n/a")
+	lines.append("F6 host calls [CREW NAME]")
 	for peer_id: int in Net.peer_ids():
 		var ping := Net.peer_ping_ms(peer_id)
 		var ping_text := "%d ms" % ping if ping >= 0 else "n/a"

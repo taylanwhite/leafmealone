@@ -13,6 +13,7 @@ signal payout_ready(results: Array[Dictionary])
 const SAVE_PATH := "user://saves/campaign.json"
 const SAVE_VERSION := 1
 const RAKE_UPGRADE := &"rake_tier_1"
+const WHEELBARROW_UPGRADE := &"wheelbarrow_tier_1"
 
 var _job_stats: Dictionary = {}
 var _bank: Dictionary = {}
@@ -49,6 +50,14 @@ func peer_has_unlock(peer_id: int, unlock_id: StringName) -> bool:
 		return false
 	var unlocks: Array = (_bank.get(key, {}) as Dictionary).get("unlocks", [])
 	return unlocks.has(String(unlock_id))
+
+
+## Shared wheelbarrow on the lot. Any player's upgrade raises it for the crew.
+func wheelbarrow_capacity() -> int:
+	for peer_id: int in Net.peer_ids():
+		if peer_has_unlock(peer_id, WHEELBARROW_UPGRADE):
+			return Constants.WHEELBARROW_UPGRADED_BAG_CAPACITY
+	return Constants.WHEELBARROW_BAG_CAPACITY
 
 
 ## Workbook throughput multiplier for this player's rake. 1 until they buy the tune-up.
@@ -135,11 +144,20 @@ func _on_player_joined(peer_id: int) -> void:
 
 
 func _send_wallet(peer_id: int) -> void:
-	_rpc_wallet.rpc(peer_id, credits(peer_id), peer_has_unlock(peer_id, RAKE_UPGRADE), _lots_completed)
+	_rpc_wallet.rpc(peer_id, credits(peer_id), _unlock_list(peer_id), _lots_completed)
+
+
+func _unlock_list(peer_id: int) -> PackedStringArray:
+	var key: String = _peer_keys.get(peer_id, "")
+	var unlocks: Array = (_bank.get(key, {}) as Dictionary).get("unlocks", [])
+	var names := PackedStringArray()
+	for entry: Variant in unlocks:
+		names.append(str(entry))
+	return names
 
 
 func _handle_purchase(peer_id: int, item_id: StringName) -> void:
-	if item_id != RAKE_UPGRADE:
+	if item_id != RAKE_UPGRADE and item_id != WHEELBARROW_UPGRADE:
 		return
 	_bind_peer(peer_id)
 	if peer_has_unlock(peer_id, item_id):
@@ -294,17 +312,17 @@ func _rpc_progress(lots_completed: int) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_wallet(peer_id: int, amount: int, has_rake: bool, lots_completed: int) -> void:
+func _rpc_wallet(peer_id: int, amount: int, unlocks: PackedStringArray, lots_completed: int) -> void:
 	# The wallet can arrive before the roster, and the save key needs the name or Steam id.
 	if Net.player_name(peer_id) == "" and Net.player_steam_id(peer_id) == 0:
 		_pending_wallets.append({
 			"peer_id": peer_id,
 			"amount": amount,
-			"has_rake": has_rake,
+			"unlocks": Array(unlocks),
 			"lots_completed": lots_completed,
 		})
 		return
-	_apply_wallet(peer_id, amount, has_rake, lots_completed)
+	_apply_wallet(peer_id, amount, unlocks, lots_completed)
 
 
 func _flush_wallet(peer_id: int) -> void:
@@ -315,20 +333,23 @@ func _flush_wallet(peer_id: int) -> void:
 		if int(row["peer_id"]) != peer_id:
 			kept.append(row)
 			continue
-		_apply_wallet(peer_id, int(row["amount"]), bool(row["has_rake"]), int(row["lots_completed"]))
+		var pending_unlocks := PackedStringArray()
+		for entry: Variant in row["unlocks"]:
+			pending_unlocks.append(str(entry))
+		_apply_wallet(peer_id, int(row["amount"]), pending_unlocks, int(row["lots_completed"]))
 	_pending_wallets = kept
 
 
-func _apply_wallet(peer_id: int, amount: int, has_rake: bool, lots_completed: int) -> void:
+func _apply_wallet(peer_id: int, amount: int, unlocks: PackedStringArray, lots_completed: int) -> void:
 	_lots_completed = lots_completed
 	_bind_peer(peer_id)
 	var key: String = _peer_keys[peer_id]
 	var record: Dictionary = _bank.get(key, {"credits": 0, "unlocks": []})
 	record["credits"] = amount
-	var unlocks: Array = record.get("unlocks", [])
-	if has_rake and not unlocks.has(String(RAKE_UPGRADE)):
-		unlocks.append(String(RAKE_UPGRADE))
-	record["unlocks"] = unlocks
+	var stored: Array = []
+	for entry: String in unlocks:
+		stored.append(entry)
+	record["unlocks"] = stored
 	_bank[key] = record
 	credits_changed.emit(peer_id, amount)
 	unlocks_changed.emit()

@@ -1,0 +1,196 @@
+extends Node
+
+## Authority: host decides when a run event starts, who is captured, and when the van leaves.
+## OQ-009: only the progress rule is active. The other families live in rules.gd and stay off.
+
+const CREW_SCENE: PackedScene = preload("res://npcs/crew_member.tscn")
+const _RideScript: Script = preload("res://net/components/ride.gd")
+const _Rules: Script = preload("res://net/run_events/rules.gd")
+
+enum Phase { QUIET, WARNING, CHASE }
+
+var _phase: int = Phase.QUIET
+var _phase_started: float = 0.0
+var _status: String = ""
+var _rolled_lot: int = -1
+var _last_event_time: float = -100000.0
+var _cohort: Array[int] = []
+var _cohort_id: int = 0
+var _hazard_seed: int = 0
+var _batching: bool = false
+var _batch_left: float = 0.0
+
+
+func _ready() -> void:
+	add_to_group("run_director")
+	if not Net.player_left.is_connected(_on_player_left):
+		Net.player_left.connect(_on_player_left)
+
+
+func status_line() -> String:
+	return _status
+
+
+func cohort_size() -> int:
+	return _cohort.size()
+
+
+func is_captured(peer_id: int) -> bool:
+	return _cohort.has(peer_id)
+
+
+func van_occupied() -> int:
+	var van := get_parent().get_node_or_null("Rides/Van")
+	if van == null:
+		return 0
+	return int(van.call("occupied_count"))
+
+
+## Host only. Skip the chance roll and warn, then send the crew.
+func force_event() -> void:
+	if not Net.is_host() or _phase != Phase.QUIET:
+		return
+	_set_phase(Phase.WARNING, "[CREW NAME] is on the way")
+
+
+## Host only. Put this peer in the open cohort. The smoke test uses a short window.
+func force_capture(peer_id: int) -> void:
+	if not Net.is_host():
+		return
+	note_capture(peer_id)
+	_batch_left = 0.15
+
+
+func note_capture(peer_id: int) -> void:
+	if not Net.is_host() or _cohort.has(peer_id):
+		return
+	_cohort.append(peer_id)
+	_release_held(peer_id)
+	if _batching:
+		return
+	_batching = true
+	_batch_left = Constants.CAPTURE_BATCH_SECONDS
+	_cohort_id += 1
+	_hazard_seed = randi()
+
+
+func _process(delta: float) -> void:
+	if not Net.is_host():
+		return
+	if _batching:
+		_batch_left -= delta
+		if _batch_left <= 0.0:
+			_close_cohort()
+	if _phase == Phase.WARNING and Net.server_time() - _phase_started >= Constants.RUN_WARNING_SECONDS:
+		_begin_chase()
+	elif _phase == Phase.QUIET:
+		_consider_roll()
+
+
+func _consider_roll() -> void:
+	var slot := get_parent().get_node_or_null("LotZone/LotSlot")
+	if slot == null or slot.get_child_count() == 0:
+		return
+	if _rolled_lot == Campaign.current_lot_index():
+		return
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	var fraction := 0.0
+	if field != null:
+		fraction = float(field.call("cleaned_fraction"))
+	if not bool(_Rules.call("progress_ready", fraction)):
+		return
+	_rolled_lot = Campaign.current_lot_index()
+	var since := Net.server_time() - _last_event_time
+	if since < Balance.RUN_EVENT_COOLDOWN_MINUTES * 60.0:
+		return
+	var chance := Balance.RUN_EVENT_BASE_CHANCE
+	chance += Balance.RUN_CHANCE_ESCALATION_PER_TIER * float(Campaign.lots_completed())
+	chance = minf(chance, Balance.MAXIMUM_RUN_EVENT_CHANCE)
+	if randf() < chance:
+		_set_phase(Phase.WARNING, "[CREW NAME] is on the way")
+
+
+func _begin_chase() -> void:
+	_last_event_time = Net.server_time()
+	_set_phase(Phase.CHASE, "[CREW NAME] is here")
+	_spawn_crew()
+
+
+func _spawn_crew() -> void:
+	var npcs := get_parent().get_node("Npcs")
+	if npcs.get_node_or_null("Crew1") != null:
+		return
+	var crew := CREW_SCENE.instantiate()
+	crew.name = "Crew1"
+	var lot := get_parent().get_node("LotZone") as Node3D
+	crew.position = lot.position + Vector3(16.0, 0.1, 0.0)
+	npcs.add_child(crew, true)
+
+
+func _close_cohort() -> void:
+	_batching = false
+	var roster: Array = []
+	for peer_id: int in _cohort:
+		roster.append(peer_id)
+	if roster.is_empty():
+		return
+	_rpc_cohort.rpc(_cohort_id, roster, _hazard_seed, Net.server_time())
+	var van := get_parent().get_node_or_null("Rides/Van")
+	if van != null:
+		van.call("depart", roster, Net.Zone.BORDER)
+
+
+func _build_van() -> void:
+	var rides := get_parent().get_node("Rides")
+	var van := rides.get_node_or_null("Van")
+	if van == null:
+		van = _RideScript.new()
+		van.name = "Van"
+		rides.add_child(van)
+	var lot := get_parent().get_node("LotZone") as Node3D
+	var border := get_parent().get_node("BorderZone") as Node3D
+	van.call(
+		"setup_as_van",
+		lot.global_position + Vector3(0.0, 0.6, 8.0),
+		border.global_position + Vector3(0.0, 0.6, 0.0)
+	)
+
+
+func _release_held(peer_id: int) -> void:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) == peer_id and node.has_method("force_release"):
+			node.call("force_release")
+
+
+func _on_player_left(peer_id: int) -> void:
+	if Net.is_host():
+		_rpc_drop_rider.rpc(peer_id)
+
+
+func _set_phase(phase: int, status: String) -> void:
+	_rpc_phase.rpc(phase, Net.server_time(), status)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_phase(phase: int, started_at: float, status: String) -> void:
+	_phase = phase
+	_phase_started = started_at
+	_status = status
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_cohort(cohort_id: int, roster: Array, hazard_seed: int, _started_at: float) -> void:
+	_cohort.clear()
+	for entry: Variant in roster:
+		_cohort.append(int(entry))
+	_cohort_id = cohort_id
+	_hazard_seed = hazard_seed
+	_build_van()
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_drop_rider(peer_id: int) -> void:
+	_cohort.erase(peer_id)
+	var van := get_parent().get_node_or_null("Rides/Van")
+	if van != null and van.has_method("drop_rider"):
+		van.call("drop_rider", peer_id)

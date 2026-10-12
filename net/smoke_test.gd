@@ -18,6 +18,7 @@ var _leaf_expected: int = -1
 var _watching_prop: bool = false
 var _prop_at: Vector3 = Vector3.ZERO
 var _next_clock_probe: float = 0.0
+var _reported_van: bool = false
 
 
 func _ready() -> void:
@@ -73,6 +74,11 @@ func _client_process() -> void:
 		if field != null and _elapsed() >= _next_clock_probe and Net.has_clock_sample() and int(field.call("sample_world", _leaf_at)) == _leaf_expected:
 			_next_clock_probe = _elapsed() + 0.5
 			_rpc_clock_probe.rpc_id(1, Time.get_ticks_usec() / 1000000.0)
+	if not _reported_van:
+		var van := get_tree().root.find_child("Van", true, false)
+		if van != null and int(van.call("occupied_count")) >= 1:
+			_reported_van = true
+			_rpc_status.rpc_id(1, "van_match", 0.0)
 	if _watching_prop:
 		var gnome := get_tree().root.find_child("Gnome", true, false) as Node3D
 		if gnome != null and gnome.global_position.distance_to(_prop_at) < 1.0:
@@ -163,6 +169,17 @@ func _rpc_status(stage: String, client_time: float) -> void:
 			return
 		_leaf_phase = "ride"
 		ride.call("depart", [1], Net.Zone.LOT)
+	elif stage == "van_match" and _leaf_phase == "capture":
+		var director := get_tree().get_first_node_in_group("run_director")
+		if director == null:
+			_finish(false, "director missing")
+			return
+		var cohort := int(director.call("cohort_size"))
+		var seats := int(director.call("van_occupied"))
+		if cohort < 1 or cohort != seats:
+			_finish(false, "van seats %d do not match cohort %d" % [seats, cohort])
+			return
+		_finish(true, "")
 
 
 func _host_ride_step() -> void:
@@ -170,7 +187,12 @@ func _host_ride_step() -> void:
 		return
 	var ride := get_tree().get_first_node_in_group("rides")
 	if ride != null and not bool(ride.call("is_riding")) and Net.player_zone(1) == Net.Zone.LOT:
-		_finish(true, "")
+		var director := get_tree().get_first_node_in_group("run_director")
+		if director == null:
+			_finish(false, "director missing")
+			return
+		_leaf_phase = "capture"
+		director.call("force_capture", 1)
 
 
 func _player_count() -> int:

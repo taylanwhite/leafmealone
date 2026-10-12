@@ -11,14 +11,22 @@ var _start_time: float = 0.0
 var _duration: float = RIDE_DURATION_SECONDS
 var _destination: int = 0
 var _riders: Array = []
+var _bags: int = 0
 var _path: Path3D
 var _body: Node3D
 var _seats: Node3D
+var _mesh: MeshInstance3D
+var _label: Label3D
+var _vehicle_name: String = "Chefty"
+var _vehicle_color: Color = Color(0.75, 0.22, 0.15)
 
 
 func _ready() -> void:
-	add_to_group("rides")
 	_build()
+	if name == "Chefty":
+		add_to_group("rides")
+		add_to_group("chefty")
+		_refresh_label()
 	_place(0.0)
 
 
@@ -43,6 +51,68 @@ func depart(peer_ids: Array, destination_zone: int) -> void:
 
 func is_riding() -> bool:
 	return _riding
+
+
+func bag_count() -> int:
+	return _bags
+
+
+func occupied_count() -> int:
+	return _riders.size()
+
+
+func drop_rider(peer_id: int) -> void:
+	var kept: Array = []
+	for entry: Variant in _riders:
+		if int(entry) != peer_id:
+			kept.append(int(entry))
+	_riders = kept
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id) and node.has_method("clear_riding"):
+			node.call("clear_riding")
+	_refresh_label()
+
+
+func body_position() -> Vector3:
+	if _body == null:
+		return global_position
+	return _body.global_position
+
+
+## Host only. Pulls bags off a thrown wheelbarrow, up to the truck's cap.
+func accept_bags(count: int) -> int:
+	if not Net.is_host() or count <= 0:
+		return 0
+	var room := Constants.TRUCK_BAG_CAPACITY - _bags
+	var taken := mini(count, maxi(room, 0))
+	if taken <= 0:
+		_refresh_label()
+		return 0
+	_bags += taken
+	_rpc_bags.rpc(_bags)
+	return taken
+
+
+## Called on every peer before the van departs. Chefty builds itself in _ready.
+func setup_as_van(from_point: Vector3, to_point: Vector3) -> void:
+	add_to_group("vans")
+	_vehicle_name = "Van"
+	_vehicle_color = Color(0.16, 0.17, 0.2)
+	if _mesh != null and _mesh.material_override is StandardMaterial3D:
+		(_mesh.material_override as StandardMaterial3D).albedo_color = _vehicle_color
+	var curve := Curve3D.new()
+	curve.add_point(from_point)
+	curve.add_point((from_point + to_point) * 0.5 + Vector3(0.0, 3.0, 0.0))
+	curve.add_point(to_point)
+	_path.curve = curve
+	while _seats != null and _seats.get_child_count() < Constants.MAX_PLAYERS:
+		var seat := Marker3D.new()
+		seat.name = "Seat%d" % _seats.get_child_count()
+		var index := _seats.get_child_count()
+		seat.position = Vector3(-0.5 + float(index % 2), 1.0, -1.2 + float(index / 2))
+		_seats.add_child(seat)
+	_place(0.0)
+	_refresh_label()
 
 
 func seat_count() -> int:
@@ -100,15 +170,19 @@ func _build() -> void:
 	mesh.position = Vector3(0.0, 0.8, 0.0)
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color(0.75, 0.22, 0.15)
+	mesh.name = "Mesh"
 	mesh.material_override = material
 	_body.add_child(mesh)
+	_mesh = mesh
 	var label := Label3D.new()
+	label.name = "Label"
 	label.text = "Chefty"
 	label.font_size = 72
 	label.outline_size = 12
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.position = Vector3(0.0, 2.0, 0.0)
 	_body.add_child(label)
+	_label = label
 	var seats := Node3D.new()
 	seats.name = "Seats"
 	_body.add_child(seats)
@@ -139,6 +213,21 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	_riders = riders
 	_riding = true
 	_seat_local_player()
+	_refresh_label()
+
+
+func _refresh_label() -> void:
+	if _label == null:
+		return
+	if is_in_group("vans"):
+		var lines: PackedStringArray = PackedStringArray(["Van"])
+		for peer_id: Variant in _riders:
+			var shown := Net.player_name(int(peer_id))
+			lines.append(shown if shown != "" else "Player %d" % int(peer_id))
+		_label.text = "\n".join(lines)
+		return
+	var full := " full" if _bags >= Constants.TRUCK_BAG_CAPACITY else ""
+	_label.text = "Chefty\n%d/%d bags%s" % [_bags, Constants.TRUCK_BAG_CAPACITY, full]
 
 
 @rpc("authority", "call_local", "reliable")
@@ -148,3 +237,10 @@ func _rpc_arrived() -> void:
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if node.has_method("clear_riding"):
 			node.call("clear_riding")
+	_refresh_label()
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_bags(count: int) -> void:
+	_bags = count
+	_refresh_label()

@@ -5,7 +5,7 @@ extends RefCounted
 ## core/balance.gd, which is generated from the design workbook.
 
 ## Bump on every build you hand to someone else. Peers on different versions cannot join each other.
-const BUILD_VERSION: String = "0.1.0"
+const BUILD_VERSION: String = "0.2.0"
 
 ## Used to tag Steam lobbies while we share Valve's test app ID with everyone else.
 const PROJECT_SLUG: String = "leaf-me-alone"
@@ -18,3 +18,17 @@ const MAX_PLAYERS: int = 8
 
 ## Valve's Spacewar test app. Replace with our own app ID once the game is registered in Steamworks.
 const STEAM_APP_ID: int = 480
+
+## Gray-box haul sizes Taylan set on 2026-10-12. Move them into the workbook when it has a row for them.
+const WHEELBARROW_BAG_CAPACITY: int = 4
+const WHEELBARROW_UPGRADED_BAG_CAPACITY: int = 8
+const TRUCK_BAG_CAPACITY: int = 50
+const BAG_LOAD_RADIUS: float = 1.8
+const TRUCK_UNLOAD_RADIUS: float = 4.0
+
+## OQ-025: captures this many seconds apart share one van. Not in the workbook yet.
+const CAPTURE_BATCH_SECONDS: float = 3.0
+## TODO(balance): forgiving capture distance, crew speed, and how long the warning shows.
+const CAPTURE_RADIUS: float = 2.0
+const CREW_SPEED: float = 5.5
+const RUN_WARNING_SECONDS: float = 8.0

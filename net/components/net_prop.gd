@@ -4,11 +4,29 @@ extends RigidBody3D
 ## Clients freeze the body and display the replicated transform. The carrier's own client
 ## draws the visual at the hand until the host releases it.
 
-@export var color: Color = Color(0.55, 0.42, 0.28, 1)
+@export var color: Color = Color(0.55, 0.42, 0.28, 1):
+	set(value):
+		color = value
+		_apply_color()
 ## Words shown above the box until it has a real model.
-@export var label: String = ""
+@export var label: String = "":
+	set(value):
+		label = value
+		_refresh_label()
+## leaf_bag, wheelbarrow, trash, or gnome. Replicated so a thrown bag knows what it hit.
+@export var kind: String = "":
+	set(value):
+		kind = value
+		_refresh_label()
+## Bags sitting in a wheelbarrow. The bags themselves are freed. Replicated.
+@export var stored_bags: int = 0:
+	set(value):
+		stored_bags = value
+		_refresh_label()
 ## Peer id holding this prop, or 0. Replicated.
 @export var held_by: int = 0
+
+var _airborne: bool = false
 
 const GRAB_REACH: float = 2.4
 const PUSH_REACH: float = 1.1
@@ -19,10 +37,8 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	%Visual.material_override = material
-	%Label.text = label if label != "" else name
+	_apply_color()
+	_refresh_label()
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		freeze = true
 
@@ -32,6 +48,7 @@ func _physics_process(_delta: float) -> void:
 		return
 	# A carried prop must not stay solid. Moving a colliding body into the player launches them.
 	_set_solid(held_by == 0)
+	_refresh_label()
 	if Net.is_host():
 		_host_step()
 	elif held_by == Net.local_peer_id():
@@ -80,6 +97,10 @@ func _host_step() -> void:
 		if offset.length() > PUSH_REACH or player.velocity.length() < 0.8:
 			continue
 		apply_central_impulse(player.velocity * mass * 0.15)
+	if _airborne and linear_velocity.length() < 0.35:
+		_airborne = false
+	_try_load_bag()
+	_try_unload_wheelbarrow()
 
 
 func _handle_grab(peer_id: int) -> void:
@@ -89,6 +110,7 @@ func _handle_grab(peer_id: int) -> void:
 	if player == null or player.global_position.distance_to(global_position) > GRAB_REACH:
 		return
 	held_by = peer_id
+	_airborne = false
 	_set_solid(false)
 
 
@@ -108,6 +130,7 @@ func _handle_release(peer_id: int, direction: Vector3) -> void:
 	if flat.length() < 0.1:
 		return
 	apply_central_impulse(flat.normalized() * mass * 4.0 + Vector3.UP * mass)
+	_airborne = true
 
 
 func _player(peer_id: int) -> CharacterBody3D:
@@ -124,6 +147,99 @@ func _set_solid(solid: bool) -> void:
 		freeze = not solid
 	else:
 		freeze = true
+
+
+## Host only. Drop the prop if this peer is still holding it.
+func force_release() -> void:
+	if Net.is_host() and held_by != 0:
+		_handle_release(held_by, Vector3.ZERO)
+
+
+## Press E while holding a leaf bag next to this wheelbarrow.
+func request_load_held() -> void:
+	if kind != "wheelbarrow":
+		return
+	if Net.is_host():
+		_load_held(Net.local_peer_id())
+	else:
+		_rpc_request_load.rpc_id(1)
+
+
+func _try_load_bag() -> void:
+	if kind != "leaf_bag" or held_by != 0:
+		return
+	var closest: Node = null
+	var closest_distance := Constants.BAG_LOAD_RADIUS
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if node == self or str(node.get("kind")) != "wheelbarrow":
+			continue
+		var distance := global_position.distance_to((node as Node3D).global_position)
+		if distance < closest_distance:
+			closest = node
+			closest_distance = distance
+	if closest == null or not bool(closest.call("receive_bag")):
+		return
+	queue_free()
+
+
+## Host only. Returns true when the bag fits.
+func receive_bag() -> bool:
+	if kind != "wheelbarrow" or stored_bags >= Campaign.wheelbarrow_capacity():
+		return false
+	stored_bags += 1
+	return true
+
+
+func _try_unload_wheelbarrow() -> void:
+	if kind != "wheelbarrow" or held_by != 0 or stored_bags <= 0 or not _airborne:
+		return
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if truck == null:
+		return
+	var truck_at: Vector3 = truck.call("body_position")
+	if global_position.distance_to(truck_at) > Constants.TRUCK_UNLOAD_RADIUS:
+		return
+	var taken := int(truck.call("accept_bags", stored_bags))
+	if taken > 0:
+		stored_bags -= taken
+	_airborne = false
+
+
+func _load_held(peer_id: int) -> void:
+	if kind != "wheelbarrow" or stored_bags >= Campaign.wheelbarrow_capacity():
+		return
+	var player := _player(peer_id)
+	if player == null or player.global_position.distance_to(global_position) > GRAB_REACH:
+		return
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if node == self or str(node.get("kind")) != "leaf_bag":
+			continue
+		if int(node.get("held_by")) != peer_id:
+			continue
+		stored_bags += 1
+		node.queue_free()
+		return
+
+
+func _apply_color() -> void:
+	if not is_node_ready():
+		return
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	%Visual.material_override = material
+
+
+func _refresh_label() -> void:
+	if not is_node_ready():
+		return
+	if kind == "wheelbarrow":
+		var capacity := Campaign.wheelbarrow_capacity()
+		var full := " full" if stored_bags >= capacity else ""
+		%Label.text = "Wheelbarrow %d/%d%s" % [stored_bags, capacity, full]
+	elif kind == "leaf_bag":
+		%Label.text = "Leaf bag"
+	else:
+		%Label.text = label if label != "" else name
 
 
 func _hold_position(player: CharacterBody3D) -> Vector3:
@@ -146,3 +262,9 @@ func _rpc_request_drop() -> void:
 func _rpc_request_throw(direction: Vector3) -> void:
 	if Net.is_host():
 		_handle_release(multiplayer.get_remote_sender_id(), direction)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_load() -> void:
+	if Net.is_host():
+		_load_held(multiplayer.get_remote_sender_id())
