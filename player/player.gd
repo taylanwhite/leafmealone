@@ -25,6 +25,8 @@ const PITCH_LIMIT: float = 1.2
 @export var equipment_id: String = ""
 
 var _look := Vector2.ZERO
+var _ride: Node3D
+var _seat_index: int = -1
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 
 
@@ -44,6 +46,8 @@ func _ready() -> void:
 	_refresh_name()
 	if not Net.player_joined.is_connected(_on_player_joined):
 		Net.player_joined.connect(_on_player_joined)
+	if not Net.player_zone_changed.is_connected(_on_zone_changed):
+		Net.player_zone_changed.connect(_on_zone_changed)
 	_apply_presentation()
 
 
@@ -68,8 +72,29 @@ func _physics_process(delta: float) -> void:
 		return
 	if is_multiplayer_authority():
 		_apply_look()
-		_simulate(delta)
+		if _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
+			var seat: Transform3D = _ride.call("seat_transform", _seat_index)
+			global_position = seat.origin
+		else:
+			_simulate(delta)
 	_apply_presentation()
+
+
+## Follow a seat until the ride arrives. Movement stays off; looking still works.
+func set_riding(ride: Node3D, seat_index: int) -> void:
+	_ride = ride
+	_seat_index = seat_index
+	velocity = Vector3.ZERO
+
+
+func clear_riding() -> void:
+	_ride = null
+	_seat_index = -1
+
+
+func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
+	if peer_id == name.to_int() and zone != Net.Zone.TRANSIT:
+		clear_riding()
 
 
 ## Host-ordered teleport. Runs on the owning peer only.

@@ -2,6 +2,8 @@
 
 [ext_resource type="Script" path="res://levels/world.gd" id="1_world"]
 [ext_resource type="Script" path="res://levels/zone_gate.gd" id="2_gate"]
+[ext_resource type="Script" path="res://levels/job_post.gd" id="3_post"]
+[ext_resource type="Script" path="res://net/components/ride.gd" id="4_ride"]
 
 [sub_resource type="BoxShape3D" id="BoxShape_floor"]
 size = Vector3(40, 1, 40)
@@ -85,6 +87,7 @@ font_size = 96
 outline_size = 12
 
 [node name="TruckPad" type="MeshInstance3D" parent="StoreZone"]
+unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.05, 8)
 mesh = SubResource("BoxMesh_gate")
 surface_material_override/0 = SubResource("Material_counter")
@@ -129,7 +132,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1000, 0, 0)
 unique_name_in_owner = true
 
 [node name="LotSpawner" type="MultiplayerSpawner" parent="LotZone"]
-_spawnable_scenes = PackedStringArray("res://levels/lots/lot_test.tscn")
+_spawnable_scenes = PackedStringArray("res://levels/lots/lot_01.tscn", "res://levels/lots/lot_test.tscn")
 spawn_path = NodePath("../LotSlot")
 
 [node name="LotSpawnPoints" type="Node3D" parent="LotZone"]
@@ -185,6 +188,54 @@ _spawnable_scenes = PackedStringArray("res://player/player.tscn")
 spawn_path = NodePath("../Players")
 
 [node name="Rides" type="Node3D" parent="."]
+
+[node name="Chefty" type="Node3D" parent="Rides"]
+script = ExtResource("4_ride")
+
+[node name="Board" type="Area3D" parent="StoreZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.2, 8)
+script = ExtResource("3_post")
+action_name = "depart"
+
+[node name="Collision" type="CollisionShape3D" parent="StoreZone/Board"]
+shape = SubResource("BoxShape_gate")
+
+[node name="Label" type="Label3D" parent="StoreZone/Board"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+billboard = 1
+font_size = 48
+outline_size = 10
+text = "E to board Chefty"
+
+[node name="Store" type="Area3D" parent="StoreZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, -6)
+script = ExtResource("3_post")
+action_name = "store"
+
+[node name="Collision" type="CollisionShape3D" parent="StoreZone/Store"]
+shape = SubResource("BoxShape_gate")
+
+[node name="Label" type="Label3D" parent="StoreZone/Store"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+billboard = 1
+font_size = 48
+outline_size = 10
+text = "E for tools"
+
+[node name="Finish" type="Area3D" parent="LotZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+script = ExtResource("3_post")
+action_name = "finish"
+
+[node name="Collision" type="CollisionShape3D" parent="LotZone/Finish"]
+shape = SubResource("BoxShape_gate")
+
+[node name="Label" type="Label3D" parent="LotZone/Finish"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+billboard = 1
+font_size = 48
+outline_size = 10
+text = "E to finish the job"
 
 [node name="RideSpawner" type="MultiplayerSpawner" parent="."]
 spawn_path = NodePath("../Rides")

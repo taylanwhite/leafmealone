@@ -14,9 +14,14 @@ var _cleanup: Label
 var _lobby: VBoxContainer
 var _lobby_players: Label
 var _start_button: Button
+var _store: VBoxContainer
+var _store_label: Label
+var _payout: VBoxContainer
+var _payout_label: Label
 
 
 func _ready() -> void:
+	add_to_group("game_ui")
 	_cleanup = Label.new()
 	_cleanup.position = Vector2(16, 16)
 	_cleanup.add_theme_color_override("font_shadow_color", Color.BLACK)
@@ -32,6 +37,9 @@ func _ready() -> void:
 	dev_host.pressed.connect(_on_dev_host_pressed)
 	%Menu.get_node("Panel").add_child(dev_host)
 	_build_lobby()
+	_build_store()
+	_build_payout()
+	Campaign.payout_ready.connect(_on_payout)
 	%JoinButton.pressed.connect(_on_join_pressed)
 	%QuitButton.pressed.connect(_on_quit_pressed)
 	%BackButton.pressed.connect(_show_menu)
@@ -101,6 +109,81 @@ func _build_lobby() -> void:
 	_lobby.add_child(_start_button)
 	_lobby.add_child(leave)
 	add_child(_lobby)
+
+
+func open_store() -> void:
+	_refresh_store()
+	_store.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _build_store() -> void:
+	_store = VBoxContainer.new()
+	_store.position = Vector2(460, 160)
+	_store.visible = false
+	_store.add_theme_constant_override("separation", 8)
+	_store_label = Label.new()
+	var buy := Button.new()
+	buy.text = "Buy rake tune-up"
+	buy.pressed.connect(func() -> void: Campaign.request_purchase(Campaign.RAKE_UPGRADE))
+	var close := Button.new()
+	close.text = "Close"
+	close.pressed.connect(func() -> void:
+		_store.visible = false
+		if Net.current_state() == Net.State.IN_SESSION:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	)
+	_store.add_child(_store_label)
+	_store.add_child(buy)
+	_store.add_child(close)
+	add_child(_store)
+	Campaign.credits_changed.connect(func(_peer_id: int, _amount: int) -> void:
+		if _store.visible:
+			_refresh_store()
+	)
+	Campaign.unlocks_changed.connect(func() -> void:
+		if _store.visible:
+			_refresh_store()
+	)
+
+
+func _refresh_store() -> void:
+	var owned := Campaign.is_unlocked(Campaign.RAKE_UPGRADE)
+	var status := "Owned" if owned else "Not owned"
+	_store_label.text = "Your credits: %d\nRake tune-up: %d credits\nRaking becomes %.2fx\n%s" % [
+		Campaign.credits(Net.local_peer_id()),
+		Balance.BASELINE_TIER_1_TOOL_COST,
+		Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER,
+		status,
+	]
+
+
+func _build_payout() -> void:
+	_payout = VBoxContainer.new()
+	_payout.position = Vector2(380, 120)
+	_payout.visible = false
+	_payout.add_theme_constant_override("separation", 8)
+	_payout_label = Label.new()
+	var close := Button.new()
+	close.text = "Close"
+	close.pressed.connect(func() -> void: _payout.visible = false)
+	_payout.add_child(_payout_label)
+	_payout.add_child(close)
+	add_child(_payout)
+
+
+func _on_payout(results: Array[Dictionary]) -> void:
+	var lines: PackedStringArray = PackedStringArray(["Payout"])
+	for row: Dictionary in results:
+		lines.append("%s  leaves %.0f  share %d%%  %d credits" % [
+			str(row["name"]),
+			float(row["leaves"]),
+			int(round(float(row["share"]) * 100.0)),
+			int(row["credits"]),
+		])
+	_payout_label.text = "\n".join(lines)
+	_payout.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _on_host_pressed() -> void:
