@@ -8,6 +8,7 @@ const SAMPLE_WINDOW_SECONDS: float = 10.0
 var _origin_usec: int = 0
 var _offset_seconds: float = 0.0
 var _last_rtt_seconds: float = 0.0
+var _has_sample: bool = false
 var _samples: Array[Dictionary] = []
 
 
@@ -36,12 +37,17 @@ func last_rtt_seconds() -> float:
 	return _last_rtt_seconds
 
 
+func has_sample() -> bool:
+	return _has_sample
+
+
 ## offset = host_time + rtt / 2 - local_receive_time. Keep the lowest-rtt sample from the last 10 seconds.
 func note_sample(sent_local_seconds: float, host_seconds: float, received_local_seconds: float) -> void:
 	var rtt := received_local_seconds - sent_local_seconds
 	if rtt < 0.0:
 		return
 	_last_rtt_seconds = rtt
+	_has_sample = true
 	_samples.append({"rtt": rtt, "offset": host_seconds + rtt * 0.5 - received_local_seconds, "at": received_local_seconds})
 	var cutoff := received_local_seconds - SAMPLE_WINDOW_SECONDS
 	var kept: Array[Dictionary] = []

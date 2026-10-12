@@ -12,7 +12,7 @@ signal ready_changed(peer_id: int, is_ready: bool)
 signal speaking_changed(peer_id: int, is_speaking: bool)
 
 enum Transport { ENET, STEAM }
-enum State { OFFLINE, CONNECTING, IN_SESSION }
+enum State { OFFLINE, CONNECTING, LOBBY, IN_SESSION }
 enum Zone { STORE, LOT, BORDER, TRANSIT }
 enum VoiceMode { PUSH_TO_TALK, VOICE_ACTIVATION }
 
@@ -27,8 +27,9 @@ var _args: _CommandLineScript = _CommandLineScript.new()
 var _local_name: String = ""
 var _players: Dictionary = {}
 var _clock: _ClockSyncScript = _ClockSyncScript.new()
-var _ping_wait: float = 0.0
+var _ping_wait: float = 1.0
 var _voice_mode: VoiceMode = VoiceMode.PUSH_TO_TALK
+var _steam: Node
 
 
 func _ready() -> void:
@@ -41,6 +42,10 @@ func _ready() -> void:
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
 	multiplayer.connection_failed.connect(_on_connection_failed)
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
+	_steam = preload("res://net/steam_bridge.gd").new()
+	_steam.name = "SteamBridge"
+	add_child(_steam)
+	_steam.call("setup", _args.no_steam)
 	if _args.smoke_test:
 		_args.host = true
 	if _args.host:
@@ -60,6 +65,10 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if _state == State.OFFLINE or _hosting:
 		return
+	if multiplayer.multiplayer_peer == null:
+		return
+	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+		return
 	_ping_wait += delta
 	if _ping_wait < 1.0:
 		return
@@ -69,9 +78,14 @@ func _process(delta: float) -> void:
 
 ## Start listening. Steam hosting is refused until lobbies exist.
 func host(transport: Transport) -> Error:
-	if transport != Transport.ENET:
-		push_warning("[Net] Steam hosting is not available until M2")
-		return ERR_UNAVAILABLE
+	if transport == Transport.STEAM:
+		if _steam == null or not bool(_steam.get("available")):
+			push_warning("[Net] %s" % steam_unavailable_reason())
+			return ERR_UNAVAILABLE
+		_transport = Transport.STEAM
+		_set_state(State.CONNECTING)
+		_steam.call("create_friends_lobby")
+		return OK
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_server(_args.port, Constants.MAX_PLAYERS - 1, CHANNEL_COUNT)
 	if error != OK:
@@ -104,10 +118,14 @@ func join_enet(address: String, port: int = Constants.DEFAULT_PORT) -> Error:
 	return OK
 
 
-## Steam lobby join. Refused until M2.
-func join_steam_lobby(_lobby_id: int) -> Error:
-	push_warning("[Net] Steam lobbies are not available until M2")
-	return ERR_UNAVAILABLE
+## Join a Steam lobby by id. The lobby-joined callback finishes the connection.
+func join_steam_lobby(lobby_id: int) -> Error:
+	if _steam == null or not bool(_steam.get("available")):
+		return ERR_UNAVAILABLE
+	_transport = Transport.STEAM
+	_set_state(State.CONNECTING)
+	_steam.call("join_lobby", lobby_id)
+	return OK
 
 
 ## Leave the session and return to the menu without a host-left reason.
@@ -115,9 +133,10 @@ func leave() -> void:
 	_shutdown("")
 
 
-## Open the Steam invite dialog. No effect until M2.
+## Open the Steam overlay invite dialog for the current lobby.
 func invite_friends() -> void:
-	push_warning("[Net] Steam invites are not available until M2")
+	if _steam != null:
+		_steam.call("open_invite_dialog")
 
 
 ## True only after this peer successfully called host().
@@ -203,6 +222,11 @@ func clock_offset_seconds() -> float:
 ## Most recent clock-ping round trip, in seconds.
 func clock_rtt_seconds() -> float:
 	return _clock.last_rtt_seconds()
+
+
+## True after at least one clock pong has been folded in.
+func has_clock_sample() -> bool:
+	return _clock.has_sample()
 
 
 ## Round trip to one peer in milliseconds, or -1 when this transport cannot report it.
@@ -291,9 +315,53 @@ func requested_lot() -> int:
 	return _args.lot
 
 
+## True when steamInitEx succeeded.
+func steam_available() -> bool:
+	return _steam != null and bool(_steam.get("available"))
+
+
+## Why the Steam host button is disabled, or empty when Steam is ready.
+func steam_unavailable_reason() -> String:
+	if _steam == null:
+		return "Steam is not running"
+	return str(_steam.get("unavailable_reason"))
+
+
+## Host only. Leave the lobby screen and spawn the world.
+func start_session() -> void:
+	if not _hosting or _state != State.LOBBY:
+		return
+	_set_state(State.IN_SESSION)
+
+
+## Called by SteamBridge after host_with_lobby succeeds.
+func complete_steam_host(persona: String, steam_id: int) -> void:
+	_transport = Transport.STEAM
+	_hosting = true
+	_clock.start()
+	if persona != "":
+		_local_name = persona
+	_add_player(local_peer_id(), _resolved_name(local_peer_id()), steam_id, _initial_zone())
+	_set_state(State.LOBBY)
+	print("[Net] Steam lobby hosted")
+
+
+## Called by SteamBridge after connect_to_lobby succeeds.
+func complete_steam_join() -> void:
+	_transport = Transport.STEAM
+	_hosting = false
+	_clock.start()
+	_set_state(State.LOBBY)
+
+
+## Called by SteamBridge when lobby setup fails.
+func abandon_steam_lobby() -> void:
+	_shutdown("Steam lobby failed")
+
+
 ## Called by the session when a replicated or local world is in the tree.
 func notify_world_arrived() -> void:
-	if _state == State.CONNECTING:
+	if _state == State.CONNECTING or _state == State.LOBBY:
 		_set_state(State.IN_SESSION)
 
 
@@ -409,7 +477,12 @@ func _on_peer_disconnected(peer_id: int) -> void:
 
 
 func _on_connected_to_server() -> void:
-	_rpc_hello.rpc_id(1, Constants.BUILD_VERSION, _local_name)
+	var display_name := _local_name
+	if _transport == Transport.STEAM and _steam != null:
+		var persona := str(_steam.call("persona_name"))
+		if persona != "":
+			display_name = persona
+	_rpc_hello.rpc_id(1, Constants.BUILD_VERSION, display_name)
 
 
 func _on_connection_failed() -> void:
