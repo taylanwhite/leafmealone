@@ -4,7 +4,7 @@ The milestones build Leaf Me Alone in the order that retires the biggest risks f
 
 Each task is tagged with its lane: `[NET]`, `[PLAY]`, or `[SHARED]`. Tasks marked `(human)` need someone to click through the Godot editor, Steam, GitHub, or Apple's tools. An agent should prepare everything around them and then tell the developer exactly what to do. Agents check off tasks in their own lane only, and only after the task's checks have actually been run.
 
-Current milestone: **M2**
+Current milestone: **M3**
 
 ---
 
@@ -93,18 +93,18 @@ Done when the two of you, in your own houses, can rake the same lot over Steam, 
 Store, truck, lot, payout, upgrade, and back (BL-001, BL-003, BL-004, BL-006). This is also when Windows builds start getting tested.
 
 NET
-- [ ] `[NET]` `net/components/ride.gd`: seated rides along a Path3D driven by the shared clock, host-assigned seats, `TRANSIT` zone while riding, unseat and move on arrival.
-- [ ] `[NET]` `Campaign`: credits per player, job stats, `finish_job()` computing payout from the `Balance` weights (OQ-005, OQ-006), `payout_ready`, `request_purchase()` with unlock gates, and saves between jobs keyed by Steam id.
-- [ ] `[NET]` Lot loading: the host spawns the lot scene for `Campaign.current_lot_index()` into the lot slot for each job and frees it afterward.
-- [ ] `[NET]` `tools/export.sh` that exports the macOS and Windows builds from a Mac in one command into `build/`.
+- [x] `[NET]` `net/components/ride.gd`: seated rides along a Path3D driven by the shared clock, host-assigned seats, `TRANSIT` zone while riding, unseat and move on arrival.
+- [x] `[NET]` `Campaign`: credits per player, job stats, `finish_job()` computing payout from the `Balance` weights (OQ-005, OQ-006), `payout_ready`, `request_purchase()` with unlock gates, and saves between jobs keyed by Steam id.
+- [x] `[NET]` Lot loading: the host spawns the lot scene for `Campaign.current_lot_index()` into the lot slot for each job and frees it afterward.
+- [x] `[NET]` `tools/export.sh` that exports the macOS and Windows builds from a Mac in one command into `build/`.
 - [ ] `[NET] (human)` First cross-play test on a real Windows PC, following `docs/PLATFORMS.md`: a Mac hosting a Windows player and the Windows PC hosting a Mac player.
-- [ ] `[NET]` Extend the smoke test: a ride seats players and arrives.
+- [x] `[NET]` Extend the smoke test: a ride seats players and arrives.
 
 PLAY
-- [ ] `[PLAY]` Store zone: a counter or attendant (UI-only is fine), a store screen, and one tool upgrade that raises raking throughput by the `Balance` multiplier (BL-004).
-- [ ] `[PLAY]` The truck: boarding at the loading area, seats up to `Balance.EXPECTED_TRAVELING_PARTY_SIZE`, the ride to the lot and back. Keep the boarding rule in one replaceable function (OQ-002). Players who don't board stay in the store (OQ-003).
-- [ ] `[PLAY]` Ending a job: a way to call it done on the lot, the truck back, and a payout screen that shows each player's contribution breakdown so it reads as fair.
-- [ ] `[PLAY]` `levels/lots/lot_01.tscn`: the first real lot layout in gray box with a leaf field sized to lot 1's volume.
+- [x] `[PLAY]` Store zone: a counter or attendant (UI-only is fine), a store screen, and one tool upgrade that raises raking throughput by the `Balance` multiplier (BL-004).
+- [x] `[PLAY]` The truck: boarding at the loading area, seats up to `Balance.EXPECTED_TRAVELING_PARTY_SIZE`, the ride to the lot and back. Keep the boarding rule in one replaceable function (OQ-002). Players who don't board stay in the store (OQ-003).
+- [x] `[PLAY]` Ending a job: a way to call it done on the lot, the truck back, and a payout screen that shows each player's contribution breakdown so it reads as fair.
+- [x] `[PLAY]` `levels/lots/lot_01.tscn`: the first real lot layout in gray box with a leaf field sized to lot 1's volume.
 
 Done when four players, including one on Windows, can play store to lot to payout to upgrade to the next job over Steam, quit, and resume from the save.
 
