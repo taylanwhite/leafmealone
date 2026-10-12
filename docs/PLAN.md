@@ -21,7 +21,7 @@ Taylan does M0 alone so that only one person creates `project.godot`. His brothe
 - [x] `[SHARED]` Create the folder skeleton from `AGENTS.md` with a `.gitkeep` in each empty folder, plus `assets/LICENSES.md` with an empty table (columns: file, source, license, AI-generated yes/no, tool used).
 - [x] `[SHARED]` Create `core/main.tscn` (a Node3D with two empty child nodes, `SessionRoot` and `UIRoot`, as placeholders) and set it as the main scene.
 - [x] `[SHARED]` Add all input actions now so neither lane has to touch the input map for a while: `move_forward` (W), `move_back` (S), `move_left` (A), `move_right` (D), `jump` (Space), `sprint` (Shift), `crouch` (C), `interact` (E), `primary` (left mouse), `secondary` (right mouse), `drop` (G), `push_to_talk` (V), `toggle_camera` (F5, debug), `pause` (Escape), `toggle_debug` (F3). Commit `project.godot` on its own.
-- [ ] `[SHARED]` Create the macOS and Windows export presets as described in `docs/PLATFORMS.md`, export the empty project for both targets once to confirm the templates work, and commit `export_presets.cfg`. Delete the test builds.
+- [x] `[SHARED]` Create the macOS and Windows export presets as described in `docs/PLATFORMS.md`, export the empty project for both targets once to confirm the templates work, and commit `export_presets.cfg`. Delete the test builds.
 - [ ] `[SHARED] (human, brother)` Install the same tools, clone the repo, run `git lfs install` and `git lfs pull`, open the project in Godot once so it imports, open the folder in Cursor, create `.cursor/rules/local-me.mdc` from the example, and confirm the Godot MCP can run the project.
 
 Done when both Macs can open the project, run it through the MCP with no errors, and push a trivial commit that the other pulls cleanly.
