@@ -4,9 +4,11 @@ extends Node
 ## Primary rakes. Secondary bags leaves, which is what currently counts as cleaned.
 
 # TODO(balance): add rake width, strength, reach, and bag radius to the workbook.
-const RAKE_WIDTH: float = 1.6
+# These gray-box sizes make one bag about 5% of lot 1 so the payout and the first upgrade can be tested in a few clicks.
+# The workbook's real rate is 120 leaf units a minute, about an hour for one player to clear the lot.
+const RAKE_WIDTH: float = 3.2
 const RAKE_STRENGTH: float = 70.0
-const BAG_RADIUS: float = 1.1
+const BAG_RADIUS: float = 5.0
 const REACH: float = 1.5
 
 

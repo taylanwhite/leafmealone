@@ -2,7 +2,11 @@ extends Node3D
 
 ## Authority: local presentation. Rebuilds a chunk's mesh only after that chunk's density changes.
 
-const LEAF_COLOR := Color(0.62, 0.34, 0.12, 1)
+const _COLORS: Array[Color] = [
+	Color(0.86, 0.42, 0.12),
+	Color(0.72, 0.18, 0.08),
+	Color(0.93, 0.72, 0.18),
+]
 
 var _field: Node3D
 var _views: Array[MultiMeshInstance3D] = []
@@ -16,14 +20,16 @@ func _ready() -> void:
 		push_error("[Leaves] renderer must be a child of a leaf field")
 		return
 	_leaf_mesh = BoxMesh.new()
-	_leaf_mesh.size = Vector3(0.42, 1.0, 0.28)
+	_leaf_mesh.size = Vector3(0.36, 0.03, 0.16)
 	_material = StandardMaterial3D.new()
-	_material.albedo_color = LEAF_COLOR
+	_material.albedo_color = Color.WHITE
+	_material.roughness = 1.0
 	var chunks := int(_field.call("chunk_count"))
 	for _index: int in chunks:
 		var view := MultiMeshInstance3D.new()
 		var multi := MultiMesh.new()
 		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.use_colors = true
 		multi.mesh = _leaf_mesh
 		view.multimesh = multi
 		view.material_override = _material
@@ -39,30 +45,56 @@ func _rebuild(chunk_index: int) -> void:
 	if chunk_index < 0 or chunk_index >= _views.size():
 		return
 	var cells: Array = _field.call("chunk_cells", chunk_index)
+	var clean := int(_field.call("clean_density"))
+	var spots: Array[Transform3D] = []
+	var colors: Array[Color] = []
+	for cell: Vector3 in cells:
+		var density := int(cell.y)
+		var count := _flake_count(density, clean)
+		for flake: int in count:
+			spots.append(_flake_transform(cell, flake))
+			colors.append(_COLORS[_mix(cell, flake) % _COLORS.size()])
 	var multi := _views[chunk_index].multimesh
-	multi.instance_count = cells.size()
-	for index: int in cells.size():
-		var cell: Vector3 = cells[index]
-		var height := 0.12 + (cell.y / 255.0) * 0.85
-		var yaw := float((int(cell.x * 10.0) * 17 + int(cell.z * 10.0) * 31) % 628) / 100.0
-		var basis := Basis(Vector3.UP, yaw).scaled(Vector3(1.0, height, 1.0))
-		var origin := Vector3(cell.x, grid_height(height), cell.z)
-		multi.set_instance_transform(index, Transform3D(basis, origin))
+	multi.instance_count = spots.size()
+	for index: int in spots.size():
+		multi.set_instance_transform(index, spots[index])
+		multi.set_instance_color(index, colors[index])
 
 
-func grid_height(height: float) -> float:
-	var origin: Vector3 = _field.get("grid_origin")
-	return origin.y + height * 0.5
+func _flake_count(density: int, clean: int) -> int:
+	if density <= clean:
+		return 0
+	return clampi(int(ceil(float(density) / 50.0)), 1, 4)
+
+
+func _flake_transform(cell: Vector3, flake: int) -> Transform3D:
+	var mix := _mix(cell, flake)
+	var along := float(mix % 17) / 16.0 - 0.5
+	var across := float((mix / 17) % 17) / 16.0 - 0.5
+	var yaw := float(mix % 628) / 100.0
+	var tilt := float((mix / 13) % 25) / 100.0
+	var basis := Basis.from_euler(Vector3(tilt, yaw, tilt * 0.4))
+	var ground: Vector3 = _field.get("grid_origin")
+	var origin := Vector3(cell.x + along * 0.32, ground.y + 0.02 + float(flake) * 0.035, cell.z + across * 0.32)
+	return Transform3D(basis, origin)
+
+
+func _mix(cell: Vector3, flake: int) -> int:
+	var x := int(round(cell.x * 10.0))
+	var z := int(round(cell.z * 10.0))
+	return absi(x * 73 + z * 151 + flake * 29)
 
 
 func _burst(at: Vector3) -> void:
 	var particles := CPUParticles3D.new()
 	particles.one_shot = true
 	particles.explosiveness = 1.0
-	particles.amount = 10
+	particles.amount = 12
 	particles.lifetime = 0.55
 	particles.mesh = _leaf_mesh
-	particles.material_override = _material
+	var burst_material := _material.duplicate() as StandardMaterial3D
+	burst_material.albedo_color = _COLORS[0]
+	particles.material_override = burst_material
 	particles.direction = Vector3.UP
 	particles.spread = 40.0
 	particles.initial_velocity_min = 1.2
