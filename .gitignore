@@ -1,0 +1,26 @@
+# Godot 4 cache and generated files
+.godot/
+/android/
+*.translation
+
+# Export output
+/build/
+/exports/
+
+# Each developer's own Cursor identity rule
+.cursor/rules/local-*.mdc
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/
+
+# Office lock files from having the workbook open
+~$*.xlsx
+
+# Editors
+.vscode/
+*.swp

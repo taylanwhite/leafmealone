@@ -1,0 +1,35 @@
+---
+description: How to safely create and edit Godot scene and resource files as text
+globs: **/*.tscn, **/*.tres
+alwaysApply: false
+---
+
+# Editing .tscn and .tres files
+
+Godot scenes are plain text, so you can edit them directly. They are also easy to corrupt in ways that only show up when the scene loads. Follow these rules.
+
+## Prefer tools for structure
+
+- For creating scenes or adding nodes, prefer the Godot MCP tools (`create_scene`, `add_node`, `save_scene`) over hand-writing the file. Small property edits by hand are fine.
+- If you hand-write a new scene, keep it minimal and let the developer open and save it once in the editor so Godot normalizes the file.
+
+## Resources and IDs
+
+- Every `[ext_resource]` needs a `path` and an `id` that is unique within the file.
+- Never invent a `uid://` value. If you add an `ext_resource` by hand, either omit `uid` (Godot falls back to the path and adds the uid on the next save) or use the real uid from the resource's `.uid` sidecar file, its `.import` file, or the MCP `get_uid` tool.
+- Every `[sub_resource]` id must be unique within the file.
+- Every node's `parent=` path must match a node that already exists earlier in the file.
+
+## Keep diffs clean
+
+- Do not reorder, reformat, or rewrite sections you did not need to change. Clean diffs are what keep two lanes able to merge each other's work.
+- Do not hand-edit numeric transforms for anything that needs precise placement in a level. Leave a note for the developer to place it in the editor instead.
+
+## Ownership
+
+- Instancing a scene owned by the other lane is fine. Editing its internals, including overrides on an instanced scene's children, is not. Request the change in `docs/HANDOFFS.md`.
+- Set `unique_name_in_owner = true` on any node that a script references with `%Name`.
+
+## Verify
+
+After editing a scene, run the project through the Godot MCP and check `get_debug_output` for load errors. A scene that parses but fails to load usually means a bad `ext_resource` path, a duplicate id, or a broken `parent=` path.

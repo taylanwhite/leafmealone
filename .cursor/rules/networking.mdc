@@ -1,0 +1,50 @@
+---
+description: Apply when writing or changing anything that runs in multiplayer, including RPCs, MultiplayerSpawner, MultiplayerSynchronizer, authority, zones, the shared clock, the leaf field, rides, the crew, captures, Border Return, Steam, lobbies, voice, saves, or any state that more than one player sees
+globs: net/**/*.gd, player/**/*.gd, equipment/**/*.gd, leaves/**/*.gd, props/**/*.gd, levels/**/*.gd, npcs/**/*.gd, border/**/*.gd
+alwaysApply: false
+---
+
+# Networking checklist
+
+Read `docs/NETCODE.md` before writing networked code. This checklist is the short version.
+
+## Authority
+
+- Decide who owns every new piece of state before writing code, and record it in the script's doc comment as `## Authority: host`, `## Authority: owning peer`, or `## Authority: deterministic (seed + server time)`.
+- Shared state is owned by the host, peer id 1: the leaf field, props, rides, the crew, run events, captures, credits, unlocks, and saves.
+- A player's own movement, look direction, animation state, and current equipment are owned by that player's peer.
+- When a client wants to change shared state, it sends a request to the host. It never changes the state locally first, except for the approved cosmetic predictions in NETCODE.md (the raker's own leaf stroke and a carried prop at the hand).
+
+## RPC patterns
+
+- Client to host request: `@rpc("any_peer", "call_remote", "reliable")`. The first lines must return early unless `multiplayer.is_server()`, and must validate the sender with `multiplayer.get_remote_sender_id()`.
+- Host to everyone event: `@rpc("authority", "call_local", "reliable")`, only on host-owned nodes.
+- Host to one character's owner (teleport, seat, knockback, capture): the host-to-owner pattern in NETCODE.md.
+- The host is also a player. When the host's own player makes a request, call the handler directly instead of sending an RPC to itself.
+- Channels: 0 for gameplay and leaf chunks (reliable), 1 for input and clock sync (unreliable ordered), 2 for voice.
+- Never send node references over the network. Send node names, NodePaths, or ids.
+
+## Zones, time, and determinism
+
+- The host decides which zone a player is in. Use `Net.player_zone()` and `Net.move_player_to_zone()`. Never infer a zone from a position.
+- Use `Net.server_time()` for anything timed across peers (ride progress, run event phases, Border Return hazards).
+- Anything that must match on every peer without replication must be a pure function of a seed and `Net.server_time()`. Never accumulate it frame by frame, because Apple Silicon and x86 machines can drift apart.
+
+## Spawning and sync
+
+- Networked scenes are spawned only by a MultiplayerSpawner on the host. Use `add_child(node, true)` so names are readable and identical on every peer.
+- Player nodes are named with their peer id. Set multiplayer authority in `_enter_tree()` from that name.
+- Replicate only what other peers need. Use "On Change" replication for properties that rarely change.
+- Smooth remote objects with `NetSmoother` from `net/components/`. Do not write a new interpolation scheme.
+- Leaves are only ever changed through the leaf field's `request_rake` and `request_collect`. Never create a node per leaf.
+
+## Boundaries
+
+- Only files under `net/` may call GodotSteam or create a MultiplayerPeer. Everything else goes through `Net` and `Campaign`.
+- Check GodotSteam signatures against godotsteam.com for the installed version before using them.
+
+## Before calling a networked feature done
+
+- Run the smoke test: `godot --headless --path . -- --smoke-test`.
+- Ask the developer to test it with three or more instances, with `tools/lag.sh` at 150 ms round trip and 2 percent loss, and with a late join, where one instance joins after the others have been playing.
+- From M3 on, anything visible to players must also be checked in a cross-play session between a Mac and a Windows PC before the milestone is closed.

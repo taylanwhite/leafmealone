@@ -1,0 +1,15 @@
+---
+description: Which developer this agent is working for and which lane they own
+alwaysApply: true
+---
+
+You are working for Taylan. His lane is NET. See AGENTS.md for exactly which folders NET owns.
+
+Machine: macOS
+Godot executable: /Applications/Godot.app/Contents/MacOS/Godot
+
+<!--
+Copy this file to `.cursor/rules/local-me.mdc` (no .example) and edit it for yourself.
+That copy is gitignored, so each of you keeps your own.
+Your brother's version would say "You are working for <his name>. His lane is PLAY."
+-->

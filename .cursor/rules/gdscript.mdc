@@ -1,0 +1,39 @@
+---
+description: GDScript conventions for every script in this project
+globs: **/*.gd
+alwaysApply: false
+---
+
+# GDScript conventions
+
+## Typing and style
+
+- Statically type everything: variables, parameters, return values, and arrays (`Array[int]`). Use `:=` only when the type is obvious from the right-hand side.
+- Follow the official Godot GDScript style guide. Files, functions, and variables are snake_case. `class_name` values and node names are PascalCase. Constants and enum members are CONSTANT_CASE. Private members start with an underscore.
+- Name signals in the past tense (`player_joined`, `prop_grabbed`).
+- Order each script as follows: `class_name` and `extends`, a `##` doc comment, signals, enums, constants, `@export` vars, public vars, private vars, `@onready` vars, built-in callbacks (`_init`, `_enter_tree`, `_ready`, `_process`, `_physics_process`, `_input`), public methods, private methods.
+- Put a `##` doc comment on every public function and every exported or synced property.
+
+## Structure
+
+- Call down, signal up. A node may call methods on its children. To talk to a parent or a sibling scene, emit a signal or go through an autoload's public API.
+- Reference nodes inside your own scene with `%UniqueName` (set `unique_name_in_owner`). Never reach into another scene's internals with a long `get_node()` path.
+- Do not add a new autoload without a `docs/DECISIONS.md` entry. `Net` is the only planned one.
+- Keep scripts under roughly 300 lines. When one grows past that, split behavior into child component nodes with their own scripts.
+- Gameplay and movement code goes in `_physics_process`. Read input through Input Map actions only, never hardcoded keys, and never the Command key.
+
+## Values and paths
+
+- Tuning numbers come from `Balance` (generated from the design workbook) or `Constants`. Never hardcode a balance value, and never edit `core/balance.gd` by hand. If a value you need doesn't exist yet, use a clearly named local constant, mark it `# TODO(balance): add to workbook`, and tell the developer.
+- When code works around an open design question, name it in a comment, for example `# OQ-011: individual reset until decided`.
+- File and folder names are lowercase snake_case, and every `res://` path must match the file's case exactly. Exported builds are case-sensitive even though macOS is not.
+
+## Errors and logging
+
+- Never ignore a returned `Error`. Check it, and `push_error()` with a useful message on failure.
+- Use `assert()` for programmer mistakes, `push_warning()` for recoverable problems, and `push_error()` for failures.
+- Prefix log lines with the system name, such as `print("[Net] peer %d joined" % id)`. Put noisy per-frame logging behind a debug flag so it is off by default.
+
+## Comments
+
+Comments should explain why something is done, not restate what the code does. When a choice exists because of networking (for example, a property is set only on the host), say so in the comment.
