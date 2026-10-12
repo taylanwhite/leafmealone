@@ -1,5 +1,9 @@
 [gd_scene format=3]
 
+[ext_resource type="Script" path="res://net/leaf_field/leaf_field.gd" id="1_field"]
+[ext_resource type="Script" path="res://leaves/leaf_renderer.gd" id="2_leaves"]
+[ext_resource type="PackedScene" path="res://props/yard_prop.tscn" id="3_prop"]
+
 [sub_resource type="BoxShape3D" id="BoxShape_floor"]
 size = Vector3(40, 1, 40)
 
@@ -66,3 +70,21 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 8)
 
 [node name="Spawn1" type="Marker3D" parent="SpawnPoints"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.1, 8)
+
+[node name="LeafField" type="Node3D" parent="."]
+script = ExtResource("1_field")
+
+[node name="LeafRenderer" type="Node3D" parent="LeafField"]
+script = ExtResource("2_leaves")
+
+[node name="TrashCan" parent="." instance=ExtResource("3_prop")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.2, 4)
+color = Color(0.25, 0.28, 0.3, 1)
+
+[node name="Wheelbarrow" parent="." instance=ExtResource("3_prop")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.2, -2)
+color = Color(0.55, 0.22, 0.18, 1)
+
+[node name="Gnome" parent="." instance=ExtResource("3_prop")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.2, 2)
+color = Color(0.2, 0.45, 0.28, 1)

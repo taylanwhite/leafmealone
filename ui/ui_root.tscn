@@ -27,7 +27,7 @@ placeholder_text = "Name"
 
 [node name="HostButton" type="Button" parent="Menu/Panel"]
 unique_name_in_owner = true
-text = "Host"
+text = "Host on Steam"
 
 [node name="AddressField" type="LineEdit" parent="Menu/Panel"]
 unique_name_in_owner = true
@@ -92,4 +92,4 @@ offset_right = 60.0
 offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 0
-text = "Leave"
+text = "Leave Session"

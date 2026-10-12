@@ -181,6 +181,8 @@ spawn_path = NodePath("../Rides")
 spawn_path = NodePath("../Npcs")
 
 [node name="RuntimeProps" type="Node3D" parent="."]
+unique_name_in_owner = true
 
 [node name="PropSpawner" type="MultiplayerSpawner" parent="."]
+_spawnable_scenes = PackedStringArray("res://props/yard_prop.tscn")
 spawn_path = NodePath("../RuntimeProps")

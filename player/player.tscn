@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://player/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://player/camera_rig.gd" id="2_camera"]
 [ext_resource type="Script" path="res://net/components/net_smoother.gd" id="3_smooth"]
+[ext_resource type="Script" path="res://equipment/rake.gd" id="4_rake"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape_body"]
 radius = 0.35
@@ -38,6 +39,9 @@ properties/3/replication_mode = 1
 properties/4/path = NodePath(".:equipment_id")
 properties/4/spawn = true
 properties/4/replication_mode = 1
+properties/5/path = NodePath(".:velocity")
+properties/5/spawn = true
+properties/5/replication_mode = 2
 
 [node name="Player" type="CharacterBody3D"]
 collision_layer = 2
@@ -94,3 +98,6 @@ replication_config = SubResource("SceneReplicationConfig_player")
 [node name="NetSmoother" type="Node" parent="."]
 script = ExtResource("3_smooth")
 visual_path = NodePath("../Visual")
+
+[node name="Rake" type="Node" parent="."]
+script = ExtResource("4_rake")

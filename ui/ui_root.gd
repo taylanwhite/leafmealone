@@ -10,12 +10,28 @@ extends CanvasLayer
 @onready var _ended_reason: Label = %EndedReason
 @onready var _leave: Button = %LeaveButton
 
+var _cleanup: Label
+var _lobby: VBoxContainer
+var _lobby_players: Label
+var _start_button: Button
+
 
 func _ready() -> void:
+	_cleanup = Label.new()
+	_cleanup.position = Vector2(16, 16)
+	_cleanup.add_theme_color_override("font_shadow_color", Color.BLACK)
+	_cleanup.add_theme_constant_override("shadow_offset_x", 1)
+	_cleanup.add_theme_constant_override("shadow_offset_y", 1)
+	add_child(_cleanup)
 	if Net.is_automated():
 		hide()
 		return
 	%HostButton.pressed.connect(_on_host_pressed)
+	var dev_host := Button.new()
+	dev_host.text = "Dev host (ENet)"
+	dev_host.pressed.connect(_on_dev_host_pressed)
+	%Menu.get_node("Panel").add_child(dev_host)
+	_build_lobby()
 	%JoinButton.pressed.connect(_on_join_pressed)
 	%QuitButton.pressed.connect(_on_quit_pressed)
 	%BackButton.pressed.connect(_show_menu)
@@ -23,6 +39,25 @@ func _ready() -> void:
 	Net.state_changed.connect(_on_state_changed)
 	Net.session_ended.connect(_on_session_ended)
 	_on_state_changed(Net.current_state())
+
+
+func _process(_delta: float) -> void:
+	if _cleanup == null:
+		return
+	var fields := get_tree().get_nodes_in_group("leaf_field")
+	if fields.is_empty() or Net.current_state() != Net.State.IN_SESSION:
+		_cleanup.visible = false
+		return
+	_cleanup.visible = true
+	var fraction: float = fields[0].call("cleaned_fraction")
+	_cleanup.text = "Cleanup %d%%" % int(round(fraction * 100.0))
+	if _lobby != null and _lobby.visible:
+		var lines: PackedStringArray = PackedStringArray()
+		for peer_id: int in Net.peer_ids():
+			var ready := "ready" if Net.is_player_ready(peer_id) else "not ready"
+			lines.append("%s  %s" % [Net.player_name(peer_id), ready])
+		_lobby_players.text = "\n".join(lines)
+		_start_button.visible = Net.is_host()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -39,7 +74,46 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
+func _build_lobby() -> void:
+	_lobby = VBoxContainer.new()
+	_lobby.position = Vector2(460, 180)
+	_lobby.visible = false
+	_lobby.add_theme_constant_override("separation", 8)
+	var title := Label.new()
+	title.text = "Lobby"
+	_lobby_players = Label.new()
+	var ready := Button.new()
+	ready.text = "Ready"
+	ready.pressed.connect(func() -> void: Net.set_ready(not Net.is_player_ready(Net.local_peer_id())))
+	var invite := Button.new()
+	invite.text = "Invite Friends"
+	invite.pressed.connect(func() -> void: Net.invite_friends())
+	_start_button = Button.new()
+	_start_button.text = "Start"
+	_start_button.pressed.connect(func() -> void: Net.start_session())
+	var leave := Button.new()
+	leave.text = "Leave Session"
+	leave.pressed.connect(_on_leave_pressed)
+	_lobby.add_child(title)
+	_lobby.add_child(_lobby_players)
+	_lobby.add_child(ready)
+	_lobby.add_child(invite)
+	_lobby.add_child(_start_button)
+	_lobby.add_child(leave)
+	add_child(_lobby)
+
+
 func _on_host_pressed() -> void:
+	Net.set_local_name(_name_field.text)
+	if not Net.steam_available():
+		_show_ended(Net.steam_unavailable_reason())
+		return
+	var error := Net.host(Net.Transport.STEAM)
+	if error != OK:
+		_show_ended("Could not host: %s" % error_string(error))
+
+
+func _on_dev_host_pressed() -> void:
 	Net.set_local_name(_name_field.text)
 	var error := Net.host(Net.Transport.ENET)
 	if error != OK:
@@ -66,6 +140,8 @@ func _on_state_changed(next_state: Net.State) -> void:
 	_ended.visible = false
 	_connecting.visible = next_state == Net.State.CONNECTING
 	_menu.visible = next_state == Net.State.OFFLINE
+	if _lobby != null:
+		_lobby.visible = next_state == Net.State.LOBBY
 	_leave.visible = false
 	if next_state == Net.State.IN_SESSION:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -81,6 +157,8 @@ func _show_menu() -> void:
 	_ended.visible = false
 	_connecting.visible = false
 	_menu.visible = true
+	if _lobby != null:
+		_lobby.visible = false
 	_leave.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 

@@ -53,6 +53,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_camera"):
 		%CameraRig.toggle()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _grab_nearby():
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("drop"):
+		_release_held(false)
+		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		_look += motion.relative
@@ -73,6 +78,40 @@ func apply_network_teleport(at: Transform3D) -> void:
 	velocity = Vector3.ZERO
 	body_yaw = at.basis.get_euler().y
 	_apply_presentation()
+
+
+func _grab_nearby() -> bool:
+	var closest: Node = null
+	var closest_distance := 2.4
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if not node is Node3D:
+			continue
+		var distance := global_position.distance_to((node as Node3D).global_position)
+		if distance < closest_distance:
+			closest = node
+			closest_distance = distance
+	if closest == null:
+		return false
+	closest.call("request_grab")
+	return true
+
+
+func _release_held(throw_it: bool) -> void:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) != name.to_int():
+			continue
+		if throw_it:
+			node.call("request_throw", -global_transform.basis.z)
+		else:
+			node.call("request_drop")
+		return
+
+
+func holding_prop() -> bool:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) == name.to_int():
+			return true
+	return false
 
 
 func _apply_look() -> void:

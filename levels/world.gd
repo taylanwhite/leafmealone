@@ -4,11 +4,15 @@ extends Node3D
 ## M1 always loads the test lot so the lot zone is a place you can stand.
 
 const TEST_LOT: PackedScene = preload("res://levels/lots/lot_test.tscn")
+const BAG_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 const _PlayerDirector: Script = preload("res://net/player_director.gd")
+
+var _bag_serial: int = 0
 
 
 func _ready() -> void:
 	add_to_group("world")
+	%RuntimeProps.add_to_group("runtime_props")
 	$Sun.rotation_degrees = Vector3(-50, 30, 0)
 	if not Net.is_host():
 		return
@@ -36,6 +40,9 @@ func _load_test_lot() -> void:
 	var lot := TEST_LOT.instantiate()
 	lot.name = "LotTest"
 	%LotSlot.add_child(lot, true)
+	var field := lot.get_node_or_null("LeafField")
+	if field != null and field.has_signal("bag_requested"):
+		field.bag_requested.connect(_spawn_bag)
 
 
 func _on_player_joined(peer_id: int) -> void:
@@ -44,6 +51,15 @@ func _on_player_joined(peer_id: int) -> void:
 
 func _on_player_left(peer_id: int) -> void:
 	_PlayerDirector.despawn(%Players, peer_id)
+
+
+func _spawn_bag(at: Vector3) -> void:
+	_bag_serial += 1
+	var bag := BAG_SCENE.instantiate()
+	bag.name = "Bag%d" % _bag_serial
+	bag.set("color", Color(0.42, 0.52, 0.24, 1))
+	%RuntimeProps.add_child(bag, true)
+	bag.global_position = at + Vector3(0.0, 0.6, 0.0)
 
 
 func _spawn_peer(peer_id: int) -> void:
