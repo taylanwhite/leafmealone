@@ -1,0 +1,95 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://ui/ui_root.gd" id="1_ui"]
+
+[node name="UIRoot" type="CanvasLayer"]
+script = ExtResource("1_ui")
+
+[node name="Menu" type="CenterContainer" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="VBoxContainer" parent="Menu"]
+custom_minimum_size = Vector2(320, 0)
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Menu/Panel"]
+text = "Leaf Me Alone"
+horizontal_alignment = 1
+
+[node name="NameField" type="LineEdit" parent="Menu/Panel"]
+unique_name_in_owner = true
+placeholder_text = "Name"
+
+[node name="HostButton" type="Button" parent="Menu/Panel"]
+unique_name_in_owner = true
+text = "Host"
+
+[node name="AddressField" type="LineEdit" parent="Menu/Panel"]
+unique_name_in_owner = true
+placeholder_text = "Address"
+text = "127.0.0.1"
+
+[node name="JoinButton" type="Button" parent="Menu/Panel"]
+unique_name_in_owner = true
+text = "Join"
+
+[node name="QuitButton" type="Button" parent="Menu/Panel"]
+unique_name_in_owner = true
+text = "Quit"
+
+[node name="Connecting" type="Label" parent="."]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -80.0
+offset_top = -16.0
+offset_right = 80.0
+offset_bottom = 16.0
+text = "Connecting"
+horizontal_alignment = 1
+
+[node name="SessionEnded" type="CenterContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Box" type="VBoxContainer" parent="SessionEnded"]
+theme_override_constants/separation = 8
+
+[node name="EndedReason" type="Label" parent="SessionEnded/Box"]
+unique_name_in_owner = true
+text = "Host left"
+horizontal_alignment = 1
+
+[node name="BackButton" type="Button" parent="SessionEnded/Box"]
+unique_name_in_owner = true
+text = "Back"
+
+[node name="LeaveButton" type="Button" parent="."]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -60.0
+offset_top = -64.0
+offset_right = 60.0
+offset_bottom = -24.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "Leave"

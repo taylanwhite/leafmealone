@@ -1,0 +1,96 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://player/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://player/camera_rig.gd" id="2_camera"]
+[ext_resource type="Script" path="res://net/components/net_smoother.gd" id="3_smooth"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape_body"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="Material_body"]
+albedo_color = Color(0.32, 0.46, 0.34, 1)
+
+[sub_resource type="StandardMaterial3D" id="Material_head"]
+albedo_color = Color(0.85, 0.72, 0.55, 1)
+
+[sub_resource type="SphereMesh" id="SphereMesh_head"]
+radius = 0.22
+height = 0.44
+
+[sub_resource type="SceneReplicationConfig" id="SceneReplicationConfig_player"]
+properties/0/path = NodePath(".:position")
+properties/0/spawn = true
+properties/0/replication_mode = 2
+properties/1/path = NodePath(".:body_yaw")
+properties/1/spawn = true
+properties/1/replication_mode = 2
+properties/2/path = NodePath(".:head_pitch")
+properties/2/spawn = true
+properties/2/replication_mode = 2
+properties/3/path = NodePath(".:anim_state")
+properties/3/spawn = true
+properties/3/replication_mode = 1
+properties/4/path = NodePath(".:equipment_id")
+properties/4/spawn = true
+properties/4/replication_mode = 1
+
+[node name="Player" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("1_player")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape_body")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="BodyMesh" type="MeshInstance3D" parent="Visual"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+mesh = SubResource("CapsuleMesh_body")
+surface_material_override/0 = SubResource("Material_body")
+
+[node name="Head" type="Node3D" parent="Visual"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+
+[node name="HeadMesh" type="MeshInstance3D" parent="Visual/Head"]
+mesh = SubResource("SphereMesh_head")
+surface_material_override/0 = SubResource("Material_head")
+
+[node name="FirstPerson" type="Camera3D" parent="Visual/Head"]
+unique_name_in_owner = true
+
+[node name="LookTarget" type="Marker3D" parent="Visual/Head"]
+unique_name_in_owner = true
+
+[node name="CameraRig" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_camera")
+
+[node name="OverShoulder" type="Camera3D" parent="CameraRig"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 1.8, 2.6)
+
+[node name="Nameplate" type="Label3D" parent="Visual"]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.15, 0)
+billboard = 1
+font_size = 48
+outline_size = 8
+text = "Player"
+
+[node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
+replication_interval = 0.033
+replication_config = SubResource("SceneReplicationConfig_player")
+
+[node name="NetSmoother" type="Node" parent="."]
+script = ExtResource("3_smooth")
+visual_path = NodePath("../Visual")

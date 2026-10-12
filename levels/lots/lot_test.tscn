@@ -1,0 +1,68 @@
+[gd_scene format=3]
+
+[sub_resource type="BoxShape3D" id="BoxShape_floor"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="StandardMaterial3D" id="Material_yard"]
+albedo_color = Color(0.34, 0.38, 0.28, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape_house"]
+size = Vector3(8, 5, 6)
+
+[sub_resource type="BoxMesh" id="BoxMesh_house"]
+size = Vector3(8, 5, 6)
+
+[sub_resource type="StandardMaterial3D" id="Material_house"]
+albedo_color = Color(0.55, 0.42, 0.32, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape_fence"]
+size = Vector3(16, 1.2, 0.2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_fence"]
+size = Vector3(16, 1.2, 0.2)
+
+[sub_resource type="StandardMaterial3D" id="Material_fence"]
+albedo_color = Color(0.72, 0.7, 0.62, 1)
+
+[node name="LotTest" type="Node3D"]
+
+[node name="Floor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("BoxShape_floor")
+
+[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("BoxMesh_floor")
+surface_material_override/0 = SubResource("Material_yard")
+
+[node name="House" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 2.5, -6)
+
+[node name="Collision" type="CollisionShape3D" parent="House"]
+shape = SubResource("BoxShape_house")
+
+[node name="Mesh" type="MeshInstance3D" parent="House"]
+mesh = SubResource("BoxMesh_house")
+surface_material_override/0 = SubResource("Material_house")
+
+[node name="Fence" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.6, -12)
+
+[node name="Collision" type="CollisionShape3D" parent="Fence"]
+shape = SubResource("BoxShape_fence")
+
+[node name="Mesh" type="MeshInstance3D" parent="Fence"]
+mesh = SubResource("BoxMesh_fence")
+surface_material_override/0 = SubResource("Material_fence")
+
+[node name="SpawnPoints" type="Node3D" parent="."]
+
+[node name="Spawn0" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 8)
+
+[node name="Spawn1" type="Marker3D" parent="SpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.1, 8)

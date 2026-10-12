@@ -1,0 +1,186 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://levels/world.gd" id="1_world"]
+[ext_resource type="Script" path="res://levels/zone_gate.gd" id="2_gate"]
+
+[sub_resource type="BoxShape3D" id="BoxShape_floor"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="StandardMaterial3D" id="Material_store"]
+albedo_color = Color(0.42, 0.44, 0.4, 1)
+
+[sub_resource type="StandardMaterial3D" id="Material_border"]
+albedo_color = Color(0.28, 0.3, 0.34, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape_counter"]
+size = Vector3(6, 1.1, 1.2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_counter"]
+size = Vector3(6, 1.1, 1.2)
+
+[sub_resource type="StandardMaterial3D" id="Material_counter"]
+albedo_color = Color(0.45, 0.28, 0.18, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape_gate"]
+size = Vector3(4, 2.5, 3)
+
+[sub_resource type="BoxMesh" id="BoxMesh_gate"]
+size = Vector3(4, 0.15, 3)
+
+[sub_resource type="StandardMaterial3D" id="Material_gate"]
+albedo_color = Color(0.85, 0.65, 0.2, 1)
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 1
+background_color = Color(0.55, 0.64, 0.72, 1)
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 0.6
+
+[node name="World" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+shadow_enabled = true
+
+[node name="StoreZone" type="Node3D" parent="."]
+
+[node name="Floor" type="StaticBody3D" parent="StoreZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="StoreZone/Floor"]
+shape = SubResource("BoxShape_floor")
+
+[node name="Mesh" type="MeshInstance3D" parent="StoreZone/Floor"]
+mesh = SubResource("BoxMesh_floor")
+surface_material_override/0 = SubResource("Material_store")
+
+[node name="Counter" type="StaticBody3D" parent="StoreZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, -8)
+
+[node name="Collision" type="CollisionShape3D" parent="StoreZone/Counter"]
+shape = SubResource("BoxShape_counter")
+
+[node name="Mesh" type="MeshInstance3D" parent="StoreZone/Counter"]
+mesh = SubResource("BoxMesh_counter")
+surface_material_override/0 = SubResource("Material_counter")
+
+[node name="Sign" type="Label3D" parent="StoreZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -8)
+text = "Homie Depot"
+font_size = 96
+outline_size = 12
+
+[node name="TruckPad" type="MeshInstance3D" parent="StoreZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.05, 8)
+mesh = SubResource("BoxMesh_gate")
+surface_material_override/0 = SubResource("Material_counter")
+
+[node name="StoreSpawnPoints" type="Node3D" parent="StoreZone"]
+unique_name_in_owner = true
+
+[node name="Spawn0" type="Marker3D" parent="StoreZone/StoreSpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 6)
+
+[node name="Spawn1" type="Marker3D" parent="StoreZone/StoreSpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.1, 6)
+
+[node name="ToLot" type="Area3D" parent="StoreZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, -16)
+script = ExtResource("2_gate")
+destination_zone = "lot"
+
+[node name="Collision" type="CollisionShape3D" parent="StoreZone/ToLot"]
+shape = SubResource("BoxShape_gate")
+
+[node name="Pad" type="MeshInstance3D" parent="StoreZone/ToLot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1, 0)
+mesh = SubResource("BoxMesh_gate")
+surface_material_override/0 = SubResource("Material_gate")
+
+[node name="Label" type="Label3D" parent="StoreZone/ToLot"]
+text = "To the lot"
+font_size = 56
+
+[node name="LotZone" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1000, 0, 0)
+
+[node name="LotSlot" type="Node3D" parent="LotZone"]
+unique_name_in_owner = true
+
+[node name="LotSpawner" type="MultiplayerSpawner" parent="LotZone"]
+_spawnable_scenes = PackedStringArray("res://levels/lots/lot_test.tscn")
+spawn_path = NodePath("../LotSlot")
+
+[node name="LotSpawnPoints" type="Node3D" parent="LotZone"]
+unique_name_in_owner = true
+
+[node name="Spawn0" type="Marker3D" parent="LotZone/LotSpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 8)
+
+[node name="Spawn1" type="Marker3D" parent="LotZone/LotSpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0.1, 8)
+
+[node name="ToStore" type="Area3D" parent="LotZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 16)
+script = ExtResource("2_gate")
+destination_zone = "store"
+
+[node name="Collision" type="CollisionShape3D" parent="LotZone/ToStore"]
+shape = SubResource("BoxShape_gate")
+
+[node name="Pad" type="MeshInstance3D" parent="LotZone/ToStore"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.1, 0)
+mesh = SubResource("BoxMesh_gate")
+surface_material_override/0 = SubResource("Material_gate")
+
+[node name="Label" type="Label3D" parent="LotZone/ToStore"]
+text = "Back to Homie Depot"
+font_size = 48
+
+[node name="BorderZone" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1000)
+
+[node name="Floor" type="StaticBody3D" parent="BorderZone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="Collision" type="CollisionShape3D" parent="BorderZone/Floor"]
+shape = SubResource("BoxShape_floor")
+
+[node name="Mesh" type="MeshInstance3D" parent="BorderZone/Floor"]
+mesh = SubResource("BoxMesh_floor")
+surface_material_override/0 = SubResource("Material_border")
+
+[node name="BorderSpawnPoints" type="Node3D" parent="BorderZone"]
+unique_name_in_owner = true
+
+[node name="Spawn0" type="Marker3D" parent="BorderZone/BorderSpawnPoints"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+
+[node name="Players" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="PlayerSpawner" type="MultiplayerSpawner" parent="."]
+_spawnable_scenes = PackedStringArray("res://player/player.tscn")
+spawn_path = NodePath("../Players")
+
+[node name="Rides" type="Node3D" parent="."]
+
+[node name="RideSpawner" type="MultiplayerSpawner" parent="."]
+spawn_path = NodePath("../Rides")
+
+[node name="Npcs" type="Node3D" parent="."]
+
+[node name="NpcSpawner" type="MultiplayerSpawner" parent="."]
+spawn_path = NodePath("../Npcs")
+
+[node name="RuntimeProps" type="Node3D" parent="."]
+
+[node name="PropSpawner" type="MultiplayerSpawner" parent="."]
+spawn_path = NodePath("../RuntimeProps")
