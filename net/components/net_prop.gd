@@ -5,6 +5,8 @@ extends RigidBody3D
 ## draws the visual at the hand until the host releases it.
 
 @export var color: Color = Color(0.55, 0.42, 0.28, 1)
+## Words shown above the box until it has a real model.
+@export var label: String = ""
 ## Peer id holding this prop, or 0. Replicated.
 @export var held_by: int = 0
 
@@ -20,6 +22,7 @@ func _ready() -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
 	%Visual.material_override = material
+	%Label.text = label if label != "" else name
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		freeze = true
 
