@@ -44,9 +44,9 @@ func _visible_target() -> Node3D:
 			continue
 		var body := node as Node3D
 		var peer_id := int(body.name)
-		if Net.player_zone(peer_id) != Net.Zone.LOT:
+		if director != null and not bool(director.call("can_capture", peer_id)):
 			continue
-		if director != null and bool(director.call("is_captured", peer_id)):
+		if director == null and Net.player_zone(peer_id) != Net.Zone.LOT:
 			continue
 		if not _can_see(body):
 			continue

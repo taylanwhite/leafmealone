@@ -28,6 +28,12 @@ var _look := Vector2.ZERO
 var _ride: Node3D
 var _seat_index: int = -1
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+var _throwback_left: float = 0.0
+var _throwback_from: Vector3 = Vector3.ZERO
+var _throwback_to: Vector3 = Vector3.ZERO
+var _crossing_bounded: bool = false
+var _crossing_min: Vector3 = Vector3.ZERO
+var _crossing_max: Vector3 = Vector3.ZERO
 
 
 func _enter_tree() -> void:
@@ -72,7 +78,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if is_multiplayer_authority():
 		_apply_look()
-		if _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
+		if _throwback_left > 0.0:
+			_step_throwback(delta)
+		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
 			var seat: Transform3D = _ride.call("seat_transform", _seat_index)
 			global_position = seat.origin
 		else:
@@ -212,12 +220,50 @@ func _stay_on_the_pad() -> void:
 	var pad := _pad_for_zone(world, zone)
 	if pad == null:
 		return
+	if _crossing_bounded:
+		global_position.x = clampf(global_position.x, _crossing_min.x, _crossing_max.x)
+		global_position.z = clampf(global_position.z, _crossing_min.z, _crossing_max.z)
 	var offset := global_position - pad.global_position
 	var past_edge := absf(offset.x) > 21.0 or absf(offset.z) > 21.0
 	if not past_edge and global_position.y >= -2.0:
 		return
 	var at: Transform3D = world.call("get_spawn_transform", zone, &"", name.to_int())
 	global_position = at.origin
+	velocity = Vector3.ZERO
+
+
+func is_throwing_back() -> bool:
+	return _throwback_left > 0.0
+
+
+## Comic toss back to the start of the lane. The owning player plays it immediately.
+func play_throwback(to: Vector3) -> void:
+	if _throwback_left > 0.0:
+		return
+	_throwback_from = global_position
+	_throwback_to = to
+	_throwback_left = Constants.BORDER_THROWBACK_SECONDS
+	velocity = Vector3.ZERO
+
+
+func set_crossing_view(active: bool) -> void:
+	if is_multiplayer_authority():
+		%CameraRig.set_active(not active)
+
+
+func set_crossing_bounds(enabled: bool, min_corner: Vector3, max_corner: Vector3) -> void:
+	_crossing_bounded = enabled
+	_crossing_min = min_corner
+	_crossing_max = max_corner
+
+
+func _step_throwback(delta: float) -> void:
+	_throwback_left = maxf(_throwback_left - delta, 0.0)
+	var t := 1.0 - clampf(_throwback_left / Constants.BORDER_THROWBACK_SECONDS, 0.0, 1.0)
+	var pos := _throwback_from.lerp(_throwback_to, t)
+	pos.y += sin(t * PI) * 2.2
+	global_position = pos
+	body_yaw += delta * 14.0
 	velocity = Vector3.ZERO
 
 

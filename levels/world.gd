@@ -17,6 +17,9 @@ func _ready() -> void:
 	var director := preload("res://net/run_events/director.gd").new()
 	director.name = "RunDirector"
 	add_child(director)
+	var crossing := preload("res://net/border_return.gd").new()
+	crossing.name = "BorderReturn"
+	add_child(crossing)
 	_add_curb($StoreZone)
 	_add_curb($LotZone)
 	_add_curb($BorderZone)
@@ -91,6 +94,11 @@ func request_finish() -> void:
 func on_ride_arrived(destination: int) -> void:
 	if destination == Net.Zone.STORE:
 		_free_lot()
+	elif destination == Net.Zone.BORDER:
+		var crossing := get_node_or_null("BorderReturn")
+		var director := get_node_or_null("RunDirector")
+		if crossing != null and director != null:
+			crossing.call("begin", director.call("cohort_roster"), int(director.call("hazard_seed")))
 
 
 func _load_job_lot() -> void:

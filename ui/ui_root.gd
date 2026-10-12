@@ -79,6 +79,11 @@ func _process(_delta: float) -> void:
 		var status := str(director.call("status_line"))
 		if status != "":
 			crew_line = "\n" + status
+	var crossing := get_tree().get_first_node_in_group("border_return")
+	if crossing != null:
+		var crossing_status := str(crossing.call("status_line"))
+		if crossing_status != "":
+			crew_line += "\n" + crossing_status
 	_cleanup.text = "Cleanup %.1f%%%s%s\nHold left click to push leaves into a pile. Right click bags them.\nPress E with a leaf bag at the wheelbarrow, or throw the bag in.\nThrow the wheelbarrow at Chefty to load the truck." % [
 		fraction * 100.0,
 		truck_line,
