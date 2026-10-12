@@ -18,6 +18,7 @@ var _store: VBoxContainer
 var _store_label: Label
 var _payout: VBoxContainer
 var _payout_label: Label
+var _crew_button: Button
 
 
 func _ready() -> void:
@@ -44,6 +45,16 @@ func _ready() -> void:
 	%QuitButton.pressed.connect(_on_quit_pressed)
 	%BackButton.pressed.connect(_show_menu)
 	_leave.pressed.connect(_on_leave_pressed)
+	_crew_button = Button.new()
+	_crew_button.text = "Call [CREW NAME]"
+	_crew_button.visible = false
+	_crew_button.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_crew_button.offset_left = -110.0
+	_crew_button.offset_right = 110.0
+	_crew_button.offset_top = -112.0
+	_crew_button.offset_bottom = -72.0
+	_crew_button.pressed.connect(_on_call_crew_pressed)
+	add_child(_crew_button)
 	Net.state_changed.connect(_on_state_changed)
 	Net.session_ended.connect(_on_session_ended)
 	_on_state_changed(Net.current_state())
@@ -90,9 +101,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_leave.visible = true
+		if _crew_button != null:
+			_crew_button.visible = Net.is_host()
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		_leave.visible = false
+		if _crew_button != null:
+			_crew_button.visible = false
 	get_viewport().set_input_as_handled()
 
 
@@ -234,6 +249,16 @@ func _on_join_pressed() -> void:
 
 func _on_quit_pressed() -> void:
 	get_tree().quit()
+
+
+func _on_call_crew_pressed() -> void:
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and Net.is_host():
+		director.call("force_event")
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_leave.visible = false
+	if _crew_button != null:
+		_crew_button.visible = false
 
 
 func _on_leave_pressed() -> void:

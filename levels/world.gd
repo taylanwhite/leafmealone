@@ -17,6 +17,9 @@ func _ready() -> void:
 	var director := preload("res://net/run_events/director.gd").new()
 	director.name = "RunDirector"
 	add_child(director)
+	_add_curb($StoreZone)
+	_add_curb($LotZone)
+	_add_curb($BorderZone)
 	if not Net.is_host():
 		return
 	_load_job_lot()
@@ -24,6 +27,39 @@ func _ready() -> void:
 		_spawn_peer(peer_id)
 	Net.player_joined.connect(_on_player_joined)
 	Net.player_left.connect(_on_player_left)
+
+
+## A low curb with a taller collider, so a bump cannot walk or jump off the pad.
+func _add_curb(zone: Node3D) -> void:
+	var curb := StaticBody3D.new()
+	curb.name = "Curb"
+	zone.add_child(curb)
+	var half := 20.0
+	var thick := 0.8
+	var height := 3.0
+	var spans: Array[Dictionary] = [
+		{"at": Vector3(0.0, height * 0.5, half), "size": Vector3(half * 2.0 + thick, height, thick)},
+		{"at": Vector3(0.0, height * 0.5, -half), "size": Vector3(half * 2.0 + thick, height, thick)},
+		{"at": Vector3(half, height * 0.5, 0.0), "size": Vector3(thick, height, half * 2.0)},
+		{"at": Vector3(-half, height * 0.5, 0.0), "size": Vector3(thick, height, half * 2.0)},
+	]
+	for span: Dictionary in spans:
+		var shape := BoxShape3D.new()
+		shape.size = span["size"]
+		var shape_node := CollisionShape3D.new()
+		shape_node.shape = shape
+		shape_node.position = span["at"]
+		curb.add_child(shape_node)
+		var mesh := BoxMesh.new()
+		var full: Vector3 = span["size"]
+		mesh.size = Vector3(full.x, 0.45, full.z)
+		var mesh_node := MeshInstance3D.new()
+		mesh_node.mesh = mesh
+		mesh_node.position = Vector3((span["at"] as Vector3).x, 0.22, (span["at"] as Vector3).z)
+		var material := StandardMaterial3D.new()
+		material.albedo_color = Color(0.25, 0.27, 0.24, 1)
+		mesh_node.material_override = material
+		curb.add_child(mesh_node)
 
 
 ## World position used when the host teleports a player into a zone.

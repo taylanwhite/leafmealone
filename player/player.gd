@@ -193,6 +193,44 @@ func _simulate(delta: float) -> void:
 		velocity.z = direction.z * speed
 	move_and_slide()
 	_update_anim(crouching, direction)
+	_stay_on_the_pad()
+
+
+## A thrown prop can spike velocity. Cap it, and put the player back if they leave the pad.
+func _stay_on_the_pad() -> void:
+	var flat := Vector2(velocity.x, velocity.z)
+	if flat.length() > SPRINT_SPEED:
+		flat = flat.normalized() * SPRINT_SPEED
+		velocity.x = flat.x
+		velocity.z = flat.y
+	if velocity.y > JUMP_VELOCITY:
+		velocity.y = JUMP_VELOCITY
+	var world := get_tree().get_first_node_in_group("world") as Node3D
+	if world == null:
+		return
+	var zone := Net.player_zone(name.to_int())
+	var pad := _pad_for_zone(world, zone)
+	if pad == null:
+		return
+	var offset := global_position - pad.global_position
+	var past_edge := absf(offset.x) > 21.0 or absf(offset.z) > 21.0
+	if not past_edge and global_position.y >= -2.0:
+		return
+	var at: Transform3D = world.call("get_spawn_transform", zone, &"", name.to_int())
+	global_position = at.origin
+	velocity = Vector3.ZERO
+
+
+func _pad_for_zone(world: Node3D, zone: Net.Zone) -> Node3D:
+	match zone:
+		Net.Zone.LOT:
+			return world.get_node_or_null("LotZone") as Node3D
+		Net.Zone.BORDER:
+			return world.get_node_or_null("BorderZone") as Node3D
+		Net.Zone.STORE:
+			return world.get_node_or_null("StoreZone") as Node3D
+		_:
+			return null
 
 
 func _update_anim(crouching: bool, direction: Vector3) -> void:

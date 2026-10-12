@@ -6,9 +6,10 @@ extends Node
 # TODO(balance): add rake width, strength, reach, and bag radius to the workbook.
 # These gray-box sizes make one bag about 5% of lot 1 so the payout and the first upgrade can be tested in a few clicks.
 # The workbook's real rate is 120 leaf units a minute, about an hour for one player to clear the lot.
-const RAKE_WIDTH: float = 3.2
-const RAKE_STRENGTH: float = 70.0
-const BAG_RADIUS: float = 5.0
+# Pickup is 2% above those gray-box sizes. Bag radius grows by the square root so the cleared area is 2% larger.
+const RAKE_WIDTH: float = 3.264
+const RAKE_STRENGTH: float = 71.4
+const BAG_RADIUS: float = 5.05
 const REACH: float = 1.5
 
 
