@@ -58,7 +58,21 @@ func _process(_delta: float) -> void:
 		return
 	_cleanup.visible = true
 	var fraction: float = fields[0].call("cleaned_fraction")
-	_cleanup.text = "Cleanup %.1f%%\nHold left click to push leaves into a pile. Right click bags the leaves in front of you." % (fraction * 100.0)
+	var truck_line := ""
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty != null:
+		truck_line = "\nChefty %d/%d bags" % [int(chefty.call("bag_count")), Constants.TRUCK_BAG_CAPACITY]
+	var crew_line := ""
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null:
+		var status := str(director.call("status_line"))
+		if status != "":
+			crew_line = "\n" + status
+	_cleanup.text = "Cleanup %.1f%%%s%s\nHold left click to push leaves into a pile. Right click bags them.\nPress E with a leaf bag at the wheelbarrow, or throw the bag in.\nThrow the wheelbarrow at Chefty to load the truck." % [
+		fraction * 100.0,
+		truck_line,
+		crew_line,
+	]
 	if _lobby != null and _lobby.visible:
 		var lines: PackedStringArray = PackedStringArray()
 		for peer_id: int in Net.peer_ids():
@@ -126,6 +140,9 @@ func _build_store() -> void:
 	var buy := Button.new()
 	buy.text = "Buy rake tune-up"
 	buy.pressed.connect(func() -> void: Campaign.request_purchase(Campaign.RAKE_UPGRADE))
+	var buy_barrow := Button.new()
+	buy_barrow.text = "Buy bigger wheelbarrow"
+	buy_barrow.pressed.connect(func() -> void: Campaign.request_purchase(Campaign.WHEELBARROW_UPGRADE))
 	var close := Button.new()
 	close.text = "Close"
 	close.pressed.connect(func() -> void:
@@ -135,6 +152,7 @@ func _build_store() -> void:
 	)
 	_store.add_child(_store_label)
 	_store.add_child(buy)
+	_store.add_child(buy_barrow)
 	_store.add_child(close)
 	add_child(_store)
 	Campaign.credits_changed.connect(func(_peer_id: int, _amount: int) -> void:
@@ -148,13 +166,17 @@ func _build_store() -> void:
 
 
 func _refresh_store() -> void:
-	var owned := Campaign.is_unlocked(Campaign.RAKE_UPGRADE)
-	var status := "Owned" if owned else "Not owned"
-	_store_label.text = "Your credits: %d\nRake tune-up: %d credits\nRaking becomes %.2fx\n%s" % [
+	var rake_owned := "Owned" if Campaign.is_unlocked(Campaign.RAKE_UPGRADE) else "Not owned"
+	var barrow_owned := "Owned" if Campaign.is_unlocked(Campaign.WHEELBARROW_UPGRADE) else "Not owned"
+	_store_label.text = "Your credits: %d\nRake tune-up: %d credits, raking becomes %.2fx\n%s\nBigger wheelbarrow: %d credits, holds %d bags instead of %d\n%s" % [
 		Campaign.credits(Net.local_peer_id()),
 		Balance.BASELINE_TIER_1_TOOL_COST,
 		Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER,
-		status,
+		rake_owned,
+		Balance.BASELINE_TIER_1_TOOL_COST,
+		Constants.WHEELBARROW_UPGRADED_BAG_CAPACITY,
+		Constants.WHEELBARROW_BAG_CAPACITY,
+		barrow_owned,
 	]
 
 

@@ -14,6 +14,9 @@ func _ready() -> void:
 	add_to_group("world")
 	%RuntimeProps.add_to_group("runtime_props")
 	$Sun.rotation_degrees = Vector3(-50, 30, 0)
+	var director := preload("res://net/run_events/director.gd").new()
+	director.name = "RunDirector"
+	add_child(director)
 	if not Net.is_host():
 		return
 	_load_job_lot()
@@ -134,7 +137,8 @@ func _spawn_bag(at: Vector3) -> void:
 	_bag_serial += 1
 	var bag := BAG_SCENE.instantiate()
 	bag.name = "Bag%d" % _bag_serial
-	bag.set("color", Color(0.42, 0.52, 0.24, 1))
+	bag.set("kind", "leaf_bag")
+	bag.set("color", Color(0.72, 0.48, 0.18, 1))
 	bag.set("label", "Leaf bag")
 	%RuntimeProps.add_child(bag, true)
 	bag.global_position = at + Vector3(0.0, 0.6, 0.0)

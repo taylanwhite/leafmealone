@@ -19,6 +19,18 @@ properties/1/replication_mode = 2
 properties/2/path = NodePath(".:held_by")
 properties/2/spawn = true
 properties/2/replication_mode = 1
+properties/3/path = NodePath(".:kind")
+properties/3/spawn = true
+properties/3/replication_mode = 2
+properties/4/path = NodePath(".:stored_bags")
+properties/4/spawn = true
+properties/4/replication_mode = 2
+properties/5/path = NodePath(".:label")
+properties/5/spawn = true
+properties/5/replication_mode = 2
+properties/6/path = NodePath(".:color")
+properties/6/spawn = true
+properties/6/replication_mode = 2
 
 [node name="YardProp" type="RigidBody3D"]
 collision_layer = 1

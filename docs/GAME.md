@@ -59,6 +59,7 @@ Until these are decided, build the behavior so the answer can change without a r
 
 - **2026-10-12.** The store is called Homie Depot.
 - **2026-10-12.** Any truck model will be called Chefty logo.
+- **2026-10-12.** A wheelbarrow holds 4 leaf bags. One shop upgrade raises that to 8. Chefty holds 50. Throw the wheelbarrow at Chefty to move the bags into the truck. These sizes are not in the workbook yet.
 
 ## Rules for agents working on content
 

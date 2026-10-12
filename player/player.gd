@@ -106,6 +106,12 @@ func apply_network_teleport(at: Transform3D) -> void:
 
 
 func _grab_nearby() -> bool:
+	var held := _held_prop()
+	if held != null and str(held.get("kind")) == "leaf_bag":
+		var barrow := _nearest_kind("wheelbarrow", 2.4)
+		if barrow != null:
+			barrow.call("request_load_held")
+			return true
 	var closest: Node = null
 	var closest_distance := 2.4
 	for node: Node in get_tree().get_nodes_in_group("props"):
@@ -119,6 +125,26 @@ func _grab_nearby() -> bool:
 		return false
 	closest.call("request_grab")
 	return true
+
+
+func _held_prop() -> Node:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) == name.to_int():
+			return node
+	return null
+
+
+func _nearest_kind(prop_kind: String, reach: float) -> Node:
+	var closest: Node = null
+	var closest_distance := reach
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) != prop_kind or not node is Node3D:
+			continue
+		var distance := global_position.distance_to((node as Node3D).global_position)
+		if distance < closest_distance:
+			closest = node
+			closest_distance = distance
+	return closest
 
 
 func _release_held(throw_it: bool) -> void:

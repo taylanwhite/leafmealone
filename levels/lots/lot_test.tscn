@@ -94,14 +94,17 @@ script = ExtResource("2_leaves")
 [node name="TrashCan" parent="." instance=ExtResource("3_prop")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.2, 4)
 color = Color(0.25, 0.28, 0.3, 1)
+kind = "trash"
 label = "Trash can"
 
 [node name="Wheelbarrow" parent="." instance=ExtResource("3_prop")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.2, -2)
 color = Color(0.55, 0.22, 0.18, 1)
+kind = "wheelbarrow"
 label = "Wheelbarrow"
 
 [node name="Gnome" parent="." instance=ExtResource("3_prop")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0.2, 2)
 color = Color(0.2, 0.45, 0.28, 1)
+kind = "gnome"
 label = "Gnome"
