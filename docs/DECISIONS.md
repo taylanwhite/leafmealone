@@ -83,3 +83,10 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 
 - **Why:** Two developers each running agents in the same files at the same time causes conflicts and inconsistent architecture. Splitting ownership by folder keeps the agents apart, and `HANDOFFS.md` handles cross-lane requests.
 - **Assignment:** Taylan owns NET, his brother owns PLAY. Swap whenever you want, and update `AGENTS.md` and your `local-me.mdc` files when you do.
+
+### 2026-10-12: GodotSteam 4.23.1 GDExtension on the standard Godot 4.7.2 editor
+
+- **Why:** The kit named GodotSteam 4.20. The GDExtension published for Godot 4.4 and newer, including 4.7.2, is 4.23.1. Installed from the Godot 4.7 Asset Store into `addons/godotsteam/`.
+- **Check:** A throwaway script run with `/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script` printed `Steam=true` and `SteamMultiplayerPeer=true`. The script was deleted. The Godot MCP server is not connected in Cursor yet, so this check used the Godot executable directly.
+- **Considered:** GodotSteam's precompiled editor, which bundles the extension. Not needed, because `SteamMultiplayerPeer` loads in the standard editor.
+- **Note:** Enabling the editor plugin only turns on GodotSteam's updater dock. The Steam classes load from the GDExtension without that plugin.
