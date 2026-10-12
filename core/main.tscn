@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[node name="Main" type="Node3D"]
+
+[node name="SessionRoot" type="Node3D" parent="."]
+
+[node name="UIRoot" type="Node3D" parent="."]
