@@ -4,7 +4,7 @@ The milestones build Leaf Me Alone in the order that retires the biggest risks f
 
 Each task is tagged with its lane: `[NET]`, `[PLAY]`, or `[SHARED]`. Tasks marked `(human)` need someone to click through the Godot editor, Steam, GitHub, or Apple's tools. An agent should prepare everything around them and then tell the developer exactly what to do. Agents check off tasks in their own lane only, and only after the task's checks have actually been run.
 
-Current milestone: **M4**
+Current milestone: **M5**
 
 ---
 
@@ -137,14 +137,14 @@ Done when a run event can fire, players can escape or be caught, the van always 
 Captured players cross back together (BL-011).
 
 NET
-- [ ] `[NET]` Cohort instances in the border zone: staging, the deterministic hazard timeline (pure functions of seed and server time), owner-reported hits and finishes, and the return to the lot zone.
-- [ ] `[NET]` Flags for OQ-011 (individual or cohort reset) and OQ-027 (individual or group finish), both defaulting to individual.
-- [ ] `[NET]` Extend the smoke test: hazard positions at the same server time match on host and client.
+- [x] `[NET]` Cohort instances in the border zone: staging, the deterministic hazard timeline (pure functions of seed and server time), owner-reported hits and finishes, and the return to the lot zone.
+- [x] `[NET]` Flags for OQ-011 (individual or cohort reset) and OQ-027 (individual or group finish), both defaulting to individual.
+- [x] `[NET]` Extend the smoke test: hazard positions at the same server time match on host and client.
 
 PLAY
-- [ ] `[PLAY]` Lane layouts and hazards as data in `border/`, scaled by a difficulty value (OQ-022). Mechanics and presentation must be original.
-- [ ] `[PLAY]` A camera for the crossing and the comic throwback on failure.
-- [ ] `[PLAY]` The disembark beat from the van, the crossing, and the return transition to the yard.
+- [x] `[PLAY]` Lane layouts and hazards as data in `border/`, scaled by a difficulty value (OQ-022). Mechanics and presentation must be original.
+- [x] `[PLAY]` A camera for the crossing and the comic throwback on failure.
+- [x] `[PLAY]` The disembark beat from the van, the crossing, and the return transition to the yard.
 
 Done when cohorts of one to four players cross at the same time, hazards line up identically on a Mac and a Windows PC, failure is funny and immediate, and a crossing takes roughly `Balance.BORDER_RETURN_TARGET_DURATION_MINUTES`.
 
