@@ -10,6 +10,8 @@ signal bag_requested(at: Vector3)
 
 const CHUNK_SIZE: int = 16
 const INITIAL_DENSITY: int = 180
+## OQ-004: a cell counts as cleaned once it is raked or bagged down to this density.
+const CLEAN_DENSITY: int = 24
 const REACH_METERS: float = 3.5
 const SEND_INTERVAL: float = 0.1
 
@@ -69,11 +71,16 @@ func leaf_units() -> float:
 	return float(total) * _unit_scale
 
 
-## OQ-004: share of the starting leaves no longer on the field. Raking into a pile does not change this.
+## OQ-004: share of cells raked or bagged down to CLEAN_DENSITY. Pushing leaves into a pile clears the cells you raked.
 func cleaned_fraction() -> float:
-	if _starting_units <= 0.0:
+	var total := grid_width * grid_depth
+	if total <= 0:
 		return 0.0
-	return clampf(1.0 - (leaf_units() / _starting_units), 0.0, 1.0)
+	var clean := 0
+	for byte: int in _density:
+		if byte <= CLEAN_DENSITY:
+			clean += 1
+	return float(clean) / float(total)
 
 
 func chunk_count() -> int:

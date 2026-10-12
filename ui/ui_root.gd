@@ -50,7 +50,7 @@ func _process(_delta: float) -> void:
 		return
 	_cleanup.visible = true
 	var fraction: float = fields[0].call("cleaned_fraction")
-	_cleanup.text = "Cleanup %d%%" % int(round(fraction * 100.0))
+	_cleanup.text = "Cleanup %d%%\nHold left click to rake a patch clear. Right click bags a pile." % int(round(fraction * 100.0))
 	if _lobby != null and _lobby.visible:
 		var lines: PackedStringArray = PackedStringArray()
 		for peer_id: int in Net.peer_ids():

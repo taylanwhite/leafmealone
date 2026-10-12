@@ -27,6 +27,8 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
+	# A carried prop must not stay solid. Moving a colliding body into the player launches them.
+	_set_solid(held_by == 0)
 	if Net.is_host():
 		_host_step()
 	elif held_by == Net.local_peer_id():
@@ -61,9 +63,8 @@ func _host_step() -> void:
 		var player := _player(held_by)
 		if player == null:
 			held_by = 0
-			freeze = false
+			_set_solid(true)
 			return
-		freeze = true
 		global_position = _hold_position(player)
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
@@ -85,14 +86,21 @@ func _handle_grab(peer_id: int) -> void:
 	if player == null or player.global_position.distance_to(global_position) > GRAB_REACH:
 		return
 	held_by = peer_id
-	freeze = true
+	_set_solid(false)
 
 
 func _handle_release(peer_id: int, direction: Vector3) -> void:
 	if held_by != peer_id:
 		return
+	var player := _player(peer_id)
 	held_by = 0
-	freeze = false
+	if player != null:
+		var forward := -player.global_transform.basis.z
+		forward.y = 0.0
+		if forward.length() > 0.001:
+			forward = forward.normalized()
+		global_position = player.global_position + Vector3(0.0, 0.4, 0.0) + forward * 1.3
+	_set_solid(true)
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.length() < 0.1:
 		return
@@ -106,8 +114,17 @@ func _player(peer_id: int) -> CharacterBody3D:
 	return null
 
 
+func _set_solid(solid: bool) -> void:
+	collision_layer = 1 if solid else 0
+	collision_mask = 1 if solid else 0
+	if Net.is_host():
+		freeze = not solid
+	else:
+		freeze = true
+
+
 func _hold_position(player: CharacterBody3D) -> Vector3:
-	return player.global_position + Vector3(0.0, 1.15, 0.0) + (-player.global_transform.basis.z) * 0.75
+	return player.global_position + Vector3(0.0, 1.2, 0.0) + (-player.global_transform.basis.z) * 1.15
 
 
 @rpc("any_peer", "call_remote", "reliable")
