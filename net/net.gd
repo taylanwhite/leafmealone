@@ -503,9 +503,12 @@ func _rpc_hello(build_version: String, display_name: String) -> void:
 		multiplayer.multiplayer_peer.disconnect_peer(sender)
 		return
 	var resolved := display_name if display_name != "" else "Player %d" % sender
-	_add_player(sender, resolved, 0, _initial_zone())
+	var steam_id := 0
+	if _steam != null:
+		steam_id = int(_steam.call("steam_id_for_peer", sender))
+	_add_player(sender, resolved, steam_id, _initial_zone())
 	_rpc_welcome.rpc_id(sender, _registry_payload())
-	_rpc_player_added.rpc(sender, resolved, 0, int(_initial_zone()))
+	_rpc_player_added.rpc(sender, resolved, steam_id, int(_initial_zone()))
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -543,7 +546,9 @@ func _rpc_zone_changed(peer_id: int, zone_value: int, spawn_marker: String) -> v
 	var zone := zone_value as Zone
 	if _players.has(peer_id):
 		_players[peer_id]["zone"] = zone
-	_teleport_owner(peer_id, zone, spawn_marker)
+	# TRANSIT means the ride is carrying them. Do not teleport them to a spawn.
+	if zone != Zone.TRANSIT:
+		_teleport_owner(peer_id, zone, spawn_marker)
 	player_zone_changed.emit(peer_id, zone)
 
 

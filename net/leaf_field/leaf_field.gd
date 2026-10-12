@@ -118,7 +118,7 @@ func request_rake(origin: Vector3, direction: Vector3, width: float, strength: f
 		_handle_rake(Net.local_peer_id(), origin, direction, width, strength)
 	else:
 		if _player_in_reach(Net.local_peer_id(), origin):
-			_apply_rake(origin, direction, width, strength)
+			_apply_rake(origin, direction, width, strength * Campaign.rake_multiplier(Net.local_peer_id()))
 		_rpc_request_rake.rpc_id(1, origin, direction, width, strength)
 
 
@@ -149,7 +149,7 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 	if not _player_in_reach(peer_id, origin):
 		_send_snapshot(peer_id)
 		return
-	var moved := _apply_rake(origin, direction, width, strength)
+	var moved := _apply_rake(origin, direction, width, minf(strength, 70.0) * Campaign.rake_multiplier(peer_id))
 	if moved <= 0:
 		return
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(moved) * _unit_scale)
