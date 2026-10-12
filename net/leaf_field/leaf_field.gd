@@ -50,16 +50,17 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if not Net.is_host():
-		return
 	_send_wait += delta
 	if _send_wait < SEND_INTERVAL or _dirty.is_empty():
 		return
 	_send_wait = 0.0
 	for key: Variant in _dirty.keys():
 		var chunk_index := int(key)
-		_versions[chunk_index] += 1
-		_rpc_chunk.rpc(chunk_index, _versions[chunk_index], _chunk_bytes(chunk_index))
+		# The chunk RPC is call_remote, so the host has to rebuild its own mesh here.
+		if Net.is_host():
+			_versions[chunk_index] += 1
+			_rpc_chunk.rpc(chunk_index, _versions[chunk_index], _chunk_bytes(chunk_index))
+		chunk_changed.emit(chunk_index)
 	_dirty.clear()
 
 
@@ -69,6 +70,10 @@ func leaf_units() -> float:
 	for byte: int in _density:
 		total += byte
 	return float(total) * _unit_scale
+
+
+func clean_density() -> int:
+	return CLEAN_DENSITY
 
 
 ## OQ-004: share of cells raked or bagged down to CLEAN_DENSITY. Pushing leaves into a pile clears the cells you raked.
