@@ -4,7 +4,7 @@ The milestones build Leaf Me Alone in the order that retires the biggest risks f
 
 Each task is tagged with its lane: `[NET]`, `[PLAY]`, or `[SHARED]`. Tasks marked `(human)` need someone to click through the Godot editor, Steam, GitHub, or Apple's tools. An agent should prepare everything around them and then tell the developer exactly what to do. Agents check off tasks in their own lane only, and only after the task's checks have actually been run.
 
-Current milestone: **M0**
+Current milestone: **M1**
 
 ---
 
@@ -33,27 +33,27 @@ Done when both Macs can open the project, run it through the MCP with no errors,
 Two to eight instances on one Mac can join each other, walk around, move between the store zone and the lot zone, and see each other smoothly.
 
 NET
-- [ ] `[NET]` Do this first, in the first session: push `net/net.gd` (registered as the `Net` autoload), `net/campaign.gd` (registered as `Campaign`), and `net/components/net_smoother.gd` as stubs with the final signatures from `NETCODE.md`, including the later-milestone additions, so PLAY can build against them the same day.
-- [ ] `[NET]` `Net` for the ENet transport: host, join, leave, the hello handshake with version check, the player registry, and the signals.
-- [ ] `[NET]` Command-line flags from `NETCODE.md`.
-- [ ] `[NET]` `net/session_root.tscn` with `WorldRoot` and `WorldSpawner` and the session flow from `NETCODE.md`. Replace the `SessionRoot` placeholder in `core/main.tscn` with it.
-- [ ] `[NET]` Player spawning helper the world calls on the host: one player per peer in the store zone, despawn on leave.
-- [ ] `[NET]` Zones: `Net.player_zone()`, `players_in_zone()`, `move_player_to_zone()` with host-ordered teleports, and `player_zone_changed`.
-- [ ] `[NET]` Shared clock: `Net.server_time()` as specified in `NETCODE.md`.
-- [ ] `[NET]` `NetSmoother` as specified, with exported delay and snap distance.
-- [ ] `[NET]` Host leaving ends the session for clients, who return to the main menu with the reason shown.
-- [ ] `[NET]` Debug overlay on F3.
+- [x] `[NET]` Do this first, in the first session: push `net/net.gd` (registered as the `Net` autoload), `net/campaign.gd` (registered as `Campaign`), and `net/components/net_smoother.gd` as stubs with the final signatures from `NETCODE.md`, including the later-milestone additions, so PLAY can build against them the same day.
+- [x] `[NET]` `Net` for the ENet transport: host, join, leave, the hello handshake with version check, the player registry, and the signals.
+- [x] `[NET]` Command-line flags from `NETCODE.md`.
+- [x] `[NET]` `net/session_root.tscn` with `WorldRoot` and `WorldSpawner` and the session flow from `NETCODE.md`. Replace the `SessionRoot` placeholder in `core/main.tscn` with it.
+- [x] `[NET]` Player spawning helper the world calls on the host: one player per peer in the store zone, despawn on leave.
+- [x] `[NET]` Zones: `Net.player_zone()`, `players_in_zone()`, `move_player_to_zone()` with host-ordered teleports, and `player_zone_changed`.
+- [x] `[NET]` Shared clock: `Net.server_time()` as specified in `NETCODE.md`.
+- [x] `[NET]` `NetSmoother` as specified, with exported delay and snap distance.
+- [x] `[NET]` Host leaving ends the session for clients, who return to the main menu with the reason shown.
+- [x] `[NET]` Debug overlay on F3.
 - [ ] `[NET]` `tools/lag.sh` for macOS that adds delay and packet loss to the dev port on localhost using `dnctl` and `pfctl` (dummynet), with `on` and `off` commands. Verify it with the ping shown in the debug overlay.
-- [ ] `[NET]` Smoke test covering connection, handshake, player replication, and a host-ordered zone move.
+- [x] `[NET]` Smoke test covering connection, handshake, player replication, and a host-ordered zone move.
 
 PLAY
-- [ ] `[PLAY]` `levels/world.tscn` with the layout from `NETCODE.md`: a gray-box store zone (counter, truck loading area, spawn points), a lot zone with a `LotSlot`, and an empty border zone. Include the `Players`, `Rides`, `Npcs`, and `RuntimeProps` nodes with their spawners.
-- [ ] `[PLAY]` `levels/lots/lot_test.tscn`: a flat gray-box yard with a house, fences, and spawn points, loaded into the lot slot when `--start-zone=lot` is used.
-- [ ] `[PLAY]` `player/player.tscn`: CharacterBody3D with a visible body and a separate head, walk, sprint, jump, crouch, and mouse look, active only on the authority. MultiplayerSynchronizer for position, body yaw, head pitch, animation state, and current equipment. `NetSmoother` on remote players.
-- [ ] `[PLAY]` Swappable camera rig for OQ-001: first-person and over-the-shoulder, toggled with `toggle_camera`. The rest of the player script must not care which one is active.
-- [ ] `[PLAY]` A debug interaction in the store that asks the host to move you to the lot zone, and one on the lot that brings you back.
-- [ ] `[PLAY]` `ui/ui_root.tscn` with a main menu (name field, Host and Join with an address field, Quit), mouse capture on play and release on Escape. Replace the `UIRoot` placeholder in `core/main.tscn` with it.
-- [ ] `[PLAY]` Simple nameplates above remote players using `Net.player_name()`.
+- [x] `[PLAY]` `levels/world.tscn` with the layout from `NETCODE.md`: a gray-box store zone (counter, truck loading area, spawn points), a lot zone with a `LotSlot`, and an empty border zone. Include the `Players`, `Rides`, `Npcs`, and `RuntimeProps` nodes with their spawners.
+- [x] `[PLAY]` `levels/lots/lot_test.tscn`: a flat gray-box yard with a house, fences, and spawn points, loaded into the lot slot when `--start-zone=lot` is used.
+- [x] `[PLAY]` `player/player.tscn`: CharacterBody3D with a visible body and a separate head, walk, sprint, jump, crouch, and mouse look, active only on the authority. MultiplayerSynchronizer for position, body yaw, head pitch, animation state, and current equipment. `NetSmoother` on remote players.
+- [x] `[PLAY]` Swappable camera rig for OQ-001: first-person and over-the-shoulder, toggled with `toggle_camera`. The rest of the player script must not care which one is active.
+- [x] `[PLAY]` A debug interaction in the store that asks the host to move you to the lot zone, and one on the lot that brings you back.
+- [x] `[PLAY]` `ui/ui_root.tscn` with a main menu (name field, Host and Join with an address field, Quit), mouse capture on play and release on Escape. Replace the `UIRoot` placeholder in `core/main.tscn` with it.
+- [x] `[PLAY]` Simple nameplates above remote players using `Net.player_name()`.
 
 Done when:
 - Instance 1 with `--host` and instance 2 with `--join=127.0.0.1` see each other walk, jump, crouch, and look up and down smoothly.
