@@ -1,0 +1,500 @@
+extends Node
+
+## Authority: host for membership, zones, and the registry. Each peer owns its movement.
+## ENet session for M1. Steam lobby methods exist and report that Steam play is not available yet.
+
+signal state_changed(new_state: State)
+signal player_joined(peer_id: int)
+signal player_left(peer_id: int)
+signal session_ended(reason: String)
+signal player_zone_changed(peer_id: int, zone: Zone)
+signal ready_changed(peer_id: int, is_ready: bool)
+signal speaking_changed(peer_id: int, is_speaking: bool)
+
+enum Transport { ENET, STEAM }
+enum State { OFFLINE, CONNECTING, IN_SESSION }
+enum Zone { STORE, LOT, BORDER, TRANSIT }
+enum VoiceMode { PUSH_TO_TALK, VOICE_ACTIVATION }
+
+const CHANNEL_COUNT: int = 3
+const _CommandLineScript = preload("res://net/command_line.gd")
+const _ClockSyncScript = preload("res://net/clock_sync.gd")
+
+var _state: State = State.OFFLINE
+var _transport: Transport = Transport.ENET
+var _hosting: bool = false
+var _args: _CommandLineScript = _CommandLineScript.new()
+var _local_name: String = ""
+var _players: Dictionary = {}
+var _clock: _ClockSyncScript = _ClockSyncScript.new()
+var _ping_wait: float = 0.0
+var _voice_mode: VoiceMode = VoiceMode.PUSH_TO_TALK
+
+
+func _ready() -> void:
+	_args = _CommandLineScript.new()
+	_args.read()
+	if _args.player_name != "":
+		_local_name = _args.player_name
+	multiplayer.peer_connected.connect(_on_peer_connected)
+	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	multiplayer.connected_to_server.connect(_on_connected_to_server)
+	multiplayer.connection_failed.connect(_on_connection_failed)
+	multiplayer.server_disconnected.connect(_on_server_disconnected)
+	if _args.smoke_test:
+		_args.host = true
+	if _args.host:
+		var host_error := host(Transport.ENET)
+		if host_error != OK:
+			push_error("[Net] failed to host: %s" % error_string(host_error))
+	elif _args.join_address != "":
+		var join_error := join_enet(_args.join_address, _args.port)
+		if join_error != OK:
+			push_error("[Net] failed to join: %s" % error_string(join_error))
+	if is_automated():
+		var smoke := preload("res://net/smoke_test.gd").new()
+		smoke.name = "SmokeTest"
+		add_child(smoke)
+
+
+func _process(delta: float) -> void:
+	if _state == State.OFFLINE or _hosting:
+		return
+	_ping_wait += delta
+	if _ping_wait < 1.0:
+		return
+	_ping_wait = 0.0
+	_rpc_clock_ping.rpc_id(1, _clock.local_seconds())
+
+
+## Start listening. Steam hosting is refused until lobbies exist.
+func host(transport: Transport) -> Error:
+	if transport != Transport.ENET:
+		push_warning("[Net] Steam hosting is not available until M2")
+		return ERR_UNAVAILABLE
+	var peer := ENetMultiplayerPeer.new()
+	var error := peer.create_server(_args.port, Constants.MAX_PLAYERS - 1, CHANNEL_COUNT)
+	if error != OK:
+		push_error("[Net] create_server failed: %s" % error_string(error))
+		return error
+	multiplayer.multiplayer_peer = peer
+	_transport = Transport.ENET
+	_hosting = true
+	_clock.start()
+	_set_state(State.IN_SESSION)
+	_add_player(local_peer_id(), _resolved_name(local_peer_id()), 0, _initial_zone())
+	print("[Net] hosting on port %d" % _args.port)
+	return OK
+
+
+## Connect to an ENet host. The session stays CONNECTING until the world arrives.
+func join_enet(address: String, port: int = Constants.DEFAULT_PORT) -> Error:
+	_args.port = port
+	var peer := ENetMultiplayerPeer.new()
+	var error := peer.create_client(address, port, CHANNEL_COUNT)
+	if error != OK:
+		push_error("[Net] create_client failed: %s" % error_string(error))
+		return error
+	multiplayer.multiplayer_peer = peer
+	_transport = Transport.ENET
+	_hosting = false
+	_clock.start()
+	_set_state(State.CONNECTING)
+	print("[Net] joining %s:%d" % [address, port])
+	return OK
+
+
+## Steam lobby join. Refused until M2.
+func join_steam_lobby(_lobby_id: int) -> Error:
+	push_warning("[Net] Steam lobbies are not available until M2")
+	return ERR_UNAVAILABLE
+
+
+## Leave the session and return to the menu without a host-left reason.
+func leave() -> void:
+	_shutdown("")
+
+
+## Open the Steam invite dialog. No effect until M2.
+func invite_friends() -> void:
+	push_warning("[Net] Steam invites are not available until M2")
+
+
+## True only after this peer successfully called host().
+func is_host() -> bool:
+	return _hosting
+
+
+## Peer id while a multiplayer peer exists, otherwise 0.
+func local_peer_id() -> int:
+	if multiplayer.multiplayer_peer == null:
+		return 0
+	return multiplayer.get_unique_id()
+
+
+## Connected players, including this one, after the handshake.
+func peer_ids() -> Array[int]:
+	var ids: Array[int] = []
+	for key: Variant in _players.keys():
+		ids.append(int(key))
+	ids.sort()
+	return ids
+
+
+## Display name recorded at hello. Empty if this peer is not in the registry yet.
+func player_name(peer_id: int) -> String:
+	if not _players.has(peer_id):
+		return ""
+	return str(_players[peer_id]["name"])
+
+
+## Steam id, or 0 in ENet sessions.
+func player_steam_id(peer_id: int) -> int:
+	if not _players.has(peer_id):
+		return 0
+	return int(_players[peer_id]["steam_id"])
+
+
+func current_transport() -> Transport:
+	return _transport
+
+
+func current_state() -> State:
+	return _state
+
+
+## Zone last assigned by the host.
+func player_zone(peer_id: int) -> Zone:
+	if not _players.has(peer_id):
+		return _initial_zone()
+	return _players[peer_id]["zone"] as Zone
+
+
+## Peer ids currently in one zone.
+func players_in_zone(zone: Zone) -> Array[int]:
+	var ids: Array[int] = []
+	for peer_id: int in peer_ids():
+		if player_zone(peer_id) == zone:
+			ids.append(peer_id)
+	return ids
+
+
+## Host only. Update the registry and tell every peer, including the owner, to teleport.
+func move_player_to_zone(peer_id: int, zone: Zone, spawn_marker: StringName = &"") -> void:
+	if not _hosting:
+		push_error("[Net] move_player_to_zone is host only")
+		return
+	if not _players.has(peer_id):
+		return
+	_players[peer_id]["zone"] = zone
+	_rpc_zone_changed.rpc(peer_id, int(zone), String(spawn_marker))
+
+
+## Host clock in seconds since the session started. Clients use the ping estimate.
+func server_time() -> float:
+	return _clock.server_seconds(_hosting)
+
+
+## Clock offset from the lowest-rtt sample, in seconds. 0 on the host.
+func clock_offset_seconds() -> float:
+	return _clock.offset_seconds()
+
+
+## Most recent clock-ping round trip, in seconds.
+func clock_rtt_seconds() -> float:
+	return _clock.last_rtt_seconds()
+
+
+## Round trip to one peer in milliseconds, or -1 when this transport cannot report it.
+func peer_ping_ms(peer_id: int) -> int:
+	if peer_id == local_peer_id():
+		return 0
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet == null or enet.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+		return -1
+	var packet_peer := enet.get_peer(peer_id)
+	if packet_peer == null:
+		return -1
+	return packet_peer.get_statistic(ENetPacketPeer.PEER_ROUND_TRIP_TIME)
+
+
+## Name used for a menu host or join. Ignored once the handshake has been sent.
+func set_local_name(value: String) -> void:
+	_local_name = value.strip_edges()
+
+
+## Client request used by the debug zone gates.
+func request_zone_move(zone: Zone) -> void:
+	if _state == State.OFFLINE:
+		return
+	if _hosting:
+		_apply_zone_request(local_peer_id(), zone)
+	else:
+		_rpc_request_zone.rpc_id(1, int(zone))
+
+
+## Mark this peer ready. Stored for M2; the M1 menu does not show it.
+func set_ready(value: bool) -> void:
+	var peer_id := local_peer_id()
+	if peer_id == 0:
+		return
+	if _hosting:
+		_apply_ready(peer_id, value)
+	else:
+		_rpc_set_ready.rpc_id(1, value)
+
+
+func is_player_ready(peer_id: int) -> bool:
+	if not _players.has(peer_id):
+		return false
+	return bool(_players[peer_id]["ready"])
+
+
+## Voice mode stored locally until proximity voice exists.
+func set_voice_mode(mode: VoiceMode) -> void:
+	_voice_mode = mode
+
+
+func set_player_volume(_peer_id: int, _volume_linear: float) -> void:
+	pass
+
+
+func set_player_muted(_peer_id: int, _muted: bool) -> void:
+	pass
+
+
+## True for the headless smoke host and the smoke client.
+func is_automated() -> bool:
+	return _args.smoke_test or _args.smoke_client
+
+
+func is_smoke_host() -> bool:
+	return _args.smoke_test
+
+
+func is_smoke_client() -> bool:
+	return _args.smoke_client
+
+
+## Port from --port, or the default.
+func listen_port() -> int:
+	return _args.port
+
+
+## Host start zone from --start-zone.
+func start_zone() -> Zone:
+	return _initial_zone()
+
+
+## --lot value. 0 means the world may choose the test lot.
+func requested_lot() -> int:
+	return _args.lot
+
+
+## Called by the session when a replicated or local world is in the tree.
+func notify_world_arrived() -> void:
+	if _state == State.CONNECTING:
+		_set_state(State.IN_SESSION)
+
+
+func _set_state(next_state: State) -> void:
+	if _state == next_state:
+		return
+	_state = next_state
+	state_changed.emit(next_state)
+
+
+func _initial_zone() -> Zone:
+	match _args.start_zone:
+		"lot":
+			return Zone.LOT
+		"border":
+			return Zone.BORDER
+		"transit":
+			return Zone.TRANSIT
+		_:
+			return Zone.STORE
+
+
+func _resolved_name(peer_id: int) -> String:
+	if _local_name != "":
+		return _local_name
+	return "Player %d" % peer_id
+
+
+func _add_player(peer_id: int, display_name: String, steam_id: int, zone: Zone) -> void:
+	if _players.has(peer_id):
+		return
+	_players[peer_id] = {
+		"peer_id": peer_id,
+		"name": display_name,
+		"steam_id": steam_id,
+		"zone": zone,
+		"ready": false,
+	}
+	print("[Net] peer %d joined as %s" % [peer_id, display_name])
+	player_joined.emit(peer_id)
+
+
+func _registry_payload() -> Array:
+	var payload: Array = []
+	for peer_id: int in peer_ids():
+		payload.append((_players[peer_id] as Dictionary).duplicate())
+	return payload
+
+
+func _replace_registry(payload: Array) -> void:
+	_players.clear()
+	for entry: Variant in payload:
+		var record := entry as Dictionary
+		var peer_id := int(record["peer_id"])
+		record["zone"] = (int(record["zone"]) as Zone)
+		_players[peer_id] = record
+		player_joined.emit(peer_id)
+
+
+func _apply_zone_request(peer_id: int, zone: Zone) -> void:
+	if not _players.has(peer_id):
+		return
+	if zone != Zone.STORE and zone != Zone.LOT and zone != Zone.BORDER:
+		return
+	move_player_to_zone(peer_id, zone)
+
+
+func _apply_ready(peer_id: int, value: bool) -> void:
+	if not _players.has(peer_id):
+		return
+	_players[peer_id]["ready"] = value
+	_rpc_ready_changed.rpc(peer_id, value)
+
+
+func _teleport_owner(peer_id: int, zone: Zone, spawn_marker: String) -> void:
+	if peer_id != local_peer_id():
+		return
+	var world := get_tree().get_first_node_in_group("world")
+	if world == null or not world.has_method("get_spawn_transform"):
+		return
+	var at: Transform3D = world.call("get_spawn_transform", zone, StringName(spawn_marker), peer_id)
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name != str(peer_id) or not node.has_method("apply_network_teleport"):
+			continue
+		node.call("apply_network_teleport", at)
+		return
+
+
+func _shutdown(reason: String) -> void:
+	_hosting = false
+	_players.clear()
+	if multiplayer.multiplayer_peer != null:
+		multiplayer.multiplayer_peer.close()
+		multiplayer.multiplayer_peer = null
+	_set_state(State.OFFLINE)
+	if reason != "":
+		print("[Net] session ended: %s" % reason)
+		session_ended.emit(reason)
+
+
+func _on_peer_connected(peer_id: int) -> void:
+	# Handshake, not this signal, is what publishes a player.
+	print("[Net] transport connected %d" % peer_id)
+
+
+func _on_peer_disconnected(peer_id: int) -> void:
+	if not _hosting or not _players.has(peer_id):
+		return
+	_players.erase(peer_id)
+	_rpc_player_removed.rpc(peer_id)
+	print("[Net] peer %d left" % peer_id)
+	player_left.emit(peer_id)
+
+
+func _on_connected_to_server() -> void:
+	_rpc_hello.rpc_id(1, Constants.BUILD_VERSION, _local_name)
+
+
+func _on_connection_failed() -> void:
+	_shutdown("Connection failed")
+
+
+func _on_server_disconnected() -> void:
+	_shutdown("Host left")
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_hello(build_version: String, display_name: String) -> void:
+	if not _hosting:
+		return
+	var sender := multiplayer.get_remote_sender_id()
+	if build_version != Constants.BUILD_VERSION:
+		_rpc_rejected.rpc_id(sender, "Version mismatch")
+		multiplayer.multiplayer_peer.disconnect_peer(sender)
+		return
+	var resolved := display_name if display_name != "" else "Player %d" % sender
+	_add_player(sender, resolved, 0, _initial_zone())
+	_rpc_welcome.rpc_id(sender, _registry_payload())
+	_rpc_player_added.rpc(sender, resolved, 0, int(_initial_zone()))
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_rejected(reason: String) -> void:
+	_shutdown(reason)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_welcome(payload: Array) -> void:
+	_replace_registry(payload)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_player_added(peer_id: int, display_name: String, steam_id: int, zone_value: int) -> void:
+	_add_player(peer_id, display_name, steam_id, zone_value as Zone)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_player_removed(peer_id: int) -> void:
+	if not _players.has(peer_id):
+		return
+	_players.erase(peer_id)
+	player_left.emit(peer_id)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_zone(zone_value: int) -> void:
+	if not _hosting:
+		return
+	_apply_zone_request(multiplayer.get_remote_sender_id(), zone_value as Zone)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_zone_changed(peer_id: int, zone_value: int, spawn_marker: String) -> void:
+	var zone := zone_value as Zone
+	if _players.has(peer_id):
+		_players[peer_id]["zone"] = zone
+	_teleport_owner(peer_id, zone, spawn_marker)
+	player_zone_changed.emit(peer_id, zone)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_set_ready(value: bool) -> void:
+	if not _hosting:
+		return
+	_apply_ready(multiplayer.get_remote_sender_id(), value)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_ready_changed(peer_id: int, value: bool) -> void:
+	if _players.has(peer_id):
+		_players[peer_id]["ready"] = value
+	ready_changed.emit(peer_id, value)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered", 1)
+func _rpc_clock_ping(sent_local_seconds: float) -> void:
+	if not _hosting:
+		return
+	_rpc_clock_pong.rpc_id(multiplayer.get_remote_sender_id(), sent_local_seconds, server_time())
+
+
+@rpc("authority", "call_remote", "unreliable_ordered", 1)
+func _rpc_clock_pong(sent_local_seconds: float, host_seconds: float) -> void:
+	_clock.note_sample(sent_local_seconds, host_seconds, _clock.local_seconds())

@@ -18,7 +18,7 @@ alwaysApply: false
 
 - Call down, signal up. A node may call methods on its children. To talk to a parent or a sibling scene, emit a signal or go through an autoload's public API.
 - Reference nodes inside your own scene with `%UniqueName` (set `unique_name_in_owner`). Never reach into another scene's internals with a long `get_node()` path.
-- Do not add a new autoload without a `docs/DECISIONS.md` entry. `Net` is the only planned one.
+- Do not add a new autoload without a `docs/DECISIONS.md` entry. `Net` and `Campaign` are the planned ones.
 - Keep scripts under roughly 300 lines. When one grows past that, split behavior into child component nodes with their own scripts.
 - Gameplay and movement code goes in `_physics_process`. Read input through Input Map actions only, never hardcoded keys, and never the Command key.
 

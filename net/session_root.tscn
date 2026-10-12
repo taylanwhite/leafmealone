@@ -1,0 +1,17 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://net/session_root.gd" id="1_session"]
+[ext_resource type="Script" path="res://net/debug_overlay.gd" id="2_debug"]
+
+[node name="SessionRoot" type="Node3D"]
+script = ExtResource("1_session")
+
+[node name="WorldRoot" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="WorldSpawner" type="MultiplayerSpawner" parent="."]
+_spawnable_scenes = PackedStringArray("res://levels/world.tscn")
+spawn_path = NodePath("../WorldRoot")
+
+[node name="DebugOverlay" type="CanvasLayer" parent="."]
+script = ExtResource("2_debug")
