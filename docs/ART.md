@@ -10,6 +10,8 @@ Consistent and funny matters more than pretty. Most of our art will be AI-genera
 
 ## Game-specific notes
 
+- **The store is Homie Depot.** Signage, the store zone, and any store UI use that name.
+- **Trucks.** Any truck model uses the Chefty logo. Do not invent a second truck brand.
 - **Leaves are the star.** They are rendered in bulk from the leaf field, so leaf art means a handful of leaf meshes or cards with color and size variation, not thousands of unique assets. A full lot should read as overwhelming from the truck, and a raked strip should read as satisfying.
 - **The enforcement crew is fictional.** Its look, name, and insignia are open design questions. Until they are decided, use clearly placeholder visuals, and never use a real agency's name, logo, insignia, or lettering on uniforms or vehicles.
 - **The van has to be countable.** Players must be able to count the captured players inside it at a glance, so plan for windows, an open side door, or an exaggerated cutaway.

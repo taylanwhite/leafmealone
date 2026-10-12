@@ -9,8 +9,8 @@ The workbook's own rule applies here too: only items marked Confirmed are canon.
 - **Title and studio.** Leaf Me Alone, by n.I.C.E. Games. [DEC-012, DEC-002]
 - **Pitch.** A multiplayer comedy where undocumented workers take impossible leaf-cleanup jobs, buy better tools, and scramble when a fictional enforcement crew arrives during run events. [GV-01]
 - **Format and length.** Multiplayer. A full successful playthrough takes roughly 5 to 10 hours. [DEC-003, DEC-004]
-- **Starting point.** Players start together at a contractor or home-improvement style store. [DEC-005]
-- **The truck.** A truck takes a subset of the players to a job lot. [DEC-006, GV-04]
+- **Starting point.** Players start together at Homie Depot, a contractor or home-improvement style store. [DEC-005]
+- **The truck.** Any truck model uses the Chefty logo. A truck takes a subset of the players to a job lot. [DEC-006, GV-04]
 - **The work.** Players rake an absurd, insurmountable quantity of leaves. [DEC-007]
 - **Payout.** Pay is based on how much, or what percentage, of the leaves players clean up. The exact split is not decided. [DEC-008]
 - **Progression.** Returning to the store gives access to tools that make future cleanup easier. [DEC-009]
@@ -55,9 +55,14 @@ Until these are decided, build the behavior so the answer can change without a r
 | OQ-025 | Which captures share a van and an instance | Batching window is a tunable, default a few seconds |
 | OQ-027 | Do players finish Border Return individually or as a group | Flag, default individual |
 
+## Developer notes
+
+- **2026-10-12.** The store is called Homie Depot.
+- **2026-10-12.** Any truck model will be called Chefty logo.
+
 ## Rules for agents working on content
 
-- Do not invent canon. Names, lore, the enforcement crew's identity, client characters, and dialogue are design decisions that belong in the workbook. If a task needs one, use an obvious placeholder (for example `[CREW NAME]`) and tell the developer.
+- Do not invent canon. Names, lore, the enforcement crew's identity, client characters, and dialogue are design decisions that belong in the workbook. If a task needs one, use an obvious placeholder (for example `[CREW NAME]`) and tell the developer. The store name Homie Depot and the Chefty truck logo are already decided. Use them.
 - Never use "ICE" or any real agency's name in player-facing text, art, or audio. [DEC-015]
 - Player-facing text lives in one strings file so it can be reviewed in one place. The quips in the workbook's Humor & Quips sheet are drafts. Use them only when the developer asks, and keep their Q ids next to them.
 - The workbook proposes a humor guardrail: punch up at impossible work, precarious systems, and enforcement bureaucracy, not at immigrants, ethnicity, nationality, or accents. [GV-13] Follow it for anything you draft, and flag anything that might cross it.
