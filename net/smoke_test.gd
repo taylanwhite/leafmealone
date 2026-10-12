@@ -4,6 +4,7 @@ extends Node
 ## Covers connection, handshake, player replication, and a host-ordered zone move.
 
 const TIMEOUT_SECONDS: float = 30.0
+const _Timeline: Script = preload("res://border/hazard_timeline.gd")
 
 var _started_msec: int = 0
 var _child_pid: int = -1
@@ -136,6 +137,29 @@ func _rpc_clock_probe_reply(sent_local_seconds: float, host_seconds: float) -> v
 	_rpc_status.rpc_id(1, "leaf_match", residual)
 
 
+@rpc("authority", "call_remote", "reliable")
+func _rpc_hazard_probe(seed: int, elapsed: float) -> void:
+	if not Net.is_smoke_client():
+		return
+	var at: Vector3 = _Timeline.call("position", seed, 0, elapsed, 1.0)
+	_rpc_hazard_sample.rpc_id(1, at)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_hazard_sample(at: Vector3) -> void:
+	if not Net.is_smoke_host() or _leaf_phase != "hazard":
+		return
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director == null:
+		_finish(false, "director missing")
+		return
+	var expected: Vector3 = _Timeline.call("position", int(director.call("hazard_seed")), 0, 10.0, 1.0)
+	if at.distance_to(expected) > 0.02:
+		_finish(false, "hazard off by %.3f" % at.distance_to(expected))
+		return
+	_finish(true, "")
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_status(stage: String, client_time: float) -> void:
 	if not Net.is_smoke_host():
@@ -179,7 +203,8 @@ func _rpc_status(stage: String, client_time: float) -> void:
 		if cohort < 1 or cohort != seats:
 			_finish(false, "van seats %d do not match cohort %d" % [seats, cohort])
 			return
-		_finish(true, "")
+		_leaf_phase = "hazard"
+		_rpc_hazard_probe.rpc_id(_client_id, int(director.call("hazard_seed")), 10.0)
 
 
 func _host_ride_step() -> void:

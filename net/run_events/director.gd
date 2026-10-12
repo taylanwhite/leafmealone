@@ -19,6 +19,7 @@ var _cohort_id: int = 0
 var _hazard_seed: int = 0
 var _batching: bool = false
 var _batch_left: float = 0.0
+var _safe_until: Dictionary = {}
 
 
 func _ready() -> void:
@@ -37,6 +38,30 @@ func cohort_size() -> int:
 
 func is_captured(peer_id: int) -> bool:
 	return _cohort.has(peer_id)
+
+
+func can_capture(peer_id: int) -> bool:
+	if _cohort.has(peer_id):
+		return false
+	if float(_safe_until.get(peer_id, 0.0)) > Net.server_time():
+		return false
+	return Net.player_zone(peer_id) == Net.Zone.LOT
+
+
+func cohort_roster() -> Array:
+	var copy: Array = []
+	for peer_id: int in _cohort:
+		copy.append(peer_id)
+	return copy
+
+
+func hazard_seed() -> int:
+	return _hazard_seed
+
+
+func release_peer(peer_id: int) -> void:
+	_cohort.erase(peer_id)
+	_safe_until[peer_id] = Net.server_time() + Constants.BORDER_RETURN_IMMUNITY_SECONDS
 
 
 func van_occupied() -> int:
