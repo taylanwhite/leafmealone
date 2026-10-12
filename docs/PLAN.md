@@ -4,7 +4,7 @@ The milestones build Leaf Me Alone in the order that retires the biggest risks f
 
 Each task is tagged with its lane: `[NET]`, `[PLAY]`, or `[SHARED]`. Tasks marked `(human)` need someone to click through the Godot editor, Steam, GitHub, or Apple's tools. An agent should prepare everything around them and then tell the developer exactly what to do. Agents check off tasks in their own lane only, and only after the task's checks have actually been run.
 
-Current milestone: **M1**
+Current milestone: **M2**
 
 ---
 
@@ -70,18 +70,18 @@ Done when:
 The core of the game is raking, so it gets prototyped right away (BL-002, OQ-004). Steam lands in the same milestone so the two of you can play from your own houses from here on.
 
 NET
-- [ ] `[NET]` Leaf field (`net/leaf_field/`): host-owned density grid in chunks, `request_rake` and `request_collect`, the "cleaned" function, chunk replication, full snapshot on arrival or late join, local prediction for the raking player, and contribution credited through `Campaign.record_stat()`. Scale density to the lot's leaf units from `Balance`.
-- [ ] `[NET]` `net/components/net_prop.gd` for host-authoritative RigidBody3D props, host-side pushing from replicated player velocities, and grab, carry, throw, and drop request RPCs with validation.
-- [ ] `[NET]` Steam: initialization with app ID 480, callbacks every frame, a clean fallback when Steam isn't running, friends-only lobbies tagged with `game_id` and `build`, `host_with_lobby()` and `connect_to_lobby()`, joining through invites and the friends list, cold start through `+connect_lobby`, `Net.invite_friends()`, and player names from Steam.
-- [ ] `[NET]` Ready flags in the host's player registry, replicated on both transports.
-- [ ] `[NET]` Extend the smoke test: clock agreement, a leaf field change matching on the client, and a moved prop matching.
+- [x] `[NET]` Leaf field (`net/leaf_field/`): host-owned density grid in chunks, `request_rake` and `request_collect`, the "cleaned" function, chunk replication, full snapshot on arrival or late join, local prediction for the raking player, and contribution credited through `Campaign.record_stat()`. Scale density to the lot's leaf units from `Balance`.
+- [x] `[NET]` `net/components/net_prop.gd` for host-authoritative RigidBody3D props, host-side pushing from replicated player velocities, and grab, carry, throw, and drop request RPCs with validation.
+- [x] `[NET]` Steam: initialization with app ID 480, callbacks every frame, a clean fallback when Steam isn't running, friends-only lobbies tagged with `game_id` and `build`, `host_with_lobby()` and `connect_to_lobby()`, joining through invites and the friends list, cold start through `+connect_lobby`, `Net.invite_friends()`, and player names from Steam.
+- [x] `[NET]` Ready flags in the host's player registry, replicated on both transports.
+- [x] `[NET]` Extend the smoke test: clock agreement, a leaf field change matching on the client, and a moved prop matching.
 
 PLAY
-- [ ] `[PLAY]` Leaf rendering in `leaves/`: one MultiMeshInstance3D per chunk driven by density, rebuilt only when a chunk changes, plus cosmetic leaf particles on rake strokes. Hold 60 fps on both Macs with lot 1's full leaf volume.
-- [ ] `[PLAY]` A rake in `equipment/` that calls `request_rake` with a satisfying stroke, and a way to bag leaves that calls `request_collect` and produces a leaf bag prop.
-- [ ] `[PLAY]` Leaf bags and a few yard props (trash can, wheelbarrow, garden gnome) using `NetProp`, with carry, throw, and drop.
-- [ ] `[PLAY]` A cleanup percentage on the HUD from the leaf field.
-- [ ] `[PLAY]` Lobby screen (player list, ready toggle, Invite Friends, Start for the host), Steam host as the main menu button with ENet moved to a dev-only section, and a pause menu with Leave Session.
+- [x] `[PLAY]` Leaf rendering in `leaves/`: one MultiMeshInstance3D per chunk driven by density, rebuilt only when a chunk changes, plus cosmetic leaf particles on rake strokes. Hold 60 fps on both Macs with lot 1's full leaf volume.
+- [x] `[PLAY]` A rake in `equipment/` that calls `request_rake` with a satisfying stroke, and a way to bag leaves that calls `request_collect` and produces a leaf bag prop.
+- [x] `[PLAY]` Leaf bags and a few yard props (trash can, wheelbarrow, garden gnome) using `NetProp`, with carry, throw, and drop.
+- [x] `[PLAY]` A cleanup percentage on the HUD from the leaf field.
+- [x] `[PLAY]` Lobby screen (player list, ready toggle, Invite Friends, Start for the host), Steam host as the main menu button with ENet moved to a dev-only section, and a pause menu with Leave Session.
 - [ ] `[SHARED] (human)` Play the lot together for 30 minutes in both camera modes. Record the camera decision for OQ-001 in `DECISIONS.md` and note what felt good or bad about raking.
 
 Done when the two of you, in your own houses, can rake the same lot over Steam, the cleanup percentage matches on both screens, raking feels worth iterating on, and the smoke test passes.
