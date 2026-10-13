@@ -51,6 +51,7 @@ func begin(roster: Array, seed: int) -> void:
 		var peer_id := int(roster[index])
 		var lane := index % int(_Layout.LANE_COUNT)
 		Net.move_player_to_zone(peer_id, Net.Zone.BORDER, StringName("Lane%d" % lane))
+		_apply_bounds(peer_id)
 
 
 func _process(delta: float) -> void:
@@ -63,10 +64,6 @@ func _process(delta: float) -> void:
 	_update_status()
 	_check_local_player()
 	_update_camera()
-
-
-func _duration() -> float:
-	return Balance.BORDER_RETURN_TARGET_DURATION_MINUTES * 60.0
 
 
 func _elapsed() -> float:
@@ -100,11 +97,7 @@ func _update_status() -> void:
 	if _threw_back:
 		_status = "Thrown back"
 		return
-	var left := _duration() - _elapsed()
-	if left > 0.0:
-		_status = "Cross back. Exit opens in %d s" % int(ceil(left))
-	else:
-		_status = "Exit is open. Reach the far line."
+	_status = "Cross back. W moves toward the exit. Step around each rake."
 
 
 func _check_local_player() -> void:
@@ -125,7 +118,7 @@ func _check_local_player() -> void:
 		else:
 			_rpc_hit.rpc_id(1)
 		return
-	if _reported_finish or _elapsed() < _duration() or not _at_exit(body):
+	if _reported_finish or not _at_exit(body):
 		return
 	_reported_finish = true
 	if Net.is_host():
@@ -182,8 +175,6 @@ func _send_throwback(peer_id: int) -> void:
 
 func _handle_finish(peer_id: int) -> void:
 	if not Net.is_host() or not _running or not _roster.has(peer_id) or _finished.has(peer_id):
-		return
-	if _elapsed() < _duration():
 		return
 	var body := _player(peer_id)
 	if body == null or not _at_exit(body):
@@ -275,8 +266,8 @@ func _update_camera() -> void:
 		_camera.current = false
 		return
 	_camera.current = true
-	_camera.global_position = body.global_position + Vector3(0.0, 9.0, -8.0)
-	_camera.look_at(body.global_position + Vector3(0.0, 0.5, 8.0), Vector3.UP)
+	_camera.global_position = body.global_position + Vector3(0.0, 12.0, -11.0)
+	_camera.look_at(body.global_position + Vector3(0.0, 0.2, 6.0), Vector3.UP)
 
 
 func _player(peer_id: int) -> Node3D:
