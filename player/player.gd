@@ -32,6 +32,7 @@ var _throwback_left: float = 0.0
 var _throwback_from: Vector3 = Vector3.ZERO
 var _throwback_to: Vector3 = Vector3.ZERO
 var _crossing_bounded: bool = false
+var _crossing_drive: bool = false
 var _crossing_min: Vector3 = Vector3.ZERO
 var _crossing_max: Vector3 = Vector3.ZERO
 
@@ -77,7 +78,11 @@ func _physics_process(delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
 	if is_multiplayer_authority():
-		_apply_look()
+		if _crossing_drive:
+			_look = Vector2.ZERO
+			body_yaw = PI
+		else:
+			_apply_look()
 		if _throwback_left > 0.0:
 			_step_throwback(delta)
 		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
@@ -187,7 +192,14 @@ func _simulate(delta: float) -> void:
 	elif Input.is_action_just_pressed("jump") and not crouching:
 		velocity.y = JUMP_VELOCITY
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var direction := (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
+	var direction := Vector3.ZERO
+	if _crossing_drive:
+		# The border camera looks toward the exit. W moves that way, A and D step across the lane.
+		direction = Vector3(input_dir.x, 0.0, -input_dir.y)
+		if direction.length() > 0.001:
+			direction = direction.normalized()
+	else:
+		direction = (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
 	var speed := WALK_SPEED
 	if crouching:
 		speed = CROUCH_SPEED
@@ -247,6 +259,9 @@ func play_throwback(to: Vector3) -> void:
 
 
 func set_crossing_view(active: bool) -> void:
+	_crossing_drive = active
+	if not active:
+		_crossing_bounded = false
 	if is_multiplayer_authority():
 		%CameraRig.set_active(not active)
 
