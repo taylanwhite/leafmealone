@@ -4,7 +4,7 @@ The milestones build Leaf Me Alone in the order that retires the biggest risks f
 
 Each task is tagged with its lane: `[NET]`, `[PLAY]`, or `[SHARED]`. Tasks marked `(human)` need someone to click through the Godot editor, Steam, GitHub, or Apple's tools. An agent should prepare everything around them and then tell the developer exactly what to do. Agents check off tasks in their own lane only, and only after the task's checks have actually been run.
 
-Current milestone: **M5**
+Current milestone: **M6**
 
 ---
 
@@ -155,13 +155,13 @@ Done when cohorts of one to four players cross at the same time, hazards line up
 Lot 1 from start to finish, good enough to put in front of friends (BL-007, BL-008, BL-009, BL-010).
 
 NET
-- [ ] `[NET]` Telemetry version zero: local JSON logs per session with job durations, cleanup percentages, payouts, run events, captures, and Border Return times (BL-009).
+- [x] `[NET]` Telemetry version zero: local JSON logs per session with job durations, cleanup percentages, payouts, run events, captures, and Border Return times (BL-009).
 - [ ] `[NET]` Bandwidth and ping checked with eight players in the debug overlay.
 
 PLAY
 - [ ] `[PLAY]` Art pass on the store, lot 1, and the border zone following `ART.md`, including the shared post-process look.
-- [ ] `[PLAY]` Quip playback with cooldowns and per-session limits, using draft lines from the workbook with their Q ids, from one strings file (BL-008).
-- [ ] `[PLAY]` Sound pass: footsteps, raking, bags, the truck, the van, and run event audio.
+- [x] `[PLAY]` Quip playback with cooldowns and per-session limits, using draft lines from the workbook with their Q ids, from one strings file (BL-008).
+- [x] `[PLAY]` Sound pass: footsteps, raking, bags, the truck, the van, and run event audio.
 
 SHARED
 - [ ] `[SHARED] (human)` Playtest with friends on both Mac and Windows. Write `docs/PLAYTEST-01.md` with what made people laugh, what broke, and measured times.

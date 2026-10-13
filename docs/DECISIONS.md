@@ -90,3 +90,9 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Check:** A throwaway script run with `/Applications/Godot.app/Contents/MacOS/Godot --headless --path . --script` printed `Steam=true` and `SteamMultiplayerPeer=true`. The script was deleted. The Godot MCP server is not connected in Cursor yet, so this check used the Godot executable directly.
 - **Considered:** GodotSteam's precompiled editor, which bundles the extension. Not needed, because `SteamMultiplayerPeer` loads in the standard editor.
 - **Note:** Enabling the editor plugin only turns on GodotSteam's updater dock. The Steam classes load from the GDExtension without that plugin.
+
+### 2026-10-13: First shared look is flat unshaded color snapped to one palette
+
+- **Why:** ART.md asks M6 to try one shared treatment so the store, the lot, and the border read as the same game. The current meshes are boxes, so a toon shader and an outline would not show much. Unshaded materials snapped to `assets/palette.png` keep every surface in the same set of colors.
+- **Considered:** Posterization plus an outline in a compositor pass. Worth trying again when real models replace the boxes.
+- **Revisit:** After the first friend playtest, if the flat look feels too bare.
