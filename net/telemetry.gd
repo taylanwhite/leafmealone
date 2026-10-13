@@ -12,6 +12,15 @@ var _logging: bool = false
 
 func _ready() -> void:
 	add_to_group("telemetry")
+	if not Net.state_changed.is_connected(_on_state):
+		Net.state_changed.connect(_on_state)
+	# Hosting from the command line can already be in session before this node connects.
+	_on_state(Net.current_state())
+
+
+func _on_state(next_state: Net.State) -> void:
+	if _logging or next_state != Net.State.IN_SESSION:
+		return
 	if not Net.is_host() or Net.is_automated():
 		return
 	_logging = true
