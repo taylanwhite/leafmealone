@@ -97,7 +97,11 @@ func _update_status() -> void:
 	if _threw_back:
 		_status = "Thrown back"
 		return
-	_status = "Cross back. W moves toward the exit. Step around each rake."
+	var left := Constants.BORDER_CROSSING_SECONDS - _elapsed()
+	if left > 0.0:
+		_status = "Cross back. Exit opens in %d s. Step around each rake." % int(ceil(left))
+	else:
+		_status = "Exit is open. Reach the far line."
 
 
 func _check_local_player() -> void:
@@ -118,7 +122,7 @@ func _check_local_player() -> void:
 		else:
 			_rpc_hit.rpc_id(1)
 		return
-	if _reported_finish or not _at_exit(body):
+	if _reported_finish or _elapsed() < Constants.BORDER_CROSSING_SECONDS or not _at_exit(body):
 		return
 	_reported_finish = true
 	if Net.is_host():
@@ -175,6 +179,8 @@ func _send_throwback(peer_id: int) -> void:
 
 func _handle_finish(peer_id: int) -> void:
 	if not Net.is_host() or not _running or not _roster.has(peer_id) or _finished.has(peer_id):
+		return
+	if _elapsed() < Constants.BORDER_CROSSING_SECONDS:
 		return
 	var body := _player(peer_id)
 	if body == null or not _at_exit(body):

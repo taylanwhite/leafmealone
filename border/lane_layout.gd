@@ -2,8 +2,7 @@ extends RefCounted
 
 ## Authority: data. OQ-022: difficulty scales hazard speed. The pad is the gray-box border zone.
 ## Four lanes so a cohort of up to four can cross together. Extra players share a lane.
-## The workbook's full crossing is about Balance.BORDER_RETURN_TARGET_DURATION_MINUTES.
-## This pad is short, so reaching the exit finishes the gray-box crossing.
+## The gray-box exit opens after Constants.BORDER_CROSSING_SECONDS.
 
 const LANE_COUNT: int = 4
 const LANE_WIDTH: float = 4.0

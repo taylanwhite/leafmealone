@@ -33,7 +33,10 @@ const CAPTURE_RADIUS: float = 2.0
 const CREW_SPEED: float = 5.5
 const RUN_WARNING_SECONDS: float = 8.0
 
-## Disembark beat before the crossing clock. The crossing length itself is Balance.BORDER_RETURN_TARGET_DURATION_MINUTES.
+## Disembark beat before the crossing clock.
+## The workbook's full crossing is Balance.BORDER_RETURN_TARGET_DURATION_MINUTES.
+## This gray-box run is 60 seconds, set 2026-10-13.
+const BORDER_CROSSING_SECONDS: float = 60.0
 const BORDER_STAGING_SECONDS: float = 3.0
 const BORDER_THROWBACK_SECONDS: float = 0.55
 const BORDER_RETURN_IMMUNITY_SECONDS: float = 4.0
