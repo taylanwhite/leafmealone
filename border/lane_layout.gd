@@ -28,8 +28,8 @@ static func label_for(_index: int) -> String:
 
 
 static func mesh_size(_index: int) -> Vector3:
-	return Vector3(1.1, 0.35, 0.45)
+	return Vector3(2.0, 1.7, 0.45)
 
 
 static func hit_radius(_index: int) -> float:
-	return 0.55
+	return 1.0

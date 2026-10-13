@@ -15,10 +15,10 @@ static func position(seed: int, hazard_index: int, elapsed: float, difficulty: f
 	var center_x := float(_Layout.call("lane_center_x", lane))
 	var along := -8.0 + float(gate) * 8.0
 	var phase := float(_mix(seed, index) % 1000) / 1000.0
-	# One side, then the other, about every three seconds. The far side of the lane stays open.
-	var cycle := 0.34 * maxf(difficulty, 0.1)
+	# The bar slides onto one side, then the other. The opposite side of the lane stays empty.
+	var cycle := 0.28 * maxf(difficulty, 0.1)
 	var across := _wave(elapsed * cycle + phase)
-	return Vector3(center_x + across * 1.0, 0.7, along)
+	return Vector3(center_x + across * 0.55, 0.9, along)
 
 
 static func _wave(t: float) -> float:
