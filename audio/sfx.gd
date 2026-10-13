@@ -12,11 +12,15 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	for child: Node in get_children():
 		if child is AudioStreamPlayer:
-			(child as AudioStreamPlayer).stop()
-			child.queue_free()
+			var player := child as AudioStreamPlayer
+			player.stop()
+			player.stream = null
+			player.free()
 
 
 func play(sound_name: String) -> void:
+	if Net.is_automated():
+		return
 	var now := Time.get_ticks_msec()
 	if int(_next_msec.get(sound_name, 0)) > now:
 		return
