@@ -113,6 +113,9 @@ func finish_job() -> void:
 	if fraction >= 0.999:
 		pool *= 1.0 + Balance.FULL_CLEAR_PAYOUT_BONUS
 	var results := _split_pool(pool)
+	var telemetry := get_tree().get_first_node_in_group("telemetry")
+	if telemetry != null:
+		telemetry.call("mark_job_finish", fraction, results)
 	for row: Dictionary in results:
 		_add_credits(int(row["peer_id"]), int(row["credits"]))
 	_lots_completed += 1

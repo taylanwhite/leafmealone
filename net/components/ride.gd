@@ -214,6 +214,9 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	_riding = true
 	_seat_local_player()
 	_refresh_label()
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "van" if is_in_group("vans") else "truck")
 
 
 func _refresh_label() -> void:

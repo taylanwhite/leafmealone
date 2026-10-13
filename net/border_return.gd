@@ -48,6 +48,9 @@ func begin(roster: Array, seed: int) -> void:
 	if not Net.is_host() or roster.is_empty():
 		return
 	_rpc_begin.rpc(roster, seed)
+	var telemetry := get_tree().get_first_node_in_group("telemetry")
+	if telemetry != null:
+		telemetry.call("mark_border_start")
 	for index: int in roster.size():
 		var peer_id := int(roster[index])
 		var lane := index % int(_Layout.LANE_COUNT)
@@ -210,6 +213,9 @@ func _send_home(peer_id: int) -> void:
 	if director != null and director.has_method("release_peer"):
 		director.call("release_peer", peer_id)
 	Net.move_player_to_zone(peer_id, Net.Zone.LOT)
+	var telemetry := get_tree().get_first_node_in_group("telemetry")
+	if telemetry != null:
+		telemetry.call("mark_border_finish", peer_id)
 	_rpc_clear.rpc(peer_id)
 	var still := 0
 	for id: int in _roster:

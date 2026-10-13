@@ -7,6 +7,8 @@ const CREW_SCENE: PackedScene = preload("res://npcs/crew_member.tscn")
 const _RideScript: Script = preload("res://net/components/ride.gd")
 const _Rules: Script = preload("res://net/run_events/rules.gd")
 
+signal phase_changed(status: String)
+
 enum Phase { QUIET, WARNING, CHASE }
 
 var _phase: int = Phase.QUIET
@@ -93,6 +95,7 @@ func note_capture(peer_id: int) -> void:
 		return
 	_cohort.append(peer_id)
 	_release_held(peer_id)
+	_log("capture", {"peer_id": peer_id})
 	if _batching:
 		return
 	_batching = true
@@ -199,6 +202,18 @@ func _release_held(peer_id: int) -> void:
 			node.call("force_release")
 
 
+func _log(event_name: String, data: Dictionary) -> void:
+	var telemetry := get_tree().get_first_node_in_group("telemetry")
+	if telemetry != null:
+		telemetry.call("event", event_name, data)
+
+
+func _play_sfx(sound_name: String) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", sound_name)
+
+
 func _on_player_left(peer_id: int) -> void:
 	if Net.is_host():
 		_rpc_drop_rider.rpc(peer_id)
@@ -213,6 +228,11 @@ func _rpc_phase(phase: int, started_at: float, status: String) -> void:
 	_phase = phase
 	_phase_started = started_at
 	_status = status
+	phase_changed.emit(status)
+	if Net.is_host():
+		_log("run_phase", {"phase": phase, "status": status})
+	if status.find("on the way") >= 0:
+		_play_sfx("warning")
 
 
 @rpc("authority", "call_local", "reliable")

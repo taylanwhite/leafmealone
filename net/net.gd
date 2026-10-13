@@ -42,6 +42,9 @@ func _ready() -> void:
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
 	multiplayer.connection_failed.connect(_on_connection_failed)
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
+	var telemetry := preload("res://net/telemetry.gd").new()
+	telemetry.name = "Telemetry"
+	add_child(telemetry)
 	_steam = preload("res://net/steam_bridge.gd").new()
 	_steam.name = "SteamBridge"
 	add_child(_steam)

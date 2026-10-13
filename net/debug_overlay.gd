@@ -45,18 +45,33 @@ func _readout() -> String:
 	lines.append("fps %d" % Engine.get_frames_per_second())
 	lines.append("clock offset %.3f s  rtt %.3f s" % [Net.clock_offset_seconds(), Net.clock_rtt_seconds()])
 	lines.append("synchronizers %d" % _synchronizer_count())
-	lines.append("bandwidth n/a")
+	lines.append("bandwidth bytes not reported by ENet")
 	lines.append("F6 host calls [CREW NAME]")
 	for peer_id: int in Net.peer_ids():
 		var ping := Net.peer_ping_ms(peer_id)
 		var ping_text := "%d ms" % ping if ping >= 0 else "n/a"
-		lines.append("%s  id %d  %s  %s" % [
+		lines.append("%s  id %d  %s  %s  %s" % [
 			Net.player_name(peer_id),
 			peer_id,
 			Net.Zone.keys()[Net.player_zone(peer_id)],
 			ping_text,
+			_loss_text(peer_id),
 		])
 	return "\n".join(lines)
+
+
+func _loss_text(peer_id: int) -> String:
+	if peer_id == Net.local_peer_id():
+		return "loss n/a"
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet == null:
+		return "loss n/a"
+	var packet_peer := enet.get_peer(peer_id)
+	if packet_peer.get_state() != ENetPacketPeer.STATE_CONNECTED:
+		return "loss n/a"
+	var raw := float(packet_peer.get_statistic(ENetPacketPeer.PEER_PACKET_LOSS))
+	var loss := raw / float(ENetPacketPeer.PACKET_LOSS_SCALE)
+	return "loss %.1f%%" % (loss * 100.0)
 
 
 func _synchronizer_count() -> int:
