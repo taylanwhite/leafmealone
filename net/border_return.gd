@@ -27,6 +27,7 @@ var _threw_back: bool = false
 var _reported_finish: bool = false
 var _status: String = ""
 var _hazards: Array[MeshInstance3D] = []
+var _guides: Array[Node3D] = []
 var _camera: Camera3D
 var _exit_mark: Label3D
 
@@ -80,6 +81,11 @@ func _place_hazards() -> void:
 		return
 	var elapsed := _elapsed()
 	for index: int in _hazards.size():
+		var lane := index % int(_Layout.LANE_COUNT)
+		var show := _lane_is_used(lane)
+		_hazards[index].visible = show
+		if not show:
+			continue
 		var local: Vector3 = _Timeline.call("position", _seed, index, elapsed, DIFFICULTY)
 		_hazards[index].global_position = border.to_global(local)
 
@@ -99,9 +105,9 @@ func _update_status() -> void:
 		return
 	var left := Constants.BORDER_CROSSING_SECONDS - _elapsed()
 	if left > 0.0:
-		_status = "Cross back. Exit opens in %d s. Step around each rake." % int(ceil(left))
+		_status = "Red bar blocks one side. Stand on the empty side. A and D move sideways. Exit in %d s." % int(ceil(left))
 	else:
-		_status = "Exit is open. Reach the far line."
+		_status = "Exit is open. Walk to the green line."
 
 
 func _check_local_player() -> void:
@@ -133,6 +139,8 @@ func _check_local_player() -> void:
 
 func _touching_hazard(body: Node3D) -> bool:
 	for index: int in _hazards.size():
+		if not _hazards[index].visible:
+			continue
 		var radius := float(_Layout.call("hit_radius", index))
 		var flat := Vector2(body.global_position.x, body.global_position.z)
 		var hazard := _hazards[index].global_position
@@ -211,6 +219,13 @@ func _send_home(peer_id: int) -> void:
 		_rpc_end.rpc()
 
 
+func _lane_is_used(lane: int) -> bool:
+	for peer_id: int in _roster:
+		if _lane_of(peer_id) == lane:
+			return true
+	return false
+
+
 func _lane_of(peer_id: int) -> int:
 	var index := _roster.find(peer_id)
 	if index < 0:
@@ -231,34 +246,70 @@ func _build_visuals() -> void:
 	for hazard: MeshInstance3D in _hazards:
 		hazard.queue_free()
 	_hazards.clear()
-	if _exit_mark != null:
-		_exit_mark.queue_free()
-		_exit_mark = null
+	for guide: Node3D in _guides:
+		guide.queue_free()
+	_guides.clear()
+	_exit_mark = null
 	var border := get_parent().get_node_or_null("BorderZone") as Node3D
 	if border == null:
 		return
+	for peer_id: int in _roster:
+		_build_lane(border, _lane_of(peer_id))
 	for index: int in int(_Layout.call("hazard_count")):
 		var mesh := BoxMesh.new()
 		mesh.size = _Layout.call("mesh_size", index)
 		var view := MeshInstance3D.new()
 		view.mesh = mesh
 		var material := StandardMaterial3D.new()
-		material.albedo_color = Color(0.55, 0.32, 0.14) if int(_Layout.call("kind", index)) == 0 else Color(0.72, 0.55, 0.16)
+		material.albedo_color = Color(0.95, 0.18, 0.08)
+		material.emission_enabled = true
+		material.emission = Color(0.85, 0.12, 0.05)
 		view.material_override = material
-		var label := Label3D.new()
-		label.text = str(_Layout.call("label_for", index))
-		label.font_size = 42
-		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		label.position = Vector3(0.0, 0.8, 0.0)
-		view.add_child(label)
 		add_child(view)
 		_hazards.append(view)
-	_exit_mark = Label3D.new()
-	_exit_mark.text = "Exit"
-	_exit_mark.font_size = 72
-	_exit_mark.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_exit_mark.position = Vector3(0.0, 2.2, float(_Layout.HALF_LENGTH))
-	border.add_child(_exit_mark)
+
+
+func _build_lane(border: Node3D, lane: int) -> void:
+	var center_x := float(_Layout.call("lane_center_x", lane))
+	var length := float(_Layout.HALF_LENGTH) * 2.0
+	var strip := MeshInstance3D.new()
+	var strip_mesh := BoxMesh.new()
+	strip_mesh.size = Vector3(3.2, 0.06, length)
+	strip.mesh = strip_mesh
+	var strip_material := StandardMaterial3D.new()
+	strip_material.albedo_color = Color(0.85, 0.78, 0.35)
+	strip.material_override = strip_material
+	strip.position = Vector3(center_x, 0.04, 0.0)
+	border.add_child(strip)
+	_guides.append(strip)
+	var exit_pad := MeshInstance3D.new()
+	var exit_mesh := BoxMesh.new()
+	exit_mesh.size = Vector3(3.2, 0.08, 1.4)
+	exit_pad.mesh = exit_mesh
+	var exit_material := StandardMaterial3D.new()
+	exit_material.albedo_color = Color(0.2, 0.75, 0.28)
+	exit_material.emission_enabled = true
+	exit_material.emission = Color(0.15, 0.55, 0.2)
+	exit_pad.material_override = exit_material
+	exit_pad.position = Vector3(center_x, 0.06, float(_Layout.HALF_LENGTH) - 0.6)
+	border.add_child(exit_pad)
+	_guides.append(exit_pad)
+	var exit_label := Label3D.new()
+	exit_label.text = "EXIT"
+	exit_label.font_size = 96
+	exit_label.modulate = Color(0.4, 1.0, 0.45)
+	exit_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	exit_label.position = Vector3(center_x, 2.4, float(_Layout.HALF_LENGTH))
+	border.add_child(exit_label)
+	_guides.append(exit_label)
+	var hint := Label3D.new()
+	hint.text = "Stand on the empty side of the red bar"
+	hint.font_size = 48
+	hint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	hint.position = Vector3(center_x, 2.6, -float(_Layout.HALF_LENGTH))
+	border.add_child(hint)
+	_guides.append(hint)
+	_exit_mark = exit_label
 
 
 func _update_camera() -> void:
@@ -272,8 +323,8 @@ func _update_camera() -> void:
 		_camera.current = false
 		return
 	_camera.current = true
-	_camera.global_position = body.global_position + Vector3(0.0, 12.0, -11.0)
-	_camera.look_at(body.global_position + Vector3(0.0, 0.2, 6.0), Vector3.UP)
+	_camera.global_position = body.global_position + Vector3(0.0, 7.0, -9.0)
+	_camera.look_at(body.global_position + Vector3(0.0, 1.0, 7.0), Vector3.UP)
 
 
 func _player(peer_id: int) -> Node3D:
@@ -367,8 +418,9 @@ func _rpc_end() -> void:
 	for hazard: MeshInstance3D in _hazards:
 		hazard.queue_free()
 	_hazards.clear()
-	if _exit_mark != null:
-		_exit_mark.queue_free()
-		_exit_mark = null
+	for guide: Node3D in _guides:
+		guide.queue_free()
+	_guides.clear()
+	_exit_mark = null
 	_status = ""
 	_camera.current = false

@@ -41,6 +41,8 @@ func is_captured(peer_id: int) -> bool:
 
 
 func can_capture(peer_id: int) -> bool:
+	if _phase != Phase.CHASE:
+		return false
 	if _cohort.has(peer_id):
 		return false
 	if float(_safe_until.get(peer_id, 0.0)) > Net.server_time():
@@ -163,6 +165,16 @@ func _close_cohort() -> void:
 	var van := get_parent().get_node_or_null("Rides/Van")
 	if van != null:
 		van.call("depart", roster, Net.Zone.BORDER)
+	_dismiss_crew()
+
+
+## The chase ends when the van leaves. They do not wait on the lot for the crossing to finish.
+func _dismiss_crew() -> void:
+	var crew := get_parent().get_node_or_null("Npcs/Crew1")
+	if crew != null:
+		crew.queue_free()
+	if _phase != Phase.QUIET:
+		_set_phase(Phase.QUIET, "")
 
 
 func _build_van() -> void:
