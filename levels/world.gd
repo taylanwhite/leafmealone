@@ -6,6 +6,7 @@ const JOB_LOT: PackedScene = preload("res://levels/lots/lot_01.tscn")
 const BAG_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 const _PlayerDirector: Script = preload("res://net/player_director.gd")
 const _Boarding: Script = preload("res://levels/boarding.gd")
+const _FlatLook: Script = preload("res://levels/flat_look.gd")
 
 var _bag_serial: int = 0
 
@@ -23,6 +24,12 @@ func _ready() -> void:
 	_add_curb($StoreZone)
 	_add_curb($LotZone)
 	_add_curb($BorderZone)
+	var sfx := preload("res://audio/sfx.gd").new()
+	sfx.name = "Sfx"
+	add_child(sfx)
+	_FlatLook.call("apply", self)
+	if not get_tree().node_added.is_connected(_on_node_added):
+		get_tree().node_added.connect(_on_node_added)
 	if not Net.is_host():
 		return
 	_load_job_lot()
@@ -108,6 +115,9 @@ func _load_job_lot() -> void:
 	lot.name = "Lot%d" % Campaign.current_lot_index()
 	%LotSlot.add_child(lot, true)
 	Campaign.mark_job_open()
+	var telemetry := get_tree().get_first_node_in_group("telemetry")
+	if telemetry != null:
+		telemetry.call("mark_job_start")
 	var field := lot.get_node_or_null("LeafField")
 	if field != null and field.has_signal("bag_requested") and not field.bag_requested.is_connected(_spawn_bag):
 		field.bag_requested.connect(_spawn_bag)
@@ -169,6 +179,16 @@ func _rpc_request_finish() -> void:
 		_host_finish()
 
 
+func _on_node_added(node: Node) -> void:
+	_FlatLook.call("restyle", node)
+
+
+func _play_sfx(sound_name: String) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", sound_name)
+
+
 func _on_player_joined(peer_id: int) -> void:
 	_spawn_peer(peer_id)
 
@@ -184,6 +204,7 @@ func _spawn_bag(at: Vector3) -> void:
 	bag.set("kind", "leaf_bag")
 	bag.set("color", Color(0.72, 0.48, 0.18, 1))
 	bag.set("label", "Leaf bag")
+	_play_sfx("bag")
 	%RuntimeProps.add_child(bag, true)
 	bag.global_position = at + Vector3(0.0, 0.6, 0.0)
 

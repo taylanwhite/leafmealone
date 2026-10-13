@@ -2,10 +2,11 @@ extends Node3D
 
 ## Authority: local presentation. Rebuilds a chunk's mesh only after that chunk's density changes.
 
+const _Palette: Script = preload("res://assets/materials/palette.gd")
 const _COLORS: Array[Color] = [
-	Color(0.86, 0.42, 0.12),
-	Color(0.72, 0.18, 0.08),
-	Color(0.93, 0.72, 0.18),
+	_Palette.LEAF_ORANGE,
+	_Palette.LEAF_RED,
+	_Palette.LEAF_YELLOW,
 ]
 
 var _field: Node3D

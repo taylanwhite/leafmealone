@@ -43,6 +43,7 @@ func _stroke(player: CharacterBody3D, bag: bool) -> void:
 		field.call("request_collect", origin, BAG_RADIUS)
 	else:
 		field.call("request_rake", origin, forward, RAKE_WIDTH, RAKE_STRENGTH)
+		_play_sfx("rake")
 	_burst(origin)
 
 
@@ -74,6 +75,12 @@ func _burst(at: Vector3) -> void:
 	player_parent().add_child(particles)
 	particles.global_position = at
 	get_tree().create_timer(0.8).timeout.connect(particles.queue_free)
+
+
+func _play_sfx(sound_name: String) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", sound_name)
 
 
 func player_parent() -> Node:

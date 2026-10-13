@@ -1,0 +1,50 @@
+extends RefCounted
+
+## Snaps mesh colors to the shared palette and turns shading off.
+## The store, the lot, and the border all go through this so the boxes read as one game.
+
+const _Palette: Script = preload("res://assets/materials/palette.gd")
+
+
+static func apply(root: Node) -> void:
+	_environment(root)
+	_visit(root)
+
+
+static func restyle(node: Node) -> void:
+	if node is MeshInstance3D:
+		_flatten(node as MeshInstance3D)
+
+
+static func _environment(root: Node) -> void:
+	var world_environment := root.get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if world_environment == null or world_environment.environment == null:
+		return
+	var environment := world_environment.environment
+	environment.background_color = _Palette.SKY
+	environment.ambient_light_color = _Palette.SKY
+	environment.ambient_light_energy = 0.9
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.adjustment_enabled = true
+	environment.adjustment_contrast = 1.06
+	environment.adjustment_saturation = 1.12
+
+
+static func _visit(node: Node) -> void:
+	if node is MeshInstance3D:
+		_flatten(node as MeshInstance3D)
+	for child: Node in node.get_children():
+		_visit(child)
+
+
+static func _flatten(mesh: MeshInstance3D) -> void:
+	var source := mesh.material_override as StandardMaterial3D
+	if source == null:
+		source = mesh.get_active_material(0) as StandardMaterial3D
+	if source == null:
+		return
+	var flat := source.duplicate() as StandardMaterial3D
+	flat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	flat.albedo_color = _Palette.nearest(source.albedo_color)
+	mesh.material_override = flat

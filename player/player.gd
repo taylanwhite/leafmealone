@@ -35,6 +35,7 @@ var _crossing_bounded: bool = false
 var _crossing_drive: bool = false
 var _crossing_min: Vector3 = Vector3.ZERO
 var _crossing_max: Vector3 = Vector3.ZERO
+var _step_wait: float = 0.0
 
 
 func _enter_tree() -> void:
@@ -214,6 +215,7 @@ func _simulate(delta: float) -> void:
 	move_and_slide()
 	_update_anim(crouching, direction)
 	_stay_on_the_pad()
+	_steps(delta)
 
 
 ## A thrown prop can spike velocity. Cap it, and put the player back if they leave the pad.
@@ -292,6 +294,18 @@ func _pad_for_zone(world: Node3D, zone: Net.Zone) -> Node3D:
 			return world.get_node_or_null("StoreZone") as Node3D
 		_:
 			return null
+
+
+func _steps(delta: float) -> void:
+	if not is_on_floor() or Vector2(velocity.x, velocity.z).length() < 1.2:
+		return
+	_step_wait -= delta
+	if _step_wait > 0.0:
+		return
+	_step_wait = 0.42
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "step")
 
 
 func _update_anim(crouching: bool, direction: Vector3) -> void:

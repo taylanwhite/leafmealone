@@ -32,6 +32,9 @@ func _ready() -> void:
 	if Net.is_automated():
 		hide()
 		return
+	var quips := preload("res://ui/quip_player.gd").new()
+	quips.name = "Quips"
+	add_child(quips)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = "Dev host (ENet)"
