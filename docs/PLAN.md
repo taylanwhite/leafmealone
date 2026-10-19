@@ -156,7 +156,7 @@ Lot 1 from start to finish, good enough to put in front of friends (BL-007, BL-0
 
 NET
 - [x] `[NET]` Telemetry version zero: local JSON logs per session with job durations, cleanup percentages, payouts, run events, captures, and Border Return times (BL-009).
-- [ ] `[NET]` Bandwidth and ping checked with eight players in the debug overlay.
+- [x] `[NET]` Bandwidth and ping checked with eight players in the debug overlay.
 
 PLAY
 - [ ] `[PLAY]` Art pass on the store, lot 1, and the border zone following `ART.md`, including the shared post-process look.
