@@ -12,10 +12,8 @@ const _HideSpotScript = preload("res://net/components/hide_spot.gd")
 ## machine rather than the network. The report counts them so the two can be told apart.
 const LONG_FRAME_SECONDS: float = 0.05
 
-## Once-a-second throttle samples ignored at the start of a session.
-const THROTTLE_SETTLE_SAMPLES: int = 3
-
 var _long_frames: int = 0
+var _throttle_opened: bool = false
 ## Lowest ENet throttle seen toward any peer after the first second. 32 is full.
 var _throttle_min: int = -1
 var _throttle_samples: int = 0
@@ -166,17 +164,19 @@ func _track_throttle() -> void:
 	if enet == null or Net.current_state() != Net.State.IN_SESSION:
 		return
 	_throttle_samples += 1
-	# ENet only raises the throttle on its first round-trip measurement, so the
-	# first seconds of a connection read low before Net opens it.
-	if _throttle_samples <= THROTTLE_SETTLE_SAMPLES:
-		return
 	for packet_peer: ENetPacketPeer in enet.host.get_peers():
 		if packet_peer.get_state() != ENetPacketPeer.STATE_CONNECTED:
 			continue
 		var value := int(packet_peer.get_statistic(ENetPacketPeer.PEER_PACKET_THROTTLE))
-		_throttle_min = value if _throttle_min < 0 else mini(_throttle_min, value)
 		if _throttle_trace.size() < 600:
 			_throttle_trace.append(value)
+		# ENet only raises the throttle on its first round-trip measurement after
+		# Net opens it, which can take a few seconds while a session loads. What
+		# matters is it falling again once it has been full.
+		if value >= ENetPacketPeer.PACKET_THROTTLE_SCALE:
+			_throttle_opened = true
+		if _throttle_opened:
+			_throttle_min = value if _throttle_min < 0 else mini(_throttle_min, value)
 
 
 func _percentile(values: Array[float], fraction: float) -> float:
