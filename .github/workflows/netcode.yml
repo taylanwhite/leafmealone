@@ -1,0 +1,73 @@
+# Runs the multiplayer smoke test and a short bot soak on every push and pull
+# request, on Linux and Windows. macOS is covered by running tools/soak.sh
+# locally. The soak reports are uploaded as an artifact on every run.
+name: netcode
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            archive: Godot_v4.7.2-stable_linux.x86_64.zip
+            binary: Godot_v4.7.2-stable_linux.x86_64
+            players: 4
+          - os: windows-latest
+            archive: Godot_v4.7.2-stable_win64.exe.zip
+            binary: Godot_v4.7.2-stable_win64_console.exe
+            players: 2
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Download Godot
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/${{ matrix.archive }}"
+          mkdir -p "$RUNNER_TEMP/godot"
+          unzip -q godot.zip -d "$RUNNER_TEMP/godot"
+          chmod +x "$RUNNER_TEMP/godot/${{ matrix.binary }}" || true
+          echo "GODOT=$RUNNER_TEMP/godot/${{ matrix.binary }}" >> "$GITHUB_ENV"
+
+      - name: Import the project
+        run: |
+          "$GODOT" --headless --path . --import || true
+
+      - name: Smoke test
+        run: |
+          "$GODOT" --headless --path . -- --smoke-test --port=7791
+
+      - name: Bot soak (150 ms, 2% loss, late joiner)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi
+          set +e
+          tools/soak.sh -n ${{ matrix.players }} -s 45 -P 7792 -o "$PWD/build/soak/ci"
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::Soak inconclusive: the runner was too busy to judge smoothness."
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Upload soak reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-${{ matrix.os }}
+          path: build/soak/ci
+          if-no-files-found: ignore
