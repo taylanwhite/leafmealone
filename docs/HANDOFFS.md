@@ -21,12 +21,13 @@ Template:
 
 ## Open
 
+_(none)_
+
+## Done
+
 ### [NET → PLAY] 2026-10-18: voice output on each head, speaking indicator, voice settings
 - Need: the M4 PLAY voice task. For each remote player, an AudioStreamPlayer3D on `Visual/Head` with `attenuation_model` inverse distance, `unit_size = Constants.VOICE_CLEAR_DISTANCE`, and `max_distance = Constants.VOICE_MAX_DISTANCE`, handed to `Net.attach_voice_output(peer_id, player)` once (Net sets the stream and starts it). A speaking indicator over each player and in the lobby from `Net.speaking_changed` or `Net.is_player_speaking()`. A voice settings screen using `Net.set_voice_mode()`, `Net.set_player_volume()`, and `Net.set_player_muted()`, plus a message when `Net.voice_available()` is false.
 - Why: NET's half of proximity voice is in `net/voice/voice.gd` and passes an 8-player bot soak.
 - Stub on my side: until a head calls `attach_voice_output`, `net/voice/voice.gd` adds its own `VoiceStub` AudioStreamPlayer3D to `Visual/Head` with those settings. Once PLAY attaches its own player, the stub is freed for that peer, and `_attach_stub` can be deleted.
 - Blocking? no. Voice plays through the stub today. Push-to-talk is the `push_to_talk` action (V).
-
-## Done
-
-_(none yet)_
+- Resolved: Taylan took over PLAY (see DECISIONS.md 2026-10-18). `player/player.gd` attaches a head voice player, `ui/voice_panel.gd` adds voice settings, and the stub is gone.
