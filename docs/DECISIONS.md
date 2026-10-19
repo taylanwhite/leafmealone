@@ -96,3 +96,19 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Why:** ART.md asks M6 to try one shared treatment so the store, the lot, and the border read as the same game. The current meshes are boxes, so a toon shader and an outline would not show much. Unshaded materials snapped to `assets/palette.png` keep every surface in the same set of colors.
 - **Considered:** Posterization plus an outline in a compositor pass. Worth trying again when real models replace the boxes.
 - **Revisit:** After the first friend playtest, if the flat look feels too bare.
+
+### 2026-10-18: Player movement replicates unreliably, rare state reliably
+
+- **Why:** Position, yaw, pitch, and velocity were On Change, which Godot 4.7 sends reliably every frame. One lost packet held up every later update for a resend, longer than `NetSmoother`'s 100 ms buffer, and remote players hitched. They are now Always (unreliable, every 33 ms), and `anim_state` and `equipment_id` are On Change. Made from the NET lane in `player/player.tscn` with Taylan's confirmation.
+- **Rule:** Values that change every frame use Always. On Change is for values that change rarely.
+
+### 2026-10-18: ENet's packet throttle stays fully open
+
+- **Why:** ENet drops unreliable packets when round-trip times vary, and with its defaults it recovers over about 20 seconds. Measured on one Mac: a client's throttle toward the host started at 1 of 32, so about 97 percent of movement updates were dropped after joining, and it fell again on any hiccup. Our traffic is about 13 KB/s per client, so congestion dropping buys nothing. `Net` calls `throttle_configure(5000, PACKET_THROTTLE_SCALE, 0)` on every ENet link when it connects. Steam sessions are not affected.
+- **Revisit:** If bandwidth per client grows past a few hundred KB/s.
+
+### 2026-10-18: Netcode is tested by bots, not by hand
+
+- **Why:** Checking smoothness and bandwidth by watching two windows does not scale to eight players or to every change. `--bot`, `--measure`, `--sim-lag`, `--sim-loss`, and `--screenshot` (in `net/dev/`) plus `tools/soak.sh` run a whole session unattended and give a verdict, and the `netcode` GitHub workflow runs it on Linux and Windows for every push. People still judge feel and fun by playing.
+- **Considered:** `tools/lag.sh` (dummynet) alone. It needs `sudo` and only works on macOS, so it stays for hand tests and the flags cover automation.
+- **First 8-player result:** 150 ms and 2 percent loss with a late joiner: about 160 ms measured round trip, host about 70 KB/s in and out, each client about 13 KB/s each way, remote players hitching on 0.2 to 0.3 percent of updates.

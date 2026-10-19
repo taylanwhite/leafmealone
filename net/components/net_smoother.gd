@@ -7,6 +7,14 @@ extends Node
 ## snap_distance (a zone teleport) snaps instead of sliding across the map.
 
 const MAX_EXTRAPOLATION_SECONDS: float = 0.1
+## Horizontal speed above which a gap in updates counts as a hitch, in m/s.
+const MOVING_SPEED: float = 0.5
+
+## Totals across every smoother in this process, read by net/dev/probe.gd.
+## A hitch is a gap between updates longer than delay_seconds while the body was
+## moving, which shows as a freeze and a jump. Assumes the mover never stands still,
+## which holds for --bot players.
+static var stats: Dictionary = {"samples": 0, "hitches": 0, "max_gap_ms": 0.0, "snaps": 0}
 
 ## How far behind the newest snapshot the visual is rendered, in seconds.
 @export var delay_seconds: float = 0.1
@@ -38,7 +46,17 @@ func _physics_process(_delta: float) -> void:
 	if origin.distance_squared_to(_last_recorded) < 0.0000001 and not _samples.is_empty():
 		return
 	_last_recorded = origin
-	_samples.append({"at": _now(), "xform": body.global_transform})
+	var now := _now()
+	if not _samples.is_empty():
+		var previous: Dictionary = _samples[_samples.size() - 1]
+		var gap := now - float(previous["at"])
+		if float(previous.get("speed", 0.0)) > MOVING_SPEED:
+			stats["max_gap_ms"] = maxf(float(stats["max_gap_ms"]), gap * 1000.0)
+			if gap > delay_seconds:
+				stats["hitches"] = int(stats["hitches"]) + 1
+	stats["samples"] = int(stats["samples"]) + 1
+	var velocity: Vector3 = body.get("velocity") if "velocity" in body else Vector3.ZERO
+	_samples.append({"at": now, "xform": body.global_transform, "speed": Vector2(velocity.x, velocity.z).length()})
 	var cutoff := _now() - delay_seconds - 1.0
 	while _samples.size() > 2 and float(_samples[0]["at"]) < cutoff:
 		_samples.remove_at(0)
@@ -53,8 +71,9 @@ func _process(_delta: float) -> void:
 	var rendered := _sample_at(_now() - delay_seconds)
 	if rendered.origin.distance_to(body.global_position) > snap_distance:
 		rendered = body.global_transform
+		stats["snaps"] = int(stats["snaps"]) + 1
 		_samples.clear()
-		_samples.append({"at": _now(), "xform": rendered})
+		_samples.append({"at": _now(), "xform": rendered, "speed": 0.0})
 		_last_recorded = rendered.origin
 	_visual.global_transform = rendered
 

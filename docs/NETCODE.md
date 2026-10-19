@@ -341,6 +341,14 @@ User arguments come after `--` and are read with `OS.get_cmdline_user_args()`.
 | `--lot=<n>` | Host only: which lot to load into the lot slot, for testing |
 | `--no-steam` | Skip Steam initialization entirely |
 | `--smoke-test` | Run the automated smoke test and exit (implies `--no-steam`) |
+| `--sim-lag=<ms>` | Add this round trip to incoming packets, half on each peer, so pass it to every instance |
+| `--sim-loss=<percent>` | Drop this share of unreliable packets. Reliable ones arrive one round trip late instead, like a resend |
+| `--bot` | Drive this peer's own player with input actions: always moving, turning, jumping, and hopping between the store and the lot |
+| `--measure=<file>` | Write a JSON report of round trip, bandwidth, hitches, frame times, and ENet throttle when the run ends |
+| `--run-seconds=<n>` | Quit after this many seconds, writing the `--measure` report first |
+| `--screenshot=<dir>` | Save a first-person and an overhead PNG with the F3 overlay showing, every `--screenshot-every=<s>` seconds (default 5). Needs a window |
+
+The last six live in `net/dev/` and do nothing unless a flag asks for them. `--sim-lag`, `--sim-loss`, and `--measure` wrap the ENet peer in `net/dev/link_peer.gd`, which also lets the F3 overlay show bandwidth.
 
 In the editor, use Debug > Customize Run Instances to launch several instances with different flags, for example instance 1 with `--host --name=Host --start-zone=lot` and the others with `--join=127.0.0.1`.
 
@@ -385,7 +393,11 @@ All of this lives in `net/`, and nothing else touches GodotSteam.
 
 ## Testing with latency
 
-A feature is not done until it holds up with 150 ms round trip and 2 percent packet loss. Between two Macs, use Network Link Conditioner (from Apple's Additional Tools for Xcode). It may not affect traffic between instances on the same Mac over localhost, so for that case use the dummynet script in `tools/` (an M1 task). Always include a late join in the test, where one instance joins after the others have been playing for a while, because that is where spawn and "On Change" replication bugs show up.
+A feature is not done until it holds up with 150 ms round trip and 2 percent packet loss. Between two Macs, use Network Link Conditioner (from Apple's Additional Tools for Xcode). It may not affect traffic between instances on the same Mac over localhost, so for that case use `tools/lag.sh on` (dummynet, needs `sudo`) or the `--sim-lag` and `--sim-loss` flags (no `sudo`, works on every platform). Always include a late join in the test, where one instance joins after the others have been playing for a while, because that is where spawn and "On Change" replication bugs show up.
+
+`tools/soak.sh` does all of that without anyone at the keyboard. It starts a host and up to seven `--bot` clients with 150 ms and 2 percent loss, brings the last one in late, collects every peer's `--measure` report, and has `tools/soak_report.py` print a table and a verdict: pass, fail, or inconclusive when the machine was too busy for the timing to mean anything. `-w 2` gives the first two peers windows that take screenshots. Reports and screenshots land in `build/soak/`. The `netcode` GitHub workflow runs the smoke test and a short soak on Linux and Windows for every push.
+
+A hitch is a gap between position updates from a moving player that is longer than `NetSmoother`'s 100 ms buffer, which shows on screen as a freeze and a jump. Under 2 percent of updates is a pass. Player position, rotation, and velocity replicate as Always (unreliable, every 33 ms), so a lost update costs one interval. On Change replicates reliably, and a lost packet then holds up everything behind it for a resend, so keep it for values that change rarely.
 
 ## Debug overlay
 

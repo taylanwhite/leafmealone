@@ -17,8 +17,11 @@ enum Zone { STORE, LOT, BORDER, TRANSIT }
 enum VoiceMode { PUSH_TO_TALK, VOICE_ACTIVATION }
 
 const CHANNEL_COUNT: int = 3
+## ENet's throttle window for round-trip measurements, in milliseconds (ENet's default).
+const ENET_THROTTLE_INTERVAL_MS: int = 5000
 const _CommandLineScript = preload("res://net/command_line.gd")
 const _ClockSyncScript = preload("res://net/clock_sync.gd")
+const _LinkPeerScript = preload("res://net/dev/link_peer.gd")
 
 var _state: State = State.OFFLINE
 var _transport: Transport = Transport.ENET
@@ -63,6 +66,10 @@ func _ready() -> void:
 		var smoke := preload("res://net/smoke_test.gd").new()
 		smoke.name = "SmokeTest"
 		add_child(smoke)
+	if _args.wants_dev_tools():
+		var dev := preload("res://net/dev/dev_tools.gd").new()
+		dev.name = "DevTools"
+		add_child(dev)
 
 
 func _process(delta: float) -> void:
@@ -94,7 +101,7 @@ func host(transport: Transport) -> Error:
 	if error != OK:
 		push_error("[Net] create_server failed: %s" % error_string(error))
 		return error
-	multiplayer.multiplayer_peer = peer
+	multiplayer.multiplayer_peer = _maybe_wrap(peer)
 	_transport = Transport.ENET
 	_hosting = true
 	_clock.start()
@@ -112,7 +119,7 @@ func join_enet(address: String, port: int = Constants.DEFAULT_PORT) -> Error:
 	if error != OK:
 		push_error("[Net] create_client failed: %s" % error_string(error))
 		return error
-	multiplayer.multiplayer_peer = peer
+	multiplayer.multiplayer_peer = _maybe_wrap(peer)
 	_transport = Transport.ENET
 	_hosting = false
 	_clock.start()
@@ -236,13 +243,48 @@ func has_clock_sample() -> bool:
 func peer_ping_ms(peer_id: int) -> int:
 	if peer_id == local_peer_id():
 		return 0
-	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
-	if enet == null or enet.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
-		return -1
-	var packet_peer := enet.get_peer(peer_id)
+	var packet_peer := enet_link(peer_id)
 	if packet_peer == null:
 		return -1
 	return packet_peer.get_statistic(ENetPacketPeer.PEER_ROUND_TRIP_TIME)
+
+
+## The ENet link to one peer, or null. A client links only to the host, so
+## asking a client about another client returns null instead of an engine error.
+func enet_link(peer_id: int) -> ENetPacketPeer:
+	var enet := enet_peer()
+	if enet == null or enet.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
+		return null
+	if not _hosting and peer_id != 1:
+		return null
+	return enet.get_peer(peer_id)
+
+
+## The ENet peer under any development wrapper, or null on other transports.
+func enet_peer() -> ENetMultiplayerPeer:
+	var peer := multiplayer.multiplayer_peer
+	if peer is _LinkPeerScript:
+		peer = (peer as _LinkPeerScript).inner
+	return peer as ENetMultiplayerPeer
+
+
+## Bytes received and sent since the session started, or (-1, -1) when not counted.
+## Counting needs the development wrapper, which --measure or --sim-lag turns on.
+func bandwidth_totals() -> Vector2i:
+	var link := multiplayer.multiplayer_peer as _LinkPeerScript
+	if link == null:
+		return Vector2i(-1, -1)
+	return Vector2i(link.bytes_in, link.bytes_out)
+
+
+## Simulated round trip added by --sim-lag, in milliseconds.
+func simulated_lag_ms() -> int:
+	return _args.sim_lag_ms
+
+
+## Parsed command-line flags, for the development tools in net/dev/.
+func dev_options() -> RefCounted:
+	return _args
 
 
 ## Name used for a menu host or join. Ignored once the handshake has been sent.
@@ -368,6 +410,13 @@ func notify_world_arrived() -> void:
 		_set_state(State.IN_SESSION)
 
 
+func _maybe_wrap(peer: MultiplayerPeer) -> MultiplayerPeer:
+	if not _args.wants_link_peer():
+		return peer
+	print("[Net] link peer on: %d ms simulated round trip, %.1f%% loss" % [_args.sim_lag_ms, _args.sim_loss_percent])
+	return _LinkPeerScript.new(peer, _args.sim_lag_ms, _args.sim_loss_percent / 100.0)
+
+
 func _set_state(next_state: State) -> void:
 	if _state == next_state:
 		return
@@ -468,6 +517,18 @@ func _shutdown(reason: String) -> void:
 func _on_peer_connected(peer_id: int) -> void:
 	# Handshake, not this signal, is what publishes a player.
 	print("[Net] transport connected %d" % peer_id)
+	_open_throttle(peer_id)
+
+
+## ENet drops unreliable packets when round trips vary and recovers over many
+## seconds. Movement is unreliable, so a loading hiccup on join made remote
+## players stutter for about 20 seconds. Our traffic is small, so the throttle
+## goes straight to full and never drops. Steam peers are not affected.
+func _open_throttle(peer_id: int) -> void:
+	var packet_peer := enet_link(peer_id)
+	if packet_peer == null:
+		return
+	packet_peer.throttle_configure(ENET_THROTTLE_INTERVAL_MS, ENetPacketPeer.PACKET_THROTTLE_SCALE, 0)
 
 
 func _on_peer_disconnected(peer_id: int) -> void:

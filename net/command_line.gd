@@ -11,6 +11,24 @@ var lot: int = 0
 var no_steam: bool = false
 var smoke_test: bool = false
 var smoke_client: bool = false
+## Development tools in net/dev/. See tools/soak.sh.
+var sim_lag_ms: int = 0
+var sim_loss_percent: float = 0.0
+var bot: bool = false
+var measure_path: String = ""
+var run_seconds: float = 0.0
+var screenshot_dir: String = ""
+var screenshot_every: float = 5.0
+
+
+## True when the transport should be wrapped in LinkPeer for counting or simulation.
+func wants_link_peer() -> bool:
+	return sim_lag_ms > 0 or sim_loss_percent > 0.0 or measure_path != ""
+
+
+## True when any net/dev tool is requested.
+func wants_dev_tools() -> bool:
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != ""
 
 
 func read() -> void:
@@ -35,5 +53,19 @@ func read() -> void:
 		elif argument == "--smoke-client":
 			smoke_client = true
 			no_steam = true
+		elif argument.begins_with("--sim-lag="):
+			sim_lag_ms = int(argument.trim_prefix("--sim-lag="))
+		elif argument.begins_with("--sim-loss="):
+			sim_loss_percent = float(argument.trim_prefix("--sim-loss="))
+		elif argument == "--bot":
+			bot = true
+		elif argument.begins_with("--measure="):
+			measure_path = argument.trim_prefix("--measure=")
+		elif argument.begins_with("--run-seconds="):
+			run_seconds = float(argument.trim_prefix("--run-seconds="))
+		elif argument.begins_with("--screenshot="):
+			screenshot_dir = argument.trim_prefix("--screenshot=")
+		elif argument.begins_with("--screenshot-every="):
+			screenshot_every = float(argument.trim_prefix("--screenshot-every="))
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)
