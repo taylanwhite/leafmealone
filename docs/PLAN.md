@@ -118,15 +118,15 @@ NET
 - [x] `[NET]` Run event director: pluggable trigger rules for the families in the workbook's Run Events sheet, chances, escalation, cap, and cooldown from `Balance`, and phase events broadcast with server-time starts (OQ-009).
 - [x] `[NET]` NPC sync: host-owned crew members spawned by `NpcSpawner`, smoothed on clients.
 - [x] `[NET]` Captures and cohorts: host-side capture checks with a tunable forgiving radius, the batching window (OQ-025), roster freeze, and the van ride with seats filled from the roster.
-- [ ] `[NET]` Proximity voice as specified in `NETCODE.md`, including the macOS microphone entitlement check in an exported build on both platforms.
+- [ ] `[NET]` Proximity voice as specified in `NETCODE.md`, including the macOS microphone entitlement check in an exported build on both platforms. Built and passing the bot soak with a test tone. Still needs a hand test over Steam with real microphones on two machines.
 - [x] `[NET]` Extend the smoke test: a capture produces a cohort whose van seat count matches.
 
 PLAY
 - [x] `[PLAY]` Crew behavior in `npcs/`: arrival, chasing with NavigationAgent3D, searching, and capturing, using placeholder visuals and the placeholder name `[CREW NAME]` until the design names them (OQ-012).
-- [ ] `[PLAY]` Warning and foreshadow cues (sound, radio, visual) for each phase, timed to the phase events.
-- [ ] `[PLAY]` Counterplay version zero: running, hiding behind or inside things, and breaking line of sight (OQ-010).
+- [x] `[PLAY]` Warning and foreshadow cues (sound, radio, visual) for each phase, timed to the phase events.
+- [x] `[PLAY]` Counterplay version zero: running, hiding behind or inside things, and breaking line of sight (OQ-010).
 - [x] `[PLAY]` The van with visible occupants that always match the captured roster for 1 to 8 captured players (OQ-026).
-- [ ] `[PLAY]` Voice: AudioStreamPlayer3D on each head, a speaking indicator over each player and in the lobby, and a voice settings screen.
+- [x] `[PLAY]` Voice: AudioStreamPlayer3D on each head, a speaking indicator over each player and in the lobby, and a voice settings screen.
 
 Done when a run event can fire, players can escape or be caught, the van always shows exactly the captured players, voices fade with distance, and it all works across Mac and Windows.
 
@@ -159,7 +159,7 @@ NET
 - [x] `[NET]` Bandwidth and ping checked with eight players in the debug overlay.
 
 PLAY
-- [ ] `[PLAY]` Art pass on the store, lot 1, and the border zone following `ART.md`, including the shared post-process look.
+- [x] `[PLAY]` Art pass on the store, lot 1, and the border zone following `ART.md`, including the shared post-process look.
 - [x] `[PLAY]` Quip playback with cooldowns and per-session limits, using draft lines from the workbook with their Q ids, from one strings file (BL-008).
 - [x] `[PLAY]` Sound pass: footsteps, raking, bags, the truck, the van, and run event audio.
 
