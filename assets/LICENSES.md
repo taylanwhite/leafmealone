@@ -9,3 +9,7 @@
 | assets/audio/sfx/truck.wav | Original synthesized placeholder | Project original | no | Python |
 | assets/audio/sfx/van.wav | Original synthesized placeholder | Project original | no | Python |
 | assets/audio/sfx/warning.wav | Original synthesized placeholder | Project original | no | Python |
+| assets/audio/sfx/radio.wav | Original, synthesized by tools/make_placeholder_sfx.py | Project original | no | Python |
+| assets/audio/sfx/tick.wav | Original, synthesized by tools/make_placeholder_sfx.py | Project original | no | Python |
+| assets/audio/sfx/arrive.wav | Original, synthesized by tools/make_placeholder_sfx.py | Project original | no | Python |
+| assets/audio/sfx/clear.wav | Original, synthesized by tools/make_placeholder_sfx.py | Project original | no | Python |
