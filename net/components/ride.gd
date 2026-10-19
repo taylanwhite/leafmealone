@@ -5,6 +5,7 @@ extends Node3D
 
 # TODO(balance): add the truck ride duration to the workbook.
 const RIDE_DURATION_SECONDS: float = 8.0
+const _Vehicles = preload("res://props/vehicles.gd")
 
 var _riding: bool = false
 var _start_time: float = 0.0
@@ -15,7 +16,6 @@ var _bags: int = 0
 var _path: Path3D
 var _body: Node3D
 var _seats: Node3D
-var _mesh: MeshInstance3D
 var _label: Label3D
 var _vehicle_name: String = "Chefty"
 var _vehicle_color: Color = Color(0.75, 0.22, 0.15)
@@ -98,8 +98,13 @@ func setup_as_van(from_point: Vector3, to_point: Vector3) -> void:
 	add_to_group("vans")
 	_vehicle_name = "Van"
 	_vehicle_color = Color(0.16, 0.17, 0.2)
-	if _mesh != null and _mesh.material_override is StandardMaterial3D:
-		(_mesh.material_override as StandardMaterial3D).albedo_color = _vehicle_color
+	if _body != null:
+		var truck := _body.get_node_or_null("TruckLook")
+		if truck != null:
+			truck.free()
+		_Vehicles.build_van(_body, _vehicle_color)
+		if _label != null:
+			_label.position.y = 3.9
 	var curve := Curve3D.new()
 	curve.add_point(from_point)
 	curve.add_point((from_point + to_point) * 0.5 + Vector3(0.0, 3.0, 0.0))
@@ -163,24 +168,15 @@ func _build() -> void:
 	_body = Node3D.new()
 	_body.name = "Body"
 	add_child(_body)
-	var mesh := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(2.4, 1.6, 5.5)
-	mesh.mesh = box
-	mesh.position = Vector3(0.0, 0.8, 0.0)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.75, 0.22, 0.15)
-	mesh.name = "Mesh"
-	mesh.material_override = material
-	_body.add_child(mesh)
-	_mesh = mesh
+	# The look lives in props/vehicles.gd. Riders sit where they can be seen.
+	_Vehicles.build_truck(_body, _vehicle_color)
 	var label := Label3D.new()
 	label.name = "Label"
 	label.text = "Chefty"
 	label.font_size = 72
 	label.outline_size = 12
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.position = Vector3(0.0, 2.0, 0.0)
+	label.position = Vector3(0.0, 3.4, 0.0)
 	_body.add_child(label)
 	_label = label
 	var seats := Node3D.new()
