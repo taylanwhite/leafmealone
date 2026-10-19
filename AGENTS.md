@@ -28,7 +28,7 @@ Players take impossible leaf-cleanup jobs, ride a truck from a store to job lots
 | Lane | Default owner | Owns |
 | --- | --- | --- |
 | NET | Taylan | `net/` (the `Net` and `Campaign` autoloads, transports, Steam, zones, shared clock, leaf field data and replication, net components, rides, run event director, captures and cohorts, Border Return timing, saves, voice, debug overlay, smoke test), `tools/` |
-| PLAY | Taylan's brother | `player/`, `equipment/` (rake, bags, and other in-game tools), `leaves/` (leaf rendering and effects), `props/`, `levels/` (the world and all lots), `npcs/` (crew behavior), `border/` (lane layouts and hazards as data), `ui/` |
+| PLAY | Taylan's brother (Taylan for now, see `docs/DECISIONS.md` 2026-10-18) | `player/`, `equipment/` (rake, bags, and other in-game tools), `leaves/` (leaf rendering and effects), `props/`, `levels/` (the world and all lots), `npcs/` (crew behavior), `border/` (lane layouts and hazards as data), `ui/` |
 | SHARED | Both | `project.godot`, `export_presets.cfg`, `core/`, `assets/`, `design/`, `docs/`, `AGENTS.md`, `.cursor/rules/` |
 
 Rules for shared files:

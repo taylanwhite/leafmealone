@@ -118,3 +118,8 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Why:** Real voice needs Steam on two machines and a person talking, so it can't run in CI or in a bot soak. `--voice-test` replaces the microphone with a quiet tone in talk bursts, sent as raw 16-bit PCM over the same RPC, buffer, and AudioStreamPlayer3D path as Steam voice. Only Steam capture and `decompressVoice` are left out, and those still need a hand test in exported builds on both platforms. Players on ENet still get no voice.
 - **Also:** GodotSteam 4.23.1 has no `SteamVoice` node, so voice uses the raw functions through `net/steam_bridge.gd`. Voice decodes at 16 kHz to keep the per-sample loop cheap with eight players.
 - **First 8-player result:** 150 ms and 2 percent loss, real macOS audio muted: every peer heard all seven others, about 159 ms between two clients through the host, 3 to 4 percent of packets lost across two lossy hops, and playback running dry about 1.5 points more often than packets were lost.
+
+### 2026-10-18: Taylan works both lanes for now
+
+- **Why:** Taylan's brother isn't working on the game at the moment, so PLAY tasks would otherwise wait indefinitely. Taylan owns NET and PLAY until his brother returns. Commits keep the prefix of the folder they touch, so the history still reads by lane, and `HANDOFFS.md` is only for requests while both are active.
+- **Revisit:** When his brother comes back. Hand PLAY back by updating `AGENTS.md` and each `local-me.mdc`.
