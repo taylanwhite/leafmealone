@@ -6,6 +6,8 @@ extends Node
 const CREW_SCENE: PackedScene = preload("res://npcs/crew_member.tscn")
 const _RideScript: Script = preload("res://net/components/ride.gd")
 const _Rules: Script = preload("res://net/run_events/rules.gd")
+## From the lot zone's origin, where the crew appears.
+const CREW_ARRIVAL_OFFSET := Vector3(16.0, 0.1, 0.0)
 
 signal phase_changed(status: String)
 
@@ -32,6 +34,29 @@ func _ready() -> void:
 
 func status_line() -> String:
 	return _status
+
+
+## Phase as a Phase value, for the cues in ui/run_cues.gd.
+func phase() -> int:
+	return _phase
+
+
+## Server time the current phase began.
+func phase_started_at() -> float:
+	return _phase_started
+
+
+## Server time the crew arrives, during the warning. -1 at any other time.
+func arrival_time() -> float:
+	if _phase != Phase.WARNING:
+		return -1.0
+	return _phase_started + Constants.RUN_WARNING_SECONDS
+
+
+## Where the crew appears on the lot.
+func crew_arrival_point() -> Vector3:
+	var lot := get_parent().get_node("LotZone") as Node3D
+	return lot.position + CREW_ARRIVAL_OFFSET
 
 
 func cohort_size() -> int:
@@ -152,8 +177,7 @@ func _spawn_crew() -> void:
 		return
 	var crew := CREW_SCENE.instantiate()
 	crew.name = "Crew1"
-	var lot := get_parent().get_node("LotZone") as Node3D
-	crew.position = lot.position + Vector3(16.0, 0.1, 0.0)
+	crew.position = crew_arrival_point()
 	npcs.add_child(crew, true)
 
 
@@ -208,12 +232,6 @@ func _log(event_name: String, data: Dictionary) -> void:
 		telemetry.call("event", event_name, data)
 
 
-func _play_sfx(sound_name: String) -> void:
-	var sfx := get_tree().get_first_node_in_group("sfx")
-	if sfx != null:
-		sfx.call("play", sound_name)
-
-
 func _on_player_left(peer_id: int) -> void:
 	if Net.is_host():
 		_rpc_drop_rider.rpc(peer_id)
@@ -231,8 +249,7 @@ func _rpc_phase(phase: int, started_at: float, status: String) -> void:
 	phase_changed.emit(status)
 	if Net.is_host():
 		_log("run_phase", {"phase": phase, "status": status})
-	if status.find("on the way") >= 0:
-		_play_sfx("warning")
+	# Sounds and visuals for each phase are in ui/run_cues.gd, timed from started_at.
 
 
 @rpc("authority", "call_local", "reliable")
