@@ -10,6 +10,9 @@
 #   tools/soak.sh -l 0 -p 0       perfect connection
 #   tools/soak.sh -a              real macOS audio driver (muted), so voice
 #                                 playback gaps are measured, not just delivery
+#   tools/soak.sh -e 15           everyone starts on the lot and stays, and the
+#                                 host starts a run event at 15 s: checks the
+#                                 cues on every peer, then captures and returns
 #   tools/soak.sh -V              no voice. The test tone is uncompressed, about
 #                                 32 KB/s per speaker, so use -V to measure bandwidth
 #
@@ -28,8 +31,9 @@ PORT=7791
 OUT=""
 VOICE=(--voice-test)
 AUDIO=()
+EVENT_AT=-1
 
-while getopts "n:s:l:p:w:P:o:Va" option; do
+while getopts "n:s:l:p:w:P:o:Vae:" option; do
 	case "$option" in
 		n) PLAYERS="$OPTARG" ;;
 		s) SECONDS_TO_RUN="$OPTARG" ;;
@@ -40,7 +44,8 @@ while getopts "n:s:l:p:w:P:o:Va" option; do
 		o) OUT="$OPTARG" ;;
 		V) VOICE=() ;;
 		a) AUDIO=(--audio-driver CoreAudio) ;;
-		*) sed -n '2,15p' "$0" >&2; exit 64 ;;
+		e) EVENT_AT="$OPTARG" ;;
+		*) sed -n '2,22p' "$0" >&2; exit 64 ;;
 	esac
 done
 
@@ -69,6 +74,10 @@ launch() {
 	if [ "$role" = "--host" ]; then run_for=$((END_AT + 5 - start_at)); fi
 	local network=()
 	if [ "$role" = "--host" ]; then network=(--host); else network=(--join=127.0.0.1); fi
+	if [ "$EVENT_AT" != "-1" ]; then
+		network+=(--bot-stay)
+		if [ "$role" = "--host" ]; then network+=(--start-zone=lot --run-event-at="$EVENT_AT"); fi
+	fi
 	"$GODOT" "${display[@]}" ${AUDIO[@]+"${AUDIO[@]}"} --path "$ROOT" -- \
 		"${network[@]}" --port="$PORT" --name="$name" --no-steam --bot --mute-audio \
 		--sim-lag="$LAG_MS" --sim-loss="$LOSS_PERCENT" ${VOICE[@]+"${VOICE[@]}"} \
@@ -95,4 +104,4 @@ for pid in "${PIDS[@]}"; do
 	wait "$pid" || true
 done
 
-"$PYTHON" "$ROOT/tools/soak_report.py" "$OUT" "$PLAYERS" "$LAG_MS" "$LOSS_PERCENT"
+"$PYTHON" "$ROOT/tools/soak_report.py" "$OUT" "$PLAYERS" "$LAG_MS" "$LOSS_PERCENT" "$EVENT_AT"

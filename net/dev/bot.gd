@@ -42,7 +42,7 @@ func _physics_process(delta: float) -> void:
 	if _elapsed >= _next_change:
 		_choose_next()
 	player.set("body_yaw", float(player.get("body_yaw")) + _turn_rate * delta)
-	if _elapsed >= _next_zone_move:
+	if _elapsed >= _next_zone_move and not bool(Net.dev_options().get("bot_stay")):
 		_next_zone_move = _elapsed + _rng.randf_range(ZONE_MOVE_MIN_SECONDS, ZONE_MOVE_MAX_SECONDS)
 		var here := Net.player_zone(Net.local_peer_id())
 		if here == Net.Zone.STORE:

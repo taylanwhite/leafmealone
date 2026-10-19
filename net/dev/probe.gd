@@ -6,6 +6,7 @@ extends Node
 
 const _SmootherScript = preload("res://net/components/net_smoother.gd")
 const _VoiceScript = preload("res://net/voice/voice.gd")
+const _RunCuesScript = preload("res://ui/run_cues.gd")
 ## A frame longer than this stalls sending, so hitches can come from a busy
 ## machine rather than the network. The report counts them so the two can be told apart.
 const LONG_FRAME_SECONDS: float = 0.05
@@ -29,8 +30,21 @@ var _players_seen_max: int = 0
 var _errors: Array[String] = []
 
 
+## Godot's own frame timing, sampled once a second, to tell script time from physics time.
+var _process_ms: Array[float] = []
+var _physics_ms: Array[float] = []
+var _active_bodies: int = 0
+var _collision_pairs: int = 0
+## This peer's own zones in order, for following captures and returns.
+var _zones: Array[String] = []
+
+
 func _ready() -> void:
 	_started_msec = Time.get_ticks_msec()
+	Net.player_zone_changed.connect(func(peer_id: int, zone: Net.Zone) -> void:
+		if peer_id == Net.local_peer_id():
+			_zones.append(Net.Zone.keys()[zone])
+	)
 
 
 func _process(delta: float) -> void:
@@ -43,6 +57,10 @@ func _process(delta: float) -> void:
 		return
 	_wait = 0.0
 	_track_throttle()
+	_process_ms.append(Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
+	_physics_ms.append(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	_active_bodies = maxi(_active_bodies, int(Performance.get_monitor(Performance.PHYSICS_3D_ACTIVE_OBJECTS)))
+	_collision_pairs = maxi(_collision_pairs, int(Performance.get_monitor(Performance.PHYSICS_3D_COLLISION_PAIRS)))
 	_fps.append(Engine.get_frames_per_second())
 	_players_seen_max = maxi(_players_seen_max, Net.peer_ids().size())
 	if not Net.is_host() and Net.has_clock_sample():
@@ -77,7 +95,13 @@ func write_report() -> void:
 		"packets_dropped": dropped,
 		"smoother": _SmootherScript.stats.duplicate(),
 		"voice": _voice_report(),
+		"run_cues": _RunCuesScript.log.duplicate(),
+		"zones": _zones,
 		"audio_driver": AudioServer.get_driver_name(),
+		"process_ms_median": _percentile(_process_ms, 0.5),
+		"physics_ms_median": _percentile(_physics_ms, 0.5),
+		"physics_active_bodies_max": _active_bodies,
+		"physics_collision_pairs_max": _collision_pairs,
 		"long_frames": _long_frames,
 		"enet_throttle_min": _throttle_min,
 		"enet_throttle_trace": _throttle_trace,

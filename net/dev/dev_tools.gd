@@ -1,7 +1,8 @@
 extends Node
 
 ## Authority: local. Development tools turned on by command-line flags:
-## --bot, --measure=<file>, --screenshot=<dir>, --run-seconds=<n>, and --mute-audio.
+## --bot, --bot-stay, --measure=<file>, --screenshot=<dir>, --run-seconds=<n>,
+## --mute-audio, and --run-event-at=<n>.
 ## tools/soak.sh launches whole sessions with them. Nothing here runs in a
 ## normal game.
 
@@ -24,6 +25,21 @@ func _ready() -> void:
 	var seconds := float(options.get("run_seconds"))
 	if seconds > 0.0:
 		get_tree().create_timer(seconds).timeout.connect(_finish)
+	var event_at := float(options.get("run_event_at"))
+	if event_at >= 0.0:
+		get_tree().create_timer(event_at).timeout.connect(_force_run_event)
+
+
+## Host only: start a run event's warning now, as F6 does.
+func _force_run_event() -> void:
+	if not Net.is_host():
+		return
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director == null:
+		push_warning("[Dev] no run director to start an event")
+		return
+	print("[Dev] forcing a run event")
+	director.call("force_event")
 
 
 func _add(node: Node, node_name: String) -> void:

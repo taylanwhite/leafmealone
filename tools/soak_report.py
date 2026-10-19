@@ -26,6 +26,8 @@ VOICE_LOSS_SLACK = 0.01
 VOICE_LATENCY_SLACK_MS = 100
 # Playback gaps allowed beyond lost packets, each of which leaves a gap.
 VOICE_UNDERRUN_SLACK = 0.02
+# How late a run event cue may show beyond the network delay, in milliseconds.
+CUE_SLACK_MS = 100
 
 
 def main() -> int:
@@ -33,6 +35,7 @@ def main() -> int:
     players = int(sys.argv[2])
     lag_ms = int(sys.argv[3])
     loss_percent = float(sys.argv[4]) if len(sys.argv) > 4 else 2.0
+    event_at = float(sys.argv[5]) if len(sys.argv) > 5 else -1.0
     failures: list[str] = []
     busy: list[str] = []
     warnings: list[str] = []
@@ -112,6 +115,18 @@ def main() -> int:
             if latency >= 0 and latency > lag_ms + VOICE_LATENCY_SLACK_MS:
                 message = f"{name}: voice arrived {latency:.0f} ms after it was sent (limit {lag_ms + VOICE_LATENCY_SLACK_MS} ms)"
                 (busy if peer_busy else failures).append(message)
+        if event_at >= 0:
+            cues = report.get("run_cues", [])
+            seen = {cue["phase"] for cue in cues}
+            for phase, label in ((1, "warning"), (2, "arrival")):
+                if phase not in seen:
+                    failures.append(f"{name}: never showed the run event {label} cue")
+            late = max((cue["late_ms"] for cue in cues), default=0.0)
+            # The phase change is one reliable message from the host, which a loss can delay by a resend.
+            late_limit = lag_ms * 1.5 + CUE_SLACK_MS
+            if late > late_limit:
+                message = f"{name}: a run event cue showed {late:.0f} ms late (limit {late_limit:.0f} ms)"
+                (busy if long_per_minute > BUSY_LONG_FRAMES_PER_MINUTE or host_busy else failures).append(message)
         if hitch_rate > MAX_HITCH_RATE:
             message = f"{name}: remote players hitched on {hitch_rate:.1%} of updates (limit {MAX_HITCH_RATE:.0%})"
             if long_per_minute > BUSY_LONG_FRAMES_PER_MINUTE:
@@ -145,6 +160,11 @@ def main() -> int:
         print(f"  busy: {line}")
     for line in warnings:
         print(f"  note: {line}")
+    if event_at >= 0:
+        captured = [name for name, report in reports.items() if "BORDER" in report.get("zones", [])]
+        returned = [name for name, report in reports.items()
+                    if "BORDER" in report.get("zones", []) and "LOT" in report["zones"][report["zones"].index("BORDER"):]]
+        print(f"run event: {len(captured)} captured, {len(returned)} crossed back to the lot")
     shots = sorted((run_dir / "shots").glob("*.png")) if (run_dir / "shots").exists() else []
     print(f"soak {verdict}: {len(reports)} reports, {len(shots)} screenshots in {run_dir}")
 
