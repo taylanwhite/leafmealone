@@ -23,6 +23,9 @@ const UI: Dictionary = {
 	"cue_countdown": "%d",
 	"cue_arrived": "[CREW NAME] is here. Run. Hide. Break line of sight.",
 	"cue_clear": "All clear",
+	"hide_hint": "E to hide",
+	"hide_taken": "Occupied",
+	"hud_hidden": "Hiding. E to come out.",
 }
 
 const LINES: Array[Dictionary] = [

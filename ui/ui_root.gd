@@ -123,10 +123,19 @@ func _process(_delta: float) -> void:
 		_start_button.visible = Net.is_host()
 
 
-## "Talking" while this player's voice is going out, or the push-to-talk hint.
+## "Talking" while this player's voice is going out, or the push-to-talk hint,
+## after a line saying so while hiding.
 func _voice_line() -> String:
+	var line := ""
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()) and bool(node.call("is_hidden")):
+			line = "\n" + str(_Strings.UI["hud_hidden"])
 	if not Net.voice_available():
-		return ""
+		return line
+	return line + _voice_part()
+
+
+func _voice_part() -> String:
 	if Net.is_player_speaking(Net.local_peer_id()):
 		return "\n" + str(_Strings.UI["hud_talking"])
 	if Net.voice_mode() == Net.VoiceMode.PUSH_TO_TALK:

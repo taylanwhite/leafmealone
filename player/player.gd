@@ -36,6 +36,8 @@ var _throwback_from: Vector3 = Vector3.ZERO
 var _throwback_to: Vector3 = Vector3.ZERO
 var _crossing_bounded: bool = false
 var _crossing_drive: bool = false
+## Hiding spot this player is inside, set by the host through net/components/hide_spot.gd.
+var _hidden_spot: Node3D
 var _crossing_min: Vector3 = Vector3.ZERO
 var _crossing_max: Vector3 = Vector3.ZERO
 var _step_wait: float = 0.0
@@ -72,6 +74,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_camera"):
 		%CameraRig.toggle()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _toggle_hiding():
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("drop"):
@@ -91,7 +95,9 @@ func _physics_process(delta: float) -> void:
 			body_yaw = PI
 		else:
 			_apply_look()
-		if _throwback_left > 0.0:
+		if _hidden_spot != null:
+			velocity = Vector3.ZERO
+		elif _throwback_left > 0.0:
 			_step_throwback(delta)
 		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
 			var seat: Transform3D = _ride.call("seat_transform", _seat_index)
@@ -119,6 +125,47 @@ func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
 
 
 ## Host-ordered teleport. Runs on the owning peer only.
+## Called on every peer by the host's hide spot. Null means this player came out.
+func set_hidden_in(spot: Node3D) -> void:
+	var leaving := _hidden_spot
+	_hidden_spot = spot
+	$Visual.visible = spot == null
+	%Collision.disabled = spot != null
+	if not is_multiplayer_authority():
+		return
+	velocity = Vector3.ZERO
+	if spot != null:
+		_release_held(false)
+		global_position = spot.global_position + Vector3(0.0, 0.1, 0.0)
+	elif leaving != null and leaving.has_method("exit_position"):
+		global_position = leaving.call("exit_position")
+
+
+func is_hidden() -> bool:
+	return _hidden_spot != null
+
+
+## E inside a hiding spot comes out. E next to a free one asks the host to get in.
+func _toggle_hiding() -> bool:
+	if _hidden_spot != null:
+		_hidden_spot.call("request_exit")
+		return true
+	var closest: Node3D = null
+	var closest_distance := Constants.HIDE_REACH
+	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
+		var spot := node as Node3D
+		if spot == null or int(spot.get("occupant")) != 0:
+			continue
+		var distance := spot.global_position.distance_to(global_position)
+		if distance <= closest_distance:
+			closest = spot
+			closest_distance = distance
+	if closest == null:
+		return false
+	closest.call("request_enter")
+	return true
+
+
 func apply_network_teleport(at: Transform3D) -> void:
 	global_position = at.origin
 	velocity = Vector3.ZERO
