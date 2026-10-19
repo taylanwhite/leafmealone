@@ -56,6 +56,21 @@ func _ready() -> void:
 	Net.player_left.connect(_on_player_left)
 
 
+## Drop the playback objects held for each speaker, or they outlive the engine at quit.
+func _exit_tree() -> void:
+	for speaker: Dictionary in _speakers.values():
+		_release_output(speaker["player"])
+	_speakers.clear()
+
+
+## A generator still playing when its player is freed keeps its playback alive
+## past quit. Stopping it first lets both go. audio/sfx.gd does the same.
+static func _release_output(player: Variant) -> void:
+	if is_instance_valid(player) and player is AudioStreamPlayer3D:
+		(player as AudioStreamPlayer3D).stop()
+		(player as AudioStreamPlayer3D).stream = null
+
+
 ## True when this session can carry voice: Steam, or the --voice-test tone.
 func is_available() -> bool:
 	return _tone != null or (Net.current_transport() == Net.Transport.STEAM and _bridge_ready())
@@ -291,6 +306,7 @@ func _speaker(peer_id: int) -> Dictionary:
 func _on_player_left(peer_id: int) -> void:
 	if not _speakers.has(peer_id):
 		return
+	_release_output(_speakers[peer_id]["player"])
 	if bool(_speakers[peer_id]["speaking"]):
 		_announce(peer_id, false)
 	_speakers.erase(peer_id)
