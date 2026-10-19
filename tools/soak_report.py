@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read the reports from a tools/soak.sh run and decide pass, fail, or inconclusive.
 
-Usage: soak_report.py <run dir> <players> <simulated lag ms>
+Usage: soak_report.py <run dir> <players> <simulated lag ms> [simulated loss percent]
 Writes summary.json in the run dir. Exit code 0 pass, 1 fail, 2 inconclusive.
 
 The hitch rate decides pass or fail. The max gap column is for reading only: a
@@ -19,12 +19,20 @@ BUSY_LONG_FRAMES_PER_MINUTE = 20
 FULL_THROTTLE = 32
 # Measured round trip may exceed the simulated one by this much (frame and poll delay).
 RTT_SLACK_MS = 60
+# Voice packet loss allowed on top of what the simulated loss explains.
+VOICE_LOSS_SLACK = 0.01
+# Sender-to-receiver voice delay allowed beyond the simulated round trip, which
+# covers the two half-trips through the host. Excludes the playback buffer.
+VOICE_LATENCY_SLACK_MS = 100
+# Playback gaps allowed beyond lost packets, each of which leaves a gap.
+VOICE_UNDERRUN_SLACK = 0.02
 
 
 def main() -> int:
     run_dir = pathlib.Path(sys.argv[1])
     players = int(sys.argv[2])
     lag_ms = int(sys.argv[3])
+    loss_percent = float(sys.argv[4]) if len(sys.argv) > 4 else 2.0
     failures: list[str] = []
     busy: list[str] = []
     warnings: list[str] = []
@@ -81,6 +89,29 @@ def main() -> int:
                     busy.append(f"{message}, but frames were slow on this peer or the host")
                 else:
                     failures.append(message)
+        voice = report.get("voice") or {}
+        if voice:
+            peer_busy = long_per_minute > BUSY_LONG_FRAMES_PER_MINUTE or host_busy
+            if voice["heard_from"] < players - 1:
+                failures.append(f"{name}: heard voice from {voice['heard_from']} of {players - 1} other players")
+            if voice["decode_failures"] > 0:
+                failures.append(f"{name}: {voice['decode_failures']} voice packets failed to decode")
+            # Voice from another client crosses two lossy hops through the host.
+            loss_limit = 2.5 * loss_percent / 100.0 + VOICE_LOSS_SLACK
+            if voice["loss_rate"] > loss_limit:
+                failures.append(f"{name}: lost {voice['loss_rate']:.1%} of voice packets (limit {loss_limit:.1%})")
+            # The Dummy driver used by headless runs doesn't play in real time,
+            # so playback gaps only mean something with a real driver (-a).
+            if report.get("audio_driver", "Dummy") != "Dummy":
+                underrun_rate = voice["underruns"] / max(voice["received_packets"], 1)
+                underrun_limit = loss_limit + VOICE_UNDERRUN_SLACK
+                if underrun_rate > underrun_limit:
+                    message = f"{name}: voice playback ran dry on {underrun_rate:.1%} of packets (limit {underrun_limit:.1%})"
+                    (busy if peer_busy else failures).append(message)
+            latency = voice["latency_ms_median"]
+            if latency >= 0 and latency > lag_ms + VOICE_LATENCY_SLACK_MS:
+                message = f"{name}: voice arrived {latency:.0f} ms after it was sent (limit {lag_ms + VOICE_LATENCY_SLACK_MS} ms)"
+                (busy if peer_busy else failures).append(message)
         if hitch_rate > MAX_HITCH_RATE:
             message = f"{name}: remote players hitched on {hitch_rate:.1%} of updates (limit {MAX_HITCH_RATE:.0%})"
             if long_per_minute > BUSY_LONG_FRAMES_PER_MINUTE:
@@ -89,13 +120,17 @@ def main() -> int:
                 failures.append(message)
 
     print()
-    print(f"{'peer':<6} {'rtt ms':>7} {'KB/s in':>8} {'KB/s out':>9} {'hitch':>6} {'max gap':>8} {'snaps':>5} {'long/min':>8} {'fps':>4}")
+    print(f"{'peer':<6} {'rtt ms':>7} {'KB/s in':>8} {'KB/s out':>9} {'hitch':>6} {'max gap':>8} {'snaps':>5} "
+          f"{'long/min':>8} {'fps':>4} {'voice ms':>8} {'v loss':>6} {'heard':>5}")
     for name, report, hitch_rate, long_per_minute in sorted(rows, key=lambda row: (not row[1]["is_host"], row[0])):
         rtt = report["rtt_ms_median"]
+        voice = report.get("voice") or {}
+        voice_cells = (f"{voice['latency_ms_median']:>8.0f} {voice['loss_rate']:>6.1%} {voice['heard_from']:>5}"
+                       if voice else f"{'-':>8} {'-':>6} {'-':>5}")
         print(f"{name:<6} {rtt if rtt >= 0 else 0:>7.0f} {report['bytes_in_per_second'] / 1024:>8.1f} "
               f"{report['bytes_out_per_second'] / 1024:>9.1f} {hitch_rate:>6.1%} "
               f"{report['smoother']['max_gap_ms']:>6.0f}ms {report['smoother']['snaps']:>5} "
-              f"{long_per_minute:>8.0f} {report['fps_median']:>4.0f}")
+              f"{long_per_minute:>8.0f} {report['fps_median']:>4.0f} {voice_cells}")
     print()
 
     if failures:

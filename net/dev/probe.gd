@@ -5,6 +5,7 @@ extends Node
 ## reports from every peer and decides pass or fail.
 
 const _SmootherScript = preload("res://net/components/net_smoother.gd")
+const _VoiceScript = preload("res://net/voice/voice.gd")
 ## A frame longer than this stalls sending, so hitches can come from a busy
 ## machine rather than the network. The report counts them so the two can be told apart.
 const LONG_FRAME_SECONDS: float = 0.05
@@ -75,6 +76,8 @@ func write_report() -> void:
 		"bytes_out_per_second": float(totals.y) / session_seconds if session_seconds > 0.0 else 0.0,
 		"packets_dropped": dropped,
 		"smoother": _SmootherScript.stats.duplicate(),
+		"voice": _voice_report(),
+		"audio_driver": AudioServer.get_driver_name(),
 		"long_frames": _long_frames,
 		"enet_throttle_min": _throttle_min,
 		"enet_throttle_trace": _throttle_trace,
@@ -88,6 +91,30 @@ func write_report() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	file.close()
 	print("[Probe] wrote %s" % path)
+
+
+func _voice_report() -> Dictionary:
+	var voice := Net.get_node_or_null("Voice")
+	if voice == null or not bool(voice.call("is_available")):
+		return {}
+	var stats: Dictionary = _VoiceScript.stats
+	var latency: Array[float] = voice.call("latency_samples")
+	var received := int(stats["received_packets"])
+	var lost := int(stats["lost_packets"])
+	return {
+		"sent_packets": stats["sent_packets"],
+		"sent_bytes": stats["sent_bytes"],
+		"received_packets": received,
+		"lost_packets": lost,
+		"loss_rate": float(lost) / float(maxi(received + lost, 1)),
+		"heard_from": (stats["heard_from"] as Dictionary).size(),
+		"decode_failures": stats["decode_failures"],
+		"underruns": stats["underruns"],
+		"dropped_seconds": stats["dropped_seconds"],
+		"speaking_changes": stats["speaking_changes"],
+		"latency_ms_median": _percentile(latency, 0.5),
+		"latency_ms_p95": _percentile(latency, 0.95),
+	}
 
 
 func _track_throttle() -> void:

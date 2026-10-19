@@ -31,8 +31,8 @@ var _local_name: String = ""
 var _players: Dictionary = {}
 var _clock: _ClockSyncScript = _ClockSyncScript.new()
 var _ping_wait: float = 1.0
-var _voice_mode: VoiceMode = VoiceMode.PUSH_TO_TALK
 var _steam: Node
+var _voice: Node
 
 
 func _ready() -> void:
@@ -52,6 +52,10 @@ func _ready() -> void:
 	_steam.name = "SteamBridge"
 	add_child(_steam)
 	_steam.call("setup", _args.no_steam)
+	# Every peer gets the same Voice node path, which voice RPCs rely on.
+	_voice = preload("res://net/voice/voice.gd").new()
+	_voice.name = "Voice"
+	add_child(_voice)
 	if _args.smoke_test:
 		_args.host = true
 	if _args.host:
@@ -319,17 +323,47 @@ func is_player_ready(peer_id: int) -> bool:
 	return bool(_players[peer_id]["ready"])
 
 
-## Voice mode stored locally until proximity voice exists.
+## Push-to-talk sends only while push_to_talk is held. Voice activation sends
+## whenever Steam hears speech.
 func set_voice_mode(mode: VoiceMode) -> void:
-	_voice_mode = mode
+	_voice.call("set_mode", int(mode))
 
 
-func set_player_volume(_peer_id: int, _volume_linear: float) -> void:
-	pass
+func voice_mode() -> VoiceMode:
+	return int(_voice.call("mode")) as VoiceMode
 
 
-func set_player_muted(_peer_id: int, _muted: bool) -> void:
-	pass
+## True in Steam sessions, and with --voice-test. ENet sessions have no voice otherwise.
+func voice_available() -> bool:
+	return bool(_voice.call("is_available"))
+
+
+## Play a remote player's voice through this player, normally the
+## AudioStreamPlayer3D on their head. Net sets its stream and starts it.
+func attach_voice_output(peer_id: int, player: AudioStreamPlayer3D) -> void:
+	_voice.call("attach_output", peer_id, player)
+
+
+func is_player_speaking(peer_id: int) -> bool:
+	return bool(_voice.call("is_speaking", peer_id))
+
+
+## Local only: how loud this player hears another, 1.0 is normal.
+func set_player_volume(peer_id: int, volume_linear: float) -> void:
+	_voice.call("set_volume", peer_id, volume_linear)
+
+
+func player_volume(peer_id: int) -> float:
+	return float(_voice.call("volume", peer_id))
+
+
+## Local only: stop hearing another player.
+func set_player_muted(peer_id: int, muted: bool) -> void:
+	_voice.call("set_muted", peer_id, muted)
+
+
+func is_player_muted(peer_id: int) -> bool:
+	return bool(_voice.call("is_muted", peer_id))
 
 
 ## True for the headless smoke host and the smoke client.

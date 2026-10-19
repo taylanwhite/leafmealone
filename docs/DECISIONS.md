@@ -112,3 +112,9 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Why:** Checking smoothness and bandwidth by watching two windows does not scale to eight players or to every change. `--bot`, `--measure`, `--sim-lag`, `--sim-loss`, and `--screenshot` (in `net/dev/`) plus `tools/soak.sh` run a whole session unattended and give a verdict, and the `netcode` GitHub workflow runs it on Linux and Windows for every push. People still judge feel and fun by playing.
 - **Considered:** `tools/lag.sh` (dummynet) alone. It needs `sudo` and only works on macOS, so it stays for hand tests and the flags cover automation.
 - **First 8-player result:** 150 ms and 2 percent loss with a late joiner: about 160 ms measured round trip, host about 70 KB/s in and out, each client about 13 KB/s each way, remote players hitching on 0.2 to 0.3 percent of updates.
+
+### 2026-10-18: Voice is tested with a synthetic tone over ENet
+
+- **Why:** Real voice needs Steam on two machines and a person talking, so it can't run in CI or in a bot soak. `--voice-test` replaces the microphone with a quiet tone in talk bursts, sent as raw 16-bit PCM over the same RPC, buffer, and AudioStreamPlayer3D path as Steam voice. Only Steam capture and `decompressVoice` are left out, and those still need a hand test in exported builds on both platforms. Players on ENet still get no voice.
+- **Also:** GodotSteam 4.23.1 has no `SteamVoice` node, so voice uses the raw functions through `net/steam_bridge.gd`. Voice decodes at 16 kHz to keep the per-sample loop cheap with eight players.
+- **First 8-player result:** 150 ms and 2 percent loss, real macOS audio muted: every peer heard all seven others, about 159 ms between two clients through the host, 3 to 4 percent of packets lost across two lossy hops, and playback running dry about 1.5 points more often than packets were lost.

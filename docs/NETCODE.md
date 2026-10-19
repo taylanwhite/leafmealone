@@ -346,9 +346,11 @@ User arguments come after `--` and are read with `OS.get_cmdline_user_args()`.
 | `--bot` | Drive this peer's own player with input actions: always moving, turning, jumping, and hopping between the store and the lot |
 | `--measure=<file>` | Write a JSON report of round trip, bandwidth, hitches, frame times, and ENet throttle when the run ends |
 | `--run-seconds=<n>` | Quit after this many seconds, writing the `--measure` report first |
+| `--voice-test` | Send a quiet test tone in talk bursts as this peer's voice, over ENet too |
+| `--mute-audio` | Mute the master bus. Voice still plays, so playback gaps are measured, but nothing is heard |
 | `--screenshot=<dir>` | Save a first-person and an overhead PNG with the F3 overlay showing, every `--screenshot-every=<s>` seconds (default 5). Needs a window |
 
-The last six live in `net/dev/` and do nothing unless a flag asks for them. `--sim-lag`, `--sim-loss`, and `--measure` wrap the ENet peer in `net/dev/link_peer.gd`, which also lets the F3 overlay show bandwidth.
+The last eight live in `net/dev/` and `net/voice/` and do nothing unless a flag asks for them. `--sim-lag`, `--sim-loss`, and `--measure` wrap the ENet peer in `net/dev/link_peer.gd`, which also lets the F3 overlay show bandwidth.
 
 In the editor, use Debug > Customize Run Instances to launch several instances with different flags, for example instance 1 with `--host --name=Host --start-zone=lot` and the others with `--join=127.0.0.1`.
 
@@ -380,11 +382,23 @@ All of this lives in `net/`, and nothing else touches GodotSteam.
 
 ## Voice (M4)
 
-- Voice only runs in Steam sessions. ENet sessions have no voice.
-- Capture and compression use GodotSteam's voice support. Recent GodotSteam versions include a `SteamVoice` node that handles recording and playback while leaving the transport up to us. Follow the GodotSteam voice tutorial for the installed version rather than writing the capture loop from memory.
-- Compressed voice packets go to every other peer on channel 2 as unreliable ordered RPCs.
-- Each player's head has an AudioStreamPlayer3D fed by an AudioStreamGenerator, which gives positional audio and distance falloff. Tune it so a voice is clear within about 2 meters and fades out around 25 meters.
-- Support push-to-talk and voice activation, and expose per-player volume and mute through `Net`.
+- Voice only runs in Steam sessions. ENet sessions have no voice, except the `--voice-test` tone used by `tools/soak.sh` to test the whole path without a microphone.
+- Capture and compression use GodotSteam's voice functions, called only from `net/steam_bridge.gd`. GodotSteam 4.23.1 has no `SteamVoice` node, so `net/voice/voice.gd` uses `startVoiceRecording`, `stopVoiceRecording`, `getVoice`, and `decompressVoice`, checked against the installed extension.
+- Compressed voice packets go to every other peer on channel 2 as unreliable ordered RPCs, every 40 ms while someone talks, carrying a sequence number and the sender's server time.
+- Each receiver decodes to 16 kHz mono and plays it through an AudioStreamPlayer3D on the speaker's head, fed by an AudioStreamGenerator, which gives positional audio and distance falloff. It is clear within `Constants.VOICE_CLEAR_DISTANCE` (2 m) and fades out by `Constants.VOICE_MAX_DISTANCE` (25 m). Each burst waits for 80 ms of audio before it starts, and at most 400 ms is held so delay can't build up.
+- Push-to-talk sends while `push_to_talk` is held. Voice activation records all the time and lets Steam send only when it hears speech.
+
+```gdscript
+# Added in M4 (voice)
+func voice_available() -> bool
+func voice_mode() -> VoiceMode
+func attach_voice_output(peer_id: int, player: AudioStreamPlayer3D) -> void
+func is_player_speaking(peer_id: int) -> bool
+func set_player_volume(peer_id: int, volume_linear: float) -> void
+func player_volume(peer_id: int) -> float
+func set_player_muted(peer_id: int, muted: bool) -> void
+func is_player_muted(peer_id: int) -> bool
+```
 - macOS needs the microphone entitlement and a usage description in the export preset, or voice silently fails there. `docs/PLATFORMS.md` has the settings. Test voice in exported builds on both macOS and Windows.
 
 ## Cross-platform

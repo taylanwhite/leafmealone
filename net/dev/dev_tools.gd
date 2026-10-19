@@ -1,7 +1,7 @@
 extends Node
 
 ## Authority: local. Development tools turned on by command-line flags:
-## --bot, --measure=<file>, --screenshot=<dir>, and --run-seconds=<n>.
+## --bot, --measure=<file>, --screenshot=<dir>, --run-seconds=<n>, and --mute-audio.
 ## tools/soak.sh launches whole sessions with them. Nothing here runs in a
 ## normal game.
 
@@ -18,6 +18,9 @@ func _ready() -> void:
 		_add(_ProbeScript.new(), "Probe")
 	if str(options.get("screenshot_dir")) != "":
 		_add(_CaptureScript.new(), "Capture")
+	if bool(options.get("mute_audio")):
+		# Streams still mix on a muted bus, so voice playback is measured but silent.
+		AudioServer.set_bus_mute(AudioServer.get_bus_index(&"Master"), true)
 	var seconds := float(options.get("run_seconds"))
 	if seconds > 0.0:
 		get_tree().create_timer(seconds).timeout.connect(_finish)

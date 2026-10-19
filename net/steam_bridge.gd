@@ -3,6 +3,10 @@ extends Node
 ## Authority: local Steam client. Lobby membership is Steam's; the game session still belongs to the host.
 ## Only this file calls GodotSteam. Checked against GodotSteam 4.23: steamInitEx, createLobby, host_with_lobby.
 
+## GodotSteam's page recommends 8 KB or more for compressed voice and 20 KiB to decode into.
+const VOICE_READ_BYTES: int = 8192
+const VOICE_DECODE_BYTES: int = 20480
+
 var available: bool = false
 var unavailable_reason: String = "Steam is not running"
 var lobby_id: int = 0
@@ -48,6 +52,53 @@ func steam_id_for_peer(peer_id: int) -> int:
 	if peer == null:
 		return 0
 	return peer.get_steam_id_for_peer_id(peer_id)
+
+
+## Voice capture, checked against GodotSteam 4.23.1 by listing the Steam class's
+## methods: startVoiceRecording(), stopVoiceRecording(), getVoice(buffer_size)
+## returning result, written, and buffer, and decompressVoice(voice, sample_rate,
+## buffer_size) returning result, size, and uncompressed (16-bit mono PCM).
+func voice_start() -> void:
+	if not available:
+		return
+	Steam.startVoiceRecording()
+	Steam.setInGameVoiceSpeaking(Steam.getSteamID(), true)
+
+
+func voice_stop() -> void:
+	if not available:
+		return
+	Steam.stopVoiceRecording()
+	Steam.setInGameVoiceSpeaking(Steam.getSteamID(), false)
+
+
+## Compressed voice captured since the last call, or empty.
+func voice_read() -> PackedByteArray:
+	if not available:
+		return PackedByteArray()
+	var got: Dictionary = Steam.getVoice(VOICE_READ_BYTES)
+	if int(got.get("result", -1)) != Steam.VOICE_RESULT_OK:
+		return PackedByteArray()
+	var buffer: PackedByteArray = got.get("buffer", PackedByteArray())
+	var written := int(got.get("written", buffer.size()))
+	return buffer.slice(0, written)
+
+
+## 16-bit mono PCM at sample_rate, or empty when the packet cannot be decoded.
+func voice_decode(compressed: PackedByteArray, sample_rate: int) -> PackedByteArray:
+	if not available:
+		return PackedByteArray()
+	var size := VOICE_DECODE_BYTES
+	for attempt: int in 2:
+		var out: Dictionary = Steam.decompressVoice(compressed, sample_rate, size)
+		var result := int(out.get("result", -1))
+		if result == Steam.VOICE_RESULT_OK:
+			var pcm: PackedByteArray = out.get("uncompressed", PackedByteArray())
+			return pcm.slice(0, int(out.get("size", pcm.size())))
+		if result != Steam.VOICE_RESULT_BUFFER_TOO_SMALL:
+			break
+		size = maxi(int(out.get("size", 0)), size * 2)
+	return PackedByteArray()
 
 
 func open_invite_dialog() -> void:

@@ -1,13 +1,17 @@
 #!/bin/bash
 # Run a whole multiplayer session with bots and check it, no hands needed.
-# One host and N-1 clients on this Mac, all driven by --bot, with a simulated
-# bad connection. The last client joins late, as NETCODE.md asks. Every peer
+# One host and N-1 clients on this Mac, all driven by --bot and talking with the
+# --voice-test tone, with a simulated bad connection. The last client joins late, as NETCODE.md asks. Every peer
 # writes a report, and tools/soak_report.py decides pass, fail, or inconclusive.
 #
 #   tools/soak.sh                 8 players, 60 s, 150 ms, 2% loss, headless
 #   tools/soak.sh -n 2 -s 30      2 players for 30 s
 #   tools/soak.sh -w 2            first 2 peers get windows and take screenshots
 #   tools/soak.sh -l 0 -p 0       perfect connection
+#   tools/soak.sh -a              real macOS audio driver (muted), so voice
+#                                 playback gaps are measured, not just delivery
+#   tools/soak.sh -V              no voice. The test tone is uncompressed, about
+#                                 32 KB/s per speaker, so use -V to measure bandwidth
 #
 # Exit code: 0 pass, 1 fail, 2 inconclusive (machine too busy to judge).
 set -euo pipefail
@@ -22,8 +26,10 @@ LOSS_PERCENT=2
 WINDOWED=0
 PORT=7791
 OUT=""
+VOICE=(--voice-test)
+AUDIO=()
 
-while getopts "n:s:l:p:w:P:o:" option; do
+while getopts "n:s:l:p:w:P:o:Va" option; do
 	case "$option" in
 		n) PLAYERS="$OPTARG" ;;
 		s) SECONDS_TO_RUN="$OPTARG" ;;
@@ -32,7 +38,9 @@ while getopts "n:s:l:p:w:P:o:" option; do
 		w) WINDOWED="$OPTARG" ;;
 		P) PORT="$OPTARG" ;;
 		o) OUT="$OPTARG" ;;
-		*) sed -n '2,13p' "$0" >&2; exit 64 ;;
+		V) VOICE=() ;;
+		a) AUDIO=(--audio-driver CoreAudio) ;;
+		*) sed -n '2,15p' "$0" >&2; exit 64 ;;
 	esac
 done
 
@@ -61,9 +69,9 @@ launch() {
 	if [ "$role" = "--host" ]; then run_for=$((END_AT + 5 - start_at)); fi
 	local network=()
 	if [ "$role" = "--host" ]; then network=(--host); else network=(--join=127.0.0.1); fi
-	"$GODOT" "${display[@]}" --path "$ROOT" -- \
-		"${network[@]}" --port="$PORT" --name="$name" --no-steam --bot \
-		--sim-lag="$LAG_MS" --sim-loss="$LOSS_PERCENT" \
+	"$GODOT" "${display[@]}" ${AUDIO[@]+"${AUDIO[@]}"} --path "$ROOT" -- \
+		"${network[@]}" --port="$PORT" --name="$name" --no-steam --bot --mute-audio \
+		--sim-lag="$LAG_MS" --sim-loss="$LOSS_PERCENT" ${VOICE[@]+"${VOICE[@]}"} \
 		--measure="$OUT/$name.json" --run-seconds="$run_for" \
 		${extra[@]+"${extra[@]}"} > "$OUT/$name.log" 2>&1 &
 	PIDS+=($!)
@@ -87,4 +95,4 @@ for pid in "${PIDS[@]}"; do
 	wait "$pid" || true
 done
 
-"$PYTHON" "$ROOT/tools/soak_report.py" "$OUT" "$PLAYERS" "$LAG_MS"
+"$PYTHON" "$ROOT/tools/soak_report.py" "$OUT" "$PLAYERS" "$LAG_MS" "$LOSS_PERCENT"

@@ -19,6 +19,8 @@ var measure_path: String = ""
 var run_seconds: float = 0.0
 var screenshot_dir: String = ""
 var screenshot_every: float = 5.0
+var voice_test: bool = false
+var mute_audio: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -28,7 +30,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != ""
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio
 
 
 func read() -> void:
@@ -65,6 +67,10 @@ func read() -> void:
 			run_seconds = float(argument.trim_prefix("--run-seconds="))
 		elif argument.begins_with("--screenshot="):
 			screenshot_dir = argument.trim_prefix("--screenshot=")
+		elif argument == "--voice-test":
+			voice_test = true
+		elif argument == "--mute-audio":
+			mute_audio = true
 		elif argument.begins_with("--screenshot-every="):
 			screenshot_every = float(argument.trim_prefix("--screenshot-every="))
 		else:
