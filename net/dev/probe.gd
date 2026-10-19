@@ -100,6 +100,7 @@ func write_report() -> void:
 		"hide_spots": _HideSpotScript.stats.duplicate(),
 		"zones": _zones,
 		"audio_driver": AudioServer.get_driver_name(),
+		"leaf_instances": _leaf_instances(),
 		"process_ms_median": _percentile(_process_ms, 0.5),
 		"physics_ms_median": _percentile(_physics_ms, 0.5),
 		"physics_active_bodies_max": _active_bodies,
@@ -117,6 +118,23 @@ func write_report() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	file.close()
 	print("[Probe] wrote %s" % path)
+
+
+## Leaf flakes drawn by every leaf renderer on this peer, and where the first one sits.
+func _leaf_instances() -> Dictionary:
+	var total := 0
+	var views := 0
+	var first := Vector3.INF
+	for field: Node in get_tree().get_nodes_in_group("leaf_field"):
+		for child: Node in field.find_children("*", "MultiMeshInstance3D", true, false):
+			var view := child as MultiMeshInstance3D
+			views += 1
+			if view.multimesh == null:
+				continue
+			total += view.multimesh.instance_count
+			if first == Vector3.INF and view.multimesh.instance_count > 0:
+				first = view.global_transform * view.multimesh.get_instance_transform(0).origin
+	return {"total": total, "views": views, "first_at": str(first)}
 
 
 func _voice_report() -> Dictionary:

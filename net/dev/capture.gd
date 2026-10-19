@@ -15,6 +15,8 @@ var skipped: int = 0
 
 ## Where the overhead camera sits relative to the player, in meters.
 const OVERHEAD_OFFSET := Vector3(0.0, 28.0, 14.0)
+## Where the wide establishing shot sits relative to the zone's center, in meters.
+const WIDE_OFFSET := Vector3(26.0, 13.0, 30.0)
 
 
 func _ready() -> void:
@@ -51,6 +53,11 @@ func _save() -> void:
 	if above != null:
 		above.current = true
 		await _shoot("%s/%s_%03d_above.png" % [_dir, label, _index])
+		# And an angled wide shot of the whole zone, the way a person judges the art.
+		var zone := _zone_center()
+		if zone != Vector3.INF:
+			above.look_at_from_position(zone + WIDE_OFFSET, zone + Vector3(0.0, 1.5, 0.0), Vector3.UP)
+			await _shoot("%s/%s_%03d_wide.png" % [_dir, label, _index])
 		above.current = false
 		if own_camera != null:
 			own_camera.current = true
@@ -70,6 +77,17 @@ func _shoot(path: String) -> void:
 	var error := get_viewport().get_texture().get_image().save_png(path)
 	if error != OK:
 		push_error("[Capture] cannot save %s: %s" % [path, error_string(error)])
+
+
+## Center of the zone this peer is in, or INF in transit.
+func _zone_center() -> Vector3:
+	var world := get_tree().get_first_node_in_group("world")
+	if world == null:
+		return Vector3.INF
+	var zone_names := {Net.Zone.STORE: "StoreZone", Net.Zone.LOT: "LotZone", Net.Zone.BORDER: "BorderZone"}
+	var zone_name: String = zone_names.get(Net.player_zone(Net.local_peer_id()), "")
+	var zone := world.get_node_or_null(zone_name) as Node3D
+	return zone.global_position if zone != null else Vector3.INF
 
 
 ## A camera high above this peer's own player, looking down at it.
