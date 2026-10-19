@@ -33,6 +33,14 @@ const CAPTURE_RADIUS: float = 2.0
 const CREW_SPEED: float = 5.5
 const RUN_WARNING_SECONDS: float = 8.0
 
+## OQ-010 counterplay v0. TODO(balance): not in the workbook yet.
+## How close a player must be to a hiding spot to get in.
+const HIDE_REACH: float = 1.8
+## After losing sight of everyone, the crew searches this far around the last sighting...
+const CREW_SEARCH_RADIUS: float = 8.0
+## ...for this long, then patrols the lot.
+const CREW_SEARCH_SECONDS: float = 12.0
+
 ## Disembark beat before the crossing clock.
 ## The workbook's full crossing is Balance.BORDER_RETURN_TARGET_DURATION_MINUTES.
 ## This gray-box run is 60 seconds, set 2026-10-13.
