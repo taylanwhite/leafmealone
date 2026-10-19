@@ -5,6 +5,22 @@ extends RefCounted
 
 const COOLDOWN_SECONDS: float = 90.0
 
+## Plain interface text. Not jokes, so not in the workbook.
+const UI: Dictionary = {
+	"speaking_nameplate": "%s  (talking)",
+	"lobby_talking": "  talking",
+	"hud_talking": "Talking",
+	"hud_push_to_talk": "Hold V to talk",
+	"voice_button": "Voice",
+	"voice_title": "Voice chat",
+	"voice_unavailable": "Voice chat works in Steam sessions.",
+	"voice_mode_push": "Push to talk (hold V)",
+	"voice_mode_open": "Open mic (talks when it hears you)",
+	"voice_mute": "Mute",
+	"voice_close": "Close",
+	"voice_nobody": "Nobody else is here yet.",
+}
+
 const LINES: Array[Dictionary] = [
 	{
 		"id": "Q-001",

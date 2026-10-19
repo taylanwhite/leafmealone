@@ -19,6 +19,10 @@ var _store_label: Label
 var _payout: VBoxContainer
 var _payout_label: Label
 var _crew_button: Button
+var _voice_button: Button
+var _voice_panel: PanelContainer
+
+const _Strings = preload("res://ui/strings.gd")
 
 
 func _ready() -> void:
@@ -58,6 +62,19 @@ func _ready() -> void:
 	_crew_button.offset_bottom = -72.0
 	_crew_button.pressed.connect(_on_call_crew_pressed)
 	add_child(_crew_button)
+	_voice_panel = preload("res://ui/voice_panel.gd").new()
+	_voice_panel.name = "VoicePanel"
+	add_child(_voice_panel)
+	_voice_button = Button.new()
+	_voice_button.text = _Strings.UI["voice_button"]
+	_voice_button.visible = false
+	_voice_button.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_voice_button.offset_left = -110.0
+	_voice_button.offset_right = 110.0
+	_voice_button.offset_top = -160.0
+	_voice_button.offset_bottom = -120.0
+	_voice_button.pressed.connect(func() -> void: _voice_panel.call("open"))
+	add_child(_voice_button)
 	Net.state_changed.connect(_on_state_changed)
 	Net.session_ended.connect(_on_session_ended)
 	_on_state_changed(Net.current_state())
@@ -87,6 +104,7 @@ func _process(_delta: float) -> void:
 		var crossing_status := str(crossing.call("status_line"))
 		if crossing_status != "":
 			crew_line += "\n" + crossing_status
+	crew_line += _voice_line()
 	_cleanup.text = "Cleanup %.1f%%%s%s\nHold left click to push leaves into a pile. Right click bags them.\nPress E with a leaf bag at the wheelbarrow, or throw the bag in.\nThrow the wheelbarrow at Chefty to load the truck." % [
 		fraction * 100.0,
 		truck_line,
@@ -96,9 +114,21 @@ func _process(_delta: float) -> void:
 		var lines: PackedStringArray = PackedStringArray()
 		for peer_id: int in Net.peer_ids():
 			var ready := "ready" if Net.is_player_ready(peer_id) else "not ready"
-			lines.append("%s  %s" % [Net.player_name(peer_id), ready])
+			var talking: String = _Strings.UI["lobby_talking"] if Net.is_player_speaking(peer_id) else ""
+			lines.append("%s  %s%s" % [Net.player_name(peer_id), ready, talking])
 		_lobby_players.text = "\n".join(lines)
 		_start_button.visible = Net.is_host()
+
+
+## "Talking" while this player's voice is going out, or the push-to-talk hint.
+func _voice_line() -> String:
+	if not Net.voice_available():
+		return ""
+	if Net.is_player_speaking(Net.local_peer_id()):
+		return "\n" + str(_Strings.UI["hud_talking"])
+	if Net.voice_mode() == Net.VoiceMode.PUSH_TO_TALK:
+		return "\n" + str(_Strings.UI["hud_push_to_talk"])
+	return ""
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -109,11 +139,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_leave.visible = true
+		_voice_button.visible = true
 		if _crew_button != null:
 			_crew_button.visible = Net.is_host()
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		_leave.visible = false
+		_voice_button.visible = false
+		_voice_panel.visible = false
 		if _crew_button != null:
 			_crew_button.visible = false
 	get_viewport().set_input_as_handled()
@@ -139,10 +172,14 @@ func _build_lobby() -> void:
 	var leave := Button.new()
 	leave.text = "Leave Session"
 	leave.pressed.connect(_on_leave_pressed)
+	var voice := Button.new()
+	voice.text = _Strings.UI["voice_button"]
+	voice.pressed.connect(func() -> void: _voice_panel.call("open"))
 	_lobby.add_child(title)
 	_lobby.add_child(_lobby_players)
 	_lobby.add_child(ready)
 	_lobby.add_child(invite)
+	_lobby.add_child(voice)
 	_lobby.add_child(_start_button)
 	_lobby.add_child(leave)
 	add_child(_lobby)
@@ -281,6 +318,9 @@ func _on_state_changed(next_state: Net.State) -> void:
 	if _lobby != null:
 		_lobby.visible = next_state == Net.State.LOBBY
 	_leave.visible = false
+	if _voice_button != null:
+		_voice_button.visible = false
+		_voice_panel.visible = false
 	if next_state == Net.State.IN_SESSION:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:

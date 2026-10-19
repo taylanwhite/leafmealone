@@ -14,6 +14,9 @@ const MOUSE_SENSITIVITY: float = 0.003
 const STAND_HEIGHT: float = 1.8
 const CROUCH_HEIGHT: float = 1.1
 const PITCH_LIMIT: float = 1.2
+## Nameplate color while that player is talking.
+const SPEAKING_TINT := Color(1.0, 0.86, 0.35)
+const _Strings = preload("res://ui/strings.gd")
 
 ## Yaw of the body in radians. Replicated.
 @export var body_yaw: float = 0.0
@@ -56,6 +59,10 @@ func _ready() -> void:
 		Net.player_joined.connect(_on_player_joined)
 	if not Net.player_zone_changed.is_connected(_on_zone_changed):
 		Net.player_zone_changed.connect(_on_zone_changed)
+	if not Net.speaking_changed.is_connected(_on_speaking_changed):
+		Net.speaking_changed.connect(_on_speaking_changed)
+	if not is_multiplayer_authority():
+		_attach_voice()
 	_apply_presentation()
 
 
@@ -337,10 +344,29 @@ func _apply_presentation() -> void:
 
 func _refresh_name() -> void:
 	var shown := Net.player_name(name.to_int())
-	if shown != "":
-		%Nameplate.text = shown
+	if shown == "":
+		return
+	var speaking := Net.is_player_speaking(name.to_int())
+	%Nameplate.text = _Strings.UI["speaking_nameplate"] % shown if speaking else shown
+	%Nameplate.modulate = SPEAKING_TINT if speaking else Color.WHITE
 
 
 func _on_player_joined(peer_id: int) -> void:
 	if peer_id == name.to_int():
 		_refresh_name()
+
+
+func _on_speaking_changed(peer_id: int, _is_speaking: bool) -> void:
+	if peer_id == name.to_int():
+		_refresh_name()
+
+
+## Remote players speak through their head, so distance does the mixing.
+func _attach_voice() -> void:
+	var voice := AudioStreamPlayer3D.new()
+	voice.name = "Voice"
+	voice.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	voice.unit_size = Constants.VOICE_CLEAR_DISTANCE
+	voice.max_distance = Constants.VOICE_MAX_DISTANCE
+	%Head.add_child(voice)
+	Net.attach_voice_output(name.to_int(), voice)
