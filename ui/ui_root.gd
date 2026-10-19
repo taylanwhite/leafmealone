@@ -39,6 +39,9 @@ func _ready() -> void:
 	var quips := preload("res://ui/quip_player.gd").new()
 	quips.name = "Quips"
 	add_child(quips)
+	var cues := preload("res://ui/run_cues.gd").new()
+	cues.name = "RunCues"
+	add_child(cues)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = "Dev host (ENet)"

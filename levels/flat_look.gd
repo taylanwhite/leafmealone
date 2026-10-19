@@ -38,6 +38,9 @@ static func _visit(node: Node) -> void:
 
 
 static func _flatten(mesh: MeshInstance3D) -> void:
+	# Effects that animate their own material (glows, beacons) opt out.
+	if mesh.has_meta("keep_material"):
+		return
 	var source := mesh.material_override as StandardMaterial3D
 	if source == null:
 		source = mesh.get_active_material(0) as StandardMaterial3D

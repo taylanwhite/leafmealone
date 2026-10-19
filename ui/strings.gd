@@ -19,6 +19,10 @@ const UI: Dictionary = {
 	"voice_mute": "Mute",
 	"voice_close": "Close",
 	"voice_nobody": "Nobody else is here yet.",
+	"cue_radio": "RADIO: [CREW NAME] is on the way to this address",
+	"cue_countdown": "%d",
+	"cue_arrived": "[CREW NAME] is here. Run. Hide. Break line of sight.",
+	"cue_clear": "All clear",
 }
 
 const LINES: Array[Dictionary] = [
