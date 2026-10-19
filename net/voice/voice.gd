@@ -89,13 +89,10 @@ func is_speaking(peer_id: int) -> bool:
 	return _speakers.has(peer_id) and bool(_speakers[peer_id]["speaking"])
 
 
-## Play one remote player's voice through this player, normally the
-## AudioStreamPlayer3D on their head. Replaces the stub output if there is one.
+## Play one remote player's voice through this player, the AudioStreamPlayer3D
+## that player.gd puts on their head. Called again when the player respawns.
 func attach_output(peer_id: int, player: AudioStreamPlayer3D) -> void:
 	var speaker := _speaker(peer_id)
-	var old: Node = speaker["player"]
-	if is_instance_valid(old) and old != player and old.name == "VoiceStub":
-		old.queue_free()
 	var generator := AudioStreamGenerator.new()
 	generator.mix_rate_mode = AudioStreamGenerator.MIX_RATE_CUSTOM
 	generator.mix_rate = SAMPLE_RATE
@@ -231,10 +228,9 @@ func _play() -> void:
 		var queue: PackedVector2Array = speaker["queue"]
 		if queue.is_empty():
 			continue
-		if not is_instance_valid(speaker["player"]):
-			_attach_stub(peer_id)
 		var playback := speaker["playback"] as AudioStreamGeneratorPlayback
-		if playback == null:
+		if playback == null or not is_instance_valid(speaker["player"]):
+			# No head to play from yet (or it was freed). Keep only the newest audio.
 			continue
 		if not bool(speaker["started"]):
 			# Hold the start of each burst until there is enough to ride out jitter.
@@ -252,24 +248,6 @@ func _play() -> void:
 		var talking := now - float(speaker["last_packet"]) < SPEAKING_HOLD_SECONDS
 		if bool(speaker["started"]) and not talking and (speaker["queue"] as PackedVector2Array).is_empty():
 			speaker["started"] = false
-
-
-## Stub until PLAY puts the voice AudioStreamPlayer3D on each head
-## (docs/HANDOFFS.md). Remove once PLAY calls Net.attach_voice_output().
-func _attach_stub(peer_id: int) -> void:
-	var head: Node3D = null
-	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.name == str(peer_id):
-			head = node.get_node_or_null("Visual/Head") as Node3D
-	if head == null:
-		return
-	var player := AudioStreamPlayer3D.new()
-	player.name = "VoiceStub"
-	player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
-	player.unit_size = Constants.VOICE_CLEAR_DISTANCE
-	player.max_distance = Constants.VOICE_MAX_DISTANCE
-	head.add_child(player)
-	attach_output(peer_id, player)
 
 
 func _update_speaking() -> void:
@@ -303,9 +281,6 @@ func _speaker(peer_id: int) -> Dictionary:
 func _on_player_left(peer_id: int) -> void:
 	if not _speakers.has(peer_id):
 		return
-	var player: Node = _speakers[peer_id]["player"]
-	if is_instance_valid(player) and player.name == "VoiceStub":
-		player.queue_free()
 	if bool(_speakers[peer_id]["speaking"]):
 		_announce(peer_id, false)
 	_speakers.erase(peer_id)
