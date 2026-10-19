@@ -64,10 +64,23 @@ jobs:
           fi
           exit "$code"
 
+      - name: Run event soak (cues, hiding, captures, Border Return)
+        if: runner.os == 'Linux'
+        run: |
+          export PYTHON=python3
+          set +e
+          tools/soak.sh -n 4 -s 170 -e 65 -P 7793 -o "$PWD/build/soak/ci-event"
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::Run event soak inconclusive: the runner was too busy to judge timing."
+            exit 0
+          fi
+          exit "$code"
+
       - name: Upload soak reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: soak-${{ matrix.os }}
-          path: build/soak/ci
+          path: build/soak
           if-no-files-found: ignore
