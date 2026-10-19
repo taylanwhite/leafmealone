@@ -20,11 +20,19 @@ func _ready() -> void:
 	if _field == null or not _field.has_signal("chunk_changed"):
 		push_error("[Leaves] renderer must be a child of a leaf field")
 		return
+	# Children are ready before their parent, and the field sizes its grid in its
+	# own _ready. Asking for chunks before then got 0, and no leaves were drawn.
+	if not _field.is_node_ready():
+		await _field.ready
 	_leaf_mesh = BoxMesh.new()
-	_leaf_mesh.size = Vector3(0.36, 0.03, 0.16)
+	_leaf_mesh.size = Vector3(0.42, 0.03, 0.22)
+	# Each flake's color comes from the multimesh. Unshaded to match the flat look.
 	_material = StandardMaterial3D.new()
 	_material.albedo_color = Color.WHITE
-	_material.roughness = 1.0
+	_material.vertex_color_use_as_albedo = true
+	# Palette colors are sRGB. Read as linear, they came out pale.
+	_material.vertex_color_is_srgb = true
+	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	var chunks := int(_field.call("chunk_count"))
 	for _index: int in chunks:
 		var view := MultiMeshInstance3D.new()
@@ -54,12 +62,20 @@ func _rebuild(chunk_index: int) -> void:
 		var count := _flake_count(density, clean)
 		for flake: int in count:
 			spots.append(_flake_transform(cell, flake))
-			colors.append(_COLORS[_mix(cell, flake) % _COLORS.size()])
+			colors.append(_flake_color(cell, flake))
 	var multi := _views[chunk_index].multimesh
 	multi.instance_count = spots.size()
 	for index: int in spots.size():
 		multi.set_instance_transform(index, spots[index])
 		multi.set_instance_color(index, colors[index])
+
+
+## A palette leaf color, a little lighter or darker per flake so a carpet of them has texture.
+func _flake_color(cell: Vector3, flake: int) -> Color:
+	var mix := _mix(cell, flake)
+	var base := _COLORS[mix % _COLORS.size()]
+	var shade := 0.88 + float((mix / 7) % 5) * 0.06
+	return Color(base.r * shade, base.g * shade, base.b * shade)
 
 
 func _flake_count(density: int, clean: int) -> int:
@@ -74,7 +90,8 @@ func _flake_transform(cell: Vector3, flake: int) -> Transform3D:
 	var across := float((mix / 17) % 17) / 16.0 - 0.5
 	var yaw := float(mix % 628) / 100.0
 	var tilt := float((mix / 13) % 25) / 100.0
-	var basis := Basis.from_euler(Vector3(tilt, yaw, tilt * 0.4))
+	var size := 0.85 + float((mix / 11) % 7) * 0.06
+	var basis := Basis.from_euler(Vector3(tilt, yaw, tilt * 0.4)).scaled(Vector3(size, 1.0, size))
 	var ground: Vector3 = _field.get("grid_origin")
 	var origin := Vector3(cell.x + along * 0.32, ground.y + 0.02 + float(flake) * 0.035, cell.z + across * 0.32)
 	return Transform3D(basis, origin)
