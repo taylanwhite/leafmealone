@@ -40,3 +40,7 @@ const BORDER_CROSSING_SECONDS: float = 60.0
 const BORDER_STAGING_SECONDS: float = 3.0
 const BORDER_THROWBACK_SECONDS: float = 0.55
 const BORDER_RETURN_IMMUNITY_SECONDS: float = 4.0
+
+## Proximity voice falloff from docs/NETCODE.md: clear within 2 m, gone by about 25 m.
+const VOICE_CLEAR_DISTANCE: float = 2.0
+const VOICE_MAX_DISTANCE: float = 25.0
