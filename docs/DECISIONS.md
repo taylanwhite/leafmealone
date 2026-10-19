@@ -123,3 +123,10 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 
 - **Why:** Taylan's brother isn't working on the game at the moment, so PLAY tasks would otherwise wait indefinitely. Taylan owns NET and PLAY until his brother returns. Commits keep the prefix of the folder they touch, so the history still reads by lane, and `HANDOFFS.md` is only for requests while both are active.
 - **Revisit:** When his brother comes back. Hand PLAY back by updating `AGENTS.md` and each `local-me.mdc`.
+
+### 2026-10-18: Shared look is flat palette color plus a depth outline and distance fog
+
+- **Why:** The first art pass replaced gray boxes with low-poly primitives built in code (`props/low_poly.gd`, `levels/dressing/`), all snapped to `assets/palette.png`. A full-screen outline pass (`levels/outline_pass.gd`) draws a dark line wherever depth jumps, which keeps silhouettes readable from 20 m as `ART.md` asks, and depth fog fades the scenery into the sky so the ground never ends in a hard line. No downloaded or AI-generated assets are involved yet.
+- **Considered:** Posterization in a compositor effect. Not needed while every surface is already a flat palette color.
+- **Also:** Leaves had not been drawn since the renderer started asking the field for its chunks before the field was ready. They render again, in palette colors with small shade and size variation, and a full lot now reads as a carpet.
+- **Revisit:** After the first friend playtest, and when real models arrive.
