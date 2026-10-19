@@ -12,6 +12,8 @@ enum Codec { STEAM, PCM16 }
 ## Steam decodes at any rate from 11025 to 48000 Hz. 16 kHz is clear speech and
 ## keeps the per-sample conversion loop cheap with eight players talking.
 const SAMPLE_RATE: int = 16000
+## Largest raw PCM packet, an even number of bytes well under ENet's 1392-byte MTU.
+const MAX_PCM_PACKET_BYTES: int = 1024
 ## How often captured audio is sent.
 const SEND_INTERVAL: float = 0.04
 ## Audio held back before a speaker starts playing, to ride out network jitter.
@@ -156,6 +158,14 @@ func _set_recording(value: bool) -> void:
 
 
 func _send(codec: Codec, data: PackedByteArray) -> void:
+	# Raw PCM can be cut anywhere on a sample, so keep each packet under the MTU.
+	# Steam's compressed voice is already small and can't be cut.
+	if codec == Codec.PCM16 and data.size() > MAX_PCM_PACKET_BYTES:
+		var offset := 0
+		while offset < data.size():
+			_send(codec, data.slice(offset, offset + MAX_PCM_PACKET_BYTES))
+			offset += MAX_PCM_PACKET_BYTES
+		return
 	_seq += 1
 	stats["sent_packets"] = int(stats["sent_packets"]) + 1
 	stats["sent_bytes"] = int(stats["sent_bytes"]) + data.size()
