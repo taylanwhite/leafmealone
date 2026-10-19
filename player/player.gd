@@ -408,8 +408,20 @@ func _on_speaking_changed(peer_id: int, _is_speaking: bool) -> void:
 		_refresh_name()
 
 
+func _exit_tree() -> void:
+	# A voice generator still playing when it is freed outlives the engine at quit.
+	# A plain path: unique names can't be resolved while the node leaves the tree.
+	var voice := get_node_or_null("Visual/Head/Voice") as AudioStreamPlayer3D
+	if voice != null:
+		voice.stop()
+		voice.stream = null
+
+
 ## Remote players speak through their head, so distance does the mixing.
 func _attach_voice() -> void:
+	# _ready runs again if the node re-enters the tree. Keep one voice player.
+	if %Head.get_node_or_null("Voice") != null:
+		return
 	var voice := AudioStreamPlayer3D.new()
 	voice.name = "Voice"
 	voice.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
