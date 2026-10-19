@@ -43,7 +43,7 @@ NET
 - [x] `[NET]` `NetSmoother` as specified, with exported delay and snap distance.
 - [x] `[NET]` Host leaving ends the session for clients, who return to the main menu with the reason shown.
 - [x] `[NET]` Debug overlay on F3.
-- [ ] `[NET]` `tools/lag.sh` for macOS that adds delay and packet loss to the dev port on localhost using `dnctl` and `pfctl` (dummynet), with `on` and `off` commands. Verify it with the ping shown in the debug overlay.
+- [x] `[NET]` `tools/lag.sh` for macOS that adds delay and packet loss to the dev port on localhost using `dnctl` and `pfctl` (dummynet), with `on` and `off` commands. Verify it with the ping shown in the debug overlay.
 - [x] `[NET]` Smoke test covering connection, handshake, player replication, and a host-ordered zone move.
 
 PLAY
