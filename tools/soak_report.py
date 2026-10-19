@@ -164,7 +164,9 @@ def main() -> int:
         captured = [name for name, report in reports.items() if "BORDER" in report.get("zones", [])]
         returned = [name for name, report in reports.items()
                     if "BORDER" in report.get("zones", []) and "LOT" in report["zones"][report["zones"].index("BORDER"):]]
-        print(f"run event: {len(captured)} captured, {len(returned)} crossed back to the lot")
+        hides = reports.get("Host", {}).get("hide_spots", {})
+        print(f"run event: {len(captured)} captured, {len(returned)} crossed back to the lot, "
+              f"{hides.get('entered', 0)} hid, {hides.get('pulled_out', 0)} pulled out of hiding")
     shots = sorted((run_dir / "shots").glob("*.png")) if (run_dir / "shots").exists() else []
     print(f"soak {verdict}: {len(reports)} reports, {len(shots)} screenshots in {run_dir}")
 

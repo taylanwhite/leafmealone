@@ -17,10 +17,16 @@ var _next_change: float = 0.0
 var _next_zone_move: float = 0.0
 var _turn_rate: float = 0.0
 var _jump_held: bool = false
+## Hiders head for a hide spot when the crew arrives. Runners sprint away.
+var _hider: bool = false
+var _next_interact: float = 0.0
 
 
 func _ready() -> void:
 	_rng.seed = hash(OS.get_process_id())
+	# Odd-numbered bots hide and the rest run, so every soak with a run event tests both.
+	var number := str(Net.dev_options().get("player_name")).trim_prefix("Bot").to_int()
+	_hider = number % 2 == 1
 	_next_zone_move = _rng.randf_range(ZONE_MOVE_MIN_SECONDS, ZONE_MOVE_MAX_SECONDS)
 	Input.action_press(&"move_forward")
 	print("[Bot] driving the local player")
@@ -33,12 +39,14 @@ func _exit_tree() -> void:
 
 func _physics_process(delta: float) -> void:
 	_elapsed += delta
-	var player := _own_player()
+	var player := _own_player() as Node3D
 	if player == null:
 		return
 	if _jump_held:
 		Input.action_release(&"jump")
 		_jump_held = false
+	if _during_run_event(player):
+		return
 	if _elapsed >= _next_change:
 		_choose_next()
 	player.set("body_yaw", float(player.get("body_yaw")) + _turn_rate * delta)
@@ -49,6 +57,65 @@ func _physics_process(delta: float) -> void:
 			Net.request_zone_move(Net.Zone.LOT)
 		elif here == Net.Zone.LOT:
 			Net.request_zone_move(Net.Zone.STORE)
+
+
+## Counterplay during a chase: hiders go for the nearest free hide spot and get
+## in, runners sprint away from the nearest crew member. Hiders come out when the
+## run event ends. Returns true while it is steering, so wandering pauses.
+func _during_run_event(player: Node3D) -> bool:
+	var director := get_tree().get_first_node_in_group("run_director")
+	var chasing := director != null and int(director.call("phase")) == 2
+	var hidden := bool(player.call("is_hidden"))
+	if not chasing:
+		if hidden and _elapsed >= _next_interact:
+			_next_interact = _elapsed + 1.0
+			_press_interact()
+		return false
+	if hidden:
+		return true
+	if _hider:
+		var spot := _nearest_free_spot(player)
+		if spot != null:
+			Input.action_press(&"sprint")
+			_face(player, spot.global_position)
+			if spot.global_position.distance_to(player.global_position) <= Constants.HIDE_REACH * 0.9 and _elapsed >= _next_interact:
+				_next_interact = _elapsed + 1.0
+				_press_interact()
+			return true
+	var crew := get_tree().get_first_node_in_group("crew") as Node3D
+	if crew == null:
+		return false
+	Input.action_press(&"sprint")
+	_face(player, player.global_position * 2.0 - crew.global_position)
+	return true
+
+
+func _nearest_free_spot(player: Node3D) -> Node3D:
+	var closest: Node3D = null
+	var closest_distance := INF
+	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
+		var spot := node as Node3D
+		if spot == null or int(spot.get("occupant")) != 0:
+			continue
+		var distance := spot.global_position.distance_to(player.global_position)
+		if distance < closest_distance:
+			closest = spot
+			closest_distance = distance
+	return closest
+
+
+## Turn so move_forward heads toward the point. Forward is -Z, rotated by body_yaw.
+func _face(player: Node3D, point: Vector3) -> void:
+	var away := point - player.global_position
+	player.set("body_yaw", atan2(-away.x, -away.z))
+
+
+func _press_interact() -> void:
+	for pressed: bool in [true, false]:
+		var event := InputEventAction.new()
+		event.action = &"interact"
+		event.pressed = pressed
+		Input.parse_input_event(event)
 
 
 func _choose_next() -> void:

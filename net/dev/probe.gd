@@ -7,6 +7,7 @@ extends Node
 const _SmootherScript = preload("res://net/components/net_smoother.gd")
 const _VoiceScript = preload("res://net/voice/voice.gd")
 const _RunCuesScript = preload("res://ui/run_cues.gd")
+const _HideSpotScript = preload("res://net/components/hide_spot.gd")
 ## A frame longer than this stalls sending, so hitches can come from a busy
 ## machine rather than the network. The report counts them so the two can be told apart.
 const LONG_FRAME_SECONDS: float = 0.05
@@ -96,6 +97,7 @@ func write_report() -> void:
 		"smoother": _SmootherScript.stats.duplicate(),
 		"voice": _voice_report(),
 		"run_cues": _RunCuesScript.log.duplicate(),
+		"hide_spots": _HideSpotScript.stats.duplicate(),
 		"zones": _zones,
 		"audio_driver": AudioServer.get_driver_name(),
 		"process_ms_median": _percentile(_process_ms, 0.5),
