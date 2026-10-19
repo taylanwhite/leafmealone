@@ -4,6 +4,9 @@ extends RefCounted
 ## The store, the lot, and the border all go through this so the boxes read as one game.
 
 const _Palette: Script = preload("res://assets/materials/palette.gd")
+## Fog fades the scenery out between these distances, in meters.
+const FOG_BEGIN: float = 90.0
+const FOG_END: float = 240.0
 
 
 static func apply(root: Node) -> void:
@@ -28,6 +31,14 @@ static func _environment(root: Node) -> void:
 	environment.adjustment_enabled = true
 	environment.adjustment_contrast = 1.06
 	environment.adjustment_saturation = 1.12
+	# Distance fades into the sky, so the scenery's ground edge never shows as a line.
+	environment.fog_enabled = true
+	environment.fog_mode = Environment.FOG_MODE_DEPTH
+	environment.fog_light_color = _Palette.SKY
+	environment.fog_density = 1.0
+	environment.fog_depth_begin = FOG_BEGIN
+	environment.fog_depth_end = FOG_END
+	environment.fog_sky_affect = 0.0
 
 
 static func _visit(node: Node) -> void:

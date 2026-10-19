@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://leaves/leaf_renderer.gd" id="2_leaves"]
 [ext_resource type="PackedScene" path="res://props/yard_prop.tscn" id="3_prop"]
 [ext_resource type="PackedScene" path="res://props/hide_spot.tscn" id="4_hide"]
+[ext_resource type="Script" path="res://levels/lots/lot_dressing.gd" id="5_dress"]
 
 [sub_resource type="BoxShape3D" id="BoxShape_floor"]
 size = Vector3(40, 1, 40)
@@ -12,7 +13,7 @@ size = Vector3(40, 1, 40)
 size = Vector3(40, 1, 40)
 
 [sub_resource type="StandardMaterial3D" id="Material_yard"]
-albedo_color = Color(0.34, 0.38, 0.28, 1)
+albedo_color = Color(0.42, 0.478, 0.271, 1)
 
 [sub_resource type="BoxShape3D" id="BoxShape_house"]
 size = Vector3(8, 5, 6)
@@ -72,13 +73,6 @@ shape = SubResource("BoxShape_house")
 mesh = SubResource("BoxMesh_house")
 surface_material_override/0 = SubResource("Material_house")
 
-[node name="Label" type="Label3D" parent="House"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.1, 0)
-billboard = 1
-font_size = 72
-outline_size = 12
-text = "House"
-
 [node name="Fence" type="StaticBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0.6, -12)
 
@@ -88,13 +82,6 @@ shape = SubResource("BoxShape_fence")
 [node name="Mesh" type="MeshInstance3D" parent="Fence"]
 mesh = SubResource("BoxMesh_fence")
 surface_material_override/0 = SubResource("Material_fence")
-
-[node name="Label" type="Label3D" parent="Fence"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
-billboard = 1
-font_size = 72
-outline_size = 12
-text = "Fence"
 
 [node name="SpawnPoints" type="Node3D" parent="."]
 
@@ -165,3 +152,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13, 0, -15)
 size = Vector3(3, 1.6, 1.2)
 color = Color(0.2, 0.42, 0.22, 1)
 label = "Hedge"
+
+[node name="Dressing" type="Node3D" parent="."]
+script = ExtResource("5_dress")

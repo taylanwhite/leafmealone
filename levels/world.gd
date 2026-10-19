@@ -7,6 +7,11 @@ const BAG_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 const _PlayerDirector: Script = preload("res://net/player_director.gd")
 const _Boarding: Script = preload("res://levels/boarding.gd")
 const _FlatLook: Script = preload("res://levels/flat_look.gd")
+const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
+const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
+const _Surroundings = preload("res://levels/dressing/surroundings.gd")
+const GRASS := Color(0.42, 0.52, 0.3)
+const SAND := Color(0.78, 0.68, 0.5)
 
 var _bag_serial: int = 0
 
@@ -27,6 +32,7 @@ func _ready() -> void:
 	var sfx := preload("res://audio/sfx.gd").new()
 	sfx.name = "Sfx"
 	add_child(sfx)
+	_dress()
 	_FlatLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
@@ -37,6 +43,19 @@ func _ready() -> void:
 		_spawn_peer(peer_id)
 	Net.player_joined.connect(_on_player_joined)
 	Net.player_left.connect(_on_player_left)
+
+
+## Cosmetic set dressing for each zone, the scenery around them, and the shared
+## outline. Local on every peer. The angles keep each ride's route clear of trees:
+## Chefty leaves the store east, arrives at the lot from the west, and the van
+## leaves the lot northwest and arrives at the border from the southeast.
+func _dress() -> void:
+	_StoreDressing.dress($StoreZone)
+	_BorderDressing.dress($BorderZone)
+	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0])
+	_Surroundings.dress($LotZone, GRASS, 22, true, [PI, PI * 0.75])
+	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25])
+	add_child(preload("res://levels/outline_pass.gd").new())
 
 
 ## A low curb with a taller collider, so a bump cannot walk or jump off the pad.
