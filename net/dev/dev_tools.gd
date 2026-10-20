@@ -2,13 +2,15 @@ extends Node
 
 ## Authority: local. Development tools turned on by command-line flags:
 ## --bot, --bot-stay, --measure=<file>, --screenshot=<dir>, --run-seconds=<n>,
-## --mute-audio, and --run-event-at=<n>.
+## --mute-audio, --run-event-at=<n>, and --open-shop.
 ## tools/soak.sh launches whole sessions with them. Nothing here runs in a
 ## normal game.
 
 const _BotScript = preload("res://net/dev/bot.gd")
 const _ProbeScript = preload("res://net/dev/probe.gd")
 const _CaptureScript = preload("res://net/dev/capture.gd")
+## --open-shop waits this long after launch, so the session and UI are up.
+const OPEN_SHOP_AFTER_SECONDS: float = 1.0
 
 
 func _ready() -> void:
@@ -25,6 +27,13 @@ func _ready() -> void:
 	var seconds := float(options.get("run_seconds"))
 	if seconds > 0.0:
 		get_tree().create_timer(seconds).timeout.connect(_finish)
+	if bool(options.get("open_shop")):
+		# For screenshots of the shop window: bots never walk up to the counter.
+		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
+			var ui := get_tree().get_first_node_in_group("game_ui")
+			if ui != null:
+				ui.call("open_store")
+		)
 	var event_at := float(options.get("run_event_at"))
 	if event_at >= 0.0:
 		get_tree().create_timer(event_at).timeout.connect(_force_run_event)

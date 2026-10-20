@@ -17,6 +17,8 @@ var skipped: int = 0
 const OVERHEAD_OFFSET := Vector3(0.0, 28.0, 14.0)
 ## Where the wide establishing shot sits relative to the zone's center, in meters.
 const WIDE_OFFSET := Vector3(26.0, 13.0, 30.0)
+## How far in front of the player the selfie camera stands, in meters.
+const SELFIE_DISTANCE: float = 3.2
 
 
 func _ready() -> void:
@@ -58,6 +60,13 @@ func _save() -> void:
 		if zone != Vector3.INF:
 			above.look_at_from_position(zone + WIDE_OFFSET, zone + Vector3(0.0, 1.5, 0.0), Vector3.UP)
 			await _shoot("%s/%s_%03d_wide.png" % [_dir, label, _index])
+		# And a selfie: a few meters in front of this player's own character.
+		var player := _own_player()
+		if player != null:
+			var face := player.global_position + Vector3(0.0, 1.45, 0.0)
+			var forward := -player.global_basis.z
+			above.look_at_from_position(face + forward * SELFIE_DISTANCE + Vector3(0.6, 0.25, 0.0), face, Vector3.UP)
+			await _shoot("%s/%s_%03d_selfie.png" % [_dir, label, _index])
 		above.current = false
 		if own_camera != null:
 			own_camera.current = true
@@ -90,13 +99,16 @@ func _zone_center() -> Vector3:
 	return zone.global_position if zone != null else Vector3.INF
 
 
+func _own_player() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			return node as Node3D
+	return null
+
+
 ## A camera high above this peer's own player, looking down at it.
 func _overhead_camera() -> Camera3D:
-	var own_name := str(Net.local_peer_id())
-	var player: Node3D = null
-	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.name == own_name:
-			player = node as Node3D
+	var player := _own_player()
 	if player == null:
 		return null
 	if _above == null:
