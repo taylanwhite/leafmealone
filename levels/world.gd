@@ -14,6 +14,10 @@ const GRASS := Color(0.42, 0.52, 0.3)
 const SAND := Color(0.78, 0.68, 0.5)
 ## Behind the store counter at (0, -8), facing the customers.
 const CLERK_SPOT := Vector3(0.0, 0.0, -9.3)
+## Gap between players who share a spawn marker, in meters.
+const SPAWN_SPACING: float = 1.4
+## Spawn slots to check for a free one before giving up and sharing.
+const SPAWN_SLOTS_TO_TRY: int = 16
 
 var _bag_serial: int = 0
 
@@ -106,7 +110,31 @@ func get_spawn_transform(zone: Net.Zone, spawn_marker: StringName, peer_id: int)
 	var markers := points.get_children()
 	if markers.is_empty():
 		return points.global_transform
-	return (markers[posmod(peer_id, markers.size())] as Node3D).global_transform
+	# The first slot nobody is standing on, so nobody spawns inside someone else.
+	# Peer ids are random, so a slot by id or by sorted order can collide.
+	for slot: int in SPAWN_SLOTS_TO_TRY:
+		var candidate := _slot_transform(markers, slot)
+		if not _someone_near(candidate.origin, peer_id):
+			return candidate
+	return _slot_transform(markers, posmod(peer_id, markers.size()))
+
+
+## Slot 0 is the first marker, then the next, then rows behind the markers.
+func _slot_transform(markers: Array[Node], slot: int) -> Transform3D:
+	var marker := (markers[slot % markers.size()] as Node3D).global_transform
+	var row := floori(float(slot) / markers.size())
+	marker.origin += marker.basis.z * SPAWN_SPACING * float(row)
+	return marker
+
+
+func _someone_near(point: Vector3, except_peer: int) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var body := node as Node3D
+		if body == null or body.name == str(except_peer):
+			continue
+		if Vector2(body.global_position.x - point.x, body.global_position.z - point.z).length() < SPAWN_SPACING * 0.8:
+			return true
+	return false
 
 
 func request_depart() -> void:
