@@ -20,15 +20,12 @@ static func dress_lot(zone: Node3D) -> void:
 	var spots: Array[float] = [-15.0, 7.0, 13.0, -30.0, 34.0, -55.0, 61.0]
 	for index: int in spots.size():
 		_Doodles.place_on_ground(root, _Doodles.chalk(CHALK_KINDS[index % CHALK_KINDS.size()], index + 3), Vector3(spots[index], 0.1, 21.3 if index % 2 == 0 else 32.7), Vector2(1.8, 1.8), rng.randf_range(-0.4, 0.4))
-	_Doodles.place_on_ground(root, _Doodles.chalk("hearts", 40), Vector3(0.8, 0.04, 17.5), Vector2(1.4, 1.4), 0.3)
 	# Tags on the back fence, seen from the yard.
 	for x: float in [-31.0, -9.5, 17.0, 46.0]:
 		_Doodles.place_on_wall(root, _Doodles.graffiti(int(x) + 100), Vector3(x, 0.95, -23.96), Vector3.BACK, Vector2(4.2, 2.1))
-	# Sticky notes: the homeowner's front door, the yard's mailbox, the shed door.
-	for index: int in 2:
-		_Doodles.place_paper(root, _Doodles.note(10 + index), Vector3(-7.85 + float(index) * 0.22, 1.55 - float(index) * 0.18, -2.95), Vector3.BACK, Vector2(0.19, 0.19), rng.randf_range(-0.25, 0.25))
+	# A sticky note on the yard's mailbox. The house changes every job, so its
+	# door notes come from levels/lots/lot_generator.gd.
 	_Doodles.place_paper(root, _Doodles.note(14), Vector3(3.43, 1.27, 19.9), Vector3.RIGHT, Vector2(0.17, 0.17), 0.15)
-	_Doodles.place_paper(root, _Doodles.note(15), Vector3(-14.7, 1.35, -15.04), Vector3.FORWARD, Vector2(0.19, 0.19), -0.2)
 	# Posters on the lamp posts along this side of the street.
 	for x: float in range(-114, 127, 24):
 		if rng.randf() < 0.6:

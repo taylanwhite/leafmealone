@@ -60,6 +60,9 @@ func _ready() -> void:
 	var goal := preload("res://ui/job_goal.gd").new()
 	goal.name = "JobGoal"
 	add_child(goal)
+	var task_list := preload("res://ui/task_list.gd").new()
+	task_list.name = "TaskList"
+	add_child(task_list)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = "Dev host (ENet)"

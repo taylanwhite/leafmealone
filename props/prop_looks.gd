@@ -38,7 +38,8 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 		"rake":
 			_rake(look)
 		_:
-			_LowPoly.paint(_LowPoly.box(look, Vector3(0.7, 0.7, 0.7), Vector3(0, 0.35, 0), color), "planks")
+			# Tools and anything else props/yard_models.gd knows how to build.
+			look.add_child(_YardModels.node(kind, color, Vector3(0.7, 0.7, 0.7), {"roughness": 0.55, "specular": 0.3}))
 	# The cube stays for its color code, but nothing draws it now.
 	visual.mesh = null
 
@@ -64,6 +65,17 @@ static func pose_rake(prop: Node3D, holder: Node3D, raking: bool) -> void:
 	var sweep := (0.3 - 0.6 * phase) if raking else 0.0
 	pose.rotation = Vector3(-0.85, 0.0, 0.0)
 	pose.position = Vector3(0.0, -0.1, sweep)
+
+
+## Held tools face the way their holder faces; set down, they sit level.
+static func pose_tool(prop: Node3D, holder: Node3D) -> void:
+	var look := prop.get_node_or_null("Visual/Look") as Node3D
+	if look == null:
+		return
+	if holder == null:
+		look.rotation = Vector3.ZERO
+		return
+	look.global_rotation = Vector3(0.0, holder.global_rotation.y, 0.0)
 
 
 ## Show this many bags in the wheelbarrow's tray.

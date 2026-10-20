@@ -48,6 +48,9 @@ func _ready() -> void:
 		get_tree().node_added.connect(_on_node_added)
 	if not Net.is_host():
 		return
+	# --all-tools: the host owns every tool this session, for tests and trying them out.
+	if bool(Net.dev_options().get("all_tools")):
+		Campaign.dev_grant_all_tools(Net.local_peer_id())
 	_load_job_lot()
 	for peer_id: int in Net.peer_ids():
 		_spawn_peer(peer_id)
@@ -188,8 +191,17 @@ func _load_job_lot() -> void:
 		return
 	var lot := JOB_LOT.instantiate()
 	lot.name = "Lot%d" % Campaign.current_lot_index()
+	# Every job is a different yard asking for different work.
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var job_seed := rng.randi_range(1, 2147483646)
+	if int(Net.dev_options().get("job_seed")) != 0:
+		job_seed = int(Net.dev_options().get("job_seed"))
+	lot.set("job_seed", job_seed)
+	lot.set("tasks", _choose_tasks(rng))
 	%LotSlot.add_child(lot, true)
 	Campaign.mark_job_open()
+	_spawn_job_tools()
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
 		telemetry.call("mark_job_start")
@@ -201,6 +213,57 @@ func _load_job_lot() -> void:
 func _free_lot() -> void:
 	for child: Node in %LotSlot.get_children():
 		child.queue_free()
+	for tool: Node in get_tree().get_nodes_in_group("job_tools"):
+		tool.queue_free()
+
+
+## Host only. What the homeowner wants done: always the leaves, plus a few more.
+## Mostly work the crew owns the tool for, now and then something they don't
+## (it shows as needing that tool, so it's worth buying), and always some
+## bare-hands work. --all-tasks asks for everything (tests).
+func _choose_tasks(rng: RandomNumberGenerator) -> PackedStringArray:
+	var chosen := PackedStringArray(["rake_leaves"])
+	var owned := Campaign.crew_tools()
+	var possible: Array[String] = []
+	var unowned: Array[String] = []
+	for task: String in Constants.TASK_TOOLS:
+		if task == "rake_leaves":
+			continue
+		var tool := str(Constants.TASK_TOOLS[task])
+		if bool(Net.dev_options().get("all_tasks")) or tool == "" or owned.has(tool):
+			possible.append(task)
+		else:
+			unowned.append(task)
+	if bool(Net.dev_options().get("all_tasks")):
+		chosen.append_array(PackedStringArray(possible))
+		return chosen
+	var count := rng.randi_range(Constants.JOB_EXTRA_TASKS.x, Constants.JOB_EXTRA_TASKS.y)
+	possible.shuffle()
+	for task: String in possible:
+		if chosen.size() - 1 >= count:
+			break
+		chosen.append(task)
+	if not unowned.is_empty() and rng.randf() < 0.5:
+		chosen.append(unowned[rng.randi() % unowned.size()])
+	return chosen
+
+
+## Host only. One of each tool the crew owns rides along, laid out by the truck.
+func _spawn_job_tools() -> void:
+	var lot := %LotSlot.get_child(0) as Node3D if %LotSlot.get_child_count() > 0 else null
+	if lot == null:
+		return
+	var index := 0
+	for tool_id: String in Campaign.crew_tools():
+		var tool := BAG_SCENE.instantiate()
+		tool.name = "Tool_%s" % tool_id
+		tool.set("kind", tool_id)
+		tool.set("label", tool_id)
+		tool.set("color", Color(0.8, 0.8, 0.8))
+		tool.add_to_group("job_tools")
+		%RuntimeProps.add_child(tool, true)
+		tool.global_position = lot.global_position + Vector3(-5.5 - float(index % 3) * 1.4, 0.6, 13.5 + float(index / 3) * 1.6)
+		index += 1
 
 
 func _host_depart() -> void:

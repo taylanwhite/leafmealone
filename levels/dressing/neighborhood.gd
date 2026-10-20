@@ -137,6 +137,8 @@ static func house(parent: Node3D, at: Vector3, width: float, depth: float, stori
 	var story := 3.0
 	var height := story * float(stories)
 	var front := depth * 0.5
+	# Where the windows are (house space, with the way each faces), for washing them.
+	var windows: Array = []
 	# Foundation, walls, and a trim band between floors.
 	_LowPoly.paint(_LowPoly.box(root, Vector3(width + 0.3, 0.5, depth + 0.3), Vector3(0.0, 0.25, 0.0), Color(0.55, 0.53, 0.5)), "concrete")
 	_LowPoly.paint(_LowPoly.box(root, Vector3(width, height, depth), Vector3(0.0, 0.5 + height * 0.5, 0.0), wall), "siding")
@@ -167,10 +169,14 @@ static func house(parent: Node3D, at: Vector3, width: float, depth: float, stori
 			if garage and floor_index == 0 and x > 0.0:
 				continue
 			_LowPoly.window(root, 1.3, 1.25, Vector3(x, y, front + 0.02), trim)
+			windows.append([Vector3(x, y, front + 0.02), Vector3.BACK])
 			for side: float in [-1.0, 1.0]:
 				_LowPoly.paint(_LowPoly.box(root, Vector3(0.36, 1.4, 0.06), Vector3(x + side * 0.92, y, front + 0.05), roof.lightened(0.15)), "planks")
 		for side: float in [-1.0, 1.0]:
 			_LowPoly.window(root, 1.1, 1.1, Vector3(side * (width * 0.5 + 0.02), y, 0.0), trim, side * PI * 0.5)
+			windows.append([Vector3(side * (width * 0.5 + 0.02), y, 0.0), Vector3(side, 0.0, 0.0)])
+	root.set_meta("windows", windows)
+	root.set_meta("roof_edge_y", top)
 	if garage:
 		var door_x := width * 0.3
 		_LowPoly.paint(_LowPoly.box(root, Vector3(2.8, 2.3, 0.1), Vector3(door_x, 1.65, front + 0.04), trim.darkened(0.04)), "siding")

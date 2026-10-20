@@ -53,7 +53,9 @@ func _ready() -> void:
 	_rng.randomize()
 	_body = _CartoonBody.new()
 	_body.name = "CartoonBody"
-	_body.call("dress_from_seed", Campaign.current_lot_index() * 7919 + 3)
+	# A different homeowner for every job's yard (levels/lots/job_lot.gd).
+	var job_seed := int(get_parent().get("job_seed")) if get_parent() != null and "job_seed" in get_parent() else 0
+	_body.call("dress_from_seed", job_seed if job_seed != 0 else Campaign.current_lot_index() * 7919 + 3)
 	add_child(_body)
 	_body.call("build")
 	var life := _CharacterLife.new()
@@ -143,11 +145,23 @@ func _handle_talk(peer_id: int) -> void:
 		return
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	var value := int(chefty.call("bag_value")) if chefty != null else 0
-	var mood := _judge(value)
+	# Every other task they asked for pays its share of Constants.TASK_PAY by how much got done.
+	var task_lines: Array = []
+	var task_value := 0
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks != null:
+		for task: String in (tasks.get("active") as PackedStringArray):
+			if not Constants.TASK_PAY.has(task):
+				continue
+			var done := float(tasks.call("progress", task))
+			var pay := int(round(float(Constants.TASK_PAY[task]) * done))
+			task_value += pay
+			task_lines.append([task, int(round(done * 100.0)), pay])
+	var mood := _judge(value + task_value)
 	var lines: Array = _Strings.HOMEOWNER_LINES.get(mood, [""])
 	var line_index := _rng.randi() % lines.size()
-	var amount := 0 if mood == "nothing" else int(round(float(value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0))))
-	_settlement = {"bags_value": value, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "paid": amount}
+	var amount := 0 if mood == "nothing" else int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0))))
+	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "paid": amount}
 	_rpc_react.rpc(mood, line_index, amount)
 	if mood == "nothing":
 		return
@@ -162,7 +176,18 @@ func _judge(value: int) -> String:
 	if value <= 0:
 		return "nothing"
 	var field := get_tree().get_first_node_in_group("leaf_field")
+	# How done the whole job is: the leaves and every task asked for, weighed alike.
 	var clean := float(field.call("cleaned_fraction")) if field != null else 0.0
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks != null:
+		var parts := [clampf(clean / CLEAN_ENOUGH, 0.0, 1.0)]
+		for task: String in (tasks.get("active") as PackedStringArray):
+			if Constants.TASK_PAY.has(task):
+				parts.append(float(tasks.call("progress", task)))
+		var total := 0.0
+		for part: float in parts:
+			total += part
+		clean = total / float(parts.size()) * CLEAN_ENOUGH
 	var slow := Campaign.job_minutes() > Constants.HOMEOWNER_PATIENCE_MINUTES
 	var mood := "fine"
 	if clean < MESSY_BELOW:

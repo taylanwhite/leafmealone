@@ -107,6 +107,11 @@ static func _add_chunk(root: Node3D, mesh: Mesh, spots: Array[Transform3D], colo
 	root.add_child(view)
 
 
+## A tuft mesh for other lawns (levels/lots/task_looks.gd uses it for grass to mow).
+static func tuft_mesh(height: float, blades: int) -> ArrayMesh:
+	return _tuft_mesh(height, blades)
+
+
 ## A tuft: blades fanning out from one root, each bent a little, dark at the root
 ## and sunny at the tip, the tips free to sway.
 static func _tuft_mesh(height: float, blades: int) -> ArrayMesh:

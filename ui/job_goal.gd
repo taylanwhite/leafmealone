@@ -70,11 +70,24 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 	if loose > 0:
 		return _Strings.UI["goal_carry_loose"] % loose
 	var banked := int(chefty.call("bag_value")) if chefty != null else 0
+	# Holding a tool: say what it's for, if that work is still open.
+	if held != "" and Constants.TOOL_PRICES.has(held):
+		var for_task := _task_for_tool(held)
+		var tasks := tree.get_first_node_in_group("job_tasks")
+		if for_task != "" and tasks != null and (tasks.get("active") as PackedStringArray).has(for_task) and float(tasks.call("progress", for_task)) < 0.95:
+			return _Strings.UI["goal_task"] % _Strings.UI["task_" + for_task]
 	if rake_free:
 		return _Strings.UI["goal_rake_or_talk"] % banked if banked > 0 else _Strings.UI["goal_grab_rake"]
 	if banked > 0:
 		return _Strings.UI["goal_talk"] % banked
 	return _Strings.UI["goal_no_rake"]
+
+
+static func _task_for_tool(tool: String) -> String:
+	for task: String in Constants.TASK_TOOLS:
+		if str(Constants.TASK_TOOLS[task]) == tool:
+			return task
+	return ""
 
 
 static func _held_by(tree: SceneTree, peer_id: int) -> String:

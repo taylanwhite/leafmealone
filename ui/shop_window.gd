@@ -12,10 +12,16 @@ const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
 const ORANGE := Color(0.93, 0.47, 0.13)
 const CARD := Color(1.0, 0.98, 0.93)
-const CARD_WIDTH: float = 250.0
+const CARD_WIDTH: float = 190.0
+## Card swatch colors for tools, until each has a picture.
+const TOOL_COLORS: Dictionary = {
+	"leaf_blower": Color(0.95, 0.55, 0.15), "lawn_mower": Color(0.2, 0.55, 0.3), "ladder": Color(0.75, 0.75, 0.72),
+	"hose": Color(0.25, 0.6, 0.35), "pressure_washer": Color(0.95, 0.8, 0.2), "hedge_trimmer": Color(0.85, 0.25, 0.2),
+	"paint_roller": Color(0.35, 0.55, 0.85),
+}
 
 var _credits: Label
-var _cards: HBoxContainer
+var _cards: GridContainer
 
 
 func _ready() -> void:
@@ -33,8 +39,10 @@ func _ready() -> void:
 	_credits = _text("", 20, INK)
 	header.add_child(_credits)
 	column.add_child(_text(_Strings.UI["shop_subtitle"], 16, INK.lightened(0.3)))
-	_cards = HBoxContainer.new()
-	_cards.add_theme_constant_override("separation", 14)
+	_cards = GridContainer.new()
+	_cards.columns = 5
+	_cards.add_theme_constant_override("h_separation", 12)
+	_cards.add_theme_constant_override("v_separation", 12)
 	column.add_child(_cards)
 	var close := _button(_Strings.UI["shop_close"], INK)
 	close.size_flags_horizontal = Control.SIZE_SHRINK_END
@@ -67,9 +75,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-## Everything the store sells. Prices and effects come from Balance and Constants.
+## Everything the store sells: tools that unlock tasks, then upgrades. Prices
+## and effects come from Balance and Constants.
 func _items() -> Array[Dictionary]:
-	return [
+	var items: Array[Dictionary] = []
+	for tool_id: String in Constants.TOOL_PRICES:
+		var unlocks := PackedStringArray()
+		for task_id: String in Constants.TASK_TOOLS:
+			if str(Constants.TASK_TOOLS[task_id]) == tool_id:
+				unlocks.append(str(_Strings.UI["task_" + task_id]))
+		var blurb := str(_Strings.UI["tool_blurb_" + tool_id])
+		if not unlocks.is_empty():
+			blurb += "\n" + _Strings.UI["shop_tool_unlocks"] % ", ".join(unlocks)
+		items.append({
+			"id": StringName(tool_id),
+			"name": _Strings.UI["tool_" + tool_id],
+			"blurb": blurb,
+			"price": int(Constants.TOOL_PRICES[tool_id]),
+			"color": TOOL_COLORS.get(tool_id, Color.GRAY),
+		})
+	items.append_array([
 		{
 			"id": Campaign.RAKE_UPGRADE,
 			"name": _Strings.UI["shop_rake_name"],
@@ -84,7 +109,8 @@ func _items() -> Array[Dictionary]:
 			"price": Balance.BASELINE_TIER_1_TOOL_COST,
 			"color": Color(0.55, 0.22, 0.18),
 		},
-	]
+	])
+	return items
 
 
 func _refresh_if_open() -> void:
@@ -106,20 +132,20 @@ func _card(item: Dictionary, wallet: int) -> Control:
 	card.custom_minimum_size = Vector2(CARD_WIDTH, 0)
 	card.add_theme_stylebox_override("panel", _box(CARD, 12, INK.lightened(0.6), 2))
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 8)
+	column.add_theme_constant_override("separation", 4)
 	card.add_child(column)
 	# A chunky swatch stands in for the item's picture until there is art for it.
 	var swatch := ColorRect.new()
 	swatch.color = item["color"]
-	swatch.custom_minimum_size = Vector2(0, 70)
+	swatch.custom_minimum_size = Vector2(0, 10)
 	column.add_child(swatch)
-	column.add_child(_text(str(item["name"]), 20, INK))
-	var blurb := _text(str(item["blurb"]), 14, INK.lightened(0.25))
+	column.add_child(_text(str(item["name"]), 18, INK))
+	var blurb := _text(str(item["blurb"]), 13, INK.lightened(0.25))
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	# A fixed wrap width, or the label asks for a tall, narrow size first.
 	blurb.custom_minimum_size = Vector2(CARD_WIDTH - 40.0, 0.0)
 	column.add_child(blurb)
-	column.add_child(_text(_Strings.UI["shop_price"] % int(item["price"]), 18, ORANGE.darkened(0.15)))
+	column.add_child(_text(_Strings.UI["shop_price"] % int(item["price"]), 16, ORANGE.darkened(0.15)))
 	var owned := Campaign.is_unlocked(item["id"])
 	var affordable := wallet >= int(item["price"])
 	var label: String = _Strings.UI["shop_owned"] if owned else (_Strings.UI["shop_buy"] if affordable else _Strings.UI["shop_short"])

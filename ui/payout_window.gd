@@ -43,6 +43,8 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 		child.queue_free()
 	if settlement.has("bags_value"):
 		_line(_Strings.UI["receipt_bags"], "$%d" % int(settlement["bags_value"]), INK)
+		for row: Array in settlement.get("tasks", []):
+			_line(_Strings.UI["receipt_task"] % [_Strings.UI["task_" + str(row[0])], int(row[1])], "$%d" % int(row[2]), INK)
 		var multiplier := float(settlement.get("multiplier", 1.0))
 		var mood: String = _Strings.MOOD_NAMES.get(str(settlement.get("mood", "")), str(settlement.get("mood", "")))
 		var change := int(round((multiplier - 1.0) * 100.0))

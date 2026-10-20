@@ -92,6 +92,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _load_truck():
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _hand_task():
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("drop"):
@@ -206,6 +208,34 @@ func is_hidden() -> bool:
 	return _hidden_spot != null
 
 
+## Bare-hands work: E by litter picks it up; E by a weed tugs at it.
+## Returns true when there was something here to do.
+func _hand_task() -> bool:
+	var spot := _nearest_hand_task()
+	if spot.is_empty():
+		return false
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	tasks.call("request_work", spot["task"], spot["at"], -global_basis.z)
+	var body := get_node_or_null("Visual/CartoonBody")
+	if body != null and not bool(body.call("is_gesturing")):
+		body.call("gesture", "scratch" if spot["task"] == "pull_weeds" else "shuffle")
+	return true
+
+
+## The nearest litter or weed within reach, with empty hands: {task, at}, or {}.
+func _nearest_hand_task() -> Dictionary:
+	if _held_prop() != null:
+		return {}
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks == null:
+		return {}
+	for task: String in ["pick_litter", "pull_weeds"]:
+		var index := int(tasks.call("nearest_spot", task, global_position, float(Constants.TASK_REACH[task])))
+		if index >= 0:
+			return {"task": task, "at": (tasks.call("spot", index) as Dictionary)["at"]}
+	return {}
+
+
 ## E by Chefty with a bag tosses it in; with a loaded wheelbarrow, dumps it.
 func _load_truck() -> bool:
 	var held := _held_prop()
@@ -290,6 +320,10 @@ func interaction_hint() -> Dictionary:
 	var spot := _nearest_free_spot()
 	if spot != null:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	var hand := _nearest_hand_task()
+	if not hand.is_empty():
+		var key := "prompt_pick_litter" if hand["task"] == "pick_litter" else "prompt_pull_weed"
+		return {"text": _Strings.UI[key], "at": (hand["at"] as Vector3) + Vector3(0.0, 0.6, 0.0)}
 	var held := _held_prop()
 	if held != null and bool(held.call("near_truck")):
 		var held_kind := str(held.get("kind"))
@@ -417,7 +451,10 @@ func carry_speed_scale() -> float:
 	var held := _held_prop()
 	if held == null or not held.has_method("weight_kg"):
 		return 1.0
-	return maxf(Constants.CARRY_SPEED_FLOOR, 1.0 - float(held.call("weight_kg")) * Constants.CARRY_SLOWDOWN_PER_KG)
+	var kg := float(held.call("weight_kg"))
+	if Constants.ROLLING_KINDS.has(str(held.get("kind"))):
+		kg *= Constants.ROLLING_WEIGHT_SHARE
+	return maxf(Constants.CARRY_SPEED_FLOOR, 1.0 - kg * Constants.CARRY_SLOWDOWN_PER_KG)
 
 
 ## Hit by a thrown item (net/components/net_prop.gd tells every peer). Everyone

@@ -11,6 +11,8 @@ const HAND_STROKE_SECONDS: float = 0.35
 
 var _hand_wait: float = 0.0
 var _rake_wait: float = 0.0
+var _work_wait: float = 0.0
+var _spray: CPUParticles3D
 var _hooked_field: Node
 
 
@@ -23,9 +25,19 @@ func _physics_process(delta: float) -> void:
 	_hook_refusal()
 	_hand_wait = maxf(0.0, _hand_wait - delta)
 	_rake_wait = maxf(0.0, _rake_wait - delta)
+	_work_wait = maxf(0.0, _work_wait - delta)
 	var held: Node = player.call("_held_prop")
 	var has_rake := held != null and str(held.get("kind")) == "rake"
-	# Holding anything but the rake: left click throws it, as before.
+	var held_kind := str(held.get("kind")) if held != null else ""
+	_set_spray(player, held_kind if Input.is_action_pressed("primary") else "")
+	# A tool: left click uses it, right click throws it.
+	if Constants.TOOL_PRICES.has(held_kind):
+		if Input.is_action_just_pressed("secondary"):
+			player.call("_release_held", true)
+		elif Input.is_action_pressed("primary"):
+			_use_tool(player, held_kind)
+		return
+	# Holding anything else but the rake: left click throws it, as before.
 	if held != null and not has_rake:
 		if Input.is_action_just_pressed("primary"):
 			player.call("_release_held", true)
@@ -41,6 +53,87 @@ func _physics_process(delta: float) -> void:
 			_hand_rake(player)
 	elif Input.is_action_just_pressed("secondary"):
 		_stroke(player, true, 0.0, 0.0)
+
+
+## Using a tool: the leaf blower puffs leaves along like a super rake; the rest
+## send their work to the job's tasks (net/work/job_tasks.gd), aimed where you look.
+func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
+	if tool_kind == "leaf_blower":
+		if _rake_wait <= 0.0:
+			_rake_wait = Constants.BLOWER_PUFF_SECONDS
+			_stroke(player, false, Constants.BLOWER_STRENGTH, Constants.BLOWER_WIDTH)
+		return
+	if tool_kind == "lawn_mower" or _work_wait > 0.0:
+		# The mower mows by being pushed around.
+		return
+	_work_wait = 0.15
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks == null:
+		return
+	var task := ""
+	for task_id: String in Constants.TASK_TOOLS:
+		if str(Constants.TASK_TOOLS[task_id]) == tool_kind:
+			task = task_id
+	if task == "":
+		return
+	var head := player.get_node_or_null("Visual/Head") as Node3D
+	var eye := head.global_position if head != null else player.global_position + Vector3(0.0, 1.6, 0.0)
+	var look := -head.global_basis.z if head != null else -player.global_basis.z
+	var forward := -player.global_basis.z
+	var origin := player.global_position
+	match task:
+		"wash_windows":
+			origin = eye
+		"power_wash":
+			# Where the look meets the ground, within reach.
+			var reach := float(Constants.TASK_REACH["power_wash"])
+			var distance := reach * 0.6
+			if look.y < -0.05:
+				distance = clampf((eye.y - 0.05) / -look.y, 0.6, reach)
+			origin = eye + look * distance
+			origin.y = player.global_position.y + 0.05
+		"clean_gutters":
+			origin = player.global_position
+		"trim_hedges":
+			origin = player.global_position + forward * 0.9 + Vector3(0.0, 1.2, 0.0)
+		"paint_fence":
+			origin = player.global_position + forward * 0.9 + Vector3(0.0, 0.5, 0.0)
+	tasks.call("request_work", task, origin, look)
+
+
+## The holder sees their own hose or washer spraying; everyone else sees the
+## host's splashes where the water lands.
+func _set_spray(player: CharacterBody3D, tool_kind: String) -> void:
+	var spraying := tool_kind == "hose" or tool_kind == "pressure_washer" or tool_kind == "leaf_blower"
+	if not spraying:
+		if _spray != null:
+			_spray.emitting = false
+		return
+	if _spray == null:
+		_spray = CPUParticles3D.new()
+		_spray.amount = 60
+		_spray.lifetime = 0.5
+		var mesh := SphereMesh.new()
+		mesh.radius = 0.035
+		mesh.height = 0.07
+		_spray.mesh = mesh
+		var material := StandardMaterial3D.new()
+		material.albedo_color = Color(0.7, 0.85, 1.0, 0.7)
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_spray.material_override = material
+		_spray.spread = 6.0
+		_spray.gravity = Vector3(0.0, -6.0, 0.0)
+		_spray.local_coords = false
+		player_parent().add_child(_spray)
+	var head := player.get_node_or_null("Visual/Head") as Node3D
+	var look := -head.global_basis.z if head != null else -player.global_basis.z
+	_spray.global_position = player.global_position + Vector3(0.0, 1.0, 0.0) + (-player.global_basis.z) * 0.8 + player.global_basis.x * 0.25
+	_spray.direction = look
+	var speed := 9.0 if tool_kind == "hose" else (14.0 if tool_kind == "pressure_washer" else 6.0)
+	_spray.initial_velocity_min = speed * 0.8
+	_spray.initial_velocity_max = speed
+	(_spray.material_override as StandardMaterial3D).albedo_color = Color(0.85, 0.75, 0.55, 0.0) if tool_kind == "leaf_blower" else Color(0.7, 0.85, 1.0, 0.7)
+	_spray.emitting = true
 
 
 ## No rake: scoop at the leaves with your hands. It barely does anything, and
