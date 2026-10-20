@@ -143,7 +143,7 @@ const TASK_WORK_RATE: Dictionary = {
 ## How far from you a tool reaches, in meters.
 const TASK_REACH: Dictionary = {
 	"pick_litter": 2.0, "pull_weeds": 2.0, "mow_lawn": 0.9, "clean_gutters": 2.6,
-	"wash_windows": 8.0, "power_wash": 3.2, "trim_hedges": 2.2, "paint_fence": 2.0,
+	"wash_windows": 40.0, "power_wash": 3.2, "trim_hedges": 2.2, "paint_fence": 2.0,
 }
 ## How many tasks a job asks for besides the leaves, at least and at most (three in all).
 ## Taylan, 2026-10-20: too much at once felt like a chore list.
@@ -181,3 +181,29 @@ const LADDER_TOP_REACH: float = 1.9
 const LADDER_CLIMB_SECONDS: float = 1.1
 ## Scooping gutters with a leaf blower goes this many times faster than by hand.
 const GUTTER_BLOWER_SPEEDUP: float = 3.0
+
+## Water, from Taylan on 2026-10-20: the hose has to be hooked up to something,
+## the homeowner bills you for using theirs, a fire hydrant is way too much, and
+## the pressure washer has a tank that runs dry. TODO(balance): not in the workbook yet.
+## Water sources: how fast water leaves the nozzle (m/s) when hooked to each.
+const WATER_SPEED: Dictionary = {"chefty": 11.0, "spigot": 9.5, "hydrant": 20.0}
+## The homeowner's water bill: a fee for hooking up, then per second of spraying.
+const SPIGOT_HOOKUP_FEE: int = 5
+const SPIGOT_FEE_PER_SECOND: float = 0.6
+## How long the hose is. Walk farther than this from where it's hooked up and it snaps loose.
+const HOSE_LENGTH: float = 24.0
+## How close to a source you must be to hook up or refill.
+const WATER_REACH: float = 2.2
+## How far a snapping hose's loose end whips, and how close it must pass to knock someone out.
+const HOSE_WHIP_SECONDS: float = 0.6
+const HOSE_WHIP_RADIUS: float = 1.3
+## A hydrant pushes you back and up while you hold on, swinging side to side, up to this fast.
+const HYDRANT_PUSH: float = 9.0
+const HYDRANT_LIFT: float = 11.5
+const HYDRANT_MAX_SPEED: float = 4.5
+## Hydrant water cleans this many times faster (it goes everywhere).
+const HYDRANT_CLEAN_SPEEDUP: float = 2.5
+## The pressure washer's tank, out of 100: what a second of spraying uses.
+const WASHER_USE_PER_SECOND: float = 3.0
+## How fast the pressure washer's water leaves the wand.
+const WASHER_SPEED: float = 14.0
