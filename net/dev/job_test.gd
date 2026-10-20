@@ -117,12 +117,50 @@ func _grab_rake(out: Dictionary) -> bool:
 	return true
 
 
+## Yards differ every job: find a 6 m strip, and a separate spot, where the leaves
+## are about as thick as a fresh lot's (not under the house, not heaped under a tree).
+var _strip := Vector3.ZERO
+var _fresh := Vector3.ZERO
+
+
+func _pick_spots(field: Node, lot: Vector3) -> void:
+	var normal := float(field.get("INITIAL_DENSITY")) if "INITIAL_DENSITY" in field else 60.0
+	_strip = lot + Vector3(-9.0, 0.2, -4.0)
+	_fresh = lot + Vector3(7.5, 0.2, 6.0)
+	var found_strip := false
+	for z: float in [-4.0, -8.0, 0.0, 4.0, -12.0, 8.0, -15.0, 12.0]:
+		for x: float in [-15.0, -9.0, 5.0, 9.0, -3.0]:
+			var ok := true
+			for step: int in 13:
+				var density := int(field.call("sample_world", lot + Vector3(x + float(step) * 0.5, 0.2, z)))
+				if density < normal * 0.6 or density > normal * 1.6:
+					ok = false
+					break
+			if ok and not found_strip:
+				_strip = lot + Vector3(x, 0.2, z)
+				found_strip = true
+	for z: float in [6.0, 10.0, -10.0, 2.0, -14.0, 14.0]:
+		for x: float in [-14.0, 14.0, 8.0, -8.0]:
+			var spot := lot + Vector3(x, 0.2, z)
+			if absf(spot.z - _strip.z) < 3.0:
+				continue
+			var even := true
+			for corner: Vector3 in [Vector3.ZERO, Vector3(1.5, 0, 0), Vector3(-1.5, 0, 0), Vector3(0, 0, 1.5), Vector3(0, 0, -1.5)]:
+				var density := int(field.call("sample_world", spot + corner))
+				if density < normal * 0.8 or density > normal * 1.3:
+					even = false
+			if even:
+				_fresh = spot
+				return
+
+
 func _rake_pile(out: Dictionary) -> void:
 	var field := _field()
 	var lot := _lot_origin()
+	_pick_spots(field, lot)
 	# Rake a 6 m strip toward the pile spot, a stroke every half meter.
 	for index: int in 12:
-		var at := lot + Vector3(-9.0 + float(index) * 0.5, 0.2, -4.0)
+		var at := _strip + Vector3(float(index) * 0.5, 0.0, 0.0)
 		_move_player_to(at - Vector3(1.5, 0.0, 0.0))
 		_face(Vector3(1.0, 0.0, 0.0))
 		field.call("request_rake", at, Vector3(1.0, 0.0, 0.0), Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH)
@@ -136,17 +174,19 @@ func _bag_and_compare(out: Dictionary) -> bool:
 	var lot := _lot_origin()
 	var before := _bags()
 	# A bag from the pile, and one from untouched leaves, for comparison.
-	_move_player_to(lot + Vector3(-4.5, 0.0, -4.0))
-	field.call("request_collect", lot + Vector3(-3.0, 0.2, -4.0), Constants.BAG_RADIUS)
-	_move_player_to(lot + Vector3(6.0, 0.0, 6.0))
-	field.call("request_collect", lot + Vector3(7.5, 0.2, 6.0), Constants.BAG_RADIUS)
+	var pile := _strip + Vector3(6.0, 0.0, 0.0)
+	_move_player_to(pile - Vector3(1.5, 0.2, 0.0))
+	field.call("request_collect", pile, Constants.BAG_RADIUS)
+	_move_player_to(_fresh - Vector3(1.5, 0.2, 0.0))
+	field.call("request_collect", _fresh, Constants.BAG_RADIUS)
 	var values: Array = []
 	for bag: Node in _bags():
 		if not before.has(bag):
 			values.append(int(bag.get("value")))
 	out["bag_values"] = values
 	# A thin spot (already raked away) refuses to bag.
-	field.call("request_collect", lot + Vector3(-8.0, 0.2, -4.0), Constants.BAG_RADIUS)
+	_move_player_to(_strip + Vector3(-0.5, -0.2, 0.0))
+	field.call("request_collect", _strip + Vector3(1.0, 0.0, 0.0), Constants.BAG_RADIUS)
 	out["thin_spot_bags"] = _bags().size() - before.size() - values.size()
 	_note("bag values %s (pile first, fresh leaves second), thin spot made %d bags" % [values, out["thin_spot_bags"]])
 	if values.size() != 2 or int(values[0]) <= int(values[1]) or int(out["thin_spot_bags"]) != 0:
