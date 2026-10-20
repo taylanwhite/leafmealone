@@ -12,6 +12,8 @@ const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Pedestrians = preload("res://npcs/pedestrians.gd")
+const _Grass = preload("res://props/grass.gd")
+const _StreetLife = preload("res://levels/dressing/street_life.gd")
 const GRASS := Color(0.42, 0.52, 0.3)
 const SAND := Color(0.78, 0.68, 0.5)
 ## Behind the store counter at (0, -8), facing the customers.
@@ -65,6 +67,11 @@ func _dress() -> void:
 	_Neighborhood.dress($LotZone, 22)
 	# People out for a walk on the sidewalks (lot street at z 21.3 and 32.7 in the
 	# lot's space; the store's cross street at x 21.3 and 32.7).
+	# Grass on every lawn around the yard and the store, short and sparse in the yard itself.
+	_StreetLife.dress_lot($LotZone)
+	_StreetLife.dress_store($StoreZone)
+	_Grass.plant($LotZone, 70.0, 0.48, 22, Constants.PAD_HALF)
+	_Grass.plant($StoreZone, 70.0, 0.52, 11)
 	_Pedestrians.populate($LotZone, [
 		[Vector3(-110.0, 0.1, 21.4), Vector3(110.0, 0.1, 21.4)],
 		[Vector3(-110.0, 0.1, 32.6), Vector3(110.0, 0.1, 32.6)],
