@@ -3,7 +3,7 @@ extends CharacterBody3D
 ## Authority: owning peer for movement, look, and the values replicated below.
 ## Remote peers display those values. NetSmoother only moves the visual on remotes.
 
-enum AnimState { IDLE, WALK, SPRINT, CROUCH, AIR }
+enum AnimState { IDLE, WALK, SPRINT, CROUCH, AIR, KNOCKED }
 
 # TODO(balance): add movement speeds to the workbook.
 const WALK_SPEED: float = 5.0
@@ -47,6 +47,11 @@ var _on_seat: bool = false
 var _crossing_min: Vector3 = Vector3.ZERO
 var _crossing_max: Vector3 = Vector3.ZERO
 var _step_wait: float = 0.0
+## Bonked by a thrown item: no control for this long. Knocked flat if the item was heavy.
+var _stun_left: float = 0.0
+var _knocked: bool = false
+## A bonk that arrived over the network, applied on the next physics tick.
+var _pending_bonk: Array = []
 
 
 func _enter_tree() -> void:
@@ -101,6 +106,10 @@ func _physics_process(delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
 	_seat_on_ride()
+	if not _pending_bonk.is_empty():
+		var bonk := _pending_bonk
+		_pending_bonk = []
+		_apply_bonk(bonk[0], bonk[1])
 	if is_multiplayer_authority():
 		if _crossing_drive:
 			_look = Vector2.ZERO
@@ -111,6 +120,8 @@ func _physics_process(delta: float) -> void:
 			velocity = Vector3.ZERO
 		elif _throwback_left > 0.0:
 			_step_throwback(delta)
+		elif _stun_left > 0.0 and _ride == null:
+			_step_stunned(delta)
 		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
 			var seat: Transform3D = _ride.call("seat_transform", _seat_index)
 			global_position = seat.origin
@@ -388,6 +399,7 @@ func _simulate(delta: float) -> void:
 		speed = CROUCH_SPEED
 	elif Input.is_action_pressed("sprint"):
 		speed = SPRINT_SPEED
+	speed *= carry_speed_scale()
 	if direction.is_zero_approx():
 		velocity.x = move_toward(velocity.x, 0.0, speed)
 		velocity.z = move_toward(velocity.z, 0.0, speed)
@@ -398,6 +410,57 @@ func _simulate(delta: float) -> void:
 	_update_anim(crouching, direction)
 	_stay_on_the_pad()
 	_steps(delta)
+
+
+## Heavy things slow you down while you carry them (Constants.CARRY_SLOWDOWN_PER_KG).
+func carry_speed_scale() -> float:
+	var held := _held_prop()
+	if held == null or not held.has_method("weight_kg"):
+		return 1.0
+	return maxf(Constants.CARRY_SPEED_FLOOR, 1.0 - float(held.call("weight_kg")) * Constants.CARRY_SLOWDOWN_PER_KG)
+
+
+## Hit by a thrown item (net/components/net_prop.gd tells every peer). Everyone
+## sees the flinch, stumble, or fall and hears the noise; this player's own peer
+## is shoved by push and loses control for a moment, and drops what it holds
+## when the hit was heavy.
+func on_bonked(push: Vector3, tier: String) -> void:
+	# It arrives with the network message; everything that moves waits for a physics tick.
+	_pending_bonk = [push, tier]
+
+
+func _apply_bonk(push: Vector3, tier: String) -> void:
+	var body := get_node_or_null("Visual/CartoonBody")
+	if body != null:
+		match tier:
+			"light":
+				body.call("gesture", "startle")
+			"medium":
+				body.call("gesture", "stumble")
+			_:
+				body.call("dizzy", float(Constants.BONK_STUN_SECONDS["heavy"]))
+	say("vo_oof" if tier != "light" else "vo_eh")
+	if not is_multiplayer_authority() or _hidden_spot != null or _on_seat:
+		return
+	_stun_left = float(Constants.BONK_STUN_SECONDS.get(tier, 0.5))
+	_knocked = tier == "heavy"
+	velocity = push
+	if _knocked and _held_prop() != null:
+		_release_held(false)
+
+
+## Stunned: sliding with the shove, no control, flat on your back if knocked.
+func _step_stunned(delta: float) -> void:
+	_stun_left = maxf(0.0, _stun_left - delta)
+	if not is_on_floor():
+		velocity.y -= _gravity * delta
+	var flat := Vector2(velocity.x, velocity.z).move_toward(Vector2.ZERO, (9.0 if is_on_floor() else 1.5) * delta)
+	velocity.x = flat.x
+	velocity.z = flat.y
+	move_and_slide()
+	anim_state = AnimState.KNOCKED if _knocked else (AnimState.AIR if not is_on_floor() else AnimState.IDLE)
+	if _stun_left <= 0.0:
+		_knocked = false
 
 
 ## A thrown prop can spike velocity. Cap it, and put the player back if they leave the pad.
@@ -515,7 +578,9 @@ func _apply_stance(crouching: bool) -> void:
 
 func _apply_presentation() -> void:
 	rotation.y = body_yaw
-	%Head.rotation.x = head_pitch
+	# Knocked flat, the head lies back with the body and stares at the sky.
+	var fallen := float(get_node("Visual/CartoonBody").get("fallen")) if has_node("Visual/CartoonBody") else 0.0
+	%Head.rotation.x = lerpf(head_pitch, 0.0, fallen) + fallen * 1.35
 	# Some jumps get a little "hup". anim_state and velocity replicate, so everyone hears it.
 	if anim_state == AnimState.AIR and _last_anim != AnimState.AIR and velocity.y > 1.0 and randf() < HUP_CHANCE:
 		say("vo_hup")
@@ -543,6 +608,12 @@ func _dress_up() -> void:
 	var old_head := %Head.get_node_or_null("HeadMesh") as Node3D
 	if old_head != null:
 		old_head.visible = false
+	# Other players' cameras are never used here, and their Visual is moved by the
+	# network smoother outside physics ticks, which interpolation warns about.
+	if not is_multiplayer_authority():
+		for camera: Camera3D in [%FirstPerson, get_node_or_null("CameraRig/OverShoulder")]:
+			if camera != null:
+				camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	# Your own eyes would sit right in front of your first-person camera.
 	if is_multiplayer_authority():
 		%FirstPerson.cull_mask &= ~(1 << (_CartoonBody.HEAD_LAYER - 1))

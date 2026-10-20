@@ -15,6 +15,9 @@ const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const STATE_CROUCH: int = 3
 const STATE_AIR: int = 4
+const STATE_KNOCKED: int = 5
+## How far a knocked-down body tips back, in radians.
+const FALL_ANGLE: float = 1.4
 const SKIN_TONES: Array[Color] = [
 	Color(0.98, 0.82, 0.68), Color(0.87, 0.67, 0.5), Color(0.72, 0.52, 0.36),
 	Color(0.55, 0.37, 0.25), Color(0.4, 0.27, 0.18),
@@ -82,6 +85,11 @@ var _squash: float = 0.0
 var _was_air: bool = false
 var _time: float = 0.0
 var _head_base_y: float = 1.6
+## 0 standing, 1 flat on the back after a heavy bonk. Read by player.gd for the head.
+var fallen: float = 0.0
+var _head_stand_y: float = 1.6
+var _stars: Node3D
+var _stars_left: float = 0.0
 ## How far the hips and head drop when crouching, in meters.
 const CROUCH_DROP: float = 0.3
 ## Share of a player's look up and down that the visible head shows.
@@ -133,6 +141,7 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 		_arms.append(arm)
 	_head_root = head_parent if head_parent != null else _pivot(self, Vector3(0.0, 1.6, 0.0))
 	_head_base_y = _head_root.position.y
+	_head_stand_y = _head_base_y
 	_build_head(_head_root)
 	# Your own body, not just your head: looking down in first person, the torso
 	# right under the camera filled the screen.
@@ -238,6 +247,9 @@ func _physics_process(delta: float) -> void:
 	var state := int(get_parent().get_parent().get("anim_state")) if get_parent() != null and get_parent().get_parent() != null and "anim_state" in get_parent().get_parent() else 0
 	var in_air := state == STATE_AIR
 	var crouching := state == STATE_CROUCH
+	var knocked := state == STATE_KNOCKED
+	# Topple fast, get up a little slower.
+	fallen = move_toward(fallen, 1.0 if knocked else 0.0, delta * (5.0 if knocked else 2.5))
 	if _was_air and not in_air:
 		_squash = 1.0
 	_was_air = in_air
@@ -253,7 +265,8 @@ func _physics_process(delta: float) -> void:
 	var drop := CROUCH_DROP if crouching else 0.0
 	_hips.position.y = 0.82 + bounce - drop - _squash * 0.08
 	# The head rides with the body, and a player's camera with it.
-	_head_root.position.y = lerpf(_head_root.position.y, _head_base_y - drop + bounce * 0.6 - _squash * 0.06, clampf(delta * 12.0, 0.0, 1.0))
+	_head_stand_y = lerpf(_head_stand_y, _head_base_y - drop + bounce * 0.6 - _squash * 0.06, clampf(delta * 12.0, 0.0, 1.0))
+	_head_root.position.y = _head_stand_y
 	_torso.rotation.x = -0.12 * walk
 	_torso.scale = Vector3(1.0 + _squash * 0.15, 1.0 + breathe - _squash * 0.12, 1.0 + _squash * 0.15)
 	for index: int in _legs.size():
@@ -274,6 +287,50 @@ func _physics_process(delta: float) -> void:
 	_torso.rotation.z = lerpf(_torso.rotation.z, -eye_lead.x * 0.08 * walk, clampf(delta * 8.0, 0.0, 1.0))
 	_animate_gesture(delta)
 	_animate_face(delta)
+	_apply_fall(delta)
+
+
+## Lying on the back, limbs splayed, head and all, and stars circling while dizzy.
+func _apply_fall(delta: float) -> void:
+	var angle := fallen * FALL_ANGLE
+	rotation.x = angle
+	if _head_root != self and _head_root.get_parent() != self:
+		_head_root.position = Vector3(0.0, _head_stand_y * cos(angle), _head_stand_y * sin(angle))
+	if fallen > 0.01:
+		for index: int in _legs.size():
+			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, -0.3 + 0.15 * float(index), fallen)
+			_legs[index].rotation.z = lerpf(0.0, (-0.3 if index == 0 else 0.3), fallen)
+		for index: int in _arms.size():
+			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, (-1.6 if index == 0 else 1.6) + 0.2 * sin(_time * 9.0 + index), fallen)
+	else:
+		for leg: Node3D in _legs:
+			leg.rotation.z = 0.0
+	if _stars != null:
+		_stars_left -= delta
+		_stars.visible = _stars_left > 0.0
+		if _stars.visible:
+			_stars.rotation.y += delta * 6.0
+			var top := _head_root.global_position if _head_root != null else global_position + Vector3.UP * 1.6
+			_stars.global_position = top + Vector3(0.0, 0.42, 0.0)
+
+
+## Stars circle this character's head for a while.
+func dizzy(seconds: float) -> void:
+	if _stars == null:
+		_stars = Node3D.new()
+		_stars.name = "DizzyStars"
+		add_child(_stars)
+		_stars.top_level = true
+		var kit := _MeshKit.new()
+		for index: int in 4:
+			var angle := TAU * float(index) / 4.0
+			var at := Vector3(cos(angle) * 0.3, 0.03 * float(index % 2), sin(angle) * 0.3)
+			# A five-pointed star from two flattened cones would do; a squashed lumpy ball reads fine small.
+			kit.blob(at, Vector3(0.07, 0.07, 0.025), Color(1.0, 0.85, 0.25), {"detail": 1, "lumps": 0.6, "lump_scale": 5.0, "outward": true, "flat": true, "jitter": 0.0, "shade": false, "seed": index})
+		var view := _Stylized.instance(kit.commit(), {"roughness": 0.4, "specular": 0.4})
+		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_stars.add_child(view)
+	_stars_left = seconds
 
 
 func _animate_face(delta: float) -> void:
