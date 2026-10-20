@@ -15,8 +15,7 @@ var _lobby: VBoxContainer
 var _lobby_players: Label
 var _start_button: Button
 var _shop: PanelContainer
-var _payout: VBoxContainer
-var _payout_label: Label
+var _payout: PanelContainer
 var _crew_button: Button
 var _voice_button: Button
 var _rake_hint: Label
@@ -127,7 +126,7 @@ func _process(_delta: float) -> void:
 	# What E does is shown over the thing itself (ui/interaction_prompt.gd), so the HUD stays short.
 	if _rake_hint != null:
 		_rake_hint.visible = Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
-	_cleanup.text = "Cleanup %.1f%%%s%s" % [
+	_cleanup.text = (str(_Strings.UI["hud_wallet"]) % Campaign.credits(Net.local_peer_id())) + "\nCleanup %.1f%%%s%s" % [
 		fraction * 100.0,
 		truck_line,
 		crew_line,
@@ -233,31 +232,13 @@ func _build_store() -> void:
 
 
 func _build_payout() -> void:
-	_payout = VBoxContainer.new()
-	_payout.position = Vector2(380, 120)
-	_payout.visible = false
-	_payout.add_theme_constant_override("separation", 8)
-	_payout_label = Label.new()
-	var close := Button.new()
-	close.text = "Close"
-	close.pressed.connect(func() -> void: _payout.visible = false)
-	_payout.add_child(_payout_label)
-	_payout.add_child(close)
+	_payout = preload("res://ui/payout_window.gd").new()
+	_payout.name = "PayoutWindow"
 	add_child(_payout)
 
 
 func _on_payout(results: Array[Dictionary]) -> void:
-	var lines: PackedStringArray = PackedStringArray(["Payout"])
-	for row: Dictionary in results:
-		lines.append("%s  leaves %.0f  share %d%%  %d credits" % [
-			str(row["name"]),
-			float(row["leaves"]),
-			int(round(float(row["share"]) * 100.0)),
-			int(row["credits"]),
-		])
-	_payout_label.text = "\n".join(lines)
-	_payout.visible = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_payout.call("show_payout", results, Campaign.last_settlement())
 
 
 func _on_host_pressed() -> void:

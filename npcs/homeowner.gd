@@ -15,6 +15,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 const _LowPoly = preload("res://props/low_poly.gd")
+const _MoneyPopup = preload("res://ui/money_popup.gd")
 ## How close you must be to talk or take the cash, in meters.
 const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
@@ -42,6 +43,8 @@ var _voice: AudioStreamPlayer3D
 var _cash: Node3D
 var _cash_label: Label3D
 var _rng := RandomNumberGenerator.new()
+## Host: how this job is being settled, for the payout receipt.
+var _settlement: Dictionary = {}
 
 
 func _ready() -> void:
@@ -144,6 +147,7 @@ func _handle_talk(peer_id: int) -> void:
 	var lines: Array = _Strings.HOMEOWNER_LINES.get(mood, [""])
 	var line_index := _rng.randi() % lines.size()
 	var amount := 0 if mood == "nothing" else int(round(float(value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0))))
+	_settlement = {"bags_value": value, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "paid": amount}
 	_rpc_react.rpc(mood, line_index, amount)
 	if mood == "nothing":
 		return
@@ -184,7 +188,7 @@ func _handle_take(peer_id: int) -> void:
 	_rpc_paid.rpc(peer_id)
 	var world := get_tree().get_first_node_in_group("world")
 	if world != null:
-		world.call("finish_with_pay", _amount)
+		world.call("finish_with_pay", _amount, _settlement)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -240,6 +244,7 @@ func _offer(amount: int) -> void:
 @rpc("authority", "call_local", "reliable")
 func _rpc_paid(_peer_id: int) -> void:
 	_phase = Phase.PAID
+	_MoneyPopup.pop(get_tree(), _cash.global_position + Vector3(0.0, 0.4, 0.0), _amount)
 	_cash.visible = false
 	_body.set("mood", "raised")
 	_body.call("gesture", "wave")

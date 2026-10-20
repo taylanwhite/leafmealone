@@ -145,9 +145,9 @@ func request_depart() -> void:
 
 
 ## Host only: the homeowner was paid. Settle the job and drive everyone home.
-func finish_with_pay(paid: int) -> void:
+func finish_with_pay(paid: int, details: Dictionary = {}) -> void:
 	if Net.is_host():
-		_host_finish(float(paid))
+		_host_finish(float(paid), details)
 
 
 func request_finish() -> void:
@@ -200,8 +200,8 @@ func _host_depart() -> void:
 
 
 ## Host only. paid is the homeowner's cash; without it, Campaign falls back to cleanup.
-func _host_finish(paid: float = -1.0) -> void:
-	Campaign.finish_job(paid)
+func _host_finish(paid: float = -1.0, details: Dictionary = {}) -> void:
+	Campaign.finish_job(paid, details)
 	var chefty := get_node_or_null("Rides/Chefty")
 	if chefty != null:
 		chefty.call("clear_bags")

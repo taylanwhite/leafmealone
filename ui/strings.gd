@@ -40,12 +40,12 @@ const UI: Dictionary = {
 	"hud_rake_hint": "Left click  rake leaves into a pile     Right click  bag them",
 	"shop_title": "Homie Depot",
 	"shop_subtitle": "Tools and upgrades",
-	"shop_credits": "Your credits: %d",
+	"shop_credits": "Your cash: $%d",
 	"shop_close": "Close",
-	"shop_price": "%d credits",
+	"shop_price": "$%d",
 	"shop_buy": "Buy",
 	"shop_owned": "Owned",
-	"shop_short": "Not enough credits",
+	"shop_short": "Not enough cash",
 	"shop_rake_name": "Rake tune-up",
 	"shop_rake_blurb": "Raking moves %.2fx as many leaves.",
 	"shop_barrow_name": "Bigger wheelbarrow",
@@ -56,6 +56,14 @@ const UI: Dictionary = {
 	"prompt_take_cash": "Take the cash ($%d)",
 	"cash_amount": "$%d",
 	"homeowner_thanks": "Thanks!",
+	"hud_wallet": "Cash $%d",
+	"receipt_title": "Job paid",
+	"receipt_bags": "Bags delivered",
+	"receipt_mood": "Homeowner was %s",
+	"receipt_paid": "Paid",
+	"receipt_split": "Your crew's split",
+	"receipt_close": "Nice",
+	"receipt_no_homeowner": "Paid for the cleanup",
 }
 
 ## What the homeowner says when you report the job done, by mood. Taylan wrote the
@@ -131,3 +139,8 @@ const LINES: Array[Dictionary] = [
 		"max_session": 1,
 	},
 ]
+
+## How each homeowner mood reads on the payout receipt.
+const MOOD_NAMES: Dictionary = {
+	"thrilled": "thrilled", "happy": "happy", "fine": "fine", "slow": "impatient", "messy": "unimpressed",
+}
