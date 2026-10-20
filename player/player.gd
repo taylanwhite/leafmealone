@@ -28,6 +28,8 @@ const HUP_CHANCE: float = 0.6
 @export var head_pitch: float = 0.0
 ## Coarse pose shared with other peers. Replicated.
 @export var anim_state: AnimState = AnimState.IDLE
+## True while holding a throw too long. Replicated, so everyone sees the strain.
+@export var straining: bool = false
 ## Equipped tool id. Empty until tools exist. Replicated.
 @export var equipment_id: String = ""
 
@@ -52,6 +54,10 @@ var _stun_left: float = 0.0
 var _knocked: bool = false
 ## A bonk that arrived over the network, applied on the next physics tick.
 var _pending_bonk: Array = []
+## Holding G with something in hand: how long it's been wound up, and when the
+## next strained noise is due.
+var _wind_up: float = -1.0
+var _next_strain: float = 0.0
 
 
 func _enter_tree() -> void:
@@ -96,8 +102,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("drop"):
-		_release_held(false)
+	# G (drop) is wound up and released in _wind_up, on physics ticks.
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
@@ -113,6 +118,7 @@ func _physics_process(delta: float) -> void:
 		_pending_bonk = []
 		_apply_bonk(bonk[0], bonk[1])
 	if is_multiplayer_authority():
+		_step_wind_up(delta)
 		if _crossing_drive:
 			_look = Vector2.ZERO
 			body_yaw = PI
@@ -297,6 +303,9 @@ func _grab_nearby() -> bool:
 		if barrow != null:
 			barrow.call("request_load_held")
 			return true
+	# One thing at a time.
+	if held != null:
+		return false
 	var closest: Node = null
 	var closest_distance := 2.4
 	for node: Node in get_tree().get_nodes_in_group("props"):
@@ -444,6 +453,76 @@ func _simulate(delta: float) -> void:
 	_update_anim(crouching, direction)
 	_stay_on_the_pad()
 	_steps(delta)
+
+
+## How far the throw is wound up, 0 to 1, or -1 when G isn't held. Past 1 is
+## straining (ui/throw_meter.gd draws it).
+func wind_up_share() -> float:
+	if _wind_up < 0.0:
+		return -1.0
+	return _wind_up / Constants.THROW_CHARGE_SECONDS
+
+
+## Seconds G has been held, or -1.
+func wind_up_seconds() -> float:
+	return _wind_up
+
+
+## Hold G to wind up a throw, release to let it fly; a tap just sets it down.
+## Hold on too long and you strain, then faint and drop it.
+func _step_wind_up(delta: float) -> void:
+	var held := _held_prop()
+	var pressing := Input.is_action_pressed("drop") and held != null and _stun_left <= 0.0 and _hidden_spot == null
+	if pressing:
+		if _wind_up < 0.0:
+			_wind_up = 0.0
+			_next_strain = Constants.THROW_STRAIN_SECONDS
+		_wind_up += delta
+		straining = _wind_up >= Constants.THROW_STRAIN_SECONDS
+		if straining:
+			if _wind_up >= _next_strain:
+				_next_strain = _wind_up + 1.3
+				say_to_all("vo_strain")
+		if _wind_up >= Constants.THROW_FAINT_SECONDS:
+			_faint()
+		return
+	if _wind_up < 0.0:
+		return
+	var seconds := _wind_up
+	_wind_up = -1.0
+	straining = false
+	var body := get_node_or_null("Visual/CartoonBody")
+	if held == null:
+		return
+	if seconds < Constants.THROW_TAP_SECONDS:
+		_release_held(false)
+		return
+	var share := clampf(seconds / Constants.THROW_CHARGE_SECONDS, 0.0, 1.0)
+	var power := lerpf(Constants.THROW_POWER_MIN, Constants.THROW_POWER_MAX, share)
+	held.call("request_throw", -global_transform.basis.z, power)
+	say_to_all("vo_heave" if share > 0.7 else "vo_hup")
+	if body != null and not bool(body.call("is_gesturing")):
+		body.call("gesture", "startle")
+
+
+## Held it up too long: the world spins, you drop it and go down for a moment.
+func _faint() -> void:
+	_wind_up = -1.0
+	straining = false
+	_release_held(false)
+	_stun_left = Constants.FAINT_SECONDS
+	_knocked = true
+	say_to_all("vo_oof")
+
+
+## A noise from this player that every peer hears from their head.
+func say_to_all(sound_name: String) -> void:
+	_rpc_say.rpc(sound_name)
+
+
+@rpc("authority", "call_local", "unreliable")
+func _rpc_say(sound_name: String) -> void:
+	say(sound_name)
 
 
 ## Heavy things slow you down while you carry them (Constants.CARRY_SLOWDOWN_PER_KG).

@@ -198,6 +198,21 @@ def vo_yelp() -> list[float]:
     return voice_line([(0.0, vowel("a", 0.42, glide(260, 560, 0.15, 0.7), (9.0, 0.05)), 1.0)], 0.44)
 
 
+def vo_strain() -> list[float]:
+    """'Nnnngh...': straining to hold something up, a closed-mouth hum that climbs and quivers."""
+    hum = vowel("u", 0.75, glide(170.0, 260.0, 0.7, 1.4), (11.0, 0.05))
+    return envelope(lowpass(hum, 1400.0), 0.06, 0.15)
+
+
+def vo_heave() -> list[float]:
+    """'Hyah!': the grunt of a big throw, a breath and a punchy 'ah' that drops."""
+    rng = random.Random(5)
+    out = silence(0.4)
+    mix_into(out, breath(rng, 0.07, 1800.0), 0.0, 0.5)
+    mix_into(out, envelope(vowel("a", 0.26, glide(330.0, 220.0, 0.24), (8.0, 0.02)), 0.02, 0.1), 0.05, 1.0)
+    return out
+
+
 def babble(variant: int) -> list[float]:
     """Gibberish talking: quick syllables hopping between vowels and pitches, 'ewewewew'."""
     rng = random.Random(1000 + variant)
@@ -410,6 +425,8 @@ SOUNDS = {
     "thud": (thud, 0, 0.85),
     "whoosh": (whoosh, 0, 0.5),
     "dizzy": (dizzy, 0, 0.5),
+    "vo_strain": (vo_strain, 0, 0.65),
+    "vo_heave": (vo_heave, 0, 0.75),
 }
 
 

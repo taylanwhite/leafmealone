@@ -30,17 +30,12 @@ func _physics_process(delta: float) -> void:
 	var has_rake := held != null and str(held.get("kind")) == "rake"
 	var held_kind := str(held.get("kind")) if held != null else ""
 	_set_spray(player, held_kind if Input.is_action_pressed("primary") else "")
-	# A tool: left click uses it, right click throws it.
+	# A tool: left click uses it. G throws anything (player.gd).
 	if Constants.TOOL_PRICES.has(held_kind):
-		if Input.is_action_just_pressed("secondary"):
-			player.call("_release_held", true)
-		elif Input.is_action_pressed("primary"):
+		if Input.is_action_pressed("primary"):
 			_use_tool(player, held_kind)
 		return
-	# Holding anything else but the rake: left click throws it, as before.
 	if held != null and not has_rake:
-		if Input.is_action_just_pressed("primary"):
-			player.call("_release_held", true)
 		return
 	if Input.is_action_pressed("primary"):
 		if has_rake:

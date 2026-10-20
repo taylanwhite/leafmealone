@@ -217,7 +217,7 @@ func _free_lot() -> void:
 		tool.queue_free()
 
 
-## Host only. What the homeowner wants done: always the leaves, plus a few more.
+## Host only. What the homeowner wants done: always the leaves, plus two more.
 ## Mostly work the crew owns the tool for, now and then something they don't
 ## (it shows as needing that tool, so it's worth buying), and always some
 ## bare-hands work. --all-tasks asks for everything (tests).
@@ -238,14 +238,23 @@ func _choose_tasks(rng: RandomNumberGenerator) -> PackedStringArray:
 		chosen.append_array(PackedStringArray(possible))
 		return chosen
 	var count := rng.randi_range(Constants.JOB_EXTRA_TASKS.x, Constants.JOB_EXTRA_TASKS.y)
-	possible.shuffle()
+	# Now and then one of them needs a tool the crew doesn't have yet.
+	if not unowned.is_empty() and rng.randf() < 0.3:
+		chosen.append(unowned[rng.randi() % unowned.size()])
+	_shuffle(possible, rng)
 	for task: String in possible:
 		if chosen.size() - 1 >= count:
 			break
 		chosen.append(task)
-	if not unowned.is_empty() and rng.randf() < 0.5:
-		chosen.append(unowned[rng.randi() % unowned.size()])
 	return chosen
+
+
+func _shuffle(items: Array[String], rng: RandomNumberGenerator) -> void:
+	for index: int in range(items.size() - 1, 0, -1):
+		var other := rng.randi_range(0, index)
+		var swap := items[index]
+		items[index] = items[other]
+		items[other] = swap
 
 
 ## Host only. One of each tool the crew owns rides along, laid out by the truck.

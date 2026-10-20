@@ -37,7 +37,7 @@ const UI: Dictionary = {
 	"prompt_gate_lot": "Go to the lot",
 	"prompt_gate_store": "Back to Homie Depot",
 	"prompt_gate_border": "Go to the border",
-	"hud_rake_hint": "Left click  rake leaves into a pile     Right click  bag them",
+	"hud_rake_hint": "Left click  rake leaves into a pile     Right click  bag them     Hold G  throw",
 	"shop_title": "Homie Depot",
 	"shop_subtitle": "Tools and upgrades",
 	"shop_credits": "Your cash: $%d",

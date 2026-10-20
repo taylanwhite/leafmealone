@@ -60,6 +60,9 @@ func _ready() -> void:
 	var goal := preload("res://ui/job_goal.gd").new()
 	goal.name = "JobGoal"
 	add_child(goal)
+	var meter := preload("res://ui/throw_meter.gd").new()
+	meter.name = "ThrowMeter"
+	add_child(meter)
 	var task_list := preload("res://ui/task_list.gd").new()
 	task_list.name = "TaskList"
 	add_child(task_list)

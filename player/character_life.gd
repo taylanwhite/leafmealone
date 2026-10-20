@@ -114,7 +114,7 @@ func _pick_glance(delta: float) -> void:
 
 
 func _aim(speed: float) -> void:
-	if not is_instance_valid(_glance) or _glance.global_position.distance_to(root.global_position) > GLANCE_RANGE:
+	if not is_instance_valid(_glance) or not _glance.is_inside_tree() or _glance.global_position.distance_to(root.global_position) > GLANCE_RANGE:
 		_glance = null
 	if _glance == null:
 		body.set("look_at_point", Vector3.INF)

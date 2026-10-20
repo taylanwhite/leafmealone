@@ -87,6 +87,7 @@ var _time: float = 0.0
 var _head_base_y: float = 1.6
 ## 0 standing, 1 flat on the back after a heavy bonk. Read by player.gd for the head.
 var fallen: float = 0.0
+var _straining: bool = false
 var _head_stand_y: float = 1.6
 var _stars: Node3D
 var _stars_left: float = 0.0
@@ -248,6 +249,10 @@ func _physics_process(delta: float) -> void:
 	var in_air := state == STATE_AIR
 	var crouching := state == STATE_CROUCH
 	var knocked := state == STATE_KNOCKED
+	_straining = bool(get_parent().get_parent().get("straining")) if get_parent() != null and get_parent().get_parent() != null and "straining" in get_parent().get_parent() else false
+	# Every peer sees stars when someone goes down, bonked or fainted.
+	if knocked and fallen <= 0.0:
+		dizzy(float(Constants.BONK_STUN_SECONDS["heavy"]))
 	# Topple fast, get up a little slower.
 	fallen = move_toward(fallen, 1.0 if knocked else 0.0, delta * (5.0 if knocked else 2.5))
 	if _was_air and not in_air:
@@ -340,6 +345,8 @@ func _animate_face(delta: float) -> void:
 		_blink_in = randf_range(1.8, 4.5)
 	_blink_left = maxf(0.0, _blink_left - delta)
 	var eye_open := 0.12 if _blink_left > 0.0 else (0.6 if squinting else 1.0)
+	if _straining:
+		eye_open = 0.25
 	if _gesture == "stretch" and _gesture_time > 0.4:
 		eye_open = 0.15
 	if _gesture == "startle":
@@ -374,6 +381,15 @@ func _animate_face(delta: float) -> void:
 		_brows[index].position.y = 0.16 + _brow_lift
 		# Worried brows lift toward the middle, angry ones dip toward it.
 		_brows[index].rotation.z = side * (-0.12 + _brow_tilt)
+		if _straining:
+			_brows[index].rotation.z = side * 0.35
+			_brows[index].position.y = 0.13
+	if _straining:
+		# Teeth gritted, face red and trembling.
+		_mouth.scale = Vector3(1.4, 0.6, 1.0)
+		_face.position = Vector3(randf_range(-0.008, 0.008), randf_range(-0.006, 0.006), 0.0)
+	elif _face != null and _face.position != Vector3.ZERO:
+		_face.position = Vector3.ZERO
 	if _gesture == "stretch" and _gesture_time > 0.4 and _gesture_time < 1.8:
 		_mouth.scale = Vector3(0.8, 6.0, 1.0)
 	elif _gesture == "startle":
