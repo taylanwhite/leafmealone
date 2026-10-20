@@ -11,6 +11,7 @@ const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
 const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
+const _Pedestrians = preload("res://npcs/pedestrians.gd")
 const GRASS := Color(0.42, 0.52, 0.3)
 const SAND := Color(0.78, 0.68, 0.5)
 ## Behind the store counter at (0, -8), facing the customers.
@@ -62,6 +63,16 @@ func _dress() -> void:
 	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0])
 	_Surroundings.dress($LotZone, GRASS, 22, false, [PI * 0.75])
 	_Neighborhood.dress($LotZone, 22)
+	# People out for a walk on the sidewalks (lot street at z 21.3 and 32.7 in the
+	# lot's space; the store's cross street at x 21.3 and 32.7).
+	_Pedestrians.populate($LotZone, [
+		[Vector3(-110.0, 0.1, 21.4), Vector3(110.0, 0.1, 21.4)],
+		[Vector3(-110.0, 0.1, 32.6), Vector3(110.0, 0.1, 32.6)],
+	], 9, 22)
+	_Pedestrians.populate($StoreZone, [
+		[Vector3(21.4, 0.1, -140.0), Vector3(21.4, 0.1, 140.0)],
+		[Vector3(32.6, 0.1, -140.0), Vector3(32.6, 0.1, 140.0)],
+	], 7, 11)
 	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
 	add_child(preload("res://levels/outline_pass.gd").new())
 	# The clerk behind the counter. Local on every peer: nothing about it is shared.
@@ -76,6 +87,9 @@ func _dress() -> void:
 func _add_curb(zone: Node3D) -> void:
 	var curb := StaticBody3D.new()
 	curb.name = "Curb"
+	# Layer 3 holds people in (players and the crew mask it); thrown items fly over.
+	curb.collision_layer = Constants.PAD_WALL_LAYER
+	curb.collision_mask = 0
 	zone.add_child(curb)
 	var half := 20.0
 	var thick := 0.8

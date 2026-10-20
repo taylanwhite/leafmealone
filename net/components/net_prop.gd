@@ -149,6 +149,7 @@ func _host_step() -> void:
 		apply_central_impulse(player.velocity * mass * 0.15)
 	if _airborne:
 		_check_bonks()
+	_come_back_in()
 	if _airborne and linear_velocity.length() < 0.35:
 		_airborne = false
 	_try_load_bag()
@@ -217,6 +218,38 @@ func _check_bonks() -> void:
 		_rpc_bonk_fx.rpc(get_path_to(target), weight_tier(), push)
 		# It bounces off them.
 		linear_velocity = -linear_velocity * 0.25 + Vector3.UP * 1.5
+
+
+## Host only. Something thrown into the street or a neighbor's yard comes back
+## into the pad once it settles, so the job's one rake can't be lost.
+func _come_back_in() -> void:
+	var zone := _zone_center()
+	var local := global_position - zone
+	var outside := absf(local.x) > Constants.PAD_HALF + 0.3 or absf(local.z) > Constants.PAD_HALF + 0.3
+	if global_position.y < -5.0 or (outside and linear_velocity.length() < 0.5):
+		var back := Vector3(clampf(local.x, -Constants.PAD_HALF + 1.5, Constants.PAD_HALF - 1.5), 1.2, clampf(local.z, -Constants.PAD_HALF + 1.5, Constants.PAD_HALF - 1.5))
+		global_position = zone + back
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
+		_airborne = false
+
+
+## The middle of whichever zone this prop is nearest: the store, the lot, or the border.
+func _zone_center() -> Vector3:
+	var world := get_tree().get_first_node_in_group("world")
+	var best := Vector3.ZERO
+	var best_distance := INF
+	if world == null:
+		return best
+	for zone_name: String in ["StoreZone", "LotZone", "BorderZone"]:
+		var zone := world.get_node_or_null(zone_name) as Node3D
+		if zone == null:
+			continue
+		var distance := zone.global_position.distance_to(global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = zone.global_position
+	return best
 
 
 ## Everyone plays the throw's whoosh.

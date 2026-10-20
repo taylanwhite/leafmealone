@@ -98,3 +98,9 @@ const BONK_TIER_KG: Dictionary = {"light": 4.0, "medium": 9.5}
 const BONK_STUN_SECONDS: Dictionary = {"light": 0.35, "medium": 0.9, "heavy": 2.4}
 const BONK_SHOVE_PER_MOMENTUM: float = 0.09
 const BONK_SHOVE_MAX: float = 11.0
+
+## Physics layer 3 (bit value 4): the invisible walls around each zone's pad. People
+## mask it; thrown items don't, so they can sail into the street.
+const PAD_WALL_LAYER: int = 4
+## Half the size of every zone's pad, in meters. An item that lands outside it comes back in.
+const PAD_HALF: float = 20.0

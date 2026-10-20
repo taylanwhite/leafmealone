@@ -26,6 +26,16 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 	zone.add_child(root)
 	# Level with the pad, a hair below, so the yard and the land around it are one ground.
 	_LowPoly.paint(_LowPoly.box(root, Vector3(GROUND_SIZE, 0.2, GROUND_SIZE), Vector3(0, -0.12, 0), ground_color), ground_surface)
+	# Solid, so a thrown item that sails over the yard's wall lands in the street.
+	var ground := StaticBody3D.new()
+	ground.name = "Ground"
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(GROUND_SIZE, 0.2, GROUND_SIZE)
+	shape.shape = box
+	shape.position.y = -0.12
+	ground.add_child(shape)
+	root.add_child(ground)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	_clouds(root, rng)
