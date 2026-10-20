@@ -6,12 +6,16 @@ extends Node3D
 
 signal chunk_changed(chunk_index: int)
 signal stroke_visual(at: Vector3)
-signal bag_requested(at: Vector3)
+## units is how much leaf density went into the bag, which sets its value.
+signal bag_requested(at: Vector3, units: int)
+signal bag_refused(peer_id: int)
 
 const CHUNK_SIZE: int = 16
-const INITIAL_DENSITY: int = 180
+## A fresh lot starts thin enough that a raked pile can grow about four times
+## denser (cells hold up to 255), so piling leaves up before bagging pays.
+const INITIAL_DENSITY: int = 60
 ## OQ-004: a cell counts as cleaned once it is raked or bagged down to this density.
-const CLEAN_DENSITY: int = 24
+const CLEAN_DENSITY: int = 8
 const REACH_METERS: float = 3.5
 const SEND_INTERVAL: float = 0.1
 
@@ -154,7 +158,11 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 	if not _player_in_reach(peer_id, origin):
 		_send_snapshot(peer_id)
 		return
-	var moved := _apply_rake(origin, direction, width, minf(strength, 70.0) * Campaign.rake_multiplier(peer_id))
+	# Full strength only with the job's one rake in hand. Bare hands barely move anything.
+	var has_rake := holds_rake(peer_id)
+	var max_strength := Constants.RAKE_STRENGTH if has_rake else Constants.HAND_RAKE_STRENGTH
+	var max_width := Constants.RAKE_WIDTH if has_rake else Constants.HAND_RAKE_WIDTH
+	var moved := _apply_rake(origin, direction, minf(width, max_width), minf(strength, max_strength) * Campaign.rake_multiplier(peer_id))
 	if moved <= 0:
 		return
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(moved) * _unit_scale)
@@ -165,7 +173,16 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float) -> void:
 	if not _player_in_reach(peer_id, origin):
 		_send_snapshot(peer_id)
 		return
-	var removed := _apply_collect(origin, radius, true)
+	# Too few leaves here to fill a bag: rake a pile first. Nothing is taken.
+	if _units_within(origin, minf(radius, Constants.BAG_RADIUS)) < int(Constants.MIN_BAG_CELLS * INITIAL_DENSITY):
+		if peer_id == Net.local_peer_id():
+			_on_bag_refused()
+		else:
+			# Undo the client's predicted bagging, then tell them why.
+			_send_snapshot(peer_id)
+			_rpc_bag_refused.rpc_id(peer_id)
+		return
+	var removed := _apply_collect(origin, minf(radius, Constants.BAG_RADIUS), true)
 	if removed <= 0:
 		return
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(removed) * _unit_scale)
@@ -221,8 +238,48 @@ func _apply_collect(origin: Vector3, radius: float, count_removed: bool) -> int:
 	if count_removed:
 		_removed_units += float(removed) * _unit_scale
 		if removed >= INITIAL_DENSITY:
-			bag_requested.emit(origin)
+			bag_requested.emit(origin, removed)
 	return removed
+
+
+## A bag's worth in dollars for this much leaf density: its share of what
+## clearing the whole lot pays (Balance.CREDITS_PER_1_PERCENT_LOT_CLEANUP).
+func dollars_for(units: int) -> int:
+	var lot_density := float(grid_width * grid_depth * INITIAL_DENSITY)
+	var whole_lot := float(Balance.CREDITS_PER_1_PERCENT_LOT_CLEANUP) * 100.0
+	return maxi(1, int(round(float(units) / lot_density * whole_lot)))
+
+
+## Host: true while this peer carries the job's rake.
+func holds_rake(peer_id: int) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == "rake" and int(node.get("held_by")) == peer_id:
+			return true
+	return false
+
+
+## Leaf density within radius of a point, without taking any.
+func _units_within(origin: Vector3, radius: float) -> int:
+	var center := _cell_at(origin)
+	var radius_cells := int(ceil(radius / cell_size)) + 1
+	var total := 0
+	var here := _local_xz(origin)
+	for dz: int in range(-radius_cells, radius_cells + 1):
+		for dx: int in range(-radius_cells, radius_cells + 1):
+			var cell := Vector2i(center.x + dx, center.y + dz)
+			if _cell_center(cell.x, cell.y).distance_to(Vector2(here.x, here.y)) <= radius:
+				total += density_at_cell(cell.x, cell.y)
+	return total
+
+
+## The bagging player hears that there wasn't enough here.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_bag_refused() -> void:
+	_on_bag_refused()
+
+
+func _on_bag_refused() -> void:
+	bag_refused.emit(Net.local_peer_id())
 
 
 func _add_density(x: int, z: int, delta: int) -> void:
@@ -271,6 +328,9 @@ func _set_density_raw(x: int, z: int, value: int) -> void:
 
 
 func _send_snapshot(peer_id: int) -> void:
+	# The host already has the true field; it never resyncs itself.
+	if peer_id == Net.local_peer_id():
+		return
 	var compressed := _density.compress(FileAccess.COMPRESSION_DEFLATE)
 	_rpc_snapshot.rpc_id(peer_id, compressed, _versions.duplicate(), _removed_units)
 

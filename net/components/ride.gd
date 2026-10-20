@@ -13,6 +13,7 @@ var _duration: float = RIDE_DURATION_SECONDS
 var _destination: int = 0
 var _riders: Array = []
 var _bags: int = 0
+var _bag_value: int = 0
 var _path: Path3D
 var _body: Node3D
 var _seats: Node3D
@@ -94,7 +95,8 @@ func body_position() -> Vector3:
 
 
 ## Host only. Pulls bags off a thrown wheelbarrow, up to the truck's cap.
-func accept_bags(count: int) -> int:
+## Host only. Load bags worth value dollars in all; returns how many fit.
+func accept_bags(count: int, value: int = 0) -> int:
 	if not Net.is_host() or count <= 0:
 		return 0
 	var room := Constants.TRUCK_BAG_CAPACITY - _bags
@@ -103,8 +105,20 @@ func accept_bags(count: int) -> int:
 		_refresh_label()
 		return 0
 	_bags += taken
-	_rpc_bags.rpc(_bags)
+	_bag_value += int(round(float(value) * float(taken) / float(count)))
+	_rpc_bags.rpc(_bags, _bag_value)
 	return taken
+
+
+## Dollars' worth of bags loaded this job. What the homeowner pays for.
+func bag_value() -> int:
+	return _bag_value
+
+
+## Host only: the job is paid, so the truck's load is emptied.
+func clear_bags() -> void:
+	if Net.is_host():
+		_rpc_bags.rpc(0, 0)
 
 
 ## Called on every peer before the van departs. Chefty builds itself in _ready.
@@ -242,7 +256,7 @@ func _refresh_label() -> void:
 		_label.text = "\n".join(lines)
 		return
 	var full := " full" if _bags >= Constants.TRUCK_BAG_CAPACITY else ""
-	_label.text = "Chefty\n%d/%d bags%s" % [_bags, Constants.TRUCK_BAG_CAPACITY, full]
+	_label.text = "Chefty\n%d/%d bags  $%d%s" % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value, full]
 
 
 @rpc("authority", "call_local", "reliable")
@@ -256,6 +270,7 @@ func _rpc_arrived() -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_bags(count: int) -> void:
+func _rpc_bags(count: int, value: int) -> void:
 	_bags = count
+	_bag_value = value
 	_refresh_label()

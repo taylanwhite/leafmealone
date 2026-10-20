@@ -15,7 +15,7 @@ const _PropLooks = preload("res://props/prop_looks.gd")
 	set(value):
 		label = value
 		_refresh_label()
-## leaf_bag, wheelbarrow, trash, or gnome. Replicated so a thrown bag knows what it hit.
+## leaf_bag, wheelbarrow, rake, trash, or gnome. Replicated so a thrown bag knows what it hit.
 @export var kind: String = "":
 	set(value):
 		kind = value
@@ -27,6 +27,16 @@ const _PropLooks = preload("res://props/prop_looks.gd")
 		_refresh_label()
 ## Peer id holding this prop, or 0. Replicated.
 @export var held_by: int = 0
+## A leaf bag's worth in dollars, set by the host from the leaves that went in. Replicated.
+@export var value: int = 0:
+	set(new_value):
+		value = new_value
+		_refresh_label()
+## Dollars' worth of the bags sitting in a wheelbarrow. Replicated.
+@export var stored_value: int = 0:
+	set(new_value):
+		stored_value = new_value
+		_refresh_label()
 
 var _airborne: bool = false
 
@@ -51,6 +61,10 @@ func _physics_process(_delta: float) -> void:
 	# A carried prop must not stay solid. Moving a colliding body into the player launches them.
 	_set_solid(held_by == 0)
 	_refresh_label()
+	if kind == "rake":
+		var holder := _player(held_by) if held_by != 0 else null
+		var raking := held_by == Net.local_peer_id() and Input.is_action_pressed("primary")
+		_PropLooks.pose_rake(self, holder, raking)
 	if Net.is_host():
 		_host_step()
 	elif held_by == Net.local_peer_id():
@@ -179,16 +193,17 @@ func _try_load_bag() -> void:
 		if distance < closest_distance:
 			closest = node
 			closest_distance = distance
-	if closest == null or not bool(closest.call("receive_bag")):
+	if closest == null or not bool(closest.call("receive_bag", value)):
 		return
 	queue_free()
 
 
-## Host only. Returns true when the bag fits.
-func receive_bag() -> bool:
+## Host only. Returns true when the bag fits. bag_value is that bag's dollars.
+func receive_bag(bag_value: int = 0) -> bool:
 	if kind != "wheelbarrow" or stored_bags >= Campaign.wheelbarrow_capacity():
 		return false
 	stored_bags += 1
+	stored_value += bag_value
 	return true
 
 
@@ -201,9 +216,12 @@ func _try_unload_wheelbarrow() -> void:
 	var truck_at: Vector3 = truck.call("body_position")
 	if global_position.distance_to(truck_at) > Constants.TRUCK_UNLOAD_RADIUS:
 		return
-	var taken := int(truck.call("accept_bags", stored_bags))
+	# If only some bags fit, the truck takes that share of the value.
+	var taken := int(truck.call("accept_bags", stored_bags, stored_value))
 	if taken > 0:
+		var moved_value := int(round(float(stored_value) * float(taken) / float(stored_bags)))
 		stored_bags -= taken
+		stored_value = maxi(0, stored_value - moved_value)
 	_airborne = false
 
 
@@ -219,6 +237,7 @@ func _load_held(peer_id: int) -> void:
 		if int(node.get("held_by")) != peer_id:
 			continue
 		stored_bags += 1
+		stored_value += int(node.get("value"))
 		node.queue_free()
 		return
 
@@ -237,19 +256,23 @@ func _refresh_label() -> void:
 	# Real shapes from props/prop_looks.gd. The prompt names things, so only the
 	# wheelbarrow keeps a floating count.
 	_PropLooks.dress(self, kind, color)
-	%Label.visible = kind == "wheelbarrow"
+	# Bags show what they're worth, so a fat bag from a big pile reads as a prize.
+	%Label.visible = kind == "wheelbarrow" or (kind == "leaf_bag" and value > 0)
 	if kind == "wheelbarrow":
 		var capacity := Campaign.wheelbarrow_capacity()
 		var full := " full" if stored_bags >= capacity else ""
-		%Label.text = "%d/%d%s" % [stored_bags, capacity, full]
+		%Label.text = "%d/%d%s  $%d" % [stored_bags, capacity, full, stored_value]
 		_PropLooks.show_bags(self, stored_bags)
 	elif kind == "leaf_bag":
-		%Label.text = "Leaf bag"
+		%Label.text = "$%d" % value
 	else:
 		%Label.text = label if label != "" else name
 
 
 func _hold_position(player: CharacterBody3D) -> Vector3:
+	# The rake is held low and close, tines on the leaves. Everything else at chest height.
+	if kind == "rake":
+		return player.global_position + Vector3(0.0, 0.75, 0.0) + (-player.global_transform.basis.z) * 0.9
 	return player.global_position + Vector3(0.0, 1.2, 0.0) + (-player.global_transform.basis.z) * 1.15
 
 

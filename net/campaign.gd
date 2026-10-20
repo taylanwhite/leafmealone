@@ -20,6 +20,7 @@ var _bank: Dictionary = {}
 var _peer_keys: Dictionary = {}
 var _lots_completed: int = 0
 var _job_open: bool = true
+var _job_started_at: float = 0.0
 var _pending_wallets: Array[Dictionary] = []
 
 
@@ -102,7 +103,9 @@ func record_stat(peer_id: int, stat: StringName, amount: float) -> void:
 
 
 ## Host only. Split this job's pool, pay, save, and tell every peer.
-func finish_job() -> void:
+## Host only. paid is what the homeowner handed over; without it, pay comes from
+## how much of the lot was cleaned. Either way it's split by contribution (OQ-005).
+func finish_job(paid: float = -1.0) -> void:
 	if not Net.is_host() or not _job_open:
 		return
 	var fraction := 0.0
@@ -112,6 +115,8 @@ func finish_job() -> void:
 	var pool := float(Balance.CREDITS_PER_1_PERCENT_LOT_CLEANUP) * fraction * 100.0
 	if fraction >= 0.999:
 		pool *= 1.0 + Balance.FULL_CLEAR_PAYOUT_BONUS
+	if paid >= 0.0:
+		pool = paid
 	var results := _split_pool(pool)
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
@@ -136,6 +141,12 @@ func save_now() -> void:
 func mark_job_open() -> void:
 	_job_open = true
 	_job_stats.clear()
+	_job_started_at = Net.server_time()
+
+
+## Minutes since this job started, on the host.
+func job_minutes() -> float:
+	return (Net.server_time() - _job_started_at) / 60.0
 
 
 func _on_player_joined(peer_id: int) -> void:
