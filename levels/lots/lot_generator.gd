@@ -24,6 +24,7 @@ const _JobTasks = preload("res://net/work/job_tasks.gd")
 const _TaskLooks = preload("res://levels/lots/task_looks.gd")
 const _HideSpot = preload("res://props/hide_spot.tscn")
 const _Doodles = preload("res://props/doodles.gd")
+const _WaterSources = preload("res://net/work/water_sources.gd")
 const YARD_HALF: float = 20.0
 const PICKET := Color(0.93, 0.91, 0.86)
 const CROWNS: Array[String] = ["orange", "red", "yellow", "rust", "turning"]
@@ -62,6 +63,7 @@ func generate(job_seed: int, tasks: PackedStringArray) -> void:
 	_hedges()
 	_fences()
 	_hide_spots(lot)
+	_water(lot)
 	_litter()
 	_grids()
 	_tasks.call("activate", tasks, job_seed)
@@ -269,6 +271,27 @@ func _hide_spots(lot: Node3D) -> void:
 			break
 		if not placed:
 			push_warning("[Lot] no room for %s" % entry[0])
+
+
+## The house's spigot on a side wall, and a fire hydrant on the sidewalk out front.
+func _water(lot: Node3D) -> void:
+	var side := -1.0 if _rng.randf() < 0.5 else 1.0
+	var wall_x := (_house_rect.position.x + 0.6) if side < 0.0 else (_house_rect.end.x - 0.6)
+	var house_depth := _house_rect.size.y - 3.6
+	var spigot_at := Vector3(wall_x + side * 0.05, 0.7, _house_rect.position.y + 0.6 + house_depth * 0.7)
+	var spigot := _YardModels.node("spigot", Color.WHITE, Vector3.ONE, {"roughness": 0.35, "specular": 0.6})
+	add_child(spigot)
+	spigot.position = spigot_at
+	spigot.rotation.y = -side * PI * 0.5
+	_WaterSources.make(lot, "spigot", spigot_at + Vector3(side * 0.18, -0.08, 0.0))
+	var hydrant_x := _rng.randf_range(6.0, 15.0) * (-1.0 if _rng.randf() < 0.5 else 1.0)
+	var hydrant_at := Vector3(hydrant_x, 0.1, 21.0)
+	var hydrant := _YardModels.node("hydrant", Color.WHITE, Vector3.ONE, {"roughness": 0.5, "specular": 0.3})
+	add_child(hydrant)
+	hydrant.position = hydrant_at
+	_solid_box(hydrant_at + Vector3(0.0, 0.4, 0.0), Vector3(0.4, 0.8, 0.4), "Hydrant")
+	_WaterSources.make(lot, "hydrant", hydrant_at + Vector3(0.0, 0.42, -0.22))
+	_note(["water", spigot_at, hydrant_at])
 
 
 ## Cans, wrappers, and bottles dropped on the lawn.

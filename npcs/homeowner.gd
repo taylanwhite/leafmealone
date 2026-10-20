@@ -160,8 +160,10 @@ func _handle_talk(peer_id: int) -> void:
 	var mood := _judge(value + task_value)
 	var lines: Array = _Strings.HOMEOWNER_LINES.get(mood, [""])
 	var line_index := _rng.randi() % lines.size()
-	var amount := 0 if mood == "nothing" else int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0))))
-	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "paid": amount}
+	# Their water isn't free.
+	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
+	var amount := 0 if mood == "nothing" else maxi(0, int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)))) - water_fee)
+	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "water_fee": water_fee, "paid": amount}
 	_rpc_react.rpc(mood, line_index, amount)
 	if mood == "nothing":
 		return

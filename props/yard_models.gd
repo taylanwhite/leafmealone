@@ -63,6 +63,14 @@ static func _build(kind: String, color: Color, size: Vector3) -> ArrayMesh:
 			_hedge_trimmer(kit)
 		"paint_roller":
 			_paint_roller(kit)
+		"hydrant":
+			_hydrant(kit)
+		"spigot":
+			_spigot(kit)
+		"water_tank":
+			_water_tank(kit)
+		"nozzle":
+			_nozzle(kit)
 		_:
 			kit.rbox(Vector3(0.0, size.y * 0.5, 0.0), size * 0.5, color, 6.0)
 	return kit.commit()
@@ -323,3 +331,44 @@ static func _paint_roller(kit: RefCounted) -> void:
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, 0.3), Vector3(0, 0.0, 0.0)]), PackedFloat32Array([0.022, 0.02]), Color(0.3, 0.45, 0.8), 8, {"jitter": 0.0, "cap_start": true})
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, 0.0), Vector3(0, 0.0, -0.12), Vector3(0.1, 0.0, -0.18)]), PackedFloat32Array([0.008, 0.008, 0.008]), Color(0.75, 0.75, 0.75), 5, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0.1, 0.0, -0.18), Vector3(-0.12, 0.0, -0.18)]), PackedFloat32Array([0.045, 0.045]), Color(0.97, 0.96, 0.93), 12, {"jitter": 0.0, "cap_start": true})
+
+
+# ---------------------------------------------------------------- water
+
+## A red fire hydrant: a domed body, side caps, and a chain.
+static func _hydrant(kit: RefCounted) -> void:
+	var red := Color(0.85, 0.15, 0.12)
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, 0), Vector3(0, 0.12, 0)]), PackedFloat32Array([0.2, 0.2]), red.darkened(0.2), 12, {"jitter": 0.0, "cap_start": true})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.1, 0), Vector3(0, 0.62, 0)]), PackedFloat32Array([0.15, 0.14]), red, 12, {"jitter": 0.0})
+	kit.call("blob", Vector3(0.0, 0.64, 0.0), Vector3(0.16, 0.12, 0.16), red.lightened(0.05), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.74, 0), Vector3(0, 0.82, 0)]), PackedFloat32Array([0.05, 0.04]), Color(0.75, 0.7, 0.3), 8, {"jitter": 0.0})
+	for side: float in [-1.0, 1.0]:
+		kit.call("tube", PackedVector3Array([Vector3(side * 0.12, 0.42, 0), Vector3(side * 0.24, 0.42, 0)]), PackedFloat32Array([0.06, 0.06]), red.darkened(0.1), 10, {"jitter": 0.0})
+		kit.call("tube", PackedVector3Array([Vector3(side * 0.24, 0.42, 0), Vector3(side * 0.27, 0.42, 0)]), PackedFloat32Array([0.07, 0.07]), Color(0.75, 0.7, 0.3), 10, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.42, -0.12), Vector3(0, 0.42, -0.2)]), PackedFloat32Array([0.08, 0.08]), Color(0.75, 0.7, 0.3), 10, {"jitter": 0.0})
+
+
+## A brass spigot on the wall (facing -Z out of it), with a little round handle.
+static func _spigot(kit: RefCounted) -> void:
+	var brass := Color(0.8, 0.62, 0.25)
+	kit.call("tube", PackedVector3Array([Vector3(0, 0, 0.0), Vector3(0, 0, -0.1), Vector3(0, -0.04, -0.15), Vector3(0, -0.1, -0.16)]), PackedFloat32Array([0.022, 0.02, 0.02, 0.02]), brass, 8, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0, -0.06), Vector3(0, 0.07, -0.06)]), PackedFloat32Array([0.008, 0.008]), brass.darkened(0.2), 6, {"jitter": 0.0})
+	kit.call("blob", Vector3(0.0, 0.08, -0.06), Vector3(0.04, 0.012, 0.04), Color(0.25, 0.45, 0.75), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	kit.call("rbox", Vector3(0.0, 0.0, 0.01), Vector3(0.06, 0.06, 0.012), brass.darkened(0.3), 4.0)
+
+
+## A blue water barrel with a valve, strapped in Chefty's bed.
+static func _water_tank(kit: RefCounted) -> void:
+	var blue := Color(0.22, 0.48, 0.82)
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, 0), Vector3(0, 0.75, 0)]), PackedFloat32Array([0.32, 0.32]), blue, 14, {"jitter": 0.0, "cap_start": true})
+	for y: float in [0.2, 0.55]:
+		kit.call("tube", PackedVector3Array([Vector3(0, y - 0.02, 0), Vector3(0, y + 0.02, 0)]), PackedFloat32Array([0.335, 0.335]), blue.darkened(0.25), 14, {"jitter": 0.0, "cap": false})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.12, 0.3), Vector3(0, 0.12, 0.42)]), PackedFloat32Array([0.035, 0.03]), Color(0.75, 0.75, 0.72), 8, {"jitter": 0.0})
+	kit.call("blob", Vector3(0.0, 0.18, 0.4), Vector3(0.05, 0.015, 0.05), Color(0.85, 0.2, 0.15), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+
+
+## The hose's spray nozzle, held when the hose is hooked up (points -Z).
+static func _nozzle(kit: RefCounted) -> void:
+	kit.call("tube", PackedVector3Array([Vector3(0, 0, 0.15), Vector3(0, 0, -0.05)]), PackedFloat32Array([0.03, 0.03]), Color(0.2, 0.58, 0.3), 8, {"jitter": 0.0, "cap_start": true})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0, -0.05), Vector3(0, 0, -0.2)]), PackedFloat32Array([0.035, 0.022]), Color(0.85, 0.72, 0.2), 10, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0, 0.02), Vector3(0, -0.12, 0.06)]), PackedFloat32Array([0.018, 0.018]), Color(0.15, 0.15, 0.16), 6, {"jitter": 0.0})

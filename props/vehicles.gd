@@ -12,6 +12,8 @@ extends RefCounted
 const _LowPoly = preload("res://props/low_poly.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
+const _YardModels = preload("res://props/yard_models.gd")
+const _WaterSources = preload("res://net/work/water_sources.gd")
 const GLASS := Color(0.17, 0.22, 0.28)
 const TIRE := Color(0.11, 0.11, 0.12)
 const CHROME := Color(0.86, 0.86, 0.84)
@@ -37,6 +39,11 @@ static func build_truck(parent: Node3D, color: Color) -> Node3D:
 		[Vector3(1.1, 1.35, 0.72), Vector3(0.16, 0.6, 3.9)],
 		[Vector3(0.0, 1.35, 2.66), Vector3(2.3, 0.6, 0.16)],
 	])
+	# A water tank strapped in the bed, by the cab: free water for the hose.
+	var tank := _YardModels.node("water_tank", Color.WHITE, Vector3.ONE, {"roughness": 0.5, "specular": 0.3})
+	look.add_child(tank)
+	tank.position = Vector3(-0.55, 1.05, -0.75)
+	_WaterSources.make(look, "chefty", Vector3(-0.55, 1.2, -0.3))
 	for side: float in [-1.0, 1.0]:
 		_LowPoly.text_sign(look, "Chefty", Vector3(side * 1.17, 1.55, -1.95), 64, TRIM, side * PI * 0.5)
 	_LowPoly.text_sign(look, "Chefty", Vector3(0.0, 1.32, 2.68), 56, TRIM)

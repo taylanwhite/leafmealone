@@ -11,6 +11,7 @@ const SPRINT_SPEED: float = 8.0
 const CROUCH_SPEED: float = 2.5
 const JUMP_VELOCITY: float = 4.5
 const MOUSE_SENSITIVITY: float = 0.003
+const _WaterSources = preload("res://net/work/water_sources.gd")
 const STAND_HEIGHT: float = 1.8
 const CROUCH_HEIGHT: float = 1.1
 const PITCH_LIMIT: float = 1.2
@@ -98,6 +99,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_camera"):
 		%CameraRig.toggle()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _water_hookup():
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _toggle_climb():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("jump") and _ladder != null:
@@ -144,7 +147,7 @@ func _physics_process(delta: float) -> void:
 		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
 			var seat: Transform3D = _ride.call("seat_transform", _seat_index)
 			global_position = seat.origin
-		else:
+		elif not _step_hydrant(delta):
 			_simulate(delta)
 	_apply_presentation()
 
@@ -223,6 +226,50 @@ func set_hidden_in(spot: Node3D) -> void:
 
 func is_hidden() -> bool:
 	return _hidden_spot != null
+
+
+## Hanging on to a hydrant-fed hose with the water on: the spray shoves you back
+## and up and whips you side to side, slowly enough to stay believable. Let go
+## (release left click) to drop. Returns true while it's in charge.
+var _yelp_wait: float = 0.0
+
+
+func _step_hydrant(delta: float) -> bool:
+	var held := _held_prop()
+	if held == null or str(held.get("hose_source")) != "hydrant" or not Input.is_action_pressed("primary") or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return false
+	var head := get_node_or_null("Visual/Head") as Node3D
+	var look := -head.global_basis.z if head != null else -global_basis.z
+	var aim: Vector3 = load("res://equipment/rake.gd").hose_aim(self, look)
+	var ground := 0.0
+	var lift := Constants.HYDRANT_LIFT if global_position.y - ground < 2.4 else 0.0
+	velocity += (-aim * Constants.HYDRANT_PUSH + Vector3.UP * lift) * delta
+	velocity.y -= _gravity * delta
+	var flat := Vector2(velocity.x, velocity.z).limit_length(Constants.HYDRANT_MAX_SPEED)
+	velocity = Vector3(flat.x, clampf(velocity.y, -8.0, Constants.HYDRANT_MAX_SPEED * 0.7), flat.y)
+	move_and_slide()
+	anim_state = AnimState.AIR
+	var body := get_node_or_null("Visual/CartoonBody")
+	if body != null and not bool(body.call("is_gesturing")):
+		body.call("gesture", "flail")
+	_yelp_wait -= delta
+	if _yelp_wait <= 0.0:
+		_yelp_wait = randf_range(1.2, 2.4)
+		say_to_all("vo_yelp" if randf() < 0.6 else "vo_ah")
+	_stay_on_the_pad()
+	return true
+
+
+## E by a water source with the hose: hook up (or unhook); with the pressure
+## washer: fill it up.
+func _water_hookup() -> bool:
+	var held := _held_prop()
+	if held == null or (str(held.get("kind")) != "hose" and str(held.get("kind")) != "pressure_washer"):
+		return false
+	if _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH) == null:
+		return false
+	held.call("request_hookup")
+	return true
 
 
 ## Up at the top of a set-up ladder, where gutters can be reached. Worked out
@@ -397,6 +444,14 @@ func _grab_nearby() -> bool:
 func interaction_hint() -> Dictionary:
 	if _hidden_spot != null:
 		return {"text": _Strings.UI["prompt_unhide"], "at": _hidden_spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	var water_held := _held_prop()
+	if water_held != null and (str(water_held.get("kind")) == "hose" or str(water_held.get("kind")) == "pressure_washer"):
+		var source := _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH)
+		if source != null:
+			var key := "prompt_refill"
+			if str(water_held.get("kind")) == "hose":
+				key = "prompt_unhook" if str(water_held.get("hose_source")) == str(source.get_meta("kind")) else "prompt_hook_" + str(source.get_meta("kind"))
+			return {"text": _Strings.UI[key], "at": source.global_position + Vector3(0.0, 0.9, 0.0)}
 	if _ladder != null:
 		return {"text": _Strings.UI["prompt_climb_down"], "at": global_position + Vector3(0.0, 2.2, 0.0) - global_basis.z * 0.6}
 	var ladder := _nearest_ladder()

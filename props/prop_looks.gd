@@ -42,6 +42,15 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 			look.add_child(_YardModels.node(kind, color, Vector3(0.7, 0.7, 0.7), {"roughness": 0.55, "specular": 0.3}))
 	# The cube stays for its color code, but nothing draws it now.
 	visual.mesh = null
+	# Hoses trail a hose and spray water; washers spray water.
+	if kind == "hose" and prop.get_node_or_null("HoseRope") == null:
+		var rope: Node3D = load("res://props/hose_rope.gd").new()
+		rope.name = "HoseRope"
+		prop.add_child(rope)
+	if (kind == "hose" or kind == "pressure_washer") and prop.get_node_or_null("WaterStream") == null:
+		var stream: Node3D = load("res://props/water_stream.gd").new()
+		stream.name = "WaterStream"
+		prop.add_child(stream)
 
 
 ## The rake lies flat when nobody has it. In hand it angles down in front of the

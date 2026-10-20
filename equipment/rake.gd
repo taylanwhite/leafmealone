@@ -94,7 +94,10 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 	var origin := player.global_position
 	match task:
 		"wash_windows":
+			if str(_held_prop(player).get("hose_source")) == "":
+				return
 			origin = eye
+			look = hose_aim(player, look)
 		"power_wash":
 			# Where the look meets the ground, within reach.
 			var reach := float(Constants.TASK_REACH["power_wash"])
@@ -109,13 +112,31 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 			origin = player.global_position + forward * 0.9 + Vector3(0.0, 1.2, 0.0)
 		"paint_fence":
 			origin = player.global_position + forward * 0.9 + Vector3(0.0, 0.5, 0.0)
+	if task == "power_wash" and float(_held_prop(player).get("water")) <= 0.0:
+		return
 	tasks.call("request_work", task, origin, look)
+
+
+func _held_prop(player: CharacterBody3D) -> Node:
+	return player.call("_held_prop")
+
+
+## Where the water goes: where you look, except a hydrant's hose has a mind of
+## its own and thrashes around.
+static func hose_aim(player: Node3D, look: Vector3) -> Vector3:
+	var held: Node = player.call("_held_prop")
+	if held == null or str(held.get("hose_source")) != "hydrant":
+		return look
+	var t := Time.get_ticks_msec() / 1000.0
+	var thrash := look.rotated(Vector3.UP, sin(t * 2.1) * 0.7 + sin(t * 5.3) * 0.15)
+	return thrash.rotated(thrash.cross(Vector3.UP).normalized(), sin(t * 1.6) * 0.35).normalized()
 
 
 ## The holder sees their own hose or washer spraying; everyone else sees the
 ## host's splashes where the water lands.
 func _set_spray(player: CharacterBody3D, tool_kind: String) -> void:
-	var spraying := tool_kind == "hose" or tool_kind == "pressure_washer" or tool_kind == "leaf_blower"
+	# The hose and the washer draw their own water (props/water_stream.gd); only the blower puffs here.
+	var spraying := tool_kind == "leaf_blower"
 	if not spraying:
 		if _spray != null:
 			_spray.emitting = false
