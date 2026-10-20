@@ -108,6 +108,13 @@ const BONK_SHOVE_MAX: float = 11.0
 const PAD_WALL_LAYER: int = 4
 ## Half the size of every zone's pad, in meters. An item that lands outside it comes back in.
 const PAD_HALF: float = 20.0
+## Where people can go in each zone, in the zone's own x and z. The lot reaches out
+## past the sidewalk into the near lane, where Chefty parks (Taylan, 2026-10-20).
+const PAD_RECTS: Dictionary = {
+	"StoreZone": Rect2(-20.0, -20.0, 40.0, 40.0),
+	"LotZone": Rect2(-20.0, -20.0, 40.0, 49.0),
+	"BorderZone": Rect2(-20.0, -20.0, 40.0, 40.0),
+}
 
 ## Tools and tasks, from Taylan on 2026-10-20: buying a tool unlocks the task it
 ## does, and every job asks for a different mix (docs/GAME.md, developer notes).
