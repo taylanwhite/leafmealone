@@ -68,7 +68,9 @@ For us:
 - Tools appear on the shelves as physical items you can see before you buy them.
 - Opening hours, reputation ranks, and phone ordering all need design decisions first. They'd fit the structure (`Campaign` already gates unlocks), but don't build them unasked.
 
-## Order to build in, if Taylan agrees
+## Order to build in
+
+Taylan agreed on 2026-10-19. Items 1 to 4 are built: `levels/shared_look.gd`, `player/cartoon_body.gd` (players, crew, and clerk), `ui/interaction_prompt.gd`, `npcs/store_clerk.gd`, and `ui/shop_window.gd`. The rake in your hands and a hotbar are not built yet.
 
 1. Lit look: lighting, shadows, ambient occlusion, warm autumn sun. Cheap, and it changes the feel most.
 2. Cartoon characters with goofy procedural motion and their silly voice noises.
