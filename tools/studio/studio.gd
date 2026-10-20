@@ -83,6 +83,34 @@ func _build(root: Node3D) -> void:
 			root.add_child(body)
 			body.rotation.y = PI * 0.85
 			body.call("build")
+		"props":
+			var models := preload("res://props/yard_models.gd")
+			var lineup: Array = [["rake", Color.WHITE, Vector3.ONE], ["leaf_bag", Color.WHITE, Vector3.ONE], ["trash", Color(0.25, 0.28, 0.3), Vector3.ONE], ["wheelbarrow", Color(0.55, 0.22, 0.18), Vector3.ONE], ["gnome", Color.WHITE, Vector3.ONE], ["dumpster", Color(0.25, 0.3, 0.32), Vector3(1.4, 1.3, 1.0)], ["shed", Color(0.5, 0.4, 0.3), Vector3(2.4, 2.4, 2.0)], ["hedge", Color(0.2, 0.42, 0.22), Vector3(3.0, 1.6, 1.2)], ["car", Color(0.3, 0.42, 0.62), Vector3.ONE]]
+			var x := -7.0
+			for entry: Array in lineup:
+				var model: Node3D = models.node(entry[0], entry[1], entry[2])
+				root.add_child(model)
+				model.position = Vector3(x, 0.0, 0.0)
+				x += maxf((entry[2] as Vector3).x, 1.0) + 0.6
+		"small_props":
+			var models := preload("res://props/yard_models.gd")
+			var kinds := ["rake", "leaf_bag", "trash", "wheelbarrow", "gnome"]
+			for index: int in kinds.size():
+				var color := Color(0.55, 0.22, 0.18) if kinds[index] == "wheelbarrow" else Color(0.25, 0.28, 0.3)
+				var model: Node3D = models.node(kinds[index], color)
+				root.add_child(model)
+				model.position = Vector3(float(index) * 1.0 - 2.0, 0.0, 0.0)
+				model.rotation.y = PI + 0.5
+		"truck":
+			var truck := Node3D.new()
+			root.add_child(truck)
+			truck.rotation.y = PI * 0.8
+			preload("res://props/vehicles.gd").build_truck(truck, Color(0.75, 0.22, 0.15))
+		"van":
+			var van := Node3D.new()
+			root.add_child(van)
+			van.rotation.y = PI * 0.8
+			preload("res://props/vehicles.gd").build_van(van, Color(0.16, 0.17, 0.2))
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
 

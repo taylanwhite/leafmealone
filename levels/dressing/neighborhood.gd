@@ -11,6 +11,7 @@ extends RefCounted
 
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
+const _YardModels = preload("res://props/yard_models.gd")
 
 ## The street runs along x in front of the yard.
 const SIDEWALK_NEAR := Vector2(20.3, 22.3)
@@ -167,20 +168,15 @@ static func house(parent: Node3D, at: Vector3, width: float, depth: float, stori
 
 
 static func _hedge_row(root: Node3D, at: Vector3, length: float) -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = int(at.x * 10.0)
-	var count := int(length / 1.6)
-	for index: int in count:
-		var z := at.z - length * 0.5 + (float(index) + 0.5) * length / float(count)
-		var size := rng.randf_range(0.8, 1.05)
-		var bush := _LowPoly.ball(root, size, Vector3(at.x, size * 0.75, z), HEDGE.lightened(rng.randf_range(-0.05, 0.08)))
-		bush.scale = Vector3(1.0, 0.95, 1.25)
-		_LowPoly.paint(bush, "foliage")
+	var hedge := _YardModels.node("hedge", HEDGE, Vector3(1.4, 1.5, length))
+	root.add_child(hedge)
+	hedge.position = at
 
 
 static func _fence_panel(root: Node3D, at: Vector3) -> void:
-	_LowPoly.paint(_LowPoly.box(root, Vector3(4.0, 1.7, 0.08), at + Vector3(0.0, 0.85, 0.0), Color(0.62, 0.5, 0.38)), "planks")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(0.14, 1.85, 0.14), at + Vector3(2.0, 0.92, 0.0), Color(0.55, 0.43, 0.32)), "planks")
+	var fence := _YardModels.node("fence", Color(0.62, 0.5, 0.38), Vector3(4.0, 1.7, 0.2))
+	root.add_child(fence)
+	fence.position = at
 
 
 static func _lamp(root: Node3D, at: Vector3, yaw: float) -> void:
@@ -204,22 +200,10 @@ static func _mailbox(root: Node3D, at: Vector3, color: Color) -> void:
 
 
 static func _parked_car(root: Node3D, at: Vector3, color: Color) -> void:
-	var car := Node3D.new()
-	car.name = "ParkedCar"
+	var car := _YardModels.node("car", color, Vector3.ONE, {"roughness": 0.5, "specular": 0.3})
 	root.add_child(car)
 	car.position = at
-	_LowPoly.paint(_LowPoly.box(car, Vector3(4.3, 0.75, 1.85), Vector3(0.0, 0.7, 0.0), color), "metal")
-	_LowPoly.paint(_LowPoly.box(car, Vector3(2.4, 0.65, 1.7), Vector3(-0.2, 1.38, 0.0), color), "metal")
-	for side: float in [-1.0, 1.0]:
-		var glass := _LowPoly.box(car, Vector3(2.2, 0.5, 0.04), Vector3(-0.2, 1.42, side * 0.86), Color(0.35, 0.45, 0.55))
-		glass.set_meta("keep_material", true)
-		_LowPoly.paint(glass, "metal")
-	for x: float in [-1.4, 1.4]:
-		for side: float in [-1.0, 1.0]:
-			var wheel := _LowPoly.cylinder(car, 0.36, 0.26, Vector3(x, 0.36, side * 0.88), Color(0.12, 0.12, 0.13), false, 10)
-			wheel.rotation.x = PI * 0.5
-	_LowPoly.glow(car, Vector3(0.05, 0.16, 0.4), Vector3(2.16, 0.82, 0.6), Color(1.0, 0.95, 0.8), 0.3)
-	_LowPoly.glow(car, Vector3(0.05, 0.16, 0.4), Vector3(2.16, 0.82, -0.6), Color(1.0, 0.95, 0.8), 0.3)
+	car.rotation.y = PI * 0.5
 
 
 ## Fallen leaves on a neighbor's lawn: flat orange flakes, cosmetic.

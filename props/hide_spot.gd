@@ -1,10 +1,13 @@
 extends "res://net/components/hide_spot.gd"
 
 ## Authority: local look for a hiding spot. A solid box the crew can't see
-## through or walk through, with a label. Gray box until the art pass replaces it.
+## through or walk through, drawn as what it is (props/yard_models.gd): planks
+## make a shed, metal a wheelie dumpster, foliage a hedge.
 ## Who is inside is decided by the host in net/components/hide_spot.gd.
 
 const _Strings = preload("res://ui/strings.gd")
+const _YardModels = preload("res://props/yard_models.gd")
+const MODEL_BY_SURFACE: Dictionary = {"planks": "shed", "metal": "dumpster", "foliage": "hedge"}
 
 @export var size := Vector3(1.6, 2.0, 1.6)
 @export var color := Color(0.42, 0.36, 0.3)
@@ -25,16 +28,10 @@ func _ready() -> void:
 	var collision := CollisionShape3D.new()
 	collision.shape = shape
 	body.add_child(collision)
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	var view := MeshInstance3D.new()
-	view.mesh = mesh
-	view.material_override = material
-	view.set_meta("surface", surface)
-	body.add_child(view)
 	add_child(body)
+	var view := _YardModels.node(str(MODEL_BY_SURFACE.get(surface, "shed")), color, size)
+	view.name = "Look"
+	add_child(view)
 	_label = Label3D.new()
 	_label.position.y = size.y + 0.5
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED

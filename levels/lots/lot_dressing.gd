@@ -8,6 +8,7 @@ extends Node3D
 
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
+const _YardModels = preload("res://props/yard_models.gd")
 const PICKET := Color(0.92, 0.9, 0.84)
 const ROOF := Color(0.42, 0.24, 0.2)
 const GLASS := Color(0.5, 0.65, 0.78)
@@ -23,6 +24,7 @@ const TRUNK := Color(0.42, 0.3, 0.2)
 
 func _ready() -> void:
 	_house()
+	_replace_boxes()
 	_fences()
 	# Clear of the homeowner and the truck by the front gate.
 	var crowns: Array[String] = ["orange", "red", "yellow"]
@@ -63,6 +65,34 @@ func _house() -> void:
 	# A gutter along the front roof edge.
 	_LowPoly.paint(_LowPoly.box(self, Vector3(house_size.x + 0.9, 0.12, 0.14), Vector3(house_center.x, top - 0.02, front + 0.42), Color(0.75, 0.75, 0.72)), "metal")
 	_LowPoly.paint(_LowPoly.box(self, Vector3(3.0, 0.2, 1.4), Vector3(house_center.x, 0.1, front + 0.7), Color(0.6, 0.58, 0.55)), "concrete")
+
+
+## The lot scene's solid boxes keep their colliders; what you see is a model.
+func _replace_boxes() -> void:
+	var lot := get_parent() as Node3D
+	var swaps := {
+		"Car": ["car", Color(0.3, 0.42, 0.62), Vector3.ONE],
+		"Fence": ["fence", Color(0.62, 0.5, 0.38), Vector3(16.0, 1.6, 0.2)],
+		"HedgeRow": ["hedge", Color(0.24, 0.42, 0.22), Vector3(1.0, 1.8, 7.0)],
+	}
+	for box_name: String in swaps:
+		var box := lot.get_node_or_null(box_name) as Node3D
+		if box == null:
+			continue
+		var mesh := box.get_node_or_null("Mesh") as MeshInstance3D
+		if mesh != null:
+			mesh.visible = false
+		var swap: Array = swaps[box_name]
+		var model := _YardModels.node(swap[0], swap[1], swap[2])
+		box.add_child(model)
+		var shape := box.get_node_or_null("Collision") as CollisionShape3D
+		var half_height := 0.0
+		if shape != null and shape.shape is BoxShape3D:
+			half_height = (shape.shape as BoxShape3D).size.y * 0.5
+		# Models stand on their base; the box's origin is its middle.
+		model.position.y = -half_height
+		if box_name == "Car":
+			model.rotation.y = PI * 0.5
 
 
 ## A low picket fence just inside the back and side edges, open at the front gate.
