@@ -86,6 +86,50 @@ func blob(center: Vector3, size: Vector3, color: Color, options: Dictionary = {}
 			_add(at, normal, tint)
 
 
+## A box with rounded edges and corners (a superellipsoid). half is half the
+## size on each axis; roundness 2 is a ball, higher is boxier (4 to 8 reads as a
+## soft toy box). Smooth-shaded. Options: sway, shade (default true), detail.
+func rbox(center: Vector3, half: Vector3, color: Color, roundness: float = 5.0, options: Dictionary = {}) -> void:
+	var sphere: Array = _icosphere(int(options.get("detail", 3)))
+	var points: PackedVector3Array = sphere[0]
+	var triangles: PackedInt32Array = sphere[1]
+	var shade := bool(options.get("shade", true))
+	var sway := float(options.get("sway", 0.0))
+	var basis: Basis = options.get("basis", Basis.IDENTITY)
+	var power := 2.0 / maxf(roundness, 2.0)
+	var moved := PackedVector3Array()
+	moved.resize(points.size())
+	for index: int in points.size():
+		var d := points[index]
+		var shaped := Vector3(signf(d.x) * pow(absf(d.x), power), signf(d.y) * pow(absf(d.y), power), signf(d.z) * pow(absf(d.z), power))
+		moved[index] = shaped * half
+	var normals := PackedVector3Array()
+	normals.resize(moved.size())
+	for tri: int in range(0, triangles.size(), 3):
+		var face := (moved[triangles[tri + 1]] - moved[triangles[tri]]).cross(moved[triangles[tri + 2]] - moved[triangles[tri]])
+		for corner: int in 3:
+			normals[triangles[tri + corner]] += face
+	for tri: int in range(0, triangles.size(), 3):
+		for corner: int in 3:
+			var index := triangles[tri + corner]
+			var local := moved[index]
+			var tint := color
+			if shade:
+				var up := local.y / maxf(half.y, 0.001)
+				tint = _scaled(tint, lerpf(0.8, 1.06, clampf(up * 0.5 + 0.5, 0.0, 1.0)))
+			tint.a = sway
+			_add(center + basis * local, (basis * normals[index]).normalized(), tint)
+
+
+## A wheel lying along the x axis at center: a tire, a hubcap, and a hub.
+func wheel(center: Vector3, radius: float, width: float, tire: Color, hub: Color) -> void:
+	var half := width * 0.5
+	tube(PackedVector3Array([center + Vector3(-half, 0, 0), center + Vector3(-half * 0.7, 0, 0), center + Vector3(half * 0.7, 0, 0), center + Vector3(half, 0, 0)]),
+		PackedFloat32Array([radius * 0.82, radius, radius, radius * 0.82]), tire, 16, {"jitter": 0.0, "cap": true, "cap_start": true})
+	tube(PackedVector3Array([center + Vector3(-half * 1.02, 0, 0), center + Vector3(half * 1.02, 0, 0)]), PackedFloat32Array([radius * 0.55, radius * 0.55]), hub, 14, {"jitter": 0.0, "cap": true, "cap_start": true})
+	tube(PackedVector3Array([center + Vector3(-half * 1.12, 0, 0), center + Vector3(half * 1.12, 0, 0)]), PackedFloat32Array([radius * 0.2, radius * 0.2]), hub.darkened(0.3), 10, {"jitter": 0.0, "cap": true, "cap_start": true})
+
+
 ## A tube through points, radius tapering through radii (one per point), with
 ## sides around. Smooth-shaded, capped at the end. Options:
 ##   seed, sway_from / sway_to (alpha at the first and last point), jitter,
@@ -150,6 +194,16 @@ func tube(points: PackedVector3Array, radii: PackedFloat32Array, color: Color, s
 			_add(a, ring_normals[index][step], c0)
 			_add(d, ring_normals[index + 1][step], c1)
 			_add(c, ring_normals[index + 1][next], c1)
+	if bool(options.get("cap_start", false)):
+		var base := points[0]
+		var base_normal := (points[0] - points[1]).normalized()
+		var base_color := _scaled(color, 0.95)
+		base_color.a = sway_from
+		for step: int in sides:
+			var next := (step + 1) % sides
+			_add(rings[0][step], base_normal, base_color)
+			_add(rings[0][next], base_normal, base_color)
+			_add(base, base_normal, base_color)
 	if bool(options.get("cap", true)):
 		var last := rings.size() - 1
 		var tip := points[last]
@@ -158,8 +212,8 @@ func tube(points: PackedVector3Array, radii: PackedFloat32Array, color: Color, s
 		cap_color.a = sway_to
 		for step: int in sides:
 			var next := (step + 1) % sides
-			_add(rings[last][step], tip_normal, cap_color)
 			_add(rings[last][next], tip_normal, cap_color)
+			_add(rings[last][step], tip_normal, cap_color)
 			_add(tip, tip_normal, cap_color)
 
 
