@@ -34,7 +34,10 @@ func _ready() -> void:
 
 ## Credits currently held by one player.
 func credits(peer_id: int) -> int:
+	# A peer is bound on its first payout, but its saved credits count from the start.
 	var key: String = _peer_keys.get(peer_id, "")
+	if key == "" and Net.is_host() and Net.player_name(peer_id) != "":
+		key = _key_for(peer_id)
 	if key == "":
 		return 0
 	return int((_bank.get(key, {}) as Dictionary).get("credits", 0))

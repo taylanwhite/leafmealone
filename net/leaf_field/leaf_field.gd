@@ -127,7 +127,7 @@ func request_rake(origin: Vector3, direction: Vector3, width: float, strength: f
 		_handle_rake(Net.local_peer_id(), origin, direction, width, strength)
 	else:
 		if _player_in_reach(Net.local_peer_id(), origin):
-			_apply_rake(origin, direction, width, strength * Campaign.rake_multiplier(Net.local_peer_id()))
+			_stroke(origin, direction, width, strength * Campaign.rake_multiplier(Net.local_peer_id()), width > Constants.HAND_RAKE_WIDTH)
 		_rpc_request_rake.rpc_id(1, origin, direction, width, strength)
 
 
@@ -162,7 +162,7 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 	var has_rake := holds_rake(peer_id)
 	var max_strength := Constants.RAKE_STRENGTH if has_rake else Constants.HAND_RAKE_STRENGTH
 	var max_width := Constants.RAKE_WIDTH if has_rake else Constants.HAND_RAKE_WIDTH
-	var moved := _apply_rake(origin, direction, minf(width, max_width), minf(strength, max_strength) * Campaign.rake_multiplier(peer_id))
+	var moved := _stroke(origin, direction, minf(width, max_width), minf(strength, max_strength) * Campaign.rake_multiplier(peer_id), has_rake)
 	if moved <= 0:
 		return
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(moved) * _unit_scale)
@@ -248,6 +248,17 @@ func dollars_for(units: int) -> int:
 	var lot_density := float(grid_width * grid_depth * INITIAL_DENSITY)
 	var whole_lot := float(Balance.CREDITS_PER_1_PERCENT_LOT_CLEANUP) * 100.0
 	return maxi(1, int(round(float(units) / lot_density * whole_lot)))
+
+
+## One rake stroke: the leaves are shoved several cells forward, building a pile
+## ahead of the rake. Bare hands only manage one cell.
+func _stroke(origin: Vector3, direction: Vector3, width: float, strength: float, with_rake: bool) -> int:
+	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
+	var cells := Constants.RAKE_STROKE_CELLS if with_rake else 1
+	var moved := 0
+	for step: int in cells:
+		moved += _apply_rake(origin + flat * cell_size * float(step), direction, width, strength)
+	return moved
 
 
 ## Host: true while this peer carries the job's rake.

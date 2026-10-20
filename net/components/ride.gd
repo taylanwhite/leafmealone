@@ -21,6 +21,10 @@ var _seats: Node3D
 var _label: Label3D
 var _vehicle_name: String = "Chefty"
 var _vehicle_color: Color = Color(0.75, 0.22, 0.15)
+## Chefty drives its one road both ways: true while it runs lot to store.
+var _reverse: bool = false
+## Where along the road it is parked between rides: 0 at the store, 1 at the lot.
+var _parked_along: float = 0.0
 
 
 func _ready() -> void:
@@ -30,7 +34,12 @@ func _ready() -> void:
 	if name == "Chefty":
 		add_to_group("chefty")
 		_refresh_label()
-	_place(0.0)
+		# A session started on the lot (--start-zone=lot) finds Chefty parked there.
+		if Net.is_host() and Net.start_zone() == Net.Zone.LOT:
+			_parked_along = 1.0
+	_place(_parked_along)
+	if not Net.is_host() and multiplayer.multiplayer_peer != null and is_in_group("chefty"):
+		_rpc_request_state.rpc_id(1)
 
 
 ## Moves on physics ticks, so physics interpolation smooths the vehicle and its
@@ -40,7 +49,7 @@ func _physics_process(_delta: float) -> void:
 		return
 	var duration := maxf(_duration, 0.1)
 	var along := clampf((Net.server_time() - _start_time) / duration, 0.0, 1.0)
-	_place(along)
+	_place(1.0 - along if _reverse else along)
 	if Net.is_host() and along >= 1.0:
 		_arrive()
 
@@ -164,6 +173,7 @@ func seat_transform(index: int) -> Transform3D:
 
 func _arrive() -> void:
 	_riding = false
+	_parked_along = 0.0 if _reverse else 1.0
 	var riders: Array = _riders.duplicate()
 	var destination := _destination
 	_riders.clear()
@@ -235,6 +245,7 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	_start_time = start_time
 	_duration = duration
 	_destination = destination_zone
+	_reverse = is_in_group("chefty") and destination_zone == Net.Zone.STORE
 	_riders = riders
 	_riding = true
 	if _body != null:
@@ -260,9 +271,29 @@ func _refresh_label() -> void:
 	_label.text = "Chefty\n%d/%d bags  $%d%s" % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value, full]
 
 
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_state() -> void:
+	if Net.is_host():
+		_rpc_parked.rpc_id(multiplayer.get_remote_sender_id(), _parked_along, _bags, _bag_value)
+
+
+## A late joiner learns where Chefty is parked and what it is carrying.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_parked(along: float, count: int, value: int) -> void:
+	_parked_along = along
+	_bags = count
+	_bag_value = value
+	if not _riding:
+		_place(along)
+		if _body != null:
+			_body.reset_physics_interpolation()
+	_refresh_label()
+
+
 @rpc("authority", "call_local", "reliable")
 func _rpc_arrived() -> void:
 	_riding = false
+	_parked_along = 0.0 if _reverse else 1.0
 	_riders.clear()
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if node.has_method("clear_riding"):

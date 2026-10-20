@@ -87,15 +87,49 @@ func _bag_and_compare() -> void:
 	_note("bag values %s (pile first, fresh leaves second), thin spot made %d bags" % [values, result["thin_spot_bags"]])
 
 
+## The way a player does it: drop the rake, pick up each bag, walk it to Chefty,
+## and press E to toss it in.
 func _deliver() -> void:
 	var chefty := get_tree().get_first_node_in_group("chefty")
-	var delivered := 0
-	for bag: Node in _bags():
-		delivered += int(bag.get("value"))
-		chefty.call("accept_bags", 1, int(bag.get("value")))
-		bag.queue_free()
+	var rake := _first_prop("rake")
+	if rake != null and int(rake.get("held_by")) == Net.local_peer_id():
+		rake.call("request_drop")
+	_delivered_expect = 0
+	_pending_bags = _bags()
+	for bag: Node in _pending_bags:
+		_delivered_expect += int(bag.get("value"))
+	_truck_at = chefty.call("body_position")
+	_step_deliver_one()
+	# Delivering takes a few ticks per bag. Talk to the homeowner after.
+	_wait = 1.5
+
+
+var _pending_bags: Array = []
+var _delivered_expect: int = 0
+var _truck_at := Vector3.ZERO
+
+
+## A carried bag moves to your hands on the next physics tick, so each step waits
+## a couple of ticks the way walking over would.
+func _step_deliver_one() -> void:
+	for bag: Node in _pending_bags:
+		if not is_instance_valid(bag):
+			continue
+		_move_player_to((bag as Node3D).global_position + Vector3(0.0, 0.0, 1.0))
+		await _ticks(2)
+		bag.call("request_grab")
+		await _ticks(2)
+		if int(bag.get("held_by")) != Net.local_peer_id():
+			_note("could not pick up a bag at %s" % (bag as Node3D).global_position)
+		_move_player_to(_truck_at + Vector3(0.0, 0.0, 2.5))
+		await _ticks(3)
+		if is_instance_valid(bag):
+			bag.call("request_load_truck")
+		await _ticks(2)
+	var chefty := get_tree().get_first_node_in_group("chefty")
 	result["truck_value"] = int(chefty.call("bag_value"))
-	_note("delivered $%d, truck says $%d" % [delivered, result["truck_value"]])
+	result["tossed_ok"] = result["truck_value"] == _delivered_expect
+	_note("carried bags worth $%d to Chefty and tossed them in, truck says $%d" % [_delivered_expect, result["truck_value"]])
 
 
 func _talk() -> void:
@@ -121,8 +155,13 @@ func _take_cash() -> void:
 func _check_paid() -> void:
 	result["credits_after"] = Campaign.credits(Net.local_peer_id())
 	result["paid"] = int(result["credits_after"]) - int(result["credits_before"])
-	result["ok"] = bool(result.get("holds_rake", false)) and int(result.get("offered", 0)) > 0 and int(result["paid"]) > 0
+	result["ok"] = bool(result.get("holds_rake", false)) and bool(result.get("tossed_ok", false)) and int(result.get("offered", 0)) > 0 and int(result["paid"]) > 0
 	_note("credits %d -> %d, ok=%s" % [result["credits_before"], result["credits_after"], result["ok"]])
+
+
+func _ticks(count: int) -> void:
+	for _tick: int in count:
+		await get_tree().physics_frame
 
 
 func _note(text: String) -> void:

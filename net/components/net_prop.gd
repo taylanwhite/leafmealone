@@ -185,6 +185,47 @@ func request_load_held() -> void:
 		_rpc_request_load.rpc_id(1)
 
 
+## The holder presses E by Chefty: a bag is tossed in, a wheelbarrow dumped.
+func request_load_truck() -> void:
+	if Net.is_host():
+		_load_truck(Net.local_peer_id())
+	else:
+		_rpc_request_load_truck.rpc_id(1)
+
+
+## True when this prop, held, is close enough to Chefty to load it.
+func near_truck() -> bool:
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if truck == null:
+		return false
+	var at: Vector3 = truck.call("body_position")
+	# Measure from the holder: a carried prop catches up to their hands a tick late.
+	var holder := _player(held_by) if held_by != 0 else null
+	var from := holder.global_position if holder != null else global_position
+	return Vector2(from.x - at.x, from.z - at.z).length() <= Constants.TRUCK_UNLOAD_RADIUS + 1.0
+
+
+func _load_truck(peer_id: int) -> void:
+	if held_by != peer_id or not near_truck():
+		return
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if kind == "leaf_bag":
+		if int(truck.call("accept_bags", 1, value)) > 0:
+			queue_free()
+	elif kind == "wheelbarrow" and stored_bags > 0:
+		var taken := int(truck.call("accept_bags", stored_bags, stored_value))
+		if taken > 0:
+			var moved_value := int(round(float(stored_value) * float(taken) / float(stored_bags)))
+			stored_bags -= taken
+			stored_value = maxi(0, stored_value - moved_value)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_load_truck() -> void:
+	if Net.is_host():
+		_load_truck(multiplayer.get_remote_sender_id())
+
+
 func _try_load_bag() -> void:
 	if kind != "leaf_bag" or held_by != 0:
 		return

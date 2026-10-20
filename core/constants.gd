@@ -54,6 +54,10 @@ const BORDER_RETURN_IMMUNITY_SECONDS: float = 4.0
 ## One rake per job. Holding it, a stroke moves this much density over this width.
 const RAKE_STRENGTH: float = 72.0
 const RAKE_WIDTH: float = 3.2
+## A rake stroke every this many seconds while the button is held, each one
+## shoving the leaves this many cells (0.5 m each) forward.
+const RAKE_STROKE_SECONDS: float = 0.3
+const RAKE_STROKE_CELLS: int = 3
 ## Raking with bare hands: goofy and barely useful.
 const HAND_RAKE_STRENGTH: float = 9.0
 const HAND_RAKE_WIDTH: float = 1.0
