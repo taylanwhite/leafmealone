@@ -7,15 +7,22 @@ const _COLORS: Array[Color] = [
 	_Palette.LEAF_ORANGE,
 	_Palette.LEAF_RED,
 	_Palette.LEAF_YELLOW,
+	_Palette.LEAF_ORANGE,
+	Color(0.62, 0.36, 0.18),
+	Color(0.8, 0.62, 0.22),
+	_Palette.LEAF_RED,
+	Color(0.55, 0.58, 0.22),
 ]
+## Leaf length in meters. The mesh is a five-lobed maple leaf (_maple_mesh).
+const LEAF_LENGTH: float = 0.3
 
 ## Density per drawn flake, and the most flakes one cell draws.
-const FLAKE_UNIT: float = 15.0
-const MAX_FLAKES: int = 12
+const FLAKE_UNIT: float = 9.0
+const MAX_FLAKES: int = 18
 
 var _field: Node3D
 var _views: Array[MultiMeshInstance3D] = []
-var _leaf_mesh: BoxMesh
+var _leaf_mesh: ArrayMesh
 var _material: StandardMaterial3D
 
 
@@ -28,15 +35,16 @@ func _ready() -> void:
 	# own _ready. Asking for chunks before then got 0, and no leaves were drawn.
 	if not _field.is_node_ready():
 		await _field.ready
-	_leaf_mesh = BoxMesh.new()
-	_leaf_mesh.size = Vector3(0.42, 0.03, 0.22)
+	_leaf_mesh = _maple_mesh(LEAF_LENGTH)
 	# Each flake's color comes from the multimesh, lit like everything else.
 	_material = StandardMaterial3D.new()
 	_material.albedo_color = Color.WHITE
 	_material.vertex_color_use_as_albedo = true
 	# Palette colors are sRGB. Read as linear, they came out pale.
 	_material.vertex_color_is_srgb = true
-	_material.roughness = 1.0
+	_material.roughness = 0.9
+	# Leaves are one sheet, seen from either side.
+	_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var chunks := int(_field.call("chunk_count"))
 	for _index: int in chunks:
 		var view := MultiMeshInstance3D.new()
@@ -78,7 +86,7 @@ func _rebuild(chunk_index: int) -> void:
 func _flake_color(cell: Vector3, flake: int) -> Color:
 	var mix := _mix(cell, flake)
 	var base := _COLORS[mix % _COLORS.size()]
-	var shade := 0.88 + float((mix / 7) % 5) * 0.06
+	var shade := 0.82 + float((mix / 7) % 6) * 0.06
 	return Color(base.r * shade, base.g * shade, base.b * shade)
 
 
@@ -95,14 +103,55 @@ func _flake_transform(cell: Vector3, flake: int) -> Transform3D:
 	var along := float(mix % 17) / 16.0 - 0.5
 	var across := float((mix / 17) % 17) / 16.0 - 0.5
 	var yaw := float(mix % 628) / 100.0
-	var tilt := float((mix / 13) % 25) / 100.0
-	var size := 0.85 + float((mix / 11) % 7) * 0.06
-	var basis := Basis.from_euler(Vector3(tilt, yaw, tilt * 0.4)).scaled(Vector3(size, 1.0, size))
+	var tilt := (float((mix / 13) % 41) / 100.0 - 0.2)
+	var size := 0.75 + float((mix / 11) % 9) * 0.07
+	var basis := Basis.from_euler(Vector3(tilt, yaw, tilt * 0.6)).scaled(Vector3(size, size, size))
 	var ground: Vector3 = _field.get("grid_origin")
 	# Higher flakes sit closer to the middle, so a pile mounds up instead of a flat stack.
-	var spread := 0.32 * (1.0 - float(flake) / float(MAX_FLAKES) * 0.6)
-	var origin := Vector3(cell.x + along * spread, ground.y + 0.02 + float(flake) * 0.04, cell.z + across * spread)
+	var spread := 0.5 * (1.0 - float(flake) / float(MAX_FLAKES) * 0.6)
+	var origin := Vector3(cell.x + along * spread, ground.y + 0.015 + float(flake) * 0.028, cell.z + across * spread)
 	return Transform3D(basis, origin)
+
+
+## A maple leaf lying flat, pointing along -Z: five lobes around a raised
+## midrib, edges cupped up a little, and a short stem. About 20 triangles.
+static func _maple_mesh(length: float) -> ArrayMesh:
+	var outline := PackedVector2Array()
+	var points := 25
+	for index: int in points:
+		var angle := TAU * float(index) / float(points)
+		# Five lobes, the front one longest, with a notch between each.
+		var lobes := 0.62 + 0.38 * pow(absf(cos(angle * 2.5)), 0.6)
+		var front := 0.8 + 0.25 * cos(angle)
+		var radius := lobes * front * length * 0.5
+		outline.append(Vector2(sin(angle), -cos(angle)) * radius)
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var center := Vector3(0.0, 0.018, 0.02 * length)
+	for index: int in points:
+		var a := outline[index]
+		var b := outline[(index + 1) % points]
+		# Cupped: the rim rises with distance from the midrib.
+		var lift_a := absf(a.x) * 0.12
+		var lift_b := absf(b.x) * 0.12
+		vertices.append(center)
+		vertices.append(Vector3(b.x, lift_b, b.y))
+		vertices.append(Vector3(a.x, lift_a, a.y))
+		for _corner: int in 3:
+			normals.append(Vector3.UP)
+	# The stem, a thin sliver off the back.
+	var stem_a := Vector3(-0.006, 0.01, length * 0.3)
+	var stem_b := Vector3(0.006, 0.01, length * 0.3)
+	var stem_end := Vector3(0.0, 0.012, length * 0.48)
+	vertices.append_array([stem_a, stem_end, stem_b])
+	normals.append_array([Vector3.UP, Vector3.UP, Vector3.UP])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 
 func _mix(cell: Vector3, flake: int) -> int:
