@@ -165,6 +165,7 @@ func write_report() -> void:
 		"voice": _voice_report(),
 		"run_cues": _RunCuesScript.log.duplicate(),
 		"job_test": preload("res://net/dev/job_test.gd").result.duplicate(),
+		"bonk_test": preload("res://net/dev/bonk_test.gd").result.duplicate(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),
 		"zones": _zones,
 		"audio_driver": AudioServer.get_driver_name(),

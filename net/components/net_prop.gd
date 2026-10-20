@@ -40,6 +40,11 @@ const _MoneyPopup = preload("res://ui/money_popup.gd")
 		_refresh_label()
 
 var _airborne: bool = false
+## Who threw this, and when, so a throw can't bonk its own thrower right away.
+var _thrower: int = 0
+var _thrown_at: float = 0.0
+## Everyone this throw already hit, so one throw bonks each person once.
+var _bonked: Array[Node] = []
 
 const GRAB_REACH: float = 2.4
 const PUSH_REACH: float = 1.1
@@ -77,6 +82,28 @@ func _physics_process(_delta: float) -> void:
 			%Visual.global_position = _hold_position(player)
 
 
+## What this weighs in kg (Constants.ITEM_WEIGHT_KG). A bag gets heavier with
+## its leaves and a wheelbarrow with its bags. Every peer can work it out from
+## the replicated kind, value, and stored bags, so the holder's slowdown matches.
+func weight_kg() -> float:
+	var base := float(Constants.ITEM_WEIGHT_KG.get(kind, 6.0))
+	if kind == "leaf_bag":
+		return minf(base + float(value) * Constants.LEAF_BAG_KG_PER_DOLLAR, Constants.LEAF_BAG_MAX_KG)
+	if kind == "wheelbarrow":
+		return base + float(stored_bags) * Constants.WHEELBARROW_KG_PER_BAG
+	return base
+
+
+## "light", "medium", or "heavy", by weight (Constants.BONK_TIER_KG).
+func weight_tier() -> String:
+	var kg := weight_kg()
+	if kg <= float(Constants.BONK_TIER_KG["light"]):
+		return "light"
+	if kg <= float(Constants.BONK_TIER_KG["medium"]):
+		return "medium"
+	return "heavy"
+
+
 func request_grab() -> void:
 	if Net.is_host():
 		_handle_grab(Net.local_peer_id())
@@ -99,6 +126,9 @@ func request_throw(direction: Vector3) -> void:
 
 
 func _host_step() -> void:
+	var kg := weight_kg()
+	if not is_equal_approx(mass, kg):
+		mass = kg
 	if held_by != 0:
 		var player := _player(held_by)
 		if player == null:
@@ -117,6 +147,8 @@ func _host_step() -> void:
 		if offset.length() > PUSH_REACH or player.velocity.length() < 0.8:
 			continue
 		apply_central_impulse(player.velocity * mass * 0.15)
+	if _airborne:
+		_check_bonks()
 	if _airborne and linear_velocity.length() < 0.35:
 		_airborne = false
 	_try_load_bag()
@@ -149,8 +181,64 @@ func _handle_release(peer_id: int, direction: Vector3) -> void:
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.length() < 0.1:
 		return
-	apply_central_impulse(flat.normalized() * mass * 4.0 + Vector3.UP * mass)
+	# Every throw is the same shove, so the weight decides how far it goes.
+	var speed := clampf(Constants.THROW_IMPULSE / weight_kg(), Constants.THROW_SPEED_MIN, Constants.THROW_SPEED_MAX)
+	linear_velocity = flat.normalized() * speed + Vector3.UP * (1.5 + speed * 0.3)
+	angular_velocity = Vector3(randf_range(-4.0, 4.0), randf_range(-4.0, 4.0), randf_range(-4.0, 4.0)) * (6.0 / weight_kg())
 	_airborne = true
+	_thrower = peer_id
+	_thrown_at = Net.server_time()
+	_bonked.clear()
+	_rpc_throw_fx.rpc()
+
+
+## Host only. A flying item that reaches a person bonks them: everyone sees and
+## hears it, and a player is shoved and stunned by how heavy and fast it was.
+func _check_bonks() -> void:
+	var speed := linear_velocity.length()
+	if speed < Constants.BONK_MIN_SPEED:
+		return
+	var targets: Array[Node] = get_tree().get_nodes_in_group("players")
+	targets.append_array(get_tree().get_nodes_in_group("bonkable"))
+	for node: Node in targets:
+		var target := node as Node3D
+		if target == null or _bonked.has(target) or not target.is_inside_tree():
+			continue
+		if target.name == str(_thrower) and Net.server_time() - _thrown_at < 0.5:
+			continue
+		var center := target.global_position + Vector3(0.0, 0.95, 0.0)
+		var offset := center - global_position
+		if absf(offset.y) > 1.2 or Vector2(offset.x, offset.z).length() > 0.85:
+			continue
+		_bonked.append(target)
+		var flat := Vector3(linear_velocity.x, 0.0, linear_velocity.z)
+		var shove_speed := minf(weight_kg() * speed * Constants.BONK_SHOVE_PER_MOMENTUM, Constants.BONK_SHOVE_MAX)
+		var push := (flat.normalized() if flat.length() > 0.1 else Vector3.FORWARD) * shove_speed + Vector3.UP * shove_speed * 0.35
+		_rpc_bonk_fx.rpc(get_path_to(target), weight_tier(), push)
+		# It bounces off them.
+		linear_velocity = -linear_velocity * 0.25 + Vector3.UP * 1.5
+
+
+## Everyone plays the throw's whoosh.
+@rpc("authority", "call_local", "reliable")
+func _rpc_throw_fx() -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "whoosh")
+
+
+## Everyone sees and hears a bonk; the person hit reacts (player.gd on_bonked,
+## or a pedestrian's bonk). target is relative to this prop, the same on every peer.
+@rpc("authority", "call_local", "reliable")
+func _rpc_bonk_fx(target: NodePath, tier: String, push: Vector3) -> void:
+	var node := get_node_or_null(target)
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "thud" if tier == "heavy" else "bonk")
+		if tier == "heavy":
+			sfx.call("play", "dizzy")
+	if node != null and node.has_method("on_bonked"):
+		node.call("on_bonked", push, tier)
 
 
 func _player(peer_id: int) -> CharacterBody3D:

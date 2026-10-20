@@ -59,6 +59,17 @@ jobs:
           "$GODOT" --headless --path . -- --host --port=7794 --name=Tester --no-steam --job-test --measure="$PWD/build/soak/ci-job/host.json" --run-seconds=75 | grep "JobTest" || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-job/host.json'))['job_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Bonk test (light, medium, and heavy throws at another player)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-bonk
+          "$GODOT" --headless --path . -- --host --port=7795 --name=Tester --no-steam --start-zone=lot --bonk-test --measure="$PWD/build/soak/ci-bonk/host.json" --run-seconds=26 > build/soak/ci-bonk/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7795 --name=Target --no-steam --measure="$PWD/build/soak/ci-bonk/target.json" --run-seconds=22 > build/soak/ci-bonk/target.log 2>&1
+          wait
+          grep "BonkTest" build/soak/ci-bonk/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-bonk/host.json'))['bonk_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi
