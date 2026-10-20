@@ -113,19 +113,19 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 	_own_head = own_head
 	_hips = _pivot(self, Vector3(0.0, 0.82, 0.0))
 	_torso = _pivot(_hips, Vector3.ZERO)
-	_part(_torso, _capsule(0.21, 0.62), Vector3(0.0, 0.26, 0.0), shirt).scale = Vector3(1.0, 1.0, 0.8)
-	_part(_torso, _capsule(0.2, 0.3), Vector3(0.0, -0.02, 0.0), pants).scale = Vector3(1.0, 1.0, 0.8)
+	_part(_torso, _capsule(0.21, 0.62), Vector3(0.0, 0.26, 0.0), shirt, "fabric").scale = Vector3(1.0, 1.0, 0.8)
+	_part(_torso, _capsule(0.2, 0.3), Vector3(0.0, -0.02, 0.0), pants, "fabric").scale = Vector3(1.0, 1.0, 0.8)
 	for side: float in [-1.0, 1.0]:
 		var leg := _pivot(_hips, Vector3(side * 0.1, 0.0, 0.0))
-		_part(leg, _capsule(0.085, 0.7), Vector3(0.0, -0.4, 0.0), pants)
+		_part(leg, _capsule(0.085, 0.7), Vector3(0.0, -0.4, 0.0), pants, "fabric")
 		_part(leg, _box(Vector3(0.15, 0.09, 0.27)), Vector3(0.0, -0.78, -0.05), Color(0.15, 0.13, 0.12))
 		_legs.append(leg)
 		var arm := _pivot(_torso, Vector3(side * 0.27, 0.47, 0.0))
 		arm.rotation.z = side * 0.12
 		# Your own arms swing right through your first-person view during gestures,
 		# so like your head they are hidden from your own camera.
-		_on_head_layer(_part(arm, _capsule(0.06, 0.5), Vector3(0.0, -0.24, 0.0), shirt))
-		_on_head_layer(_part(arm, _sphere(0.075), Vector3(0.0, -0.5, 0.0), skin))
+		_on_head_layer(_part(arm, _capsule(0.06, 0.5), Vector3(0.0, -0.24, 0.0), shirt, "fabric"))
+		_on_head_layer(_part(arm, _sphere(0.075), Vector3(0.0, -0.5, 0.0), skin, "skin"))
 		_arms.append(arm)
 	_head_root = head_parent if head_parent != null else _pivot(self, Vector3(0.0, 1.6, 0.0))
 	_head_base_y = _head_root.position.y
@@ -164,32 +164,32 @@ func _build_head(root: Node3D) -> void:
 	face.name = "CartoonHead"
 	root.add_child(face)
 	_face = face
-	_on_head_layer(_part(face, _sphere(0.27), Vector3(0.0, 0.02, 0.0), skin))
+	_on_head_layer(_part(face, _sphere(0.27), Vector3(0.0, 0.02, 0.0), skin, "skin"))
 	for side: float in [-1.0, 1.0]:
 		var eye := _pivot(face, Vector3(side * 0.095, 0.06, -0.21))
-		var white := _part(eye, _sphere(0.075), Vector3.ZERO, EYE_WHITE)
+		var white := _part(eye, _sphere(0.075), Vector3.ZERO, EYE_WHITE, "clean")
 		white.scale = Vector3(1.0, 1.15, 0.6)
 		_on_head_layer(white)
-		var pupil := _part(eye, _sphere(0.036), Vector3(side * -0.008, -0.005, -0.04), PUPIL)
+		var pupil := _part(eye, _sphere(0.036), Vector3(side * -0.008, -0.005, -0.04), PUPIL, "clean")
 		_on_head_layer(pupil)
 		_pupils.append(pupil)
 		_eyes.append(eye)
 		var brow := _pivot(face, Vector3(side * 0.1, 0.16, -0.235))
-		_on_head_layer(_part(brow, _box(Vector3(0.09, 0.022, 0.02)), Vector3.ZERO, hair.darkened(0.3)))
+		_on_head_layer(_part(brow, _box(Vector3(0.09, 0.022, 0.02)), Vector3.ZERO, hair.darkened(0.3), "clean"))
 		brow.rotation.z = side * -0.12
 		_brows.append(brow)
-		_on_head_layer(_part(face, _sphere(0.055), Vector3(side * 0.265, 0.0, 0.0), skin.darkened(0.06)))
-	_on_head_layer(_part(face, _sphere(0.045), Vector3(0.0, -0.02, -0.27), skin.darkened(0.1)))
+		_on_head_layer(_part(face, _sphere(0.055), Vector3(side * 0.265, 0.0, 0.0), skin.darkened(0.06), "skin"))
+	_on_head_layer(_part(face, _sphere(0.045), Vector3(0.0, -0.02, -0.27), skin.darkened(0.1), "skin"))
 	_mouth = _pivot(face, Vector3(0.0, -0.11, -0.235))
-	_on_head_layer(_part(_mouth, _box(Vector3(0.1, 0.025, 0.02)), Vector3.ZERO, Color(0.35, 0.1, 0.1)))
+	_on_head_layer(_part(_mouth, _box(Vector3(0.1, 0.025, 0.02)), Vector3.ZERO, Color(0.35, 0.1, 0.1), "clean"))
 	if shades:
-		_on_head_layer(_part(face, _box(Vector3(0.3, 0.07, 0.03)), Vector3(0.0, 0.06, -0.255), PUPIL))
+		_on_head_layer(_part(face, _box(Vector3(0.3, 0.07, 0.03)), Vector3(0.0, 0.06, -0.255), PUPIL, "metal"))
 	match hat_style:
 		"cap":
-			var crown := _part(face, _sphere(0.28), Vector3(0.0, 0.1, 0.0), hat_color)
+			var crown := _part(face, _sphere(0.28), Vector3(0.0, 0.1, 0.0), hat_color, "fabric")
 			crown.scale = Vector3(1.0, 0.62, 1.0)
 			_on_head_layer(crown)
-			_on_head_layer(_part(face, _box(Vector3(0.3, 0.025, 0.2)), Vector3(0.0, 0.14, -0.3), hat_color))
+			_on_head_layer(_part(face, _box(Vector3(0.3, 0.025, 0.2)), Vector3(0.0, 0.14, -0.3), hat_color, "fabric"))
 		"hair":
 			var mop := _part(face, _sphere(0.285), Vector3(0.0, 0.11, 0.03), hair)
 			mop.scale = Vector3(1.02, 0.6, 1.0)
@@ -378,13 +378,20 @@ func _pivot(parent: Node3D, at: Vector3) -> Node3D:
 	return node
 
 
-func _part(parent: Node3D, mesh: Mesh, at: Vector3, color: Color) -> MeshInstance3D:
+## surface is what the part is made of (props/surfaces.gd), or "clean" to keep a
+## plain material, for eyes and mouths that must stay crisp.
+func _part(parent: Node3D, mesh: Mesh, at: Vector3, color: Color, surface: String = "plain") -> MeshInstance3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
 	material.roughness = 0.8
 	var view := MeshInstance3D.new()
 	view.mesh = mesh
 	view.material_override = material
+	# Tagged before it enters the tree, so the shared look paints it right away.
+	if surface == "clean":
+		view.set_meta("keep_material", true)
+	else:
+		view.set_meta("surface", surface)
 	parent.add_child(view)
 	view.position = at
 	return view

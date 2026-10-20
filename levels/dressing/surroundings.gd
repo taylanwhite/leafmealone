@@ -13,12 +13,12 @@ const CORRIDOR_HALF_ANGLE: float = 0.3
 
 
 ## clear_angles: directions (radians, atan2(z, x)) that rides drive out along, kept free of scenery.
-static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_houses: bool, clear_angles: Array[float] = []) -> void:
+static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_houses: bool, clear_angles: Array[float] = [], ground_surface: String = "grass") -> void:
 	var root := Node3D.new()
 	root.name = "Surroundings"
 	zone.add_child(root)
 	# Just under the pad's top so the pad reads as a raised yard.
-	_LowPoly.box(root, Vector3(GROUND_SIZE, 0.2, GROUND_SIZE), Vector3(0, -0.45, 0), ground_color)
+	_LowPoly.paint(_LowPoly.box(root, Vector3(GROUND_SIZE, 0.2, GROUND_SIZE), Vector3(0, -0.45, 0), ground_color), ground_surface)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var leaf_colors: Array[Color] = [Color(0.85, 0.45, 0.15), Color(0.9, 0.7, 0.2), Color(0.7, 0.25, 0.15), Color(0.3, 0.5, 0.25)]
@@ -57,7 +57,8 @@ static func _house(root: Node3D, at: Vector3, wall: Color, yaw: float) -> void:
 	root.add_child(house)
 	house.position = at
 	house.rotation.y = yaw
-	_LowPoly.box(house, Vector3(8.0, 4.0, 6.0), Vector3(0, 2.0, 0), wall)
+	_LowPoly.paint(_LowPoly.box(house, Vector3(8.0, 4.0, 6.0), Vector3(0, 2.0, 0), wall), "siding")
 	var roof := _LowPoly.roof(house, 6.8, 2.4, 8.8, Vector3(0, 5.2, 0), Color(0.36, 0.25, 0.22))
 	roof.rotation.y = PI * 0.5
-	_LowPoly.box(house, Vector3(1.0, 2.0, 0.08), Vector3(0, 1.0, 3.02), Color(0.3, 0.22, 0.18))
+	_LowPoly.paint(roof, "shingles")
+	_LowPoly.paint(_LowPoly.box(house, Vector3(1.0, 2.0, 0.08), Vector3(0, 1.0, 3.02), Color(0.3, 0.22, 0.18)), "planks")

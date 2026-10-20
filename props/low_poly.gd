@@ -5,6 +5,21 @@ extends RefCounted
 ## levels/shared_look.gd when the nodes enter the tree, so pass the color you mean
 ## and let the palette decide. Nothing here is networked.
 ## Art rules: docs/ART.md. 1 unit = 1 meter, Y up, models face -Z.
+## paint() says what something is made of (brick, planks, ...), from props/surfaces.gd.
+
+
+const _SharedLook = preload("res://levels/shared_look.gd")
+
+
+## Say what node (and every mesh under it) is made of, and repaint it now.
+static func paint(node: Node, surface: String) -> Node:
+	var meshes: Array[Node] = node.find_children("*", "MeshInstance3D", true, false)
+	if node is MeshInstance3D:
+		meshes.append(node)
+	for mesh: Node in meshes:
+		mesh.set_meta("surface", surface)
+		_SharedLook.restyle(mesh)
+	return node
 
 
 static func box(parent: Node3D, size: Vector3, at: Vector3, color: Color, solid: bool = false) -> Node3D:
@@ -52,6 +67,51 @@ static func roof(parent: Node3D, width: float, height: float, depth: float, at: 
 	return _place(parent, mesh, at, color, false, null)
 
 
+## A window set into a wall that faces +Z (rotate the result to face elsewhere):
+## glass, a painted frame, a crossbar, and a sill. at is the window's center on
+## the wall's surface.
+static func window(parent: Node3D, width: float, height: float, at: Vector3, frame_color: Color, yaw: float = 0.0) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Window"
+	parent.add_child(root)
+	root.position = at
+	root.rotation.y = yaw
+	var glass := box(root, Vector3(width, height, 0.04), Vector3(0, 0, 0.02), Color(0.55, 0.7, 0.82))
+	glass.set_meta("keep_material", true)
+	(glass as MeshInstance3D).material_override = _glass_material()
+	var bar := 0.09
+	for side: float in [-1.0, 1.0]:
+		paint(box(root, Vector3(bar, height + bar * 2.0, 0.1), Vector3(side * (width * 0.5 + bar * 0.5), 0, 0.05), frame_color), "planks")
+		paint(box(root, Vector3(width + bar * 2.0, bar, 0.1), Vector3(0, side * (height * 0.5 + bar * 0.5), 0.05), frame_color), "planks")
+	box(root, Vector3(0.05, height, 0.07), Vector3(0, 0, 0.05), frame_color)
+	box(root, Vector3(width, 0.05, 0.07), Vector3(0, 0, 0.05), frame_color)
+	paint(box(root, Vector3(width + 0.35, 0.08, 0.22), Vector3(0, -height * 0.5 - bar - 0.03, 0.11), frame_color.darkened(0.1)), "planks")
+	return root
+
+
+## A shiny, slightly see-into-able glass for windows: reflective sky tint.
+static func _glass_material() -> StandardMaterial3D:
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(0.42, 0.58, 0.72)
+	glass.metallic = 0.4
+	glass.roughness = 0.08
+	glass.metallic_specular = 0.9
+	return glass
+
+
+## Something that glows, like a lamp head or headlight. Kept out of the shared look.
+static func glow(parent: Node3D, size: Vector3, at: Vector3, color: Color, energy: float = 1.5) -> Node3D:
+	var light := box(parent, size, at, color) as MeshInstance3D
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = color
+	material.emission_energy_multiplier = energy
+	light.material_override = material
+	light.set_meta("keep_material", true)
+	return light
+
+
 ## A tree: a trunk with a few stacked low-poly cones. Solid at the trunk only.
 static func tree(parent: Node3D, at: Vector3, height: float, leaf_color: Color, solid: bool = false) -> Node3D:
 	var root := Node3D.new()
@@ -59,13 +119,13 @@ static func tree(parent: Node3D, at: Vector3, height: float, leaf_color: Color, 
 	parent.add_child(root)
 	root.position = at
 	var trunk_height := height * 0.35
-	cylinder(root, height * 0.05, trunk_height, Vector3(0.0, trunk_height * 0.5, 0.0), Color(0.42, 0.3, 0.2), solid, 6)
+	paint(cylinder(root, height * 0.05, trunk_height, Vector3(0.0, trunk_height * 0.5, 0.0), Color(0.42, 0.3, 0.2), solid, 6), "bark")
 	var tiers := 3
 	for tier: int in tiers:
 		var size := 1.0 - float(tier) * 0.22
 		var radius := height * 0.28 * size
 		var tier_height := height * 0.32
-		cone(root, radius, tier_height, Vector3(0.0, trunk_height + tier_height * 0.5 + float(tier) * tier_height * 0.55, 0.0), leaf_color)
+		paint(cone(root, radius, tier_height, Vector3(0.0, trunk_height + tier_height * 0.5 + float(tier) * tier_height * 0.55, 0.0), leaf_color), "foliage")
 	return root
 
 
@@ -76,11 +136,11 @@ static func round_tree(parent: Node3D, at: Vector3, height: float, leaf_color: C
 	parent.add_child(root)
 	root.position = at
 	var trunk_height := height * 0.45
-	cylinder(root, height * 0.06, trunk_height, Vector3(0.0, trunk_height * 0.5, 0.0), Color(0.42, 0.3, 0.2), solid, 6)
+	paint(cylinder(root, height * 0.06, trunk_height, Vector3(0.0, trunk_height * 0.5, 0.0), Color(0.42, 0.3, 0.2), solid, 6), "bark")
 	var crown := height * 0.33
-	ball(root, crown, Vector3(0.0, trunk_height + crown * 0.7, 0.0), leaf_color)
-	ball(root, crown * 0.7, Vector3(crown * 0.6, trunk_height + crown * 0.4, crown * 0.2), leaf_color.darkened(0.08))
-	ball(root, crown * 0.65, Vector3(-crown * 0.5, trunk_height + crown * 0.5, -crown * 0.3), leaf_color.lightened(0.05))
+	paint(ball(root, crown, Vector3(0.0, trunk_height + crown * 0.7, 0.0), leaf_color), "foliage")
+	paint(ball(root, crown * 0.7, Vector3(crown * 0.6, trunk_height + crown * 0.4, crown * 0.2), leaf_color.darkened(0.08)), "foliage")
+	paint(ball(root, crown * 0.65, Vector3(-crown * 0.5, trunk_height + crown * 0.5, -crown * 0.3), leaf_color.lightened(0.05)), "foliage")
 	return root
 
 

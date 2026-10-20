@@ -27,13 +27,13 @@ static func dress(zone: Node3D) -> void:
 		for index: int in 10:
 			var z := -13.5 + float(index) * 3.0
 			var color := BARRIER if index % 2 == 0 else POST
-			_LowPoly.box(root, Vector3(0.4, 0.9, 2.8), Vector3(side * 9.0, 0.45, z), color)
+			_LowPoly.paint(_LowPoly.box(root, Vector3(0.4, 0.9, 2.8), Vector3(side * 9.0, 0.45, z), color), "metal")
 	# The exit arch at the far end.
 	for side: float in [-1.0, 1.0]:
-		_LowPoly.box(root, Vector3(0.8, 5.0, 0.8), Vector3(side * 9.0, 2.5, 15.5), POST)
+		_LowPoly.paint(_LowPoly.box(root, Vector3(0.8, 5.0, 0.8), Vector3(side * 9.0, 2.5, 15.5), POST), "metal")
 	for index: int in 9:
 		var color := BARRIER if index % 2 == 0 else POST
-		_LowPoly.box(root, Vector3(2.0, 0.8, 0.8), Vector3(-8.0 + float(index) * 2.0, 5.4, 15.5), color)
+		_LowPoly.paint(_LowPoly.box(root, Vector3(2.0, 0.8, 0.8), Vector3(-8.0 + float(index) * 2.0, 5.4, 15.5), color), "metal")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
 	for index: int in 24:
@@ -41,6 +41,6 @@ static func dress(zone: Node3D) -> void:
 		var at := Vector3(side * rng.randf_range(11.0, 19.0), 0.0, rng.randf_range(-18.0, 18.0))
 		if rng.randf() < 0.5:
 			var size := rng.randf_range(0.5, 1.4)
-			_LowPoly.ball(root, size, at + Vector3(0, size * 0.4, 0), ROCK)
+			_LowPoly.paint(_LowPoly.ball(root, size, at + Vector3(0, size * 0.4, 0), ROCK), "dirt")
 		else:
-			_LowPoly.ball(root, 0.7, at + Vector3(0, 0.5, 0), SCRUB)
+			_LowPoly.paint(_LowPoly.ball(root, 0.7, at + Vector3(0, 0.5, 0), SCRUB), "foliage")

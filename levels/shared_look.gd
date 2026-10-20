@@ -8,6 +8,15 @@ extends RefCounted
 ## (glows, beacons) opt out with set_meta("keep_material", true).
 
 const _Palette: Script = preload("res://assets/materials/palette.gd")
+const _Surfaces = preload("res://props/surfaces.gd")
+## Surfaces for meshes built in scene files, found by the name of the node they sit
+## under. Code-built meshes say what they are with set_meta("surface", ...).
+const SURFACE_BY_NAME: Dictionary = {
+	"House": "siding", "Fence": "planks", "Counter": "planks", "Car": "metal",
+	"HedgeRow": "foliage", "Curb": "concrete", "TruckPad": "concrete", "Pad": "concrete",
+}
+## Floors depend on which zone they belong to.
+const FLOOR_BY_ZONE: Dictionary = {"StoreZone": "asphalt", "LotZone": "grass", "BorderZone": "dirt"}
 ## Fog fades the scenery out between these distances, in meters.
 const FOG_BEGIN: float = 90.0
 const FOG_END: float = 260.0
@@ -88,17 +97,39 @@ static func _visit(node: Node) -> void:
 		_visit(child)
 
 
-## Real shading on every plain material, soft and matte like painted toys.
+## Paint every plain mesh with a procedural surface (props/surfaces.gd), lit and
+## matte like painted toys. Its own color is the base. Safe to call again after a
+## mesh is tagged: the first color it had is remembered.
 static func _shade(mesh: MeshInstance3D) -> void:
 	if mesh.has_meta("keep_material"):
 		return
-	var source := mesh.material_override as StandardMaterial3D
-	if source == null:
-		source = mesh.get_active_material(0) as StandardMaterial3D
-	if source == null:
-		return
-	var lit := source.duplicate() as StandardMaterial3D
-	lit.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-	lit.roughness = 0.85
-	lit.metallic_specular = 0.25
-	mesh.material_override = lit
+	var base: Color
+	if mesh.has_meta("surface_base"):
+		base = mesh.get_meta("surface_base")
+	else:
+		var source := mesh.material_override as StandardMaterial3D
+		if source == null:
+			source = mesh.get_active_material(0) as StandardMaterial3D
+		if source == null:
+			return
+		base = source.albedo_color
+		mesh.set_meta("surface_base", base)
+	var surface := str(mesh.get_meta("surface", _surface_by_name(mesh)))
+	mesh.material_override = _Surfaces.material(surface, base)
+
+
+static func _surface_by_name(mesh: MeshInstance3D) -> String:
+	var node: Node = mesh
+	for _level: int in 3:
+		node = node.get_parent()
+		if node == null:
+			break
+		if node.name == "Floor":
+			var zone: Node = node.get_parent()
+			while zone != null and not FLOOR_BY_ZONE.has(String(zone.name)):
+				zone = zone.get_parent()
+			# A lot scene's own floor sits in LotZone too, a few levels down.
+			return FLOOR_BY_ZONE.get(String(zone.name), "concrete") if zone != null else "concrete"
+		if SURFACE_BY_NAME.has(String(node.name)):
+			return SURFACE_BY_NAME[String(node.name)]
+	return "plain"

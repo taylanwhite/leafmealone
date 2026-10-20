@@ -26,6 +26,9 @@ static func build_truck(parent: Node3D, color: Color) -> Node3D:
 	_LowPoly.box(look, Vector3(2.4, 0.55, 0.12), Vector3(0.0, 1.28, 2.7), color.darkened(0.12))
 	_LowPoly.text_sign(look, "Chefty", Vector3(0.0, 1.3, 2.78), 56, TRIM)
 	_LowPoly.box(look, Vector3(2.2, 0.25, 0.25), Vector3(0.0, 0.85, -2.85), TRIM)
+	_front_end(look, -2.72, 1.25)
+	_LowPoly.paint(look, "metal")
+	_lights(look, -2.75, 1.3)
 	return look
 
 
@@ -43,6 +46,9 @@ static func build_van(parent: Node3D, color: Color) -> Node3D:
 		_LowPoly.box(look, Vector3(0.14, 2.05, 0.14), Vector3(1.16, 2.0, z), color.darkened(0.15))
 	# One amber stripe so it reads as a vehicle from far away, not as any agency's livery.
 	_LowPoly.box(look, Vector3(0.04, 0.22, 4.8), Vector3(-1.23, 1.6, 0.5), Color(0.95, 0.62, 0.15))
+	_front_end(look, -3.22, 1.35)
+	_LowPoly.paint(look, "metal")
+	_lights(look, -3.25, 1.4)
 	return look
 
 
@@ -62,3 +68,22 @@ static func _chassis(look: Node3D, color: Color, length: float) -> void:
 		for z: float in [-length * 0.32, length * 0.32]:
 			var wheel := _LowPoly.cylinder(look, 0.45, 0.35, Vector3(side * 1.22, 0.45, z), TIRE)
 			wheel.rotation.z = PI * 0.5
+			var hub := _LowPoly.cylinder(look, 0.22, 0.04, Vector3(side * 1.41, 0.45, z), TRIM)
+			hub.rotation.z = PI * 0.5
+
+
+## Grille, bumper, and side mirrors at the front face (z) of the cab.
+static func _front_end(look: Node3D, z: float, height: float) -> void:
+	_LowPoly.box(look, Vector3(1.3, 0.5, 0.06), Vector3(0.0, height, z - 0.02), Color(0.15, 0.15, 0.16))
+	for index: int in 4:
+		_LowPoly.box(look, Vector3(1.2, 0.04, 0.08), Vector3(0.0, height - 0.18 + index * 0.12, z - 0.04), TRIM)
+	_LowPoly.box(look, Vector3(2.5, 0.22, 0.2), Vector3(0.0, 0.78, z - 0.08), TRIM)
+	for side: float in [-1.0, 1.0]:
+		_LowPoly.box(look, Vector3(0.06, 0.06, 0.3), Vector3(side * 1.25, 2.05, z + 0.5), Color(0.15, 0.15, 0.16))
+		_LowPoly.box(look, Vector3(0.12, 0.26, 0.18), Vector3(side * 1.36, 2.05, z + 0.4), Color(0.2, 0.2, 0.22))
+
+
+## Headlights glow warm, taillights glow red.
+static func _lights(look: Node3D, z: float, height: float) -> void:
+	for side: float in [-1.0, 1.0]:
+		_LowPoly.glow(look, Vector3(0.36, 0.22, 0.06), Vector3(side * 0.85, height, z - 0.03), Color(1.0, 0.95, 0.75), 2.5)

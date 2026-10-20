@@ -135,3 +135,9 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 
 - **Why:** Taylan wants the game to feel like Schedule I (`docs/FEEL.md`), which is lit, not flat. `levels/shared_look.gd` (was `flat_look.gd`) now gives every surface real shading, a low warm sun with soft shadows, a procedural sky, sky ambient light, ambient occlusion, a little glow, and warm depth fog. The outline stays, lighter.
 - **Reverses:** the 2026-10-13 and 2026-10-18 flat-look entries. Colors are no longer snapped to the 12-swatch palette, which made everything samey. The palette is now a guide for picking colors.
+
+### 2026-10-19: Surfaces are painted by one procedural shader, not image textures
+
+- **Why:** Everything was untextured and read as plain. `props/surfaces.gd` paints brick, siding, shingles, planks, asphalt, concrete, grass, bark, fabric, painted metal, dirt, foliage, and skin straight onto any mesh, measured in meters in the mesh's own space, with every brick, board, and shingle varying a little. No image files to make, license, or disclose, sharp at any distance, and one material per surface and color. Meshes say what they are with `set_meta("surface", ...)` or `LowPoly.paint()`; scene-built meshes are mapped by node name in `levels/shared_look.gd`.
+- **Considered:** Generated PNG tiles. More work to keep consistent and they blur up close.
+- **Revisit:** If hand-made hero models arrive with their own textures, they opt out with `keep_material`.

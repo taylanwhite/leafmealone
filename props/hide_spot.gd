@@ -9,6 +9,8 @@ const _Strings = preload("res://ui/strings.gd")
 @export var size := Vector3(1.6, 2.0, 1.6)
 @export var color := Color(0.42, 0.36, 0.3)
 @export var label := "Hiding spot"
+## What it is made of, from props/surfaces.gd.
+@export var surface := "planks"
 
 var _label: Label3D
 
@@ -30,6 +32,7 @@ func _ready() -> void:
 	var view := MeshInstance3D.new()
 	view.mesh = mesh
 	view.material_override = material
+	view.set_meta("surface", surface)
 	body.add_child(view)
 	add_child(body)
 	_label = Label3D.new()

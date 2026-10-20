@@ -60,7 +60,7 @@ func _dress() -> void:
 	_BorderDressing.dress($BorderZone)
 	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0])
 	_Surroundings.dress($LotZone, GRASS, 22, true, [PI, PI * 0.75])
-	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25])
+	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
 	add_child(preload("res://levels/outline_pass.gd").new())
 	# The clerk behind the counter. Local on every peer: nothing about it is shared.
 	var clerk := preload("res://npcs/store_clerk.gd").new()
