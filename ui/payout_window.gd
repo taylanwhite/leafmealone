@@ -50,6 +50,8 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 		var change := int(round((multiplier - 1.0) * 100.0))
 		var change_text := "+%d%%" % change if change > 0 else ("%d%%" % change if change < 0 else "±0%")
 		_line(_Strings.UI["receipt_mood"] % mood, change_text, GREEN if change > 0 else (RED if change < 0 else INK))
+		for reason: String in (settlement.get("bills", {}) as Dictionary):
+			_line(_Strings.UI.get("receipt_bill_" + reason, reason), "-$%d" % int(settlement["bills"][reason]), RED)
 		if int(settlement.get("water_fee", 0)) > 0:
 			_line(_Strings.UI["receipt_water"], "-$%d" % int(settlement["water_fee"]), RED)
 		_line(_Strings.UI["receipt_paid"], "$%d" % int(settlement.get("paid", 0)), ORANGE.darkened(0.1), 22)

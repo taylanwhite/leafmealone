@@ -33,6 +33,9 @@ const HUP_CHANCE: float = 0.6
 @export var straining: bool = false
 ## Hurt from a bad fall: walking with a limp and a bandaged leg. Replicated.
 @export var limping: bool = false
+## Run over by a mower: 1 a cut foot (bandaged, limping), 2 the foot came off
+## (hopping on the other one until the job is paid). Replicated.
+@export var foot_hurt: int = 0
 ## Equipped tool id. Empty until tools exist. Replicated.
 @export var equipment_id: String = ""
 
@@ -359,6 +362,34 @@ func _nearest_ladder_top() -> Node3D:
 ## Up on a roof or a ladder: high enough to work the gutters and the roof.
 func is_up_high() -> bool:
 	return _ladder != null or global_position.y > 1.8
+
+
+## A mower got your foot (net/components/net_prop.gd tells every peer). Everyone
+## hears it and, if it came off, sees it fly; your own peer starts the limp or
+## the hop. It heals when the job is paid.
+func hurt_foot(level: int, heading: Vector3) -> void:
+	say("vo_yelp")
+	var body := get_node_or_null("Visual/CartoonBody")
+	if body != null:
+		body.call("gesture", "flail")
+		if level >= 2 and int(body.get("foot_hurt")) < 2:
+			var lot := get_tree().get_first_node_in_group("job_lot")
+			load("res://props/lost_foot.gd").launch(lot if lot != null else get_parent(), global_position, heading, Color(0.18, 0.14, 0.12), body.get("skin"))
+	if not is_multiplayer_authority():
+		return
+	foot_hurt = maxi(foot_hurt, level)
+	if foot_hurt == 1:
+		limping = true
+		_limp_left = Constants.LIMP_SECONDS
+	if _held_prop() != null:
+		_release_held(false)
+	_stun_left = 0.6
+	if not Campaign.payout_ready.is_connected(_heal_feet):
+		Campaign.payout_ready.connect(_heal_feet)
+
+
+func _heal_feet(_results: Array[Dictionary]) -> void:
+	foot_hurt = 0
 
 
 ## Falls: a hard landing bounces you; the next touchdown knocks you out, and you
@@ -690,7 +721,9 @@ func _simulate(delta: float) -> void:
 	elif Input.is_action_pressed("sprint"):
 		speed = SPRINT_SPEED
 	speed *= carry_speed_scale()
-	if limping:
+	if foot_hurt >= 2:
+		speed = minf(speed, WALK_SPEED) * Constants.HOP_SPEED_SHARE
+	elif limping:
 		speed = minf(speed, WALK_SPEED) * Constants.LIMP_SPEED_SHARE
 	if direction.is_zero_approx():
 		velocity.x = move_toward(velocity.x, 0.0, speed)

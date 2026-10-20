@@ -113,6 +113,19 @@ func add_litter(index: int, at: Vector3, seed_value: int) -> void:
 	_spots[index] = {"kind": "gone", "node": view}
 
 
+## A spot's look flies from one place to another in an arc (litter flung by the mower).
+func fling(index: int, from: Vector3, to: Vector3) -> void:
+	if not _spots.has(index):
+		return
+	var node := _spots[index]["node"] as Node3D
+	var tween := create_tween()
+	tween.tween_method(func(t: float) -> void:
+		if is_instance_valid(node):
+			node.global_position = from.lerp(to, t) + Vector3.UP * sin(t * PI) * 2.5
+			node.rotation = Vector3(t * 14.0, t * 9.0, 0.0)
+	, 0.0, 1.0, 0.7)
+
+
 func _on_spot_changed(index: int, amount: int) -> void:
 	if not _spots.has(index):
 		return

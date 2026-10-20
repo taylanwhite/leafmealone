@@ -21,6 +21,9 @@ const ANGRY_SECONDS: float = 2.0
 
 ## Read by player/cartoon_body.gd (its parent's parent): knocked flat or not.
 var anim_state: int = STATE_WALK
+## Run over by a mower: 1 cut, 2 the foot came off. They heal after a while.
+var foot_hurt: int = 0
+var _heal_left: float = 0.0
 var route_from := Vector3.ZERO
 var route_to := Vector3.ZERO
 var speed: float = 1.3
@@ -70,6 +73,17 @@ func _physics_process(delta: float) -> void:
 	_place(delta)
 
 
+## A mower got their foot. Called on every peer.
+func hurt_foot(level: int, heading: Vector3) -> void:
+	if level >= 2 and foot_hurt < 2:
+		var lot := get_tree().get_first_node_in_group("job_lot")
+		load("res://props/lost_foot.gd").launch(lot if lot != null else get_parent(), global_position, heading, Color(0.18, 0.14, 0.12), _body.get("skin"))
+	foot_hurt = maxi(foot_hurt, level)
+	_heal_left = 90.0
+	on_bonked(heading * 2.0, "medium")
+	_say("vo_yelp")
+
+
 ## Bonked by a thrown item. Called on every peer.
 func on_bonked(push: Vector3, tier: String) -> void:
 	match tier:
@@ -91,7 +105,12 @@ func on_bonked(push: Vector3, tier: String) -> void:
 
 
 func _place(delta: float) -> void:
+	if foot_hurt > 0:
+		_heal_left -= delta
+		if _heal_left <= 0.0:
+			foot_hurt = 0
 	var length := maxf(route_from.distance_to(route_to), 0.1)
+	# Hurt feet slow them down, so they drift behind their route and catch up later.
 	var walked := fposmod(Net.server_time() * speed + phase, length * 2.0)
 	var along := walked if walked < length else length * 2.0 - walked
 	var heading := (route_to - route_from).normalized() * (1.0 if walked < length else -1.0)

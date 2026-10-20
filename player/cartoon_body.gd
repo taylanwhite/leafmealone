@@ -90,6 +90,10 @@ var fallen: float = 0.0
 var _straining: bool = false
 var _limping: bool = false
 var _bandage: Node3D
+## The mower got a foot: 1 a cut (bandaged shoe), 2 gone (a bandaged stump, hopping).
+var foot_hurt: int = 0
+var _foot_wrap: Node3D
+var _stump: Node3D
 var _head_stand_y: float = 1.6
 var _stars: Node3D
 var _stars_left: float = 0.0
@@ -254,6 +258,10 @@ func _physics_process(delta: float) -> void:
 	var owner_node := get_parent().get_parent() if get_parent() != null else null
 	_straining = bool(owner_node.get("straining")) if owner_node != null and "straining" in owner_node else false
 	_limping = bool(owner_node.get("limping")) if owner_node != null and "limping" in owner_node else false
+	if owner_node != null and "foot_hurt" in owner_node:
+		foot_hurt = int(owner_node.get("foot_hurt"))
+	if foot_hurt == 1:
+		_limping = true
 	# Every peer sees stars when someone goes down, bonked or fainted.
 	if knocked and fallen <= 0.0:
 		dizzy(float(Constants.BONK_STUN_SECONDS["heavy"]))
@@ -267,7 +275,11 @@ func _physics_process(delta: float) -> void:
 	var swing := sin(_phase) * 0.65 * walk
 	_legs[0].rotation.x = swing
 	_legs[1].rotation.x = -swing
-	if _limping:
+	if foot_hurt >= 2:
+		# Hopping: the footless leg tucked up behind, a bounce on every hop.
+		_legs[0].rotation.x = 0.9
+		_legs[1].rotation.x = swing * 0.3
+	elif _limping:
 		# The hurt leg stays stiff and swings out; the hips lurch onto the good one.
 		_legs[0].rotation.x = swing * 0.2
 		_legs[0].rotation.z = -0.12
@@ -275,7 +287,9 @@ func _physics_process(delta: float) -> void:
 	_arms[0].rotation.x = -swing * 0.9
 	_arms[1].rotation.x = swing * 0.9
 	var bounce := absf(sin(_phase)) * 0.06 * walk
-	if _limping:
+	if foot_hurt >= 2:
+		bounce = absf(sin(_phase * 1.5)) * 0.2 * walk
+	elif _limping:
 		bounce = maxf(0.0, sin(_phase)) * 0.11 * walk
 	var breathe := sin(_time * 2.2) * 0.012 * (1.0 - walk)
 	var drop := CROUCH_DROP if crouching else 0.0
@@ -305,6 +319,7 @@ func _physics_process(delta: float) -> void:
 		lean += 0.14 * walk * (0.5 + 0.5 * sin(_phase))
 	_torso.rotation.z = lerpf(_torso.rotation.z, lean, clampf(delta * 8.0, 0.0, 1.0))
 	_show_bandage()
+	_show_foot()
 	_animate_gesture(delta)
 	_animate_face(delta)
 	_apply_fall(delta)
@@ -332,6 +347,31 @@ func _apply_fall(delta: float) -> void:
 			_stars.rotation.y += delta * 6.0
 			var top := _head_root.global_position if _head_root != null else global_position + Vector3.UP * 1.6
 			_stars.global_position = top + Vector3(0.0, 0.42, 0.0)
+
+
+## A mower's work: a cut foot gets a fat bandage over the shoe; a lost foot leaves
+## a round bandaged stump where the shoe was.
+func _show_foot() -> void:
+	if _legs.is_empty():
+		return
+	var shoe := _legs[0].get_child(1) as Node3D if _legs[0].get_child_count() > 1 else null
+	if shoe != null:
+		shoe.visible = foot_hurt < 2
+	if foot_hurt == 1 and _foot_wrap == null:
+		var kit := _MeshKit.new()
+		kit.blob(Vector3(0.0, -0.74, -0.04), Vector3(0.1, 0.09, 0.17), Color(0.97, 0.96, 0.93), {"detail": 2, "lumps": 0.15, "lump_scale": 4.0, "outward": true, "flat": false, "jitter": 0.0})
+		kit.blob(Vector3(0.0, -0.66, -0.12), Vector3(0.03, 0.03, 0.01), Color(0.85, 0.2, 0.2), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		_foot_wrap = _kit_part(_legs[0], kit.commit(), Vector3.ZERO)
+		_on_head_layer(_foot_wrap)
+	if foot_hurt >= 2 and _stump == null:
+		var kit := _MeshKit.new()
+		kit.blob(Vector3(0.0, -0.72, 0.0), Vector3(0.085, 0.07, 0.085), Color(0.97, 0.96, 0.93), {"detail": 2, "lumps": 0.15, "lump_scale": 4.0, "outward": true, "flat": false, "jitter": 0.0})
+		_stump = _kit_part(_legs[0], kit.commit(), Vector3.ZERO)
+		_on_head_layer(_stump)
+	if _foot_wrap != null:
+		_foot_wrap.visible = foot_hurt == 1
+	if _stump != null:
+		_stump.visible = foot_hurt >= 2
 
 
 ## A white bandage wrapped round the hurt leg while limping.

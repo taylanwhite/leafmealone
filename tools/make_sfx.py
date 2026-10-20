@@ -420,6 +420,26 @@ def mower_start() -> list[float]:
     return out
 
 
+def chop() -> list[float]:
+    """The mower blade hits something: a sharp whack and a rattling skitter."""
+    rng = random.Random(31)
+    out = silence(0.5)
+    mix_into(out, decay(highpass(noise(rng, 0.08), 1500.0), 45.0), 0.0, 1.0)
+    mix_into(out, blip(0.2, 420.0, 180.0, 18.0), 0.0, 0.7)
+    for hit in range(4):
+        mix_into(out, decay(bandpass(noise(rng, 0.05), 2400.0 - hit * 300.0, 4.0), 50.0), 0.08 + hit * 0.07, 0.5 - hit * 0.08)
+    return out
+
+
+def grind() -> list[float]:
+    """Something hard in the mower: a horrible scraping grind that chokes to a stop."""
+    rng = random.Random(32)
+    rasp = bandpass(noise(rng, 0.9), lambda t: 900.0 - 500.0 * min(1.0, t / 0.8), 6.0)
+    buzz = tone(0.9, lambda t: 130.0 - 90.0 * min(1.0, t / 0.8), "square")
+    out = [a * 0.8 + b * 0.35 for a, b in zip(rasp, buzz)]
+    return envelope(out, 0.01, 0.25)
+
+
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
     "step": (step, 4, 0.3),
@@ -447,6 +467,8 @@ SOUNDS = {
     "vo_heave": (vo_heave, 0, 0.75),
     "pullcord": (pullcord, 0, 0.6),
     "mower_start": (mower_start, 0, 0.6),
+    "chop": (chop, 0, 0.75),
+    "grind": (grind, 0, 0.7),
 }
 
 

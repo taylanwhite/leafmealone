@@ -162,8 +162,11 @@ func _handle_talk(peer_id: int) -> void:
 	var line_index := _rng.randi() % lines.size()
 	# Their water isn't free.
 	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
-	var amount := 0 if mood == "nothing" else maxi(0, int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)))) - water_fee)
-	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "water_fee": water_fee, "paid": amount}
+	# Whatever the crew broke or hurt comes off too: a new hose, a new gnome, medical bills.
+	var bills: Dictionary = (tasks.get("bills") as Dictionary).duplicate() if tasks != null else {}
+	var bills_total := int(tasks.call("bills_total")) if tasks != null else 0
+	var amount := 0 if mood == "nothing" else maxi(0, int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)))) - water_fee - bills_total)
+	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "water_fee": water_fee, "bills": bills, "paid": amount}
 	_rpc_react.rpc(mood, line_index, amount)
 	if mood == "nothing":
 		return
