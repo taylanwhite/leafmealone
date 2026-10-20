@@ -214,6 +214,8 @@ func _bake_navmesh() -> void:
 	mesh.agent_radius = 0.5
 	mesh.agent_height = 1.75
 	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	# Only the yard: the street's ground goes on for hundreds of meters.
+	mesh.filter_baking_aabb = AABB(Vector3(-Constants.PAD_HALF - 1.0, -2.0, -Constants.PAD_HALF - 1.0), Vector3(Constants.PAD_HALF * 2.0 + 2.0, 8.0, Constants.PAD_HALF * 2.0 + 2.0))
 	var source := NavigationMeshSourceGeometryData3D.new()
 	# Geometry is gathered relative to the lot zone, so the region sits at the lot zone too.
 	NavigationServer3D.parse_source_geometry_data(mesh, source, lot)

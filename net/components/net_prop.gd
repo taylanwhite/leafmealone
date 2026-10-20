@@ -74,6 +74,8 @@ func _physics_process(_delta: float) -> void:
 		var holder := _player(held_by) if held_by != 0 else null
 		var raking := held_by == Net.local_peer_id() and Input.is_action_pressed("primary")
 		_PropLooks.pose_rake(self, holder, raking)
+	elif Constants.TOOL_PRICES.has(kind):
+		_PropLooks.pose_tool(self, _player(held_by) if held_by != 0 else null)
 	if Net.is_host():
 		_host_step()
 	elif held_by == Net.local_peer_id():
@@ -135,9 +137,15 @@ func _host_step() -> void:
 			held_by = 0
 			_set_solid(true)
 			return
+		var was := global_position
 		global_position = _hold_position(player)
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
+		# A mower being pushed mows whatever it rolls over.
+		if kind == "lawn_mower" and Vector2(global_position.x - was.x, global_position.z - was.z).length() > 0.01:
+			var tasks := get_tree().get_first_node_in_group("job_tasks")
+			if tasks != null:
+				tasks.call("host_work", "mow_lawn", global_position, 0.75, get_physics_process_delta_time(), held_by)
 		return
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if not node is CharacterBody3D:
@@ -437,6 +445,17 @@ func _refresh_label() -> void:
 
 func _hold_position(player: CharacterBody3D) -> Vector3:
 	# The rake is held low and close, tines on the leaves. Everything else at chest height.
+	var forward := -player.global_transform.basis.z
+	var right := player.global_transform.basis.x
+	match kind:
+		"lawn_mower", "pressure_washer":
+			# Pushed or dragged along the ground in front.
+			return player.global_position + forward * 1.15
+		"ladder":
+			# On the shoulder.
+			return player.global_position + Vector3(0.0, 1.45, 0.0) + right * 0.3
+		"leaf_blower", "hedge_trimmer", "hose", "paint_roller":
+			return player.global_position + Vector3(0.0, 0.8, 0.0) + forward * 0.55 + right * 0.25
 	if kind == "rake":
 		# A little to the right, so the handle doesn't split a first-person view in half.
 		return player.global_position + Vector3(0.0, 0.75, 0.0) + (-player.global_transform.basis.z) * 0.9 + player.global_transform.basis.x * 0.35

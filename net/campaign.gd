@@ -180,15 +180,52 @@ func _unlock_list(peer_id: int) -> PackedStringArray:
 	return names
 
 
+## What an item costs: the upgrades from the workbook, tools from Constants.TOOL_PRICES.
+## -1 for something the store doesn't sell.
+func price_of(item_id: StringName) -> int:
+	if item_id == RAKE_UPGRADE or item_id == WHEELBARROW_UPGRADE:
+		return Balance.BASELINE_TIER_1_TOOL_COST
+	return int(Constants.TOOL_PRICES.get(String(item_id), -1))
+
+
+## Host: every tool someone in this session owns. The crew brings them all to the job.
+func crew_tools() -> PackedStringArray:
+	var tools := PackedStringArray()
+	for peer_id: int in Net.peer_ids():
+		_bind_peer(peer_id)
+		for tool_id: String in Constants.TOOL_PRICES:
+			if peer_has_unlock(peer_id, StringName(tool_id)) and not tools.has(tool_id):
+				tools.append(tool_id)
+	return tools
+
+
+## Dev and tests only: give this peer every tool, as if bought.
+func dev_grant_all_tools(peer_id: int) -> void:
+	if not Net.is_host():
+		return
+	_bind_peer(peer_id)
+	var key: String = _peer_keys[peer_id]
+	var record: Dictionary = _bank[key]
+	var unlocks: Array = record.get("unlocks", [])
+	for tool_id: String in Constants.TOOL_PRICES:
+		if not unlocks.has(tool_id):
+			unlocks.append(tool_id)
+	record["unlocks"] = unlocks
+	_bank[key] = record
+	_send_wallet(peer_id)
+	unlocks_changed.emit()
+
+
 func _handle_purchase(peer_id: int, item_id: StringName) -> void:
-	if item_id != RAKE_UPGRADE and item_id != WHEELBARROW_UPGRADE:
+	var price := price_of(item_id)
+	if price < 0:
 		return
 	_bind_peer(peer_id)
 	if peer_has_unlock(peer_id, item_id):
 		return
-	if credits(peer_id) < Balance.BASELINE_TIER_1_TOOL_COST:
+	if credits(peer_id) < price:
 		return
-	_add_credits(peer_id, -Balance.BASELINE_TIER_1_TOOL_COST)
+	_add_credits(peer_id, -price)
 	var key: String = _peer_keys[peer_id]
 	var record: Dictionary = _bank[key]
 	var unlocks: Array = record.get("unlocks", [])

@@ -34,6 +34,8 @@ var _dirty: Dictionary = {}
 var _send_wait: float = 0.0
 var _chunks_x: int = 0
 var _chunks_z: int = 0
+## Cells that start clean (under a house, on a path), not counted as raked.
+var _clean_at_start: int = 0
 
 
 func _ready() -> void:
@@ -82,14 +84,33 @@ func clean_density() -> int:
 
 ## OQ-004: share of cells raked or bagged down to CLEAN_DENSITY. Pushing leaves into a pile clears the cells you raked.
 func cleaned_fraction() -> float:
-	var total := grid_width * grid_depth
+	var total := grid_width * grid_depth - _clean_at_start
 	if total <= 0:
 		return 0.0
-	var clean := 0
+	var clean := -_clean_at_start
 	for byte: int in _density:
 		if byte <= CLEAN_DENSITY:
 			clean += 1
-	return float(clean) / float(total)
+	return clampf(float(clean) / float(total), 0.0, 1.0)
+
+
+## Every peer, right after the lot is generated, the same way from the job's seed:
+## how thick the leaves start at each spot. multiplier(world position) scales
+## INITIAL_DENSITY there: thicker under trees, none under the house. The host's
+## field is the truth from then on, as always.
+func shape_initial(multiplier: Callable) -> void:
+	var scale := Vector3(cell_size, 0.0, cell_size)
+	_clean_at_start = 0
+	for z: int in grid_depth:
+		for x: int in grid_width:
+			var local := grid_origin + Vector3((float(x) + 0.5) * scale.x, 0.0, (float(z) + 0.5) * scale.z)
+			var value := clampi(int(round(float(INITIAL_DENSITY) * float(multiplier.call(global_transform * local)))), 0, 255)
+			_density[x + z * grid_width] = value
+			if value <= CLEAN_DENSITY:
+				_clean_at_start += 1
+	_starting_units = leaf_units()
+	for chunk_index: int in chunk_count():
+		chunk_changed.emit(chunk_index)
 
 
 func chunk_count() -> int:
@@ -162,7 +183,13 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 	var has_rake := holds_rake(peer_id)
 	var max_strength := Constants.RAKE_STRENGTH if has_rake else Constants.HAND_RAKE_STRENGTH
 	var max_width := Constants.RAKE_WIDTH if has_rake else Constants.HAND_RAKE_WIDTH
-	var moved := _stroke(origin, direction, minf(width, max_width), minf(strength, max_strength) * Campaign.rake_multiplier(peer_id), has_rake)
+	var cells := Constants.RAKE_STROKE_CELLS if has_rake else 1
+	# A leaf blower shoves leaves much farther than any rake.
+	if holds_kind(peer_id, "leaf_blower"):
+		max_strength = Constants.BLOWER_STRENGTH
+		max_width = Constants.BLOWER_WIDTH
+		cells = Constants.BLOWER_CELLS
+	var moved := _stroke_cells(origin, direction, minf(width, max_width), minf(strength, max_strength) * Campaign.rake_multiplier(peer_id), cells)
 	if moved <= 0:
 		return
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(moved) * _unit_scale)
@@ -253,12 +280,23 @@ func dollars_for(units: int) -> int:
 ## One rake stroke: the leaves are shoved several cells forward, building a pile
 ## ahead of the rake. Bare hands only manage one cell.
 func _stroke(origin: Vector3, direction: Vector3, width: float, strength: float, with_rake: bool) -> int:
+	return _stroke_cells(origin, direction, width, strength, Constants.RAKE_STROKE_CELLS if with_rake else 1)
+
+
+func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: float, cells: int) -> int:
 	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
-	var cells := Constants.RAKE_STROKE_CELLS if with_rake else 1
 	var moved := 0
 	for step: int in cells:
 		moved += _apply_rake(origin + flat * cell_size * float(step), direction, width, strength)
 	return moved
+
+
+## Host: true while this peer carries a prop of this kind.
+func holds_kind(peer_id: int, held_kind: String) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == held_kind and int(node.get("held_by")) == peer_id:
+			return true
+	return false
 
 
 ## Host: true while this peer carries the job's rake.

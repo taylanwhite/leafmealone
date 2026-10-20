@@ -166,6 +166,9 @@ func write_report() -> void:
 		"run_cues": _RunCuesScript.log.duplicate(),
 		"job_test": preload("res://net/dev/job_test.gd").result.duplicate(),
 		"bonk_test": preload("res://net/dev/bonk_test.gd").result.duplicate(),
+		"work_test": preload("res://net/dev/work_test.gd").result.duplicate(),
+		"lot_layout": _lot_layout(),
+		"job_progress": _job_progress(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),
 		"zones": _zones,
 		"audio_driver": AudioServer.get_driver_name(),
@@ -193,6 +196,22 @@ func write_report() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	file.close()
 	print("[Probe] wrote %s" % path)
+
+
+## The job yard's layout hash (levels/lots/lot_generator.gd), the same on every peer.
+func _lot_layout() -> int:
+	var lot := get_tree().get_first_node_in_group("job_lot")
+	return int(lot.get_meta("layout_hash", 0)) if lot != null else 0
+
+
+## How far along each task on this job is, as this peer sees it.
+func _job_progress() -> Dictionary:
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	var progress: Dictionary = {}
+	if tasks != null:
+		for task: String in (tasks.get("active") as PackedStringArray):
+			progress[task] = snappedf(float(tasks.call("progress", task)), 0.01)
+	return progress
 
 
 ## What got done on the lot: how clean it is, bags lying around, and what Chefty

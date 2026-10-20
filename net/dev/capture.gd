@@ -124,6 +124,25 @@ func _tour(camera: Camera3D, label: String) -> void:
 	for stop: Array in TOUR.get(zone_name, []):
 		camera.look_at_from_position(zone.global_position + (stop[1] as Vector3), zone.global_position + (stop[2] as Vector3), Vector3.UP)
 		await _shoot("%s/%s_tour_%s.png" % [_dir, label, stop[0]])
+	# On a job, also look at the first piece of each kind of work in this yard.
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks == null or zone_name != "LotZone":
+		return
+	var seen: Dictionary = {}
+	for index: int in int(tasks.call("spot_count")):
+		var spot: Dictionary = tasks.call("spot", index)
+		var task := str(spot["task"])
+		if seen.has(task):
+			continue
+		seen[task] = true
+		var at: Vector3 = spot["at"]
+		var normal: Vector3 = spot["normal"]
+		var away := Vector3(normal.x, 0.0, normal.z)
+		if away.length() < 0.1:
+			away = Vector3(0.0, 0.0, 1.0)
+		var from := at + away.normalized() * 3.2 + Vector3(0.0, 1.2 if task != "clean_gutters" else -1.8, 0.0)
+		camera.look_at_from_position(from, at, Vector3.UP)
+		await _shoot("%s/%s_tour_task_%s.png" % [_dir, label, task])
 
 
 ## Center of the zone this peer is in, or INF in transit.
