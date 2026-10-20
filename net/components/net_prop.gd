@@ -1,6 +1,7 @@
 extends RigidBody3D
 
 const _PropLooks = preload("res://props/prop_looks.gd")
+const _MoneyPopup = preload("res://ui/money_popup.gd")
 
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
@@ -51,6 +52,9 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	_apply_color()
 	_refresh_label()
+	# A fresh bag pops its worth where it was filled.
+	if kind == "leaf_bag" and value > 0:
+		_MoneyPopup.pop(get_tree(), global_position + Vector3(0.0, 1.0, 0.0), value)
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		freeze = true
 

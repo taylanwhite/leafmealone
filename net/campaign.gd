@@ -21,6 +21,7 @@ var _peer_keys: Dictionary = {}
 var _lots_completed: int = 0
 var _job_open: bool = true
 var _job_started_at: float = 0.0
+var _last_settlement: Dictionary = {}
 var _pending_wallets: Array[Dictionary] = []
 
 
@@ -105,7 +106,7 @@ func record_stat(peer_id: int, stat: StringName, amount: float) -> void:
 ## Host only. Split this job's pool, pay, save, and tell every peer.
 ## Host only. paid is what the homeowner handed over; without it, pay comes from
 ## how much of the lot was cleaned. Either way it's split by contribution (OQ-005).
-func finish_job(paid: float = -1.0) -> void:
+func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 	if not Net.is_host() or not _job_open:
 		return
 	var fraction := 0.0
@@ -127,7 +128,7 @@ func finish_job(paid: float = -1.0) -> void:
 	_job_open = false
 	_job_stats.clear()
 	_save()
-	_rpc_payout.rpc(results)
+	_rpc_payout.rpc(results, details)
 	_rpc_progress.rpc(_lots_completed)
 	for peer_id: int in Net.peer_ids():
 		_send_wallet(peer_id)
@@ -142,6 +143,12 @@ func mark_job_open() -> void:
 	_job_open = true
 	_job_stats.clear()
 	_job_started_at = Net.server_time()
+
+
+## How the last job was settled: bags_value, mood, multiplier, and paid. Empty
+## when the job ended without the homeowner. Set on every peer before payout_ready.
+func last_settlement() -> Dictionary:
+	return _last_settlement
 
 
 ## Minutes since this job started, on the host.
@@ -313,7 +320,8 @@ func _rpc_request_purchase(item_id: String) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_payout(results: Array) -> void:
+func _rpc_payout(results: Array, details: Dictionary) -> void:
+	_last_settlement = details
 	var typed: Array[Dictionary] = []
 	for row: Variant in results:
 		typed.append(row as Dictionary)

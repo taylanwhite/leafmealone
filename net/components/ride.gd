@@ -6,6 +6,7 @@ extends Node3D
 # TODO(balance): add the truck ride duration to the workbook.
 const RIDE_DURATION_SECONDS: float = 8.0
 const _Vehicles = preload("res://props/vehicles.gd")
+const _MoneyPopup = preload("res://ui/money_popup.gd")
 
 var _riding: bool = false
 var _start_time: float = 0.0
@@ -271,6 +272,8 @@ func _rpc_arrived() -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_bags(count: int, value: int) -> void:
+	if value > _bag_value and _body != null:
+		_MoneyPopup.pop(get_tree(), _body.global_position + Vector3(0.0, 3.0, 0.0), value - _bag_value)
 	_bags = count
 	_bag_value = value
 	_refresh_label()
