@@ -167,6 +167,11 @@ def main() -> int:
         hides = reports.get("Host", {}).get("hide_spots", {})
         print(f"run event: {len(captured)} captured, {len(returned)} crossed back to the lot, "
               f"{hides.get('entered', 0)} hid, {hides.get('pulled_out', 0)} pulled out of hiding")
+    # Bots work the job on the lot (net/dev/bot_job.gd). Informational, not a pass/fail check.
+    work = reports.get("Host", {}).get("lot_work")
+    if work:
+        print(f"lot work: {work['truck_bags']} bags worth ${work['truck_value']} in Chefty, "
+              f"{work['loose_bags']} lying around, {work['cleaned_fraction'] * 100:.0f}% clean")
     shots = sorted((run_dir / "shots").glob("*.png")) if (run_dir / "shots").exists() else []
     print(f"soak {verdict}: {len(reports)} reports, {len(shots)} screenshots in {run_dir}")
 

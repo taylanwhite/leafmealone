@@ -169,6 +169,7 @@ func write_report() -> void:
 		"zones": _zones,
 		"audio_driver": AudioServer.get_driver_name(),
 		"leaf_instances": _leaf_instances(),
+		"lot_work": _lot_work(),
 		"judder": _judder_sum / maxf(_step_sum, 0.0001),
 		"judder_frames": _judder_frames,
 		"ride_wobble_m": _wobble_sum / maxf(float(_wobble_frames), 1.0),
@@ -191,6 +192,23 @@ func write_report() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	file.close()
 	print("[Probe] wrote %s" % path)
+
+
+## What got done on the lot: how clean it is, bags lying around, and what Chefty
+## holds. Bots work the job, so a soak shows whether the loop still runs.
+func _lot_work() -> Dictionary:
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var loose := 0
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == "leaf_bag":
+			loose += 1
+	return {
+		"cleaned_fraction": float(field.call("cleaned_fraction")) if field != null else 0.0,
+		"loose_bags": loose,
+		"truck_bags": int(chefty.call("bag_count")) if chefty != null else 0,
+		"truck_value": int(chefty.call("bag_value")) if chefty != null else 0,
+	}
 
 
 ## Leaf flakes drawn by every leaf renderer on this peer, and where the first one sits.

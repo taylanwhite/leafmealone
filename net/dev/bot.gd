@@ -5,11 +5,13 @@ extends Node
 ## runs its normal code path. Turns by changing body_yaw, which mouse look also
 ## changes. Never stands still, which NetSmoother's hitch count relies on.
 ## Every so often it asks the host for a zone move between the store and the lot.
+## On the lot it works the job (net/dev/bot_job.gd) unless --walk-straight.
 
 const TURN_RATE_MAX: float = 1.5
 const ZONE_MOVE_MIN_SECONDS: float = 20.0
 const ZONE_MOVE_MAX_SECONDS: float = 35.0
 const STRAFE_ACTIONS: Array[StringName] = [&"move_left", &"move_right"]
+const _BotJob = preload("res://net/dev/bot_job.gd")
 
 var _rng := RandomNumberGenerator.new()
 var _elapsed: float = 0.0
@@ -20,6 +22,7 @@ var _jump_held: bool = false
 ## Hiders head for a hide spot when the crew arrives. Runners sprint away.
 var _hider: bool = false
 var _next_interact: float = 0.0
+var _job: RefCounted
 
 
 func _ready() -> void:
@@ -27,13 +30,14 @@ func _ready() -> void:
 	# Odd-numbered bots hide and the rest run, so every soak with a run event tests both.
 	var number := str(Net.dev_options().get("player_name")).trim_prefix("Bot").to_int()
 	_hider = number % 2 == 1
+	_job = _BotJob.new(_rng)
 	_next_zone_move = _rng.randf_range(ZONE_MOVE_MIN_SECONDS, ZONE_MOVE_MAX_SECONDS)
 	Input.action_press(&"move_forward")
 	print("[Bot] driving the local player")
 
 
 func _exit_tree() -> void:
-	for action: StringName in [&"move_forward", &"move_left", &"move_right", &"sprint", &"crouch", &"jump"]:
+	for action: StringName in [&"move_forward", &"move_left", &"move_right", &"sprint", &"crouch", &"jump", &"primary"]:
 		Input.action_release(action)
 
 
@@ -46,15 +50,24 @@ func _physics_process(delta: float) -> void:
 		Input.action_release(&"jump")
 		_jump_held = false
 	if _during_run_event(player):
+		_job.call("stop")
 		return
 	# For measuring smoothness: steady walking, no turns, no jumps.
 	if bool(Net.dev_options().get("walk_straight")):
 		Input.action_release(&"sprint")
 		Input.action_release(&"crouch")
 		return
+	_maybe_change_zone()
+	if _job.call("step", player, delta):
+		for action: StringName in STRAFE_ACTIONS:
+			Input.action_release(action)
+		return
 	if _elapsed >= _next_change:
 		_choose_next()
 	player.set("body_yaw", float(player.get("body_yaw")) + _turn_rate * delta)
+
+
+func _maybe_change_zone() -> void:
 	if _elapsed >= _next_zone_move and not bool(Net.dev_options().get("bot_stay")):
 		_next_zone_move = _elapsed + _rng.randf_range(ZONE_MOVE_MIN_SECONDS, ZONE_MOVE_MAX_SECONDS)
 		var here := Net.player_zone(Net.local_peer_id())
