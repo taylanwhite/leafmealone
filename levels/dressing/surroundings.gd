@@ -6,6 +6,11 @@ extends RefCounted
 
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
+const _MeshKit = preload("res://props/mesh_kit.gd")
+const _Stylized = preload("res://props/stylized.gd")
+const CLOUD_VARIANTS: int = 4
+
+static var _cloud_meshes: Array[ArrayMesh] = []
 const CROWNS: Array[String] = ["orange", "red", "yellow", "rust", "turning", "orange", "green"]
 ## Wide enough to reach the fog. Zones are 1000 m apart, so neighbors never overlap.
 const GROUND_SIZE: float = 600.0
@@ -23,6 +28,7 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 	_LowPoly.paint(_LowPoly.box(root, Vector3(GROUND_SIZE, 0.2, GROUND_SIZE), Vector3(0, -0.12, 0), ground_color), ground_surface)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
+	_clouds(root, rng)
 	for index: int in 70:
 		var angle := rng.randf() * TAU
 		var distance := rng.randf_range(PAD_HALF + 6.0, 90.0)
@@ -43,6 +49,41 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 			continue
 		var at := Vector3(cos(angle) * distance, -0.02, sin(angle) * distance)
 		_house(root, at, walls[index % walls.size()], -angle + PI * 0.5)
+
+
+## Puffy low-poly clouds well out past the trees, high up, drifting nowhere.
+static func _clouds(root: Node3D, rng: RandomNumberGenerator) -> void:
+	if _cloud_meshes.is_empty():
+		for variant: int in CLOUD_VARIANTS:
+			_cloud_meshes.append(_cloud_mesh(variant))
+	for index: int in 14:
+		var angle := rng.randf() * TAU
+		var distance := rng.randf_range(170.0, 320.0)
+		var cloud := MeshInstance3D.new()
+		cloud.name = "Cloud"
+		cloud.mesh = _cloud_meshes[index % CLOUD_VARIANTS]
+		cloud.material_override = _Stylized.cloud_material()
+		cloud.set_meta("keep_material", true)
+		cloud.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(cloud)
+		cloud.position = Vector3(cos(angle) * distance, rng.randf_range(55.0, 95.0), sin(angle) * distance)
+		cloud.rotation.y = rng.randf() * TAU
+		cloud.scale = Vector3.ONE * rng.randf_range(0.8, 1.5)
+
+
+## A cloud: a row of white puffs, flat underneath, shaded a little gray below.
+static func _cloud_mesh(variant: int) -> ArrayMesh:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 900 + variant
+	var kit := _MeshKit.new()
+	var puffs := rng.randi_range(4, 7)
+	var length := float(puffs) * 7.0
+	for index: int in puffs:
+		var x := -length * 0.5 + (float(index) + 0.5) * length / float(puffs)
+		var size := rng.randf_range(6.0, 10.0) * (1.0 - absf(x) / length * 0.8)
+		kit.blob(Vector3(x, size * 0.35, rng.randf_range(-3.0, 3.0)), Vector3(size, size * 0.75, size * 0.85), Color(1.0, 0.99, 0.97), {"detail": 2, "lumps": 0.15, "flat": false, "jitter": 0.0, "seed": variant * 10 + index})
+	kit.grade(0, -2.0, 10.0, 0.84, 1.0)
+	return kit.commit()
 
 
 static func _in_corridor(angle: float, clear_angles: Array[float]) -> bool:

@@ -68,7 +68,7 @@ static func _environment(root: Node) -> void:
 	environment.glow_bloom = 0.04
 	environment.adjustment_enabled = true
 	environment.adjustment_contrast = 1.05
-	environment.adjustment_saturation = 1.15
+	environment.adjustment_saturation = 1.06
 	# Distance fades into a warm haze, so the scenery's ground edge never shows as a line.
 	environment.fog_enabled = true
 	environment.fog_mode = Environment.FOG_MODE_DEPTH

@@ -46,7 +46,23 @@ void fragment() {
 }
 """
 
+## Clouds: their vertex colors are the whole look (shading baked in), with no
+## lighting and no fog, so they stay crisp far out past the haze.
+const CLOUD_SHADER := """
+shader_type spatial;
+render_mode unshaded, fog_disabled, cull_back, shadows_disabled;
+
+vec3 to_linear(vec3 c) {
+	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+}
+
+void fragment() {
+	ALBEDO = to_linear(COLOR.rgb);
+}
+"""
+
 static var _shader: Shader
+static var _cloud_material: ShaderMaterial
 static var _cache: Dictionary = {}
 
 
@@ -66,6 +82,15 @@ static func material(options: Dictionary = {}) -> ShaderMaterial:
 	made.set_shader_parameter("translucency", float(options.get("translucency", 0.0)))
 	_cache[key] = made
 	return made
+
+
+static func cloud_material() -> ShaderMaterial:
+	if _cloud_material == null:
+		var shader := Shader.new()
+		shader.code = CLOUD_SHADER
+		_cloud_material = ShaderMaterial.new()
+		_cloud_material.shader = shader
+	return _cloud_material
 
 
 ## A MeshInstance3D for mesh with this material, kept out of the shared look.

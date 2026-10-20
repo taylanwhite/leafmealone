@@ -194,7 +194,7 @@ static func _default_accent(pattern: String, color: Color) -> Color:
 		"brick":
 			return Color(0.78, 0.75, 0.7)
 		"grass":
-			return color.lightened(0.12).lerp(Color(0.6, 0.62, 0.25), 0.25)
+			return color.lightened(0.07).lerp(Color(0.62, 0.6, 0.3), 0.2)
 		"asphalt":
 			return color.darkened(0.45)
 		"dirt":
