@@ -62,11 +62,13 @@ void fragment() {
 """
 
 static var _shader: Shader
+static var _shader_two_sided: Shader
 static var _cloud_material: ShaderMaterial
 static var _cache: Dictionary = {}
 
 
-## options: wind (meters of sway at alpha 1), roughness, specular, translucency.
+## options: wind (meters of sway at alpha 1), roughness, specular, translucency,
+## double_sided (for thin things like grass blades).
 static func material(options: Dictionary = {}) -> ShaderMaterial:
 	var key := str(options)
 	if _cache.has(key):
@@ -74,8 +76,10 @@ static func material(options: Dictionary = {}) -> ShaderMaterial:
 	if _shader == null:
 		_shader = Shader.new()
 		_shader.code = SHADER
+		_shader_two_sided = Shader.new()
+		_shader_two_sided.code = SHADER.replace("cull_back", "cull_disabled")
 	var made := ShaderMaterial.new()
-	made.shader = _shader
+	made.shader = _shader_two_sided if bool(options.get("double_sided", false)) else _shader
 	made.set_shader_parameter("wind", float(options.get("wind", 0.0)))
 	made.set_shader_parameter("roughness_value", float(options.get("roughness", 0.92)))
 	made.set_shader_parameter("specular_value", float(options.get("specular", 0.12)))

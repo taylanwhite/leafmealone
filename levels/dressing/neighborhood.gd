@@ -12,6 +12,7 @@ extends RefCounted
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
 const _YardModels = preload("res://props/yard_models.gd")
+const _Grass = preload("res://props/grass.gd")
 
 ## The street runs along x in front of the yard.
 const SIDEWALK_NEAR := Vector2(20.3, 22.3)
@@ -40,6 +41,10 @@ static func dress(zone: Node3D, seed_value: int) -> void:
 	rng.seed = seed_value
 	_street(root)
 	_driveway(root)
+	# No grass through the street, the yard's driveway, or the yard's house.
+	_Grass.keep_clear(zone, Rect2(-STREET_LENGTH * 0.5, SIDEWALK_NEAR.x - 0.1, STREET_LENGTH, SIDEWALK_FAR.y - SIDEWALK_NEAR.x + 0.2))
+	_Grass.keep_clear(zone, Rect2(-2.2, 4.0, 4.4, 16.5))
+	_Grass.keep_clear(zone, Rect2(-12.6, -9.6, 9.2, 7.2))
 	# Neighbors on this side of the street, past the hedges.
 	for side: float in [-1.0, 1.0]:
 		_neighbor(root, rng, Vector3(side * 44.0, 0.0, 0.0), 0.0)
@@ -100,9 +105,15 @@ static func _neighbor(root: Node3D, rng: RandomNumberGenerator, at: Vector3, yaw
 	var width := rng.randf_range(9.0, 12.0)
 	var depth := rng.randf_range(7.0, 9.0)
 	var stories := 2 if rng.randf() < 0.45 else 1
-	house(lot, Vector3(rng.randf_range(-3.0, 3.0), 0.0, -6.0), width, depth, stories, wall, roof, trim, rng.randi() % 2 == 0)
+	var house_at := Vector3(rng.randf_range(-3.0, 3.0), 0.0, -6.0)
+	house(lot, house_at, width, depth, stories, wall, roof, trim, rng.randi() % 2 == 0)
 	# Their own front walk, driveway, mailbox, and a tree or two dropping leaves.
 	var drive_x := width * 0.5 + 1.5
+	var zone := root.get_parent() as Node3D
+	var place := root.transform * lot.transform
+	_Grass.keep_clear_box(zone, place * Transform3D(Basis.IDENTITY, house_at), Vector3(width + 1.0, 1.0, depth + 5.0))
+	_Grass.keep_clear_box(zone, place * Transform3D(Basis.IDENTITY, Vector3(drive_x, 0.0, 10.0)), Vector3(3.8, 1.0, 20.2))
+	_Grass.keep_clear_box(zone, place * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.0, 12.0)), Vector3(1.6, 1.0, 15.2))
 	_LowPoly.paint(_LowPoly.box(lot, Vector3(3.6, 0.05, 20.0), Vector3(drive_x, 0.025, 10.0), CONCRETE.darkened(0.06)), "concrete")
 	_LowPoly.paint(_LowPoly.box(lot, Vector3(1.4, 0.05, 15.0), Vector3(0.0, 0.025, 12.0), CONCRETE), "concrete")
 	_mailbox(lot, Vector3(drive_x + 2.4, 0.0, 19.6), Color(0.2, 0.2, 0.22) if rng.randf() < 0.5 else Color(0.6, 0.15, 0.12))
