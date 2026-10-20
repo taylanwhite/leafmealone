@@ -17,6 +17,8 @@ const PITCH_LIMIT: float = 1.2
 ## Nameplate color while that player is talking.
 const SPEAKING_TINT := Color(1.0, 0.86, 0.35)
 const _Strings = preload("res://ui/strings.gd")
+## Share of jumps that get a "hup". Every jump would get old fast.
+const HUP_CHANCE: float = 0.6
 
 ## Yaw of the body in radians. Replicated.
 @export var body_yaw: float = 0.0
@@ -38,6 +40,7 @@ var _crossing_bounded: bool = false
 var _crossing_drive: bool = false
 ## Hiding spot this player is inside, set by the host through net/components/hide_spot.gd.
 var _hidden_spot: Node3D
+var _last_anim: AnimState = AnimState.IDLE
 var _crossing_min: Vector3 = Vector3.ZERO
 var _crossing_max: Vector3 = Vector3.ZERO
 var _step_wait: float = 0.0
@@ -120,11 +123,16 @@ func clear_riding() -> void:
 
 
 func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
-	if peer_id == name.to_int() and zone != Net.Zone.TRANSIT:
+	if peer_id != name.to_int():
+		return
+	if zone != Net.Zone.TRANSIT:
 		clear_riding()
+		return
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and bool(director.call("is_captured", peer_id)):
+		say("vo_yelp")
 
 
-## Host-ordered teleport. Runs on the owning peer only.
 ## Called on every peer by the host's hide spot. Null means this player came out.
 func set_hidden_in(spot: Node3D) -> void:
 	var leaving := _hidden_spot
@@ -166,6 +174,7 @@ func _toggle_hiding() -> bool:
 	return true
 
 
+## Host-ordered teleport. Runs on the owning peer only.
 func apply_network_teleport(at: Transform3D) -> void:
 	global_position = at.origin
 	velocity = Vector3.ZERO
@@ -310,6 +319,7 @@ func play_throwback(to: Vector3) -> void:
 		return
 	_throwback_from = global_position
 	_throwback_to = to
+	say("vo_oof")
 	_throwback_left = Constants.BORDER_THROWBACK_SECONDS
 	velocity = Vector3.ZERO
 
@@ -387,6 +397,36 @@ func _apply_stance(crouching: bool) -> void:
 func _apply_presentation() -> void:
 	rotation.y = body_yaw
 	%Head.rotation.x = head_pitch
+	# Some jumps get a little "hup". anim_state and velocity replicate, so everyone hears it.
+	if anim_state == AnimState.AIR and _last_anim != AnimState.AIR and velocity.y > 1.0 and randf() < HUP_CHANCE:
+		say("vo_hup")
+	_last_anim = anim_state
+
+
+## A silly character noise (docs/ART.md, "Audio") from this player's head, in
+## their own voice. Cosmetic and local: each peer plays it for itself.
+func say(sound_name: String) -> void:
+	if Net.is_automated():
+		return
+	var stream := load("res://assets/audio/sfx/%s.wav" % sound_name) as AudioStream
+	if stream == null:
+		return
+	var mouth := get_node_or_null("Visual/Head/Mouth") as AudioStreamPlayer3D
+	if mouth == null:
+		mouth = AudioStreamPlayer3D.new()
+		mouth.name = "Mouth"
+		mouth.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		mouth.unit_size = Constants.VOICE_CLEAR_DISTANCE * 1.5
+		mouth.max_distance = Constants.VOICE_MAX_DISTANCE
+		$Visual/Head.add_child(mouth)
+	mouth.stream = stream
+	mouth.pitch_scale = _voice_pitch() * randf_range(0.96, 1.04)
+	mouth.play()
+
+
+## Each character's voice sits a little higher or lower, so you can tell who yelped.
+func _voice_pitch() -> float:
+	return 0.85 + float(absi(hash(name)) % 7) * 0.05
 
 
 func _refresh_name() -> void:

@@ -125,4 +125,8 @@ func _try(trigger: String) -> void:
 		_label.text = str(row["line"])
 		_label.visible = true
 		_hide_at = now + 4.5
+		# Characters never speak real words: the caption gets gibberish (docs/ART.md, "Audio").
+		var sfx := get_tree().get_first_node_in_group("sfx")
+		if sfx != null:
+			sfx.call("play", "babble")
 		return
