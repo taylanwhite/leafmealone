@@ -43,5 +43,5 @@ func _ready() -> void:
 
 
 func _refresh_label() -> void:
-	var hint: String = _Strings.UI["hide_taken"] if occupant != 0 else _Strings.UI["hide_hint"]
-	_label.text = "%s\n%s" % [label, hint]
+	# What E does here is shown by ui/interaction_prompt.gd. The sign only names it.
+	_label.text = "%s\n%s" % [label, _Strings.UI["hide_taken"]] if occupant != 0 else label

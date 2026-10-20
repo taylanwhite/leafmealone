@@ -8,12 +8,23 @@ extends Area3D
 var _local_player_inside: bool = false
 
 
+const _Strings = preload("res://ui/strings.gd")
+
+
 func _ready() -> void:
+	add_to_group("prompt_sources")
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 	collision_layer = 0
 	collision_mask = 2
 	monitoring = true
+
+
+## The prompt while the local player stands on the pad, or empty.
+func prompt() -> Dictionary:
+	if not _local_player_inside:
+		return {}
+	return {"text": _Strings.UI["prompt_gate_%s" % destination_zone], "at": global_position + Vector3(0.0, 1.4, 0.0)}
 
 
 func _unhandled_input(event: InputEvent) -> void:

@@ -12,6 +12,8 @@ const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const GRASS := Color(0.42, 0.52, 0.3)
 const SAND := Color(0.78, 0.68, 0.5)
+## Behind the store counter at (0, -8), facing the customers.
+const CLERK_SPOT := Vector3(0.0, 0.0, -9.3)
 
 var _bag_serial: int = 0
 
@@ -56,6 +58,11 @@ func _dress() -> void:
 	_Surroundings.dress($LotZone, GRASS, 22, true, [PI, PI * 0.75])
 	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25])
 	add_child(preload("res://levels/outline_pass.gd").new())
+	# The clerk behind the counter. Local on every peer: nothing about it is shared.
+	var clerk := preload("res://npcs/store_clerk.gd").new()
+	clerk.name = "StoreClerk"
+	$StoreZone.add_child(clerk)
+	clerk.position = CLERK_SPOT
 
 
 ## A low curb with a taller collider, so a bump cannot walk or jump off the pad.

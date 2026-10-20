@@ -8,12 +8,28 @@ extends Area3D
 var _inside: bool = false
 
 
+const _Strings = preload("res://ui/strings.gd")
+
+
 func _ready() -> void:
+	add_to_group("prompt_sources")
+	# ui/interaction_prompt.gd shows what E does here, so the old "E to ..." sign goes.
+	var old_sign := get_node_or_null("Label") as Node3D
+	if old_sign != null:
+		old_sign.visible = false
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 	collision_layer = 0
 	collision_mask = 2
 	monitoring = true
+
+
+## The prompt while the local player stands here, or empty.
+func prompt() -> Dictionary:
+	if not _inside:
+		return {}
+	var keys := {"finish": "prompt_finish", "store": "prompt_shop"}
+	return {"text": _Strings.UI[keys.get(action_name, "prompt_board")], "at": global_position + Vector3(0.0, 1.6, 0.0)}
 
 
 func _unhandled_input(event: InputEvent) -> void:

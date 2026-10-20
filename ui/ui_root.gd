@@ -14,12 +14,12 @@ var _cleanup: Label
 var _lobby: VBoxContainer
 var _lobby_players: Label
 var _start_button: Button
-var _store: VBoxContainer
-var _store_label: Label
+var _shop: PanelContainer
 var _payout: VBoxContainer
 var _payout_label: Label
 var _crew_button: Button
 var _voice_button: Button
+var _rake_hint: Label
 var _voice_panel: PanelContainer
 
 const _Strings = preload("res://ui/strings.gd")
@@ -42,6 +42,22 @@ func _ready() -> void:
 	var cues := preload("res://ui/run_cues.gd").new()
 	cues.name = "RunCues"
 	add_child(cues)
+	var prompt := preload("res://ui/interaction_prompt.gd").new()
+	prompt.name = "InteractionPrompt"
+	add_child(prompt)
+	_rake_hint = Label.new()
+	_rake_hint.text = _Strings.UI["hud_rake_hint"]
+	_rake_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_rake_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_rake_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_rake_hint.position.y -= 34.0
+	_rake_hint.add_theme_font_size_override("font_size", 15)
+	_rake_hint.modulate = Color(1.0, 1.0, 1.0, 0.75)
+	_rake_hint.add_theme_color_override("font_shadow_color", Color.BLACK)
+	_rake_hint.add_theme_constant_override("shadow_offset_x", 1)
+	_rake_hint.add_theme_constant_override("shadow_offset_y", 1)
+	_rake_hint.visible = false
+	add_child(_rake_hint)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = "Dev host (ENet)"
@@ -108,7 +124,10 @@ func _process(_delta: float) -> void:
 		if crossing_status != "":
 			crew_line += "\n" + crossing_status
 	crew_line += _voice_line()
-	_cleanup.text = "Cleanup %.1f%%%s%s\nHold left click to push leaves into a pile. Right click bags them.\nPress E with a leaf bag at the wheelbarrow, or throw the bag in.\nThrow the wheelbarrow at Chefty to load the truck." % [
+	# What E does is shown over the thing itself (ui/interaction_prompt.gd), so the HUD stays short.
+	if _rake_hint != null:
+		_rake_hint.visible = Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
+	_cleanup.text = "Cleanup %.1f%%%s%s" % [
 		fraction * 100.0,
 		truck_line,
 		crew_line,
@@ -198,58 +217,19 @@ func _build_lobby() -> void:
 
 
 func open_store() -> void:
-	_refresh_store()
-	_store.visible = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_shop.call("open")
 
 
 func _build_store() -> void:
-	_store = VBoxContainer.new()
-	_store.position = Vector2(460, 160)
-	_store.visible = false
-	_store.add_theme_constant_override("separation", 8)
-	_store_label = Label.new()
-	var buy := Button.new()
-	buy.text = "Buy rake tune-up"
-	buy.pressed.connect(func() -> void: Campaign.request_purchase(Campaign.RAKE_UPGRADE))
-	var buy_barrow := Button.new()
-	buy_barrow.text = "Buy bigger wheelbarrow"
-	buy_barrow.pressed.connect(func() -> void: Campaign.request_purchase(Campaign.WHEELBARROW_UPGRADE))
-	var close := Button.new()
-	close.text = "Close"
-	close.pressed.connect(func() -> void:
-		_store.visible = false
-		if Net.current_state() == Net.State.IN_SESSION:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_shop = preload("res://ui/shop_window.gd").new()
+	_shop.name = "ShopWindow"
+	add_child(_shop)
+	# The clerk reacts when you buy something.
+	_shop.connect("bought", func(_item_id: StringName) -> void:
+		var clerk := get_tree().get_first_node_in_group("store_clerk")
+		if clerk != null:
+			clerk.call("chatter")
 	)
-	_store.add_child(_store_label)
-	_store.add_child(buy)
-	_store.add_child(buy_barrow)
-	_store.add_child(close)
-	add_child(_store)
-	Campaign.credits_changed.connect(func(_peer_id: int, _amount: int) -> void:
-		if _store.visible:
-			_refresh_store()
-	)
-	Campaign.unlocks_changed.connect(func() -> void:
-		if _store.visible:
-			_refresh_store()
-	)
-
-
-func _refresh_store() -> void:
-	var rake_owned := "Owned" if Campaign.is_unlocked(Campaign.RAKE_UPGRADE) else "Not owned"
-	var barrow_owned := "Owned" if Campaign.is_unlocked(Campaign.WHEELBARROW_UPGRADE) else "Not owned"
-	_store_label.text = "Your credits: %d\nRake tune-up: %d credits, raking becomes %.2fx\n%s\nBigger wheelbarrow: %d credits, holds %d bags instead of %d\n%s" % [
-		Campaign.credits(Net.local_peer_id()),
-		Balance.BASELINE_TIER_1_TOOL_COST,
-		Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER,
-		rake_owned,
-		Balance.BASELINE_TIER_1_TOOL_COST,
-		Constants.WHEELBARROW_UPGRADED_BAG_CAPACITY,
-		Constants.WHEELBARROW_BAG_CAPACITY,
-		barrow_owned,
-	]
 
 
 func _build_payout() -> void:

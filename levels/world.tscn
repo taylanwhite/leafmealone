@@ -73,13 +73,6 @@ shape = SubResource("BoxShape_counter")
 mesh = SubResource("BoxMesh_counter")
 surface_material_override/0 = SubResource("Material_counter")
 
-[node name="Label" type="Label3D" parent="StoreZone/Counter"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
-billboard = 1
-font_size = 72
-outline_size = 12
-text = "Counter"
-
 [node name="Sign" type="Label3D" parent="StoreZone"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -8)
 text = "Homie Depot"
@@ -218,21 +211,6 @@ billboard = 1
 font_size = 48
 outline_size = 10
 text = "E to board Chefty"
-
-[node name="Store" type="Area3D" parent="StoreZone"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, -6)
-script = ExtResource("3_post")
-action_name = "store"
-
-[node name="Collision" type="CollisionShape3D" parent="StoreZone/Store"]
-shape = SubResource("BoxShape_gate")
-
-[node name="Label" type="Label3D" parent="StoreZone/Store"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
-billboard = 1
-font_size = 48
-outline_size = 10
-text = "E for tools"
 
 [node name="Finish" type="Area3D" parent="LotZone"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
