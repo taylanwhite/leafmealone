@@ -5,6 +5,8 @@ extends RefCounted
 ## Seeded, so every peer sees the same scenery. Nothing out here has collision.
 
 const _LowPoly = preload("res://props/low_poly.gd")
+const _Trees = preload("res://props/trees.gd")
+const CROWNS: Array[String] = ["orange", "red", "yellow", "rust", "turning", "orange", "green"]
 ## Wide enough to reach the fog. Zones are 1000 m apart, so neighbors never overlap.
 const GROUND_SIZE: float = 600.0
 const PAD_HALF: float = 20.0
@@ -17,22 +19,20 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 	var root := Node3D.new()
 	root.name = "Surroundings"
 	zone.add_child(root)
-	# Just under the pad's top so the pad reads as a raised yard.
-	_LowPoly.paint(_LowPoly.box(root, Vector3(GROUND_SIZE, 0.2, GROUND_SIZE), Vector3(0, -0.45, 0), ground_color), ground_surface)
+	# Level with the pad, a hair below, so the yard and the land around it are one ground.
+	_LowPoly.paint(_LowPoly.box(root, Vector3(GROUND_SIZE, 0.2, GROUND_SIZE), Vector3(0, -0.12, 0), ground_color), ground_surface)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
-	var leaf_colors: Array[Color] = [Color(0.85, 0.45, 0.15), Color(0.9, 0.7, 0.2), Color(0.7, 0.25, 0.15), Color(0.3, 0.5, 0.25)]
 	for index: int in 70:
 		var angle := rng.randf() * TAU
 		var distance := rng.randf_range(PAD_HALF + 6.0, 90.0)
 		if _in_corridor(angle, clear_angles):
 			continue
-		var at := Vector3(cos(angle) * distance, -0.35, sin(angle) * distance)
-		var color := leaf_colors[rng.randi() % leaf_colors.size()]
-		if rng.randf() < 0.5:
-			_LowPoly.tree(root, at, rng.randf_range(5.0, 9.0), color)
+		var at := Vector3(cos(angle) * distance, -0.02, sin(angle) * distance)
+		if rng.randf() < 0.3:
+			_Trees.spawn(root, at, rng.randf_range(7.0, 11.0), "pine", "", index, false, rng.randf() * TAU)
 		else:
-			_LowPoly.round_tree(root, at, rng.randf_range(4.0, 7.0), color)
+			_Trees.spawn(root, at, rng.randf_range(5.5, 8.5), "broadleaf", CROWNS[rng.randi() % CROWNS.size()], index, false, rng.randf() * TAU)
 	if not with_houses:
 		return
 	var walls: Array[Color] = [Color(0.85, 0.78, 0.62), Color(0.62, 0.72, 0.8), Color(0.82, 0.6, 0.5), Color(0.75, 0.8, 0.62)]
@@ -41,7 +41,7 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 		var distance := rng.randf_range(40.0, 60.0)
 		if _in_corridor(angle, clear_angles):
 			continue
-		var at := Vector3(cos(angle) * distance, -0.35, sin(angle) * distance)
+		var at := Vector3(cos(angle) * distance, -0.02, sin(angle) * distance)
 		_house(root, at, walls[index % walls.size()], -angle + PI * 0.5)
 
 

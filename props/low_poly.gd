@@ -112,38 +112,6 @@ static func glow(parent: Node3D, size: Vector3, at: Vector3, color: Color, energ
 	return light
 
 
-## A tree: a trunk with a few stacked low-poly cones. Solid at the trunk only.
-static func tree(parent: Node3D, at: Vector3, height: float, leaf_color: Color, solid: bool = false) -> Node3D:
-	var root := Node3D.new()
-	root.name = "Tree"
-	parent.add_child(root)
-	root.position = at
-	var trunk_height := height * 0.35
-	paint(cylinder(root, height * 0.05, trunk_height, Vector3(0.0, trunk_height * 0.5, 0.0), Color(0.42, 0.3, 0.2), solid, 6), "bark")
-	var tiers := 3
-	for tier: int in tiers:
-		var size := 1.0 - float(tier) * 0.22
-		var radius := height * 0.28 * size
-		var tier_height := height * 0.32
-		paint(cone(root, radius, tier_height, Vector3(0.0, trunk_height + tier_height * 0.5 + float(tier) * tier_height * 0.55, 0.0), leaf_color), "foliage")
-	return root
-
-
-## A round tree: a trunk and a lumpy ball, for the yard.
-static func round_tree(parent: Node3D, at: Vector3, height: float, leaf_color: Color, solid: bool = false) -> Node3D:
-	var root := Node3D.new()
-	root.name = "RoundTree"
-	parent.add_child(root)
-	root.position = at
-	var trunk_height := height * 0.45
-	paint(cylinder(root, height * 0.06, trunk_height, Vector3(0.0, trunk_height * 0.5, 0.0), Color(0.42, 0.3, 0.2), solid, 6), "bark")
-	var crown := height * 0.33
-	paint(ball(root, crown, Vector3(0.0, trunk_height + crown * 0.7, 0.0), leaf_color), "foliage")
-	paint(ball(root, crown * 0.7, Vector3(crown * 0.6, trunk_height + crown * 0.4, crown * 0.2), leaf_color.darkened(0.08)), "foliage")
-	paint(ball(root, crown * 0.65, Vector3(-crown * 0.5, trunk_height + crown * 0.5, -crown * 0.3), leaf_color.lightened(0.05)), "foliage")
-	return root
-
-
 ## Flat text on a surface, readable from far away. Faces +Z unless rotated.
 static func text_sign(parent: Node3D, text: String, at: Vector3, font_size: int, color: Color, yaw: float = 0.0) -> Label3D:
 	var label := Label3D.new()
