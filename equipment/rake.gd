@@ -98,6 +98,11 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 				return
 			origin = eye
 			look = hose_aim(player, look)
+			# The water leaves the nozzle you're holding, the way it points.
+			var tip: Variant = load("res://props/prop_looks.gd").spray_tip(_held_prop(player))
+			if tip != null:
+				origin = (tip as Transform3D).origin
+				look = -(tip as Transform3D).basis.z.normalized()
 		"power_wash":
 			# Where the look meets the ground, within reach.
 			var reach := float(Constants.TASK_REACH["power_wash"])

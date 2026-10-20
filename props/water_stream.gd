@@ -7,6 +7,7 @@ extends Node3D
 ## prop says it's spraying (replicated). Hydrant water thrashes all over.
 
 const _Rake = preload("res://equipment/rake.gd")
+const _PropLooks = preload("res://props/prop_looks.gd")
 
 var _drops: CPUParticles3D
 
@@ -53,8 +54,14 @@ func _process(_delta: float) -> void:
 	var look := -head.global_basis.z if head != null else -holder.global_basis.z
 	var aim := _Rake.hose_aim(holder, look) if kind == "hose" else look
 	var speed := Constants.WASHER_SPEED if kind == "pressure_washer" else float(Constants.WATER_SPEED.get(str(prop.get("hose_source")), 10.0))
-	var eye := head.global_position if head != null else holder.global_position + Vector3(0.0, 1.6, 0.0)
-	global_position = eye + aim * 0.6 + holder.global_basis.x * 0.25 - Vector3(0.0, 0.25, 0.0)
+	# Out of the nozzle or wand tip you're holding, the way it points.
+	var tip: Variant = _PropLooks.spray_tip(prop)
+	if tip != null:
+		global_position = (tip as Transform3D).origin
+		aim = -(tip as Transform3D).basis.z.normalized()
+	else:
+		var eye := head.global_position if head != null else holder.global_position + Vector3(0.0, 1.6, 0.0)
+		global_position = eye + aim * 0.6
 	_drops.direction = aim
 	_drops.initial_velocity_min = speed * 0.96
 	_drops.initial_velocity_max = speed

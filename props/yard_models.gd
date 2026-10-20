@@ -71,6 +71,8 @@ static func _build(kind: String, color: Color, size: Vector3) -> ArrayMesh:
 			_water_tank(kit)
 		"nozzle":
 			_nozzle(kit)
+		"wand":
+			_wand(kit)
 		_:
 			kit.rbox(Vector3(0.0, size.y * 0.5, 0.0), size * 0.5, color, 6.0)
 	return kit.commit()
@@ -372,3 +374,15 @@ static func _nozzle(kit: RefCounted) -> void:
 	kit.call("tube", PackedVector3Array([Vector3(0, 0, 0.15), Vector3(0, 0, -0.05)]), PackedFloat32Array([0.03, 0.03]), Color(0.2, 0.58, 0.3), 8, {"jitter": 0.0, "cap_start": true})
 	kit.call("tube", PackedVector3Array([Vector3(0, 0, -0.05), Vector3(0, 0, -0.2)]), PackedFloat32Array([0.035, 0.022]), Color(0.85, 0.72, 0.2), 10, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0, 0, 0.02), Vector3(0, -0.12, 0.06)]), PackedFloat32Array([0.018, 0.018]), Color(0.15, 0.15, 0.16), 6, {"jitter": 0.0})
+
+
+## The pressure washer's spray wand: a pistol grip with a trigger, a long metal
+## lance, and a tip, pointing -Z.
+static func _wand(kit: RefCounted) -> void:
+	var black := Color(0.15, 0.15, 0.16)
+	kit.call("rbox", Vector3(0.0, 0.0, 0.05), Vector3(0.035, 0.05, 0.09), Color(0.98, 0.78, 0.15), 4.0)
+	kit.call("tube", PackedVector3Array([Vector3(0, -0.03, 0.08), Vector3(0, -0.15, 0.12)]), PackedFloat32Array([0.022, 0.024]), black, 8, {"jitter": 0.0, "cap_start": true})
+	kit.call("tube", PackedVector3Array([Vector3(0, -0.05, 0.0), Vector3(0, -0.09, 0.02)]), PackedFloat32Array([0.008, 0.008]), black, 5, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.04), Vector3(0, 0.0, -0.8)]), PackedFloat32Array([0.012, 0.012]), Color(0.75, 0.76, 0.78), 8, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.78), Vector3(0, 0.0, -0.86)]), PackedFloat32Array([0.02, 0.016]), black, 8, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, -0.12, 0.13), Vector3(0, -0.3, 0.2)]), PackedFloat32Array([0.012, 0.012]), black, 6, {"jitter": 0.0})

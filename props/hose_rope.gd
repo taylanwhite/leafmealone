@@ -108,7 +108,11 @@ func _physics_process(delta: float) -> void:
 	_draw_tube()
 
 
+## The hose runs into the back of the nozzle in your hands.
 func _nozzle_point(prop: Node3D) -> Vector3:
+	var nozzle := prop.get_node_or_null("Visual/Look/Nozzle") as Node3D
+	if nozzle != null and nozzle.is_visible_in_tree():
+		return nozzle.global_transform * Vector3(0.0, 0.0, 0.15)
 	var visual := prop.get_node_or_null("Visual") as Node3D
 	return (visual.global_position if visual != null else prop.global_position) + Vector3(0.0, -0.05, 0.0)
 
@@ -123,7 +127,7 @@ func _show_nozzle(prop: Node3D, connected: bool) -> void:
 		nozzle = _YardModels.node("nozzle")
 		nozzle.name = "Nozzle"
 		look.add_child(nozzle)
-		nozzle.position = Vector3(0.0, 0.4, 0.0)
+		nozzle.position = Vector3.ZERO
 	for child: Node in look.get_children():
 		if child is Node3D:
 			(child as Node3D).visible = (child == nozzle) == connected

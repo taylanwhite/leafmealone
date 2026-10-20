@@ -9,6 +9,14 @@ const _LowPoly = preload("res://props/low_poly.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 ## The Visual node sits this high above the prop's base.
 const VISUAL_HEIGHT: float = 0.35
+## Tools held up in front of the face and aimed with the view, and where they sit
+## in the head's space (x right, y up, -z ahead).
+const HANDHELD: Dictionary = {
+	"hose": Vector3(0.2, -0.24, -0.5),
+	"leaf_blower": Vector3(0.24, -0.62, -0.2),
+	"hedge_trimmer": Vector3(0.18, -0.5, -0.25),
+	"paint_roller": Vector3(0.22, -0.32, -0.42),
+}
 
 
 static func dress(prop: Node3D, kind: String, color: Color) -> void:
@@ -95,14 +103,68 @@ static func pose_ladder_up(prop: Node3D, top: Vector3) -> void:
 
 
 ## Held tools face the way their holder faces; set down, they sit level.
+##
+## Handheld tools (HANDHELD) are held up in front of the holder's view and point
+## where they look, so you see the nozzle you're aiming. Every peer has the
+## holder's head (its pitch replicates), so everyone sees the same aim. A hose
+## on a hydrant thrashes in your hands. The pressure washer rolls along the
+## ground while you hold its wand.
 static func pose_tool(prop: Node3D, holder: Node3D) -> void:
 	var look := prop.get_node_or_null("Visual/Look") as Node3D
 	if look == null:
 		return
+	var kind := str(prop.get("kind"))
+	var wand := prop.get_node_or_null("Wand") as Node3D
 	if holder == null:
-		look.rotation = Vector3.ZERO
+		look.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, -VISUAL_HEIGHT, 0.0))
+		if wand != null:
+			wand.visible = false
 		return
-	look.global_rotation = Vector3(0.0, holder.global_rotation.y, 0.0)
+	var head := holder.get_node_or_null("Visual/Head") as Node3D
+	var aimed := HANDHELD.has(kind) and not (kind == "hose" and str(prop.get("hose_source")) == "")
+	if head == null or not aimed:
+		look.global_rotation = Vector3(0.0, holder.global_rotation.y, 0.0)
+		if kind == "pressure_washer" and head != null:
+			_pose_wand(prop, holder, head)
+		return
+	look.global_transform = Transform3D(aim_basis(holder, kind == "hose"), head.global_transform * (HANDHELD[kind] as Vector3))
+
+
+## Which way a held tool points: where the holder looks, or for a hydrant hose,
+## wherever the water drags it.
+static func aim_basis(holder: Node3D, thrash: bool) -> Basis:
+	var head := holder.get_node_or_null("Visual/Head") as Node3D
+	var look := -head.global_basis.z if head != null else -holder.global_basis.z
+	if thrash:
+		look = load("res://equipment/rake.gd").hose_aim(holder, look)
+	return Basis.looking_at(look, Vector3.UP)
+
+
+## The pressure washer's spray wand, in hand and aimed, while the unit sits on the ground.
+static func _pose_wand(prop: Node3D, holder: Node3D, head: Node3D) -> void:
+	var wand := prop.get_node_or_null("Wand") as Node3D
+	if wand == null:
+		wand = _YardModels.node("wand", Color.WHITE, Vector3.ONE, {"roughness": 0.4, "specular": 0.5})
+		wand.name = "Wand"
+		wand.top_level = true
+		prop.add_child(wand)
+	wand.visible = true
+	wand.global_transform = Transform3D(aim_basis(holder, false), head.global_transform * Vector3(0.2, -0.3, -0.35))
+
+
+## Where water leaves a held hose or pressure washer, pointing the way it goes;
+## or null when it isn't being held up and aimed.
+static func spray_tip(prop: Node3D) -> Variant:
+	var kind := str(prop.get("kind"))
+	if kind == "hose":
+		var nozzle := prop.get_node_or_null("Visual/Look/Nozzle") as Node3D
+		if nozzle != null and nozzle.is_visible_in_tree():
+			return nozzle.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.0, -0.22))
+	elif kind == "pressure_washer":
+		var wand := prop.get_node_or_null("Wand") as Node3D
+		if wand != null and wand.visible:
+			return wand.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.0, -0.85))
+	return null
 
 
 ## Show this many bags in the wheelbarrow's tray.

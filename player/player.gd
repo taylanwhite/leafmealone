@@ -243,7 +243,9 @@ func _step_hydrant(delta: float) -> bool:
 	var aim: Vector3 = load("res://equipment/rake.gd").hose_aim(self, look)
 	var ground := 0.0
 	var lift := Constants.HYDRANT_LIFT if global_position.y - ground < 2.4 else 0.0
-	velocity += (-aim * Constants.HYDRANT_PUSH + Vector3.UP * lift) * delta
+	# Shoved back the way the water goes (along the ground), and hauled up off your feet.
+	var back := Vector3(-aim.x, 0.0, -aim.z)
+	velocity += (back.normalized() * Constants.HYDRANT_PUSH + Vector3.UP * lift) * delta
 	velocity.y -= _gravity * delta
 	var flat := Vector2(velocity.x, velocity.z).limit_length(Constants.HYDRANT_MAX_SPEED)
 	velocity = Vector3(flat.x, clampf(velocity.y, -8.0, Constants.HYDRANT_MAX_SPEED * 0.7), flat.y)
