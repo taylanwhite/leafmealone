@@ -31,6 +31,8 @@ const HUP_CHANCE: float = 0.6
 @export var anim_state: AnimState = AnimState.IDLE
 ## True while holding a throw too long. Replicated, so everyone sees the strain.
 @export var straining: bool = false
+## Hurt from a bad fall: walking with a limp and a bandaged leg. Replicated.
+@export var limping: bool = false
 ## Equipped tool id. Empty until tools exist. Replicated.
 @export var equipment_id: String = ""
 
@@ -59,6 +61,12 @@ var _pending_bonk: Array = []
 var _ladder: Node3D
 var _climb: float = 0.0
 var _climb_target: float = 1.0
+## Falling: the highest point since leaving the ground, whether a hard landing
+## already bounced you (the next one knocks you out), and how long the limp lasts.
+var _airborne: bool = false
+var _fall_peak: float = 0.0
+var _bounced: bool = false
+var _limp_left: float = 0.0
 ## Holding G with something in hand: how long it's been wound up, and when the
 ## next strained noise is due.
 var _wind_up: float = -1.0
@@ -102,6 +110,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("interact") and _water_hookup():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _toggle_climb():
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("take") and _take_ladder():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("jump") and _ladder != null:
 		_climb_target = 0.0
@@ -149,6 +159,7 @@ func _physics_process(delta: float) -> void:
 			global_position = seat.origin
 		elif not _step_hydrant(delta):
 			_simulate(delta)
+		_track_fall(delta)
 	_apply_presentation()
 
 
@@ -266,12 +277,28 @@ func _step_hydrant(delta: float) -> bool:
 ## washer: fill it up.
 func _water_hookup() -> bool:
 	var held := _held_prop()
-	if held == null or (str(held.get("kind")) != "hose" and str(held.get("kind")) != "pressure_washer"):
+	if held == null:
+		return false
+	var kind := str(held.get("kind"))
+	if kind == "paint_roller":
+		if _nearest_bucket() == null:
+			return false
+		held.call("request_hookup")
+		return true
+	if kind != "hose" and kind != "pressure_washer":
 		return false
 	if _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH) == null:
 		return false
 	held.call("request_hookup")
 	return true
+
+
+func _nearest_bucket() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("paint_buckets"):
+		var bucket := node as Node3D
+		if bucket != null and bucket.global_position.distance_to(global_position) < Constants.WATER_REACH + 0.5:
+			return bucket
+	return null
 
 
 ## Up at the top of a set-up ladder, where gutters can be reached. Worked out
@@ -286,9 +313,27 @@ func is_climbing() -> bool:
 	return false
 
 
+## F at a set-up ladder's foot takes it down (into your hands).
+func _take_ladder() -> bool:
+	if _held_prop() != null:
+		return false
+	var ladder := _nearest_ladder()
+	if ladder == null:
+		return false
+	ladder.call("request_grab")
+	return true
+
+
 ## E at a set-up ladder's foot climbs it; E up on one climbs down.
 func _toggle_climb() -> bool:
 	if _ladder != null:
+		_climb_target = 0.0
+		return true
+	# On the roof by a ladder's top: climb back down it.
+	var from_roof := _nearest_ladder_top()
+	if from_roof != null:
+		_ladder = from_roof
+		_climb = 1.0
 		_climb_target = 0.0
 		return true
 	var ladder := _nearest_ladder()
@@ -298,6 +343,60 @@ func _toggle_climb() -> bool:
 	_climb = 0.0
 	_climb_target = 1.0
 	return true
+
+
+func _nearest_ladder_top() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or str(prop.get("kind")) != "ladder" or not bool(prop.call("is_set_up")):
+			continue
+		var top: Vector3 = prop.get("ladder_top")
+		if Vector2(global_position.x - top.x, global_position.z - top.z).length() < 1.8 and global_position.y > top.y - 1.0:
+			return prop
+	return null
+
+
+## Up on a roof or a ladder: high enough to work the gutters and the roof.
+func is_up_high() -> bool:
+	return _ladder != null or global_position.y > 1.8
+
+
+## Falls: a hard landing bounces you; the next touchdown knocks you out, and you
+## limp for a while after. Climbing, riding, and teleports don't count as falls.
+func _track_fall(delta: float) -> void:
+	if limping:
+		_limp_left -= delta
+		if _limp_left <= 0.0:
+			limping = false
+	if _ladder != null or _on_seat or _hidden_spot != null:
+		_airborne = false
+		_fall_peak = global_position.y
+		return
+	if not is_on_floor():
+		if not _airborne:
+			_airborne = true
+			_fall_peak = global_position.y
+		_fall_peak = maxf(_fall_peak, global_position.y)
+		return
+	if not _airborne:
+		return
+	_airborne = false
+	if _bounced:
+		_bounced = false
+		_stun_left = Constants.FALL_KNOCKOUT_SECONDS
+		_knocked = true
+		limping = true
+		_limp_left = Constants.LIMP_SECONDS
+		if _held_prop() != null:
+			_release_held(false)
+		say_to_all("vo_oof")
+		return
+	if _fall_peak - global_position.y >= Constants.FALL_HURT_HEIGHT:
+		_bounced = true
+		velocity.y = Constants.FALL_BOUNCE_SPEED
+		velocity.x *= 0.5
+		velocity.z *= 0.5
+		say_to_all("vo_yelp")
 
 
 func _nearest_ladder() -> Node3D:
@@ -311,10 +410,9 @@ func _nearest_ladder() -> Node3D:
 ## On the ladder: up or down its rungs, facing the wall, until back at the foot.
 ## If someone takes the ladder away, down you go.
 func _step_climb(delta: float) -> void:
+	# Someone took the ladder away: you're just up in the air now.
 	if not is_instance_valid(_ladder) or not bool(_ladder.call("is_set_up")):
 		_ladder = null
-		_stun_left = Constants.FAINT_SECONDS
-		_knocked = true
 		say_to_all("vo_yelp")
 		return
 	var foot := _ladder.global_position
@@ -328,6 +426,13 @@ func _step_climb(delta: float) -> void:
 	velocity = Vector3.ZERO
 	body_yaw = atan2(out.x, out.z)
 	anim_state = AnimState.IDLE
+	# At the top, walk forward to step off onto the roof.
+	if _climb >= 0.99 and _climb_target >= 1.0 and Input.is_action_pressed("move_forward"):
+		_ladder = null
+		global_position = top - out * 1.1 + Vector3.UP * 0.5
+		_fall_peak = global_position.y
+		reset_physics_interpolation()
+		return
 	if _climb <= 0.0 and _climb_target <= 0.0:
 		_ladder = null
 		global_position = foot + out * 0.8
@@ -409,6 +514,9 @@ func _rpc_teleport(at: Transform3D) -> void:
 ## Host-ordered teleport. Runs on the owning peer only.
 func apply_network_teleport(at: Transform3D) -> void:
 	global_position = at.origin
+	_fall_peak = at.origin.y
+	_airborne = false
+	_bounced = false
 	velocity = Vector3.ZERO
 	body_yaw = at.basis.get_euler().y
 	_apply_presentation()
@@ -446,6 +554,9 @@ func _grab_nearby() -> bool:
 func interaction_hint() -> Dictionary:
 	if _hidden_spot != null:
 		return {"text": _Strings.UI["prompt_unhide"], "at": _hidden_spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	var paint_held := _held_prop()
+	if paint_held != null and str(paint_held.get("kind")) == "paint_roller" and _nearest_bucket() != null:
+		return {"text": _Strings.UI["prompt_dip"], "at": _nearest_bucket().global_position + Vector3(0.0, 0.6, 0.0)}
 	var water_held := _held_prop()
 	if water_held != null and (str(water_held.get("kind")) == "hose" or str(water_held.get("kind")) == "pressure_washer"):
 		var source := _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH)
@@ -459,6 +570,9 @@ func interaction_hint() -> Dictionary:
 	var ladder := _nearest_ladder()
 	if ladder != null and _held_prop() == null or (ladder != null and str(_held_prop().get("kind")) == "leaf_blower"):
 		return {"text": _Strings.UI["prompt_climb_up"], "at": ladder.global_position + Vector3(0.0, 1.8, 0.0)}
+	var ladder_top := _nearest_ladder_top()
+	if ladder_top != null:
+		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0)}
 	var spot := _nearest_free_spot()
 	if spot != null:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
@@ -576,6 +690,8 @@ func _simulate(delta: float) -> void:
 	elif Input.is_action_pressed("sprint"):
 		speed = SPRINT_SPEED
 	speed *= carry_speed_scale()
+	if limping:
+		speed = minf(speed, WALK_SPEED) * Constants.LIMP_SPEED_SHARE
 	if direction.is_zero_approx():
 		velocity.x = move_toward(velocity.x, 0.0, speed)
 		velocity.z = move_toward(velocity.z, 0.0, speed)
@@ -798,7 +914,9 @@ func _steps(delta: float) -> void:
 	_step_wait -= delta
 	if _step_wait > 0.0:
 		return
-	_step_wait = 0.42
+	_step_wait = 0.42 if not limping else 0.55
+	if limping and randf() < 0.25:
+		say("vo_eh" if randf() < 0.5 else "vo_oof")
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
 		sfx.call("play", "step")

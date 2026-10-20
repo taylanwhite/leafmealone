@@ -402,6 +402,24 @@ def dizzy() -> list[float]:
     return out
 
 
+def pullcord() -> list[float]:
+    """A mower's pull cord: a quick rising zip and a rattle."""
+    rng = random.Random(21)
+    zip_ = bandpass(noise(rng, 0.28), lambda t: 600.0 + 3000.0 * min(1.0, t / 0.25), 3.0)
+    out = envelope(zip_, 0.01, 0.06)
+    mix_into(out, decay(bandpass(noise(rng, 0.15), 300.0, 2.0), 20.0), 0.2, 0.6)
+    return out
+
+
+def mower_start() -> list[float]:
+    """The mower catches: a few sputtering pops, then a buzzy little engine."""
+    rng = random.Random(22)
+    out = putt_putt(rng, 1.1, 5.0, 22.0, 70.0)
+    hum = decay(tone(1.1, 95.0, "square", (17.0, 0.04)), 0.6)
+    mix_into(out, lowpass(hum, 900.0), 0.35, 0.35)
+    return out
+
+
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
     "step": (step, 4, 0.3),
@@ -427,6 +445,8 @@ SOUNDS = {
     "dizzy": (dizzy, 0, 0.5),
     "vo_strain": (vo_strain, 0, 0.65),
     "vo_heave": (vo_heave, 0, 0.75),
+    "pullcord": (pullcord, 0, 0.6),
+    "mower_start": (mower_start, 0, 0.6),
 }
 
 

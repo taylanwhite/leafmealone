@@ -88,6 +88,8 @@ var _head_base_y: float = 1.6
 ## 0 standing, 1 flat on the back after a heavy bonk. Read by player.gd for the head.
 var fallen: float = 0.0
 var _straining: bool = false
+var _limping: bool = false
+var _bandage: Node3D
 var _head_stand_y: float = 1.6
 var _stars: Node3D
 var _stars_left: float = 0.0
@@ -249,7 +251,9 @@ func _physics_process(delta: float) -> void:
 	var in_air := state == STATE_AIR
 	var crouching := state == STATE_CROUCH
 	var knocked := state == STATE_KNOCKED
-	_straining = bool(get_parent().get_parent().get("straining")) if get_parent() != null and get_parent().get_parent() != null and "straining" in get_parent().get_parent() else false
+	var owner_node := get_parent().get_parent() if get_parent() != null else null
+	_straining = bool(owner_node.get("straining")) if owner_node != null and "straining" in owner_node else false
+	_limping = bool(owner_node.get("limping")) if owner_node != null and "limping" in owner_node else false
 	# Every peer sees stars when someone goes down, bonked or fainted.
 	if knocked and fallen <= 0.0:
 		dizzy(float(Constants.BONK_STUN_SECONDS["heavy"]))
@@ -263,9 +267,16 @@ func _physics_process(delta: float) -> void:
 	var swing := sin(_phase) * 0.65 * walk
 	_legs[0].rotation.x = swing
 	_legs[1].rotation.x = -swing
+	if _limping:
+		# The hurt leg stays stiff and swings out; the hips lurch onto the good one.
+		_legs[0].rotation.x = swing * 0.2
+		_legs[0].rotation.z = -0.12
+		swing *= 1.2
 	_arms[0].rotation.x = -swing * 0.9
 	_arms[1].rotation.x = swing * 0.9
 	var bounce := absf(sin(_phase)) * 0.06 * walk
+	if _limping:
+		bounce = maxf(0.0, sin(_phase)) * 0.11 * walk
 	var breathe := sin(_time * 2.2) * 0.012 * (1.0 - walk)
 	var drop := CROUCH_DROP if crouching else 0.0
 	_hips.position.y = 0.82 + bounce - drop - _squash * 0.08
@@ -289,7 +300,11 @@ func _physics_process(delta: float) -> void:
 	_face_yaw = lerpf(_face_yaw, face_turn, clampf(delta * 6.0, 0.0, 1.0))
 	_face.rotation.y = _face_yaw
 	# Lean into turns a little: the body tips toward where the eyes lead.
-	_torso.rotation.z = lerpf(_torso.rotation.z, -eye_lead.x * 0.08 * walk, clampf(delta * 8.0, 0.0, 1.0))
+	var lean := -eye_lead.x * 0.08 * walk
+	if _limping:
+		lean += 0.14 * walk * (0.5 + 0.5 * sin(_phase))
+	_torso.rotation.z = lerpf(_torso.rotation.z, lean, clampf(delta * 8.0, 0.0, 1.0))
+	_show_bandage()
 	_animate_gesture(delta)
 	_animate_face(delta)
 	_apply_fall(delta)
@@ -308,8 +323,8 @@ func _apply_fall(delta: float) -> void:
 		for index: int in _arms.size():
 			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, (-1.6 if index == 0 else 1.6) + 0.2 * sin(_time * 9.0 + index), fallen)
 	else:
-		for leg: Node3D in _legs:
-			leg.rotation.z = 0.0
+		for index: int in _legs.size():
+			_legs[index].rotation.z = -0.12 if _limping and index == 0 else 0.0
 	if _stars != null:
 		_stars_left -= delta
 		_stars.visible = _stars_left > 0.0
@@ -317,6 +332,23 @@ func _apply_fall(delta: float) -> void:
 			_stars.rotation.y += delta * 6.0
 			var top := _head_root.global_position if _head_root != null else global_position + Vector3.UP * 1.6
 			_stars.global_position = top + Vector3(0.0, 0.42, 0.0)
+
+
+## A white bandage wrapped round the hurt leg while limping.
+func _show_bandage() -> void:
+	if not _limping:
+		if _bandage != null:
+			_bandage.visible = false
+		return
+	if _bandage == null:
+		var kit := _MeshKit.new()
+		for wrap: int in 4:
+			kit.tube(PackedVector3Array([Vector3(0, -0.28 - float(wrap) * 0.07, 0), Vector3(0, -0.33 - float(wrap) * 0.07, 0.01)]), PackedFloat32Array([0.098, 0.098]), Color(0.96, 0.95, 0.92), 10, {"jitter": 0.0, "cap": false})
+		_bandage = _kit_part(_legs[0], kit.commit(), Vector3.ZERO)
+		_on_head_layer(_bandage)
+	_bandage.visible = true
+	if mood == "neutral":
+		mood = "worried"
 
 
 ## Stars circle this character's head for a while.

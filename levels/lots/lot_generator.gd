@@ -113,6 +113,7 @@ func _house() -> void:
 		_looks.call("add_window", index, to_global(spot_at + normal * 0.06), normal)
 	# Gutters front and back, a section every two meters.
 	var top := float(house.get_meta("roof_edge_y", height))
+	_roof(at, width, depth, top)
 	for side: float in [1.0, -1.0]:
 		var gutter_z := center_z + side * (depth * 0.5 + 0.6)
 		_LowPoly.paint(_LowPoly.box(self, Vector3(width + 1.0, 0.14, 0.18), Vector3(center_x, top - 0.08, gutter_z), Color(0.78, 0.78, 0.75)), "metal")
@@ -123,6 +124,34 @@ func _house() -> void:
 			# The normal points out from the wall, which way a ladder leans out.
 			var index: int = _tasks.call("define_spot", "clean_gutters", to_global(spot_at), Vector3(0.0, 0.0, side), 1.0)
 			_looks.call("add_gutter", index, to_global(spot_at))
+
+
+## The roof you can climb onto from a ladder: two slopes up to the ridge (matching
+## the shingled gable in levels/dressing/neighborhood.gd house()), and leaves
+## lying on it for the clear-the-roof task.
+func _roof(at: Vector3, width: float, depth: float, top: float) -> void:
+	var rise := depth * 0.38
+	var half_run := (depth + 1.4) * 0.5
+	var slope := atan2(rise, half_run)
+	var length := Vector2(half_run, rise).length()
+	var body := StaticBody3D.new()
+	body.name = "Roof"
+	add_child(body)
+	for side: float in [1.0, -1.0]:
+		var normal := Vector3(0.0, cos(slope), side * sin(slope))
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(width + 1.0, 0.3, length)
+		shape.shape = box
+		shape.transform = Transform3D(Basis(Vector3.RIGHT, side * slope), at + Vector3(0.0, top + rise * 0.5, side * half_run * 0.5) - normal * 0.15)
+		body.add_child(shape)
+		var columns := maxi(2, int(width / 2.2))
+		for row: float in [0.3, 0.7]:
+			for column: int in columns:
+				var x := at.x - width * 0.5 + (float(column) + 0.5) * width / float(columns) + _rng.randf_range(-0.4, 0.4)
+				var spot := Vector3(x, top + rise * row + 0.05, at.z + side * half_run * (1.0 - row))
+				var index: int = _tasks.call("define_spot", "clear_roof", to_global(spot), normal, 1.0)
+				_looks.call("add_roof_leaves", index, to_global(spot), normal)
 
 
 func _driveway() -> void:
@@ -292,6 +321,16 @@ func _water(lot: Node3D) -> void:
 	_solid_box(hydrant_at + Vector3(0.0, 0.4, 0.0), Vector3(0.4, 0.8, 0.4), "Hydrant")
 	_WaterSources.make(lot, "hydrant", hydrant_at + Vector3(0.0, 0.42, -0.22))
 	_note(["water", spigot_at, hydrant_at])
+	# A paint bucket by the tools, for dipping the roller.
+	var bucket_at := Vector3(-9.3, 0.0, 18.4)
+	var bucket := _YardModels.node("paint_bucket", Color.WHITE, Vector3.ONE, {"roughness": 0.5, "specular": 0.3})
+	add_child(bucket)
+	bucket.position = bucket_at
+	var marker := Node3D.new()
+	marker.name = "PaintBucket"
+	marker.add_to_group("paint_buckets")
+	add_child(marker)
+	marker.position = bucket_at + Vector3(0.0, 0.4, 0.0)
 
 
 ## Cans, wrappers, and bottles dropped on the lawn.
@@ -352,7 +391,10 @@ func _shape_leaves(lot: Node3D) -> void:
 			var distance := Vector2(world.x - tree.x, world.z - tree.z).length()
 			amount += 1.6 * exp(-distance * distance / (2.0 * spread * spread))
 		# The driveway is swept: leaves on it would only make washing it a chore.
-		if absf(local.x) < 2.3 and local.z > 3.0:
+		# Nor do they bury the tools laid out beside it, or the rake.
+		if absf(local.x) < 3.0 and local.z > 3.0:
+			return 0.0
+		if Rect2(-10.0, 12.0, 6.5, 7.0).has_point(Vector2(local.x, local.z)):
 			return 0.0
 		return clampf(amount, 0.0, 2.6)
 	)

@@ -89,6 +89,17 @@ func add_shaggy(index: int, at: Vector3) -> void:
 	_spots[index] = {"kind": "shrink", "node": view, "full": Vector3.ONE}
 
 
+## A pile of leaves lying on the roof, tipped to the roof's slope.
+func add_roof_leaves(index: int, at: Vector3, normal: Vector3) -> void:
+	var view := _Stylized.instance(_mesh("roof_leaves"), {"roughness": 1.0, "double_sided": true})
+	add_child(view)
+	# Lying flat on the slope: up is the roof's normal, across is along the ridge.
+	var across := Vector3.RIGHT
+	view.global_transform = Transform3D(Basis(across, normal, across.cross(normal)), at)
+	view.rotate_object_local(Vector3.UP, randf() * TAU)
+	_spots[index] = {"kind": "shrink", "node": view, "full": Vector3.ONE}
+
+
 func add_fence_panel(index: int, holder: Node3D) -> void:
 	_spots[index] = {"kind": "paint", "node": holder, "bucket": -1}
 
@@ -301,6 +312,11 @@ static func _mesh(kind: String) -> ArrayMesh:
 			kit.blob(Vector3(0.0, 0.05, 0.0), Vector3(0.45, 0.12, 0.12), Color(0.33, 0.24, 0.15), {"detail": 2, "lumps": 0.4, "lump_scale": 3.0, "flat": true, "soft": 0.5, "jitter": 0.05})
 			for leaf: int in 7:
 				kit.leaf_card(Vector3(-0.35 + float(leaf) * 0.12, 0.15, randf_range(-0.05, 0.05)), Vector3(0.0, 1.0, 0.3), 0.08, [Color(0.75, 0.38, 0.15), Color(0.55, 0.35, 0.18), Color(0.8, 0.6, 0.2)][leaf % 3], 0.0, randf() * TAU)
+		"roof_leaves":
+			for leaf: int in 26:
+				var spot := Vector3(randf_range(-0.6, 0.6), randf_range(0.0, 0.12), randf_range(-0.6, 0.6))
+				kit.leaf_card(spot, Vector3(randf_range(-0.3, 0.3), 1.0, randf_range(-0.3, 0.3)), randf_range(0.09, 0.14), [Color(0.88, 0.45, 0.15), Color(0.9, 0.7, 0.2), Color(0.72, 0.25, 0.14), Color(0.6, 0.38, 0.18)][leaf % 4], 0.0, randf() * TAU)
+			kit.blob(Vector3(0.0, 0.03, 0.0), Vector3(0.45, 0.06, 0.45), Color(0.62, 0.36, 0.16), {"detail": 1, "lumps": 0.4, "lump_scale": 3.0, "flat": true, "jitter": 0.06})
 		"weed":
 			for blade: int in 9:
 				var angle := TAU * float(blade) / 9.0

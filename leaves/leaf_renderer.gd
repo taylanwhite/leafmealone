@@ -109,7 +109,8 @@ func _flake_transform(cell: Vector3, flake: int) -> Transform3D:
 	var ground: Vector3 = _field.get("grid_origin")
 	# Higher flakes sit closer to the middle, so a pile mounds up instead of a flat stack.
 	var spread := 0.5 * (1.0 - float(flake) / float(MAX_FLAKES) * 0.6)
-	var origin := Vector3(cell.x + along * spread, ground.y + 0.015 + float(flake) * 0.028, cell.z + across * spread)
+	# The field's origin sits a little above the yard; leaves lie right on the grass.
+	var origin := Vector3(cell.x + along * spread, 0.008 + float(flake) * 0.028, cell.z + across * spread)
 	return Transform3D(basis, origin)
 
 

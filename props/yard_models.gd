@@ -73,6 +73,8 @@ static func _build(kind: String, color: Color, size: Vector3) -> ArrayMesh:
 			_nozzle(kit)
 		"wand":
 			_wand(kit)
+		"paint_bucket":
+			_paint_bucket(kit)
 		_:
 			kit.rbox(Vector3(0.0, size.y * 0.5, 0.0), size * 0.5, color, 6.0)
 	return kit.commit()
@@ -386,3 +388,13 @@ static func _wand(kit: RefCounted) -> void:
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.04), Vector3(0, 0.0, -0.8)]), PackedFloat32Array([0.012, 0.012]), Color(0.75, 0.76, 0.78), 8, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.78), Vector3(0, 0.0, -0.86)]), PackedFloat32Array([0.02, 0.016]), black, 8, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0, -0.12, 0.13), Vector3(0, -0.3, 0.2)]), PackedFloat32Array([0.012, 0.012]), black, 6, {"jitter": 0.0})
+
+
+## A gallon of white paint with the lid off and a drip down the side.
+static func _paint_bucket(kit: RefCounted) -> void:
+	var tin := Color(0.78, 0.78, 0.76)
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, 0), Vector3(0, 0.34, 0)]), PackedFloat32Array([0.17, 0.17]), tin, 14, {"jitter": 0.0, "cap_start": true, "cap": false})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.3, 0), Vector3(0, 0.31, 0)]), PackedFloat32Array([0.16, 0.16]), Color(0.97, 0.96, 0.92), 14, {"jitter": 0.0})
+	kit.call("rbox", Vector3(0.0, 0.17, 0.171), Vector3(0.1, 0.07, 0.004), Color(0.35, 0.55, 0.85), 6.0, {"shade": false})
+	kit.call("tube", PackedVector3Array([Vector3(0.16, 0.33, 0), Vector3(0.17, 0.2, 0.0), Vector3(0.172, 0.12, 0.0)]), PackedFloat32Array([0.018, 0.014, 0.012]), Color(0.97, 0.96, 0.92), 6, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(-0.17, 0.34, 0), Vector3(0.0, 0.5, 0.0), Vector3(0.17, 0.34, 0)]), PackedFloat32Array([0.006, 0.006, 0.006]), Color(0.4, 0.4, 0.42), 5, {"jitter": 0.0})

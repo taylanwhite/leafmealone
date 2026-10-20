@@ -30,13 +30,16 @@ func _physics_process(delta: float) -> void:
 	var has_rake := held != null and str(held.get("kind")) == "rake"
 	var held_kind := str(held.get("kind")) if held != null else ""
 	_set_spray(player, held_kind if Input.is_action_pressed("primary") else "")
-	# Up a ladder: left click works the gutters, by hand or with the leaf blower.
-	if bool(player.call("is_climbing")):
+	# Up a ladder or on the roof: left click works the gutters and the roof's
+	# leaves, by hand or with the leaf blower.
+	if bool(player.call("is_up_high")) and held_kind != "hose" and held_kind != "pressure_washer":
 		if Input.is_action_pressed("primary") and _work_wait <= 0.0:
 			_work_wait = 0.15
 			var tasks := get_tree().get_first_node_in_group("job_tasks")
 			if tasks != null:
+				var reach_to := player.global_position + Vector3(0.0, 1.0, 0.0) - player.global_basis.z * 0.6
 				tasks.call("request_work", "clean_gutters", player.global_position + Vector3(0.0, 1.5, 0.0) - player.global_basis.z * 0.4, -player.global_basis.z)
+				tasks.call("request_work", "clear_roof", reach_to, -player.global_basis.z)
 			var body := player.get_node_or_null("Visual/CartoonBody")
 			if body != null and held_kind == "" and not bool(body.call("is_gesturing")):
 				body.call("gesture", "scratch")
@@ -74,8 +77,15 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 			_rake_wait = Constants.BLOWER_PUFF_SECONDS
 			_stroke(player, false, Constants.BLOWER_STRENGTH, Constants.BLOWER_WIDTH)
 		return
-	if tool_kind == "lawn_mower" or _work_wait > 0.0:
-		# The mower mows by being pushed around.
+	if tool_kind == "lawn_mower":
+		# Left click pulls the cord; once it's running it mows by being pushed around.
+		if Input.is_action_just_pressed("primary") and not bool(_held_prop(player).get("spraying")):
+			_held_prop(player).call("request_start")
+			var body := player.get_node_or_null("Visual/CartoonBody")
+			if body != null:
+				body.call("gesture", "startle")
+		return
+	if _work_wait > 0.0:
 		return
 	_work_wait = 0.15
 	var tasks := get_tree().get_first_node_in_group("job_tasks")
@@ -117,7 +127,7 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 			origin = player.global_position + forward * 0.9 + Vector3(0.0, 1.2, 0.0)
 		"paint_fence":
 			origin = player.global_position + forward * 0.9 + Vector3(0.0, 0.5, 0.0)
-	if task == "power_wash" and float(_held_prop(player).get("water")) <= 0.0:
+	if (task == "power_wash" or task == "paint_fence") and float(_held_prop(player).get("water")) <= 0.0:
 		return
 	tasks.call("request_work", task, origin, look)
 
