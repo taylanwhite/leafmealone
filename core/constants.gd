@@ -129,21 +129,25 @@ const TASK_TOOLS: Dictionary = {
 	"rake_leaves": "", "pick_litter": "", "pull_weeds": "",
 	"mow_lawn": "lawn_mower", "clean_gutters": "ladder", "wash_windows": "hose",
 	"power_wash": "pressure_washer", "trim_hedges": "hedge_trimmer", "paint_fence": "paint_roller",
+	"clear_roof": "ladder",
 }
 ## Task id -> what the homeowner pays for it done completely, in dollars.
 const TASK_PAY: Dictionary = {
 	"pick_litter": 12, "pull_weeds": 15, "mow_lawn": 45, "clean_gutters": 40,
 	"wash_windows": 30, "power_wash": 55, "trim_hedges": 35, "paint_fence": 40,
+	"clear_roof": 35,
 }
 ## How much of a spot or cell each second of work clears, out of 100.
 const TASK_WORK_RATE: Dictionary = {
 	"pick_litter": 100.0, "pull_weeds": 40.0, "mow_lawn": 450.0, "clean_gutters": 30.0,
 	"wash_windows": 55.0, "power_wash": 90.0, "trim_hedges": 50.0, "paint_fence": 60.0,
+	"clear_roof": 35.0,
 }
 ## How far from you a tool reaches, in meters.
 const TASK_REACH: Dictionary = {
 	"pick_litter": 2.0, "pull_weeds": 2.0, "mow_lawn": 0.9, "clean_gutters": 2.6,
 	"wash_windows": 40.0, "power_wash": 3.2, "trim_hedges": 2.2, "paint_fence": 2.0,
+	"clear_roof": 1.8,
 }
 ## How many tasks a job asks for besides the leaves, at least and at most (three in all).
 ## Taylan, 2026-10-20: too much at once felt like a chore list.
@@ -207,3 +211,18 @@ const HYDRANT_CLEAN_SPEEDUP: float = 2.5
 const WASHER_USE_PER_SECOND: float = 3.0
 ## How fast the pressure washer's water leaves the wand.
 const WASHER_SPEED: float = 14.0
+
+## Roofs and falls, from Taylan on 2026-10-20. TODO(balance): not in the workbook yet.
+## Fall farther than this and you hurt yourself: a bounce, knocked out a moment,
+## then a limp. How long the limp lasts is never shown to players.
+const FALL_HURT_HEIGHT: float = 3.2
+const FALL_BOUNCE_SPEED: float = 3.2
+const FALL_KNOCKOUT_SECONDS: float = 3.5
+const LIMP_SECONDS: float = 75.0
+const LIMP_SPEED_SHARE: float = 0.5
+## The mower has to be pull-started: the chance the first pull catches, and how
+## much better each pull after that gets.
+const MOWER_START_CHANCE: float = 0.3
+const MOWER_START_GAIN: float = 0.25
+## The paint roller holds this many seconds of paint before it needs dipping again.
+const ROLLER_PAINT_SECONDS: float = 8.0
