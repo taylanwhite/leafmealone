@@ -27,6 +27,8 @@ func _ready() -> void:
 	var seconds := float(options.get("run_seconds"))
 	if seconds > 0.0:
 		get_tree().create_timer(seconds).timeout.connect(_finish)
+	if bool(options.get("throw_test")):
+		_add(preload("res://net/dev/throw_test.gd").new(), "ThrowTest")
 	if bool(options.get("work_test")):
 		_add(preload("res://net/dev/work_test.gd").new(), "WorkTest")
 	if bool(options.get("bonk_test")):

@@ -31,6 +31,7 @@ var ride_at: float = -1.0
 var job_test: bool = false
 var bonk_test: bool = false
 var work_test: bool = false
+var throw_test: bool = false
 ## --job-seed=N builds that yard every time; --all-tasks asks for every task; --all-tools gives you every tool.
 var job_seed: int = 0
 var all_tasks: bool = false
@@ -44,7 +45,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or ride_at >= 0.0 or job_test or bonk_test or work_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test
 
 
 func read() -> void:
@@ -103,6 +104,8 @@ func read() -> void:
 			all_tasks = true
 		elif argument == "--all-tools":
 			all_tools = true
+		elif argument == "--throw-test":
+			throw_test = true
 		elif argument == "--work-test":
 			work_test = true
 		elif argument == "--bonk-test":

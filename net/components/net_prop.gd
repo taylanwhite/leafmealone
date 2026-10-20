@@ -120,11 +120,12 @@ func request_drop() -> void:
 		_rpc_request_drop.rpc_id(1)
 
 
-func request_throw(direction: Vector3) -> void:
+## power is how hard: Constants.THROW_POWER_MIN to THROW_POWER_MAX, 1 for a normal throw.
+func request_throw(direction: Vector3, power: float = 1.0) -> void:
 	if Net.is_host():
-		_handle_release(Net.local_peer_id(), direction)
+		_handle_release(Net.local_peer_id(), direction, power)
 	else:
-		_rpc_request_throw.rpc_id(1, direction)
+		_rpc_request_throw.rpc_id(1, direction, power)
 
 
 func _host_step() -> void:
@@ -167,6 +168,10 @@ func _host_step() -> void:
 func _handle_grab(peer_id: int) -> void:
 	if held_by != 0:
 		return
+	# One thing at a time: hands full means no grabbing.
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) == peer_id:
+			return
 	var player := _player(peer_id)
 	if player == null or player.global_position.distance_to(global_position) > GRAB_REACH:
 		return
@@ -175,7 +180,7 @@ func _handle_grab(peer_id: int) -> void:
 	_set_solid(false)
 
 
-func _handle_release(peer_id: int, direction: Vector3) -> void:
+func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0) -> void:
 	if held_by != peer_id:
 		return
 	var player := _player(peer_id)
@@ -191,7 +196,8 @@ func _handle_release(peer_id: int, direction: Vector3) -> void:
 	if flat.length() < 0.1:
 		return
 	# Every throw is the same shove, so the weight decides how far it goes.
-	var speed := clampf(Constants.THROW_IMPULSE / weight_kg(), Constants.THROW_SPEED_MIN, Constants.THROW_SPEED_MAX)
+	var strength := clampf(power, Constants.THROW_POWER_MIN, Constants.THROW_POWER_MAX)
+	var speed := clampf(Constants.THROW_IMPULSE / weight_kg(), Constants.THROW_SPEED_MIN, Constants.THROW_SPEED_MAX) * strength
 	linear_velocity = flat.normalized() * speed + Vector3.UP * (1.5 + speed * 0.3)
 	angular_velocity = Vector3(randf_range(-4.0, 4.0), randf_range(-4.0, 4.0), randf_range(-4.0, 4.0)) * (6.0 / weight_kg())
 	_airborne = true
@@ -475,9 +481,9 @@ func _rpc_request_drop() -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _rpc_request_throw(direction: Vector3) -> void:
+func _rpc_request_throw(direction: Vector3, power: float) -> void:
 	if Net.is_host():
-		_handle_release(multiplayer.get_remote_sender_id(), direction)
+		_handle_release(multiplayer.get_remote_sender_id(), direction, power)
 
 
 @rpc("any_peer", "call_remote", "reliable")

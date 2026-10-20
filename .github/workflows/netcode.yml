@@ -81,6 +81,13 @@ jobs:
           grep "WorkTest" build/soak/ci-work/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-work/host.json')); c=json.load(open('build/soak/ci-work/target.json')); ok=h['work_test'].get('ok') and h['lot_layout']==c['lot_layout'] and h['job_progress']==c['job_progress']; print('layout', h['lot_layout'], c['lot_layout']); sys.exit(0 if ok else 1)"
 
+      - name: Throw test (tap drops, wind-up distance, one item at a time, strain and faint)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-throw
+          "$GODOT" --headless --path . -- --host --port=7797 --name=Tester --no-steam --start-zone=lot --throw-test --measure="$PWD/build/soak/ci-throw/host.json" --run-seconds=34 | grep "ThrowTest" || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-throw/host.json'))['throw_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi
