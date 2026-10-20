@@ -49,6 +49,23 @@ const BORDER_STAGING_SECONDS: float = 3.0
 const BORDER_THROWBACK_SECONDS: float = 0.55
 const BORDER_RETURN_IMMUNITY_SECONDS: float = 4.0
 
+## The rake and the homeowner, from Taylan on 2026-10-19 (docs/GAME.md, developer notes).
+## TODO(balance): none of these are in the workbook yet.
+## One rake per job. Holding it, a stroke moves this much density over this width.
+const RAKE_STRENGTH: float = 72.0
+const RAKE_WIDTH: float = 3.2
+## Raking with bare hands: goofy and barely useful.
+const HAND_RAKE_STRENGTH: float = 9.0
+const HAND_RAKE_WIDTH: float = 1.0
+## Bagging takes the leaves within this radius, so raking them into a pile first fills a bag.
+const BAG_RADIUS: float = 1.6
+## A bag needs at least this many fresh-lot cells' worth of leaves, or there is nothing to bag.
+const MIN_BAG_CELLS: float = 6.0
+## Past this many minutes on a job, the homeowner thinks you took your time.
+const HOMEOWNER_PATIENCE_MINUTES: float = 12.0
+## The homeowner's pay as a multiple of the bags' value, by mood.
+const HOMEOWNER_PAY_BY_MOOD: Dictionary = {"thrilled": 1.25, "happy": 1.1, "fine": 1.0, "slow": 0.9, "messy": 0.8}
+
 ## Proximity voice falloff from docs/NETCODE.md: clear within 2 m, gone by about 25 m.
 const VOICE_CLEAR_DISTANCE: float = 2.0
 const VOICE_MAX_DISTANCE: float = 25.0
