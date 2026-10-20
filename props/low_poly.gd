@@ -2,7 +2,7 @@ extends RefCounted
 
 ## Authority: local, cosmetic. Small builders for low-poly set dressing made of
 ## primitive meshes. Colors are snapped to the shared palette by
-## levels/flat_look.gd when the nodes enter the tree, so pass the color you mean
+## levels/shared_look.gd when the nodes enter the tree, so pass the color you mean
 ## and let the palette decide. Nothing here is networked.
 ## Art rules: docs/ART.md. 1 unit = 1 meter, Y up, models face -Z.
 
@@ -108,7 +108,6 @@ static func _place(parent: Node3D, mesh: Mesh, at: Vector3, color: Color, solid:
 	if not solid or shape == null:
 		parent.add_child(view)
 		view.position = at
-		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		return view
 	var body := StaticBody3D.new()
 	parent.add_child(body)

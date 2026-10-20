@@ -26,13 +26,13 @@ func _ready() -> void:
 		await _field.ready
 	_leaf_mesh = BoxMesh.new()
 	_leaf_mesh.size = Vector3(0.42, 0.03, 0.22)
-	# Each flake's color comes from the multimesh. Unshaded to match the flat look.
+	# Each flake's color comes from the multimesh, lit like everything else.
 	_material = StandardMaterial3D.new()
 	_material.albedo_color = Color.WHITE
 	_material.vertex_color_use_as_albedo = true
 	# Palette colors are sRGB. Read as linear, they came out pale.
 	_material.vertex_color_is_srgb = true
-	_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_material.roughness = 1.0
 	var chunks := int(_field.call("chunk_count"))
 	for _index: int in chunks:
 		var view := MultiMeshInstance3D.new()

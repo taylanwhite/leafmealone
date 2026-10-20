@@ -29,7 +29,7 @@ func _ready() -> void:
 	_column.material_override = _material
 	_column.position.y = COLUMN_HEIGHT * 0.5
 	_column.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# Keep the shared flat look from restyling it (levels/flat_look.gd).
+	# Keep the shared look from restyling it (levels/shared_look.gd).
 	_column.set_meta("keep_material", true)
 	add_child(_column)
 	_light = OmniLight3D.new()

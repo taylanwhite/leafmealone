@@ -6,7 +6,7 @@ const JOB_LOT: PackedScene = preload("res://levels/lots/lot_01.tscn")
 const BAG_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 const _PlayerDirector: Script = preload("res://net/player_director.gd")
 const _Boarding: Script = preload("res://levels/boarding.gd")
-const _FlatLook: Script = preload("res://levels/flat_look.gd")
+const _SharedLook: Script = preload("res://levels/shared_look.gd")
 const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
 const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
@@ -19,7 +19,7 @@ var _bag_serial: int = 0
 func _ready() -> void:
 	add_to_group("world")
 	%RuntimeProps.add_to_group("runtime_props")
-	$Sun.rotation_degrees = Vector3(-50, 30, 0)
+	# The sun is set up by levels/shared_look.gd.
 	var director := preload("res://net/run_events/director.gd").new()
 	director.name = "RunDirector"
 	add_child(director)
@@ -33,7 +33,7 @@ func _ready() -> void:
 	sfx.name = "Sfx"
 	add_child(sfx)
 	_dress()
-	_FlatLook.call("apply", self)
+	_SharedLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
 	if not Net.is_host():
@@ -199,7 +199,7 @@ func _rpc_request_finish() -> void:
 
 
 func _on_node_added(node: Node) -> void:
-	_FlatLook.call("restyle", node)
+	_SharedLook.call("restyle", node)
 
 
 func _play_sfx(sound_name: String) -> void:

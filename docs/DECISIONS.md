@@ -130,3 +130,8 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Considered:** Posterization in a compositor effect. Not needed while every surface is already a flat palette color.
 - **Also:** Leaves had not been drawn since the renderer started asking the field for its chunks before the field was ready. They render again, in palette colors with small shade and size variation, and a full lot now reads as a carpet.
 - **Revisit:** After the first friend playtest, and when real models arrive.
+
+### 2026-10-19: Shared look is lit low-poly in late-afternoon light
+
+- **Why:** Taylan wants the game to feel like Schedule I (`docs/FEEL.md`), which is lit, not flat. `levels/shared_look.gd` (was `flat_look.gd`) now gives every surface real shading, a low warm sun with soft shadows, a procedural sky, sky ambient light, ambient occlusion, a little glow, and warm depth fog. The outline stays, lighter.
+- **Reverses:** the 2026-10-13 and 2026-10-18 flat-look entries. Colors are no longer snapped to the 12-swatch palette, which made everything samey. The palette is now a guide for picking colors.

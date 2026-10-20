@@ -2,11 +2,11 @@ extends MeshInstance3D
 
 ## Authority: local, cosmetic. The shared look's outline (docs/ART.md, "Unifying
 ## the look"): a full-screen pass that draws a dark line wherever depth jumps, on
-## top of the flat palette colors from levels/flat_look.gd. It works with
+## top of the lit surfaces from levels/shared_look.gd. It works with
 ## whichever camera is current, because the quad is placed in clip space by its
 ## vertex shader rather than in the world.
 
-const LINE_COLOR := Color(0.1, 0.09, 0.11, 0.9)
+const LINE_COLOR := Color(0.1, 0.09, 0.11, 0.6)
 ## Depth jump that draws a line, as a share of the distance to the pixel.
 const RELATIVE_THRESHOLD: float = 0.06
 ## Smallest depth jump that draws a line close up, in meters.
@@ -64,5 +64,5 @@ func _ready() -> void:
 	# Never culled: the vertex shader puts it over the whole screen for any camera.
 	extra_cull_margin = 16384.0
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# levels/flat_look.gd must leave this material alone.
+	# levels/shared_look.gd must leave this material alone.
 	set_meta("keep_material", true)
