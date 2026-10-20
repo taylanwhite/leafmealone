@@ -5,8 +5,8 @@ extends Node3D
 ## size, stories, colors, and garage; how many trees and where (the leaves pile
 ## up thickest under them); hedges along the sides; picket fences; flower beds
 ## by the front; litter on the lawn; a shed, a wheelie bin, and a hedge to hide
-## in; and the driveway Chefty pulls up. Fixed spots stay put: the driveway and
-## truck at x 0, the homeowner by the truck, the tools by the driveway.
+## in; and the driveway. Fixed spots stay put: the driveway at x 0, the
+## homeowner at the end of it by the street where Chefty parks, the tools beside it.
 ##
 ## It also lays out every piece of work this yard could need in
 ## net/work/job_tasks.gd (windows, gutter sections, shaggy hedges, fence panels,
@@ -47,7 +47,7 @@ func generate(job_seed: int, tasks: PackedStringArray) -> void:
 	var lot := get_parent() as Node3D
 	# What's fixed: the driveway and truck, the homeowner, the tools' spot.
 	_taken.append(Rect2(-2.8, 3.0, 5.6, 17.5))
-	_taken.append(Rect2(3.0, 9.0, 3.2, 3.6))
+	_taken.append(Rect2(2.0, 16.5, 3.2, 3.5))
 	_taken.append(Rect2(-9.8, 12.0, 6.0, 7.0))
 	_tasks = _JobTasks.new()
 	_tasks.name = "JobTasks"
@@ -327,8 +327,9 @@ func _shape_leaves(lot: Node3D) -> void:
 		for tree: Vector3 in trees:
 			var distance := Vector2(world.x - tree.x, world.z - tree.z).length()
 			amount += 1.6 * exp(-distance * distance / (2.0 * spread * spread))
-		if absf(local.x) < 2.1 and local.z > 3.0:
-			amount *= 0.5
+		# The driveway is swept: leaves on it would only make washing it a chore.
+		if absf(local.x) < 2.3 and local.z > 3.0:
+			return 0.0
 		return clampf(amount, 0.0, 2.6)
 	)
 

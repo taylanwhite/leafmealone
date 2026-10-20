@@ -599,7 +599,8 @@ func _stay_on_the_pad() -> void:
 		global_position.x = clampf(global_position.x, _crossing_min.x, _crossing_max.x)
 		global_position.z = clampf(global_position.z, _crossing_min.z, _crossing_max.z)
 	var offset := global_position - pad.global_position
-	var past_edge := absf(offset.x) > 21.0 or absf(offset.z) > 21.0
+	var rect: Rect2 = Constants.PAD_RECTS.get(String(pad.name), Rect2(-20.0, -20.0, 40.0, 40.0))
+	var past_edge := not rect.grow(1.0).has_point(Vector2(offset.x, offset.z))
 	if not past_edge and global_position.y >= -2.0:
 		return
 	var at: Transform3D = world.call("get_spawn_transform", zone, &"", name.to_int())

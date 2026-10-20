@@ -101,14 +101,15 @@ func _add_curb(zone: Node3D) -> void:
 	curb.collision_layer = Constants.PAD_WALL_LAYER
 	curb.collision_mask = 0
 	zone.add_child(curb)
-	var half := 20.0
+	var rect: Rect2 = Constants.PAD_RECTS.get(String(zone.name), Rect2(-20.0, -20.0, 40.0, 40.0))
 	var thick := 0.8
 	var height := 3.0
+	var middle := rect.get_center()
 	var spans: Array[Dictionary] = [
-		{"at": Vector3(0.0, height * 0.5, half), "size": Vector3(half * 2.0 + thick, height, thick)},
-		{"at": Vector3(0.0, height * 0.5, -half), "size": Vector3(half * 2.0 + thick, height, thick)},
-		{"at": Vector3(half, height * 0.5, 0.0), "size": Vector3(thick, height, half * 2.0)},
-		{"at": Vector3(-half, height * 0.5, 0.0), "size": Vector3(thick, height, half * 2.0)},
+		{"at": Vector3(middle.x, height * 0.5, rect.end.y), "size": Vector3(rect.size.x + thick, height, thick)},
+		{"at": Vector3(middle.x, height * 0.5, rect.position.y), "size": Vector3(rect.size.x + thick, height, thick)},
+		{"at": Vector3(rect.end.x, height * 0.5, middle.y), "size": Vector3(thick, height, rect.size.y)},
+		{"at": Vector3(rect.position.x, height * 0.5, middle.y), "size": Vector3(thick, height, rect.size.y)},
 	]
 	for span: Dictionary in spans:
 		var shape := BoxShape3D.new()

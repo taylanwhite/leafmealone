@@ -29,6 +29,14 @@ static func build_truck(parent: Node3D, color: Color) -> Node3D:
 	if not _cache.has(key):
 		_cache[key] = _truck_mesh(color)
 	look.add_child(_Stylized.instance(_cache[key], PAINT))
+	# Solid: you bump into it, and thrown bags land in the bed.
+	_solid(look, [
+		[Vector3(0.0, 0.65, -0.1), Vector3(2.3, 0.8, 5.6)],
+		[Vector3(0.0, 1.75, -2.0), Vector3(2.3, 1.5, 1.5)],
+		[Vector3(-1.1, 1.35, 0.72), Vector3(0.16, 0.6, 3.9)],
+		[Vector3(1.1, 1.35, 0.72), Vector3(0.16, 0.6, 3.9)],
+		[Vector3(0.0, 1.35, 2.66), Vector3(2.3, 0.6, 0.16)],
+	])
 	for side: float in [-1.0, 1.0]:
 		_LowPoly.text_sign(look, "Chefty", Vector3(side * 1.17, 1.55, -1.95), 64, TRIM, side * PI * 0.5)
 	_LowPoly.text_sign(look, "Chefty", Vector3(0.0, 1.32, 2.68), 56, TRIM)
@@ -44,6 +52,13 @@ static func build_van(parent: Node3D, color: Color) -> Node3D:
 	if not _cache.has(key):
 		_cache[key] = _van_mesh(color)
 	look.add_child(_Stylized.instance(_cache[key], PAINT))
+	_solid(look, [
+		[Vector3(0.0, 0.65, 0.0), Vector3(2.3, 0.8, 6.4)],
+		[Vector3(0.0, 1.9, -2.55), Vector3(2.3, 1.8, 1.4)],
+		[Vector3(-1.12, 1.95, 0.5), Vector3(0.16, 2.0, 5.2)],
+		[Vector3(0.0, 1.95, 3.0), Vector3(2.3, 2.0, 0.16)],
+		[Vector3(0.0, 3.0, 0.5), Vector3(2.4, 0.2, 5.2)],
+	])
 	_lights(look, -3.42, 1.2, 3.02)
 	return look
 
@@ -114,6 +129,21 @@ static func _van_mesh(color: Color) -> ArrayMesh:
 	kit.rbox(Vector3(0.0, 0.74, -3.45), Vector3(1.2, 0.12, 0.1), GRILLE, 4.0)
 	kit.rbox(Vector3(0.0, 0.74, 3.15), Vector3(1.18, 0.11, 0.1), GRILLE, 4.0)
 	return kit.commit()
+
+
+## Collision boxes ([center, size] each) that move with the vehicle.
+static func _solid(look: Node3D, boxes: Array) -> void:
+	var body := AnimatableBody3D.new()
+	body.name = "Solid"
+	body.sync_to_physics = false
+	for entry: Array in boxes:
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = entry[1]
+		shape.shape = box
+		shape.position = entry[0]
+		body.add_child(shape)
+	look.add_child(body)
 
 
 static func _root(parent: Node3D, look_name: String) -> Node3D:
