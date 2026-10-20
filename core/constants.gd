@@ -138,8 +138,9 @@ const TASK_REACH: Dictionary = {
 	"pick_litter": 2.0, "pull_weeds": 2.0, "mow_lawn": 0.9, "clean_gutters": 2.6,
 	"wash_windows": 8.0, "power_wash": 3.2, "trim_hedges": 2.2, "paint_fence": 2.0,
 }
-## How many extra tasks (besides raking) a job asks for, at least and at most.
-const JOB_EXTRA_TASKS := Vector2i(2, 4)
+## How many tasks a job asks for besides the leaves, at least and at most (three in all).
+## Taylan, 2026-10-20: too much at once felt like a chore list.
+const JOB_EXTRA_TASKS := Vector2i(2, 2)
 ## A leaf blower pushes leaves this far each puff, this wide, this often.
 const BLOWER_STRENGTH: float = 45.0
 const BLOWER_WIDTH: float = 2.4
@@ -149,3 +150,17 @@ const BLOWER_PUFF_SECONDS: float = 0.15
 ## Things with wheels: carrying them slows you only this share as much as their weight says.
 const ROLLING_KINDS: Array[String] = ["lawn_mower", "wheelbarrow", "pressure_washer"]
 const ROLLING_WEIGHT_SHARE: float = 0.3
+
+## Throwing with G, from Taylan on 2026-10-20: hold to wind up, release to throw.
+## TODO(balance): not in the workbook yet.
+## A tap shorter than this just sets the item down.
+const THROW_TAP_SECONDS: float = 0.18
+## Holding this long winds up a full-power throw.
+const THROW_CHARGE_SECONDS: float = 1.2
+## Throw speed at no wind-up and at full wind-up, as a share of a normal throw.
+const THROW_POWER_MIN: float = 0.35
+const THROW_POWER_MAX: float = 1.5
+## Still holding after this long, you start straining; after this long, you faint.
+const THROW_STRAIN_SECONDS: float = 5.0
+const THROW_FAINT_SECONDS: float = 7.0
+const FAINT_SECONDS: float = 2.5
