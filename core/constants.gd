@@ -73,3 +73,28 @@ const HOMEOWNER_PAY_BY_MOOD: Dictionary = {"thrilled": 1.25, "happy": 1.1, "fine
 ## Proximity voice falloff from docs/NETCODE.md: clear within 2 m, gone by about 25 m.
 const VOICE_CLEAR_DISTANCE: float = 2.0
 const VOICE_MAX_DISTANCE: float = 25.0
+
+## Weight and throwing, from Taylan on 2026-10-20: every item has a weight, and a
+## thrown item hits people harder the heavier it is. TODO(balance): not in the workbook yet.
+## What each kind of item weighs, in kg.
+const ITEM_WEIGHT_KG: Dictionary = {"rake": 1.5, "leaf_bag": 3.0, "trash": 10.0, "wheelbarrow": 16.0, "gnome": 7.0}
+## A leaf bag gets heavier with the leaves in it: this much per dollar of value, up to the cap.
+const LEAF_BAG_KG_PER_DOLLAR: float = 0.4
+const LEAF_BAG_MAX_KG: float = 12.0
+## Each bag riding in a wheelbarrow adds this much.
+const WHEELBARROW_KG_PER_BAG: float = 4.0
+## A throw gives every item the same shove: light things fly, heavy things flop.
+const THROW_IMPULSE: float = 42.0
+const THROW_SPEED_MIN: float = 2.5
+const THROW_SPEED_MAX: float = 15.0
+## Carrying slows you by this share per kg, never below the floor.
+const CARRY_SLOWDOWN_PER_KG: float = 0.022
+const CARRY_SPEED_FLOOR: float = 0.5
+## A thrown item moving at least this fast bonks whoever it hits.
+const BONK_MIN_SPEED: float = 3.0
+## Bonk tiers by weight: up to "light" kg is a flinch, up to "medium" a stagger, heavier knocks you flat.
+const BONK_TIER_KG: Dictionary = {"light": 4.0, "medium": 9.5}
+## How long each tier takes control away, in seconds, and how hard it shoves (m/s per kg*m/s of hit).
+const BONK_STUN_SECONDS: Dictionary = {"light": 0.35, "medium": 0.9, "heavy": 2.4}
+const BONK_SHOVE_PER_MOMENTUM: float = 0.09
+const BONK_SHOVE_MAX: float = 11.0
