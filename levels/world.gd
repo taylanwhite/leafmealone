@@ -10,6 +10,7 @@ const _SharedLook: Script = preload("res://levels/shared_look.gd")
 const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
 const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
+const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const GRASS := Color(0.42, 0.52, 0.3)
 const SAND := Color(0.78, 0.68, 0.5)
 ## Behind the store counter at (0, -8), facing the customers.
@@ -59,7 +60,8 @@ func _dress() -> void:
 	_StoreDressing.dress($StoreZone)
 	_BorderDressing.dress($BorderZone)
 	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0])
-	_Surroundings.dress($LotZone, GRASS, 22, true, [PI, PI * 0.75])
+	_Surroundings.dress($LotZone, GRASS, 22, false, [PI * 0.75])
+	_Neighborhood.dress($LotZone, 22)
 	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
 	add_child(preload("res://levels/outline_pass.gd").new())
 	# The clerk behind the counter. Local on every peer: nothing about it is shared.
@@ -69,7 +71,8 @@ func _dress() -> void:
 	clerk.position = CLERK_SPOT
 
 
-## A low curb with a taller collider, so a bump cannot walk or jump off the pad.
+## An invisible wall around the pad, so a bump cannot walk or jump off it.
+## Each zone's dressing shows the edge (fences, hedges, the street curb).
 func _add_curb(zone: Node3D) -> void:
 	var curb := StaticBody3D.new()
 	curb.name = "Curb"
@@ -90,16 +93,7 @@ func _add_curb(zone: Node3D) -> void:
 		shape_node.shape = shape
 		shape_node.position = span["at"]
 		curb.add_child(shape_node)
-		var mesh := BoxMesh.new()
-		var full: Vector3 = span["size"]
-		mesh.size = Vector3(full.x, 0.45, full.z)
-		var mesh_node := MeshInstance3D.new()
-		mesh_node.mesh = mesh
-		mesh_node.position = Vector3((span["at"] as Vector3).x, 0.22, (span["at"] as Vector3).z)
-		var material := StandardMaterial3D.new()
-		material.albedo_color = Color(0.25, 0.27, 0.24, 1)
-		mesh_node.material_override = material
-		curb.add_child(mesh_node)
+
 
 
 ## World position used when the host teleports a player into a zone.

@@ -22,7 +22,6 @@ const FOG_BEGIN: float = 90.0
 const FOG_END: float = 260.0
 const SKY_TOP := Color(0.33, 0.55, 0.82)
 const SKY_HORIZON := Color(0.96, 0.82, 0.64)
-const GROUND_BOTTOM := Color(0.3, 0.3, 0.26)
 const SUN_COLOR := Color(1.0, 0.87, 0.7)
 ## Late afternoon: low and from the side, so shapes get long soft shadows.
 const SUN_ROTATION_DEGREES := Vector3(-32.0, -38.0, 0.0)
@@ -48,8 +47,10 @@ static func _environment(root: Node) -> void:
 	var sky_material := ProceduralSkyMaterial.new()
 	sky_material.sky_top_color = SKY_TOP
 	sky_material.sky_horizon_color = SKY_HORIZON
+	# Below the horizon the sky matches the haze, so the ground fades into it without a band.
 	sky_material.ground_horizon_color = SKY_HORIZON
-	sky_material.ground_bottom_color = GROUND_BOTTOM
+	sky_material.ground_bottom_color = SKY_HORIZON.darkened(0.08)
+	sky_material.ground_curve = 0.5
 	sky_material.sun_angle_max = 20.0
 	var sky := Sky.new()
 	sky.sky_material = sky_material

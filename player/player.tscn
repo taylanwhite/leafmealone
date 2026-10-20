@@ -71,6 +71,7 @@ surface_material_override/0 = SubResource("Material_head")
 
 [node name="FirstPerson" type="Camera3D" parent="Visual/Head"]
 unique_name_in_owner = true
+far = 400.0
 
 [node name="LookTarget" type="Marker3D" parent="Visual/Head"]
 unique_name_in_owner = true
@@ -82,6 +83,7 @@ script = ExtResource("2_camera")
 [node name="OverShoulder" type="Camera3D" parent="CameraRig"]
 unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.55, 1.8, 2.6)
+far = 400.0
 
 [node name="Nameplate" type="Label3D" parent="Visual"]
 unique_name_in_owner = true

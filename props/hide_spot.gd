@@ -38,13 +38,15 @@ func _ready() -> void:
 	_label = Label3D.new()
 	_label.position.y = size.y + 0.5
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_label.font_size = 56
-	_label.outline_size = 10
+	_label.font_size = 30
+	_label.outline_size = 8
 	add_child(_label)
 	occupant_changed.connect(func(_peer_id: int) -> void: _refresh_label())
 	_refresh_label()
 
 
 func _refresh_label() -> void:
-	# What E does here is shown by ui/interaction_prompt.gd. The sign only names it.
-	_label.text = "%s\n%s" % [label, _Strings.UI["hide_taken"]] if occupant != 0 else label
+	# What E does here is shown by ui/interaction_prompt.gd. The sign only says
+	# when someone is already inside; a free spot needs no sign floating over it.
+	_label.text = _Strings.UI["hide_taken"]
+	_label.visible = occupant != 0

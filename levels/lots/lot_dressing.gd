@@ -7,6 +7,7 @@ extends Node3D
 ## sight are unchanged. The house body itself is the solid box in lot_01.tscn.
 
 const _LowPoly = preload("res://props/low_poly.gd")
+const _Trees = preload("res://props/trees.gd")
 const PICKET := Color(0.92, 0.9, 0.84)
 const ROOF := Color(0.42, 0.24, 0.2)
 const GLASS := Color(0.5, 0.65, 0.78)
@@ -24,11 +25,12 @@ func _ready() -> void:
 	_house()
 	_fences()
 	# Clear of the homeowner and the truck by the front gate.
-	for spot: Vector3 in [Vector3(-17.0, 0.0, 3.0), Vector3(11.0, 0.0, 15.0), Vector3(17.0, 0.0, -6.0)]:
-		_LowPoly.round_tree(self, spot, 7.0, Color(0.88, 0.5, 0.16))
-	_LowPoly.paint(_LowPoly.box(self, Vector3(3.2, 0.03, 10.0), Vector3(-3.0, 0.015, 11.0), Color(0.55, 0.55, 0.52)), "concrete")
-	_LowPoly.box(self, Vector3(0.12, 1.1, 0.12), Vector3(3.5, 0.55, 17.5), TRUNK)
-	_LowPoly.box(self, Vector3(0.45, 0.35, 0.7), Vector3(3.5, 1.25, 17.5), Color(0.25, 0.3, 0.42))
+	var crowns: Array[String] = ["orange", "red", "yellow"]
+	var spots: Array[Vector3] = [Vector3(-17.0, 0.0, 3.0), Vector3(11.0, 0.0, 15.0), Vector3(17.0, 0.0, -6.0)]
+	for index: int in spots.size():
+		_Trees.spawn(self, spots[index], 8.0, "broadleaf", crowns[index], index, false, float(index) * 2.1)
+	# The driveway Chefty pulls up, from the street to the porch.
+	_LowPoly.paint(_LowPoly.box(self, Vector3(4.2, 0.03, 16.0), Vector3(0.0, 0.015, 12.0), Color(0.62, 0.6, 0.57)), "concrete")
 
 
 func _house() -> void:
