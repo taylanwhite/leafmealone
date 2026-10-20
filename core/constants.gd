@@ -77,7 +77,11 @@ const VOICE_MAX_DISTANCE: float = 25.0
 ## Weight and throwing, from Taylan on 2026-10-20: every item has a weight, and a
 ## thrown item hits people harder the heavier it is. TODO(balance): not in the workbook yet.
 ## What each kind of item weighs, in kg.
-const ITEM_WEIGHT_KG: Dictionary = {"rake": 1.5, "leaf_bag": 3.0, "trash": 10.0, "wheelbarrow": 16.0, "gnome": 7.0}
+const ITEM_WEIGHT_KG: Dictionary = {
+	"rake": 1.5, "leaf_bag": 3.0, "trash": 10.0, "wheelbarrow": 16.0, "gnome": 7.0,
+	"leaf_blower": 4.5, "lawn_mower": 24.0, "ladder": 8.0, "hose": 4.0,
+	"pressure_washer": 13.0, "hedge_trimmer": 4.0, "paint_roller": 1.5,
+}
 ## A leaf bag gets heavier with the leaves in it: this much per dollar of value, up to the cap.
 const LEAF_BAG_KG_PER_DOLLAR: float = 0.4
 const LEAF_BAG_MAX_KG: float = 12.0
@@ -104,3 +108,44 @@ const BONK_SHOVE_MAX: float = 11.0
 const PAD_WALL_LAYER: int = 4
 ## Half the size of every zone's pad, in meters. An item that lands outside it comes back in.
 const PAD_HALF: float = 20.0
+
+## Tools and tasks, from Taylan on 2026-10-20: buying a tool unlocks the task it
+## does, and every job asks for a different mix (docs/GAME.md, developer notes).
+## TODO(balance): prices, pay, weights, and work rates are not in the workbook yet.
+## Tool id -> price at Homie Depot, in dollars.
+const TOOL_PRICES: Dictionary = {
+	"leaf_blower": 110, "lawn_mower": 180, "ladder": 140, "hose": 70,
+	"pressure_washer": 260, "hedge_trimmer": 130, "paint_roller": 90,
+}
+## Task id -> the tool it needs ("" for bare hands). Raking is paid by the bag.
+const TASK_TOOLS: Dictionary = {
+	"rake_leaves": "", "pick_litter": "", "pull_weeds": "",
+	"mow_lawn": "lawn_mower", "clean_gutters": "ladder", "wash_windows": "hose",
+	"power_wash": "pressure_washer", "trim_hedges": "hedge_trimmer", "paint_fence": "paint_roller",
+}
+## Task id -> what the homeowner pays for it done completely, in dollars.
+const TASK_PAY: Dictionary = {
+	"pick_litter": 12, "pull_weeds": 15, "mow_lawn": 45, "clean_gutters": 40,
+	"wash_windows": 30, "power_wash": 55, "trim_hedges": 35, "paint_fence": 40,
+}
+## How much of a spot or cell each second of work clears, out of 100.
+const TASK_WORK_RATE: Dictionary = {
+	"pick_litter": 100.0, "pull_weeds": 40.0, "mow_lawn": 450.0, "clean_gutters": 45.0,
+	"wash_windows": 55.0, "power_wash": 90.0, "trim_hedges": 50.0, "paint_fence": 60.0,
+}
+## How far from you a tool reaches, in meters.
+const TASK_REACH: Dictionary = {
+	"pick_litter": 2.0, "pull_weeds": 2.0, "mow_lawn": 0.9, "clean_gutters": 2.6,
+	"wash_windows": 8.0, "power_wash": 3.2, "trim_hedges": 2.2, "paint_fence": 2.0,
+}
+## How many extra tasks (besides raking) a job asks for, at least and at most.
+const JOB_EXTRA_TASKS := Vector2i(2, 4)
+## A leaf blower pushes leaves this far each puff, this wide, this often.
+const BLOWER_STRENGTH: float = 45.0
+const BLOWER_WIDTH: float = 2.4
+const BLOWER_CELLS: int = 6
+const BLOWER_PUFF_SECONDS: float = 0.15
+
+## Things with wheels: carrying them slows you only this share as much as their weight says.
+const ROLLING_KINDS: Array[String] = ["lawn_mower", "wheelbarrow", "pressure_washer"]
+const ROLLING_WEIGHT_SHARE: float = 0.3
