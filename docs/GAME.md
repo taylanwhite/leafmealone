@@ -64,6 +64,8 @@ Until these are decided, build the behavior so the answer can change without a r
 - **2026-10-19.** The audio is goofy, not realistic, in the spirit of Schedule I. Characters never speak real words: they make silly noises and babble.
 - **2026-10-19.** Each job has exactly one rake. Raking needs it; without it you rake with your hands, which is goofy and barely works. Raking leaves into a bigger pile makes a fuller bag, and each bag has a dollar value from the leaves inside.
 - **2026-10-19.** The homeowner stands beside the truck. Talking to them gets a reaction that depends on randomness and on how long the job took (for example "Took long enough eh?" or "You did a great job, here's a tip!"), shown as a caption over their head with a goofy noise. They hold out the cash, and someone has to grab it. Pay is the delivered bags' value times the mood. The mood rules, multipliers, patience time, and the remaining lines are stand-ins in `core/constants.gd` and `ui/strings.gd` until the workbook has them.
+- **2026-10-20.** Every item has a weight. Heavier items slow you down while you carry them and fly less far when thrown. A thrown item that hits a person (a player or a passerby) reacts by weight: a light one makes them flinch, a medium one staggers and shoves them, a heavy one knocks them flat with stars. Weights and tiers are stand-ins in `core/constants.gd` until the workbook has them.
+- **2026-10-20.** The streets have people walking on them, and the world has lived-in details: grass, sidewalk chalk, spray-paint tags, sticky notes, and posters. None of them have words yet.
 
 ## Rules for agents working on content
 

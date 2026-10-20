@@ -154,3 +154,9 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **How we judge art:** `tools/studio/studio.tscn -- --subject=<name> --out=<png>` renders one subject from four angles under the game's own lighting, with the window covered or not. In-game `--screenshot` forces a draw when macOS won't, so shots also work in the background.
 - **Also:** The lot sits on a real street (`levels/dressing/neighborhood.gd`) and the store on a street corner, Chefty drives down the street and up the driveway, the pad's dark curb is an invisible wall, the ground is level with the yard, cameras stop at 400 m, and the sky has fog-free clouds.
 - **Revisit:** If hand-made or bought models arrive, they replace kit builders one at a time; anything with its own textures opts out of the shared look with `keep_material`.
+
+### 2026-10-20: Pad walls hold people, not items; pedestrians run on the shared clock
+
+- **Why:** Taylan wants to throw things at people, including passersby on the sidewalk outside the yard. The invisible pad walls now sit on physics layer 3 (`Constants.PAD_WALL_LAYER`), which players and the crew mask and props don't, so items sail into the street. The street has ground to land on, and anything that settles outside the pad or falls through the world pops back inside (`net_prop.gd _come_back_in`), so the job's one rake can't be lost.
+- **Pedestrians** (`npcs/pedestrian.gd`) are local nodes on every peer, placed by their seed and `Net.server_time()` like the rule for shared visuals says, so they cost no network traffic. The host detects thrown items reaching players or pedestrians and broadcasts one reliable `_rpc_bonk_fx` on the prop; each peer plays the reaction, and only a player's own peer applies the shove and stun. `--bonk-test` covers both, and CI runs it.
+- **Revisit:** If pedestrians ever matter to gameplay (blocking, reacting to the crew), they become host-owned and replicated instead.
