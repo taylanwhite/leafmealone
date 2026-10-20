@@ -10,7 +10,7 @@ var _wait: float = 0.0
 var _index: int = 0
 var _busy: bool = false
 var _above: Camera3D
-## Screenshots skipped because the window could not draw.
+## Screenshots that needed a forced draw because the window could not draw.
 var skipped: int = 0
 
 ## Where the overhead camera sits relative to the player, in meters.
@@ -77,12 +77,13 @@ func _save() -> void:
 func _shoot(path: String) -> void:
 	# macOS stops drawing a covered or minimized window, and waiting for a frame
 	# that never comes would stop every later screenshot.
+	# Force a draw instead, so screenshots work with the window in the background.
 	if not DisplayServer.window_can_draw():
 		skipped += 1
-		if skipped == 1:
-			push_warning("[Capture] window cannot draw (covered or minimized); skipping screenshots until it can")
-		return
-	await RenderingServer.frame_post_draw
+		await get_tree().process_frame
+		RenderingServer.force_draw(false)
+	else:
+		await RenderingServer.frame_post_draw
 	var error := get_viewport().get_texture().get_image().save_png(path)
 	if error != OK:
 		push_error("[Capture] cannot save %s: %s" % [path, error_string(error)])
