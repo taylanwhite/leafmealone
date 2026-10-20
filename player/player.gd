@@ -17,6 +17,7 @@ const PITCH_LIMIT: float = 1.2
 ## Nameplate color while that player is talking.
 const SPEAKING_TINT := Color(1.0, 0.86, 0.35)
 const _Strings = preload("res://ui/strings.gd")
+const _CartoonBody = preload("res://player/cartoon_body.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -68,6 +69,7 @@ func _ready() -> void:
 		Net.speaking_changed.connect(_on_speaking_changed)
 	if not is_multiplayer_authority():
 		_attach_voice()
+	_dress_up()
 	_apply_presentation()
 
 
@@ -158,16 +160,7 @@ func _toggle_hiding() -> bool:
 	if _hidden_spot != null:
 		_hidden_spot.call("request_exit")
 		return true
-	var closest: Node3D = null
-	var closest_distance := Constants.HIDE_REACH
-	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
-		var spot := node as Node3D
-		if spot == null or int(spot.get("occupant")) != 0:
-			continue
-		var distance := spot.global_position.distance_to(global_position)
-		if distance <= closest_distance:
-			closest = spot
-			closest_distance = distance
+	var closest := _nearest_free_spot()
 	if closest == null:
 		return false
 	closest.call("request_enter")
@@ -202,6 +195,52 @@ func _grab_nearby() -> bool:
 		return false
 	closest.call("request_grab")
 	return true
+
+
+## What E would do right now, for the prompt in ui/interaction_prompt.gd, in the
+## same order _unhandled_input tries them. Empty when E does nothing here.
+func interaction_hint() -> Dictionary:
+	if _hidden_spot != null:
+		return {"text": _Strings.UI["prompt_unhide"], "at": _hidden_spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	var spot := _nearest_free_spot()
+	if spot != null:
+		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	var held := _held_prop()
+	if held != null and str(held.get("kind")) == "leaf_bag":
+		var barrow := _nearest_kind("wheelbarrow", 2.4) as Node3D
+		if barrow != null:
+			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0)}
+	if held != null:
+		return {}
+	var closest: Node3D = null
+	var closest_distance := 2.4
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or int(prop.get("held_by")) != 0:
+			continue
+		var distance := global_position.distance_to(prop.global_position)
+		if distance < closest_distance:
+			closest = prop
+			closest_distance = distance
+	if closest == null:
+		return {}
+	var prop_label := str(closest.get("label"))
+	var text: String = _Strings.UI["prompt_pick_up"] % prop_label if prop_label != "" else _Strings.UI["prompt_pick_up_plain"]
+	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
+
+
+func _nearest_free_spot() -> Node3D:
+	var closest: Node3D = null
+	var closest_distance := Constants.HIDE_REACH
+	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
+		var spot := node as Node3D
+		if spot == null or int(spot.get("occupant")) != 0:
+			continue
+		var distance := spot.global_position.distance_to(global_position)
+		if distance <= closest_distance:
+			closest = spot
+			closest_distance = distance
+	return closest
 
 
 func _held_prop() -> Node:
@@ -403,6 +442,26 @@ func _apply_presentation() -> void:
 	_last_anim = anim_state
 
 
+## Swap the gray-box capsule for a cartoon person (player/cartoon_body.gd). Looks
+## come from the player's name, so a friend looks the same every session.
+func _dress_up() -> void:
+	if $Visual.has_node("CartoonBody"):
+		return
+	var body := _CartoonBody.new()
+	body.name = "CartoonBody"
+	var shown := Net.player_name(name.to_int())
+	body.dress_from_seed(hash(shown) if shown != "" else name.to_int())
+	$Visual.add_child(body)
+	body.build(%Head)
+	%BodyMesh.visible = false
+	var old_head := %Head.get_node_or_null("HeadMesh") as Node3D
+	if old_head != null:
+		old_head.visible = false
+	# Your own eyes would sit right in front of your first-person camera.
+	if is_multiplayer_authority():
+		%FirstPerson.cull_mask &= ~(1 << (_CartoonBody.HEAD_LAYER - 1))
+
+
 ## A silly character noise (docs/ART.md, "Audio") from this player's head, in
 ## their own voice. Cosmetic and local: each peer plays it for itself.
 func say(sound_name: String) -> void:
@@ -422,6 +481,9 @@ func say(sound_name: String) -> void:
 	mouth.stream = stream
 	mouth.pitch_scale = _voice_pitch() * randf_range(0.96, 1.04)
 	mouth.play()
+	var body := $Visual.get_node_or_null("CartoonBody")
+	if body != null:
+		body.call("talk", stream.get_length() / mouth.pitch_scale)
 
 
 ## Each character's voice sits a little higher or lower, so you can tell who yelped.

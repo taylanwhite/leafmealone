@@ -10,6 +10,7 @@ extends CharacterBody3D
 
 const _SPEED_UP := Vector3(0.0, 1.4, 0.0)
 const _HideSpot = preload("res://net/components/hide_spot.gd")
+const _CartoonBody = preload("res://player/cartoon_body.gd")
 ## Close enough to a search or patrol point to pick the next one, in meters.
 const WAYPOINT_REACHED: float = 1.5
 ## Patrol points stay this far inside the lot's edge.
@@ -27,10 +28,34 @@ var _rng := RandomNumberGenerator.new()
 func _ready() -> void:
 	set_multiplayer_authority(1)
 	add_to_group("crew")
+	_dress_up()
 	_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 	if Net.is_host():
 		_rng.randomize()
 		_bake_navmesh()
+
+
+## Placeholder look until the crew is designed (OQ-012): a cartoon person in plain
+## dark work clothes, a cap, and dark glasses. No lettering, logo, or insignia.
+func _dress_up() -> void:
+	var visual := get_node_or_null("Visual") as Node3D
+	if visual == null or visual.has_node("CartoonBody"):
+		return
+	var body := _CartoonBody.new()
+	body.name = "CartoonBody"
+	body.shirt = Color(0.22, 0.25, 0.32)
+	body.pants = Color(0.17, 0.18, 0.2)
+	body.skin = _CartoonBody.SKIN_TONES[absi(hash(name)) % _CartoonBody.SKIN_TONES.size()]
+	body.hat_style = "cap"
+	body.hat_color = Color(0.15, 0.16, 0.19)
+	body.shades = true
+	visual.add_child(body)
+	# The crew turns its +Z toward where it walks (see _steer), and bodies face -Z.
+	body.rotation.y = PI
+	body.build()
+	var capsule := visual.get_node_or_null("Body") as Node3D
+	if capsule != null:
+		capsule.visible = false
 
 
 ## Host only: whether this crew member has a clear view of that player now.
