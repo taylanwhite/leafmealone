@@ -50,7 +50,7 @@ func _save() -> void:
 	label = label.to_snake_case()
 	await _shoot("%s/%s_%03d.png" % [_dir, label, _index])
 	# Then the same moment from above, so every player in this zone is in frame.
-	var own_camera := get_viewport().get_camera_3d()
+	var own_camera := _own_camera()
 	var above := _overhead_camera()
 	if above != null:
 		above.current = true
@@ -97,6 +97,18 @@ func _zone_center() -> Vector3:
 	var zone_name: String = zone_names.get(Net.player_zone(Net.local_peer_id()), "")
 	var zone := world.get_node_or_null(zone_name) as Node3D
 	return zone.global_position if zone != null else Vector3.INF
+
+
+## The player's own active camera, found on the player, not whatever is current:
+## a skipped capture can leave the capture camera current.
+func _own_camera() -> Camera3D:
+	var player := _own_player()
+	if player == null:
+		return get_viewport().get_camera_3d()
+	for node: Node in player.find_children("*", "Camera3D", true, false):
+		if (node as Camera3D).current:
+			return node as Camera3D
+	return player.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
 
 
 func _own_player() -> Node3D:
