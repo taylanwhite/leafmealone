@@ -43,6 +43,7 @@ const HEAD_LAYER: int = 2
 
 var _head_root: Node3D
 var _face: Node3D
+var _own_head: bool = false
 var _torso: Node3D
 var _hips: Node3D
 var _legs: Array[Node3D] = []
@@ -80,7 +81,11 @@ func dress_from_seed(seed_value: int) -> void:
 
 ## Build the body. head_parent is where the head goes (a player's Head node, so
 ## looking up and down nods it), or null to give the body its own head.
-func build(head_parent: Node3D = null) -> void:
+## own_head is true only for the local player's own body: its head goes on
+## HEAD_LAYER so that player's first-person camera can skip it. Everyone else's
+## head stays on the normal layer, or that camera would skip theirs too.
+func build(head_parent: Node3D = null, own_head: bool = false) -> void:
+	_own_head = own_head
 	_hips = _pivot(self, Vector3(0.0, 0.82, 0.0))
 	_torso = _pivot(_hips, Vector3.ZERO)
 	_part(_torso, _capsule(0.21, 0.62), Vector3(0.0, 0.26, 0.0), shirt).scale = Vector3(1.0, 1.0, 0.8)
@@ -207,7 +212,7 @@ func _animate_face(delta: float) -> void:
 
 func _on_head_layer(node: Node3D) -> void:
 	var mesh := node as MeshInstance3D
-	if mesh != null:
+	if mesh != null and _own_head:
 		mesh.layers = 1 << (HEAD_LAYER - 1)
 
 

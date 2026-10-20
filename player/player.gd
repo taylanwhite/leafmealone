@@ -452,7 +452,7 @@ func _dress_up() -> void:
 	var shown := Net.player_name(name.to_int())
 	body.dress_from_seed(hash(shown) if shown != "" else name.to_int())
 	$Visual.add_child(body)
-	body.build(%Head)
+	body.build(%Head, is_multiplayer_authority())
 	%BodyMesh.visible = false
 	var old_head := %Head.get_node_or_null("HeadMesh") as Node3D
 	if old_head != null:
