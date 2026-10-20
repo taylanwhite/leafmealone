@@ -43,6 +43,7 @@ var _crossing_drive: bool = false
 ## Hiding spot this player is inside, set by the host through net/components/hide_spot.gd.
 var _hidden_spot: Node3D
 var _last_anim: AnimState = AnimState.IDLE
+var _on_seat: bool = false
 var _crossing_min: Vector3 = Vector3.ZERO
 var _crossing_max: Vector3 = Vector3.ZERO
 var _step_wait: float = 0.0
@@ -50,6 +51,8 @@ var _step_wait: float = 0.0
 
 func _enter_tree() -> void:
 	add_to_group("players")
+	# Runs after rides each tick, so a rider is placed where the seat is now.
+	process_physics_priority = 100
 	var peer_id := name.to_int()
 	if peer_id <= 0:
 		return
@@ -95,6 +98,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
+	_seat_on_ride()
 	if is_multiplayer_authority():
 		if _crossing_drive:
 			_look = Vector2.ZERO
@@ -114,6 +118,38 @@ func _physics_process(delta: float) -> void:
 
 
 ## Follow a seat until the ride arrives. Movement stays off; looking still works.
+## While riding, every peer puts this player on their seat each physics tick,
+## right after the vehicle moves (process_physics_priority in _enter_tree), and
+## physics interpolation smooths both the same way. Going through the network
+## smoother's delay instead made riders slide back and forth against the vehicle.
+func _seat_on_ride() -> void:
+	var seat := _current_seat()
+	var was_on_seat := _on_seat
+	_on_seat = seat != Transform3D()
+	if was_on_seat != _on_seat:
+		reset_physics_interpolation()
+	if not _on_seat:
+		return
+	if is_multiplayer_authority():
+		global_position = seat.origin
+		velocity = Vector3.ZERO
+	$Visual.global_transform = Transform3D(global_basis, seat.origin)
+
+
+## For net/components/net_smoother.gd: while true, the smoother leaves the visual alone.
+func is_riding_visual() -> bool:
+	return _on_seat
+
+
+func _current_seat() -> Transform3D:
+	var peer_id := name.to_int()
+	for ride: Node in get_tree().get_nodes_in_group("rides"):
+		var index := int(ride.call("seat_of", peer_id))
+		if index >= 0:
+			return ride.call("seat_transform", index)
+	return Transform3D()
+
+
 func set_riding(ride: Node3D, seat_index: int) -> void:
 	_ride = ride
 	_seat_index = seat_index
@@ -150,6 +186,7 @@ func set_hidden_in(spot: Node3D) -> void:
 		global_position = spot.global_position + Vector3(0.0, 0.1, 0.0)
 	elif leaving != null and leaving.has_method("exit_position"):
 		global_position = leaving.call("exit_position")
+	reset_physics_interpolation()
 
 
 func is_hidden() -> bool:
@@ -194,6 +231,8 @@ func apply_network_teleport(at: Transform3D) -> void:
 	velocity = Vector3.ZERO
 	body_yaw = at.basis.get_euler().y
 	_apply_presentation()
+	# With physics interpolation on, a teleport would smear across the map for a frame.
+	reset_physics_interpolation()
 
 
 func _grab_nearby() -> bool:

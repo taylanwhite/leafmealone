@@ -185,14 +185,16 @@ func _build_head(root: Node3D) -> void:
 	if shades:
 		_on_head_layer(_part(face, _box(Vector3(0.3, 0.07, 0.03)), Vector3(0.0, 0.06, -0.255), PUPIL, "metal"))
 	match hat_style:
+		# Caps and hair sit clear of the head everywhere they cover it. A hair-thin
+		# overlap let the scalp poke through, and hats flickered as heads bobbed.
 		"cap":
-			var crown := _part(face, _sphere(0.28), Vector3(0.0, 0.1, 0.0), hat_color, "fabric")
-			crown.scale = Vector3(1.0, 0.62, 1.0)
+			var crown := _part(face, _sphere(0.3), Vector3(0.0, 0.12, 0.0), hat_color, "fabric")
+			crown.scale = Vector3(1.0, 0.66, 1.0)
 			_on_head_layer(crown)
-			_on_head_layer(_part(face, _box(Vector3(0.3, 0.025, 0.2)), Vector3(0.0, 0.14, -0.3), hat_color, "fabric"))
+			_on_head_layer(_part(face, _box(Vector3(0.32, 0.03, 0.22)), Vector3(0.0, 0.15, -0.31), hat_color, "fabric"))
 		"hair":
-			var mop := _part(face, _sphere(0.285), Vector3(0.0, 0.11, 0.03), hair)
-			mop.scale = Vector3(1.02, 0.6, 1.0)
+			var mop := _part(face, _sphere(0.3), Vector3(0.0, 0.12, 0.03), hair, "fabric")
+			mop.scale = Vector3(1.0, 0.64, 1.0)
 			_on_head_layer(mop)
 
 

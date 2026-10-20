@@ -12,7 +12,9 @@ func _ready() -> void:
 	_apply()
 
 
-func _process(_delta: float) -> void:
+## Aimed on physics ticks like everything it follows, so physics interpolation
+## smooths the camera and the player together.
+func _physics_process(_delta: float) -> void:
 	if not _active or first_person:
 		return
 	%OverShoulder.look_at(%LookTarget.global_position, Vector3.UP)
