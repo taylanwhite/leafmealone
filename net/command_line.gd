@@ -19,6 +19,8 @@ var measure_path: String = ""
 var run_seconds: float = 0.0
 var screenshot_dir: String = ""
 var screenshot_every: float = 5.0
+## With --screenshot: also shoot a fixed list of close-ups in each zone (net/dev/capture.gd TOUR).
+var tour: bool = false
 var voice_test: bool = false
 var mute_audio: bool = false
 var run_event_at: float = -1.0
@@ -88,6 +90,8 @@ func read() -> void:
 			ride_at = float(argument.trim_prefix("--ride-at="))
 		elif argument == "--job-test":
 			job_test = true
+		elif argument == "--tour":
+			tour = true
 		elif argument == "--bonk-test":
 			bonk_test = true
 		elif argument == "--walk-straight":

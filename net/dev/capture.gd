@@ -19,6 +19,22 @@ const OVERHEAD_OFFSET := Vector3(0.0, 28.0, 14.0)
 const WIDE_OFFSET := Vector3(26.0, 13.0, 30.0)
 ## How far in front of the player the selfie camera stands, in meters.
 const SELFIE_DISTANCE: float = 3.2
+## --tour close-ups, per zone: a name, where the camera stands, and what it looks
+## at, in the zone's own space. For judging small details like decals and notes.
+const TOUR: Dictionary = {
+	"LotZone": [
+		["sidewalk_chalk", Vector3(-11.5, 1.7, 18.5), Vector3(-9.0, 0.1, 21.3)],
+		["back_fence", Vector3(-9.5, 1.7, -17.0), Vector3(-9.5, 1.0, -24.0)],
+		["front_door", Vector3(-7.6, 1.7, -0.6), Vector3(-7.8, 1.4, -3.0)],
+		["street", Vector3(8.0, 1.7, 18.0), Vector3(-10.0, 0.5, 30.0)],
+		["lawn", Vector3(30.0, 1.6, 12.0), Vector3(40.0, 0.0, 4.0)],
+	],
+	"StoreZone": [
+		["store_wall", Vector3(-17.0, 2.0, 24.0), Vector3(-22.0, 2.0, 15.0)],
+		["checkout", Vector3(0.0, 1.6, -5.2), Vector3(0.0, 0.8, -7.6)],
+		["parking", Vector3(10.0, 1.8, 14.0), Vector3(3.0, 0.0, 9.0)],
+	],
+}
 
 
 func _ready() -> void:
@@ -67,6 +83,8 @@ func _save() -> void:
 			var forward := -player.global_basis.z
 			above.look_at_from_position(face + forward * SELFIE_DISTANCE + Vector3(0.6, 0.25, 0.0), face, Vector3.UP)
 			await _shoot("%s/%s_%03d_selfie.png" % [_dir, label, _index])
+		if bool(Net.dev_options().get("tour")):
+			await _tour(above, label)
 		above.current = false
 		if own_camera != null:
 			own_camera.current = true
@@ -87,6 +105,25 @@ func _shoot(path: String) -> void:
 	var error := get_viewport().get_texture().get_image().save_png(path)
 	if error != OK:
 		push_error("[Capture] cannot save %s: %s" % [path, error_string(error)])
+
+
+## The close-ups for this peer's zone, once.
+var _toured: Dictionary = {}
+
+
+func _tour(camera: Camera3D, label: String) -> void:
+	var world := get_tree().get_first_node_in_group("world")
+	if world == null:
+		return
+	var zone_names := {Net.Zone.STORE: "StoreZone", Net.Zone.LOT: "LotZone", Net.Zone.BORDER: "BorderZone"}
+	var zone_name: String = zone_names.get(Net.player_zone(Net.local_peer_id()), "")
+	var zone := world.get_node_or_null(zone_name) as Node3D
+	if zone == null or _toured.has(zone_name):
+		return
+	_toured[zone_name] = true
+	for stop: Array in TOUR.get(zone_name, []):
+		camera.look_at_from_position(zone.global_position + (stop[1] as Vector3), zone.global_position + (stop[2] as Vector3), Vector3.UP)
+		await _shoot("%s/%s_tour_%s.png" % [_dir, label, stop[0]])
 
 
 ## Center of the zone this peer is in, or INF in transit.
@@ -127,6 +164,8 @@ func _overhead_camera() -> Camera3D:
 	if _above == null:
 		_above = Camera3D.new()
 		_above.name = "CaptureOverhead"
+		# Moved outside physics ticks on purpose, between shots.
+		_above.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 		add_child(_above)
 	var target := player.global_position
 	_above.look_at_from_position(target + OVERHEAD_OFFSET, target, Vector3.UP)
