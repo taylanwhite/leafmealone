@@ -5,6 +5,10 @@ extends Node3D
 
 # TODO(balance): add the truck ride duration to the workbook.
 const RIDE_DURATION_SECONDS: float = 8.0
+## Where Chefty parks at the lot: the curb in front of the yard (world space; the lot zone is at x 1000).
+const LOT_PARK := Vector3(1007.0, 0.6, 24.6)
+## Chefty's bed, in its own space: bags that land in here are loaded.
+const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const _Vehicles = preload("res://props/vehicles.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 
@@ -120,6 +124,13 @@ func accept_bags(count: int, value: int = 0) -> int:
 	return taken
 
 
+## True when a point is inside Chefty's open bed.
+func in_bed(point: Vector3) -> bool:
+	if _body == null or not is_in_group("chefty"):
+		return false
+	return BED.has_point(_body.global_transform.affine_inverse() * point)
+
+
 ## Dollars' worth of bags loaded this job. What the homeowner pays for.
 func bag_value() -> int:
 	return _bag_value
@@ -192,21 +203,23 @@ func _place(along: float) -> void:
 		return
 	var length := _path.curve.get_baked_length()
 	var on_path := _path.curve.sample_baked_with_rotation(along * length, true, true)
+	# Driving back along the same road it faces the way it's going, not backward.
+	if _reverse:
+		on_path.basis = on_path.basis.rotated(on_path.basis.y.normalized(), PI)
 	_body.global_transform = _path.global_transform * on_path
 
 
 func _build() -> void:
 	_path = Path3D.new()
 	_path.name = "Path"
-	# Out of the store lot, then down the lot's street (levels/dressing/neighborhood.gd,
-	# z = 27 in the lot's space) and a turn up the driveway to park in the yard.
+	# Out of the store lot, then down the lot's street (levels/dressing/neighborhood.gd)
+	# to park at the curb in the near lane, in front of the yard: the driveway
+	# stays clear for work (Taylan, 2026-10-20).
 	var curve := Curve3D.new()
 	curve.add_point(Vector3(10.0, 0.6, 8.0))
 	curve.add_point(Vector3(500.0, 0.6, 20.0))
-	curve.add_point(Vector3(930.0, 0.6, 27.0))
-	curve.add_point(Vector3(992.0, 0.6, 27.0), Vector3(-5.0, 0.0, 0.0), Vector3(5.0, 0.0, 0.0))
-	curve.add_point(Vector3(1000.0, 0.6, 19.0), Vector3(0.0, 0.0, 5.0), Vector3(0.0, 0.0, -5.0))
-	curve.add_point(Vector3(1000.0, 0.6, 8.0))
+	curve.add_point(Vector3(930.0, 0.6, LOT_PARK.z))
+	curve.add_point(LOT_PARK)
 	_path.curve = curve
 	add_child(_path)
 	_body = Node3D.new()

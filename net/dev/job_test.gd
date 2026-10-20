@@ -74,7 +74,7 @@ func _ride_to_lot(out: Dictionary) -> bool:
 	var pad := get_tree().get_first_node_in_group("world").get_node_or_null("StoreZone/TruckPad") as Node3D
 	if pad == null:
 		return _fail(out, "no truck pad at the store")
-	_move_player_to(pad.global_position + Vector3(0.0, 0.5, 0.0))
+	_move_player_to(pad.global_position + Vector3(0.0, 0.5, 3.2))
 	await _ticks(3)
 	_expect_goal(out, "goal_board")
 	get_tree().get_first_node_in_group("world").call("request_depart")

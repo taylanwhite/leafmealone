@@ -237,15 +237,33 @@ func _check_bonks() -> void:
 ## Host only. Something thrown into the street or a neighbor's yard comes back
 ## into the pad once it settles, so the job's one rake can't be lost.
 func _come_back_in() -> void:
+	var zone_name := _zone_name()
 	var zone := _zone_center()
 	var local := global_position - zone
-	var outside := absf(local.x) > Constants.PAD_HALF + 0.3 or absf(local.z) > Constants.PAD_HALF + 0.3
+	var rect: Rect2 = Constants.PAD_RECTS.get(zone_name, Rect2(-20.0, -20.0, 40.0, 40.0))
+	var outside := not rect.grow(0.3).has_point(Vector2(local.x, local.z))
 	if global_position.y < -5.0 or (outside and linear_velocity.length() < 0.5):
-		var back := Vector3(clampf(local.x, -Constants.PAD_HALF + 1.5, Constants.PAD_HALF - 1.5), 1.2, clampf(local.z, -Constants.PAD_HALF + 1.5, Constants.PAD_HALF - 1.5))
+		var inner := rect.grow(-1.5)
+		var back := Vector3(clampf(local.x, inner.position.x, inner.end.x), 1.2, clampf(local.z, inner.position.y, inner.end.y))
 		global_position = zone + back
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
 		_airborne = false
+
+
+## Which zone node this prop is nearest.
+func _zone_name() -> String:
+	var world := get_tree().get_first_node_in_group("world")
+	var best := "LotZone"
+	var best_distance := INF
+	if world == null:
+		return best
+	for zone_name: String in ["StoreZone", "LotZone", "BorderZone"]:
+		var zone := world.get_node_or_null(zone_name) as Node3D
+		if zone != null and zone.global_position.distance_to(global_position) < best_distance:
+			best_distance = zone.global_position.distance_to(global_position)
+			best = zone_name
+	return best
 
 
 ## The middle of whichever zone this prop is nearest: the store, the lot, or the border.
@@ -364,6 +382,12 @@ func _rpc_request_load_truck() -> void:
 func _try_load_bag() -> void:
 	if kind != "leaf_bag" or held_by != 0:
 		return
+	# Tossed into Chefty's bed: it's loaded.
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if truck != null and bool(truck.call("in_bed", global_position)):
+		if int(truck.call("accept_bags", 1, value)) > 0:
+			queue_free()
+			return
 	var closest: Node = null
 	var closest_distance := Constants.BAG_LOAD_RADIUS
 	for node: Node in get_tree().get_nodes_in_group("props"):
