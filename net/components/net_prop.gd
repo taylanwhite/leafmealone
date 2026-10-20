@@ -43,9 +43,10 @@ const _WaterSources = preload("res://net/work/water_sources.gd")
 ## A hose's water: the kind of source it's hooked up to ("chefty", "spigot",
 ## "hydrant"), or "" when it isn't. Replicated.
 @export var hose_source: String = ""
-## True while water is coming out of this hose or pressure washer. Replicated.
+## True while water is coming out of this hose or pressure washer, or while a
+## mower's engine runs. Replicated.
 @export var spraying: bool = false
-## A pressure washer's tank, 0 to 100. Replicated.
+## A pressure washer's tank, or a paint roller's paint, 0 to 100. Replicated.
 @export var water: float = 100.0
 ## A ladder set up against the house: where its top rests (world space), or zero
 ## when it isn't set up. Its position is its foot. Replicated.
@@ -53,6 +54,7 @@ const _WaterSources = preload("res://net/work/water_sources.gd")
 
 var _airborne: bool = false
 var _spray_left: float = 0.0
+var _pulls: int = 0
 ## A snapped hose's loose end whipping from where it was hooked up: from, how far along, who it hit.
 var _whip_from := Vector3.ZERO
 var _whip_t: float = -1.0
@@ -190,10 +192,16 @@ func request_hookup() -> void:
 
 
 func _hookup(peer_id: int) -> void:
-	if held_by != peer_id or (kind != "hose" and kind != "pressure_washer"):
+	if held_by != peer_id or (kind != "hose" and kind != "pressure_washer" and kind != "paint_roller"):
 		return
 	var holder := _player(peer_id)
 	if holder == null:
+		return
+	# A roller dips in the paint bucket.
+	if kind == "paint_roller":
+		for node: Node in get_tree().get_nodes_in_group("paint_buckets"):
+			if (node as Node3D).global_position.distance_to(holder.global_position) < Constants.WATER_REACH + 0.5:
+				water = 100.0
 		return
 	var source := _WaterSources.nearest(get_tree(), holder.global_position, Constants.WATER_REACH)
 	if source == null:
@@ -216,6 +224,41 @@ func _hookup(peer_id: int) -> void:
 func _rpc_request_hookup() -> void:
 	if Net.is_host():
 		_hookup(multiplayer.get_remote_sender_id())
+
+
+## The holder yanks the mower's pull cord. It might catch.
+func request_start() -> void:
+	if Net.is_host():
+		_pull_cord(Net.local_peer_id())
+	else:
+		_rpc_request_start.rpc_id(1)
+
+
+func _pull_cord(peer_id: int) -> void:
+	if kind != "lawn_mower" or held_by != peer_id or spraying:
+		return
+	var chance := Constants.MOWER_START_CHANCE + Constants.MOWER_START_GAIN * float(_pulls)
+	_pulls += 1
+	var caught := randf() < chance
+	if caught:
+		spraying = true
+		_pulls = 0
+	_rpc_pull_fx.rpc(caught)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_start() -> void:
+	if Net.is_host():
+		_pull_cord(multiplayer.get_remote_sender_id())
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_pull_fx(caught: bool) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "pullcord")
+		if caught:
+			sfx.call("play", "mower_start")
 
 
 ## Host: water came out just now (net/work/job_tasks.gd says so on each spray).
@@ -313,8 +356,8 @@ func _host_step() -> void:
 		global_position = _hold_position(player)
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
-		# A mower being pushed mows whatever it rolls over.
-		if kind == "lawn_mower" and Vector2(global_position.x - was.x, global_position.z - was.z).length() > 0.01:
+		# A mower being pushed mows whatever it rolls over, once it's running.
+		if kind == "lawn_mower" and spraying and Vector2(global_position.x - was.x, global_position.z - was.z).length() > 0.01:
 			var tasks := get_tree().get_first_node_in_group("job_tasks")
 			if tasks != null:
 				tasks.call("host_work", "mow_lawn", global_position, 0.75, get_physics_process_delta_time(), held_by)
@@ -357,6 +400,9 @@ func _handle_grab(peer_id: int) -> void:
 func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0) -> void:
 	if held_by != peer_id:
 		return
+	# Let go of a mower and it stalls.
+	if kind == "lawn_mower":
+		spraying = false
 	var player := _player(peer_id)
 	held_by = 0
 	if player != null:

@@ -178,8 +178,9 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 	# Gutters need you up a ladder, not a ladder in your hands. Scooping with a
 	# leaf blower up there goes faster than by hand.
 	var speedup := 1.0
-	if task == "clean_gutters":
-		if not bool(player.call("is_climbing")):
+	if task == "clean_gutters" or task == "clear_roof":
+		# Up a ladder or on the roof: the spot itself checks how close you are.
+		if not bool(player.call("is_up_high")) and player.global_position.y < 2.0:
 			return
 		if _holds(peer_id, "leaf_blower"):
 			speedup = Constants.GUTTER_BLOWER_SPEEDUP
@@ -197,6 +198,11 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 		elif source == "spigot":
 			add_water_fee(Constants.SPIGOT_FEE_PER_SECOND * WORK_TICK)
 		hose.call("mark_spraying")
+	elif task == "paint_fence":
+		var roller := _held(peer_id, "paint_roller")
+		if roller == null or float(roller.get("water")) <= 0.0:
+			return
+		roller.set("water", maxf(0.0, float(roller.get("water")) - 100.0 / Constants.ROLLER_PAINT_SECONDS * WORK_TICK))
 	elif task == "power_wash":
 		var washer := _held(peer_id, "pressure_washer")
 		if washer == null or float(washer.get("water")) <= 0.0:
@@ -238,6 +244,8 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 					distance = Vector2(at.x - origin.x, at.z - origin.z).length()
 					if distance > Constants.LADDER_TOP_REACH or absf(at.y - origin.y) > 2.6:
 						continue
+				elif task == "clear_roof" and absf(at.y - origin.y) > 2.2:
+					continue
 				if distance < best_distance:
 					best = index
 					best_distance = distance

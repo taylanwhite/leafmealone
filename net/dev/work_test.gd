@@ -57,6 +57,7 @@ func _run(lot: Node) -> void:
 	result["expected_task_pay"] = expected
 	print("[WorkTest] receipt pays $%d for the tasks (full pay is $%d), mood %s, total $%d" % [task_pay, expected, settlement.get("mood", "?"), int(settlement.get("paid", 0))])
 	all_ok = all_ok and task_pay >= expected - outcomes.size()
+	all_ok = all_ok and await _fall_check()
 	result["ok"] = all_ok
 	print("[WorkTest] all ok: %s" % all_ok)
 
@@ -74,7 +75,9 @@ func _do_task(tasks: Node, task: String) -> float:
 		await _ticks(2)
 		item.call("request_grab")
 		await _ticks(3)
-	if task == "wash_windows":
+	if task == "clear_roof":
+		await _roof(tasks)
+	elif task == "wash_windows":
 		await _windows(tasks)
 	elif task == "clean_gutters":
 		await _gutters(tasks)
@@ -90,6 +93,13 @@ func _do_task(tasks: Node, task: String) -> float:
 			for _try: int in 40:
 				if int((tasks.call("spot", index) as Dictionary)["amount"]) <= 0:
 					break
+				# A dry roller gets dipped in the paint bucket first.
+				if task == "paint_fence" and float(_prop("paint_roller").get("water")) <= 0.0:
+					var bucket := get_tree().get_first_node_in_group("paint_buckets") as Node3D
+					_move_to(bucket.global_position + Vector3(0.8, -0.3, 0.0))
+					await _ticks(2)
+					_prop("paint_roller").call("request_hookup")
+					await _ticks(2)
 				await _work_at(tasks, task, spot)
 	return float(tasks.call("progress", task))
 
@@ -157,6 +167,42 @@ func _house_middle(tasks: Node) -> Vector3:
 	return total / float(maxi(count, 1))
 
 
+## On the roof: stand by each pile of leaves and scoop it.
+func _roof(tasks: Node) -> void:
+	for index: int in int(tasks.call("spot_count")):
+		var spot: Dictionary = tasks.call("spot", index)
+		if str(spot["task"]) != "clear_roof":
+			continue
+		var at: Vector3 = spot["at"]
+		_move_to(at + Vector3(0.6, 0.4, 0.0))
+		await _ticks(2)
+		for _try: int in 30:
+			if int((tasks.call("spot", index) as Dictionary)["amount"]) <= 0:
+				break
+			tasks.call("request_work", "clear_roof", at + Vector3(0.3, 0.3, 0.0), Vector3.LEFT)
+			_move_to(at + Vector3(0.6, 0.4, 0.0))
+			await _ticks(2)
+
+
+## Step off a high place: a bounce, knocked out, then a limp.
+func _fall_check() -> bool:
+	var me := _own_player()
+	_drop_held()
+	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	_move_to(lot.global_position + Vector3(0.0, 5.0, 10.0))
+	var bounced := false
+	var knocked := false
+	var waited := 0.0
+	while waited < 4.0:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+		bounced = bounced or bool(me.get("_bounced"))
+		knocked = knocked or int(me.get("anim_state")) == 5
+	var limping := bool(me.get("limping"))
+	print("[WorkTest] stepped off 5 m up: bounced %s, knocked out %s, limping %s" % [bounced, knocked, limping])
+	return bounced and knocked and limping
+
+
 ## The ladder way: carry it to each gutter section, set it up, climb, scoop, climb
 ## down, take it back down, next section.
 func _gutters(tasks: Node) -> void:
@@ -219,6 +265,13 @@ func _mow(tasks: Node) -> void:
 	var grid: Dictionary = tasks.call("grid", grid_index)
 	var corner: Vector3 = grid["corner"]
 	var before := float(tasks.call("progress", "mow_lawn"))
+	var mower := _prop("lawn_mower")
+	var pulls := 0
+	while not bool(mower.get("spraying")) and pulls < 10:
+		mower.call("request_start")
+		pulls += 1
+		await _ticks(2)
+	print("[WorkTest] the mower started after %d pulls of the cord" % pulls)
 	for step: int in 120:
 		_move_to(corner + Vector3(2.0 + float(step) * 0.07, 0.1, 20.5))
 		await get_tree().physics_frame

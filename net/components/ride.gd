@@ -6,7 +6,7 @@ extends Node3D
 # TODO(balance): add the truck ride duration to the workbook.
 const RIDE_DURATION_SECONDS: float = 8.0
 ## Where Chefty parks at the lot: the curb in front of the yard (world space; the lot zone is at x 1000).
-const LOT_PARK := Vector3(1007.0, 0.6, 24.6)
+const LOT_PARK := Vector3(1007.0, 0.0, 24.6)
 ## Chefty's bed, in its own space: bags that land in here are loaded.
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const _Vehicles = preload("res://props/vehicles.gd")
@@ -216,9 +216,10 @@ func _build() -> void:
 	# to park at the curb in the near lane, in front of the yard: the driveway
 	# stays clear for work (Taylan, 2026-10-20).
 	var curve := Curve3D.new()
-	curve.add_point(Vector3(10.0, 0.6, 8.0))
-	curve.add_point(Vector3(500.0, 0.6, 20.0))
-	curve.add_point(Vector3(930.0, 0.6, LOT_PARK.z))
+	# The path runs along the ground: the truck's wheels touch down at its body's origin.
+	curve.add_point(Vector3(10.0, 0.0, 8.0))
+	curve.add_point(Vector3(500.0, 0.0, 20.0))
+	curve.add_point(Vector3(930.0, 0.0, LOT_PARK.z))
 	curve.add_point(LOT_PARK)
 	_path.curve = curve
 	add_child(_path)

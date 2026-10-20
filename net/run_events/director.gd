@@ -215,8 +215,9 @@ func _build_van() -> void:
 	var border := get_parent().get_node("BorderZone") as Node3D
 	van.call(
 		"setup_as_van",
-		lot.global_position + Vector3(0.0, 0.6, 8.0),
-		border.global_position + Vector3(0.0, 0.6, 0.0)
+		# From the street's far lane in front of the yard, wheels on the ground.
+		lot.global_position + Vector3(-6.0, 0.0, 28.6),
+		border.global_position + Vector3(0.0, 0.0, 0.0)
 	)
 
 
