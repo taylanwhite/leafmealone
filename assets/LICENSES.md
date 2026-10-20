@@ -19,3 +19,14 @@
 | assets/audio/sfx/arrive.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/tick.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/clear.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/vo_ah.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/vo_eh.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/vo_huh.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/vo_oof.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/vo_hup.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/vo_yelp.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/babble_1.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/babble_2.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/babble_3.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/babble_4.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/babble_5.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
