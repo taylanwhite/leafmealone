@@ -59,7 +59,9 @@ static func pose_rake(prop: Node3D, holder: Node3D, raking: bool) -> void:
 		return
 	# Face the way the holder faces, handle up toward them, tines down ahead.
 	look.global_rotation = Vector3(0.0, holder.global_rotation.y, 0.0)
-	var sweep := sin(Time.get_ticks_msec() * 0.012) * 0.25 if raking else 0.0
+	# Reach out, then drag back, once per stroke.
+	var phase := fmod(Time.get_ticks_msec() / 1000.0, Constants.RAKE_STROKE_SECONDS) / Constants.RAKE_STROKE_SECONDS
+	var sweep := (0.3 - 0.6 * phase) if raking else 0.0
 	pose.rotation = Vector3(-0.85, 0.0, 0.0)
 	pose.position = Vector3(0.0, -0.1, sweep)
 

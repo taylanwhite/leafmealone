@@ -53,6 +53,8 @@ const UI: Dictionary = {
 	"clerk_name": "[CLERK NAME]",
 	"homeowner_name": "[HOMEOWNER NAME]",
 	"prompt_talk": "Talk to the homeowner",
+	"prompt_toss_truck": "Toss into Chefty",
+	"prompt_dump_truck": "Dump into Chefty",
 	"prompt_take_cash": "Take the cash ($%d)",
 	"cash_amount": "$%d",
 	"homeowner_thanks": "Thanks!",

@@ -85,6 +85,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _toggle_hiding():
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _load_truck():
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("drop"):
@@ -193,6 +195,18 @@ func is_hidden() -> bool:
 	return _hidden_spot != null
 
 
+## E by Chefty with a bag tosses it in; with a loaded wheelbarrow, dumps it.
+func _load_truck() -> bool:
+	var held := _held_prop()
+	if held == null or not bool(held.call("near_truck")):
+		return false
+	var held_kind := str(held.get("kind"))
+	if held_kind != "leaf_bag" and not (held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0):
+		return false
+	held.call("request_load_truck")
+	return true
+
+
 ## E inside a hiding spot comes out. E next to a free one asks the host to get in.
 func _toggle_hiding() -> bool:
 	if _hidden_spot != null:
@@ -266,6 +280,12 @@ func interaction_hint() -> Dictionary:
 	if spot != null:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
 	var held := _held_prop()
+	if held != null and bool(held.call("near_truck")):
+		var held_kind := str(held.get("kind"))
+		if held_kind == "leaf_bag":
+			return {"text": _Strings.UI["prompt_toss_truck"], "at": held.global_position + Vector3(0.0, 0.8, 0.0)}
+		if held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0:
+			return {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0)}
 	if held != null and str(held.get("kind")) == "leaf_bag":
 		var barrow := _nearest_kind("wheelbarrow", 2.4) as Node3D
 		if barrow != null:

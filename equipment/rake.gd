@@ -10,6 +10,7 @@ const REACH: float = 1.5
 const HAND_STROKE_SECONDS: float = 0.35
 
 var _hand_wait: float = 0.0
+var _rake_wait: float = 0.0
 var _hooked_field: Node
 
 
@@ -21,6 +22,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_hook_refusal()
 	_hand_wait = maxf(0.0, _hand_wait - delta)
+	_rake_wait = maxf(0.0, _rake_wait - delta)
 	var held: Node = player.call("_held_prop")
 	var has_rake := held != null and str(held.get("kind")) == "rake"
 	# Holding anything but the rake: left click throws it, as before.
@@ -30,7 +32,10 @@ func _physics_process(delta: float) -> void:
 		return
 	if Input.is_action_pressed("primary"):
 		if has_rake:
-			_stroke(player, false, Constants.RAKE_STRENGTH, Constants.RAKE_WIDTH)
+			# A stroke on a rhythm, not every tick: each one shoves leaves well forward.
+			if _rake_wait <= 0.0:
+				_rake_wait = Constants.RAKE_STROKE_SECONDS
+				_stroke(player, false, Constants.RAKE_STRENGTH, Constants.RAKE_WIDTH)
 		elif _hand_wait <= 0.0:
 			_hand_wait = HAND_STROKE_SECONDS
 			_hand_rake(player)
@@ -64,7 +69,7 @@ func _stroke(player: CharacterBody3D, bag: bool, strength: float, width: float) 
 	else:
 		field.call("request_rake", origin, forward, width, strength)
 		_play_sfx("rake")
-	_burst(origin)
+	_burst(origin, forward, width > Constants.HAND_RAKE_WIDTH)
 
 
 ## A refused bag (too few leaves) gets a puzzled "eh?" from you.
@@ -88,22 +93,23 @@ func _field_near(_origin: Vector3) -> Node:
 	return fields[0] as Node
 
 
-func _burst(at: Vector3) -> void:
+## Leaves thrown up and forward the way you raked, more with the rake than by hand.
+func _burst(at: Vector3, forward: Vector3 = Vector3.UP, with_rake: bool = true) -> void:
 	var mesh := BoxMesh.new()
 	mesh.size = Vector3(0.18, 0.08, 0.12)
 	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.75, 0.42, 0.16)
+	material.albedo_color = [Color(0.85, 0.42, 0.17), Color(0.89, 0.71, 0.23), Color(0.64, 0.23, 0.14)][randi() % 3]
 	var particles := CPUParticles3D.new()
 	particles.one_shot = true
 	particles.explosiveness = 1.0
-	particles.amount = 8
+	particles.amount = 18 if with_rake else 5
 	particles.lifetime = 0.45
 	particles.mesh = mesh
 	particles.material_override = material
-	particles.direction = Vector3.UP
-	particles.spread = 50.0
-	particles.initial_velocity_min = 1.0
-	particles.initial_velocity_max = 2.2
+	particles.direction = (forward + Vector3(0.0, 1.2, 0.0)).normalized()
+	particles.spread = 35.0
+	particles.initial_velocity_min = 1.5
+	particles.initial_velocity_max = 3.5 if with_rake else 2.0
 	particles.gravity = Vector3(0, -5.0, 0)
 	particles.emitting = true
 	player_parent().add_child(particles)
