@@ -18,6 +18,7 @@ const PITCH_LIMIT: float = 1.2
 const SPEAKING_TINT := Color(1.0, 0.86, 0.35)
 const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _CharacterLife = preload("res://player/character_life.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -165,6 +166,26 @@ func _toggle_hiding() -> bool:
 		return false
 	closest.call("request_enter")
 	return true
+
+
+## Host only: put this player somewhere. The owning peer moves its own character
+## (NETCODE.md, host-to-owner pattern). Used right after spawning: the host's
+## starting position doesn't reach a client that owns its own movement, so every
+## client used to start at the origin, inside each other.
+func send_teleport(at: Transform3D) -> void:
+	if not Net.is_host():
+		return
+	if name.to_int() == Net.local_peer_id():
+		apply_network_teleport(at)
+	else:
+		_rpc_teleport.rpc_id(name.to_int(), at)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_teleport(at: Transform3D) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	apply_network_teleport(at)
 
 
 ## Host-ordered teleport. Runs on the owning peer only.
@@ -453,6 +474,12 @@ func _dress_up() -> void:
 	body.dress_from_seed(hash(shown) if shown != "" else name.to_int())
 	$Visual.add_child(body)
 	body.build(%Head, is_multiplayer_authority())
+	var life := _CharacterLife.new()
+	life.name = "Life"
+	life.root = self
+	life.body = body
+	life.role = "player"
+	body.add_child(life)
 	%BodyMesh.visible = false
 	var old_head := %Head.get_node_or_null("HeadMesh") as Node3D
 	if old_head != null:

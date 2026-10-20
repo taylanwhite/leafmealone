@@ -11,6 +11,7 @@ extends CharacterBody3D
 const _SPEED_UP := Vector3(0.0, 1.4, 0.0)
 const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _CharacterLife = preload("res://player/character_life.gd")
 ## Close enough to a search or patrol point to pick the next one, in meters.
 const WAYPOINT_REACHED: float = 1.5
 ## Patrol points stay this far inside the lot's edge.
@@ -53,6 +54,12 @@ func _dress_up() -> void:
 	# The crew turns its +Z toward where it walks (see _steer), and bodies face -Z.
 	body.rotation.y = PI
 	body.build()
+	var life := _CharacterLife.new()
+	life.name = "Life"
+	life.root = self
+	life.body = body
+	life.role = "crew"
+	body.add_child(life)
 	var capsule := visual.get_node_or_null("Body") as Node3D
 	if capsule != null:
 		capsule.visible = false

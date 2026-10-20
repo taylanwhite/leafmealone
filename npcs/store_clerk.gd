@@ -10,6 +10,7 @@ extends Node3D
 
 const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _CharacterLife = preload("res://player/character_life.gd")
 ## How close the local player must be to shop, across the counter, in meters.
 const SHOP_REACH: float = 3.0
 ## How close someone must be for the clerk to look at them and greet them.
@@ -35,6 +36,12 @@ func _ready() -> void:
 	_body.set("hat_color", APRON.darkened(0.2))
 	add_child(_body)
 	_body.call("build")
+	var life := _CharacterLife.new()
+	life.name = "Life"
+	life.root = self
+	life.body = _body
+	life.role = "clerk"
+	_body.add_child(life)
 	var tag := Label3D.new()
 	tag.text = _Strings.UI["clerk_name"]
 	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED

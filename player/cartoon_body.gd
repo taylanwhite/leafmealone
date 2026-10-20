@@ -44,6 +44,25 @@ const HEAD_LAYER: int = 2
 var _head_root: Node3D
 var _face: Node3D
 var _own_head: bool = false
+var _pupils: Array[Node3D] = []
+var _face_yaw: float = 0.0
+var _gesture: String = ""
+var _gesture_time: float = 0.0
+var _gesture_length: float = 0.0
+var _brow_lift: float = 0.0
+var _brow_tilt: float = 0.0
+
+## Set by player/character_life.gd each frame. Where the eyes look, in world
+## space, or INF to look straight ahead.
+var look_at_point := Vector3.INF
+## Extra glance in the turning direction, -1 to 1, so the eyes lead the head.
+var eye_lead := Vector2.ZERO
+## How far the face turns toward what it looks at, in radians, kept small.
+var face_turn: float = 0.0
+## "neutral", "raised", "worried", or "angry".
+var mood := "neutral"
+## True while sprinting: the eyes narrow.
+var squinting := false
 var _torso: Node3D
 var _hips: Node3D
 var _legs: Array[Node3D] = []
@@ -65,6 +84,12 @@ var _head_base_y: float = 1.6
 const CROUCH_DROP: float = 0.3
 ## Share of a player's look up and down that the visible head shows.
 const HEAD_TILT_SHARE: float = 0.35
+const GESTURE_SECONDS: Dictionary = {
+	"wave": 1.4, "scratch": 1.6, "stretch": 2.2, "watch": 1.8, "shuffle": 1.2,
+	"cheer": 1.8, "flail": 0.9, "startle": 0.8, "look_around": 2.4, "stumble": 0.9,
+}
+## How far the pupils can travel inside the eye, in meters.
+const PUPIL_RANGE := Vector2(0.026, 0.02)
 
 
 ## Pick colors from a seed so each character looks different but stays the same every session.
@@ -97,12 +122,36 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 		_legs.append(leg)
 		var arm := _pivot(_torso, Vector3(side * 0.27, 0.47, 0.0))
 		arm.rotation.z = side * 0.12
-		_part(arm, _capsule(0.06, 0.5), Vector3(0.0, -0.24, 0.0), shirt)
-		_part(arm, _sphere(0.075), Vector3(0.0, -0.5, 0.0), skin)
+		# Your own arms swing right through your first-person view during gestures,
+		# so like your head they are hidden from your own camera.
+		_on_head_layer(_part(arm, _capsule(0.06, 0.5), Vector3(0.0, -0.24, 0.0), shirt))
+		_on_head_layer(_part(arm, _sphere(0.075), Vector3(0.0, -0.5, 0.0), skin))
 		_arms.append(arm)
 	_head_root = head_parent if head_parent != null else _pivot(self, Vector3(0.0, 1.6, 0.0))
 	_head_base_y = _head_root.position.y
 	_build_head(_head_root)
+
+
+## Play a gesture once: "wave", "scratch", "stretch", "watch", "shuffle",
+## "cheer", "flail", "startle", "look_around", or "stumble". A new one replaces
+## the current one.
+func gesture(gesture_name: String) -> void:
+	_gesture = gesture_name
+	_gesture_time = 0.0
+	_gesture_length = float(GESTURE_SECONDS.get(gesture_name, 1.5))
+
+
+func is_gesturing() -> bool:
+	return _gesture != ""
+
+
+func current_gesture() -> String:
+	return _gesture
+
+
+## How fast the body is really moving across the ground, in m/s.
+func speed() -> float:
+	return _speed
 
 
 ## Flap the mouth for this long, and raise the brows a little.
@@ -121,7 +170,9 @@ func _build_head(root: Node3D) -> void:
 		var white := _part(eye, _sphere(0.075), Vector3.ZERO, EYE_WHITE)
 		white.scale = Vector3(1.0, 1.15, 0.6)
 		_on_head_layer(white)
-		_on_head_layer(_part(eye, _sphere(0.036), Vector3(side * -0.008, -0.005, -0.04), PUPIL))
+		var pupil := _part(eye, _sphere(0.036), Vector3(side * -0.008, -0.005, -0.04), PUPIL)
+		_on_head_layer(pupil)
+		_pupils.append(pupil)
 		_eyes.append(eye)
 		var brow := _pivot(face, Vector3(side * 0.1, 0.16, -0.235))
 		_on_head_layer(_part(brow, _box(Vector3(0.09, 0.022, 0.02)), Vector3.ZERO, hair.darkened(0.3)))
@@ -190,6 +241,11 @@ func _process(delta: float) -> void:
 	# A player's Head node tilts fully with where they look, for the camera. A real
 	# head tips much less, so the visible head only follows part of it.
 	_face.rotation.x = -_head_root.rotation.x * (1.0 - HEAD_TILT_SHARE)
+	_face_yaw = lerpf(_face_yaw, face_turn, clampf(delta * 6.0, 0.0, 1.0))
+	_face.rotation.y = _face_yaw
+	# Lean into turns a little: the body tips toward where the eyes lead.
+	_torso.rotation.z = lerpf(_torso.rotation.z, -eye_lead.x * 0.08 * walk, clampf(delta * 8.0, 0.0, 1.0))
+	_animate_gesture(delta)
 	_animate_face(delta)
 
 
@@ -199,15 +255,114 @@ func _animate_face(delta: float) -> void:
 		_blink_left = 0.12
 		_blink_in = randf_range(1.8, 4.5)
 	_blink_left = maxf(0.0, _blink_left - delta)
+	var eye_open := 0.12 if _blink_left > 0.0 else (0.6 if squinting else 1.0)
+	if _gesture == "stretch" and _gesture_time > 0.4:
+		eye_open = 0.15
+	if _gesture == "startle":
+		eye_open = 1.3
 	for eye: Node3D in _eyes:
-		eye.scale.y = 0.12 if _blink_left > 0.0 else 1.0
+		eye.scale.y = lerpf(eye.scale.y, eye_open, clampf(delta * 25.0, 0.0, 1.0))
+	_aim_pupils(delta)
 	_talk_left = maxf(0.0, _talk_left - delta)
 	var open := 0.0
 	if _talk_left > 0.0:
 		open = absf(sin(_time * 24.0))
 	_mouth.scale = Vector3(1.0 - open * 0.3, 1.0 + open * 3.5, 1.0)
+	var lift := 0.0
+	var tilt := 0.0
+	match mood:
+		"raised":
+			lift = 0.035
+		"worried":
+			lift = 0.015
+			tilt = 0.35
+		"angry":
+			lift = -0.01
+			tilt = -0.4
+	if _talk_left > 0.0:
+		lift += 0.02
+	if _gesture == "startle" or _gesture == "wave":
+		lift = 0.045
+	_brow_lift = lerpf(_brow_lift, lift, clampf(delta * 10.0, 0.0, 1.0))
+	_brow_tilt = lerpf(_brow_tilt, tilt, clampf(delta * 10.0, 0.0, 1.0))
 	for index: int in _brows.size():
-		_brows[index].position.y = 0.16 + (0.03 if _talk_left > 0.0 else 0.0)
+		var side := -1.0 if index == 0 else 1.0
+		_brows[index].position.y = 0.16 + _brow_lift
+		# Worried brows lift toward the middle, angry ones dip toward it.
+		_brows[index].rotation.z = side * (-0.12 + _brow_tilt)
+	if _gesture == "stretch" and _gesture_time > 0.4 and _gesture_time < 1.8:
+		_mouth.scale = Vector3(0.8, 6.0, 1.0)
+	elif _gesture == "startle":
+		_mouth.scale = Vector3(0.6, 5.0, 1.0)
+
+
+## Point the pupils at look_at_point, plus the turn lead, inside the eye.
+func _aim_pupils(delta: float) -> void:
+	var aim := eye_lead
+	if _gesture == "watch":
+		# Down and to the left, at the wrist.
+		aim = Vector2(-0.7, -0.9)
+	elif look_at_point != Vector3.INF and _face != null:
+		var local := _face.global_transform.affine_inverse() * look_at_point
+		# The face looks down -Z. Left-right and up-down as a share of the distance ahead.
+		var ahead := maxf(0.3, -local.z)
+		aim += Vector2(clampf(local.x / ahead, -1.0, 1.0), clampf((local.y - 0.06) / ahead, -1.0, 1.0))
+	aim = aim.limit_length(1.0)
+	for index: int in _pupils.size():
+		var side := -1.0 if index == 0 else 1.0
+		var rest := Vector3(side * -0.008, -0.005, -0.04)
+		var target := rest + Vector3(aim.x * PUPIL_RANGE.x, aim.y * PUPIL_RANGE.y, 0.0)
+		_pupils[index].position = _pupils[index].position.lerp(target, clampf(delta * 18.0, 0.0, 1.0))
+
+
+## Gestures layer over walking: they mostly move the arms, sometimes the face.
+func _animate_gesture(delta: float) -> void:
+	if _gesture == "":
+		return
+	_gesture_time += delta
+	var t := _gesture_time
+	var fade := clampf(minf(t * 5.0, (_gesture_length - t) * 5.0), 0.0, 1.0)
+	var right := _arms[1]
+	var left := _arms[0]
+	match _gesture:
+		"wave":
+			right.rotation.z = lerpf(right.rotation.z, 2.6 + 0.35 * sin(t * 14.0), fade)
+		"scratch":
+			right.rotation.z = lerpf(right.rotation.z, 2.3, fade)
+			right.rotation.x = lerpf(right.rotation.x, -0.6 + 0.15 * sin(t * 20.0), fade)
+			_face.rotation.z = 0.12 * fade
+		"stretch":
+			left.rotation.z = lerpf(left.rotation.z, -2.9, fade)
+			right.rotation.z = lerpf(right.rotation.z, 2.9, fade)
+			_torso.scale.y += 0.05 * fade
+		"watch":
+			left.rotation.x = lerpf(left.rotation.x, -1.3, fade)
+			left.rotation.z = lerpf(left.rotation.z, 0.6, fade)
+			_face.rotation.x -= 0.35 * fade
+		"shuffle":
+			_legs[0].rotation.x = 0.25 * sin(t * 12.0) * fade
+			_legs[1].rotation.x = -0.25 * sin(t * 12.0) * fade
+		"cheer":
+			left.rotation.z = lerpf(left.rotation.z, -2.7 - 0.3 * sin(t * 12.0), fade)
+			right.rotation.z = lerpf(right.rotation.z, 2.7 + 0.3 * sin(t * 12.0), fade)
+			_hips.position.y += absf(sin(t * 7.0)) * 0.12 * fade
+		"flail":
+			left.rotation.z = -2.2 - 0.6 * sin(t * 22.0)
+			right.rotation.z = 2.2 + 0.6 * sin(t * 22.0 + 1.3)
+		"startle":
+			left.rotation.z = lerpf(left.rotation.z, -1.6, fade)
+			right.rotation.z = lerpf(right.rotation.z, 1.6, fade)
+			_hips.position.y += 0.12 * sin(clampf(t / 0.35, 0.0, 1.0) * PI)
+		"look_around":
+			face_turn = sin(t * 2.6) * 0.6
+		"stumble":
+			_torso.rotation.x = lerpf(_torso.rotation.x, -0.6, fade)
+			left.rotation.x = -2.0 * sin(t * 16.0)
+			right.rotation.x = 2.0 * sin(t * 16.0)
+	if t >= _gesture_length:
+		if _gesture == "look_around":
+			face_turn = 0.0
+		_gesture = ""
 
 
 func _on_head_layer(node: Node3D) -> void:
