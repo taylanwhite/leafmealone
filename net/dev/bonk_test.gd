@@ -45,6 +45,10 @@ func _run() -> void:
 		print("[BonkTest] %s (%.1f kg, %s): target moved %.2f m, knocked %s, ok=%s" % [kind, float(outcome.get("kg", 0.0)), outcome.get("tier", "?"), float(outcome.get("moved", 0.0)), outcome.get("knocked", false), ok])
 		# Let them get up before the next one.
 		await get_tree().create_timer(3.0).timeout
+	var walker_hit: bool = await _throw_at_pedestrian()
+	result["pedestrian_hit"] = walker_hit
+	print("[BonkTest] rake at a pedestrian on the sidewalk: knocked off their route %s" % walker_hit)
+	all_ok = all_ok and walker_hit
 	result["ok"] = all_ok
 	print("[BonkTest] all ok: %s" % all_ok)
 
@@ -88,6 +92,44 @@ func _throw_at_target(kind: String) -> Dictionary:
 	outcome["knocked"] = knocked
 	outcome["moved"] = moved
 	return outcome
+
+
+## Throws the rake over the yard's wall at someone walking past on the sidewalk.
+func _throw_at_pedestrian() -> bool:
+	var item := _prop("rake")
+	var me := _own_player()
+	var walker: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("bonkable"):
+		var candidate := node as Node3D
+		if candidate != null and candidate.global_position.distance_to(me.global_position) < 200.0 and not bool(candidate.get("_free")):
+			walker = candidate
+			break
+	if item == null or walker == null:
+		return false
+	await get_tree().physics_frame
+	# Lead them a little: they keep walking while it flies.
+	var ahead := walker.global_position + (-walker.global_basis.z) * 0.25
+	var spot := ahead - Vector3(0.0, 0.0, 2.2) if walker.global_position.z > me.global_position.z else ahead + Vector3(0.0, 0.0, 2.2)
+	spot.y = walker.global_position.y
+	me.call("apply_network_teleport", Transform3D(Basis.IDENTITY, spot))
+	var toward := Vector3(0.0, 0.0, signf(ahead.z - spot.z))
+	me.set("body_yaw", atan2(-toward.x, -toward.z))
+	me.rotation.y = float(me.get("body_yaw"))
+	item.global_position = spot + Vector3(0.0, 0.4, 0.0) + toward * 0.6
+	item.set("linear_velocity", Vector3.ZERO)
+	await _ticks(3)
+	item.call("request_grab")
+	await _ticks(3)
+	if int(item.get("held_by")) != Net.local_peer_id():
+		return false
+	item.call("request_throw", toward)
+	var waited := 0.0
+	while waited < 1.5:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+		if bool(walker.get("_free")):
+			return true
+	return false
 
 
 func _ticks(count: int) -> void:
