@@ -226,3 +226,17 @@ const MOWER_START_CHANCE: float = 0.3
 const MOWER_START_GAIN: float = 0.25
 ## The paint roller holds this many seconds of paint before it needs dipping again.
 const ROLLER_PAINT_SECONDS: float = 8.0
+
+## Running things over with the mower, from Taylan on 2026-10-20.
+## TODO(balance): not in the workbook yet.
+## How close to the mower's deck something has to be to get run over.
+const MOWER_HIT_RADIUS: float = 0.7
+## What the homeowner (or the hospital) bills you, in dollars.
+const BILL_HOSE: int = 25
+const BILL_GNOME: int = 15
+const BILL_FOOT_CUT: int = 40
+const BILL_FOOT_OFF: int = 120
+## Of feet run over, this share come clean off (the rest are cuts).
+const FOOT_OFF_CHANCE: float = 0.3
+## Hopping on one foot: this share of walking speed.
+const HOP_SPEED_SHARE: float = 0.45
