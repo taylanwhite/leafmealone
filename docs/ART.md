@@ -50,3 +50,12 @@ assets/
   fonts/
   LICENSES.md
 ```
+
+## Audio
+
+Goofy, not realistic. The reference is Schedule I: bouncy, cartoony, a little dumb. Taylan set this on 2026-10-19 after hearing realistic synthesized sounds and not liking any of them.
+
+- Sound effects are cartoon sounds: pomfs, swooshes, boings, honks, slide whistles, brass stabs. Exaggerate them so they read as jokes, not as foley.
+- Characters never speak real words. They make short silly noises (ah?, oof, eh?, huh?, hup) and babble gibberish when talking, like the "ewewewew" of Animal Crossing. Each character's pitch differs a little so they can be told apart.
+- Every sound is synthesized by `tools/make_sfx.py`, so all audio is a project original with nothing to license or disclose. Change a sound by changing its recipe there and re-running it.
+- Proximity voice chat between real players is untouched: that is real people talking.
