@@ -57,6 +57,9 @@ func _ready() -> void:
 	_rake_hint.add_theme_constant_override("shadow_offset_y", 1)
 	_rake_hint.visible = false
 	add_child(_rake_hint)
+	var goal := preload("res://ui/job_goal.gd").new()
+	goal.name = "JobGoal"
+	add_child(goal)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = "Dev host (ENet)"
