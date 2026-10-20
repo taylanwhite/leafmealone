@@ -5,7 +5,7 @@ extends Node
 ## pitch wobble, so repeats don't sound like the same file over and over.
 
 ## How many numbered variants a sound has. Sounds not listed are one file.
-const VARIANTS: Dictionary = {"step": 4, "rake": 3, "bag": 2, "babble": 5}
+const VARIANTS: Dictionary = {"step": 4, "rake": 3, "bag": 2, "babble": 5, "bonk": 2}
 ## Pitch range for each play, as a multiple of normal.
 const PITCH_WOBBLE := Vector2(0.93, 1.07)
 

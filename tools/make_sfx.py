@@ -347,6 +347,46 @@ def clear() -> list[float]:
     return out
 
 
+def bonk(variant: int) -> list[float]:
+    """A cartoon bonk on the head: a hollow wooden knock that boings down."""
+    out = silence(0.45)
+    base = (620.0, 540.0)[variant - 1]
+    knock = decay(tone(0.35, glide(base, base * 0.55, 0.25), "triangle"), 14.0)
+    mix_into(out, knock, 0.0, 0.9)
+    mix_into(out, decay(tone(0.35, glide(base * 2.4, base * 1.2, 0.2)), 22.0), 0.0, 0.35)
+    rng = random.Random(40 + variant)
+    mix_into(out, decay(highpass(noise(rng, 0.05), 2500.0), 60.0), 0.0, 0.4)
+    return out
+
+
+def thud() -> list[float]:
+    """Something heavy lands on someone: a big low pomf, a wobble, and a rattle."""
+    out = silence(0.9)
+    mix_into(out, blip(0.6, 160.0, 55.0, 6.0), 0.0, 1.0)
+    wobble = decay(tone(0.6, 90.0, "sine", (11.0, 0.25)), 5.0)
+    mix_into(out, wobble, 0.05, 0.5)
+    rng = random.Random(9)
+    mix_into(out, decay(bandpass(noise(rng, 0.3), 900.0, 2.0), 12.0), 0.02, 0.3)
+    return out
+
+
+def whoosh() -> list[float]:
+    """A throw: a quick airy swoosh that rises and falls."""
+    rng = random.Random(77)
+    swoosh = bandpass(noise(rng, 0.32), lambda t: 500.0 + 2600.0 * math.sin(math.pi * min(1.0, t / 0.3)), 2.0)
+    return envelope(swoosh, 0.05, 0.2)
+
+
+def dizzy() -> list[float]:
+    """Seeing stars: three little birdie tweets circling."""
+    out = silence(1.3)
+    for index in range(3):
+        chirp = decay(tone(0.18, glide(2200.0 + index * 150.0, 3200.0 + index * 150.0, 0.12)), 18.0)
+        mix_into(out, chirp, 0.1 + index * 0.35, 0.7)
+        mix_into(out, decay(tone(0.12, glide(3000.0, 2400.0, 0.1)), 25.0), 0.22 + index * 0.35, 0.5)
+    return out
+
+
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
     "step": (step, 4, 0.3),
@@ -366,6 +406,10 @@ SOUNDS = {
     "vo_hup": (vo_hup, 0, 0.55),
     "vo_yelp": (vo_yelp, 0, 0.8),
     "babble": (babble, 5, 0.6),
+    "bonk": (bonk, 2, 0.75),
+    "thud": (thud, 0, 0.85),
+    "whoosh": (whoosh, 0, 0.5),
+    "dizzy": (dizzy, 0, 0.5),
 }
 
 
