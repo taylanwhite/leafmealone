@@ -131,6 +131,11 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 	_head_root = head_parent if head_parent != null else _pivot(self, Vector3(0.0, 1.6, 0.0))
 	_head_base_y = _head_root.position.y
 	_build_head(_head_root)
+	# Your own body, not just your head: looking down in first person, the torso
+	# right under the camera filled the screen.
+	if _own_head:
+		for node: Node in find_children("*", "MeshInstance3D", true, false):
+			_on_head_layer(node as Node3D)
 
 
 ## Play a gesture once: "wave", "scratch", "stretch", "watch", "shuffle",
@@ -199,7 +204,9 @@ func _build_head(root: Node3D) -> void:
 			_on_head_layer(mop)
 
 
-func _process(delta: float) -> void:
+## Animates on physics ticks: the head carries a player's camera, and physics
+## interpolation smooths everything that moves on ticks together.
+func _physics_process(delta: float) -> void:
 	if _hips == null:
 		return
 	_time += delta
