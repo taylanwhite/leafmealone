@@ -74,7 +74,9 @@ func _do_task(tasks: Node, task: String) -> float:
 		await _ticks(2)
 		item.call("request_grab")
 		await _ticks(3)
-	if task == "mow_lawn":
+	if task == "clean_gutters":
+		await _gutters(tasks)
+	elif task == "mow_lawn":
 		await _mow(tasks)
 	elif task == "power_wash":
 		await _wash(tasks)
@@ -112,6 +114,60 @@ func _work_at(tasks: Node, task: String, spot: Dictionary) -> void:
 		_:
 			tasks.call("request_work", task, at, -flat)
 	await _ticks(2)
+
+
+## The ladder way: carry it to each gutter section, set it up, climb, scoop, climb
+## down, take it back down, next section.
+func _gutters(tasks: Node) -> void:
+	var ladder := _prop("ladder")
+	var me := _own_player()
+	var climbs := 0
+	for index: int in int(tasks.call("spot_count")):
+		var spot: Dictionary = tasks.call("spot", index)
+		if str(spot["task"]) != "clean_gutters" or int(spot["amount"]) <= 0:
+			continue
+		var at: Vector3 = spot["at"]
+		var out: Vector3 = spot["normal"]
+		_drop_held()
+		await _ticks(2)
+		if bool(ladder.call("is_set_up")):
+			_move_to(ladder.global_position + Vector3(0.0, 0.1, 0.0))
+			await _ticks(2)
+			ladder.call("request_grab")
+			await _ticks(2)
+			_drop_held()
+			await _ticks(2)
+		_move_to(ladder.global_position + Vector3(0.0, 0.1, 0.8))
+		await _ticks(2)
+		ladder.call("request_grab")
+		await _ticks(3)
+		_move_to(Vector3(at.x, 0.1, at.z) + out * 1.6)
+		await _ticks(3)
+		ladder.call("request_place_ladder")
+		await _ticks(3)
+		if not bool(ladder.call("is_set_up")):
+			print("[WorkTest] couldn't set the ladder up at %s" % at)
+			continue
+		_move_to(ladder.global_position + out * 0.5 + Vector3(0.0, 0.1, 0.0))
+		await _ticks(2)
+		me.call("_toggle_climb")
+		await get_tree().create_timer(Constants.LADDER_CLIMB_SECONDS + 0.3).timeout
+		climbs += 1
+		for _try: int in 40:
+			if not bool(me.call("is_climbing")):
+				print("[WorkTest] not up the ladder at %s" % at)
+				break
+			for near: int in int(tasks.call("spot_count")):
+				var other: Dictionary = tasks.call("spot", near)
+				if str(other["task"]) == "clean_gutters" and int(other["amount"]) > 0:
+					tasks.call("request_work", "clean_gutters", me.global_position + Vector3(0.0, 1.5, 0.0) - out * 0.4, -out)
+					break
+			await _ticks(2)
+			if int((tasks.call("spot", index) as Dictionary)["amount"]) <= 0:
+				break
+		me.call("_toggle_climb")
+		await get_tree().create_timer(Constants.LADDER_CLIMB_SECONDS + 0.3).timeout
+	print("[WorkTest] gutters took %d trips up the ladder" % climbs)
 
 
 ## Push the mower down one strip for real, then mow the rest cell by cell.

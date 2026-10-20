@@ -37,6 +37,9 @@ properties/7/replication_mode = 2
 properties/8/path = NodePath(".:stored_value")
 properties/8/spawn = true
 properties/8/replication_mode = 2
+properties/9/path = NodePath(".:ladder_top")
+properties/9/spawn = true
+properties/9/replication_mode = 2
 
 [node name="YardProp" type="RigidBody3D"]
 collision_layer = 1

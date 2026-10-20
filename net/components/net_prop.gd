@@ -39,6 +39,10 @@ const _MoneyPopup = preload("res://ui/money_popup.gd")
 		stored_value = new_value
 		_refresh_label()
 
+## A ladder set up against the house: where its top rests (world space), or zero
+## when it isn't set up. Its position is its foot. Replicated.
+@export var ladder_top := Vector3.ZERO
+
 var _airborne: bool = false
 ## Who threw this, and when, so a throw can't bonk its own thrower right away.
 var _thrower: int = 0
@@ -69,11 +73,15 @@ func _physics_process(_delta: float) -> void:
 		return
 	# A carried prop must not stay solid. Moving a colliding body into the player launches them.
 	_set_solid(held_by == 0)
+	if Net.is_host() and ladder_top != Vector3.ZERO:
+		freeze = true
 	_refresh_label()
 	if kind == "rake":
 		var holder := _player(held_by) if held_by != 0 else null
 		var raking := held_by == Net.local_peer_id() and Input.is_action_pressed("primary")
 		_PropLooks.pose_rake(self, holder, raking)
+	elif kind == "ladder" and ladder_top != Vector3.ZERO:
+		_PropLooks.pose_ladder_up(self, ladder_top)
 	elif Constants.TOOL_PRICES.has(kind):
 		_PropLooks.pose_tool(self, _player(held_by) if held_by != 0 else null)
 	if Net.is_host():
@@ -104,6 +112,57 @@ func weight_tier() -> String:
 	if kg <= float(Constants.BONK_TIER_KG["medium"]):
 		return "medium"
 	return "heavy"
+
+
+## The holder sets the ladder up against the nearest gutter, if one is close.
+func request_place_ladder() -> void:
+	if Net.is_host():
+		_place_ladder(Net.local_peer_id())
+	else:
+		_rpc_request_place_ladder.rpc_id(1)
+
+
+func is_set_up() -> bool:
+	return ladder_top != Vector3.ZERO
+
+
+func _place_ladder(peer_id: int) -> void:
+	if kind != "ladder" or held_by != peer_id:
+		return
+	var player := _player(peer_id)
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if player == null or tasks == null:
+		return
+	# The gutter section closest to where they stand.
+	var best := -1
+	var best_distance := Constants.LADDER_SET_REACH
+	for index: int in int(tasks.call("spot_count")):
+		var spot: Dictionary = tasks.call("spot", index)
+		if str(spot["task"]) != "clean_gutters":
+			continue
+		var at: Vector3 = spot["at"]
+		var distance := Vector2(at.x - player.global_position.x, at.z - player.global_position.z).length()
+		if distance < best_distance:
+			best = index
+			best_distance = distance
+	if best < 0:
+		return
+	var gutter: Dictionary = tasks.call("spot", best)
+	var top: Vector3 = (gutter["at"] as Vector3) - Vector3(0.0, 0.15, 0.0)
+	var out: Vector3 = gutter["normal"]
+	held_by = 0
+	_set_solid(true)
+	freeze = true
+	var foot := Vector3(top.x, player.global_position.y, top.z) + out * (0.28 * top.y + 0.3)
+	global_position = foot
+	rotation = Vector3.ZERO
+	ladder_top = top
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_place_ladder() -> void:
+	if Net.is_host():
+		_place_ladder(multiplayer.get_remote_sender_id())
 
 
 func request_grab() -> void:
@@ -177,6 +236,9 @@ func _handle_grab(peer_id: int) -> void:
 		return
 	held_by = peer_id
 	_airborne = false
+	# Taking a set-up ladder down: anyone on it falls.
+	if ladder_top != Vector3.ZERO:
+		ladder_top = Vector3.ZERO
 	_set_solid(false)
 
 

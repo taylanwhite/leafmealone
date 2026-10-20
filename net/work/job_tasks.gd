@@ -173,10 +173,18 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 	if player.global_position.distance_to(origin) > reach + 2.5:
 		return
 	var tool := str(Constants.TASK_TOOLS.get(task, ""))
-	if tool != "" and not _holds(peer_id, tool):
+	# Gutters need you up a ladder, not a ladder in your hands. Scooping with a
+	# leaf blower up there goes faster than by hand.
+	var speedup := 1.0
+	if task == "clean_gutters":
+		if not bool(player.call("is_climbing")):
+			return
+		if _holds(peer_id, "leaf_blower"):
+			speedup = Constants.GUTTER_BLOWER_SPEEDUP
+	elif tool != "" and not _holds(peer_id, tool):
 		return
 	# Tools work while held down, a tick at a time; bare-hands work is one press each.
-	var amount := float(Constants.TASK_WORK_RATE.get(task, 50.0)) * (WORK_TICK if tool != "" else 1.0)
+	var amount := float(Constants.TASK_WORK_RATE.get(task, 50.0)) * (WORK_TICK if tool != "" else 1.0) * speedup
 	var done := 0
 	var hit := origin
 	match task:
@@ -206,7 +214,11 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 				if str(entry["task"]) != task or int(entry["amount"]) <= 0:
 					continue
 				var at: Vector3 = entry["at"]
-				var distance := Vector2(at.x - origin.x, at.z - origin.z).length() if task == "clean_gutters" else at.distance_to(origin)
+				var distance := at.distance_to(origin)
+				if task == "clean_gutters":
+					distance = Vector2(at.x - origin.x, at.z - origin.z).length()
+					if distance > Constants.LADDER_TOP_REACH or absf(at.y - origin.y) > 2.6:
+						continue
 				if distance < best_distance:
 					best = index
 					best_distance = distance
