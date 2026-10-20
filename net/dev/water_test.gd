@@ -79,6 +79,19 @@ func _run(lot: Node3D) -> void:
 	var fee := float(tasks.get("water_fee"))
 	print("[WaterTest] on the house spigot %s: windows %d%% clean by aiming the arc, water bill $%d" % [on_spigot, int(windows * 100.0), int(fee)])
 	ok = ok and on_spigot and windows >= 0.99 and fee > 0.0
+	# In a windowed run: pictures of aiming the hose low and high, from your own eyes.
+	if DisplayServer.get_name() != "headless":
+		me.set("head_pitch", -0.2)
+		await _ticks(4)
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		Input.action_press(&"primary")
+		await get_tree().create_timer(0.8).timeout
+		_snapshot("aim_low")
+		me.set("head_pitch", 0.55)
+		await get_tree().create_timer(0.8).timeout
+		_snapshot("aim_high")
+		Input.action_release(&"primary")
+		me.set("head_pitch", 0.0)
 	# 3. The washer runs dry, then refills.
 	var washer := _prop("pressure_washer")
 	_drop_held()
@@ -117,6 +130,22 @@ func _run(lot: Node3D) -> void:
 		var highest := 0.0
 		var shot := false
 		var waited := 0.0
+		_drop_held()
+		await _ticks(1)
+		await _grab_at(_prop("pressure_washer"), lot.global_position + Vector3(1.5, 0.1, 9.0))
+		_prop("pressure_washer").set("water", 100.0)
+		Input.action_press(&"primary")
+		await get_tree().create_timer(0.8).timeout
+		_snapshot("washer")
+		Input.action_release(&"primary")
+		_drop_held()
+		await _ticks(2)
+		await _grab_at(hose, Vector3(hydrant.global_position.x, 0.1, hydrant.global_position.z - 1.4))
+		if str(hose.get("hose_source")) != "hydrant":
+			hose.call("request_hookup")
+		await _ticks(3)
+		me.set("body_yaw", PI)
+		Input.action_press(&"primary")
 		while waited < 3.5:
 			await get_tree().physics_frame
 			waited += get_physics_process_delta_time()

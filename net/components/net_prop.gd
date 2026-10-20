@@ -69,6 +69,8 @@ const PUSH_REACH: float = 1.1
 
 func _enter_tree() -> void:
 	add_to_group("props")
+	# After players (100): a held tool follows its holder's head on the same tick.
+	process_physics_priority = 110
 
 
 func _ready() -> void:
@@ -650,9 +652,12 @@ func _hold_position(player: CharacterBody3D) -> Vector3:
 	var forward := -player.global_transform.basis.z
 	var right := player.global_transform.basis.x
 	match kind:
-		"lawn_mower", "pressure_washer":
-			# Pushed or dragged along the ground in front.
+		"lawn_mower":
+			# Pushed along the ground in front.
 			return player.global_position + forward * 1.15
+		"pressure_washer":
+			# Rolled along at your side while you hold its wand.
+			return player.global_position + right * 0.85 + forward * 0.2
 		"ladder":
 			# On the shoulder.
 			return player.global_position + Vector3(0.0, 1.45, 0.0) + right * 0.3
