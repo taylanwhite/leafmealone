@@ -167,3 +167,10 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Work** is in `net/work/job_tasks.gd`: spots for one-at-a-time work and grids for areas, defined in the same order on every peer and owned by the host after that. Clients call `request_work` while using a tool; the host checks the tool and the distance, applies it, and sends only changed spots and cells. `levels/lots/task_looks.gd` draws it all. `--work-test` with `--all-tools --all-tasks` finishes every task and checks a client agrees; CI runs it.
 - **Also:** the crew's navmesh bake is limited to the yard, since the street's ground collider would make it bake hundreds of meters.
 - **Revisit:** if more than one lot template is needed (a corner lot, an apartment), add scenes to the lot spawner and let the seed pick one.
+
+### 2026-10-20: Zones have their own play areas; water and ladders are host-checked physics
+
+- **Why:** Taylan wants jobs to make physical sense. The lot's play area (`Constants.PAD_RECTS`) now reaches past the sidewalk into the near lane where Chefty parks; walls, item return, and the edge rescue all read it. Chefty and the van have collision that moves with them.
+- **Water:** the hose's source, whether it's spraying, and the washer's tank replicate on the prop. The host snaps an over-stretched hose and runs the whip's knockouts, traces each spray's ballistic arc (`JobTasks.water_arc`) against windows, runs up the spigot bill, and drains the washer. The rope (`props/hose_rope.gd`) and the drops (`props/water_stream.gd`) are local and use the same arc. The hydrant's push is applied by the holder's own peer, like all player movement.
+- **Ladders:** a set-up ladder's top replicates; whether someone is up one is worked out from their position, so the host can check gutter work for anyone without new state.
+- **Tests:** `--water-test` and `--work-test` cover it; CI runs them.
