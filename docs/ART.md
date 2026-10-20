@@ -8,6 +8,12 @@ Consistent and funny matters more than pretty. Most of our art will be AI-genera
 - Readable silhouettes beat detail. If something is funny, make sure it reads from 20 meters away.
 - Characters are simple and a bit goofy. Physical comedy (wobbly ragdolls, exaggerated stumbles) does more work than facial detail.
 
+## How models are made right now
+
+- Models are built in code, not imported: `props/mesh_kit.gd` makes lumpy blobs, rounded boxes, bent tubes, cones, wheels, and leaf cards, merged into one mesh with shading baked into vertex colors, drawn by `props/stylized.gd`. Buildings and ground keep the procedural surface shader (`props/surfaces.gd`).
+- Look at a model before shipping it: `Godot --path . res://tools/studio/studio.tscn -- --subject=trees --out=build/art/trees.png` renders four angles under the game's light. Add a subject in `tools/studio/studio.gd` for anything new.
+- Shapes are soft and chunky: rounded edges, lumps that only push outward on hair and hedges, no part floating loose or poking through another. Faces have eyes, brows, and mouths flush with the head.
+
 ## Game-specific notes
 
 - **The store is Homie Depot.** Signage, the store zone, and any store UI use that name.
