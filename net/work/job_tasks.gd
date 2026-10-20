@@ -23,6 +23,8 @@ const SEND_INTERVAL: float = 0.1
 
 ## Task ids the homeowner asked for, besides raking.
 var active := PackedStringArray()
+## Dollars the homeowner will bill for their water (the spigot). Replicated in whole dollars.
+var water_fee: float = 0.0
 
 var _spots: Array[Dictionary] = []
 var _grids: Array[Dictionary] = []
@@ -183,22 +185,39 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 			speedup = Constants.GUTTER_BLOWER_SPEEDUP
 	elif tool != "" and not _holds(peer_id, tool):
 		return
+	# Water: a hose has to be hooked up, a pressure washer has to have water in it.
+	var hose: Node = null
+	if task == "wash_windows":
+		hose = _held(peer_id, "hose")
+		if hose == null or str(hose.get("hose_source")) == "":
+			return
+		var source := str(hose.get("hose_source"))
+		if source == "hydrant":
+			speedup *= Constants.HYDRANT_CLEAN_SPEEDUP
+		elif source == "spigot":
+			add_water_fee(Constants.SPIGOT_FEE_PER_SECOND * WORK_TICK)
+		hose.call("mark_spraying")
+	elif task == "power_wash":
+		var washer := _held(peer_id, "pressure_washer")
+		if washer == null or float(washer.get("water")) <= 0.0:
+			return
+		washer.set("water", maxf(0.0, float(washer.get("water")) - Constants.WASHER_USE_PER_SECOND * WORK_TICK))
+		washer.call("mark_spraying")
 	# Tools work while held down, a tick at a time; bare-hands work is one press each.
 	var amount := float(Constants.TASK_WORK_RATE.get(task, 50.0)) * (WORK_TICK if tool != "" else 1.0) * speedup
 	var done := 0
 	var hit := origin
 	match task:
 		"wash_windows":
-			# Spray: every dirty window along the look within reach.
-			var aim := direction.normalized()
+			# The water flies in an arc at the source's pressure: only the windows
+			# it actually passes through get clean.
+			var speed := float(Constants.WATER_SPEED.get(str(hose.get("hose_source")), 10.0))
+			var arc := water_arc(origin, direction.normalized() * speed)
 			for index: int in _spots.size():
 				var entry := _spots[index]
 				if str(entry["task"]) != task or int(entry["amount"]) <= 0:
 					continue
-				var to := (entry["at"] as Vector3) - origin
-				if to.length() > reach or to.length() < 0.01:
-					continue
-				if aim.angle_to(to.normalized()) > 0.22:
+				if _arc_distance(arc, entry["at"]) > float(entry["radius"]):
 					continue
 				done += _work_spot(index, amount)
 				hit = entry["at"]
@@ -273,6 +292,54 @@ func _work_cells(task: String, at: Vector3, radius: float, amount: float) -> int
 				cell_changed.emit(grid_index, index, after)
 		entry["amounts"] = amounts
 	return done
+
+
+## Points along a stream of water from origin at velocity, every 0.04 s, until it
+## lands. The same arc the stream is drawn with.
+static func water_arc(origin: Vector3, velocity: Vector3) -> PackedVector3Array:
+	var points := PackedVector3Array()
+	var at := origin
+	var moving := velocity
+	for _step: int in 60:
+		points.append(at)
+		moving += Vector3(0.0, -9.8, 0.0) * 0.04
+		at += moving * 0.04
+		if at.y < 0.0:
+			points.append(at)
+			break
+	return points
+
+
+func _arc_distance(arc: PackedVector3Array, point: Vector3) -> float:
+	var best := INF
+	for index: int in arc.size() - 1:
+		var a := arc[index]
+		var b := arc[index + 1]
+		var along := clampf((point - a).dot(b - a) / maxf((b - a).length_squared(), 0.0001), 0.0, 1.0)
+		best = minf(best, point.distance_to(a.lerp(b, along)))
+	return best
+
+
+## Host: run up the homeowner's water bill.
+func add_water_fee(dollars: float) -> void:
+	if not Net.is_host():
+		return
+	var before := int(water_fee)
+	water_fee += dollars
+	if int(water_fee) != before:
+		_rpc_fee.rpc(int(water_fee))
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_fee(dollars: int) -> void:
+	water_fee = float(dollars)
+
+
+func _held(peer_id: int, kind: String) -> Node:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == kind and int(node.get("held_by")) == peer_id:
+			return node
+	return null
 
 
 func _remaining(task: String) -> int:

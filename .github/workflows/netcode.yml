@@ -88,6 +88,13 @@ jobs:
           "$GODOT" --headless --path . -- --host --port=7797 --name=Tester --no-steam --start-zone=lot --throw-test --measure="$PWD/build/soak/ci-throw/host.json" --run-seconds=34 | grep "ThrowTest" || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-throw/host.json'))['throw_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Water test (hose snaps, arcs wash windows, the bill, the washer's tank)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-water
+          "$GODOT" --headless --path . -- --host --port=7798 --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=4242 --water-test --measure="$PWD/build/soak/ci-water/host.json" --run-seconds=50 | grep "WaterTest" || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-water/host.json'))['water_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi

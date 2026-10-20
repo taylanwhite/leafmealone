@@ -74,7 +74,9 @@ func _do_task(tasks: Node, task: String) -> float:
 		await _ticks(2)
 		item.call("request_grab")
 		await _ticks(3)
-	if task == "clean_gutters":
+	if task == "wash_windows":
+		await _windows(tasks)
+	elif task == "clean_gutters":
 		await _gutters(tasks)
 	elif task == "mow_lawn":
 		await _mow(tasks)
@@ -114,6 +116,45 @@ func _work_at(tasks: Node, task: String, spot: Dictionary) -> void:
 		_:
 			tasks.call("request_work", task, at, -flat)
 	await _ticks(2)
+
+
+## The hose way: hook it to the house spigot, then stand off each window and aim
+## so the water's arc reaches it.
+func _windows(tasks: Node) -> void:
+	var water_sources := preload("res://net/work/water_sources.gd")
+	var aim_script := preload("res://net/dev/water_test.gd")
+	var hose := _prop("hose")
+	var spigot: Node3D = water_sources.find(get_tree(), "spigot")
+	_move_to(Vector3(spigot.global_position.x, 0.1, spigot.global_position.z) + Vector3(signf(spigot.global_position.x - _house_middle(tasks).x), 0.0, 0.0) * 1.0)
+	await _ticks(3)
+	hose.call("request_hookup")
+	await _ticks(3)
+	var speed := float(Constants.WATER_SPEED["spigot"])
+	for index: int in int(tasks.call("spot_count")):
+		var spot: Dictionary = tasks.call("spot", index)
+		if str(spot["task"]) != "wash_windows":
+			continue
+		var target: Vector3 = spot["at"]
+		var normal: Vector3 = spot["normal"]
+		_move_to(Vector3(target.x, 0.1, target.z) + Vector3(normal.x, 0.0, normal.z).normalized() * 4.0)
+		await _ticks(2)
+		var eye := _own_player().global_position + Vector3(0.0, 1.6, 0.0)
+		for _try: int in 30:
+			if int((tasks.call("spot", index) as Dictionary)["amount"]) <= 0:
+				break
+			tasks.call("request_work", "wash_windows", eye, aim_script.aim_at(eye, target, speed))
+			await _ticks(2)
+
+
+func _house_middle(tasks: Node) -> Vector3:
+	var total := Vector3.ZERO
+	var count := 0
+	for index: int in int(tasks.call("spot_count")):
+		var spot: Dictionary = tasks.call("spot", index)
+		if str(spot["task"]) == "wash_windows":
+			total += spot["at"]
+			count += 1
+	return total / float(maxi(count, 1))
 
 
 ## The ladder way: carry it to each gutter section, set it up, climb, scoop, climb

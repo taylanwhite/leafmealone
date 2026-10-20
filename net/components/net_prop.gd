@@ -2,6 +2,7 @@ extends RigidBody3D
 
 const _PropLooks = preload("res://props/prop_looks.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
+const _WaterSources = preload("res://net/work/water_sources.gd")
 
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
@@ -39,11 +40,23 @@ const _MoneyPopup = preload("res://ui/money_popup.gd")
 		stored_value = new_value
 		_refresh_label()
 
+## A hose's water: the kind of source it's hooked up to ("chefty", "spigot",
+## "hydrant"), or "" when it isn't. Replicated.
+@export var hose_source: String = ""
+## True while water is coming out of this hose or pressure washer. Replicated.
+@export var spraying: bool = false
+## A pressure washer's tank, 0 to 100. Replicated.
+@export var water: float = 100.0
 ## A ladder set up against the house: where its top rests (world space), or zero
 ## when it isn't set up. Its position is its foot. Replicated.
 @export var ladder_top := Vector3.ZERO
 
 var _airborne: bool = false
+var _spray_left: float = 0.0
+## A snapped hose's loose end whipping from where it was hooked up: from, how far along, who it hit.
+var _whip_from := Vector3.ZERO
+var _whip_t: float = -1.0
+var _whipped: Array[Node] = []
 ## Who threw this, and when, so a throw can't bonk its own thrower right away.
 var _thrower: int = 0
 var _thrown_at: float = 0.0
@@ -165,6 +178,101 @@ func _rpc_request_place_ladder() -> void:
 		_place_ladder(multiplayer.get_remote_sender_id())
 
 
+## E by a water source: a hose hooks up there (or unhooks if it already is),
+## a pressure washer fills its tank.
+func request_hookup() -> void:
+	if Net.is_host():
+		_hookup(Net.local_peer_id())
+	else:
+		_rpc_request_hookup.rpc_id(1)
+
+
+func _hookup(peer_id: int) -> void:
+	if held_by != peer_id or (kind != "hose" and kind != "pressure_washer"):
+		return
+	var holder := _player(peer_id)
+	if holder == null:
+		return
+	var source := _WaterSources.nearest(get_tree(), holder.global_position, Constants.WATER_REACH)
+	if source == null:
+		return
+	var source_kind := str(source.get_meta("kind"))
+	if kind == "hose":
+		if hose_source == source_kind:
+			hose_source = ""
+			return
+		hose_source = source_kind
+	else:
+		water = 100.0
+	if source_kind == "spigot":
+		var tasks := get_tree().get_first_node_in_group("job_tasks")
+		if tasks != null:
+			tasks.call("add_water_fee", float(Constants.SPIGOT_HOOKUP_FEE))
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_hookup() -> void:
+	if Net.is_host():
+		_hookup(multiplayer.get_remote_sender_id())
+
+
+## Host: water came out just now (net/work/job_tasks.gd says so on each spray).
+func mark_spraying() -> void:
+	_spray_left = 0.3
+	if not spraying:
+		spraying = true
+
+
+## Host: a hooked-up hose stretched past its length comes loose and its end whips
+## back across the yard; anyone it passes is knocked out.
+func _step_hose(delta: float) -> void:
+	_spray_left -= delta
+	if spraying and _spray_left <= 0.0:
+		spraying = false
+	if _whip_t >= 0.0:
+		_whip_t += delta / Constants.HOSE_WHIP_SECONDS
+		var t := clampf(_whip_t, 0.0, 1.0)
+		# The loose end flies from the source toward the nozzle, bowing out sideways.
+		var across := (global_position - _whip_from).cross(Vector3.UP).normalized()
+		var tip := _whip_from.lerp(global_position, t * t) + across * sin(t * PI) * 3.0 + Vector3.UP * sin(t * PI) * 1.2
+		for node: Node in get_tree().get_nodes_in_group("players"):
+			var person := node as Node3D
+			if person == null or _whipped.has(person) or person.name == str(held_by):
+				continue
+			if (person.global_position + Vector3(0.0, 1.0, 0.0)).distance_to(tip) < Constants.HOSE_WHIP_RADIUS:
+				_whipped.append(person)
+				_rpc_bonk_fx.rpc(get_path_to(person), "heavy", (tip - _whip_from).normalized() * 6.0 + Vector3.UP * 2.0)
+		if _whip_t >= 1.0:
+			_whip_t = -1.0
+	if kind != "hose" or hose_source == "":
+		return
+	var source := _WaterSources.find(get_tree(), hose_source)
+	if source == null:
+		hose_source = ""
+		return
+	if source.global_position.distance_to(global_position) > Constants.HOSE_LENGTH:
+		_whip_from = source.global_position
+		_whip_t = 0.0
+		_whipped.clear()
+		hose_source = ""
+		_rpc_hose_snap.rpc(_whip_from)
+		# The one holding it gets yanked too.
+		var holder := _player(held_by) if held_by != 0 else null
+		if holder != null:
+			_rpc_bonk_fx.rpc(get_path_to(holder), "light", (_whip_from - holder.global_position).normalized() * 3.0)
+
+
+## Everyone sees the hose snap loose (props/hose_rope.gd whips it) and hears it.
+@rpc("authority", "call_local", "reliable")
+func _rpc_hose_snap(from: Vector3) -> void:
+	var rope := get_node_or_null("HoseRope")
+	if rope != null:
+		rope.call("snap", from)
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "bonk")
+
+
 func request_grab() -> void:
 	if Net.is_host():
 		_handle_grab(Net.local_peer_id())
@@ -188,6 +296,8 @@ func request_throw(direction: Vector3, power: float = 1.0) -> void:
 
 
 func _host_step() -> void:
+	if kind == "hose" or kind == "pressure_washer":
+		_step_hose(get_physics_process_delta_time())
 	var kg := weight_kg()
 	if not is_equal_approx(mass, kg):
 		mass = kg
