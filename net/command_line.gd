@@ -24,6 +24,8 @@ var mute_audio: bool = false
 var run_event_at: float = -1.0
 var bot_stay: bool = false
 var open_shop: bool = false
+var walk_straight: bool = false
+var ride_at: float = -1.0
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -33,7 +35,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or ride_at >= 0.0
 
 
 func read() -> void:
@@ -80,6 +82,11 @@ func read() -> void:
 			bot_stay = true
 		elif argument == "--open-shop":
 			open_shop = true
+		elif argument.begins_with("--ride-at="):
+			ride_at = float(argument.trim_prefix("--ride-at="))
+		elif argument == "--walk-straight":
+			walk_straight = true
+			bot = true
 		elif argument.begins_with("--screenshot-every="):
 			screenshot_every = float(argument.trim_prefix("--screenshot-every="))
 		else:

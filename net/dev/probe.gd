@@ -46,7 +46,76 @@ func _ready() -> void:
 	)
 
 
+## Judder: how unevenly the camera moves from one rendered frame to the next
+## while it moves at a steady speed. 0 is perfectly even. Rendering more frames
+## than physics ticks without interpolation shows up as steps alternating
+## between zero and double.
+var _cam_last := Vector3.INF
+var _cam_step_last: float = -1.0
+var _judder_sum: float = 0.0
+var _step_sum: float = 0.0
+var _judder_frames: int = 0
+
+
+## Ride wobble: how far the camera moves relative to the vehicle per frame while
+## seated, in meters. 0 means you sit perfectly still in your seat.
+var _wobble_sum: float = 0.0
+var _wobble_frames: int = 0
+var _ride_rel_last := Vector3.INF
+var _ride_body_last := Vector3.INF
+var _ride_step_last: float = -1.0
+var _ride_judder_sum: float = 0.0
+var _ride_step_sum: float = 0.0
+
+
+func _measure_ride_wobble(camera_at: Vector3) -> void:
+	var ride_body: Node3D = null
+	for ride: Node in get_tree().get_nodes_in_group("rides"):
+		if int(ride.call("seat_of", Net.local_peer_id())) >= 0:
+			ride_body = ride.get_node_or_null("Body") as Node3D
+	if ride_body == null:
+		_ride_rel_last = Vector3.INF
+		return
+	var body_at := ride_body.get_global_transform_interpolated().origin
+	var rel := ride_body.get_global_transform_interpolated().affine_inverse() * camera_at
+	if _ride_rel_last != Vector3.INF:
+		_wobble_sum += rel.distance_to(_ride_rel_last)
+		_wobble_frames += 1
+		# How evenly the vehicle itself moves from frame to frame.
+		var step := body_at.distance_to(_ride_body_last)
+		if _ride_step_last >= 0.0:
+			_ride_judder_sum += absf(step - _ride_step_last)
+			_ride_step_sum += step
+		_ride_step_last = step
+	_ride_rel_last = rel
+	_ride_body_last = body_at
+
+
+func _measure_judder() -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var at := camera.get_global_transform_interpolated().origin
+	_measure_ride_wobble(at)
+	var walking := false
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()) and node is CharacterBody3D:
+			var velocity := (node as CharacterBody3D).velocity
+			walking = Vector2(velocity.x, velocity.z).length() > 1.0
+	if _cam_last != Vector3.INF:
+		var step := Vector2(at.x - _cam_last.x, at.z - _cam_last.z).length()
+		# Only steady walking counts. Frames that don't move at all while walking
+		# are the judder, so they count too. Teleports and rides don't.
+		if walking and step < 0.5 and _cam_step_last >= 0.0 and _cam_step_last < 0.5:
+			_judder_sum += absf(step - _cam_step_last)
+			_step_sum += step
+			_judder_frames += 1
+		_cam_step_last = step
+	_cam_last = at
+
+
 func _process(delta: float) -> void:
+	_measure_judder()
 	if _session_msec >= 0 and delta > LONG_FRAME_SECONDS:
 		_long_frames += 1
 	if _session_msec < 0 and Net.current_state() == Net.State.IN_SESSION:
@@ -99,6 +168,11 @@ func write_report() -> void:
 		"zones": _zones,
 		"audio_driver": AudioServer.get_driver_name(),
 		"leaf_instances": _leaf_instances(),
+		"judder": _judder_sum / maxf(_step_sum, 0.0001),
+		"judder_frames": _judder_frames,
+		"ride_wobble_m": _wobble_sum / maxf(float(_wobble_frames), 1.0),
+		"ride_frames": _wobble_frames,
+		"ride_judder": _ride_judder_sum / maxf(_ride_step_sum, 0.0001),
 		"process_ms_median": _percentile(_process_ms, 0.5),
 		"physics_ms_median": _percentile(_physics_ms, 0.5),
 		"physics_active_bodies_max": _active_bodies,

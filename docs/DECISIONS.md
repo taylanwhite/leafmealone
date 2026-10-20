@@ -141,3 +141,9 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Why:** Everything was untextured and read as plain. `props/surfaces.gd` paints brick, siding, shingles, planks, asphalt, concrete, grass, bark, fabric, painted metal, dirt, foliage, and skin straight onto any mesh, measured in meters in the mesh's own space, with every brick, board, and shingle varying a little. No image files to make, license, or disclose, sharp at any distance, and one material per surface and color. Meshes say what they are with `set_meta("surface", ...)` or `LowPoly.paint()`; scene-built meshes are mapped by node name in `levels/shared_look.gd`.
 - **Considered:** Generated PNG tiles. More work to keep consistent and they blur up close.
 - **Revisit:** If hand-made hero models arrive with their own textures, they opt out with `keep_material`.
+
+### 2026-10-19: Physics interpolation is on, and moving things move on physics ticks
+
+- **Why:** Rendering at 120 fps with 60 physics ticks made every other frame stand still. Measured with `--walk-straight`, camera judder (0 is perfectly even) went from 1.93 to 0.12 with `physics/common/physics_interpolation` on.
+- **Rules that come with it:** Anything that moves in the world moves in `_physics_process` (the player, rides, seated riders, the shoulder camera), so interpolation smooths it all together. Every teleport calls `reset_physics_interpolation()`, or it smears across the map for a frame.
+- **Also:** Client clocks slew toward new estimates at up to 5 percent instead of jumping (`net/clock_sync.gd`), because a ride at ride speed jumped meters with every ping. Riders are placed on their seat on every peer from the ride's rider list instead of through the network smoother's delay. On a client under 150 ms and 2 percent loss, the vehicle's frame-to-frame judder is 0.06 and riders stay within about 1 cm of their seat per frame.

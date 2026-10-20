@@ -34,9 +34,25 @@ func _ready() -> void:
 			if ui != null:
 				ui.call("open_store")
 		)
+	var ride_at := float(options.get("ride_at"))
+	if ride_at >= 0.0:
+		get_tree().create_timer(ride_at).timeout.connect(_force_ride)
 	var event_at := float(options.get("run_event_at"))
 	if event_at >= 0.0:
 		get_tree().create_timer(event_at).timeout.connect(_force_run_event)
+
+
+## Host only: send everyone in the store to the lot in Chefty, for testing rides.
+func _force_ride() -> void:
+	if not Net.is_host():
+		return
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var riders: Array = Net.players_in_zone(Net.Zone.STORE)
+	if chefty == null or riders.is_empty():
+		push_warning("[Dev] nobody to send in Chefty")
+		return
+	print("[Dev] forcing a ride for %d players" % riders.size())
+	chefty.call("depart", riders, Net.Zone.LOT)
 
 
 ## Host only: start a run event's warning now, as F6 does.

@@ -47,6 +47,11 @@ func _physics_process(delta: float) -> void:
 		_jump_held = false
 	if _during_run_event(player):
 		return
+	# For measuring smoothness: steady walking, no turns, no jumps.
+	if bool(Net.dev_options().get("walk_straight")):
+		Input.action_release(&"sprint")
+		Input.action_release(&"crouch")
+		return
 	if _elapsed >= _next_change:
 		_choose_next()
 	player.set("body_yaw", float(player.get("body_yaw")) + _turn_rate * delta)
