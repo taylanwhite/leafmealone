@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://cubsivubandcs"
-path="res://.godot/imported/bag.wav-7e6be7ec1579ae479a897dfd2a8b1504.sample"
+uid="uid://cqgexl46tuu82"
+path="res://.godot/imported/rake_3.wav-6d884c8daff55f584ed35bb3e5f450c2.sample"
 
 [deps]
 
-source_file="res://assets/audio/sfx/bag.wav"
-dest_files=["res://.godot/imported/bag.wav-7e6be7ec1579ae479a897dfd2a8b1504.sample"]
+source_file="res://assets/audio/sfx/rake_3.wav"
+dest_files=["res://.godot/imported/rake_3.wav-6d884c8daff55f584ed35bb3e5f450c2.sample"]
 
 [params]
 
