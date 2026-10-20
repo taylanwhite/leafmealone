@@ -26,6 +26,7 @@ var bot_stay: bool = false
 var open_shop: bool = false
 var walk_straight: bool = false
 var ride_at: float = -1.0
+var job_test: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -35,7 +36,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or ride_at >= 0.0
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or ride_at >= 0.0 or job_test
 
 
 func read() -> void:
@@ -84,6 +85,8 @@ func read() -> void:
 			open_shop = true
 		elif argument.begins_with("--ride-at="):
 			ride_at = float(argument.trim_prefix("--ride-at="))
+		elif argument == "--job-test":
+			job_test = true
 		elif argument == "--walk-straight":
 			walk_straight = true
 			bot = true

@@ -27,6 +27,8 @@ func _ready() -> void:
 	var seconds := float(options.get("run_seconds"))
 	if seconds > 0.0:
 		get_tree().create_timer(seconds).timeout.connect(_finish)
+	if bool(options.get("job_test")):
+		_add(preload("res://net/dev/job_test.gd").new(), "JobTest")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
 		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
