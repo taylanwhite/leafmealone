@@ -23,14 +23,17 @@ var _vehicle_color: Color = Color(0.75, 0.22, 0.15)
 
 func _ready() -> void:
 	_build()
+	# Chefty and the van both carry riders, which player.gd seats every frame.
+	add_to_group("rides")
 	if name == "Chefty":
-		add_to_group("rides")
 		add_to_group("chefty")
 		_refresh_label()
 	_place(0.0)
 
 
-func _process(_delta: float) -> void:
+## Moves on physics ticks, so physics interpolation smooths the vehicle and its
+## riders together.
+func _physics_process(_delta: float) -> void:
 	if not _riding:
 		return
 	var duration := maxf(_duration, 0.1)
@@ -51,6 +54,17 @@ func depart(peer_ids: Array, destination_zone: int) -> void:
 
 func is_riding() -> bool:
 	return _riding
+
+
+## The seat this peer rides in right now, or -1. Every peer knows the riders
+## from the departure message, so every peer can place every rider.
+func seat_of(peer_id: int) -> int:
+	if not _riding:
+		return -1
+	for index: int in _riders.size():
+		if int(_riders[index]) == peer_id:
+			return index
+	return -1
 
 
 func bag_count() -> int:
@@ -208,6 +222,8 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	_destination = destination_zone
 	_riders = riders
 	_riding = true
+	if _body != null:
+		_body.reset_physics_interpolation()
 	_seat_local_player()
 	_refresh_label()
 	var sfx := get_tree().get_first_node_in_group("sfx")

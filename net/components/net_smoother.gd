@@ -39,6 +39,9 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	if _is_local_authority() or _visual == null:
 		return
+	if _parent_places_visual():
+		_samples.clear()
+		return
 	var body := get_parent() as Node3D
 	if body == null:
 		return
@@ -63,7 +66,7 @@ func _physics_process(_delta: float) -> void:
 
 
 func _process(_delta: float) -> void:
-	if _is_local_authority() or _visual == null or _samples.is_empty():
+	if _is_local_authority() or _visual == null or _samples.is_empty() or _parent_places_visual():
 		return
 	var body := get_parent() as Node3D
 	if body == null:
@@ -72,6 +75,7 @@ func _process(_delta: float) -> void:
 	if rendered.origin.distance_to(body.global_position) > snap_distance:
 		rendered = body.global_transform
 		stats["snaps"] = int(stats["snaps"]) + 1
+		_visual.reset_physics_interpolation()
 		_samples.clear()
 		_samples.append({"at": _now(), "xform": rendered, "speed": 0.0})
 		_last_recorded = rendered.origin
@@ -109,6 +113,12 @@ func _sample_at(target_time: float) -> Transform3D:
 	var held := to_xform
 	held.origin = to_xform.origin + velocity * extra
 	return held
+
+
+## Riders are placed on their seat by player.gd, not smoothed behind the vehicle.
+func _parent_places_visual() -> bool:
+	var body := get_parent()
+	return body != null and body.has_method("is_riding_visual") and bool(body.call("is_riding_visual"))
 
 
 func _is_local_authority() -> bool:

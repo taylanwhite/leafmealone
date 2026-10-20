@@ -4,9 +4,19 @@ extends RefCounted
 ## Authority: host clock, estimated on clients.
 
 const SAMPLE_WINDOW_SECONDS: float = 10.0
+## How fast the client's clock may run fast or slow while it catches up to a new
+## estimate, as a share of real time. Corrections used to land as jumps, and a ride
+## moving at ride speed jumped meters with every ping.
+const SLEW_RATE: float = 0.05
+## An error bigger than this snaps instead (the first sample, or a hitch).
+const SNAP_SECONDS: float = 0.25
 
 var _origin_usec: int = 0
 var _offset_seconds: float = 0.0
+## The offset actually used: walks toward _offset_seconds, never jumps.
+var _applied_offset: float = 0.0
+var _applied_at: float = 0.0
+var _applied_started: bool = false
 var _last_rtt_seconds: float = 0.0
 var _has_sample: bool = false
 var _samples: Array[Dictionary] = []
@@ -15,6 +25,8 @@ var _samples: Array[Dictionary] = []
 func start() -> void:
 	_origin_usec = Time.get_ticks_usec()
 	_offset_seconds = 0.0
+	_applied_offset = 0.0
+	_applied_started = false
 	_samples.clear()
 
 
@@ -22,7 +34,24 @@ func start() -> void:
 func server_seconds(is_host: bool) -> float:
 	if is_host:
 		return _local_seconds()
-	return _local_seconds() + _offset_seconds
+	var now := _local_seconds()
+	_slew(now)
+	return now + _applied_offset
+
+
+## Walk the applied offset toward the latest estimate at SLEW_RATE, so time on a
+## client moves smoothly and never runs backwards.
+func _slew(now: float) -> void:
+	if not _has_sample:
+		return
+	var error := _offset_seconds - _applied_offset
+	if not _applied_started or absf(error) > SNAP_SECONDS:
+		_applied_offset = _offset_seconds
+		_applied_started = true
+	else:
+		var step := SLEW_RATE * maxf(now - _applied_at, 0.0)
+		_applied_offset += clampf(error, -step, step)
+	_applied_at = now
 
 
 func local_seconds() -> float:
