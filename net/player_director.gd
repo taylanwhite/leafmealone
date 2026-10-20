@@ -15,6 +15,8 @@ static func spawn(players_root: Node, peer_id: int, at: Transform3D) -> void:
 	player.position = at.origin
 	player.set("body_yaw", at.basis.get_euler().y)
 	players_root.add_child(player, true)
+	# The spawn position only reaches the owner through a host-ordered teleport.
+	player.call_deferred("send_teleport", at)
 
 
 static func despawn(players_root: Node, peer_id: int) -> void:
