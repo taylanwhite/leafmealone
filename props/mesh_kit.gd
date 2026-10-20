@@ -34,6 +34,7 @@ func _init() -> void:
 ##   seed (int), detail (0-3 subdivisions, default 1), lumps (0-1, default 0.25),
 ##   lump_scale (default 1.4), flat (bool, default true: faceted),
 ##   soft (0-1, default 0: how far a faceted normal bends toward the smooth one),
+##   outward (bool: lumps only push out, never in, so nothing under shows through),
 ##   shade (bool, default true: darker under, lighter on top), sway (0-1),
 ##   jitter (0-1, per-face color variation, default 0.06)
 func blob(center: Vector3, size: Vector3, color: Color, options: Dictionary = {}) -> void:
@@ -42,6 +43,7 @@ func blob(center: Vector3, size: Vector3, color: Color, options: Dictionary = {}
 	var lump_scale := float(options.get("lump_scale", 1.4))
 	var flat := bool(options.get("flat", true))
 	var soft := float(options.get("soft", 0.0))
+	var outward := bool(options.get("outward", false))
 	var shade := bool(options.get("shade", true))
 	var sway := float(options.get("sway", 0.0))
 	var jitter := float(options.get("jitter", 0.06))
@@ -53,10 +55,18 @@ func blob(center: Vector3, size: Vector3, color: Color, options: Dictionary = {}
 	moved.resize(points.size())
 	for index: int in points.size():
 		var direction := points[index]
-		var bump := _noise.get_noise_3dv(direction * lump_scale) * lumps
+		var bump := _noise.get_noise_3dv(direction * lump_scale)
+		bump = (bump * 0.5 + 0.5 if outward else bump) * lumps
 		moved[index] = center + direction * size * (1.0 + bump)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(options.get("seed", 0)) * 7919 + 13
+	# Smooth normals from the lumpy surface itself, so bumps shade like bumps.
+	var smooth_normals := PackedVector3Array()
+	smooth_normals.resize(moved.size())
+	for tri: int in range(0, triangles.size(), 3):
+		var face := (moved[triangles[tri + 1]] - moved[triangles[tri]]).cross(moved[triangles[tri + 2]] - moved[triangles[tri]])
+		for corner: int in 3:
+			smooth_normals[triangles[tri + corner]] += face
 	for tri: int in range(0, triangles.size(), 3):
 		var a := moved[triangles[tri]]
 		var b := moved[triangles[tri + 1]]
@@ -65,7 +75,7 @@ func blob(center: Vector3, size: Vector3, color: Color, options: Dictionary = {}
 		var face_color := _vary(color, rng, jitter)
 		for corner: int in 3:
 			var at := moved[triangles[tri + corner]]
-			var smooth := ((at - center) / size).normalized()
+			var smooth := smooth_normals[triangles[tri + corner]].normalized()
 			var normal := face_normal.lerp(smooth, soft).normalized() if flat else smooth
 			var tint := face_color
 			if shade:

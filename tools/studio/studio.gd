@@ -13,6 +13,7 @@ extends Node3D
 const _SharedLook = preload("res://levels/shared_look.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
 const _Trees = preload("res://props/trees.gd")
+const _CartoonBody = preload("res://player/cartoon_body.gd")
 const VIEW_SIZE := Vector2i(720, 720)
 
 var _subject := "trees"
@@ -68,6 +69,20 @@ func _build(root: Node3D) -> void:
 			_Trees.spawn(root, Vector3(-9.0, 0.0, -8.0), 8.0, "pine", "", 1)
 		"tree":
 			_Trees.spawn(root, Vector3.ZERO, 7.0, str(_options.get("kind", "broadleaf")), str(_options.get("crown", "orange")), int(_options.get("variant", "0")))
+		"characters":
+			for index: int in 5:
+				var body: Node3D = _CartoonBody.new()
+				body.call("dress_from_seed", int(_options.get("seed", "1")) * 31 + index * 7)
+				root.add_child(body)
+				body.position = Vector3(float(index) * 1.1 - 2.2, 0.0, 0.0)
+				body.rotation.y = PI + float(index - 2) * 0.25
+				body.call("build")
+		"character":
+			var body: Node3D = _CartoonBody.new()
+			body.call("dress_from_seed", int(_options.get("seed", "3")))
+			root.add_child(body)
+			body.rotation.y = PI * 0.85
+			body.call("build")
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
 

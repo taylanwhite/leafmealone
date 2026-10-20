@@ -11,6 +11,8 @@ extends Node3D
 ## show too. Call talk() to flap the mouth while a sound plays.
 
 ## Matches player.gd's AnimState: IDLE, WALK, SPRINT, CROUCH, AIR.
+const _MeshKit = preload("res://props/mesh_kit.gd")
+const _Stylized = preload("res://props/stylized.gd")
 const STATE_CROUCH: int = 3
 const STATE_AIR: int = 4
 const SKIN_TONES: Array[Color] = [
@@ -114,19 +116,20 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 	_own_head = own_head
 	_hips = _pivot(self, Vector3(0.0, 0.82, 0.0))
 	_torso = _pivot(_hips, Vector3.ZERO)
-	_part(_torso, _capsule(0.21, 0.62), Vector3(0.0, 0.26, 0.0), shirt, "fabric").scale = Vector3(1.0, 1.0, 0.8)
-	_part(_torso, _capsule(0.2, 0.3), Vector3(0.0, -0.02, 0.0), pants, "fabric").scale = Vector3(1.0, 1.0, 0.8)
+	var shoe := Color(0.18, 0.14, 0.12)
+	# Pelvis on the hips, the shirt's hem hanging over it from the torso.
+	_kit_part(_hips, _blob_mesh(Vector3(0.0, -0.02, 0.0), Vector3(0.19, 0.13, 0.15), pants), Vector3.ZERO)
+	_kit_part(_torso, _torso_mesh(shirt), Vector3.ZERO)
 	for side: float in [-1.0, 1.0]:
 		var leg := _pivot(_hips, Vector3(side * 0.1, 0.0, 0.0))
-		_part(leg, _capsule(0.085, 0.7), Vector3(0.0, -0.4, 0.0), pants, "fabric")
-		_part(leg, _box(Vector3(0.15, 0.09, 0.27)), Vector3(0.0, -0.78, -0.05), Color(0.15, 0.13, 0.12))
+		_kit_part(leg, _limb_mesh([Vector3(0.0, 0.0, 0.0), Vector3(0.0, -0.36, 0.0), Vector3(0.0, -0.72, 0.0)], [0.088, 0.078, 0.07], pants), Vector3.ZERO)
+		_kit_part(leg, _shoe_mesh(shoe), Vector3(0.0, -0.76, -0.04))
 		_legs.append(leg)
-		var arm := _pivot(_torso, Vector3(side * 0.27, 0.47, 0.0))
+		var arm := _pivot(_torso, Vector3(side * 0.25, 0.46, 0.0))
 		arm.rotation.z = side * 0.12
 		# Your own arms swing right through your first-person view during gestures,
 		# so like your head they are hidden from your own camera.
-		_on_head_layer(_part(arm, _capsule(0.06, 0.5), Vector3(0.0, -0.24, 0.0), shirt, "fabric"))
-		_on_head_layer(_part(arm, _sphere(0.075), Vector3(0.0, -0.5, 0.0), skin, "skin"))
+		_on_head_layer(_kit_part(arm, _arm_mesh(side), Vector3.ZERO))
 		_arms.append(arm)
 	_head_root = head_parent if head_parent != null else _pivot(self, Vector3(0.0, 1.6, 0.0))
 	_head_base_y = _head_root.position.y
@@ -170,38 +173,52 @@ func _build_head(root: Node3D) -> void:
 	face.name = "CartoonHead"
 	root.add_child(face)
 	_face = face
-	_on_head_layer(_part(face, _sphere(0.27), Vector3(0.0, 0.02, 0.0), skin, "skin"))
+	var head := _MeshKit.new()
+	head.blob(Vector3(0.0, 0.02, 0.0), Vector3(0.265, 0.27, 0.255), skin, {"detail": 3, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	# Ears, a small nose, and a little blush on the cheeks.
 	for side: float in [-1.0, 1.0]:
-		var eye := _pivot(face, Vector3(side * 0.095, 0.06, -0.21))
-		var white := _part(eye, _sphere(0.075), Vector3.ZERO, EYE_WHITE, "clean")
-		white.scale = Vector3(1.0, 1.15, 0.6)
-		_on_head_layer(white)
-		var pupil := _part(eye, _sphere(0.036), Vector3(side * -0.008, -0.005, -0.04), PUPIL, "clean")
+		head.blob(Vector3(side * 0.258, 0.0, 0.0), Vector3(0.035, 0.055, 0.03), skin.darkened(0.05), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+		head.blob(Vector3(side * 0.15, -0.06, -0.205), Vector3(0.05, 0.03, 0.02), skin.lerp(Color(0.95, 0.45, 0.45), 0.35), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+	head.blob(Vector3(0.0, -0.025, -0.262), Vector3(0.035, 0.03, 0.025), skin.darkened(0.06), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	_on_head_layer(_kit_part(face, head.commit(), Vector3.ZERO, {"roughness": 0.7, "specular": 0.2}))
+	for side: float in [-1.0, 1.0]:
+		# Eyes sit flush in the face: flattened, so a profile never shows bug eyes.
+		var eye := _pivot(face, Vector3(side * 0.095, 0.06, -0.228))
+		_on_head_layer(_kit_part(eye, _blob_mesh(Vector3.ZERO, Vector3(0.068, 0.082, 0.03), EYE_WHITE, false), Vector3.ZERO, {"roughness": 0.25, "specular": 0.5}))
+		var pupil := _kit_part(eye, _blob_mesh(Vector3.ZERO, Vector3(0.033, 0.04, 0.012), PUPIL, false), Vector3(side * -0.008, -0.005, -0.024), {"roughness": 0.2, "specular": 0.6})
 		_on_head_layer(pupil)
 		_pupils.append(pupil)
 		_eyes.append(eye)
-		var brow := _pivot(face, Vector3(side * 0.1, 0.16, -0.235))
-		_on_head_layer(_part(brow, _box(Vector3(0.09, 0.022, 0.02)), Vector3.ZERO, hair.darkened(0.3), "clean"))
+		var brow := _pivot(face, Vector3(side * 0.1, 0.16, -0.222))
+		_on_head_layer(_kit_part(brow, _blob_mesh(Vector3.ZERO, Vector3(0.05, 0.013, 0.012), hair.darkened(0.3), false), Vector3.ZERO))
 		brow.rotation.z = side * -0.12
 		_brows.append(brow)
-		_on_head_layer(_part(face, _sphere(0.055), Vector3(side * 0.265, 0.0, 0.0), skin.darkened(0.06), "skin"))
-	_on_head_layer(_part(face, _sphere(0.045), Vector3(0.0, -0.02, -0.27), skin.darkened(0.1), "skin"))
-	_mouth = _pivot(face, Vector3(0.0, -0.11, -0.235))
-	_on_head_layer(_part(_mouth, _box(Vector3(0.1, 0.025, 0.02)), Vector3.ZERO, Color(0.35, 0.1, 0.1), "clean"))
+	_mouth = _pivot(face, Vector3(0.0, -0.115, -0.238))
+	_on_head_layer(_kit_part(_mouth, _blob_mesh(Vector3.ZERO, Vector3(0.048, 0.013, 0.012), Color(0.32, 0.1, 0.1), false), Vector3.ZERO))
 	if shades:
-		_on_head_layer(_part(face, _box(Vector3(0.3, 0.07, 0.03)), Vector3(0.0, 0.06, -0.255), PUPIL, "metal"))
+		var glasses := _MeshKit.new()
+		for side: float in [-1.0, 1.0]:
+			glasses.blob(Vector3(side * 0.095, 0.06, -0.255), Vector3(0.075, 0.05, 0.015), PUPIL, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		glasses.box(Vector3(0.0, 0.07, -0.258), Vector3(0.06, 0.015, 0.012), PUPIL)
+		_on_head_layer(_kit_part(face, glasses.commit(), Vector3.ZERO, {"roughness": 0.15, "specular": 0.8}))
 	match hat_style:
-		# Caps and hair sit clear of the head everywhere they cover it. A hair-thin
-		# overlap let the scalp poke through, and hats flickered as heads bobbed.
+		# Caps and hair sit clear of the head everywhere they cover it, and their
+		# lumps only push outward, so the scalp never pokes through.
 		"cap":
-			var crown := _part(face, _sphere(0.3), Vector3(0.0, 0.12, 0.0), hat_color, "fabric")
-			crown.scale = Vector3(1.0, 0.66, 1.0)
-			_on_head_layer(crown)
-			_on_head_layer(_part(face, _box(Vector3(0.32, 0.03, 0.22)), Vector3(0.0, 0.15, -0.31), hat_color, "fabric"))
+			var cap := _MeshKit.new()
+			cap.blob(Vector3(0.0, 0.1, 0.01), Vector3(0.285, 0.21, 0.285), hat_color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+			cap.blob(Vector3(0.0, 0.07, -0.29), Vector3(0.17, 0.018, 0.12), hat_color.darkened(0.1), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+			cap.blob(Vector3(0.0, 0.31, 0.01), Vector3(0.03, 0.015, 0.03), hat_color.darkened(0.15), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+			# Hair peeking out at the back and sides.
+			cap.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 2, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
+			_on_head_layer(_kit_part(face, cap.commit(), Vector3.ZERO))
 		"hair":
-			var mop := _part(face, _sphere(0.3), Vector3(0.0, 0.12, 0.03), hair, "fabric")
-			mop.scale = Vector3(1.0, 0.64, 1.0)
-			_on_head_layer(mop)
+			var mop := _MeshKit.new()
+			mop.blob(Vector3(0.0, 0.14, 0.06), Vector3(0.28, 0.19, 0.27), hair, {"detail": 3, "lumps": 0.16, "lump_scale": 2.6, "outward": true, "flat": false, "jitter": 0.0, "seed": int(hair.r * 100.0)})
+			# A fringe of tufts over the forehead, above the brows.
+			for tuft: int in 3:
+				mop.blob(Vector3((float(tuft) - 1.0) * 0.1, 0.235, -0.17), Vector3(0.075, 0.05, 0.065), hair, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+			_on_head_layer(_kit_part(face, mop.commit(), Vector3.ZERO))
 
 
 ## Animates on physics ticks: the head carries a player's camera, and physics
@@ -394,44 +411,67 @@ func _pivot(parent: Node3D, at: Vector3) -> Node3D:
 	return node
 
 
-## surface is what the part is made of (props/surfaces.gd), or "clean" to keep a
-## plain material, for eyes and mouths that must stay crisp.
-func _part(parent: Node3D, mesh: Mesh, at: Vector3, color: Color, surface: String = "plain") -> MeshInstance3D:
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.roughness = 0.8
-	var view := MeshInstance3D.new()
-	view.mesh = mesh
-	view.material_override = material
-	# Tagged before it enters the tree, so the shared look paints it right away.
-	if surface == "clean":
-		view.set_meta("keep_material", true)
-	else:
-		view.set_meta("surface", surface)
+## A smooth body part drawn with the stylized material, kept out of the shared look.
+func _kit_part(parent: Node3D, mesh: Mesh, at: Vector3, options: Dictionary = {}) -> MeshInstance3D:
+	var view := _Stylized.instance(mesh, options if not options.is_empty() else {"roughness": 0.85, "specular": 0.15})
 	parent.add_child(view)
 	view.position = at
 	return view
 
 
-func _capsule(radius: float, height: float) -> CapsuleMesh:
-	var mesh := CapsuleMesh.new()
-	mesh.radius = radius
-	mesh.height = maxf(height, radius * 2.0)
-	mesh.radial_segments = 10
-	mesh.rings = 4
-	return mesh
+func _blob_mesh(center: Vector3, size: Vector3, color: Color, shade: bool = true) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.blob(center, size, color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": shade})
+	return kit.commit()
 
 
-func _sphere(radius: float) -> SphereMesh:
-	var mesh := SphereMesh.new()
-	mesh.radius = radius
-	mesh.height = radius * 2.0
-	mesh.radial_segments = 14
-	mesh.rings = 8
-	return mesh
+func _limb_mesh(points: Array, radii: Array, color: Color) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.tube(PackedVector3Array(points), PackedFloat32Array(radii), color, 10, {"jitter": 0.0})
+	kit.blob(points[0], Vector3.ONE * float(radii[0]), color, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	return kit.commit()
 
 
-func _box(size: Vector3) -> BoxMesh:
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	return mesh
+## Shirt from the hips to the shoulders: a hem that hangs over the pants and a
+## collar. The arms' own shoulder balls round off the shoulders. Squashed front to back like a real chest.
+func _torso_mesh(color: Color) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var points := PackedVector3Array([Vector3(0, -0.06, 0), Vector3(0, 0.08, 0), Vector3(0, 0.3, 0), Vector3(0, 0.46, 0), Vector3(0, 0.55, 0)])
+	var radii := PackedFloat32Array([0.205, 0.2, 0.205, 0.19, 0.11])
+	kit.tube(points, radii, color, 14, {"jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0, 0.5, 0), Vector3(0, 0.58, 0)]), PackedFloat32Array([0.12, 0.1]), color.darkened(0.12), 12, {"jitter": 0.0})
+	var mesh := kit.commit()
+	return _squashed(mesh, Vector3(1.0, 1.0, 0.8))
+
+
+## Sleeve, forearm, and a mitten hand with a thumb, hanging from the shoulder.
+func _arm_mesh(side: float) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.blob(Vector3.ZERO, Vector3.ONE * 0.07, shirt, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0, 0, 0), Vector3(0, -0.15, 0), Vector3(0, -0.27, 0)]), PackedFloat32Array([0.068, 0.065, 0.066]), shirt, 10, {"jitter": 0.0, "cap": false})
+	kit.tube(PackedVector3Array([Vector3(0, -0.25, 0), Vector3(0, -0.45, 0)]), PackedFloat32Array([0.05, 0.045]), skin, 10, {"jitter": 0.0})
+	kit.blob(Vector3(0.0, -0.52, 0.0), Vector3(0.05, 0.068, 0.04), skin, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	kit.blob(Vector3(side * -0.035, -0.49, -0.025), Vector3(0.02, 0.035, 0.02), skin, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	return kit.commit()
+
+
+## A rounded shoe with a lighter sole, toes pointing forward (-Z).
+func _shoe_mesh(color: Color) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.blob(Vector3(0.0, 0.0, -0.03), Vector3(0.075, 0.055, 0.14), color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	kit.blob(Vector3(0.0, -0.035, -0.03), Vector3(0.077, 0.018, 0.142), Color(0.82, 0.78, 0.7), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+	return kit.commit()
+
+
+func _squashed(mesh: ArrayMesh, scale_by: Vector3) -> ArrayMesh:
+	var arrays := mesh.surface_get_arrays(0)
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	for index: int in vertices.size():
+		vertices[index] = vertices[index] * scale_by
+		normals[index] = (normals[index] / scale_by).normalized()
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	var squashed := ArrayMesh.new()
+	squashed.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return squashed
