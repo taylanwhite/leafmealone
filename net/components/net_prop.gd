@@ -1,5 +1,7 @@
 extends RigidBody3D
 
+const _PropLooks = preload("res://props/prop_looks.gd")
+
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
 ## draws the visual at the hand until the host releases it.
@@ -232,10 +234,15 @@ func _apply_color() -> void:
 func _refresh_label() -> void:
 	if not is_node_ready():
 		return
+	# Real shapes from props/prop_looks.gd. The prompt names things, so only the
+	# wheelbarrow keeps a floating count.
+	_PropLooks.dress(self, kind, color)
+	%Label.visible = kind == "wheelbarrow"
 	if kind == "wheelbarrow":
 		var capacity := Campaign.wheelbarrow_capacity()
 		var full := " full" if stored_bags >= capacity else ""
-		%Label.text = "Wheelbarrow %d/%d%s" % [stored_bags, capacity, full]
+		%Label.text = "%d/%d%s" % [stored_bags, capacity, full]
+		_PropLooks.show_bags(self, stored_bags)
 	elif kind == "leaf_bag":
 		%Label.text = "Leaf bag"
 	else:
