@@ -118,7 +118,8 @@ func _house() -> void:
 		for section: int in sections:
 			var x := center_x - width * 0.5 + (float(section) + 0.5) * width / float(sections)
 			var spot_at := Vector3(x, top, gutter_z)
-			var index: int = _tasks.call("define_spot", "clean_gutters", to_global(spot_at), Vector3.UP, 1.0)
+			# The normal points out from the wall, which way a ladder leans out.
+			var index: int = _tasks.call("define_spot", "clean_gutters", to_global(spot_at), Vector3(0.0, 0.0, side), 1.0)
 			_looks.call("add_gutter", index, to_global(spot_at))
 
 

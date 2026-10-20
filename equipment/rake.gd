@@ -30,6 +30,22 @@ func _physics_process(delta: float) -> void:
 	var has_rake := held != null and str(held.get("kind")) == "rake"
 	var held_kind := str(held.get("kind")) if held != null else ""
 	_set_spray(player, held_kind if Input.is_action_pressed("primary") else "")
+	# Up a ladder: left click works the gutters, by hand or with the leaf blower.
+	if bool(player.call("is_climbing")):
+		if Input.is_action_pressed("primary") and _work_wait <= 0.0:
+			_work_wait = 0.15
+			var tasks := get_tree().get_first_node_in_group("job_tasks")
+			if tasks != null:
+				tasks.call("request_work", "clean_gutters", player.global_position + Vector3(0.0, 1.5, 0.0) - player.global_basis.z * 0.4, -player.global_basis.z)
+			var body := player.get_node_or_null("Visual/CartoonBody")
+			if body != null and held_kind == "" and not bool(body.call("is_gesturing")):
+				body.call("gesture", "scratch")
+		return
+	# A ladder in hand: left click sets it up against the house.
+	if held_kind == "ladder":
+		if Input.is_action_just_pressed("primary"):
+			held.call("request_place_ladder")
+		return
 	# A tool: left click uses it. G throws anything (player.gd).
 	if Constants.TOOL_PRICES.has(held_kind):
 		if Input.is_action_pressed("primary"):

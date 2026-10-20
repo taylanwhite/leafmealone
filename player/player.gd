@@ -54,6 +54,10 @@ var _stun_left: float = 0.0
 var _knocked: bool = false
 ## A bonk that arrived over the network, applied on the next physics tick.
 var _pending_bonk: Array = []
+## Up a ladder: which one, and how far up (0 at the foot, 1 at the top).
+var _ladder: Node3D
+var _climb: float = 0.0
+var _climb_target: float = 1.0
 ## Holding G with something in hand: how long it's been wound up, and when the
 ## next strained noise is due.
 var _wind_up: float = -1.0
@@ -94,6 +98,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_camera"):
 		%CameraRig.toggle()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _toggle_climb():
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("jump") and _ladder != null:
+		_climb_target = 0.0
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _toggle_hiding():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _load_truck():
@@ -128,6 +137,8 @@ func _physics_process(delta: float) -> void:
 			velocity = Vector3.ZERO
 		elif _throwback_left > 0.0:
 			_step_throwback(delta)
+		elif _ladder != null:
+			_step_climb(delta)
 		elif _stun_left > 0.0 and _ride == null:
 			_step_stunned(delta)
 		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
@@ -212,6 +223,66 @@ func set_hidden_in(spot: Node3D) -> void:
 
 func is_hidden() -> bool:
 	return _hidden_spot != null
+
+
+## Up at the top of a set-up ladder, where gutters can be reached. Worked out
+## from where this player is, so the host can tell for anyone.
+func is_climbing() -> bool:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) != "ladder" or not bool(node.call("is_set_up")):
+			continue
+		var top: Vector3 = node.get("ladder_top")
+		if Vector2(global_position.x - top.x, global_position.z - top.z).length() < 1.7 and global_position.y > top.y - 2.6:
+			return true
+	return false
+
+
+## E at a set-up ladder's foot climbs it; E up on one climbs down.
+func _toggle_climb() -> bool:
+	if _ladder != null:
+		_climb_target = 0.0
+		return true
+	var ladder := _nearest_ladder()
+	if ladder == null:
+		return false
+	_ladder = ladder
+	_climb = 0.0
+	_climb_target = 1.0
+	return true
+
+
+func _nearest_ladder() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop != null and str(prop.get("kind")) == "ladder" and bool(prop.call("is_set_up")) and prop.global_position.distance_to(global_position) < 1.8:
+			return prop
+	return null
+
+
+## On the ladder: up or down its rungs, facing the wall, until back at the foot.
+## If someone takes the ladder away, down you go.
+func _step_climb(delta: float) -> void:
+	if not is_instance_valid(_ladder) or not bool(_ladder.call("is_set_up")):
+		_ladder = null
+		_stun_left = Constants.FAINT_SECONDS
+		_knocked = true
+		say_to_all("vo_yelp")
+		return
+	var foot := _ladder.global_position
+	var top: Vector3 = _ladder.get("ladder_top")
+	var up := top - foot
+	var out := Vector3(-up.x, 0.0, -up.z).normalized()
+	_climb = move_toward(_climb, _climb_target, delta / Constants.LADDER_CLIMB_SECONDS)
+	# At the top your feet are a rung below the gutter, so it's at chest height.
+	var reach := maxf(0.0, (up.length() - 1.45) / up.length())
+	global_position = foot + up * (reach * _climb) + out * 0.35
+	velocity = Vector3.ZERO
+	body_yaw = atan2(out.x, out.z)
+	anim_state = AnimState.IDLE
+	if _climb <= 0.0 and _climb_target <= 0.0:
+		_ladder = null
+		global_position = foot + out * 0.8
+		reset_physics_interpolation()
 
 
 ## Bare-hands work: E by litter picks it up; E by a weed tugs at it.
@@ -326,6 +397,11 @@ func _grab_nearby() -> bool:
 func interaction_hint() -> Dictionary:
 	if _hidden_spot != null:
 		return {"text": _Strings.UI["prompt_unhide"], "at": _hidden_spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	if _ladder != null:
+		return {"text": _Strings.UI["prompt_climb_down"], "at": global_position + Vector3(0.0, 2.2, 0.0) - global_basis.z * 0.6}
+	var ladder := _nearest_ladder()
+	if ladder != null and _held_prop() == null or (ladder != null and str(_held_prop().get("kind")) == "leaf_blower"):
+		return {"text": _Strings.UI["prompt_climb_up"], "at": ladder.global_position + Vector3(0.0, 1.8, 0.0)}
 	var spot := _nearest_free_spot()
 	if spot != null:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}

@@ -67,6 +67,24 @@ static func pose_rake(prop: Node3D, holder: Node3D, raking: bool) -> void:
 	pose.position = Vector3(0.0, -0.1, sweep)
 
 
+## A ladder set up against the house: standing from its foot (the prop) up to
+## top, stretched to reach (it's an extension ladder), rungs across the wall.
+static func pose_ladder_up(prop: Node3D, top: Vector3) -> void:
+	var look := prop.get_node_or_null("Visual/Look") as Node3D
+	if look == null:
+		return
+	var foot := prop.global_position
+	var up := top - foot
+	var along := up.normalized()
+	var across := Vector3.UP.cross(Vector3(up.x, 0.0, up.z)).normalized()
+	if across.length() < 0.1:
+		across = Vector3.RIGHT
+	var face := across.cross(along).normalized()
+	# The model lies along Z, 2.4 m long, centered: stretch Z to the length needed.
+	var basis := Basis(across, face, along * (up.length() / 2.4))
+	look.global_transform = Transform3D(basis, foot + up * 0.5)
+
+
 ## Held tools face the way their holder faces; set down, they sit level.
 static func pose_tool(prop: Node3D, holder: Node3D) -> void:
 	var look := prop.get_node_or_null("Visual/Look") as Node3D
