@@ -95,6 +95,17 @@ jobs:
           "$GODOT" --headless --path . -- --host --port=7798 --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=4242 --water-test --measure="$PWD/build/soak/ci-water/host.json" --run-seconds=50 | grep "WaterTest" || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-water/host.json'))['water_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Mower test (mulch, flung litter, cut hose, burst bag, gnome, feet, the bill)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-mower
+          "$GODOT" --headless --path . -- --host --port=7799 --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --mower-test --measure="$PWD/build/soak/ci-mower/host.json" --run-seconds=55 > build/soak/ci-mower/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7799 --name=Target --no-steam --measure="$PWD/build/soak/ci-mower/target.json" --run-seconds=50 > build/soak/ci-mower/target.log 2>&1
+          wait
+          grep "MowerTest" build/soak/ci-mower/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-mower/host.json'))['mower_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi

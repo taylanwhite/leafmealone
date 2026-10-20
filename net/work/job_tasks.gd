@@ -25,6 +25,9 @@ const SEND_INTERVAL: float = 0.1
 var active := PackedStringArray()
 ## Dollars the homeowner will bill for their water (the spigot). Replicated in whole dollars.
 var water_fee: float = 0.0
+## Everything else the crew broke or hurt this job: reason -> dollars (a new
+## hose, a new gnome, medical bills). Replicated; taken off the pay at the end.
+var bills: Dictionary = {}
 
 var _spots: Array[Dictionary] = []
 var _grids: Array[Dictionary] = []
@@ -326,6 +329,65 @@ func _arc_distance(arc: PackedVector3Array, point: Vector3) -> float:
 		var along := clampf((point - a).dot(b - a) / maxf((b - a).length_squared(), 0.0001), 0.0, 1.0)
 		best = minf(best, point.distance_to(a.lerp(b, along)))
 	return best
+
+
+## Host: add to the damages bill ("hose", "gnome", "medical").
+func add_bill(reason: String, dollars: int) -> void:
+	if not Net.is_host():
+		return
+	bills[reason] = int(bills.get(reason, 0)) + dollars
+	_rpc_bills.rpc(bills)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_bills(all: Dictionary) -> void:
+	bills = all
+
+
+func bills_total() -> int:
+	var total := 0
+	for reason: String in bills:
+		total += int(bills[reason])
+	return total
+
+
+## Host: the mower ran over spots near at. Litter gets flung somewhere else in
+## the yard; weeds get mowed down (that counts as pulling them). Returns the
+## spots it hit.
+func host_run_over(at: Vector3, radius: float, heading: Vector3) -> Array[int]:
+	var hit: Array[int] = []
+	if not Net.is_host():
+		return hit
+	for index: int in _spots.size():
+		var entry := _spots[index]
+		var task := str(entry["task"])
+		if (task != "pick_litter" and task != "pull_weeds") or int(entry["amount"]) <= 0:
+			continue
+		var spot: Vector3 = entry["at"]
+		if Vector2(spot.x - at.x, spot.z - at.z).length() > radius:
+			continue
+		hit.append(index)
+		if task == "pull_weeds":
+			_work_spot(index, 100.0)
+			_fx(task, spot)
+		else:
+			var side := heading.cross(Vector3.UP).normalized() * (1.0 if randf() < 0.5 else -1.0)
+			var land := spot + side * randf_range(4.0, 7.0) + heading * randf_range(-1.0, 2.0)
+			land.y = spot.y
+			entry["at"] = land
+			_rpc_move_spot.rpc(index, spot, land)
+	return hit
+
+
+## A spot flew somewhere new: everyone moves it (and its look flies there).
+@rpc("authority", "call_local", "reliable")
+func _rpc_move_spot(index: int, from: Vector3, to: Vector3) -> void:
+	if index < 0 or index >= _spots.size():
+		return
+	_spots[index]["at"] = to
+	var looks := get_tree().get_first_node_in_group("task_looks")
+	if looks != null and looks.has_method("fling"):
+		looks.call("fling", index, from, to)
 
 
 ## Host: run up the homeowner's water bill.

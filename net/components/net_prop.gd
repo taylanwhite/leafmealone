@@ -55,6 +55,8 @@ const _WaterSources = preload("res://net/work/water_sources.gd")
 var _airborne: bool = false
 var _spray_left: float = 0.0
 var _pulls: int = 0
+## Who and what a running mower already hit, and when, so each happens once.
+var _mower_hit_at: Dictionary = {}
 ## A snapped hose's loose end whipping from where it was hooked up: from, how far along, who it hit.
 var _whip_from := Vector3.ZERO
 var _whip_t: float = -1.0
@@ -226,6 +228,110 @@ func _rpc_request_hookup() -> void:
 		_hookup(multiplayer.get_remote_sender_id())
 
 
+## Host: everything else a running mower rolls over. Leaves get mulched (gone,
+## no money); litter is flung across the yard; weeds are mowed down; a hose line
+## gets cut (a new one goes on the bill); a leaf bag bursts back into leaves; the
+## gnome grinds, flies, and stalls the mower (the bill again); and feet get hurt
+## (medical bills). Someone's foot might come clean off.
+func _mower_hits(holder: Node3D) -> void:
+	var now := Time.get_ticks_msec()
+	var at := global_position
+	var heading := -holder.global_transform.basis.z
+	var radius := Constants.MOWER_HIT_RADIUS
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	if field != null:
+		field.call("host_mulch", at, 0.6)
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks != null:
+		for index: int in (tasks.call("host_run_over", at, radius, heading) as Array):
+			_rpc_mower_fx.rpc("clank", at)
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var other := node as Node3D
+		if other == null or other == self or int(other.get("held_by")) != 0 and str(other.get("kind")) != "hose":
+			continue
+		var key := other.get_instance_id()
+		if int(_mower_hit_at.get(key, 0)) > now:
+			continue
+		match str(other.get("kind")):
+			"hose":
+				if str(other.get("hose_source")) == "" or not _over_hose(other, at):
+					continue
+				_mower_hit_at[key] = now + 2000
+				other.set("hose_source", "")
+				other.rpc("_rpc_hose_snap", at)
+				if tasks != null:
+					tasks.call("add_bill", "hose", Constants.BILL_HOSE)
+				_rpc_mower_fx.rpc("chop", at)
+			"leaf_bag":
+				if other.global_position.distance_to(at) > radius + 0.3:
+					continue
+				if field != null:
+					field.call("host_scatter", other.global_position, 1.8, int(other.get("value")))
+				_rpc_mower_fx.rpc("burst", other.global_position)
+				other.queue_free()
+			"gnome":
+				if other.global_position.distance_to(at) > radius + 0.3:
+					continue
+				_mower_hit_at[key] = now + 3000
+				(other as RigidBody3D).apply_central_impulse((heading + Vector3.UP * 1.6).normalized() * 70.0)
+				spraying = false
+				if tasks != null:
+					tasks.call("add_bill", "gnome", Constants.BILL_GNOME)
+				_rpc_mower_fx.rpc("grind", at)
+	var people: Array[Node] = get_tree().get_nodes_in_group("players")
+	people.append_array(get_tree().get_nodes_in_group("bonkable"))
+	for node: Node in people:
+		var person := node as Node3D
+		if person == null or person == holder or not person.is_inside_tree():
+			continue
+		if Vector2(person.global_position.x - at.x, person.global_position.z - at.z).length() > radius or absf(person.global_position.y - at.y) > 0.6:
+			continue
+		var key := person.get_instance_id()
+		if int(_mower_hit_at.get(key, 0)) > now:
+			continue
+		_mower_hit_at[key] = now + 4000
+		var already := int(person.get("foot_hurt")) if "foot_hurt" in person else 0
+		var level := 2 if already >= 1 or randf() < Constants.FOOT_OFF_CHANCE else 1
+		if already >= 2:
+			level = 2
+		if tasks != null:
+			tasks.call("add_bill", "medical", Constants.BILL_FOOT_OFF if level == 2 else Constants.BILL_FOOT_CUT)
+		_rpc_foot.rpc(get_path_to(person), level, heading)
+		_rpc_mower_fx.rpc("chop", at)
+
+
+## True when a hooked-up hose runs under this point: it lies across the ground
+## from where it's hooked up to the nozzle.
+func _over_hose(hose: Node3D, at: Vector3) -> bool:
+	var source := _WaterSources.find(get_tree(), str(hose.get("hose_source")))
+	if source == null:
+		return false
+	var a := Vector2(source.global_position.x, source.global_position.z)
+	var b := Vector2(hose.global_position.x, hose.global_position.z)
+	var p := Vector2(at.x, at.z)
+	var along := clampf((p - a).dot(b - a) / maxf((b - a).length_squared(), 0.0001), 0.0, 1.0)
+	return p.distance_to(a.lerp(b, along)) < 0.45
+
+
+## Everyone hears and sees what the mower hit.
+@rpc("authority", "call_local", "reliable")
+func _rpc_mower_fx(what: String, at: Vector3) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk"}.get(what, "bonk"))
+	var looks := get_tree().get_first_node_in_group("task_looks")
+	if looks != null:
+		looks.call("work_fx", "pick_litter" if what == "clank" else ("mow_lawn" if what == "chop" else "clean_gutters"), at + Vector3.UP * 0.3)
+
+
+## Someone's foot went under the mower: 1 is a nasty cut, 2 it came clean off.
+@rpc("authority", "call_local", "reliable")
+func _rpc_foot(target: NodePath, level: int, heading: Vector3) -> void:
+	var person := get_node_or_null(target)
+	if person != null and person.has_method("hurt_foot"):
+		person.call("hurt_foot", level, heading)
+
+
 ## The holder yanks the mower's pull cord. It might catch.
 func request_start() -> void:
 	if Net.is_host():
@@ -357,10 +463,12 @@ func _host_step() -> void:
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
 		# A mower being pushed mows whatever it rolls over, once it's running.
-		if kind == "lawn_mower" and spraying and Vector2(global_position.x - was.x, global_position.z - was.z).length() > 0.01:
-			var tasks := get_tree().get_first_node_in_group("job_tasks")
-			if tasks != null:
-				tasks.call("host_work", "mow_lawn", global_position, 0.75, get_physics_process_delta_time(), held_by)
+		if kind == "lawn_mower" and spraying:
+			if Vector2(global_position.x - was.x, global_position.z - was.z).length() > 0.01:
+				var tasks := get_tree().get_first_node_in_group("job_tasks")
+				if tasks != null:
+					tasks.call("host_work", "mow_lawn", global_position, 0.75, get_physics_process_delta_time(), held_by)
+			_mower_hits(player)
 		return
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if not node is CharacterBody3D:

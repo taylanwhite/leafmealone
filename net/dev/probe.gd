@@ -169,6 +169,7 @@ func write_report() -> void:
 		"work_test": preload("res://net/dev/work_test.gd").result.duplicate(),
 		"throw_test": preload("res://net/dev/throw_test.gd").result.duplicate(),
 		"water_test": preload("res://net/dev/water_test.gd").result.duplicate(),
+		"mower_test": preload("res://net/dev/mower_test.gd").result.duplicate(),
 		"lot_layout": _lot_layout(),
 		"job_progress": _job_progress(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),

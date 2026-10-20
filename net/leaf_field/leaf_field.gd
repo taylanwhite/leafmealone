@@ -291,6 +291,39 @@ func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: 
 	return moved
 
 
+## Host: a running mower shreds the leaves under it. They're gone, but nobody
+## bagged them, so they earn nothing. Returns how much went.
+func host_mulch(at: Vector3, radius: float) -> int:
+	if not Net.is_host() or not _inside_grid(at):
+		return 0
+	var removed := _apply_collect(at, radius, false)
+	if removed > 0:
+		_rpc_stroke.rpc(at)
+	return removed
+
+
+## Host: a burst bag's leaves fall back onto the lawn around at.
+func host_scatter(at: Vector3, radius: float, dollars: int) -> void:
+	if not Net.is_host():
+		return
+	var lot_density := float(grid_width * grid_depth * INITIAL_DENSITY)
+	var whole_lot := float(Balance.CREDITS_PER_1_PERCENT_LOT_CLEANUP) * 100.0
+	var units := int(float(dollars) * lot_density / maxf(whole_lot, 1.0))
+	var center := _cell_at(at)
+	var radius_cells := int(ceil(radius / cell_size))
+	var cells: Array[Vector2i] = []
+	for dz: int in range(-radius_cells, radius_cells + 1):
+		for dx: int in range(-radius_cells, radius_cells + 1):
+			if Vector2(dx, dz).length() <= float(radius_cells):
+				cells.append(Vector2i(center.x + dx, center.y + dz))
+	if cells.is_empty():
+		return
+	var each := maxi(1, units / cells.size())
+	for cell: Vector2i in cells:
+		_add_density(cell.x, cell.y, each)
+	_rpc_stroke.rpc(at)
+
+
 ## Host: true while this peer carries a prop of this kind.
 func holds_kind(peer_id: int, held_kind: String) -> bool:
 	for node: Node in get_tree().get_nodes_in_group("props"):
