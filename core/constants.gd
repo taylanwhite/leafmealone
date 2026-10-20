@@ -137,7 +137,7 @@ const TASK_PAY: Dictionary = {
 }
 ## How much of a spot or cell each second of work clears, out of 100.
 const TASK_WORK_RATE: Dictionary = {
-	"pick_litter": 100.0, "pull_weeds": 40.0, "mow_lawn": 450.0, "clean_gutters": 45.0,
+	"pick_litter": 100.0, "pull_weeds": 40.0, "mow_lawn": 450.0, "clean_gutters": 30.0,
 	"wash_windows": 55.0, "power_wash": 90.0, "trim_hedges": 50.0, "paint_fence": 60.0,
 }
 ## How far from you a tool reaches, in meters.
@@ -171,3 +171,13 @@ const THROW_POWER_MAX: float = 1.5
 const THROW_STRAIN_SECONDS: float = 5.0
 const THROW_FAINT_SECONDS: float = 7.0
 const FAINT_SECONDS: float = 2.5
+
+## The ladder, from Taylan on 2026-10-20: set it against the house, climb it, and
+## work the gutters from the top. TODO(balance): not in the workbook yet.
+## How close to a gutter you must stand to set the ladder up, and to work from the top.
+const LADDER_SET_REACH: float = 3.0
+const LADDER_TOP_REACH: float = 1.9
+## Seconds to climb all the way up or down.
+const LADDER_CLIMB_SECONDS: float = 1.1
+## Scooping gutters with a leaf blower goes this many times faster than by hand.
+const GUTTER_BLOWER_SPEEDUP: float = 3.0
