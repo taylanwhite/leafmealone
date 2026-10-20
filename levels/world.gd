@@ -144,6 +144,12 @@ func request_depart() -> void:
 		_rpc_request_depart.rpc_id(1)
 
 
+## Host only: the homeowner was paid. Settle the job and drive everyone home.
+func finish_with_pay(paid: int) -> void:
+	if Net.is_host():
+		_host_finish(float(paid))
+
+
 func request_finish() -> void:
 	if Net.is_host():
 		_host_finish()
@@ -193,8 +199,12 @@ func _host_depart() -> void:
 	ride.call("depart", party, Net.Zone.LOT)
 
 
-func _host_finish() -> void:
-	Campaign.finish_job()
+## Host only. paid is the homeowner's cash; without it, Campaign falls back to cleanup.
+func _host_finish(paid: float = -1.0) -> void:
+	Campaign.finish_job(paid)
+	var chefty := get_node_or_null("Rides/Chefty")
+	if chefty != null:
+		chefty.call("clear_bags")
 	var ride := get_node_or_null("Rides/Chefty")
 	if ride == null or bool(ride.call("is_riding")):
 		return
@@ -251,13 +261,15 @@ func _on_player_left(peer_id: int) -> void:
 	_PlayerDirector.despawn(%Players, peer_id)
 
 
-func _spawn_bag(at: Vector3) -> void:
+func _spawn_bag(at: Vector3, units: int) -> void:
 	_bag_serial += 1
 	var bag := BAG_SCENE.instantiate()
 	bag.name = "Bag%d" % _bag_serial
 	bag.set("kind", "leaf_bag")
 	bag.set("color", Color(0.72, 0.48, 0.18, 1))
 	bag.set("label", "Leaf bag")
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	bag.set("value", int(field.call("dollars_for", units)) if field != null else 0)
 	_play_sfx("bag")
 	%RuntimeProps.add_child(bag, true)
 	bag.global_position = at + Vector3(0.0, 0.6, 0.0)

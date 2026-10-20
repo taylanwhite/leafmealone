@@ -5,6 +5,7 @@
 [ext_resource type="PackedScene" path="res://props/yard_prop.tscn" id="3_prop"]
 [ext_resource type="PackedScene" path="res://props/hide_spot.tscn" id="4_hide"]
 [ext_resource type="Script" path="res://levels/lots/lot_dressing.gd" id="5_dress"]
+[ext_resource type="Script" path="res://npcs/homeowner.gd" id="6_owner"]
 
 [sub_resource type="BoxShape3D" id="BoxShape_floor"]
 size = Vector3(40, 1, 40)
@@ -157,3 +158,13 @@ surface = "foliage"
 
 [node name="Dressing" type="Node3D" parent="."]
 script = ExtResource("5_dress")
+
+[node name="Homeowner" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 0, 11)
+script = ExtResource("6_owner")
+
+[node name="Rake" parent="." instance=ExtResource("3_prop")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0.2, 12)
+color = Color(0.62, 0.45, 0.28, 1)
+kind = "rake"
+label = "Rake"

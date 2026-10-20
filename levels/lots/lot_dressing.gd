@@ -23,7 +23,8 @@ const TRUNK := Color(0.42, 0.3, 0.2)
 func _ready() -> void:
 	_house()
 	_fences()
-	for spot: Vector3 in [Vector3(-17.0, 0.0, 3.0), Vector3(6.0, 0.0, 12.0), Vector3(17.0, 0.0, -6.0)]:
+	# Clear of the homeowner and the truck by the front gate.
+	for spot: Vector3 in [Vector3(-17.0, 0.0, 3.0), Vector3(11.0, 0.0, 15.0), Vector3(17.0, 0.0, -6.0)]:
 		_LowPoly.round_tree(self, spot, 7.0, Color(0.88, 0.5, 0.16))
 	_LowPoly.paint(_LowPoly.box(self, Vector3(3.2, 0.03, 10.0), Vector3(-3.0, 0.015, 11.0), Color(0.55, 0.55, 0.52)), "concrete")
 	_LowPoly.box(self, Vector3(0.12, 1.1, 0.12), Vector3(3.5, 0.55, 17.5), TRUNK)

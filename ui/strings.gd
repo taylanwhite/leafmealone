@@ -51,6 +51,22 @@ const UI: Dictionary = {
 	"shop_barrow_name": "Bigger wheelbarrow",
 	"shop_barrow_blurb": "Holds %d bags instead of %d.",
 	"clerk_name": "[CLERK NAME]",
+	"homeowner_name": "[HOMEOWNER NAME]",
+	"prompt_talk": "Talk to the homeowner",
+	"prompt_take_cash": "Take the cash ($%d)",
+	"cash_amount": "$%d",
+	"homeowner_thanks": "Thanks!",
+}
+
+## What the homeowner says when you report the job done, by mood. Taylan wrote the
+## first two on 2026-10-19. The rest are plain stand-ins until there are real lines.
+const HOMEOWNER_LINES: Dictionary = {
+	"thrilled": ["You did a great job, here's a tip!"],
+	"happy": ["Nice work. Here you go."],
+	"fine": ["Thanks. Here's your money."],
+	"slow": ["Took long enough eh?"],
+	"messy": ["There are still leaves out there."],
+	"nothing": ["You haven't bagged anything yet."],
 }
 
 const LINES: Array[Dictionary] = [

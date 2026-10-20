@@ -9,6 +9,10 @@ const _COLORS: Array[Color] = [
 	_Palette.LEAF_YELLOW,
 ]
 
+## Density per drawn flake, and the most flakes one cell draws.
+const FLAKE_UNIT: float = 15.0
+const MAX_FLAKES: int = 12
+
 var _field: Node3D
 var _views: Array[MultiMeshInstance3D] = []
 var _leaf_mesh: BoxMesh
@@ -81,7 +85,9 @@ func _flake_color(cell: Vector3, flake: int) -> Color:
 func _flake_count(density: int, clean: int) -> int:
 	if density <= clean:
 		return 0
-	return clampi(int(ceil(float(density) / 50.0)), 1, 4)
+	# One flake per FLAKE_UNIT of density: a fresh lot shows a carpet of four,
+	# and a raked pile stacks up into a heap you can see from across the yard.
+	return clampi(int(ceil(float(density) / FLAKE_UNIT)), 1, MAX_FLAKES)
 
 
 func _flake_transform(cell: Vector3, flake: int) -> Transform3D:
@@ -93,7 +99,9 @@ func _flake_transform(cell: Vector3, flake: int) -> Transform3D:
 	var size := 0.85 + float((mix / 11) % 7) * 0.06
 	var basis := Basis.from_euler(Vector3(tilt, yaw, tilt * 0.4)).scaled(Vector3(size, 1.0, size))
 	var ground: Vector3 = _field.get("grid_origin")
-	var origin := Vector3(cell.x + along * 0.32, ground.y + 0.02 + float(flake) * 0.035, cell.z + across * 0.32)
+	# Higher flakes sit closer to the middle, so a pile mounds up instead of a flat stack.
+	var spread := 0.32 * (1.0 - float(flake) / float(MAX_FLAKES) * 0.6)
+	var origin := Vector3(cell.x + along * spread, ground.y + 0.02 + float(flake) * 0.04, cell.z + across * spread)
 	return Transform3D(basis, origin)
 
 

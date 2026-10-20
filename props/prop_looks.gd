@@ -35,10 +35,33 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 			_gnome(look)
 		"leaf_bag":
 			_leaf_bag(look)
+		"rake":
+			_rake(look)
 		_:
 			_LowPoly.paint(_LowPoly.box(look, Vector3(0.7, 0.7, 0.7), Vector3(0, 0.35, 0), color), "planks")
 	# The cube stays for its color code, but nothing draws it now.
 	visual.mesh = null
+
+
+## The rake lies flat when nobody has it. In hand it angles down in front of the
+## holder with the tines on the leaves, and sweeps while its holder rakes.
+static func pose_rake(prop: Node3D, holder: Node3D, raking: bool) -> void:
+	var look := prop.get_node_or_null("Visual/Look") as Node3D
+	if look == null or str(look.get_meta("kind", "")) != "rake":
+		return
+	var pose := look.get_node_or_null("Pose") as Node3D
+	if pose == null:
+		return
+	if holder == null:
+		look.rotation = Vector3.ZERO
+		pose.rotation = Vector3(0.0, 0.0, PI * 0.5)
+		pose.position = Vector3(0.0, 0.1, 0.0)
+		return
+	# Face the way the holder faces, handle up toward them, tines down ahead.
+	look.global_rotation = Vector3(0.0, holder.global_rotation.y, 0.0)
+	var sweep := sin(Time.get_ticks_msec() * 0.012) * 0.25 if raking else 0.0
+	pose.rotation = Vector3(-0.85, 0.0, 0.0)
+	pose.position = Vector3(0.0, -0.1, sweep)
 
 
 ## Show this many bags in the wheelbarrow's tray.
@@ -104,3 +127,21 @@ static func _leaf_bag(look: Node3D) -> void:
 	var tie := _LowPoly.cone(look, 0.1, 0.18, Vector3(0, 0.74, 0), BAG_COLOR.darkened(0.15))
 	tie.rotation.x = PI
 	_LowPoly.paint(tie, "fabric")
+
+
+## The job's one rake: a long wooden handle and a fan of tines.
+static func _rake(look: Node3D) -> void:
+	var pose := Node3D.new()
+	pose.name = "Pose"
+	look.add_child(pose)
+	var wood := Color(0.62, 0.45, 0.28)
+	var steel := Color(0.55, 0.57, 0.6)
+	# Built standing up: the handle runs up from the head at the origin.
+	_LowPoly.paint(_LowPoly.cylinder(pose, 0.025, 1.5, Vector3(0, 0.78, 0), wood, false, 6), "planks")
+	_LowPoly.paint(_LowPoly.box(pose, Vector3(0.6, 0.05, 0.04), Vector3(0, 0.05, 0), steel), "metal")
+	for index: int in 9:
+		var x := -0.28 + float(index) * 0.07
+		var tine := _LowPoly.box(pose, Vector3(0.015, 0.18, 0.015), Vector3(x, -0.03, -0.03), steel)
+		tine.rotation.x = 0.35
+		_LowPoly.paint(tine, "metal")
+	_LowPoly.paint(_LowPoly.box(pose, Vector3(0.12, 0.05, 0.04), Vector3(0, 1.55, 0), Color(0.85, 0.3, 0.15)), "plain")

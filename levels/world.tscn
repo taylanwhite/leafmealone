@@ -205,21 +205,6 @@ font_size = 48
 outline_size = 10
 text = "E to board Chefty"
 
-[node name="Finish" type="Area3D" parent="LotZone"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
-script = ExtResource("3_post")
-action_name = "finish"
-
-[node name="Collision" type="CollisionShape3D" parent="LotZone/Finish"]
-shape = SubResource("BoxShape_gate")
-
-[node name="Label" type="Label3D" parent="LotZone/Finish"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
-billboard = 1
-font_size = 48
-outline_size = 10
-text = "E to finish the job"
-
 [node name="RideSpawner" type="MultiplayerSpawner" parent="."]
 spawn_path = NodePath("../Rides")
 
