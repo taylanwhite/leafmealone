@@ -317,7 +317,8 @@ func _refresh_label() -> void:
 func _hold_position(player: CharacterBody3D) -> Vector3:
 	# The rake is held low and close, tines on the leaves. Everything else at chest height.
 	if kind == "rake":
-		return player.global_position + Vector3(0.0, 0.75, 0.0) + (-player.global_transform.basis.z) * 0.9
+		# A little to the right, so the handle doesn't split a first-person view in half.
+		return player.global_position + Vector3(0.0, 0.75, 0.0) + (-player.global_transform.basis.z) * 0.9 + player.global_transform.basis.x * 0.35
 	return player.global_position + Vector3(0.0, 1.2, 0.0) + (-player.global_transform.basis.z) * 1.15
 
 
