@@ -179,6 +179,31 @@ static func _fence_panel(root: Node3D, at: Vector3) -> void:
 	fence.position = at
 
 
+## A straight road from one point to another on the ground: asphalt, a dashed
+## double center line, and optionally curbs and sidewalks on both sides.
+static func road(root: Node3D, from: Vector3, to: Vector3, width: float = 8.8, sidewalks: bool = true) -> void:
+	var holder := Node3D.new()
+	holder.name = "Road"
+	root.add_child(holder)
+	var flat := Vector3(to.x - from.x, 0.0, to.z - from.z)
+	var length := flat.length()
+	holder.position = (from + to) * 0.5
+	holder.rotation.y = atan2(-flat.z, flat.x)
+	_LowPoly.paint(_LowPoly.box(holder, Vector3(length, 0.1, width), Vector3(0.0, -0.04, 0.0), ASPHALT), "asphalt")
+	for x: float in range(-int(length * 0.5), int(length * 0.5) - 3, 6):
+		for offset: float in [-0.12, 0.12]:
+			_LowPoly.box(holder, Vector3(3.0, 0.02, 0.1), Vector3(float(x) + 1.5, 0.02, offset), LINE_YELLOW)
+	if not sidewalks:
+		return
+	for side: float in [-1.0, 1.0]:
+		_LowPoly.paint(_LowPoly.box(holder, Vector3(length, 0.2, 0.3), Vector3(0.0, 0.0, side * (width * 0.5 + 0.15)), CONCRETE.darkened(0.08)), "concrete")
+		_LowPoly.paint(_LowPoly.box(holder, Vector3(length, 0.16, 2.0), Vector3(0.0, 0.02, side * (width * 0.5 + 1.3)), CONCRETE), "concrete")
+
+
+static func lamp(root: Node3D, at: Vector3, yaw: float) -> void:
+	_lamp(root, at, yaw)
+
+
 static func _lamp(root: Node3D, at: Vector3, yaw: float) -> void:
 	var lamp := Node3D.new()
 	lamp.name = "StreetLamp"
