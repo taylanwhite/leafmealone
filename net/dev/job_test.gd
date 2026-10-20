@@ -11,6 +11,9 @@ extends Node
 const ROUNDS: int = 2
 const RIDE_TIMEOUT_SECONDS: float = 20.0
 
+const _JobGoal = preload("res://ui/job_goal.gd")
+const _Strings = preload("res://ui/strings.gd")
+
 static var result: Dictionary = {}
 
 var _started: bool = false
@@ -39,6 +42,14 @@ func _run() -> void:
 			return
 	result["ok"] = true
 	_note("all %d rounds ok" % ROUNDS)
+	var wrong: Array = []
+	for round_result: Dictionary in rounds:
+		wrong.append_array(round_result.get("wrong_goals", []))
+	result["goals_ok"] = wrong.is_empty()
+	if not wrong.is_empty():
+		result["ok"] = false
+		result["error"] = "goal line wrong: %s" % [wrong]
+	_note("goal line right at every step: %s" % result["goals_ok"])
 
 
 func _play_round(out: Dictionary) -> bool:
@@ -65,6 +76,7 @@ func _ride_to_lot(out: Dictionary) -> bool:
 		return _fail(out, "no truck pad at the store")
 	_move_player_to(pad.global_position + Vector3(0.0, 0.5, 0.0))
 	await _ticks(3)
+	_expect_goal(out, "goal_board")
 	get_tree().get_first_node_in_group("world").call("request_depart")
 	if not await _until(func() -> bool: return Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT, RIDE_TIMEOUT_SECONDS):
 		return _fail(out, "Chefty never got to the lot")
@@ -88,6 +100,7 @@ func _fresh_job(out: Dictionary) -> bool:
 	_note("fresh job: %.0f%% clean, truck $%d, homeowner waiting %s, rake free %s" % [float(out["start_clean"]) * 100.0, out["start_truck_value"], waiting, rake_free])
 	if float(out["start_clean"]) > 0.01 or int(out["start_truck_value"]) != 0 or not waiting or not rake_free:
 		return _fail(out, "the job did not start fresh")
+	_expect_goal(out, "goal_grab_rake")
 	return true
 
 
@@ -100,6 +113,7 @@ func _grab_rake(out: Dictionary) -> bool:
 	out["holds_rake"] = bool(_field().call("holds_rake", Net.local_peer_id()))
 	if not bool(out["holds_rake"]):
 		return _fail(out, "could not grab the rake")
+	_expect_goal(out, "goal_rake")
 	return true
 
 
@@ -148,6 +162,8 @@ func _deliver(out: Dictionary) -> bool:
 	var rake := _first_prop("rake")
 	if rake != null and int(rake.get("held_by")) == Net.local_peer_id():
 		rake.call("request_drop")
+	await _ticks(2)
+	_expect_goal(out, "goal_carry_loose")
 	var expected := 0
 	var bags := _bags()
 	for bag: Node in bags:
@@ -162,6 +178,7 @@ func _deliver(out: Dictionary) -> bool:
 		await _ticks(2)
 		if int(bag.get("held_by")) != Net.local_peer_id():
 			_note("could not pick up a bag at %s" % (bag as Node3D).global_position)
+		_expect_goal(out, "goal_carry_held")
 		_move_player_to(truck_at + Vector3(0.0, 0.0, 2.5))
 		await _ticks(3)
 		if is_instance_valid(bag):
@@ -171,6 +188,7 @@ func _deliver(out: Dictionary) -> bool:
 	_note("carried bags worth $%d to Chefty and tossed them in, truck says $%d" % [expected, out["truck_value"]])
 	if int(out["truck_value"]) != expected:
 		return _fail(out, "the truck did not take every bag")
+	_expect_goal(out, "goal_rake_or_talk")
 	return true
 
 
@@ -184,6 +202,7 @@ func _get_paid(out: Dictionary) -> bool:
 	# Phase 2 is OFFERING: the reaction plays, then the cash comes out.
 	if not await _until(func() -> bool: return int(owner_node.get("_phase")) == 2, 6.0):
 		return _fail(out, "the homeowner never held out the cash")
+	_expect_goal(out, "goal_take_cash")
 	out["offered"] = int(owner_node.get("_amount"))
 	owner_node.call("_handle_take", Net.local_peer_id())
 	await _ticks(3)
@@ -209,6 +228,17 @@ func _ride_home(out: Dictionary) -> bool:
 	if float(out["truck_home_distance"]) > 15.0 or not bool(out["lot_cleared"]):
 		return _fail(out, "Chefty or the lot did not come home right")
 	return true
+
+
+## The HUD goal line (ui/job_goal.gd) should say this right now.
+func _expect_goal(out: Dictionary, key: String) -> void:
+	var shown := _JobGoal.goal(get_tree(), Net.local_peer_id())
+	var prefix := str(_Strings.UI[key]).split("%")[0]
+	if not shown.begins_with(prefix):
+		var wrong: Array = out.get("wrong_goals", [])
+		wrong.append("%s showed \"%s\"" % [key, shown])
+		out["wrong_goals"] = wrong
+		_note("goal line should be %s but says \"%s\"" % [key, shown])
 
 
 func _fail(out: Dictionary, reason: String) -> bool:
