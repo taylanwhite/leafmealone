@@ -188,3 +188,11 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Arms:** `player/first_person_arms.gd` draws the local player's arms as a child of their Head, only for the owning peer and only while the first-person camera is current. Each arm is two bones solved toward a hand target in head space; targets come from what the player holds (grip points per tool model), the rake's stroke, the throw wind-up, climbing, gestures, and knockouts. Nothing here replicates: other peers see the full cartoon body as before.
 - **Why not show the body's own arms:** they're posed for a third-person view and swing through the camera; a view model that reaches for the actual tool reads better and is cheap.
 - **Crew name:** `[CREW NAME]` placeholders are gone; the text says "the NICE BOYS".
+
+### 2026-10-21: Heat is the run-event trigger; gags are host-checked physics with replicated flags
+
+- **Heat:** `net/run_events/heat.gd` (a node under World) is host-owned and replicated by RPC, throttled to four updates a second. The director rolls every `HEAT_ROLL_SECONDS` once the progress rule is met, with the chance and the cooldown scaled by heat, and spawns `crew_count()` NICE BOYS. OQ-009 is closed by Taylan's decision in docs/FUN.md.
+- **Pile hiding and coats** are new replicated player flags (`in_pile`, `coat`, on-change). The host decides both (the leaf field checks the pile; job tasks check who paint and water reach) and tells the owning peer, which sets its own flag, following the host-to-owner pattern. Visuals are local to each peer from the flag.
+- **The runaway mower** is the host moving an unheld running mower; **ladder knock-down** clears `ladder_top`, which already meant "not set up" everywhere. **Crew stuns** are a host timer on the crew member, with the same bonk tiers as players.
+- **Tint:** the stylized shader gained an `instance uniform` tint, so paint and water on a body cost no new materials.
+- **Tests:** `--gag-test` covers all of it with a client; CI runs it.

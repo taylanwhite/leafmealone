@@ -5,6 +5,9 @@ funny factor, and for a path to 8 to 10 hours of play. This is an agent's read,
 not the workbook: the design decisions it needs are listed at the end for the
 developers. Everything else is proposed build work.
 
+Built since (2026-10-21): heat, throwing at the NICE BOYS, diving into piles,
+the runaway mower, the ladder knock-down, and paint and water on people.
+
 ## How this was played
 
 Every task was run end to end through the automated tests (`--job-test`,
