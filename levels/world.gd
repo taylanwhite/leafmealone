@@ -53,6 +53,9 @@ func _ready() -> void:
 	var board := preload("res://levels/job_board.gd").new()
 	board.name = "JobBoard"
 	add_child(board)
+	var heat := preload("res://net/run_events/heat.gd").new()
+	heat.name = "Heat"
+	add_child(heat)
 	_dress()
 	_SharedLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):

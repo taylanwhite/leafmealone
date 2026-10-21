@@ -135,14 +135,21 @@ func _show_nozzle(prop: Node3D, connected: bool) -> void:
 
 func _draw_tube() -> void:
 	_mesh.clear_surfaces()
+	# Nothing to draw while every point still sits on the nozzle (just snapped).
+	var drawable := false
+	for index: int in _points.size() - 1:
+		if (_points[index + 1] - _points[index]).length() >= 0.001:
+			drawable = true
+	if not drawable:
+		return
 	_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	var sides := 5
 	for index: int in _points.size() - 1:
 		var a := _points[index]
 		var b := _points[index + 1]
-		var along := (b - a).normalized()
-		if along.length() < 0.5:
+		if (b - a).length() < 0.001:
 			continue
+		var along := (b - a).normalized()
 		var side := along.cross(Vector3.UP)
 		if side.length() < 0.1:
 			side = Vector3.RIGHT

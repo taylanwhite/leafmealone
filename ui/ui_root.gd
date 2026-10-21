@@ -58,6 +58,9 @@ func _ready() -> void:
 	_rake_hint.add_theme_constant_override("shadow_offset_y", 1)
 	_rake_hint.visible = false
 	add_child(_rake_hint)
+	var heat := preload("res://ui/heat_meter.gd").new()
+	heat.name = "HeatMeter"
+	add_child(heat)
 	var goal := preload("res://ui/job_goal.gd").new()
 	goal.name = "JobGoal"
 	add_child(goal)

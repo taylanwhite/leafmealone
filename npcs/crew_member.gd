@@ -24,11 +24,14 @@ var _target_peer: int = 0
 var _search_left: float = 0.0
 var _waypoint := Vector3.INF
 var _rng := RandomNumberGenerator.new()
+## Seconds this NICE BOY is still reeling from something thrown at them.
+var _stun_left: float = 0.0
 
 
 func _ready() -> void:
 	set_multiplayer_authority(1)
 	add_to_group("crew")
+	add_to_group("bonkable")
 	_dress_up()
 	_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 	if Net.is_host():
@@ -73,8 +76,35 @@ func can_see_peer(peer_id: int) -> bool:
 	return false
 
 
+## Something thrown hit this NICE BOY (net/components/net_prop.gd, every peer):
+## a flinch, a stumble, or flat on their back with stars. The host stops them
+## for the tier's stun time, so a good throw buys a head start.
+func on_bonked(push: Vector3, tier: String) -> void:
+	var body := get_node_or_null("Visual/CartoonBody")
+	match tier:
+		"light":
+			if body != null:
+				body.call("gesture", "startle")
+		"medium":
+			if body != null:
+				body.call("gesture", "stumble")
+		_:
+			if body != null:
+				body.call("dizzy", float(Constants.BONK_STUN_SECONDS["heavy"]))
+	if Net.is_host():
+		_stun_left = maxf(_stun_left, float(Constants.BONK_STUN_SECONDS.get(tier, 0.35)))
+		velocity = Vector3(push.x, 0.0, push.z) * 0.6
+
+
 func _physics_process(delta: float) -> void:
 	if not Net.is_host():
+		return
+	if _stun_left > 0.0:
+		_stun_left -= delta
+		velocity.x = move_toward(velocity.x, 0.0, 8.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 8.0 * delta)
+		velocity.y = 0.0 if is_on_floor() else velocity.y - _gravity * delta
+		move_and_slide()
 		return
 	var goal := global_position
 	var target := _visible_target()
@@ -152,7 +182,8 @@ func _visible_target() -> Node3D:
 			continue
 		if director == null and Net.player_zone(peer_id) != Net.Zone.LOT:
 			continue
-		if body.has_method("is_hidden") and bool(body.call("is_hidden")):
+		# Hidden, unless they were seen diving into a pile: then the pile is the target.
+		if body.has_method("is_hidden") and bool(body.call("is_hidden")) and not (bool(body.get("in_pile")) and bool(body.get_meta("pile_seen", false))):
 			continue
 		if not _can_see(body):
 			continue

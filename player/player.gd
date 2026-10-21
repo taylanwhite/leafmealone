@@ -38,6 +38,11 @@ const HUP_CHANCE: float = 0.6
 ## (hopping on the other one until the job is paid). Replicated.
 @export var foot_hurt: int = 0
 ## Equipped tool id. Empty until tools exist. Replicated.
+## Dived into a pile of leaves (docs/FUN.md): hidden from the NICE BOYS unless
+## one watched you go in. Replicated; the host decides (leaf_field.gd).
+@export var in_pile: bool = false
+## Wearing something: 1 paint, 2 water. Replicated; the host decides (job_tasks.gd).
+@export var coat: int = 0
 @export var equipment_id: String = ""
 
 var _look := Vector2.ZERO
@@ -74,6 +79,9 @@ var _limp_left: float = 0.0
 ## Holding G with something in hand: how long it's been wound up, and when the
 ## next strained noise is due.
 var _wind_up: float = -1.0
+var _coat_left: float = 0.0
+var _coat_shown: int = 0
+var _mound: Node3D
 var _next_strain: float = 0.0
 
 
@@ -145,12 +153,20 @@ func _physics_process(delta: float) -> void:
 		_apply_bonk(bonk[0], bonk[1])
 	if is_multiplayer_authority():
 		_step_wind_up(delta)
+		if _coat_left > 0.0:
+			_coat_left -= delta
+			if _coat_left <= 0.0:
+				coat = 0
+		# In a pile you're crouched down in the leaves; walking forward climbs out.
+		%FirstPerson.position.y = -1.05 if in_pile else 0.0
+		if in_pile and (Input.is_action_just_pressed("move_forward") or Input.is_action_just_pressed("jump")):
+			set_pile(false)
 		if _crossing_drive:
 			_look = Vector2.ZERO
 			body_yaw = PI
 		else:
 			_apply_look()
-		if _hidden_spot != null:
+		if _hidden_spot != null or in_pile:
 			velocity = Vector3.ZERO
 		elif _throwback_left > 0.0:
 			_step_throwback(delta)
@@ -240,7 +256,7 @@ func set_hidden_in(spot: Node3D) -> void:
 
 
 func is_hidden() -> bool:
-	return _hidden_spot != null
+	return _hidden_spot != null or in_pile
 
 
 ## Hanging on to a hydrant-fed hose with the water on: the spray shoves you back
@@ -516,11 +532,96 @@ func _toggle_hiding() -> bool:
 	if _hidden_spot != null:
 		_hidden_spot.call("request_exit")
 		return true
+	if in_pile:
+		set_pile(false)
+		return true
 	var closest := _nearest_free_spot()
-	if closest == null:
-		return false
-	closest.call("request_enter")
-	return true
+	if closest != null:
+		closest.call("request_enter")
+		return true
+	# No spot, but a big enough pile underfoot: dive in.
+	if _on_pile():
+		get_tree().get_first_node_in_group("leaf_field").call("request_pile_hide")
+		return true
+	return false
+
+
+## True when the leaves under this player are thick enough to dive into.
+func _on_pile() -> bool:
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	return field != null and is_on_floor() and bool(field.call("is_pile_at", global_position))
+
+
+## From the host (leaf_field.gd): in or out of a pile. Out, you pop up where you were.
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_pile(hidden: bool) -> void:
+	if multiplayer.get_remote_sender_id() == 1:
+		set_pile(hidden)
+
+
+## The owner sets its own flag (the host decided, or this player climbs out).
+func set_pile(hidden: bool) -> void:
+	if hidden == in_pile:
+		return
+	in_pile = hidden
+	if hidden:
+		_release_held(false)
+		velocity = Vector3.ZERO
+		say_to_all("vo_heave")
+	else:
+		say_to_all("vo_yelp")
+		velocity = Vector3.UP * 3.0
+	reset_physics_interpolation()
+
+
+## From the host (net/work/job_tasks.gd): paint (1) or water (2) landed on you.
+## Water washes paint off, and you slip for a moment.
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_coat(kind: int) -> void:
+	if multiplayer.get_remote_sender_id() == 1:
+		set_coat(kind)
+
+
+## The owner wears what the host says landed on them.
+func set_coat(kind: int) -> void:
+	coat = kind
+	_coat_left = Constants.PAINT_SECONDS if kind == 1 else Constants.SOAK_SECONDS
+	if kind == 2:
+		say_to_all("vo_yelp")
+		if _stun_left <= 0.0 and _ladder == null and not in_pile:
+			_stun_left = Constants.SOAK_SLIP_SECONDS
+	else:
+		say_to_all("vo_eh")
+
+
+## Every peer: what this player looks like right now beyond the body's own
+## animation: gone into a pile (with a mound of leaves over them), paint, water.
+func _process(_delta: float) -> void:
+	if multiplayer.multiplayer_peer == null:
+		return
+	$Visual.visible = _hidden_spot == null and not in_pile
+	if in_pile and _mound == null:
+		_mound = load("res://props/stylized.gd").instance(load("res://levels/lots/task_looks.gd")._mesh("roof_leaves"), {"roughness": 0.9, "double_sided": true})
+		_mound.name = "Mound"
+		_mound.scale = Vector3(2.4, 3.2, 2.4)
+		_mound.position = Vector3(0.0, 0.02, 0.0)
+		add_child(_mound)
+	elif not in_pile and _mound != null:
+		_mound.queue_free()
+		_mound = null
+	if _mound != null:
+		_mound.scale.y = 3.2 + sin(Time.get_ticks_msec() / 1000.0 * 2.5) * 0.15
+	if coat != _coat_shown:
+		_coat_shown = coat
+		var body := get_node_or_null("Visual/CartoonBody")
+		if body != null:
+			match coat:
+				1:
+					body.call("set_coat", Color(0.97, 0.96, 0.93), 0.9)
+				2:
+					body.call("set_coat", Color(0.45, 0.65, 0.95), 0.35)
+				_:
+					body.call("set_coat", Color.WHITE, 0.0)
 
 
 ## Host only: put this player somewhere. The owning peer moves its own character
@@ -605,9 +706,13 @@ func interaction_hint() -> Dictionary:
 	var ladder_top := _nearest_ladder_top()
 	if ladder_top != null:
 		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0)}
+	if in_pile:
+		return {"text": _Strings.UI["prompt_pile_out"], "at": global_position + Vector3(0.0, 1.2, 0.0)}
 	var spot := _nearest_free_spot()
 	if spot != null:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	if _on_pile():
+		return {"text": _Strings.UI["prompt_pile_dive"], "at": global_position + Vector3(0.0, 0.5, 0.0) - global_basis.z * 0.8}
 	var hand := _nearest_hand_task()
 	if not hand.is_empty():
 		var key := {"pick_litter": "prompt_pick_litter", "pull_weeds": "prompt_pull_weed", "skim_pool": "prompt_skim_pool"}.get(str(hand["task"]), "prompt_pick_litter") as String

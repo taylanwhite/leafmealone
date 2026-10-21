@@ -155,6 +155,46 @@ const TASK_REACH: Dictionary = {
 ## Taylan, 2026-10-20: too much at once felt like a chore list.
 ## How many job offers the board at Homie Depot shows.
 const JOB_BOARD_OFFERS: int = 3
+## Heat, from Taylan on 2026-10-21 (docs/FUN.md): the noise the crew makes, what
+## it breaks, and who it bonks draw the NICE BOYS. 0 to 100; the run director
+## rolls against it (net/run_events/heat.gd). TODO(balance): not in the workbook.
+const HEAT_NOISE_PER_SECOND: Dictionary = {"lawn_mower": 1.6, "leaf_blower": 1.4, "pressure_washer": 1.0, "hedge_trimmer": 0.9}
+const HEAT_HYDRANT: float = 12.0
+const HEAT_PER_BILL_DOLLAR: float = 0.15
+const HEAT_PEDESTRIAN_BONK: Dictionary = {"light": 4.0, "medium": 8.0, "heavy": 14.0}
+const HEAT_CREW_BONK: float = 10.0
+const HEAT_COAT_PERSON: float = 6.0
+## Cooling: per quiet second on the job, and when a job is paid.
+const HEAT_COOL_PER_SECOND: float = 0.25
+const HEAT_COOL_PER_JOB: float = 35.0
+## What heat drops to once the van leaves.
+const HEAT_AFTER_RAID: float = 15.0
+## The director rolls this often on the lot; the chance per roll at full heat
+## (added to Balance.RUN_EVENT_BASE_CHANCE), and the heat at which a raid is certain.
+const HEAT_ROLL_SECONDS: float = 20.0
+const HEAT_CHANCE_AT_MAX: float = 0.9
+const HEAT_RAID_AT: float = 95.0
+## One more NICE BOY for every this much heat, up to the max.
+const HEAT_PER_EXTRA_CREW: float = 35.0
+const HEAT_MAX_CREW: int = 3
+## Heat levels that get a warning caption (ui/strings.gd heat_warn_*).
+const HEAT_WARN_AT: Array = [50.0, 80.0]
+
+## Diving into a pile of leaves to hide: how thick it has to be (leaf units within the radius).
+const PILE_HIDE_RADIUS: float = 1.0
+const PILE_HIDE_UNITS: int = 2200
+## A running mower let go of drives off on its own.
+const MOWER_RUNAWAY_SPEED: float = 2.2
+const MOWER_RUNAWAY_SECONDS: float = 9.0
+## A set-up ladder is knocked down by anything flying at least this fast.
+const LADDER_KNOCK_MIN_SPEED: float = 3.0
+const LADDER_KNOCK_RADIUS: float = 1.2
+## Paint and water on people: how close counts, and how long they wear it.
+const COAT_REACH: float = 1.4
+const PAINT_SECONDS: float = 60.0
+const SOAK_SECONDS: float = 25.0
+const SOAK_SLIP_SECONDS: float = 0.7
+
 ## How often a yard is small, regular, or big, and how many more tasks each asks for.
 ## A crew with a better rating gets offered big yards more often (YARD_BIG_PER_STAR
 ## per star above three). TODO(balance): not in the workbook yet.

@@ -157,6 +157,12 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 			_on_head_layer(node as Node3D)
 
 
+## Paint or water all over: tint every part toward color by amount (0 clears it).
+func set_coat(color: Color, amount: float) -> void:
+	for node: Node in find_children("*", "MeshInstance3D", true, false):
+		(node as MeshInstance3D).set_instance_shader_parameter("tint", Color(color.r, color.g, color.b, amount))
+
+
 ## Play a gesture once: "wave", "scratch", "stretch", "watch", "shuffle",
 ## "cheer", "flail", "startle", "look_around", or "stumble". A new one replaces
 ## the current one.

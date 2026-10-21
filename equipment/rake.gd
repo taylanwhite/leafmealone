@@ -78,8 +78,9 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 			_stroke(player, false, Constants.BLOWER_STRENGTH, Constants.BLOWER_WIDTH)
 		return
 	if tool_kind == "lawn_mower":
-		# Left click pulls the cord; once it's running it mows by being pushed around.
-		if Input.is_action_just_pressed("primary") and not bool(_held_prop(player).get("spraying")):
+		# Left click pulls the cord; once it's running it mows by being pushed
+		# around, and another pull switches it off (let go while it runs and it drives away).
+		if Input.is_action_just_pressed("primary"):
 			_held_prop(player).call("request_start")
 			var body := player.get_node_or_null("Visual/CartoonBody")
 			if body != null:

@@ -65,8 +65,8 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 	var held_node := _held_node(tree, peer_id)
 	if held == "hose" and held_node != null and str(held_node.get("hose_source")) == "":
 		return _Strings.UI["goal_hook_hose"]
-	if held == "lawn_mower" and held_node != null and not bool(held_node.get("spraying")):
-		return _Strings.UI["goal_start_mower"]
+	if held == "lawn_mower" and held_node != null:
+		return _Strings.UI["goal_start_mower"] if not bool(held_node.get("spraying")) else _Strings.UI["goal_mower_running"]
 	if held == "paint_roller" and held_node != null and float(held_node.get("water")) <= 0.0:
 		return _Strings.UI["goal_dip_roller"]
 	if held == "pressure_washer" and held_node != null:

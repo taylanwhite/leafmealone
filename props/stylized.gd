@@ -14,6 +14,8 @@ uniform float wind = 0.0;
 uniform float roughness_value = 0.92;
 uniform float specular_value = 0.12;
 uniform float translucency = 0.0;
+// Paint or water on a person: set per instance (player/cartoon_body.gd set_coat).
+instance uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 0.0);
 
 varying float sway;
 
@@ -38,7 +40,7 @@ void vertex() {
 }
 
 void fragment() {
-	ALBEDO = to_linear(COLOR.rgb);
+	ALBEDO = mix(to_linear(COLOR.rgb), to_linear(tint.rgb), tint.a);
 	ROUGHNESS = roughness_value;
 	SPECULAR = specular_value;
 	// Light through thin leaves on the shadow side.
