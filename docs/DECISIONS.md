@@ -175,7 +175,7 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Ladders:** a set-up ladder's top replicates; whether someone is up one is worked out from their position, so the host can check gutter work for anyone without new state.
 - **Tests:** `--water-test` and `--work-test` cover it; CI runs them.
 
-## 2026-10-20: Job board offers, yard sizes, ratings, and a separate test save
+### 2026-10-20: Job board offers, yard sizes, ratings, and a separate test save
 
 - **Offers:** `levels/job_board.gd` (a node under World) holds the host's job offers. Each offer is a seed plus the tasks and yard size derived from it, and it replicates by RPC, including to late joiners. The job lot is built from the picked offer, and its yard size spawn-syncs on `JobSync` next to the seed and tasks. The pick locks once Chefty is riding or anyone is on the lot. Each loaded yard gets a new node name, so messages still in flight for a swapped-out yard never land on the new one.
 - **Ratings:** `Campaign` keeps the homeowners' recent reviews, saves them, and replicates them with the progress RPC.
