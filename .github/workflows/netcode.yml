@@ -56,7 +56,7 @@ jobs:
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-job
-          "$GODOT" --headless --path . -- --host --port=7794 --name=Tester --no-steam --job-test --yard-size=1 --measure="$PWD/build/soak/ci-job/host.json" --run-seconds=75 | grep "JobTest" || true
+          "$GODOT" --headless --path . -- --host --port=7794 --name=Tester --no-steam --job-test --job-seed=777 --yard-size=1 --measure="$PWD/build/soak/ci-job/host.json" --run-seconds=75 | grep "JobTest" || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-job/host.json'))['job_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
 
       - name: Bonk test (light, medium, and heavy throws at another player)
