@@ -196,3 +196,9 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **The runaway mower** is the host moving an unheld running mower; **ladder knock-down** clears `ladder_top`, which already meant "not set up" everywhere. **Crew stuns** are a host timer on the crew member, with the same bonk tiers as players.
 - **Tint:** the stylized shader gained an `instance uniform` tint, so paint and water on a body cost no new materials.
 - **Tests:** `--gag-test` covers all of it with a client; CI runs it.
+
+### 2026-10-21: Player-on-player play goes through one host node
+
+- **Brawl:** `net/components/brawl.gd` (under World, host authority) takes every ask (punch, whack, grab, release, break free), checks reach and state on the host, broadcasts the hit (one call_local RPC: swing on the attacker, bonk on the target, the sound), and tells each owner what they're now doing. `carrying`, `carried_by`, `thrown`, and `winding` are owner-set replicated flags on the player, like the other host-to-owner flags; a carried player positions itself at its carrier each physics tick from the carrier's replicated transform, so nothing new is interpolated.
+- **Why one node:** punches and throws involve two players whose movement belongs to two peers; the host is the only place both are known, and one RPC hub keeps the rules in one file.
+- **Tests:** `--brawl-test` with a client runs in CI.
