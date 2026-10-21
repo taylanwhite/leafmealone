@@ -172,6 +172,7 @@ func write_report() -> void:
 		"mower_test": preload("res://net/dev/mower_test.gd").result.duplicate(),
 		"board_test": preload("res://net/dev/board_test.gd").result.duplicate(),
 		"gag_test": preload("res://net/dev/gag_test.gd").result.duplicate(),
+		"brawl_test": preload("res://net/dev/brawl_test.gd").result.duplicate(),
 		"heat": _heat(),
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},

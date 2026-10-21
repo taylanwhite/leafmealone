@@ -31,6 +31,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/mower_test.gd").new(), "MowerTest")
 	if bool(options.get("water_test")):
 		_add(preload("res://net/dev/water_test.gd").new(), "WaterTest")
+	if bool(options.get("brawl_test")):
+		_add(preload("res://net/dev/brawl_test.gd").new(), "BrawlTest")
 	if bool(options.get("gag_test")):
 		_add(preload("res://net/dev/gag_test.gd").new(), "GagTest")
 	if bool(options.get("board_test")):

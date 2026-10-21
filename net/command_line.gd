@@ -37,6 +37,7 @@ var work_test: bool = false
 var throw_test: bool = false
 var board_test: bool = false
 var gag_test: bool = false
+var brawl_test: bool = false
 ## --heat=N: the crew starts with this much heat (0 to 100).
 var heat: float = 0.0
 var water_test: bool = false
@@ -54,7 +55,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test
 
 
 func read() -> void:
@@ -121,6 +122,8 @@ func read() -> void:
 			mower_test = true
 		elif argument == "--water-test":
 			water_test = true
+		elif argument == "--brawl-test":
+			brawl_test = true
 		elif argument == "--gag-test":
 			gag_test = true
 		elif argument.begins_with("--heat="):

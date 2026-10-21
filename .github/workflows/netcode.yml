@@ -128,6 +128,17 @@ jobs:
           grep "GagTest" build/soak/ci-gag/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-gag/host.json')); t=json.load(open('build/soak/ci-gag/target.json')); sys.exit(0 if h['gag_test'].get('ok') and abs(h['heat'] - t['heat']) < 1.5 else 1)"
 
+      - name: Brawl test (wind-up punch, whack, grab, carry, set down, throw a player)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-brawl
+          "$GODOT" --headless --path . -- --host --port=7802 --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --brawl-test --measure="$PWD/build/soak/ci-brawl/host.json" --run-seconds=50 > build/soak/ci-brawl/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7802 --name=Target --no-steam --run-seconds=45 > build/soak/ci-brawl/target.log 2>&1
+          wait
+          grep "BrawlTest" build/soak/ci-brawl/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-brawl/host.json'))['brawl_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi
