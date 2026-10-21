@@ -171,6 +171,8 @@ func write_report() -> void:
 		"water_test": preload("res://net/dev/water_test.gd").result.duplicate(),
 		"mower_test": preload("res://net/dev/mower_test.gd").result.duplicate(),
 		"board_test": preload("res://net/dev/board_test.gd").result.duplicate(),
+		"gag_test": preload("res://net/dev/gag_test.gd").result.duplicate(),
+		"heat": _heat(),
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},
 		"lot_layout": _lot_layout(),
@@ -202,6 +204,12 @@ func write_report() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	file.close()
 	print("[Probe] wrote %s" % path)
+
+
+## The crew's heat as this peer sees it.
+func _heat() -> float:
+	var heat := get_tree().get_first_node_in_group("heat")
+	return float(heat.get("heat")) if heat != null else -1.0
 
 
 ## The job board's offers (their seeds) and the pick, as this peer sees them.

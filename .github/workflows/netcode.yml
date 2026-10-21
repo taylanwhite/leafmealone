@@ -117,6 +117,17 @@ jobs:
           grep "BoardTest" build/soak/ci-board/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-board/host.json')); t=json.load(open('build/soak/ci-board/target.json')); sys.exit(0 if h['board_test'].get('ok') and h['board'] == t['board'] else 1)"
 
+      - name: Gag test (heat, runaway mower, ladder knock-down, pile hiding, three NICE BOYS, paint and water)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-gag
+          "$GODOT" --headless --path . -- --host --port=7801 --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --yard-size=1 --gag-test --measure="$PWD/build/soak/ci-gag/host.json" --run-seconds=80 > build/soak/ci-gag/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7801 --name=Target --no-steam --measure="$PWD/build/soak/ci-gag/target.json" --run-seconds=75 > build/soak/ci-gag/target.log 2>&1
+          wait
+          grep "GagTest" build/soak/ci-gag/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-gag/host.json')); t=json.load(open('build/soak/ci-gag/target.json')); sys.exit(0 if h['gag_test'].get('ok') and abs(h['heat'] - t['heat']) < 1.5 else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi

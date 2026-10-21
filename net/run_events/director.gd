@@ -1,7 +1,9 @@
 extends Node
 
 ## Authority: host decides when a run event starts, who is captured, and when the van leaves.
-## OQ-009: only the progress rule is active. The other families live in rules.gd and stay off.
+## OQ-009: the progress rule gates the first roll; after that the crew's heat
+## (heat.gd) sets the chance of every roll and how many NICE BOYS come. Taylan,
+## 2026-10-21 (docs/FUN.md).
 
 const CREW_SCENE: PackedScene = preload("res://npcs/crew_member.tscn")
 const _RideScript: Script = preload("res://net/components/ride.gd")
@@ -24,6 +26,7 @@ var _hazard_seed: int = 0
 var _batching: bool = false
 var _batch_left: float = 0.0
 var _safe_until: Dictionary = {}
+var _next_roll: float = 0.0
 
 
 func _ready() -> void:
@@ -146,23 +149,33 @@ func _consider_roll() -> void:
 	var slot := get_parent().get_node_or_null("LotZone/LotSlot")
 	if slot == null or slot.get_child_count() == 0:
 		return
-	if _rolled_lot == Campaign.current_lot_index():
-		return
 	var field := get_tree().get_first_node_in_group("leaf_field")
 	var fraction := 0.0
 	if field != null:
 		fraction = float(field.call("cleaned_fraction"))
 	if not bool(_Rules.call("progress_ready", fraction)):
 		return
+	if Net.server_time() < _next_roll:
+		return
+	_next_roll = Net.server_time() + Constants.HEAT_ROLL_SECONDS
 	_rolled_lot = Campaign.current_lot_index()
+	var heat := _heat()
+	# The hotter the crew, the sooner they can be raided again, and the likelier each roll.
 	var since := Net.server_time() - _last_event_time
-	if since < Balance.RUN_EVENT_COOLDOWN_MINUTES * 60.0:
+	if since < Balance.RUN_EVENT_COOLDOWN_MINUTES * 60.0 * (1.0 - heat / 100.0):
 		return
 	var chance := Balance.RUN_EVENT_BASE_CHANCE
 	chance += Balance.RUN_CHANCE_ESCALATION_PER_TIER * float(Campaign.lots_completed())
+	chance += Constants.HEAT_CHANCE_AT_MAX * heat / 100.0
 	chance = minf(chance, Balance.MAXIMUM_RUN_EVENT_CHANCE)
-	if randf() < chance:
+	if heat >= Constants.HEAT_RAID_AT or randf() < chance:
 		_set_phase(Phase.WARNING, "The NICE BOYS are on the way")
+
+
+## The crew's heat now, 0 to 100.
+func _heat() -> float:
+	var heat := get_tree().get_first_node_in_group("heat")
+	return float(heat.get("heat")) if heat != null else 0.0
 
 
 func _begin_chase() -> void:
@@ -175,10 +188,14 @@ func _spawn_crew() -> void:
 	var npcs := get_parent().get_node("Npcs")
 	if npcs.get_node_or_null("Crew1") != null:
 		return
-	var crew := CREW_SCENE.instantiate()
-	crew.name = "Crew1"
-	crew.position = crew_arrival_point()
-	npcs.add_child(crew, true)
+	# More heat, more of them, fanned out along the arrival side.
+	var heat := get_tree().get_first_node_in_group("heat")
+	var count := int(heat.call("crew_count")) if heat != null else 1
+	for index: int in count:
+		var crew := CREW_SCENE.instantiate()
+		crew.name = "Crew%d" % (index + 1)
+		crew.position = crew_arrival_point() + Vector3(0.0, 0.0, (float(index) - float(count - 1) * 0.5) * 3.0)
+		npcs.add_child(crew, true)
 
 
 func _close_cohort() -> void:
@@ -197,9 +214,12 @@ func _close_cohort() -> void:
 
 ## The chase ends when the van leaves. They do not wait on the lot for the crossing to finish.
 func _dismiss_crew() -> void:
-	var crew := get_parent().get_node_or_null("Npcs/Crew1")
-	if crew != null:
-		crew.queue_free()
+	for crew: Node in get_parent().get_node("Npcs").get_children():
+		if crew.name.begins_with("Crew"):
+			crew.queue_free()
+	var heat := get_tree().get_first_node_in_group("heat")
+	if heat != null:
+		heat.call("after_raid")
 	if _phase != Phase.QUIET:
 		_set_phase(Phase.QUIET, "")
 

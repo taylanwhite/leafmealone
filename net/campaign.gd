@@ -159,6 +159,9 @@ func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 		_add_credits(int(row["peer_id"]), int(row["credits"]))
 	_lots_completed += 1
 	_job_open = false
+	var heat := get_tree().get_first_node_in_group("heat")
+	if heat != null:
+		heat.call("on_job_finished")
 	_job_stats.clear()
 	_save()
 	_rpc_payout.rpc(results, details)

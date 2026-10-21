@@ -63,6 +63,11 @@ var _whip_t: float = -1.0
 var _whipped: Array[Node] = []
 ## Who threw this, and when, so a throw can't bonk its own thrower right away.
 var _thrower: int = 0
+## A running mower let go of: how long it keeps driving, and which way.
+var _runaway_left: float = 0.0
+var _runaway_dir := Vector3.FORWARD
+var _runaway_stuck: float = 0.0
+var _runaway_last := Vector3.INF
 var _thrown_at: float = 0.0
 ## Everyone this throw already hit, so one throw bonks each person once.
 var _bonked: Array[Node] = []
@@ -80,6 +85,10 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	_apply_color()
 	_refresh_label()
+	# The host watches what a thrown item actually touches (a set-up ladder, say).
+	if multiplayer.multiplayer_peer == null or Net.is_host():
+		contact_monitor = true
+		max_contacts_reported = 4
 	# A fresh bag pops its worth where it was filled.
 	if kind == "leaf_bag" and value > 0:
 		_MoneyPopup.pop(get_tree(), global_position + Vector3(0.0, 1.0, 0.0), value)
@@ -143,6 +152,20 @@ func request_place_ladder() -> void:
 
 func is_set_up() -> bool:
 	return ladder_top != Vector3.ZERO
+
+
+## Host: something hit a set-up ladder hard enough. It falls, and anyone on it
+## (player.gd _step_climb) or on the roof is on their own.
+func host_knock_down(push: Vector3) -> void:
+	if not Net.is_host() or kind != "ladder" or ladder_top == Vector3.ZERO:
+		return
+	ladder_top = Vector3.ZERO
+	freeze = false
+	_set_solid(true)
+	var flat := Vector3(push.x, 0.0, push.z)
+	apply_central_impulse((flat.normalized() if flat.length() > 0.1 else Vector3.BACK) * 30.0 + Vector3.UP * 12.0)
+	angular_velocity = Vector3(randf_range(-3.0, 3.0), 0.0, randf_range(-3.0, 3.0))
+	_rpc_mower_fx.rpc("clank", global_position + Vector3.UP)
 
 
 func _place_ladder(peer_id: int) -> void:
@@ -233,10 +256,11 @@ func _rpc_request_hookup() -> void:
 ## gets cut (a new one goes on the bill); a leaf bag bursts back into leaves; the
 ## gnome grinds, flies, and stalls the mower (the bill again); and feet get hurt
 ## (medical bills). Someone's foot might come clean off.
-func _mower_hits(holder: Node3D) -> void:
+func _mower_hits(holder: Node3D, heading: Vector3 = Vector3.ZERO) -> void:
 	var now := Time.get_ticks_msec()
 	var at := global_position
-	var heading := -holder.global_transform.basis.z
+	if heading == Vector3.ZERO and holder != null:
+		heading = -holder.global_transform.basis.z
 	var radius := Constants.MOWER_HIT_RADIUS
 	var field := get_tree().get_first_node_in_group("leaf_field")
 	if field != null:
@@ -269,6 +293,11 @@ func _mower_hits(holder: Node3D) -> void:
 					field.call("host_scatter", other.global_position, 1.8, int(other.get("value")))
 				_rpc_mower_fx.rpc("burst", other.global_position)
 				other.queue_free()
+			"ladder":
+				if not bool(other.call("is_set_up")) or other.global_position.distance_to(at) > radius + 0.5:
+					continue
+				_mower_hit_at[key] = now + 3000
+				other.call("host_knock_down", heading * 4.0)
 			"gnome":
 				if other.global_position.distance_to(at) > radius + 0.3:
 					continue
@@ -300,6 +329,30 @@ func _mower_hits(holder: Node3D) -> void:
 		_rpc_mower_fx.rpc("chop", at)
 
 
+## Host: a running mower nobody's holding drives straight on, mowing whatever it
+## meets, until it runs out of time or into something. Grabbing it stops that.
+func _step_runaway(delta: float) -> void:
+	if _runaway_left <= 0.0:
+		if spraying:
+			spraying = false
+		return
+	_runaway_left -= delta
+	linear_velocity = _runaway_dir * Constants.MOWER_RUNAWAY_SPEED + Vector3(0.0, linear_velocity.y, 0.0)
+	angular_velocity = Vector3.ZERO
+	rotation = Vector3(0.0, atan2(-_runaway_dir.x, -_runaway_dir.z), 0.0)
+	_mower_hits(null, _runaway_dir)
+	# Into a fence or a wall: it stalls.
+	if _runaway_last != Vector3.INF and global_position.distance_to(_runaway_last) < Constants.MOWER_RUNAWAY_SPEED * delta * 0.15:
+		_runaway_stuck += delta
+	else:
+		_runaway_stuck = 0.0
+	_runaway_last = global_position
+	if _runaway_left <= 0.0 or _runaway_stuck > 1.0:
+		_runaway_left = 0.0
+		spraying = false
+		_rpc_mower_fx.rpc("clank", global_position)
+
+
 ## True when a hooked-up hose runs under this point: it lies across the ground
 ## from where it's hooked up to the nozzle.
 func _over_hose(hose: Node3D, at: Vector3) -> bool:
@@ -318,7 +371,7 @@ func _over_hose(hose: Node3D, at: Vector3) -> bool:
 func _rpc_mower_fx(what: String, at: Vector3) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk"}.get(what, "bonk"))
+		sfx.call("play", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk", "runaway": "mower_start"}.get(what, "bonk"))
 	var looks := get_tree().get_first_node_in_group("task_looks")
 	if looks != null:
 		looks.call("work_fx", "pick_litter" if what == "clank" else ("mow_lawn" if what == "chop" else "clean_gutters"), at + Vector3.UP * 0.3)
@@ -341,7 +394,12 @@ func request_start() -> void:
 
 
 func _pull_cord(peer_id: int) -> void:
-	if kind != "lawn_mower" or held_by != peer_id or spraying:
+	if kind != "lawn_mower" or held_by != peer_id:
+		return
+	# Running: the same pull switches it off, so you can set it down safely.
+	if spraying:
+		spraying = false
+		_rpc_mower_fx.rpc("clank", global_position)
 		return
 	var chance := Constants.MOWER_START_CHANCE + Constants.MOWER_START_GAIN * float(_pulls)
 	_pulls += 1
@@ -454,6 +512,8 @@ func request_throw(direction: Vector3, power: float = 1.0) -> void:
 func _host_step() -> void:
 	if kind != "lawn_mower":
 		_step_spray(get_physics_process_delta_time())
+	elif held_by == 0:
+		_step_runaway(get_physics_process_delta_time())
 	if kind == "hose":
 		_step_hose(get_physics_process_delta_time())
 	var kg := weight_kg()
@@ -465,6 +525,7 @@ func _host_step() -> void:
 			held_by = 0
 			_set_solid(true)
 			return
+		_runaway_left = 0.0
 		var was := global_position
 		global_position = _hold_position(player)
 		linear_velocity = Vector3.ZERO
@@ -515,9 +576,6 @@ func _handle_grab(peer_id: int) -> void:
 func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0) -> void:
 	if held_by != peer_id:
 		return
-	# Let go of a mower and it stalls.
-	if kind == "lawn_mower":
-		spraying = false
 	var player := _player(peer_id)
 	held_by = 0
 	if player != null:
@@ -526,6 +584,13 @@ func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0) -> vo
 		if forward.length() > 0.001:
 			forward = forward.normalized()
 		global_position = player.global_position + Vector3(0.0, 0.4, 0.0) + forward * 1.3
+		# Let go of a running mower and it drives off on its own (docs/FUN.md).
+		if kind == "lawn_mower" and spraying:
+			_runaway_left = Constants.MOWER_RUNAWAY_SECONDS
+			_runaway_dir = forward
+			_runaway_stuck = 0.0
+			_runaway_last = Vector3.INF
+			_rpc_mower_fx.rpc("runaway", global_position)
 	_set_solid(true)
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.length() < 0.1:
@@ -548,6 +613,21 @@ func _check_bonks() -> void:
 	var speed := linear_velocity.length()
 	if speed < Constants.BONK_MIN_SPEED:
 		return
+	# A set-up ladder in the way comes down, with whoever's on it: anything that
+	# touches its body or passes close to its rungs this fast.
+	if speed >= Constants.LADDER_KNOCK_MIN_SPEED:
+		var touching := get_colliding_bodies()
+		for node: Node in get_tree().get_nodes_in_group("props"):
+			var ladder := node as Node3D
+			if ladder == null or ladder == self or _bonked.has(ladder) or str(ladder.get("kind")) != "ladder" or not bool(ladder.call("is_set_up")):
+				continue
+			var top: Vector3 = ladder.get("ladder_top")
+			var along := clampf((global_position - ladder.global_position).dot(top - ladder.global_position) / maxf((top - ladder.global_position).length_squared(), 0.01), 0.0, 1.0)
+			if not touching.has(ladder) and global_position.distance_to(ladder.global_position.lerp(top, along)) > Constants.LADDER_KNOCK_RADIUS:
+				continue
+			_bonked.append(ladder)
+			ladder.call("host_knock_down", linear_velocity)
+			linear_velocity = -linear_velocity * 0.3 + Vector3.UP * 1.5
 	var targets: Array[Node] = get_tree().get_nodes_in_group("players")
 	targets.append_array(get_tree().get_nodes_in_group("bonkable"))
 	for node: Node in targets:
@@ -565,6 +645,13 @@ func _check_bonks() -> void:
 		var shove_speed := minf(weight_kg() * speed * Constants.BONK_SHOVE_PER_MOMENTUM, Constants.BONK_SHOVE_MAX)
 		var push := (flat.normalized() if flat.length() > 0.1 else Vector3.FORWARD) * shove_speed + Vector3.UP * shove_speed * 0.35
 		_rpc_bonk_fx.rpc(get_path_to(target), weight_tier(), push)
+		# Bonking a passerby draws attention; bonking a NICE BOY draws a lot.
+		var heat := get_tree().get_first_node_in_group("heat")
+		if heat != null:
+			if target.is_in_group("crew"):
+				heat.call("add", Constants.HEAT_CREW_BONK, "crew_bonk")
+			elif not target.is_in_group("players"):
+				heat.call("add", float(Constants.HEAT_PEDESTRIAN_BONK.get(weight_tier(), 4.0)), "pedestrian_bonk")
 		# It bounces off them.
 		linear_velocity = -linear_velocity * 0.25 + Vector3.UP * 1.5
 

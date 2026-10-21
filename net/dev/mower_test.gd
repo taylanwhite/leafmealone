@@ -106,7 +106,12 @@ func _run(lot: Node3D) -> void:
 	for pass_index: int in 2:
 		await _start(mower)
 		await _drive(target.global_position - Vector3(2.2, 0.0, 0.0), Vector3.RIGHT, 3.5)
-		await get_tree().create_timer(0.6).timeout
+		# The other player's foot replicates from their machine: give it a moment.
+		var before := levels[-1] if not levels.is_empty() else 0
+		for _tenth: int in 30:
+			await get_tree().create_timer(0.1).timeout
+			if int(target.get("foot_hurt")) > before:
+				break
 		levels.append(int(target.get("foot_hurt")))
 		await get_tree().create_timer(3.6).timeout
 	print("[MowerTest] the other player's foot: after one pass %d, after two %d" % [levels[0], levels[1]])

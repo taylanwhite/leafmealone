@@ -288,6 +288,10 @@ func _mow(tasks: Node) -> void:
 		if mask[cell] == 1:
 			var center := corner + Vector3((float(cell % width) + 0.5) * float(grid["cell"]), 0.0, (float(cell / width) + 0.5) * float(grid["cell"]))
 			tasks.call("host_work", "mow_lawn", center, 0.4, 1.0, Net.local_peer_id())
+	# Switch it off before setting it down, or it drives off on its own.
+	if bool(mower.get("spraying")):
+		mower.call("request_start")
+		await _ticks(2)
 
 
 ## Aim the washer at every stain until it's gone.

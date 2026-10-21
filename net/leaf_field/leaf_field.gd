@@ -164,6 +164,65 @@ func request_collect(origin: Vector3, radius: float) -> void:
 		_rpc_request_collect.rpc_id(1, origin, radius)
 
 
+## Leaf units within radius of a world position (what a pile is made of).
+func units_within_world(world_position: Vector3, radius: float) -> int:
+	return _units_within(world_position, radius)
+
+
+## True when the leaves here are thick enough to dive into (Constants.PILE_HIDE_UNITS).
+func is_pile_at(world_position: Vector3) -> bool:
+	return _inside_grid(world_position) and _units_within(world_position, Constants.PILE_HIDE_RADIUS) >= Constants.PILE_HIDE_UNITS
+
+
+## The local player dives into the pile they stand on. The host checks it's a
+## pile, notes whether a NICE BOY watched, and tells them they're in.
+func request_pile_hide() -> void:
+	if Net.is_host():
+		_handle_pile_hide(Net.local_peer_id())
+	else:
+		_rpc_request_pile_hide.rpc_id(1)
+
+
+func _handle_pile_hide(peer_id: int) -> void:
+	var player := _player_node(peer_id)
+	if player == null or not is_pile_at(player.global_position):
+		return
+	var seen := false
+	for crew: Node in get_tree().get_nodes_in_group("crew"):
+		if bool(crew.call("can_see_peer", peer_id)):
+			seen = true
+	player.set_meta("pile_seen", seen)
+	_tell_pile(peer_id, true)
+
+
+## Host: a rake stroke or a mower through a pile turns out whoever's in it.
+func _turn_out(origin: Vector3, radius: float) -> void:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var player := node as Node3D
+		if player != null and bool(player.get("in_pile")) and player.global_position.distance_to(origin) <= radius:
+			_tell_pile(player.name.to_int(), false)
+
+
+func _tell_pile(peer_id: int, hidden: bool) -> void:
+	if peer_id == Net.local_peer_id():
+		_player_node(peer_id).call("set_pile", hidden)
+	else:
+		_player_node(peer_id).rpc_id(peer_id, "_rpc_pile", hidden)
+
+
+func _player_node(peer_id: int) -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id):
+			return node as Node3D
+	return null
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_pile_hide() -> void:
+	if Net.is_host():
+		_handle_pile_hide(multiplayer.get_remote_sender_id())
+
+
 ## Density at the cell under a world position. Smoke tests compare this on both peers.
 func sample_world(world_position: Vector3) -> int:
 	var cell := _cell_at(world_position)
@@ -195,6 +254,9 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 		return
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(moved) * _unit_scale)
 	_rpc_stroke.rpc(origin)
+	# Raking through a pile someone's hiding in turns them out.
+	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
+	_turn_out(origin + flat * cell_size * 2.0, Constants.PILE_HIDE_RADIUS + 1.2)
 
 
 func _handle_collect(peer_id: int, origin: Vector3, radius: float) -> void:
@@ -300,6 +362,7 @@ func host_mulch(at: Vector3, radius: float) -> int:
 	var removed := _apply_collect(at, radius, false)
 	if removed > 0:
 		_rpc_stroke.rpc(at)
+	_turn_out(at, radius + 0.8)
 	return removed
 
 

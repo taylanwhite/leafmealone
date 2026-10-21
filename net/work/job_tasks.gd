@@ -31,6 +31,8 @@ var bills: Dictionary = {}
 
 var _spots: Array[Dictionary] = []
 var _grids: Array[Dictionary] = []
+## Who got painted or soaked lately, so one pass doesn't hit them every tick.
+var _coat_at: Dictionary = {}
 var _start_total: Dictionary = {}
 var _dirty_spots: Dictionary = {}
 var _dirty_cells: Dictionary = {}
@@ -233,6 +235,12 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 			return
 		washer.set("water", maxf(0.0, float(washer.get("water")) - Constants.WASHER_USE_PER_SECOND * WORK_TICK))
 		washer.call("mark_spraying")
+	# Paint and water land on whoever's in the way too (docs/FUN.md).
+	match task:
+		"paint_fence":
+			_coat_people(peer_id, [origin], 1)
+		"power_wash":
+			_coat_people(peer_id, [origin], 2)
 	# Tools work while held down, a tick at a time; bare-hands work is one press each.
 	var amount := float(Constants.TASK_WORK_RATE.get(task, 50.0)) * (WORK_TICK if tool != "" else 1.0) * speedup
 	var done := 0
@@ -243,6 +251,10 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 			# it actually passes through get clean.
 			var speed := float(Constants.WATER_SPEED.get(str(hose.get("hose_source")), 10.0))
 			var arc := water_arc(origin, direction.normalized() * speed)
+			var along: Array[Vector3] = []
+			for point: Vector3 in arc:
+				along.append(point)
+			_coat_people(peer_id, along, 2)
 			for index: int in _spots.size():
 				var entry := _spots[index]
 				if str(entry["task"]) != task or int(entry["amount"]) <= 0:
@@ -358,6 +370,9 @@ func add_bill(reason: String, dollars: int) -> void:
 		return
 	bills[reason] = int(bills.get(reason, 0)) + dollars
 	_rpc_bills.rpc(bills)
+	var heat := get_tree().get_first_node_in_group("heat")
+	if heat != null:
+		heat.call("add", float(dollars) * Constants.HEAT_PER_BILL_DOLLAR, "bill_" + reason)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -431,6 +446,49 @@ func _held(peer_id: int, kind: String) -> Node:
 		if str(node.get("kind")) == kind and int(node.get("held_by")) == peer_id:
 			return node
 	return null
+
+
+## Host: anyone (but the worker) within reach of where paint or water lands gets
+## coated: 1 is paint, 2 is soaked. Players wear it (player.gd); passersby just
+## get mad, and that draws attention.
+func _coat_people(peer_id: int, points: Array[Vector3], coat: int) -> void:
+	var now := Time.get_ticks_msec()
+	var people: Array[Node] = get_tree().get_nodes_in_group("players")
+	people.append_array(get_tree().get_nodes_in_group("bonkable"))
+	for node: Node in people:
+		var person := node as Node3D
+		if person == null or person.name == str(peer_id) or person.is_in_group("crew") or not person.is_inside_tree():
+			continue
+		var key := person.get_instance_id()
+		if int(_coat_at.get(key, 0)) > now:
+			continue
+		var hit := false
+		for point: Vector3 in points:
+			var offset := person.global_position + Vector3(0.0, 0.9, 0.0) - point
+			if absf(offset.y) < 1.5 and Vector2(offset.x, offset.z).length() < Constants.COAT_REACH:
+				hit = true
+				break
+		if not hit:
+			continue
+		_coat_at[key] = now + 1500
+		if person.is_in_group("players"):
+			var owner := person.name.to_int()
+			if owner == Net.local_peer_id():
+				person.call("set_coat", coat)
+			else:
+				person.rpc_id(owner, "_rpc_coat", coat)
+		else:
+			_rpc_coat_fx.rpc(get_path_to(person))
+			var heat := get_tree().get_first_node_in_group("heat")
+			if heat != null:
+				heat.call("add", Constants.HEAT_COAT_PERSON, "coat_person")
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_coat_fx(target: NodePath) -> void:
+	var person := get_node_or_null(target)
+	if person != null and person.has_method("on_bonked"):
+		person.call("on_bonked", Vector3.ZERO, "light")
 
 
 func _remaining(task: String) -> int:
