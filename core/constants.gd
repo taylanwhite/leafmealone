@@ -180,6 +180,24 @@ const HEAT_MAX_CREW: int = 3
 ## Heat levels that get a warning caption (ui/strings.gd heat_warn_*).
 const HEAT_WARN_AT: Array = [50.0, 80.0]
 
+## Brawling (Taylan, 2026-10-21): wind up a punch with empty hands (hold left
+## click; the longer, the harder, until you spin yourself dizzy), whack with
+## whatever's held (as hard as it's heavy), grab a friend and carry or throw them.
+const PUNCH_REACH: float = 1.8
+const WHACK_REACH: float = 1.9
+## Wind-up seconds: under the first is a light punch, under the second medium, past it heavy.
+const PUNCH_WIND_TIERS: Array = [0.35, 1.1]
+## Wind up longer than this and you spin out and fall over.
+const PUNCH_DIZZY_SECONDS: float = 3.0
+const PUNCH_PUSH: Dictionary = {"light": 2.0, "medium": 3.5, "heavy": 7.0}
+const GRAB_PLAYER_REACH: float = 1.6
+const CARRY_PLAYER_SPEED_SHARE: float = 0.55
+const PLAYER_THROW_SPEED: float = 5.5
+const PLAYER_THROW_LIFT: float = 4.0
+## Key presses it takes for a carried player to wriggle free.
+const STRUGGLE_PRESSES: int = 6
+const THROWN_HIT_RADIUS: float = 1.0
+
 ## Diving into a pile of leaves to hide: how thick it has to be (leaf units within the radius).
 const PILE_HIDE_RADIUS: float = 1.0
 const PILE_HIDE_UNITS: int = 2200

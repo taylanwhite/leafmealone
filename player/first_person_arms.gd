@@ -132,7 +132,30 @@ func _targets(delta: float) -> Dictionary:
 	var gesture := str(_body.call("current_gesture")) if _body != null else ""
 	var anim: int = _player.get("anim_state")
 	var wind_up := float(_player.get("_wind_up"))
-	if anim == 5:
+	var swing_left := float(_player.get("_swing_left"))
+	var punch_wind := float(_player.get("_punch_wind"))
+	if int(_player.get("carried_by")) != 0 or bool(_player.get("thrown")):
+		# Carried or flying: kicking and flailing.
+		for side: int in 2:
+			hands[side] = REST[side] + Vector3(sin(_time * 16.0 + float(side) * 3.0) * 0.12, 0.2 + cos(_time * 13.0 + float(side)) * 0.12, -0.05)
+	elif swing_left > 0.0:
+		# The punch: the right fist shoots out and comes back.
+		var t := 1.0 - swing_left / 0.45
+		hands[1] = Vector3(0.22, -0.2, -0.3).lerp(Vector3(0.08, -0.12, -0.6), sin(clampf(t / 0.6, 0.0, 1.0) * PI))
+		hands[0] = Vector3(-0.26, -0.28, -0.34)
+		snap = true
+	elif punch_wind >= 0.0:
+		# Winding up: the right arm windmills, faster the longer you hold.
+		_phase += delta * (6.0 + punch_wind * 10.0)
+		hands[1] = Vector3(0.3 + 0.1 * cos(_phase), -0.1 + 0.22 * sin(_phase), -0.3 + 0.08 * cos(_phase))
+		hands[0] = Vector3(-0.28, -0.3, -0.36)
+		snap = true
+	elif int(_player.get("carrying")) != 0:
+		# Someone in your arms: both hands out wide, hanging on.
+		var bob := sin(_phase) * 0.02
+		hands[1] = Vector3(0.34, -0.14 + bob, -0.42)
+		hands[0] = Vector3(-0.34, -0.14 - bob, -0.42)
+	elif anim == 5:
 		# Knocked flat: arms flung up and wobbling.
 		for side: int in 2:
 			hands[side] = Vector3(signf(float(side) - 0.5) * 0.38, 0.25 + 0.05 * sin(_time * 3.0 + float(side)), -0.3)

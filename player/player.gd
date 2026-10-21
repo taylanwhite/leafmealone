@@ -43,6 +43,13 @@ const HUP_CHANCE: float = 0.6
 @export var in_pile: bool = false
 ## Wearing something: 1 paint, 2 water. Replicated; the host decides (job_tasks.gd).
 @export var coat: int = 0
+## Brawling (net/components/brawl.gd): who this player carries, who carries
+## them, whether they're flying through the air, and whether they're winding
+## up a punch. Replicated; the host decides, the owner sets.
+@export var carrying: int = 0
+@export var carried_by: int = 0
+@export var thrown: bool = false
+@export var winding: bool = false
 @export var equipment_id: String = ""
 
 var _look := Vector2.ZERO
@@ -80,6 +87,11 @@ var _limp_left: float = 0.0
 ## next strained noise is due.
 var _wind_up: float = -1.0
 var _coat_left: float = 0.0
+var _punch_wind: float = -1.0
+var _punch_cool: float = 0.0
+var _swing_left: float = 0.0
+var _struggle: int = 0
+var _thrown_left: float = 0.0
 var _coat_shown: int = 0
 var _mound: Node3D
 var _next_strain: float = 0.0
@@ -134,6 +146,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _hand_task():
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _grab_player():
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("primary") and _whack():
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
 		get_viewport().set_input_as_handled()
 	# G (drop) is wound up and released in _wind_up, on physics ticks.
@@ -153,6 +169,14 @@ func _physics_process(delta: float) -> void:
 		_apply_bonk(bonk[0], bonk[1])
 	if is_multiplayer_authority():
 		_step_wind_up(delta)
+		_step_punch(delta)
+		if thrown:
+			_thrown_left -= delta
+			if _thrown_left < 1.2 and is_on_floor():
+				thrown = false
+				# Flung into a big pile: you're in it now.
+				if _on_pile():
+					get_tree().get_first_node_in_group("leaf_field").call("request_pile_hide")
 		if _coat_left > 0.0:
 			_coat_left -= delta
 			if _coat_left <= 0.0:
@@ -168,6 +192,8 @@ func _physics_process(delta: float) -> void:
 			_apply_look()
 		if _hidden_spot != null or in_pile:
 			velocity = Vector3.ZERO
+		elif carried_by != 0:
+			_step_carried(delta)
 		elif _throwback_left > 0.0:
 			_step_throwback(delta)
 		elif _ladder != null:
@@ -552,6 +578,176 @@ func _on_pile() -> bool:
 	return field != null and is_on_floor() and bool(field.call("is_pile_at", global_position))
 
 
+# ---------------------------------------------------------------- brawling
+
+## Hold left click with empty hands to wind up a punch: the arm goes round and
+## round, and the longer it winds the harder it lands, until you wind so long
+## you spin out and fall over. Release to swing at whoever's in front.
+func _step_punch(delta: float) -> void:
+	_punch_cool = maxf(0.0, _punch_cool - delta)
+	_swing_left = maxf(0.0, _swing_left - delta)
+	var can := _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not is_up_high()
+	var pressing := can and _punch_cool <= 0.0 and Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if pressing:
+		if _punch_wind < 0.0:
+			_punch_wind = 0.0
+		_punch_wind += delta
+		winding = true
+		if _punch_wind >= Constants.PUNCH_DIZZY_SECONDS:
+			_spin_out()
+		return
+	if _punch_wind < 0.0:
+		winding = false
+		return
+	var wound := _punch_wind
+	_punch_wind = -1.0
+	winding = false
+	_punch_cool = 0.5
+	var tier := "heavy"
+	if wound < float(Constants.PUNCH_WIND_TIERS[0]):
+		tier = "light"
+	elif wound < float(Constants.PUNCH_WIND_TIERS[1]):
+		tier = "medium"
+	get_tree().get_first_node_in_group("brawl").call("request_punch", tier)
+	say_to_all("vo_heave" if tier == "heavy" else "vo_hup")
+
+
+## Wound up so long the world spun: down you go for a moment.
+func _spin_out() -> void:
+	_punch_wind = -1.0
+	winding = false
+	_punch_cool = 1.0
+	_stun_left = Constants.FAINT_SECONDS * 0.8
+	_knocked = true
+	velocity = Vector3.ZERO
+	var body := get_node_or_null("Visual/CartoonBody")
+	if body != null:
+		body.call("dizzy", _stun_left)
+	say_to_all("vo_oof")
+
+
+## Left click with something heavy in hand swings it at whoever's in front.
+func _whack() -> bool:
+	var held := _held_prop()
+	if held == null or Constants.TOOL_PRICES.has(str(held.get("kind"))) or str(held.get("kind")) == "rake":
+		return false
+	if _stun_left > 0.0 or carried_by != 0 or is_up_high() or _ladder != null:
+		return false
+	get_tree().get_first_node_in_group("brawl").call("request_whack")
+	return true
+
+
+## E with empty hands by another player picks them up; E while carrying sets them down.
+func _grab_player() -> bool:
+	var brawl := get_tree().get_first_node_in_group("brawl")
+	if brawl == null:
+		return false
+	if carrying != 0:
+		brawl.call("request_release_player", "drop")
+		return true
+	var target := _grabbable_player()
+	if target == null:
+		return false
+	brawl.call("request_grab_player", target.name.to_int())
+	return true
+
+
+## The nearest other player within reach and in front, with empty hands, or null.
+func _grabbable_player() -> Node3D:
+	if _held_prop() != null or carried_by != 0 or carrying != 0 or _stun_left > 0.0 or in_pile or _hidden_spot != null:
+		return null
+	var forward := -global_basis.z
+	forward.y = 0.0
+	var best: Node3D = null
+	var best_distance := Constants.GRAB_PLAYER_REACH
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var other := node as Node3D
+		if other == null or other == self or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")):
+			continue
+		var offset := other.global_position - global_position
+		var flat := Vector3(offset.x, 0.0, offset.z)
+		if absf(offset.y) > 1.5 or flat.length() > best_distance or flat.normalized().dot(forward.normalized()) < 0.3:
+			continue
+		best = other
+		best_distance = flat.length()
+	return best
+
+
+## From the host: now carrying someone, carried by someone, or neither.
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_carry(now_carrying: int, now_carried_by: int) -> void:
+	if multiplayer.get_remote_sender_id() == 1:
+		set_carry_state(now_carrying, now_carried_by)
+
+
+func set_carry_state(now_carrying: int, now_carried_by: int) -> void:
+	var was_carried := carried_by != 0
+	carrying = now_carrying
+	carried_by = now_carried_by
+	_struggle = 0
+	if carried_by != 0:
+		_release_held(false)
+		_wind_up = -1.0
+		_punch_wind = -1.0
+		winding = false
+		straining = false
+		velocity = Vector3.ZERO
+		say_to_all("vo_yelp")
+	elif was_carried:
+		velocity = Vector3.ZERO
+		reset_physics_interpolation()
+
+
+## From the host: thrown by someone, with this much speed.
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_thrown(velocity_now: Vector3, thrower: int) -> void:
+	if multiplayer.get_remote_sender_id() == 1:
+		set_thrown(velocity_now, thrower)
+
+
+func set_thrown(velocity_now: Vector3, _thrower: int) -> void:
+	carried_by = 0
+	thrown = true
+	_thrown_left = 1.5
+	_apply_bonk(velocity_now, "heavy")
+	say_to_all("vo_yelp")
+
+
+## Every peer, from brawl.gd: this player just swung (for the first-person arms).
+func note_swing(_tier: String) -> void:
+	_swing_left = 0.45
+
+
+## Carried: you hang in front of whoever's got you, kicking. Mash the movement
+## keys to wriggle free.
+func _step_carried(_delta: float) -> void:
+	var carrier := _player_named(carried_by)
+	if carrier == null:
+		return
+	var forward := -carrier.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var right := forward.cross(Vector3.UP)
+	# Slung over their right shoulder, legs out front, so they can still see.
+	global_position = carrier.global_position + forward * 0.3 + right * 0.5 + Vector3(0.0, 0.95, 0.0)
+	body_yaw = atan2(-forward.x, -forward.z) + PI * 0.5
+	velocity = Vector3.ZERO
+	anim_state = AnimState.AIR
+	for action: String in ["move_left", "move_right", "move_forward", "move_back", "jump"]:
+		if Input.is_action_just_pressed(action):
+			_struggle += 1
+	if _struggle >= Constants.STRUGGLE_PRESSES:
+		_struggle = 0
+		get_tree().get_first_node_in_group("brawl").call("request_break_free")
+
+
+func _player_named(peer_id: int) -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id):
+			return node as Node3D
+	return null
+
+
 ## From the host (leaf_field.gd): in or out of a pile. Out, you pop up where you were.
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_pile(hidden: bool) -> void:
@@ -611,6 +807,12 @@ func _process(_delta: float) -> void:
 		_mound = null
 	if _mound != null:
 		_mound.scale.y = 3.2 + sin(Time.get_ticks_msec() / 1000.0 * 2.5) * 0.15
+	var body_now := get_node_or_null("Visual/CartoonBody")
+	if body_now != null and not bool(body_now.call("is_gesturing")):
+		if carried_by != 0:
+			body_now.call("gesture", "flail")
+		elif winding:
+			body_now.call("gesture", "windmill")
 	if coat != _coat_shown:
 		_coat_shown = coat
 		var body := get_node_or_null("Visual/CartoonBody")
@@ -708,6 +910,13 @@ func interaction_hint() -> Dictionary:
 		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0)}
 	if in_pile:
 		return {"text": _Strings.UI["prompt_pile_out"], "at": global_position + Vector3(0.0, 1.2, 0.0)}
+	if carried_by != 0:
+		return {"text": _Strings.UI["hud_carried"], "at": global_position + Vector3(0.0, 1.9, 0.0)}
+	if carrying != 0:
+		return {"text": _Strings.UI["prompt_put_down_player"] % Net.player_name(carrying), "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}
+	var grabbable := _grabbable_player()
+	if grabbable != null:
+		return {"text": _Strings.UI["prompt_grab_player"] % Net.player_name(grabbable.name.to_int()), "at": grabbable.global_position + Vector3(0.0, 2.0, 0.0)}
 	var spot := _nearest_free_spot()
 	if spot != null:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
@@ -846,6 +1055,8 @@ func _simulate(delta: float) -> void:
 ## How far the throw is wound up, 0 to 1, or -1 when G isn't held. Past 1 is
 ## straining (ui/throw_meter.gd draws it).
 func wind_up_share() -> float:
+	if _punch_wind >= 0.0:
+		return _punch_wind / float(Constants.PUNCH_WIND_TIERS[1])
 	if _wind_up < 0.0:
 		return -1.0
 	return _wind_up / Constants.THROW_CHARGE_SECONDS
@@ -860,7 +1071,7 @@ func wind_up_seconds() -> float:
 ## Hold on too long and you strain, then faint and drop it.
 func _step_wind_up(delta: float) -> void:
 	var held := _held_prop()
-	var pressing := Input.is_action_pressed("drop") and held != null and _stun_left <= 0.0 and _hidden_spot == null
+	var pressing := Input.is_action_pressed("drop") and (held != null or carrying != 0) and _stun_left <= 0.0 and _hidden_spot == null
 	if pressing:
 		if _wind_up < 0.0:
 			_wind_up = 0.0
@@ -880,6 +1091,16 @@ func _step_wind_up(delta: float) -> void:
 	_wind_up = -1.0
 	straining = false
 	var body := get_node_or_null("Visual/CartoonBody")
+	# Carrying someone: a tap sets them down, a wind-up throws them.
+	if carrying != 0:
+		var brawl := get_tree().get_first_node_in_group("brawl")
+		if seconds < Constants.THROW_TAP_SECONDS:
+			brawl.call("request_release_player", "drop")
+		else:
+			var throw_share := clampf(seconds / Constants.THROW_CHARGE_SECONDS, 0.0, 1.0)
+			brawl.call("request_release_player", "throw", -global_transform.basis.z, lerpf(Constants.THROW_POWER_MIN, Constants.THROW_POWER_MAX, throw_share))
+			say_to_all("vo_heave")
+		return
 	if held == null:
 		return
 	if seconds < Constants.THROW_TAP_SECONDS:
@@ -898,6 +1119,8 @@ func _faint() -> void:
 	_wind_up = -1.0
 	straining = false
 	_release_held(false)
+	if carrying != 0:
+		get_tree().get_first_node_in_group("brawl").call("request_release_player", "drop")
 	_stun_left = Constants.FAINT_SECONDS
 	_knocked = true
 	say_to_all("vo_oof")
@@ -915,6 +1138,8 @@ func _rpc_say(sound_name: String) -> void:
 
 ## Heavy things slow you down while you carry them (Constants.CARRY_SLOWDOWN_PER_KG).
 func carry_speed_scale() -> float:
+	if carrying != 0:
+		return Constants.CARRY_PLAYER_SPEED_SHARE
 	var held := _held_prop()
 	if held == null or not held.has_method("weight_kg"):
 		return 1.0

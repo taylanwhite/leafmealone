@@ -104,7 +104,7 @@ const HEAD_TILT_SHARE: float = 0.35
 const GESTURE_SECONDS: Dictionary = {
 	"wave": 1.4, "scratch": 1.6, "stretch": 2.2, "watch": 1.8, "shuffle": 1.2,
 	"cheer": 1.8, "flail": 0.9, "startle": 0.8, "look_around": 2.4, "stumble": 0.9,
-	"offer": 0.6,
+	"offer": 0.6, "windmill": 0.8, "punch": 0.45,
 }
 ## How far the pupils can travel inside the eye, in meters.
 const PUPIL_RANGE := Vector2(0.026, 0.02)
@@ -539,6 +539,16 @@ func _animate_gesture(delta: float) -> void:
 			right.rotation.x = lerpf(right.rotation.x, -1.35, fade)
 			left.rotation.z = lerpf(left.rotation.z, -0.2, fade)
 			right.rotation.z = lerpf(right.rotation.z, 0.2, fade)
+		"windmill":
+			# Winding up: the right arm goes round and round.
+			right.rotation.x = -t * 16.0
+			right.rotation.z = 0.5
+			_torso.rotation.y = 0.2 * sin(t * 16.0)
+		"punch":
+			var swing := sin(clampf(t / 0.3, 0.0, 1.0) * PI)
+			right.rotation.x = -1.7 * swing
+			right.rotation.z = 0.15
+			_torso.rotation.y = -0.4 * swing
 		"stumble":
 			_torso.rotation.x = lerpf(_torso.rotation.x, -0.6, fade)
 			left.rotation.x = -2.0 * sin(t * 16.0)
