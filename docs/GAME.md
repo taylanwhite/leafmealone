@@ -42,7 +42,7 @@ Until these are decided, build the behavior so the answer can change without a r
 
 | ID | Question | How code should handle it for now |
 | --- | --- | --- |
-| OQ-001 | Camera perspective | Player camera is a swappable rig. Support first-person and over-the-shoulder until decided |
+| OQ-001 | Camera perspective | Decided 2026-10-21: first person, with your own arms in view (see Developer notes). The over-the-shoulder camera stays on its toggle for debugging |
 | OQ-002, OQ-003 | Who boards the truck, and what do non-travelers do | Truck capacity comes from `Balance`. Boarding rule is one function that is easy to replace. Non-travelers stay in the store zone |
 | OQ-004 | What counts as a leaf being cleaned | The leaf field supports both moving leaves (raking into piles) and removing them (bagging). The definition of "cleaned" is one function |
 | OQ-005, OQ-006 | Individual, shared, or hybrid payout; whether support counts | Payout is computed in one host-side function from per-player stats, using the `Balance` weights |
@@ -73,11 +73,14 @@ Until these are decided, build the behavior so the answer can change without a r
 - **2026-10-20.** A running mower chews up whatever it rolls over: leaves turn to confetti (gone, unpaid), litter gets flung across the yard, a hose gets cut (the homeowner bills for a new one), a leaf bag bursts, the gnome grinds and stalls the mower (billed), and feet get cut, or come clean off and fly away, leaving the victim hopping until the job's paid. Medical bills come off the pay. Comical, never gory.
 - **2026-10-20.** Sound pass approved by Taylan: tools make their running noise for everyone nearby (mower engine, blower, hose, pressure washer, trimmer, roller), footsteps sound different in leaves, on grass, and on pavement, and the neighborhood has a breeze, birds, a dog, and passing cars. A laid-back music loop plays; M turns it off and on.
 - **2026-10-20.** Job board approved by Taylan: a cork board by the checkout at Homie Depot shows three job offers, each a different yard (small, regular, or big) with its house number, the work the homeowner wants, and what that work pays (leaves pay by the bag on top). Anyone can pick one until Chefty sets off; new offers go up when the crew is back. A big yard asks for one more job. Sizes and chances are stand-ins in `core/constants.gd`.
+- **2026-10-21.** The enforcement crew is the NICE BOYS (Taylan). Player-facing text says "the NICE BOYS"; the workbook's DEC-015 rule (never "ICE") still stands for everything else.
+- **2026-10-21.** The camera is first person, and you see your own arms: they reach for whatever you hold, swing the rake, pump as you walk, wind up over your shoulder for a throw and shake when you strain, go hand over hand up a ladder, and flop when you're knocked out (OQ-001 closed, Taylan: "always funny").
+- **2026-10-21.** The homeowner's lines were written to be funny (Taylan asked): six per mood, plus lines about whatever the crew broke that come up most of the time when there's a bill. They're in `ui/strings.gd` and are not in the workbook yet.
 - **2026-10-20.** Yard size changes the yard: small yards have a bungalow, few trees, and fewer leaves; big yards have a two-story house, more trees, thicker leaves, and an above-ground pool with leaves floating in it to scoop out by hand. When the homeowner pays, they rate the job 1 to 5 stars by their mood. The crew's rating is the average of the last ten, shows on the job board, and a rating above three stars brings more big yards.
 
 ## Rules for agents working on content
 
-- Do not invent canon. Names, lore, the enforcement crew's identity, client characters, and dialogue are design decisions that belong in the workbook. If a task needs one, use an obvious placeholder (for example `[CREW NAME]`) and tell the developer. The store name Homie Depot and the Chefty truck logo are already decided. Use them.
+- Do not invent canon. Names, lore, client characters, and dialogue are design decisions that belong in the workbook. If a task needs one, use an obvious placeholder and tell the developer. The store name Homie Depot, the Chefty truck logo, and the enforcement crew's name, the NICE BOYS, are decided. Use them.
 - Never use "ICE" or any real agency's name in player-facing text, art, or audio. [DEC-015]
 - Player-facing text lives in one strings file so it can be reviewed in one place. The quips in the workbook's Humor & Quips sheet are drafts. Use them only when the developer asks, and keep their Q ids next to them.
 - The workbook proposes a humor guardrail: punch up at impossible work, precarious systems, and enforcement bureaucracy, not at immigrants, ethnicity, nationality, or accents. [GV-13] Follow it for anything you draft, and flag anything that might cross it.

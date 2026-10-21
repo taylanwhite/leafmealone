@@ -181,3 +181,10 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Ratings:** `Campaign` keeps the homeowners' recent reviews, saves them, and replicates them with the progress RPC.
 - **Test save:** timed test runs (`--run-seconds`, and the smoke test) read and write `user://saves/campaign_test.json`, so tests never change the real crew's cash, progress, or rating.
 - **Tests:** `--board-test` runs in CI, and the work test now has 120 seconds, since it outgrew 45.
+
+### 2026-10-21: First person is the camera; your own arms are a local view model
+
+- **Camera:** OQ-001 is closed: first person. The over-the-shoulder camera stays on `toggle_camera` for debugging only.
+- **Arms:** `player/first_person_arms.gd` draws the local player's arms as a child of their Head, only for the owning peer and only while the first-person camera is current. Each arm is two bones solved toward a hand target in head space; targets come from what the player holds (grip points per tool model), the rake's stroke, the throw wind-up, climbing, gestures, and knockouts. Nothing here replicates: other peers see the full cartoon body as before.
+- **Why not show the body's own arms:** they're posed for a third-person view and swing through the camera; a view model that reaches for the actual tool reads better and is cheap.
+- **Crew name:** `[CREW NAME]` placeholders are gone; the text says "the NICE BOYS".
