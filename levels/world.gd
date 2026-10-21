@@ -42,6 +42,9 @@ func _ready() -> void:
 	var sfx := preload("res://audio/sfx.gd").new()
 	sfx.name = "Sfx"
 	add_child(sfx)
+	var ambience := preload("res://audio/ambience.gd").new()
+	ambience.name = "Ambience"
+	add_child(ambience)
 	_dress()
 	_SharedLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):

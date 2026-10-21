@@ -59,6 +59,11 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 		var stream: Node3D = load("res://props/water_stream.gd").new()
 		stream.name = "WaterStream"
 		prop.add_child(stream)
+	# Tools make their running noise where they are, for everyone nearby.
+	if load("res://audio/tool_sound.gd").LOOPS.has(kind) and prop.get_node_or_null("ToolSound") == null:
+		var sound: Node = load("res://audio/tool_sound.gd").new()
+		sound.name = "ToolSound"
+		prop.add_child(sound)
 
 
 ## The rake lies flat when nobody has it. In hand it angles down in front of the

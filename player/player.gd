@@ -952,7 +952,21 @@ func _steps(delta: float) -> void:
 		say("vo_eh" if randf() < 0.5 else "vo_oof")
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", "step")
+		sfx.call("play", _step_sound())
+
+
+## What the ground underfoot sounds like: a crunch in leaves, a swish on the
+## lawn, a scuff on pavement and porches.
+func _step_sound() -> String:
+	if global_position.y > 0.6:
+		return "step_hard"
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	if field != null and Net.player_zone(name.to_int()) == Net.Zone.LOT and int(field.call("sample_world", global_position)) >= Constants.STEP_LEAVES_DENSITY:
+		return "step_leaves"
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks != null and Net.player_zone(name.to_int()) == Net.Zone.LOT and bool(tasks.call("is_lawn", global_position)):
+		return "step_grass"
+	return "step_hard"
 
 
 func _update_anim(crouching: bool, direction: Vector3) -> void:

@@ -5,7 +5,7 @@ extends Node
 ## pitch wobble, so repeats don't sound like the same file over and over.
 
 ## How many numbered variants a sound has. Sounds not listed are one file.
-const VARIANTS: Dictionary = {"step": 4, "rake": 3, "bag": 2, "babble": 5, "bonk": 2}
+const VARIANTS: Dictionary = {"step": 4, "step_leaves": 3, "step_grass": 3, "step_hard": 3, "rake": 3, "bag": 2, "babble": 5, "bonk": 2, "bird": 4}
 ## Pitch range for each play, as a multiple of normal.
 const PITCH_WOBBLE := Vector2(0.93, 1.07)
 
@@ -45,7 +45,7 @@ func play(sound_name: String) -> void:
 	if int(_next_msec.get(sound_name, 0)) > now:
 		return
 	var gap := 160
-	if sound_name == "step":
+	if sound_name.begins_with("step"):
 		gap = 380
 	_next_msec[sound_name] = now + gap
 	var stream := load("res://assets/audio/sfx/%s.wav" % _pick_file(sound_name)) as AudioStream
@@ -57,3 +57,17 @@ func play(sound_name: String) -> void:
 	player.finished.connect(player.queue_free)
 	add_child(player)
 	player.play()
+
+
+## A sound set to loop forever, for engines, sprays, wind, and music. The files
+## are made seamless by tools/make_loops.py. Each caller gets its own copy; the
+## sample data itself is shared.
+static func looped(sound_name: String) -> AudioStream:
+	var wav := load("res://assets/audio/sfx/%s.wav" % sound_name) as AudioStreamWAV
+	if wav == null:
+		return null
+	var copy := wav.duplicate() as AudioStreamWAV
+	copy.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	copy.loop_begin = 0
+	copy.loop_end = int(round(wav.get_length() * wav.mix_rate))
+	return copy

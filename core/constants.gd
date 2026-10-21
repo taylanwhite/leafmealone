@@ -106,6 +106,8 @@ const BONK_SHOVE_MAX: float = 11.0
 ## Physics layer 3 (bit value 4): the invisible walls around each zone's pad. People
 ## mask it; thrown items don't, so they can sail into the street.
 const PAD_WALL_LAYER: int = 4
+## Footsteps crunch in leaves at least this thick (leaf field density, 60 is a fresh lot).
+const STEP_LEAVES_DENSITY: int = 18
 ## Half the size of every zone's pad, in meters. An item that lands outside it comes back in.
 const PAD_HALF: float = 20.0
 ## Where people can go in each zone, in the zone's own x and z. The lot reaches out
