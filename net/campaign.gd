@@ -9,8 +9,12 @@ signal credits_changed(peer_id: int, credits: int)
 signal unlocks_changed
 signal job_stats_changed(peer_id: int)
 signal payout_ready(results: Array[Dictionary])
+signal rating_changed
 
 const SAVE_PATH := "user://saves/campaign.json"
+## Timed test runs (--run-seconds, the smoke test) keep their own save, so they
+## never touch the real crew's cash, progress, or rating.
+const TEST_SAVE_PATH := "user://saves/campaign_test.json"
 const SAVE_VERSION := 1
 const RAKE_UPGRADE := &"rake_tier_1"
 const WHEELBARROW_UPGRADE := &"wheelbarrow_tier_1"
@@ -23,6 +27,8 @@ var _job_open: bool = true
 var _job_started_at: float = 0.0
 var _last_settlement: Dictionary = {}
 var _pending_wallets: Array[Dictionary] = []
+## The homeowners' reviews of the last Constants.RATING_JOBS jobs, in stars.
+var _ratings: Array = []
 
 
 func _ready() -> void:
@@ -70,6 +76,22 @@ func rake_multiplier(peer_id: int) -> float:
 	if peer_has_unlock(peer_id, RAKE_UPGRADE):
 		return Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER
 	return 1.0
+
+
+## The crew's rating: the average of the homeowners' recent reviews, 0 to 5 stars,
+## or 0 with no reviews yet.
+func rating() -> float:
+	if _ratings.is_empty():
+		return 0.0
+	var total := 0.0
+	for stars: Variant in _ratings:
+		total += float(stars)
+	return total / float(_ratings.size())
+
+
+## How many reviews the rating is built from.
+func rating_count() -> int:
+	return _ratings.size()
 
 
 func lots_completed() -> int:
@@ -121,6 +143,14 @@ func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 		pool *= 1.0 + Balance.FULL_CLEAR_PAYOUT_BONUS
 	if paid >= 0.0:
 		pool = paid
+	# The homeowner's review, if they settled up.
+	if details.has("mood"):
+		var stars := int(Constants.MOOD_STARS.get(str(details["mood"]), 0))
+		if stars > 0:
+			details["stars"] = stars
+			_ratings.append(stars)
+			while _ratings.size() > Constants.RATING_JOBS:
+				_ratings.pop_front()
 	var results := _split_pool(pool)
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
@@ -132,7 +162,7 @@ func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 	_job_stats.clear()
 	_save()
 	_rpc_payout.rpc(results, details)
-	_rpc_progress.rpc(_lots_completed)
+	_rpc_progress.rpc(_lots_completed, _ratings)
 	for peer_id: int in Net.peer_ids():
 		_send_wallet(peer_id)
 
@@ -165,6 +195,8 @@ func _on_player_joined(peer_id: int) -> void:
 		return
 	_bind_peer(peer_id)
 	_send_wallet(peer_id)
+	if peer_id != Net.local_peer_id():
+		_rpc_progress.rpc_id(peer_id, _lots_completed, _ratings)
 
 
 func _send_wallet(peer_id: int) -> void:
@@ -321,21 +353,28 @@ func _save() -> void:
 		if make_error != OK:
 			push_error("[Campaign] could not create saves folder: %s" % error_string(make_error))
 			return
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var file := FileAccess.open(_save_path(), FileAccess.WRITE)
 	if file == null:
 		push_error("[Campaign] could not write save: %s" % error_string(FileAccess.get_open_error()))
 		return
 	file.store_string(JSON.stringify({
 		"version": SAVE_VERSION,
 		"lots_completed": _lots_completed,
+		"ratings": _ratings,
 		"players": _bank,
 	}))
 
 
+func _save_path() -> String:
+	if float(Net.dev_options().get("run_seconds")) > 0.0 or Net.is_automated():
+		return TEST_SAVE_PATH
+	return SAVE_PATH
+
+
 func _load() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
+	if not FileAccess.file_exists(_save_path()):
 		return
-	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var file := FileAccess.open(_save_path(), FileAccess.READ)
 	if file == null:
 		push_error("[Campaign] could not read save: %s" % error_string(FileAccess.get_open_error()))
 		return
@@ -344,6 +383,11 @@ func _load() -> void:
 		return
 	var data := parsed as Dictionary
 	_lots_completed = int(data.get("lots_completed", 0))
+	var ratings: Variant = data.get("ratings", [])
+	if typeof(ratings) == TYPE_ARRAY:
+		_ratings.clear()
+		for stars: Variant in ratings:
+			_ratings.append(int(stars))
 	var players: Variant = data.get("players", {})
 	if typeof(players) == TYPE_DICTIONARY:
 		_bank = players
@@ -369,8 +413,10 @@ func _rpc_payout(results: Array, details: Dictionary) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_progress(lots_completed: int) -> void:
+func _rpc_progress(lots_completed: int, ratings: Array) -> void:
 	_lots_completed = lots_completed
+	_ratings = ratings.duplicate()
+	rating_changed.emit()
 
 
 @rpc("authority", "call_local", "reliable")

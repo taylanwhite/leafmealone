@@ -113,6 +113,12 @@ func _work_at(tasks: Node, task: String, spot: Dictionary) -> void:
 		flat = Vector3(0.0, 0.0, 1.0)
 	flat = flat.normalized()
 	var stand := Vector3(at.x, 0.0, at.z) + flat * (3.0 if task == "wash_windows" else 0.8)
+	# Leaves in the pool are scooped from outside it, reaching over the side.
+	var pool := get_tree().get_first_node_in_group("job_lot").find_child("PoolBody", true, false) as Node3D if task == "skim_pool" else null
+	if pool != null:
+		var out := Vector3(at.x - pool.global_position.x, 0.0, at.z - pool.global_position.z).normalized()
+		stand = Vector3(pool.global_position.x, 0.0, pool.global_position.z) + out * 2.75
+		flat = out
 	stand.y = 0.1
 	_move_to(stand)
 	await _ticks(1)
