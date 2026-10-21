@@ -153,6 +153,12 @@ const TASK_REACH: Dictionary = {
 }
 ## How many tasks a job asks for besides the leaves, at least and at most (three in all).
 ## Taylan, 2026-10-20: too much at once felt like a chore list.
+## How many job offers the board at Homie Depot shows.
+const JOB_BOARD_OFFERS: int = 3
+## How often a yard is small, regular, or big, and how many more tasks each asks for.
+## TODO(balance): not in the workbook yet.
+const YARD_SIZE_CHANCE: Array = [0.3, 0.45, 0.25]
+const YARD_EXTRA_TASKS: Array = [0, 0, 1]
 const JOB_EXTRA_TASKS := Vector2i(2, 2)
 ## A leaf blower pushes leaves this far each puff, this wide, this often.
 const BLOWER_STRENGTH: float = 45.0

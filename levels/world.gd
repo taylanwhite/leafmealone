@@ -12,6 +12,9 @@ const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Pedestrians = preload("res://npcs/pedestrians.gd")
+const _JobBoard = preload("res://levels/job_board.gd")
+## How long a swapped-out yard has to leave every peer before the picked one loads.
+const LOT_SWAP_SECONDS: float = 0.4
 const _Grass = preload("res://props/grass.gd")
 const _StreetLife = preload("res://levels/dressing/street_life.gd")
 const GRASS := Color(0.42, 0.52, 0.3)
@@ -23,6 +26,8 @@ const SPAWN_SPACING: float = 1.4
 ## Spawn slots to check for a free one before giving up and sharing.
 const SPAWN_SLOTS_TO_TRY: int = 16
 
+var _lots_loaded: int = 0
+var _lot_swap_serial: int = 0
 var _bag_serial: int = 0
 
 
@@ -45,6 +50,9 @@ func _ready() -> void:
 	var ambience := preload("res://audio/ambience.gd").new()
 	ambience.name = "Ambience"
 	add_child(ambience)
+	var board := preload("res://levels/job_board.gd").new()
+	board.name = "JobBoard"
+	add_child(board)
 	_dress()
 	_SharedLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):
@@ -194,15 +202,19 @@ func _load_job_lot() -> void:
 	if %LotSlot.get_child_count() > 0:
 		return
 	var lot := JOB_LOT.instantiate()
-	lot.name = "Lot%d" % Campaign.current_lot_index()
-	# Every job is a different yard asking for different work.
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	var job_seed := rng.randi_range(1, 2147483646)
-	if int(Net.dev_options().get("job_seed")) != 0:
-		job_seed = int(Net.dev_options().get("job_seed"))
-	lot.set("job_seed", job_seed)
-	lot.set("tasks", _choose_tasks(rng))
+	# A new name for every yard loaded, so nothing meant for the last one lands on this one.
+	_lots_loaded += 1
+	lot.name = "Lot%d_%d" % [Campaign.current_lot_index(), _lots_loaded]
+	# Every job is a different yard asking for different work: the offer picked
+	# on the job board (levels/job_board.gd), or --job-seed's for tests.
+	var offer: Dictionary = $JobBoard.call("current")
+	if int(Net.dev_options().get("job_seed")) != 0 or offer.is_empty():
+		var job_seed := int(Net.dev_options().get("job_seed"))
+		if job_seed == 0:
+			job_seed = randi_range(1, 2147483646)
+		offer = _JobBoard.make_offer(job_seed)
+	lot.set("job_seed", int(offer["seed"]))
+	lot.set("tasks", offer["tasks"])
 	%LotSlot.add_child(lot, true)
 	Campaign.mark_job_open()
 	_spawn_job_tools()
@@ -216,49 +228,46 @@ func _load_job_lot() -> void:
 
 func _free_lot() -> void:
 	for child: Node in %LotSlot.get_children():
+		# Out of the slot now, so a new lot can take its name this frame.
+		%LotSlot.remove_child(child)
 		child.queue_free()
 	for tool: Node in get_tree().get_nodes_in_group("job_tools"):
 		tool.queue_free()
+	# Back at the store: new jobs on the board.
+	$JobBoard.call("refresh")
 
 
-## Host only. What the homeowner wants done: always the leaves, plus two more.
-## Mostly work the crew owns the tool for, now and then something they don't
-## (it shows as needing that tool, so it's worth buying), and always some
-## bare-hands work. --all-tasks asks for everything (tests).
-func _choose_tasks(rng: RandomNumberGenerator) -> PackedStringArray:
-	var chosen := PackedStringArray(["rake_leaves"])
-	var owned := Campaign.crew_tools()
-	var possible: Array[String] = []
-	var unowned: Array[String] = []
-	for task: String in Constants.TASK_TOOLS:
-		if task == "rake_leaves":
-			continue
-		var tool := str(Constants.TASK_TOOLS[task])
-		if bool(Net.dev_options().get("all_tasks")) or tool == "" or owned.has(tool):
-			possible.append(task)
-		else:
-			unowned.append(task)
-	if bool(Net.dev_options().get("all_tasks")):
-		chosen.append_array(PackedStringArray(possible))
-		return chosen
-	var count := rng.randi_range(Constants.JOB_EXTRA_TASKS.x, Constants.JOB_EXTRA_TASKS.y)
-	# Now and then one of them needs a tool the crew doesn't have yet.
-	if not unowned.is_empty() and rng.randf() < 0.3:
-		chosen.append(unowned[rng.randi() % unowned.size()])
-	_shuffle(possible, rng)
-	for task: String in possible:
-		if chosen.size() - 1 >= count:
-			break
-		chosen.append(task)
-	return chosen
+## True once the next job is set: Chefty is on the way, or someone's at the yard.
+func job_locked() -> bool:
+	var ride := get_node_or_null("Rides/Chefty")
+	if ride != null and bool(ride.call("is_riding")):
+		return true
+	return not Net.players_in_zone(Net.Zone.LOT).is_empty()
 
 
-func _shuffle(items: Array[String], rng: RandomNumberGenerator) -> void:
-	for index: int in range(items.size() - 1, 0, -1):
-		var other := rng.randi_range(0, index)
-		var swap := items[index]
-		items[index] = items[other]
-		items[other] = swap
+## Host only. The job board's pick changed while nobody's at the yard: swap the
+## waiting yard for the picked one.
+func reload_job_lot() -> void:
+	if not Net.is_host() or job_locked() or %LotSlot.get_child_count() == 0:
+		return
+	# Already the picked yard with the same work: leave it be.
+	var waiting := %LotSlot.get_child(0)
+	var offer: Dictionary = $JobBoard.call("current")
+	if offer.is_empty() or int(Net.dev_options().get("job_seed")) != 0:
+		return
+	if int(waiting.get("job_seed")) == int(offer["seed"]) and (waiting.get("tasks") as PackedStringArray) == (offer["tasks"] as PackedStringArray):
+		return
+	for child: Node in %LotSlot.get_children():
+		%LotSlot.remove_child(child)
+		child.queue_free()
+	for tool: Node in get_tree().get_nodes_in_group("job_tools"):
+		tool.queue_free()
+	_lot_swap_serial += 1
+	var serial := _lot_swap_serial
+	await get_tree().create_timer(LOT_SWAP_SECONDS).timeout
+	# Picked again meanwhile, or Chefty left and loaded it already: that one wins.
+	if serial == _lot_swap_serial and %LotSlot.get_child_count() == 0:
+		_load_job_lot()
 
 
 ## Host only. One of each tool the crew owns rides along, laid out by the truck.
@@ -269,7 +278,7 @@ func _spawn_job_tools() -> void:
 	var index := 0
 	for tool_id: String in Campaign.crew_tools():
 		var tool := BAG_SCENE.instantiate()
-		tool.name = "Tool_%s" % tool_id
+		tool.name = "Tool_%s_%d" % [tool_id, _lots_loaded]
 		tool.set("kind", tool_id)
 		tool.set("label", tool_id)
 		tool.set("color", Color(0.8, 0.8, 0.8))

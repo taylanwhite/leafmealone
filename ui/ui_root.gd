@@ -15,6 +15,7 @@ var _lobby: VBoxContainer
 var _lobby_players: Label
 var _start_button: Button
 var _shop: PanelContainer
+var _job_board: PanelContainer
 var _payout: PanelContainer
 var _crew_button: Button
 var _voice_button: Button
@@ -228,10 +229,18 @@ func open_store() -> void:
 	_shop.call("open")
 
 
+func open_job_board() -> void:
+	if _job_board != null:
+		_job_board.call("open")
+
+
 func _build_store() -> void:
 	_shop = preload("res://ui/shop_window.gd").new()
 	_shop.name = "ShopWindow"
 	add_child(_shop)
+	_job_board = preload("res://ui/job_board_window.gd").new()
+	_job_board.name = "JobBoardWindow"
+	add_child(_job_board)
 	# The clerk reacts when you buy something.
 	_shop.connect("bought", func(_item_id: StringName) -> void:
 		var clerk := get_tree().get_first_node_in_group("store_clerk")
