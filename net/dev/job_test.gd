@@ -6,7 +6,8 @@ extends Node
 ## compare it to a bag from untouched leaves, carry the bags to Chefty, talk to
 ## the homeowner, take the cash, and ride home. The second round checks that the
 ## next job starts fresh. Each step prints a [JobTest] line, and the result lands
-## in the --measure report.
+## in the --measure report. Run it with --yard-size=1: the pile-versus-fresh
+## comparison needs ordinary leaf thickness, and big yards lie thicker.
 
 const ROUNDS: int = 2
 const RIDE_TIMEOUT_SECONDS: float = 20.0
