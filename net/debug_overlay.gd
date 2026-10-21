@@ -53,7 +53,7 @@ func _readout() -> String:
 	lines.append("clock offset %.3f s  rtt %.3f s" % [Net.clock_offset_seconds(), Net.clock_rtt_seconds()])
 	lines.append("synchronizers %d" % _synchronizer_count())
 	lines.append(_bandwidth_text())
-	lines.append("F6 host calls [CREW NAME]")
+	lines.append("F6 host calls the NICE BOYS")
 	for peer_id: int in Net.peer_ids():
 		var ping := Net.peer_ping_ms(peer_id)
 		var ping_text := "%d ms" % ping if ping >= 0 else "n/a"

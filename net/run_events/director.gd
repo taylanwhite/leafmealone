@@ -104,7 +104,7 @@ func van_occupied() -> int:
 func force_event() -> void:
 	if not Net.is_host() or _phase != Phase.QUIET:
 		return
-	_set_phase(Phase.WARNING, "[CREW NAME] is on the way")
+	_set_phase(Phase.WARNING, "The NICE BOYS are on the way")
 
 
 ## Host only. Put this peer in the open cohort. The smoke test uses a short window.
@@ -162,12 +162,12 @@ func _consider_roll() -> void:
 	chance += Balance.RUN_CHANCE_ESCALATION_PER_TIER * float(Campaign.lots_completed())
 	chance = minf(chance, Balance.MAXIMUM_RUN_EVENT_CHANCE)
 	if randf() < chance:
-		_set_phase(Phase.WARNING, "[CREW NAME] is on the way")
+		_set_phase(Phase.WARNING, "The NICE BOYS are on the way")
 
 
 func _begin_chase() -> void:
 	_last_event_time = Net.server_time()
-	_set_phase(Phase.CHASE, "[CREW NAME] is here")
+	_set_phase(Phase.CHASE, "The NICE BOYS are here")
 	_spawn_crew()
 
 
