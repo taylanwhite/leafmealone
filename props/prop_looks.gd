@@ -12,10 +12,10 @@ const VISUAL_HEIGHT: float = 0.35
 ## Tools held up in front of the face and aimed with the view, and where they sit
 ## in the head's space (x right, y up, -z ahead).
 const HANDHELD: Dictionary = {
-	"hose": Vector3(0.2, -0.24, -0.5),
-	"leaf_blower": Vector3(0.24, -0.62, -0.2),
-	"hedge_trimmer": Vector3(0.18, -0.5, -0.25),
-	"paint_roller": Vector3(0.22, -0.32, -0.42),
+	"hose": Vector3(0.2, -0.2, -0.5),
+	"leaf_blower": Vector3(0.26, -0.46, -0.38),
+	"hedge_trimmer": Vector3(0.2, -0.34, -0.42),
+	"paint_roller": Vector3(0.22, -0.17, -0.45),
 }
 
 
@@ -154,7 +154,7 @@ static func _pose_wand(prop: Node3D, holder: Node3D, head: Node3D) -> void:
 		wand.top_level = true
 		prop.add_child(wand)
 	wand.visible = true
-	wand.global_transform = Transform3D(aim_basis(holder, false), head.global_transform * Vector3(0.2, -0.3, -0.35))
+	wand.global_transform = Transform3D(aim_basis(holder, false), head.global_transform * Vector3(0.2, -0.12, -0.45))
 
 
 ## Where water leaves a held hose or pressure washer, pointing the way it goes;

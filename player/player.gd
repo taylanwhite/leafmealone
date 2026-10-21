@@ -20,6 +20,7 @@ const SPEAKING_TINT := Color(1.0, 0.86, 0.35)
 const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
+const _FirstPersonArms = preload("res://player/first_person_arms.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -1032,6 +1033,12 @@ func _dress_up() -> void:
 	# Your own eyes would sit right in front of your first-person camera.
 	if is_multiplayer_authority():
 		%FirstPerson.cull_mask &= ~(1 << (_CartoonBody.HEAD_LAYER - 1))
+		# And in its place, your own arms, reaching for whatever you're doing.
+		if not Net.is_automated() and DisplayServer.get_name() != "headless":
+			var arms := _FirstPersonArms.new()
+			arms.name = "Arms"
+			%Head.add_child(arms)
+			arms.setup(self, body, %FirstPerson)
 
 
 ## A silly character noise (docs/ART.md, "Audio") from this player's head, in
