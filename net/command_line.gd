@@ -26,12 +26,14 @@ var mute_audio: bool = false
 var run_event_at: float = -1.0
 var bot_stay: bool = false
 var open_shop: bool = false
+var open_board: bool = false
 var walk_straight: bool = false
 var ride_at: float = -1.0
 var job_test: bool = false
 var bonk_test: bool = false
 var work_test: bool = false
 var throw_test: bool = false
+var board_test: bool = false
 var water_test: bool = false
 var mower_test: bool = false
 ## --job-seed=N builds that yard every time; --all-tasks asks for every task; --all-tools gives you every tool.
@@ -47,7 +49,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test
 
 
 func read() -> void:
@@ -94,6 +96,8 @@ func read() -> void:
 			bot_stay = true
 		elif argument == "--open-shop":
 			open_shop = true
+		elif argument == "--open-board":
+			open_board = true
 		elif argument.begins_with("--ride-at="):
 			ride_at = float(argument.trim_prefix("--ride-at="))
 		elif argument == "--job-test":
@@ -110,6 +114,8 @@ func read() -> void:
 			mower_test = true
 		elif argument == "--water-test":
 			water_test = true
+		elif argument == "--board-test":
+			board_test = true
 		elif argument == "--throw-test":
 			throw_test = true
 		elif argument == "--work-test":

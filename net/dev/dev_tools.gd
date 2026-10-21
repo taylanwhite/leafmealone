@@ -31,6 +31,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/mower_test.gd").new(), "MowerTest")
 	if bool(options.get("water_test")):
 		_add(preload("res://net/dev/water_test.gd").new(), "WaterTest")
+	if bool(options.get("board_test")):
+		_add(preload("res://net/dev/board_test.gd").new(), "BoardTest")
 	if bool(options.get("throw_test")):
 		_add(preload("res://net/dev/throw_test.gd").new(), "ThrowTest")
 	if bool(options.get("work_test")):
@@ -45,6 +47,13 @@ func _ready() -> void:
 			var ui := get_tree().get_first_node_in_group("game_ui")
 			if ui != null:
 				ui.call("open_store")
+		)
+	if bool(options.get("open_board")):
+		# For screenshots of the job board window.
+		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
+			var ui := get_tree().get_first_node_in_group("game_ui")
+			if ui != null:
+				ui.call("open_job_board")
 		)
 	var ride_at := float(options.get("ride_at"))
 	if ride_at >= 0.0:

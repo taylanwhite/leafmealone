@@ -32,6 +32,7 @@ const TOUR: Dictionary = {
 	"StoreZone": [
 		["store_wall", Vector3(-17.0, 2.0, 24.0), Vector3(-22.0, 2.0, 15.0)],
 		["checkout", Vector3(0.0, 1.6, -5.2), Vector3(0.0, 0.8, -7.6)],
+		["job_board", Vector3(-4.0, 1.7, -5.6), Vector3(-4.6, 1.5, -8.6)],
 		["parking", Vector3(10.0, 1.8, 14.0), Vector3(3.0, 0.0, 9.0)],
 	],
 }

@@ -170,6 +170,8 @@ func write_report() -> void:
 		"throw_test": preload("res://net/dev/throw_test.gd").result.duplicate(),
 		"water_test": preload("res://net/dev/water_test.gd").result.duplicate(),
 		"mower_test": preload("res://net/dev/mower_test.gd").result.duplicate(),
+		"board_test": preload("res://net/dev/board_test.gd").result.duplicate(),
+		"board": _board(),
 		"lot_layout": _lot_layout(),
 		"job_progress": _job_progress(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),
@@ -199,6 +201,17 @@ func write_report() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	file.close()
 	print("[Probe] wrote %s" % path)
+
+
+## The job board's offers (their seeds) and the pick, as this peer sees them.
+func _board() -> Dictionary:
+	var board := get_tree().get_first_node_in_group("job_board")
+	if board == null:
+		return {}
+	var seeds: Array = []
+	for offer: Dictionary in (board.get("offers") as Array):
+		seeds.append(int(offer["seed"]))
+	return {"seeds": seeds, "chosen": int(board.get("chosen"))}
 
 
 ## The job yard's layout hash (levels/lots/lot_generator.gd), the same on every peer.

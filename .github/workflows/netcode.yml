@@ -74,9 +74,9 @@ jobs:
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-work
-          "$GODOT" --headless --path . -- --host --port=7796 --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --work-test --measure="$PWD/build/soak/ci-work/host.json" --run-seconds=45 > build/soak/ci-work/host.log 2>&1 &
+          "$GODOT" --headless --path . -- --host --port=7796 --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --work-test --measure="$PWD/build/soak/ci-work/host.json" --run-seconds=120 > build/soak/ci-work/host.log 2>&1 &
           sleep 3
-          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7796 --name=Target --no-steam --measure="$PWD/build/soak/ci-work/target.json" --run-seconds=40 > build/soak/ci-work/target.log 2>&1
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7796 --name=Target --no-steam --measure="$PWD/build/soak/ci-work/target.json" --run-seconds=115 > build/soak/ci-work/target.log 2>&1
           wait
           grep "WorkTest" build/soak/ci-work/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-work/host.json')); c=json.load(open('build/soak/ci-work/target.json')); ok=h['work_test'].get('ok') and h['lot_layout']==c['lot_layout'] and h['job_progress']==c['job_progress']; print('layout', h['lot_layout'], c['lot_layout']); sys.exit(0 if ok else 1)"
@@ -105,6 +105,17 @@ jobs:
           wait
           grep "MowerTest" build/soak/ci-mower/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-mower/host.json'))['mower_test']; sys.exit(0 if r.get('ok') else 1)"
+
+      - name: Job board test (offers, picking, the picked yard, new offers; client matches)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-board
+          "$GODOT" --headless --path . -- --host --port=7800 --name=Tester --no-steam --board-test --measure="$PWD/build/soak/ci-board/host.json" --run-seconds=30 > build/soak/ci-board/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7800 --name=Target --no-steam --measure="$PWD/build/soak/ci-board/target.json" --run-seconds=25 > build/soak/ci-board/target.log 2>&1
+          wait
+          grep "BoardTest" build/soak/ci-board/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-board/host.json')); t=json.load(open('build/soak/ci-board/target.json')); sys.exit(0 if h['board_test'].get('ok') and h['board'] == t['board'] else 1)"
 
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
