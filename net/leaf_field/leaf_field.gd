@@ -186,6 +186,7 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 	var cells := Constants.RAKE_STROKE_CELLS if has_rake else 1
 	# A leaf blower shoves leaves much farther than any rake.
 	if holds_kind(peer_id, "leaf_blower"):
+		_mark_running(peer_id, "leaf_blower")
 		max_strength = Constants.BLOWER_STRENGTH
 		max_width = Constants.BLOWER_WIDTH
 		cells = Constants.BLOWER_CELLS
@@ -330,6 +331,13 @@ func holds_kind(peer_id: int, held_kind: String) -> bool:
 		if str(node.get("kind")) == held_kind and int(node.get("held_by")) == peer_id:
 			return true
 	return false
+
+
+## Host: the tool this peer carries ran just now, so everyone hears it.
+func _mark_running(peer_id: int, held_kind: String) -> void:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == held_kind and int(node.get("held_by")) == peer_id:
+			node.call("mark_spraying")
 
 
 ## Host: true while this peer carries the job's rake.

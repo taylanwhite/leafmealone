@@ -43,8 +43,8 @@ const _WaterSources = preload("res://net/work/water_sources.gd")
 ## A hose's water: the kind of source it's hooked up to ("chefty", "spigot",
 ## "hydrant"), or "" when it isn't. Replicated.
 @export var hose_source: String = ""
-## True while water is coming out of this hose or pressure washer, or while a
-## mower's engine runs. Replicated.
+## True while a tool is running: water coming out of a hose or pressure washer,
+## a blower blowing, a trimmer or roller working, or a mower's engine on. Replicated.
 @export var spraying: bool = false
 ## A pressure washer's tank, or a paint roller's paint, 0 to 100. Replicated.
 @export var water: float = 100.0
@@ -367,19 +367,24 @@ func _rpc_pull_fx(caught: bool) -> void:
 			sfx.call("play", "mower_start")
 
 
-## Host: water came out just now (net/work/job_tasks.gd says so on each spray).
+## Host: the tool ran just now (job_tasks and leaf_field say so on each use).
 func mark_spraying() -> void:
 	_spray_left = 0.3
 	if not spraying:
 		spraying = true
 
 
-## Host: a hooked-up hose stretched past its length comes loose and its end whips
-## back across the yard; anyone it passes is knocked out.
-func _step_hose(delta: float) -> void:
+## Host: a tool stops running a moment after its last use. A mower's flag is its
+## engine instead, which runs until it stalls or is let go.
+func _step_spray(delta: float) -> void:
 	_spray_left -= delta
 	if spraying and _spray_left <= 0.0:
 		spraying = false
+
+
+## Host: a hooked-up hose stretched past its length comes loose and its end whips
+## back across the yard; anyone it passes is knocked out.
+func _step_hose(delta: float) -> void:
 	if _whip_t >= 0.0:
 		_whip_t += delta / Constants.HOSE_WHIP_SECONDS
 		var t := clampf(_whip_t, 0.0, 1.0)
@@ -447,7 +452,9 @@ func request_throw(direction: Vector3, power: float = 1.0) -> void:
 
 
 func _host_step() -> void:
-	if kind == "hose" or kind == "pressure_washer":
+	if kind != "lawn_mower":
+		_step_spray(get_physics_process_delta_time())
+	if kind == "hose":
 		_step_hose(get_physics_process_delta_time())
 	var kg := weight_kg()
 	if not is_equal_approx(mass, kg):

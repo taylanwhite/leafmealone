@@ -67,6 +67,22 @@ func define_grid(task: String, corner: Vector3, size: Vector2, cell: float, incl
 	return _grids.size() - 1
 
 
+## True when a world position is on this yard's lawn (grass, mowed or not),
+## for footstep sounds.
+func is_lawn(at: Vector3) -> bool:
+	for grid: Dictionary in _grids:
+		if str(grid["task"]) != "mow_lawn":
+			continue
+		var cell := float(grid["cell"])
+		var local := at - (grid["corner"] as Vector3)
+		var x := int(floor(local.x / cell))
+		var z := int(floor(local.z / cell))
+		if x < 0 or z < 0 or x >= int(grid["width"]) or z >= int(grid["depth"]):
+			return false
+		return (grid["mask"] as PackedByteArray)[x + z * int(grid["width"])] == 1
+	return false
+
+
 ## Every peer: turn on the asked-for tasks. Their spots and cells start at 100
 ## (dirtiness can vary per spot, from the same seed everywhere).
 func activate(tasks: PackedStringArray, seed_value: int) -> void:
@@ -189,6 +205,10 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 			speedup = Constants.GUTTER_BLOWER_SPEEDUP
 	elif tool != "" and not _holds(peer_id, tool):
 		return
+	if task == "trim_hedges":
+		var trimmer := _held(peer_id, "hedge_trimmer")
+		if trimmer != null:
+			trimmer.call("mark_spraying")
 	# Water: a hose has to be hooked up, a pressure washer has to have water in it.
 	var hose: Node = null
 	if task == "wash_windows":
@@ -205,6 +225,7 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 		var roller := _held(peer_id, "paint_roller")
 		if roller == null or float(roller.get("water")) <= 0.0:
 			return
+		roller.call("mark_spraying")
 		roller.set("water", maxf(0.0, float(roller.get("water")) - 100.0 / Constants.ROLLER_PAINT_SECONDS * WORK_TICK))
 	elif task == "power_wash":
 		var washer := _held(peer_id, "pressure_washer")
