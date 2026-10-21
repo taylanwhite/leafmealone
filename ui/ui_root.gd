@@ -81,7 +81,7 @@ func _ready() -> void:
 	%BackButton.pressed.connect(_show_menu)
 	_leave.pressed.connect(_on_leave_pressed)
 	_crew_button = Button.new()
-	_crew_button.text = "Call [CREW NAME]"
+	_crew_button.text = "Call the NICE BOYS"
 	_crew_button.visible = false
 	_crew_button.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_crew_button.offset_left = -110.0

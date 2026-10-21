@@ -19,9 +19,9 @@ const UI: Dictionary = {
 	"voice_mute": "Mute",
 	"voice_close": "Close",
 	"voice_nobody": "Nobody else is here yet.",
-	"cue_radio": "RADIO: [CREW NAME] is on the way to this address",
+	"cue_radio": "RADIO: the NICE BOYS are on the way to this address",
 	"cue_countdown": "%d",
-	"cue_arrived": "[CREW NAME] is here. Run. Hide. Break line of sight.",
+	"cue_arrived": "The NICE BOYS are here. Run. Hide. Break line of sight.",
 	"cue_clear": "All clear",
 	"hide_taken": "Occupied",
 	"hud_hidden": "Hiding. E to come out.",
@@ -155,13 +155,72 @@ const UI: Dictionary = {
 
 ## What the homeowner says when you report the job done, by mood. Taylan wrote the
 ## first two on 2026-10-19. The rest are plain stand-ins until there are real lines.
+## What the homeowner says when you ask to be paid, by mood (Taylan, 2026-10-21:
+## funny, and they know who the NICE BOYS are). The "bill_*" pools replace the
+## mood line some of the time when the crew owes for something they broke.
 const HOMEOWNER_LINES: Dictionary = {
-	"thrilled": ["You did a great job, here's a tip!"],
-	"happy": ["Nice work. Here you go."],
-	"fine": ["Thanks. Here's your money."],
-	"slow": ["Took long enough eh?"],
-	"messy": ["There are still leaves out there."],
-	"nothing": ["You haven't bagged anything yet."],
+	"thrilled": [
+		"Oh my GOD. You can see the GRASS. I forgot we HAD grass.",
+		"Take this. Take it. If the Nice Boys ask, you were never here.",
+		"The neighbors are going to be sick with envy. Here. Buy something loud.",
+		"Cleanest it's been in years. I'm putting you in the will. Not for much.",
+		"Ten out of ten. I'm tipping in cash so there's no paper trail.",
+		"I cried a little. Don't look at me. Here, take it and go.",
+	],
+	"happy": [
+		"Nice work, nice boys. Wait. No. Forget I said that.",
+		"Looks good! Don't count it in front of me, it's weird.",
+		"Honestly? Better than my kid did. Don't tell him. Don't tell anyone.",
+		"Solid. Here's your money. Go before the HOA sees your truck.",
+		"You missed one leaf. Kidding. Or am I. Here.",
+		"Good job. I'd shake your hand but I saw what it touched.",
+	],
+	"fine": [
+		"Yeah, that's... a yard. Here.",
+		"It's fine. It's fine. I said it's FINE. Here.",
+		"Adequate. That's the word I'm going with. Adequate.",
+		"I'll take it. Mostly because I'm not raking it myself.",
+		"Thanks. Here's your money. Please stop looking at my windows.",
+		"Three stars. Maybe three and a half. Don't push it.",
+	],
+	"slow": [
+		"Took long enough, eh? The leaves were about to unionize.",
+		"I watched the whole thing from the window. All of it. Here.",
+		"The seasons changed. The leaves came back. You were still here.",
+		"Did you take a nap in the bags? Here's your money.",
+		"I nearly called the Nice Boys myself. Kidding. Mostly. Here.",
+		"My coffee went cold three times. Three. Here.",
+	],
+	"messy": [
+		"There's still leaves. I can see them. They can see me.",
+		"Half a job gets half a thank you. Than. Here.",
+		"My gnome has seen things today. Here. It's less than you wanted.",
+		"I'm not paying full price for a yard that still crunches.",
+		"You call this clean? The raccoons filed a complaint.",
+		"I've seen tidier yards AFTER a tornado. Here. Go.",
+	],
+	"nothing": [
+		"You haven't bagged anything. Are you here for the Wi-Fi?",
+		"Nothing in the truck. Nothing in my heart. Come back with bags.",
+		"I pay per bag. Zero bags. I can do that math. Can you?",
+		"Did you come to LOOK at the leaves? Because they're looking back.",
+		"The rake is right there. It's the thing with the teeth.",
+	],
+	"bill_hose": [
+		"That hose was a gift from my mother. It's coming out of your pay.",
+		"You MOWED my HOSE. Who mows a hose. Here. Minus a hose.",
+		"The hose is in three pieces. So is my patience. Here.",
+	],
+	"bill_gnome": [
+		"You ran over the gnome. He had a NAME. I'm not telling you it. Here.",
+		"The gnome's been in this family longer than my husband. Minus the gnome.",
+		"I heard the gnome go through the mower. The whole street heard. Here.",
+	],
+	"bill_medical": [
+		"I saw the foot. The whole street saw the foot. The clinic bill's yours.",
+		"Somebody's foot is in my hedge. I'm taking the clinic off the top.",
+		"Not my foot, not my problem, but the ambulance was my phone call. Here.",
+	],
 }
 
 const LINES: Array[Dictionary] = [

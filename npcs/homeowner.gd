@@ -158,7 +158,15 @@ func _handle_talk(peer_id: int) -> void:
 			task_value += pay
 			task_lines.append([task, int(round(done * 100.0)), pay])
 	var mood := _judge(value + task_value)
-	var lines: Array = _Strings.HOMEOWNER_LINES.get(mood, [""])
+	# Whatever they broke comes up first, most of the time.
+	var pool := mood
+	var bills_owed: Dictionary = tasks.get("bills") if tasks != null else {}
+	if mood != "nothing" and not bills_owed.is_empty() and _rng.randf() < 0.7:
+		var reasons: Array = bills_owed.keys()
+		var reason := "bill_%s" % str(reasons[_rng.randi() % reasons.size()])
+		if _Strings.HOMEOWNER_LINES.has(reason):
+			pool = reason
+	var lines: Array = _Strings.HOMEOWNER_LINES.get(pool, [""])
 	var line_index := _rng.randi() % lines.size()
 	# Their water isn't free.
 	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
@@ -167,7 +175,7 @@ func _handle_talk(peer_id: int) -> void:
 	var bills_total := int(tasks.call("bills_total")) if tasks != null else 0
 	var amount := 0 if mood == "nothing" else maxi(0, int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)))) - water_fee - bills_total)
 	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "water_fee": water_fee, "bills": bills, "paid": amount}
-	_rpc_react.rpc(mood, line_index, amount)
+	_rpc_react.rpc(mood, line_index, amount, pool)
 	if mood == "nothing":
 		return
 	get_tree().create_timer(REACT_SECONDS).timeout.connect(func() -> void:
@@ -242,10 +250,10 @@ func _rpc_request_state() -> void:
 # ---------------------------------------------------------------- every peer
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_react(mood: String, line_index: int, amount: int) -> void:
+func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -> void:
 	_amount = amount
 	_phase = Phase.WAITING if mood == "nothing" else Phase.REACTING
-	var lines: Array = _Strings.HOMEOWNER_LINES.get(mood, [""])
+	var lines: Array = _Strings.HOMEOWNER_LINES.get(pool if pool != "" else mood, [""])
 	_caption.text = str(lines[clampi(line_index, 0, lines.size() - 1)])
 	_caption_left = CAPTION_SECONDS
 	var staging: Dictionary = STAGING.get(mood, STAGING["fine"])
