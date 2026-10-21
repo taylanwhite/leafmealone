@@ -12,6 +12,8 @@ signal generated
 @export var job_seed: int = 0
 ## Task ids the homeowner asked for (Constants.TASK_TOOLS), raking included.
 @export var tasks := PackedStringArray()
+## 0 small, 1 regular, 2 big (levels/job_board.gd).
+@export var yard_size: int = 1
 
 var is_generated: bool = false
 
@@ -25,7 +27,7 @@ func _ready() -> void:
 		waited += 1
 	if job_seed == 0:
 		job_seed = 1
-	$Dressing.call("generate", job_seed, tasks)
+	$Dressing.call("generate", job_seed, tasks, yard_size)
 	is_generated = true
 	generated.emit()
 

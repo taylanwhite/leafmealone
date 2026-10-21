@@ -55,6 +55,8 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 		if int(settlement.get("water_fee", 0)) > 0:
 			_line(_Strings.UI["receipt_water"], "-$%d" % int(settlement["water_fee"]), RED)
 		_line(_Strings.UI["receipt_paid"], "$%d" % int(settlement.get("paid", 0)), ORANGE.darkened(0.1), 22)
+		if int(settlement.get("stars", 0)) > 0:
+			_line(_Strings.UI["receipt_stars"] % _Strings.stars(float(settlement["stars"])), "", ORANGE.darkened(0.1), 20)
 	else:
 		_line(_Strings.UI["receipt_no_homeowner"], "", INK)
 	_rows.add_child(HSeparator.new())

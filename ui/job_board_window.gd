@@ -8,6 +8,7 @@ extends "res://ui/shop_window.gd"
 const CARD_WIDE: float = 250.0
 
 var _board_cards: HBoxContainer
+var _rating: Label
 
 
 func _ready() -> void:
@@ -19,6 +20,8 @@ func _ready() -> void:
 	add_child(column)
 	column.add_child(_text(_Strings.UI["board_window_title"], 34, ORANGE))
 	column.add_child(_text(_Strings.UI["board_window_subtitle"], 16, INK.lightened(0.3)))
+	_rating = _text("", 18, ORANGE.darkened(0.15))
+	column.add_child(_rating)
 	_board_cards = HBoxContainer.new()
 	_board_cards.add_theme_constant_override("separation", 14)
 	column.add_child(_board_cards)
@@ -42,6 +45,8 @@ func _board() -> Node:
 func _refresh() -> void:
 	for child: Node in _board_cards.get_children():
 		child.queue_free()
+	var count := Campaign.rating_count()
+	_rating.text = _Strings.UI["board_rating"] % [_Strings.stars(Campaign.rating()), count] if count > 0 else _Strings.UI["board_rating_none"]
 	var board := _board()
 	if board == null:
 		return

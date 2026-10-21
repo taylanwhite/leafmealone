@@ -215,6 +215,7 @@ func _load_job_lot() -> void:
 		offer = _JobBoard.make_offer(job_seed)
 	lot.set("job_seed", int(offer["seed"]))
 	lot.set("tasks", offer["tasks"])
+	lot.set("yard_size", int(offer.get("size", 1)))
 	%LotSlot.add_child(lot, true)
 	Campaign.mark_job_open()
 	_spawn_job_tools()

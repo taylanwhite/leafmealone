@@ -131,34 +131,46 @@ const TASK_TOOLS: Dictionary = {
 	"rake_leaves": "", "pick_litter": "", "pull_weeds": "",
 	"mow_lawn": "lawn_mower", "clean_gutters": "ladder", "wash_windows": "hose",
 	"power_wash": "pressure_washer", "trim_hedges": "hedge_trimmer", "paint_fence": "paint_roller",
-	"clear_roof": "ladder",
+	"clear_roof": "ladder", "skim_pool": "",
 }
 ## Task id -> what the homeowner pays for it done completely, in dollars.
 const TASK_PAY: Dictionary = {
 	"pick_litter": 12, "pull_weeds": 15, "mow_lawn": 45, "clean_gutters": 40,
 	"wash_windows": 30, "power_wash": 55, "trim_hedges": 35, "paint_fence": 40,
-	"clear_roof": 35,
+	"clear_roof": 35, "skim_pool": 25,
 }
 ## How much of a spot or cell each second of work clears, out of 100.
 const TASK_WORK_RATE: Dictionary = {
 	"pick_litter": 100.0, "pull_weeds": 40.0, "mow_lawn": 450.0, "clean_gutters": 30.0,
 	"wash_windows": 55.0, "power_wash": 90.0, "trim_hedges": 50.0, "paint_fence": 60.0,
-	"clear_roof": 35.0,
+	"clear_roof": 35.0, "skim_pool": 50.0,
 }
 ## How far from you a tool reaches, in meters.
 const TASK_REACH: Dictionary = {
 	"pick_litter": 2.0, "pull_weeds": 2.0, "mow_lawn": 0.9, "clean_gutters": 2.6,
 	"wash_windows": 40.0, "power_wash": 3.2, "trim_hedges": 2.2, "paint_fence": 2.0,
-	"clear_roof": 1.8,
+	"clear_roof": 1.8, "skim_pool": 2.7,
 }
 ## How many tasks a job asks for besides the leaves, at least and at most (three in all).
 ## Taylan, 2026-10-20: too much at once felt like a chore list.
 ## How many job offers the board at Homie Depot shows.
 const JOB_BOARD_OFFERS: int = 3
 ## How often a yard is small, regular, or big, and how many more tasks each asks for.
-## TODO(balance): not in the workbook yet.
+## A crew with a better rating gets offered big yards more often (YARD_BIG_PER_STAR
+## per star above three). TODO(balance): not in the workbook yet.
 const YARD_SIZE_CHANCE: Array = [0.3, 0.45, 0.25]
 const YARD_EXTRA_TASKS: Array = [0, 0, 1]
+const YARD_BIG_PER_STAR: float = 0.1
+## What changes with a yard's size: the house's width range, how many trees, how
+## much litter, and how thick the leaves lie (times normal). Big yards have a pool.
+const YARD_HOUSE_WIDTH: Array = [Vector2(7.0, 9.0), Vector2(8.0, 12.5), Vector2(11.5, 14.0)]
+const YARD_TREES: Array = [Vector2i(1, 3), Vector2i(2, 5), Vector2i(4, 7)]
+const YARD_LITTER: Array = [Vector2i(4, 7), Vector2i(6, 11), Vector2i(9, 14)]
+const YARD_LEAVES: Array = [0.8, 1.0, 1.25]
+## The homeowner's rating by mood, in stars out of five, and how many recent
+## jobs the crew's rating averages. TODO(balance): not in the workbook yet.
+const MOOD_STARS: Dictionary = {"messy": 1, "slow": 2, "fine": 3, "happy": 4, "thrilled": 5}
+const RATING_JOBS: int = 10
 const JOB_EXTRA_TASKS := Vector2i(2, 2)
 ## A leaf blower pushes leaves this far each puff, this wide, this often.
 const BLOWER_STRENGTH: float = 45.0

@@ -491,7 +491,7 @@ func _nearest_hand_task() -> Dictionary:
 	var tasks := get_tree().get_first_node_in_group("job_tasks")
 	if tasks == null:
 		return {}
-	for task: String in ["pick_litter", "pull_weeds"]:
+	for task: String in ["pick_litter", "pull_weeds", "skim_pool"]:
 		var index := int(tasks.call("nearest_spot", task, global_position, float(Constants.TASK_REACH[task])))
 		if index >= 0:
 			return {"task": task, "at": (tasks.call("spot", index) as Dictionary)["at"]}
@@ -609,7 +609,7 @@ func interaction_hint() -> Dictionary:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
 	var hand := _nearest_hand_task()
 	if not hand.is_empty():
-		var key := "prompt_pick_litter" if hand["task"] == "pick_litter" else "prompt_pull_weed"
+		var key := {"pick_litter": "prompt_pick_litter", "pull_weeds": "prompt_pull_weed", "skim_pool": "prompt_skim_pool"}.get(str(hand["task"]), "prompt_pick_litter") as String
 		return {"text": _Strings.UI[key], "at": (hand["at"] as Vector3) + Vector3(0.0, 0.6, 0.0)}
 	var held := _held_prop()
 	if held != null and bool(held.call("near_truck")):

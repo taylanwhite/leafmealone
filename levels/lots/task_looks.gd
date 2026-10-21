@@ -113,6 +113,64 @@ func add_litter(index: int, at: Vector3, seed_value: int) -> void:
 	_spots[index] = {"kind": "gone", "node": view}
 
 
+## A big yard's above-ground pool: a ribbed blue wall, a white rim, and water.
+func add_pool(at: Vector3, radius: float, height: float) -> void:
+	var kit := _MeshKit.new()
+	var ring := PackedVector3Array()
+	var sides := 28
+	for side: int in sides + 1:
+		var angle := TAU * float(side) / float(sides)
+		ring.append(Vector3(cos(angle) * radius, 0.0, sin(angle) * radius))
+	# The wall, as upright panels with a post between each.
+	for side: int in sides:
+		var a := ring[side]
+		var b := ring[side + 1]
+		var middle := (a + b) * 0.5
+		var facing := Basis.looking_at(middle.normalized(), Vector3.UP)
+		kit.box(middle + Vector3(0.0, height * 0.5, 0.0), Vector3(a.distance_to(b) + 0.02, height, 0.05), Color(0.32, 0.58, 0.82), facing)
+		kit.tube(PackedVector3Array([a * 1.03, a * 1.03 + Vector3(0.0, height + 0.02, 0.0)]), PackedFloat32Array([0.045, 0.045]), Color(0.9, 0.92, 0.94), 6, {"jitter": 0.0})
+	var rim := PackedFloat32Array()
+	rim.resize(ring.size())
+	rim.fill(0.08)
+	kit.tube(ring_up(ring, height + 0.03), rim, Color(0.95, 0.96, 0.97), 6, {"jitter": 0.0})
+	var view := _Stylized.instance(kit.commit(), {"roughness": 0.45, "specular": 0.4})
+	view.name = "Pool"
+	add_child(view)
+	view.global_position = at
+	var water := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = radius - 0.04
+	disc.bottom_radius = radius - 0.04
+	disc.height = 0.04
+	disc.radial_segments = 32
+	water.mesh = disc
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.35, 0.72, 0.85, 0.82)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.roughness = 0.08
+	material.metallic_specular = 0.9
+	water.material_override = material
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(water)
+	water.global_position = at + Vector3(0.0, height - 0.14, 0.0)
+
+
+static func ring_up(ring: PackedVector3Array, height: float) -> PackedVector3Array:
+	var raised := PackedVector3Array()
+	for point: Vector3 in ring:
+		raised.append(point + Vector3(0.0, height, 0.0))
+	return raised
+
+
+## A clump of leaves floating in the pool, gone once it's scooped out.
+func add_pool_leaves(index: int, at: Vector3, seed_value: int) -> void:
+	var view := _Stylized.instance(_mesh("pool_leaves"), {"roughness": 0.4, "specular": 0.5, "double_sided": true})
+	add_child(view)
+	view.global_position = at
+	view.rotation.y = float(absi(seed_value) % 628) / 100.0
+	_spots[index] = {"kind": "gone", "node": view}
+
+
 ## A spot's look flies from one place to another in an arc (litter flung by the mower).
 func fling(index: int, from: Vector3, to: Vector3) -> void:
 	if not _spots.has(index):
@@ -287,6 +345,7 @@ func work_fx(task: String, at: Vector3) -> void:
 		"paint_fence": [Color(0.97, 0.96, 0.92), Vector3.UP, 0.8],
 		"pull_weeds": [Color(0.4, 0.28, 0.18), Vector3.UP, 2.5],
 		"pick_litter": [Color(0.9, 0.9, 0.85), Vector3.UP, 2.0],
+		"skim_pool": [Color(0.6, 0.85, 1.0, 0.85), Vector3.UP, 2.2],
 	}
 	var style: Array = colors.get(task, [Color.WHITE, Vector3.UP, 1.5])
 	var particles := CPUParticles3D.new()
@@ -325,6 +384,10 @@ static func _mesh(kind: String) -> ArrayMesh:
 			kit.blob(Vector3(0.0, 0.05, 0.0), Vector3(0.45, 0.12, 0.12), Color(0.33, 0.24, 0.15), {"detail": 2, "lumps": 0.4, "lump_scale": 3.0, "flat": true, "soft": 0.5, "jitter": 0.05})
 			for leaf: int in 7:
 				kit.leaf_card(Vector3(-0.35 + float(leaf) * 0.12, 0.15, randf_range(-0.05, 0.05)), Vector3(0.0, 1.0, 0.3), 0.08, [Color(0.75, 0.38, 0.15), Color(0.55, 0.35, 0.18), Color(0.8, 0.6, 0.2)][leaf % 3], 0.0, randf() * TAU)
+		"pool_leaves":
+			for leaf: int in 14:
+				var spot := Vector3(randf_range(-0.45, 0.45), randf_range(0.0, 0.03), randf_range(-0.45, 0.45))
+				kit.leaf_card(spot, Vector3(randf_range(-0.15, 0.15), 1.0, randf_range(-0.15, 0.15)), randf_range(0.1, 0.15), [Color(0.88, 0.45, 0.15), Color(0.9, 0.7, 0.2), Color(0.72, 0.25, 0.14), Color(0.55, 0.4, 0.2)][leaf % 4], 0.0, randf() * TAU)
 		"roof_leaves":
 			for leaf: int in 26:
 				var spot := Vector3(randf_range(-0.6, 0.6), randf_range(0.0, 0.12), randf_range(-0.6, 0.6))

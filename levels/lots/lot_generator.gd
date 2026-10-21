@@ -26,6 +26,8 @@ const _HideSpot = preload("res://props/hide_spot.tscn")
 const _Doodles = preload("res://props/doodles.gd")
 const _WaterSources = preload("res://net/work/water_sources.gd")
 const YARD_HALF: float = 20.0
+const POOL_RADIUS: float = 2.3
+const POOL_HEIGHT: float = 1.15
 const PICKET := Color(0.93, 0.91, 0.86)
 const CROWNS: Array[String] = ["orange", "red", "yellow", "rust", "turning"]
 const BED_DIRT := Color(0.36, 0.25, 0.18)
@@ -38,13 +40,19 @@ var _tasks: Node
 var _looks: Node
 var _trees: Array[Vector3] = []
 var _house_rect := Rect2()
+## Where a big yard's pool stands, or INF.
+var _pool_at := Vector3.INF
 ## Where no lawn grows: beds, hedges, the shed and bins.
 var _no_lawn: Array[Rect2] = []
 var _layout_hash: int = 0
+## 0 small, 1 regular, 2 big.
+var _size: int = 1
 
 
-func generate(job_seed: int, tasks: PackedStringArray) -> void:
+func generate(job_seed: int, tasks: PackedStringArray, yard_size: int = 1) -> void:
 	_rng.seed = job_seed
+	_size = clampi(yard_size, 0, 2)
+	_note(["size", _size])
 	var lot := get_parent() as Node3D
 	# What's fixed: the driveway and truck, the homeowner, the tools' spot.
 	_taken.append(Rect2(-2.8, 3.0, 5.6, 17.5))
@@ -59,6 +67,8 @@ func generate(job_seed: int, tasks: PackedStringArray) -> void:
 	_house()
 	_driveway()
 	_beds()
+	if _size == 2:
+		_pool()
 	_trees_around()
 	_hedges()
 	_fences()
@@ -86,9 +96,13 @@ func _note(value: Variant) -> void:
 # ---------------------------------------------------------------- the house
 
 func _house() -> void:
-	var width := _rng.randf_range(8.0, 12.5)
-	var depth := _rng.randf_range(6.5, 9.0)
+	var widths: Vector2 = Constants.YARD_HOUSE_WIDTH[_size]
+	var width := _rng.randf_range(widths.x, widths.y)
+	var depth := _rng.randf_range(6.5, 9.0) + (1.0 if _size == 2 else 0.0)
+	# Small yards have bungalows, big yards two stories.
 	var stories := 2 if _rng.randf() < 0.4 else 1
+	if _size != 1:
+		stories = _size
 	var center_x := _rng.randf_range(-YARD_HALF + width * 0.5 + 2.5, YARD_HALF - width * 0.5 - 2.5)
 	var center_z := -YARD_HALF + depth * 0.5 + _rng.randf_range(2.5, 6.0)
 	var wall: Color = _Neighborhood.WALLS[_rng.randi() % _Neighborhood.WALLS.size()]
@@ -196,7 +210,8 @@ func _beds() -> void:
 # ---------------------------------------------------------------- the yard
 
 func _trees_around() -> void:
-	var count := _rng.randi_range(2, 5)
+	var counts: Vector2i = Constants.YARD_TREES[_size]
+	var count := _rng.randi_range(counts.x, counts.y)
 	var attempts := 0
 	while _trees.size() < count and attempts < 60:
 		attempts += 1
@@ -215,6 +230,40 @@ func _trees_around() -> void:
 		var kind := "pine" if _rng.randf() < 0.15 else "broadleaf"
 		_Trees.spawn(self, at, _rng.randf_range(7.0, 9.5), kind, CROWNS[_rng.randi() % CROWNS.size()], _rng.randi() % 4, true, _rng.randf() * TAU)
 		_note(["tree", at])
+
+
+## A big yard's above-ground pool: round, waist high, with leaves floating on it
+## to scoop out by hand (reach over the side with E).
+func _pool() -> void:
+	for _attempt: int in 40:
+		var at := Vector3(_rng.randf_range(-15.0, 15.0), 0.0, _rng.randf_range(-12.0, 14.0))
+		var rect := Rect2(at.x - POOL_RADIUS - 0.4, at.z - POOL_RADIUS - 0.4, POOL_RADIUS * 2.0 + 0.8, POOL_RADIUS * 2.0 + 0.8)
+		if _overlaps(rect, 1.2):
+			continue
+		_pool_at = at
+		_taken.append(rect)
+		_no_lawn.append(rect)
+		_note(["pool", at])
+		_looks.call("add_pool", to_global(at), POOL_RADIUS, POOL_HEIGHT)
+		var body := StaticBody3D.new()
+		body.name = "PoolBody"
+		var shape := CollisionShape3D.new()
+		var cylinder := CylinderShape3D.new()
+		cylinder.radius = POOL_RADIUS + 0.08
+		cylinder.height = POOL_HEIGHT
+		shape.shape = cylinder
+		body.add_child(shape)
+		add_child(body)
+		body.position = at + Vector3(0.0, POOL_HEIGHT * 0.5, 0.0)
+		# Clumps of leaves floating on the water.
+		for clump: int in _rng.randi_range(5, 8):
+			var angle := _rng.randf() * TAU
+			# Not out in the very middle: someone reaching over the side has to get to it.
+			var reach := 0.9 + sqrt(_rng.randf()) * (POOL_RADIUS - 1.3)
+			var spot := at + Vector3(cos(angle) * reach, POOL_HEIGHT - 0.12, sin(angle) * reach)
+			var index: int = _tasks.call("define_spot", "skim_pool", to_global(spot), Vector3.UP, 0.5)
+			_looks.call("add_pool_leaves", index, to_global(spot), _rng.randi())
+		return
 
 
 ## Hedges down one or both sides, shaggy where they need trimming.
@@ -335,7 +384,8 @@ func _water(lot: Node3D) -> void:
 
 ## Cans, wrappers, and bottles dropped on the lawn.
 func _litter() -> void:
-	for piece: int in _rng.randi_range(6, 11):
+	var counts: Vector2i = Constants.YARD_LITTER[_size]
+	for piece: int in _rng.randi_range(counts.x, counts.y):
 		for _attempt: int in 20:
 			var at := Vector3(_rng.randf_range(-18.0, 18.0), 0.05, _rng.randf_range(-18.0, 18.5))
 			if _overlaps(Rect2(at.x - 0.3, at.z - 0.3, 0.6, 0.6), 0.0):
@@ -381,7 +431,7 @@ func _shape_leaves(lot: Node3D) -> void:
 		trees.append(to_global(tree))
 	var house := _house_rect
 	var spread := _rng.randf_range(4.5, 6.5)
-	var base := _rng.randf_range(0.45, 0.75)
+	var base := _rng.randf_range(0.45, 0.75) * float(Constants.YARD_LEAVES[_size])
 	field.call("shape_initial", func(world: Vector3) -> float:
 		var local := lot.to_local(world)
 		if Rect2(house.position, Vector2(house.size.x, house.size.y - 3.0)).grow(-0.4).has_point(Vector2(local.x, local.z)):
@@ -390,6 +440,9 @@ func _shape_leaves(lot: Node3D) -> void:
 		for tree: Vector3 in trees:
 			var distance := Vector2(world.x - tree.x, world.z - tree.z).length()
 			amount += 1.6 * exp(-distance * distance / (2.0 * spread * spread))
+		# None under the pool.
+		if _pool_at != Vector3.INF and Vector2(local.x - _pool_at.x, local.z - _pool_at.z).length() < POOL_RADIUS + 0.2:
+			return 0.0
 		# The driveway is swept: leaves on it would only make washing it a chore.
 		# Nor do they bury the tools laid out beside it, or the rake.
 		if absf(local.x) < 3.0 and local.z > 3.0:

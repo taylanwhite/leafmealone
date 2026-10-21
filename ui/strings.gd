@@ -46,6 +46,9 @@ const UI: Dictionary = {
 	"board_picked": "NEXT UP",
 	"board_window_title": "Job Board",
 	"board_window_subtitle": "Pick where Chefty goes next. Leaves pay by the bag.",
+	"board_rating": "Crew rating: %s  (%d jobs)",
+	"board_rating_none": "Crew rating: no reviews yet",
+	"receipt_stars": "The homeowner's review: %s",
 	"board_take": "Take this job",
 	"board_taken": "Next up",
 	"board_close": "Close",
@@ -108,6 +111,8 @@ const UI: Dictionary = {
 	"prompt_pick_litter": "Pick up",
 	"prompt_climb_up": "Climb up    F  take it down",
 	"task_clear_roof": "Clear the leaves off the roof",
+	"task_skim_pool": "Scoop the leaves out of the pool",
+	"prompt_skim_pool": "Scoop out the leaves",
 	"goal_roof": "Hold left click to scoop the roof and gutters (W at the ladder's top steps onto the roof)",
 	"goal_start_mower": "Left click to pull the cord and start it",
 	"goal_dip_roller": "The roller's dry. E at the paint bucket to dip it",
@@ -226,3 +231,9 @@ const LINES: Array[Dictionary] = [
 const MOOD_NAMES: Dictionary = {
 	"thrilled": "thrilled", "happy": "happy", "fine": "fine", "slow": "impatient", "messy": "unimpressed",
 }
+
+
+## A rating as five stars, filled to the nearest whole star: "★★★☆☆".
+static func stars(rating: float) -> String:
+	var filled := clampi(int(round(rating)), 0, 5)
+	return "★".repeat(filled) + "☆".repeat(5 - filled)

@@ -31,6 +31,7 @@ var chosen: int = 0
 
 var _cards: Array[Label3D] = []
 var _pins: Array[Node3D] = []
+var _rating: Label3D
 
 
 func _ready() -> void:
@@ -84,13 +85,19 @@ static func make_offer(seed_value: int) -> Dictionary:
 	rng.seed = seed_value
 	var house := rng.randi_range(12, 4980)
 	var size := _pick_size(rng)
+	if int(Net.dev_options().get("yard_size")) >= 0:
+		size = clampi(int(Net.dev_options().get("yard_size")), 0, 2)
 	return {"seed": seed_value, "house": house, "size": size, "tasks": choose_tasks(rng, size)}
 
 
 ## How big the yard is: 0 small, 1 regular, 2 big. Bigger yards ask for more.
 static func _pick_size(rng: RandomNumberGenerator) -> int:
 	var roll := rng.randf()
-	var weights: Array = Constants.YARD_SIZE_CHANCE
+	var weights: Array = Constants.YARD_SIZE_CHANCE.duplicate()
+	# A crew with a good name gets the big jobs more often.
+	var shift := minf(float(weights[1]), Constants.YARD_BIG_PER_STAR * maxf(0.0, Campaign.rating() - 3.0))
+	weights[1] = float(weights[1]) - shift
+	weights[2] = float(weights[2]) + shift
 	var total := 0.0
 	for index: int in weights.size():
 		total += float(weights[index])
@@ -110,6 +117,9 @@ static func choose_tasks(rng: RandomNumberGenerator, size: int = 1) -> PackedStr
 	var unowned: Array[String] = []
 	for task: String in Constants.TASK_TOOLS:
 		if task == "rake_leaves":
+			continue
+		# Only big yards have a pool.
+		if task == "skim_pool" and size != 2:
 			continue
 		var tool := str(Constants.TASK_TOOLS[task])
 		if bool(Net.dev_options().get("all_tasks")) or tool == "" or owned.has(tool):
@@ -257,6 +267,15 @@ func _build_board() -> void:
 	title.outline_modulate = FRAME
 	title.position = Vector3(0.0, 1.98, 0.1)
 	add_child(title)
+	_rating = Label3D.new()
+	_rating.font_size = 32
+	_rating.pixel_size = 0.004
+	_rating.modulate = Color(1.0, 0.82, 0.25)
+	_rating.outline_size = 10
+	_rating.outline_modulate = FRAME
+	_rating.position = Vector3(0.0, 2.22, 0.14)
+	add_child(_rating)
+	Campaign.rating_changed.connect(_refresh_cards)
 	for index: int in Constants.JOB_BOARD_OFFERS:
 		var x := _card_x(index)
 		var tilt := _card_tilt(index)
@@ -294,6 +313,8 @@ func _card_tilt(index: int) -> float:
 
 
 func _refresh_cards() -> void:
+	if _rating != null:
+		_rating.text = _Strings.stars(Campaign.rating()) if Campaign.rating_count() > 0 else ""
 	for index: int in _cards.size():
 		var card := _cards[index]
 		if index >= offers.size():
