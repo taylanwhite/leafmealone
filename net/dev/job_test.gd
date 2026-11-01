@@ -40,6 +40,7 @@ func _run() -> void:
 		round_result["ok"] = ok
 		if not ok:
 			_note("FAILED round %d: %s" % [round_index + 1, round_result.get("error", "")])
+			result["done"] = true
 			return
 	result["ok"] = true
 	_note("all %d rounds ok" % ROUNDS)
@@ -51,6 +52,7 @@ func _run() -> void:
 		result["ok"] = false
 		result["error"] = "goal line wrong: %s" % [wrong]
 	_note("goal line right at every step: %s" % result["goals_ok"])
+	result["done"] = true
 
 
 func _play_round(out: Dictionary) -> bool:

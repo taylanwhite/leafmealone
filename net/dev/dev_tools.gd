@@ -11,6 +11,15 @@ const _ProbeScript = preload("res://net/dev/probe.gd")
 const _CaptureScript = preload("res://net/dev/capture.gd")
 ## --open-shop waits this long after launch, so the session and UI are up.
 const OPEN_SHOP_AFTER_SECONDS: float = 1.0
+## Once every test here is done, the host waits this long so the last replicated
+## changes (task progress, leaves, heat) reach clients before anyone reports.
+const FINISH_SETTLE_SECONDS: float = 0.5
+## How long the host waits for clients to report and leave before it quits anyway.
+const FINISH_CLIENT_WAIT_SECONDS: float = 5.0
+
+## The scripts of the *_test.gd nodes added here; each sets result["done"] when it ends.
+var _tests: Array[Script] = []
+var _finishing: bool = false
 
 
 func _ready() -> void:
@@ -119,11 +128,58 @@ func _force_run_event() -> void:
 func _add(node: Node, node_name: String) -> void:
 	node.name = node_name
 	add_child(node)
+	if node_name.ends_with("Test"):
+		_tests.append(node.get_script())
+
+
+## Host: the moment every test here has set result["done"], finish the run
+## instead of waiting out --run-seconds (which stays as the ceiling for a hung test).
+func _process(_delta: float) -> void:
+	if _finishing or _tests.is_empty() or not Net.is_host():
+		return
+	for script: Script in _tests:
+		var result: Dictionary = script.get("result")
+		if not bool(result.get("done", false)):
+			return
+	_finishing = true
+	_finish_early()
+
+
+func _finish_early() -> void:
+	print("[Dev] test done; finishing early")
+	await get_tree().create_timer(FINISH_SETTLE_SECONDS).timeout
+	# Heat syncs at most four times a second; send it now, ahead of the finish
+	# message on the same reliable channel, so both reports see the same heat.
+	var heat := get_tree().get_first_node_in_group("heat")
+	if heat != null and heat.has_method("sync_now"):
+		heat.call("sync_now")
+	_write_report()
+	if multiplayer.multiplayer_peer != null and Net.peer_ids().size() > 1:
+		_rpc_finish.rpc()
+		var waited := 0.0
+		while Net.peer_ids().size() > 1 and waited < FINISH_CLIENT_WAIT_SECONDS:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+	print("[Dev] run finished early")
+	get_tree().quit(0)
+
+
+## Client: the host's test is done; report now and leave.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_finish() -> void:
+	_finish()
 
 
 func _finish() -> void:
+	# The host is already finishing early; the ceiling must not write its report twice.
+	if _finishing:
+		return
+	_write_report()
+	print("[Dev] run finished")
+	get_tree().quit(0)
+
+
+func _write_report() -> void:
 	var probe := get_node_or_null("Probe")
 	if probe != null:
 		probe.call("write_report")
-	print("[Dev] run finished")
-	get_tree().quit(0)

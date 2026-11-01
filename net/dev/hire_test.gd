@@ -87,7 +87,7 @@ func _run() -> void:
 	print("[HireTest] let %s go, the slot is free: %s" % [name_of, freed])
 	ok = ok and freed
 	await get_tree().create_timer(1.0).timeout
-	result = {"ok": ok}
+	result = {"ok": ok, "done": true}
 	print("[HireTest] all ok: %s" % ok)
 
 

@@ -16,8 +16,9 @@ signal rank_changed
 const _Ranks = preload("res://core/ranks.gd")
 const SAVE_PATH := "user://saves/campaign.json"
 ## Timed test runs (--run-seconds, the smoke test) keep their own save, so they
-## never touch the real crew's cash, progress, or rating.
-const TEST_SAVE_PATH := "user://saves/campaign_test.json"
+## never touch the real crew's cash, progress, or rating. One per port, so
+## tests can run side by side (tools/ci_local.ps1).
+const TEST_SAVE_PATH := "user://saves/campaign_test_%d.json"
 const SAVE_VERSION := 1
 const RAKE_UPGRADE := &"rake_tier_1"
 const WHEELBARROW_UPGRADE := &"wheelbarrow_tier_1"
@@ -567,7 +568,7 @@ func save_section(key: String) -> Dictionary:
 
 func _save_path() -> String:
 	if float(Net.dev_options().get("run_seconds")) > 0.0 or Net.is_automated():
-		return TEST_SAVE_PATH
+		return TEST_SAVE_PATH % int(Net.dev_options().get("port"))
 	return SAVE_PATH
 
 

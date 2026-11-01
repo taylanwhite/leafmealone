@@ -88,7 +88,7 @@ func _run() -> void:
 	ok = ok and save_ok
 	# Give the client a moment to hear about the new day before the reports.
 	await get_tree().create_timer(1.0).timeout
-	result = {"ok": ok}
+	result = {"ok": ok, "done": true}
 	print("[DayTest] all ok: %s" % ok)
 
 

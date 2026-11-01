@@ -109,7 +109,7 @@ func _run() -> void:
 	print("[TownTest] Dandelion Acres was locked %s, opened at %s with %d client: %s" % [locked, _Ranks.title(Campaign.crew_tier()), _known_in(town, "dandelion_acres"), locked and opened])
 	ok = ok and locked and opened
 	await get_tree().create_timer(1.0).timeout
-	result = {"ok": ok}
+	result = {"ok": ok, "done": true}
 	print("[TownTest] all ok: %s" % ok)
 
 

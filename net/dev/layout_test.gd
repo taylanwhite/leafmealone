@@ -58,7 +58,7 @@ func _run() -> void:
 	for line: String in problems:
 		print("[LayoutTest] %s" % line)
 	var ok := problems.is_empty()
-	result = {"ok": ok, "yards": yards, "problems": problems.size()}
+	result = {"ok": ok, "yards": yards, "problems": problems.size(), "done": true}
 	print("[LayoutTest] %d yards checked, %d problems, all ok: %s" % [yards, problems.size(), ok])
 
 

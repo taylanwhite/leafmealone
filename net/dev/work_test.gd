@@ -59,6 +59,7 @@ func _run(lot: Node) -> void:
 	all_ok = all_ok and task_pay >= expected - outcomes.size()
 	all_ok = all_ok and await _fall_check()
 	result["ok"] = all_ok
+	result["done"] = true
 	print("[WorkTest] all ok: %s" % all_ok)
 
 

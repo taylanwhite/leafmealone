@@ -71,6 +71,16 @@ func _process(delta: float) -> void:
 		_rpc_heat.rpc(heat)
 
 
+## Host: send the heat now instead of at the next sync (tests do this before
+## comparing every peer's heat).
+func sync_now() -> void:
+	if not Net.is_host():
+		return
+	_dirty = false
+	_sync_left = SYNC_SECONDS
+	_rpc_heat.rpc(heat)
+
+
 func _noise_scale() -> float:
 	var scale := 1.0
 	var clock := get_tree().get_first_node_in_group("day_clock")

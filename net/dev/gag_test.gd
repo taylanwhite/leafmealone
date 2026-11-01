@@ -96,7 +96,7 @@ func _run() -> void:
 	var stunned: bool = await _stun_check(crew[0] as Node3D)
 	print("[GagTest] trash thrown at a NICE BOY: stunned %s" % stunned)
 	ok = ok and stunned
-	result = {"ok": ok}
+	result = {"ok": ok, "done": true}
 	print("[GagTest] all ok: %s" % ok)
 
 

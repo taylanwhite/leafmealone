@@ -56,6 +56,7 @@ func _run() -> void:
 	print("[BonkTest] rake at a pedestrian on the sidewalk: knocked off their route %s" % walker_hit)
 	all_ok = all_ok and walker_hit
 	result["ok"] = all_ok
+	result["done"] = true
 	print("[BonkTest] all ok: %s" % all_ok)
 
 

@@ -83,7 +83,7 @@ func _run() -> void:
 	var thin := absf(winter_mess - float(_Seasons.LEAVES[1])) < 0.001
 	print("[RivalTest] winter pays +%d%% and a never-done yard is %.0f%% full: %s" % [int(bonus * 100.0), winter_mess * 100.0, cold and thin])
 	ok = ok and cold and thin
-	result = {"ok": ok}
+	result = {"ok": ok, "done": true}
 	print("[RivalTest] all ok: %s" % ok)
 
 

@@ -158,6 +158,7 @@ func _run(lot: Node3D) -> void:
 		print("[WaterTest] holding a hydrant hose: lifted to %.1f m, shoved %.1f m" % [highest, moved])
 		ok = ok and highest > 0.8 and moved > 1.0
 	result["ok"] = ok
+	result["done"] = true
 	print("[WaterTest] all ok: %s" % ok)
 
 

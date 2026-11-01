@@ -91,7 +91,7 @@ func _run() -> void:
 		var new_ones := fresh.size() == Constants.JOB_BOARD_OFFERS and int(fresh[0]["seed"]) != int(offers[0]["seed"]) and int(board.get("chosen")) == 0
 		print("[BoardTest] new offers once the job is over: %s" % new_ones)
 		ok = ok and new_ones
-	result = {"ok": ok}
+	result = {"ok": ok, "done": true}
 	print("[BoardTest] all ok: %s" % ok)
 
 

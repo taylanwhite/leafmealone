@@ -27,7 +27,7 @@ func _run() -> void:
 	var target := _other_player()
 	if target == null:
 		print("[BrawlTest] no second player joined")
-		result = {"ok": false}
+		result = {"ok": false, "done": true}
 		return
 	var brawl := get_tree().get_first_node_in_group("brawl")
 	var me := _own_player()
@@ -93,7 +93,7 @@ func _run() -> void:
 		far = maxf(far, target.global_position.distance_to(from))
 	print("[BrawlTest] threw them: flew %s, landed %.1f m away" % [flew, far])
 	ok = ok and flew and far > 2.5
-	result = {"ok": ok}
+	result = {"ok": ok, "done": true}
 	print("[BrawlTest] all ok: %s" % ok)
 
 

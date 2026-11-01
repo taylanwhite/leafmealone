@@ -28,7 +28,7 @@ The shell is Windows PowerShell 5.1: no `&&`, and use the full Git path if `git`
 
 Every change gets run, and you report what you ran.
 
-- **Everything CI runs:** `powershell -ExecutionPolicy Bypass -File tools\ci_local.ps1` (about 12 minutes). `-Only smoke,work` runs some, `-SkipSoak` skips the bot soaks, `-List` lists names. Logs and JSON reports land in `build\soak\local-<name>\`. Each test starts from a clean test save.
+- **Everything CI runs:** `powershell -ExecutionPolicy Bypass -File tools\ci_local.ps1`. Feature tests run side by side (`-Jobs N`, default 8 here) and each quits as soon as its test is done; the two bot soaks then run together and set the floor (about 3 minutes, since the run-event soak lasts 170 s). `-Only smoke,work` runs some, `-SkipSoak` skips the bot soaks (about 1 to 2 minutes), `-List` lists names. Logs and JSON reports land in `build\soak\local-<name>\`. Each test starts from a clean test save of its own (`campaign_test_<port>.json`).
 - **Quick checks:** `-Only smoke` (about 30 s) for anything networked.
 - **Script errors after edits:** `& $G --headless --path . --quit` and read stderr. Run `--import` once after adding files or classes.
 - **Looking at the game:** windowed runs with `--screenshot=<dir> --tour` (see `net/dev/capture.gd`), or the studio: `& $G --path . res://tools/studio/studio.tscn -- --subject=<name> --out=build/art/<name>.png`. Read the PNGs with the Read tool. Look for clipping, z-fighting, floating or sunk objects, and wrong lighting.
@@ -37,7 +37,7 @@ Every change gets run, and you report what you ran.
 
 ### Adding a test
 
-New gameplay gets an automated test, like everything since M1: a `net/dev/<x>_test.gd` node with a static `result` dict, a flag in `net/command_line.gd` (and its `wants_dev_tools()` list), an `_add()` branch in `net/dev/dev_tools.gd`, the result key in `net/dev/probe.gd`, a step in `.github/workflows/netcode.yml` on the next free port, and the same entry in `tools/ci_local.ps1`'s `$Tests` table.
+New gameplay gets an automated test, like everything since M1: a `net/dev/<x>_test.gd` node with a static `result` dict that gets `"done": true` at every place the test ends, pass or fail (that is what lets the run quit early, and a test that never sets it runs out its `--run-seconds` ceiling), a flag in `net/command_line.gd` (and its `wants_dev_tools()` list), an `_add()` branch in `net/dev/dev_tools.gd`, the result key in `net/dev/probe.gd`, a step in `.github/workflows/netcode.yml` on the next free port, and the same entry in `tools/ci_local.ps1`'s `$Tests` table.
 
 ## Versioning
 

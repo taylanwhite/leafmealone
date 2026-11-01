@@ -66,6 +66,7 @@ func _run() -> void:
 	print("[ThrowTest] held G for %.0f s: strained %s, fainted %s, dropped it %s" % [Constants.THROW_FAINT_SECONDS, strained, fainted, dropped])
 	ok = ok and strained and fainted and dropped
 	result["ok"] = ok
+	result["done"] = true
 	print("[ThrowTest] all ok: %s" % ok)
 
 

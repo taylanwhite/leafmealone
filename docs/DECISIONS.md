@@ -179,7 +179,7 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 
 - **Offers:** `levels/job_board.gd` (a node under World) holds the host's job offers. Each offer is a seed plus the tasks and yard size derived from it, and it replicates by RPC, including to late joiners. The job lot is built from the picked offer, and its yard size spawn-syncs on `JobSync` next to the seed and tasks. The pick locks once Chefty is riding or anyone is on the lot. Each loaded yard gets a new node name, so messages still in flight for a swapped-out yard never land on the new one.
 - **Ratings:** `Campaign` keeps the homeowners' recent reviews, saves them, and replicates them with the progress RPC.
-- **Test save:** timed test runs (`--run-seconds`, and the smoke test) read and write `user://saves/campaign_test.json`, so tests never change the real crew's cash, progress, or rating.
+- **Test save:** timed test runs (`--run-seconds`, and the smoke test) read and write `user://saves/campaign_test_<port>.json`, so tests never change the real crew's cash, progress, or rating. (The port was added on 2026-11-01 so tests can run side by side.)
 - **Tests:** `--board-test` runs in CI, and the work test now has 120 seconds, since it outgrew 45.
 
 ### 2026-10-21: First person is the camera; your own arms are a local view model
@@ -212,3 +212,9 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 ### 2026-11-01: Four players, a persistent town, early access
 
 - **Why:** Taylan's calls. Four matches the truck's seats, so nobody is stranded at the store; `Constants.MAX_PLAYERS` is 4. The town persists like Schedule I's (`docs/SPINE.md`), so homeowners, referrals, and neighborhoods can carry progression. The game ships in early access, so no ending is built yet.
+
+### 2026-11-01: Tests quit when they finish, and run side by side
+
+- **Why:** every test ran out a fixed `--run-seconds` timer even when it finished early, one after another, so the full local suite took about 20 minutes and CI about the same. Waiting that long made agents test less often.
+- **How:** each `net/dev/*_test.gd` sets `result["done"] = true` wherever it ends. `net/dev/dev_tools.gd` on the host watches for that, waits a moment for replication to land, pushes the heat once more, writes its report, and tells clients (`_rpc_finish`) to write theirs and quit; then it quits. `--run-seconds` is now only a ceiling for a hung test. Each test port gets its own test save, so `tools/ci_local.ps1` runs several tests at once; the bot soaks run together afterwards on a quiet machine, because they judge smoothness. In CI each OS runs a "features" job and a "soaks" job side by side.
+- **Considered:** shortening the timers instead. That only trades speed for flakiness, and the timers would still be wrong whenever a test changes.

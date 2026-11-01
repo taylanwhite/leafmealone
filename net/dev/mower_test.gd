@@ -150,6 +150,7 @@ func _run(lot: Node3D) -> void:
 	print("[MowerTest] the bill: %s" % bills)
 	ok = ok and int(bills.get("medical", 0)) >= Constants.BILL_FOOT_CUT + Constants.BILL_FOOT_OFF
 	result["ok"] = ok
+	result["done"] = true
 	print("[MowerTest] all ok: %s" % ok)
 
 

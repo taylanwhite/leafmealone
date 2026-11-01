@@ -1,6 +1,11 @@
-# Runs the multiplayer smoke test and a short bot soak on every push and pull
-# request, on Linux and Windows. macOS is covered by running tools/soak.sh
-# locally. The soak reports are uploaded as an artifact on every run.
+# Runs the multiplayer smoke test, the feature tests and the bot soaks on every
+# push and pull request, on Linux and Windows. macOS is covered by running
+# tools/soak.sh locally. The reports are uploaded as an artifact on every run.
+#
+# Each OS runs two jobs side by side: "features" (smoke and every feature test,
+# each quitting as soon as its test is done) and "soaks" (the bot soaks, which
+# run a fixed time and judge smoothness, so they get a runner to themselves).
+# --run-seconds on a feature test is only a ceiling for a hung test.
 name: netcode
 
 on:
@@ -17,6 +22,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
+        part: [features, soaks]
         include:
           - os: ubuntu-latest
             archive: Godot_v4.7.2-stable_linux.x86_64.zip
@@ -26,6 +33,7 @@ jobs:
             archive: Godot_v4.7.2-stable_win64.exe.zip
             binary: Godot_v4.7.2-stable_win64_console.exe
             players: 2
+    name: ${{ matrix.part }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
@@ -49,10 +57,12 @@ jobs:
           "$GODOT" --headless --path . --import || true
 
       - name: Smoke test
+        if: matrix.part == 'features'
         run: |
           "$GODOT" --headless --path . -- --smoke-test --port=7791
 
       - name: Job test (two whole jobs, rides included)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-job
@@ -60,6 +70,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-job/host.json'))['job_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
 
       - name: Bonk test (light, medium, and heavy throws at another player)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-bonk
@@ -71,6 +82,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-bonk/host.json'))['bonk_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Work test (every task with every tool, and a client builds the same yard)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-work
@@ -82,6 +94,7 @@ jobs:
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-work/host.json')); c=json.load(open('build/soak/ci-work/target.json')); ok=h['work_test'].get('ok') and h['lot_layout']==c['lot_layout'] and h['job_progress']==c['job_progress']; print('layout', h['lot_layout'], c['lot_layout']); sys.exit(0 if ok else 1)"
 
       - name: Throw test (tap drops, wind-up distance, one item at a time, strain and faint)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-throw
@@ -89,6 +102,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-throw/host.json'))['throw_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Water test (hose snaps, arcs wash windows, the bill, the washer's tank)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-water
@@ -96,6 +110,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-water/host.json'))['water_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Mower test (mulch, flung litter, cut hose, burst bag, gnome, feet, the bill)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-mower
@@ -107,6 +122,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-mower/host.json'))['mower_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Job board test (offers, picking, the picked yard, new offers; client matches)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-board
@@ -118,6 +134,7 @@ jobs:
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-board/host.json')); t=json.load(open('build/soak/ci-board/target.json')); sys.exit(0 if h['board_test'].get('ok') and h['board'] == t['board'] else 1)"
 
       - name: Gag test (heat, runaway mower, ladder knock-down, pile hiding, three NICE BOYS, paint and water)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-gag
@@ -129,6 +146,7 @@ jobs:
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-gag/host.json')); t=json.load(open('build/soak/ci-gag/target.json')); sys.exit(0 if h['gag_test'].get('ok') and abs(h['heat'] - t['heat']) < 1.5 else 1)"
 
       - name: Brawl test (wind-up punch, whack, grab, carry, set down, throw a player)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-brawl
@@ -140,6 +158,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-brawl/host.json'))['brawl_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Day test (the clock, sleeping, XP banked at bedtime, rank-ups, quiet hours, 2 AM)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-day
@@ -151,6 +170,7 @@ jobs:
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-day/host.json')); t=json.load(open('build/soak/ci-day/target.json')); sys.exit(0 if h['day_test'].get('ok') and h['day'] == t['day'] else 1)"
 
       - name: Town test (clients, requests, a paid job, referrals, regrowth, a new neighborhood)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-town
@@ -162,6 +182,7 @@ jobs:
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-town/host.json')); t=json.load(open('build/soak/ci-town/target.json')); sys.exit(0 if h['town_test'].get('ok') and h['town'] == t['town'] else 1)"
 
       - name: Layout test (36 yards: solids inside solids, props and work spots buried)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-layout
@@ -170,6 +191,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-layout/host.json'))['layout_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Hire test (a hired hand rakes, bags, and loads Chefty; wages at bedtime)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-hire
@@ -181,6 +203,7 @@ jobs:
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-hire/host.json')); t=json.load(open('build/soak/ci-hire/target.json')); sys.exit(0 if h['hire_test'].get('ok') and t['crew_hands'] == 1 else 1)"
 
       - name: Rival and seasons test (TurfMasters poach, signs, winning back; seasons by day)
+        if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-rival
@@ -189,6 +212,7 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-rival/host.json'))['rival_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Bot soak (150 ms, 2% loss, late joiner)
+        if: matrix.part == 'soaks'
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi
           set +e
@@ -201,7 +225,7 @@ jobs:
           exit "$code"
 
       - name: Run event soak (cues, hiding, captures, Border Return)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.part == 'soaks'
         run: |
           export PYTHON=python3
           set +e
@@ -217,6 +241,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-${{ matrix.os }}
+          name: soak-${{ matrix.os }}-${{ matrix.part }}
           path: build/soak
           if-no-files-found: ignore
