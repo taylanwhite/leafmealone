@@ -54,6 +54,12 @@ var start_hour: float = -1.0
 var clock_scale: float = 1.0
 var day_test: bool = false
 var town_test: bool = false
+## --layout-test: build many yards and check for clipping (net/dev/layout_test.gd).
+var layout_test: bool = false
+## For screenshots: --open-phone=<texts|clients|map|crew> takes the phone out after a second;
+## --end-day-at=<s> ends the day then (the host), so the summary card shows.
+var open_phone: String = ""
+var end_day_at: float = -1.0
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -63,7 +69,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or open_phone != "" or end_day_at >= 0.0
 
 
 func read() -> void:
@@ -159,5 +165,11 @@ func read() -> void:
 			day_test = true
 		elif argument == "--town-test":
 			town_test = true
+		elif argument == "--layout-test":
+			layout_test = true
+		elif argument.begins_with("--open-phone="):
+			open_phone = argument.trim_prefix("--open-phone=")
+		elif argument.begins_with("--end-day-at="):
+			end_day_at = float(argument.trim_prefix("--end-day-at="))
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

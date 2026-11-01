@@ -305,13 +305,14 @@ func _build_board() -> void:
 		var x := _card_x(index)
 		var tilt := _card_tilt(index)
 		var card := Label3D.new()
-		card.font_size = 30
+		card.font_size = 26
 		card.pixel_size = 0.0026
 		card.modulate = Color(0.17, 0.14, 0.11)
 		card.outline_size = 0
 		card.width = 220.0
 		card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		card.position = Vector3(x, CARD_Y - 0.03, 0.1)
+		# Below the pin, inside the paper.
+		card.position = Vector3(x, CARD_Y - 0.08, 0.1)
 		card.rotation.z = tilt
 		add_child(card)
 		_cards.append(card)
@@ -347,14 +348,17 @@ func _refresh_cards() -> void:
 			continue
 		var offer: Dictionary = offers[index]
 		var lines := PackedStringArray()
+		var size_and_work := "%s · %s · %s" % [_Strings.UI["board_size_%d" % int(offer.get("size", 1))], _Strings.UI["board_tasks"] % ((offer["tasks"] as PackedStringArray).size()), _Strings.UI["board_pay_short"] % task_pay(offer)]
 		if offer.has("client"):
-			lines.append(str(offer["client"]))
+			# A town client: who, where, and the work, short enough to fit the card.
+			lines.append(str(offer["client"]).get_slice(" ", 0))
 			lines.append("%d %s" % [int(offer["house"]), str(offer.get("street", ""))])
+			lines.append(size_and_work)
 		else:
 			lines.append(_Strings.UI["board_house"] % int(offer["house"]))
-		lines.append(_Strings.UI["board_size_%d" % int(offer.get("size", 1))])
-		lines.append(_Strings.UI["board_tasks"] % ((offer["tasks"] as PackedStringArray).size()))
-		lines.append(_Strings.UI["board_pay_short"] % task_pay(offer))
+			lines.append(_Strings.UI["board_size_%d" % int(offer.get("size", 1))])
+			lines.append(_Strings.UI["board_tasks"] % ((offer["tasks"] as PackedStringArray).size()))
+			lines.append(_Strings.UI["board_pay_short"] % task_pay(offer))
 		if index == chosen:
 			lines.append(_Strings.UI["board_picked"])
 		card.text = "\n".join(lines)

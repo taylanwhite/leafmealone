@@ -81,6 +81,10 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --town-test'; Seconds = 40; Client = 36
 		Check = { param($h, $c) [bool]$h.town_test.ok -and (Same $h.town $c.town) }
 	}
+	layout = @{
+		Host = '--host --name=Tester --no-steam --start-zone=lot --layout-test'; Seconds = 120
+		Check = { param($h, $c) [bool]$h.layout_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

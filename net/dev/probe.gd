@@ -175,6 +175,7 @@ func write_report() -> void:
 		"brawl_test": preload("res://net/dev/brawl_test.gd").result.duplicate(),
 		"day_test": preload("res://net/dev/day_test.gd").result.duplicate(),
 		"town_test": preload("res://net/dev/town_test.gd").result.duplicate(),
+		"layout_test": preload("res://net/dev/layout_test.gd").result.duplicate(),
 		"day": _day(),
 		"town": _town(),
 		"heat": _heat(),

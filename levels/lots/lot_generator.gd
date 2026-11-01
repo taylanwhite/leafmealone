@@ -103,8 +103,12 @@ func _house() -> void:
 	var depth := _rng.randf_range(6.5, 9.0) + (1.0 if _size == 2 else 0.0)
 	# Small yards have bungalows, big yards two stories.
 	var stories := 2 if _rng.randf() < 0.4 else 1
-	if _size != 1:
-		stories = _size
+	# (Was `stories = _size`, which gave small yards a zero-story house: a roof
+	# sitting on its foundation. --layout-test caught it.)
+	if _size == 0:
+		stories = 1
+	elif _size == 2:
+		stories = 2
 	var center_x := _rng.randf_range(-YARD_HALF + width * 0.5 + 2.5, YARD_HALF - width * 0.5 - 2.5)
 	var center_z := -YARD_HALF + depth * 0.5 + _rng.randf_range(2.5, 6.0)
 	var wall: Color = _Neighborhood.WALLS[_rng.randi() % _Neighborhood.WALLS.size()]

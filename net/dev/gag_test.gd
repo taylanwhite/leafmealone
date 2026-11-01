@@ -200,10 +200,24 @@ func _pile_check() -> bool:
 	return hidden
 
 
-## Walk up to a NICE BOY and bean them with the trash can.
+## Walk up to a NICE BOY and bean them with the trash can. Three tries: on a
+## busy machine the can and the NICE BOY can pass each other between ticks.
 func _stun_check(crew: Node3D) -> bool:
+	for attempt: int in 3:
+		if await _stun_try(crew):
+			return true
+	return false
+
+
+func _stun_try(crew: Node3D) -> bool:
 	var trash := _prop("trash")
 	var me := _own_player()
+	# Point blank is inside his capture reach: a few seconds' grace so the throw,
+	# not the grab, is what's tested.
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null:
+		var safe: Dictionary = director.get("_safe_until")
+		safe[Net.local_peer_id()] = Net.server_time() + 4.0
 	# Stand off at the yard's open front; they come running, and the can meets them.
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
 	var stand := lot.global_position + Vector3(0.0, 0.1, 12.0)

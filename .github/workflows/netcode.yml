@@ -161,6 +161,14 @@ jobs:
           grep "TownTest" build/soak/ci-town/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-town/host.json')); t=json.load(open('build/soak/ci-town/target.json')); sys.exit(0 if h['town_test'].get('ok') and h['town'] == t['town'] else 1)"
 
+      - name: Layout test (36 yards: solids inside solids, props and work spots buried)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-layout
+          "$GODOT" --headless --path . -- --host --port=7805 --name=Tester --no-steam --start-zone=lot --layout-test --measure="$PWD/build/soak/ci-layout/host.json" --run-seconds=120 > build/soak/ci-layout/host.log 2>&1
+          grep "LayoutTest" build/soak/ci-layout/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-layout/host.json'))['layout_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi

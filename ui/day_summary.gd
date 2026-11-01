@@ -99,7 +99,9 @@ func close_window() -> void:
 
 func _line(value: String, color: Color, size: int = 18) -> void:
 	var label := _text(value, size, color)
+	# A wrapping label needs a width, or it wraps every word onto its own line.
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size.x = 420.0
 	_rows.add_child(label)
 
 

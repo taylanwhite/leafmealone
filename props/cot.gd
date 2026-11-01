@@ -131,10 +131,20 @@ static func dress_camp(zone: Node3D, spots: Array[Vector3]) -> void:
 	var last := spots[spots.size() - 1]
 	var middle := (first + last) * 0.5
 	var length := absf(last.z - first.z) + 2.0
-	# Poles out front; the tarp slopes down from the wall to them.
+	# The tarp: tied to the store wall up high (Homie Depot's front is at x -12)
+	# and sloping down to two poles out front, so it covers every cot.
+	var wall_x := -11.95
+	var pole_x := middle.x + 1.2
+	var high := 2.8
+	var low := 2.1
+	var run := pole_x - wall_x
+	var tilt := atan2(high - low, run)
 	for z: float in [first.z - 0.9, last.z + 0.9]:
-		kit.tube(PackedVector3Array([Vector3(middle.x + 1.2, 0.0, z), Vector3(middle.x + 1.2, 2.1, z)]), PackedFloat32Array([0.04, 0.04]), FRAME, 6, {"jitter": 0.0})
-	kit.rbox(Vector3(middle.x - 0.4, 2.35, middle.z), Vector3(1.9, 0.02, length * 0.5), Color(0.2, 0.42, 0.72), 6.0, {"basis": Basis(Vector3.BACK, -0.18), "shade": false})
+		kit.tube(PackedVector3Array([Vector3(pole_x, 0.0, z), Vector3(pole_x, low, z)]), PackedFloat32Array([0.04, 0.04]), FRAME, 6, {"jitter": 0.0})
+	var span := Vector2(run, high - low).length()
+	kit.rbox(Vector3((wall_x + pole_x) * 0.5, (high + low) * 0.5 + 0.02, middle.z), Vector3(span * 0.5, 0.02, length * 0.5), Color(0.2, 0.42, 0.72), 6.0, {"basis": Basis(Vector3.BACK, -tilt), "shade": false})
+	# A batten along the wall where it's tied on.
+	kit.rbox(Vector3(wall_x + 0.04, high, middle.z), Vector3(0.04, 0.05, length * 0.5), FRAME, 4.0)
 	kit.rbox(Vector3(middle.x + 1.0, 0.22, last.z + 1.3), Vector3(0.32, 0.22, 0.22), Color(0.85, 0.25, 0.2), 5.0)
 	kit.rbox(Vector3(middle.x + 1.0, 0.46, last.z + 1.3), Vector3(0.33, 0.03, 0.23), Color(0.95, 0.95, 0.92), 5.0)
 	kit.blob(Vector3(middle.x - 1.2, 0.08, first.z - 1.1), Vector3(0.09, 0.08, 0.05), Color(0.9, 0.75, 0.2), {"flat": false, "lumps": 0.0})

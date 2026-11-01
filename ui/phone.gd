@@ -132,9 +132,12 @@ func unread() -> int:
 func open_phone(app: String = "") -> void:
 	visible = true
 	_unread = 0
-	set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT, Control.PRESET_MODE_MINSIZE)
-	position.x -= 40.0
-	grow_vertical = Control.GROW_DIRECTION_BOTH
+	# Held in the right hand: anchored to the right edge, 40 px in, centered up and down.
+	set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	offset_right = -40.0
+	offset_left = -40.0 - custom_minimum_size.x
+	offset_top = -custom_minimum_size.y * 0.5
+	offset_bottom = custom_minimum_size.y * 0.5
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	show_app(app if app != "" else _app)
 
@@ -190,9 +193,13 @@ func _texts(town: Node) -> void:
 	# Once a job is on (Chefty's out, or a yard is waiting), the pick is set.
 	var world := get_tree().get_first_node_in_group("world")
 	var locked := world != null and bool(world.call("job_locked"))
+	# Only a client's newest text carries the button.
+	var answered := {}
 	for entry: Variant in texts:
 		var message := entry as Dictionary
-		var is_job := str(message.get("kind", "")) in ["request", "referral"] and requests.has(int(message.get("house", -1)))
+		var is_job := str(message.get("kind", "")) in ["request", "referral"] and requests.has(int(message.get("house", -1))) and not answered.has(int(message.get("house", -1)))
+		if is_job:
+			answered[int(message.get("house", -1))] = true
 		var bubble := PanelContainer.new()
 		bubble.add_theme_stylebox_override("panel", _box(BUBBLE_JOB if is_job else BUBBLE, 14, BUBBLE, 0, 10))
 		var column := VBoxContainer.new()

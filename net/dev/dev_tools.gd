@@ -49,6 +49,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/day_test.gd").new(), "DayTest")
 	if bool(options.get("town_test")):
 		_add(preload("res://net/dev/town_test.gd").new(), "TownTest")
+	if bool(options.get("layout_test")):
+		_add(preload("res://net/dev/layout_test.gd").new(), "LayoutTest")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
 		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
@@ -62,6 +64,18 @@ func _ready() -> void:
 			var ui := get_tree().get_first_node_in_group("game_ui")
 			if ui != null:
 				ui.call("open_job_board")
+		)
+	if str(options.get("open_phone")) != "":
+		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
+			var phone := get_tree().get_first_node_in_group("phone")
+			if phone != null:
+				phone.call("open_phone", str(options.get("open_phone")))
+		)
+	if float(options.get("end_day_at")) >= 0.0 and Net.is_host():
+		get_tree().create_timer(float(options.get("end_day_at"))).timeout.connect(func() -> void:
+			var clock := get_tree().get_first_node_in_group("day_clock")
+			if clock != null:
+				clock.call("force_sleep")
 		)
 	var ride_at := float(options.get("ride_at"))
 	if ride_at >= 0.0:
