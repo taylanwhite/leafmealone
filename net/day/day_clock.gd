@@ -18,8 +18,9 @@ const _Ranks = preload("res://core/ranks.gd")
 var day: int = 1
 ## Server time at 7:00 AM of this day.
 var day_started_at: float = 0.0
-## Peers lying on a cot right now.
+## Peers lying on a cot right now, and which cot each one has (peer -> 0..3).
 var sleepers: Array[int] = []
+var cots: Dictionary = {}
 
 var _force_hold: float = 0.0
 var _ending: bool = false
@@ -40,6 +41,10 @@ func _ready() -> void:
 		Campaign.add_save_hook(_save_section)
 	elif multiplayer.multiplayer_peer != null:
 		_rpc_request_state.rpc_id(1)
+
+
+func _exit_tree() -> void:
+	Campaign.remove_save_hook(_save_section)
 
 
 ## In-game minutes since 7:00 AM, stopped at 2:00 AM.
@@ -97,12 +102,17 @@ func is_sleeping(peer_id: int) -> bool:
 	return sleepers.has(peer_id)
 
 
-## The local player lies down or gets up.
-func request_sleep(lying_down: bool) -> void:
+## The cot this sleeper has, or -1.
+func cot_of(peer_id: int) -> int:
+	return int(cots.get(peer_id, -1))
+
+
+## The local player lies down on a cot (the one pressed, if it's free) or gets up.
+func request_sleep(lying_down: bool, cot: int = -1) -> void:
 	if Net.is_host():
-		_handle_sleep(Net.local_peer_id(), lying_down)
+		_handle_sleep(Net.local_peer_id(), lying_down, cot)
 	else:
-		_rpc_request_sleep.rpc_id(1, lying_down)
+		_rpc_request_sleep.rpc_id(1, lying_down, cot)
 
 
 ## Host: end the day now, whoever is in bed (the host held E, or a test).
@@ -128,21 +138,40 @@ func release_force() -> void:
 
 # ---------------------------------------------------------------- host
 
-func _handle_sleep(peer_id: int, lying_down: bool) -> void:
+func _handle_sleep(peer_id: int, lying_down: bool, cot: int = -1) -> void:
 	if lying_down and not sleepers.has(peer_id):
 		# Not while a job is on: the crew has to be back at the store.
 		if Net.player_zone(peer_id) != Net.Zone.STORE:
 			return
+		var taken: Array = cots.values()
+		if cot < 0 or cot >= Constants.COT_SPOTS.size() or taken.has(cot):
+			cot = -1
+			for index: int in Constants.COT_SPOTS.size():
+				if not taken.has(index):
+					cot = index
+					break
+		if cot < 0:
+			return
 		sleepers.append(peer_id)
+		cots[peer_id] = cot
 	elif not lying_down:
 		sleepers.erase(peer_id)
-	_rpc_sleepers.rpc(sleepers)
+		cots.erase(peer_id)
+	_rpc_sleepers.rpc(sleepers, cots)
 	if not sleepers.is_empty() and sleepers.size() >= Net.peer_ids().size():
 		_end_day()
 
 
+## Everyone is back at the store: nobody's mid-job, in the van, or crossing.
+func everyone_home() -> bool:
+	for peer_id: int in Net.peer_ids():
+		if Net.player_zone(peer_id) != Net.Zone.STORE:
+			return false
+	return true
+
+
 func _end_day() -> void:
-	if _ending:
+	if _ending or not everyone_home():
 		return
 	_ending = true
 	var tier_before := Campaign.crew_tier()
@@ -163,6 +192,7 @@ func _end_day() -> void:
 	day += 1
 	day_started_at = Net.server_time()
 	sleepers.clear()
+	cots.clear()
 	Campaign.save_now()
 	_rpc_day.rpc(day, day_started_at, summary)
 	_ending = false
@@ -181,39 +211,51 @@ func _seconds_per_minute() -> float:
 
 
 func _on_player_left(peer_id: int) -> void:
-	if Net.is_host() and sleepers.has(peer_id):
+	if not Net.is_host():
+		return
+	if sleepers.has(peer_id):
 		sleepers.erase(peer_id)
-		_rpc_sleepers.rpc(sleepers)
+		cots.erase(peer_id)
+		_rpc_sleepers.rpc(sleepers, cots)
+	# The last one awake left: everyone still here is asleep.
+	_check_all_asleep.call_deferred()
+
+
+func _check_all_asleep() -> void:
+	if not sleepers.is_empty() and sleepers.size() >= Net.peer_ids().size():
+		_end_day()
 
 
 func _on_player_joined(peer_id: int) -> void:
 	if Net.is_host() and peer_id != Net.local_peer_id():
-		_rpc_state.rpc_id(peer_id, day, day_started_at, sleepers)
+		_rpc_state.rpc_id(peer_id, day, day_started_at, sleepers, cots)
 
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_request_state() -> void:
 	if Net.is_host():
-		_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), day, day_started_at, sleepers)
+		_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), day, day_started_at, sleepers, cots)
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _rpc_request_sleep(lying_down: bool) -> void:
+func _rpc_request_sleep(lying_down: bool, cot: int) -> void:
 	if Net.is_host():
-		_handle_sleep(multiplayer.get_remote_sender_id(), lying_down)
+		_handle_sleep(multiplayer.get_remote_sender_id(), lying_down, cot)
 
 
 @rpc("authority", "call_remote", "reliable")
-func _rpc_state(number: int, started_at: float, lying: Array) -> void:
+func _rpc_state(number: int, started_at: float, lying: Array, cot_map: Dictionary) -> void:
 	day = number
 	day_started_at = started_at
 	sleepers.assign(lying)
+	cots = cot_map
 	sleepers_changed.emit()
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_sleepers(lying: Array) -> void:
+func _rpc_sleepers(lying: Array, cot_map: Dictionary) -> void:
 	sleepers.assign(lying)
+	cots = cot_map
 	sleepers_changed.emit()
 
 
@@ -222,6 +264,7 @@ func _rpc_day(number: int, started_at: float, summary: Dictionary) -> void:
 	day = number
 	day_started_at = started_at
 	sleepers.clear()
+	cots.clear()
 	sleepers_changed.emit()
 	day_ended.emit(summary)
 	day_started.emit(number)

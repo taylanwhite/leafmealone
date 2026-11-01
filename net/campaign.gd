@@ -57,6 +57,7 @@ func _on_net_state(new_state: int) -> void:
 	_bank.clear()
 	_peer_keys.clear()
 	_pending_wallets.clear()
+	_save_hooks.clear()
 	_ratings.clear()
 	_lots_completed = 0
 	_crew_xp = 0
@@ -305,11 +306,23 @@ func mark_job_open() -> void:
 	_job_open = true
 	_job_stats.clear()
 	_job_started_at = Net.server_time()
+	_job_clock_started = false
 
 
-## The crew reached the yard: the job's clock starts now.
+## The crew reached the yard: the job's clock starts now, once per job (later
+## arrivals, like a straggler's, don't reset the homeowner's patience).
 func start_job_clock() -> void:
+	if _job_clock_started:
+		return
+	_job_clock_started = true
 	_job_started_at = Net.server_time()
+
+
+var _job_clock_started: bool = false
+
+
+func is_job_open() -> bool:
+	return _job_open
 
 
 ## How the last job was settled: bags_value, mood, multiplier, and paid. Empty
@@ -509,17 +522,23 @@ func _save() -> void:
 
 
 func _save_data() -> Dictionary:
-	var data := {
-		"version": SAVE_VERSION,
+	# Start from what was loaded, so sections this build doesn't know (a newer
+	# build's, or a system that isn't running right now) survive the save.
+	var data := _loaded.duplicate(true)
+	data.merge({
+		"version": maxi(SAVE_VERSION, int(_loaded.get("version", SAVE_VERSION))),
 		"lots_completed": _lots_completed,
 		"ratings": _ratings,
 		"players": _bank,
 		"crew": {"xp": _crew_xp, "pending": _pending_xp},
-	}
+	}, true)
+	_save_hooks = _save_hooks.filter(func(hook: Callable) -> bool: return hook.is_valid())
 	for extra: Callable in _save_hooks:
 		var piece: Variant = extra.call()
 		if typeof(piece) == TYPE_DICTIONARY:
 			data.merge(piece as Dictionary, true)
+	# What's written now is what a later load (and the next save) builds on.
+	_loaded = data.duplicate(true)
 	return data
 
 
@@ -532,6 +551,11 @@ var _loaded: Dictionary = {}
 func add_save_hook(hook: Callable) -> void:
 	if not _save_hooks.has(hook):
 		_save_hooks.append(hook)
+
+
+## The world's systems take their hook with them when they leave (DayClock, Town).
+func remove_save_hook(hook: Callable) -> void:
+	_save_hooks.erase(hook)
 
 
 ## A top-level section of the loaded save, or an empty dictionary.

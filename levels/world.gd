@@ -237,16 +237,16 @@ func on_ride_arrived(destination: int) -> void:
 func _load_job_lot() -> void:
 	if %LotSlot.get_child_count() > 0:
 		return
-	var lot := JOB_LOT.instantiate()
-	# A new name for every yard loaded, so nothing meant for the last one lands on this one.
-	_lots_loaded += 1
-	lot.name = "Lot%d_%d" % [Campaign.current_lot_index(), _lots_loaded]
 	# Every job is a different yard asking for different work: the offer picked
 	# on the job board (levels/job_board.gd), or --job-seed's for tests.
 	var offer: Dictionary = $JobBoard.call("current")
 	# The town decides where the crew can work; with no requests there's no yard.
 	if offer.is_empty() and int(Net.dev_options().get("job_seed")) == 0 and get_node_or_null("Town") != null:
 		return
+	var lot := JOB_LOT.instantiate()
+	# A new name for every yard loaded, so nothing meant for the last one lands on this one.
+	_lots_loaded += 1
+	lot.name = "Lot%d_%d" % [Campaign.current_lot_index(), _lots_loaded]
 	if int(Net.dev_options().get("job_seed")) != 0 or offer.is_empty():
 		var job_seed := int(Net.dev_options().get("job_seed"))
 		if job_seed == 0:
@@ -289,7 +289,11 @@ func job_locked() -> bool:
 	var ride := get_node_or_null("Rides/Chefty")
 	if ride != null and bool(ride.call("is_riding")):
 		return true
-	return not Net.players_in_zone(Net.Zone.LOT).is_empty()
+	if not Net.players_in_zone(Net.Zone.LOT).is_empty():
+		return true
+	# The town's yard is waiting for the crew (in the van, crossing back) and
+	# the job isn't paid: keep it, nobody swaps it out from a phone.
+	return get_node_or_null("Town") != null and %LotSlot.get_child_count() > 0 and Campaign.is_job_open()
 
 
 ## Host only. The job board's pick changed while nobody's at the yard: swap the
@@ -423,7 +427,10 @@ func _on_player_joined(peer_id: int) -> void:
 ## Host: someone reached the lot some other way than Chefty (a debug gate, the
 ## smoke test): give them the picked yard if none is there.
 func _on_zone_changed(_peer_id: int, zone: Net.Zone) -> void:
-	if Net.is_host() and zone == Net.Zone.LOT and %LotSlot.get_child_count() == 0:
+	# Only for test and dev paths; in play, the yard comes with Chefty, and a
+	# straggler back from the border with no yard left goes to the store
+	# (net/border_return.gd).
+	if Net.is_host() and Net.is_automated() and zone == Net.Zone.LOT and %LotSlot.get_child_count() == 0:
 		_load_job_lot()
 
 

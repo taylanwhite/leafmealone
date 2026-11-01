@@ -26,6 +26,11 @@ func _physics_process(delta: float) -> void:
 	_hand_wait = maxf(0.0, _hand_wait - delta)
 	_rake_wait = maxf(0.0, _rake_wait - delta)
 	_work_wait = maxf(0.0, _work_wait - delta)
+	# Clicking around the phone or a window isn't working the yard.
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null and ui.visible and bool(ui.call("any_window_open")):
+		_set_spray(player, "")
+		return
 	var held: Node = player.call("_held_prop")
 	var has_rake := held != null and str(held.get("kind")) == "rake"
 	var held_kind := str(held.get("kind")) if held != null else ""

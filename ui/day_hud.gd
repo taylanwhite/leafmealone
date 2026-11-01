@@ -19,8 +19,12 @@ var _bar_pending: ColorRect
 
 
 func _ready() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	position = Vector2(-BAR_WIDTH - 24.0, 14.0)
+	# Anchored to the top-right corner; offsets are from that corner.
+	set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	offset_left = -BAR_WIDTH - 24.0
+	offset_right = -24.0
+	offset_top = 14.0
+	offset_bottom = 120.0
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_clock_label = _label(22, Color(1.0, 0.98, 0.92))
 	_clock_label.position = Vector2(0, 0)

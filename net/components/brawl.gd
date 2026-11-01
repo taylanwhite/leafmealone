@@ -61,7 +61,7 @@ func request_break_free() -> void:
 
 func _handle_punch(peer_id: int, tier: String, whack: bool) -> void:
 	var puncher := _player(peer_id)
-	if puncher == null or bool(puncher.call("is_hidden")) or int(puncher.get("carried_by")) != 0:
+	if puncher == null or bool(puncher.call("is_hidden")) or bool(puncher.call("is_sleeping")) or int(puncher.get("carried_by")) != 0:
 		return
 	var held := _held_by(peer_id)
 	var sound := "whoosh"
@@ -92,7 +92,7 @@ func _handle_grab(peer_id: int, target_id: int) -> void:
 		return
 	if _held_by(peer_id) != null or int(grabber.get("carrying")) != 0 or int(grabber.get("carried_by")) != 0:
 		return
-	if bool(target.call("is_hidden")) or int(target.get("carried_by")) != 0 or int(target.get("carrying")) != 0 or bool(target.get("thrown")):
+	if bool(target.call("is_hidden")) or bool(target.call("is_sleeping")) or int(target.get("carried_by")) != 0 or int(target.get("carrying")) != 0 or bool(target.get("thrown")):
 		return
 	if target.global_position.distance_to(grabber.global_position) > Constants.GRAB_PLAYER_REACH + 0.6:
 		return
@@ -212,7 +212,8 @@ func _in_front(player: Node3D, reach: float, peer_id: int) -> Node3D:
 		var person := node as Node3D
 		if person == null or person == player or not person.is_inside_tree() or person.name == str(peer_id):
 			continue
-		if person.is_in_group("players") and bool(person.call("is_hidden")):
+		# Hidden or asleep on a cot: not a target.
+		if person.is_in_group("players") and (bool(person.call("is_hidden")) or bool(person.call("is_sleeping"))):
 			continue
 		var offset := person.global_position - player.global_position
 		if absf(offset.y) > 1.5:

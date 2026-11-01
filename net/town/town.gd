@@ -56,13 +56,38 @@ func _ready() -> void:
 	if saved.is_empty() or (saved.get("houses", []) as Array).is_empty():
 		_new_town()
 	else:
-		town_seed = int(saved.get("seed", 1))
-		houses = (saved.get("houses", []) as Array).duplicate(true)
-		requests = (saved.get("requests", []) as Array).duplicate()
-		texts = (saved.get("texts", []) as Array).duplicate(true)
-		_daytime_checked = int(saved.get("daytime_checked", -1))
+		_load_saved(saved)
 	Campaign.add_save_hook(_save_section)
 	_broadcast()
+
+
+func _exit_tree() -> void:
+	Campaign.remove_save_hook(_save_section)
+
+
+## The save is JSON, so every number comes back a float: make the ids and
+## counters ints again, or has() and erase() stop matching them.
+func _load_saved(saved: Dictionary) -> void:
+	town_seed = int(saved.get("seed", 1))
+	houses.clear()
+	for entry: Variant in (saved.get("houses", []) as Array):
+		var house_entry := (entry as Dictionary).duplicate(true)
+		for key: String in ["id", "number", "seed", "size", "last_day", "jobs"]:
+			house_entry[key] = int(house_entry.get(key, -1 if key == "last_day" else 0))
+		house_entry["relationship"] = float(house_entry.get("relationship", 0.0))
+		house_entry["known"] = bool(house_entry.get("known", false))
+		house_entry["referred"] = bool(house_entry.get("referred", false))
+		houses.append(house_entry)
+	requests.clear()
+	for house_id: Variant in (saved.get("requests", []) as Array):
+		requests.append(int(house_id))
+	texts.clear()
+	for entry: Variant in (saved.get("texts", []) as Array):
+		var text_entry := (entry as Dictionary).duplicate(true)
+		text_entry["day"] = int(text_entry.get("day", 1))
+		text_entry["house"] = int(text_entry.get("house", -1))
+		texts.append(text_entry)
+	_daytime_checked = int(saved.get("daytime_checked", -1))
 
 
 func _process(_delta: float) -> void:
@@ -248,16 +273,33 @@ func on_new_day(new_day: int) -> Dictionary:
 		return {}
 	_day = new_day
 	_daytime_checked = -1
-	# Yesterday's requests nobody took: they went with someone else.
-	var missed := requests.size()
+	# Yesterday's requests nobody took: they went with someone else. The one the
+	# crew is working on stays theirs.
+	var missed := 0
 	for house_id: Variant in requests:
+		if int(house_id) == current_house:
+			continue
+		missed += 1
 		var entry: Dictionary = houses[int(house_id)]
 		entry["relationship"] = maxf(0.0, float(entry.get("relationship", 0.0)) - 3.0)
 	requests.clear()
+	if current_house >= 0:
+		requests.append(current_house)
 	var opened := _open_new_hoods()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([town_seed, _day, "morning"])
 	var asked := _ask_for_jobs(requests_per_day(), rng)
+	# Never a morning with nothing to do: Marty passes on a lead from the store.
+	if requests.is_empty():
+		for hood: Dictionary in _Hoods.HOODS:
+			if not is_hood_open(str(hood["id"])):
+				continue
+			var lead := _unknown_in(str(hood["id"]))
+			if lead >= 0:
+				_text("Marty", "lead", "Somebody came by the store asking for a leaf crew. I gave them your number. You're welcome.", -1)
+				_meet(lead, "")
+				asked += 1
+				break
 	_broadcast()
 	return {"requests": asked, "missed": missed, "opened": opened}
 

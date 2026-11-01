@@ -49,6 +49,7 @@ func _ready() -> void:
 	var close := Button.new()
 	close.text = "✕"
 	close.flat = true
+	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(close_phone)
 	top.add_child(close)
 	_scroll = ScrollContainer.new()
@@ -67,6 +68,7 @@ func _ready() -> void:
 		var button := Button.new()
 		button.text = _Strings.UI["phone_tab_" + app]
 		button.toggle_mode = true
+		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_size_override("font_size", 15)
 		button.pressed.connect(func() -> void: show_app(app))
 		dock.add_child(button)
@@ -75,26 +77,51 @@ func _ready() -> void:
 
 
 func _hook_world() -> void:
+	# The town and the board come and go with the session: hook the ones there
+	# now, and every one added later.
+	for existing: Node in [get_tree().get_first_node_in_group("town"), get_tree().get_first_node_in_group("job_board")]:
+		if existing != null:
+			_watch(existing)
 	get_tree().node_added.connect(func(node: Node) -> void:
-		if node.name == "Town" and node.has_signal("texted"):
-			node.connect("changed", func() -> void: _dirty = true)
-			node.connect("texted", func(_text_entry: Dictionary) -> void:
-				_dirty = true
-				if not visible:
-					_unread += 1
-			)
+		if node.name == "Town" or node.name == "JobBoard":
+			_watch(node)
 	)
-	Campaign.rank_changed.connect(func() -> void: _dirty = true)
+	Campaign.rank_changed.connect(_mark_dirty)
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if not event.is_action_pressed("phone") or Net.current_state() != Net.State.IN_SESSION:
+func _watch(node: Node) -> void:
+	if node.has_signal("texted") and not node.is_connected("texted", _on_texted):
+		node.connect("texted", _on_texted)
+	if node.has_signal("changed") and not node.is_connected("changed", _mark_dirty):
+		node.connect("changed", _mark_dirty)
+	if node.has_signal("offers_changed") and not node.is_connected("offers_changed", _mark_dirty):
+		node.connect("offers_changed", _mark_dirty)
+
+
+func _mark_dirty() -> void:
+	_dirty = true
+
+
+func _on_texted(_text_entry: Dictionary) -> void:
+	_dirty = true
+	if not visible:
+		_unread += 1
+
+
+# _input, not _unhandled_input: Tab must work even while one of the phone's
+# own buttons has focus, and Esc puts the phone away before it pauses.
+func _input(event: InputEvent) -> void:
+	if Net.current_state() != Net.State.IN_SESSION:
 		return
-	if visible:
+	if event.is_action_pressed("phone"):
+		if visible:
+			close_phone()
+		else:
+			open_phone()
+		get_viewport().set_input_as_handled()
+	elif visible and event.is_action_pressed("pause"):
 		close_phone()
-	else:
-		open_phone()
-	get_viewport().set_input_as_handled()
+		get_viewport().set_input_as_handled()
 
 
 ## How many texts came in while the phone was away (the HUD shows it).
@@ -114,8 +141,9 @@ func open_phone(app: String = "") -> void:
 
 func close_phone() -> void:
 	visible = false
-	if Net.current_state() == Net.State.IN_SESSION:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null:
+		ui.call("recapture_mouse")
 
 
 func show_app(app: String) -> void:
@@ -159,6 +187,9 @@ func _texts(town: Node) -> void:
 	var requests: Array = town.get("requests")
 	var board := get_tree().get_first_node_in_group("job_board")
 	var picked := int((board.call("current") as Dictionary).get("house_id", -1)) if board != null else -1
+	# Once a job is on (Chefty's out, or a yard is waiting), the pick is set.
+	var world := get_tree().get_first_node_in_group("world")
+	var locked := world != null and bool(world.call("job_locked"))
 	for entry: Variant in texts:
 		var message := entry as Dictionary
 		var is_job := str(message.get("kind", "")) in ["request", "referral"] and requests.has(int(message.get("house", -1)))
@@ -176,8 +207,9 @@ func _texts(town: Node) -> void:
 			var house_id := int(message.get("house", -1))
 			if house_id == picked:
 				column.add_child(_text(_Strings.UI["phone_job_up_next"], 14, GREEN))
-			else:
+			elif not locked:
 				var take := Button.new()
+				take.focus_mode = Control.FOCUS_NONE
 				take.text = _Strings.UI["phone_take_job"]
 				take.size_flags_horizontal = Control.SIZE_SHRINK_END
 				take.pressed.connect(func() -> void: _take(house_id))

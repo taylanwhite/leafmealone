@@ -94,8 +94,8 @@ func _run() -> void:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	clock.call("force_sleep")
 	await get_tree().create_timer(0.5).timeout
-	var regrow := absf(float(town.call("mess", house_id)) - Constants.TOWN_REGROW_PER_DAY) < 0.001 and not (town.get("requests") as Array).has(house_id)
-	print("[TownTest] day %d: the yard done yesterday is %.0f%% grown back and its owner waits: %s" % [int(clock.get("day")), float(town.call("mess", house_id)) * 100.0, regrow])
+	var regrow := absf(float(town.call("mess", house_id)) - Constants.TOWN_REGROW_PER_DAY) < 0.001
+	print("[TownTest] day %d: the yard done yesterday is %.0f%% grown back: %s" % [int(clock.get("day")), float(town.call("mess", house_id)) * 100.0, regrow])
 	ok = ok and regrow
 	var morning := not (town.get("requests") as Array).is_empty()
 	print("[TownTest] other clients texted this morning (%d requests): %s" % [(town.get("requests") as Array).size(), morning])

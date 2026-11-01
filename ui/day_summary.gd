@@ -43,12 +43,20 @@ func _ready() -> void:
 
 
 func _hook_clock() -> void:
-	# The world (and its clock) comes and goes with the session.
+	# The world (and its clock) comes and goes with the session: hook the one
+	# there now, and every one added later.
+	var current := get_tree().get_first_node_in_group("day_clock")
+	if current != null:
+		_watch(current)
 	get_tree().node_added.connect(func(node: Node) -> void:
-		if node.is_in_group("day_clock") or node.name == "DayClock":
-			if not node.is_connected("day_ended", show_summary):
-				node.connect("day_ended", show_summary)
+		if node.name == "DayClock":
+			_watch(node)
 	)
+
+
+func _watch(clock: Node) -> void:
+	if clock.has_signal("day_ended") and not clock.is_connected("day_ended", show_summary):
+		clock.connect("day_ended", show_summary)
 
 
 func show_summary(summary: Dictionary) -> void:
@@ -84,8 +92,9 @@ func show_summary(summary: Dictionary) -> void:
 
 func close_window() -> void:
 	visible = false
-	if Net.current_state() == Net.State.IN_SESSION:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null:
+		ui.call("recapture_mouse")
 
 
 func _line(value: String, color: Color, size: int = 18) -> void:

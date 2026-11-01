@@ -52,7 +52,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _nearest_cot() != self:
 		return
 	if not bool(clock.call("is_sleeping", Net.local_peer_id())):
-		clock.call("request_sleep", true)
+		clock.call("request_sleep", true, index)
 		get_viewport().set_input_as_handled()
 
 

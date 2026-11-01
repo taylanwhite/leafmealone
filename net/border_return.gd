@@ -214,7 +214,10 @@ func _send_home(peer_id: int) -> void:
 	var director := get_parent().get_node_or_null("RunDirector")
 	if director != null and director.has_method("release_peer"):
 		director.call("release_peer", peer_id)
-	Net.move_player_to_zone(peer_id, Net.Zone.LOT)
+	# The crew finished and went home while you were crossing: back to the store.
+	var slot := get_parent().get_node_or_null("LotZone/LotSlot")
+	var yard_waiting := slot != null and slot.get_child_count() > 0
+	Net.move_player_to_zone(peer_id, Net.Zone.LOT if yard_waiting else Net.Zone.STORE)
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
 		telemetry.call("mark_border_finish", peer_id)

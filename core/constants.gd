@@ -367,7 +367,7 @@ const TOWN_MIN_MESS: float = 0.25
 ## Clients who text a job each morning (plus the extra-request perks), and how
 ## grown back a yard must be before its owner asks again.
 const TOWN_REQUESTS_PER_DAY: int = 2
-const TOWN_REQUEST_MIN_MESS: float = 0.5
+const TOWN_REQUEST_MIN_MESS: float = 0.3
 ## Relationship, 0 to 100: where a new client starts, what each star of a review
 ## moves it (3 stars is no change), and the level where they refer a neighbor.
 const TOWN_START_RELATIONSHIP: float = 30.0

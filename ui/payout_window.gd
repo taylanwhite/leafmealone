@@ -76,8 +76,9 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 
 func close_window() -> void:
 	visible = false
-	if Net.current_state() == Net.State.IN_SESSION:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null:
+		ui.call("recapture_mouse")
 
 
 func _line(left: String, right: String, color: Color, size: int = 18) -> void:

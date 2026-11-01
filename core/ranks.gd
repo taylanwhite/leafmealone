@@ -131,7 +131,8 @@ static func tier_of(unlock: String) -> int:
 
 ## Lawnfather stars add a little to every payout.
 static func pay_bonus(tier: int) -> float:
-	var stars := tier - NAMES.size() * TIERS_PER_RANK
+	# The first Lawnfather tier is star 1, the way title() counts it.
+	var stars := tier - NAMES.size() * TIERS_PER_RANK + 1
 	if stars <= 0:
 		return 0.0
 	return minf(float(stars) * ENDLESS_PAY_PER_STAR, ENDLESS_PAY_CAP)

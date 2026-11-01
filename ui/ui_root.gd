@@ -238,6 +238,25 @@ func _build_lobby() -> void:
 	add_child(_lobby)
 
 
+## Whether any window that wants the mouse is up: the shop, the job board, a
+## receipt, the day's summary, the phone, or the pause buttons.
+func any_window_open() -> bool:
+	for window: Control in [_shop, _job_board, _payout, _leave]:
+		if window != null and window.visible:
+			return true
+	for group: String in ["phone", "day_summary"]:
+		var node := get_tree().get_first_node_in_group(group) as Control
+		if node != null and node.visible:
+			return true
+	return false
+
+
+## A window closed: take the mouse back for looking around, unless another one is still up.
+func recapture_mouse() -> void:
+	if Net.current_state() == Net.State.IN_SESSION and not any_window_open():
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
 func open_store() -> void:
 	_shop.call("open")
 

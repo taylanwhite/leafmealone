@@ -271,6 +271,12 @@ func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
 var _was_sleeping: bool = false
 
 
+## On a cot right now, by the host's day clock. Every peer can ask.
+func is_sleeping() -> bool:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	return clock != null and bool(clock.call("is_sleeping", name.to_int()))
+
+
 func _step_sleep() -> bool:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var asleep := clock != null and bool(clock.call("is_sleeping", name.to_int()))
@@ -282,9 +288,8 @@ func _step_sleep() -> bool:
 	if not _was_sleeping:
 		_was_sleeping = true
 		_release_held(false)
-		var spot := (clock.get("sleepers") as Array).find(name.to_int())
-		var cots := get_tree().get_nodes_in_group("cots")
-		for cot: Node in cots:
+		var spot := int(clock.call("cot_of", name.to_int()))
+		for cot: Node in get_tree().get_nodes_in_group("cots"):
 			if int(cot.get("index")) == spot:
 				global_position = (cot.call("bed_transform") as Transform3D).origin
 				reset_physics_interpolation()
@@ -618,7 +623,7 @@ func _on_pile() -> bool:
 func _step_punch(delta: float) -> void:
 	_punch_cool = maxf(0.0, _punch_cool - delta)
 	_swing_left = maxf(0.0, _swing_left - delta)
-	var can := _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not is_up_high()
+	var can := _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not is_up_high() and not is_sleeping()
 	var pressing := can and _punch_cool <= 0.0 and Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	# Empty hands on leaves rake by hand (equipment/rake.gd). A wind-up only
 	# starts there when someone is in front to hit; once started it keeps going.
@@ -704,7 +709,7 @@ func _grab_player() -> bool:
 
 ## The nearest other player within reach and in front, with empty hands, or null.
 func _grabbable_player() -> Node3D:
-	if _held_prop() != null or carried_by != 0 or carrying != 0 or _stun_left > 0.0 or in_pile or _hidden_spot != null:
+	if _held_prop() != null or carried_by != 0 or carrying != 0 or _stun_left > 0.0 or in_pile or _hidden_spot != null or is_sleeping():
 		return null
 	var forward := -global_basis.z
 	forward.y = 0.0
@@ -712,7 +717,7 @@ func _grabbable_player() -> Node3D:
 	var best_distance := Constants.GRAB_PLAYER_REACH
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
-		if other == null or other == self or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")):
+		if other == null or other == self or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")) or bool(other.call("is_sleeping")):
 			continue
 		var offset := other.global_position - global_position
 		var flat := Vector3(offset.x, 0.0, offset.z)
