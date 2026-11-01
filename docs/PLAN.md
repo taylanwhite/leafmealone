@@ -194,8 +194,12 @@ The spine
 - [x] `[NET]` The persistent town (`net/town/`): six neighborhoods of houses and homeowners, requests, regrowth, relationships, referrals, rank-opened neighborhoods; the job board offers the town's requests; `--town-test`.
 - [x] `[PLAY]` The HUD clock and rank, the day summary card, and the crew phone (Tab).
 - [ ] `[PLAY]` Each neighborhood looks like itself (house styles, trees, street dressing from `neighborhoods.gd` "look").
-- [ ] `[PLAY]` A screenshot pass on everything new, and a clipping check.
+- [x] `[PLAY]` A screenshot pass on everything new, and a clipping check (`--layout-test`; it found zero-story bungalows on every small yard).
 - [ ] `[SHARED] (human)` Play a full day with friends; tune `MINUTES_PER_HOUR`, XP, and regrowth.
 
-Next (step 4)
-- [ ] Hiring (crew hands that rake, bag, and haul), properties, the TurfMasters™ rival, seasons. See `docs/SPINE.md` section 5.
+After the spine (step 4)
+- [x] `[NET]` Hiring: hands rake, bag, and haul on every job; signing fee and daily wage; `--hire-test`.
+- [x] `[NET]` The TurfMasters™ rival poaches unhappy clients; great work or pulling their signs wins them back; `--rival-test`.
+- [x] `[NET]` Seasons: autumn, winter, spring, summer, a week each; leaves, pay, the work asked for, and the trees' color change; `--rival-test` covers the season math.
+- [ ] `[PLAY]` Properties (a garage, a barn, a warehouse: more cots, more hire slots, a second truck).
+- [ ] `[PLAY]` Winter work of its own (snow to shovel, lights to hang) and a winter look for the ground.

@@ -57,6 +57,9 @@ var town_test: bool = false
 ## --layout-test: build many yards and check for clipping (net/dev/layout_test.gd).
 var layout_test: bool = false
 var hire_test: bool = false
+var rival_test: bool = false
+## --start-day=N: the campaign's day (seasons turn every Constants.SEASON_DAYS).
+var start_day: int = 0
 ## For screenshots: --open-phone=<texts|clients|map|crew> takes the phone out after a second;
 ## --end-day-at=<s> ends the day then (the host), so the summary card shows.
 var open_phone: String = ""
@@ -70,7 +73,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or open_phone != "" or end_day_at >= 0.0
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or open_phone != "" or end_day_at >= 0.0
 
 
 func read() -> void:
@@ -170,6 +173,10 @@ func read() -> void:
 			layout_test = true
 		elif argument == "--hire-test":
 			hire_test = true
+		elif argument == "--rival-test":
+			rival_test = true
+		elif argument.begins_with("--start-day="):
+			start_day = int(argument.trim_prefix("--start-day="))
 		elif argument.begins_with("--open-phone="):
 			open_phone = argument.trim_prefix("--open-phone=")
 		elif argument.begins_with("--end-day-at="):

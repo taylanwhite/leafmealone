@@ -254,6 +254,8 @@ func _clients(town: Node) -> void:
 			var card := VBoxContainer.new()
 			card.add_child(_text(_Strings.UI["phone_client_line"] % [str(town.call("owner_name", house_id)), str(town.call("address", house_id))], 16, INK))
 			card.add_child(_text(_hearts(float(house.get("relationship", 0.0))), 15, Color(0.85, 0.25, 0.3)))
+			if bool(house.get("poached", false)):
+				card.add_child(_text(_Strings.UI["phone_poached"], 14, Color(0.1, 0.5, 0.25)))
 			var last := int(house.get("last_day", -1))
 			var last_text: String = _Strings.UI["phone_last_never"]
 			if last == today:

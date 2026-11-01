@@ -177,6 +177,7 @@ func write_report() -> void:
 		"town_test": preload("res://net/dev/town_test.gd").result.duplicate(),
 		"layout_test": preload("res://net/dev/layout_test.gd").result.duplicate(),
 		"hire_test": preload("res://net/dev/hire_test.gd").result.duplicate(),
+		"rival_test": preload("res://net/dev/rival_test.gd").result.duplicate(),
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
 		"town": _town(),

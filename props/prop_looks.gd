@@ -7,6 +7,8 @@ extends RefCounted
 
 const _LowPoly = preload("res://props/low_poly.gd")
 const _YardModels = preload("res://props/yard_models.gd")
+const _MeshKit = preload("res://props/mesh_kit.gd")
+const _Stylized = preload("res://props/stylized.gd")
 ## The Visual node sits this high above the prop's base.
 const VISUAL_HEIGHT: float = 0.35
 ## Tools held up in front of the face and aimed with the view, and where they sit
@@ -45,6 +47,8 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 			_leaf_bag(look)
 		"rake":
 			_rake(look)
+		"turf_sign":
+			_turf_sign(look)
 		_:
 			# Tools and anything else props/yard_models.gd knows how to build.
 			look.add_child(_YardModels.node(kind, color, Vector3(0.7, 0.7, 0.7), {"roughness": 0.55, "specular": 0.3}))
@@ -199,6 +203,27 @@ static func _wheelbarrow(look: Node3D, color: Color) -> void:
 		bag.rotation.y = float(index) * 1.3
 		bag.scale = Vector3.ONE * 0.5
 		bag.visible = false
+
+
+## The rival's lawn sign (net/town/town.gd): a wire stake and a glossy green
+## panel with their name on it. Pull it up, throw it somewhere funny.
+static func _turf_sign(look: Node3D) -> void:
+	var kit := _MeshKit.new()
+	for x: float in [-0.22, 0.22]:
+		kit.tube(PackedVector3Array([Vector3(x, 0.0, 0.0), Vector3(x, 0.55, 0.0)]), PackedFloat32Array([0.012, 0.012]), Color(0.55, 0.56, 0.58), 5, {"jitter": 0.0})
+	kit.rbox(Vector3(0.0, 0.72, 0.0), Vector3(0.32, 0.2, 0.015), Color(0.1, 0.55, 0.28), 8.0, {"shade": false})
+	kit.rbox(Vector3(0.0, 0.72, 0.0), Vector3(0.335, 0.215, 0.012), Color(0.97, 0.97, 0.94), 8.0, {"shade": false})
+	look.add_child(_Stylized.instance(kit.commit(), {"roughness": 0.35, "specular": 0.45}))
+	for side: float in [1.0, -1.0]:
+		var label := Label3D.new()
+		label.text = "TurfMasters™\nLAWNS DONE RIGHT"
+		label.font_size = 28
+		label.pixel_size = 0.0035
+		label.modulate = Color(1.0, 1.0, 0.95)
+		label.outline_size = 0
+		label.position = Vector3(0.0, 0.72, 0.03 * side)
+		label.rotation.y = 0.0 if side > 0.0 else PI
+		look.add_child(label)
 
 
 static func _gnome(look: Node3D) -> void:

@@ -108,6 +108,11 @@ Later apps: Hires, Properties, Deliveries.
 
 ## 5. After the spine (step 4 of the plan)
 
+Built 2026-11-01: hiring (`net/crew/hires.gd`, `npcs/crew_hand.gd`), the rival
+(in `net/town/town.gd`), and seasons (`core/seasons.gd`, a global foliage tint in
+`props/stylized.gd`). Not built yet: properties, winter's own work, and each
+neighborhood's own look.
+
 - **Hiring.** At Turf Boss, crew hands can be hired from the job board. They come
   along on Chefty and rake, bag, and haul (the bot that already rakes is their
   start). They cost a signing fee and a daily wage. Players keep the chaos jobs.

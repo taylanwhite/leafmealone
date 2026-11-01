@@ -180,6 +180,14 @@ jobs:
           grep "HireTest" build/soak/ci-hire/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-hire/host.json')); t=json.load(open('build/soak/ci-hire/target.json')); sys.exit(0 if h['hire_test'].get('ok') and t['crew_hands'] == 1 else 1)"
 
+      - name: Rival and seasons test (TurfMasters poach, signs, winning back; seasons by day)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-rival
+          "$GODOT" --headless --path . -- --host --port=7807 --name=Tester --no-steam --rank=17 --rival-test --measure="$PWD/build/soak/ci-rival/host.json" --run-seconds=20 > build/soak/ci-rival/host.log 2>&1
+          grep "RivalTest" build/soak/ci-rival/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-rival/host.json'))['rival_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi

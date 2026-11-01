@@ -16,6 +16,8 @@ uniform float specular_value = 0.12;
 uniform float translucency = 0.0;
 // Paint or water on a person: set per instance (player/cartoon_body.gd set_coat).
 instance uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 0.0);
+// The season (core/seasons.gd): what swaying foliage shifts toward, and how far.
+global uniform vec4 season_foliage;
 
 varying float sway;
 
@@ -40,7 +42,14 @@ void vertex() {
 }
 
 void fragment() {
-	ALBEDO = mix(to_linear(COLOR.rgb), to_linear(tint.rgb), tint.a);
+	vec3 base = COLOR.rgb;
+	// Only what sways (crowns, grass) changes with the season; trunks and houses don't.
+	if (season_foliage.a > 0.0 && sway > 0.25) {
+		float light = dot(base, vec3(0.3, 0.55, 0.15));
+		vec3 seasonal = season_foliage.rgb * (0.7 + 0.6 * light);
+		base = mix(base, seasonal, season_foliage.a);
+	}
+	ALBEDO = mix(to_linear(base), to_linear(tint.rgb), tint.a);
 	ROUGHNESS = roughness_value;
 	SPECULAR = specular_value;
 	// Light through thin leaves on the shadow side.

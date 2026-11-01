@@ -271,6 +271,7 @@ func _load_job_lot() -> void:
 	var town := get_node_or_null("Town")
 	if town != null and offer.has("house_id"):
 		town.call("start_job", int(offer["house_id"]))
+		_spawn_rival_signs(lot as Node3D, offer)
 	_spawn_job_tools()
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
@@ -329,6 +330,29 @@ func reload_job_lot() -> void:
 	# Picked again meanwhile, or Chefty left and loaded it already: that one wins.
 	if serial == _lot_swap_serial and %LotSlot.get_child_count() == 0:
 		_load_job_lot()
+
+
+## Host only. TurfMasters™ took clients on this street: their signs are stuck in
+## this yard's front lawn, for the crew to pull up (net/town/town.gd).
+func _spawn_rival_signs(lot: Node3D, offer: Dictionary) -> void:
+	var count := int(offer.get("signs", 0))
+	if count <= 0 or lot == null:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([int(offer["seed"]), "signs"])
+	for index: int in count:
+		var sign := BAG_SCENE.instantiate()
+		sign.name = "TurfSign%d_%d" % [_lots_loaded, index]
+		sign.set("kind", "turf_sign")
+		sign.set("label", "TurfMasters™ sign")
+		sign.set("color", Color(0.1, 0.55, 0.28))
+		sign.add_to_group("job_tools")
+		sign.add_to_group("turf_signs")
+		sign.set_meta("hood", str(offer.get("hood", "")))
+		%RuntimeProps.add_child(sign, true)
+		# Out on the front lawn, either side of the driveway.
+		var side := -1.0 if index % 2 == 0 else 1.0
+		sign.global_position = lot.global_position + Vector3(side * rng.randf_range(4.0, 12.0), 0.6, rng.randf_range(10.0, 17.0))
 
 
 ## Host only. One of each tool the crew owns rides along, laid out by the truck.

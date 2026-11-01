@@ -13,6 +13,7 @@ signal day_ended(summary: Dictionary)
 signal sleepers_changed
 
 const _Ranks = preload("res://core/ranks.gd")
+const _Seasons = preload("res://core/seasons.gd")
 
 ## Day number, 1 on a new campaign.
 var day: int = 1
@@ -33,12 +34,15 @@ func _ready() -> void:
 	if Net.is_host():
 		var saved := Campaign.save_section("day")
 		day = maxi(1, int(saved.get("number", 1)))
+		if int(Net.dev_options().get("start_day")) > 0:
+			day = int(Net.dev_options().get("start_day"))
 		var minutes := clampf(float(saved.get("minutes", 0.0)), 0.0, _end_minutes())
 		var start_hour := float(Net.dev_options().get("start_hour"))
 		if start_hour >= 0.0:
 			minutes = clampf((start_hour - Constants.DAY_START_HOUR) * 60.0, 0.0, _end_minutes())
 		day_started_at = Net.server_time() - minutes * _seconds_per_minute()
 		Campaign.add_save_hook(_save_section)
+		_Seasons.apply_look(day)
 	elif multiplayer.multiplayer_peer != null:
 		_rpc_request_state.rpc_id(1)
 
@@ -81,11 +85,18 @@ func is_closed() -> bool:
 	return minutes() >= _end_minutes()
 
 
-## What a job pays on top, right now: the quiet-hours bonus, with the night-owl perks.
+## The season today (core/seasons.gd): 0 autumn, 1 winter, 2 spring, 3 summer.
+func season() -> int:
+	return _Seasons.of_day(day)
+
+
+## What a job pays on top, right now: the season's bonus, and the quiet-hours
+## bonus with the night-owl perks.
 func pay_bonus() -> float:
+	var seasonal := float(_Seasons.PAY_BONUS[season()])
 	if not is_quiet_hours():
-		return 0.0
-	var bonus := Constants.QUIET_HOURS_PAY_BONUS
+		return seasonal
+	var bonus := seasonal + Constants.QUIET_HOURS_PAY_BONUS
 	if Campaign.has_perk("night_owl"):
 		bonus += Constants.NIGHT_OWL_PAY_BONUS
 	if Campaign.has_perk("night_owl_2"):
@@ -186,6 +197,8 @@ func _end_day() -> void:
 	summary["tier"] = tier_after
 	summary["title"] = _Ranks.title(tier_after)
 	summary["rank_ups"] = unlocked
+	if _Seasons.turns_on(day + 1):
+		summary["season"] = _Seasons.ARRIVALS[_Seasons.of_day(day + 1)]
 	# Payroll first, so a hand who quits isn't counted on tomorrow.
 	var hires := get_tree().get_first_node_in_group("hires")
 	if hires != null:
@@ -250,6 +263,7 @@ func _rpc_request_sleep(lying_down: bool, cot: int) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _rpc_state(number: int, started_at: float, lying: Array, cot_map: Dictionary) -> void:
 	day = number
+	_Seasons.apply_look(day)
 	day_started_at = started_at
 	sleepers.assign(lying)
 	cots = cot_map
@@ -266,6 +280,7 @@ func _rpc_sleepers(lying: Array, cot_map: Dictionary) -> void:
 @rpc("authority", "call_local", "reliable")
 func _rpc_day(number: int, started_at: float, summary: Dictionary) -> void:
 	day = number
+	_Seasons.apply_look(day)
 	day_started_at = started_at
 	sleepers.clear()
 	cots.clear()

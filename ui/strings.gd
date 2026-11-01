@@ -165,7 +165,7 @@ const UI: Dictionary = {
 	"prompt_cot_lying": "Zzz... %d of %d in bed. Move to get up",
 	"prompt_cot_host": "Zzz... %d of %d in bed. Hold E: everyone to bed",
 	"camp_sign": "CREW CAMP\nmanagement is not responsible",
-	"hud_clock": "Day %d  %s",
+	"hud_clock": "Day %d · %s  %s",
 	"hud_quiet_hours": "Quiet hours: +%d%% pay, noise draws more heat",
 	"hud_closed": "2 AM. Go to bed, the crew camp is by the side wall",
 	"hud_rank": "%s",
@@ -215,6 +215,8 @@ const UI: Dictionary = {
 	"phone_fire": "Let go",
 	"phone_hire": "Hire a hand ($%d, then $%d a day)",
 	"summary_wages": "Wages paid: $%d",
+	"summary_poached": "TurfMasters™ poached %s",
+	"phone_poached": "With TurfMasters™ now. Win them back: great work on their street, or pull the signs.",
 	"summary_quit": "%s quit (no pay)",
 	"clerk_name": "Marty",
 }

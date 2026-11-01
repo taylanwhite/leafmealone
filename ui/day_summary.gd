@@ -80,11 +80,16 @@ func show_summary(summary: Dictionary) -> void:
 		if unlock != "":
 			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(unlock), INK)
 	_line(_Strings.UI["summary_rank"] % str(summary.get("title", "")), NIGHT, 18)
+	if summary.has("season"):
+		_rows.add_child(HSeparator.new())
+		_line(str(summary["season"]), Color(0.2, 0.45, 0.7), 20)
 	var town: Dictionary = summary.get("town", {})
 	if not town.is_empty():
 		_rows.add_child(HSeparator.new())
 		for hood: Variant in (town.get("opened", []) as Array):
 			_line(_Strings.UI["summary_opened"] % str(hood), GREEN, 20)
+		for poached: Variant in (town.get("poached", []) as Array):
+			_line(_Strings.UI["summary_poached"] % str(poached), Color(0.1, 0.5, 0.25))
 		if int(town.get("missed", 0)) > 0:
 			_line(_Strings.UI["summary_missed"] % int(town["missed"]), INK.lightened(0.3))
 		_line(_Strings.UI["summary_requests"] % int(town.get("requests", 0)), INK)

@@ -21,6 +21,7 @@ signal texted(text: Dictionary)
 
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
+const _Seasons = preload("res://core/seasons.gd")
 ## Texts kept for the phone, newest last.
 const MAX_TEXTS: int = 40
 ## In-game hours when a client may text a job during the day.
@@ -77,6 +78,7 @@ func _load_saved(saved: Dictionary) -> void:
 		house_entry["relationship"] = float(house_entry.get("relationship", 0.0))
 		house_entry["known"] = bool(house_entry.get("known", false))
 		house_entry["referred"] = bool(house_entry.get("referred", false))
+		house_entry["poached"] = bool(house_entry.get("poached", false))
 		houses.append(house_entry)
 	requests.clear()
 	for house_id: Variant in (saved.get("requests", []) as Array):
@@ -93,6 +95,7 @@ func _load_saved(saved: Dictionary) -> void:
 func _process(_delta: float) -> void:
 	if not Net.is_host():
 		return
+	_watch_signs()
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	if clock == null:
 		return
@@ -188,6 +191,12 @@ func offer_for(house_id: int) -> Dictionary:
 	var likes := str((entry["owner"] as Dictionary).get("likes", ""))
 	if likes != "" and not tasks.has(likes) and _can_do(likes, size):
 		tasks.append(likes)
+	# And something the season calls for (core/seasons.gd).
+	var season := _Seasons.of_day(_day)
+	var favored: Array = _Seasons.FAVORED[season]
+	var pick := str(favored[rng.randi() % favored.size()])
+	if not tasks.has(pick) and _can_do(pick, size):
+		tasks.append(pick)
 	var hood := _Hoods.get_hood(str(entry["hood"]))
 	var owner: Dictionary = entry["owner"]
 	return {
@@ -200,10 +209,11 @@ func offer_for(house_id: int) -> Dictionary:
 		"client": owner_name(house_id),
 		"hood": str(entry["hood"]),
 		"hood_name": str(hood["name"]),
-		"mess": mess(house_id),
+		"mess": mess(house_id) * float(_Seasons.LEAVES[_Seasons.of_day(_day)]),
 		"budget": budget(house_id),
 		"standards": standards(house_id),
 		"relationship": float(entry.get("relationship", 0.0)),
+		"signs": mini(Constants.RIVAL_MAX_SIGNS, poached_in(str(entry["hood"]))),
 	}
 
 
@@ -263,6 +273,9 @@ func on_job_finished(_fraction: float, details: Dictionary) -> void:
 	if first_time:
 		Campaign.add_xp(Constants.XP_NEW_CLIENT, "new_client")
 	_maybe_refer(current_house)
+	# Word gets around: a great job wins back a neighbor TurfMasters™ took.
+	if stars >= 4 and poached_in(str(entry["hood"])) > 0 and randf() < Constants.RIVAL_WIN_BACK_CHANCE:
+		_win_back(str(entry["hood"]), owner_name(current_house))
 	current_house = -1
 	_broadcast()
 
@@ -286,6 +299,7 @@ func on_new_day(new_day: int) -> Dictionary:
 	if current_house >= 0:
 		requests.append(current_house)
 	var opened := _open_new_hoods()
+	var poached := _rival_morning()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([town_seed, _day, "morning"])
 	var asked := _ask_for_jobs(requests_per_day(), rng)
@@ -301,7 +315,7 @@ func on_new_day(new_day: int) -> Dictionary:
 				asked += 1
 				break
 	_broadcast()
-	return {"requests": asked, "missed": missed, "opened": opened}
+	return {"requests": asked, "missed": missed, "opened": opened, "poached": poached}
 
 
 ## How many clients text a job each morning.
@@ -311,6 +325,16 @@ func requests_per_day() -> int:
 		if Campaign.has_perk(perk):
 			count += 1
 	return count
+
+
+## Tests and dev: TurfMasters™ take this client now.
+func dev_poach(house_id: int) -> void:
+	if not Net.is_host() or house(house_id).is_empty():
+		return
+	houses[house_id]["poached"] = true
+	requests.erase(house_id)
+	_text(owner_name(house_id), "poached", "TurfMasters™ came by with a coupon. Sorry, hon.", house_id)
+	_broadcast()
 
 
 ## Tests and dev: make sure there's a job to go to.
@@ -401,6 +425,7 @@ func _make_house(house_id: int, hood: Dictionary, number: int, street: String, r
 		"last_day": -1,
 		"jobs": 0,
 		"referred": false,
+		"poached": false,
 	}
 
 
@@ -411,7 +436,7 @@ func _ask_for_jobs(count: int, rng: RandomNumberGenerator) -> int:
 	var candidates: Array = []
 	for entry: Dictionary in houses:
 		var house_id := int(entry["id"])
-		if not bool(entry.get("known", false)) or requests.has(house_id) or house_id == current_house:
+		if not bool(entry.get("known", false)) or bool(entry.get("poached", false)) or requests.has(house_id) or house_id == current_house:
 			continue
 		if not is_hood_open(str(entry["hood"])):
 			continue
@@ -521,6 +546,88 @@ func _open_new_hoods() -> Array:
 		_meet(target, owner_name(best) if best >= 0 and best_relationship >= Constants.TOWN_REFERRAL_AT * 0.75 else "")
 		opened.append(_Hoods.name_of(hood_id))
 	return opened
+
+
+# ---------------------------------------------------------------- the rival
+
+## Clients TurfMasters™ has taken in a neighborhood.
+func poached_in(hood_id: String) -> int:
+	var count := 0
+	for entry: Dictionary in houses:
+		if str(entry["hood"]) == hood_id and bool(entry.get("poached", false)):
+			count += 1
+	return count
+
+
+## Host, each morning once the rival is in town (core/ranks.gd "feature:rival"):
+## now and then they poach a client who isn't thrilled with you. Returns names.
+func _rival_morning() -> Array:
+	var taken: Array = []
+	if not Campaign.is_feature_on("rival"):
+		return taken
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([town_seed, _day, "rival"])
+	if rng.randf() >= Constants.RIVAL_POACH_CHANCE:
+		return taken
+	var candidates: Array = []
+	for entry: Dictionary in houses:
+		if bool(entry.get("known", false)) and not bool(entry.get("poached", false)) and int(entry["id"]) != current_house and float(entry.get("relationship", 0.0)) < Constants.RIVAL_POACH_BELOW:
+			candidates.append(int(entry["id"]))
+	if candidates.is_empty():
+		return taken
+	var house_id := int(candidates[rng.randi() % candidates.size()])
+	houses[house_id]["poached"] = true
+	requests.erase(house_id)
+	var lines := [
+		"TurfMasters™ came by with a coupon. Sorry, hon. It's just business.",
+		"A man in a TurfMasters™ polo said you people \"lack synergy\". I'm trying them.",
+		"TurfMasters™ does my lawn now. They have a jingle. Do YOU have a jingle?",
+	]
+	_text(owner_name(house_id), "poached", str(lines[rng.randi() % lines.size()]), house_id)
+	taken.append(owner_name(house_id))
+	return taken
+
+
+## Host: a client TurfMasters™ took comes back.
+func _win_back(hood_id: String, because_of: String) -> void:
+	for entry: Dictionary in houses:
+		if str(entry["hood"]) == hood_id and bool(entry.get("poached", false)):
+			entry["poached"] = false
+			entry["relationship"] = maxf(float(entry.get("relationship", 0.0)), Constants.TOWN_START_RELATIONSHIP)
+			var why := "Saw what you did for %s. TurfMasters™ mulched my petunias." % because_of if because_of != "" else "Somebody pulled the TurfMasters™ signs. Was that you? Come back?"
+			_text(owner_name(int(entry["id"])), "won_back", why + " I'm back, if you'll have me.", int(entry["id"]))
+			Campaign.add_xp(Constants.XP_NEW_CLIENT / 2, "won_back")
+			var rng := RandomNumberGenerator.new()
+			rng.seed = hash([town_seed, _day, int(entry["id"]), "back"])
+			_add_request(int(entry["id"]), rng)
+			return
+
+
+## Host: a sign someone picked up for the first time has been pulled.
+func _watch_signs() -> void:
+	var signs := get_tree().get_nodes_in_group("turf_signs")
+	if signs.is_empty():
+		return
+	for node: Node in signs:
+		if node.get_meta("pulled", false) or int(node.get("held_by")) == 0:
+			continue
+		node.set_meta("pulled", true)
+		var left := 0
+		for other: Node in signs:
+			if not other.get_meta("pulled", false):
+				left += 1
+		on_sign_pulled(str(node.get_meta("hood", "")), left)
+
+
+## Host: a player pulled up one of TurfMasters™'s signs in a yard. Every sign
+## pulled is a little XP; pulling them all wins a client back.
+func on_sign_pulled(hood_id: String, signs_left: int) -> void:
+	if not Net.is_host():
+		return
+	Campaign.add_xp(Constants.XP_SIGN_PULLED, "signs")
+	if signs_left <= 0 and poached_in(hood_id) > 0:
+		_win_back(hood_id, "")
+	_broadcast()
 
 
 func _can_do(task: String, size: int) -> bool:

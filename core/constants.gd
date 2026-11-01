@@ -85,6 +85,7 @@ const ITEM_WEIGHT_KG: Dictionary = {
 	"rake": 1.5, "leaf_bag": 3.0, "trash": 10.0, "wheelbarrow": 16.0, "gnome": 7.0,
 	"leaf_blower": 4.5, "lawn_mower": 24.0, "ladder": 8.0, "hose": 4.0,
 	"pressure_washer": 13.0, "hedge_trimmer": 4.0, "paint_roller": 1.5,
+	"turf_sign": 2.0,
 }
 ## A leaf bag gets heavier with the leaves in it: this much per dollar of value, up to the cap.
 const LEAF_BAG_KG_PER_DOLLAR: float = 0.4
@@ -383,3 +384,15 @@ const HIRE_DAILY_WAGE: int = 40
 const HIRE_STROKE_SECONDS: float = 0.55
 const HIRE_STROKES_PER_PILE: int = 10
 const HIRE_SPEED: float = 3.2
+
+## Seasons (core/seasons.gd): days in each, autumn first.
+const SEASON_DAYS: int = 7
+
+## The rival, TurfMasters™ (net/town/town.gd), once the rank brings them to town:
+## the chance each morning they poach a client below this relationship, the chance
+## a great job wins one back, signs in a yard (at most), and XP per sign pulled.
+const RIVAL_POACH_CHANCE: float = 0.35
+const RIVAL_POACH_BELOW: float = 55.0
+const RIVAL_WIN_BACK_CHANCE: float = 0.5
+const RIVAL_MAX_SIGNS: int = 3
+const XP_SIGN_PULLED: int = 15
