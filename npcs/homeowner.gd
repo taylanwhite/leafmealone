@@ -65,7 +65,8 @@ func _ready() -> void:
 	life.role = "clerk"
 	_body.add_child(life)
 	var tag := Label3D.new()
-	tag.text = _Strings.UI["homeowner_name"]
+	_tag = tag
+	tag.text = _client_name()
 	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	tag.font_size = 36
 	tag.outline_size = 8
@@ -89,6 +90,42 @@ func _ready() -> void:
 	_build_cash()
 	if not Net.is_host() and multiplayer.multiplayer_peer != null:
 		_rpc_request_state.rpc_id(1)
+
+
+var _tag: Label3D
+
+
+## The town's house for this yard (net/town/town.gd), found by the yard's seed so
+## every peer agrees without waiting on anything. -1 for a test yard.
+func _house_id() -> int:
+	var town := get_tree().get_first_node_in_group("town")
+	var job_seed := int(get_parent().get("job_seed")) if get_parent() != null and "job_seed" in get_parent() else 0
+	if town == null or job_seed == 0:
+		return -1
+	return int(town.call("house_by_seed", job_seed))
+
+
+func _client_name() -> String:
+	var house_id := _house_id()
+	if house_id < 0:
+		return _Strings.UI["homeowner_name"]
+	return str(get_tree().get_first_node_in_group("town").call("owner_name", house_id))
+
+
+## How picky this homeowner is, 0 to 1 (0.3 for a test yard).
+func _standards() -> float:
+	var house_id := _house_id()
+	if house_id < 0:
+		return 0.3
+	return float(get_tree().get_first_node_in_group("town").call("standards", house_id))
+
+
+## Pay multiplier: the neighborhood, the owner, and the crew's perks.
+func _budget() -> float:
+	var house_id := _house_id()
+	if house_id < 0:
+		return 1.0
+	return float(get_tree().get_first_node_in_group("town").call("budget", house_id))
 
 
 ## The prompt while the local player is close enough.
@@ -129,6 +166,9 @@ func _ask(talk: bool) -> void:
 
 func _process(delta: float) -> void:
 	_turn_toward_nearest(delta)
+	# The town can arrive a moment after the yard does.
+	if _tag != null and _tag.text == _Strings.UI["homeowner_name"]:
+		_tag.text = _client_name()
 	_caption_left = maxf(0.0, _caption_left - delta)
 	_caption.visible = _caption_left > 0.0
 	if _phase == Phase.OFFERING:
@@ -173,7 +213,9 @@ func _handle_talk(peer_id: int) -> void:
 	# Whatever the crew broke or hurt comes off too: a new hose, a new gnome, medical bills.
 	var bills: Dictionary = (tasks.get("bills") as Dictionary).duplicate() if tasks != null else {}
 	var bills_total := int(tasks.call("bills_total")) if tasks != null else 0
-	var amount := 0 if mood == "nothing" else maxi(0, int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)))) - water_fee - bills_total)
+	# Richer neighborhoods and better-off owners pay more for the same work.
+	var budget := _budget()
+	var amount := 0 if mood == "nothing" else maxi(0, int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)) * budget)) - water_fee - bills_total)
 	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "water_fee": water_fee, "bills": bills, "paid": amount}
 	_rpc_react.rpc(mood, line_index, amount, pool)
 	if mood == "nothing":
@@ -189,25 +231,32 @@ func _judge(value: int) -> String:
 	if value <= 0:
 		return "nothing"
 	var field := get_tree().get_first_node_in_group("leaf_field")
+	# Picky owners want it cleaner before they're happy, and call it a mess sooner.
+	var standards := _standards()
+	var clean_enough := clampf(CLEAN_ENOUGH + (standards - 0.3) * 0.25, 0.7, 0.97)
+	var messy_below := clampf(MESSY_BELOW + (standards - 0.3) * 0.3, 0.3, 0.75)
 	# How done the whole job is: the leaves and every task asked for, weighed alike.
 	var clean := float(field.call("cleaned_fraction")) if field != null else 0.0
 	var tasks := get_tree().get_first_node_in_group("job_tasks")
 	if tasks != null:
-		var parts := [clampf(clean / CLEAN_ENOUGH, 0.0, 1.0)]
+		var parts := [clampf(clean / clean_enough, 0.0, 1.0)]
 		for task: String in (tasks.get("active") as PackedStringArray):
 			if Constants.TASK_PAY.has(task):
 				parts.append(float(tasks.call("progress", task)))
 		var total := 0.0
 		for part: float in parts:
 			total += part
-		clean = total / float(parts.size()) * CLEAN_ENOUGH
-	var slow := Campaign.job_minutes() > Constants.HOMEOWNER_PATIENCE_MINUTES
+		clean = total / float(parts.size()) * clean_enough
+	var patience := Constants.HOMEOWNER_PATIENCE_MINUTES
+	if Campaign.has_perk("sweet_talk"):
+		patience *= Constants.SWEET_TALK_PATIENCE
+	var slow := Campaign.job_minutes() > patience
 	var mood := "fine"
-	if clean < MESSY_BELOW:
+	if clean < messy_below:
 		mood = "messy"
 	elif slow:
 		mood = "slow"
-	elif clean >= CLEAN_ENOUGH:
+	elif clean >= clean_enough:
 		mood = "thrilled" if _rng.randf() < 0.6 else "happy"
 	else:
 		mood = "happy" if _rng.randf() < 0.5 else "fine"

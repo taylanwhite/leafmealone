@@ -78,7 +78,6 @@ const UI: Dictionary = {
 	"shop_rake_blurb": "Raking moves %.2fx as many leaves.",
 	"shop_barrow_name": "Bigger wheelbarrow",
 	"shop_barrow_blurb": "Holds %d bags instead of %d.",
-	"clerk_name": "[CLERK NAME]",
 	"homeowner_name": "[HOMEOWNER NAME]",
 	"prompt_talk": "Talk to the homeowner",
 	"prompt_toss_truck": "Toss into Chefty",
@@ -161,7 +160,101 @@ const UI: Dictionary = {
 	"receipt_split": "Your crew's split",
 	"receipt_close": "Nice",
 	"receipt_no_homeowner": "Paid for the cleanup",
+	# The spine (docs/SPINE.md): the day, sleeping, the crew's rank, the town, the phone.
+	"prompt_cot": "Lie down  (%d of %d in bed)",
+	"prompt_cot_lying": "Zzz... %d of %d in bed. Move to get up",
+	"prompt_cot_host": "Zzz... %d of %d in bed. Hold E: everyone to bed",
+	"camp_sign": "CREW CAMP\nmanagement is not responsible",
+	"hud_clock": "Day %d  %s",
+	"hud_quiet_hours": "Quiet hours: +%d%% pay, noise draws more heat",
+	"hud_closed": "2 AM. Go to bed, the crew camp is by the side wall",
+	"hud_rank": "%s",
+	"hud_unread": "%d new texts  (Tab)",
+	"hud_xp": "%d / %d XP  (+%d tonight)",
+	"goal_no_jobs": "No jobs right now. Check your phone (Tab), or sleep it off at the crew camp",
+	"goal_sleep": "It's 2 AM. Sleep at the crew camp by the side wall",
+	"board_client_line": "%s, %s",
+	"board_none": "Nobody's asked for a job yet. Wait for a text, or sleep on it.",
+	"receipt_bonus": "Night shift and rank bonus",
+	"receipt_xp": "Crew XP (banked when you sleep)",
+	"summary_title": "Day %d is over",
+	"summary_jobs": "Jobs done: %d",
+	"summary_cash": "Cash earned: $%d",
+	"summary_stars": "Stars: %d",
+	"summary_xp": "XP banked: +%d",
+	"summary_rank": "Crew rank: %s",
+	"summary_rank_up": "RANK UP: %s",
+	"summary_unlock": "  Unlocked: %s",
+	"summary_requests": "%d clients texted for tomorrow",
+	"summary_missed": "%d jobs went to somebody else",
+	"summary_opened": "New neighborhood: %s",
+	"summary_close": "Rise and shine",
+	"shop_needs_rank": "Rank: %s",
+	"phone_title": "Crew Phone",
+	"phone_tab_texts": "Texts",
+	"phone_tab_clients": "Clients",
+	"phone_tab_map": "Map",
+	"phone_tab_crew": "Crew",
+	"phone_close": "Put it away (Tab)",
+	"phone_no_texts": "No texts yet.",
+	"phone_take_job": "Take it",
+	"phone_job_up_next": "Up next",
+	"phone_client_line": "%s  ·  %s",
+	"phone_client_detail": "%s · %s · %d jobs · last here: %s",
+	"phone_last_never": "never",
+	"phone_last_today": "today",
+	"phone_last_days": "%d days ago",
+	"phone_hood_open": "%s  (%d clients)",
+	"phone_hood_locked": "%s  (opens at %s)",
+	"phone_hood_waiting": "%s  (open, waiting for a referral)",
+	"phone_next_unlock": "Next: %s at %s",
+	"phone_perks": "Perks: %s",
+	"clerk_name": "Marty",
 }
+
+## What a rank unlock reads as, on the summary card and the phone.
+const UNLOCK_NAMES: Dictionary = {
+	"perk:extra_request": "one more job text every morning",
+	"perk:extra_request_2": "another job text every morning",
+	"perk:extra_request_3": "yet another job text every morning",
+	"perk:sweet_talk": "homeowners wait 25% longer before they get cranky",
+	"perk:bag_bonus": "leaf bags are worth 10% more",
+	"perk:bag_bonus_2": "leaf bags are worth another 10% more",
+	"perk:bag_bonus_3": "leaf bags are worth yet another 10% more",
+	"perk:night_owl": "quiet-hours jobs pay 10% more",
+	"perk:night_owl_2": "quiet-hours jobs pay another 10% more",
+	"perk:cool_heads": "heat cools 25% faster",
+	"perk:cool_heads_2": "heat cools another 25% faster",
+	"perk:word_of_mouth": "clients refer neighbors sooner",
+	"perk:word_of_mouth_2": "clients refer neighbors even sooner",
+	"perk:chefty_tuneup": "Chefty gets a tune-up and drives faster",
+	"perk:big_spenders": "clients pay 15% more",
+	"perk:big_spenders_2": "clients pay another 15% more",
+	"perk:hire_slot_2": "room for a second hire",
+	"perk:hire_slot_3": "room for a third hire",
+	"perk:hire_slot_4": "room for a fourth hire",
+	"feature:rival": "TurfMasters™ move into town (uh oh)",
+	"feature:hiring": "hiring: crew hands who rake and haul",
+	"feature:garage": "a rented garage for the crew",
+	"feature:barn": "a barn for the crew",
+	"feature:warehouse": "a warehouse for the crew",
+	"feature:lawnfather": "the endless rank: The Lawnfather",
+	"shop:rake_tier_1": "the rake tune-up at Homie Depot",
+	"shop:wheelbarrow_tier_1": "the bigger wheelbarrow at Homie Depot",
+}
+
+
+## What an unlock id reads as: "the ladder at Homie Depot", "Oak Hollow opens".
+static func unlock_name(unlock: String) -> String:
+	if UNLOCK_NAMES.has(unlock):
+		return str(UNLOCK_NAMES[unlock])
+	if unlock.begins_with("shop:"):
+		var tool := unlock.trim_prefix("shop:")
+		return "the %s at Homie Depot" % str(UI.get("tool_" + tool, tool)).to_lower()
+	if unlock.begins_with("hood:"):
+		var hood_id := unlock.trim_prefix("hood:")
+		return "%s opens" % hood_id.capitalize()
+	return unlock
 
 ## What the homeowner says when you report the job done, by mood. Taylan wrote the
 ## first two on 2026-10-19. The rest are plain stand-ins until there are real lines.

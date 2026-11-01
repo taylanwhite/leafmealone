@@ -139,6 +139,28 @@ jobs:
           grep "BrawlTest" build/soak/ci-brawl/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-brawl/host.json'))['brawl_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Day test (the clock, sleeping, XP banked at bedtime, rank-ups, quiet hours, 2 AM)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-day
+          "$GODOT" --headless --path . -- --host --port=7803 --name=Tester --no-steam --day-test --measure="$PWD/build/soak/ci-day/host.json" --run-seconds=30 > build/soak/ci-day/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7803 --name=Target --no-steam --measure="$PWD/build/soak/ci-day/target.json" --run-seconds=26 > build/soak/ci-day/target.log 2>&1
+          wait
+          grep "DayTest" build/soak/ci-day/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-day/host.json')); t=json.load(open('build/soak/ci-day/target.json')); sys.exit(0 if h['day_test'].get('ok') and h['day'] == t['day'] else 1)"
+
+      - name: Town test (clients, requests, a paid job, referrals, regrowth, a new neighborhood)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-town
+          "$GODOT" --headless --path . -- --host --port=7804 --name=Tester --no-steam --town-test --measure="$PWD/build/soak/ci-town/host.json" --run-seconds=40 > build/soak/ci-town/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7804 --name=Target --no-steam --measure="$PWD/build/soak/ci-town/target.json" --run-seconds=36 > build/soak/ci-town/target.log 2>&1
+          wait
+          grep "TownTest" build/soak/ci-town/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-town/host.json')); t=json.load(open('build/soak/ci-town/target.json')); sys.exit(0 if h['town_test'].get('ok') and h['town'] == t['town'] else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi

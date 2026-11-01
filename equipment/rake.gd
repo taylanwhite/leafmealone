@@ -62,7 +62,7 @@ func _physics_process(delta: float) -> void:
 			if _rake_wait <= 0.0:
 				_rake_wait = Constants.RAKE_STROKE_SECONDS
 				_stroke(player, false, Constants.RAKE_STRENGTH, Constants.RAKE_WIDTH)
-		elif _hand_wait <= 0.0:
+		elif _hand_wait <= 0.0 and not bool(player.get("winding")) and not bool(player.call("wants_punch")):
 			_hand_wait = HAND_STROKE_SECONDS
 			_hand_rake(player)
 	elif Input.is_action_just_pressed("secondary"):

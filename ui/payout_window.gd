@@ -59,6 +59,10 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 			_line(_Strings.UI["receipt_stars"] % _Strings.stars(float(settlement["stars"])), "", ORANGE.darkened(0.1), 20)
 	else:
 		_line(_Strings.UI["receipt_no_homeowner"], "", INK)
+	if float(settlement.get("bonus", 0.0)) > 0.0:
+		_line(_Strings.UI["receipt_bonus"], "+%d%%" % int(round(float(settlement["bonus"]) * 100.0)), GREEN)
+	if int(settlement.get("xp", 0)) > 0:
+		_line(_Strings.UI["receipt_xp"], "+%d XP" % int(settlement["xp"]), ORANGE.darkened(0.1))
 	_rows.add_child(HSeparator.new())
 	_rows.add_child(_text(_Strings.UI["receipt_split"], 16, INK.lightened(0.3)))
 	for row: Dictionary in results:

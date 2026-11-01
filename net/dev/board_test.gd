@@ -36,7 +36,10 @@ func _run() -> void:
 	await get_tree().create_timer(4.0).timeout
 	var ok := true
 	var offers: Array = (board.get("offers") as Array).duplicate(true)
-	var up := offers.size() == Constants.JOB_BOARD_OFFERS
+	# With the town (net/town/town.gd) the offers are today's requests from clients.
+	var town := get_tree().get_first_node_in_group("town")
+	var expected_count := (town.get("requests") as Array).size() if town != null else Constants.JOB_BOARD_OFFERS
+	var up := offers.size() == expected_count and offers.size() >= 3
 	print("[BoardTest] offers up: %d, ok=%s" % [offers.size(), up])
 	ok = ok and up
 	board.call("request_choose", 2)
@@ -71,13 +74,23 @@ func _run() -> void:
 	var held := int(board.get("chosen")) == 2
 	print("[BoardTest] can't change the pick once the job is set: %s" % held)
 	ok = ok and held
-	# Back at the store, new offers.
-	world.call("_free_lot")
-	await get_tree().create_timer(0.5).timeout
-	var fresh: Array = board.get("offers")
-	var new_ones := fresh.size() == Constants.JOB_BOARD_OFFERS and int(fresh[0]["seed"]) != int(offers[0]["seed"]) and int(board.get("chosen")) == 0
-	print("[BoardTest] new offers once the job is over: %s" % new_ones)
-	ok = ok and new_ones
+	if town != null:
+		# The paid job's request is done; the other clients are still waiting.
+		var picked_house := int(expected.get("house_id", -1))
+		Campaign.finish_job(100.0, {"mood": "happy", "tasks": []})
+		await get_tree().create_timer(0.3).timeout
+		var requests: Array = town.get("requests")
+		var done := not requests.has(picked_house) and requests.size() == offers.size() - 1
+		print("[BoardTest] the paid job's request is gone, %d others wait: %s" % [requests.size(), done])
+		ok = ok and done
+	else:
+		# Back at the store, new offers.
+		world.call("_free_lot")
+		await get_tree().create_timer(0.5).timeout
+		var fresh: Array = board.get("offers")
+		var new_ones := fresh.size() == Constants.JOB_BOARD_OFFERS and int(fresh[0]["seed"]) != int(offers[0]["seed"]) and int(board.get("chosen")) == 0
+		print("[BoardTest] new offers once the job is over: %s" % new_ones)
+		ok = ok and new_ones
 	result = {"ok": ok}
 	print("[BoardTest] all ok: %s" % ok)
 

@@ -144,10 +144,12 @@ func _touching_hazard(body: Node3D) -> bool:
 	for index: int in _hazards.size():
 		if not _hazards[index].visible:
 			continue
-		var radius := float(_Layout.call("hit_radius", index))
-		var flat := Vector2(body.global_position.x, body.global_position.z)
-		var hazard := _hazards[index].global_position
-		if flat.distance_to(Vector2(hazard.x, hazard.z)) <= radius:
+		# The bar's own footprint, grown by the body's radius: standing anywhere
+		# it sweeps gets you, including pressed against the lane's edge.
+		var size: Vector3 = _Layout.call("mesh_size", index)
+		var reach := float(_Layout.call("hit_radius", index))
+		var offset := body.global_position - _hazards[index].global_position
+		if absf(offset.x) <= size.x * 0.5 + reach and absf(offset.z) <= size.z * 0.5 + reach:
 			return true
 	return false
 
@@ -271,6 +273,8 @@ func _build_visuals() -> void:
 		material.emission_enabled = true
 		material.emission = Color(0.85, 0.12, 0.05)
 		view.material_override = material
+		# Glowing on purpose: the shared look must not repaint it.
+		view.set_meta("keep_material", true)
 		add_child(view)
 		_hazards.append(view)
 
@@ -297,6 +301,7 @@ func _build_lane(border: Node3D, lane: int) -> void:
 	exit_material.emission_enabled = true
 	exit_material.emission = Color(0.15, 0.55, 0.2)
 	exit_pad.material_override = exit_material
+	exit_pad.set_meta("keep_material", true)
 	exit_pad.position = Vector3(center_x, 0.06, float(_Layout.HALF_LENGTH) - 0.6)
 	border.add_child(exit_pad)
 	_guides.append(exit_pad)

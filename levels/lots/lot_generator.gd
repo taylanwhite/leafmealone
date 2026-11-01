@@ -47,6 +47,8 @@ var _no_lawn: Array[Rect2] = []
 var _layout_hash: int = 0
 ## 0 small, 1 regular, 2 big.
 var _size: int = 1
+## Set by job_lot before generate(): how grown back the leaves are (net/town/town.gd).
+var mess: float = 1.0
 
 
 func generate(job_seed: int, tasks: PackedStringArray, yard_size: int = 1) -> void:
@@ -432,6 +434,8 @@ func _shape_leaves(lot: Node3D) -> void:
 	var house := _house_rect
 	var spread := _rng.randf_range(4.5, 6.5)
 	var base := _rng.randf_range(0.45, 0.75) * float(Constants.YARD_LEAVES[_size])
+	# A yard done recently has had less time to fill back up.
+	var grown := clampf(mess, 0.0, 1.5)
 	field.call("shape_initial", func(world: Vector3) -> float:
 		var local := lot.to_local(world)
 		if Rect2(house.position, Vector2(house.size.x, house.size.y - 3.0)).grow(-0.4).has_point(Vector2(local.x, local.z)):
@@ -449,7 +453,7 @@ func _shape_leaves(lot: Node3D) -> void:
 			return 0.0
 		if Rect2(-10.0, 12.0, 6.5, 7.0).has_point(Vector2(local.x, local.z)):
 			return 0.0
-		return clampf(amount, 0.0, 2.6)
+		return clampf(amount * grown, 0.0, 2.6)
 	)
 
 

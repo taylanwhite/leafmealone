@@ -70,6 +70,16 @@ func _ready() -> void:
 	var task_list := preload("res://ui/task_list.gd").new()
 	task_list.name = "TaskList"
 	add_child(task_list)
+	# The spine (docs/SPINE.md): the clock and rank, the day's summary, the phone.
+	var day_hud := preload("res://ui/day_hud.gd").new()
+	day_hud.name = "DayHud"
+	add_child(day_hud)
+	var summary := preload("res://ui/day_summary.gd").new()
+	summary.name = "DaySummary"
+	add_child(summary)
+	var phone := preload("res://ui/phone.gd").new()
+	phone.name = "Phone"
+	add_child(phone)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = "Dev host (ENet)"

@@ -192,6 +192,8 @@ func _physics_process(delta: float) -> void:
 			_apply_look()
 		if _hidden_spot != null or in_pile:
 			velocity = Vector3.ZERO
+		elif _step_sleep():
+			pass
 		elif carried_by != 0:
 			_step_carried(delta)
 		elif _throwback_left > 0.0:
@@ -262,6 +264,36 @@ func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and bool(director.call("is_captured", peer_id)):
 		say("vo_yelp")
+
+
+## Lying on a cot (net/day/day_clock.gd decides who sleeps): still, eyes low,
+## lying on the n-th cot. Any movement key gets you up. Returns true while asleep.
+var _was_sleeping: bool = false
+
+
+func _step_sleep() -> bool:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var asleep := clock != null and bool(clock.call("is_sleeping", name.to_int()))
+	if not asleep:
+		if _was_sleeping:
+			_was_sleeping = false
+			%FirstPerson.position.y = 0.0
+		return false
+	if not _was_sleeping:
+		_was_sleeping = true
+		_release_held(false)
+		var spot := (clock.get("sleepers") as Array).find(name.to_int())
+		var cots := get_tree().get_nodes_in_group("cots")
+		for cot: Node in cots:
+			if int(cot.get("index")) == spot:
+				global_position = (cot.call("bed_transform") as Transform3D).origin
+				reset_physics_interpolation()
+	velocity = Vector3.ZERO
+	%FirstPerson.position.y = -0.9
+	for action: StringName in [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump"]:
+		if Input.is_action_just_pressed(action) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+			clock.call("request_sleep", false)
+	return true
 
 
 ## Called on every peer by the host's hide spot. Null means this player came out.
@@ -588,6 +620,10 @@ func _step_punch(delta: float) -> void:
 	_swing_left = maxf(0.0, _swing_left - delta)
 	var can := _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not is_up_high()
 	var pressing := can and _punch_cool <= 0.0 and Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	# Empty hands on leaves rake by hand (equipment/rake.gd). A wind-up only
+	# starts there when someone is in front to hit; once started it keeps going.
+	if pressing and _punch_wind < 0.0 and not wants_punch():
+		pressing = false
 	if pressing:
 		if _punch_wind < 0.0:
 			_punch_wind = 0.0
@@ -610,6 +646,20 @@ func _step_punch(delta: float) -> void:
 		tier = "medium"
 	get_tree().get_first_node_in_group("brawl").call("request_punch", tier)
 	say_to_all("vo_heave" if tier == "heavy" else "vo_hup")
+
+
+## Whether left click with empty hands means a punch rather than hand raking:
+## always off the leaves, and on them only with someone in reach in front.
+func wants_punch() -> bool:
+	if _punch_wind >= 0.0:
+		return true
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	if field == null or Net.player_zone(name.to_int()) != Net.Zone.LOT:
+		return true
+	if int(field.call("units_within_world", global_position - global_basis.z * 0.9, 0.9)) <= 0:
+		return true
+	var brawl := get_tree().get_first_node_in_group("brawl")
+	return brawl != null and brawl.call("person_in_front", self, Constants.PUNCH_REACH, name.to_int()) != null
 
 
 ## Wound up so long the world spun: down you go for a moment.

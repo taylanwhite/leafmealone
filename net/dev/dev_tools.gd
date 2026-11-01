@@ -45,6 +45,10 @@ func _ready() -> void:
 		_add(preload("res://net/dev/bonk_test.gd").new(), "BonkTest")
 	if bool(options.get("job_test")):
 		_add(preload("res://net/dev/job_test.gd").new(), "JobTest")
+	if bool(options.get("day_test")):
+		_add(preload("res://net/dev/day_test.gd").new(), "DayTest")
+	if bool(options.get("town_test")):
+		_add(preload("res://net/dev/town_test.gd").new(), "TownTest")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
 		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:

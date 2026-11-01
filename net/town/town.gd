@@ -1,0 +1,554 @@
+extends Node
+
+## Authority: host. The persistent town (docs/SPINE.md, "The town"): every
+## house in every neighborhood, its homeowner, what they think of the crew, and
+## when the crew was last there. Saved with the campaign. Houses are made once
+## from the town's seed, so the same address is always the same yard and the
+## same person.
+##
+## Each morning some clients text a job (requests). The job board at Homie Depot
+## offers today's requests; Chefty drives to the picked one. When the job is paid
+## the client's relationship moves by the review, and a happy client refers a
+## neighbor. Neighborhoods open with rank (core/ranks.gd "hood:<id>") and a
+## referral into them.
+##
+## The whole town is small (about 50 houses), so the host sends it all, reliably,
+## whenever it changes. Clients only read it.
+
+signal changed
+## A new text for the phone (ui/phone.gd).
+signal texted(text: Dictionary)
+
+const _Hoods = preload("res://net/town/neighborhoods.gd")
+const _JobBoard = preload("res://levels/job_board.gd")
+## Texts kept for the phone, newest last.
+const MAX_TEXTS: int = 40
+## In-game hours when a client may text a job during the day.
+const DAYTIME_TEXT_HOURS: Array[float] = [10.0, 13.0, 16.0, 19.0]
+const DAYTIME_TEXT_CHANCE: float = 0.5
+
+var town_seed: int = 0
+## Every house: {id, hood, number, street, seed, size, owner: {first, last,
+## personality, standards, budget, likes}, known, relationship, last_day, jobs,
+## referred}. Index in this array is the house id.
+var houses: Array = []
+## House ids that texted a job and haven't been done yet.
+var requests: Array = []
+## Phone texts: {day, hour, from, kind, text, house}.
+var texts: Array = []
+## The house the crew is working on right now, or -1.
+var current_house: int = -1
+
+var _day: int = 1
+var _daytime_checked: int = -1
+
+
+func _ready() -> void:
+	add_to_group("town")
+	Net.player_joined.connect(_on_player_joined)
+	if not Net.is_host():
+		if multiplayer.multiplayer_peer != null:
+			_rpc_request_state.rpc_id(1)
+		return
+	var saved := Campaign.save_section("town")
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	_day = int(clock.get("day")) if clock != null else 1
+	if saved.is_empty() or (saved.get("houses", []) as Array).is_empty():
+		_new_town()
+	else:
+		town_seed = int(saved.get("seed", 1))
+		houses = (saved.get("houses", []) as Array).duplicate(true)
+		requests = (saved.get("requests", []) as Array).duplicate()
+		texts = (saved.get("texts", []) as Array).duplicate(true)
+		_daytime_checked = int(saved.get("daytime_checked", -1))
+	Campaign.add_save_hook(_save_section)
+	_broadcast()
+
+
+func _process(_delta: float) -> void:
+	if not Net.is_host():
+		return
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock == null:
+		return
+	# Now and then during the day, a client texts a job.
+	var hour := float(clock.call("hour"))
+	for slot: int in DAYTIME_TEXT_HOURS.size():
+		if slot > _daytime_checked and hour >= DAYTIME_TEXT_HOURS[slot]:
+			_daytime_checked = slot
+			var rng := RandomNumberGenerator.new()
+			rng.seed = hash([town_seed, _day, slot])
+			if rng.randf() < DAYTIME_TEXT_CHANCE:
+				if _ask_for_jobs(1, rng) > 0:
+					_broadcast()
+
+
+# ---------------------------------------------------------------- reading
+
+func house(house_id: int) -> Dictionary:
+	if house_id < 0 or house_id >= houses.size():
+		return {}
+	return houses[house_id]
+
+
+## The house whose yard has this seed, or -1 (a test yard).
+func house_by_seed(seed_value: int) -> int:
+	for entry: Dictionary in houses:
+		if int(entry["seed"]) == seed_value:
+			return int(entry["id"])
+	return -1
+
+
+func known_houses() -> Array:
+	var out: Array = []
+	for entry: Dictionary in houses:
+		if bool(entry.get("known", false)):
+			out.append(entry)
+	return out
+
+
+## "Barb Featherstone"
+func owner_name(house_id: int) -> String:
+	var entry := house(house_id)
+	if entry.is_empty():
+		return ""
+	var owner: Dictionary = entry["owner"]
+	return "%s %s" % [owner["first"], owner["last"]]
+
+
+## "14 Maple Row"
+func address(house_id: int) -> String:
+	var entry := house(house_id)
+	if entry.is_empty():
+		return ""
+	return "%d %s" % [int(entry["number"]), str(entry["street"])]
+
+
+## How grown back a yard is today: full the first time, then regrowing each day.
+func mess(house_id: int, on_day: int = -1) -> float:
+	var entry := house(house_id)
+	if entry.is_empty():
+		return 1.0
+	var today := _day if on_day < 0 else on_day
+	var last := int(entry.get("last_day", -1))
+	if last < 0:
+		return Constants.TOWN_FIRST_MESS
+	return clampf(float(today - last) * Constants.TOWN_REGROW_PER_DAY, Constants.TOWN_MIN_MESS, 1.0)
+
+
+func is_hood_open(hood_id: String) -> bool:
+	if _Hoods.index_of(hood_id) <= 0:
+		return true
+	return Campaign.has_unlock("hood:" + hood_id)
+
+
+## Today's job offers for the board (levels/job_board.gd): one per request.
+func offers() -> Array:
+	var out: Array = []
+	for house_id: Variant in requests:
+		out.append(offer_for(int(house_id)))
+	return out
+
+
+## The job at one house today: its yard, its regrowth, and what the owner wants.
+func offer_for(house_id: int) -> Dictionary:
+	var entry := house(house_id)
+	if entry.is_empty():
+		return {}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([int(entry["seed"]), _day])
+	var size := int(entry["size"])
+	var tasks: PackedStringArray = _JobBoard.choose_tasks(rng, size)
+	# Their favorite work, if the crew can do it and it isn't asked already.
+	var likes := str((entry["owner"] as Dictionary).get("likes", ""))
+	if likes != "" and not tasks.has(likes) and _can_do(likes, size):
+		tasks.append(likes)
+	var hood := _Hoods.get_hood(str(entry["hood"]))
+	var owner: Dictionary = entry["owner"]
+	return {
+		"seed": int(entry["seed"]),
+		"house": int(entry["number"]),
+		"street": str(entry["street"]),
+		"size": size,
+		"tasks": tasks,
+		"house_id": house_id,
+		"client": owner_name(house_id),
+		"hood": str(entry["hood"]),
+		"hood_name": str(hood["name"]),
+		"mess": mess(house_id),
+		"budget": budget(house_id),
+		"standards": standards(house_id),
+		"relationship": float(entry.get("relationship", 0.0)),
+	}
+
+
+## Pay multiplier at a house: the neighborhood's, the owner's, and the crew's perks.
+func budget(house_id: int) -> float:
+	var entry := house(house_id)
+	if entry.is_empty():
+		return 1.0
+	var value := float(_Hoods.get_hood(str(entry["hood"]))["budget"]) * (1.0 + float((entry["owner"] as Dictionary)["budget"]))
+	if Campaign.has_perk("big_spenders"):
+		value *= 1.0 + Constants.BIG_SPENDERS_BUDGET
+	if Campaign.has_perk("big_spenders_2"):
+		value *= 1.0 + Constants.BIG_SPENDERS_BUDGET
+	return value
+
+
+## How picky the owner is, 0 to 1.
+func standards(house_id: int) -> float:
+	var entry := house(house_id)
+	if entry.is_empty():
+		return 0.3
+	return clampf(float((entry["owner"] as Dictionary)["standards"]), 0.0, 1.0)
+
+
+## How much faster noise heats the crew at the house being worked.
+func heat_scale() -> float:
+	var entry := house(current_house)
+	if entry.is_empty():
+		return 1.0
+	return float(_Hoods.get_hood(str(entry["hood"]))["heat"])
+
+
+# ---------------------------------------------------------------- host hooks
+
+## The crew picked this house's job and is heading out.
+func start_job(house_id: int) -> void:
+	if not Net.is_host():
+		return
+	current_house = house_id
+	_broadcast()
+
+
+## Campaign.finish_job: the homeowner paid (or didn't). Move the relationship by
+## the review, mark the visit, maybe a referral.
+func on_job_finished(_fraction: float, details: Dictionary) -> void:
+	if not Net.is_host() or current_house < 0:
+		return
+	var entry: Dictionary = houses[current_house]
+	var stars := int(details.get("stars", 0))
+	var first_time := int(entry.get("jobs", 0)) == 0
+	if stars > 0:
+		entry["relationship"] = clampf(float(entry.get("relationship", 0.0)) + float(stars - 3) * Constants.TOWN_RELATIONSHIP_PER_STAR + 2.0, 0.0, 100.0)
+	entry["jobs"] = int(entry.get("jobs", 0)) + 1
+	entry["last_day"] = _day
+	houses[current_house] = entry
+	requests.erase(current_house)
+	if first_time:
+		Campaign.add_xp(Constants.XP_NEW_CLIENT, "new_client")
+	_maybe_refer(current_house)
+	current_house = -1
+	_broadcast()
+
+
+## DayClock at bedtime: a new day. Returns what happened, for the summary card.
+func on_new_day(new_day: int) -> Dictionary:
+	if not Net.is_host():
+		return {}
+	_day = new_day
+	_daytime_checked = -1
+	# Yesterday's requests nobody took: they went with someone else.
+	var missed := requests.size()
+	for house_id: Variant in requests:
+		var entry: Dictionary = houses[int(house_id)]
+		entry["relationship"] = maxf(0.0, float(entry.get("relationship", 0.0)) - 3.0)
+	requests.clear()
+	var opened := _open_new_hoods()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([town_seed, _day, "morning"])
+	var asked := _ask_for_jobs(requests_per_day(), rng)
+	_broadcast()
+	return {"requests": asked, "missed": missed, "opened": opened}
+
+
+## How many clients text a job each morning.
+func requests_per_day() -> int:
+	var count := Constants.TOWN_REQUESTS_PER_DAY
+	for perk: String in ["extra_request", "extra_request_2", "extra_request_3"]:
+		if Campaign.has_perk(perk):
+			count += 1
+	return count
+
+
+## Tests and dev: make sure there's a job to go to.
+func dev_request(house_id: int) -> void:
+	if Net.is_host() and not requests.has(house_id):
+		requests.append(house_id)
+		_broadcast()
+
+
+# ---------------------------------------------------------------- making the town
+
+func _new_town() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	town_seed = rng.randi_range(1, 2147483646)
+	if Net.is_automated() or float(Net.dev_options().get("run_seconds")) > 0.0:
+		# Tests get the same town every run.
+		town_seed = 20261101
+	rng.seed = town_seed
+	houses.clear()
+	var used_names := {}
+	for hood_index: int in _Hoods.count():
+		var hood: Dictionary = _Hoods.HOODS[hood_index]
+		var streets: Array = hood["streets"]
+		var numbers := {}
+		for index: int in int(hood["houses"]):
+			var street := str(streets[index % streets.size()])
+			var number := 0
+			while number == 0 or numbers.has("%s %d" % [street, number]):
+				number = rng.randi_range(2, 98) * 2 + (index % 2)
+			numbers["%s %d" % [street, number]] = true
+			houses.append(_make_house(houses.size(), hood, number, street, rng, used_names))
+	# Day one: a few neighbors in Maple Row already know you.
+	var starters: Array = []
+	for entry: Dictionary in houses:
+		if str(entry["hood"]) == "maple_row":
+			starters.append(int(entry["id"]))
+	for pick: int in mini(Constants.TOWN_STARTING_CLIENTS, starters.size()):
+		var house_id := int(starters[pick])
+		houses[house_id]["known"] = true
+		houses[house_id]["relationship"] = Constants.TOWN_START_RELATIONSHIP
+	requests.clear()
+	texts.clear()
+	_text("clerk", "intro", "Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. Sleep on the cots out back when you're beat.", -1)
+	# On day one everybody you know wants you.
+	for house_id: Variant in starters.slice(0, Constants.TOWN_STARTING_CLIENTS):
+		_add_request(int(house_id), rng)
+
+
+func _make_house(house_id: int, hood: Dictionary, number: int, street: String, rng: RandomNumberGenerator, used_names: Dictionary) -> Dictionary:
+	var sizes: Array = hood["sizes"]
+	var roll := rng.randf()
+	var size := 2
+	if roll < float(sizes[0]):
+		size = 0
+	elif roll < float(sizes[0]) + float(sizes[1]):
+		size = 1
+	var first := ""
+	var last := ""
+	for attempt: int in 20:
+		first = _Hoods.FIRST_NAMES[rng.randi() % _Hoods.FIRST_NAMES.size()]
+		last = _Hoods.LAST_NAMES[rng.randi() % _Hoods.LAST_NAMES.size()]
+		if not used_names.has(first + last):
+			break
+	used_names[first + last] = true
+	var kinds: Array = _Hoods.PERSONALITIES.keys()
+	var personality := str(kinds[rng.randi() % kinds.size()])
+	var nudge: Dictionary = _Hoods.PERSONALITIES[personality]
+	var range_of: Vector2 = hood["standards"]
+	var likes_from: Array[String] = ["", "mow_lawn", "trim_hedges", "wash_windows", "clean_gutters", "power_wash", "paint_fence", "pull_weeds"]
+	return {
+		"id": house_id,
+		"hood": str(hood["id"]),
+		"number": number,
+		"street": street,
+		"seed": rng.randi_range(1, 2147483646),
+		"size": size,
+		"owner": {
+			"first": first,
+			"last": last,
+			"personality": personality,
+			"standards": clampf(rng.randf_range(range_of.x, range_of.y) + float(nudge["standards"]), 0.0, 1.0),
+			"budget": float(nudge["budget"]),
+			"likes": likes_from[rng.randi() % likes_from.size()],
+		},
+		"known": false,
+		"relationship": 0.0,
+		"last_day": -1,
+		"jobs": 0,
+		"referred": false,
+	}
+
+
+# ---------------------------------------------------------------- requests and referrals
+
+## Up to count known clients with grown-back yards text a job. Returns how many did.
+func _ask_for_jobs(count: int, rng: RandomNumberGenerator) -> int:
+	var candidates: Array = []
+	for entry: Dictionary in houses:
+		var house_id := int(entry["id"])
+		if not bool(entry.get("known", false)) or requests.has(house_id) or house_id == current_house:
+			continue
+		if not is_hood_open(str(entry["hood"])):
+			continue
+		if mess(house_id) < Constants.TOWN_REQUEST_MIN_MESS:
+			continue
+		# Messier yards and happier clients ask first, with some luck mixed in.
+		var weight := mess(house_id) + float(entry.get("relationship", 0.0)) / 100.0 + rng.randf() * 0.6
+		candidates.append([weight, house_id])
+	candidates.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) > float(b[0]))
+	var asked := 0
+	for pair: Array in candidates:
+		if asked >= count:
+			break
+		_add_request(int(pair[1]), rng)
+		asked += 1
+	return asked
+
+
+func _add_request(house_id: int, rng: RandomNumberGenerator) -> void:
+	if requests.has(house_id):
+		return
+	requests.append(house_id)
+	var entry: Dictionary = houses[house_id]
+	var lines := [
+		"Leaves are back. You know where I live. %s.",
+		"Can your crew come by today? %s. Bring the good rake.",
+		"It's a jungle out here again. %s, whenever you can.",
+		"Hi it's me. The yard. %s. Please.",
+		"My spouse says the yard is \"a disgrace\". %s. Help.",
+	]
+	var line := str(lines[rng.randi() % lines.size()]) % address(house_id)
+	_text(owner_name(house_id), "request", line, house_id)
+
+
+## A client happy enough sends a neighbor your way: someone unknown in an open
+## neighborhood, theirs first.
+func _maybe_refer(from_house: int) -> void:
+	var entry: Dictionary = houses[from_house]
+	var needed := Constants.TOWN_REFERRAL_AT
+	if Campaign.has_perk("word_of_mouth"):
+		needed -= 10.0
+	if Campaign.has_perk("word_of_mouth_2"):
+		needed -= 10.0
+	if bool(entry.get("referred", false)) or float(entry.get("relationship", 0.0)) < needed:
+		return
+	var target := _unknown_in(str(entry["hood"]))
+	if target < 0:
+		# Their street is all yours already: someone in the next open neighborhood.
+		for hood: Dictionary in _Hoods.HOODS:
+			if is_hood_open(str(hood["id"])):
+				target = _unknown_in(str(hood["id"]))
+				if target >= 0:
+					break
+	if target < 0:
+		return
+	entry["referred"] = true
+	houses[from_house] = entry
+	_meet(target, owner_name(from_house))
+
+
+func _unknown_in(hood_id: String) -> int:
+	for entry: Dictionary in houses:
+		if str(entry["hood"]) == hood_id and not bool(entry.get("known", false)):
+			return int(entry["id"])
+	return -1
+
+
+## A new client: known now, starting relationship, and they text right away.
+func _meet(house_id: int, referred_by: String) -> void:
+	var entry: Dictionary = houses[house_id]
+	entry["known"] = true
+	entry["relationship"] = Constants.TOWN_START_RELATIONSHIP
+	houses[house_id] = entry
+	var hood := _Hoods.name_of(str(entry["hood"]))
+	var how := "%s says you're good with a rake." % referred_by if referred_by != "" else "Saw your truck around."
+	_text(owner_name(house_id), "referral", "Hi! %s I'm at %s in %s. Got leaves?" % [how, address(house_id), hood], house_id)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([town_seed, _day, house_id])
+	_add_request(house_id, rng)
+	Campaign.add_xp(Constants.XP_NEW_CLIENT / 2, "referral")
+
+
+## A neighborhood the rank just opened, with nobody there yet: the best client
+## next door refers someone, or the clerk passes on a lead, so the town never stalls.
+func _open_new_hoods() -> Array:
+	var opened: Array = []
+	for hood_index: int in range(1, _Hoods.count()):
+		var hood_id := str(_Hoods.HOODS[hood_index]["id"])
+		if not is_hood_open(hood_id):
+			continue
+		var anyone := false
+		for entry: Dictionary in houses:
+			if str(entry["hood"]) == hood_id and bool(entry.get("known", false)):
+				anyone = true
+				break
+		if anyone:
+			continue
+		var target := _unknown_in(hood_id)
+		if target < 0:
+			continue
+		var best := -1
+		var best_relationship := -1.0
+		for entry: Dictionary in houses:
+			if bool(entry.get("known", false)) and float(entry.get("relationship", 0.0)) > best_relationship:
+				best_relationship = float(entry.get("relationship", 0.0))
+				best = int(entry["id"])
+		_meet(target, owner_name(best) if best >= 0 and best_relationship >= Constants.TOWN_REFERRAL_AT * 0.75 else "")
+		opened.append(_Hoods.name_of(hood_id))
+	return opened
+
+
+func _can_do(task: String, size: int) -> bool:
+	if task == "skim_pool" and size != 2:
+		return false
+	var tool := str(Constants.TASK_TOOLS.get(task, ""))
+	return tool == "" or Campaign.crew_tools().has(tool)
+
+
+func _text(from: String, kind: String, body: String, house_id: int) -> void:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var entry := {
+		"day": _day,
+		"time": str(clock.call("clock_text")) if clock != null else "",
+		"from": from,
+		"kind": kind,
+		"text": body,
+		"house": house_id,
+	}
+	texts.append(entry)
+	while texts.size() > MAX_TEXTS:
+		texts.pop_front()
+	texted.emit(entry)
+	_rpc_text.rpc(entry)
+
+
+# ---------------------------------------------------------------- saving and sending
+
+func _save_section() -> Dictionary:
+	return {"town": {
+		"seed": town_seed,
+		"houses": houses,
+		"requests": requests,
+		"texts": texts,
+		"daytime_checked": _daytime_checked,
+	}}
+
+
+func _broadcast() -> void:
+	_rpc_state.rpc(town_seed, houses, requests, texts, current_house, _day)
+	var board := get_tree().get_first_node_in_group("job_board")
+	if board != null and board.has_method("refresh"):
+		board.call("refresh")
+
+
+func _on_player_joined(peer_id: int) -> void:
+	if Net.is_host() and peer_id != Net.local_peer_id():
+		_rpc_state.rpc_id(peer_id, town_seed, houses, requests, texts, current_house, _day)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_state() -> void:
+	if Net.is_host():
+		_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), town_seed, houses, requests, texts, current_house, _day)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_state(seed_value: int, all_houses: Array, open_requests: Array, all_texts: Array, working: int, today: int) -> void:
+	town_seed = seed_value
+	houses = all_houses
+	requests = open_requests
+	texts = all_texts
+	current_house = working
+	_day = today
+	changed.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_text(entry: Dictionary) -> void:
+	texts.append(entry)
+	while texts.size() > MAX_TEXTS:
+		texts.pop_front()
+	texted.emit(entry)

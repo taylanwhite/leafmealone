@@ -8,6 +8,7 @@ extends PanelContainer
 signal bought(item_id: StringName)
 
 const _Strings = preload("res://ui/strings.gd")
+const _Ranks = preload("res://core/ranks.gd")
 const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
 const ORANGE := Color(0.93, 0.47, 0.13)
@@ -148,9 +149,13 @@ func _card(item: Dictionary, wallet: int) -> Control:
 	column.add_child(_text(_Strings.UI["shop_price"] % int(item["price"]), 16, ORANGE.darkened(0.15)))
 	var owned := Campaign.is_unlocked(item["id"])
 	var affordable := wallet >= int(item["price"])
+	# The crew's rank gates what Homie Depot will sell them (core/ranks.gd).
+	var for_sale := Campaign.is_for_sale(item["id"])
 	var label: String = _Strings.UI["shop_owned"] if owned else (_Strings.UI["shop_buy"] if affordable else _Strings.UI["shop_short"])
-	var buy := _button(label, ORANGE if affordable and not owned else INK.lightened(0.5))
-	buy.disabled = owned or not affordable
+	if not owned and not for_sale:
+		label = _Strings.UI["shop_needs_rank"] % _Ranks.title(_Ranks.tier_of("shop:" + String(item["id"])))
+	var buy := _button(label, ORANGE if affordable and not owned and for_sale else INK.lightened(0.5))
+	buy.disabled = owned or not affordable or not for_sale
 	var item_id: StringName = item["id"]
 	buy.pressed.connect(func() -> void:
 		Campaign.request_purchase(item_id)

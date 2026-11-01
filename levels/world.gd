@@ -13,6 +13,7 @@ const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Pedestrians = preload("res://npcs/pedestrians.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
+const _Cot = preload("res://props/cot.gd")
 ## How long a swapped-out yard has to leave every peer before the picked one loads.
 const LOT_SWAP_SECONDS: float = 0.4
 const _Grass = preload("res://props/grass.gd")
@@ -50,6 +51,15 @@ func _ready() -> void:
 	var ambience := preload("res://audio/ambience.gd").new()
 	ambience.name = "Ambience"
 	add_child(ambience)
+	# The spine (docs/SPINE.md): the day's clock and the persistent town, before
+	# the job board, which offers the town's requests.
+	var clock := preload("res://net/day/day_clock.gd").new()
+	clock.name = "DayClock"
+	add_child(clock)
+	var town := preload("res://net/town/town.gd").new()
+	town.name = "Town"
+	add_child(town)
+	_add_cots()
 	var board := preload("res://levels/job_board.gd").new()
 	board.name = "JobBoard"
 	add_child(board)
@@ -68,11 +78,16 @@ func _ready() -> void:
 	# --all-tools: the host owns every tool this session, for tests and trying them out.
 	if bool(Net.dev_options().get("all_tools")):
 		Campaign.dev_grant_all_tools(Net.local_peer_id())
-	_load_job_lot()
+	# With the town, the yard loads when Chefty sets off (the ride covers the
+	# build), so the board can change all day without swapping yards under anyone.
+	# Tests that start on the lot, or pin a seed, still get theirs right away.
+	if get_node_or_null("Town") == null or int(Net.dev_options().get("job_seed")) != 0 or str(Net.dev_options().get("start_zone")) == "lot":
+		_load_job_lot()
 	for peer_id: int in Net.peer_ids():
 		_spawn_peer(peer_id)
 	Net.player_joined.connect(_on_player_joined)
 	Net.player_left.connect(_on_player_left)
+	Net.player_zone_changed.connect(_on_zone_changed)
 
 
 ## Cosmetic set dressing for each zone, the scenery around them, and the shared
@@ -107,6 +122,18 @@ func _dress() -> void:
 	clerk.name = "StoreClerk"
 	$StoreZone.add_child(clerk)
 	clerk.position = CLERK_SPOT
+
+
+## The crew camp's cots by the store's side wall (props/cot.gd). Local on every
+## peer: who's asleep is the day clock's business.
+func _add_cots() -> void:
+	for index: int in Constants.COT_SPOTS.size():
+		var cot: Node3D = _Cot.new()
+		cot.name = "Cot%d" % index
+		cot.set("index", index)
+		$StoreZone.add_child(cot)
+		cot.position = Constants.COT_SPOTS[index]
+	_Cot.dress_camp($StoreZone, Constants.COT_SPOTS)
 
 
 ## An invisible wall around the pad, so a bump cannot walk or jump off it.
@@ -197,6 +224,9 @@ func request_finish() -> void:
 func on_ride_arrived(destination: int) -> void:
 	if destination == Net.Zone.STORE:
 		_free_lot()
+	elif destination == Net.Zone.LOT:
+		# The homeowner's patience starts when the crew shows up, not at the store.
+		Campaign.start_job_clock()
 	elif destination == Net.Zone.BORDER:
 		var crossing := get_node_or_null("BorderReturn")
 		var director := get_node_or_null("RunDirector")
@@ -214,6 +244,9 @@ func _load_job_lot() -> void:
 	# Every job is a different yard asking for different work: the offer picked
 	# on the job board (levels/job_board.gd), or --job-seed's for tests.
 	var offer: Dictionary = $JobBoard.call("current")
+	# The town decides where the crew can work; with no requests there's no yard.
+	if offer.is_empty() and int(Net.dev_options().get("job_seed")) == 0 and get_node_or_null("Town") != null:
+		return
 	if int(Net.dev_options().get("job_seed")) != 0 or offer.is_empty():
 		var job_seed := int(Net.dev_options().get("job_seed"))
 		if job_seed == 0:
@@ -222,8 +255,15 @@ func _load_job_lot() -> void:
 	lot.set("job_seed", int(offer["seed"]))
 	lot.set("tasks", offer["tasks"])
 	lot.set("yard_size", int(offer.get("size", 1)))
+	# A house in the town (net/town/town.gd) brings its regrowth and neighborhood.
+	lot.set("mess", float(offer.get("mess", 1.0)))
+	lot.set("hood", str(offer.get("hood", "")))
+	lot.set_meta("offer", offer)
 	%LotSlot.add_child(lot, true)
 	Campaign.mark_job_open()
+	var town := get_node_or_null("Town")
+	if town != null and offer.has("house_id"):
+		town.call("start_job", int(offer["house_id"]))
 	_spawn_job_tools()
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
@@ -302,8 +342,24 @@ func _host_depart() -> void:
 	var party: Array = _Boarding.call("choose_party", _players_near(%TruckPad.global_position))
 	if party.is_empty():
 		return
+	# No job to go to: nobody texted, or it's past 2 AM and the crew needs sleep.
+	if not can_depart():
+		return
 	_load_job_lot()
 	ride.call("depart", party, Net.Zone.LOT)
+
+
+## Whether Chefty can head out: a yard is waiting (or a test seed), and the
+## clock hasn't run out. Every peer can ask, for the prompt at the truck.
+func can_depart() -> bool:
+	if int(Net.dev_options().get("job_seed")) != 0:
+		return true
+	var clock := get_node_or_null("DayClock")
+	if clock != null and bool(clock.call("is_closed")):
+		return false
+	if %LotSlot.get_child_count() > 0:
+		return true
+	return not ($JobBoard.call("current") as Dictionary).is_empty()
 
 
 ## Host only. paid is the homeowner's cash; without it, Campaign falls back to cleanup.
@@ -362,6 +418,13 @@ func _play_sfx(sound_name: String) -> void:
 
 func _on_player_joined(peer_id: int) -> void:
 	_spawn_peer(peer_id)
+
+
+## Host: someone reached the lot some other way than Chefty (a debug gate, the
+## smoke test): give them the picked yard if none is there.
+func _on_zone_changed(_peer_id: int, zone: Net.Zone) -> void:
+	if Net.is_host() and zone == Net.Zone.LOT and %LotSlot.get_child_count() == 0:
+		_load_job_lot()
 
 
 func _on_player_left(peer_id: int) -> void:

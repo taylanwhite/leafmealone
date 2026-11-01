@@ -10,7 +10,10 @@ signal unlocks_changed
 signal job_stats_changed(peer_id: int)
 signal payout_ready(results: Array[Dictionary])
 signal rating_changed
+## The crew's banked or pending XP changed (docs/SPINE.md, "Crew rank").
+signal rank_changed
 
+const _Ranks = preload("res://core/ranks.gd")
 const SAVE_PATH := "user://saves/campaign.json"
 ## Timed test runs (--run-seconds, the smoke test) keep their own save, so they
 ## never touch the real crew's cash, progress, or rating.
@@ -29,12 +32,39 @@ var _last_settlement: Dictionary = {}
 var _pending_wallets: Array[Dictionary] = []
 ## The homeowners' reviews of the last Constants.RATING_JOBS jobs, in stars.
 var _ratings: Array = []
+## The crew's rank: XP banked by sleeping, and XP earned today, banked tonight.
+var _crew_xp: int = 0
+var _pending_xp: int = 0
+## Today so far, for the summary at bedtime: jobs, cash, stars, XP by reason.
+var _day_tally: Dictionary = {}
 
 
 func _ready() -> void:
 	_load()
 	if not Net.player_joined.is_connected(_on_player_joined):
 		Net.player_joined.connect(_on_player_joined)
+	if not Net.state_changed.is_connected(_on_net_state):
+		Net.state_changed.connect(_on_net_state)
+	campaign_loaded.emit()
+
+
+## Back at the menu: forget whatever another host told us and reload our own
+## save, so a crew joined as a client never ends up in this machine's save.
+func _on_net_state(new_state: int) -> void:
+	if new_state != Net.State.OFFLINE:
+		return
+	_job_stats.clear()
+	_bank.clear()
+	_peer_keys.clear()
+	_pending_wallets.clear()
+	_ratings.clear()
+	_lots_completed = 0
+	_crew_xp = 0
+	_pending_xp = 0
+	_day_tally = {}
+	_job_open = true
+	_last_settlement = {}
+	_load()
 	campaign_loaded.emit()
 
 
@@ -108,6 +138,74 @@ func job_stats(peer_id: int) -> Dictionary:
 	return _empty_stats()
 
 
+## ---------------------------------------------------------------- crew rank
+
+## The crew's tier from banked XP (core/ranks.gd). 0 is Rake Rookie I.
+func crew_tier() -> int:
+	var tier := _Ranks.tier_for_xp(_crew_xp)
+	var floor_tier := int(Net.dev_options().get("rank"))
+	return maxi(tier, floor_tier)
+
+
+func crew_xp() -> int:
+	return _crew_xp
+
+
+func pending_xp() -> int:
+	return _pending_xp
+
+
+## Whether the crew's rank has reached this unlock ("shop:ladder", "hood:lakeside", ...).
+func has_unlock(unlock: String) -> bool:
+	return _Ranks.tier_of(unlock) <= crew_tier()
+
+
+func has_perk(perk_id: String) -> bool:
+	return _Ranks.tier_of("perk:" + perk_id) > 0 and has_unlock("perk:" + perk_id)
+
+
+func is_feature_on(feature_id: String) -> bool:
+	return _Ranks.tier_of("feature:" + feature_id) > 0 and has_unlock("feature:" + feature_id)
+
+
+## Whether Homie Depot sells this to the crew yet.
+func is_for_sale(item_id: StringName) -> bool:
+	return has_unlock("shop:" + String(item_id))
+
+
+## Host only. XP earned now, banked when the crew sleeps.
+func add_xp(amount: int, reason: String) -> void:
+	if not Net.is_host() or amount <= 0:
+		return
+	_pending_xp += amount
+	var by_reason: Dictionary = _day_tally.get("xp", {})
+	by_reason[reason] = int(by_reason.get(reason, 0)) + amount
+	_day_tally["xp"] = by_reason
+	_rpc_rank.rpc(_crew_xp, _pending_xp)
+
+
+## Host only, at bedtime: pending XP becomes banked. Returns how much.
+func bank_xp() -> int:
+	if not Net.is_host():
+		return 0
+	var banked := _pending_xp
+	_crew_xp += _pending_xp
+	_pending_xp = 0
+	_rpc_rank.rpc(_crew_xp, _pending_xp)
+	return banked
+
+
+## Host only: what today added up to, then start a fresh tally.
+func take_day_summary() -> Dictionary:
+	var tally := _day_tally.duplicate(true)
+	_day_tally = {}
+	return tally
+
+
+func _tally(key: String, amount: float) -> void:
+	_day_tally[key] = float(_day_tally.get(key, 0.0)) + amount
+
+
 ## Ask the host to buy the rake tune-up.
 func request_purchase(item_id: StringName) -> void:
 	if Net.is_host():
@@ -151,6 +249,21 @@ func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 			_ratings.append(stars)
 			while _ratings.size() > Constants.RATING_JOBS:
 				_ratings.pop_front()
+	# On top: the quiet-hours bonus and the Lawnfather's stars (docs/SPINE.md).
+	var bonus := _Ranks.pay_bonus(crew_tier())
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock != null:
+		bonus += float(clock.call("pay_bonus"))
+	if bonus > 0.0 and pool > 0.0:
+		details["bonus"] = bonus
+		pool *= 1.0 + bonus
+	details["xp"] = _award_job_xp(fraction, details)
+	_tally("jobs", 1.0)
+	_tally("cash", pool)
+	_tally("stars", float(details.get("stars", 0)))
+	var town := get_tree().get_first_node_in_group("town")
+	if town != null:
+		town.call("on_job_finished", fraction, details)
 	var results := _split_pool(pool)
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
@@ -170,6 +283,19 @@ func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 		_send_wallet(peer_id)
 
 
+## Host: XP for a finished job, flat per piece of work, never per dollar, so a
+## windfall can't skip ranks. Returns what was awarded.
+func _award_job_xp(fraction: float, details: Dictionary) -> int:
+	var xp := float(Constants.XP_LEAVES_FULL) * clampf(fraction / Constants.XP_LEAVES_CLEAN_AT, 0.0, 1.0)
+	for line: Variant in (details.get("tasks", []) as Array):
+		if typeof(line) == TYPE_ARRAY and (line as Array).size() >= 2:
+			xp += float(Constants.XP_PER_TASK) * clampf(float(line[1]) / 100.0, 0.0, 1.0)
+	xp += float(Constants.XP_PER_STAR) * float(details.get("stars", 0))
+	var amount := int(round(xp))
+	add_xp(amount, "jobs")
+	return amount
+
+
 func save_now() -> void:
 	if Net.is_host():
 		_save()
@@ -178,6 +304,11 @@ func save_now() -> void:
 func mark_job_open() -> void:
 	_job_open = true
 	_job_stats.clear()
+	_job_started_at = Net.server_time()
+
+
+## The crew reached the yard: the job's clock starts now.
+func start_job_clock() -> void:
 	_job_started_at = Net.server_time()
 
 
@@ -200,6 +331,7 @@ func _on_player_joined(peer_id: int) -> void:
 	_send_wallet(peer_id)
 	if peer_id != Net.local_peer_id():
 		_rpc_progress.rpc_id(peer_id, _lots_completed, _ratings)
+		_rpc_rank.rpc_id(peer_id, _crew_xp, _pending_xp)
 
 
 func _send_wallet(peer_id: int) -> void:
@@ -253,7 +385,7 @@ func dev_grant_all_tools(peer_id: int) -> void:
 
 func _handle_purchase(peer_id: int, item_id: StringName) -> void:
 	var price := price_of(item_id)
-	if price < 0:
+	if price < 0 or not is_for_sale(item_id):
 		return
 	_bind_peer(peer_id)
 	if peer_has_unlock(peer_id, item_id):
@@ -349,23 +481,63 @@ func _add_credits(peer_id: int, amount: int) -> void:
 	credits_changed.emit(peer_id, int(record["credits"]))
 
 
+## Host only. Writes a temp file, keeps the last good save as .bak, then swaps
+## the new one in, so a crash mid-write never loses the crew's progress.
 func _save() -> void:
+	if not Net.is_host():
+		return
 	var directory := DirAccess.open("user://")
 	if directory != null and not directory.dir_exists("saves"):
 		var make_error := directory.make_dir("saves")
 		if make_error != OK:
 			push_error("[Campaign] could not create saves folder: %s" % error_string(make_error))
 			return
-	var file := FileAccess.open(_save_path(), FileAccess.WRITE)
+	var path := _save_path()
+	var temp_path := path + ".tmp"
+	var file := FileAccess.open(temp_path, FileAccess.WRITE)
 	if file == null:
 		push_error("[Campaign] could not write save: %s" % error_string(FileAccess.get_open_error()))
 		return
-	file.store_string(JSON.stringify({
+	file.store_string(JSON.stringify(_save_data()))
+	file.close()
+	if FileAccess.file_exists(path):
+		DirAccess.copy_absolute(path, path + ".bak")
+		DirAccess.remove_absolute(path)
+	var swap_error := DirAccess.rename_absolute(temp_path, path)
+	if swap_error != OK:
+		push_error("[Campaign] could not replace save: %s" % error_string(swap_error))
+
+
+func _save_data() -> Dictionary:
+	var data := {
 		"version": SAVE_VERSION,
 		"lots_completed": _lots_completed,
 		"ratings": _ratings,
 		"players": _bank,
-	}))
+		"crew": {"xp": _crew_xp, "pending": _pending_xp},
+	}
+	for extra: Callable in _save_hooks:
+		var piece: Variant = extra.call()
+		if typeof(piece) == TYPE_DICTIONARY:
+			data.merge(piece as Dictionary, true)
+	return data
+
+
+## Other host systems (the town, the clock, the crew's rank) add their part of
+## the save here; on load they read it back with save_section().
+var _save_hooks: Array[Callable] = []
+var _loaded: Dictionary = {}
+
+
+func add_save_hook(hook: Callable) -> void:
+	if not _save_hooks.has(hook):
+		_save_hooks.append(hook)
+
+
+## A top-level section of the loaded save, or an empty dictionary.
+func save_section(key: String) -> Dictionary:
+	var section: Variant = _loaded.get(key, {})
+	return section as Dictionary if typeof(section) == TYPE_DICTIONARY else {}
 
 
 func _save_path() -> String:
@@ -375,16 +547,16 @@ func _save_path() -> String:
 
 
 func _load() -> void:
-	if not FileAccess.file_exists(_save_path()):
+	_loaded = {}
+	var data := _read_save(_save_path())
+	if data.is_empty():
+		# A missing or broken save falls back to the last good copy.
+		data = _read_save(_save_path() + ".bak")
+	if data.is_empty():
 		return
-	var file := FileAccess.open(_save_path(), FileAccess.READ)
-	if file == null:
-		push_error("[Campaign] could not read save: %s" % error_string(FileAccess.get_open_error()))
-		return
-	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	if typeof(parsed) != TYPE_DICTIONARY:
-		return
-	var data := parsed as Dictionary
+	if int(data.get("version", 1)) > SAVE_VERSION:
+		push_warning("[Campaign] save is from a newer build (version %s); reading what this build knows" % str(data.get("version")))
+	_loaded = data
 	_lots_completed = int(data.get("lots_completed", 0))
 	var ratings: Variant = data.get("ratings", [])
 	if typeof(ratings) == TYPE_ARRAY:
@@ -394,6 +566,23 @@ func _load() -> void:
 	var players: Variant = data.get("players", {})
 	if typeof(players) == TYPE_DICTIONARY:
 		_bank = players
+	var crew := save_section("crew")
+	_crew_xp = int(crew.get("xp", 0))
+	_pending_xp = int(crew.get("pending", 0))
+
+
+func _read_save(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {}
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		push_error("[Campaign] could not read save: %s" % error_string(FileAccess.get_open_error()))
+		return {}
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("[Campaign] save at %s is unreadable" % path)
+		return {}
+	return parsed as Dictionary
 
 
 func _empty_stats() -> Dictionary:
@@ -413,6 +602,13 @@ func _rpc_payout(results: Array, details: Dictionary) -> void:
 	for row: Variant in results:
 		typed.append(row as Dictionary)
 	payout_ready.emit(typed)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_rank(xp: int, pending: int) -> void:
+	_crew_xp = xp
+	_pending_xp = pending
+	rank_changed.emit()
 
 
 @rpc("authority", "call_local", "reliable")

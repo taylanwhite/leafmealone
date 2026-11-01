@@ -42,6 +42,12 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 	var zone := Net.player_zone(peer_id)
 	var chefty := tree.get_first_node_in_group("chefty")
 	if zone == Net.Zone.STORE:
+		var clock := tree.get_first_node_in_group("day_clock")
+		if clock != null and bool(clock.call("is_closed")):
+			return _Strings.UI["goal_sleep"]
+		var board := tree.get_first_node_in_group("job_board")
+		if board != null and tree.get_first_node_in_group("town") != null and (board.get("offers") as Array).is_empty():
+			return _Strings.UI["goal_no_jobs"]
 		if chefty != null and not bool(chefty.call("is_riding")):
 			return _Strings.UI["goal_board"]
 		return ""

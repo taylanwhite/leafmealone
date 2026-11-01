@@ -27,6 +27,7 @@ var _batching: bool = false
 var _batch_left: float = 0.0
 var _safe_until: Dictionary = {}
 var _next_roll: float = 0.0
+var _empty_lot_for: float = 0.0
 
 
 func _ready() -> void:
@@ -139,15 +140,36 @@ func _process(delta: float) -> void:
 		_batch_left -= delta
 		if _batch_left <= 0.0:
 			_close_cohort()
-	if _phase == Phase.WARNING and Net.server_time() - _phase_started >= Constants.RUN_WARNING_SECONDS:
+	var anyone_on_lot := not Net.players_in_zone(Net.Zone.LOT).is_empty()
+	if anyone_on_lot:
+		_empty_lot_for = 0.0
+	else:
+		_empty_lot_for += delta
+	if _phase == Phase.WARNING and not anyone_on_lot:
+		# Everyone left before they arrived: the call is off.
+		_set_phase(Phase.QUIET, "")
+	elif _phase == Phase.WARNING and Net.server_time() - _phase_started >= Constants.RUN_WARNING_SECONDS:
 		_begin_chase()
+	elif _phase == Phase.CHASE and not _batching:
+		var chased_for := Net.server_time() - _phase_started
+		if chased_for >= Constants.RUN_CHASE_SECONDS or _empty_lot_for >= Constants.RUN_EMPTY_LOT_SECONDS:
+			_give_up()
 	elif _phase == Phase.QUIET:
 		_consider_roll()
+
+
+## Nobody caught in time, or nobody left to catch: the NICE BOYS drive off.
+func _give_up() -> void:
+	_log("crew_gave_up", {"empty_lot": _empty_lot_for >= Constants.RUN_EMPTY_LOT_SECONDS})
+	_dismiss_crew()
 
 
 func _consider_roll() -> void:
 	var slot := get_parent().get_node_or_null("LotZone/LotSlot")
 	if slot == null or slot.get_child_count() == 0:
+		return
+	# Nobody on the yard (riding home, all in Border Return): nobody to raid.
+	if Net.players_in_zone(Net.Zone.LOT).is_empty():
 		return
 	var field := get_tree().get_first_node_in_group("leaf_field")
 	var fraction := 0.0

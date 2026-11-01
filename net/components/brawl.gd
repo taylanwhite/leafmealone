@@ -193,6 +193,11 @@ func _tell_thrown(peer_id: int, velocity: Vector3, thrower: int) -> void:
 		player.rpc_id(peer_id, "_rpc_thrown", velocity, thrower)
 
 
+## Any peer may ask, from its own copy of the world: is someone in reach in front?
+func person_in_front(player: Node3D, reach: float, peer_id: int) -> Node3D:
+	return _in_front(player, reach, peer_id)
+
+
 ## The nearest person (another player, a passerby, a NICE BOY) within reach and
 ## roughly in front of this player, or null.
 func _in_front(player: Node3D, reach: float, peer_id: int) -> Node3D:

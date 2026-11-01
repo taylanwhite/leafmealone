@@ -50,9 +50,31 @@ func _ready() -> void:
 		_rpc_request_offers.rpc_id(1)
 
 
-## Host: put new offers up.
+## Host: put new offers up. With the town (net/town/town.gd), the offers are
+## today's requests from clients; the pick stays on the same house if it's still up.
 func refresh() -> void:
 	if not Net.is_host():
+		return
+	var town := get_tree().get_first_node_in_group("town")
+	if town != null:
+		var world := get_tree().get_first_node_in_group("world")
+		if world != null and bool(world.call("job_locked")) and not offers.is_empty():
+			return
+		var from_town: Array = town.call("offers")
+		var keep := 0
+		var picked_house := int(current().get("house_id", -1))
+		for index: int in from_town.size():
+			if int((from_town[index] as Dictionary).get("house_id", -2)) == picked_house:
+				keep = index
+		var changed := from_town.size() != offers.size() or keep != chosen
+		if not changed:
+			for index: int in from_town.size():
+				if int(from_town[index]["seed"]) != int(offers[index]["seed"]) or (from_town[index]["tasks"] as PackedStringArray) != (offers[index]["tasks"] as PackedStringArray):
+					changed = true
+		if changed:
+			_rpc_offers.rpc(from_town, keep)
+			if world != null:
+				world.call("reload_job_lot")
 		return
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
@@ -205,6 +227,9 @@ func _on_tools_changed() -> void:
 	var world := get_tree().get_first_node_in_group("world")
 	if offers.is_empty() or (world != null and bool(world.call("job_locked"))):
 		return
+	if get_tree().get_first_node_in_group("town") != null:
+		refresh()
+		return
 	var made: Array = []
 	var changed := false
 	for offer: Dictionary in offers:
@@ -322,7 +347,11 @@ func _refresh_cards() -> void:
 			continue
 		var offer: Dictionary = offers[index]
 		var lines := PackedStringArray()
-		lines.append(_Strings.UI["board_house"] % int(offer["house"]))
+		if offer.has("client"):
+			lines.append(str(offer["client"]))
+			lines.append("%d %s" % [int(offer["house"]), str(offer.get("street", ""))])
+		else:
+			lines.append(_Strings.UI["board_house"] % int(offer["house"]))
 		lines.append(_Strings.UI["board_size_%d" % int(offer.get("size", 1))])
 		lines.append(_Strings.UI["board_tasks"] % ((offer["tasks"] as PackedStringArray).size()))
 		lines.append(_Strings.UI["board_pay_short"] % task_pay(offer))

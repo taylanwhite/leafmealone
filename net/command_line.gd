@@ -46,6 +46,14 @@ var mower_test: bool = false
 var job_seed: int = 0
 var all_tasks: bool = false
 var all_tools: bool = false
+## The spine (docs/SPINE.md). --rank=N: the crew is at least tier N (0 = Rake
+## Rookie I). --start-hour=H: the day clock starts at H (7 to 26). --clock-scale=S:
+## real seconds per in-game minute times S (tests run the day fast with 0.02).
+var rank: int = 0
+var start_hour: float = -1.0
+var clock_scale: float = 1.0
+var day_test: bool = false
+var town_test: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -55,7 +63,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test
 
 
 func read() -> void:
@@ -141,5 +149,15 @@ func read() -> void:
 			bot = true
 		elif argument.begins_with("--screenshot-every="):
 			screenshot_every = float(argument.trim_prefix("--screenshot-every="))
+		elif argument.begins_with("--rank="):
+			rank = int(argument.trim_prefix("--rank="))
+		elif argument.begins_with("--start-hour="):
+			start_hour = float(argument.trim_prefix("--start-hour="))
+		elif argument.begins_with("--clock-scale="):
+			clock_scale = maxf(0.001, float(argument.trim_prefix("--clock-scale=")))
+		elif argument == "--day-test":
+			day_test = true
+		elif argument == "--town-test":
+			town_test = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

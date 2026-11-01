@@ -60,14 +60,35 @@ func _process(delta: float) -> void:
 		if bool(node.get("spraying")):
 			noise += float(Constants.HEAT_NOISE_PER_SECOND.get(str(node.get("kind")), 0.0))
 	if noise > 0.0:
-		add(noise * delta)
+		# Louder after 9 PM, and fancier neighborhoods call it in faster (docs/SPINE.md).
+		add(noise * delta * _noise_scale())
 	elif not Net.players_in_zone(Net.Zone.LOT).is_empty():
-		add(-Constants.HEAT_COOL_PER_SECOND * delta)
+		add(-Constants.HEAT_COOL_PER_SECOND * delta * _cooling_scale())
 	_sync_left -= delta
 	if _dirty and _sync_left <= 0.0:
 		_dirty = false
 		_sync_left = SYNC_SECONDS
 		_rpc_heat.rpc(heat)
+
+
+func _noise_scale() -> float:
+	var scale := 1.0
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock != null:
+		scale *= float(clock.call("heat_scale"))
+	var town := get_tree().get_first_node_in_group("town")
+	if town != null:
+		scale *= float(town.call("heat_scale"))
+	return scale
+
+
+func _cooling_scale() -> float:
+	var scale := 1.0
+	if Campaign.has_perk("cool_heads"):
+		scale *= Constants.COOL_HEADS_COOLING
+	if Campaign.has_perk("cool_heads_2"):
+		scale *= Constants.COOL_HEADS_COOLING
+	return scale
 
 
 func _on_player_joined(peer_id: int) -> void:

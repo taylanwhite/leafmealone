@@ -173,6 +173,10 @@ func write_report() -> void:
 		"board_test": preload("res://net/dev/board_test.gd").result.duplicate(),
 		"gag_test": preload("res://net/dev/gag_test.gd").result.duplicate(),
 		"brawl_test": preload("res://net/dev/brawl_test.gd").result.duplicate(),
+		"day_test": preload("res://net/dev/day_test.gd").result.duplicate(),
+		"town_test": preload("res://net/dev/town_test.gd").result.duplicate(),
+		"day": _day(),
+		"town": _town(),
 		"heat": _heat(),
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},
@@ -205,6 +209,22 @@ func write_report() -> void:
 	file.store_string(JSON.stringify(report, "\t"))
 	file.close()
 	print("[Probe] wrote %s" % path)
+
+
+## The day and the crew's rank as this peer sees them (net/day/day_clock.gd).
+func _day() -> Dictionary:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock == null:
+		return {}
+	return {"day": int(clock.get("day")), "xp": Campaign.crew_xp(), "pending": Campaign.pending_xp(), "tier": Campaign.crew_tier()}
+
+
+## The town as this peer sees it: a hash of every house and the open requests.
+func _town() -> Dictionary:
+	var town := get_tree().get_first_node_in_group("town")
+	if town == null:
+		return {}
+	return {"houses": hash(JSON.stringify(town.get("houses"))), "requests": town.get("requests"), "known": (town.call("known_houses") as Array).size()}
 
 
 ## The crew's heat as this peer sees it.

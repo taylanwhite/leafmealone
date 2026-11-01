@@ -5,7 +5,7 @@ extends RefCounted
 ## core/balance.gd, which is generated from the design workbook.
 
 ## Bump on every build you hand to someone else. Peers on different versions cannot join each other.
-const BUILD_VERSION: String = "0.2.0"
+const BUILD_VERSION: String = "0.3.0"
 
 ## Used to tag Steam lobbies while we share Valve's test app ID with everyone else.
 const PROJECT_SLUG: String = "leaf-me-alone"
@@ -13,8 +13,8 @@ const PROJECT_SLUG: String = "leaf-me-alone"
 ## ENet port for local development and the smoke test.
 const DEFAULT_PORT: int = 7777
 
-## Provisional. We build and test for up to 8 until the player count (OQ-016) is decided.
-const MAX_PLAYERS: int = 8
+## OQ-016 closed 2026-11-01 (Taylan): four, the truck's seats, so nobody is left at the store.
+const MAX_PLAYERS: int = 4
 
 ## Valve's Spacewar test app. Replace with our own app ID once the game is registered in Steamworks.
 const STEAM_APP_ID: int = 480
@@ -32,6 +32,10 @@ const CAPTURE_BATCH_SECONDS: float = 3.0
 const CAPTURE_RADIUS: float = 2.0
 const CREW_SPEED: float = 5.5
 const RUN_WARNING_SECONDS: float = 8.0
+## A chase with no capture ends after this long: the NICE BOYS give up and drive off.
+const RUN_CHASE_SECONDS: float = 75.0
+## The crew also leaves once nobody has been on the lot for this long.
+const RUN_EMPTY_LOT_SECONDS: float = 3.0
 
 ## OQ-010 counterplay v0. TODO(balance): not in the workbook yet.
 ## How close a player must be to a hiding spot to get in.
@@ -318,3 +322,56 @@ const BILL_FOOT_OFF: int = 120
 const FOOT_OFF_CHANCE: float = 0.3
 ## Hopping on one foot: this share of walking speed.
 const HOP_SPEED_SHARE: float = 0.45
+
+
+# ---------------------------------------------------------------- the spine
+# docs/SPINE.md. First guesses, tuned by playing.
+
+## The work day: one in-game hour is this many real minutes. The day opens at
+## 7:00 AM; quiet hours start at 9:00 PM; the clock stops at 2:00 AM (26).
+const MINUTES_PER_HOUR: float = 1.25
+const DAY_START_HOUR: float = 7.0
+const QUIET_HOURS_START: float = 21.0
+const DAY_CLOSE_HOUR: float = 26.0
+## Quiet hours: jobs pay this much more, and noise heats the crew this many times faster.
+const QUIET_HOURS_PAY_BONUS: float = 0.25
+const QUIET_HOURS_HEAT_SCALE: float = 2.0
+## Each night-owl perk adds this on top.
+const NIGHT_OWL_PAY_BONUS: float = 0.1
+## The host holds E on a cot this long to put everyone to bed.
+const SLEEP_FORCE_SECONDS: float = 3.0
+## Where the crew sleeps: cots by Homie Depot's side wall, in the store zone's space.
+const COT_SPOTS: Array[Vector3] = [Vector3(-8.0, 0.0, -15.6), Vector3(-8.0, 0.0, -14.2), Vector3(-8.0, 0.0, -12.8), Vector3(-8.0, 0.0, -11.4)]
+
+## XP (core/ranks.gd has the curve): a fully raked yard, each other task done
+## completely, each star of the review. Raking counts as full at this much clean.
+const XP_LEAVES_FULL: int = 60
+const XP_LEAVES_CLEAN_AT: float = 0.9
+const XP_PER_TASK: int = 35
+const XP_PER_STAR: int = 12
+## A new client's first job, a referral, bonking a NICE BOY, getting away from them.
+const XP_NEW_CLIENT: int = 50
+const XP_CREW_BONK: int = 5
+const XP_ESCAPE: int = 40
+## Perks.
+const SWEET_TALK_PATIENCE: float = 1.25
+const BAG_BONUS_PER_PERK: float = 0.1
+const COOL_HEADS_COOLING: float = 1.25
+const BIG_SPENDERS_BUDGET: float = 0.15
+
+## The town (net/town/town.gd). Leaves regrow this share of a full yard per day
+## since the last job there, up to full; a never-done yard starts this full.
+const TOWN_REGROW_PER_DAY: float = 0.35
+const TOWN_FIRST_MESS: float = 1.0
+const TOWN_MIN_MESS: float = 0.25
+## Clients who text a job each morning (plus the extra-request perks), and how
+## grown back a yard must be before its owner asks again.
+const TOWN_REQUESTS_PER_DAY: int = 2
+const TOWN_REQUEST_MIN_MESS: float = 0.5
+## Relationship, 0 to 100: where a new client starts, what each star of a review
+## moves it (3 stars is no change), and the level where they refer a neighbor.
+const TOWN_START_RELATIONSHIP: float = 30.0
+const TOWN_RELATIONSHIP_PER_STAR: float = 7.0
+const TOWN_REFERRAL_AT: float = 60.0
+## How many clients you know in Maple Row on day one.
+const TOWN_STARTING_CLIENTS: int = 3

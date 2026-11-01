@@ -4,7 +4,7 @@ The milestones build Leaf Me Alone in the order that retires the biggest risks f
 
 Each task is tagged with its lane: `[NET]`, `[PLAY]`, or `[SHARED]`. Tasks marked `(human)` need someone to click through the Godot editor, Steam, GitHub, or Apple's tools. An agent should prepare everything around them and then tell the developer exactly what to do. Agents check off tasks in their own lane only, and only after the task's checks have actually been run.
 
-Current milestone: **M6**
+Current milestone: **M7** (M6's human playtest is still open)
 
 ---
 
@@ -169,3 +169,33 @@ SHARED
 - [ ] `[SHARED] (human)` Register the game in Steamworks, replace app ID 480, set up macOS and Windows depots, and add the next milestones to this file.
 
 Done when friends who weren't involved can play lot 1 start to finish without help and want to play again.
+
+---
+
+## M7: The spine (Schedule I's loop), on Windows with Claude Code
+
+From Taylan on 2026-11-01: play like Schedule I, a persistent town, four players, early access. `docs/SPINE.md` is the design. Lanes are commit prefixes only from here.
+
+Setup
+- [x] `[SHARED]` Godot 4.7.2 and Python on the Windows machine; `tools/ci_local.ps1` runs what CI runs; `CLAUDE.md` for Claude Code.
+
+Foundation fixes
+- [x] `[NET]` A raid ends without a capture: the NICE BOYS give up after `RUN_CHASE_SECONDS`, or once nobody is on the lot; no raid rolls while nobody is there.
+- [x] `[NET]` Saves: the host's own save is reloaded after a session, so playing as a client never writes someone else's crew into it; writes go through a temp file with a `.bak` of the last good save.
+- [x] `[PLAY]` Empty-handed left click: hand-raking on leaves, a punch when someone's in reach (or off the leaves).
+- [x] `[NET]` Border Return: hazards hit by their footprint, so the lane's edge isn't a free pass; the hazards keep their glow.
+- [x] `[NET]` The homeowner's patience starts when the crew arrives.
+- [x] `[SHARED]` Four players (`MAX_PLAYERS`), matching Chefty's seats.
+- [x] `[PLAY]` Mesh kit: blobs and rounded boxes had inward normals and boxes were wound backwards; `tools/mesh_check.gd` checks every shape.
+
+The spine
+- [x] `[NET]` Work days (`net/day/day_clock.gd`): the clock, quiet hours, 2 AM, sleeping on cots, the day's summary; `--day-test`.
+- [x] `[NET]` Crew rank (`core/ranks.gd`, `Campaign`): XP per job banked at bedtime, every tier unlocks something, the shop is rank-gated, perks.
+- [x] `[NET]` The persistent town (`net/town/`): six neighborhoods of houses and homeowners, requests, regrowth, relationships, referrals, rank-opened neighborhoods; the job board offers the town's requests; `--town-test`.
+- [x] `[PLAY]` The HUD clock and rank, the day summary card, and the crew phone (Tab).
+- [ ] `[PLAY]` Each neighborhood looks like itself (house styles, trees, street dressing from `neighborhoods.gd` "look").
+- [ ] `[PLAY]` A screenshot pass on everything new, and a clipping check.
+- [ ] `[SHARED] (human)` Play a full day with friends; tune `MINUTES_PER_HOUR`, XP, and regrowth.
+
+Next (step 4)
+- [ ] Hiring (crew hands that rake, bag, and haul), properties, the TurfMasters™ rival, seasons. See `docs/SPINE.md` section 5.

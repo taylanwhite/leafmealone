@@ -31,5 +31,6 @@ static func mesh_size(_index: int) -> Vector3:
 	return Vector3(2.0, 1.7, 0.45)
 
 
+## How far past the bar's footprint a body still counts as hit: about a body's radius.
 static func hit_radius(_index: int) -> float:
-	return 1.0
+	return 0.3
