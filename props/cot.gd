@@ -40,7 +40,7 @@ func prompt() -> Dictionary:
 		var key := "prompt_cot_host" if Net.is_host() else "prompt_cot_lying"
 		return {"text": _Strings.UI[key] % [lying, total], "at": global_position + Vector3(0.0, 1.4, 0.0)}
 	if not bool(clock.call("can_sleep_now")):
-		return {"text": _Strings.UI["prompt_cot_early"], "at": global_position + Vector3(0.0, 1.2, 0.0)}
+		return {"text": _Strings.UI["prompt_cot_early"], "at": global_position + Vector3(0.0, 1.2, 0.0), "plain": true}
 	return {"text": _Strings.UI["prompt_cot"] % [lying, total], "at": global_position + Vector3(0.0, 1.2, 0.0)}
 
 

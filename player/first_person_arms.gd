@@ -215,14 +215,24 @@ func _on_item(held: Node, hands: Array[Vector3]) -> bool:
 	var right := _player.global_basis.x
 	match kind:
 		"rake":
-			# Both hands down toward the handle, riding its stroke (the rake itself
-			# is held low and ahead, farther than these arms reach).
-			var raking := Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
-			var phase := fmod(Time.get_ticks_msec() / 1000.0, Constants.RAKE_STROKE_SECONDS) / Constants.RAKE_STROKE_SECONDS
-			var sweep := (0.1 - 0.2 * phase) if raking else 0.0
-			hands[1] = Vector3(0.2, -0.26, -0.36 + sweep)
-			hands[0] = Vector3(-0.04, -0.3, -0.42 + sweep * 1.3)
+			# On the handle pose_rake runs up into RAKE_GRIP: left hand at the top,
+			# right hand a little way down it, so both ride the stroke with it.
+			var pose := prop.get_node_or_null("Visual/Look/Pose") as Node3D
+			if pose != null and pose.top_level:
+				var along := float(pose.get_meta("grip", _PropLooks.RAKE_TOP))
+				hands[0] = to_local(pose.global_transform * Vector3(0.0, along, 0.0))
+				hands[1] = to_local(pose.global_transform * Vector3(0.0, along - _PropLooks.RAKE_HAND_GAP, 0.0))
+				return true
+			hands[1] = Vector3(0.2, -0.26, -0.36)
+			hands[0] = Vector3(-0.04, -0.3, -0.42)
 			return true
+		"leaf_bag":
+			# Hung from both hands by its rolled top (prop_looks.gd BAG_HANDS / BAG_RIM).
+			var bag := prop.get_node_or_null("Visual/Look") as Node3D
+			if bag != null:
+				hands[1] = to_local(bag.global_transform * _PropLooks.BAG_RIM[0])
+				hands[0] = to_local(bag.global_transform * _PropLooks.BAG_RIM[1])
+				return true
 		"hose", "leaf_blower", "hedge_trimmer", "paint_roller":
 			var look := prop.get_node_or_null("Visual/Look") as Node3D
 			if look != null and _PropLooks.HANDHELD.has(kind) and not (kind == "hose" and str(held.get("hose_source")) == ""):

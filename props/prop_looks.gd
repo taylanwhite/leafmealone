@@ -19,6 +19,19 @@ const HANDHELD: Dictionary = {
 	"hedge_trimmer": Vector3(0.2, -0.34, -0.42),
 	"paint_roller": Vector3(0.22, -0.17, -0.45),
 }
+## The rake in hand: its top hand in the holder's head space, how far ahead of
+## their feet its head rests and how high (so the curled tine tips touch the
+## ground), the top of its rubber grip up the handle, and the gap to the other hand.
+const RAKE_GRIP: Vector3 = Vector3(0.05, -0.25, -0.34)
+const RAKE_REACH: float = 1.45
+const RAKE_HEAD_Y: float = 0.26
+const RAKE_TOP: float = 1.58
+const RAKE_HAND_GAP: float = 0.1
+## A carried leaf bag hangs by its rolled top from both hands: the middle of the
+## hands in the holder's head space, and the hand spots on the rim in the bag's
+## own space [right, left] (yard_models.gd: rim 0.74-0.8 up, radius 0.25; +Z toward the holder).
+const BAG_HANDS: Vector3 = Vector3(0.0, -0.27, -0.4)
+const BAG_RIM: Array[Vector3] = [Vector3(0.2, 0.78, 0.15), Vector3(-0.2, 0.78, 0.15)]
 
 
 static func dress(prop: Node3D, kind: String, color: Color) -> void:
@@ -80,17 +93,30 @@ static func pose_rake(prop: Node3D, holder: Node3D, raking: bool) -> void:
 	if pose == null:
 		return
 	if holder == null:
+		pose.top_level = false
 		look.rotation = Vector3.ZERO
 		pose.rotation = Vector3(0.0, 0.0, PI * 0.5)
 		pose.position = Vector3(0.0, 0.1, 0.0)
 		return
-	# Face the way the holder faces, handle up toward them, tines down ahead.
-	look.global_rotation = Vector3(0.0, holder.global_rotation.y, 0.0)
 	# Reach out, then drag back, once per stroke.
 	var phase := fmod(Time.get_ticks_msec() / 1000.0, Constants.RAKE_STROKE_SECONDS) / Constants.RAKE_STROKE_SECONDS
-	var sweep := (0.3 - 0.6 * phase) if raking else 0.0
-	pose.rotation = Vector3(-0.85, 0.0, 0.0)
-	pose.position = Vector3(0.0, -0.1, sweep)
+	var stroke := (0.5 - phase) if raking else 0.0
+	var forward := -holder.global_basis.z
+	forward = Vector3(forward.x, 0.0, forward.z).normalized()
+	var right := holder.global_basis.x
+	# The head (the Pose origin) rests on the ground ahead, tines on the leaves...
+	var foot := holder.global_position + forward * (RAKE_REACH + 0.3 * stroke) + right * RAKE_GRIP.x + Vector3(0.0, RAKE_HEAD_Y, 0.0)
+	# ...and the handle (the model's +Y) runs back up into the holder's hands.
+	var head := holder.get_node_or_null("Visual/Head") as Node3D
+	var hands := RAKE_GRIP + Vector3(0.0, 0.0, -0.08 * stroke)
+	var grip := head.global_transform * hands if head != null else holder.global_position + Vector3(0.0, 1.6, 0.0) + holder.global_basis * hands
+	var up := (grip - foot).normalized()
+	# Turned to face the holder, so the curled tine tips hook back toward them.
+	var back := up.cross(right).normalized()
+	# Placed in world space, so a smoothed or offset Visual can't drag it around.
+	pose.top_level = true
+	pose.global_transform = Transform3D(Basis(up.cross(back), up, back), foot)
+	pose.set_meta("grip", minf(grip.distance_to(foot), RAKE_TOP))
 
 
 ## A ladder set up against the house: standing from its foot (the prop) up to

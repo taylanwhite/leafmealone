@@ -282,7 +282,12 @@ func open_store() -> void:
 	_shop.call("open")
 
 
+## Once someone's looked at the job board, the goal line stops pointing at the phone.
+var board_seen: bool = false
+
+
 func open_job_board() -> void:
+	board_seen = true
 	if _job_board != null:
 		_job_board.call("open")
 

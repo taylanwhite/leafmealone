@@ -528,6 +528,9 @@ func _host_step() -> void:
 		_runaway_left = 0.0
 		var was := global_position
 		global_position = _hold_position(player)
+		# A carried bag hangs upright, facing whoever carries it.
+		if kind == "leaf_bag":
+			global_rotation = Vector3(0.0, player.global_rotation.y, 0.0)
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
 		# A mower being pushed mows whatever it rolls over, once it's running.
@@ -884,6 +887,9 @@ func _refresh_label() -> void:
 	_PropLooks.dress(self, kind, color)
 	# Bags show what they're worth, so a fat bag from a big pile reads as a prize.
 	%Label.visible = kind == "wheelbarrow" or (kind == "leaf_bag" and value > 0)
+	# Not on the thing in your own hands: it would sit in the middle of your view.
+	if held_by != 0 and held_by == Net.local_peer_id():
+		%Label.visible = false
 	if kind == "wheelbarrow":
 		var capacity := Campaign.wheelbarrow_capacity()
 		var full := " full" if stored_bags >= capacity else ""
@@ -911,6 +917,15 @@ func _hold_position(player: CharacterBody3D) -> Vector3:
 			return player.global_position + Vector3(0.0, 1.45, 0.0) + right * 0.3
 		"leaf_blower", "hedge_trimmer", "hose", "paint_roller":
 			return player.global_position + Vector3(0.0, 0.8, 0.0) + forward * 0.55 + right * 0.25
+		"leaf_bag":
+			# Hung low in front from both hands by its rolled top, where your arms reach it.
+			var head := player.get_node_or_null("Visual/Head") as Node3D
+			if head != null:
+				# Follows the view's pitch only a little, so it neither rides up over
+				# your face looking up nor sinks into your belly looking down.
+				var pitch := clampf(head.rotation.x, -0.35, 0.25)
+				var at := (head.get_parent() as Node3D).global_transform * Transform3D(Basis(Vector3.RIGHT, pitch), head.position) * _PropLooks.BAG_HANDS
+				return at - player.global_basis * ((_PropLooks.BAG_RIM[0] + _PropLooks.BAG_RIM[1]) * 0.5)
 	if kind == "rake":
 		# A little to the right, so the handle doesn't split a first-person view in half.
 		return player.global_position + Vector3(0.0, 0.75, 0.0) + (-player.global_transform.basis.z) * 0.9 + player.global_transform.basis.x * 0.35

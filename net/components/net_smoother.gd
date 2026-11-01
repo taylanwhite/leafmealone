@@ -34,6 +34,9 @@ func _ready() -> void:
 		push_error("[NetSmoother] visual_path does not point at a Node3D")
 		set_physics_process(false)
 		set_process(false)
+		return
+	# Where the visual sits on its body (a yard prop's is 0.35 m up), kept when smoothing.
+	_rest = _visual.transform
 
 
 func _physics_process(_delta: float) -> void:
@@ -79,7 +82,10 @@ func _process(_delta: float) -> void:
 		_samples.clear()
 		_samples.append({"at": _now(), "xform": rendered, "speed": 0.0})
 		_last_recorded = rendered.origin
-	_visual.global_transform = rendered
+	_visual.global_transform = rendered * _rest
+
+
+var _rest := Transform3D.IDENTITY
 
 
 func _sample_at(target_time: float) -> Transform3D:

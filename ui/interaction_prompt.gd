@@ -25,7 +25,8 @@ func _process(_delta: float) -> void:
 	if hint.is_empty():
 		_label.visible = false
 		return
-	_label.text = _Strings.UI["prompt_format"] % str(hint["text"])
+	# A hint marked "plain" is a notice, not an action, so it gets no key label.
+	_label.text = str(hint["text"]) if bool(hint.get("plain", false)) else _Strings.UI["prompt_format"] % str(hint["text"])
 	_label.global_position = hint["at"]
 	_label.visible = true
 

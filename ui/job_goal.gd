@@ -50,7 +50,9 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 			return _Strings.UI["goal_no_jobs"]
 		# Texts waiting: that's where the jobs come from.
 		var phone := tree.get_first_node_in_group("phone")
-		if phone != null and int(phone.call("unread")) > 0 and int(Net.dev_options().get("job_seed")) == 0:
+		var ui := tree.get_first_node_in_group("game_ui")
+		var board_seen := ui != null and bool(ui.get("board_seen"))
+		if phone != null and int(phone.call("unread")) > 0 and not board_seen and int(Net.dev_options().get("job_seed")) == 0:
 			return _Strings.UI["goal_texts"]
 		if chefty != null and not bool(chefty.call("is_riding")):
 			return _Strings.UI["goal_board"]
