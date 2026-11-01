@@ -212,7 +212,7 @@ spawn_path = NodePath("../Rides")
 [node name="Npcs" type="Node3D" parent="."]
 
 [node name="NpcSpawner" type="MultiplayerSpawner" parent="."]
-_spawnable_scenes = PackedStringArray("res://npcs/crew_member.tscn")
+_spawnable_scenes = PackedStringArray("res://npcs/crew_member.tscn", "res://npcs/crew_hand.tscn")
 spawn_path = NodePath("../Npcs")
 
 [node name="RuntimeProps" type="Node3D" parent="."]

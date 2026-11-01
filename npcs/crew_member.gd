@@ -12,6 +12,7 @@ const _SPEED_UP := Vector3(0.0, 1.4, 0.0)
 const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
+const _LotNav = preload("res://npcs/lot_nav.gd")
 ## Close enough to a search or patrol point to pick the next one, in meters.
 const WAYPOINT_REACHED: float = 1.5
 ## Patrol points stay this far inside the lot's edge.
@@ -232,28 +233,5 @@ func _steer(goal: Vector3, delta: float) -> void:
 ## Bake a fresh navigation mesh from the lot's static colliders, so the crew paths
 ## around the house, fences, cover, and hide spots of whichever lot is loaded.
 func _bake_navmesh() -> void:
-	var lot := _lot_zone()
-	if lot == null:
-		return
-	var old := lot.get_node_or_null("CrewNav")
-	if old != null:
-		old.queue_free()
-	var mesh := NavigationMesh.new()
-	# Whole voxels, so the bake doesn't round them. Cell size matches the default navigation map.
-	mesh.cell_size = 0.25
-	mesh.cell_height = 0.25
-	mesh.agent_radius = 0.5
-	mesh.agent_height = 1.75
-	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
-	# Only the yard: the street's ground goes on for hundreds of meters.
-	var pad: Rect2 = Constants.PAD_RECTS["LotZone"]
-	mesh.filter_baking_aabb = AABB(Vector3(pad.position.x - 1.0, -2.0, pad.position.y - 1.0), Vector3(pad.size.x + 2.0, 8.0, pad.size.y + 2.0))
-	var source := NavigationMeshSourceGeometryData3D.new()
-	# Geometry is gathered relative to the lot zone, so the region sits at the lot zone too.
-	NavigationServer3D.parse_source_geometry_data(mesh, source, lot)
-	NavigationServer3D.bake_from_source_geometry_data(mesh, source)
-	var region := NavigationRegion3D.new()
-	region.name = "CrewNav"
-	region.add_to_group("lot_nav")
-	region.navigation_mesh = mesh
-	lot.add_child(region)
+	# Shared with the hired hands: one bake per yard (npcs/lot_nav.gd).
+	_LotNav.ensure(_lot_zone())

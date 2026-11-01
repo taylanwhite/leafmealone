@@ -164,6 +164,33 @@ func request_collect(origin: Vector3, radius: float) -> void:
 		_rpc_request_collect.rpc_id(1, origin, radius)
 
 
+## Host: a hired hand's rake stroke (npcs/crew_hand.gd). A real rake, at the
+## hand's skill; nobody's contribution stats (hands are paid wages instead).
+func host_hand_rake(origin: Vector3, direction: Vector3, skill: float) -> int:
+	if not Net.is_host() or not _inside_grid(origin):
+		return 0
+	var moved := _stroke_cells(origin, direction, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH * clampf(skill, 0.3, 1.0), Constants.RAKE_STROKE_CELLS)
+	if moved > 0:
+		_rpc_stroke.rpc(origin)
+		var flat := Vector3(direction.x, 0.0, direction.z).normalized()
+		_turn_out(origin + flat * cell_size * 2.0, Constants.PILE_HIDE_RADIUS + 1.2)
+	return moved
+
+
+## Host: a hired hand bags the pile here and carries it off (no bag prop: the
+## hand takes it straight to Chefty). Returns the units bagged, 0 if too thin.
+func host_hand_collect(origin: Vector3) -> int:
+	if not Net.is_host() or not _inside_grid(origin):
+		return 0
+	if _units_within(origin, Constants.BAG_RADIUS) < int(Constants.MIN_BAG_CELLS * INITIAL_DENSITY):
+		return 0
+	var removed := _apply_collect(origin, Constants.BAG_RADIUS, false)
+	_removed_units += float(removed) * _unit_scale
+	if removed > 0:
+		_rpc_stroke.rpc(origin)
+	return removed
+
+
 ## Leaf units within radius of a world position (what a pile is made of).
 func units_within_world(world_position: Vector3, radius: float) -> int:
 	return _units_within(world_position, radius)

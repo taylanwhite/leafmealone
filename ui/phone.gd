@@ -79,11 +79,11 @@ func _ready() -> void:
 func _hook_world() -> void:
 	# The town and the board come and go with the session: hook the ones there
 	# now, and every one added later.
-	for existing: Node in [get_tree().get_first_node_in_group("town"), get_tree().get_first_node_in_group("job_board")]:
+	for existing: Node in [get_tree().get_first_node_in_group("town"), get_tree().get_first_node_in_group("job_board"), get_tree().get_first_node_in_group("hires")]:
 		if existing != null:
 			_watch(existing)
 	get_tree().node_added.connect(func(node: Node) -> void:
-		if node.name == "Town" or node.name == "JobBoard":
+		if node.name == "Town" or node.name == "JobBoard" or node.name == "Hires":
 			_watch(node)
 	)
 	Campaign.rank_changed.connect(_mark_dirty)
@@ -323,6 +323,7 @@ func _crew() -> void:
 		perk_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		perk_label.custom_minimum_size.x = 300
 		_list.add_child(perk_label)
+	_hires()
 	_list.add_child(HSeparator.new())
 	# The ladder ahead: the next few tiers and what each brings.
 	for ahead: int in range(tier + 1, tier + 6):
@@ -333,6 +334,41 @@ func _crew() -> void:
 		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		row.custom_minimum_size.x = 300
 		_list.add_child(row)
+
+
+## The crew's hired hands (net/crew/hires.gd): who, how good, what they cost,
+## and buttons to hire one more or let one go.
+func _hires() -> void:
+	var hires := get_tree().get_first_node_in_group("hires")
+	if hires == null:
+		return
+	_list.add_child(HSeparator.new())
+	var slots := int(hires.call("slots"))
+	if slots <= 0:
+		_list.add_child(_text(_Strings.UI["phone_hires_locked"] % _Ranks.title(_Ranks.tier_of("feature:hiring")), 14, SOFT))
+		return
+	var hands: Array = hires.get("hands")
+	_list.add_child(_text(_Strings.UI["phone_hires_title"] % [hands.size(), slots], 17, INK))
+	for entry: Variant in hands:
+		var hand := entry as Dictionary
+		var row := HBoxContainer.new()
+		var line := _text(_Strings.UI["phone_hire_line"] % [str(hand["name"]), int(round(float(hand["skill"]) * 100.0)), int(hand["wage"]), int(hand.get("bags", 0))], 14, INK)
+		line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(line)
+		var fire := Button.new()
+		fire.text = _Strings.UI["phone_fire"]
+		fire.focus_mode = Control.FOCUS_NONE
+		var hand_name := str(hand["name"])
+		fire.pressed.connect(func() -> void: hires.call("request_fire", hand_name))
+		row.add_child(fire)
+		_list.add_child(row)
+	if bool(hires.call("can_hire")):
+		var hire := Button.new()
+		hire.text = _Strings.UI["phone_hire"] % [Constants.HIRE_SIGNING_FEE, Constants.HIRE_DAILY_WAGE]
+		hire.focus_mode = Control.FOCUS_NONE
+		hire.disabled = Campaign.credits(Net.local_peer_id()) < Constants.HIRE_SIGNING_FEE
+		hire.pressed.connect(func() -> void: hires.call("request_hire"))
+		_list.add_child(hire)
 
 
 # ---------------------------------------------------------------- bits

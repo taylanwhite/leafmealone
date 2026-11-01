@@ -169,6 +169,17 @@ jobs:
           grep "LayoutTest" build/soak/ci-layout/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-layout/host.json'))['layout_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Hire test (a hired hand rakes, bags, and loads Chefty; wages at bedtime)
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-hire
+          "$GODOT" --headless --path . -- --host --port=7806 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --rank=22 --hire-test --measure="$PWD/build/soak/ci-hire/host.json" --run-seconds=70 > build/soak/ci-hire/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7806 --name=Target --no-steam --measure="$PWD/build/soak/ci-hire/target.json" --run-seconds=65 > build/soak/ci-hire/target.log 2>&1
+          wait
+          grep "HireTest" build/soak/ci-hire/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-hire/host.json')); t=json.load(open('build/soak/ci-hire/target.json')); sys.exit(0 if h['hire_test'].get('ok') and t['crew_hands'] == 1 else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         run: |
           if command -v python3 >/dev/null 2>&1; then export PYTHON=python3; else export PYTHON=python; fi

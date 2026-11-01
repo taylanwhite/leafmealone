@@ -209,6 +209,13 @@ const UI: Dictionary = {
 	"phone_hood_waiting": "%s  (open, waiting for a referral)",
 	"phone_next_unlock": "Next: %s at %s",
 	"phone_perks": "Perks: %s",
+	"phone_hires_locked": "Hiring opens at %s",
+	"phone_hires_title": "Hired hands (%d of %d)",
+	"phone_hire_line": "%s  ·  %d%% good  ·  $%d/day  ·  %d bags",
+	"phone_fire": "Let go",
+	"phone_hire": "Hire a hand ($%d, then $%d a day)",
+	"summary_wages": "Wages paid: $%d",
+	"summary_quit": "%s quit (no pay)",
 	"clerk_name": "Marty",
 }
 

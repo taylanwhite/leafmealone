@@ -375,3 +375,11 @@ const TOWN_RELATIONSHIP_PER_STAR: float = 7.0
 const TOWN_REFERRAL_AT: float = 60.0
 ## How many clients you know in Maple Row on day one.
 const TOWN_STARTING_CLIENTS: int = 3
+
+## Hired hands (net/crew/hires.gd, npcs/crew_hand.gd): what one costs to sign
+## and per day, how often they rake, how many strokes make a pile, how fast they walk.
+const HIRE_SIGNING_FEE: int = 150
+const HIRE_DAILY_WAGE: int = 40
+const HIRE_STROKE_SECONDS: float = 0.55
+const HIRE_STROKES_PER_PILE: int = 10
+const HIRE_SPEED: float = 3.2

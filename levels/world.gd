@@ -59,6 +59,9 @@ func _ready() -> void:
 	var town := preload("res://net/town/town.gd").new()
 	town.name = "Town"
 	add_child(town)
+	var hires := preload("res://net/crew/hires.gd").new()
+	hires.name = "Hires"
+	add_child(hires)
 	_add_cots()
 	var board := preload("res://levels/job_board.gd").new()
 	board.name = "JobBoard"
@@ -227,6 +230,10 @@ func on_ride_arrived(destination: int) -> void:
 	elif destination == Net.Zone.LOT:
 		# The homeowner's patience starts when the crew shows up, not at the store.
 		Campaign.start_job_clock()
+		# The hired hands hop off and get to work.
+		var hires := get_node_or_null("Hires")
+		if hires != null and Campaign.is_job_open():
+			hires.call("spawn_on_lot")
 	elif destination == Net.Zone.BORDER:
 		var crossing := get_node_or_null("BorderReturn")
 		var director := get_node_or_null("RunDirector")
@@ -274,6 +281,9 @@ func _load_job_lot() -> void:
 
 
 func _free_lot() -> void:
+	var hires := get_node_or_null("Hires")
+	if hires != null:
+		hires.call("despawn")
 	for child: Node in %LotSlot.get_children():
 		# Out of the slot now, so a new lot can take its name this frame.
 		%LotSlot.remove_child(child)
@@ -369,6 +379,10 @@ func can_depart() -> bool:
 ## Host only. paid is the homeowner's cash; without it, Campaign falls back to cleanup.
 func _host_finish(paid: float = -1.0, details: Dictionary = {}) -> void:
 	Campaign.finish_job(paid, details)
+	# Paid: the hands climb back on the truck.
+	var hires := get_node_or_null("Hires")
+	if hires != null:
+		hires.call("despawn")
 	var chefty := get_node_or_null("Rides/Chefty")
 	if chefty != null:
 		chefty.call("clear_bags")

@@ -49,6 +49,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/day_test.gd").new(), "DayTest")
 	if bool(options.get("town_test")):
 		_add(preload("res://net/dev/town_test.gd").new(), "TownTest")
+	if bool(options.get("hire_test")):
+		_add(preload("res://net/dev/hire_test.gd").new(), "HireTest")
 	if bool(options.get("layout_test")):
 		_add(preload("res://net/dev/layout_test.gd").new(), "LayoutTest")
 	if bool(options.get("open_shop")):

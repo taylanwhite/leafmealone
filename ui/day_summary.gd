@@ -67,6 +67,11 @@ func show_summary(summary: Dictionary) -> void:
 	_line(_Strings.UI["summary_cash"] % int(summary.get("cash", 0)), INK)
 	_line(_Strings.UI["summary_stars"] % int(summary.get("stars", 0)), INK)
 	_line(_Strings.UI["summary_xp"] % int(summary.get("xp_banked", 0)), ORANGE.darkened(0.1), 20)
+	var wages: Dictionary = summary.get("wages", {})
+	if int(wages.get("wages", 0)) > 0:
+		_line(_Strings.UI["summary_wages"] % int(wages["wages"]), INK)
+	for name_quit: Variant in (wages.get("quit", []) as Array):
+		_line(_Strings.UI["summary_quit"] % str(name_quit), Color(0.75, 0.2, 0.15))
 	_rows.add_child(HSeparator.new())
 	for rank_up: Variant in (summary.get("rank_ups", []) as Array):
 		var entry := rank_up as Dictionary

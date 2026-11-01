@@ -186,6 +186,10 @@ func _end_day() -> void:
 	summary["tier"] = tier_after
 	summary["title"] = _Ranks.title(tier_after)
 	summary["rank_ups"] = unlocked
+	# Payroll first, so a hand who quits isn't counted on tomorrow.
+	var hires := get_tree().get_first_node_in_group("hires")
+	if hires != null:
+		summary["wages"] = hires.call("pay_wages")
 	var town := get_tree().get_first_node_in_group("town")
 	if town != null:
 		summary["town"] = town.call("on_new_day", day + 1)
