@@ -48,6 +48,10 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 		var board := tree.get_first_node_in_group("job_board")
 		if board != null and tree.get_first_node_in_group("town") != null and (board.get("offers") as Array).is_empty():
 			return _Strings.UI["goal_no_jobs"]
+		# Texts waiting: that's where the jobs come from.
+		var phone := tree.get_first_node_in_group("phone")
+		if phone != null and int(phone.call("unread")) > 0 and int(Net.dev_options().get("job_seed")) == 0:
+			return _Strings.UI["goal_texts"]
 		if chefty != null and not bool(chefty.call("is_riding")):
 			return _Strings.UI["goal_board"]
 		return ""

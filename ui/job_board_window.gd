@@ -64,7 +64,15 @@ func _offer_card(offer: Dictionary, index: int, picked: bool, locked: bool) -> C
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	card.add_child(column)
-	column.add_child(_text(_Strings.UI["board_house"] % int(offer["house"]), 22, INK))
+	if offer.has("client"):
+		# A town client (net/town/town.gd): who, where, and how they feel about you.
+		column.add_child(_text(str(offer["client"]), 20, INK))
+		var where := _text("%d %s · %s" % [int(offer["house"]), str(offer.get("street", "")), str(offer.get("hood_name", ""))], 14, INK.lightened(0.3))
+		where.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		where.custom_minimum_size = Vector2(CARD_WIDE - 40.0, 0.0)
+		column.add_child(where)
+	else:
+		column.add_child(_text(_Strings.UI["board_house"] % int(offer["house"]), 22, INK))
 	column.add_child(_text(_Strings.UI["board_size_%d" % int(offer.get("size", 1))], 15, INK.lightened(0.3)))
 	var owned := Campaign.crew_tools()
 	for task: String in (offer["tasks"] as PackedStringArray):

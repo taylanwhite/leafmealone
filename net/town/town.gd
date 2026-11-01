@@ -258,9 +258,10 @@ func start_job(house_id: int) -> void:
 
 ## Campaign.finish_job: the homeowner paid (or didn't). Move the relationship by
 ## the review, mark the visit, maybe a referral.
-func on_job_finished(_fraction: float, details: Dictionary) -> void:
+func on_job_finished(_fraction: float, details: Dictionary) -> int:
 	if not Net.is_host() or current_house < 0:
-		return
+		return 0
+	var bonus_xp := 0
 	var entry: Dictionary = houses[current_house]
 	var stars := int(details.get("stars", 0))
 	var first_time := int(entry.get("jobs", 0)) == 0
@@ -272,12 +273,14 @@ func on_job_finished(_fraction: float, details: Dictionary) -> void:
 	requests.erase(current_house)
 	if first_time:
 		Campaign.add_xp(Constants.XP_NEW_CLIENT, "new_client")
+		bonus_xp += Constants.XP_NEW_CLIENT
 	_maybe_refer(current_house)
 	# Word gets around: a great job wins back a neighbor TurfMasters™ took.
 	if stars >= 4 and poached_in(str(entry["hood"])) > 0 and randf() < Constants.RIVAL_WIN_BACK_CHANCE:
 		_win_back(str(entry["hood"]), owner_name(current_house))
 	current_house = -1
 	_broadcast()
+	return bonus_xp
 
 
 ## DayClock at bedtime: a new day. Returns what happened, for the summary card.
@@ -378,7 +381,7 @@ func _new_town() -> void:
 		houses[house_id]["relationship"] = Constants.TOWN_START_RELATIONSHIP
 	requests.clear()
 	texts.clear()
-	_text("clerk", "intro", "Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. Sleep on the cots out back when you're beat.", -1)
+	_text("Marty", "intro", "Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. The cots by the side wall are yours after 6 PM. Tab to check your phone.", -1)
 	# On day one everybody you know wants you.
 	for house_id: Variant in starters.slice(0, Constants.TOWN_STARTING_CLIENTS):
 		_add_request(int(house_id), rng)

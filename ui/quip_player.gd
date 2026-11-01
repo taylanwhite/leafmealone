@@ -65,10 +65,18 @@ func _on_payout(_results: Array[Dictionary]) -> void:
 		_try("full_clear")
 
 
+## When this player last arrived on a yard; the jab about slow progress waits
+## until they've had a fair go at it.
+var _on_lot_since: float = -1.0
+
+
 func _watch_cleanup() -> void:
 	if Net.player_zone(Net.local_peer_id()) != Net.Zone.LOT:
+		_on_lot_since = -1.0
 		return
-	if Net.server_time() < 20.0:
+	if _on_lot_since < 0.0:
+		_on_lot_since = Net.server_time()
+	if Net.server_time() - _on_lot_since < Constants.QUIP_LOW_CLEANUP_AFTER:
 		return
 	var fields := get_tree().get_nodes_in_group("leaf_field")
 	if fields.is_empty():

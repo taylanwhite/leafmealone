@@ -39,6 +39,8 @@ func prompt() -> Dictionary:
 	if bool(clock.call("is_sleeping", me)):
 		var key := "prompt_cot_host" if Net.is_host() else "prompt_cot_lying"
 		return {"text": _Strings.UI[key] % [lying, total], "at": global_position + Vector3(0.0, 1.4, 0.0)}
+	if not bool(clock.call("can_sleep_now")):
+		return {"text": _Strings.UI["prompt_cot_early"], "at": global_position + Vector3(0.0, 1.2, 0.0)}
 	return {"text": _Strings.UI["prompt_cot"] % [lying, total], "at": global_position + Vector3(0.0, 1.2, 0.0)}
 
 
@@ -148,16 +150,20 @@ static func dress_camp(zone: Node3D, spots: Array[Vector3]) -> void:
 	kit.rbox(Vector3(middle.x + 1.0, 0.22, last.z + 1.3), Vector3(0.32, 0.22, 0.22), Color(0.85, 0.25, 0.2), 5.0)
 	kit.rbox(Vector3(middle.x + 1.0, 0.46, last.z + 1.3), Vector3(0.33, 0.03, 0.23), Color(0.95, 0.95, 0.92), 5.0)
 	kit.blob(Vector3(middle.x - 1.2, 0.08, first.z - 1.1), Vector3(0.09, 0.08, 0.05), Color(0.9, 0.75, 0.2), {"flat": false, "lumps": 0.0})
+	# The sign stands on its own post out front, clear of the tarp.
+	var sign_at := Vector3(pole_x + 1.1, 0.0, middle.z)
+	kit.tube(PackedVector3Array([sign_at, sign_at + Vector3(0.0, 1.5, 0.0)]), PackedFloat32Array([0.04, 0.04]), FRAME, 6, {"jitter": 0.0})
+	kit.rbox(sign_at + Vector3(0.0, 1.65, 0.0), Vector3(0.05, 0.42, 1.0), Color(0.93, 0.9, 0.82), 6.0)
 	var view := _Stylized.instance(kit.commit(), {"roughness": 0.8, "specular": 0.1})
 	view.name = "CrewCamp"
 	zone.add_child(view)
 	var sign := Label3D.new()
 	sign.text = _Strings.UI["camp_sign"]
-	sign.font_size = 40
-	sign.pixel_size = 0.005
-	sign.modulate = Color(1.0, 0.97, 0.88)
-	sign.outline_size = 10
-	sign.outline_modulate = Color(0.15, 0.15, 0.18)
-	sign.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
-	sign.position = Vector3(middle.x + 1.2, 2.5, middle.z)
+	sign.font_size = 48
+	sign.pixel_size = 0.0034
+	sign.modulate = Color(0.2, 0.18, 0.15)
+	sign.outline_size = 0
+	# Painted on the board, facing the parking lot (+x).
+	sign.rotation.y = PI * 0.5
+	sign.position = sign_at + Vector3(0.06, 1.65, 0.0)
 	zone.add_child(sign)

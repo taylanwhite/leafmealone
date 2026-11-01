@@ -6,6 +6,7 @@ extends Node
 ## Strength, width, and bag radius live in Constants (RAKE_*, HAND_RAKE_*, BAG_RADIUS),
 ## because the host checks them too. TODO(balance): move them into the workbook.
 const REACH: float = 1.5
+const _Strings = preload("res://ui/strings.gd")
 ## Hand raking: a stroke at most this often, so flailing doesn't turn into a fast rake.
 const HAND_STROKE_SECONDS: float = 0.35
 
@@ -23,6 +24,7 @@ func _physics_process(delta: float) -> void:
 	if not player.is_multiplayer_authority():
 		return
 	_hook_refusal()
+	_show_pile(player, delta)
 	_hand_wait = maxf(0.0, _hand_wait - delta)
 	_rake_wait = maxf(0.0, _rake_wait - delta)
 	_work_wait = maxf(0.0, _work_wait - delta)
@@ -189,6 +191,65 @@ func _set_spray(player: CharacterBody3D, tool_kind: String) -> void:
 	_spray.emitting = true
 
 
+## The thickest spot just ahead: where the pile is. Raking shoves leaves a few
+## cells forward each stroke, so the pile ends up a little way out in front.
+func _pile_spot(player: CharacterBody3D, field: Node) -> Vector3:
+	var forward := -player.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var best := player.global_position + forward * REACH + Vector3(0.0, 0.2, 0.0)
+	var best_units := -1
+	var distance := Constants.PILE_SEARCH_NEAR
+	while distance <= Constants.PILE_SEARCH_FAR + 0.001:
+		var spot := player.global_position + forward * distance + Vector3(0.0, 0.2, 0.0)
+		var units := int(field.call("units_within_world", spot, Constants.BAG_RADIUS))
+		if units > best_units:
+			best_units = units
+			best = spot
+		distance += 0.4
+	return best
+
+
+## The local player with the rake sees what the pile ahead would bag for, over
+## the pile itself: gold once it's big enough to bag, gray while it's too thin.
+var _pile_label: Label3D
+var _pile_wait: float = 0.0
+
+
+func _show_pile(player: CharacterBody3D, delta: float) -> void:
+	_pile_wait -= delta
+	if _pile_wait > 0.0:
+		return
+	_pile_wait = 0.15
+	var held: Node = player.call("_held_prop")
+	var show := held != null and str(held.get("kind")) == "rake" and Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
+	var field: Node = _field_near(player.global_position) if show else null
+	if field == null:
+		if _pile_label != null:
+			_pile_label.visible = false
+		return
+	if _pile_label == null:
+		_pile_label = Label3D.new()
+		_pile_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_pile_label.fixed_size = true
+		_pile_label.pixel_size = 0.0011
+		_pile_label.font_size = 26
+		_pile_label.outline_size = 8
+		_pile_label.no_depth_test = true
+		player_parent().add_child(_pile_label)
+	var spot := _pile_spot(player, field)
+	var units := int(field.call("units_within_world", spot, Constants.BAG_RADIUS))
+	var enough := units >= int(Constants.MIN_BAG_CELLS * 60)
+	# Plain leafy ground isn't a pile yet: only show one that's on its way.
+	if units < int(Constants.MIN_BAG_CELLS * 60 * 0.5):
+		_pile_label.visible = false
+		return
+	_pile_label.visible = true
+	_pile_label.global_position = spot + Vector3(0.0, 0.5, 0.0)
+	_pile_label.text = (_Strings.UI["pile_value"] % int(field.call("dollars_for", units))) if enough else _Strings.UI["pile_thin"]
+	_pile_label.modulate = Color(1.0, 0.85, 0.3) if enough else Color(0.8, 0.8, 0.8, 0.8)
+
+
 ## No rake: scoop at the leaves with your hands. It barely does anything, and
 ## it looks it.
 func _hand_rake(player: CharacterBody3D) -> void:
@@ -211,7 +272,8 @@ func _stroke(player: CharacterBody3D, bag: bool, strength: float, width: float) 
 	if field == null:
 		return
 	if bag:
-		field.call("request_collect", origin, Constants.BAG_RADIUS)
+		# Bag the pile, wherever the strokes pushed it, not a fixed spot.
+		field.call("request_collect", _pile_spot(player, field), Constants.BAG_RADIUS)
 	else:
 		field.call("request_rake", origin, forward, width, strength)
 		_play_sfx("rake")

@@ -396,3 +396,16 @@ const RIVAL_POACH_BELOW: float = 55.0
 const RIVAL_WIN_BACK_CHANCE: float = 0.5
 const RIVAL_MAX_SIGNS: int = 3
 const XP_SIGN_PULLED: int = 15
+
+## The cots take sleepers from this hour (6 PM) on; before that the day can't be skipped.
+const SLEEP_FROM_HOUR: float = 18.0
+
+## Picking things up (player.gd _best_pickup): how far E reaches, and how many
+## meters closer a leaf bag counts than anything else.
+const PICKUP_REACH: float = 2.4
+const PICKUP_BAG_PREFERENCE: float = 0.8
+## The quip about slow progress waits this many seconds after arriving on a yard.
+const QUIP_LOW_CLEANUP_AFTER: float = 120.0
+## Where right-click looks for the pile ahead (equipment/rake.gd): from this far to this far, in meters.
+const PILE_SEARCH_NEAR: float = 1.0
+const PILE_SEARCH_FAR: float = 3.2

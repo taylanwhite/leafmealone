@@ -264,7 +264,8 @@ func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 	_tally("stars", float(details.get("stars", 0)))
 	var town := get_tree().get_first_node_in_group("town")
 	if town != null:
-		town.call("on_job_finished", fraction, details)
+		# A first job for a new client pays extra XP; the receipt shows it all.
+		details["xp"] = int(details["xp"]) + int(town.call("on_job_finished", fraction, details))
 	var results := _split_pool(pool)
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:

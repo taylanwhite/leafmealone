@@ -189,20 +189,41 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if Net.current_state() == Net.State.OFFLINE:
 		return
-	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		_leave.visible = true
-		_voice_button.visible = true
-		if _crew_button != null:
-			_crew_button.visible = Net.is_host()
+	if _leave.visible:
+		close_pause()
 	else:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		_leave.visible = false
-		_voice_button.visible = false
-		_voice_panel.visible = false
-		if _crew_button != null:
-			_crew_button.visible = false
+		open_pause()
 	get_viewport().set_input_as_handled()
+
+
+## The pause buttons: Leave Session, Voice, and (for the host) the NICE BOYS.
+func open_pause() -> void:
+	if Net.is_automated() or Net.current_state() != Net.State.IN_SESSION:
+		return
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_leave.visible = true
+	_voice_button.visible = true
+	if _crew_button != null:
+		_crew_button.visible = Net.is_host()
+
+
+func close_pause() -> void:
+	_leave.visible = false
+	_voice_button.visible = false
+	_voice_panel.visible = false
+	if _crew_button != null:
+		_crew_button.visible = false
+	recapture_mouse()
+
+
+## Tabbing out of the game pauses it on purpose, so the mouse is yours and
+## coming back shows where you are. (Not while an agent plays by remote.)
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_APPLICATION_FOCUS_OUT or _leave == null:
+		return
+	if str(Net.dev_options().get("remote_play")) != "" or Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	open_pause()
 
 
 func _build_lobby() -> void:

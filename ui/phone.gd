@@ -26,7 +26,8 @@ var _list: VBoxContainer
 var _scroll: ScrollContainer
 var _tabs: Dictionary = {}
 var _dirty: bool = true
-var _unread: int = 0
+## How many of the town's texts the phone has shown.
+var _seen: int = 0
 
 
 func _ready() -> void:
@@ -104,8 +105,6 @@ func _mark_dirty() -> void:
 
 func _on_texted(_text_entry: Dictionary) -> void:
 	_dirty = true
-	if not visible:
-		_unread += 1
 
 
 # _input, not _unhandled_input: Tab must work even while one of the phone's
@@ -124,14 +123,19 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-## How many texts came in while the phone was away (the HUD shows it).
+## How many texts came in since the phone was last out (the HUD shows it),
+## the welcome texts of a new game included.
 func unread() -> int:
-	return _unread
+	var town := get_tree().get_first_node_in_group("town")
+	if town == null or visible:
+		return 0
+	return maxi(0, (town.get("texts") as Array).size() - _seen)
 
 
 func open_phone(app: String = "") -> void:
 	visible = true
-	_unread = 0
+	var town := get_tree().get_first_node_in_group("town")
+	_seen = (town.get("texts") as Array).size() if town != null else 0
 	# Held in the right hand: anchored to the right edge, 40 px in, centered up and down.
 	set_anchors_preset(Control.PRESET_CENTER_RIGHT)
 	offset_right = -40.0

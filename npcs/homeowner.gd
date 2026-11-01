@@ -20,7 +20,7 @@ const _MoneyPopup = preload("res://ui/money_popup.gd")
 const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
 const REACT_SECONDS: float = 2.6
-const CAPTION_SECONDS: float = 6.0
+const CAPTION_SECONDS: float = 8.0
 ## The share of a fresh-looking yard that counts as clean.
 const CLEAN_ENOUGH: float = 0.85
 const MESSY_BELOW: float = 0.5
@@ -74,11 +74,15 @@ func _ready() -> void:
 	add_child(tag)
 	_caption = Label3D.new()
 	_caption.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_caption.font_size = 52
-	_caption.outline_size = 12
-	_caption.width = 600.0
+	# The same size on screen however close you stand: you talk to them up close.
+	_caption.fixed_size = true
+	_caption.pixel_size = 0.0011
+	_caption.font_size = 30
+	_caption.outline_size = 10
+	_caption.width = 520.0
 	_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_caption.position.y = 2.65
+	_caption.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_caption.position.y = 2.25
 	_caption.modulate = Color(1.0, 0.97, 0.85)
 	_caption.no_depth_test = true
 	_caption.visible = false
@@ -171,6 +175,9 @@ func _process(delta: float) -> void:
 		_tag.text = _client_name()
 	_caption_left = maxf(0.0, _caption_left - delta)
 	_caption.visible = _caption_left > 0.0
+	# Their name steps aside while they talk, so the two don't pile up.
+	if _tag != null:
+		_tag.visible = not _caption.visible
 	if _phase == Phase.OFFERING:
 		# Keep the hands out, and let the cash bob so it reads as "take this".
 		if _body.call("current_gesture") != "offer":

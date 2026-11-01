@@ -109,6 +109,11 @@ func heat_scale() -> float:
 	return Constants.QUIET_HOURS_HEAT_SCALE if is_quiet_hours() else 1.0
 
 
+## Bedtime: from Constants.SLEEP_FROM_HOUR (6 PM) until the clock stops.
+func can_sleep_now() -> bool:
+	return hour() >= Constants.SLEEP_FROM_HOUR
+
+
 func is_sleeping(peer_id: int) -> bool:
 	return sleepers.has(peer_id)
 
@@ -153,6 +158,9 @@ func _handle_sleep(peer_id: int, lying_down: bool, cot: int = -1) -> void:
 	if lying_down and not sleepers.has(peer_id):
 		# Not while a job is on: the crew has to be back at the store.
 		if Net.player_zone(peer_id) != Net.Zone.STORE:
+			return
+		# And not before evening, or a crew could skip days to reroll the jobs.
+		if not can_sleep_now():
 			return
 		var taken: Array = cots.values()
 		if cot < 0 or cot >= Constants.COT_SPOTS.size() or taken.has(cot):

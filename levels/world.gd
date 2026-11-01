@@ -119,6 +119,8 @@ func _dress() -> void:
 		[Vector3(32.6, 0.1, -140.0), Vector3(32.6, 0.1, 140.0)],
 	], 7, 11)
 	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
+	# The drive from Homie Depot to the town passes country, not a void.
+	preload("res://levels/dressing/countryside.gd").dress(self)
 	add_child(preload("res://levels/outline_pass.gd").new())
 	# The clerk behind the counter. Local on every peer: nothing about it is shared.
 	var clerk := preload("res://npcs/store_clerk.gd").new()

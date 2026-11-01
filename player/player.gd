@@ -924,19 +924,39 @@ func _grab_nearby() -> bool:
 	# One thing at a time.
 	if held != null:
 		return false
-	var closest: Node = null
-	var closest_distance := 2.4
-	for node: Node in get_tree().get_nodes_in_group("props"):
-		if not node is Node3D:
-			continue
-		var distance := global_position.distance_to((node as Node3D).global_position)
-		if distance < closest_distance:
-			closest = node
-			closest_distance = distance
+	var closest := _best_pickup()
 	if closest == null:
 		return false
 	closest.call("request_grab")
 	return true
+
+
+## What E picks up: whatever is in reach, favoring what you're looking at, and
+## a leaf bag over the rake you just put down beside it.
+func _best_pickup() -> Node3D:
+	var forward := -global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var best: Node3D = null
+	var best_score := INF
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or int(prop.get("held_by")) != 0:
+			continue
+		var offset := prop.global_position - global_position
+		var distance := offset.length()
+		if distance >= Constants.PICKUP_REACH:
+			continue
+		var flat := Vector3(offset.x, 0.0, offset.z)
+		var facing := flat.normalized().dot(forward) if flat.length() > 0.05 else 1.0
+		# In front counts as closer; behind counts as farther.
+		var score := distance * (1.25 - 0.45 * facing)
+		if str(prop.get("kind")) == "leaf_bag":
+			score -= Constants.PICKUP_BAG_PREFERENCE
+		if score < best_score:
+			best_score = score
+			best = prop
+	return best
 
 
 ## What E would do right now, for the prompt in ui/interaction_prompt.gd, in the
@@ -994,16 +1014,7 @@ func interaction_hint() -> Dictionary:
 			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0)}
 	if held != null:
 		return {}
-	var closest: Node3D = null
-	var closest_distance := 2.4
-	for node: Node in get_tree().get_nodes_in_group("props"):
-		var prop := node as Node3D
-		if prop == null or int(prop.get("held_by")) != 0:
-			continue
-		var distance := global_position.distance_to(prop.global_position)
-		if distance < closest_distance:
-			closest = prop
-			closest_distance = distance
+	var closest := _best_pickup()
 	if closest == null:
 		return {}
 	var prop_label := str(closest.get("label"))

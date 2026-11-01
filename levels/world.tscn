@@ -29,6 +29,9 @@ albedo_color = Color(0.45, 0.28, 0.18, 1)
 [sub_resource type="BoxShape3D" id="BoxShape_gate"]
 size = Vector3(4, 2.5, 3)
 
+[sub_resource type="BoxShape3D" id="BoxShape_board"]
+size = Vector3(6.5, 3, 10.5)
+
 [sub_resource type="BoxMesh" id="BoxMesh_gate"]
 size = Vector3(4, 0.15, 3)
 
@@ -192,12 +195,12 @@ spawn_path = NodePath("../Players")
 script = ExtResource("4_ride")
 
 [node name="Board" type="Area3D" parent="StoreZone"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.2, 11.2)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 1.2, 8.6)
 script = ExtResource("3_post")
 action_name = "depart"
 
 [node name="Collision" type="CollisionShape3D" parent="StoreZone/Board"]
-shape = SubResource("BoxShape_gate")
+shape = SubResource("BoxShape_board")
 
 [node name="Label" type="Label3D" parent="StoreZone/Board"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
