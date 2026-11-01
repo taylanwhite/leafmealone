@@ -202,3 +202,13 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Brawl:** `net/components/brawl.gd` (under World, host authority) takes every ask (punch, whack, grab, release, break free), checks reach and state on the host, broadcasts the hit (one call_local RPC: swing on the attacker, bonk on the target, the sound), and tells each owner what they're now doing. `carrying`, `carried_by`, `thrown`, and `winding` are owner-set replicated flags on the player, like the other host-to-owner flags; a carried player positions itself at its carrier each physics tick from the carrier's replicated transform, so nothing new is interpolated.
 - **Why one node:** punches and throws involve two players whose movement belongs to two peers; the host is the only place both are known, and one RPC hub keeps the rules in one file.
 - **Tests:** `--brawl-test` with a client runs in CI.
+
+### 2026-11-01: Claude Code on Windows is the main developer
+
+- **Why:** Taylan is moving to mostly AI-driven development, on a Windows 11 machine. `CLAUDE.md` holds the Windows tool paths and the test commands; `tools/ci_local.ps1` runs exactly what `netcode.yml` runs, so an agent can get a CI verdict before pushing. Lanes stay as commit prefixes only.
+- **Also:** agents now have creative freedom (names, lines, systems) and record what they decide in `docs/GAME.md`. Work happens on branches and is pushed when a task is done.
+- **Considered:** keeping the Cursor and MCP setup. It still works for Cursor users and is left in place.
+
+### 2026-11-01: Four players, a persistent town, early access
+
+- **Why:** Taylan's calls. Four matches the truck's seats, so nobody is stranded at the store; `Constants.MAX_PLAYERS` is 4. The town persists like Schedule I's (`docs/SPINE.md`), so homeowners, referrals, and neighborhoods can carry progression. The game ships in early access, so no ending is built yet.

@@ -1,6 +1,6 @@
 # Agent guide
 
-This repo is Leaf Me Alone, an online co-op comedy game built by two developers who each work with their own Cursor agent, often at the same time. The biggest risks in that setup are two agents making conflicting changes, drifting into two different architectures, or quietly inventing game design. Most of the rules below exist to prevent those three things. Read this file fully before your first change in a session.
+This repo is Leaf Me Alone, an online co-op comedy game. It started with two developers each running a Cursor agent on a Mac; since 2026-11-01 it is mostly built by Claude Code on Windows for one developer, Taylan. `CLAUDE.md` has the current direction, the Windows tools, and how to test, and it wins where the two disagree. The architecture rules below are unchanged. Read this file fully before your first change in a session.
 
 ## What the game is
 
@@ -9,16 +9,16 @@ Players take impossible leaf-cleanup jobs, ride a truck from a store to job lots
 ## Stack and platforms
 
 - Godot 4.7, standard build (not .NET). GDScript only, statically typed.
-- GodotSteam 4.20 GDExtension in `addons/godotsteam/`. Treat it as vendored code and never edit it.
+- GodotSteam 4.23.1 GDExtension in `addons/godotsteam/`. Treat it as vendored code and never edit it.
 - Networking uses Godot's high-level multiplayer (RPCs, MultiplayerSpawner, MultiplayerSynchronizer) over ENet during local development and SteamMultiplayerPeer in real sessions.
-- Listen server: one player hosts and is authoritative for shared state. No dedicated servers, no backend. Up to 8 players for now.
+- Listen server: one player hosts and is authoritative for shared state. No dedicated servers, no backend. Up to 4 players (decided 2026-11-01).
 - 3D physics engine is Jolt.
 - Both developers work on macOS. The game ships on Steam for macOS and Windows. Read `docs/PLATFORMS.md` before touching exports or anything platform-specific.
 - Git and GitHub, with Git LFS for binary assets.
 
 ## Before you start a task
 
-1. Read `.cursor/rules/local-me.mdc` to learn which developer you are working for and which lane they own. If that file is missing, ask the developer before doing anything else.
+1. In Cursor, read `.cursor/rules/local-me.mdc` to learn which developer you are working for. In Claude Code, read `CLAUDE.md` instead.
 2. Make sure the working tree is current with `git pull --rebase`. If the pull conflicts, stop and tell the developer instead of resolving it on your own.
 3. Read the current milestone in `docs/PLAN.md` and check `docs/HANDOFFS.md` for open requests addressed to your lane.
 4. Work only on tasks in your lane. If the developer asks for something in the other lane, say so and get explicit confirmation before touching those files.
@@ -59,10 +59,10 @@ These are the non-negotiables. The full patterns are in `docs/NETCODE.md`, which
 
 ## Design rules
 
-- Only Confirmed items in `docs/GAME.md` are canon. Do not treat working assumptions or open questions as decided.
-- When a task depends on an open question, build it so the answer can change without a rewrite (a `Balance` value, a flag, or one replaceable function), and name the OQ id in a comment.
+- `docs/GAME.md` is the record of what the game is. Agents have creative freedom (Taylan, 2026-11-01): name things, write lines and jokes, and design systems, then record each decision in `docs/GAME.md` in the same commit so later work builds on it.
+- When something is still genuinely open, build it so the answer can change without a rewrite (a constant, a flag, or one replaceable function), and name the OQ id in a comment.
 - Every tuning number comes from `core/balance.gd` (generated from the workbook) or `core/constants.gd`. Never hardcode balance values in gameplay code.
-- Do not invent names, lore, characters, or jokes for the game. Use obvious placeholders such as `[CREW NAME]` and tell the developer. Never use "ICE" or any real agency's name in player-facing content.
+- Never use "ICE" or any real agency's name in player-facing content, and keep to the humor guardrail in `docs/GAME.md`.
 
 ## Verify before you commit
 

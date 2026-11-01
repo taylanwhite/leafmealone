@@ -63,15 +63,17 @@ func blob(center: Vector3, size: Vector3, color: Color, options: Dictionary = {}
 	# Smooth normals from the lumpy surface itself, so bumps shade like bumps.
 	var smooth_normals := PackedVector3Array()
 	smooth_normals.resize(moved.size())
+	# The triangles are clockwise from outside (Godot's front face), so the
+	# outward normal is (c - a) x (b - a). tools/mesh_check.gd checks this.
 	for tri: int in range(0, triangles.size(), 3):
-		var face := (moved[triangles[tri + 1]] - moved[triangles[tri]]).cross(moved[triangles[tri + 2]] - moved[triangles[tri]])
+		var face := (moved[triangles[tri + 2]] - moved[triangles[tri]]).cross(moved[triangles[tri + 1]] - moved[triangles[tri]])
 		for corner: int in 3:
 			smooth_normals[triangles[tri + corner]] += face
 	for tri: int in range(0, triangles.size(), 3):
 		var a := moved[triangles[tri]]
 		var b := moved[triangles[tri + 1]]
 		var c := moved[triangles[tri + 2]]
-		var face_normal := (b - a).cross(c - a).normalized()
+		var face_normal := (c - a).cross(b - a).normalized()
 		var face_color := _vary(color, rng, jitter)
 		for corner: int in 3:
 			var at := moved[triangles[tri + corner]]
@@ -106,7 +108,7 @@ func rbox(center: Vector3, half: Vector3, color: Color, roundness: float = 5.0, 
 	var normals := PackedVector3Array()
 	normals.resize(moved.size())
 	for tri: int in range(0, triangles.size(), 3):
-		var face := (moved[triangles[tri + 1]] - moved[triangles[tri]]).cross(moved[triangles[tri + 2]] - moved[triangles[tri]])
+		var face := (moved[triangles[tri + 2]] - moved[triangles[tri]]).cross(moved[triangles[tri + 1]] - moved[triangles[tri]])
 		for corner: int in 3:
 			normals[triangles[tri + corner]] += face
 	for tri: int in range(0, triangles.size(), 3):
@@ -293,7 +295,8 @@ func box(center: Vector3, size: Vector3, color: Color, basis: Basis = Basis.IDEN
 		var tint := _scaled(color, 1.06 if normal == Vector3.UP else (0.7 if normal == Vector3.DOWN else 1.0))
 		tint.a = sway
 		var world_normal := (basis * normal).normalized()
-		var order := [0, 2, 1, 0, 3, 2]
+		# Clockwise seen from outside, Godot's front face.
+		var order := [0, 1, 2, 0, 2, 3]
 		for corner: int in order:
 			_add(center + basis * (corners[corner] as Vector3), world_normal, tint)
 

@@ -4,11 +4,11 @@
 # --voice-test tone, with a simulated bad connection. The last client joins late, as NETCODE.md asks. Every peer
 # writes a report, and tools/soak_report.py decides pass, fail, or inconclusive.
 #
-#   tools/soak.sh                 8 players, 60 s, 150 ms, 2% loss, headless
+#   tools/soak.sh                 4 players, 60 s, 150 ms, 2% loss, headless
 #   tools/soak.sh -n 2 -s 30      2 players for 30 s
 #   tools/soak.sh -w 2            first 2 peers get windows and take screenshots
 #   tools/soak.sh -l 0 -p 0       perfect connection
-#   tools/soak.sh -a              real macOS audio driver (muted), so voice
+#   tools/soak.sh -a              real audio driver (CoreAudio on macOS, WASAPI on Windows), so voice
 #                                 playback gaps are measured, not just delivery
 #   tools/soak.sh -e 15           everyone starts on the lot and stays, and the
 #                                 host starts a run event at 15 s: checks the
@@ -22,7 +22,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT="${GODOT:-/Applications/Godot.app/Contents/MacOS/Godot}"
 PYTHON="${PYTHON:-python3}"
-PLAYERS=8
+PLAYERS=4
 SECONDS_TO_RUN=60
 LAG_MS=150
 LOSS_PERCENT=2
@@ -43,7 +43,7 @@ while getopts "n:s:l:p:w:P:o:Vae:" option; do
 		P) PORT="$OPTARG" ;;
 		o) OUT="$OPTARG" ;;
 		V) VOICE=() ;;
-		a) AUDIO=(--audio-driver CoreAudio) ;;
+		a) case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) AUDIO=(--audio-driver WASAPI) ;; *) AUDIO=(--audio-driver CoreAudio) ;; esac ;;
 		e) EVENT_AT="$OPTARG" ;;
 		*) sed -n '2,22p' "$0" >&2; exit 64 ;;
 	esac
