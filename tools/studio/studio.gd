@@ -24,6 +24,9 @@ const _Surfaces = preload("res://props/surfaces.gd")
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _HouseBuilder = preload("res://levels/town/house_builder.gd")
+const _Archetypes = preload("res://levels/town/house_archetypes.gd")
+const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const VIEW_SIZE := Vector2i(720, 720)
 
 var _subject := "trees"
@@ -134,6 +137,11 @@ func _build(root: Node3D) -> void:
 			preload("res://props/vehicles.gd").build_van(van, Color(0.16, 0.17, 0.2))
 		"surfaces":
 			_surfaces(root)
+		"houses":
+			_houses(root)
+		"house":
+			var archetype := _archetype if _archetype != "" else str(_HoodStyles.archetypes_for(_hood, _stories())[0])
+			_HouseBuilder.build(root, Vector3.ZERO, _house_req(archetype, _seed))
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
 
@@ -179,6 +187,70 @@ func _surfaces(root: Node3D) -> void:
 		# The roads from above.
 		{"from": Vector3(0.0, 44.0, 52.0), "at": Vector3(0.0, 0.0, 33.0), "fov": 55.0},
 	])
+
+
+## Every house archetype in a lineup, four to a row, each in the palette of a
+## neighborhood that builds it. --width=min|max|<m> (default: the middle of
+## --size's yard house widths), --depth=<m>, --stories=1|2, --detail=far.
+func _houses(root: Node3D) -> void:
+	var names := _Archetypes.ALL
+	var rows := ceili(float(names.size()) / 4.0)
+	for index: int in names.size():
+		var at := Vector3((float(index % 4) - 1.5) * 19.0, 0.0, -float(index / 4) * 52.0)
+		_HouseBuilder.build(root, at, _house_req(names[index], _seed + index))
+		_label(root, names[index], at + Vector3(0.0, 13.0, 0.0), 0.03)
+	var views: Array = []
+	for row: int in mini(rows, 4):
+		var z := -float(row) * 52.0
+		views.append({"from": Vector3(4.0, 11.0, z + 40.0), "at": Vector3(0.0, 4.5, z), "fov": 72.0})
+	root.set_meta("views", views)
+
+
+## What a studio house is built from: the archetype at --width/--depth/--stories,
+## colored from a neighborhood that builds it (--hood if it does).
+func _house_req(archetype: String, seed_value: int) -> Dictionary:
+	var hood := _hood
+	if not _builds(hood, archetype):
+		for id: String in _HoodStyles.ids():
+			if _builds(id, archetype):
+				hood = id
+				break
+	var look: Dictionary = _HoodStyles.style(hood)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var wall: Array = look["walls"][rng.randi() % (look["walls"] as Array).size()]
+	var roof: Array = look["roofs"][rng.randi() % (look["roofs"] as Array).size()]
+	var widths: Vector2 = Constants.YARD_HOUSE_WIDTH[_size]
+	var width := (widths.x + widths.y) * 0.5
+	match str(_options.get("width", "")):
+		"min":
+			width = (Constants.YARD_HOUSE_WIDTH[0] as Vector2).x
+		"max":
+			width = (Constants.YARD_HOUSE_WIDTH[2] as Vector2).y
+		"":
+			pass
+		var given:
+			width = float(given)
+	return {
+		"archetype": archetype, "width": width, "depth": float(_options.get("depth", "8.0")), "stories": _stories(),
+		"wall": wall[0], "wall_surface": wall[1], "roof": roof[0], "roof_surface": roof[1],
+		"trim": look["trims"][rng.randi() % (look["trims"] as Array).size()],
+		"door": look["doors"][rng.randi() % (look["doors"] as Array).size()],
+		"accent": look["accents"][rng.randi() % (look["accents"] as Array).size()],
+		"garage": rng.randf() < 0.5, "seed": seed_value, "detail": str(_options.get("detail", "full")),
+	}
+
+
+func _builds(hood: String, archetype: String) -> bool:
+	for stories: int in [1, 2]:
+		for entry: Array in _HoodStyles.neighbor_archetype_weights(hood, stories):
+			if str(entry[0]) == archetype:
+				return true
+	return false
+
+
+func _stories() -> int:
+	return clampi(int(_options.get("stories", "2" if _size == 2 else "1")), 1, 2)
 
 
 func _sample_color(pattern: String) -> Color:
