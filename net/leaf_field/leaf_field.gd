@@ -18,6 +18,7 @@ const INITIAL_DENSITY: int = 60
 const CLEAN_DENSITY: int = 8
 const REACH_METERS: float = 3.5
 const SEND_INTERVAL: float = 0.1
+const _Economy = preload("res://core/economy.gd")
 
 @export var cell_size: float = 0.5
 @export var grid_width: int = 80
@@ -365,10 +366,11 @@ func dollars_for(units: int) -> int:
 	var lot_density := float(grid_width * grid_depth * INITIAL_DENSITY)
 	var whole_lot := float(Balance.CREDITS_PER_1_PERCENT_LOT_CLEANUP) * 100.0
 	# The crew's bag perks (core/ranks.gd).
-	var bonus := 1.0
+	var perks := 0
 	for perk: String in ["bag_bonus", "bag_bonus_2", "bag_bonus_3"]:
 		if Campaign.has_perk(perk):
-			bonus += Constants.BAG_BONUS_PER_PERK
+			perks += 1
+	var bonus := _Economy.bag_bonus(perks)
 	return maxi(1, int(round(float(units) / lot_density * whole_lot * bonus)))
 
 

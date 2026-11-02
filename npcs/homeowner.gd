@@ -16,6 +16,7 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 const _LowPoly = preload("res://props/low_poly.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
+const _Economy = preload("res://core/economy.gd")
 ## How close you must be to talk or take the cash, in meters.
 const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
@@ -220,7 +221,7 @@ func _handle_talk(peer_id: int) -> void:
 	var bills_total := int(tasks.call("bills_total")) if tasks != null else 0
 	# Richer neighborhoods and better-off owners pay more for the same work.
 	var budget := _budget()
-	var amount := 0 if mood == "nothing" else maxi(0, int(round(float(value + task_value) * float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)) * budget)) - water_fee - bills_total)
+	var amount := _Economy.job_pay(value, task_value, mood, budget, water_fee, bills_total)
 	_settlement = {"bags_value": value, "tasks": task_lines, "mood": mood, "multiplier": float(Constants.HOMEOWNER_PAY_BY_MOOD.get(mood, 1.0)), "water_fee": water_fee, "bills": bills, "paid": amount}
 	_rpc_react.rpc(mood, line_index, amount, pool)
 	if mood == "nothing":
@@ -238,8 +239,8 @@ func _judge(value: int) -> String:
 	var field := get_tree().get_first_node_in_group("leaf_field")
 	# Picky owners want it cleaner before they're happy, and call it a mess sooner.
 	var standards := _standards()
-	var clean_enough := clampf(Constants.HOMEOWNER_CLEAN_ENOUGH + (standards - 0.3) * Constants.HOMEOWNER_STANDARDS_CLEAN_SLOPE, 0.7, 0.97)
-	var messy_below := clampf(Constants.HOMEOWNER_MESSY_BELOW + (standards - 0.3) * Constants.HOMEOWNER_STANDARDS_MESSY_SLOPE, 0.3, 0.75)
+	var clean_enough := _Economy.clean_enough_at(standards)
+	var messy_below := _Economy.messy_below_at(standards)
 	# How done the whole job is: the leaves and every task asked for, weighed alike.
 	var clean := float(field.call("cleaned_fraction")) if field != null else 0.0
 	var tasks := get_tree().get_first_node_in_group("job_tasks")
