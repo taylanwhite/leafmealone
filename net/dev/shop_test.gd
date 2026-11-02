@@ -7,23 +7,40 @@ extends Node
 ## buffs, and Marty tops up a crew out of bags; Rusty's fishing days; paying a
 ## crewmate; a bought hat is worn; and the "shops" save section round-trips.
 ## Run with --start-zone=lot --all-tools --rank=22 --start-hour=10 and a Target
-## client (tools/ci_local.ps1 "shop", port 7814). CI also compares the host's
-## "shops" report with the client's, which proves the state replicates.
-## Later shop chunks add steps (bags, gas, tiers, junk, snacks, looks, deliveries).
-## Each step prints a [ShopTest] line.
+## client that also has --shop-test (tools/ci_local.ps1 "shop", port 7814). The
+## client half (_run_client) buys a hat and pays the host through the real
+## client path (_rpc_request_buy, _rpc_request_give, _rpc_result) and reports
+## its own shop_test; the host's "client_buy" step sees it land. CI also
+## compares the host's "shops" report with the client's, which proves the state
+## replicates. Later shop chunks add steps (bags, gas, tiers, junk, snacks,
+## looks, deliveries). Each step prints a [ShopTest] line.
 
 const _Shops = preload("res://net/shops/shops.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
+## What the client buys, so the host can tell its buy from its own.
+const CLIENT_HAT: String = "hat_beanie"
+## The host's starting cash for the client: the hat, the gift, and change.
+const CLIENT_CASH: int = 500
+## How long either side waits for the other (the client's buy, a result).
+const WAIT_SECONDS: float = 20.0
 
 static var result: Dictionary = {}
 
 var _started: bool = false
 var _steps: Dictionary = {}
+## The client's results from the host, in order: [code, item, amount].
+var _results: Array = []
 
 
 func _process(_delta: float) -> void:
-	if _started or not Net.is_host() or _shops() == null or get_tree().get_first_node_in_group("leaf_field") == null:
+	if _started or _shops() == null:
+		return
+	if not Net.is_host():
+		_started = true
+		_run_client()
+		return
+	if get_tree().get_first_node_in_group("leaf_field") == null:
 		return
 	_started = true
 	_run()
@@ -40,12 +57,34 @@ func _run() -> void:
 		return
 	var shops := _shops()
 	var me := Net.local_peer_id()
+	var mate := -1
+	for peer_id: int in Net.peer_ids():
+		if peer_id != me:
+			mate = peer_id
 	_step("catalog", _check_catalog())
+	# The client gets cash for its own buy (_run_client), before anyone is at the store.
+	Campaign.pay(mate, CLIENT_CASH)
+	var mate_cash := Campaign.credits(mate)
+	var host_cash := Campaign.credits(me)
 	# Everyone back at the store; the host walks up to Homie Depot's counter.
 	for peer_id: int in Net.peer_ids():
 		Net.move_player_to_zone(peer_id, Net.Zone.STORE)
 	await get_tree().create_timer(0.6).timeout
 	await _stand_at("homie_depot")
+
+	# client_buy: the client walks to the counter, buys a hat and pays the host
+	# $20 through the RPCs; here the host sees the hat on it and the cash move.
+	var gift: int = Constants.PAY_CREWMATE_STEPS[0]
+	var hat_price := Catalog.price(CLIENT_HAT)
+	var client_wait := 0.0
+	while client_wait < WAIT_SECONDS and not (str((shops.call("look_of", mate) as Dictionary).get("hat", "")) == CLIENT_HAT and Campaign.credits(me) - host_cash >= gift):
+		await get_tree().create_timer(0.25).timeout
+		client_wait += 0.25
+	var mate_hat := str((shops.call("look_of", mate) as Dictionary).get("hat", ""))
+	var mate_paid := mate_cash - Campaign.credits(mate)
+	var host_got := Campaign.credits(me) - host_cash
+	_step("client_buy", mate_hat == CLIENT_HAT and Campaign.peer_has_unlock(mate, StringName(CLIENT_HAT)) and mate_paid == hat_price + gift and host_got == gift,
+		"client wears %s, paid $%d (hat $%d + $%d gift), host got $%d, after %.1f s" % [mate_hat, mate_paid, hat_price, gift, host_got, client_wait])
 
 	# buy_tier: a Mk II for exactly its price, and the crew brings it.
 	Campaign.pay(me, 9000)
@@ -118,7 +157,8 @@ func _run() -> void:
 	var rules: bool = _Shops.open_at("homie_depot", 7.0, 2) and not _Shops.open_at("homie_depot", 21.0, 2) \
 		and _Shops.open_at("snak_o_matic", 25.5, 2) and not _Shops.open_at("rustys", 12.0, Constants.RUSTYS_CLOSED_EVERY) \
 		and _Shops.open_at("rustys", 12.0, Constants.RUSTYS_CLOSED_EVERY + 1) and not _Shops.open_at("rustys", 18.5, 3) \
-		and _Shops.hour_text(21.0) == "9 PM" and _Shops.hour_text(7.0) == "7 AM" and _Shops.hour_text(24.5) == "12 AM"
+		and _Shops.hour_text(21.0) == "9 PM" and _Shops.hour_text(7.0) == "7 AM" and _Shops.hour_text(24.5) == "12 AM" \
+		and _fishing_texts()
 	clock.call("set_hour_for_tests", 12.0)
 	await get_tree().create_timer(0.2).timeout
 	var reopened := bool(shops.call("is_open", "homie_depot"))
@@ -126,17 +166,13 @@ func _run() -> void:
 		"at 10 PM: %s (opens %s); open again at noon %s; the open_at rules %s" % [closed, opens, reopened, rules])
 
 	# give: exactly $20 to the crewmate; odd amounts and yourself are refused.
-	var mate := -1
-	for peer_id: int in Net.peer_ids():
-		if peer_id != me:
-			mate = peer_id
 	var mine := Campaign.credits(me)
 	var theirs := Campaign.credits(mate)
 	var gave := str(shops.call("request_give", mate, Constants.PAY_CREWMATE_STEPS[0]))
 	var moved := mine - Campaign.credits(me) == Constants.PAY_CREWMATE_STEPS[0] and Campaign.credits(mate) - theirs == Constants.PAY_CREWMATE_STEPS[0]
 	var odd := str(shops.call("request_give", mate, 37))
 	var selfish := str(shops.call("request_give", me, Constants.PAY_CREWMATE_STEPS[0]))
-	_step("give", gave == "ok" and moved and odd == "unknown" and selfish == "unknown" and Campaign.credits(mate) - theirs == Constants.PAY_CREWMATE_STEPS[0],
+	_step("give", gave == "ok" and moved and odd == "give_invalid" and selfish == "give_invalid" and Campaign.credits(mate) - theirs == Constants.PAY_CREWMATE_STEPS[0],
 		"gave $%d: %s; $37: %s; to yourself: %s" % [Constants.PAY_CREWMATE_STEPS[0], gave, odd, selfish])
 
 	# wear: a bought hat goes straight on.
@@ -150,6 +186,84 @@ func _run() -> void:
 	# Let the last snapshot reach the client before the reports.
 	await get_tree().create_timer(1.0).timeout
 	_finish("")
+
+
+## When Rusty's opens, around his fishing day: the evening before it skips a
+## day, the morning of it and the evening of a plain day say tomorrow, and a
+## plain morning says the hour.
+func _fishing_texts() -> bool:
+	var fishing := Constants.RUSTYS_CLOSED_EVERY
+	var face := _Shops.hour_text((Constants.SHOP_HOURS["rustys"] as Vector2).x)
+	var cases := {
+		"evening before fishing": [_Shops.opens_text_at("rustys", 19.0, fishing - 1), str(_Strings.SHOP_UI["shop_opens_day_after"]) % face],
+		"fishing morning": [_Shops.opens_text_at("rustys", 8.0, fishing), str(_Strings.SHOP_UI["shop_opens_tomorrow"]) % face],
+		"plain evening": [_Shops.opens_text_at("rustys", 19.0, fishing + 1), str(_Strings.SHOP_UI["shop_opens_tomorrow"]) % face],
+		"plain morning": [_Shops.opens_text_at("rustys", 8.0, fishing + 1), face],
+	}
+	var ok := true
+	for name: String in cases:
+		var pair: Array = cases[name]
+		if pair[0] != pair[1]:
+			ok = false
+			print("[ShopTest]   Rusty's %s says %s, not %s" % [name, pair[0], pair[1]])
+	return ok
+
+
+## The client half: once the host has sent it to the store with cash, it walks
+## to Homie Depot's counter, buys CLIENT_HAT, tries an odd gift, and pays the
+## host $20, all through Shops' requests, and checks each answer that comes back.
+func _run_client() -> void:
+	var shops := _shops()
+	var me := Net.local_peer_id()
+	var hat_price := Catalog.price(CLIENT_HAT)
+	var gift: int = Constants.PAY_CREWMATE_STEPS[0]
+	shops.connect("result", func(code: String, item: String, amount: int) -> void: _results.append([code, item, amount]))
+	var waited := 0.0
+	while waited < WAIT_SECONDS and not (Net.player_zone(me) == Net.Zone.STORE and Campaign.credits(me) >= hat_price + gift and bool(shops.call("is_open", "homie_depot"))):
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	if Net.player_zone(me) != Net.Zone.STORE or Campaign.credits(me) < hat_price + gift:
+		_finish("the client was never sent to the store with cash")
+		return
+	# Let the host's teleport land, then stand at the counter and let the host see it.
+	await get_tree().create_timer(0.6).timeout
+	await _stand_at("homie_depot")
+	await get_tree().create_timer(0.5).timeout
+
+	var cash := Campaign.credits(me)
+	var asked := str(shops.call("request_buy", "homie_depot", CLIENT_HAT, 1))
+	await _await_results(1)
+	waited = 0.0
+	while waited < 3.0 and (cash - Campaign.credits(me) != hat_price or str((shops.call("look_of", me) as Dictionary).get("hat", "")) != CLIENT_HAT):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var answer: Array = _results[0] if _results.size() > 0 else []
+	var worn := str((shops.call("look_of", me) as Dictionary).get("hat", ""))
+	_step("client_buy", asked == "" and answer == ["ok", CLIENT_HAT, hat_price] and cash - Campaign.credits(me) == hat_price and worn == CLIENT_HAT,
+		"asked %s, answer %s, paid $%d, wearing %s" % [asked, str(answer), cash - Campaign.credits(me), worn])
+
+	# An odd amount is refused with its own code; then $20 goes to the host.
+	shops.call("request_give", 1, gift + 17)
+	await _await_results(2)
+	cash = Campaign.credits(me)
+	shops.call("request_give", 1, gift)
+	await _await_results(3)
+	waited = 0.0
+	while waited < 3.0 and cash - Campaign.credits(me) != gift:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var odd: Array = _results[1] if _results.size() > 1 else []
+	var gave: Array = _results[2] if _results.size() > 2 else []
+	_step("client_give", odd == ["give_invalid", "give", 0] and gave == ["ok", "give", gift] and cash - Campaign.credits(me) == gift,
+		"odd gift %s, $%d gift %s, paid $%d" % [str(odd), gift, str(gave), cash - Campaign.credits(me)])
+	_finish("")
+
+
+func _await_results(count: int) -> void:
+	var waited := 0.0
+	while _results.size() < count and waited < 5.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
 
 
 func _check_catalog() -> bool:

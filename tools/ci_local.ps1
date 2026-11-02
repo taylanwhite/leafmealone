@@ -143,8 +143,11 @@ $Tests = [ordered]@{
 	# Port from the integration review's table (gap-specs/critic.md): 7814.
 	shop = @{
 		Port = 7814
+		# Extra gives the client the flag too, for the test's client half (a buy and
+		# a gift through the RPCs); the host's copy just repeats it.
 		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --all-tools --rank=22 --start-hour=10 --shop-test'; Seconds = 100; Client = 95
-		Check = { param($h, $c) [bool]$h.shop_test.ok -and (Same $h.shops $c.shops) }
+		Extra = '--shop-test'
+		Check = { param($h, $c) [bool]$h.shop_test.ok -and [bool]$c.shop_test.ok -and (Same $h.shops $c.shops) }
 	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").

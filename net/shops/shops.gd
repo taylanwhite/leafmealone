@@ -25,7 +25,8 @@ signal looks_changed(peer_id: int)
 signal truck_changed
 ## Local: the host's answer to this peer's request ("ok", "closed", "far",
 ## "locked", "sold_out", "owned", "needs", "short", "eaten", "season",
-## "unknown"; ui/strings.gd SHOP_UI shop_result_<code>). amount is the dollars
+## "unknown", and "give_invalid" for a refused Pay a crewmate, whose item is
+## "give"; ui/strings.gd SHOP_UI shop_result_<code>). amount is the dollars
 ## taken. The one confirmed-purchase hook for sound and keeper chatter.
 signal result(code: String, item_id: String, amount: int)
 
@@ -140,18 +141,33 @@ static func open_at(shop: String, hour: float, day: int) -> bool:
 
 
 ## When a closed shop opens next, for "Closed. Opens %s": "9 AM", or
-## "tomorrow, 7 AM" once it has closed for the night (or Rusty is fishing).
+## "tomorrow, 7 AM" once it has closed for the night (or Rusty is fishing), or
+## "the day after tomorrow, 9 AM" on the evening before Rusty's fishing day.
 func opens_text(shop: String) -> String:
+	var clock := _clock()
+	var hours: Vector2 = Constants.SHOP_HOURS.get(shop, Vector2.ZERO)
+	var hour := float(clock.call("hour")) if clock != null else hours.x
+	var day := int(clock.get("day")) if clock != null else 1
+	return opens_text_at(shop, hour, day)
+
+
+## opens_text for a clock hour on a day ("" for a shop that never opens).
+static func opens_text_at(shop: String, hour: float, day: int) -> String:
 	if not Constants.SHOP_HOURS.has(shop):
 		return ""
 	var hours: Vector2 = Constants.SHOP_HOURS[shop]
 	var face := hour_text(hours.x)
-	var clock := _clock()
-	var hour := float(clock.call("hour")) if clock != null else hours.x
-	var day := int(clock.get("day")) if clock != null else 1
-	if hour >= hours.y or _fishing(shop, day):
+	if hour < hours.x and not _fishing(shop, day):
+		return face
+	# The next day it isn't fishing; a week of fishing every day never opens.
+	var next := day + 1
+	while _fishing(shop, next):
+		next += 1
+		if next - day > maxi(Constants.RUSTYS_CLOSED_EVERY, 1):
+			return ""
+	if next == day + 1:
 		return str(_Strings.SHOP_UI["shop_opens_tomorrow"]) % face
-	return face
+	return str(_Strings.SHOP_UI["shop_opens_day_after"]) % face
 
 
 ## "7 AM", "9 PM" for a clock hour (26 is 2 AM).
@@ -275,7 +291,7 @@ func host_give(from_peer: int, to_peer: int, amount: int) -> String:
 		return ""
 	var code := "ok"
 	if from_peer == to_peer or not Net.peer_ids().has(to_peer) or not Constants.PAY_CREWMATE_STEPS.has(amount):
-		code = "unknown"
+		code = "give_invalid"
 	elif not Campaign.charge(from_peer, amount):
 		code = "short"
 	else:

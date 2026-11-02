@@ -54,6 +54,10 @@ func _ready() -> void:
 
 
 func open() -> void:
+	# The world (and its Shops node) is made after the UI, so this hooks up on open.
+	var shops := _shops()
+	if shops != null and not shops.is_connected("result", _on_shop_result):
+		shops.connect("result", _on_shop_result)
 	_refresh()
 	visible = true
 	# Centered by anchors, growing both ways from the middle of the screen, so its
@@ -119,6 +123,22 @@ func _refresh_if_open() -> void:
 		_refresh()
 
 
+## The host's answer to this player's buy: the clerk only chatters over a real
+## sale; a refusal (closed, too far) redraws the cards so they show why.
+## The toast for a refusal comes with the shop UI (shops chunk 4).
+func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
+	if not visible or item_id == "give":
+		return
+	if code == "ok":
+		bought.emit(StringName(item_id))
+	else:
+		_refresh()
+
+
+func _shops() -> Node:
+	return get_tree().get_first_node_in_group("shops") if is_inside_tree() else null
+
+
 func _refresh() -> void:
 	var wallet := Campaign.credits(Net.local_peer_id())
 	_credits.text = _Strings.UI["shop_credits"] % wallet
@@ -154,12 +174,19 @@ func _card(item: Dictionary, wallet: int) -> Control:
 	var label: String = _Strings.UI["shop_owned"] if owned else (_Strings.UI["shop_buy"] if affordable else _Strings.UI["shop_short"])
 	if not owned and not for_sale:
 		label = _Strings.UI["shop_needs_rank"] % _Ranks.title(_Ranks.tier_of(Catalog.gate_of(String(item["id"]))))
-	var buy := _button(label, ORANGE if affordable and not owned and for_sale else INK.lightened(0.5))
-	buy.disabled = owned or not affordable or not for_sale
+	# After hours the host refuses the buy (net/shops/shops.gd), so the card says so.
+	var shops := _shops()
+	var closed := shops != null and not bool(shops.call("is_open", "homie_depot"))
+	if not owned and closed:
+		label = _Strings.SHOP_UI["shop_result_closed"]
+	var buy := _button(label, ORANGE if affordable and not owned and for_sale and not closed else INK.lightened(0.5))
+	buy.disabled = owned or not affordable or not for_sale or closed
 	var item_id: StringName = item["id"]
 	buy.pressed.connect(func() -> void:
 		Campaign.request_purchase(item_id)
-		bought.emit(item_id)
+		# With Shops in the world, `bought` waits for the host's "ok" (_on_shop_result).
+		if _shops() == null:
+			bought.emit(item_id)
 	)
 	column.add_child(buy)
 	return card

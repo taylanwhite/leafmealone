@@ -251,10 +251,10 @@ jobs:
           mkdir -p build/soak/ci-shop
           "$GODOT" --headless --path . -- --host --port=7814 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --all-tools --rank=22 --start-hour=10 --shop-test --measure="$PWD/build/soak/ci-shop/host.json" --run-seconds=100 > build/soak/ci-shop/host.log 2>&1 &
           sleep 3
-          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7814 --name=Target --no-steam --measure="$PWD/build/soak/ci-shop/target.json" --run-seconds=95 > build/soak/ci-shop/target.log 2>&1
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7814 --name=Target --no-steam --shop-test --measure="$PWD/build/soak/ci-shop/target.json" --run-seconds=95 > build/soak/ci-shop/target.log 2>&1
           wait
-          grep "ShopTest" build/soak/ci-shop/host.log || true
-          $PY -c "import json,sys; h=json.load(open('build/soak/ci-shop/host.json')); t=json.load(open('build/soak/ci-shop/target.json')); sys.exit(0 if h['shop_test'].get('ok') and h['shops'] == t['shops'] else 1)"
+          grep "ShopTest" build/soak/ci-shop/host.log build/soak/ci-shop/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-shop/host.json')); t=json.load(open('build/soak/ci-shop/target.json')); sys.exit(0 if h['shop_test'].get('ok') and t['shop_test'].get('ok') and h['shops'] == t['shops'] else 1)"
 
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'

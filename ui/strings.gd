@@ -736,10 +736,14 @@ const SHOP_UI: Dictionary = {
 	"shop_result_full": "No room for more",
 	"shop_result_season": "Not this season",
 	"shop_result_unknown": "They don't sell that here",
+	# A refused Pay a crewmate (yourself, someone who left, an odd amount).
+	"shop_result_give_invalid": "Payment didn't go through. The app just spins.",
 	# Clock faces for opening hours (net/shops/shops.gd hour_text, opens_text).
 	"shop_hour_am": "%d AM",
 	"shop_hour_pm": "%d PM",
 	"shop_opens_tomorrow": "tomorrow, %s",
+	# The evening before Rusty's fishing day.
+	"shop_opens_day_after": "the day after tomorrow, %s",
 	# Prompts, hints, and goals.
 	"prompt_shop_closed": "Closed. Opens %s",
 	"prompt_look_at": "Look at %s",
