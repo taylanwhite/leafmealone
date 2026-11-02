@@ -6,7 +6,8 @@ extends RefCounted
 ## puts them on their seat each physics tick (player.gd _seat_on_ride). Their
 ## own peer turns the head (mouse), drives if they're in the driver's seat
 ## (W/S, A/D, Space handbrake, H or left click horn), and handles E (get out),
-## F (swap seats) and the camera key (chase camera or first person).
+## F (swap seats), G (let a hired hand drive, or pull over) and the camera key
+## (chase camera or first person).
 
 const _VehicleCamera = preload("res://player/vehicle_camera.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
@@ -64,12 +65,14 @@ static func handle_input(player: Node, event: InputEvent) -> bool:
 		vehicle.call("request_exit")
 		return true
 	if event.is_action_pressed("take"):
-		# In the cab with a hired hand aboard and nobody at the wheel, F lets the
-		# hand drive (and F again pulls over); otherwise it swaps seats.
+		vehicle.call("request_swap")
+		return true
+	if event.is_action_pressed("drop"):
+		# The chauffeur has its own key (G), so F can still slide you over: in the
+		# cab with a hired hand aboard and nobody at the wheel, G lets the hand
+		# drive, and G again pulls over.
 		if vehicle.has_method("chauffeur_action") and str(vehicle.call("chauffeur_action", player.name.to_int())) != "":
 			vehicle.call("request_chauffeur")
-		else:
-			vehicle.call("request_swap")
 		return true
 	if event.is_action_pressed("toggle_camera"):
 		var chase := not bool(player.get_meta("vehicle_chase", false))

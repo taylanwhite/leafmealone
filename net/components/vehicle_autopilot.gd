@@ -56,7 +56,7 @@ static func plan(from: Vector3, to: Vector3) -> PackedVector3Array:
 		var prev := out[out.size() - 2]
 		var leg := last.distance_to(prev)
 		var dir := (last - prev).normalized()
-		var lead := minf(Constants.AUTOPILOT_LANE_LEAD, leg * 0.9)
+		var lead := minf(Constants.AUTOPILOT_LANE_LEAD, leg * Constants.AUTOPILOT_LEAD_SHARE)
 		out[out.size() - 1] = flat_to - dir * lead
 	if out[out.size() - 1].distance_to(flat_to) > 0.01:
 		out.append(flat_to)
@@ -187,7 +187,7 @@ func next_input(state: Dictionary, pos: Vector3, dt: float) -> Dictionary:
 		return {"throttle": -Constants.AUTOPILOT_REVERSE_THROTTLE, "steer": 1.0 if angle >= 0.0 else -1.0}
 	var want := _wanted_speed(left, to_stop, angle)
 	# Pushing and going nowhere (a post, a parked car): back off and try again.
-	if want > Constants.AUTOPILOT_STUCK_SPEED * 2.0 and absf(speed) < Constants.AUTOPILOT_STUCK_SPEED:
+	if want > Constants.AUTOPILOT_STUCK_SPEED * Constants.AUTOPILOT_STUCK_WANT_FACTOR and absf(speed) < Constants.AUTOPILOT_STUCK_SPEED:
 		_stuck += dt
 		if _stuck >= Constants.AUTOPILOT_STUCK_SECONDS:
 			_stuck = 0.0
@@ -204,7 +204,7 @@ func next_input(state: Dictionary, pos: Vector3, dt: float) -> Dictionary:
 		return {"throttle": 0.0, "steer": steer}
 	# Too fast: the brakes, as hard as the overspeed calls for. Never a negative
 	# throttle near standstill, which would back up instead.
-	if speed > Constants.CHEFTY_REVERSE_SWITCH_SPEED + 0.2:
+	if speed > Constants.CHEFTY_REVERSE_SWITCH_SPEED + Constants.AUTOPILOT_BRAKE_MARGIN:
 		return {"throttle": -clampf(-gap / Constants.AUTOPILOT_THROTTLE_BAND, Constants.AUTOPILOT_MIN_THROTTLE, 1.0), "steer": steer}
 	return {"brake": true, "steer": steer}
 
@@ -215,11 +215,11 @@ func next_input(state: Dictionary, pos: Vector3, dt: float) -> Dictionary:
 func _wanted_speed(left: float, to_stop: float, angle: float) -> float:
 	var decel := Constants.AUTOPILOT_BRAKE_DECEL
 	var want := Constants.AUTOPILOT_CRUISE
-	want = minf(want, sqrt(2.0 * decel * maxf(minf(left, to_stop + Constants.AUTOPILOT_LANE_LEAD) - Constants.AUTOPILOT_STOP_RADIUS * 0.5, 0.0)))
+	want = minf(want, sqrt(2.0 * decel * maxf(minf(left, to_stop + Constants.AUTOPILOT_LANE_LEAD) - Constants.AUTOPILOT_STOP_RADIUS * Constants.AUTOPILOT_STOP_AIM_SHARE, 0.0)))
 	var scan := Constants.AUTOPILOT_CORNER_SCAN
 	for index: int in range(1, route.size() - 1):
 		var at := _lengths[index]
-		if at < _along - 1.0 or at > _along + scan:
+		if at < _along - Constants.AUTOPILOT_CORNER_BEHIND or at > _along + scan:
 			continue
 		var into := route[index] - route[index - 1]
 		var out := route[index + 1] - route[index]

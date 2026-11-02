@@ -26,7 +26,7 @@ extends Node3D
 ## Trips (driving chunk C2): depart() seats the party and the host's autopilot
 ## (vehicle_autopilot.gd) drives the roads to the yard's curb or the TruckPad,
 ## where everyone gets off into the zone like the legacy ride. With a hired hand
-## aboard and the driver's seat empty, F in the cab lets the hand drive
+## aboard and the driver's seat empty, G in the cab lets the hand drive
 ## (request_chauffeur): the same autopilot, to the picked job or home, with the
 ## riders free to get out. Automated runs and --warp-rides skip the driving and
 ## follow the route at AUTOPILOT_TEST_WARP times cruise speed. The hands riding
@@ -117,6 +117,11 @@ var _trip: int = Trip.NONE
 var _trip_zone: int = 0
 var _trip_label: String = ""
 var _trips_seen: int = 0
+## Tests: what this peer's own chauffeur_action() offered, each change to a
+## non-empty one in order ("start", "stop"), so CI can check a client's G key
+## offered what the host agreed to.
+var _chauffeur_seen: Array[String] = []
+var _chauffeur_last: String = ""
 ## Host: the autopilot driving the trip, whether it warps, where it parks (and
 ## facing which way, for a warp), and how long it has been going and may go.
 var _auto: VehicleAutopilot = null
@@ -270,9 +275,21 @@ func is_autopiloting() -> bool:
 	return _trip != Trip.NONE
 
 
-## The hired hand at the wheel ("" when nobody, or nobody's aboard).
+## The hired hand at the wheel ("" when nobody, or nobody's aboard). The name is
+## the trip's (the host's pick when it started), and only counts while that hand
+## is still aboard: one fired or gone home at payroll mid-trip isn't driving.
 func trip_label() -> String:
-	return _trip_label
+	return _trip_label if not _wheel_hand().is_empty() else ""
+
+
+## The hand drawn at the wheel: the trip's hand, while they're still aboard, else {}.
+func _wheel_hand() -> Dictionary:
+	if _trip == Trip.NONE or _trip_label == "" or driver() != 0:
+		return {}
+	for hand: Variant in hands_aboard():
+		if hand is Dictionary and str((hand as Dictionary).get("name", "")) == _trip_label:
+			return hand
+	return {}
 
 
 func seat_of(peer_id: int) -> int:
@@ -435,8 +452,9 @@ func request_chauffeur() -> void:
 		_rpc_request_chauffeur.rpc_id(1)
 
 
-## What F does about the chauffeur for this peer: "start" (let a hand drive),
-## "stop" (pull over), or "" (nothing; F swaps seats). Every peer can ask.
+## What G does about the chauffeur for this peer: "start" (let a hand drive),
+## "stop" (pull over), or "" (nothing). F always stays the seat swap. Every
+## peer can ask.
 func chauffeur_action(peer_id: int) -> String:
 	var seat := seat_of(peer_id)
 	if seat < 0 or seat >= _Vehicles.CHEFTY_CAB_SEATS:
@@ -457,16 +475,18 @@ func hands_aboard() -> Array:
 	return hires.get("hands") as Array
 
 
-## Where the hands ride, drawn on every peer: [{seat, name, look}]. The first
-## hand at the wheel while the autopilot drives with the driver's seat empty, the
-## rest in the free bed seats from the back row forward.
+## Where the hands ride, drawn on every peer: [{seat, name, look}]. The trip's
+## hand at the wheel while the autopilot drives with the driver's seat empty (the
+## one the dash names, trip_label()), the rest in the free bed seats from the
+## back row forward.
 func cosmetic_riders() -> Array:
-	var hands := hands_aboard()
+	var hands := hands_aboard().duplicate()
 	var out: Array = []
 	var next := 0
-	if _trip != Trip.NONE and driver() == 0 and not hands.is_empty():
-		out.append({"seat": SEAT_DRIVER, "name": str(hands[0].get("name", "")), "look": int(hands[0].get("look", 1))})
-		next = 1
+	var wheel := _wheel_hand()
+	if not wheel.is_empty():
+		out.append({"seat": SEAT_DRIVER, "name": str(wheel.get("name", "")), "look": int(wheel.get("look", 1))})
+		hands.erase(wheel)
 	for seat: int in range(Constants.CHEFTY_SEATS - 1, _Vehicles.CHEFTY_CAB_SEATS - 1, -1):
 		if next >= hands.size():
 			break
@@ -1011,6 +1031,11 @@ func _start_trip(kind: int, zone: int, stop: Transform3D) -> void:
 ## warp along the route), a trip that has gone on far too long warped the rest
 ## of the way, and the arrival.
 func _autopilot_step(delta: float) -> void:
+	# The chauffeur was fired (or went home at payroll) mid-trip: nobody's driving,
+	# so Chefty pulls over rather than carry on by itself.
+	if _trip == Trip.CHAUFFEUR and trip_label() == "":
+		_end_trip()
+		return
 	_trip_clock += delta
 	_set_horn(false)
 	if not _warp and _trip_clock > _trip_give_up:
@@ -1090,6 +1115,11 @@ func _update_presentation(delta: float) -> void:
 		_quip_left = maxf(_quip_left - delta, 0.0)
 		_quip_label.visible = _quip_left > 0.0
 	_update_hands(delta)
+	var offered := chauffeur_action(Net.local_peer_id()) if seat_of(Net.local_peer_id()) >= 0 else ""
+	if offered != _chauffeur_last:
+		_chauffeur_last = offered
+		if offered != "":
+			_chauffeur_seen.append(offered)
 
 
 ## The hands riding along, drawn from cosmetic_riders() (rebuilt only when who
@@ -1125,7 +1155,7 @@ func _build_hand(entry: Dictionary) -> Node3D:
 	var holder := Node3D.new()
 	holder.name = "HandRider%d" % seat
 	holder.set_meta("seat", seat)
-	holder.set_meta("wave_in", _wave_rng.randf_range(0.5, Constants.CHEFTY_HAND_WAVE_SECONDS.x))
+	holder.set_meta("wave_in", _wave_rng.randf_range(Constants.CHEFTY_HAND_FIRST_WAVE, Constants.CHEFTY_HAND_WAVE_SECONDS.x))
 	_seats.get_child(seat).add_child(holder)
 	var body := _CartoonBody.new()
 	body.name = "CartoonBody"
@@ -1227,8 +1257,9 @@ func dev_report() -> Dictionary:
 		"pos": [at.x, at.y, at.z],
 		"yaw": float(_state["yaw"]),
 		"trip": _trip,
-		"trip_label": _trip_label,
+		"trip_label": trip_label(),
 		"trips_seen": _trips_seen,
+		"chauffeur_seen": _chauffeur_seen.duplicate(),
 		"cosmetic": _cosmetic_report(),
 	}
 

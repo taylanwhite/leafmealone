@@ -929,10 +929,22 @@ const AUTOPILOT_REVERSE_SECONDS: float = 3.0
 const AUTOPILOT_REVERSE_THROTTLE: float = 0.7
 const AUTOPILOT_STUCK_SPEED: float = 0.5
 const AUTOPILOT_STUCK_SECONDS: float = 1.5
+## Only counts as stuck while it wants to go at least this many times STUCK_SPEED
+## (creeping up to the stop on purpose isn't stuck).
+const AUTOPILOT_STUCK_WANT_FACTOR: float = 2.0
+## The brakes (a negative throttle) only above CHEFTY_REVERSE_SWITCH_SPEED plus
+## this margin (m/s); slower, the brake input, so it never backs up by mistake.
+const AUTOPILOT_BRAKE_MARGIN: float = 0.2
+## Slowing to a stop aims this share of STOP_RADIUS short of the stop point.
+const AUTOPILOT_STOP_AIM_SHARE: float = 0.5
+## A corner counts as still ahead until the truck is this far past it (m).
+const AUTOPILOT_CORNER_BEHIND: float = 1.0
 ## Planning: road points closer than this to the last are skipped (m), and the
-## route lines up in the stop's lane this far before it.
+## route lines up in the stop's lane this far before it (at most LEAD_SHARE of
+## the last leg, so a short last leg still points the right way).
 const AUTOPILOT_MIN_STEP: float = 3.0
 const AUTOPILOT_LANE_LEAD: float = 10.0
+const AUTOPILOT_LEAD_SHARE: float = 0.9
 ## Warp mode (automated runs and --warp-rides): the truck follows the route at
 ## this many times cruise speed, with no driving.
 const AUTOPILOT_TEST_WARP: float = 4.0
@@ -946,9 +958,12 @@ const AUTOPILOT_GIVE_UP_EXTRA: float = 30.0
 ## point (TownMap.CURB_POINT): the homeowner's clock starts.
 const CHEFTY_ARRIVE_RADIUS: float = 14.0
 ## The chauffeur's quip floats over the cab this long (s), and the hands riding
-## in the bed wave every so often (a random wait in this range, s).
+## in the bed wave every so often (a random wait in this range, s; the first wave
+## after a hand sits down comes sooner, from CHEFTY_HAND_FIRST_WAVE to the range's
+## low end).
 const CHAUFFEUR_QUIP_SECONDS: float = 4.5
 const CHEFTY_HAND_WAVE_SECONDS := Vector2(3.0, 9.0)
+const CHEFTY_HAND_FIRST_WAVE: float = 0.5
 
 
 # ---- audio

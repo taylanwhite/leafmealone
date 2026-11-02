@@ -451,6 +451,9 @@ const UI: Dictionary = {
 	## prompt_too_fast, then prompt_get_out or prompt_bail_out.
 	"drive_hud_keys_seat": "{key:take} %s   {key:interact} %s",
 	# ---- driving: the autopilot and the chauffeur (driving chunk C2)
+	## The chauffeur's own key, after the seat's: prompt_chauffeur or
+	## prompt_chauffeur_stop. F stays the seat swap.
+	"drive_hud_keys_chauffeur": "{key:drop} %s",
 	"prompt_chauffeur": "Let %s drive",
 	"prompt_chauffeur_stop": "Pull over",
 	"drive_hud_chauffeur": "%s is driving",
@@ -1682,6 +1685,7 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/drive_hud_bed": [3, 1],
 	"UI/drive_hud_driver": [1, 1],
 	"UI/drive_hud_keys_seat": [2, 1],
+	"UI/drive_hud_keys_chauffeur": [1, 1],
 	"UI/prompt_chauffeur": [1, 1],
 	"UI/drive_hud_chauffeur": [1, 1],
 	"CHAUFFEUR_QUIPS": [2, 3],
@@ -1841,7 +1845,7 @@ const CHAUFFEUR_QUIPS: Array[String] = [
 	"%s drives like %s.",
 	"%s adjusts the mirror, the seat and the radio. %s does not adjust the speed.",
 	"%s never uses the blinker. %s says it gives away the plan.",
-	"%s takes the wheel with one hand. The other hand is a breakfast burrito. Classic %s.",
+	"%s takes the wheel with one hand. The other hand is a gas-station coffee the size of a paint can. Classic %s.",
 	"Hands at ten and two, says %s, at a quarter past seven. That's %s for you.",
 	"%s calls the brake pedal \"a suggestion.\" %s is now driving.",
 ]
