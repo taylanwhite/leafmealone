@@ -34,6 +34,9 @@ const _YardExtras = preload("res://props/yard_extras.gd")
 const _EstateProps = preload("res://props/estate_props.gd")
 const _SeasonProps = preload("res://props/season_props.gd")
 const _WaterSurface = preload("res://props/water_surface.gd")
+const _LotBuilder = preload("res://levels/town/lot_builder.gd")
+const _BlockBuilder = preload("res://levels/town/block_builder.gd")
+const _StreetBuilder = preload("res://levels/town/street_builder.gd")
 const VIEW_SIZE := Vector2i(720, 720)
 
 var _subject := "trees"
@@ -87,6 +90,9 @@ func _stage() -> void:
 	ground.material_override = _Surfaces.material("grass", Color(0.4, 0.56, 0.24))
 	ground.set_meta("keep_material", true)
 	add_child(ground)
+	# Where the game's Surroundings ground is (top at -0.02), so parcels' lawns
+	# (top at Constants.ART_LAWN_TOP) show over it as they do in the game.
+	ground.position.y = -0.02
 
 
 ## Every subject the studio knows. Add one here to iterate on a new model.
@@ -220,6 +226,14 @@ func _build(root: Node3D) -> void:
 			_catalog_lineup(root, _SeasonProps.KINDS, 6)
 		"water":
 			_water(root)
+		"parcel":
+			_parcel(root)
+		"hood_lineup":
+			_hood_lineup(root)
+		"block":
+			_block(root)
+		"street":
+			_streets(root)
 		"prop":
 			# One catalog prop: --kind=<id> (--color=<html> optional).
 			var tint := Color.html(str(_options.get("color", "ffffff")))
@@ -776,6 +790,81 @@ func _water(root: Node3D) -> void:
 		{"from": Vector3(-6.5, 3.2, 12.0), "at": Vector3(-7.0, 0.2, 6.0), "fov": 50.0},
 		{"from": Vector3(6.0, 2.8, 11.5), "at": Vector3(4.0, 1.2, 6.5), "fov": 45.0},
 		{"from": Vector3(12.0, 3.5, 2.0), "at": Vector3(5.0, 0.0, -9.0), "fov": 50.0},
+	])
+
+
+## One parcel (levels/town/lot_builder.gd) at the origin: --hood, --size,
+## --seed, --season. The street edge is at +z 20.
+func _parcel(root: Node3D) -> void:
+	var parcel := _LotBuilder.build(root, Transform3D.IDENTITY, {"hood": _hood, "seed": _seed, "size": _size, "season": _season})
+	var at: Vector3 = parcel.get_meta("house_at", Vector3.ZERO)
+	root.set_meta("views", [
+		{"from": Vector3(at.x + 22.0, 12.0, 42.0), "at": at + Vector3(0.0, 2.5, 6.0), "fov": 50.0},
+		{"from": Vector3(at.x - 8.0, 2.0, 26.0), "at": at + Vector3(0.0, 3.0, 0.0), "fov": 55.0},
+		{"from": Vector3(0.0, 70.0, 22.0), "at": Vector3(0.0, 0.0, 0.0), "fov": 50.0},
+		{"from": at + Vector3(-18.0, 9.0, -26.0), "at": at + Vector3(0.0, 2.0, -6.0), "fov": 55.0},
+	])
+
+
+## One parcel per neighborhood side by side, 64 m apart, the same seed and size,
+## each labeled: does each read as its own place?
+func _hood_lineup(root: Node3D) -> void:
+	var ids := _HoodStyles.ids()
+	for index: int in ids.size():
+		var x := (float(index) - float(ids.size() - 1) * 0.5) * 64.0
+		_LotBuilder.build(root, Transform3D(Basis.IDENTITY, Vector3(x, 0.0, 0.0)), {"hood": ids[index], "seed": _seed + index, "size": _size, "season": _season, "frontage": 44.0})
+		_label(root, ids[index], Vector3(x, 16.0, 0.0), 0.04)
+	root.set_meta("views", [
+		{"from": Vector3(-96.0, 30.0, 70.0), "at": Vector3(-96.0, 2.0, 0.0), "fov": 60.0},
+		{"from": Vector3(0.0, 30.0, 70.0), "at": Vector3(0.0, 2.0, 0.0), "fov": 60.0},
+		{"from": Vector3(96.0, 30.0, 70.0), "at": Vector3(96.0, 2.0, 0.0), "fov": 60.0},
+		{"from": Vector3(0.0, 150.0, 60.0), "at": Vector3(0.0, 0.0, 0.0), "fov": 65.0},
+	])
+
+
+## The job's street block for --hood in --season (levels/town/block_builder.gd),
+## built all at once, the job yard's slot left as bare lawn with Chefty's lane
+## (Constants.ART_CHEFTY_LANE) outlined in red. Views: down the street the way
+## Chefty comes in, the lane from overhead, a neighbor's yard, and across the
+## street (Lakeside: the lake behind the yards).
+func _block(root: Node3D) -> void:
+	_BlockBuilder.build(root, Transform3D.IDENTITY, _hood, _seed, _season, {"job": {}, "async": false})
+	var lane := Constants.ART_CHEFTY_LANE
+	var red := StandardMaterial3D.new()
+	red.albedo_color = Color(0.95, 0.1, 0.1)
+	red.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	for edge: Array in [[Vector3(lane.get_center().x, 0.2, lane.position.y), Vector3(lane.size.x, 0.04, 0.12)], [Vector3(lane.get_center().x, 0.2, lane.end.y), Vector3(lane.size.x, 0.04, 0.12)], [Vector3(lane.position.x, 0.2, lane.get_center().y), Vector3(0.12, 0.04, lane.size.y)], [Vector3(lane.end.x, 0.2, lane.get_center().y), Vector3(0.12, 0.04, lane.size.y)]]:
+		var line := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = edge[1]
+		line.mesh = box
+		line.material_override = red
+		line.set_meta("keep_material", true)
+		line.position = edge[0]
+		root.add_child(line)
+	var fourth := {"from": Vector3(6.0, 7.0, 14.0), "at": Vector3(-4.0, 4.0, 62.0), "fov": 62.0}
+	if _hood == "lakeside":
+		fourth = {"from": Vector3(10.0, 12.0, -14.0), "at": Vector3(-10.0, 0.0, -46.0), "fov": 62.0}
+	root.set_meta("views", [
+		{"from": Vector3(14.0, 4.5, 27.0), "at": Vector3(-50.0, 2.5, 22.0), "fov": 62.0},
+		{"from": Vector3(-30.0, 78.0, 30.0), "at": Vector3(-30.0, 0.0, 24.0), "fov": 62.0},
+		{"from": Vector3(70.0, 12.0, 34.0), "at": Vector3(44.0, 3.0, 0.0), "fov": 55.0},
+		fourth,
+	])
+
+
+## A street segment in every neighborhood's style, side by side along z.
+func _streets(root: Node3D) -> void:
+	var ids := _HoodStyles.ids()
+	for index: int in ids.size():
+		var z := float(index) * 18.0
+		_StreetBuilder.segment(root, Vector3(-40.0, 0.0, z), Vector3(40.0, 0.0, z), _HoodStyles.style(ids[index]), {"hood": ids[index]})
+		_label(root, ids[index], Vector3(-44.0, 2.0, z), 0.02)
+	root.set_meta("views", [
+		{"from": Vector3(30.0, 30.0, -20.0), "at": Vector3(0.0, 0.0, 30.0), "fov": 55.0},
+		{"from": Vector3(-20.0, 6.0, -10.0), "at": Vector3(0.0, 2.0, 18.0), "fov": 55.0},
+		{"from": Vector3(-20.0, 6.0, 44.0), "at": Vector3(0.0, 2.0, 72.0), "fov": 55.0},
+		{"from": Vector3(0.0, 120.0, 45.0), "at": Vector3(0.0, 0.0, 45.0), "fov": 55.0},
 	])
 
 

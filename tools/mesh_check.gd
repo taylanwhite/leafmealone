@@ -18,7 +18,8 @@ extends SceneTree
 ## archetypes that exist, none of them neighbors-only for a job house; runs
 ## tools/prop_check.gd (the prop catalog); and checks every tree
 ## (props/trees.gd) kind x crown x variant x season, near and far, against
-## its triangle budget and the season rules, plus a spawned tree's LOD wiring.
+## its triangle budget and the season rules, plus a spawned tree's LOD wiring;
+## and runs tools/block_check.gd (the parcel, street and block builders).
 ## Exits 1 on any failure.
 
 const _MeshKit: Script = preload("res://props/mesh_kit.gd")
@@ -68,6 +69,11 @@ func _init() -> void:
 	# The prop catalog: budgets, winding, place(), styles' kinds, sign words, batching.
 	failed = not preload("res://tools/prop_check.gd").run() or failed
 	failed = not _check_trees() or failed
+	failed = not _check_yard_models() or failed
+	# The neighborhood builders: requests, parcels, streets, blocks and seasons.
+	# They need the scene tree running (global transforms), so wait one frame.
+	await process_frame
+	failed = not preload("res://tools/block_check.gd").run() or failed
 	quit(1 if failed else 0)
 
 
@@ -121,6 +127,26 @@ func _check_trees() -> bool:
 			print("[MeshCheck]   %s" % problem)
 	ok = _check_tree_node(trees) and ok
 	return ok
+
+
+## Every props/yard_models.gd kind at its default size (what the prop catalog's
+## fallback builds) and at a short and a long size: no vertex a shader would
+## turn into NaN. A NaN pixel is the "white glint with a dark middle" glow makes.
+func _check_yard_models() -> bool:
+	var models: Script = preload("res://props/yard_models.gd")
+	var problems := PackedStringArray()
+	var kinds := ["rake", "leaf_bag", "trash", "wheelbarrow", "gnome", "shed", "dumpster", "hedge", "car", "fence", "leaf_blower", "lawn_mower", "ladder", "hose", "pressure_washer", "hedge_trimmer", "paint_roller", "hydrant", "spigot", "water_tank", "nozzle", "wand", "paint_bucket"]
+	for kind: String in kinds:
+		for size: Vector3 in [Vector3.ONE, Vector3(1.2, 1.6, 0.2), Vector3(16.0, 1.6, 0.2)]:
+			var mesh: ArrayMesh = models.call("_build", kind, Color(0.6, 0.4, 0.3), size)
+			var bad := _bad_vertices(mesh)
+			if bad > 0:
+				problems.append("%s at %s: %d vertices with a zero or non-finite normal, position or color" % [kind, size, bad])
+	var good := problems.is_empty()
+	print("[MeshCheck] yard models %s  %d kinds, no NaN-making vertices" % ["ok  " if good else "FAIL", kinds.size()])
+	for problem: String in problems:
+		print("[MeshCheck]   %s" % problem)
+	return good
 
 
 ## Vertices a shader would turn into NaN (a zero normal normalizes to NaN on the
@@ -278,6 +304,9 @@ func _check_houses() -> bool:
 							calls = maxi(calls, int(house.get_meta("draw_calls", 0)))
 						holder.remove_child(house)
 						house.free()
+		# HouseKit paints per vertex, one mesh per pattern: a house stays a handful of draw calls.
+		if calls > Constants.ART_HOUSE_MAX_DRAW_CALLS:
+			problems.append("%s: %d draw calls (budget %d)" % [archetype, calls, Constants.ART_HOUSE_MAX_DRAW_CALLS])
 		var good := problems.is_empty() and inward == 0
 		ok = ok and good
 		print("[MeshCheck] house %-13s %s  up to %d triangles, %d draw calls, %d inward faces" % [archetype, "ok  " if good else "FAIL", most, calls, inward])

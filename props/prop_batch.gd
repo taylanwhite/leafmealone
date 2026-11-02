@@ -15,7 +15,8 @@ extends RefCounted
 ## chunk's center (so its visibility range is measured from there), fades like
 ## PropCatalog.node() (small props at ART_SMALL_PROP_RANGE with no shadow,
 ## the rest at ART_MEDIUM_PROP_RANGE), and carries metas prop_kind and
-## prop_instances; signature kinds join their "art_signature:<id>" group.
+## prop_instances (and instance_xforms, each instance's transform in the view's
+## space, for headless checks); signature kinds join their "art_signature:<id>" group.
 ## hash() is a stable digest of everything added, in order, for the art hash.
 ## Nothing here is networked; every peer adds the same props in the same order.
 
@@ -71,9 +72,13 @@ func commit() -> int:
 		multimesh.use_colors = false
 		multimesh.mesh = mesh
 		multimesh.instance_count = xforms.size()
+		# Kept on the node too: a headless (dummy) renderer forgets MultiMesh data,
+		# and the art checks read where each instance stands.
+		var local: Array[Transform3D] = []
 		for index: int in xforms.size():
 			var xform: Transform3D = xforms[index]
-			multimesh.set_instance_transform(index, Transform3D(xform.basis, xform.origin - center))
+			local.append(Transform3D(xform.basis, xform.origin - center))
+			multimesh.set_instance_transform(index, local[index])
 		var view := MultiMeshInstance3D.new()
 		view.name = "%s_%d_%d" % [kind.to_pascal_case(), cell.x, cell.y]
 		view.multimesh = multimesh
@@ -82,6 +87,7 @@ func commit() -> int:
 		view.set_meta("keep_material", true)
 		view.set_meta("prop_kind", kind)
 		view.set_meta("prop_instances", xforms.size())
+		view.set_meta("instance_xforms", local)
 		view.set_meta("triangles", int(mesh.get_meta("triangles", 0)) * xforms.size())
 		_Catalog.fade(view, mesh.get_meta("aabb", mesh.get_aabb()))
 		_Catalog.tag(view, kind)

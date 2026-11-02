@@ -24,6 +24,12 @@ extends RefCounted
 ##   twice the dash). Style 5 is an intersection patch: y is half the patch's
 ##   size and z the depth of the crosswalk bands along each edge.
 ##
+## Painted per vertex: painted(pattern, params) is the material for a mesh
+## that carries its colors itself (props/house_kit.gd): the vertex color is the
+## base, CUSTOM0 the accent, and the vertex alpha scales the snow, so a house's
+## every color in one pattern is one draw call. accent_for() is the accent a
+## pattern would pick.
+##
 ## Seasons: the shader globals season_snow and season_bloom (core/seasons.gd) lay
 ## snow on every upward face (roads, gravel, and asphalt only get slush) and dot
 ## lawns with flowers. Skin and tile_floor never get snow, and material()'s snow
@@ -58,11 +64,16 @@ global uniform float season_snow;
 global uniform float season_bloom;
 // How much of that snow this material takes (material()'s snow): 0 under a roof.
 uniform float snow_cover = 1.0;
+// Painted per vertex (painted(): props/house_kit.gd merges every color of one
+// pattern into one mesh): the base color is the vertex color (sRGB), the accent
+// is CUSTOM0 (sRGB), and the vertex alpha scales snow_cover (0 under a roof).
+uniform bool painted = false;
 
 varying vec3 local_position;
 varying vec3 local_normal;
 varying vec3 world_pos;
 varying float world_up;
+varying vec3 painted_accent;
 
 const vec3 LINE_YELLOW = vec3(0.85, 0.57, 0.07);
 const vec3 LINE_WHITE = vec3(0.8, 0.8, 0.78);
@@ -162,13 +173,20 @@ float band(float x, float center, float width, float aa) {
 	return 1.0 - smoothstep(width * 0.5 - aa, width * 0.5 + aa, abs(x - center));
 }
 
-vec3 asphalt_color(vec2 uv, float grain) {
-	vec3 color = mix(base.rgb, vec3(0.17, 0.17, 0.19), 0.68);
+vec3 asphalt_color(vec2 uv, float grain, vec3 base_rgb, vec3 accent_rgb) {
+	vec3 color = mix(base_rgb, vec3(0.17, 0.17, 0.19), 0.68);
 	color = shade(color, (hash(floor(uv * 40.0)) - 0.5) * 0.25 + (grain - 0.5) * 0.2);
 	float field = fbm(uv * 0.9) + (noise(uv * 9.0) - 0.5) * 0.08;
 	float worn = smoothstep(0.62, 0.72, noise(uv * 0.18 + 7.3));
 	float crack = 1.0 - smoothstep(0.0, 0.01, abs(field - 0.5));
-	return mix(color, accent.rgb, crack * worn);
+	return mix(color, accent_rgb, crack * worn);
+}
+
+// sRGB to linear, clamped first: pow() of a negative is NaN, and glow smears a
+// NaN pixel into a white flare (props/stylized.gd has the same guard).
+vec3 to_linear(vec3 c) {
+	c = clamp(c, vec3(0.0), vec3(1.0));
+	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
 
 void vertex() {
@@ -176,12 +194,17 @@ void vertex() {
 	local_normal = NORMAL;
 	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	world_up = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz).y;
+	painted_accent = CUSTOM0.rgb;
 }
 
 void fragment() {
 	bool is_floor;
 	vec2 uv = plane_uv(is_floor);
-	vec3 color = base.rgb;
+	// The two colors and the snow this pixel takes: uniforms, or per vertex when painted.
+	vec3 base_rgb = painted ? to_linear(COLOR.rgb) : base.rgb;
+	vec3 accent_rgb = painted ? to_linear(painted_accent) : accent.rgb;
+	float cover = painted ? snow_cover * clamp(COLOR.a, 0.0, 1.0) : snow_cover;
+	vec3 color = base_rgb;
 	float rough = roughness_value;
 	float spec = 0.25;
 	float grain = fbm(uv * 3.0);
@@ -191,7 +214,7 @@ void fragment() {
 	if (pattern == 1 || pattern == 22) {
 		// Grass: two greens in soft patches, with fine blade speckle.
 		float patches = fbm(uv * 0.35);
-		color = mix(base.rgb, accent.rgb, smoothstep(0.35, 0.65, patches));
+		color = mix(base_rgb, accent_rgb, smoothstep(0.35, 0.65, patches));
 		color = shade(color, (noise(uv * 18.0) - 0.5) * 0.18);
 		if (pattern == 22) {
 			// Lawn stripes: mowed bands running along local x, light then dark.
@@ -214,10 +237,10 @@ void fragment() {
 		}
 	} else if (pattern == 2) {
 		// Asphalt: dark and speckled, with short jagged cracks only in worn patches.
-		color = asphalt_color(uv, grain);
+		color = asphalt_color(uv, grain, base_rgb, accent_rgb);
 	} else if (pattern == 25) {
 		// Road: asphalt with painted lines, worn a little, on the top face only.
-		color = asphalt_color(uv, grain);
+		color = asphalt_color(uv, grain, base_rgb, accent_rgb);
 		if (is_floor && local_normal.y > 0.0) {
 			float along = local_position.x;
 			float across = local_position.z;
@@ -259,9 +282,9 @@ void fragment() {
 		}
 	} else if (pattern == 3) {
 		// Concrete: blotchy, with slab seams every two meters.
-		color = shade(base.rgb, (grain - 0.5) * 0.25);
+		color = shade(base_rgb, (grain - 0.5) * 0.25);
 		vec2 seam = abs(fract(uv / 2.0) - 0.5);
-		color = mix(accent.rgb, color, smoothstep(0.485, 0.47, max(seam.x, seam.y)));
+		color = mix(accent_rgb, color, smoothstep(0.485, 0.47, max(seam.x, seam.y)));
 	} else if (pattern == 4) {
 		// Brick: offset rows, mortar lines, each brick a slightly different red.
 		vec2 size = vec2(0.42, 0.16);
@@ -269,13 +292,13 @@ void fragment() {
 		vec2 cell = vec2(uv.x / size.x + mod(row, 2.0) * 0.5, uv.y / size.y);
 		vec2 inside = fract(cell);
 		float brick = hash(floor(cell));
-		color = shade(base.rgb, (brick - 0.5) * 0.3 + (grain - 0.5) * 0.15);
+		color = shade(base_rgb, (brick - 0.5) * 0.3 + (grain - 0.5) * 0.15);
 		float mortar = step(inside.x, 0.05) + step(inside.y, 0.12);
-		color = mix(color, accent.rgb, clamp(mortar, 0.0, 1.0));
+		color = mix(color, accent_rgb, clamp(mortar, 0.0, 1.0));
 	} else if (pattern == 5) {
 		// Siding: horizontal boards with a shadow under each lip.
 		float board = fract(uv.y / 0.22);
-		color = shade(base.rgb, (hash(vec2(floor(uv.y / 0.22), 3.0)) - 0.5) * 0.08 + (noise(uv * vec2(1.5, 30.0)) - 0.5) * 0.06);
+		color = shade(base_rgb, (hash(vec2(floor(uv.y / 0.22), 3.0)) - 0.5) * 0.08 + (noise(uv * vec2(1.5, 30.0)) - 0.5) * 0.06);
 		color *= mix(0.78, 1.0, smoothstep(0.0, 0.18, board));
 	} else if (pattern == 6) {
 		// Shingles: staggered tabs, darker at each tab's lower edge.
@@ -283,50 +306,50 @@ void fragment() {
 		float row = floor(uv.y / size.y);
 		vec2 cell = vec2(uv.x / size.x + mod(row, 2.0) * 0.5, uv.y / size.y);
 		vec2 inside = fract(cell);
-		color = shade(base.rgb, (hash(floor(cell)) - 0.5) * 0.35);
+		color = shade(base_rgb, (hash(floor(cell)) - 0.5) * 0.35);
 		color *= mix(0.7, 1.0, smoothstep(0.0, 0.25, inside.y));
-		color = mix(color, accent.rgb, step(inside.x, 0.04) * 0.6);
+		color = mix(color, accent_rgb, step(inside.x, 0.04) * 0.6);
 	} else if (pattern == 7) {
 		// Planks: boards with gaps and wood grain running along them.
 		float across = is_floor ? uv.x : uv.x;
 		float plank = floor(across / 0.18);
 		float along = is_floor ? uv.y : uv.y;
 		float streak = noise(vec2(across * 40.0, along * 1.5 + plank * 7.0));
-		color = shade(base.rgb, (hash(vec2(plank, 1.0)) - 0.5) * 0.25 + (streak - 0.5) * 0.25);
-		color = mix(accent.rgb, color, smoothstep(0.0, 0.07, fract(across / 0.18)));
+		color = shade(base_rgb, (hash(vec2(plank, 1.0)) - 0.5) * 0.25 + (streak - 0.5) * 0.25);
+		color = mix(accent_rgb, color, smoothstep(0.0, 0.07, fract(across / 0.18)));
 	} else if (pattern == 8) {
 		// Bark: deep vertical furrows.
 		float angle = atan(local_position.z, local_position.x) * 3.0;
 		float furrow = noise(vec2(angle * 2.5, local_position.y * 2.0));
-		color = shade(base.rgb, (furrow - 0.5) * 0.6);
+		color = shade(base_rgb, (furrow - 0.5) * 0.6);
 		rough = 1.0;
 	} else if (pattern == 9) {
 		// Fabric: a soft weave and a little fuzz.
 		float weave = sin(local_position.x * 260.0) * sin(local_position.y * 260.0);
-		color = shade(base.rgb, weave * 0.04 + (noise(local_position.xy * 12.0) - 0.5) * 0.08);
+		color = shade(base_rgb, weave * 0.04 + (noise(local_position.xy * 12.0) - 0.5) * 0.08);
 		rough = 0.95;
 	} else if (pattern == 10) {
 		// Painted metal: smooth, with grime gathering low down.
 		float grime = 1.0 - smoothstep(-0.4, 0.8, local_position.y);
-		color = shade(base.rgb, (grain - 0.5) * 0.08 - grime * 0.18);
+		color = shade(base_rgb, (grain - 0.5) * 0.08 - grime * 0.18);
 		rough = 0.45;
 	} else if (pattern == 11) {
 		// Dirt and sand: pebbly speckle in soft patches.
-		color = mix(base.rgb, accent.rgb, smoothstep(0.3, 0.75, fbm(uv * 0.5)));
+		color = mix(base_rgb, accent_rgb, smoothstep(0.3, 0.75, fbm(uv * 0.5)));
 		color = shade(color, (hash(floor(uv * 30.0)) - 0.5) * 0.2);
 	} else if (pattern == 12) {
 		// Foliage: clumps of light and dark leaves.
 		float clumps = fbm(local_position.xy * 4.0 + local_position.z * 3.0);
-		color = shade(base.rgb, (clumps - 0.5) * 0.5);
+		color = shade(base_rgb, (clumps - 0.5) * 0.5);
 		rough = 0.95;
 	} else if (pattern == 13) {
 		// Skin: smooth, with the faintest warmth variation.
-		color = shade(base.rgb, (noise(local_position.xy * 6.0) - 0.5) * 0.04);
+		color = shade(base_rgb, (noise(local_position.xy * 6.0) - 0.5) * 0.04);
 		rough = 0.7;
 	} else if (pattern == 14) {
 		// Stucco: trowel swirls and a fine sandy grit.
 		float trowel = fbm(uv * 1.3 + vec2(fbm(uv * 0.6)));
-		color = shade(base.rgb, (trowel - 0.5) * 0.2 + (hash(floor(uv * 90.0)) - 0.5) * 0.07);
+		color = shade(base_rgb, (trowel - 0.5) * 0.2 + (hash(floor(uv * 90.0)) - 0.5) * 0.07);
 		rough = 0.95;
 	} else if (pattern == 15) {
 		// Stone: rounded fieldstone set in mortar, or cut ashlar blocks (params.x).
@@ -335,16 +358,16 @@ void fragment() {
 			float cut = uv.x / 0.55 + hash(vec2(row, 4.2)) * 3.0;
 			vec2 inside = vec2(fract(cut), fract(uv.y / 0.32));
 			float stone = hash(vec2(floor(cut), row));
-			color = shade(mix(base.rgb, base.rgb * vec3(1.08, 1.0, 0.9), stone), (stone - 0.5) * 0.3 + (grain - 0.5) * 0.2);
+			color = shade(mix(base_rgb, base_rgb * vec3(1.08, 1.0, 0.9), stone), (stone - 0.5) * 0.3 + (grain - 0.5) * 0.2);
 			float joint = step(inside.x, 0.03) + step(inside.y, 0.06);
-			color = mix(color, accent.rgb, clamp(joint, 0.0, 1.0));
+			color = mix(color, accent_rgb, clamp(joint, 0.0, 1.0));
 		} else {
 			vec3 cells = voronoi(uv * vec2(2.0, 2.8));
 			float seam = cells.y - cells.x;
-			color = mix(base.rgb, base.rgb * vec3(1.1, 1.0, 0.86), hash(vec2(cells.z, 1.3)));
+			color = mix(base_rgb, base_rgb * vec3(1.1, 1.0, 0.86), hash(vec2(cells.z, 1.3)));
 			color = shade(color, (cells.z - 0.5) * 0.35 + (grain - 0.5) * 0.25);
 			color *= mix(0.78, 1.0, smoothstep(0.0, 0.3, seam));
-			color = mix(color, accent.rgb, 1.0 - smoothstep(0.05, 0.1, seam));
+			color = mix(color, accent_rgb, 1.0 - smoothstep(0.05, 0.1, seam));
 		}
 		rough = 0.95;
 	} else if (pattern == 16) {
@@ -352,16 +375,16 @@ void fragment() {
 		float row = floor(uv.y / 0.34);
 		float column = floor(uv.x / 0.26);
 		float barrel = sin(fract(uv.x / 0.26) * 3.14159);
-		color = shade(base.rgb, (hash(vec2(column, row)) - 0.5) * 0.22 + (grain - 0.5) * 0.1);
+		color = shade(base_rgb, (hash(vec2(column, row)) - 0.5) * 0.22 + (grain - 0.5) * 0.1);
 		color *= 0.62 + 0.38 * barrel;
 		color *= mix(0.75, 1.0, smoothstep(0.0, 0.15, fract(uv.y / 0.34)));
 		rough = 0.7;
 	} else if (pattern == 17) {
 		// Corrugated metal: ribs, with rust running down in streaks.
 		float rib = sin(uv.x * 6.28318 / 0.13);
-		color = shade(base.rgb, rib * 0.12 + (grain - 0.5) * 0.1);
+		color = shade(base_rgb, rib * 0.12 + (grain - 0.5) * 0.1);
 		float streak = smoothstep(0.55, 0.8, noise(vec2(uv.x * 2.5, uv.y * 0.25)));
-		color = mix(color, accent.rgb, streak * 0.35);
+		color = mix(color, accent_rgb, streak * 0.35);
 		rough = 0.55;
 		spec = 0.4;
 	} else if (pattern == 18) {
@@ -371,15 +394,15 @@ void fragment() {
 		x += (noise(vec2(x * 0.7, row * 3.1)) - 0.5) * 0.9;
 		vec2 inside = vec2(fract(x), fract(uv.y / 0.22));
 		float tone = hash(vec2(floor(x), row));
-		color = shade(base.rgb, (tone - 0.5) * 0.35 + (noise(vec2(uv.x * 30.0, uv.y * 2.0)) - 0.5) * 0.15);
+		color = shade(base_rgb, (tone - 0.5) * 0.35 + (noise(vec2(uv.x * 30.0, uv.y * 2.0)) - 0.5) * 0.15);
 		color *= mix(0.68, 1.0, smoothstep(0.0, 0.22, inside.y));
-		color = mix(color, accent.rgb, step(inside.x, 0.05) * 0.7);
+		color = mix(color, accent_rgb, step(inside.x, 0.05) * 0.7);
 		rough = 0.95;
 	} else if (pattern == 19) {
 		// Board and batten: wide vertical boards, a raised batten over every seam.
 		float d = fract(uv.x / 0.4);
 		float batten = step(d, 0.14);
-		color = shade(base.rgb, (noise(vec2(uv.x * 25.0, uv.y * 1.2)) - 0.5) * 0.1 + (hash(vec2(floor(uv.x / 0.4), 2.0)) - 0.5) * 0.06);
+		color = shade(base_rgb, (noise(vec2(uv.x * 25.0, uv.y * 1.2)) - 0.5) * 0.1 + (hash(vec2(floor(uv.x / 0.4), 2.0)) - 0.5) * 0.06);
 		color *= 1.0 + batten * 0.06;
 		color *= mix(1.0, 0.72, smoothstep(0.14, 0.17, d) * (1.0 - smoothstep(0.17, 0.24, d)));
 		color *= mix(0.85, 1.0, smoothstep(0.0, 0.02, d));
@@ -387,7 +410,7 @@ void fragment() {
 	} else if (pattern == 20) {
 		// Gravel: packed pebbles in a few tones, dark between them.
 		vec3 cells = voronoi(uv * 20.0);
-		color = mix(base.rgb, accent.rgb, step(0.62, cells.z) * 0.6);
+		color = mix(base_rgb, accent_rgb, step(0.62, cells.z) * 0.6);
 		color = shade(color, (cells.z - 0.5) * 0.4 + (fbm(uv * 0.5) - 0.5) * 0.2);
 		color *= mix(0.6, 1.0, smoothstep(0.0, 0.15, cells.y - cells.x));
 		rough = 1.0;
@@ -406,38 +429,38 @@ void fragment() {
 			tone = hash(floor(cell));
 			edge = min(min(inside.x, 1.0 - inside.x) * 0.24, min(inside.y, 1.0 - inside.y) * 0.12);
 		}
-		color = shade(base.rgb, (tone - 0.5) * 0.25 + (grain - 0.5) * 0.12);
-		color = mix(color, accent.rgb, 1.0 - smoothstep(0.004, 0.009, edge));
+		color = shade(base_rgb, (tone - 0.5) * 0.25 + (grain - 0.5) * 0.12);
+		color = mix(color, accent_rgb, 1.0 - smoothstep(0.004, 0.009, edge));
 		rough = 0.9;
 	} else if (pattern == 23) {
 		// Cinder block: big gray blocks in running bond, pitted, with mortar lines.
 		float row = floor(uv.y / 0.2);
 		vec2 cell = vec2(uv.x / 0.4 + mod(row, 2.0) * 0.5, uv.y / 0.2);
 		vec2 inside = fract(cell);
-		color = shade(base.rgb, (hash(floor(cell)) - 0.5) * 0.12 + (hash(floor(uv * 60.0)) - 0.5) * 0.12 + (grain - 0.5) * 0.1);
+		color = shade(base_rgb, (hash(floor(cell)) - 0.5) * 0.12 + (hash(floor(uv * 60.0)) - 0.5) * 0.12 + (grain - 0.5) * 0.1);
 		float mortar = step(inside.x, 0.025) + step(inside.y, 0.05);
-		color = mix(color, accent.rgb, clamp(mortar, 0.0, 1.0));
+		color = mix(color, accent_rgb, clamp(mortar, 0.0, 1.0));
 		rough = 1.0;
 	} else if (pattern == 24) {
 		// Polished tile floor: big squares, thin grout, and a shine.
 		vec2 inside = fract(uv / 0.6);
-		color = shade(base.rgb, (hash(floor(uv / 0.6)) - 0.5) * 0.06 + (fbm(uv * 2.0) - 0.5) * 0.06);
+		color = shade(base_rgb, (hash(floor(uv / 0.6)) - 0.5) * 0.06 + (fbm(uv * 2.0) - 0.5) * 0.06);
 		float grout = step(min(inside.x, inside.y), 0.012) + step(0.988, max(inside.x, inside.y));
-		color = mix(color, accent.rgb, clamp(grout, 0.0, 1.0));
+		color = mix(color, accent_rgb, clamp(grout, 0.0, 1.0));
 		rough = 0.22;
 		spec = 0.5;
 	} else {
 		// Everything else: a painterly variation so no surface is perfectly flat.
-		color = shade(base.rgb, (grain - 0.5) * 0.12);
+		color = shade(base_rgb, (grain - 0.5) * 0.12);
 	}
 	// Snow settles on whatever faces up, in soft drifts; roads and gravel only get slush.
 	// Skin (13) and tile_floor (24, always indoors) never get any.
-	if (season_snow > 0.0 && snow_cover > 0.0 && pattern != 13 && pattern != 24) {
+	if (season_snow > 0.0 && cover > 0.0 && pattern != 13 && pattern != 24) {
 		float drift = fbm(world_pos.xz * 0.35) + (noise(world_pos.xz * 3.0) - 0.5) * 0.12 + season_snow * 0.25;
-		float snow = snow_cover * season_snow * smoothstep(0.45, 0.8, world_up) * smoothstep(0.32, 0.5, drift);
+		float snow = cover * season_snow * smoothstep(0.45, 0.8, world_up) * smoothstep(0.32, 0.5, drift);
 		if (pattern == 2 || pattern == 25 || pattern == 20) {
 			snow *= 0.2;
-			color *= 1.0 - snow_cover * season_snow * 0.08;
+			color *= 1.0 - cover * season_snow * 0.08;
 		}
 		color = mix(color, SNOW_WHITE * (0.9 + 0.1 * fbm(world_pos.xz * 1.7)), snow);
 		rough = mix(rough, 0.6, snow);
@@ -476,6 +499,26 @@ static func material(pattern: String, color: Color, accent := Color(0, 0, 0, 0),
 	made.set_shader_parameter("snow_cover", snow)
 	_cache[key] = made
 	return made
+
+
+## The material for a mesh painted per vertex (props/house_kit.gd): the vertex
+## color is the base (sRGB), CUSTOM0 the accent (sRGB, see accent_for), and the
+## vertex alpha how much snow that face takes. One material per pattern and
+## params, so a whole house of colors in one pattern is one draw call.
+static func painted(pattern: String, params := Vector4.ZERO) -> ShaderMaterial:
+	var key := "painted|%s|%s" % [pattern, params]
+	if _cache.has(key):
+		return _cache[key]
+	var made := material(pattern, Color.WHITE, Color.BLACK, params, 1.0).duplicate() as ShaderMaterial
+	made.set_shader_parameter("painted", true)
+	_cache[key] = made
+	return made
+
+
+## The accent a pattern uses with color: accent itself when given (alpha > 0),
+## else the pattern's default (the same one material() picks).
+static func accent_for(pattern: String, color: Color, accent := Color(0, 0, 0, 0)) -> Color:
+	return accent if accent.a > 0.0 else _default_accent(pattern, color)
 
 
 ## Road params (the "road" pattern): a line style from ROAD_LINES, half the

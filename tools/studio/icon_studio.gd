@@ -72,11 +72,15 @@ uniform float sticker_share = 0.0;
 uniform vec3 sticker_ink = vec3(0.17, 0.14, 0.11);
 uniform vec3 ink = vec3(0.17, 0.14, 0.11);
 
+// Both clamp at zero first: pow() of a negative is NaN, and a NaN pixel turns
+// into a bright blob with a dark middle once filtered (props/stylized.gd).
 vec3 to_linear(vec3 c) {
+	c = max(c, vec3(0.0));
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
 
 vec3 to_srgb(vec3 c) {
+	c = max(c, vec3(0.0));
 	return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 }
 
