@@ -830,3 +830,17 @@ const HOTBAR_JANGLE_AT: int = 3
 ## A pocketed prop's body rides along this high above its owner's feet, out of
 ## everyone's way (collision off); its look is posed on the body (chunk D).
 const POCKET_FOLLOW_HEIGHT: float = 0.9
+
+# ---- balance targets
+# What tools/balance_sim.py holds the economy to (docs/BALANCE.md). The game never
+# reads these; the simulator's --check does, and the retune (gap balance:E) sets
+# the real tuning numbers above so the simulated arc lands inside them.
+
+## Median real hours of play to reach The Lawnfather (tier 40), for a solo crew
+## and for four players alike: x at least, y at most.
+const ARC_HOURS := Vector2(10.0, 20.0)
+## Cumulative real hours to tier I of each rank, the median across seeds; index is
+## the rank (0 Rake Rookie, 8 The Lawnfather). Within +-35% is on pace.
+const RANK_PACE_HOURS: Array[float] = [0.0, 1.0, 2.5, 4.5, 6.5, 9.0, 11.5, 14.0, 16.0]
+## A solo crew's arc may take at most this many times a four-player crew's.
+const ARC_SOLO_RATIO_MAX: float = 1.3

@@ -14,6 +14,10 @@ extends Node
 ##
 ## The whole town is small (about 50 houses), so the host sends it all, reliably,
 ## whenever it changes. Clients only read it.
+##
+## tools/balance_sim.py mirrors this file's rules by hand (requests, daytime texts,
+## referrals, new neighborhoods, the rival): a change here changes its Run class
+## too (docs/BALANCE.md, "What it mirrors by hand").
 
 signal changed
 ## A new text for the phone (ui/phone.gd).
