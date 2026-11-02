@@ -39,7 +39,8 @@ func _draw() -> void:
 	if straining:
 		var hard := clampf((seconds - Constants.THROW_STRAIN_SECONDS) / (Constants.THROW_FAINT_SECONDS - Constants.THROW_STRAIN_SECONDS), 0.0, 1.0)
 		shake = Vector2(sin(_time * 70.0), cos(_time * 53.0)) * (2.0 + hard * 4.0)
-	var origin := Vector2((view.x - WIDTH) * 0.5, view.y - 112.0) + shake
+	# Above the hotbar and the job goal line (ui/hotbar_hud.gd owns the bottom band).
+	var origin := Vector2((view.x - WIDTH) * 0.5, view.y - Constants.HOTBAR_THROW_METER_Y) + shake
 	draw_rect(Rect2(origin - Vector2(4.0, 4.0), Vector2(WIDTH + 8.0, HEIGHT + 8.0)), Color(0.08, 0.06, 0.05, 0.7))
 	var share := clampf(seconds / Constants.THROW_CHARGE_SECONDS, 0.0, 1.0)
 	var fill := LOW.lerp(HIGH, share)

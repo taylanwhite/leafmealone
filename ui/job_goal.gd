@@ -16,7 +16,11 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	position.y -= 64.0
+	# Its bottom sits just above the hotbar's band (ui/hotbar_hud.gd), and it
+	# grows upward, so a taller line never runs down into the bar.
+	grow_vertical = Control.GROW_DIRECTION_BEGIN
+	offset_bottom = -Constants.HOTBAR_GOAL_LINE_Y
+	offset_top = offset_bottom
 	add_theme_font_size_override("font_size", 22)
 	add_theme_color_override("font_color", Color(1.0, 0.93, 0.62))
 	add_theme_color_override("font_outline_color", Color(0.12, 0.08, 0.04))
@@ -95,6 +99,12 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 		return _Strings.UI["goal_carry_held"]
 	if held == "rake":
 		return _Strings.UI["goal_rake"]
+	# The rake in your own pocket and nothing in hand: it's one key away.
+	if held == "" and player != null:
+		var pockets := player.get_node_or_null("Pockets")
+		var slot := int(pockets.call("slot_of_kind", "rake")) if pockets != null else -1
+		if slot >= 0:
+			return _Strings.UI["goal_draw_rake"] % _Strings.keyed("{key:slot_%d}" % (slot + 1))
 	var loose := 0
 	var rake_free := false
 	for node: Node in tree.get_nodes_in_group("props"):

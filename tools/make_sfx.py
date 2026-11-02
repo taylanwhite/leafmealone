@@ -531,6 +531,51 @@ def ui_stamp() -> list[float]:
     return out
 
 
+# ---------------------------------------------------------------- the hotbar (ui/hotbar_hud.gd, player/pockets.gd)
+
+def slot_tick() -> list[float]:
+    """Picking a pocket: a soft plastic tick, like a cheap toolbox latch."""
+    out = decay(tone(0.08, 1400.0, "triangle"), 60.0)
+    tick_ = decay(tone(0.08, 2800.0), 160.0)
+    return [a + 0.35 * b for a, b in zip(out, tick_)]
+
+
+def pocket() -> list[float]:
+    """Something going into a pocket: a cloth 'fwump' and a tiny zip as it settles."""
+    rng = random.Random(81)
+    out = silence(0.2)
+    mix_into(out, envelope(lowpass(noise(rng, 0.14), 520.0), 0.012, 0.09), 0.0, 1.6)
+    mix_into(out, blip(0.1, 210.0, 120.0, 30.0), 0.0, 0.35)
+    zip_ = bandpass(noise(rng, 0.05), lambda t: 2200.0 + 2400.0 * min(1.0, t / 0.05), 4.0)
+    mix_into(out, envelope(zip_, 0.004, 0.02), 0.11, 0.22)
+    return out
+
+
+def draw() -> list[float]:
+    """Drawing a tool from a pocket: a rising 'shwip' of fabric and a little metal 'tink'."""
+    rng = random.Random(82)
+    out = silence(0.32)
+    shwip = bandpass(noise(rng, 0.15), lambda t: 700.0 + 3800.0 * (t / 0.15) ** 1.3, 2.4)
+    mix_into(out, envelope(shwip, 0.03, 0.06), 0.0, 1.0)
+    tink = decay(tone(0.18, 2200.0), 28.0)
+    ring = decay(tone(0.18, 2200.0 * 2.76), 45.0)
+    mix_into(out, [a + 0.3 * b for a, b in zip(tink, ring)], 0.13, 0.45)
+    return out
+
+
+def jangle() -> list[float]:
+    """Full pockets on the move: three loose metallic tinks, never quite in time."""
+    rng = random.Random(83)
+    out = silence(0.32)
+    for index in range(3):
+        freq = rng.uniform(2600.0, 4200.0)
+        hit = decay(tone(0.1, freq), rng.uniform(35.0, 55.0))
+        ring = decay(tone(0.1, freq * 1.51), 70.0)
+        at = index * 0.065 + rng.uniform(0.0, 0.02)
+        mix_into(out, [a + 0.4 * b for a, b in zip(hit, ring)], at, 0.8 - index * 0.15)
+    return out
+
+
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
     "step": (step, 4, 0.3),
@@ -569,6 +614,11 @@ SOUNDS = {
     "truck_horn": (truck_horn, 0, 0.75),
     "door_slam": (door_slam, 0, 0.7),
     "skid": (skid, 0, 0.45),
+    # ---- hotbar (player/pockets.gd)
+    "slot_tick": (slot_tick, 0, 0.3),
+    "pocket": (pocket, 0, 0.5),
+    "draw": (draw, 0, 0.5),
+    "jangle": (jangle, 0, 0.3),
 }
 
 
