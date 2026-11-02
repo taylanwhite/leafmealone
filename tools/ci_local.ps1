@@ -147,6 +147,13 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --settings-test'; Seconds = 40
 		Check = { param($h, $c) [bool]$h.settings_test.ok }
 	}
+	# Every icon loads and has a recipe, everything the game names has one, key tokens
+	# resolve, and the window icon; --rank=40 so every shop item is for sale. Host only.
+	icons = @{
+		Port = 7810
+		Host = '--host --name=Tester --no-steam --rank=40 --icons-test'; Seconds = 40
+		Check = { param($h, $c) [bool]$h.icons_test.ok }
+	}
 	# Port from the integration review's table (gap-specs/critic.md): 7814.
 	shop = @{
 		Port = 7814
