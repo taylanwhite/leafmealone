@@ -5,7 +5,7 @@ extends RefCounted
 ## core/balance.gd, which is generated from the design workbook.
 
 ## Bump on every build you hand to someone else. Peers on different versions cannot join each other.
-const BUILD_VERSION: String = "0.4.3"
+const BUILD_VERSION: String = "0.4.4"
 
 ## Used to tag Steam lobbies while we share Valve's test app ID with everyone else.
 const PROJECT_SLUG: String = "leaf-me-alone"
