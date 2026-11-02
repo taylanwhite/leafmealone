@@ -470,12 +470,22 @@ func _check_shelves(shops: Node) -> bool:
 	var trimmer: Dictionary = shelf.call("slot_state", "hedge_trimmer")
 	if str(trimmer.get("item")) != "hedge_trimmer_mk2" or str(trimmer.get("tag")) != str(_Strings.SHOP_UI["shop_price_tag"]) % Catalog.price("hedge_trimmer_mk2"):
 		problems.append("the trimmer slot shows %s" % str(trimmer))
-	# Walking up to the gas cans.
-	var front: Vector3 = shelf.call("slot_front", int(shelf.call("slot_of", "gas_can")))
-	await _stand_world(Vector3(front.x, 0.0, front.z))
-	var prompt := str((shelf.call("prompt") as Dictionary).get("text", ""))
-	if prompt != str(_Strings.SHOP_UI["prompt_look_at"]) % _Strings.shop_item_name("gas_can"):
-		problems.append("the gas cans prompt \"%s\"" % prompt)
+	# Walking up to a slot on each level (a unit's levels share one spot in
+	# front of it; the head's pitch picks the level): the gas cans up top, the
+	# ladder in the middle and the lawn bags at the bottom.
+	var me := _me()
+	for item: String in ["gas_can", "ladder", "lawn_bags"]:
+		var slot := int(shelf.call("slot_of", item))
+		var front: Vector3 = shelf.call("slot_front", slot)
+		await _stand_world(Vector3(front.x, 0.0, front.z))
+		if me != null:
+			me.set("head_pitch", float(shelf.call("pitch_to", slot)))
+		var prompt := str((shelf.call("prompt") as Dictionary).get("text", ""))
+		var shown := str((shelf.call("slot_state", item) as Dictionary).get("item", item))
+		if prompt != str(_Strings.SHOP_UI["prompt_look_at"]) % _Strings.shop_item_name(shown):
+			problems.append("looking at the %s prompts \"%s\"" % [item, prompt])
+	if me != null:
+		me.set("head_pitch", 0.0)
 	for problem: String in problems:
 		print("[ShopTest]   %s" % problem)
 	return problems.is_empty()
@@ -560,7 +570,8 @@ func _card_button(cards: Node, item: String, qty: int) -> Button:
 ## keepers at an hour (shops chunk 4): each shop's keeper (npcs/store_clerk.gd)
 ## is behind the counter exactly while their shop is open, except Marty, who
 ## never leaves; at Homie Depot's counter the prompt is "Shop" while it's open
-## and a plain "Closed. Opens ..." after; the window shows its shutter when
+## and "Closed. Opens ..." after, still with its key since Marty's there to
+## answer E (only an absent keeper's closed prompt is plain); the window shows its shutter when
 ## closed; and the hours sign says the same. Returns the problems found.
 func _check_keepers(shops: Node, hour: float) -> Array[String]:
 	var problems: Array[String] = []
@@ -588,7 +599,8 @@ func _check_keepers(shops: Node, hour: float) -> Array[String]:
 	if marty != null:
 		var prompt: Dictionary = marty.call("prompt")
 		var want := str(_Strings.UI["prompt_shop"]) if open else str(_Strings.SHOP_UI["prompt_shop_closed"]) % str(shops.call("opens_text", "homie_depot"))
-		if str(prompt.get("text", "")) != want or bool(prompt.get("plain", false)) == open:
+		# Marty is always there, so E always does something: never a plain notice.
+		if str(prompt.get("text", "")) != want or bool(prompt.get("plain", false)):
 			problems.append("at %d:00 Marty's counter prompts %s" % [int(hour), str(prompt)])
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var window := ui.get_node_or_null("ShopWindow") if ui != null else null

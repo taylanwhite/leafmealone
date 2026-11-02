@@ -12,7 +12,8 @@ extends Node3D
 ##   so the shelf visibly empties, and SOLD OUT when it's gone.
 ##   Anything your crew's rank can't buy yet sits under a blue tarp with "Rank: ...".
 ## Walk up to a slot and it prompts "Look at ..."; E opens the shop's catalog on
-## that item. The garden center's shelves are levels/dressing/store_dressing.gd's;
+## that item. A shelving unit's levels share one spot in front of it, so tilt
+## your head to pick the level (the one your pitch points at most nearly). The garden center's shelves are levels/dressing/store_dressing.gd's;
 ## the slots are SHELF_SLOTS below unless the builder passes its own.
 
 const _YardModels = preload("res://props/yard_models.gd")
@@ -190,19 +191,45 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
+## The slot the local player is looking at: the nearest stack of slots on the
+## ground (a shelving unit's levels share one spot in front of it), then the
+## level in that stack the head's pitch points at most nearly.
 func _nearest_entry() -> Dictionary:
 	var local := _local_player()
 	if local == null:
 		return {}
-	var best: Dictionary = {}
-	var best_distance := Constants.SHELF_LOOK_REACH
+	var nearest := Constants.SHELF_LOOK_REACH
+	var distances: Array[float] = []
 	for entry: Dictionary in _entries:
 		var front := slot_front(int(entry["slot"]))
 		var distance := Vector2(front.x - local.global_position.x, front.z - local.global_position.z).length()
-		if distance < best_distance:
-			best = entry
-			best_distance = distance
+		distances.append(distance)
+		nearest = minf(nearest, distance)
+	var best: Dictionary = {}
+	var best_miss := INF
+	var pitch := float(local.get("head_pitch")) if "head_pitch" in local else 0.0
+	for index: int in _entries.size():
+		if distances[index] >= Constants.SHELF_LOOK_REACH or distances[index] > nearest + Constants.SHELF_STACK_TOLERANCE:
+			continue
+		var miss := absf(pitch_to(int(_entries[index]["slot"])) - pitch)
+		if miss < best_miss:
+			best = _entries[index]
+			best_miss = miss
 	return best
+
+
+## The head pitch (radians, up is positive, as Player.head_pitch) at which the
+## local player looks straight at a slot's middle.
+func pitch_to(index: int) -> float:
+	var local := _local_player()
+	if local == null:
+		return 0.0
+	var slot: Dictionary = slots[index]
+	var middle := to_global((slot["at"] as Vector3) + Vector3(0.0, (slot["size"] as Vector3).y * 0.5, 0.0))
+	var head := local.get_node_or_null("%Head") as Node3D
+	var eye := head.global_position if head != null else local.global_position + Vector3.UP * Constants.SHELF_EYE_HEIGHT
+	var across := Vector2(middle.x - eye.x, middle.z - eye.z).length()
+	return atan2(middle.y - eye.y, maxf(across, 0.01))
 
 
 # ---------------------------------------------------------------- drawing

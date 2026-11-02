@@ -1208,6 +1208,12 @@ const KEEPER_GREET_COOLDOWN_SECONDS: float = 8.0
 const KEEPER_VOICE_PITCH: Dictionary = {"marty": 1.0, "rusty": 0.75, "dot": 1.3}
 ## How close to a shelf slot you look at it, and E opens the catalog on it (m).
 const SHELF_LOOK_REACH: float = 1.6
+## Slots whose front spots are this close to the nearest one count as the same
+## stack (one shelving unit's levels); among them you look at the level your
+## head points at (m).
+const SHELF_STACK_TOLERANCE: float = 0.3
+## Eye height above the feet when a player has no Head node to measure (m).
+const SHELF_EYE_HEIGHT: float = 1.55
 ## The most boxes of a supply a shelf slot shows: one per unit left today.
 const SHELF_MAX_UNITS: int = 12
 ## How long after the register the cash drawer slams shut (s).

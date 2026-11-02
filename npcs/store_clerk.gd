@@ -123,8 +123,11 @@ func _ready() -> void:
 	visible = is_present()
 
 
-## The shop prompt while the local player is at the counter: "Shop", or a plain
-## "Closed. Opens 7 AM" after hours. Nothing for a shop the rank hasn't opened.
+## The shop prompt while the local player is at the counter: "Shop", or
+## "Closed. Opens 7 AM" after hours. That one is a plain notice (no key label)
+## only when nobody's behind the counter; Marty stays after hours and E still
+## gets you his shutter and a closed line, so his keeps the key. Nothing for a
+## shop the rank hasn't opened.
 func prompt() -> Dictionary:
 	if not _local_in_reach() or not _unlocked():
 		return {}
@@ -132,7 +135,7 @@ func prompt() -> Dictionary:
 	if not is_open():
 		var shops := _shops()
 		var opens := str(shops.call("opens_text", shop_id)) if shops != null else ""
-		return {"text": str(_Strings.SHOP_UI["prompt_shop_closed"]) % opens, "at": at, "plain": true}
+		return {"text": str(_Strings.SHOP_UI["prompt_shop_closed"]) % opens, "at": at, "plain": not is_present()}
 	return {"text": _Strings.UI["prompt_shop"], "at": at}
 
 
@@ -177,6 +180,13 @@ func on_sale() -> void:
 	)
 
 
+## What this keeper is saying right now: the last line while its caption is
+## still up, else "" (the shop window's header shows it, so an old line from
+## earlier in the day never turns up there).
+func current_line() -> String:
+	return last_line if _caption_left > 0.0 else ""
+
+
 ## Babble something, with the mouth moving, in this keeper's voice. Called with every line.
 func chatter() -> void:
 	if Net.is_automated():
@@ -216,8 +226,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if ui != null and bool(ui.call("any_window_open")):
 		return
 	if ui != null:
-		ui.call("open_shop", shop_id)
+		# The line first, so the window opens with it in its header.
 		say_line(open_trigger())
+		ui.call("open_shop", shop_id)
 	get_viewport().set_input_as_handled()
 
 

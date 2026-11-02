@@ -161,7 +161,7 @@ static func _pallet_base(root: Node3D, at: Vector3) -> void:
 	root.add_child(_Stylized.instance(kit.commit(), {"roughness": 0.6, "specular": 0.35}))
 	for corner: Vector3 in corners:
 		_solid(root, at + corner + Vector3(0.0, 0.8, 0.0), Vector3(0.08, 1.6, 0.08))
-	var words := _LowPoly.text_sign(root, str(_Strings.SHOP_UI["back_room_sign"]), Vector3(-11.88, 2.1, at.z), 64, Color(0.95, 0.94, 0.9), PI * 0.5)
+	var words := _LowPoly.text_sign(root, str(_Strings.SHOP_UI["back_room_sign"]), at + Vector3(-1.38, 2.1, 0.0), 64, Color(0.95, 0.94, 0.9), PI * 0.5)
 	words.outline_size = 10
 
 

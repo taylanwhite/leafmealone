@@ -450,19 +450,19 @@ func _actions(id: String, data: Dictionary, wallet: int, shops: Node, open: bool
 	return [{"text": _Strings.UI["shop_buy"], "enabled": why == "", "do": "buy", "qty": 1}]
 
 
-## Why this can't be bought right now (the host would refuse it the same way,
-## net/shops/shops.gd _check_buy), or "" when it can. Owned things have their
-## own buttons instead.
+## Why this can't be bought right now, or "" when it can: the first refusal in
+## the host's own order (net/shops/shops.gd _check_buy: closed, season, sold
+## out, rank, needs; cash last, as the charge), so the card says what the host
+## would answer. Owned things have their own buttons instead, so they're
+## skipped before any of it.
 func _blocker(id: String, qty: int, wallet: int, shops: Node, open: bool, data: Dictionary) -> String:
 	if data.get("maxed", false):
 		return ""
-	if not open:
-		return str(_Strings.SHOP_UI["shop_result_closed"])
-	if not Campaign.is_for_sale(StringName(id)):
-		return _Strings.UI["shop_needs_rank"] % _Ranks.title(_Ranks.tier_of(Catalog.gate_of(id)))
 	var me := Net.local_peer_id()
 	if shops != null and bool(shops.call("owns", me, id)):
 		return ""
+	if not open:
+		return str(_Strings.SHOP_UI["shop_result_closed"])
 	var clock := get_tree().get_first_node_in_group("day_clock") if is_inside_tree() else null
 	if clock != null and not Catalog.is_in_season(id, int(clock.call("season"))):
 		return str(_Strings.SHOP_UI["shop_out_of_season"])
@@ -470,6 +470,8 @@ func _blocker(id: String, qty: int, wallet: int, shops: Node, open: bool, data: 
 		var left := int(shops.call("stock_left", shop_id, id))
 		if left >= 0 and left < qty:
 			return str(_Strings.SHOP_UI["shop_sold_out"]) if left == 0 or qty == 1 else str(_Strings.SHOP_UI["shop_stock_left"]) % left
+	if not Campaign.is_for_sale(StringName(id)):
+		return _Strings.UI["shop_needs_rank"] % _Ranks.title(_Ranks.tier_of(Catalog.gate_of(id)))
 	var needs: Array = Catalog.item(id).get("needs", [])
 	if shops != null and not needs.is_empty() and not needs.any(func(need: Variant) -> bool: return bool(shops.call("owns", me, str(need)))):
 		return str(_Strings.SHOP_UI["shop_result_needs"])
@@ -591,12 +593,13 @@ func _scroll_to_focus() -> void:
 		_scroll.ensure_control_visible(_focus_card)
 
 
-## What this shop's keeper said last, under the title.
+## What this shop's keeper is saying, under the title (only a line still in
+## its caption, so an old one doesn't greet you when the window opens).
 func _update_keeper_line() -> void:
 	for keeper: Node in get_tree().get_nodes_in_group("shopkeepers"):
 		if str(keeper.get("shop_id")) != shop_id:
 			continue
-		var line := str(keeper.get("last_line"))
+		var line := str(keeper.call("current_line")) if keeper.has_method("current_line") else ""
 		if line != "" and line != _shown_line:
 			_shown_line = line
 			_keeper_line.text = str(_Strings.SHOP_UI["shop_keeper_says"]) % [str(_Strings.SHOP_UI.get("keeper_" + str(keeper.get("keeper")), "")), line]
