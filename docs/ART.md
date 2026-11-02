@@ -65,3 +65,6 @@ Goofy, not realistic. The reference is Schedule I: bouncy, cartoony, a little du
 - Characters never speak real words. They make short silly noises (ah?, oof, eh?, huh?, hup) and babble gibberish when talking, like the "ewewewew" of Animal Crossing. Each character's pitch differs a little so they can be told apart.
 - Every sound is synthesized by `tools/make_sfx.py`, so all audio is a project original with nothing to license or disclose. Change a sound by changing its recipe there and re-running it.
 - Proximity voice chat between real players is untouched: that is real people talking.
+- Every sound id is registered in `audio/sound_bank.gd` (its variants, bus, gap, length limit, and volume trim). `--audio-test` checks that each id's files exist and load, and scans the code for sound ids and `res://assets/audio/` paths that aren't registered or don't exist. A new sound is a recipe in `tools/make_sfx.py` or `tools/make_loops.py` plus a bank entry.
+- Gameplay sounds are positional (`Sfx.play_at`, 60 m reach); only interface sounds and the HUD's cues are 2D (`Sfx.play`).
+- Musical guardrail: no Latin-American or regional genre signifiers in any cue (no mariachi trumpets, bossa, salsa, cumbia, ranchera, or guiro- or maraca-led grooves). Jokes in sound punch up at work, systems, and bureaucracy.

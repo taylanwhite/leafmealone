@@ -90,6 +90,7 @@ func _ready() -> void:
 	_voice = AudioStreamPlayer3D.new()
 	_voice.position.y = 1.6
 	_voice.unit_size = 4.0
+	_voice.bus = preload("res://audio/sound_bank.gd").bus("babble")
 	add_child(_voice)
 	_build_cash()
 	if not Net.is_host() and multiplayer.multiplayer_peer != null:

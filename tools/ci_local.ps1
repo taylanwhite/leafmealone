@@ -107,6 +107,11 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --rank=17 --rival-test'; Seconds = 20
 		Check = { param($h, $c) [bool]$h.rival_test.ok }
 	}
+	# Port from the integration review's table (gap-specs/critic.md): 7811.
+	audio = @{
+		Host = '--host --name=Tester --no-steam --start-hour=8 --audio-test'; Seconds = 45; Port = 7811
+		Check = { param($h, $c) [bool]$h.audio_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

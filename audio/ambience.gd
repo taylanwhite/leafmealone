@@ -4,20 +4,15 @@ extends Node
 ## player: a breeze through the trees, birds now and then, a dog a few yards
 ## over, a car going by on the lot's street, and a laid-back music loop that M
 ## turns off and on (remembered between sessions). Nothing here is shared.
+## Its players sit on the Ambience bus (the music on Music; audio/buses.gd), and
+## its tuning is Constants.AMBIENCE_*. The music moves to the music director
+## later (gap-specs/audio.json chunk 3), and the settings file to Settings.
 
 const _Sfx = preload("res://audio/sfx.gd")
+const _Bank = preload("res://audio/sound_bank.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 
 const SETTINGS_PATH := "user://settings.cfg"
-const WIND_DB := -14.0
-const MUSIC_DB := -15.0
-## Seconds between one-shots, as a random range.
-const BIRD_GAP := Vector2(3.0, 9.0)
-const DOG_GAP := Vector2(25.0, 70.0)
-const CAR_GAP := Vector2(14.0, 35.0)
-## How far along the street a passing car starts and ends, either side of the lot.
-const CAR_RUN := 55.0
-const CAR_SECONDS := 4.0
 
 var _wind: AudioStreamPlayer
 var _music: AudioStreamPlayer
@@ -35,18 +30,23 @@ func _ready() -> void:
 		set_process(false)
 		set_process_unhandled_input(false)
 		return
-	_wind = _loop_player("wind_loop", WIND_DB)
-	_music = _loop_player("music_loop", MUSIC_DB)
+	_wind = _loop_player("wind_loop", Constants.AMBIENCE_WIND_DB)
+	_music = _loop_player("music_loop", Constants.AMBIENCE_MUSIC_DB)
 	var settings := ConfigFile.new()
 	if settings.load(SETTINGS_PATH) == OK:
 		_music_on = bool(settings.get_value("audio", "music", true))
 	if not _music_on:
 		_music.stop()
-	_waits = {"bird": randf_range(1.0, 4.0), "dog": randf_range(DOG_GAP.x, DOG_GAP.y), "car": randf_range(4.0, CAR_GAP.y)}
+	_waits = {
+		"bird": _between(Constants.AMBIENCE_FIRST_BIRD),
+		"dog": _between(Constants.AMBIENCE_DOG_GAP),
+		"car": _between(Constants.AMBIENCE_FIRST_CAR),
+	}
 	_car = AudioStreamPlayer3D.new()
-	_car.stream = load("res://assets/audio/sfx/car_pass.wav")
-	_car.unit_size = 10.0
-	_car.max_distance = 80.0
+	_car.stream = load(_Bank.files("car_pass")[0])
+	_car.bus = _Bank.bus("car_pass")
+	_car.unit_size = Constants.AMBIENCE_UNIT_SIZE
+	_car.max_distance = Constants.AMBIENCE_MAX_DISTANCE
 	add_child(_car)
 
 
@@ -62,9 +62,10 @@ func _exit_tree() -> void:
 		child.free()
 
 
-func _loop_player(sound_name: String, db: float) -> AudioStreamPlayer:
+func _loop_player(id: String, db: float) -> AudioStreamPlayer:
 	var player := AudioStreamPlayer.new()
-	player.stream = _Sfx.looped(sound_name)
+	player.stream = _Sfx.looped(id)
+	player.bus = _Bank.bus(id)
 	player.volume_db = db
 	add_child(player)
 	player.play()
@@ -90,23 +91,25 @@ func _process(delta: float) -> void:
 		return
 	var zone := Net.player_zone(me.name.to_int())
 	# Wind is quieter in transit and at the border's lanes.
-	_wind.volume_db = WIND_DB if zone == Net.Zone.LOT or zone == Net.Zone.STORE else WIND_DB - 8.0
+	var outdoors := zone == Net.Zone.LOT or zone == Net.Zone.STORE
+	_wind.volume_db = Constants.AMBIENCE_WIND_DB + (0.0 if outdoors else Constants.AMBIENCE_WIND_AWAY_DB)
 	for key: String in _waits:
 		_waits[key] = float(_waits[key]) - delta
 	if float(_waits["bird"]) <= 0.0:
-		_waits["bird"] = randf_range(BIRD_GAP.x, BIRD_GAP.y)
+		_waits["bird"] = _between(Constants.AMBIENCE_BIRD_GAP)
 		if zone != Net.Zone.TRANSIT:
-			_one_shot("bird_%d" % randi_range(1, 4), me.global_position + _around(8.0, 22.0) + Vector3(0.0, randf_range(4.0, 9.0), 0.0), -6.0)
+			var up := Vector3(0.0, _between(Constants.AMBIENCE_BIRD_HEIGHT), 0.0)
+			_one_shot("bird", me.global_position + _around(Constants.AMBIENCE_BIRD_RANGE) + up, 0.0)
 	if float(_waits["dog"]) <= 0.0:
-		_waits["dog"] = randf_range(DOG_GAP.x, DOG_GAP.y)
+		_waits["dog"] = _between(Constants.AMBIENCE_DOG_GAP)
 		if zone == Net.Zone.LOT:
-			_one_shot("dog", me.global_position + _around(25.0, 40.0), -4.0)
+			_one_shot("dog", me.global_position + _around(Constants.AMBIENCE_DOG_RANGE), 0.0)
 	if float(_waits["car"]) <= 0.0:
-		_waits["car"] = randf_range(CAR_GAP.x, CAR_GAP.y)
+		_waits["car"] = _between(Constants.AMBIENCE_CAR_GAP)
 		if zone == Net.Zone.LOT and _car_t < 0.0:
 			_start_car()
 	if _car_t >= 0.0:
-		_car_t += delta / CAR_SECONDS
+		_car_t += delta / Constants.AMBIENCE_CAR_SECONDS
 		_car.global_position = _car_from.lerp(_car_to, clampf(_car_t, 0.0, 1.0))
 		if _car_t >= 1.0:
 			_car_t = -1.0
@@ -120,20 +123,23 @@ func _start_car() -> void:
 		return
 	var lane := _Neighborhood.STREET.y - 2.2
 	var direction := 1.0 if randf() < 0.5 else -1.0
-	_car_from = lot.to_global(Vector3(-CAR_RUN * direction, 0.6, lane))
-	_car_to = lot.to_global(Vector3(CAR_RUN * direction, 0.6, lane))
+	_car_from = lot.to_global(Vector3(-Constants.AMBIENCE_CAR_RUN * direction, 0.6, lane))
+	_car_to = lot.to_global(Vector3(Constants.AMBIENCE_CAR_RUN * direction, 0.6, lane))
 	_car_t = 0.0
 	_car.global_position = _car_from
 	_car.pitch_scale = randf_range(0.9, 1.1)
 	_car.play()
 
 
-func _one_shot(sound_name: String, at: Vector3, db: float) -> void:
+## One of the id's variants, out in the neighborhood.
+func _one_shot(id: String, at: Vector3, db: float) -> void:
+	var paths := _Bank.files(id)
 	var player := AudioStreamPlayer3D.new()
-	player.stream = load("res://assets/audio/sfx/%s.wav" % sound_name)
-	player.volume_db = db
-	player.unit_size = 12.0
-	player.max_distance = 90.0
+	player.stream = load(paths[randi_range(0, paths.size() - 1)])
+	player.bus = _Bank.bus(id)
+	player.volume_db = db + _Bank.db(id)
+	player.unit_size = Constants.AMBIENCE_UNIT_SIZE
+	player.max_distance = Constants.AMBIENCE_MAX_DISTANCE
 	player.pitch_scale = randf_range(0.94, 1.06)
 	player.finished.connect(player.queue_free)
 	add_child(player)
@@ -141,9 +147,13 @@ func _one_shot(sound_name: String, at: Vector3, db: float) -> void:
 	player.play()
 
 
-func _around(near: float, far: float) -> Vector3:
+func _between(range_value: Vector2) -> float:
+	return randf_range(range_value.x, range_value.y)
+
+
+func _around(distance: Vector2) -> Vector3:
 	var angle := randf() * TAU
-	return Vector3(cos(angle), 0.0, sin(angle)) * randf_range(near, far)
+	return Vector3(cos(angle), 0.0, sin(angle)) * _between(distance)
 
 
 func _local_player() -> Node3D:

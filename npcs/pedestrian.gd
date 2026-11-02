@@ -63,6 +63,7 @@ func _ready() -> void:
 	_voice = AudioStreamPlayer3D.new()
 	_voice.position.y = 1.6
 	_voice.unit_size = 5.0
+	_voice.bus = preload("res://audio/sound_bank.gd").bus("vo_yelp")
 	add_child(_voice)
 	_place(0.0)
 	reset_physics_interpolation()

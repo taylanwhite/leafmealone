@@ -45,9 +45,7 @@ func _ready() -> void:
 	_add_curb($StoreZone)
 	_add_curb($LotZone)
 	_add_curb($BorderZone)
-	var sfx := preload("res://audio/sfx.gd").new()
-	sfx.name = "Sfx"
-	add_child(sfx)
+	# Sound effects live at UIRoot/Audio/Sfx (audio/audio_root.gd), so menus have sound too.
 	var ambience := preload("res://audio/ambience.gd").new()
 	ambience.name = "Ambience"
 	add_child(ambience)
@@ -454,10 +452,10 @@ func _on_node_added(node: Node) -> void:
 	_SharedLook.call("restyle", node)
 
 
-func _play_sfx(sound_name: String) -> void:
+func _play_sfx(sound_name: String, at: Vector3) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", sound_name)
+		sfx.call("play_at", sound_name, at)
 
 
 func _on_player_joined(peer_id: int) -> void:
@@ -487,7 +485,7 @@ func _spawn_bag(at: Vector3, units: int) -> void:
 	bag.set("label", "Leaf bag")
 	var field := get_tree().get_first_node_in_group("leaf_field")
 	bag.set("value", int(field.call("dollars_for", units)) if field != null else 0)
-	_play_sfx("bag")
+	_play_sfx("bag", at)
 	%RuntimeProps.add_child(bag, true)
 	bag.global_position = at + Vector3(0.0, 0.6, 0.0)
 

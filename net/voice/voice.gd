@@ -114,6 +114,7 @@ func attach_output(peer_id: int, player: AudioStreamPlayer3D) -> void:
 	generator.mix_rate_mode = AudioStreamGenerator.MIX_RATE_CUSTOM
 	generator.mix_rate = SAMPLE_RATE
 	generator.buffer_length = GENERATOR_SECONDS
+	player.bus = preload("res://audio/buses.gd").VOICE
 	player.stream = generator
 	player.play()
 	speaker["player"] = player
