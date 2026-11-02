@@ -29,7 +29,12 @@ func _ready() -> void:
 		set_process(false)
 		return
 	var prop := get_parent()
-	stream = _Sfx.looped(str(LOOPS.get(str(prop.get("kind")), "")))
+	var loop_id := str(LOOPS.get(str(prop.get("kind")), ""))
+	if loop_id == "":
+		set_process(false)
+		return
+	stream = _Sfx.looped(loop_id)
+	bus = preload("res://audio/sound_bank.gd").bus(loop_id)
 	unit_size = 6.0
 	max_distance = 45.0
 	attenuation_filter_cutoff_hz = 9000.0

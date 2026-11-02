@@ -73,6 +73,8 @@ var end_day_at: float = -1.0
 ## Constants.TOWN_MAP_DEFAULT. Clients get the host's mode with the world.
 var town_map: bool = false
 var legacy_map: bool = false
+## --audio-test: buses, the sound bank, Sfx and positional sounds (net/dev/audio_test.gd).
+var audio_test: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -82,7 +84,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test
 
 
 func read() -> void:
@@ -198,5 +200,7 @@ func read() -> void:
 			town_map = true
 		elif argument == "--legacy-map":
 			legacy_map = true
+		elif argument == "--audio-test":
+			audio_test = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

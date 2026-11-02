@@ -371,7 +371,7 @@ func _over_hose(hose: Node3D, at: Vector3) -> bool:
 func _rpc_mower_fx(what: String, at: Vector3) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk", "runaway": "mower_start"}.get(what, "bonk"))
+		sfx.call("play_at", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk", "runaway": "mower_start"}.get(what, "bonk"), at)
 	var looks := get_tree().get_first_node_in_group("task_looks")
 	if looks != null:
 		looks.call("work_fx", "pick_litter" if what == "clank" else ("mow_lawn" if what == "chop" else "clean_gutters"), at + Vector3.UP * 0.3)
@@ -420,9 +420,9 @@ func _rpc_request_start() -> void:
 func _rpc_pull_fx(caught: bool) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", "pullcord")
+		sfx.call("play_at", "pullcord", global_position)
 		if caught:
-			sfx.call("play", "mower_start")
+			sfx.call("play_at", "mower_start", global_position)
 
 
 ## Host: the tool ran just now (job_tasks and leaf_field say so on each use).
@@ -484,7 +484,7 @@ func _rpc_hose_snap(from: Vector3) -> void:
 		rope.call("snap", from)
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", "bonk")
+		sfx.call("play_at", "bonk", global_position)
 
 
 func request_grab() -> void:
@@ -714,7 +714,7 @@ func _zone_center() -> Vector3:
 func _rpc_throw_fx() -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", "whoosh")
+		sfx.call("play_at", "whoosh", global_position)
 
 
 ## Everyone sees and hears a bonk; the person hit reacts (player.gd on_bonked,
@@ -724,9 +724,10 @@ func _rpc_bonk_fx(target: NodePath, tier: String, push: Vector3) -> void:
 	var node := get_node_or_null(target)
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", "thud" if tier == "heavy" else "bonk")
+		var at := (node as Node3D).global_position if node is Node3D else global_position
+		sfx.call("play_at", "thud" if tier == "heavy" else "bonk", at)
 		if tier == "heavy":
-			sfx.call("play", "dizzy")
+			sfx.call("play_at", "dizzy", at)
 	if node != null and node.has_method("on_bonked"):
 		node.call("on_bonked", push, tier)
 

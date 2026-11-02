@@ -264,16 +264,24 @@ func _rpc_hit(puncher_path: NodePath, target_path: NodePath, push: Vector3, tier
 			body.call("gesture", "punch" if tier != "grab" and tier != "throw" else "startle")
 		if puncher.has_method("note_swing"):
 			puncher.call("note_swing", tier)
+	var target := get_node_or_null(target_path)
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
+		# Heard where it landed: on the target, else where the swing was.
+		var at := Vector3.ZERO
+		if target is Node3D:
+			at = (target as Node3D).global_position
+		elif puncher is Node3D:
+			at = (puncher as Node3D).global_position
 		if sound.begins_with("vo_"):
 			if puncher != null and puncher.has_method("say"):
 				puncher.call("say", sound)
+		elif target is Node3D or puncher is Node3D:
+			sfx.call("play_at", sound, at)
 		else:
 			sfx.call("play", sound)
-		if tier == "heavy" and target_path != NodePath():
-			sfx.call("play", "dizzy")
-	var target := get_node_or_null(target_path)
+		if tier == "heavy" and target is Node3D:
+			sfx.call("play_at", "dizzy", at)
 	if target != null and target.has_method("on_bonked"):
 		target.call("on_bonked", push, tier)
 

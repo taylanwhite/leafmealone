@@ -656,3 +656,43 @@ const QUIP_COOLDOWN_SECONDS: float = 90.0
 ## when true, and the legacy separate zones when false. --town-map and --legacy-map
 ## override it. False until the cut-over (driving chunk H).
 const TOWN_MAP_DEFAULT: bool = false
+
+
+# ---- audio
+# audio/ (docs/DECISIONS.md, "Audio: buses, a sound bank, positional sounds").
+
+## Sound effects (audio/sfx.gd): the least time between two plays of one sound,
+## in milliseconds, unless audio/sound_bank.gd gives it its own; footsteps get longer.
+const SFX_DEFAULT_GAP_MS: int = 160
+const SFX_STEP_GAP_MS: int = 380
+## Each play's pitch lands in this range, as a multiple of normal.
+const SFX_PITCH_WOBBLE: Vector2 = Vector2(0.93, 1.07)
+## Positional one-shots (Sfx.play_at): full volume inside this many meters, and
+## not heard at all past this many, so a bonk on the yard stays on the yard.
+const SFX_UNIT_SIZE: float = 8.0
+const SFX_MAX_DISTANCE: float = 60.0
+## The low-pass on the Music bus (audio/buses.gd) for "heard from another room".
+const MUSIC_MUFFLE_CUTOFF_HZ: float = 900.0
+
+## The neighborhood's background (audio/ambience.gd): wind and the old music loop,
+## in decibels; the wind drops this much more in transit and at the border.
+const AMBIENCE_WIND_DB: float = -14.0
+const AMBIENCE_WIND_AWAY_DB: float = -8.0
+const AMBIENCE_MUSIC_DB: float = -15.0
+## Seconds between one-shots, as a random range; the first bird comes this soon.
+const AMBIENCE_BIRD_GAP: Vector2 = Vector2(3.0, 9.0)
+const AMBIENCE_FIRST_BIRD: Vector2 = Vector2(1.0, 4.0)
+const AMBIENCE_DOG_GAP: Vector2 = Vector2(25.0, 70.0)
+const AMBIENCE_CAR_GAP: Vector2 = Vector2(14.0, 35.0)
+const AMBIENCE_FIRST_CAR: Vector2 = Vector2(4.0, 35.0)
+## Birds sing this far from the listener (meters) and this high up; the dog is this far off.
+const AMBIENCE_BIRD_RANGE: Vector2 = Vector2(8.0, 22.0)
+const AMBIENCE_BIRD_HEIGHT: Vector2 = Vector2(4.0, 9.0)
+const AMBIENCE_DOG_RANGE: Vector2 = Vector2(25.0, 40.0)
+## How far along the street a passing car starts and ends, either side of the
+## lot, and how long it takes.
+const AMBIENCE_CAR_RUN: float = 55.0
+const AMBIENCE_CAR_SECONDS: float = 4.0
+## One-shots out in the neighborhood: full volume inside this, gone past that (meters).
+const AMBIENCE_UNIT_SIZE: float = 12.0
+const AMBIENCE_MAX_DISTANCE: float = 90.0

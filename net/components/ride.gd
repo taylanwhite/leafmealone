@@ -273,7 +273,8 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	_refresh_label()
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play", "van" if is_in_group("vans") else "truck")
+		# It pulls away with the body, so riders hear it and the curb hears it go.
+		sfx.call("play_on", "van" if is_in_group("vans") else "truck", _body if _body != null else self)
 
 
 func _refresh_label() -> void:

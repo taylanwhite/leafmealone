@@ -180,6 +180,8 @@ func write_report() -> void:
 		"rival_test": preload("res://net/dev/rival_test.gd").result.duplicate(),
 		"cast_test": preload("res://net/dev/cast_test.gd").result.duplicate(),
 		"crew_cast": _crew_cast(),
+		"audio_test": preload("res://net/dev/audio_test.gd").result.duplicate(true),
+		"audio": _audio(),
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
 		"town": _town(),
@@ -256,6 +258,20 @@ func _crew_cast() -> Array:
 func _heat() -> float:
 	var heat := get_tree().get_first_node_in_group("heat")
 	return float(heat.get("heat")) if heat != null else -1.0
+
+
+## What this peer heard: the music director's mood, track and stingers (once it
+## exists, gap-specs/audio.json chunk 3) and any unregistered sound ids.
+func _audio() -> Dictionary:
+	var director := get_tree().get_first_node_in_group("music_director")
+	var report := {"mood": "", "track": "", "stingers": [], "unknown_sfx": preload("res://audio/sfx.gd").unknown.duplicate()}
+	if director != null:
+		report["mood"] = str(director.call("current_mood"))
+		report["track"] = str(director.call("current_track"))
+		var stingers: Variant = director.get_script().get("stinger_log")
+		if stingers is Array:
+			report["stingers"] = (stingers as Array).duplicate()
+	return report
 
 
 ## The job board's offers (their seeds) and the pick, as this peer sees them.

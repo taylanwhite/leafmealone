@@ -1453,6 +1453,7 @@ func say(sound_name: String) -> void:
 		mouth.unit_size = Constants.VOICE_CLEAR_DISTANCE * 1.5
 		mouth.max_distance = Constants.VOICE_MAX_DISTANCE
 		$Visual/Head.add_child(mouth)
+	mouth.bus = preload("res://audio/sound_bank.gd").bus(sound_name)
 	mouth.stream = stream
 	mouth.pitch_scale = _voice_pitch() * randf_range(0.96, 1.04)
 	mouth.play()
@@ -1504,5 +1505,6 @@ func _attach_voice() -> void:
 	voice.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
 	voice.unit_size = Constants.VOICE_CLEAR_DISTANCE
 	voice.max_distance = Constants.VOICE_MAX_DISTANCE
+	voice.bus = preload("res://audio/buses.gd").VOICE
 	%Head.add_child(voice)
 	Net.attach_voice_output(name.to_int(), voice)

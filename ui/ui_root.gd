@@ -27,6 +27,8 @@ const _Strings = preload("res://ui/strings.gd")
 
 func _ready() -> void:
 	add_to_group("game_ui")
+	# The mixer buses exist in every run, so a player's .bus always resolves.
+	preload("res://audio/buses.gd").ensure()
 	_cleanup = Label.new()
 	_cleanup.position = Vector2(16, 16)
 	_cleanup.add_theme_color_override("font_shadow_color", Color.BLACK)
@@ -36,6 +38,10 @@ func _ready() -> void:
 	if Net.is_automated():
 		hide()
 		return
+	# Sound for the whole app, menu included (audio/audio_root.gd): UIRoot/Audio/Sfx.
+	var audio := preload("res://audio/audio_root.gd").new()
+	audio.name = "Audio"
+	add_child(audio)
 	var quips := preload("res://ui/quip_player.gd").new()
 	quips.name = "Quips"
 	add_child(quips)
