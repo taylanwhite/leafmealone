@@ -409,3 +409,9 @@ const QUIP_LOW_CLEANUP_AFTER: float = 120.0
 ## Where right-click looks for the pile ahead (equipment/rake.gd): from this far to this far, in meters.
 const PILE_SEARCH_NEAR: float = 1.0
 const PILE_SEARCH_FAR: float = 3.2
+
+# ---- cast
+## The cast's lines (ui/strings.gd, docs/GAME.md "2026-11-01, the cast").
+## A workbook quip (ui/quip_player.gd) waits this long before it can play again.
+## Moved from ui/strings.gd; the workbook's cooldown minutes are still open.
+const QUIP_COOLDOWN_SECONDS: float = 90.0

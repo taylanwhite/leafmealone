@@ -211,6 +211,15 @@ jobs:
           grep "RivalTest" build/soak/ci-rival/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-rival/host.json'))['rival_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Cast test (string table audit, humor guardrail, line coverage; the crew's look and barks come later)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-cast
+          "$GODOT" --headless --path . -- --host --port=7812 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --cast-test --measure="$PWD/build/soak/ci-cast/host.json" --run-seconds=45 > build/soak/ci-cast/host.log 2>&1
+          grep "CastTest" build/soak/ci-cast/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-cast/host.json'))['cast_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

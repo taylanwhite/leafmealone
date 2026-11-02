@@ -178,6 +178,8 @@ func write_report() -> void:
 		"layout_test": preload("res://net/dev/layout_test.gd").result.duplicate(),
 		"hire_test": preload("res://net/dev/hire_test.gd").result.duplicate(),
 		"rival_test": preload("res://net/dev/rival_test.gd").result.duplicate(),
+		"cast_test": preload("res://net/dev/cast_test.gd").result.duplicate(),
+		"crew_cast": _crew_cast(),
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
 		"town": _town(),
@@ -229,6 +231,25 @@ func _town() -> Dictionary:
 	if town == null:
 		return {}
 	return {"houses": hash(JSON.stringify(town.get("houses"))), "requests": town.get("requests"), "known": (town.call("known_houses") as Array).size()}
+
+
+## The NICE BOYS as this peer sees them, by node name: name tag, last bark, outfit.
+## CI compares the host's with a client's (net/dev/cast_test.gd).
+func _crew_cast() -> Array:
+	var crew: Array = []
+	for node: Node in get_tree().get_nodes_in_group("crew"):
+		var label := node.get_node_or_null("Visual/Label") as Label3D
+		var body := node.get_node_or_null("Visual/CartoonBody")
+		var bark: Variant = node.get("last_bark")
+		var outfit: Variant = body.get("outfit") if body != null else null
+		crew.append({
+			"node": str(node.name),
+			"tag": label.text if label != null else "",
+			"bark": str(bark) if bark != null else "",
+			"outfit": str(outfit) if outfit != null else "",
+		})
+	crew.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return str(a["node"]) < str(b["node"]))
+	return crew
 
 
 ## The crew's heat as this peer sees it.
