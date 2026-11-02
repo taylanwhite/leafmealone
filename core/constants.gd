@@ -1265,3 +1265,12 @@ const ART_BLOCK_GRASS_SPACING: float = 0.48
 # ---- settings:4
 ## How long a quip caption stays up at the bottom left (ui/quip_player.gd).
 const QUIP_CAPTION_SECONDS: float = 4.5
+
+# ---- icons
+# The catalog windows' icon motion (ui/catalog_look.gd; icons chunk D).
+## Hovering a shop card bounces its shelf icon up to this scale, over this long.
+const ICONS_HOVER_SCALE: float = 1.08
+const ICONS_HOVER_SECONDS: float = 0.12
+## A confirmed buy squash-pops the item's icon: this much wider then taller, over this long.
+const ICONS_POP_STRETCH: float = 0.22
+const ICONS_POP_SECONDS: float = 0.3

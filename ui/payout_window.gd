@@ -5,6 +5,14 @@ extends PanelContainer
 ## player's share. Styled like the store catalog (ui/shop_window.gd).
 
 const _Strings = preload("res://ui/strings.gd")
+const _Icons = preload("res://ui/icons.gd")
+const _Look = preload("res://ui/catalog_look.gd")
+## A bill's reason (Campaign settlement "bills") -> its icon: the mowed hose, the
+## mowed gnome, and a band-aid for medical (never a red cross; docs/GAME.md, "Icons").
+const BILL_ICONS: Dictionary = {"hose": "tool_hose", "gnome": "item_gnome", "medical": "medical"}
+## Each line's icon is this much taller than its text size.
+const ICON_OVER_TEXT_PX: int = 4
+const STAR_PX: float = 20.0
 const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
 const ORANGE := Color(0.93, 0.47, 0.13)
@@ -42,29 +50,31 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 	for child: Node in _rows.get_children():
 		child.queue_free()
 	if settlement.has("bags_value"):
-		_line(_Strings.UI["receipt_bags"], "$%d" % int(settlement["bags_value"]), INK)
+		_line(_Strings.UI["receipt_bags"], "$%d" % int(settlement["bags_value"]), INK, 18, "item_leaf_bag")
 		for row: Array in settlement.get("tasks", []):
-			_line(_Strings.UI["receipt_task"] % [_Strings.UI["task_" + str(row[0])], int(row[1])], "$%d" % int(row[2]), INK)
+			_line(_Strings.UI["receipt_task"] % [_Strings.UI["task_" + str(row[0])], int(row[1])], "$%d" % int(row[2]), INK, 18, _Icons.for_task(str(row[0])))
 		var multiplier := float(settlement.get("multiplier", 1.0))
 		var mood: String = _Strings.MOOD_NAMES.get(str(settlement.get("mood", "")), str(settlement.get("mood", "")))
 		var change := int(round((multiplier - 1.0) * 100.0))
 		var change_text := "+%d%%" % change if change > 0 else ("%d%%" % change if change < 0 else "±0%")
-		_line(_Strings.UI["receipt_mood"] % mood, change_text, GREEN if change > 0 else (RED if change < 0 else INK))
+		_line(_Strings.UI["receipt_mood"] % mood, change_text, GREEN if change > 0 else (RED if change < 0 else INK), 18, _Icons.for_mood(str(settlement.get("mood", ""))))
 		for reason: String in (settlement.get("bills", {}) as Dictionary):
-			_line(_Strings.UI.get("receipt_bill_" + reason, reason), "-$%d" % int(settlement["bills"][reason]), RED)
+			_line(_Strings.UI.get("receipt_bill_" + reason, reason), "-$%d" % int(settlement["bills"][reason]), RED, 18, str(BILL_ICONS.get(reason, "bill")))
 		if int(settlement.get("water_fee", 0)) > 0:
-			_line(_Strings.UI["receipt_water"], "-$%d" % int(settlement["water_fee"]), RED)
-		_line(_Strings.UI["receipt_paid"], "$%d" % int(settlement.get("paid", 0)), ORANGE.darkened(0.1), 22)
+			_line(_Strings.UI["receipt_water"], "-$%d" % int(settlement["water_fee"]), RED, 18, "water")
+		_line(_Strings.UI["receipt_paid"], "$%d" % int(settlement.get("paid", 0)), ORANGE.darkened(0.1), 22, "cash")
 		if int(settlement.get("stars", 0)) > 0:
-			_line(_Strings.UI["receipt_stars"] % _Strings.stars(float(settlement["stars"])), "", ORANGE.darkened(0.1), 20)
+			# The review as star icons where the money goes.
+			var review := _line((_Strings.UI["receipt_stars"] % "").strip_edges(), "", ORANGE.darkened(0.1), 20, "star")
+			review.add_child(_Look.stars(float(settlement["stars"]), STAR_PX))
 	else:
 		_line(_Strings.UI["receipt_no_homeowner"], "", INK)
 	if float(settlement.get("bonus", 0.0)) > 0.0:
-		_line(_Strings.UI["receipt_bonus"], "+%d%%" % int(round(float(settlement["bonus"]) * 100.0)), GREEN)
+		_line(_Strings.UI["receipt_bonus"], "+%d%%" % int(round(float(settlement["bonus"]) * 100.0)), GREEN, 18, "bonus")
 	if int(settlement.get("xp", 0)) > 0:
-		_line(_Strings.UI["receipt_xp"], "+%d XP" % int(settlement["xp"]), ORANGE.darkened(0.1))
+		_line(_Strings.UI["receipt_xp"], "+%d XP" % int(settlement["xp"]), ORANGE.darkened(0.1), 18, "xp")
 	_rows.add_child(HSeparator.new())
-	_rows.add_child(_text(_Strings.UI["receipt_split"], 16, INK.lightened(0.3)))
+	_rows.add_child(_Icons.row("split", _text(_Strings.UI["receipt_split"], 16, INK.lightened(0.3)), 20))
 	for row: Dictionary in results:
 		_line(str(row["name"]), "$%d" % int(row["credits"]), INK)
 	visible = true
@@ -81,13 +91,22 @@ func close_window() -> void:
 		ui.call("recapture_mouse")
 
 
-func _line(left: String, right: String, color: Color, size: int = 18) -> void:
+## A receipt line: an icon (when icon_id isn't ""), the words, and the amount on
+## the right. Returns the row, so a line can carry more (the review's stars).
+func _line(left: String, right: String, color: Color, size: int = 18, icon_id: String = "") -> HBoxContainer:
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	if icon_id != "":
+		var icon := _Icons.rect(icon_id, size + ICON_OVER_TEXT_PX)
+		icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(icon)
 	var name_label := _text(left, size, INK)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(name_label)
-	row.add_child(_text(right, size, color))
+	if right != "":
+		row.add_child(_text(right, size, color))
 	_rows.add_child(row)
+	return row
 
 
 func _text(value: String, size: int, color: Color) -> Label:

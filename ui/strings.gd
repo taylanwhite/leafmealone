@@ -110,7 +110,6 @@ const UI: Dictionary = {
 	"board_picked": "NEXT UP",
 	"board_window_title": "Job Board",
 	"board_window_subtitle": "Pick where Chefty goes next. Leaves pay by the bag.",
-	"board_rating": "Crew rating: %s  (%d jobs)",
 	"board_rating_none": "Crew rating: no reviews yet",
 	"receipt_stars": "The homeowner's review: %s",
 	"board_take": "Take this job",
@@ -1997,3 +1996,13 @@ const MUSIC_TITLES: Dictionary = {
 ## A track's title, or "" when it has none.
 static func track_title(title_key: String) -> String:
 	return str(MUSIC_TITLES.get(title_key, ""))
+
+# ---- icons
+# The catalog windows' icon rows (ui/catalog_look.gd; icons chunk D). Kept apart
+# from UI so the icon chunks and other writers don't edit the same lines.
+
+const ICON_UI: Dictionary = {
+	# The job board's crew rating, around its five star icons.
+	"board_rating_lead": "Crew rating:",
+	"board_rating_jobs": "(%d jobs)",
+}

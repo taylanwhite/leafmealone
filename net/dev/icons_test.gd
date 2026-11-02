@@ -17,13 +17,22 @@ extends Node
 ##                rich() draws the keycap, plain() the "[E]" text; '[' is escaped
 ##   window_icon  project.godot names app_icon.png, and app_icon.ico is a real
 ##                .ico with at least 4 sizes
-## The checks of the UI that shows the icons (shop, board, phone, hud, prompt),
+##   shop         every Homie Depot card (meta "item_id") shows that item's own
+##                icon (Icons.for_shop_item), the header has the brand mark and
+##                the wallet's cash icon, and it fits 1280x720
+##   board        every job board offer card has task badges and a cash pay line
+##   receipt      the payout receipt shows the bag, task, mood, bill, water, cash,
+##                star, bonus, xp and split icons, and fits
+##   summary      the day summary shows an icon on every line, the rank badge on a
+##                RANK UP, the unlock's and season's icons, and fits
+## The checks of the UI that shows the icons (shop, phone, hud, prompt),
 ## of the prompt string's tokens and of the shop catalog's icons are written here
 ## too, but they belong to later chunks. Until a check's chunk lands it is in
 ## PENDING: it still runs, and its findings go in result["pending"], but it can't
 ## fail the test. The chunk that builds it deletes its PENDING line (critic.md:
-## icons:D, icons:E and icons:F turn on theirs; icons:F turns on prompt_format
-## once settings:4 has tokenized the prompt; icons:catalog turns on catalog).
+## shops:4 turns on shop with its tabbed shop window; icons:E and icons:F turn on
+## theirs; icons:F turns on prompt_format once settings:4 has tokenized the
+## prompt; icons:catalog turns on catalog).
 ## It never renders, so it runs headless. Each check prints an [IconsTest] line.
 
 const _Icons = preload("res://ui/icons.gd")
@@ -38,8 +47,8 @@ const APP_ICON_PATH := "res://assets/icons/app_icon.png"
 
 ## Check -> the chunk that turns it on (and deletes its line here).
 const PENDING: Dictionary = {
-	"shop": "icons:D",
-	"board": "icons:D",
+	# critic.md's W5 order gives the shop window to shops:4 (its tabbed rewrite).
+	"shop": "shops:4",
 	"phone": "icons:E",
 	"hud": "icons:E",
 	"prompt": "icons:F",
@@ -60,7 +69,7 @@ const RUN_TIMEOUT_SECONDS: float = 15.0
 ## Every check, in the order _run runs them (the watchdog's "not reached" list).
 const CHECK_ORDER: Array[String] = [
 	"ids", "recipes", "coverage", "tokens", "prompt_format", "catalog", "window_icon",
-	"shop", "board", "phone", "hud", "prompt",
+	"shop", "board", "receipt", "summary", "phone", "hud", "prompt",
 ]
 ## Frames a window gets to build and lay out before it is measured.
 const LAYOUT_FRAMES: int = 3
@@ -113,6 +122,8 @@ func _run() -> void:
 	_check(_begin("window_icon"), _window_icon())
 	_check(_begin("shop"), await _shop())
 	_check(_begin("board"), await _board())
+	_check(_begin("receipt"), await _receipt())
+	_check(_begin("summary"), await _summary())
 	_check(_begin("phone"), await _phone())
 	_check(_begin("hud"), await _hud())
 	_check(_begin("prompt"), _prompt())
@@ -391,15 +402,32 @@ func _shop() -> Variant:
 		gaps.append("no cards grid")
 	elif shop.has_method("_items") and card_count != (shop.call("_items") as Array).size():
 		gaps.append("%d cards for %d items" % [card_count, (shop.call("_items") as Array).size()])
-	var shelf: Array[String] = _icons_under(cards)
-	_out["shop_icons"] = shelf.size()
-	if card_count == 0 or shelf.size() < card_count:
-		gaps.append("%d shelf icons for %d cards" % [shelf.size(), card_count])
+	# Each card on its own: it names its item (meta "item_id") and shows that item's
+	# own icon. Counting every icon under the grid would let the price tags' cash
+	# icons and the task badges stand in for missing item icons.
+	var shown_items := 0
+	if card_count == 0:
+		gaps.append("no shop cards")
+	elif cards != null:
+		for card: Node in cards.get_children():
+			if not card.has_meta("item_id"):
+				gaps.append("a card (%s) has no item_id meta" % card.name)
+				continue
+			var item_id := StringName(card.get_meta("item_id"))
+			var want := _Icons.for_shop_item(item_id)
+			if want == "":
+				gaps.append("%s has no shop icon id" % item_id)
+			elif not _icons_under(card).has(want):
+				gaps.append("%s's card doesn't show %s" % [item_id, want])
+			else:
+				shown_items += 1
+	_out["shop_item_icons"] = shown_items
 	for id: String in ["brand_homie_depot", "cash"]:
 		if not _icons_under(shop).has(id):
 			gaps.append("no %s icon in the window" % id)
 	var fits := _fits(shop)
 	_out["shop_fits"] = fits
+	_out["shop_size"] = [shop.size.x, shop.size.y]
 	if not fits:
 		gaps.append("shop is %s, the window %s" % [shop.size, _design_size()])
 	if shop.has_method("close_window"):
@@ -430,10 +458,81 @@ func _board() -> Variant:
 	_out["board_badges"] = badged
 	if badged < offers.size():
 		gaps.append("%d of %d offer cards have a task badge" % [badged, offers.size()])
+	var paid := offers.filter(func(card: Node) -> bool: return _icons_under(card).has("cash")).size()
+	if paid < offers.size():
+		gaps.append("%d of %d offer cards have a cash icon on the pay line" % [paid, offers.size()])
 	if board.has_method("close_window"):
 		board.call("close_window")
 	else:
 		board.visible = false
+	return gaps
+
+
+## The payout receipt (icons chunk D): a made-up settlement on this peer's own
+## window (nothing is paid; show_payout only draws) carries the bag, task, mood,
+## bill, water, cash, star, bonus, xp and split icons.
+func _receipt() -> Variant:
+	var gaps: Array[String] = []
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var payout := ui.get_node_or_null("PayoutWindow") as Control
+	if payout == null or not payout.has_method("show_payout"):
+		gaps.append("no PayoutWindow")
+		return gaps
+	var settlement := {
+		"bags_value": 40, "tasks": [["mow_lawn", 100, 25]], "multiplier": 1.2, "mood": "happy",
+		"bills": {"hose": 15, "medical": 30}, "water_fee": 4, "paid": 61, "stars": 4.0,
+		"bonus": 0.1, "xp": 12,
+	}
+	var results: Array[Dictionary] = [{"name": "Tester", "credits": 61}]
+	payout.call("show_payout", results, settlement)
+	await _frames(LAYOUT_FRAMES)
+	var shown := _icons_under(payout)
+	for id: String in ["item_leaf_bag", "task_mow_lawn", "mood_happy", "tool_hose", "medical", "water", "cash", "star", "bonus", "xp", "split"]:
+		if not shown.has(id):
+			gaps.append("receipt has no %s icon" % id)
+	_out["receipt_icons"] = shown.size()
+	if not _fits(payout):
+		gaps.append("receipt is %s, the window %s" % [payout.size, _design_size()])
+	payout.visible = false
+	return gaps
+
+
+## The day summary card (icons chunk D): a made-up summary with a rank-up, an
+## unlock, a season turn and a town morning shows an icon on every line. The card
+## is hidden directly, so its closed signal (the morning stinger) never fires.
+func _summary() -> Variant:
+	var gaps: Array[String] = []
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var card := ui.get_node_or_null("DaySummary") as Control
+	if card == null or not card.has_method("show_summary"):
+		gaps.append("no DaySummary")
+		return gaps
+	var tier := _Ranks.TIERS_PER_RANK * 2
+	var summary := {
+		# The day before winter starts, so the arrival line is winter's (net/day/day_clock.gd).
+		"day": _Seasons.first_day_of(1) - 1, "jobs": 2, "cash": 120, "stars": 8.0, "xp_banked": 300, "tier": tier,
+		"title": _Ranks.title(tier),
+		"rank_ups": [{"tier": tier, "title": _Ranks.title(tier), "unlock": "shop:ladder", "extras": []}],
+		"season": _Strings.SEASON_ARRIVALS[1],
+		"wages": {"wages": 50, "quit": ["Gus"]},
+		"town": {"opened": [str(_Hoods.HOODS[1]["name"])], "poached": ["a client"], "missed": 1, "requests": 2},
+	}
+	card.call("show_summary", summary)
+	await _frames(LAYOUT_FRAMES)
+	var shown := _icons_under(card)
+	var want: Array[String] = ["night", "check", "cash", "star", "xp", "bill", "warning",
+		_Icons.for_rank(tier), "bonus", _Icons.for_unlock("shop:ladder"), _Icons.for_season(1),
+		_Icons.for_hood(str(_Hoods.HOODS[1]["id"])), "brand_turfmasters", "app_texts"]
+	for id: String in want:
+		if not shown.has(id):
+			gaps.append("summary has no %s icon" % id)
+	_out["summary_icons"] = shown.size()
+	if not _fits(card):
+		gaps.append("summary is %s, the window %s" % [card.size, _design_size()])
+	card.visible = false
+	var ui_root := get_tree().get_first_node_in_group("game_ui")
+	if ui_root != null and ui_root.has_method("recapture_mouse"):
+		ui_root.call("recapture_mouse")
 	return gaps
 
 
