@@ -867,3 +867,8 @@ const ART_CHEFTY_LANE: Rect2 = Rect2(-75.0, 22.6, 83.0, 4.4)
 const ART_HOUSE_SIDE_REACH: float = 0.6
 const ART_HOUSE_BACK_REACH: float = 0.7
 const ART_HOUSE_FRONT_REACH: float = 2.6
+## How far a HouseSpec gutter or eave line keeps from a wall solid or a roof
+## blocker (levels/town/house_archetypes.gd _clear_lines), and the shortest
+## piece of one worth keeping after it is split around them, in meters.
+const ART_HOUSE_LINE_CLEARANCE: float = 0.1
+const ART_HOUSE_MIN_LINE: float = 0.4

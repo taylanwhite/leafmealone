@@ -131,7 +131,8 @@ static func _neighbor(root: Node3D, rng: RandomNumberGenerator, at: Vector3, yaw
 ## A suburban house facing +Z, its front door at the middle of the front wall:
 ## the "classic" archetype (levels/town/house_archetypes.gd), the same shapes
 ## and colors this function always built, now batched by HouseKit into about a
-## dozen meshes. Siding walls, a shingled gable roof with overhangs, framed
+## dozen meshes (shingle courses now run along the eaves, the porch stoop takes
+## no snow, and mullions are painted like the frames: docs/DECISIONS.md). Siding walls, a shingled gable roof with overhangs, framed
 ## windows with shutters, a porch with posts, steps, a chimney, and optionally a
 ## garage. Metas as before ("windows" [[pos, normal, size]], "roof_edge_y") plus
 ## the full HouseSpec (levels/town/house_builder.gd).

@@ -24,13 +24,19 @@ extends RefCounted
 ##                the ridge's middle), width (the roof's length along x), half_run
 ##                (ridge to eave, horizontally), rise, top (eave y)}
 ##   roof_edge_y  the main roof's eave height
-##   gutters      [[from, to, outward normal], ...] the main roof's front and back eaves
+##   gutters      [[from, to, outward normal], ...] the main roof's front and back
+##                eaves, split around any solid or roof blocker they would run
+##                through (a cottage's bay, a garage's cross-gable, a door hood),
+##                so one eave may be several pieces
 ##   solids       [[center, size], ...] boxes a lot turns into one HouseBody
 ##   roof_solids  [[center, size], ...] lower roofs (estate wings) as boxes
+##   roof_blockers [[center, size], ...] what stands on the climbable roof or
+##                across its eaves (dormers, cross-gables, door hoods, pediments,
+##                chimneys) as boxes: no roof spots inside them, and colliders
 ##   porch_depth  how far porch and steps reach past the facade (m)
 ##   door         the front door's center, on the facade
 ##   spigot       [pos, normal] on a real side wall, for a hose
-##   eaves        [[from, to], ...] eave lines, for string lights
+##   eaves        [[from, to], ...] eave lines, for string lights (split like gutters)
 ##   footprint    Rect2 (x, z) of everything built
 ##   triangles, draw_calls
 ## and "house_spec", all of the above as one Dictionary.
@@ -103,7 +109,7 @@ static func check(house: Node3D) -> PackedStringArray:
 	var problems := PackedStringArray()
 	var spec := spec_of(house)
 	var label := "%s %.1fx%.1f %d-story" % [spec.get("archetype", "?"), float(spec.get("width", 0.0)), float(spec.get("depth", 0.0)), int(spec.get("stories", 0))]
-	for key: String in ["archetype", "windows", "roof", "roof_edge_y", "gutters", "solids", "roof_solids", "porch_depth", "door", "spigot", "eaves", "footprint"]:
+	for key: String in ["archetype", "windows", "roof", "roof_edge_y", "gutters", "solids", "roof_solids", "roof_blockers", "porch_depth", "door", "spigot", "eaves", "footprint"]:
 		if not spec.has(key):
 			problems.append("%s: no %s" % [label, key])
 	if not problems.is_empty():
@@ -127,12 +133,35 @@ static func check(house: Node3D) -> PackedStringArray:
 	if not _Archetypes.NEIGHBOR_ONLY.has(str(spec["archetype"])):
 		if str(roof.get("kind", "")) != "gable_x":
 			problems.append("%s: main roof is %s, not gable_x" % [label, roof.get("kind", "")])
-		if (spec["gutters"] as Array).size() < 2:
-			problems.append("%s: gutters on %d eaves" % [label, (spec["gutters"] as Array).size()])
+		var facing := {"front": false, "back": false}
+		for gutter: Array in spec["gutters"]:
+			var outward: Vector3 = gutter[2]
+			if outward.z > 0.5:
+				facing["front"] = true
+			elif outward.z < -0.5:
+				facing["back"] = true
+		if not (facing["front"] and facing["back"]):
+			problems.append("%s: gutters not on both eaves (%d pieces)" % [label, (spec["gutters"] as Array).size()])
 		if (spec["windows"] as Array).is_empty():
 			problems.append("%s: no windows to wash" % label)
 		if float(roof.get("rise", 0.0)) <= 0.0 or float(roof.get("half_run", 0.0)) <= 0.0:
 			problems.append("%s: flat main roof" % label)
+	# Gutters and eaves keep clear of every wall and roof blocker.
+	var boxes: Array[AABB] = []
+	for entry: Array in (spec["solids"] as Array) + (spec["roof_blockers"] as Array):
+		var size: Vector3 = entry[1]
+		boxes.append(AABB((entry[0] as Vector3) - size * 0.5, size).grow(-0.005))
+	for key: String in ["gutters", "eaves"]:
+		for line: Array in spec[key]:
+			var a: Vector3 = line[0]
+			var b: Vector3 = line[1]
+			var steps := maxi(1, ceili(a.distance_to(b) / 0.2))
+			for index: int in steps + 1:
+				var point := a.lerp(b, float(index) / float(steps))
+				var inside := boxes.filter(func(box: AABB) -> bool: return box.has_point(point))
+				if not inside.is_empty():
+					problems.append("%s: %s point %s inside %s" % [label, key.trim_suffix("s"), point, inside[0]])
+					break
 	var spigot: Array = spec["spigot"]
 	if spigot.size() != 2:
 		problems.append("%s: no spigot" % label)

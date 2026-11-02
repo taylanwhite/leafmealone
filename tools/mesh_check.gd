@@ -8,9 +8,12 @@ extends SceneTree
 ## outside) and that the winding is Godot's front face (clockwise seen from the
 ## front), so back-face culling never shows the inside. Then it builds every
 ## archetype (levels/town/house_archetypes.gd) at the smallest and largest yard
-## house widths, one and two stories, full and far detail, and checks each
-## triangle's winding against its normal, the footprint contract, the HouseSpec
-## metas, and the triangle budget (levels/town/house_builder.gd check()); and
+## house widths, one and two stories, full and far detail, two seeds, with
+## HouseKit's audit on (each face checked against its own shape's vertex
+## centroid, independent of the inside point the kit oriented it by; a
+## deliberately wrong box proves the audit can fail), and checks the footprint
+## contract, the HouseSpec metas, gutter and eave clearance, and the triangle
+## budget (levels/town/house_builder.gd check()); and
 ## that every neighborhood style (levels/town/hood_styles.gd) only names
 ## archetypes that exist, none of them neighbors-only for a job house.
 ## Exits 1 on any failure.
@@ -54,7 +57,10 @@ func _init() -> void:
 		var kit: RefCounted = _HouseKit.new()
 		(house_shapes[shape_name] as Callable).call(kit)
 		failed = not _check_closed(shape_name, kit.call("commit_mesh")) or failed
+	_HouseKit.set("audit", true)
+	failed = not _check_audit() or failed
 	failed = not _check_houses() or failed
+	_HouseKit.set("audit", false)
 	failed = not _check_styles() or failed
 	quit(1 if failed else 0)
 
@@ -105,42 +111,45 @@ func _check_houses() -> bool:
 		var most := 0
 		var calls := 0
 		var problems := PackedStringArray()
-		var miswound := 0
+		var inward := 0
 		for size: Vector2 in [Vector2(smallest, 6.5), Vector2(largest, 10.0)]:
 			for stories: int in [1, 2]:
 				for detail: String in ["full", "far"]:
-					var house := _HouseBuilder.build(holder, Vector3.ZERO, {"archetype": archetype, "width": size.x, "depth": size.y, "stories": stories, "seed": 7, "detail": detail, "garage": true})
-					if detail == "full":
-						problems.append_array(_HouseBuilder.check(house))
-						most = maxi(most, int(house.get_meta("triangles", 0)))
-						calls = maxi(calls, int(house.get_meta("draw_calls", 0)))
-					miswound += _miswound(house)
-					holder.remove_child(house)
-					house.free()
-		var good := problems.is_empty() and miswound == 0
+					for house_seed: int in [7, 8]:
+						_HouseKit.set("audit_inward", 0)
+						var house := _HouseBuilder.build(holder, Vector3.ZERO, {"archetype": archetype, "width": size.x, "depth": size.y, "stories": stories, "seed": house_seed, "detail": detail, "garage": true})
+						inward += int(_HouseKit.get("audit_inward"))
+						if detail == "full":
+							problems.append_array(_HouseBuilder.check(house))
+							most = maxi(most, int(house.get_meta("triangles", 0)))
+							calls = maxi(calls, int(house.get_meta("draw_calls", 0)))
+						holder.remove_child(house)
+						house.free()
+		var good := problems.is_empty() and inward == 0
 		ok = ok and good
-		print("[MeshCheck] house %-13s %s  up to %d triangles, %d draw calls, %d miswound" % [archetype, "ok  " if good else "FAIL", most, calls, miswound])
+		print("[MeshCheck] house %-13s %s  up to %d triangles, %d draw calls, %d inward faces" % [archetype, "ok  " if good else "FAIL", most, calls, inward])
 		for problem: String in problems:
 			print("[MeshCheck]   %s" % problem)
 	holder.free()
 	return ok
 
 
-## Triangles under a house whose winding disagrees with their stored normal.
-func _miswound(house: Node3D) -> int:
-	var bad := 0
-	for node: Node in house.find_children("*", "MeshInstance3D", true, false):
-		var mesh := (node as MeshInstance3D).mesh as ArrayMesh
-		var arrays := mesh.surface_get_arrays(0)
-		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-		for tri: int in vertices.size() / 3:
-			var a := vertices[tri * 3]
-			var b := vertices[tri * 3 + 1]
-			var c := vertices[tri * 3 + 2]
-			if (c - a).cross(b - a).dot(normals[tri * 3]) <= 0.0:
-				bad += 1
-	return bad
+## The audit itself can fail: a box whose faces were oriented from a point
+## outside it must count inward faces.
+func _check_audit() -> bool:
+	var kit: RefCounted = _HouseKit.new()
+	_HouseKit.set("audit_inward", 0)
+	var bucket: RefCounted = kit.call("_bucket", "plain", Color.WHITE, {})
+	var c: Array[Vector3] = []
+	for index: int in 8:
+		c.append(Vector3(1.0 if index & 1 else -1.0, 1.0 if index & 2 else -1.0, 1.0 if index & 4 else -1.0) * 0.5)
+	for face: Array in [[1, 3, 7, 5], [0, 4, 6, 2], [2, 6, 7, 3], [0, 1, 5, 4], [4, 5, 7, 6], [0, 2, 3, 1]]:
+		kit.call("_face", bucket, [c[face[0]], c[face[1]], c[face[2]], c[face[3]]], Vector3(10.0, 0.0, 0.0))
+	kit.call("_audit_shape")
+	var caught := int(_HouseKit.get("audit_inward"))
+	_HouseKit.set("audit_inward", 0)
+	print("[MeshCheck] audit        %s  a box faced from outside shows %d inward faces" % ["ok  " if caught > 0 else "FAIL", caught])
+	return caught > 0
 
 
 func _check_styles() -> bool:

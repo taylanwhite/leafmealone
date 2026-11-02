@@ -13,7 +13,8 @@ extends RefCounted
 ##   var look := kit.commit(house_root, "Look")
 ##
 ## Every face is flat-shaded and wound clockwise seen from outside (Godot's
-## front face); tools/mesh_check.gd checks it. Shapes go through `frame`, so a
+## front face); tools/mesh_check.gd checks it with `audit` (each face against its
+## shape's own vertex centroid). Shapes go through `frame`, so a
 ## part built in its own frame (a porch turned to face a side) can be placed by
 ## setting kit.frame first. Patterns are measured in the committed mesh's own
 ## space, which is the holder's (the house root's), so bricks line up across
@@ -43,6 +44,17 @@ class Bucket extends RefCounted:
 static var _glass: StandardMaterial3D
 static var _glows: Dictionary = {}
 
+## tools/mesh_check.gd's independent facing check: while audit is on, every
+## shape (box, prism, hip, cylinder, glow) checks each of its triangles against
+## the centroid of its own vertices (inside any convex shape), not the inside
+## point the shape handed _face, and audit_inward counts the triangles that face
+## the centroid. A wrong inside point shows up here; nothing reads it in game.
+static var audit := false
+static var audit_inward := 0
+
+var _audit_points := PackedVector3Array()
+var _audit_tris: Array = []
+
 ## Everything after this transform: set it to build a part in its own frame.
 var frame := Transform3D.IDENTITY
 
@@ -65,6 +77,7 @@ func box(size: Vector3, at: Vector3, color: Color, surface: String, basis: Basis
 	var bucket := _bucket(surface, color, style)
 	for face: Array in [[1, 3, 7, 5], [0, 4, 6, 2], [2, 6, 7, 3], [0, 1, 5, 4], [4, 5, 7, 6], [0, 2, 3, 1]]:
 		_face(bucket, [corners[face[0]], corners[face[1]], corners[face[2]], corners[face[3]]], center)
+	_audit_shape()
 
 
 ## A triangular prism like PrismMesh: size.x across the base, size.y tall,
@@ -87,6 +100,7 @@ func prism(size: Vector3, at: Vector3, color: Color, surface: String, basis: Bas
 	_face(bucket, [p[0], p[2], p[5], p[3]], center)
 	_face(bucket, [p[1], p[4], p[5], p[2]], center)
 	_face(bucket, [p[0], p[3], p[4], p[1]], center)
+	_audit_shape()
 
 
 ## A hip roof: a size.x by size.z base with its bottom at at, sloping up on all
@@ -116,6 +130,7 @@ func hip(size: Vector3, at: Vector3, rise: float, color: Color, surface: String,
 	_face(bucket, [p[0], p[3], p[4]], center)
 	_face(bucket, [p[1], p[5], p[2]], center)
 	_face(bucket, [p[0], p[1], p[2], p[3]], center)
+	_audit_shape()
 
 
 ## A cylinder (or a frustum, with style "top_radius"; a cone at 0) of height
@@ -141,6 +156,7 @@ func cylinder(radius: float, height: float, at: Vector3, color: Color, surface: 
 	_face(bucket, bottom, center)
 	if top_radius > 0.001:
 		_face(bucket, top, center)
+	_audit_shape()
 
 
 ## A window set into a wall that faces +Z when yaw is 0, centered on the wall's
@@ -182,6 +198,7 @@ func glow(size: Vector3, at: Vector3, color: Color, energy: float = 1.5) -> void
 		corners.append(frame * (at + Vector3(half.x * (1.0 if index & 1 else -1.0), half.y * (1.0 if index & 2 else -1.0), half.z * (1.0 if index & 4 else -1.0))))
 	for face: Array in [[1, 3, 7, 5], [0, 4, 6, 2], [2, 6, 7, 3], [0, 1, 5, 4], [4, 5, 7, 6], [0, 2, 3, 1]]:
 		_face(saved, [corners[face[0]], corners[face[1]], corners[face[2]], corners[face[3]]], frame * at)
+	_audit_shape()
 
 
 func vertex_count() -> int:
@@ -322,6 +339,28 @@ func _face(bucket: Bucket, points: Array, inside: Vector3) -> void:
 			bucket.normals.append(normal)
 			_grow(corner)
 		_vertex_total += 3
+		if audit:
+			_audit_tris.append([(a + b + c) / 3.0, normal])
+	if audit:
+		for point: Vector3 in points:
+			_audit_points.append(point)
+
+
+## Ends one shape for the audit: counts its triangles that face its own centroid.
+func _audit_shape() -> void:
+	if not audit or _audit_points.is_empty():
+		_audit_points.clear()
+		_audit_tris.clear()
+		return
+	var centroid := Vector3.ZERO
+	for point: Vector3 in _audit_points:
+		centroid += point
+	centroid /= float(_audit_points.size())
+	for tri: Array in _audit_tris:
+		if (tri[1] as Vector3).dot((tri[0] as Vector3) - centroid) <= 0.0:
+			audit_inward += 1
+	_audit_points.clear()
+	_audit_tris.clear()
 
 
 func _grow(point: Vector3) -> void:

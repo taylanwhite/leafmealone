@@ -40,7 +40,7 @@ const FLOWERS: Array[Color] = [Color(0.92, 0.3, 0.32), Color(0.98, 0.84, 0.3), C
 static func build(kit: RefCounted, r: Dictionary) -> Dictionary:
 	var spec := {
 		"archetype": r["archetype"], "stories": int(r["stories"]), "width": float(r["width"]), "depth": float(r["depth"]),
-		"windows": [], "gutters": [], "eaves": [], "solids": [], "roof_solids": [], "roof": {}, "roof_edge_y": 0.0,
+		"windows": [], "gutters": [], "eaves": [], "solids": [], "roof_solids": [], "roof_blockers": [], "roof": {}, "roof_edge_y": 0.0,
 		"porch_depth": 0.0, "door": Vector3(0.0, 1.6, float(r["depth"]) * 0.5), "spigot": [],
 	}
 	var rng := RandomNumberGenerator.new()
@@ -76,6 +76,7 @@ static func build(kit: RefCounted, r: Dictionary) -> Dictionary:
 			_farmhouse(kit, r, spec, rng)
 		_:
 			_classic(kit, r, spec)
+	_clear_lines(spec)
 	return spec
 
 
@@ -111,7 +112,9 @@ static func far(kit: RefCounted, r: Dictionary, spec: Dictionary) -> void:
 ## A gable roof over a block of walls w long (along the ridge) and d deep, its
 ## eaves at top: two slabs, the gable-end walls under them, a ridge cap, and
 ## fascia boards. along "x" (the default) or "z" (a front-facing gable). Returns
-## {half_run, rise, top}. main = true makes it the house's climbable roof in spec.
+## {half_run, rise, top}. main = true makes it the house's climbable roof in spec;
+## blocker = true records its bounding box in spec "roof_blockers" (a
+## cross-gable or hood that reaches the main roof or its eaves).
 static func _gable(kit: RefCounted, spec: Dictionary, o: Dictionary) -> Dictionary:
 	var w := float(o["w"])
 	var d := float(o["d"])
@@ -142,6 +145,14 @@ static func _gable(kit: RefCounted, spec: Dictionary, o: Dictionary) -> Dictiona
 	if bool(o.get("ridge_cap", true)):
 		kit.call("box", Vector3(length + 0.04, 0.12, 0.3), Vector3(0.0, top + rise + 0.02, 0.0), roof.darkened(0.18), roof_surface)
 	kit.set("frame", saved)
+	if bool(o.get("blocker", false)):
+		# Its bounding box, fascia and ridge cap included, as a roof blocker.
+		var low := top - 0.22
+		var high := top + rise + 0.14
+		var half := Vector3(length * 0.5 + 0.02, (high - low) * 0.5, half_run + SLAB * sin(slope) + 0.05)
+		if str(o.get("along", "x")) != "x":
+			half = Vector3(half.z, half.y, half.x)
+		_blocker(spec, place * Vector3(0.0, (low + high) * 0.5, 0.0), half * 2.0)
 	var eave_x := length * 0.5
 	for side: float in ([1.0, -1.0] if bool(o.get("eaves", o.get("main", false))) else []):
 		(spec["eaves"] as Array).append([place * Vector3(-eave_x, top, side * half_run), place * Vector3(eave_x, top, side * half_run)])
@@ -257,10 +268,84 @@ static func _column(kit: RefCounted, base: Vector3, height: float, radius: float
 	kit.call("box", Vector3(radius * 2.5, 0.2, radius * 2.5), base + Vector3(0.0, height - 0.1, 0.0), color, "stone")
 
 
-## A chimney from y0 up to y1, with a cap.
-static func _chimney(kit: RefCounted, x: float, z: float, size: Vector2, y0: float, y1: float, color: Color, surface: String) -> void:
+## A chimney from y0 up to y1, with a cap, recorded as a roof blocker.
+static func _chimney(kit: RefCounted, spec: Dictionary, x: float, z: float, size: Vector2, y0: float, y1: float, color: Color, surface: String) -> void:
 	kit.call("box", Vector3(size.x, y1 - y0, size.y), Vector3(x, (y0 + y1) * 0.5, z), color, surface)
 	kit.call("box", Vector3(size.x + 0.14, 0.14, size.y + 0.14), Vector3(x, y1 + 0.07, z), color.darkened(0.25), "concrete")
+	_blocker(spec, Vector3(x, (y0 + y1 + 0.14) * 0.5, z), Vector3(size.x + 0.14, y1 + 0.14 - y0, size.y + 0.14))
+
+
+## Something that stands on the main roof or across its eaves (a dormer, a
+## cross-gable, a door hood, a pediment, a chimney), as a box [center, size], so
+## the lot skips roof spots and adds colliders there, and gutters and eaves
+## split around it (_clear_lines).
+static func _blocker(spec: Dictionary, center: Vector3, size: Vector3) -> void:
+	(spec["roof_blockers"] as Array).append([center, size])
+
+
+## Splits every gutter and eave around the solids and roof blockers it would
+## run through (a cottage's bay, a garage's cross-gable, a door hood, a
+## pediment, a wing's eave running into the core's wall), so a lot never hangs
+## a gutter, a clean-gutters spot, or a string light inside a wall or a roof.
+static func _clear_lines(spec: Dictionary) -> void:
+	var boxes: Array[AABB] = []
+	for entry: Array in (spec["solids"] as Array) + (spec["roof_blockers"] as Array):
+		var size: Vector3 = entry[1]
+		boxes.append(AABB((entry[0] as Vector3) - size * 0.5, size).grow(Constants.ART_HOUSE_LINE_CLEARANCE))
+	for key: String in ["gutters", "eaves"]:
+		var kept: Array = []
+		for line: Array in spec[key]:
+			var a: Vector3 = line[0]
+			var b: Vector3 = line[1]
+			for span: Vector2 in _free_spans(a, b, boxes):
+				var from := a.lerp(b, span.x)
+				var to := a.lerp(b, span.y)
+				if from.distance_to(to) < Constants.ART_HOUSE_MIN_LINE:
+					continue
+				var piece := line.duplicate()
+				piece[0] = from
+				piece[1] = to
+				kept.append(piece)
+		spec[key] = kept
+
+
+## The parts (t from 0 to 1) of the segment a..b outside every box.
+static func _free_spans(a: Vector3, b: Vector3, boxes: Array[AABB]) -> Array[Vector2]:
+	var spans: Array[Vector2] = [Vector2(0.0, 1.0)]
+	for box: AABB in boxes:
+		var hit := _segment_span(a, b, box)
+		if hit.x >= hit.y:
+			continue
+		var next: Array[Vector2] = []
+		for span: Vector2 in spans:
+			if hit.y <= span.x or hit.x >= span.y:
+				next.append(span)
+				continue
+			if hit.x > span.x:
+				next.append(Vector2(span.x, hit.x))
+			if hit.y < span.y:
+				next.append(Vector2(hit.y, span.y))
+		spans = next
+	return spans
+
+
+## The part (t0, t1) of the segment a..b inside box; t0 >= t1 when it misses.
+static func _segment_span(a: Vector3, b: Vector3, box: AABB) -> Vector2:
+	var t0 := 0.0
+	var t1 := 1.0
+	var run := b - a
+	for axis: int in 3:
+		var low := box.position[axis]
+		var high := box.end[axis]
+		if absf(run[axis]) < 1e-6:
+			if a[axis] <= low or a[axis] >= high:
+				return Vector2(1.0, 0.0)
+			continue
+		var ta := (low - a[axis]) / run[axis]
+		var tb := (high - a[axis]) / run[axis]
+		t0 = maxf(t0, minf(ta, tb))
+		t1 = minf(t1, maxf(ta, tb))
+	return Vector2(t0, t1)
 
 
 ## Walls of a block from y0 to y1, and its solid (from the ground).
@@ -288,6 +373,9 @@ static func _dormer(kit: RefCounted, spec: Dictionary, r: Dictionary, x: float, 
 	kit.call("box", Vector3(width, y1 - y0, front - back), Vector3(x, (y0 + y1) * 0.5, (front + back) * 0.5), r["wall"], r["wall_surface"])
 	_gable(kit, spec, {"cx": x, "cz": (front + back) * 0.5, "w": front - back, "d": width, "top": y1, "rise": rise * 0.1, "ox": 0.2, "oz": 0.15, "along": "z", "ridge_cap": false,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": r["wall"], "wall_surface": r["wall_surface"]})
+	# The whole dormer, its little gable and overhangs included.
+	var peak := y1 + rise * 0.1 + 0.05
+	_blocker(spec, Vector3(x, (y0 + peak) * 0.5, (front + back) * 0.5), Vector3(width + 0.34, peak - y0, front - back + 0.44))
 	var high := minf(0.85, y1 - at_slope - 0.3)
 	if high > 0.3:
 		_window(kit, spec, Vector3(x, (at_slope + y1) * 0.5, front + 0.02), 0.0, Vector2(minf(1.0, width - 0.7), high), r["trim"], false, {"sill": false})
@@ -330,6 +418,7 @@ static func _classic(kit: RefCounted, r: Dictionary, spec: Dictionary) -> void:
 	kit.call("prism", Vector3(depth + 1.4, depth * 0.38, width + 1.0), Vector3(0.0, top + depth * 0.19, 0.0), roof, r["roof_surface"], Basis(Vector3.UP, PI * 0.5))
 	kit.call("box", Vector3(width + 1.0, 0.2, 0.14), Vector3(0.0, top - 0.02, front + 0.68), trim, "planks")
 	kit.call("box", Vector3(0.9, depth * 0.38 + 1.4, 0.9), Vector3(width * 0.28, top + depth * 0.19 + 0.3, -depth * 0.12), BRICK, "brick")
+	_blocker(spec, Vector3(width * 0.28, top + depth * 0.19 + 0.3, -depth * 0.12), Vector3(0.9, depth * 0.38 + 1.4, 0.9))
 	kit.call("box", Vector3(1.1, 2.2, 0.08), Vector3(0.0, 1.6, front + 0.03), r["door"], "planks")
 	kit.call("box", Vector3(1.4, 0.14, 0.1), Vector3(0.0, 2.78, front + 0.05), trim, "planks")
 	kit.call("box", Vector3(3.4, 0.14, 2.0), Vector3(0.0, 3.1, front + 1.0), roof, "shingles")
@@ -406,7 +495,7 @@ static func _bungalow(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: Ran
 	_side_windows(kit, spec, w * 0.5, 0.0, -d * 0.1, base + 1.6, Vector2(1.1, 1.1), trim)
 	_back_windows(kit, spec, [-w * 0.25, w * 0.25], -front, base + 1.6, Vector2(1.2, 1.1), trim)
 	var chimney_x := w * 0.3 * (1.0 if rng.randf() < 0.5 else -1.0)
-	_chimney(kit, chimney_x, -d * 0.15, Vector2(0.8, 0.8), top - 0.2, top + g["rise"] + 0.8, BRICK, "brick")
+	_chimney(kit, spec, chimney_x, -d * 0.15, Vector2(0.8, 0.8), top - 0.2, top + g["rise"] + 0.8, BRICK, "brick")
 	spec["porch_depth"] = reach - front
 	_spigot(spec, w * 0.5, -d * 0.3, 1.0)
 
@@ -433,7 +522,7 @@ static func _cottage(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: Rand
 	var g := _gable(kit, spec, {"cx": 0.0, "cz": 0.0, "w": w, "d": d, "top": top, "rise": d * RISE["cottage"], "main": true, "fascia": trim,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": r["wall"], "wall_surface": r["wall_surface"]})
 	var bay_len := front + bay_out
-	_gable(kit, spec, {"cx": bay_x, "cz": bay_len * 0.5, "w": bay_len, "d": bay_w, "top": top, "rise": minf(bay_w * 0.7, float(g["rise"]) * 0.85), "ox": 0.3, "oz": 0.3, "along": "z",
+	_gable(kit, spec, {"cx": bay_x, "cz": bay_len * 0.5, "w": bay_len, "d": bay_w, "top": top, "rise": minf(bay_w * 0.7, float(g["rise"]) * 0.85), "ox": 0.3, "oz": 0.3, "along": "z", "blocker": true,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": r["wall"], "wall_surface": r["wall_surface"]})
 	# The bay's big window (and one above it on two stories), with a flower box.
 	var bay_win := Vector2(minf(bay_w - 0.9, 2.0), 1.4)
@@ -445,7 +534,7 @@ static func _cottage(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: Rand
 	# The door beside the bay, under a little gabled hood, on a stoop.
 	var door_x := side * (w * 0.5 - bay_w - 1.4)
 	_door(kit, spec, door_x, base, front, r["door"], trim, 1.0, 2.1)
-	_gable(kit, spec, {"cx": door_x, "cz": front + 0.4, "w": 0.8, "d": 1.5, "top": base + 2.5, "rise": 0.5, "ox": 0.05, "oz": 0.1, "along": "z",
+	_gable(kit, spec, {"cx": door_x, "cz": front + 0.4, "w": 0.8, "d": 1.5, "top": base + 2.5, "rise": 0.5, "ox": 0.05, "oz": 0.1, "along": "z", "blocker": true,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": trim, "wall_surface": "planks"})
 	kit.call("box", Vector3(1.8, base, 1.2), Vector3(door_x, base * 0.5, front + 0.6), STOOP, "concrete", Basis.IDENTITY, {"snow": 0.0})
 	var reach := _steps(kit, door_x, front + 1.2, base, 1.4, 0.4, 1, STOOP)
@@ -457,7 +546,7 @@ static func _cottage(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: Rand
 	if stories > 1:
 		_window(kit, spec, Vector3(other_x, base + story + 1.4, front + 0.02), 0.0, Vector2(1.1, 1.1), trim)
 	# A brick chimney up the far gable end.
-	_chimney(kit, -side * (w * 0.5 + 0.08), -d * 0.1, Vector2(0.8, 1.2), 0.0, top + float(g["rise"]) * 0.9, BRICK, "brick")
+	_chimney(kit, spec, -side * (w * 0.5 + 0.08), -d * 0.1, Vector2(0.8, 1.2), 0.0, top + float(g["rise"]) * 0.9, BRICK, "brick")
 	for floor_index: int in stories:
 		var y := base + story * float(floor_index) + 1.5
 		_side_windows(kit, spec, w * 0.5, 0.0, d * 0.28, y, Vector2(1.0, 1.0), trim, [side])
@@ -510,7 +599,7 @@ static func _foursquare(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: R
 		var y := base + story * float(floor_index) + 1.55
 		_side_windows(kit, spec, w * 0.5, 0.0, 0.0, y, Vector2(1.1, 1.2), trim)
 		_back_windows(kit, spec, [-w * 0.25, w * 0.25], -front, y, Vector2(1.1, 1.2), trim)
-	_chimney(kit, w * 0.25 * (1.0 if rng.randf() < 0.5 else -1.0), -d * 0.2, Vector2(0.8, 0.8), top - 0.2, top + float(g["rise"]) + 0.7, BRICK, "brick")
+	_chimney(kit, spec, w * 0.25 * (1.0 if rng.randf() < 0.5 else -1.0), -d * 0.2, Vector2(0.8, 0.8), top - 0.2, top + float(g["rise"]) + 0.7, BRICK, "brick")
 	spec["porch_depth"] = reach - front
 	_spigot(spec, -w * 0.5, -d * 0.3, -1.0)
 
@@ -653,7 +742,7 @@ static func _colonial_new(kit: RefCounted, r: Dictionary, spec: Dictionary, rng:
 	for t: float in [-0.25, 0.0, 0.25]:
 		kit.call("box", Vector3(0.04, 2.3, 0.02), Vector3(garage_x + door_w * t, 1.2, garage_front + 0.14), trim.darkened(0.12), "plain")
 	kit.call("box", Vector3(door_w + 0.3, 0.14, 0.1), Vector3(garage_x, 2.42, garage_front + 0.1), trim, "planks")
-	_gable(kit, spec, {"cx": garage_x, "cz": garage_z, "w": d, "d": garage_w, "top": garage_top, "rise": garage_w * 0.35, "ox": 0.35, "oz": 0.3, "along": "z", "fascia": trim,
+	_gable(kit, spec, {"cx": garage_x, "cz": garage_z, "w": d, "d": garage_w, "top": garage_top, "rise": garage_w * 0.35, "ox": 0.35, "oz": 0.3, "along": "z", "fascia": trim, "blocker": true,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": r["wall"], "wall_surface": r["wall_surface"]})
 	_gable(kit, spec, {"cx": main_x, "cz": 0.0, "w": main_w, "d": d, "top": top, "rise": d * RISE["colonial_new"], "ox": 0.4, "oz": 0.6, "main": true, "fascia": trim,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": r["wall"], "wall_surface": r["wall_surface"]})
@@ -667,6 +756,8 @@ static func _colonial_new(kit: RefCounted, r: Dictionary, spec: Dictionary, rng:
 		kit.call("cylinder", 0.14, 2.7, Vector3(x, base + 1.35, front + 1.4), trim, "stucco", 12)
 	kit.call("box", Vector3(2.6, 0.25, 1.7), Vector3(door_x, base + 2.82, front + 0.85), trim, "planks")
 	kit.call("prism", Vector3(2.9, 0.7, 1.8), Vector3(door_x, base + 2.95 + 0.35, front + 0.9), r["roof"], r["roof_surface"])
+	# The portico reaches the eave of a one-story main roof.
+	_blocker(spec, Vector3(door_x, base + 2.69 + 0.48, front + 0.9), Vector3(2.9, 0.96, 1.8))
 	# Windows: either side of the portico, a row upstairs, and around.
 	var shutter: Color = r["door"].darkened(0.15)
 	for t: float in [-0.32, 0.32]:
@@ -766,7 +857,7 @@ static func _hoa_standard(kit: RefCounted, r: Dictionary, spec: Dictionary, _rng
 	for side: float in [-1.0, 1.0]:
 		kit.call("box", Vector3(0.3, 2.1, 0.04), Vector3(door_x + side * 0.78, base + 1.15, front + 0.03), Color.WHITE, "glass")
 		kit.call("box", Vector3(0.08, 2.3, 0.1), Vector3(door_x + side * 0.97, base + 1.15, front + 0.05), trim, "planks")
-	_gable(kit, spec, {"cx": door_x, "cz": front + 0.5, "w": 1.0, "d": 2.5, "top": base + 2.75, "rise": 0.5, "ox": 0.05, "oz": 0.1, "along": "z", "fascia": trim,
+	_gable(kit, spec, {"cx": door_x, "cz": front + 0.5, "w": 1.0, "d": 2.5, "top": base + 2.75, "rise": 0.5, "ox": 0.05, "oz": 0.1, "along": "z", "fascia": trim, "blocker": true,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": trim, "wall_surface": "planks"})
 	kit.call("box", Vector3(2.6, base, 1.3), Vector3(door_x, base * 0.5, front + 0.65), STOOP, "concrete", Basis.IDENTITY, {"snow": 0.0})
 	var reach := _steps(kit, door_x, front + 1.3, base, 1.8, 0.4, 1, STOOP)
@@ -810,7 +901,7 @@ static func _lake_cabin(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: R
 	_walls(kit, spec, 0.0, 0.0, w, d, base, top, r["wall"], r["wall_surface"])
 	var g := _gable(kit, spec, {"cx": 0.0, "cz": 0.0, "w": w, "d": d, "top": top, "rise": d * RISE["lake_cabin"], "main": true,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": r["wall"], "wall_surface": r["wall_surface"]})
-	_chimney(kit, side * (w * 0.5 + 0.08), -d * 0.12, Vector2(0.8, 1.3), 0.0, top + float(g["rise"]) * 0.85, stone, "stone")
+	_chimney(kit, spec, side * (w * 0.5 + 0.08), -d * 0.12, Vector2(0.8, 1.3), 0.0, top + float(g["rise"]) * 0.85, stone, "stone")
 	# The deck: boards on posts, a rail with balusters, steps in the middle.
 	var deck := 2.0
 	kit.call("box", Vector3(w, 0.12, deck), Vector3(0.0, base - 0.06, front + deck * 0.5), DECK, "planks")
@@ -858,7 +949,7 @@ static func _lake_house(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: R
 	var glass_x := main_x
 	var proud := 0.6
 	_walls(kit, spec, glass_x, front + proud * 0.5, glass_w, proud, base, top, r["wall"], r["wall_surface"])
-	_gable(kit, spec, {"cx": glass_x, "cz": (front + proud) * 0.5, "w": front + proud, "d": glass_w, "top": top, "rise": minf(glass_w * 0.75, float(g["rise"]) * 0.9), "ox": 0.4, "oz": 0.3, "along": "z",
+	_gable(kit, spec, {"cx": glass_x, "cz": (front + proud) * 0.5, "w": front + proud, "d": glass_w, "top": top, "rise": minf(glass_w * 0.75, float(g["rise"]) * 0.9), "ox": 0.4, "oz": 0.3, "along": "z", "blocker": true,
 		"gable_surface": "glass", "roof": r["roof"], "roof_surface": r["roof_surface"], "wall": r["wall"], "wall_surface": r["wall_surface"]})
 	var glass_front := front + proud
 	kit.call("box", Vector3(glass_w - 0.5, story * 2.0 - 0.6, 0.04), Vector3(glass_x, base + story, glass_front + 0.02), Color.WHITE, "glass")
@@ -951,7 +1042,7 @@ static func _estate(kit: RefCounted, r: Dictionary, spec: Dictionary, _rng: Rand
 	for x: float in [-core_w * 0.28, core_w * 0.28]:
 		_dormer(kit, spec, r, x, 0.0, g, 1.7)
 	for x: float in [-(core_w * 0.5 - 0.6), core_w * 0.5 - 0.6]:
-		_chimney(kit, x, 0.0, Vector2(0.9, 0.9), top + float(g["rise"]) * 0.5, top + float(g["rise"]) + 1.0, r["wall"], r["wall_surface"])
+		_chimney(kit, spec, x, 0.0, Vector2(0.9, 0.9), top + float(g["rise"]) * 0.5, top + float(g["rise"]) + 1.0, r["wall"], r["wall_surface"])
 	# Quoins up the core's front corners.
 	for corner: float in [-1.0, 1.0]:
 		for index: int in 18:
@@ -991,10 +1082,13 @@ static func _estate(kit: RefCounted, r: Dictionary, spec: Dictionary, _rng: Rand
 	var spacing := minf(1.5, (core_w - 1.4) / 3.0)
 	for index: int in 4:
 		_column(kit, Vector3((float(index) - 1.5) * spacing, base, front + 1.55), story * 2.0 - 0.8, 0.26, trim)
-	var span := spacing * 3.0 + 1.0
+	# Just past the outer capitals, so even a narrow core keeps some front eave
+	# (and gutter) either side of the pediment.
+	var span := spacing * 3.0 + 0.8
 	kit.call("box", Vector3(span, 0.6, 1.9), Vector3(0.0, top - 0.8 + 0.3, front + 0.95), trim, "stucco")
 	kit.call("box", Vector3(span + 0.3, 0.12, 2.1), Vector3(0.0, top - 0.14, front + 1.0), stone, "stone", Basis.IDENTITY, ashlar)
-	_gable(kit, spec, {"cx": 0.0, "cz": front + 0.3, "w": 3.6, "d": span, "top": top - 0.08, "rise": 1.3, "ox": 0.12, "oz": 0.15, "along": "z", "fascia": stone,
+	_blocker(spec, Vector3(0.0, top - 0.8 + 0.36, front + 1.0), Vector3(span + 0.3, 0.72, 2.1))
+	_gable(kit, spec, {"cx": 0.0, "cz": front + 0.3, "w": 3.6, "d": span, "top": top - 0.08, "rise": 1.3, "ox": 0.12, "oz": 0.1, "along": "z", "fascia": stone, "blocker": true,
 		"roof": r["roof"], "roof_surface": r["roof_surface"], "wall": trim, "wall_surface": "stucco"})
 	# The door: double, tall, with a fanlight; keystone windows around it.
 	_door(kit, spec, 0.0, base, front, r["door"], trim, 1.6, 3.0)
@@ -1100,6 +1194,6 @@ static func _farmhouse(kit: RefCounted, r: Dictionary, spec: Dictionary, rng: Ra
 			_window(kit, spec, Vector3(main_x + main_w * t, y, front + 0.02), 0.0, size, trim)
 		_side_windows(kit, spec, main_w * 0.5, main_x, 0.0, y, size, trim)
 		_back_windows(kit, spec, [main_x - main_w * 0.25, main_x + main_w * 0.25], -front, y, size, trim)
-	_chimney(kit, main_x - side * (main_w * 0.5 - 0.7), -d * 0.1, Vector2(0.8, 0.8), top - 0.2, top + float(g["rise"]) + 0.6, BRICK, "brick")
+	_chimney(kit, spec, main_x - side * (main_w * 0.5 - 0.7), -d * 0.1, Vector2(0.8, 0.8), top - 0.2, top + float(g["rise"]) + 0.6, BRICK, "brick")
 	spec["porch_depth"] = reach - front
 	_spigot(spec, main_x - side * main_w * 0.5, -d * 0.25, -side)
