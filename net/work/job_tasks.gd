@@ -195,7 +195,8 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 		return
 	var tool := str(Constants.TASK_TOOLS.get(task, ""))
 	# The tool in hand's tier: better ones work faster and reach farther
-	# (core/tool_tiers.gd). Bare-hands work and the gutters are stock.
+	# (core/tool_tiers.gd). Bare-hands work is stock; the gutters reach as far as
+	# the set-up ladder's tier lets you lean (ladder_tier_near).
 	var held_tool := _held(peer_id, tool) if tool != "" else null
 	var tier := _ToolTiers.tier_of(held_tool) if held_tool != null else Catalog.TIER_STOCK
 	var reach := float(Constants.TASK_REACH.get(task, 2.0)) * _ToolTiers.reach(tier)
@@ -281,6 +282,8 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 			# are overhead, so only the distance across the ground counts. The Mk
 			# III trimmer cuts a double-wide swath: the nearest two.
 			var cuts := _ToolTiers.trimmer_spots(tier) if task == "trim_hedges" else 1
+			# From the top of a ladder you lean out as far as its tier lets you.
+			var gutter_reach := _ToolTiers.ladder_reach(ladder_tier_near(player.global_position)) if task == "clean_gutters" else 0.0
 			var worked: Array[int] = []
 			for _cut: int in cuts:
 				var best := -1
@@ -293,7 +296,7 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 					var distance := at.distance_to(origin)
 					if task == "clean_gutters":
 						distance = Vector2(at.x - origin.x, at.z - origin.z).length()
-						if distance > Constants.LADDER_TOP_REACH or absf(at.y - origin.y) > 2.6:
+						if distance > gutter_reach or absf(at.y - origin.y) > 2.6:
 							continue
 					elif task == "clear_roof" and absf(at.y - origin.y) > 2.2:
 						continue
@@ -457,6 +460,24 @@ func add_water_fee(dollars: float) -> void:
 @rpc("authority", "call_remote", "reliable")
 func _rpc_fee(dollars: int) -> void:
 	water_fee = float(dollars)
+
+
+## The tier of the set-up ladder whose top is nearest this point (someone up a
+## ladder stands at its top), or stock with none set up. Host and tests.
+func ladder_tier_near(at: Vector3) -> int:
+	var best: Node = null
+	var best_distance := INF
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) != "ladder" or node.is_queued_for_deletion():
+			continue
+		var top: Vector3 = node.get("ladder_top")
+		if top == Vector3.ZERO:
+			continue
+		var distance := Vector2(top.x - at.x, top.z - at.z).length()
+		if distance < best_distance:
+			best = node
+			best_distance = distance
+	return _ToolTiers.tier_of(best) if best != null else Catalog.TIER_STOCK
 
 
 func _held(peer_id: int, kind: String) -> Node:

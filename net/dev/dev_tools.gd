@@ -2,7 +2,7 @@ extends Node
 
 ## Authority: local. Development tools turned on by command-line flags:
 ## --bot, --bot-stay, --measure=<file>, --screenshot=<dir>, --run-seconds=<n>,
-## --mute-audio, --run-event-at=<n>, --open-shop and --open-settings=<tab>.
+## --mute-audio, --run-event-at=<n>, --open-shop[=<shop>[:<tab>]] and --open-settings=<tab>.
 ## tools/soak.sh launches whole sessions with them. Nothing here runs in a
 ## normal game.
 
@@ -92,10 +92,12 @@ func _ready() -> void:
 		_add(preload("res://net/dev/balance_test.gd").new(), "BalanceTest")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
+		# --open-shop=<shop>[:<tab>] picks the shop and tab (Homie Depot's first tab by default).
 		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
 			var ui := get_tree().get_first_node_in_group("game_ui")
+			var parts := str(options.get("open_shop_id")).split(":")
 			if ui != null:
-				ui.call("open_store")
+				ui.call("open_shop", parts[0] if parts[0] != "" else "homie_depot", parts[1] if parts.size() > 1 else "")
 		)
 	if bool(options.get("open_board")):
 		# For screenshots of the job board window.

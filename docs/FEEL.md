@@ -68,6 +68,13 @@ For us:
 - Tools appear on the shelves as physical items you can see before you buy them.
 - Opening hours, reputation ranks, and phone ordering all need design decisions first. They'd fit the structure (`Campaign` already gates unlocks), but don't build them unasked.
 
+Built (shops chunk 4, 2026-11-02; docs/GAME.md "2026-11-01, shops"):
+- **Owners:** every shop with a keeper has one standing at its counter (`npcs/store_clerk.gd`, placed by `levels/dressing/shop_sites.gd` from `Constants.SHOP_SITES`): Marty, Rusty and Dot, each with their own look, babble pitch and `KEEPER_LINES`.
+- **Hours:** each shop has an hours sign that keeps itself current, Rusty and Dot go home when they close, the counter prompt turns into "Closed. Opens 7 AM", and the catalog window drops a shutter. Marty never leaves.
+- **Physical stock:** Homie Depot's garden shelves (`props/shelf_stock.gd`) hold the real catalog: the next tool tier you can buy with its price tag, a box per supply left today, a tarp and "Rank: ..." over what your rank can't buy yet. E on a shelf opens the catalog on that item.
+- **The catalog window** (`ui/shop_window.gd`) has a tab per department, scrolls, shows tier pips and the next tier's button, x1 and x5 buttons for supplies, and the host's answer as a toast.
+- Phone ordering and the vending machine are shops chunks 8 and 6.
+
 ## Order to build in
 
 Taylan agreed on 2026-10-19. Items 1 to 4 are built: `levels/shared_look.gd`, `player/cartoon_body.gd` (players, crew, and clerk), `ui/interaction_prompt.gd`, `npcs/store_clerk.gd`, and `ui/shop_window.gd`. The rake in your hands and a hotbar are not built yet.

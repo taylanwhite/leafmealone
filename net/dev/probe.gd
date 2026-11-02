@@ -340,8 +340,19 @@ func _shops() -> Dictionary:
 	var sorted_tools := {}
 	for kind: Variant in tool_kinds:
 		sorted_tools[kind] = tools[kind]
+	# The garden shelves' boxes per item (props/shelf_stock.gd): built from the
+	# replicated stock on each peer, so a client's must match the host's.
+	var shelf := get_tree().get_first_node_in_group("shelf_stock")
+	var shelf_units := {}
+	if shelf != null:
+		var units: Dictionary = shelf.call("units_by_item")
+		var items := units.keys()
+		items.sort()
+		for item: Variant in items:
+			shelf_units[str(item)] = int(units[item])
 	return {
 		"tools": sorted_tools,
+		"shelf_units": shelf_units,
 		"supplies": sorted_supplies,
 		"stock_day": int(shops.get("stock_day")),
 		"stock_hash": hash(JSON.stringify(shops.get("stock"), "", true)),

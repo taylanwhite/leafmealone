@@ -408,7 +408,13 @@ func recapture_mouse() -> void:
 
 
 func open_store() -> void:
-	_shop.call("open")
+	open_shop("homie_depot")
+
+
+## A shop's window (ui/shop_window.gd), on a tab and an item when given (the
+## shelves open it on the item you looked at).
+func open_shop(shop_id: String, tab: String = "", item: String = "") -> void:
+	_shop.call("open_shop", shop_id, tab, item)
 
 
 ## Once someone's looked at the job board, the goal line stops pointing at the phone.
@@ -428,11 +434,12 @@ func _build_store() -> void:
 	_job_board = preload("res://ui/job_board_window.gd").new()
 	_job_board.name = "JobBoardWindow"
 	add_child(_job_board)
-	# The clerk reacts when you buy something.
+	# The shop's keeper reacts when you buy something there.
 	_shop.connect("bought", func(_item_id: StringName) -> void:
-		var clerk := get_tree().get_first_node_in_group("store_clerk")
-		if clerk != null:
-			clerk.call("say_line", "buy")
+		var shop_id := str(_shop.get("shop_id"))
+		for keeper: Node in get_tree().get_nodes_in_group("shopkeepers"):
+			if str(keeper.get("shop_id")) == shop_id:
+				keeper.call("on_sale")
 	)
 
 

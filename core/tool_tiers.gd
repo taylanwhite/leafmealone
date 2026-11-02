@@ -114,6 +114,13 @@ static func climb_speed(tier: int) -> float:
 	return perk("ladder", tier, speed(tier))
 
 
+## How far across the ground you can scoop a gutter from the top of this ladder
+## (m): Constants.LADDER_TOP_REACH times its tier's reach, so a Mk III leans out
+## farther before you have to climb down and move it.
+static func ladder_reach(tier: int) -> float:
+	return Constants.LADDER_TOP_REACH * reach(tier)
+
+
 ## How many cells a blower puff shoves the leaves (the Mk III shoves them farther).
 static func blower_cells(tier: int) -> int:
 	return maxi(1, int(round(float(Constants.BLOWER_CELLS) * perk("leaf_blower", tier))))

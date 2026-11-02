@@ -3,8 +3,8 @@ extends RefCounted
 ## Authority: local, cosmetic. The store zone: Homie Depot on a street corner.
 ## A big-box building along the west edge with a tall orange entrance, sliding
 ## doors, and the sign; a parking lot with painted stalls, parked cars, light
-## poles, a cart corral, and tree islands; a garden center stocked with rakes,
-## leaf bags, and wheelbarrows; a checkout booth with a striped awning around
+## poles, a cart corral, and tree islands; a garden center whose shelves show
+## the real stock (props/shelf_stock.gd); a checkout booth with a striped awning around
 ## the counter; Chefty's striped loading bay; and the roads out, including the
 ## one Chefty drives east on. Keeps clear of the counter (0, -8), the gate to
 ## the lot (0, -16), the spawns near (1, 6), and Chefty's pad at (10, 8).
@@ -17,6 +17,7 @@ const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Grass = preload("res://props/grass.gd")
+const _ShelfStock = preload("res://props/shelf_stock.gd")
 const WALL := Color(0.86, 0.8, 0.66)
 const ROOF := Color(0.3, 0.32, 0.36)
 const ORANGE := Color(0.95, 0.5, 0.15)
@@ -99,36 +100,17 @@ static func _building(root: Node3D) -> void:
 	_carts(root, CART_CORRAL_AT)
 
 
-## The garden center corner: shelves stocked with the gear you buy here.
+## The garden center corner: three shelving units, stocked with what Homie
+## Depot really sells today (props/shelf_stock.gd: each item stands in its
+## slot with a price tag, supplies run out box by box, and your rank's locked
+## items wait under a tarp). Its slots are shelf_stock's SHELF_SLOTS, on these units.
 static func _garden_center(root: Node3D) -> void:
 	for row: int in 3:
-		var at := Vector3(10.0 + float(row) * 3.0, 0.0, -13.0)
-		_shelf(root, at)
-		for level: int in 3:
-			var y := 0.12 + float(level) * 0.8
-			for slot: int in 4:
-				var spot := at + Vector3(0.0, y, -1.8 + float(slot) * 1.2)
-				match (row + level + slot) % 3:
-					0:
-						for index: int in 2:
-							var bag := _YardModels.node("leaf_bag")
-							root.add_child(bag)
-							bag.position = spot + Vector3(0.0, 0.0, -0.22 + float(index) * 0.44)
-							bag.scale = Vector3.ONE * 0.75
-							bag.rotation.y = float(slot + index)
-					1:
-						for index: int in 3:
-							var rake := _YardModels.node("rake")
-							root.add_child(rake)
-							rake.position = spot + Vector3(-0.2, 0.0, -0.3 + float(index) * 0.3)
-							rake.rotation = Vector3(0.0, PI * 0.5, 0.12)
-							rake.scale = Vector3.ONE * 0.45
-					_:
-						var barrow := _YardModels.node("wheelbarrow", [ORANGE, Color(0.25, 0.5, 0.3), Color(0.3, 0.45, 0.7)][(row + slot) % 3])
-						root.add_child(barrow)
-						barrow.position = spot
-						barrow.scale = Vector3.ONE * 0.6
-						barrow.rotation.y = PI * 0.5
+		_shelf(root, Vector3(10.0 + float(row) * 3.0, 0.0, -13.0))
+	var stock := _ShelfStock.new()
+	stock.name = "ShelfStock"
+	stock.set("shop_id", "homie_depot")
+	root.add_child(stock)
 
 
 ## A wooden shelving unit, solid, with three levels.

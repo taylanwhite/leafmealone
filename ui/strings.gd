@@ -1021,6 +1021,24 @@ const SHOP_UI: Dictionary = {
 	"text_emergency_bags": "Found a few bags behind the paint mixer. Don't tell the manager.",
 	"text_rusty_welcome": "Heard you're working the Acres. Bring me their junk. I pay cash. Mostly.",
 	"text_delivery": "Your order's on the pallet in the back room: %s. Nobody signed for it. Nobody ever does.",
+	# The shop window (gap shops chunk 4): the next tier's button on a tool card,
+	# its tier pips, and the lines over the cards.
+	"shop_tier_buy_1": "Buy",
+	"shop_tier_buy_2": "Mk II",
+	"shop_tier_buy_3": "Mk III",
+	"shop_pip_on": "●",
+	"shop_pip_off": "○",
+	"shop_tier_used": "used",
+	"shop_tier_maxed": "Mk III. There is no Mk IV. We asked.",
+	"shop_keeper_says": "%s: \"%s\"",
+	"shop_tab_empty": "Nothing on this shelf right now.",
+	"shop_owned_crew": "The crew has it",
+	# Signs at each shop (levels/dressing/shop_sites.gd), and the back room's pallet.
+	"shop_sign_open": "%s\nOPEN %s - %s",
+	"shop_sign_closed": "%s\nCLOSED · Opens %s",
+	"shop_sign_always": "%s\nOPEN ALL HOURS",
+	"shop_sign_locked": "%s\nCOMING SOON\nRank: %s",
+	"back_room_sign": "DELIVERIES\nleave it on the pallet",
 }
 
 ## What the shopkeepers say ({keeper: {trigger: [lines]}}, docs/GAME.md

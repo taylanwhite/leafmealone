@@ -38,6 +38,14 @@ const TOUR: Dictionary = {
 		["garden_corner", Vector3(8.0, 4.0, -2.0), Vector3(18.5, 0.5, -18.0)],
 		["crew_camp", Vector3(-3.0, 1.9, -9.5), Vector3(-8.2, 0.5, -13.5)],
 		["crew_camp_close", Vector3(-5.6, 1.4, -12.0), Vector3(-8.0, 0.4, -13.8)],
+		# The shops (Constants.SHOP_SITES, props/shelf_stock.gd): the garden center's
+		# stocked shelves, Rusty's counter, Dot's stall and the back-room pallet.
+		["checkout_sign", Vector3(0.6, 1.7, -2.6), Vector3(0.0, 2.2, -7.0)],
+		["shelves", Vector3(7.0, 1.7, -10.0), Vector3(10.0, 0.9, -13.2)],
+		["shelves_aisle", Vector3(11.6, 1.6, -9.2), Vector3(13.0, 0.9, -14.0)],
+		["rustys_counter", Vector3(11.5, 1.7, -2.5), Vector3(15.4, 1.0, -5.2)],
+		["lunch_money_stall", Vector3(8.5, 1.7, 12.5), Vector3(4.8, 0.9, 15.8)],
+		["back_room", Vector3(-6.5, 1.8, -15.5), Vector3(-10.5, 0.6, -18.4)],
 	],
 	# The connected town (net/town/town_map.gd), in world space, once per run.
 	"Town": [

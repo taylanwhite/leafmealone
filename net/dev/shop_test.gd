@@ -16,8 +16,12 @@ extends Node
 ## the gas can refills a tank, and the tier tables do what they say (shops chunk
 ## 3); then the client runs out of bags and refuels the mower through the RPCs
 ## (client_yard, _run_client_yard), and the save keeps the gas still in the job
-## tools. Later shop chunks add steps (junk, snacks, looks, deliveries). Each step
-## prints a [ShopTest] line.
+## tools. Shops chunk 4 adds the shop you can see: the garden shelves' stock and
+## tags (shelves), the catalog window buying at the counter (window), the
+## keepers and hours signs at 10 PM and noon (keepers), and the ladder's reach
+## per tier (in tier_math); the probe's shelf_units proves the client's shelves
+## match. Later shop chunks add steps (junk, snacks, looks, deliveries). Each
+## step prints a [ShopTest] line.
 
 const _Shops = preload("res://net/shops/shops.gd")
 const _Strings = preload("res://ui/strings.gd")
@@ -147,6 +151,12 @@ func _run() -> void:
 		and more == "sold_out" and Campaign.credits(me) == cash,
 		"bought %d rolls (%s, +%d bags, %d left), then %s" % [daily, all, int(added), left, more])
 
+	# shelves and window (shops chunk 4): the garden shelves show today's stock,
+	# and the catalog window, opened on an item, buys it at the counter.
+	_step("shelves", await _check_shelves(shops))
+	await _stand_at("homie_depot")
+	await _check_window(shops, me)
+
 	# day_rollover: fresh shelves, no buffs, Marty's bags for a crew that ran out.
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var town := get_tree().get_first_node_in_group("town")
@@ -181,8 +191,14 @@ func _run() -> void:
 		and _Shops.open_at("rustys", 12.0, Constants.RUSTYS_CLOSED_EVERY + 1) and not _Shops.open_at("rustys", 18.5, 3) \
 		and _Shops.hour_text(21.0) == "9 PM" and _Shops.hour_text(7.0) == "7 AM" and _Shops.hour_text(24.5) == "12 AM" \
 		and _fishing_texts()
+	var keepers_late: Array[String] = await _check_keepers(shops, 22.0)
 	clock.call("set_hour_for_tests", 12.0)
 	await get_tree().create_timer(0.2).timeout
+	var keepers_noon: Array[String] = await _check_keepers(shops, 12.0)
+	var keeper_problems := keepers_late + keepers_noon
+	for problem: String in keeper_problems:
+		print("[ShopTest]   %s" % problem)
+	_step("keepers", keeper_problems.is_empty(), "%d problems at 10 PM and noon" % keeper_problems.size())
 	var reopened := bool(shops.call("is_open", "homie_depot"))
 	_step("hours", closed == "closed" and shut and Campaign.credits(me) == cash and rules and reopened and opens == "tomorrow, 7 AM",
 		"at 10 PM: %s (opens %s); open again at noon %s; the open_at rules %s" % [closed, opens, reopened, rules])
@@ -395,9 +411,227 @@ func _check_tier_math() -> void:
 		var look := blower.get_node_or_null("Visual/Look")
 		if look == null or int(look.get_meta("tier", 1)) != Catalog.TIER_MK2:
 			problems.append("the blower's look didn't take its tier")
+	# The ladder's reach at the gutters goes with its tier (shops chunk 4), read
+	# from whichever ladder is set up by the worker (job_tasks.ladder_tier_near).
+	for tier: int in range(Catalog.TIER_USED, Catalog.TIER_MK3 + 1):
+		if not is_equal_approx(_ToolTiers.ladder_reach(tier), Constants.LADDER_TOP_REACH * Constants.TOOL_TIER_REACH[tier]):
+			problems.append("a tier %d ladder reaches %.2f m" % [tier, _ToolTiers.ladder_reach(tier)])
+	if not (_ToolTiers.ladder_reach(Catalog.TIER_MK3) > _ToolTiers.ladder_reach(Catalog.TIER_STOCK)):
+		problems.append("a Mk III ladder doesn't reach farther")
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks == null:
+		problems.append("no job tasks")
+	else:
+		var me := _me()
+		var near := me.global_position if me != null else Vector3.ZERO
+		var none := int(tasks.call("ladder_tier_near", near))
+		# A stand-in set-up Mk III ladder, in and out of the props group within this
+		# one frame, so nothing else ever sees it.
+		var stand_in := FakeLadder.new()
+		stand_in.ladder_top = near + Vector3(0.4, 2.0, 0.0)
+		add_child(stand_in)
+		stand_in.add_to_group("props")
+		var found := int(tasks.call("ladder_tier_near", near))
+		stand_in.remove_from_group("props")
+		remove_child(stand_in)
+		stand_in.free()
+		if none != Catalog.TIER_STOCK or found != Catalog.TIER_MK3:
+			problems.append("the ladder near the worker is tier %d with none set up, %d with a Mk III up" % [none, found])
 	for problem: String in problems:
 		print("[ShopTest]   %s" % problem)
 	_step("tier_math", problems.is_empty(), "%d problems" % problems.size())
+
+
+## shelves: the garden center's shelves (props/shelf_stock.gd) show today's
+## stock: the day's lawn bags just sold out, a box per gas can left, the next
+## tier of each tool with its price, or a tarp and the rank for one the crew's
+## rank hasn't opened; and walking up to a slot prompts "Look at ...".
+func _check_shelves(shops: Node) -> bool:
+	var shelf := get_tree().get_first_node_in_group("shelf_stock")
+	if shelf == null:
+		print("[ShopTest]   no shelf stock in the store")
+		return false
+	shelf.call("refresh")
+	var problems: Array[String] = []
+	var bags: Dictionary = shelf.call("slot_state", "lawn_bags")
+	if str(bags.get("look")) != "sold_out" or int(bags.get("units", -1)) != 0 or str(bags.get("tag")) != str(_Strings.SHOP_UI["shop_sold_out"]):
+		problems.append("sold-out lawn bags show %s" % str(bags))
+	var gas: Dictionary = shelf.call("slot_state", "gas_can")
+	var gas_left := int(shops.call("stock_left", "homie_depot", "gas_can"))
+	if int(gas.get("units", -1)) != mini(gas_left, Constants.SHELF_MAX_UNITS) or str(gas.get("tag")) != str(_Strings.SHOP_UI["shop_price_tag"]) % Catalog.price("gas_can"):
+		problems.append("gas cans (%d left) show %s" % [gas_left, str(gas)])
+	if _drawn_units(shelf, "gas_can") != int(gas.get("units", -1)):
+		problems.append("the gas can slot draws %d boxes for %d" % [_drawn_units(shelf, "gas_can"), int(gas.get("units", -1))])
+	# The host owns a Mk II blower (buy_tier): the Mk III is next, and rank 22 is short of it.
+	var blower: Dictionary = shelf.call("slot_state", "leaf_blower")
+	var rank := _Ranks.title(_Ranks.tier_of(Catalog.gate_of("leaf_blower_mk3")))
+	if str(blower.get("item")) != "leaf_blower_mk3" or str(blower.get("look")) != "locked" or str(blower.get("tag")) != str(_Strings.SHOP_UI["shop_rank_tag"]) % rank:
+		problems.append("the blower slot shows %s" % str(blower))
+	var trimmer: Dictionary = shelf.call("slot_state", "hedge_trimmer")
+	if str(trimmer.get("item")) != "hedge_trimmer_mk2" or str(trimmer.get("tag")) != str(_Strings.SHOP_UI["shop_price_tag"]) % Catalog.price("hedge_trimmer_mk2"):
+		problems.append("the trimmer slot shows %s" % str(trimmer))
+	# Walking up to a slot on each level (a unit's levels share one spot in
+	# front of it; the head's pitch picks the level): the gas cans up top, the
+	# ladder in the middle and the lawn bags at the bottom.
+	var me := _me()
+	for item: String in ["gas_can", "ladder", "lawn_bags"]:
+		var slot := int(shelf.call("slot_of", item))
+		var front: Vector3 = shelf.call("slot_front", slot)
+		await _stand_world(Vector3(front.x, 0.0, front.z))
+		if me != null:
+			me.set("head_pitch", float(shelf.call("pitch_to", slot)))
+		var prompt := str((shelf.call("prompt") as Dictionary).get("text", ""))
+		var shown := str((shelf.call("slot_state", item) as Dictionary).get("item", item))
+		if prompt != str(_Strings.SHOP_UI["prompt_look_at"]) % _Strings.shop_item_name(shown):
+			problems.append("looking at the %s prompts \"%s\"" % [item, prompt])
+	if me != null:
+		me.set("head_pitch", 0.0)
+	for problem: String in problems:
+		print("[ShopTest]   %s" % problem)
+	return problems.is_empty()
+
+
+## How many boxes a shelf slot really draws.
+func _drawn_units(shelf: Node, item: String) -> int:
+	var holder := shelf.get_node_or_null("Slot_" + item)
+	if holder == null:
+		return -1
+	var count := 0
+	for child: Node in holder.get_children():
+		if child is MeshInstance3D and not child.is_queued_for_deletion():
+			count += 1
+	return count
+
+
+## window: the shop window (ui/shop_window.gd), opened on the gas can as the
+## shelf does, lands on the Supplies tab with that card picked out; its x1
+## button buys one through Shops at the counter (cash, supply, stock and the
+## shelf all move, and the toast says so); the Tools tab is one card per tool
+## with the next tier, the locked Mk III's button off.
+func _check_window(shops: Node, me: int) -> void:
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var window := ui.get_node_or_null("ShopWindow") if ui != null else null
+	if window == null:
+		_step("window", false, "no ShopWindow")
+		return
+	var problems: Array[String] = []
+	ui.call("open_shop", "homie_depot", "", "gas_can")
+	await _ticks(2)
+	var tabs: Array = (Catalog.SHOPS["homie_depot"] as Dictionary)["tabs"]
+	if not window.visible or str(window.get("tab")) != "supplies" or (window.get("_tabs") as Node).get_child_count() != tabs.size():
+		problems.append("opened on the gas can: visible %s, tab %s, %d tabs" % [window.visible, window.get("tab"), (window.get("_tabs") as Node).get_child_count()])
+	var cards := window.get("_cards") as Node
+	if cards.get_child_count() != (window.call("_items") as Array).size():
+		problems.append("%d cards for %d items" % [cards.get_child_count(), (window.call("_items") as Array).size()])
+	var focus := window.get("_focus_card") as Node
+	if focus == null or str(focus.get_meta("item", "")) != "gas_can":
+		problems.append("the gas can isn't picked out")
+	var buy := _card_button(cards, "gas_can", 1)
+	var cash := Campaign.credits(me)
+	var gas := float(shops.call("supply", "gas"))
+	var left := int(shops.call("stock_left", "homie_depot", "gas_can"))
+	if buy == null or buy.disabled:
+		problems.append("no x1 button on the gas can's card")
+	else:
+		buy.emit_signal("pressed")
+		await _ticks(2)
+		var shelf := get_tree().get_first_node_in_group("shelf_stock")
+		var units := int((shelf.call("slot_state", "gas_can") as Dictionary).get("units", -1)) if shelf != null else -1
+		var toast := str(window.call("toast_text"))
+		if cash - Campaign.credits(me) != Catalog.price("gas_can") or not is_equal_approx(float(shops.call("supply", "gas")) - gas, float(Constants.SUPPLY_PER_ITEM["gas_can"])) \
+			or int(shops.call("stock_left", "homie_depot", "gas_can")) != left - 1 or units != mini(left - 1, Constants.SHELF_MAX_UNITS) \
+			or toast != str(_Strings.SHOP_UI["shop_result_ok"]) % _Strings.shop_item_name("gas_can"):
+			problems.append("the x1 gas can: paid $%d, gas +%.1f, %d left of %d, shelf %d boxes, toast \"%s\"" % [cash - Campaign.credits(me), float(shops.call("supply", "gas")) - gas, int(shops.call("stock_left", "homie_depot", "gas_can")), left, units, toast])
+	window.call("show_tab", "tools")
+	await _ticks(1)
+	var items: Array = window.call("_items")
+	if cards.get_child_count() != Catalog.TOOLS.size() or items.size() != Catalog.TOOLS.size() or str((items[0] as Dictionary).get("id")) != "leaf_blower_mk3":
+		problems.append("the tools tab: %d cards, first %s" % [cards.get_child_count(), str((items[0] as Dictionary).get("id")) if not items.is_empty() else "-"])
+	var locked := _card_button(cards, "leaf_blower_mk3", 1)
+	if locked == null or not locked.disabled:
+		problems.append("the locked Mk III blower can be clicked")
+	window.call("close_window")
+	for problem: String in problems:
+		print("[ShopTest]   %s" % problem)
+	_step("window", problems.is_empty(), "%d problems" % problems.size())
+
+
+## A card's buy button for qty, from the window's grid.
+func _card_button(cards: Node, item: String, qty: int) -> Button:
+	for card: Node in cards.get_children():
+		if card.is_queued_for_deletion() or str(card.get_meta("item", "")) != item:
+			continue
+		for node: Node in card.find_children("*", "Button", true, false):
+			if str(node.get_meta("action", "")) == "buy" and int(node.get_meta("qty", 0)) == qty:
+				return node as Button
+	return null
+
+
+## keepers at an hour (shops chunk 4): each shop's keeper (npcs/store_clerk.gd)
+## is behind the counter exactly while their shop is open, except Marty, who
+## never leaves; at Homie Depot's counter the prompt is "Shop" while it's open
+## and "Closed. Opens ..." after, still with its key since Marty's there to
+## answer E (only an absent keeper's closed prompt is plain); the window shows its shutter when
+## closed; and the hours sign says the same. Returns the problems found.
+func _check_keepers(shops: Node, hour: float) -> Array[String]:
+	var problems: Array[String] = []
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var day := int(clock.get("day"))
+	var keepers := {}
+	for node: Node in get_tree().get_nodes_in_group("shopkeepers"):
+		keepers[str(node.get("shop_id"))] = node
+	for shop: String in Catalog.SHOPS:
+		var keeper_id := str((Catalog.SHOPS[shop] as Dictionary).get("keeper", ""))
+		if keeper_id == "":
+			continue
+		if not keepers.has(shop):
+			problems.append("%s has no keeper" % shop)
+			continue
+		var keeper: Node3D = keepers[shop]
+		var open := _Shops.open_at(shop, hour, day)
+		var there := open or shop == "homie_depot"
+		await _ticks(1)
+		if bool(keeper.call("is_present")) != there or keeper.visible != there or str(keeper.get("keeper")) != keeper_id:
+			problems.append("at %d:00 %s (open %s) is there %s, visible %s" % [int(hour), keeper_id, open, keeper.call("is_present"), keeper.visible])
+	await _stand_at("homie_depot")
+	var marty: Node = keepers.get("homie_depot")
+	var open := _Shops.open_at("homie_depot", hour, day)
+	if marty != null:
+		var prompt: Dictionary = marty.call("prompt")
+		var want := str(_Strings.UI["prompt_shop"]) if open else str(_Strings.SHOP_UI["prompt_shop_closed"]) % str(shops.call("opens_text", "homie_depot"))
+		# Marty is always there, so E always does something: never a plain notice.
+		if str(prompt.get("text", "")) != want or bool(prompt.get("plain", false)):
+			problems.append("at %d:00 Marty's counter prompts %s" % [int(hour), str(prompt)])
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var window := ui.get_node_or_null("ShopWindow") if ui != null else null
+	if window != null:
+		ui.call("open_shop", "homie_depot")
+		await _ticks(2)
+		var shutter := window.get("_shutter") as Control
+		if shutter == null or shutter.visible == open:
+			problems.append("at %d:00 the window's shutter is %s" % [int(hour), "down" if shutter != null and shutter.visible else "up"])
+		window.call("close_window")
+	var site := get_tree().get_first_node_in_group("world").get_node_or_null("StoreZone/ShopSite_homie_depot")
+	var signs: Array[Node] = site.find_children("HoursSign", "", true, false) if site != null else []
+	if signs.is_empty():
+		problems.append("Homie Depot has no hours sign")
+	else:
+		signs[0].call("_refresh")
+		var title := str(_Strings.SHOP_UI["shop_title_homie_depot"]).to_upper()
+		var hours: Vector2 = Constants.SHOP_HOURS["homie_depot"]
+		var want := str(_Strings.SHOP_UI["shop_sign_open"]) % [title, _Shops.hour_text(hours.x), _Shops.hour_text(hours.y)] if open \
+			else str(_Strings.SHOP_UI["shop_sign_closed"]) % [title, str(shops.call("opens_text", "homie_depot"))]
+		if str(signs[0].get("text")) != want:
+			problems.append("at %d:00 the sign says %s" % [int(hour), str(signs[0].get("text")).replace("\n", " / ")])
+	return problems
+
+
+## A stand-in for a set-up ladder prop (tier_math): the three things
+## job_tasks.ladder_tier_near reads.
+class FakeLadder extends Node:
+	var kind: String = "ladder"
+	var tier: int = Catalog.TIER_MK3
+	var ladder_top := Vector3.ZERO
 
 
 ## Up to count spots on the yard thick enough with leaves to bag (with a

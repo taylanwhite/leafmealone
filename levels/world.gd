@@ -21,8 +21,6 @@ const _Grass = preload("res://props/grass.gd")
 const _StreetLife = preload("res://levels/dressing/street_life.gd")
 const GRASS := Color(0.42, 0.52, 0.3)
 const SAND := Color(0.78, 0.68, 0.5)
-## Behind the store counter at (0, -8), facing the customers.
-const CLERK_SPOT := Vector3(0.0, 0.0, -9.3)
 ## Gap between players who share a spawn marker, in meters.
 const SPAWN_SPACING: float = 1.4
 ## Spawn slots to check for a free one before giving up and sharing.
@@ -136,11 +134,10 @@ func _dress() -> void:
 	else:
 		_dress_legacy()
 	add_child(preload("res://levels/outline_pass.gd").new())
-	# The clerk behind the counter. Local on every peer: nothing about it is shared.
-	var clerk := preload("res://npcs/store_clerk.gd").new()
-	clerk.name = "StoreClerk"
-	$StoreZone.add_child(clerk)
-	clerk.position = CLERK_SPOT
+	# Every shop's site, keeper and hours sign, where Constants.SHOP_SITES puts
+	# them (Marty behind the counter among them). Local on every peer: nothing
+	# about them is shared.
+	preload("res://levels/dressing/shop_sites.gd").dress(self)
 
 
 ## The connected town (net/town/town_map.gd, docs/GAME.md "Gutterford"): its
