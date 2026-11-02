@@ -719,7 +719,12 @@ func _shoe_mesh(color: Color, sole := Color(0.82, 0.78, 0.7)) -> ArrayMesh:
 # ---------------------------------------------------------------- the NICE BOYS
 # Outfit parts (docs/ART.md, "The NICE BOYS"). The body is already over the
 # character triangle budget, so everything here is blob detail 0 or 1, boxes, and
-# tubes of 12 sides or fewer, never rbox (net/dev/cast_test.gd counts the extra).
+# tubes of 8 sides or fewer, never rbox (net/dev/cast_test.gd counts the extra).
+# The exceptions match the body part they cover, so it can't poke through between
+# facets (docs/DECISIONS.md, the NICE BOYS' look): the shorts, socks and stripe
+# match the plain leg's 10, the collar and visor band the 12-sided shirt collar
+# and the head, the megaphone 10 so the bell reads round. They cost 48 triangles
+# (62 on the head NICE BOY) more than 8 sides would.
 
 const _SMOOTH: Dictionary = {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0}
 

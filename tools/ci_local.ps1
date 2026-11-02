@@ -130,10 +130,12 @@ $Tests = [ordered]@{
 		Check = { param($h, $c) [bool]$h.rival_test.ok }
 	}
 	# The string audit and the crew's look on the host, then the same NICE BOYS (outfits,
-	# name tags, and from cast:6 barks) on the client.
+	# name tags, and from cast:6 barks) on the client. Day 7, not the client's default
+	# day 1, and a full crew of 3 (the test adds the heat), so the comparison covers
+	# plain NICE BOYS and tags built from the day the host sends.
 	cast = @{
-		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --cast-test'; Seconds = 45; Client = 40; Port = 7812
-		Check = { param($h, $c) [bool]$h.cast_test.ok -and $c -ne $null -and @($h.crew_cast).Count -ge 1 -and (Same $h.crew_cast $c.crew_cast) }
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --start-day=7 --cast-test'; Seconds = 45; Client = 40; Port = 7812
+		Check = { param($h, $c) [bool]$h.cast_test.ok -and $c -ne $null -and @($h.crew_cast).Count -ge 3 -and (Same $h.crew_cast $c.crew_cast) }
 	}
 	# Port from the integration review's table (gap-specs/critic.md): 7811.
 	audio = @{

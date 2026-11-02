@@ -22,7 +22,9 @@ extends Node
 ##      within Constants.CREW_OUTFIT_TRIANGLE_BUDGET; a chest seal under 200
 ##  11-12. the van's livery and the beacon (cast:5, PHASE_B_VAN)
 ## Phase C, a raid with a client watching (a client named Target joins):
-##  13. a client joins  14. the director calls the NICE BOYS  15. they freeze
+## Phase C runs at full heat (the test adds it) on a day other than 1 (--start-day),
+## so the client must show plain NICE BOYS and tags from the day the host sends.
+##  13. a client joins  14. the director calls a full crew  15. they freeze
 ##  16. each wears the right outfit and the name tag Strings.crew_tag() gives, and
 ##      the old capsule is hidden. CI compares probe.gd's crew_cast on both peers.
 ##  17. barks reach the client (cast:6, PHASE_C_BARKS)
@@ -227,6 +229,11 @@ func _phase_c() -> void:
 	if director == null:
 		_fail("14 no director", "no run_director in the world")
 		return
+	# A full crew, so the networked check sees a plain NICE BOY's outfit and tags
+	# past index 1, not only the head NICE BOY's.
+	var heat := get_tree().get_first_node_in_group("heat")
+	if heat != null:
+		heat.call("add", 100.0, "test")
 	director.call("force_event")
 	waited = 0.0
 	var limit := Constants.RUN_WARNING_SECONDS + 4.0
@@ -241,11 +248,15 @@ func _phase_c() -> void:
 	for member: Node in crew:
 		member.set("_stun_left", 60.0)
 	print("[CastTest] step 14-15: %d NICE BOYS arrived, frozen" % crew.size())
+	_look(crew.size() == Constants.HEAT_MAX_CREW, "14 a full-heat raid brings %d NICE BOYS, not %d" % [Constants.HEAT_MAX_CREW, crew.size()])
 	# Let the spawn reach the client before the reports are written.
 	await get_tree().create_timer(CREW_SETTLE_SECONDS).timeout
-	# Step 16: outfit, name tag, no capsule.
+	# Step 16: outfit, name tag, no capsule. The day must not be 1, the client's
+	# default before the host's state arrives, or a client that ignored the
+	# replicated day would still show the same tags (CI passes --start-day=7).
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var day := int(clock.get("day")) if clock != null else 1
+	_look(day != 1, "16 the raid is on day %d; run with --start-day=N (N > 1) so the tags prove the client got the host's day" % day)
 	for member: Node in get_tree().get_nodes_in_group("crew"):
 		var index := int(member.call("crew_index"))
 		var body := member.get_node_or_null("Visual/CartoonBody")
