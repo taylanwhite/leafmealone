@@ -19,7 +19,6 @@ var _job_board: PanelContainer
 var _payout: PanelContainer
 var _crew_button: Button
 var _voice_button: Button
-var _rake_hint: Label
 var _voice_panel: PanelContainer
 var _settings: PanelContainer
 var _settings_backdrop: ColorRect
@@ -58,19 +57,6 @@ func _ready() -> void:
 	var prompt := preload("res://ui/interaction_prompt.gd").new()
 	prompt.name = "InteractionPrompt"
 	add_child(prompt)
-	_rake_hint = Label.new()
-	_rake_hint.text = _Strings.keyed(_Strings.UI["hud_rake_hint"])
-	_rake_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	_rake_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_rake_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rake_hint.position.y -= 34.0
-	_rake_hint.add_theme_font_size_override("font_size", 15)
-	_rake_hint.modulate = Color(1.0, 1.0, 1.0, 0.75)
-	_rake_hint.add_theme_color_override("font_shadow_color", Color.BLACK)
-	_rake_hint.add_theme_constant_override("shadow_offset_x", 1)
-	_rake_hint.add_theme_constant_override("shadow_offset_y", 1)
-	_rake_hint.visible = false
-	add_child(_rake_hint)
 	var heat := preload("res://ui/heat_meter.gd").new()
 	heat.name = "HeatMeter"
 	add_child(heat)
@@ -80,6 +66,11 @@ func _ready() -> void:
 	var meter := preload("res://ui/throw_meter.gd").new()
 	meter.name = "ThrowMeter"
 	add_child(meter)
+	# The pockets along the bottom (ui/hotbar_hud.gd); the rake's hint lives in its
+	# hint line now (critic C6). It hides itself with any window (any_window_open).
+	var hotbar := preload("res://ui/hotbar_hud.gd").new()
+	hotbar.name = "HotbarHud"
+	add_child(hotbar)
 	var task_list := preload("res://ui/task_list.gd").new()
 	task_list.name = "TaskList"
 	add_child(task_list)
@@ -170,11 +161,6 @@ func _process(_delta: float) -> void:
 			crew_line += "\n" + crossing_status
 	crew_line += _voice_line()
 	# What interact does is shown over the thing itself (ui/interaction_prompt.gd), so the HUD stays short.
-	if _rake_hint != null:
-		_rake_hint.visible = Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
-		if _rake_hint.visible:
-			# Its keys follow rebinding (Settings' Keys tab) without a restart.
-			_rake_hint.text = _Strings.keyed(_Strings.UI["hud_rake_hint"])
 	var cleanup := str(_Strings.UI["hud_cleanup_row"]) % (str(_Strings.UI["hud_cleanup_amount"]) % (fraction * 100.0))
 	# The hiding, push-to-talk and crossing lines name keys with {key:} tokens.
 	_cleanup.text = _Strings.keyed((str(_Strings.UI["hud_wallet"]) % Campaign.credits(Net.local_peer_id())) + "\n" + cleanup + truck_line + crew_line)

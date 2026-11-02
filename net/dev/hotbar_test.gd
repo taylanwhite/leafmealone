@@ -8,13 +8,17 @@ extends Node
 ## out, big things fill both hands and refuse a switch, pockets slow you a
 ## little, and leaving the yard or being caught empties them. Step 9 checks the
 ## holds (chunk C): hands on the real grips of the sign, gnome, trash can and
-## wheelbarrow, the arms reaching them. It ends with a known set of pockets that
+## wheelbarrow, the arms reaching them. Steps 13a-f check the bar on screen
+## (ui/hotbar_hud.gd, chunk B) through its model: slots, icons, the hint, the hands
+## card, the refusal shake and toasts, the goal line's "Press [1] for the rake",
+## and that it hides under the pause buttons and Settings. It ends with a known set of pockets that
 ## CI compares with a client's view (probe "hotbar", grip_ok included).
 ## Each step prints a [HotbarTest] line and records a boolean in result["steps"].
 
 const _Hotbar = preload("res://net/components/hotbar.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _PropLooks = preload("res://props/prop_looks.gd")
+const _HotbarHud = preload("res://ui/hotbar_hud.gd")
 const PROP_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 ## How long to wait for the client to join, so it sees the whole run.
 const CLIENT_WAIT_SECONDS: float = 12.0
@@ -81,6 +85,7 @@ func _run() -> void:
 	await _grab(hose)
 	var slots_right := int(trimmer.get("pocket_slot")) == 2 and int(roller.get("pocket_slot")) == 3 and int(hose.get("pocket_slot")) == 4
 	_step("3 five pockets: slots right %s, held %d, pocketed %d, hose in hand %s" % [slots_right, _held_count(), _pocketed_count(), _holds(hose)], slots_right and _held_count() == 1 and _pocketed_count() == 4 and _holds(hose))
+	await _check_hud_bar()
 
 	# 4. Pockets full: a sign won't go in, and the player hears why.
 	var signs: Array[Node3D] = []
@@ -102,6 +107,9 @@ func _run() -> void:
 	var refused_full := await _wait_for(func() -> bool: return _refusals.has("full"), 10)
 	var not_pulled := not bool(signs[0].get_meta("pulled", false))
 	_step("4 pockets full: refused %s, sign still loose %s, not pulled %s" % [refused_full, bool(signs[0].call("is_loose")), not_pulled], refused_full and bool(signs[0].call("is_loose")) and not_pulled)
+	var hud := _hud()
+	var shook := hud != null and float(hud.get("shake_left")) > 0.0 and str(hud.get("toast_text")) == _Strings.keyed(str(_Strings.UI["hotbar_full"]))
+	_step("13b HUD: the refusal shook the bar and said '%s'" % (str(hud.get("toast_text")) if hud != null else "no HUD"), shook)
 
 	# 5. Keys: 1 draws the rake, the wheel steps to the blower, 2 again is bare hands.
 	await _tap(&"slot_1")
@@ -111,6 +119,10 @@ func _run() -> void:
 	await _tap(&"slot_2")
 	var bare := _held_count() == 0 and _pocketed_count() == 5 and int(pockets.get("selected")) == -1
 	_step("5 key 1 -> rake %s, wheel -> blower %s, 2 again -> bare hands %s" % [key_one, wheel, bare], key_one and wheel and bare)
+	# The goal line points at the pocketed rake: "Press [1] for the rake".
+	var goal := str(preload("res://ui/job_goal.gd").goal(get_tree(), _id()))
+	var want_goal := str(_Strings.UI["goal_draw_rake"]) % _Strings.keyed("{key:slot_1}")
+	_step("13c goal line with the rake pocketed: '%s'" % goal, goal == want_goal)
 
 	# 6. Key 3, then tap G: the trimmer is set down in front, solid, out of its slot.
 	await _tap(&"slot_3")
@@ -151,6 +163,9 @@ func _run() -> void:
 		farthest = maxf(farthest, Vector2(thrown.global_position.x - start.x, thrown.global_position.z - start.z).length())
 	var left_two := (_slots()[2] as Array).size() == 2
 	_step("7 stacked %s, thrown %.1f m, two left %s, next drawn %s" % [stacked, farthest, left_two, next_out], stacked and farthest > 2.0 and left_two and next_out)
+	await _frames(3)
+	var stack_badge := _hud_slot(2)
+	_step("13d HUD: slot 3 shows %s x%d" % [stack_badge.get("kind", "?"), int(stack_badge.get("count", 0))], str(stack_badge.get("kind", "")) == "turf_sign" and int(stack_badge.get("count", 0)) == 2)
 
 	# 8. The gnome fills both hands: the sign goes in its pocket, a switch is refused,
 	# and setting the gnome down brings a sign back out.
@@ -158,9 +173,14 @@ func _run() -> void:
 	var sign_before := _in_hand()
 	await _grab(gnome)
 	var hugged := _holds(gnome) and int(gnome.get("pocket_slot")) == -1 and sign_before != null and int(sign_before.get("pocketed_by")) == _id()
+	await _frames(3)
+	var card: Dictionary = (_hud().get("last_model") as Dictionary).get("hands", {}) if _hud() != null else {}
+	var card_ok := str(card.get("kind", "")) == "gnome" and str(card.get("title", "")).contains(str(_Strings.UI["item_gnome"])) and str(card.get("line", "")) != ""
 	_refusals.clear()
 	await _tap(&"slot_1")
 	var no_switch := _refusals.has("arms_full") and _holds(gnome)
+	var said := str(_hud().get("toast_text")) if _hud() != null else ""
+	_step("13e HUD: hands card '%s' / '%s', switch refused with '%s'" % [card.get("title", ""), card.get("line", ""), said], card_ok and said == _Strings.keyed(str(_Strings.UI["hotbar_arms_full"])))
 	await _hold_g(0.08)
 	await _ticks(6)
 	var sign_back := bool(gnome.call("is_loose")) and _in_hand() != null and str(_in_hand().get("kind")) == "turf_sign"
@@ -199,6 +219,8 @@ func _run() -> void:
 	Net.move_player_to_zone(_id(), Net.Zone.STORE)
 	var left_ok := await _wait_for(func() -> bool: return _all_loose_on_pad(mine) and _notices.has("left"), 60)
 	_step("11a left the yard with %d things: all loose on the yard and told %s" % [mine.size(), left_ok], left_ok and mine.size() >= 5)
+	var left_toast := str(_hud().get("toast_text")) if _hud() != null else ""
+	_step("13f HUD: told '%s'" % left_toast, left_toast == _Strings.keyed(str(_Strings.UI["hotbar_left"])))
 	Net.move_player_to_zone(_id(), Net.Zone.LOT)
 	await _seconds(0.6)
 	await _go_to(Vector3(-4.0, 0.1, 6.0), 0.0)
@@ -238,6 +260,77 @@ func _run() -> void:
 	result["ok"] = _ok
 	result["done"] = true
 	print("[HotbarTest] all ok: %s" % _ok)
+
+
+# ---------------------------------------------------------------- the HUD (step 13)
+
+## 13a: the bar (ui/hotbar_hud.gd, under UIRoot) shows the five pockets with
+## their icons, the hose selected and in hand with its hint, the roller's paint
+## strip; it hides under the pause buttons and under Settings opened from them
+## (any_window_open), and comes back when they close; and the visibility rule
+## (shown_when) keeps it off in Border Return and a Chefty seat, and off the yard
+## unless something's carried.
+func _check_hud_bar() -> void:
+	await _frames(3)
+	var hud := _hud()
+	if hud == null:
+		_step("13a HUD: no UIRoot/HotbarHud", false)
+		return
+	var shown_model: Dictionary = hud.get("last_model")
+	var kinds: Array = []
+	var icons := true
+	for view: Dictionary in shown_model.get("slots", []):
+		kinds.append(view.get("kind", ""))
+		icons = icons and str(view.get("icon", "")) != ""
+	var want := ["rake", "leaf_blower", "hedge_trimmer", "paint_roller", "hose"]
+	var bar_ok := bool(shown_model.get("shown", false)) and JSON.stringify(kinds) == JSON.stringify(want) and int(shown_model.get("selected", -9)) == 4
+	var hand_ok := str(shown_model.get("hand", "")) == "hose" and str(shown_model.get("hint", "")) == str(_Strings.UI["tool_blurb_hose"])
+	var paint_ok := float((shown_model["slots"] as Array)[3].get("paint", -1.0)) >= 0.0
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var hides := ui != null
+	var settings_hides := ui != null
+	var back := ui != null
+	if ui != null:
+		ui.call("open_pause")
+		await _frames(3)
+		hides = not bool((hud.get("last_model") as Dictionary).get("shown", true))
+		ui.call("open_settings", true, "sound")
+		await _frames(3)
+		settings_hides = bool(ui.call("any_window_open")) and not bool((hud.get("last_model") as Dictionary).get("shown", true))
+		ui.call("close_settings")
+		await _frames(3)
+		ui.call("close_pause")
+		await _frames(3)
+		# Back up once nothing's open. Headless (CI) it must be: no window, bar up. A
+		# windowed run that loses focus reopens the pause buttons by itself (ui_root
+		# _notification), so there it only checks the bar agrees with the windows.
+		var open_now := bool(ui.call("any_window_open"))
+		var shown_now := bool((hud.get("last_model") as Dictionary).get("shown", false))
+		if DisplayServer.get_name() == "headless":
+			back = not open_now and shown_now
+		else:
+			back = open_now != shown_now
+	var base := {"in_session": true, "zone": Net.Zone.LOT, "window_open": false, "seated": false, "carrying": false}
+	var rule := bool(_HotbarHud.shown_when(base))
+	rule = rule and not bool(_HotbarHud.shown_when(base.merged({"zone": Net.Zone.BORDER, "carrying": true}, true)))
+	rule = rule and not bool(_HotbarHud.shown_when(base.merged({"seated": true}, true)))
+	rule = rule and not bool(_HotbarHud.shown_when(base.merged({"zone": Net.Zone.STORE}, true)))
+	rule = rule and bool(_HotbarHud.shown_when(base.merged({"zone": Net.Zone.STORE, "carrying": true}, true)))
+	_step("13a HUD: bar %s %s icons %s, hose in hand with its hint %s, paint strip %s; hides under pause %s and Settings %s, back after %s; rule %s" % [kinds, bar_ok, icons, hand_ok, paint_ok, hides, settings_hides, back, rule], bar_ok and icons and hand_ok and paint_ok and hides and settings_hides and back and rule)
+
+
+func _hud() -> Node:
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	return ui.get_node_or_null("HotbarHud") if ui != null else null
+
+
+## The HUD's view of one slot, or {}.
+func _hud_slot(index: int) -> Dictionary:
+	var hud := _hud()
+	if hud == null:
+		return {}
+	var slots: Array = (hud.get("last_model") as Dictionary).get("slots", [])
+	return slots[index] if index < slots.size() else {}
 
 
 # ---------------------------------------------------------------- holds (step 9)
@@ -485,6 +578,13 @@ func _seconds(seconds: float) -> void:
 	while waited < seconds:
 		await get_tree().physics_frame
 		waited += get_physics_process_delta_time()
+
+
+## Rendered frames: the HUD updates in _process, which a slow windowed run can
+## step less often than physics.
+func _frames(count: int) -> void:
+	for _frame: int in count:
+		await get_tree().process_frame
 
 
 func _ticks(count: int) -> void:

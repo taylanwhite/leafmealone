@@ -19,7 +19,10 @@ extends Node
 ##   ["wait", seconds]
 ##   ["text", "..."]             type into whatever has focus
 ## Actions are the names in project.godot's input map (move_forward, interact,
-## primary, secondary, drop, jump, sprint, crouch, phone, pause, ...).
+## primary, secondary, drop, jump, sprint, crouch, phone, pause, the pockets
+## slot_1 ... slot_5, slot_next and slot_prev, ...). The result's "hotbar" says
+## what's in the pockets: the selected slot (-1 bare hands), each slot's kind
+## ("" empty) and the big thing in both arms ("" none).
 
 var _dir: String = ""
 var _last_id: int = 0
@@ -171,6 +174,17 @@ func _state() -> Dictionary:
 		out["facing_deg"] = int(round(rad_to_deg(player.global_rotation.y)))
 		var held: Node = player.call("_held_prop") if player.has_method("_held_prop") else null
 		out["holding"] = str(held.get("kind")) if held != null else ""
+		var hotbar := preload("res://net/components/hotbar.gd")
+		var kinds: Array = []
+		for slot: Array in hotbar.slots_of(get_tree(), me):
+			kinds.append(str(slot[0].get("kind")) if not slot.is_empty() else "")
+		var pockets := player.get_node_or_null("Pockets")
+		var arms := hotbar.arms_item(get_tree(), me)
+		out["hotbar"] = {
+			"selected": int(pockets.get("selected")) if pockets != null else -1,
+			"slots": kinds,
+			"hands": str(arms.get("kind")) if arms != null else "",
+		}
 		if player.has_method("interaction_hint"):
 			var hint: Dictionary = player.call("interaction_hint")
 			if not hint.is_empty():

@@ -16,6 +16,10 @@ const OPEN_SHOP_AFTER_SECONDS: float = 1.0
 const FINISH_SETTLE_SECONDS: float = 0.5
 ## How long the host waits for clients to report and leave before it quits anyway.
 const FINISH_CLIENT_WAIT_SECONDS: float = 5.0
+## --fill-pockets: how long it waits for the yard and the player, then lets the
+## yard's props settle before picking things up.
+const FILL_POCKETS_WAIT_SECONDS: float = 30.0
+const FILL_POCKETS_SETTLE_SECONDS: float = 1.5
 
 ## The scripts of the *_test.gd nodes added here; each sets result["done"] when it ends.
 var _tests: Array[Script] = []
@@ -76,6 +80,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/shop_test.gd").new(), "ShopTest")
 	if bool(options.get("hotbar_test")):
 		_add(preload("res://net/dev/hotbar_test.gd").new(), "HotbarTest")
+	if bool(options.get("fill_pockets")) and Net.is_host():
+		_fill_pockets()
 	if bool(options.get("townmap_test")):
 		_add(preload("res://net/dev/townmap_test.gd").new(), "TownmapTest")
 	if bool(options.get("icons_test")):
@@ -136,6 +142,59 @@ func _ready() -> void:
 	var event_at := float(options.get("run_event_at"))
 	if event_at >= 0.0:
 		get_tree().create_timer(event_at).timeout.connect(_force_run_event)
+
+
+## --fill-pockets (host, for screenshots of the hotbar): once the yard and this
+## player are up, every pocketable thing on the job (the rake first, then the
+## tools) is put in front of them and picked up the way E does, until the pockets
+## are full; then pocket 1 (the rake) comes out.
+func _fill_pockets() -> void:
+	var hotbar_script := preload("res://net/components/hotbar.gd")
+	var waited := 0.0
+	var me: Node3D = null
+	while waited < FILL_POCKETS_WAIT_SECONDS:
+		me = _local_player()
+		if me != null and get_tree().get_first_node_in_group("job_lot") != null and get_tree().get_first_node_in_group("hotbar") != null:
+			break
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	if me == null or get_tree().get_first_node_in_group("job_lot") == null:
+		push_warning("[Dev] --fill-pockets: no yard to fill pockets on")
+		return
+	await get_tree().create_timer(FILL_POCKETS_SETTLE_SECONDS).timeout
+	var wanted: Array[Node3D] = []
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var kind := str(node.get("kind"))
+		if hotbar_script.is_pocketable(kind) and bool(node.call("is_loose")):
+			if kind == "rake":
+				wanted.push_front(node as Node3D)
+			else:
+				wanted.append(node as Node3D)
+	var peer_id := Net.local_peer_id()
+	for item: Node3D in wanted:
+		if hotbar_script.items_of(get_tree(), peer_id).size() >= hotbar_script.capacity(peer_id):
+			break
+		item.global_position = me.global_position + Vector3(0.0, 0.4, 0.0) + (-me.global_basis.z) * 0.8
+		item.set("linear_velocity", Vector3.ZERO)
+		for _tick: int in 3:
+			await get_tree().physics_frame
+		item.call("request_grab")
+		for _tick: int in 3:
+			await get_tree().physics_frame
+	var hotbar := get_tree().get_first_node_in_group("hotbar")
+	var pockets := me.get_node_or_null("Pockets")
+	if pockets != null and int(pockets.get("selected")) != 0:
+		pockets.call("select", 0)
+	elif hotbar != null:
+		hotbar.call("request_select", 0)
+	print("[Dev] --fill-pockets: carrying %d things" % hotbar_script.items_of(get_tree(), peer_id).size())
+
+
+func _local_player() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			return node as Node3D
+	return null
 
 
 ## Host only: send everyone in the store to the lot in Chefty, for testing rides.

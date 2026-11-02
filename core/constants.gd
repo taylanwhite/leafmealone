@@ -1116,6 +1116,36 @@ const HOLD_ARM_LONGEST: float = 1.15
 ## probe's grip_ok, hotbar_test step 9).
 const HOLD_GRIP_REACH: float = 0.62
 
+# ---- hotbar hud
+# The bar along the bottom of the screen (ui/hotbar_hud.gd; docs/GAME.md "the
+# hotbar"). Pixels are at the 1280x720 design size. The bar owns the bottom
+# center from the edge up to the job goal line (ui/job_goal.gd, its bottom at
+# HOTBAR_GOAL_LINE_Y); the throw meter sits above that (HOTBAR_THROW_METER_Y).
+## A slot's size and the gap between slots (px).
+const HOTBAR_SLOT_PX: float = 68.0
+const HOTBAR_SLOT_GAP: float = 6.0
+## How far the slots sit above the bottom edge (px).
+const HOTBAR_BOTTOM_MARGIN: float = 8.0
+## The selected slot rises this far (px) and grows this much, over this long (s).
+const HOTBAR_SELECT_RAISE: float = 8.0
+const HOTBAR_SELECT_SCALE: float = 1.06
+const HOTBAR_SELECT_SECONDS: float = 0.12
+## A refusal ("eh?"): the bar shakes this long (s), this far (px), this fast (Hz).
+const HOTBAR_SHAKE_SECONDS: float = 0.25
+const HOTBAR_SHAKE_PX: float = 6.0
+const HOTBAR_SHAKE_HZ: float = 22.0
+## How long a refusal's toast stays up, and the emptied-pockets notice (s).
+const HOTBAR_TOAST_SECONDS: float = 1.8
+const HOTBAR_NOTICE_SECONDS: float = 3.0
+## Arms full: the slots shrink to this and fade to this, and the hands card
+## slides up over this long (s).
+const HOTBAR_ARMS_SLOT_SCALE: float = 0.55
+const HOTBAR_ARMS_DIM: float = 0.45
+const HOTBAR_CARD_SECONDS: float = 0.15
+## The job goal line's bottom and the throw meter's top, above the bottom edge (px).
+const HOTBAR_GOAL_LINE_Y: float = 122.0
+const HOTBAR_THROW_METER_Y: float = 168.0
+
 # ---- balance targets
 # What tools/balance_sim.py holds the economy to (docs/BALANCE.md). The game never
 # reads these; the simulator's --check does, and the retune (gap balance:E) sets

@@ -22,6 +22,8 @@ var selected: int = 0
 var _player: Node
 var _predict_until: int = 0
 var _last_hand: Node = null
+## Instance ids of what was in this player's pockets last frame (for the draw sound).
+var _was_pocketed: Dictionary = {}
 
 
 func _ready() -> void:
@@ -105,13 +107,20 @@ func _process(_delta: float) -> void:
 		if slot >= 0 and slot != selected:
 			selected = slot
 			selection_changed.emit(selected)
+	# Sounds for this player only: "pocket" when what was in hand went into a
+	# pocket, "draw" when what's in hand now came out of one. A fresh pickup off
+	# the ground isn't a draw (critic C12: that's the prop's own pickup sound).
 	if hand != _last_hand:
 		var was := _last_hand
 		_last_hand = hand
-		if hand != null and is_instance_valid(hand) and _Hotbar.is_pocketable(str(hand.get("kind"))):
-			_sound("draw")
-		elif hand == null and was != null and is_instance_valid(was) and int(was.get("pocketed_by")) == _peer_id():
+		if was != null and is_instance_valid(was) and int(was.get("pocketed_by")) == _peer_id():
 			_sound("pocket")
+		if hand != null and is_instance_valid(hand) and _was_pocketed.has(hand.get_instance_id()):
+			_sound("draw")
+	_was_pocketed.clear()
+	for item: Node in _Hotbar.items_of(get_tree(), _peer_id()):
+		if int(item.get("pocketed_by")) == _peer_id():
+			_was_pocketed[item.get_instance_id()] = true
 
 
 # ---------------------------------------------------------------- queries (every peer)
@@ -178,8 +187,8 @@ func on_notice(kind: String) -> void:
 	notice.emit(kind)
 
 
-## A local sound, once audio/sound_bank.gd has it (hotbar chunk B adds slot_tick,
-## pocket, draw and jangle); silent until then, so no unknown ids get logged.
+## A local sound from audio/sound_bank.gd (slot_tick, pocket, draw; tools/make_sfx.py
+## makes them). An id the bank doesn't have stays silent instead of being logged.
 func _sound(id: String) -> void:
 	if not _SoundBank.has(id):
 		return
