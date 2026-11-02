@@ -1,0 +1,453 @@
+extends Node
+
+## Authority: host (and only local state). --settings-test checks the Settings
+## autoload (core/settings.gd; gap-specs/settings.json chunk 1, adjusted by
+## gap-specs/critic.md C2, C4 and C15):
+##   path         this run uses settings_test_<port>.cfg, never the player's file
+##   buses        Master, Music, Sfx, Ambience, UI, Chatter and Voice exist and send right
+##   defaults     preset high, 0.003 rad/px look, FOV 75 on both cameras, UI scale 1,
+##                and the world's sun and ambient occlusion as shared_look.gd sets them
+##   volumes      a volume sets its bus in decibels; 0 mutes it, 1 unmutes it
+##   routing      bags play on Sfx, babble and the player's mouth on Chatter
+##   look         sensitivity and invert Y turn mouse motion into yaw and pitch
+##   fov          a new field of view reaches both cameras at once
+##   bindings     rebinding, swapping on conflict, mouse and wheel bindings, the
+##                wheel refused for held actions, pause never left unbound, reset
+##   toggle       toggle crouch latches on a press and off on the next
+##   persistence  saved values and bindings come back on reload; unsaved ones don't
+##   migration    an old file with only [audio] music keeps it, and gets a version
+##   corrupt      an unreadable file loads defaults without a crash
+##   interface    UI scale, caption size, voice mode, the music key, clamping, presets
+## The checks for graphics (settings:2), the window (settings:3) and key tokens in
+## every string (settings:4) join later. Each step prints a [SettingsTest] line.
+## The test deletes its settings file at the start and the end.
+
+const _Buses = preload("res://audio/buses.gd")
+const _Bank = preload("res://audio/sound_bank.gd")
+const _Strings = preload("res://ui/strings.gd")
+## How long the test waits for the session, the world and the player.
+const START_TIMEOUT_SECONDS: float = 30.0
+## How close a measured angle or volume has to be.
+const ANGLE_EPSILON: float = 1e-4
+const DB_EPSILON: float = 0.05
+
+static var result: Dictionary = {}
+
+var _started: bool = false
+var _waited: float = 0.0
+var _failed: Array[String] = []
+var _checks: int = 0
+
+
+func _process(delta: float) -> void:
+	if _started or not Net.is_host():
+		return
+	_waited += delta
+	var ready := Net.current_state() == Net.State.IN_SESSION and get_tree().get_first_node_in_group("world") != null and _me() != null
+	if not ready:
+		if _waited > START_TIMEOUT_SECONDS:
+			_started = true
+			_failed.append("start: no session, world or local player after %d s" % int(START_TIMEOUT_SECONDS))
+			_finish()
+		return
+	_started = true
+	_run()
+
+
+func _run() -> void:
+	await get_tree().create_timer(0.5).timeout
+	var me := _me()
+	var defaults := _snapshot_bindings()
+	_wipe()
+	_check("path", _path())
+	_check("buses", _buses())
+	_check("defaults", _defaults(me))
+	_check("volumes", _volumes())
+	_check("routing", _routing(me))
+	_check("look", await _look(me))
+	_check("fov", _fov(me))
+	_check("bindings", _bindings(defaults))
+	_check("toggle", await _toggle())
+	_check("persistence", _persistence())
+	_check("migration", _migration())
+	_check("corrupt", _corrupt(defaults))
+	_check("interface", _interface())
+	_wipe()
+	_finish()
+
+
+func _check(check_name: String, ok: bool) -> void:
+	_checks += 1
+	print("[SettingsTest] %s: %s" % [check_name, ok])
+	if not ok and not _failed.any(func(line: String) -> bool: return line.begins_with(check_name)):
+		_failed.append(check_name)
+
+
+func _fail(check_name: String, why: String) -> bool:
+	_failed.append("%s: %s" % [check_name, why])
+	print("[SettingsTest] %s FAILED: %s" % [check_name, why])
+	return false
+
+
+func _finish() -> void:
+	result = {"ok": _failed.is_empty(), "checks": _checks, "failed": _failed.duplicate(), "done": true}
+	print("[SettingsTest] done, ok=%s, %d checks, failed %s" % [result["ok"], _checks, _failed])
+
+
+## A clean slate: no file, defaults loaded, nothing waiting to be saved.
+func _wipe() -> void:
+	if FileAccess.file_exists(Settings.path()):
+		DirAccess.remove_absolute(Settings.path())
+	Settings.reload()
+
+
+# ---------------------------------------------------------------- checks
+
+func _path() -> bool:
+	var want := "settings_test_%d.cfg" % int(Net.dev_options().get("port"))
+	if not Settings.path().ends_with(want):
+		return _fail("path", "%s does not end with %s" % [Settings.path(), want])
+	return true
+
+
+func _buses() -> bool:
+	for bus: StringName in [_Buses.MASTER, _Buses.MUSIC, _Buses.SFX, _Buses.AMBIENCE, _Buses.UI, _Buses.CHATTER, _Buses.VOICE]:
+		if AudioServer.get_bus_index(bus) < 0:
+			return _fail("buses", "no %s bus" % bus)
+	for entry: Array in _Buses.LAYOUT:
+		var send := AudioServer.get_bus_send(AudioServer.get_bus_index(entry[0]))
+		if send != entry[1]:
+			return _fail("buses", "%s sends to %s, not %s" % [entry[0], send, entry[1]])
+	return true
+
+
+func _defaults(me: Node3D) -> bool:
+	var ok := true
+	if str(Settings.get_value("video", "preset")) != "high":
+		ok = _fail("defaults", "preset is %s" % Settings.get_value("video", "preset"))
+	if not Settings.look_scale().is_equal_approx(Vector2(0.003, 0.003)):
+		ok = _fail("defaults", "look scale %s" % Settings.look_scale())
+	for camera: Camera3D in _cameras(me):
+		if not is_equal_approx(camera.fov, 75.0):
+			ok = _fail("defaults", "%s fov %.1f" % [camera.name, camera.fov])
+	if _cameras(me).size() != 2:
+		ok = _fail("defaults", "found %d player cameras, not 2" % _cameras(me).size())
+	if not is_equal_approx(get_tree().root.content_scale_factor, 1.0):
+		ok = _fail("defaults", "UI scale %.2f" % get_tree().root.content_scale_factor)
+	var world := get_tree().get_first_node_in_group("world")
+	var sun := world.get_node_or_null("Sun") as DirectionalLight3D
+	if sun == null or not sun.shadow_enabled or not is_equal_approx(sun.directional_shadow_max_distance, 90.0):
+		ok = _fail("defaults", "the sun's shadows aren't shared_look's (on, 90 m)")
+	var environment := world.get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if environment == null or environment.environment == null or not environment.environment.ssao_enabled:
+		ok = _fail("defaults", "ambient occlusion isn't on")
+	return ok
+
+
+func _volumes() -> bool:
+	var ok := true
+	var sfx := AudioServer.get_bus_index(_Buses.SFX)
+	var music := AudioServer.get_bus_index(_Buses.MUSIC)
+	var ambience := AudioServer.get_bus_index(_Buses.AMBIENCE)
+	Settings.set_value("audio", "sfx_volume", 0.5, false)
+	if absf(AudioServer.get_bus_volume_db(sfx) - (-6.02)) > DB_EPSILON:
+		ok = _fail("volumes", "Sfx at half is %.2f dB" % AudioServer.get_bus_volume_db(sfx))
+	Settings.set_value("audio", "ambience_volume", 0.25, false)
+	if absf(AudioServer.get_bus_volume_db(ambience) - (-12.04)) > DB_EPSILON:
+		ok = _fail("volumes", "Ambience at a quarter is %.2f dB" % AudioServer.get_bus_volume_db(ambience))
+	Settings.set_value("audio", "music_volume", 0.0, false)
+	if not AudioServer.is_bus_mute(music):
+		ok = _fail("volumes", "Music at 0 isn't muted")
+	Settings.set_value("audio", "music_volume", 1.0, false)
+	if AudioServer.is_bus_mute(music) or absf(AudioServer.get_bus_volume_db(music)) > DB_EPSILON:
+		ok = _fail("volumes", "Music back at 1 is muted or not 0 dB")
+	Settings.reset_section("audio")
+	if absf(AudioServer.get_bus_volume_db(sfx)) > DB_EPSILON:
+		ok = _fail("volumes", "reset left Sfx at %.2f dB" % AudioServer.get_bus_volume_db(sfx))
+	return ok
+
+
+func _routing(me: Node3D) -> bool:
+	var ok := true
+	if _Bank.bus("bag") != _Buses.SFX:
+		ok = _fail("routing", "bag plays on %s" % _Bank.bus("bag"))
+	if _Bank.bus("babble") != _Buses.CHATTER:
+		ok = _fail("routing", "babble plays on %s" % _Bank.bus("babble"))
+	me.call("say", "vo_yelp")
+	var mouth := me.get_node_or_null("Visual/Head/Mouth") as AudioStreamPlayer3D
+	if mouth == null or mouth.bus != _Buses.CHATTER:
+		ok = _fail("routing", "the mouth is %s" % ("missing" if mouth == null else "on " + mouth.bus))
+	# A remote player's voice, when there is one (host-only runs have none).
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var voice := node.get_node_or_null("Visual/Head/Voice") as AudioStreamPlayer3D
+		if node != me and voice != null and voice.bus != _Buses.VOICE:
+			ok = _fail("routing", "%s's voice is on %s" % [node.name, voice.bus])
+	return ok
+
+
+func _look(me: Node3D) -> bool:
+	var ok := true
+	Settings.set_value("controls", "sensitivity", 2.0, false)
+	Settings.set_value("controls", "invert_y", true, false)
+	var turn := await _turn(me)
+	if absf(turn.x - (-0.06)) > ANGLE_EPSILON or absf(turn.y - 0.06) > ANGLE_EPSILON:
+		ok = _fail("look", "2x inverted turned yaw %.5f, pitch %.5f (want -0.06, +0.06)" % [turn.x, turn.y])
+	Settings.set_value("controls", "invert_y", false, false)
+	turn = await _turn(me)
+	if absf(turn.y - (-0.06)) > ANGLE_EPSILON:
+		ok = _fail("look", "2x pitch %.5f (want -0.06)" % turn.y)
+	Settings.reset_section("controls")
+	me.set("head_pitch", 0.0)
+	return ok
+
+
+## Feeds 10 px of mouse motion right and down, and returns (yaw, pitch) turned.
+func _turn(me: Node3D) -> Vector2:
+	me.set("head_pitch", 0.0)
+	await get_tree().physics_frame
+	var yaw := float(me.get("body_yaw"))
+	var pitch := float(me.get("head_pitch"))
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(10.0, 10.0)
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		me.call("_unhandled_input", motion)
+	else:
+		# Headless has no mouse to capture; hand the motion straight to the look.
+		me.set("_look", motion.relative)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	return Vector2(float(me.get("body_yaw")) - yaw, float(me.get("head_pitch")) - pitch)
+
+
+func _fov(me: Node3D) -> bool:
+	var ok := true
+	Settings.set_value("controls", "fov", 90.0, false)
+	for camera: Camera3D in _cameras(me):
+		if not is_equal_approx(camera.fov, 90.0):
+			ok = _fail("fov", "%s fov %.1f after setting 90" % [camera.name, camera.fov])
+	Settings.reset_section("controls")
+	for camera: Camera3D in _cameras(me):
+		if not is_equal_approx(camera.fov, 75.0):
+			ok = _fail("fov", "%s fov %.1f after reset" % [camera.name, camera.fov])
+	return ok
+
+
+func _bindings(defaults: Dictionary) -> bool:
+	var ok := true
+	var r := Settings.bind(&"interact", 0, "key:R")
+	var codes := _codes(&"interact")
+	if not bool(r["ok"]) or not codes.has("key:%d" % KEY_R) or codes.has("key:%d" % KEY_E):
+		ok = _fail("bindings", "interact after binding R: %s %s" % [r, codes])
+	if not InputMap.event_is_action(_key_event(KEY_R), &"interact"):
+		ok = _fail("bindings", "an R press isn't interact")
+	if _Strings.keyed("{key:interact}") != "[R]" or _Strings.keyed("Press {key:interact} {icon:hand}now") != "Press [R] now":
+		ok = _fail("bindings", "keyed gives %s" % _Strings.keyed("{key:interact}"))
+	r = Settings.bind(&"interact", 0, "key:F")
+	if not bool(r["ok"]) or str(r["swapped_with"]) != "take" or str(r["notice"]) == "" or Settings.binding(&"take", 0) != "key:%d" % KEY_R or Settings.binding(&"interact", 0) != "key:%d" % KEY_F:
+		ok = _fail("bindings", "F swap: %s, take %s, interact %s" % [r, Settings.binding(&"take", 0), Settings.binding(&"interact", 0)])
+	print("[SettingsTest] swap notice: %s" % r["notice"])
+	r = Settings.bind(&"jump", 1, "mouse:%d" % MOUSE_BUTTON_XBUTTON1)
+	if not bool(r["ok"]) or not InputMap.event_is_action(_mouse_event(MOUSE_BUTTON_XBUTTON1), &"jump"):
+		ok = _fail("bindings", "Mouse 4 to jump: %s" % r)
+	# Wheel up may already be another action's (hotbar's slot_prev, critic C15): then it swaps.
+	r = Settings.bind(&"toggle_camera", 1, "mouse:%d" % MOUSE_BUTTON_WHEEL_UP)
+	var wheel := "mouse:%d" % MOUSE_BUTTON_WHEEL_UP
+	if not bool(r["ok"]) or Settings.binding(&"toggle_camera", 1) != wheel:
+		ok = _fail("bindings", "wheel up to the camera: %s" % r)
+	elif str(r["swapped_with"]) != "" and _codes(StringName(str(r["swapped_with"]))).has(wheel):
+		ok = _fail("bindings", "%s kept wheel up after the swap" % r["swapped_with"])
+	var sprint_before := _codes(&"sprint")
+	r = Settings.bind(&"sprint", 0, "mouse:%d" % MOUSE_BUTTON_WHEEL_DOWN)
+	if bool(r["ok"]) or str(r["notice"]) == "" or _codes(&"sprint") != sprint_before:
+		ok = _fail("bindings", "the wheel bound sprint: %s" % r)
+	r = Settings.clear_binding(&"pause", 0)
+	if bool(r["ok"]) or Settings.binding(&"pause", 0) == "":
+		ok = _fail("bindings", "pause lost its last key: %s" % r)
+	print("[SettingsTest] interact reads %s, take %s; refusals: %s" % [Settings.key_label(&"interact"), Settings.key_label(&"take"), r["notice"]])
+	Settings.reset_bindings()
+	if Settings.binding(&"interact", 0) != "key:%d" % KEY_E or Settings.binding(&"take", 0) != "key:%d" % KEY_F:
+		ok = _fail("bindings", "reset left interact %s, take %s" % [Settings.binding(&"interact", 0), Settings.binding(&"take", 0)])
+	var now := _snapshot_bindings()
+	if now != defaults:
+		ok = _fail("bindings", "after reset the InputMap differs from the project's")
+	if Settings.rebindable_actions().size() < 18 or Settings.rebindable_actions().any(func(a: StringName) -> bool: return String(a).begins_with("ui_")):
+		ok = _fail("bindings", "rebindable actions: %s" % [Settings.rebindable_actions()])
+	return ok
+
+
+func _toggle() -> bool:
+	var ok := true
+	Settings.set_value("controls", "toggle_crouch", true, false)
+	await _press(&"crouch", true)
+	await _press(&"crouch", false)
+	if not Settings.is_held(&"crouch"):
+		ok = _fail("toggle", "one tap didn't latch crouch")
+	await _press(&"crouch", true)
+	await _press(&"crouch", false)
+	if Settings.is_held(&"crouch"):
+		ok = _fail("toggle", "a second tap didn't let go")
+	Settings.set_value("controls", "toggle_crouch", false, false)
+	Input.action_press(&"crouch")
+	var held := Settings.is_held(&"crouch")
+	Input.action_release(&"crouch")
+	if not held or Settings.is_held(&"crouch"):
+		ok = _fail("toggle", "hold mode doesn't follow the key")
+	if Settings.is_held(&"sprint"):
+		ok = _fail("toggle", "sprint is held with nothing pressed")
+	Settings.reset_section("controls")
+	return ok
+
+
+func _persistence() -> bool:
+	var ok := true
+	Settings.set_value("controls", "sensitivity", 1.7)
+	Settings.bind(&"interact", 0, "key:R")
+	if Settings.save_now() != OK:
+		return _fail("persistence", "save failed")
+	var file := ConfigFile.new()
+	if file.load(Settings.path()) != OK:
+		return _fail("persistence", "the saved file doesn't load")
+	var saved_keys: Variant = file.get_value("keys", "interact", PackedStringArray())
+	if not is_equal_approx(float(file.get_value("controls", "sensitivity", 0.0)), 1.7) or saved_keys.size() < 1 or str(saved_keys[0]) != "key:82":
+		ok = _fail("persistence", "file has sensitivity %s, interact %s" % [file.get_value("controls", "sensitivity", null), saved_keys])
+	if file.has_section_key("keys", "take"):
+		ok = _fail("persistence", "an untouched action was written")
+	Settings.set_value("controls", "sensitivity", 0.5, false)
+	Settings.bind(&"interact", 0, "key:%d" % KEY_T)
+	Settings.reload()
+	if not is_equal_approx(float(Settings.get_value("controls", "sensitivity")), 1.7):
+		ok = _fail("persistence", "reload gave sensitivity %s" % Settings.get_value("controls", "sensitivity"))
+	if not InputMap.event_is_action(_key_event(KEY_R), &"interact") or InputMap.event_is_action(_key_event(KEY_T), &"interact"):
+		ok = _fail("persistence", "reload didn't bring R back to interact")
+	Settings.reset_bindings()
+	Settings.reset_section("controls")
+	Settings.save_now()
+	return ok
+
+
+func _migration() -> bool:
+	var ok := true
+	Settings.save_now()
+	_write("[audio]\nmusic=false\n")
+	Settings.reload()
+	if bool(Settings.get_value("audio", "music")) or not is_equal_approx(float(Settings.get_value("controls", "sensitivity")), 1.0):
+		ok = _fail("migration", "music %s, sensitivity %s" % [Settings.get_value("audio", "music"), Settings.get_value("controls", "sensitivity")])
+	Settings.save_now()
+	var file := ConfigFile.new()
+	file.load(Settings.path())
+	if int(file.get_value("meta", "version", 0)) != Settings.FILE_VERSION or bool(file.get_value("audio", "music", true)):
+		ok = _fail("migration", "the next save has version %s, music %s" % [file.get_value("meta", "version", null), file.get_value("audio", "music", null)])
+	Settings.reset_section("audio")
+	return ok
+
+
+func _corrupt(defaults: Dictionary) -> bool:
+	var ok := true
+	Settings.save_now()
+	_write("garbage{{")
+	Settings.reload()
+	if not bool(Settings.get_value("audio", "music")) or str(Settings.get_value("video", "preset")) != "high" or _snapshot_bindings() != defaults:
+		ok = _fail("corrupt", "a broken file didn't give defaults")
+	return ok
+
+
+func _interface() -> bool:
+	var ok := true
+	Settings.set_value("interface", "ui_scale", 1.25, false)
+	if not is_equal_approx(get_tree().root.content_scale_factor, 1.25):
+		ok = _fail("interface", "UI scale 1.25 gave %.2f" % get_tree().root.content_scale_factor)
+	Settings.set_value("interface", "caption_size", 2, false)
+	if not is_equal_approx(Settings.caption_scale(), 1.3):
+		ok = _fail("interface", "large captions scale %.2f" % Settings.caption_scale())
+	Settings.reset_section("interface")
+	if not is_equal_approx(get_tree().root.content_scale_factor, 1.0):
+		ok = _fail("interface", "reset UI scale is %.2f" % get_tree().root.content_scale_factor)
+	Settings.set_value("audio", "voice_mode", int(Net.VoiceMode.VOICE_ACTIVATION), false)
+	if Net.voice_mode() != Net.VoiceMode.VOICE_ACTIVATION:
+		ok = _fail("interface", "voice mode didn't reach Net")
+	Settings.set_value("audio", "voice_mode", int(Net.VoiceMode.PUSH_TO_TALK), false)
+	# Out of range clamps; a bad type keeps the default.
+	Settings.set_value("controls", "fov", 500.0, false)
+	Settings.set_value("controls", "sensitivity", -3.0, false)
+	Settings.set_value("video", "shadows", "lots", false)
+	if not is_equal_approx(Settings.fov(), Constants.FOV_RANGE.y) or not is_equal_approx(float(Settings.get_value("controls", "sensitivity")), Constants.SENSITIVITY_RANGE.x) or int(Settings.get_value("video", "shadows")) != 3:
+		ok = _fail("interface", "clamping: fov %s, sensitivity %s, shadows %s" % [Settings.fov(), Settings.get_value("controls", "sensitivity"), Settings.get_value("video", "shadows")])
+	# Presets: one hand-changed option makes it custom; a preset writes its keys.
+	Settings.set_value("video", "shadows", 2, false)
+	var custom := str(Settings.get_value("video", "preset")) == "custom"
+	Settings.apply_preset("low")
+	var low := str(Settings.get_value("video", "preset")) == "low" and int(Settings.get_value("video", "shadows")) == 1 and not bool(Settings.get_value("video", "ssao"))
+	Settings.apply_preset("high")
+	var high := str(Settings.get_value("video", "preset")) == "high" and int(Settings.get_value("video", "shadows")) == 3 and bool(Settings.get_value("video", "ssao"))
+	if not (custom and low and high):
+		ok = _fail("interface", "presets: custom %s, low %s, high %s" % [custom, low, high])
+	Settings.reset_section("controls")
+	Settings.reset_section("video")
+	return ok
+
+
+# ---------------------------------------------------------------- helpers
+
+func _me() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			return node as Node3D
+	return null
+
+
+func _cameras(me: Node3D) -> Array[Camera3D]:
+	var cameras: Array[Camera3D] = []
+	for camera_path: String in ["Visual/Head/FirstPerson", "CameraRig/OverShoulder"]:
+		var camera := me.get_node_or_null(camera_path) as Camera3D
+		if camera != null:
+			cameras.append(camera)
+	return cameras
+
+
+## Every rebindable action's key and mouse codes, as the InputMap has them now.
+func _snapshot_bindings() -> Dictionary:
+	var snapshot: Dictionary = {}
+	for action: StringName in Settings.rebindable_actions():
+		snapshot[String(action)] = _codes(action)
+	return snapshot
+
+
+func _codes(action: StringName) -> Array[String]:
+	var codes: Array[String] = []
+	for event: InputEvent in InputMap.action_get_events(action):
+		var code := Settings.event_to_code(event)
+		if code != "":
+			codes.append(code)
+	return codes
+
+
+func _key_event(keycode: Key) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.physical_keycode = keycode
+	event.pressed = true
+	return event
+
+
+func _mouse_event(button: MouseButton) -> InputEventMouseButton:
+	var event := InputEventMouseButton.new()
+	event.button_index = button
+	event.pressed = true
+	return event
+
+
+## Presses or lets go of action the way a key does, and lets the frame see it.
+func _press(action: StringName, pressed: bool) -> void:
+	var event := InputEventAction.new()
+	event.action = action
+	event.pressed = pressed
+	Input.parse_input_event(event)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+
+func _write(text: String) -> void:
+	var file := FileAccess.open(Settings.path(), FileAccess.WRITE)
+	file.store_string(text)
+	file.close()

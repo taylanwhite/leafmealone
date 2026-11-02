@@ -181,6 +181,7 @@ func write_report() -> void:
 		"cast_test": preload("res://net/dev/cast_test.gd").result.duplicate(),
 		"crew_cast": _crew_cast(),
 		"audio_test": preload("res://net/dev/audio_test.gd").result.duplicate(true),
+		"settings_test": preload("res://net/dev/settings_test.gd").result.duplicate(true),
 		"audio": _audio(),
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
