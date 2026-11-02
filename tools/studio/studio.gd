@@ -376,7 +376,11 @@ func _catalog_lineup(root: Node3D, kinds: Array[String], columns: int) -> void:
 			# Things that hang (icicles, lights, wreaths) are lifted so they show.
 			var lift := -box.position.y + 0.4 if items[index] in ["icicle_run", "string_lights", "wreath"] else 0.0
 			var at := offset + Vector3(x + 0.6 + width * 0.5 - box.get_center().x, lift, -box.get_center().z)
-			_PropCatalog.place(root, items[index], Transform3D(Basis.IDENTITY, at), Color.WHITE, {"season": _season})
+			var opts := {"season": _season}
+			# A violation flag's words are opt-in (only the nearest few get them).
+			if items[index] == "hoa_flag":
+				opts["sign"] = "hoa_violation"
+			_PropCatalog.place(root, items[index], Transform3D(Basis.IDENTITY, at), Color.WHITE, opts)
 			_label(root, items[index], offset + Vector3(x + 0.6 + width * 0.5, box.end.y + lift + 0.45, 0.0), 0.006)
 			x += width + 1.2
 		var distance := maxf((total * 0.5) / tan(deg_to_rad(25.0)), tallest * 2.0)

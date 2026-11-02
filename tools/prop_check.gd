@@ -16,6 +16,8 @@ extends SceneTree
 const _Catalog = preload("res://props/prop_catalog.gd")
 const _Batch = preload("res://props/prop_batch.gd")
 const _Water = preload("res://props/water_surface.gd")
+const _Estate = preload("res://props/estate_props.gd")
+const _Season = preload("res://props/season_props.gd")
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Guardrail = preload("res://net/dev/guardrail.gd")
@@ -120,6 +122,28 @@ static func _check_place() -> bool:
 	if not frozen or fountain.find_child("Sheet1", false, false) != null:
 		ok = false
 		print("[PropCheck] place winter FAIL  the pool or fountain ignored the season")
+	# A violation flag's words are opt-in, so a row of flags stays unlabeled.
+	var bare_flag := _Catalog.place(holder, "hoa_flag", Transform3D.IDENTITY, Color.WHITE, {"season": 0})
+	var told_flag := _Catalog.place(holder, "hoa_flag", Transform3D.IDENTITY, Color.WHITE, {"season": 0, "sign": "hoa_violation"})
+	if not bare_flag.find_children("*", "Label3D", true, false).is_empty() or told_flag.find_children("*", "Label3D", true, false).is_empty():
+		ok = false
+		print("[PropCheck] place hoa_flag FAIL  words should come only with {sign: hoa_violation}")
+	# place() reads size like the builders (PropParts.dims): a zero axis takes
+	# the kind's default, so the water and bulbs match the coping and the cord.
+	var long_pool := _Catalog.place(holder, "pool_inground", Transform3D.IDENTITY, Color.WHITE, {"season": 0, "size": Vector3(10.0, 0.0, 0.0)})
+	var water_size := Vector2.ZERO
+	for child: Node in long_pool.get_children():
+		if child is MeshInstance3D and (child as MeshInstance3D).mesh is PlaneMesh:
+			water_size = ((child as MeshInstance3D).mesh as PlaneMesh).size
+	if not water_size.is_equal_approx(Vector2(10.0, _Estate.POOL_SIZE.z)):
+		ok = false
+		print("[PropCheck] place pool size FAIL  water %s for size (10, 0, 0)" % water_size)
+	var cord := _Catalog.place(holder, "string_lights", Transform3D.IDENTITY, Color.WHITE, {"season": 0, "size": Vector3(0.0, 0.0, 0.0)})
+	var bulbs := cord.find_child("Bulbs", false, false) as MultiMeshInstance3D
+	var expected := _Season.bulb_points(_Season.RUN_LENGTH).size()
+	if bulbs == null or bulbs.multimesh.instance_count != expected:
+		ok = false
+		print("[PropCheck] place string_lights size FAIL  a zero-length run should get the default %d bulbs" % expected)
 	holder.free()
 	print("[PropCheck] place %s  every kind placed" % ("ok  " if ok else "FAIL"))
 	return ok
@@ -201,6 +225,13 @@ static func _check_batch() -> bool:
 	if digests[0] != digests[1] or digests[0] == 0:
 		ok = false
 		print("[PropCheck] batch FAIL  hash %d then %d" % [digests[0], digests[1]])
+	# A long, low prop (a road-wide speed bump) never fades but, being low,
+	# casts no shadow either.
+	var bump := _Catalog.node("speed_bump", Color.WHITE, Vector3(Constants.ART_LARGE_PROP_SIZE + 2.0, 0.0, 0.0))
+	if bump.visibility_range_end != 0.0 or bump.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+		ok = false
+		print("[PropCheck] batch FAIL  a road-wide speed bump fades at %0.1f with shadow setting %d" % [bump.visibility_range_end, bump.cast_shadow])
+	bump.free()
 	print("[PropCheck] batch %s  %d simple kinds batchable" % ["ok  " if ok else "FAIL", _Catalog.SIMPLE.size()])
 	return ok
 

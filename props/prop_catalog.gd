@@ -33,6 +33,7 @@ const _Yard = preload("res://props/yard_extras.gd")
 const _Estate = preload("res://props/estate_props.gd")
 const _Season = preload("res://props/season_props.gd")
 const _Water = preload("res://props/water_surface.gd")
+const _P = preload("res://props/prop_parts.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Neighborhoods = preload("res://net/town/neighborhoods.gd")
 
@@ -75,7 +76,7 @@ const LABELS: Dictionary = {
 	"monument_sign": {"at": Vector3(0.0, 0.8, -0.31), "yaw": PI, "font": 56, "pixel": 0.0042, "color": Color(0.16, 0.2, 0.18), "sign": "maple_entrance", "width": 2.6, "outline": 0},
 	"entrance_arch": {"at": Vector3(0.0, 3.06, -0.09), "yaw": PI, "font": 48, "pixel": 0.0045, "color": Color(0.22, 0.4, 0.24), "sign": "dandelion_entrance", "width": 2.9, "outline": 0},
 	"gatehouse": {"at": Vector3(-2.3, 1.25, -0.95), "yaw": PI, "font": 36, "pixel": 0.0036, "color": Color(0.18, 0.26, 0.2), "sign": "hoa_gate", "width": 1.6, "outline": 0},
-	"hoa_flag": {"at": Vector3(0.11, 0.505, -0.006), "yaw": PI, "font": 20, "pixel": 0.0018, "color": Color(1.0, 0.96, 0.9), "sign": "hoa_violation", "width": 0.21, "outline": 0},
+	"hoa_flag": {"at": Vector3(0.11, 0.505, -0.006), "yaw": PI, "font": 20, "pixel": 0.0018, "color": Color(1.0, 0.96, 0.9), "sign": "", "width": 0.21, "outline": 0},
 	"lemonade_stand": {"at": Vector3(0.0, 0.5, -0.32), "yaw": PI, "font": 40, "pixel": 0.0035, "color": Color(0.85, 0.3, 0.1), "sign": "lemonade", "width": 1.05, "outline": 0},
 	"bus_bench": {"at": Vector3(0.0, 0.95, 0.285), "yaw": 0.0, "font": 40, "pixel": 0.0036, "color": Color(0.14, 0.18, 0.3), "sign": "", "width": 1.8, "outline": 0},
 }
@@ -146,7 +147,7 @@ static func mesh(kind: String, color: Color = Color.WHITE, size: Vector3 = Vecto
 	if made == null:
 		if not built and not FALLBACK_KINDS.has(kind):
 			push_warning("[PropCatalog] no prop called %s; drawing a box" % kind)
-		made = _YardModels._build(kind, color, size if is_sized(kind) else Vector3.ONE)
+		made = _YardModels._build(kind, color, used)
 		made.set_meta("triangles", made.surface_get_array_len(0) / 3 if made.get_surface_count() > 0 else 0)
 		made.set_meta("aabb", made.get_aabb())
 	var box: AABB = made.get_meta("aabb")
@@ -180,18 +181,21 @@ static func node(kind: String, color: Color = Color.WHITE, size: Vector3 = Vecto
 
 
 ## Sets how far a prop of this size stays visible and whether it casts a
-## shadow: small props (shorter than ART_SMALL_PROP_HEIGHT) fade at
-## ART_SMALL_PROP_RANGE and cast none, the rest fade at ART_MEDIUM_PROP_RANGE,
-## and big ones (ART_LARGE_PROP_SIZE across) never fade.
+## shadow: small props (shorter than ART_SMALL_PROP_HEIGHT) cast none, whatever
+## their length, and fade at ART_SMALL_PROP_RANGE; the rest fade at
+## ART_MEDIUM_PROP_RANGE; and big ones (ART_LARGE_PROP_SIZE across, a road-wide
+## speed bump included) never fade.
 static func fade(view: GeometryInstance3D, box: AABB) -> void:
 	var longest := maxf(box.size.x, maxf(box.size.y, box.size.z))
+	var small := box.size.y < Constants.ART_SMALL_PROP_HEIGHT
 	view.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	view.visibility_range_end_margin = Constants.ART_PROP_FADE_MARGIN
+	if small:
+		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if longest >= Constants.ART_LARGE_PROP_SIZE:
 		view.visibility_range_end = 0.0
-	elif box.size.y < Constants.ART_SMALL_PROP_HEIGHT:
+	elif small:
 		view.visibility_range_end = Constants.ART_SMALL_PROP_RANGE
-		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	else:
 		view.visibility_range_end = Constants.ART_MEDIUM_PROP_RANGE
 
@@ -217,6 +221,9 @@ static func place(parent: Node3D, kind: String, xform: Transform3D = Transform3D
 	parent.add_child(root)
 	tag(root, kind)
 	var size: Vector3 = opts.get("size", Vector3.ONE)
+	# The same size the mesh was built at (mesh() snaps it to 0.1 m), so water
+	# and bulbs line up with the coping and the cord.
+	var used := size.snapped(Vector3(0.1, 0.1, 0.1)) if is_sized(kind) else Vector3.ONE
 	if kind == "wire_span":
 		_wire(root, xform, opts)
 		return root
@@ -227,7 +234,7 @@ static func place(parent: Node3D, kind: String, xform: Transform3D = Transform3D
 		_lamp_glow(root, LAMP_GLOWS[kind])
 	match kind:
 		"pool_inground":
-			var water := _Estate.POOL_SIZE if size.is_equal_approx(Vector3.ONE) else size
+			var water := _P.dims(used, _Estate.POOL_SIZE)
 			var surface := _Water.plane(Vector2(water.x, water.z), "frozen" if season == 1 else "pool")
 			surface.position = Vector3(0.0, _Estate.POOL_WATER_Y, 0.0)
 			root.add_child(surface)
@@ -240,7 +247,7 @@ static func place(parent: Node3D, kind: String, xform: Transform3D = Transform3D
 		"jack_o_lantern":
 			_lantern_face(root)
 		"string_lights":
-			_bulbs(root, size, str(opts.get("lights", "classic")), int(opts.get("seed", 0)))
+			_bulbs(root, used, str(opts.get("lights", "classic")), int(opts.get("seed", 0)))
 		"street_sign_post":
 			_street_names(root, opts)
 		"boat_row", "boat_motor":
@@ -416,7 +423,7 @@ static func _lantern_face(root: Node3D) -> void:
 ## white, every bulb the same, Oak Hollow), "homemade" (mismatched, a few dead),
 ## "pro" (bigger bulbs, Mansion Hill).
 static func _bulbs(root: Node3D, size: Vector3, lights: String, seed_value: int) -> void:
-	var length := _Season.RUN_LENGTH if size.is_equal_approx(Vector3.ONE) else size.x
+	var length := _P.dims(size, Vector3(_Season.RUN_LENGTH, 0.0, 0.0)).x
 	var points := _Season.bulb_points(length)
 	var bulb := SphereMesh.new()
 	var radius := 0.065 if lights == "pro" else 0.045
