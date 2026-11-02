@@ -267,6 +267,10 @@ func _release_held(peer_id: int) -> void:
 	for node: Node in get_tree().get_nodes_in_group("props"):
 		if int(node.get("held_by")) == peer_id and node.has_method("force_release"):
 			node.call("force_release")
+	# And they empty your pockets, right there on the yard (net/components/hotbar.gd).
+	var hotbar := get_tree().get_first_node_in_group("hotbar")
+	if hotbar != null:
+		hotbar.call("host_empty_pockets", peer_id, "confiscated")
 
 
 func _log(event_name: String, data: Dictionary) -> void:

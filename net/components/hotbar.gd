@@ -1,0 +1,444 @@
+extends Node
+
+## Authority: host. The hotbar, or "pockets" (docs/GAME.md, "2026-11-01, the
+## hotbar"): five slots of things you carry, keys 1 to 5. What anyone carries
+## lives on the props themselves (net/components/net_prop.gd held_by,
+## pocketed_by, pocket_slot), so it replicates and late-joins for free; this node
+## only keeps each peer's selected slot and decides, on the host, what comes out
+## into whose hands. Clients ask (request_select); the host validates and settles;
+## the result replicates through the props. Built on every peer like
+## World/Brawl, so the RPCs have the same path everywhere.
+##
+## The host's one invariant lives in host_settle: at most one prop held per peer,
+## and every other pocket item pocketed. With a big item (arms, shoulder, push) in
+## hand, every pocket item stays pocketed. Settle always pockets before it draws.
+
+const REFUSE: int = -2
+const BIG: int = -1
+
+## peer id -> selected slot, -1 for bare hands. Host only.
+var _selected: Dictionary = {}
+## peer id -> where they last stood in the yard, sampled each physics tick on the
+## host, so emptied pockets land on the yard, not wherever a teleport took them.
+var _last_lot_spot: Dictionary = {}
+
+
+func _ready() -> void:
+	add_to_group("hotbar")
+	if not Net.player_zone_changed.is_connected(_on_zone_changed):
+		Net.player_zone_changed.connect(_on_zone_changed)
+	if not Net.player_left.is_connected(_on_player_left):
+		Net.player_left.connect(_on_player_left)
+
+
+# ---------------------------------------------------------------- every peer
+
+## "pocket", "arms", "shoulder" or "push" (Constants.ITEM_CARRY). Unknown kinds
+## are "arms": safe, never pocketable.
+static func carry_class(kind: String) -> String:
+	return str(Constants.ITEM_CARRY.get(kind, "arms"))
+
+
+static func is_pocketable(kind: String) -> bool:
+	return carry_class(kind) == "pocket"
+
+
+## How many of this kind fit in one slot (Constants.HOTBAR_STACK), else 1.
+static func stack_size(kind: String) -> int:
+	return maxi(1, int(Constants.HOTBAR_STACK.get(kind, 1)))
+
+
+## How many slots this peer has. One function, so a Tool Belt can change it.
+static func capacity(_peer_id: int) -> int:
+	return Constants.HOTBAR_SLOTS
+
+
+## Everything this peer carries: in hand or in a pocket.
+static func items_of(tree: SceneTree, peer_id: int) -> Array[Node]:
+	var items: Array[Node] = []
+	if peer_id == 0:
+		return items
+	for node: Node in tree.get_nodes_in_group("props"):
+		if node.is_queued_for_deletion():
+			continue
+		if int(node.get("held_by")) == peer_id or int(node.get("pocketed_by")) == peer_id:
+			items.append(node)
+	return items
+
+
+## capacity(peer) entries, each the props in that slot, sorted by node name (the
+## same on every peer). The first of a stack is the one that comes out.
+static func slots_of(tree: SceneTree, peer_id: int) -> Array:
+	var count := capacity(peer_id)
+	var slots: Array = []
+	for _index: int in count:
+		slots.append([])
+	for item: Node in items_of(tree, peer_id):
+		var slot := int(item.get("pocket_slot"))
+		if slot >= 0 and slot < count and is_pocketable(str(item.get("kind"))):
+			(slots[slot] as Array).append(item)
+	for slot: Array in slots:
+		slot.sort_custom(func(a: Node, b: Node) -> bool: return str(a.name) < str(b.name))
+	return slots
+
+
+## Whether one more of this pocket kind fits: an empty slot, or a stack of the
+## same kind with room. What the pickup prompt checks before saying "Pockets full".
+static func has_room(tree: SceneTree, peer_id: int, kind: String) -> bool:
+	var stack := stack_size(kind)
+	for slot: Array in slots_of(tree, peer_id):
+		if slot.is_empty():
+			return true
+		if stack > 1 and str(slot[0].get("kind")) == kind and slot.size() < stack:
+			return true
+	return false
+
+
+## The big item (not pocketable) this peer holds in both hands, or null.
+static func arms_item(tree: SceneTree, peer_id: int) -> Node:
+	for item: Node in items_of(tree, peer_id):
+		if int(item.get("held_by")) == peer_id and not is_pocketable(str(item.get("kind"))):
+			return item
+	return null
+
+
+## Whatever this peer has in hand, or null.
+static func in_hand(tree: SceneTree, peer_id: int) -> Node:
+	for item: Node in items_of(tree, peer_id):
+		if int(item.get("held_by")) == peer_id:
+			return item
+	return null
+
+
+## What every player carries, keyed by player name, for net/dev/probe.gd: slots
+## as [kind, count] ("" and 0 when empty), the kind in hand, and grip_ok (whether
+## the held item's grips resolve on this peer; hotbar chunk C makes it real).
+static func snapshot(tree: SceneTree) -> Dictionary:
+	var out: Dictionary = {}
+	var names: Array[String] = []
+	var ids: Dictionary = {}
+	for node: Node in tree.get_nodes_in_group("players"):
+		var peer_id := node.name.to_int()
+		if peer_id <= 0:
+			continue
+		var shown := Net.player_name(peer_id)
+		if shown == "":
+			shown = str(peer_id)
+		names.append(shown)
+		ids[shown] = peer_id
+	names.sort()
+	for shown: String in names:
+		var peer_id := int(ids[shown])
+		var slots: Array = []
+		for slot: Array in slots_of(tree, peer_id):
+			slots.append([str(slot[0].get("kind")) if not slot.is_empty() else "", slot.size()])
+		var hand := in_hand(tree, peer_id)
+		out[shown] = {"slots": slots, "hand": str(hand.get("kind")) if hand != null else "", "grip_ok": true}
+	return out
+
+
+## Ask to have this slot in hand (-1 puts your hands away). The caller resolves
+## "the same number again means bare hands" (player/pockets.gd select), so the
+## host applies exactly what was asked.
+func request_select(slot: int) -> void:
+	if Net.is_host():
+		_handle_select(Net.local_peer_id(), slot)
+	else:
+		_rpc_request_select.rpc_id(1, slot)
+
+
+# ---------------------------------------------------------------- host
+
+## The slot this peer has selected on the host, -1 for bare hands. New players
+## start on slot 1, so the first pickup lands there.
+func selected_of(peer_id: int) -> int:
+	return int(_selected.get(peer_id, 0))
+
+
+func _handle_select(peer_id: int, slot: int) -> void:
+	var player := _player(peer_id)
+	if player == null:
+		return
+	var count := capacity(peer_id)
+	if slot < -1 or slot >= count:
+		_send_selected(peer_id, selected_of(peer_id))
+		return
+	# Bare hands are always allowed: hiding, piles and cots put your hands away.
+	if slot >= 0:
+		if arms_item(get_tree(), peer_id) != null:
+			host_refuse(peer_id, "arms_full")
+			_send_selected(peer_id, selected_of(peer_id))
+			return
+		if _busy(player) or float(player.call("wind_up_seconds")) >= 0.0:
+			_send_selected(peer_id, selected_of(peer_id))
+			return
+	_selected[peer_id] = slot
+	host_settle(peer_id)
+
+
+## Where a pickup goes: REFUSE (-2) when the arms are full or there's no room
+## (refusal_reason says which), BIG (-1) for a thing that fills both hands, else
+## the slot: a stack of the same kind with room, the selected slot if it's empty,
+## or the first empty one.
+func host_slot_for_pickup(peer_id: int, prop: Node) -> int:
+	if arms_item(get_tree(), peer_id) != null:
+		return REFUSE
+	var kind := str(prop.get("kind"))
+	if not is_pocketable(kind):
+		return BIG
+	var slots := slots_of(get_tree(), peer_id)
+	var stack := stack_size(kind)
+	if stack > 1:
+		for index: int in slots.size():
+			var slot: Array = slots[index]
+			if not slot.is_empty() and str(slot[0].get("kind")) == kind and slot.size() < stack and not slot.has(prop):
+				return index
+	var selected := selected_of(peer_id)
+	if selected >= 0 and selected < slots.size() and (slots[selected] as Array).is_empty():
+		return selected
+	for index: int in slots.size():
+		if (slots[index] as Array).is_empty():
+			return index
+	return REFUSE
+
+
+## Why host_slot_for_pickup refused: "arms_full" or "full".
+func refusal_reason(peer_id: int) -> String:
+	return "arms_full" if arms_item(get_tree(), peer_id) != null else "full"
+
+
+## Select a slot without asking (a pickup moves the selection to where it went).
+func host_select_silently(peer_id: int, slot: int) -> void:
+	_selected[peer_id] = slot
+	_send_selected(peer_id, slot)
+
+
+## Make hands and pockets match the selection: every pocket item that shouldn't
+## be in hand goes in its pocket first, then the first of the selected slot's
+## stack comes out, unless a big item fills the hands. Also repairs pocket items
+## without a slot (say one was handed over by older code): they get the first
+## slot with room, or are set down if there is none.
+func host_settle(peer_id: int) -> void:
+	var tree := get_tree()
+	var player := _player(peer_id)
+	var count := capacity(peer_id)
+	for item: Node in items_of(tree, peer_id):
+		var kind := str(item.get("kind"))
+		if not is_pocketable(kind):
+			if int(item.get("pocket_slot")) != -1:
+				item.set("pocket_slot", -1)
+			continue
+		var slot := int(item.get("pocket_slot"))
+		if slot >= 0 and slot < count:
+			continue
+		var room := _room_for(peer_id, item)
+		if room >= 0:
+			item.set("pocket_slot", room)
+		else:
+			var at: Vector3 = (player as Node3D).global_position + Vector3(0.0, 0.5, 0.0) if player != null else (item as Node3D).global_position
+			item.call("host_unown", at, Vector3.ZERO)
+	var want: Node = null
+	var selected := selected_of(peer_id)
+	if arms_item(tree, peer_id) == null and selected >= 0 and player != null and not _busy(player):
+		var slots := slots_of(tree, peer_id)
+		if selected < slots.size() and not (slots[selected] as Array).is_empty():
+			want = (slots[selected] as Array)[0]
+	for item: Node in items_of(tree, peer_id):
+		if item != want and int(item.get("held_by")) == peer_id and is_pocketable(str(item.get("kind"))):
+			item.call("host_pocket", peer_id)
+	if want != null and int(want.get("held_by")) != peer_id:
+		want.call("host_draw", peer_id)
+
+
+## A big pickup is coming: the pocket item in hand goes in its pocket first.
+## The selection stays, so setting the big thing down draws it again.
+func host_clear_hands(peer_id: int) -> void:
+	for item: Node in items_of(get_tree(), peer_id):
+		if int(item.get("held_by")) == peer_id and is_pocketable(str(item.get("kind"))):
+			item.call("host_pocket", peer_id)
+
+
+## Hands away entirely (a Chefty seat, critic C23): bare hands, and a big item is set down.
+func host_stow_hands(peer_id: int) -> void:
+	_selected[peer_id] = -1
+	_send_selected(peer_id, -1)
+	var big := arms_item(get_tree(), peer_id)
+	if big != null:
+		big.call("force_release")
+	host_settle(peer_id)
+
+
+## Everything this peer carries pops out where they were on the yard, a little
+## apart, and they hear why: "confiscated" (the NICE BOYS), "left" (walked off
+## the job), "gone" (disconnected; nobody to tell).
+func host_empty_pockets(peer_id: int, reason: String) -> void:
+	var items := items_of(get_tree(), peer_id)
+	_selected[peer_id] = -1
+	if items.is_empty():
+		return
+	var player := _player(peer_id)
+	var center: Vector3 = _last_lot_spot.get(peer_id, (player as Node3D).global_position if player != null else (items[0] as Node3D).global_position)
+	center = _on_pad(center)
+	var radius := 0.0 if items.size() == 1 else maxf(Constants.CONFISCATE_SPREAD, Constants.CONFISCATE_SPREAD * float(items.size()) / TAU)
+	for index: int in items.size():
+		var angle := TAU * float(index) / float(items.size())
+		var at := center + Vector3(cos(angle), 0.0, sin(angle)) * radius + Vector3(0.0, 0.5, 0.0)
+		# Each one pops a little higher than the last, so they land one after another: itemized.
+		var pop := Vector3.UP * Constants.CONFISCATE_POP * (1.0 + 0.2 * float(index))
+		items[index].call("host_unown", at, pop)
+	if reason != "gone":
+		_send_selected(peer_id, -1)
+		_send_notice(peer_id, reason)
+
+
+## Tell this peer no, and why ("full", "arms_full").
+func host_refuse(peer_id: int, reason: String) -> void:
+	if peer_id == Net.local_peer_id():
+		_on_refused_local(reason)
+	elif Net.peer_ids().has(peer_id):
+		_rpc_refused.rpc_id(peer_id, reason)
+
+
+func _physics_process(_delta: float) -> void:
+	if multiplayer.multiplayer_peer == null or not Net.is_host():
+		return
+	var tree := get_tree()
+	for node: Node in tree.get_nodes_in_group("players"):
+		var player := node as Node3D
+		var peer_id := node.name.to_int()
+		if player == null or peer_id <= 0:
+			continue
+		if Net.player_zone(peer_id) == Net.Zone.LOT:
+			_last_lot_spot[peer_id] = player.global_position
+		# Nothing in hand but something selected (a held bag went into Chefty, say):
+		# the selected item comes back out.
+		var selected := selected_of(peer_id)
+		if selected >= 0 and in_hand(tree, peer_id) == null and not _busy(player):
+			var slots := slots_of(tree, peer_id)
+			if selected < slots.size() and not (slots[selected] as Array).is_empty():
+				host_settle(peer_id)
+
+
+## Leaving the yard mid-job (to the store, say) leaves your stuff where you last
+## stood on it. In the connected town walking to the curb changes zones all the
+## time, so there the rule is distance from the site instead (critic C23, the
+## driving spec's chunk D), not zone changes.
+func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
+	if not Net.is_host() or zone == Net.Zone.LOT or not Campaign.is_job_open():
+		return
+	var world := get_tree().get_first_node_in_group("world")
+	if world != null and world.has_method("is_town_map") and bool(world.call("is_town_map")):
+		return
+	host_empty_pockets(peer_id, "left")
+
+
+func _on_player_left(peer_id: int) -> void:
+	if not Net.is_host():
+		return
+	host_empty_pockets(peer_id, "gone")
+	_selected.erase(peer_id)
+	_last_lot_spot.erase(peer_id)
+
+
+# ---------------------------------------------------------------- helpers
+
+## A slot with room for this item, ignoring its own (invalid) slot, or -1.
+func _room_for(peer_id: int, item: Node) -> int:
+	var kind := str(item.get("kind"))
+	var slots := slots_of(get_tree(), peer_id)
+	if stack_size(kind) > 1:
+		for index: int in slots.size():
+			var slot: Array = slots[index]
+			if not slot.is_empty() and str(slot[0].get("kind")) == kind and slot.size() < stack_size(kind):
+				return index
+	for index: int in slots.size():
+		if (slots[index] as Array).is_empty():
+			return index
+	return -1
+
+
+## Hidden, in a pile, asleep or carried: nothing comes out of a pocket.
+func _busy(player: Node) -> bool:
+	return bool(player.call("is_hidden")) or bool(player.call("is_sleeping")) or int(player.get("carried_by")) != 0
+
+
+## A point pulled inside the yard's pad (Constants.PAD_RECTS), so emptied
+## pockets never land in the street or over a fence.
+func _on_pad(at: Vector3) -> Vector3:
+	var world := get_tree().get_first_node_in_group("world")
+	var zone := world.get_node_or_null("LotZone") as Node3D if world != null else null
+	if zone == null:
+		return at
+	var rect: Rect2 = Constants.PAD_RECTS.get("LotZone", Rect2(-20.0, -20.0, 40.0, 40.0))
+	var inner := rect.grow(-2.0)
+	var local := at - zone.global_position
+	if Vector2(local.x, local.z).length() > 200.0:
+		# Nowhere near the yard (it moved, or this is the store): leave it be.
+		return at
+	return zone.global_position + Vector3(clampf(local.x, inner.position.x, inner.end.x), local.y, clampf(local.z, inner.position.y, inner.end.y))
+
+
+func _player(peer_id: int) -> Node:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id):
+			return node
+	return null
+
+
+func _send_selected(peer_id: int, slot: int) -> void:
+	if peer_id == Net.local_peer_id():
+		var pockets := _local_pockets()
+		if pockets != null:
+			pockets.call("on_selected", slot)
+	elif Net.peer_ids().has(peer_id):
+		_rpc_selected.rpc_id(peer_id, slot)
+
+
+func _send_notice(peer_id: int, kind: String) -> void:
+	if peer_id == Net.local_peer_id():
+		_on_notice_local(kind)
+	elif Net.peer_ids().has(peer_id):
+		_rpc_notice.rpc_id(peer_id, kind)
+
+
+func _local_pockets() -> Node:
+	var player := _player(Net.local_peer_id())
+	return player.get_node_or_null("Pockets") if player != null else null
+
+
+func _on_refused_local(reason: String) -> void:
+	var pockets := _local_pockets()
+	if pockets != null:
+		pockets.call("on_refused", reason)
+
+
+func _on_notice_local(kind: String) -> void:
+	var pockets := _local_pockets()
+	if pockets != null:
+		pockets.call("on_notice", kind)
+
+
+# ---------------------------------------------------------------- RPCs
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_select(slot: int) -> void:
+	if Net.is_host():
+		_handle_select(multiplayer.get_remote_sender_id(), slot)
+
+
+## Host to the owner: your selection is this (after a refusal or a pickup).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_selected(slot: int) -> void:
+	var pockets := _local_pockets()
+	if pockets != null:
+		pockets.call("on_selected", slot)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_refused(reason: String) -> void:
+	_on_refused_local(reason)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_notice(kind: String) -> void:
+	_on_notice_local(kind)

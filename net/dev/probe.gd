@@ -182,6 +182,8 @@ func write_report() -> void:
 		"crew_cast": _crew_cast(),
 		"audio_test": preload("res://net/dev/audio_test.gd").result.duplicate(true),
 		"audio": _audio(),
+		"hotbar_test": preload("res://net/dev/hotbar_test.gd").result.duplicate(true),
+		"hotbar": preload("res://net/components/hotbar.gd").snapshot(get_tree()),
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
 		"town": _town(),

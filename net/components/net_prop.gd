@@ -3,6 +3,7 @@ extends RigidBody3D
 const _PropLooks = preload("res://props/prop_looks.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _WaterSources = preload("res://net/work/water_sources.gd")
+const _Hotbar = preload("res://net/components/hotbar.gd")
 
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
@@ -27,8 +28,14 @@ const _WaterSources = preload("res://net/work/water_sources.gd")
 	set(value):
 		stored_bags = value
 		_refresh_label()
-## Peer id holding this prop, or 0. Replicated.
+## Peer id holding this prop in hand, or 0. Replicated.
 @export var held_by: int = 0
+## Peer id with this prop in a pocket (not in hand), or 0 (net/components/hotbar.gd).
+## Replicated. "Lying free in the world" is is_loose(), never held_by == 0 alone.
+@export var pocketed_by: int = 0
+## Its hotbar slot while held or pocketed, -1 when it's in nobody's slot (loose,
+## or a big item in both hands). Replicated.
+@export var pocket_slot: int = -1
 ## A leaf bag's worth in dollars, set by the host from the leaves that went in. Replicated.
 @export var value: int = 0:
 	set(new_value):
@@ -100,10 +107,25 @@ func _physics_process(_delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
 	# A carried prop must not stay solid. Moving a colliding body into the player launches them.
-	_set_solid(held_by == 0)
+	_set_solid(is_loose())
 	if Net.is_host() and ladder_top != Vector3.ZERO:
 		freeze = true
 	_refresh_label()
+	# In someone's pocket: out of sight until the stowed looks (hotbar chunk D)
+	# pose it on their body.
+	%Visual.visible = pocketed_by == 0
+	if pocketed_by == 0:
+		_pose_look()
+	if Net.is_host():
+		_host_step()
+	elif held_by == Net.local_peer_id():
+		var player := _player(held_by)
+		if player != null:
+			%Visual.global_position = _hold_position(player)
+
+
+## Every peer: the look follows its holder's hands (props/prop_looks.gd).
+func _pose_look() -> void:
 	if kind == "rake":
 		var holder := _player(held_by) if held_by != 0 else null
 		var raking := held_by == Net.local_peer_id() and Input.is_action_pressed("primary")
@@ -112,12 +134,54 @@ func _physics_process(_delta: float) -> void:
 		_PropLooks.pose_ladder_up(self, ladder_top)
 	elif Constants.TOOL_PRICES.has(kind):
 		_PropLooks.pose_tool(self, _player(held_by) if held_by != 0 else null)
-	if Net.is_host():
-		_host_step()
-	elif held_by == Net.local_peer_id():
-		var player := _player(held_by)
-		if player != null:
-			%Visual.global_position = _hold_position(player)
+
+
+## Lying free in the world: nobody holds it or has it in a pocket. Any check that
+## means "free to pick up, mow over, load" uses this.
+func is_loose() -> bool:
+	return held_by == 0 and pocketed_by == 0
+
+
+## Host (net/components/hotbar.gd): into this peer's pocket. It keeps its slot;
+## a tool stops running, except a hose, which stays hooked up.
+func host_pocket(peer_id: int) -> void:
+	held_by = 0
+	pocketed_by = peer_id
+	if kind != "hose":
+		spraying = false
+	_airborne = false
+	_runaway_left = 0.0
+	_set_solid(false)
+
+
+## Host: out of this peer's pocket into their hands.
+func host_draw(peer_id: int) -> void:
+	pocketed_by = 0
+	held_by = peer_id
+	_airborne = false
+	_set_solid(false)
+
+
+## Host: nobody's any more (emptied pockets, a player gone). It lands at `at`,
+## solid again, popping off with this velocity.
+func host_unown(at: Vector3, pop: Vector3) -> void:
+	held_by = 0
+	pocketed_by = 0
+	pocket_slot = -1
+	_airborne = false
+	global_position = at
+	_set_solid(true)
+	linear_velocity = pop
+	angular_velocity = Vector3.ZERO
+
+
+## Whoever carries this, in hand or in a pocket, or 0.
+func _carrier_id() -> int:
+	return held_by if held_by != 0 else pocketed_by
+
+
+func _hotbar() -> Node:
+	return get_tree().get_first_node_in_group("hotbar")
 
 
 ## What this weighs in kg (Constants.ITEM_WEIGHT_KG). A bag gets heavier with
@@ -199,6 +263,10 @@ func _place_ladder(peer_id: int) -> void:
 	global_position = foot
 	rotation = Vector3.ZERO
 	ladder_top = top
+	# Hands free again: the selected pocket item comes back out.
+	var hotbar := _hotbar()
+	if hotbar != null:
+		hotbar.call("host_settle", peer_id)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -271,7 +339,8 @@ func _mower_hits(holder: Node3D, heading: Vector3 = Vector3.ZERO) -> void:
 			_rpc_mower_fx.rpc("clank", at)
 	for node: Node in get_tree().get_nodes_in_group("props"):
 		var other := node as Node3D
-		if other == null or other == self or int(other.get("held_by")) != 0 and str(other.get("kind")) != "hose":
+		# Only what lies loose; a hooked-up hose's line can be cut wherever its nozzle is.
+		if other == null or other == self or not bool(other.call("is_loose")) and str(other.get("kind")) != "hose":
 			continue
 		var key := other.get_instance_id()
 		if int(_mower_hit_at.get(key, 0)) > now:
@@ -451,7 +520,7 @@ func _step_hose(delta: float) -> void:
 		var tip := _whip_from.lerp(global_position, t * t) + across * sin(t * PI) * 3.0 + Vector3.UP * sin(t * PI) * 1.2
 		for node: Node in get_tree().get_nodes_in_group("players"):
 			var person := node as Node3D
-			if person == null or _whipped.has(person) or person.name == str(held_by):
+			if person == null or _whipped.has(person) or person.name == str(_carrier_id()):
 				continue
 			if (person.global_position + Vector3(0.0, 1.0, 0.0)).distance_to(tip) < Constants.HOSE_WHIP_RADIUS:
 				_whipped.append(person)
@@ -470,8 +539,8 @@ func _step_hose(delta: float) -> void:
 		_whipped.clear()
 		hose_source = ""
 		_rpc_hose_snap.rpc(_whip_from)
-		# The one holding it gets yanked too.
-		var holder := _player(held_by) if held_by != 0 else null
+		# The one holding it (or with it over their shoulder) gets yanked too.
+		var holder := _player(_carrier_id()) if _carrier_id() != 0 else null
 		if holder != null:
 			_rpc_bonk_fx.rpc(get_path_to(holder), "light", (_whip_from - holder.global_position).normalized() * 3.0)
 
@@ -519,10 +588,23 @@ func _host_step() -> void:
 	var kg := weight_kg()
 	if not is_equal_approx(mass, kg):
 		mass = kg
+	# In a pocket: it rides along with its owner, out of everyone's way. A hooked-up
+	# hose still snaps if they walk too far (_step_hose ran above).
+	if pocketed_by != 0:
+		var carrier := _player(pocketed_by)
+		if carrier == null:
+			host_unown(global_position, Vector3.ZERO)
+			return
+		global_position = carrier.global_position + Vector3(0.0, Constants.POCKET_FOLLOW_HEIGHT, 0.0)
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
+		_runaway_left = 0.0
+		return
 	if held_by != 0:
 		var player := _player(held_by)
 		if player == null:
 			held_by = 0
+			pocket_slot = -1
 			_set_solid(true)
 			return
 		_runaway_left = 0.0
@@ -559,28 +641,61 @@ func _host_step() -> void:
 
 
 func _handle_grab(peer_id: int) -> void:
-	if held_by != 0:
+	if not is_loose():
 		return
-	# One thing at a time: hands full means no grabbing.
-	for node: Node in get_tree().get_nodes_in_group("props"):
-		if int(node.get("held_by")) == peer_id:
-			return
 	var player := _player(peer_id)
 	if player == null or player.global_position.distance_to(global_position) > GRAB_REACH:
 		return
-	held_by = peer_id
+	var hotbar := _hotbar()
+	var slot := -1
+	if hotbar == null:
+		# No pockets (a scene without World/Hotbar): one thing at a time.
+		for node: Node in get_tree().get_nodes_in_group("props"):
+			if int(node.get("held_by")) == peer_id:
+				return
+	else:
+		# The hotbar decides: a pocket item goes in a slot and comes out into your
+		# hands; a big one fills them, after the pocket item in hand goes away.
+		slot = int(hotbar.call("host_slot_for_pickup", peer_id, self))
+		if slot == _Hotbar.REFUSE:
+			hotbar.call("host_refuse", peer_id, hotbar.call("refusal_reason", peer_id))
+			return
 	_airborne = false
+	_runaway_left = 0.0
 	# Taking a set-up ladder down: anyone on it falls.
 	if ladder_top != Vector3.ZERO:
 		ladder_top = Vector3.ZERO
 	_set_solid(false)
+	if hotbar == null:
+		held_by = peer_id
+		return
+	if slot >= 0:
+		pocket_slot = slot
+		pocketed_by = peer_id
+		hotbar.call("host_select_silently", peer_id, slot)
+		hotbar.call("host_settle", peer_id)
+	else:
+		hotbar.call("host_clear_hands", peer_id)
+		pocket_slot = -1
+		held_by = peer_id
 
 
 func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0) -> void:
 	if held_by != peer_id:
 		return
+	_release(peer_id, direction, power)
+	# What's next in hand: the next sign of a stack, or the selected pocket item
+	# again once a big thing is set down.
+	var hotbar := _hotbar()
+	if hotbar != null:
+		hotbar.call("host_settle", peer_id)
+
+
+func _release(peer_id: int, direction: Vector3, power: float) -> void:
 	var player := _player(peer_id)
 	held_by = 0
+	# Out of its slot: the slot stays selected, and empty.
+	pocket_slot = -1
 	if player != null:
 		var forward := -player.global_transform.basis.z
 		forward.y = 0.0
@@ -806,7 +921,7 @@ func _rpc_request_load_truck() -> void:
 
 
 func _try_load_bag() -> void:
-	if kind != "leaf_bag" or held_by != 0:
+	if kind != "leaf_bag" or not is_loose():
 		return
 	# Tossed into Chefty's bed: it's loaded.
 	var truck := get_tree().get_first_node_in_group("chefty")
@@ -838,7 +953,7 @@ func receive_bag(bag_value: int = 0) -> bool:
 
 
 func _try_unload_wheelbarrow() -> void:
-	if kind != "wheelbarrow" or held_by != 0 or stored_bags <= 0 or not _airborne:
+	if kind != "wheelbarrow" or not is_loose() or stored_bags <= 0 or not _airborne:
 		return
 	var truck := get_tree().get_first_node_in_group("chefty")
 	if truck == null:
@@ -889,7 +1004,7 @@ func _refresh_label() -> void:
 	# Bags show what they're worth, so a fat bag from a big pile reads as a prize.
 	%Label.visible = kind == "wheelbarrow" or (kind == "leaf_bag" and value > 0)
 	# Not on the thing in your own hands: it would sit in the middle of your view.
-	if held_by != 0 and held_by == Net.local_peer_id():
+	if held_by != 0 and held_by == Net.local_peer_id() or pocketed_by != 0:
 		%Label.visible = false
 	if kind == "wheelbarrow":
 		var capacity := Campaign.wheelbarrow_capacity()

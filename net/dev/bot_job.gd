@@ -175,14 +175,14 @@ func _random_spot(field: Node) -> Vector3:
 func _loose_bags(tree: SceneTree) -> Array:
 	var bags: Array = []
 	for node: Node in tree.get_nodes_in_group("props"):
-		if str(node.get("kind")) == "leaf_bag" and int(node.get("held_by")) == 0:
+		if str(node.get("kind")) == "leaf_bag" and bool(node.call("is_loose")):
 			bags.append(node)
 	return bags
 
 
 func _free_rake(tree: SceneTree) -> Node3D:
 	for node: Node in tree.get_nodes_in_group("props"):
-		if str(node.get("kind")) == "rake" and int(node.get("held_by")) == 0:
+		if str(node.get("kind")) == "rake" and bool(node.call("is_loose")):
 			return node as Node3D
 	return null
 

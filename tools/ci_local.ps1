@@ -140,6 +140,12 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-hour=8 --audio-test'; Seconds = 45; Port = 7811
 		Check = { param($h, $c) [bool]$h.audio_test.ok }
 	}
+	# Pockets: slots, stacks, hands full, emptied pockets; the client must see the same pockets.
+	hotbar = @{
+		Port = 7809
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --hotbar-test'; Seconds = 60; Client = 55
+		Check = { param($h, $c) [bool]$h.hotbar_test.ok -and (Same $h.hotbar $c.hotbar) }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

@@ -272,6 +272,28 @@ const UI: Dictionary = {
 	"phone_poached": "With TurfMasters™ now. Win them back: great work on their street, or pull the signs.",
 	"summary_quit": "%s quit (no pay)",
 	"clerk_name": "Marty",
+	# ---- hotbar
+	# The pockets (net/components/hotbar.gd, player/pockets.gd). What things are
+	# called; tools use their tool_<kind> name (item_name below).
+	"item_rake": "Rake",
+	"item_leaf_bag": "Leaf bag",
+	"item_gnome": "Garden gnome",
+	"item_trash": "Trash can",
+	"item_wheelbarrow": "Wheelbarrow",
+	"item_turf_sign": "TurfMasters™ sign",
+	"hotbar_fists": "Bare hands",
+	"hotbar_full": "Pockets full. Drop something ({key:drop}).",
+	"hotbar_arms_full": "Hands full. {key:drop} sets it down.",
+	"hotbar_confiscated": "The NICE BOYS emptied your pockets. Itemized. In triplicate.",
+	"hotbar_left": "You left the job. Your stuff stayed on the yard.",
+	"prompt_pockets_full": "Pockets full",
+	"action_slot_1": "Pocket 1",
+	"action_slot_2": "Pocket 2",
+	"action_slot_3": "Pocket 3",
+	"action_slot_4": "Pocket 4",
+	"action_slot_5": "Pocket 5",
+	"action_slot_next": "Next pocket",
+	"action_slot_prev": "Previous pocket",
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -936,6 +958,16 @@ static func shop_item_name(id: String) -> String:
 
 static func shop_item_blurb(id: String) -> String:
 	return str(SHOP_UI.get("item_blurb_" + id, ""))
+
+
+## What a prop kind is called, for the hotbar and pickup prompts: UI item_<kind>,
+## else the tool's name (tool_<kind>), else a shop item's, else the kind itself.
+static func item_name(kind: String) -> String:
+	if UI.has("item_" + kind):
+		return str(UI["item_" + kind])
+	if UI.has("tool_" + kind):
+		return str(UI["tool_" + kind])
+	return str(SHOP_UI.get("item_" + kind, kind))
 
 
 # ---------------------------------------------------------------- cast
