@@ -17,13 +17,13 @@ extends RefCounted
 ##   buff        the buff a snack gives (Constants.BUFFS); "sandwich" rolls full or queasy
 ##   slot        cosmetics: hat | shirt | paint | decal
 ##   style       hats: the CartoonBody hat_style it wears
-##   seasons     sold only in these seasons (ids of SEASON_IDS)
+##   seasons     sold only in these seasons (ids of Seasons.IDS)
 ##   gate        the rank unlock that puts it on sale; default "shop:<id>" (open from the start
 ##               unless core/ranks.gd lists it)
 ##   model       what a shelf shows (props/shop_models.gd, props/yard_models.gd)
 
-## The order is core/seasons.gd's: Seasons.of_day() indexes it.
-const SEASON_IDS: Array[String] = ["autumn", "winter", "spring", "summer"]
+## Season ids are core/seasons.gd's Seasons.IDS (Seasons.of_day() indexes it);
+## Catalog keeps no list of its own.
 
 ## Tool tiers, as ints everywhere (Campaign.tool_tier).
 const TIER_NONE: int = -1
@@ -211,7 +211,7 @@ static func is_in_season(id: String, season: Variant) -> bool:
 		return true
 	var season_id := str(season)
 	if typeof(season) == TYPE_INT:
-		season_id = SEASON_IDS[posmod(int(season), SEASON_IDS.size())]
+		season_id = Seasons.IDS[posmod(int(season), Seasons.IDS.size())]
 	return seasons.has(season_id)
 
 
