@@ -9,8 +9,10 @@ extends Node
 ##                low-pass muffles and unmuffles
 ##   sfx_node     Sfx lives at UIRoot/Audio/Sfx in group "sfx"
 ##   sfx_api      play and play_at log, the bank's gap throttles, unknown ids are caught
-##   ride_truck   Chefty's departure sound rides along with the truck to the lot
-##   positional   a bag, a throw and a heavy bonk on the lot play positionally
+##   ride_truck   Chefty's departure sound is a play_on the truck's body (Sfx.placed),
+##                and the ride reaches the lot
+##   positional   a bag, a throw and a heavy bonk on the lot are play_at where they
+##                happened (Sfx.placed), not 2D
 ##   no_unknown   nothing asked Sfx for an unregistered id during the whole run
 ## Each step prints an [AudioTest] line. Later chunks add the music checks.
 
@@ -137,12 +139,13 @@ func _source_scan() -> bool:
 					bad.append("%s: %s" % [script_path.get_file(), found.get_string(1)])
 	(result["unknown_ids"] as Array).append_array(bad)
 	print("[AudioTest] scanned %d scripts, %d sound ids named; unregistered %s" % [scripts.size(), ids_seen, bad])
-	# The scanner itself: it reads ids out of a ternary and a lookup, and leaves
-	# comparisons, nested calls and an AnimationPlayer alone.
+	# The scanner itself: it reads ids out of a ternary and a list, and leaves
+	# comparisons, lookups, nested calls and an AnimationPlayer alone.
 	var samples := {
 		"\tsfx.call(\"play_at\", \"thud\" if tier == \"heavy\" else \"bonk\", at)": ["thud", "bonk"],
 		"\tsay_to_all(\"vo_yelp\" if is_in_group(\"vans\") else \"vo_ah\")": ["vo_yelp", "vo_ah"],
 		"\t_speak(str(staging[\"sound\"]))": [],
+		"\tplayer.call(\"say\", [\"vo_hup\", \"vo_eh\"][randi() % 3])": ["vo_hup", "vo_eh"],
 		"\t_anim.play(\"walk\")": [],
 	}
 	var scanner_ok := true
@@ -195,7 +198,7 @@ func _args_after(line: String, from: int) -> String:
 
 
 ## The string literals in a call's arguments that are sound ids: not dictionary
-## keys ("a": ...), not compared against (== "a"), not indexes (["a"]) and not
+## keys ("a": ...), not compared against (== "a"), not indexes (x["a"]) and not
 ## arguments of a call nested inside (is_in_group("a")).
 func _ids_in(args: String) -> Array[String]:
 	var out: Array[String] = []
@@ -206,7 +209,10 @@ func _ids_in(args: String) -> Array[String]:
 		var after := args.substr(found.get_end()).strip_edges(true, false)
 		if value == "" or value.contains("%") or after.begins_with(":"):
 			continue
-		if before.ends_with("==") or before.ends_with("!=") or before.ends_with("["):
+		if before.ends_with("==") or before.ends_with("!="):
+			continue
+		# staging["sound"] is an index; ["a", "b"][i] is a list of ids.
+		if before.ends_with("[") and before.length() > 1 and (_is_word(before[before.length() - 2]) or before[before.length() - 2] in ["]", ")"]):
 			continue
 		if before.ends_with("(") and before.length() > 1 and _is_word(before[before.length() - 2]):
 			continue
@@ -254,7 +260,7 @@ func _sfx_api(sfx: Node) -> bool:
 	var logged_once: bool = _SfxScript.log.count("tick") == before + 1 and _SfxScript.log.back() == "tick"
 	var me := _me()
 	sfx.call("play_at", "grind", me.global_position)
-	var positional: bool = _SfxScript.log.back() == "grind"
+	var positional: bool = _SfxScript.log.back() == "grind" and _placed_at("grind", me.global_position)
 	sfx.call("play", _bogus_id())
 	var caught := _SfxScript.unknown.has(_bogus_id())
 	var buses_right := _Bank.bus("babble") == _Buses.CHATTER and _Bank.bus("wind_loop") == _Buses.AMBIENCE and _Bank.bus("tick") == _Buses.UI and _Bank.bus("bonk") == _Buses.SFX and _Bank.bus("music_loop") == _Buses.MUSIC
@@ -268,15 +274,21 @@ func _ride() -> bool:
 	if chefty == null:
 		print("[AudioTest] no Chefty")
 		return false
+	var body := chefty.get("_body") as Node3D
 	var before := _SfxScript.log.count("truck")
+	_SfxScript.placed.clear()
 	chefty.call("depart", Net.players_in_zone(Net.Zone.STORE), Net.Zone.LOT)
 	await get_tree().create_timer(0.3).timeout
-	var heard := _SfxScript.log.count("truck") > before
+	# It has to ride on the truck's body, not play 2D or stay at the curb.
+	var entry := _placed("truck")
+	var on_body: bool = body != null and not entry.is_empty() and entry["kind"] == "on" and entry["node"] == str(body.get_path())
+	var heard: bool = _SfxScript.log.count("truck") > before and on_body
 	var waited := 0.0
 	while Net.player_zone(Net.local_peer_id()) != Net.Zone.LOT and waited < RIDE_TIMEOUT_SECONDS:
 		await get_tree().create_timer(0.25).timeout
 		waited += 0.25
 	var arrived := Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
+	print("[AudioTest] Chefty's truck sound %s rides on %s" % [entry, str(body.get_path()) if body != null else "no body"])
 	print("[AudioTest] Chefty's truck sound on departure %s, arrived on the lot %s after %.1f s" % [heard, arrived, waited])
 	return heard and arrived
 
@@ -287,21 +299,40 @@ func _positional() -> bool:
 	await get_tree().create_timer(0.5).timeout
 	var at := me.global_position + (-me.global_transform.basis.z) * 1.5
 	var props_before := get_tree().get_nodes_in_group("props").size()
+	_SfxScript.placed.clear()
 	world.call("_spawn_bag", at, 5)
-	var bag_heard: bool = _SfxScript.log.back() == "bag"
+	var bag_heard: bool = _SfxScript.log.back() == "bag" and _placed_at("bag", at)
 	await get_tree().create_timer(0.3).timeout
 	var props := get_tree().get_nodes_in_group("props")
 	if props.size() <= props_before:
 		print("[AudioTest] the bag never showed up")
 		return false
-	var prop := props.back() as Node
+	var prop := props.back() as Node3D
+	var where := prop.global_position
 	var before := [_SfxScript.log.count("whoosh"), _SfxScript.log.count("thud"), _SfxScript.log.count("dizzy")]
 	prop.call("_rpc_throw_fx")
 	prop.call("_rpc_bonk_fx", NodePath(), "heavy", Vector3.ZERO)
 	var after := [_SfxScript.log.count("whoosh"), _SfxScript.log.count("thud"), _SfxScript.log.count("dizzy")]
 	var fx_heard := int(after[0]) > int(before[0]) and int(after[1]) > int(before[1]) and int(after[2]) > int(before[2])
-	print("[AudioTest] bag %s; whoosh, thud, dizzy before %s and after %s" % [bag_heard, before, after])
-	return bag_heard and fx_heard
+	# With no target, the bonk plays where the prop is.
+	var fx_placed := _placed_at("whoosh", where) and _placed_at("thud", where) and _placed_at("dizzy", where)
+	print("[AudioTest] bag %s; whoosh, thud, dizzy before %s and after %s, at the prop %s" % [bag_heard, before, after, fx_placed])
+	return bag_heard and fx_heard and fx_placed
+
+
+## The latest positional play of id, or {} when it never played positionally.
+func _placed(id: String) -> Dictionary:
+	for index: int in range(_SfxScript.placed.size() - 1, -1, -1):
+		var entry: Dictionary = _SfxScript.placed[index]
+		if entry["id"] == id:
+			return entry
+	return {}
+
+
+## Whether id's latest play was a play_at at where (not 2D, not elsewhere).
+func _placed_at(id: String, where: Vector3) -> bool:
+	var entry := _placed(id)
+	return not entry.is_empty() and entry["kind"] == "at" and (entry["at"] as Vector3).distance_to(where) < 0.05
 
 
 func _bogus_id() -> String:

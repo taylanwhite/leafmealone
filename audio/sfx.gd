@@ -9,7 +9,8 @@ extends Node
 ##   play(id, db)                    2D, heard the same everywhere (UI, HUD cues)
 ##   play_at(id, at, db, wobble)     positional, heard only near where it happened
 ##   play_on(id, node, db)           positional and moving with node (a truck)
-## Headless runs (tests, bots) make no players, but every play is still logged.
+## Headless runs (tests, bots) make no players, but every play is still logged
+## (log), and the positional ones also land in placed, with where they played.
 
 const _Bank = preload("res://audio/sound_bank.gd")
 ## How many recent plays log keeps.
@@ -19,6 +20,10 @@ const LOG_SIZE: int = 200
 static var log: Array[String] = []
 ## Ids something asked for that sound_bank.gd doesn't have (each once).
 static var unknown: Array[String] = []
+## The recent positional plays, oldest first, kept even headless so tests can
+## tell a positional sound from a 2D one: {"id", "kind" ("at" or "on"), "at"
+## (where it played), "node" (the path it rides on, "" for "at")}.
+static var placed: Array[Dictionary] = []
 
 var _next_msec: Dictionary = {}
 var _last_variant: Dictionary = {}
@@ -60,7 +65,10 @@ func play_at(id: String, at: Vector3, db := 0.0, wobble := true) -> void:
 	if world == null:
 		play(id, db)
 		return
-	if not _accept(id) or _silent():
+	if not _accept(id):
+		return
+	_note_placed(id, "at", at, "")
+	if _silent():
 		return
 	var player := _player_3d(id, db, wobble)
 	if player == null:
@@ -75,7 +83,10 @@ func play_on(id: String, node: Node3D, db := 0.0) -> void:
 	if node == null or not node.is_inside_tree():
 		play(id, db)
 		return
-	if not _accept(id) or _silent():
+	if not _accept(id):
+		return
+	_note_placed(id, "on", node.global_position, str(node.get_path()))
+	if _silent():
 		return
 	var player := _player_3d(id, db, true)
 	if player == null:
@@ -113,6 +124,12 @@ func _accept(id: String) -> bool:
 	if log.size() > LOG_SIZE:
 		log.pop_front()
 	return true
+
+
+static func _note_placed(id: String, kind: String, at: Vector3, node_path: String) -> void:
+	placed.append({"id": id, "kind": kind, "at": at, "node": node_path})
+	if placed.size() > LOG_SIZE:
+		placed.pop_front()
 
 
 ## Nobody hears a headless run or the smoke test, so nothing is made there.
