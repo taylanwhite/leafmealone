@@ -248,8 +248,11 @@ static func _fence(kit: RefCounted, color: Color, size: Vector3) -> void:
 		var at := Vector3(0.0, y, 0.04) if along_x else Vector3(0.04, y, 0.0)
 		var half := Vector3(length * 0.5, 0.04, 0.025) if along_x else Vector3(0.025, 0.04, length * 0.5)
 		kit.call("rbox", at, half, color.darkened(0.2), 8.0, {"detail": 1})
-	for post: int in int(length / 2.4) + 1:
-		var t := -length * 0.5 + float(post) * length / float(int(length / 2.4))
+	# At least one span: a run shorter than a post spacing divided by zero
+	# (NaN positions, which glow smears into white blobs).
+	var spans := maxi(1, int(length / 2.4))
+	for post: int in spans + 1:
+		var t := -length * 0.5 + float(post) * length / float(spans)
 		var at := Vector3(t, size.y * 0.52, 0.05) if along_x else Vector3(0.05, size.y * 0.52, t)
 		kit.call("rbox", at, Vector3(0.06, size.y * 0.53, 0.06), color.darkened(0.25), 8.0, {"detail": 1})
 

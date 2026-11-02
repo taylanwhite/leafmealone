@@ -1805,9 +1805,11 @@ const SIGNS: Dictionary = {
 	"dandelion_entrance": "DANDELION ACRES\nMobile Home Community\nEst. 1971",
 	"dandelion_speed": "SPEED\nLIMIT\n7\n(was 15)",
 	"dandelion_office": "OFFICE\nRent due Fri. No exceptions.\nNo, not even you.",
+	"dandelion_mail": "MAIL\nBills on the left.\nMore bills on the right.",
 	# Birchwood Commons
 	"birchwood_entrance": "BIRCHWOOD COMMONS\nLuxury Living From The Low 400s",
 	"birchwood_pool": "NO LIFEGUARD ON DUTY.\nOr ever.",
+	"birchwood_sod": "PLEASE KEEP OFF\nTHE NEW SOD\n(laid in 2019)",
 	# Oak Hollow
 	"hoa_entrance": "OAK HOLLOW\nA Covenant Community",
 	"hoa_rules": "OAK HOLLOW HOA RULES\nLAWN: 2.5 IN. MAX\nMAILBOXES: APPROVED BEIGE\nFENCES: FORM 27-B\nJOY: BY PERMIT ONLY",

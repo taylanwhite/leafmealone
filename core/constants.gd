@@ -1008,3 +1008,42 @@ const ART_HOUSE_FRONT_REACH: float = 2.6
 ## piece of one worth keeping after it is split around them, in meters.
 const ART_HOUSE_LINE_CLEARANCE: float = 0.1
 const ART_HOUSE_MIN_LINE: float = 0.4
+
+# ---- art blocks
+# The parcel, street and block builders (levels/town/lot_builder.gd,
+# street_builder.gd, block_builder.gd, set_pieces.gd, season_dressing.gd; art chunk 5).
+## A parcel's depth, street edge to back edge (the job yard's 40 m: its front is at +20).
+const ART_PARCEL_DEPTH: float = 40.0
+## How far a parcel's lawn, drive and walk boxes sit above (top) its origin, so the
+## lawn never fights the Surroundings ground (top -0.02) or the job yard's floor (0).
+const ART_LAWN_TOP: float = -0.005
+const ART_DRIVE_TOP: float = 0.05
+const ART_WALK_TOP: float = 0.04
+## Draw calls one house may make (levels/town/house_builder.gd; HouseKit paints per vertex).
+const ART_HOUSE_MAX_DRAW_CALLS: int = 10
+## Tries per prop when a parcel looks for a free spot on its lawn.
+const ART_PARCEL_SPOT_TRIES: int = 16
+## How many violation flags on a block show their NOTICE OF VIOLATION words (the rest batch).
+const ART_VIOLATION_LABELS: int = 3
+## A far-side parcel whose house would sit within this many meters of the NICE BOYS
+## van's way out (the lot's PI * 0.75 corridor, levels/world.gd) is left a vacant lot.
+const ART_VAN_CORRIDOR_HALF: float = 13.0
+const ART_VAN_ANGLE: float = PI * 0.75
+## Mansion Hill's far side sits up on a terrace this tall (levels/town/set_pieces.gd).
+const ART_TERRACE_HEIGHT: float = 3.0
+## Where Lakeside's shore is (lot z) and how far the lake reaches past it.
+const ART_LAKE_SHORE_Z: float = -30.0
+const ART_LAKE_LENGTH: float = 230.0
+## The back boundary wall or fence behind the yards (lot z).
+const ART_BACK_BOUNDARY_Z: float = -24.0
+## Street trees and lamps keep this far from each other along the street, in meters.
+const ART_STREET_TREE_SPACING: float = 24.0
+## Cars parked along a block's street (the far lane; the near lane only past
+## where Chefty parks, x > ART_NEAR_PARKING_FROM_X).
+const ART_STREET_CARS: int = 3
+const ART_NEAR_PARKING_FROM_X: float = 12.0
+## Speed bumps only where Chefty never drives (lot x > this).
+const ART_SPEED_BUMP_FROM_X: float = 12.0
+## Grass across a block: the square's half size and the tuft spacing (props/grass.gd).
+const ART_BLOCK_GRASS_HALF: float = 70.0
+const ART_BLOCK_GRASS_SPACING: float = 0.48

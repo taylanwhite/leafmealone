@@ -2,9 +2,10 @@ extends RefCounted
 
 ## Authority: local, cosmetic. A batched builder for architecture: boxes,
 ## prisms, hip roofs, cylinders, windows, and glows, merged into one mesh per
-## material (surface, color, accent, params, snow), so a whole house is about
-## ten draw calls instead of seventy MeshInstance3Ds. Painted by the procedural
-## surface shader (props/surfaces.gd); glass and glows keep their own materials.
+## pattern (and params), every color painted per vertex (paint_per_vertex), so a
+## whole house is five to nine draw calls instead of seventy MeshInstance3Ds.
+## Painted by the procedural surface shader (props/surfaces.gd, painted());
+## glass and glows keep their own materials.
 ##
 ## Usage:
 ##   var kit := HouseKit.new()
@@ -38,8 +39,12 @@ class Bucket extends RefCounted:
 	var params := Vector4.ZERO
 	var snow := 1.0
 	var energy := 1.0
+	## Painted per vertex: every color of this pattern shares the bucket.
+	var painted := false
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
+	var colors := PackedColorArray()
+	var accents := PackedFloat32Array()
 
 static var _glass: StandardMaterial3D
 static var _glows: Dictionary = {}
@@ -57,6 +62,17 @@ var _audit_tris: Array = []
 
 ## Everything after this transform: set it to build a part in its own frame.
 var frame := Transform3D.IDENTITY
+## Paint per vertex (the default): every color, accent, and snow amount of one
+## pattern (and params) goes into one mesh, painted by Surfaces.painted(), so a
+## house is about eight draw calls. Off, each color is its own mesh and
+## material (Surfaces.material()), for something repainted by swapping its
+## material, like a fence panel the paint task refreshes.
+var paint_per_vertex := true
+
+## What the shape being added is painted with (set by _bucket, read by _face).
+var _paint := Color.WHITE
+var _paint_accent := Color.BLACK
+var _paint_snow := 1.0
 
 var _buckets: Dictionary = {}
 var _bounds := AABB()
@@ -242,8 +258,13 @@ func commit(parent: Node3D, name: String) -> Node3D:
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = vertices
 		arrays[Mesh.ARRAY_NORMAL] = bucket.normals
+		var flags := 0
+		if bucket.painted:
+			arrays[Mesh.ARRAY_COLOR] = bucket.colors
+			arrays[Mesh.ARRAY_CUSTOM0] = bucket.accents
+			flags = Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
 		var mesh := ArrayMesh.new()
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, flags)
 		var view := MeshInstance3D.new()
 		view.mesh = mesh
 		view.set_meta("triangles", vertices.size() / 3)
@@ -264,7 +285,13 @@ func commit(parent: Node3D, name: String) -> Node3D:
 				view.set_meta("surface_params", bucket.params)
 				view.set_meta("surface_accent", bucket.accent)
 				view.set_meta("surface_snow", bucket.snow)
-				view.material_override = _Surfaces.material(bucket.surface, bucket.color, bucket.accent, bucket.params, bucket.snow)
+				if bucket.painted:
+					# Colors live in the vertices: levels/shared_look.gd must not repaint it flat.
+					view.set_meta("surface_painted", true)
+					view.set_meta("keep_material", true)
+					view.material_override = _Surfaces.painted(bucket.surface, bucket.params)
+				else:
+					view.material_override = _Surfaces.material(bucket.surface, bucket.color, bucket.accent, bucket.params, bucket.snow)
 		holder.add_child(view)
 		made += 1
 	holder.set_meta("triangles", triangle_count())
@@ -300,7 +327,10 @@ func _bucket(surface: String, color: Color, style: Dictionary) -> Bucket:
 	var params: Vector4 = style.get("params", Vector4.ZERO)
 	var accent: Color = style.get("accent", Color(0, 0, 0, 0))
 	var snow := clampf(float(style.get("snow", 1.0)), 0.0, 1.0)
-	var key := "%s|%s|%s|%s|%s" % [surface, color.to_html(), accent.to_html(), params, snow]
+	_paint = color
+	_paint_accent = _Surfaces.accent_for(surface, color, accent)
+	_paint_snow = snow
+	var key := "%s|%s" % [surface, params] if paint_per_vertex else "%s|%s|%s|%s|%s" % [surface, color.to_html(), accent.to_html(), params, snow]
 	if not _buckets.has(key):
 		var made := Bucket.new()
 		made.surface = surface
@@ -308,6 +338,7 @@ func _bucket(surface: String, color: Color, style: Dictionary) -> Bucket:
 		made.accent = accent
 		made.params = params
 		made.snow = snow
+		made.painted = paint_per_vertex
 		_buckets[key] = made
 	return _buckets[key]
 
@@ -337,6 +368,9 @@ func _face(bucket: Bucket, points: Array, inside: Vector3) -> void:
 		for corner: Vector3 in [a, b, c]:
 			bucket.vertices.append(corner)
 			bucket.normals.append(normal)
+			if bucket.painted:
+				bucket.colors.append(Color(_paint.r, _paint.g, _paint.b, _paint_snow))
+				bucket.accents.append_array([_paint_accent.r, _paint_accent.g, _paint_accent.b, 1.0])
 			_grow(corner)
 		_vertex_total += 3
 		if audit:

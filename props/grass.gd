@@ -38,7 +38,13 @@ static func keep_clear_box(zone: Node3D, xform: Transform3D, size: Vector3) -> v
 ## Grow grass over the square of half_size around the zone's middle, every
 ## spacing meters on average, skipping cleared rectangles. yard_half: inside this
 ## square (the play pad) the tufts are short and sparse, so leaves stay the star.
-static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: int, yard_half: float = 0.0) -> void:
+## options:
+##   tint (Color): multiplied into every tuft's own tint (a hood's dry or lush lawn)
+##   short (bool): short tufts everywhere (manicured lawns: Oak Hollow, Mansion Hill)
+##   spacing_scale (float): spacing times this (winter: Constants.ART_GRASS_WINTER_SPACING_SCALE)
+##   area (Rect2): plant this rectangle (zone x and z) instead of the square
+## Returns the Grass root (its chunks are its children).
+static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: int, yard_half: float = 0.0, options: Dictionary = {}) -> Node3D:
 	if _tuft == null:
 		_tuft = _tuft_mesh(0.42, 7)
 		_short_tuft = _tuft_mesh(0.18, 5)
@@ -48,11 +54,16 @@ static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: in
 	zone.add_child(root)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
-	var chunks := int(ceil(half_size * 2.0 / CHUNK))
+	var tint_all: Color = options.get("tint", Color.WHITE)
+	var all_short := bool(options.get("short", false))
+	spacing *= maxf(float(options.get("spacing_scale", 1.0)), 0.05)
+	var area: Rect2 = options.get("area", Rect2(-half_size, -half_size, half_size * 2.0, half_size * 2.0))
+	var chunks_x := int(ceil(area.size.x / CHUNK))
+	var chunks_z := int(ceil(area.size.y / CHUNK))
 	var material := _Stylized.material({"wind": 0.06, "roughness": 1.0, "specular": 0.05, "translucency": 0.25, "double_sided": true})
-	for chunk_x: int in chunks:
-		for chunk_z: int in chunks:
-			var corner := Vector2(-half_size + float(chunk_x) * CHUNK, -half_size + float(chunk_z) * CHUNK)
+	for chunk_x: int in chunks_x:
+		for chunk_z: int in chunks_z:
+			var corner := area.position + Vector2(float(chunk_x) * CHUNK, float(chunk_z) * CHUNK)
 			var tall: Array[Transform3D] = []
 			var short: Array[Transform3D] = []
 			var tall_colors: Array[Color] = []
@@ -67,8 +78,8 @@ static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: in
 					continue
 				var scale := rng.randf_range(0.7, 1.3)
 				var xform := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale, scale * rng.randf_range(0.8, 1.25), scale)), Vector3(at.x, 0.0, at.y))
-				var tint := Color.WHITE.lerp(Color(1.08, 0.98, 0.75), rng.randf() * 0.6)
-				if in_yard:
+				var tint := Color.WHITE.lerp(Color(1.08, 0.98, 0.75), rng.randf() * 0.6) * tint_all
+				if in_yard or all_short:
 					short.append(xform)
 					short_colors.append(tint)
 				else:
@@ -76,6 +87,7 @@ static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: in
 					tall_colors.append(tint)
 			_add_chunk(root, _tuft, tall, tall_colors, material)
 			_add_chunk(root, _short_tuft, short, short_colors, material)
+	return root
 
 
 static func _cleared(rects: Array, at: Vector2) -> bool:

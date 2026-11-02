@@ -49,6 +49,82 @@ extends RefCounted
 
 const _HouseKit = preload("res://props/house_kit.gd")
 const _Archetypes = preload("res://levels/town/house_archetypes.gd")
+const _HoodStyles = preload("res://levels/town/hood_styles.gd")
+## The yard generator, loaded when first needed (it preloads half the game).
+const LOT_GENERATOR := "res://levels/lots/lot_generator.gd"
+
+## spec_for's results, by req: a block plans each parcel more than once.
+static var _specs: Dictionary = {}
+const _SPEC_CACHE_SIZE: int = 256
+
+
+## The req for the house a yard with this seed and size gets in hood
+## (gap-specs/critic.md C25). The job yard (levels/lots/lot_generator.gd) and the
+## parcel builder (levels/town/lot_builder.gd) both call it, so the house you
+## work at is the house you drive past. spec is the yard's numbers from
+## LotGenerator.house_spec (width, depth, stories, center_x, center_z, wall, roof,
+## trim, garage), drawn from the yard's own rng; left empty, they come from
+## LotGenerator.spec_for_seed(house_seed, size). Every look choice (archetype,
+## door, accent) comes from a separate rng seeded hash([house_seed, "art"]), so
+## the yard's rng draws are never touched; the yard's wall, roof and trim draws
+## pick the hood's palette entries. neighbor: may also be a neighbors-only
+## archetype (an A-frame, a glass cube). The req carries "at" (the yard-space
+## ground center from center_x and center_z) and "hood" besides HouseBuilder's keys.
+static func request_for(hood: String, house_seed: int, size: int, spec: Dictionary = {}, neighbor: bool = false) -> Dictionary:
+	var numbers := spec
+	if numbers.is_empty():
+		numbers = load(LOT_GENERATOR).call("spec_for_seed", house_seed, clampi(size, 0, 2))
+	var look := _HoodStyles.style(hood)
+	var art := RandomNumberGenerator.new()
+	art.seed = hash([house_seed, "art"])
+	var stories := clampi(int(numbers.get("stories", 1)), 1, 2)
+	var weights := _HoodStyles.neighbor_archetype_weights(str(look["id"]), stories) if neighbor else _HoodStyles.archetype_weights(str(look["id"]), stories)
+	var archetype := str(_HoodStyles.pick(art, weights))
+	var walls: Array = look["walls"]
+	var roofs: Array = look["roofs"]
+	var trims: Array = look["trims"]
+	var wall: Array = walls[_palette_index(numbers.get("wall", Color.WHITE), walls.size())]
+	var roof: Array = roofs[_palette_index(numbers.get("roof", Color.WHITE), roofs.size())]
+	var trim: Color = trims[_palette_index(numbers.get("trim", Color.WHITE), trims.size())]
+	var doors: Array = look["doors"]
+	var accents: Array = look["accents"]
+	var door: Color = doors[art.randi() % doors.size()]
+	var accent: Color = accents[art.randi() % accents.size()]
+	return {
+		"archetype": archetype, "width": float(numbers.get("width", 10.0)), "depth": float(numbers.get("depth", 8.0)),
+		"stories": stories, "wall": wall[0], "wall_surface": wall[1], "roof": roof[0], "roof_surface": roof[1],
+		"trim": trim, "door": door, "accent": accent, "garage": bool(numbers.get("garage", false)),
+		"seed": house_seed, "detail": "full", "hood": str(look["id"]),
+		"at": Vector3(float(numbers.get("center_x", 0.0)), 0.0, float(numbers.get("center_z", 0.0))),
+	}
+
+
+## The HouseSpec build() would return for req, without making any node (for
+## planning a parcel, colliders, and skylines). Cached.
+static func spec_for(req: Dictionary) -> Dictionary:
+	var r := normalized(req)
+	r.erase("at")
+	r.erase("hood")
+	r["detail"] = "full"
+	var key := str(r)
+	if _specs.has(key):
+		return (_specs[key] as Dictionary).duplicate(true)
+	var kit: RefCounted = _HouseKit.new()
+	var spec := _Archetypes.build(kit, r)
+	var bounds: AABB = kit.call("bounds")
+	spec["footprint"] = Rect2(bounds.position.x, bounds.position.z, bounds.size.x, bounds.size.z)
+	spec["height"] = bounds.end.y
+	spec["triangles"] = int(kit.call("triangle_count"))
+	if _specs.size() >= _SPEC_CACHE_SIZE:
+		_specs.clear()
+	_specs[key] = spec
+	return spec.duplicate(true)
+
+
+## A yard color's place in a palette of count entries: the same color always
+## lands on the same entry, on every peer.
+static func _palette_index(color: Color, count: int) -> int:
+	return posmod(hash(color.to_html(false)), maxi(count, 1))
 
 
 static func build(parent: Node3D, at: Vector3, req: Dictionary) -> Node3D:
