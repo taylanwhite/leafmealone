@@ -28,6 +28,12 @@ const TOUR: Dictionary = {
 		["front_door", Vector3(-7.6, 1.7, -0.6), Vector3(-7.8, 1.4, -3.0)],
 		["street", Vector3(8.0, 1.7, 18.0), Vector3(-10.0, 0.5, 30.0)],
 		["lawn", Vector3(30.0, 1.6, 12.0), Vector3(40.0, 0.0, 4.0)],
+		# The block in the yard's neighborhood style (levels/town/block_builder.gd).
+		["block_left", Vector3(-10.0, 1.7, 26.0), Vector3(-60.0, 2.0, 10.0)],
+		["block_right", Vector3(10.0, 1.7, 26.0), Vector3(60.0, 2.0, 10.0)],
+		["across_street", Vector3(0.0, 1.7, 24.0), Vector3(0.0, 3.0, 56.0)],
+		["back_view", Vector3(0.0, 3.0, -15.0), Vector3(0.0, 1.0, -60.0)],
+		["house", Vector3(0.0, 4.0, 14.0), Vector3(0.0, 2.5, -8.0)],
 	],
 	"StoreZone": [
 		["store_wall", Vector3(-17.0, 2.0, 24.0), Vector3(-22.0, 2.0, 15.0)],

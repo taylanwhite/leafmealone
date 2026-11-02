@@ -47,9 +47,17 @@ const _HouseKit = preload("res://props/house_kit.gd")
 const _Trees = preload("res://props/trees.gd")
 const _Grass = preload("res://props/grass.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
+const _StreetLife = preload("res://levels/dressing/street_life.gd")
 
 ## The job yard's slot: x +-JOB_HALF between the hedge rows.
 const JOB_HALF: float = 21.2
+## The job yard's own mailbox, at the curb by the drive (yard space; the town's
+## yards have theirs at the same spot, levels/town/town_dressing.gd).
+const JOB_MAILBOX := Vector3(3.2, 0.0, 19.9)
+## The job yard's front edge (lot z), where its drive meets the sidewalk.
+const YARD_FRONT: float = 20.0
+## The drive's apron across the sidewalk to the street, by the yard's drive surface.
+const APRON: Dictionary = {"concrete": Color(0.66, 0.64, 0.6), "gravel": Color(0.6, 0.56, 0.5), "pavers": Color(0.66, 0.46, 0.36)}
 ## Far-side parcels' centers.
 const FAR_Z: float = 56.0
 ## Signature groups a parcel can be made to carry (the top-up), by the kind that counts.
@@ -83,12 +91,15 @@ static func build(parent: Node3D, xform: Transform3D, hood_id: String, block_see
 	var street_z := (_Neighborhood.STREET.x + _Neighborhood.STREET.y) * 0.5
 	var terrace := hood == "mansion_hill"
 	var far_y := Constants.ART_TERRACE_HEIGHT if terrace else 0.0
-	var digest: Array = [hood, block_seed, season, length, is_job]
+	# yard_hash: the job yard's own look decisions (levels/lots/lot_generator.gd).
+	var digest: Array = [hood, block_seed, season, length, is_job, int(opts.get("yard_hash", 0))]
 	# 1. The street.
 	var street := _StreetBuilder.segment(root, Vector3(-length * 0.5, 0.0, street_z), Vector3(length * 0.5, 0.0, street_z), look,
 		{"batch": batch, "keep_clear_lane": lane, "hood": hood})
 	var lamps: PackedVector3Array = street.get_meta("lamps")
 	root.set_meta("lamps", lamps)
+	if is_job:
+		digest.append(_job_frontage(root, look, yard, kit, batch))
 	# 2. Plan every parcel (data only), then top up the hood's signatures.
 	var slots := _slots(look, length, is_job, far_y, block_seed)
 	var rng := RandomNumberGenerator.new()
@@ -106,6 +117,8 @@ static func build(parent: Node3D, xform: Transform3D, hood_id: String, block_see
 	var back := str(look.get("back_boundary", "wood_fence"))
 	_SetPieces.back_boundary(root, back, Constants.ART_BACK_BOUNDARY_Z, length, batch, block_seed)
 	root.set_meta("back_boundary", back)
+	if is_job:
+		_street_life(root, look, lamps, back, block_seed)
 	_street_trees(root, look, length, far_y, rng, batch)
 	_parked_cars(look, length, rng, batch, lane)
 	# Block decor data: curbs, the drives the snowbanks leave open, the inflatable's spot.
@@ -141,7 +154,11 @@ static func build(parent: Node3D, xform: Transform3D, hood_id: String, block_see
 ## The job's block, under the job lot (gap-specs/art.json, critic C24):
 ## neighbors, street, set pieces and back boundary from (hood, job_seed, season),
 ## built over a few frames after the yard. yard (lot space, all optional):
-## house_rect (Rect2), pool_at (Vector3), driveway ([from, to]). It also tints
+## house_rect (Rect2), pool_at (Vector3), driveway ([from, to]), clear (Rect2s
+## grass keeps off: beds, hedges, the pool), drive_surface (the apron's). The
+## block adds the yard's mailbox, the drive's apron across the sidewalk and the
+## street life (levels/dressing/street_life.gd dress_block). opts.yard_hash (the
+## yard's own art decisions) goes into the art hash. It also tints
 ## the lot zone's Surroundings ground to the hood's lawn. opts.town: the town is
 ## drawing the street and the neighbors, so only the yard-scope art is done here
 ## (the ground tint; the yard's own house, fences and beds are the lot
@@ -154,7 +171,7 @@ static func build_for_job(lot: Node3D, hood_id: String, job_seed: int, yard: Dic
 		holder.name = "Block"
 		lot.add_child(holder)
 		holder.set_meta("art_done", true)
-		holder.set_meta("art_hash", hash([str(look["id"]), job_seed, "town"]))
+		holder.set_meta("art_hash", hash([str(look["id"]), job_seed, "town", int(opts.get("yard_hash", 0))]))
 		lot.set_meta("hood_style", str(look["id"]))
 		lot.set_meta("art_hash", holder.get_meta("art_hash"))
 		lot.set_meta("art_done", true)
@@ -358,6 +375,50 @@ static func _labels(slots: Array, reqs: Array, plans: Array) -> void:
 
 
 # ---------------------------------------------------------------- the block's pieces
+
+## The job yard's frontage: its mailbox at the curb in the hood's kind
+## (Dandelion Acres' residents share kiosks, but the client still gets a post
+## for its sticky note) and the drive's apron across the sidewalk. Returns what
+## it decided, for the art hash.
+static func _job_frontage(root: Node3D, look: Dictionary, yard: Dictionary, kit: RefCounted, batch: RefCounted) -> Array:
+	var kind := str(look.get("mailbox", "mailbox_post"))
+	if kind == "mailbox_cluster" or not _PropCatalog.has(kind):
+		kind = "mailbox_post"
+	var place := Transform3D(Basis(Vector3.UP, PI), JOB_MAILBOX)
+	if _PropCatalog.is_simple(kind):
+		batch.call("add", kind, place)
+	else:
+		_PropCatalog.place(root, kind, place)
+	root.set_meta("job_mailbox", kind)
+	var surface := str(yard.get("drive_surface", "concrete"))
+	if not APRON.has(surface):
+		surface = "concrete"
+	var walk := str((look.get("street", {}) as Dictionary).get("sidewalk", "none")) != "none"
+	var from_z := YARD_FRONT
+	var to_z := _Neighborhood.STREET.x
+	# Over the sidewalk and the curb where there is one, flush with the shoulder where there isn't.
+	var top := 0.105 if walk else 0.03
+	kit.call("box", Vector3(4.2, top + 0.005, to_z - from_z + 0.02), Vector3(0.0, (top - 0.005) * 0.5, (from_z + to_z) * 0.5), APRON[surface], surface)
+	return ["frontage", kind, surface]
+
+
+## Posters, chalk, tags and the yard mailbox's note (levels/dressing/street_life.gd).
+static func _street_life(root: Node3D, look: Dictionary, lamps: PackedVector3Array, back: String, block_seed: int) -> void:
+	var street: Dictionary = look.get("street", {})
+	var strip := bool(street.get("grass_strip", false))
+	var walk_width := _StreetBuilder.SIDEWALK - (_StreetBuilder.GRASS_STRIP if strip else 0.0)
+	var street_z := (_Neighborhood.STREET.x + _Neighborhood.STREET.y) * 0.5
+	var outer := _StreetBuilder.ROAD_WIDTH * 0.5 + _StreetBuilder.CURB
+	var offset := outer + _StreetBuilder.SIDEWALK - walk_width * 0.5
+	var opts := {
+		"lamp": str(street.get("lamp", "none")), "street_z": street_z, "boundary_z": Constants.ART_BACK_BOUNDARY_Z,
+		"mailbox": str(root.get_meta("job_mailbox", "")), "mailbox_at": JOB_MAILBOX,
+	}
+	if str(street.get("sidewalk", "none")) != "none":
+		opts["walk_z"] = street_z - offset
+		opts["far_walk_z"] = street_z + offset
+		opts["walk_width"] = walk_width
+	_StreetLife.dress_block(root, lamps, back, bool(look.get("chalk", false)), block_seed, opts)
 
 ## The hood's set pieces (hood_styles.gd "set_pieces"), plus its entrance sign.
 ## Returns what they decided, for the art hash.
@@ -644,6 +705,10 @@ static func _grass(root: Node3D, look: Dictionary, yard: Dictionary, is_job: boo
 		var house: Variant = yard.get("house_rect", null)
 		if house is Rect2:
 			_Grass.keep_clear(root, house)
+		# The yard's beds, hedges, pool and the like (the lot generator's no-lawn rects).
+		for rect: Variant in yard.get("clear", []):
+			if rect is Rect2:
+				_Grass.keep_clear(root, rect)
 	var ground: Dictionary = look.get("ground", {})
 	var dirt := float(ground.get("dirt", 0.0))
 	var options := {

@@ -20,6 +20,7 @@ extends RefCounted
 ##   fence_side       what runs between yards: hedge|privacy|boxwood|long_hedge|chainlink|none
 ##   job_fence        {kind, fresh, faded, surface} the job yard's paintable fence
 ##   bed_edge         concrete|brick|tire|stone|timber
+##   shed             Color (optional): the job yard's shed, a hiding spot (default weathered wood)
 ##   trees            {kinds, crowns ([[id, w]]), height (m), per_parcel, street_trees, identical}
 ##   ground           {color, surface, stripe, flowers (all-year flower floor), dirt (patchiness)}
 ##   street           {surface, lines (Surfaces.ROAD_LINES id), sidewalk, grass_strip,
@@ -89,6 +90,8 @@ const STYLES: Dictionary = {
 		"fence_side": "chainlink",
 		"job_fence": {"kind": "weathered_picket", "fresh": Color(0.95, 0.93, 0.86), "faded": Color(0.6, 0.56, 0.48), "surface": "planks"},
 		"bed_edge": "tire",
+		# A rusty tin shed, the door held shut with a bungee.
+		"shed": Color(0.58, 0.38, 0.26),
 		"trees": {"kinds": [["broadleaf", 5], ["pine", 2]], "crowns": [["yellow", 3], ["turning", 3], ["rust", 2]], "height": Vector2(6.0, 8.5), "per_parcel": Vector2i(0, 1), "street_trees": false, "identical": false},
 		"ground": {"color": Color(0.5, 0.56, 0.28), "surface": "grass", "stripe": 0.0, "flowers": 0.6, "dirt": 0.55},
 		"street": {"surface": "gravel", "lines": "none", "sidewalk": "none", "grass_strip": false, "curb": "none", "lamp": "none", "lamp_spacing": 30.0, "poles": true, "speed_bumps": false},
@@ -153,7 +156,7 @@ const STYLES: Dictionary = {
 		"accents": [Color(0.8, 0.76, 0.68)],
 		"fence_front": [["none", 1]],
 		"fence_side": "boxwood",
-		"job_fence": {"kind": "vinyl", "fresh": Color(0.98, 0.98, 0.97), "faded": Color(0.8, 0.79, 0.72), "surface": "plain"},
+		"job_fence": {"kind": "vinyl", "fresh": Color(0.9, 0.9, 0.88), "faded": Color(0.8, 0.79, 0.72), "surface": "plain"},
 		"bed_edge": "stone",
 		"trees": {"kinds": [["broadleaf", 1]], "crowns": [["red", 1]], "height": Vector2(7.0, 7.0), "per_parcel": Vector2i(1, 1), "street_trees": true, "identical": true},
 		"ground": {"color": Color(0.32, 0.56, 0.24), "surface": "lawn_stripes", "stripe": 0.14, "flowers": 0.0, "dirt": 0.0},
@@ -186,6 +189,7 @@ const STYLES: Dictionary = {
 		"accents": [Color(0.6, 0.58, 0.54), Color(0.52, 0.5, 0.46)],
 		"fence_front": [["none", 3], ["split_rail", 2]],
 		"fence_side": "long_hedge",
+		"shed": Color(0.44, 0.32, 0.24),
 		"job_fence": {"kind": "split_rail", "fresh": Color(0.62, 0.44, 0.3), "faded": Color(0.56, 0.52, 0.46), "surface": "planks"},
 		"bed_edge": "stone",
 		"trees": {"kinds": [["pine", 4], ["willow", 2], ["birch", 2]], "crowns": [["yellow", 3], ["orange", 2], ["red", 1]], "height": Vector2(8.0, 12.0), "per_parcel": Vector2i(1, 3), "street_trees": false, "identical": false},
@@ -221,6 +225,8 @@ const STYLES: Dictionary = {
 		"accents": [Color(0.86, 0.82, 0.74), Color(0.78, 0.74, 0.66)],
 		"fence_front": [["iron", 1]],
 		"fence_side": "hedge",
+		# The pool house's little sister.
+		"shed": Color(0.9, 0.86, 0.76),
 		"job_fence": {"kind": "iron", "fresh": Color(0.08, 0.08, 0.09), "faded": Color(0.48, 0.3, 0.2), "surface": "metal"},
 		"bed_edge": "stone",
 		"trees": {"kinds": [["cypress", 4], ["broadleaf", 2]], "crowns": [["red", 2], ["orange", 2], ["yellow", 1]], "height": Vector2(8.0, 12.0), "per_parcel": Vector2i(2, 4), "street_trees": true, "identical": false},

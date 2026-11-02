@@ -7,8 +7,21 @@ extends Node
 ## starting inside something or off the yard, and work spots (weeds, litter,
 ## windows, gutters) buried inside a solid where nobody can reach them. Prints
 ## one [LayoutTest] line per problem and a summary. Run with --start-zone=lot.
+##
+## Then every neighborhood (--hood's sweep, levels/town/hood_styles.gd) at
+## every size on HOOD_SEEDS, with the same checks plus the house contract (art
+## chunk 6): the yard took the hood's style and one of its archetypes, the
+## HouseBody's boxes stay inside the house's rectangle, roof leaves, gutters and
+## windows are out in the open (never inside a wall, a dormer or a chimney),
+## gutters run along both eaves, the roof has at least
+## Constants.ART_YARD_ROOF_SPOTS_MIN leaves to clear, the spigot is on a wall,
+## the yard's dressing stays within Constants.ART_YARD_MAX_VISUALS, and every
+## hood's yard for one seed and size has the same trees, hiding spots, hedges,
+## pool, litter and weed count (the hood is only a look).
 
+const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const SEEDS_PER_SIZE: int = 12
+const HOOD_SEEDS: Array[int] = [1000, 8919]
 ## Overlaps smaller than this, in meters of penetration, are touching, not clipping.
 const TOLERANCE: float = 0.06
 ## Solids allowed to touch: the floor holds everything up, the curb rings the yard.
@@ -36,30 +49,159 @@ func _run() -> void:
 		seeds.append(1000 + index * 7919)
 	for size: int in 3:
 		for seed_value: int in seeds:
-			options.set("job_seed", seed_value)
-			options.set("yard_size", size)
-			options.set("all_tasks", true)
-			world.call("_free_lot")
-			await get_tree().physics_frame
-			await get_tree().physics_frame
-			world.call("_load_job_lot")
-			var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
-			var waited := 0
-			while (lot == null or not bool(lot.get("is_generated"))) and waited < 60:
-				await get_tree().physics_frame
-				lot = get_tree().get_first_node_in_group("job_lot") as Node3D
-				waited += 1
-			# Colliders register on the next physics step.
-			await get_tree().physics_frame
-			await get_tree().physics_frame
+			var lot := await _load(world, seed_value, size)
 			var found := _check(lot, "size %d seed %d" % [size, seed_value])
 			problems.append_array(found)
 			yards += 1
+	# Every neighborhood's yards: the same checks, and the house contract.
+	var had_hood := str(options.get("hood"))
+	var most_visuals := {}
+	# The first hood's gameplay layout per size and seed: every other hood must match it.
+	var layouts := {}
+	for hood: String in _HoodStyles.ids():
+		options.set("hood", hood)
+		for size: int in 3:
+			for seed_value: int in HOOD_SEEDS:
+				var lot := await _load(world, seed_value, size)
+				var label := "%s size %d seed %d" % [hood, size, seed_value]
+				problems.append_array(_check(lot, label))
+				problems.append_array(_check_house(lot, hood, label))
+				if lot != null:
+					var key := "%d/%d" % [size, seed_value]
+					var layout := _gameplay_layout(lot)
+					if not layouts.has(key):
+						layouts[key] = [hood, layout]
+					elif layouts[key][1] != layout:
+						problems.append("%s: the gameplay layout differs from %s's (trees, hiding spots, litter, hedges, pool or weeds moved with the hood)" % [label, layouts[key][0]])
+					var visuals := lot.get_node("Dressing").find_children("*", "GeometryInstance3D", true, false).size()
+					most_visuals[hood] = maxi(int(most_visuals.get(hood, 0)), visuals)
+					if visuals > Constants.ART_YARD_MAX_VISUALS:
+						problems.append("%s: the yard's dressing has %d visuals (budget %d)" % [label, visuals, Constants.ART_YARD_MAX_VISUALS])
+				yards += 1
+	options.set("hood", had_hood)
 	for line: String in problems:
 		print("[LayoutTest] %s" % line)
 	var ok := problems.is_empty()
-	result = {"ok": ok, "yards": yards, "problems": problems.size(), "done": true}
+	result = {"ok": ok, "yards": yards, "problems": problems.size(), "yard_visuals": most_visuals, "done": true}
+	print("[LayoutTest] most visuals in a yard's dressing, by hood: %s" % most_visuals)
 	print("[LayoutTest] %d yards checked, %d problems, all ok: %s" % [yards, problems.size(), ok])
+
+
+## What the hood must never move (lot_generator.gd keeps the gameplay rng and
+## its taken areas frozen): the trees, hiding spots, hedges, pool and litter,
+## and how many weeds there are to pull.
+func _gameplay_layout(lot: Node3D) -> Array:
+	var trees: Array = lot.get_node("Dressing").get("_trees")
+	var hides := []
+	for child: Node in lot.get_children():
+		if str(child.name) in ["Shed", "BigBin", "Hedge"]:
+			hides.append([str(child.name), (child as Node3D).position.snapped(Vector3.ONE * 0.01)])
+	var spots := []
+	var weeds := 0
+	var tasks := lot.get_node_or_null("JobTasks")
+	if tasks != null:
+		for index: int in int(tasks.call("spot_count")):
+			var spot: Dictionary = tasks.call("spot", index)
+			var task := str(spot["task"])
+			if task in ["pick_litter", "trim_hedges", "skim_pool"]:
+				spots.append([task, (spot["at"] as Vector3).snapped(Vector3.ONE * 0.01)])
+			elif task == "pull_weeds":
+				weeds += 1
+	return [trees.duplicate(), hides, spots, weeds]
+
+
+## Frees the yard and loads seed_value's at size, with every task; waits for
+## it to be built and its colliders registered.
+func _load(world: Node, seed_value: int, size: int) -> Node3D:
+	var options := Net.dev_options()
+	options.set("job_seed", seed_value)
+	options.set("yard_size", size)
+	options.set("all_tasks", true)
+	world.call("_free_lot")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	world.call("_load_job_lot")
+	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	var waited := 0
+	while (lot == null or not bool(lot.get("is_generated"))) and waited < 60:
+		await get_tree().physics_frame
+		lot = get_tree().get_first_node_in_group("job_lot") as Node3D
+		waited += 1
+	# Colliders register on the next physics step.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	return lot
+
+
+## The house contract on a hood's yard (levels/lots/lot_generator.gd, art chunk 6).
+func _check_house(lot: Node3D, hood: String, label: String) -> Array[String]:
+	var out: Array[String] = []
+	if lot == null:
+		return out
+	if str(lot.get_meta("hood_style", "")) != hood:
+		out.append("%s: the yard's style is %s" % [label, lot.get_meta("hood_style", "?")])
+	var house := lot.get_node_or_null("Dressing/House") as Node3D
+	var body := lot.get_node_or_null("Dressing/HouseBody") as Node3D
+	if house == null or body == null:
+		out.append("%s: no House or HouseBody" % label)
+		return out
+	var spec: Dictionary = house.get_meta("house_spec", {})
+	var archetype := str(spec.get("archetype", ""))
+	if not _HoodStyles.archetypes_for(hood, int(spec.get("stories", 1))).has(archetype):
+		out.append("%s: archetype %s is not one of the hood's" % [label, archetype])
+	if str(lot.get_meta("archetype", "")) != archetype:
+		out.append("%s: lot meta archetype %s, house %s" % [label, lot.get_meta("archetype", ""), archetype])
+	var dressing := lot.get_node("Dressing") as Node3D
+	var at := dressing.to_local(house.global_position)
+	var width := float(spec.get("width", 0.0))
+	var depth := float(spec.get("depth", 0.0))
+	var rect := Rect2(at.x - width * 0.5 - 0.6, at.z - depth * 0.5 - 0.6, width + 1.2, depth + 3.6).grow(0.1)
+	var boxes: Array[AABB] = []
+	for shape: Node in body.get_children():
+		var box := (shape as CollisionShape3D).shape as BoxShape3D
+		var center := dressing.to_local((shape as Node3D).global_position)
+		var aabb := AABB(center - box.size * 0.5, box.size)
+		boxes.append(aabb)
+		if not rect.encloses(Rect2(aabb.position.x, aabb.position.z, aabb.size.x, aabb.size.z)):
+			out.append("%s: a HouseBody box %s leaves the house's rectangle %s" % [label, aabb, rect])
+	if boxes.is_empty():
+		out.append("%s: HouseBody has no shapes" % label)
+	# Roof leaves, gutters and windows are out in the open; gutters on both eaves.
+	var space := lot.get_world_3d().direct_space_state
+	var tasks := lot.get_node_or_null("JobTasks")
+	var eaves := {"front": 0, "back": 0}
+	var roof_spots := 0
+	if tasks != null:
+		for index: int in int(tasks.call("spot_count")):
+			var spot: Dictionary = tasks.call("spot", index)
+			var task := str(spot["task"])
+			if not task in ["clear_roof", "clean_gutters", "wash_windows"]:
+				continue
+			var point: Vector3 = spot["at"]
+			if task == "clear_roof":
+				roof_spots += 1
+			if task == "clean_gutters":
+				eaves["front" if (spot["normal"] as Vector3).z > 0.0 else "back"] += 1
+			if _inside_solid(space, lot, point):
+				out.append("%s: a %s spot is inside %s at %s" % [label, task, _what_is_at(space, lot, point), lot.to_local(point)])
+	var size := clampi(int(lot.get("yard_size")), 0, 2)
+	if roof_spots < Constants.ART_YARD_ROOF_SPOTS_MIN[size]:
+		out.append("%s: only %d roof leaves (at least %d)" % [label, roof_spots, Constants.ART_YARD_ROOF_SPOTS_MIN[size]])
+	if int(eaves["front"]) == 0 or int(eaves["back"]) == 0:
+		out.append("%s: gutters front %d, back %d" % [label, eaves["front"], eaves["back"]])
+	# The spigot hangs on a wall: within 0.3 m of a HouseBody box.
+	var spigot: Array = spec.get("spigot", [])
+	if spigot.size() == 2:
+		var point: Vector3 = at + (spigot[0] as Vector3)
+		var nearest := INF
+		for box: AABB in boxes:
+			var inside := point.clamp(box.position, box.end)
+			nearest = minf(nearest, inside.distance_to(point))
+		if nearest > 0.3:
+			out.append("%s: the spigot is %.2f m from the house" % [label, nearest])
+	else:
+		out.append("%s: the house has no spigot" % label)
+	return out
 
 
 func _check(lot: Node3D, label: String) -> Array[String]:

@@ -6,14 +6,14 @@ extends Node
 ## on a road; a route from Homie Depot's pad reaches every house's curb along
 ## the roads; the ground is what it looks like (asphalt, concrete, grass,
 ## water); Homie Depot's STORE_LAYOUT reservations never overlap and cover the
-## shops' sites; TownColliders has one house per yard slot, and that house is
-## the job yard's own (a yard generated from the house's seed puts its
-## HouseBody where the town's collider is); and the job site hides its slot
+## shops' sites; TownColliders has one house per yard slot; a yard generated
+## from a house's seed and hood builds that house (its HouseBody is the walls
+## art's HouseBuilder gives it); and the job site hides its slot
 ## and gives it back. A joined client named Target must build the same town
 ## ("town_site" in the probe report: layout, colliders, site). Each step prints
 ## a [TownmapTest] line. Chunks D and E add the site/zone and streaming steps.
 
-const _Fallback = preload("res://levels/town/fallback_house.gd")
+const _HouseBuilder = preload("res://levels/town/house_builder.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
@@ -273,15 +273,22 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 		_verdict(false, "the town's ground and the border zone exist", problems)
 
 
-## The house the town shows at a slot is the house the job yard builds there:
-## generate that house's yard and compare its HouseBody with the slot's collider.
+## The house a town slot stands for is the house the job yard builds there:
+## generate that house's yard (in its neighborhood) and compare its HouseBody
+## with the walls art's HouseBuilder gives that house (request_for, the same
+## request the town's parcels make: gap-specs/critic.md C25). The town still
+## draws and collides its slots with fallback_house.gd's box until its streamer
+## builds them with art's LotBuilder (driving chunk E).
 func _check_parity(world: Node, town: Node, problems: Array[String]) -> void:
 	var entry: Dictionary = town.call("house", PARITY_HOUSE)
+	var hood := TownMap.hood_id_of(PARITY_HOUSE)
 	var options := Net.dev_options()
 	var had_seed := int(options.get("job_seed"))
 	var had_size := int(options.get("yard_size"))
+	var had_hood := str(options.get("hood"))
 	options.set("job_seed", int(entry["seed"]))
 	options.set("yard_size", int(entry["size"]))
+	options.set("hood", hood)
 	world.call("_load_job_lot")
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
 	var waited := 0
@@ -290,19 +297,23 @@ func _check_parity(world: Node, town: Node, problems: Array[String]) -> void:
 		lot = get_tree().get_first_node_in_group("job_lot") as Node3D
 		waited += 1
 	var body := lot.get_node_or_null("Dressing/HouseBody") as Node3D if lot != null else null
-	var expected: Array = _Fallback.colliders(TownMap.hood_id_of(PARITY_HOUSE), int(entry["seed"]), int(entry["size"]))[0]
-	var same := false
-	if body != null:
-		var shape := body.get_child(0) as CollisionShape3D
-		var size: Vector3 = (shape.shape as BoxShape3D).size
-		var at := lot.to_local(body.global_position)
-		same = at.is_equal_approx(expected[0]) and size.is_equal_approx(expected[1])
-	_verdict(same, "house %d's yard builds the house the town shows (%s)" % [PARITY_HOUSE, expected], problems)
+	var request := _HouseBuilder.request_for(hood, int(entry["seed"]), int(entry["size"]))
+	var walls: Array = _HouseBuilder.spec_for(request).get("solids", [])
+	var house_at: Vector3 = request["at"]
+	var same := body != null and not walls.is_empty() and body.get_child_count() == walls.size()
+	if same:
+		for index: int in walls.size():
+			var shape := body.get_child(index) as CollisionShape3D
+			var size: Vector3 = (shape.shape as BoxShape3D).size
+			var at := lot.to_local(shape.global_position)
+			same = same and at.is_equal_approx(house_at + (walls[index][0] as Vector3)) and size.is_equal_approx(walls[index][1])
+	_verdict(same, "house %d's yard builds its %s house (%s, %d walls at %s)" % [PARITY_HOUSE, hood, request["archetype"], walls.size(), house_at], problems)
 	# Let the client finish loading the yard (and asking after it) before it goes.
 	await get_tree().create_timer(2.0).timeout
 	world.call("_free_lot")
 	options.set("job_seed", had_seed)
 	options.set("yard_size", had_size)
+	options.set("hood", had_hood)
 	await get_tree().physics_frame
 
 

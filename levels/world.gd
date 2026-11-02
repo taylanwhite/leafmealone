@@ -163,13 +163,13 @@ func _dress_town() -> void:
 func _dress_legacy() -> void:
 	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0])
 	_Surroundings.dress($LotZone, GRASS, 22, false, [PI * 0.75])
-	_Neighborhood.dress($LotZone, 22)
+	# The lot's street, neighbors, street life and grass come with each job yard:
+	# its block is built in the yard's neighborhood style (levels/lots/lot_generator.gd,
+	# levels/town/block_builder.gd).
 	# People out for a walk on the sidewalks (lot street at z 21.3 and 32.7 in the
 	# lot's space; the store's cross street at x 21.3 and 32.7).
-	# Grass on every lawn around the yard and the store, short and sparse in the yard itself.
-	_StreetLife.dress_lot($LotZone)
+	# Grass on every lawn around the store.
 	_StreetLife.dress_store($StoreZone)
-	_Grass.plant($LotZone, 70.0, 0.48, 22, Constants.PAD_HALF)
 	_Grass.plant($StoreZone, 70.0, 0.52, 11)
 	_Pedestrians.populate($LotZone, [
 		[Vector3(-110.0, 0.1, 21.4), Vector3(110.0, 0.1, 21.4)],
@@ -398,6 +398,10 @@ func _load_job_lot() -> void:
 	# A house in the town (net/town/town.gd) brings its regrowth and neighborhood.
 	lot.set("mess", float(offer.get("mess", 1.0)))
 	lot.set("hood", str(offer.get("hood", "")))
+	# --hood=<id>: every yard is in that neighborhood (tests, screenshots). Clients
+	# get it with the lot like any hood.
+	if str(Net.dev_options().get("hood")) != "":
+		lot.set("hood", str(Net.dev_options().get("hood")))
 	lot.set_meta("offer", offer)
 	%LotSlot.add_child(lot, true)
 	Campaign.mark_job_open()

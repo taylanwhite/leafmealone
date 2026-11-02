@@ -10,6 +10,8 @@ extends Node
 
 const _WaterSources = preload("res://net/work/water_sources.gd")
 const _JobTasks = preload("res://net/work/job_tasks.gd")
+## How far from the yard's middle the test stands to aim, at most (the pad's wall is at 20).
+const STAND_HALF: float = 18.8
 
 static var result: Dictionary = {}
 
@@ -66,6 +68,10 @@ func _run(lot: Node3D) -> void:
 		if stand.distance_to(spigot.global_position) > Constants.HOSE_LENGTH - 1.5:
 			stand = spigot.global_position + (stand - spigot.global_position).normalized() * (Constants.HOSE_LENGTH - 1.5)
 			stand.y = 0.1
+		# Inside the yard, where a player can stand: a house's back windows can be
+		# less than 4 m from the back fence (the pad's wall would stop the water).
+		var inside := lot.to_local(stand)
+		stand = lot.to_global(Vector3(clampf(inside.x, -STAND_HALF, STAND_HALF), inside.y, clampf(inside.z, -STAND_HALF, STAND_HALF)))
 		_move_to(stand)
 		await _ticks(2)
 		var eye := me.global_position + Vector3(0.0, 1.6, 0.0)

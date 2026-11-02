@@ -12,44 +12,40 @@ extends RefCounted
 ##   budget     pay multiplier
 ##   heat       how much faster noise heats the crew here
 ##   streets    street names for the addresses
-##   look       the neighborhood's dressing (levels/dressing/neighborhood.gd)
+##
+## How each one looks (houses, fences, trees, street, signs) is in
+## levels/town/hood_styles.gd, by the same ids.
 
 const HOODS: Array[Dictionary] = [
 	{
 		"id": "maple_row", "name": "Maple Row", "houses": 7,
 		"sizes": [0.55, 0.4, 0.05], "standards": Vector2(0.15, 0.45), "budget": 1.0, "heat": 1.0,
 		"streets": ["Maple Row", "Acorn Court", "Sycamore Lane"],
-		"look": {"siding": [Color(0.86, 0.8, 0.66), Color(0.7, 0.78, 0.84), Color(0.84, 0.72, 0.62)], "trees": 1.0},
 	},
 	{
 		"id": "dandelion_acres", "name": "Dandelion Acres", "houses": 8,
 		"sizes": [0.3, 0.6, 0.1], "standards": Vector2(0.05, 0.3), "budget": 0.85, "heat": 0.9,
 		"streets": ["Dandelion Loop", "Thistle Way", "Clover Bend"],
-		"look": {"siding": [Color(0.9, 0.88, 0.8), Color(0.62, 0.74, 0.66), Color(0.86, 0.66, 0.5)], "trees": 0.7},
 	},
 	{
 		"id": "birchwood_commons", "name": "Birchwood Commons", "houses": 8,
 		"sizes": [0.15, 0.55, 0.3], "standards": Vector2(0.3, 0.6), "budget": 1.3, "heat": 1.1,
 		"streets": ["Birchwood Drive", "Cedar Crossing", "Willow Run"],
-		"look": {"siding": [Color(0.92, 0.9, 0.86), Color(0.78, 0.8, 0.76), Color(0.66, 0.7, 0.78)], "trees": 0.9},
 	},
 	{
 		"id": "oak_hollow", "name": "Oak Hollow", "houses": 9,
 		"sizes": [0.05, 0.55, 0.4], "standards": Vector2(0.55, 0.8), "budget": 1.6, "heat": 1.25,
 		"streets": ["Oak Hollow Circle", "Covenant Court", "Bylaw Bend"],
-		"look": {"siding": [Color(0.9, 0.88, 0.84), Color(0.88, 0.86, 0.82), Color(0.86, 0.84, 0.8)], "trees": 1.1},
 	},
 	{
 		"id": "lakeside", "name": "Lakeside", "houses": 8,
 		"sizes": [0.0, 0.4, 0.6], "standards": Vector2(0.5, 0.8), "budget": 1.9, "heat": 1.3,
 		"streets": ["Shoreline Drive", "Heron Point", "Dockside Lane"],
-		"look": {"siding": [Color(0.94, 0.94, 0.92), Color(0.62, 0.72, 0.8), Color(0.8, 0.74, 0.64)], "trees": 1.2},
 	},
 	{
 		"id": "mansion_hill", "name": "Mansion Hill", "houses": 7,
 		"sizes": [0.0, 0.2, 0.8], "standards": Vector2(0.7, 0.95), "budget": 2.5, "heat": 1.5,
 		"streets": ["Summit Drive", "Gilded Gate", "Old Money Road"],
-		"look": {"siding": [Color(0.95, 0.93, 0.88), Color(0.82, 0.8, 0.76), Color(0.7, 0.66, 0.6)], "trees": 1.3},
 	},
 ]
 

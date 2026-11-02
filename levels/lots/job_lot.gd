@@ -17,7 +17,8 @@ signal generated
 ## How grown back the yard is since the crew last did it (net/town/town.gd):
 ## 1 is a full yard of leaves, less after a recent job.
 @export var mess: float = 1.0
-## The neighborhood the house is in (net/town/neighborhoods.gd), for its dressing.
+## The neighborhood the house is in (net/town/neighborhoods.gd): the yard, its
+## house and its street block are built in that hood's style.
 @export var hood: String = ""
 
 var is_generated: bool = false
@@ -33,6 +34,8 @@ func _ready() -> void:
 	if job_seed == 0:
 		job_seed = 1
 	$Dressing.set("mess", mess)
+	# The yard and its block look like their neighborhood (levels/town/hood_styles.gd).
+	$Dressing.set("hood", hood)
 	$Dressing.call("generate", job_seed, tasks, yard_size)
 	is_generated = true
 	generated.emit()

@@ -58,12 +58,17 @@ func _run(lot: Node3D) -> void:
 	# Hose: hooked to the spigot, lying across the lawn; drive across it.
 	var hose := _prop("hose")
 	var spigot := get_tree().get_nodes_in_group("water_sources").filter(func(node: Node) -> bool: return str(node.get_meta("kind")) == "spigot")[0] as Node3D
-	hose.global_position = spigot.global_position + Vector3(0.0, -0.5, 8.0)
+	# Out from the spigot's wall and toward the street, so the hose runs across
+	# open lawn whichever side of the house the spigot is on; drive across it
+	# along z, clear of the wall.
+	var house := lot.get_node_or_null("Dressing/House") as Node3D
+	var out := Vector3(signf(spigot.global_position.x - house.global_position.x), 0.0, 0.0) if house != null else Vector3.RIGHT
+	hose.global_position = spigot.global_position + Vector3(0.0, -0.5, 8.0) + out * 3.0
 	hose.set("linear_velocity", Vector3.ZERO)
 	hose.set("hose_source", "spigot")
 	await _ticks(3)
 	var middle := (spigot.global_position + hose.global_position) * 0.5
-	await _drive(Vector3(middle.x - 2.0, 0.1, middle.z), Vector3.RIGHT, 4.0)
+	await _drive(Vector3(middle.x, 0.1, middle.z - 2.0), Vector3.BACK, 4.0)
 	var cut := str(hose.get("hose_source")) == "" and int((tasks.get("bills") as Dictionary).get("hose", 0)) > 0
 	print("[MowerTest] hose cut and billed %s" % cut)
 	ok = ok and cut

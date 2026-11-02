@@ -45,9 +45,14 @@ func setup(tasks: Node) -> void:
 
 # ---------------------------------------------------------------- spots
 
-func add_window(index: int, at: Vector3, normal: Vector3) -> void:
+## Grime on a window facing normal. size: the window's (HouseSpec "windows"),
+## the grime a little bigger; zero for the classic house's two sizes.
+func add_window(index: int, at: Vector3, normal: Vector3, size: Vector2 = Vector2.ZERO) -> void:
 	var quad := QuadMesh.new()
-	quad.size = Vector2(1.38, 1.32) if absf(normal.z) > 0.5 else Vector2(1.18, 1.18)
+	if size.x > 0.0 and size.y > 0.0:
+		quad.size = size + Vector2(0.08, 0.07)
+	else:
+		quad.size = Vector2(1.38, 1.32) if absf(normal.z) > 0.5 else Vector2(1.18, 1.18)
 	var material := StandardMaterial3D.new()
 	material.albedo_texture = _grime_texture()
 	material.albedo_color = Color(0.45, 0.38, 0.28, 0.85)
@@ -100,8 +105,10 @@ func add_roof_leaves(index: int, at: Vector3, normal: Vector3) -> void:
 	_spots[index] = {"kind": "shrink", "node": view, "full": Vector3.ONE}
 
 
-func add_fence_panel(index: int, holder: Node3D) -> void:
-	_spots[index] = {"kind": "paint", "node": holder, "bucket": -1}
+## A fence panel the paint task refreshes from faded to fresh (the hood's own
+## colors and surface: levels/town/hood_styles.gd "job_fence").
+func add_fence_panel(index: int, holder: Node3D, fresh: Color = FRESH_PAINT, faded: Color = FADED_PAINT, surface: String = "planks") -> void:
+	_spots[index] = {"kind": "paint", "node": holder, "bucket": -1, "fresh": fresh, "faded": faded, "surface": surface}
 
 
 func add_litter(index: int, at: Vector3, seed_value: int) -> void:
@@ -206,8 +213,8 @@ func _on_spot_changed(index: int, amount: int) -> void:
 			if bucket == int(entry["bucket"]):
 				return
 			entry["bucket"] = bucket
-			var color := FRESH_PAINT.lerp(FADED_PAINT, float(bucket) / 10.0)
-			var material := _Surfaces.material("planks", color)
+			var color := (entry.get("fresh", FRESH_PAINT) as Color).lerp(entry.get("faded", FADED_PAINT), float(bucket) / 10.0)
+			var material := _Surfaces.material(str(entry.get("surface", "planks")), color)
 			for mesh: Node in node.find_children("*", "MeshInstance3D", true, false):
 				(mesh as MeshInstance3D).set_meta("surface_base", color)
 				(mesh as MeshInstance3D).material_override = material
