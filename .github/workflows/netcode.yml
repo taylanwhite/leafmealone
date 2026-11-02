@@ -243,6 +243,14 @@ jobs:
           "$GODOT" --headless --path . -- --host --port=7811 --name=Tester --no-steam --start-hour=8 --audio-test --measure="$PWD/build/soak/ci-audio/host.json" --run-seconds=45 > build/soak/ci-audio/host.log 2>&1
           grep "AudioTest" build/soak/ci-audio/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-audio/host.json'))['audio_test']; sys.exit(0 if r.get('ok') else 1)"
+      - name: Settings test (buses, volumes, look, FOV, rebinding and conflicts, presets, saving)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-settings
+          "$GODOT" --headless --path . -- --host --port=7808 --name=Tester --no-steam --settings-test --measure="$PWD/build/soak/ci-settings/host.json" --run-seconds=40 > build/soak/ci-settings/host.log 2>&1
+          grep "SettingsTest" build/soak/ci-settings/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-settings/host.json'))['settings_test']; sys.exit(0 if r.get('ok') else 1)"
 
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'

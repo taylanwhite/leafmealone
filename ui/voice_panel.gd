@@ -2,6 +2,8 @@ extends PanelContainer
 
 ## Authority: local. Voice settings: push-to-talk or open mic, and each other
 ## player's volume and mute. Volume and mute only change what this player hears.
+## The mode is remembered between launches (Settings audio/voice_mode, which
+## applies it through Net.set_voice_mode).
 
 const _Strings = preload("res://ui/strings.gd")
 ## Highest volume a slider allows, as a multiple of normal.
@@ -29,7 +31,7 @@ func _ready() -> void:
 	_mode.add_item(_Strings.UI["voice_mode_push"], Net.VoiceMode.PUSH_TO_TALK)
 	_mode.add_item(_Strings.UI["voice_mode_open"], Net.VoiceMode.VOICE_ACTIVATION)
 	_mode.item_selected.connect(func(index: int) -> void:
-		Net.set_voice_mode(_mode.get_item_id(index) as Net.VoiceMode)
+		Settings.set_value("audio", "voice_mode", _mode.get_item_id(index))
 	)
 	box.add_child(_mode)
 	_rows = VBoxContainer.new()

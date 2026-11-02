@@ -696,3 +696,77 @@ const AMBIENCE_CAR_SECONDS: float = 4.0
 ## One-shots out in the neighborhood: full volume inside this, gone past that (meters).
 const AMBIENCE_UNIT_SIZE: float = 12.0
 const AMBIENCE_MAX_DISTANCE: float = 90.0
+
+# ---- settings
+## Player settings (core/settings.gd, user://settings.cfg; docs/DECISIONS.md
+## "Player settings"). Local to each machine, never replicated.
+## Radians of turn per pixel of mouse motion at 1.00x sensitivity (the old player.gd value).
+const MOUSE_SENSITIVITY_BASE: float = 0.003
+## Mouse sensitivity multiplier range (x min, y max) and its default.
+const SENSITIVITY_RANGE: Vector2 = Vector2(0.1, 3.0)
+## Field of view in degrees; 75 is Godot's Camera3D default, which the game always used.
+const FOV_DEFAULT: float = 75.0
+const FOV_RANGE: Vector2 = Vector2(60.0, 110.0)
+## The root window's content_scale_factor range (UI scale). 125% is the most the
+## anchored HUD fits at 1280x720.
+const UI_SCALE_RANGE: Vector2 = Vector2(0.75, 1.25)
+const RENDER_SCALE_RANGE: Vector2 = Vector2(0.5, 1.0)
+const BRIGHTNESS_RANGE: Vector2 = Vector2(0.7, 1.3)
+## Frame caps offered, in frames per second; 0 is unlimited. video.max_fps is an index here.
+const FPS_CAPS: Array[int] = [0, 30, 60, 120, 144, 240]
+## Seconds a new display mode waits for "Keep" before it reverts.
+const DISPLAY_REVERT_SECONDS: float = 10.0
+## Changes are written this many seconds after the last one, so a dragged slider saves once.
+const SETTINGS_SAVE_DELAY: float = 0.4
+## Caption size multipliers: small, medium, large (interface.caption_size is an index).
+const CAPTION_SCALES: Array[float] = [0.8, 1.0, 1.3]
+## Shadow quality levels 0 (off) to 4 (ultra): the directional shadow atlas size,
+## the sun's shadow distance in meters, and the soft-shadow filter quality.
+## Level 3 (High) is exactly levels/shared_look.gd's sun.
+const SHADOW_LEVELS: Array[Dictionary] = [
+	{},
+	{"atlas": 2048, "distance": 50.0, "soft": 1},
+	{"atlas": 4096, "distance": 70.0, "soft": 1},
+	{"atlas": 4096, "distance": 90.0, "soft": 2},
+	{"atlas": 8192, "distance": 120.0, "soft": 3},
+]
+## Cosmetic lawn grass levels 0 (off) to 4 (ultra): the share of tufts drawn and
+## how far away they fade, in meters. Level 3 (High) is props/grass.gd as built.
+## Mowable task grass is gameplay and never thinned.
+const GRASS_LEVELS: Array[Dictionary] = [
+	{"density": 0.0, "range": 0.0},
+	{"density": 0.35, "range": 28.0},
+	{"density": 0.65, "range": 36.0},
+	{"density": 1.0, "range": 45.0},
+	{"density": 1.0, "range": 62.0},
+]
+## Outline line width in pixels for video.outline 0 (off), 1 (on), 2 (bold).
+const OUTLINE_WIDTHS: Array[float] = [0.0, 1.0, 1.6]
+## RenderingServer SSAO quality used whenever ambient occlusion is on.
+const SSAO_QUALITY_HIGH: int = 2
+## The quality presets. Each sets these video keys; changing any one of them
+## afterwards turns video.preset to "custom". "high" is the shipped look.
+## aa: 0 off, 1 FXAA, 2 MSAA 2x, 3 MSAA 4x (settings:2 may swap Ultra to FXAA
+## if MSAA fights the outline shader).
+const GRAPHICS_PRESETS: Dictionary = {
+	"low": {"shadows": 1, "ssao": false, "glow": false, "outline": 1, "grass": 1, "aa": 0, "render_scale": 0.75},
+	"medium": {"shadows": 2, "ssao": false, "glow": true, "outline": 1, "grass": 2, "aa": 1, "render_scale": 1.0},
+	"high": {"shadows": 3, "ssao": true, "glow": true, "outline": 1, "grass": 3, "aa": 0, "render_scale": 1.0},
+	"ultra": {"shadows": 4, "ssao": true, "glow": true, "outline": 1, "grass": 4, "aa": 3, "render_scale": 1.0},
+}
+## Actions that are held down rather than tapped. The mouse wheel has no held
+## state, so it can never be bound to one of these. A feature adding a held
+## action adds it here (gap-specs/critic.md C14, C15).
+const HOLD_ACTIONS: Array[StringName] = [
+	&"move_forward", &"move_back", &"move_left", &"move_right", &"sprint", &"crouch",
+	&"primary", &"secondary", &"drop", &"push_to_talk",
+]
+## Bindings per action (two slots: a main key and an alternate).
+const BINDING_SLOTS: int = 2
+## How the Keys tab groups actions, in order. Any other non-ui_ action is listed
+## under "other" automatically. A feature adding an action may add it to a group here.
+const KEYBIND_GROUPS: Array[Dictionary] = [
+	{"id": "moving", "actions": [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch"]},
+	{"id": "working", "actions": [&"primary", &"secondary", &"interact", &"take", &"drop"]},
+	{"id": "crew", "actions": [&"phone", &"push_to_talk", &"toggle_camera", &"toggle_music", &"pause"]},
+]

@@ -140,6 +140,11 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-hour=8 --audio-test'; Seconds = 45; Port = 7811
 		Check = { param($h, $c) [bool]$h.audio_test.ok }
 	}
+	settings = @{
+		Port = 7808
+		Host = '--host --name=Tester --no-steam --settings-test'; Seconds = 40
+		Check = { param($h, $c) [bool]$h.settings_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'
@@ -219,8 +224,12 @@ function Wants([string]$name) {
 	return $true
 }
 
-## Removes the test save for one port, or every test save when no port is given.
+## Removes the test save and test settings file (settings_test_<port>.cfg, one folder
+## up from the saves) for one port, or every one of them when no port is given.
 function Clear-TestSave([int]$port = 0) {
+	$userDir = Split-Path -Parent $SaveDir
+	$settings = if ($port -gt 0) { "settings_test_$port.cfg" } else { 'settings_test_*.cfg' }
+	if (Test-Path $userDir) { Get-ChildItem -Path $userDir -Filter $settings -ErrorAction SilentlyContinue | Remove-Item -Force }
 	if (-not (Test-Path $SaveDir)) { return }
 	$pattern = if ($port -gt 0) { "campaign_test_$port.json*" } else { 'campaign_test*.json*' }
 	Get-ChildItem -Path $SaveDir -Filter $pattern -ErrorAction SilentlyContinue | Remove-Item -Force
