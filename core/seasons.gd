@@ -7,6 +7,9 @@ extends RefCounted
 ## leaves and the colors the art was made for.
 
 const NAMES: Array[String] = ["Autumn", "Winter", "Spring", "Summer"]
+## The same seasons as ids, in the same order: the one list every system keys
+## on (Catalog item "seasons", icons' for_season).
+const IDS: Array[String] = ["autumn", "winter", "spring", "summer"]
 
 ## How much of a yard's leaves come back, by season.
 const LEAVES: Array[float] = [1.0, 0.3, 0.45, 0.25]

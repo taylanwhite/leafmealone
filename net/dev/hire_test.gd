@@ -4,7 +4,8 @@ extends Node
 ## npcs/crew_hand.gd): hiring takes the signing fee and fills a slot; on the
 ## yard the hand rakes a pile, bags it, and loads it into Chefty by itself; a
 ## client sees the hand; at bedtime the crew pays the wage; letting the hand go
-## frees the slot. Run with --start-zone=lot --rank=22 (Hedge Hog III, where
+## frees the slot. Then it checks Campaign's wallet API and the counter's rules
+## (_check_wallet). Run with --start-zone=lot --rank=22 (Hedge Hog III, where
 ## hiring opens) and a Target client. Each step prints a [HireTest] line.
 
 const WORK_SECONDS: float = 40.0
@@ -33,7 +34,7 @@ func _run() -> void:
 	var open := int(hires.call("slots")) >= 1 and bool(hires.call("can_hire"))
 	print("[HireTest] hiring is open at this rank (%d slot): %s" % [int(hires.call("slots")), open])
 	ok = ok and open
-	Campaign.call("_add_credits", me, 1000)
+	Campaign.pay(me, 1000)
 	var before := Campaign.credits(me)
 	hires.call("request_hire")
 	await get_tree().create_timer(0.3).timeout
@@ -86,9 +87,56 @@ func _run() -> void:
 	var freed := (hires.get("hands") as Array).is_empty() and bool(hires.call("can_hire"))
 	print("[HireTest] let %s go, the slot is free: %s" % [name_of, freed])
 	ok = ok and freed
+	ok = _check_wallet(me) and ok
 	await get_tree().create_timer(1.0).timeout
 	result = {"ok": ok, "done": true}
 	print("[HireTest] all ok: %s" % ok)
+
+
+## The shops:1 wallet API and the old counter's rules (net/campaign.gd charge,
+## _handle_purchase, tool_tier; core/catalog.gd price). All host-side and
+## synchronous. Runs last so the bought rake and tools can't change the steps above.
+func _check_wallet(me: int) -> bool:
+	var ok := true
+	Campaign.pay(me, 5000)
+	var cash := Campaign.credits(me)
+	var short := not Campaign.charge(me, cash + 1) and Campaign.credits(me) == cash
+	var negative := not Campaign.charge(me, -5) and Campaign.credits(me) == cash
+	print("[HireTest] charge refuses a short player and a negative amount, wallet untouched: %s" % (short and negative))
+	ok = ok and short and negative
+	Campaign.request_purchase(&"lawn_bags")
+	var no_consumable := Campaign.credits(me) == cash and not Campaign.peer_has_unlock(me, &"lawn_bags")
+	print("[HireTest] the counter won't sell a consumable as an unlock: %s" % no_consumable)
+	ok = ok and no_consumable
+	var fresh := not Campaign.peer_has_unlock(me, &"rake_tier_1") and not Campaign.peer_has_unlock(me, &"rake_tier_2")
+	Campaign.request_purchase(&"rake_tier_2")
+	var needs := fresh and Campaign.credits(me) == cash and not Campaign.peer_has_unlock(me, &"rake_tier_2")
+	print("[HireTest] The Leafinator is refused without the first rake tune-up: %s" % needs)
+	ok = ok and needs
+	Campaign.request_purchase(&"rake_tier_1")
+	Campaign.request_purchase(&"rake_tier_2")
+	var paid := cash - Campaign.credits(me)
+	var growth := Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER
+	var rake := Campaign.peer_has_unlock(me, &"rake_tier_2") \
+		and paid == Campaign.price_of(&"rake_tier_1") + Campaign.price_of(&"rake_tier_2") \
+		and is_equal_approx(Campaign.rake_multiplier(me), growth * growth)
+	print("[HireTest] bought both rake tiers for $%d, rake x%.2f: %s" % [paid, Campaign.rake_multiplier(me), rake])
+	ok = ok and rake
+	var none := Campaign.tool_tier(me, "leaf_blower") == Catalog.TIER_NONE
+	Campaign.grant_unlock(me, "leaf_blower_used")
+	var used := none and Campaign.tool_tier(me, "leaf_blower") == Catalog.TIER_USED \
+		and Campaign.crew_tool_tier("leaf_blower") >= Catalog.TIER_USED \
+		and Campaign.crew_tools().has("leaf_blower")
+	print("[HireTest] a used leaf blower is tier %d and the crew brings it: %s" % [Campaign.tool_tier(me, "leaf_blower"), used])
+	ok = ok and used
+	var blower := float(Constants.TOOL_PRICES["leaf_blower"])
+	var prices := Catalog.price("leaf_blower_mk2") == roundi(blower * Constants.TOOL_TIER_PRICE[Catalog.TIER_MK2]) \
+		and Catalog.price("leaf_blower_used") == roundi(blower * Constants.TOOL_TIER_PRICE[Catalog.TIER_USED]) \
+		and Catalog.price("vend_sandwich") == roundi(float(Constants.SHOP_PRICES["vend_sandwich"]) * Constants.VENDING_PRICE_SCALE) \
+		and Catalog.price("no_such_item") == -1
+	print("[HireTest] catalog prices apply the tier and vending markups: %s" % prices)
+	ok = ok and prices
+	return ok
 
 
 func _hires() -> Node:

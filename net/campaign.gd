@@ -22,6 +22,7 @@ const TEST_SAVE_PATH := "user://saves/campaign_test_%d.json"
 const SAVE_VERSION := 1
 const RAKE_UPGRADE := &"rake_tier_1"
 const WHEELBARROW_UPGRADE := &"wheelbarrow_tier_1"
+const RAKE_UPGRADE_2 := &"rake_tier_2"
 
 var _job_stats: Dictionary = {}
 var _bank: Dictionary = {}
@@ -103,8 +104,11 @@ func wheelbarrow_capacity() -> int:
 	return Constants.WHEELBARROW_BAG_CAPACITY
 
 
-## Workbook throughput multiplier for this player's rake. 1 until they buy the tune-up.
+## Workbook throughput multiplier for this player's rake. 1 until they buy the
+## tune-up; The Leafinator (rake_tier_2) applies it again.
 func rake_multiplier(peer_id: int) -> float:
+	if peer_has_unlock(peer_id, RAKE_UPGRADE_2):
+		return Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER * Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER
 	if peer_has_unlock(peer_id, RAKE_UPGRADE):
 		return Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER
 	return 1.0
@@ -170,9 +174,10 @@ func is_feature_on(feature_id: String) -> bool:
 	return _Ranks.tier_of("feature:" + feature_id) > 0 and has_unlock("feature:" + feature_id)
 
 
-## Whether Homie Depot sells this to the crew yet.
+## Whether the shops sell this to the crew yet: the item's rank gate
+## (core/catalog.gd gate_of, "shop:<id>" unless it says otherwise).
 func is_for_sale(item_id: StringName) -> bool:
-	return has_unlock("shop:" + String(item_id))
+	return has_unlock(Catalog.gate_of(String(item_id)))
 
 
 ## Host only. XP earned now, banked when the crew sleeps.
@@ -208,7 +213,7 @@ func _tally(key: String, amount: float) -> void:
 	_day_tally[key] = float(_day_tally.get(key, 0.0)) + amount
 
 
-## Ask the host to buy the rake tune-up.
+## Ask the host to buy a stock tool or an upgrade at Homie Depot's counter.
 func request_purchase(item_id: StringName) -> void:
 	if Net.is_host():
 		_handle_purchase(Net.local_peer_id(), item_id)
@@ -362,24 +367,83 @@ func _unlock_list(peer_id: int) -> PackedStringArray:
 	return names
 
 
-## What an item costs: base tools from Constants.TOOL_PRICES, everything else
-## from Constants.SHOP_PRICES. -1 for something the store doesn't sell.
+## What an item costs (core/catalog.gd price: base tools from TOOL_PRICES times
+## TOOL_TIER_PRICE, everything else from Constants.SHOP_PRICES). -1 for something
+## nobody sells.
 func price_of(item_id: StringName) -> int:
-	var id := String(item_id)
-	if Constants.SHOP_PRICES.has(id):
-		return int(Constants.SHOP_PRICES[id])
-	return int(Constants.TOOL_PRICES.get(id, -1))
+	return Catalog.price(String(item_id))
 
 
-## Host: every tool someone in this session owns. The crew brings them all to the job.
+## Host: every tool someone in this session owns, at any tier (a used one
+## counts). The crew brings them all to the job.
 func crew_tools() -> PackedStringArray:
 	var tools := PackedStringArray()
 	for peer_id: int in Net.peer_ids():
 		_bind_peer(peer_id)
 		for tool_id: String in Constants.TOOL_PRICES:
-			if peer_has_unlock(peer_id, StringName(tool_id)) and not tools.has(tool_id):
+			if tool_tier(peer_id, tool_id) >= Catalog.TIER_USED and not tools.has(tool_id):
 				tools.append(tool_id)
 	return tools
+
+
+# ---- shops: the public wallet API. Every system that moves money or grants an
+# owned item uses these (net/crew/hires.gd, net/shops/shops.gd), never the
+# private _add_credits / _send_wallet.
+
+## Host: take amount from a player and tell everyone. False (and nothing taken)
+## when they're short, the amount is negative, or this isn't the host.
+func charge(peer_id: int, amount: int) -> bool:
+	if not Net.is_host() or amount < 0:
+		return false
+	_bind_peer(peer_id)
+	if credits(peer_id) < amount:
+		return false
+	if amount > 0:
+		_add_credits(peer_id, -amount)
+		_send_wallet(peer_id)
+	return true
+
+
+## Host: give a player money and tell everyone.
+func pay(peer_id: int, amount: int) -> void:
+	if not Net.is_host() or amount <= 0:
+		return
+	_add_credits(peer_id, amount)
+	_send_wallet(peer_id)
+
+
+## Host: a player now owns this (a tool, a tier, a hat). Saves and tells everyone.
+func grant_unlock(peer_id: int, unlock_id: String) -> void:
+	if not Net.is_host() or unlock_id == "":
+		return
+	_bind_peer(peer_id)
+	var key: String = _peer_keys[peer_id]
+	var record: Dictionary = _bank[key]
+	var unlocks: Array = record.get("unlocks", [])
+	if not unlocks.has(unlock_id):
+		unlocks.append(unlock_id)
+	record["unlocks"] = unlocks
+	_bank[key] = record
+	_save()
+	_send_wallet(peer_id)
+	unlocks_changed.emit()
+
+
+## The best tier of a tool this player owns: Catalog.TIER_NONE (-1), TIER_USED
+## (0), TIER_STOCK (1), TIER_MK2 (2), or TIER_MK3 (3).
+func tool_tier(peer_id: int, tool: String) -> int:
+	for tier: int in [Catalog.TIER_MK3, Catalog.TIER_MK2, Catalog.TIER_STOCK, Catalog.TIER_USED]:
+		if peer_has_unlock(peer_id, StringName(Catalog.tool_item(tool, tier))):
+			return tier
+	return Catalog.TIER_NONE
+
+
+## The best tier of a tool anyone in this session owns: the crew brings the best one.
+func crew_tool_tier(tool: String) -> int:
+	var best := Catalog.TIER_NONE
+	for peer_id: int in Net.peer_ids():
+		best = maxi(best, tool_tier(peer_id, tool))
+	return best
 
 
 ## Dev and tests only: give this peer every tool, as if bought.
@@ -399,25 +463,25 @@ func dev_grant_all_tools(peer_id: int) -> void:
 	unlocks_changed.emit()
 
 
+## The old Homie Depot counter: stock tools and upgrades only. Tiers, supplies,
+## snacks, and cosmetics go through the Shops node (net/shops/shops.gd).
 func _handle_purchase(peer_id: int, item_id: StringName) -> void:
+	var id := String(item_id)
+	var kind := str(Catalog.item(id).get("kind", ""))
+	if kind != "tool" and kind != "upgrade":
+		return
 	var price := price_of(item_id)
 	if price < 0 or not is_for_sale(item_id):
 		return
 	_bind_peer(peer_id)
 	if peer_has_unlock(peer_id, item_id):
 		return
-	if credits(peer_id) < price:
+	var needs: Array = Catalog.item(id).get("needs", [])
+	if not needs.is_empty() and not needs.any(func(need: Variant) -> bool: return peer_has_unlock(peer_id, StringName(str(need)))):
 		return
-	_add_credits(peer_id, -price)
-	var key: String = _peer_keys[peer_id]
-	var record: Dictionary = _bank[key]
-	var unlocks: Array = record.get("unlocks", [])
-	unlocks.append(String(item_id))
-	record["unlocks"] = unlocks
-	_bank[key] = record
-	_save()
-	_send_wallet(peer_id)
-	unlocks_changed.emit()
+	if not charge(peer_id, price):
+		return
+	grant_unlock(peer_id, id)
 
 
 func _split_pool(pool: float) -> Array[Dictionary]:

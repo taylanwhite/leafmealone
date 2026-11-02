@@ -140,16 +140,14 @@ func pay_wages() -> Dictionary:
 		var share := int(ceil(float(total) / float(peers.size())))
 		for peer_id: int in peers:
 			var paid := mini(share, mini(owed, Campaign.credits(peer_id)))
-			Campaign.call("_add_credits", peer_id, -paid)
-			owed -= paid
+			if Campaign.charge(peer_id, paid):
+				owed -= paid
 		for peer_id: int in peers:
 			if owed <= 0:
 				break
 			var paid := mini(owed, Campaign.credits(peer_id))
-			Campaign.call("_add_credits", peer_id, -paid)
-			owed -= paid
-		for peer_id: int in peers:
-			Campaign.call("_send_wallet", peer_id)
+			if Campaign.charge(peer_id, paid):
+				owed -= paid
 	_broadcast()
 	return {"wages": total, "quit": quit}
 
@@ -159,10 +157,8 @@ func pay_wages() -> Dictionary:
 func _handle_hire(peer_id: int) -> void:
 	if not can_hire():
 		return
-	if Campaign.credits(peer_id) < Constants.HIRE_SIGNING_FEE:
+	if not Campaign.charge(peer_id, Constants.HIRE_SIGNING_FEE):
 		return
-	Campaign.call("_add_credits", peer_id, -Constants.HIRE_SIGNING_FEE)
-	Campaign.call("_send_wallet", peer_id)
 	var taken := {}
 	for hand: Dictionary in hands:
 		taken[str(hand["name"])] = true
