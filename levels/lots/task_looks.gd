@@ -374,6 +374,13 @@ func work_fx(task: String, at: Vector3) -> void:
 
 # ---------------------------------------------------------------- meshes
 
+## The cached mesh for a task look (gunk, pool_leaves, roof_leaves, weed, shaggy,
+## can, paper, bottle), read-only: tools/studio/icon_recipes.gd builds the task
+## badges' vignettes from these.
+static func mesh(kind: String) -> ArrayMesh:
+	return _mesh(kind)
+
+
 static func _mesh(kind: String) -> ArrayMesh:
 	if _meshes.has(kind):
 		return _meshes[kind]
