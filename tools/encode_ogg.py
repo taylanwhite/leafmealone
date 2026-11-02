@@ -269,7 +269,14 @@ def encode_external(route: str, track_id: str, wav: pathlib.Path, out: pathlib.P
         import numpy  # noqa: F401  (soundfile needs it)
         import soundfile
         samples, sample_rate = soundfile.read(str(shifted))
-        soundfile.write(str(out), samples, sample_rate, format="OGG", subtype="VORBIS")
+        try:
+            # libsndfile's Vorbis "compression level" runs the other way from quality.
+            soundfile.write(str(out), samples, sample_rate, format="OGG", subtype="VORBIS",
+                            compression_level=max(0.0, min(1.0, 1.0 - quality)))
+        except TypeError:
+            print("encode_ogg: this soundfile (< 0.11) has no compression_level; --quality %.2f is ignored "
+                  "and libsndfile's default Vorbis quality is used" % quality)
+            soundfile.write(str(out), samples, sample_rate, format="OGG", subtype="VORBIS")
     elif route == "ffmpeg":
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(shifted), "-c:a", "libvorbis",
                         "-q:a", "%.1f" % (quality * 10.0), str(out)], check=True)

@@ -19,7 +19,7 @@ Violations (the exit code is 1 if any):
             step outside the range of the loop's own bar lines (+-3 dB),
             stereo correlation under 0
   stingers  peak over -1 dBFS, clipped samples, |DC| over 0.01, longer than 6 s,
-            RMS outside -30..-14 dBFS
+            RMS outside -30..-17.5 dBFS (the target is at most -18)
   sfx       clipped samples, an empty or silent file
 --png writes build/audio/png/<id>.png: the waveform envelope (peak and RMS)
 with section and loop markers over an 8-band energy strip, for the Read tool.
@@ -52,7 +52,9 @@ SEAM_SECONDS = 0.02
 SEAM_RMS_STEP_DB = 9.0
 BAR_LINE_MARGIN_DB = 3.0
 STINGER_MAX_SECONDS = 6.0
-STINGER_RMS = (-30.0, -14.0)
+# docs/ART.md: stingers are at most -18 dBFS RMS (make_music.py normalizes to
+# that); 0.5 dB of slack for rounding and dither.
+STINGER_RMS = (-30.0, -17.5)
 BANDS = [63, 125, 250, 500, 1000, 2000, 4000, 8000]
 
 

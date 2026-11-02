@@ -1029,6 +1029,9 @@ class Section:
         if len(self.chord_bars) != bars:
             raise ValueError("a %d-bar section with %d bars of chords" % (bars, len(self.chord_bars)))
         self.parts = parts
+        # The chord the form plays right after this section (render() sets it
+        # before each pass); None means the section wraps onto its own start.
+        self.following: Chord | None = None
 
     def chord_at(self, bar: int, step: float) -> Chord:
         names = self.chord_bars[bar % self.bars]
@@ -1039,6 +1042,8 @@ class Section:
         index = int(step * len(names) / 16)
         if index + 1 < len(names):
             return names[index + 1]
+        if bar % self.bars == self.bars - 1 and self.following is not None:
+            return self.following
         return self.chord_bars[(bar + 1) % self.bars][0]
 
 
@@ -1237,6 +1242,15 @@ def render(song: Song, only_section: str | None = None, mono: bool = False) -> d
         section_start = at_bars * 16 * song.step_seconds
         section_marks.append({"name": name, "start": round(section_start, 6), "bars": section.bars})
         buses, length = (pre, ls) if index < loop_index else (body, n)
+        # Approach notes on a section's last bar aim at what the form plays next:
+        # the next section, or for the last one the loop_from section (the seam).
+        # A one-section preview and a stinger just wrap onto their own start.
+        following = None
+        if index + 1 < len(form):
+            following = song.sections[form[index + 1]].chord_bars[0][0]
+        elif not only_section and not song.stinger and song.loop_from is not None:
+            following = song.sections[song.loop_from].chord_bars[0][0]
+        section.following = following
         for part in section.parts:
             # Parts that share an instrument and placement share a bus.
             key = (part.inst, part.pan, part.verb)

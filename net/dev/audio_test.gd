@@ -175,14 +175,19 @@ func _music_files() -> bool:
 	var ok := true
 	var count := 0
 	for file: String in dir.get_files():
-		if not file.ends_with(".ogg"):
+		# Vorbis normally; a WAV when tools/encode_ogg.py --wav-fallback wrote it.
+		var stream: AudioStream = null
+		if file.ends_with(".ogg"):
+			stream = load(MUSIC_DIR.path_join(file)) as AudioStreamOggVorbis
+		elif file.ends_with(".wav"):
+			stream = load(MUSIC_DIR.path_join(file)) as AudioStreamWAV
+		else:
 			continue
 		count += 1
 		var path := MUSIC_DIR.path_join(file)
-		var stream := load(path) as AudioStreamOggVorbis
 		var seconds := stream.get_length() if stream != null else 0.0
 		var good := stream != null and seconds > 1.0 and seconds <= MUSIC_MAX_SECONDS
-		print("[AudioTest] music %s: %s, %.4f s" % [file, stream.get_class() if stream != null else "not Vorbis", seconds])
+		print("[AudioTest] music %s: %s, %.4f s" % [file, stream.get_class() if stream != null else "not Vorbis/WAV", seconds])
 		if not good:
 			(result["bad_lengths"] as Array).append("%s %.2fs" % [path, seconds])
 		ok = ok and good
