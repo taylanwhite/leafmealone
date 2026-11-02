@@ -8,6 +8,7 @@
   tools\ci_local.ps1 -SkipSoak            # feature tests only
   tools\ci_local.ps1 -List                # names of every test
   tools\ci_local.ps1 -Jobs 1              # one test at a time, like before
+  tools\ci_local.ps1 -CheckPorts          # each test's port, checked against netcode.yml
 
 .NOTES
   Godot comes from $env:GODOT, else ~\Tools\Godot\Godot_v4.7.2-stable_win64_console.exe.
@@ -16,6 +17,9 @@
   test save (campaign_test_<port>.json), and each quits as soon as its test is done
   (net/dev/dev_tools.gd). The two bot soaks run together afterwards, on a quiet machine,
   because they judge smoothness. Logs and reports go to build\soak\local-<test>.
+  Ports: smoke 7791, the soaks 7792 and 7793, and each feature test the Port its $Tests
+  entry names (the table is in docs/DECISIONS.md, "CI ports"). An entry without a Port
+  falls back to 7794 + its position in the table. -PortOffset shifts all of them.
   Exit code: 0 when everything passed, 1 otherwise.
 #>
 param(
@@ -23,6 +27,8 @@ param(
 	[switch]$SkipSoak,
 	[switch]$SkipImport,
 	[switch]$List,
+	# Prints each test's port and checks it against .github/workflows/netcode.yml.
+	[switch]$CheckPorts,
 	[int]$Jobs = 0,
 	# Shifts every port (and so every test save) by this much, so runs in two worktrees
 	# at once don't collide. Use a multiple of 100.
@@ -47,63 +53,79 @@ if ($Jobs -le 0) {
 	$Jobs = [math]::Max(1, [math]::Min(8, [math]::Floor($cores / 4)))
 }
 
-# One entry per CI step. Host and Client are the args after `--`. Seconds and Client are
-# ceilings for a hung test; a test that finishes quits right away. Check gets the host report,
-# the client report (or $null) and returns $true on pass.
+# One entry per CI step. Port is the test's fixed port (docs/DECISIONS.md, "CI ports"; the
+# same port goes in the netcode.yml step). Host and Client are the args after `--`; Extra
+# (optional) is appended to both, for network conditions such as '--sim-lag=120'. Seconds
+# and Client are ceilings for a hung test; a test that finishes quits right away. Check gets
+# the host report, the client report (or $null) and returns $true on pass.
 $Tests = [ordered]@{
 	job = @{
+		Port = 7794
 		Host = '--host --name=Tester --no-steam --job-test --job-seed=777 --yard-size=1'; Seconds = 75
 		Check = { param($h, $c) [bool]$h.job_test.ok }
 	}
 	bonk = @{
+		Port = 7795
 		Host = '--host --name=Tester --no-steam --start-zone=lot --bonk-test'; Seconds = 26; Client = 22
 		Check = { param($h, $c) [bool]$h.bonk_test.ok }
 	}
 	work = @{
+		Port = 7796
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --work-test'; Seconds = 120; Client = 115
 		Check = { param($h, $c) [bool]$h.work_test.ok -and (Same $h.lot_layout $c.lot_layout) -and (Same $h.job_progress $c.job_progress) }
 	}
 	throw = @{
+		Port = 7797
 		Host = '--host --name=Tester --no-steam --start-zone=lot --throw-test'; Seconds = 34
 		Check = { param($h, $c) [bool]$h.throw_test.ok }
 	}
 	water = @{
+		Port = 7798
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=4242 --water-test'; Seconds = 50
 		Check = { param($h, $c) [bool]$h.water_test.ok }
 	}
 	mower = @{
+		Port = 7799
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --mower-test'; Seconds = 55; Client = 50
 		Check = { param($h, $c) [bool]$h.mower_test.ok }
 	}
 	board = @{
+		Port = 7800
 		Host = '--host --name=Tester --no-steam --board-test'; Seconds = 30; Client = 25
 		Check = { param($h, $c) [bool]$h.board_test.ok -and (Same $h.board $c.board) }
 	}
 	gag = @{
+		Port = 7801
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --yard-size=1 --gag-test'; Seconds = 80; Client = 75
 		Check = { param($h, $c) [bool]$h.gag_test.ok -and ([math]::Abs([double]$h.heat - [double]$c.heat) -lt 1.5) }
 	}
 	brawl = @{
+		Port = 7802
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --brawl-test'; Seconds = 50; Client = 45
 		Check = { param($h, $c) [bool]$h.brawl_test.ok }
 	}
 	day = @{
+		Port = 7803
 		Host = '--host --name=Tester --no-steam --day-test'; Seconds = 30; Client = 26
 		Check = { param($h, $c) [bool]$h.day_test.ok -and (Same $h.day $c.day) }
 	}
 	town = @{
+		Port = 7804
 		Host = '--host --name=Tester --no-steam --town-test'; Seconds = 40; Client = 36
 		Check = { param($h, $c) [bool]$h.town_test.ok -and (Same $h.town $c.town) }
 	}
 	layout = @{
+		Port = 7805
 		Host = '--host --name=Tester --no-steam --start-zone=lot --layout-test'; Seconds = 120
 		Check = { param($h, $c) [bool]$h.layout_test.ok }
 	}
 	hire = @{
+		Port = 7806
 		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --rank=22 --hire-test'; Seconds = 70; Client = 65
 		Check = { param($h, $c) [bool]$h.hire_test.ok -and ([int]$c.crew_hands -eq 1) }
 	}
 	rival = @{
+		Port = 7807
 		Host = '--host --name=Tester --no-steam --rank=17 --rival-test'; Seconds = 20
 		Check = { param($h, $c) [bool]$h.rival_test.ok }
 	}
@@ -112,8 +134,63 @@ $Tests = [ordered]@{
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'
 if (Test-Path $ExtraTests) { . $ExtraTests }
 
-$AllNames = @('smoke') + @($Tests.Keys) + @('soak', 'event-soak')
+# Steps that are not a host/client pair: smoke (port 7791) and the guardrail script (no port).
+$AllNames = @('smoke', 'guardrail') + @($Tests.Keys) + @('soak', 'event-soak')
 if ($List) { $AllNames; exit 0 }
+
+# Each test's base port: its Port key, else 7794 + its position (how ports were given
+# before Port existed). Two tests on one port, or a test on a smoke/soak port, is an error.
+$BasePorts = [ordered]@{}
+$Reserved = @{ 7791 = 'smoke'; 7792 = 'soak'; 7793 = 'event-soak' }
+$position = 0
+foreach ($name in $Tests.Keys) {
+	$t = $Tests[$name]
+	$BasePorts[$name] = if ($t.Port) { [int]$t.Port } else { 7794 + $position }
+	$position++
+}
+$portErrors = @()
+foreach ($name in $BasePorts.Keys) {
+	$port = $BasePorts[$name]
+	if ($Reserved.ContainsKey($port)) { $portErrors += "$name uses port $port, which belongs to $($Reserved[$port])" }
+	$others = @($BasePorts.Keys | Where-Object { $_ -ne $name -and $BasePorts[$_] -eq $port })
+	if ($others.Count -gt 0) { $portErrors += "$name shares port $port with $($others -join ', ')" }
+}
+if ($portErrors.Count -gt 0) {
+	foreach ($e in ($portErrors | Select-Object -Unique)) { Write-Host "Port clash: $e" -ForegroundColor Red }
+	Write-Host 'Give each $Tests entry its own Port from the table in docs/DECISIONS.md ("CI ports").' -ForegroundColor Red
+	exit 1
+}
+
+## Compares each test's base port with the --port= of the netcode.yml line that runs its
+## test flag (--<x>-test) as host. Returns one message per mismatch or missing step.
+function Get-PortMismatches {
+	$yml = Join-Path $Root '.github\workflows\netcode.yml'
+	if (-not (Test-Path $yml)) { return @('netcode.yml not found') }
+	$lines = Get-Content $yml
+	$found = @()
+	foreach ($name in $BasePorts.Keys) {
+		$flag = [regex]::Match([string]$Tests[$name].Host, '--[a-z0-9-]+-test\b').Value
+		if (-not $flag) { $found += "${name}: no --<x>-test flag in its Host args"; continue }
+		$hostLine = $lines | Where-Object { $_ -match '--host\b' -and $_ -match ([regex]::Escape($flag) + '(\s|$)') } | Select-Object -First 1
+		if (-not $hostLine) { $found += "${name}: netcode.yml has no step running $flag"; continue }
+		$ymlPort = [regex]::Match($hostLine, '--port=(\d+)').Groups[1].Value
+		if ([int]$ymlPort -ne $BasePorts[$name]) { $found += "${name}: port $($BasePorts[$name]) here, $ymlPort in netcode.yml" }
+	}
+	$found
+}
+
+if ($CheckPorts) {
+	Write-Host ("{0,-11} {1}" -f 'smoke', 7791)
+	foreach ($name in $BasePorts.Keys) {
+		$extra = if ($Tests[$name].Extra) { "  ($($Tests[$name].Extra))" } else { '' }
+		Write-Host ("{0,-11} {1}{2}" -f $name, $BasePorts[$name], $extra)
+	}
+	$mismatches = @(Get-PortMismatches)
+	foreach ($m in $mismatches) { Write-Host "mismatch: $m" -ForegroundColor Red }
+	if ($mismatches.Count -gt 0) { exit 1 }
+	Write-Host 'Every port matches netcode.yml.' -ForegroundColor Green
+	exit 0
+}
 # A typo in -Only would otherwise run nothing and report a pass.
 $unknown = @($Only | Where-Object { $AllNames -notcontains $_ })
 if ($unknown.Count -gt 0) {
@@ -161,19 +238,22 @@ $Clock = [Diagnostics.Stopwatch]::StartNew()
 # Each test clears its own port's save when it starts; nothing clears every save, since
 # another worktree's run (-PortOffset) may be using its own.
 
-# The queue: smoke first, then every feature test on its own port (7794 up, matching CI).
+# A port that differs from netcode.yml means CI runs something else; say so, but run anyway.
+foreach ($m in @(Get-PortMismatches)) { Write-Host "warning: $m (tools\ci_local.ps1 -CheckPorts)" -ForegroundColor Yellow }
+
+# The queue: smoke and the guardrail first, then every feature test on its own port.
 $Queue = New-Object System.Collections.Generic.List[object]
 if (Wants 'smoke') { $Queue.Add(@{ Name = 'smoke'; Port = 7791 + $PortOffset }) }
-$Port = 7794 + $PortOffset
+if (Wants 'guardrail') { $Queue.Add(@{ Name = 'guardrail'; Port = 0 }) }
 foreach ($name in $Tests.Keys) {
-	if (Wants $name) { $Queue.Add(@{ Name = $name; Port = $Port }) }
-	$Port++
+	if (Wants $name) { $Queue.Add(@{ Name = $name; Port = $BasePorts[$name] + $PortOffset }) }
 }
 
 function Start-Test($item) {
 	$name = $item.Name
 	$port = $item.Port
-	Clear-TestSave $port
+	# Port 0 (the guardrail) has no save; Clear-TestSave 0 would clear every worktree's.
+	if ($port -gt 0) { Clear-TestSave $port }
 	$dir = Join-Path $Root "build\soak\local-$name"
 	if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
 	New-Item -ItemType Directory -Force $dir | Out-Null
@@ -183,10 +263,17 @@ function Start-Test($item) {
 		$item.HostProc = Start-Godot "--headless --path . -- --smoke-test --port=$port" (Join-Path $dir 'host.log')
 		return
 	}
+	if ($name -eq 'guardrail') {
+		$item.HostProc = Start-Godot '--headless --path . --script res://tools/guardrail_check.gd' (Join-Path $dir 'host.log')
+		# A script error before quit() leaves headless Godot running; the guardrail has no
+		# --run-seconds ceiling of its own, so it gets a deadline here (Step-Test kills it).
+		$item.Deadline = $item.Started + 60
+		return
+	}
 	$t = $Tests[$name]
 	$item.HostJson = Join-Path $dir 'host.json'
 	$item.ClientJson = Join-Path $dir 'target.json'
-	$item.HostProc = Start-Godot "--headless --path . -- $($t.Host) --port=$port --measure=`"$($item.HostJson)`" --run-seconds=$($t.Seconds)" (Join-Path $dir 'host.log')
+	$item.HostProc = Start-Godot "--headless --path . -- $($t.Host) $($t.Extra) --port=$port --measure=`"$($item.HostJson)`" --run-seconds=$($t.Seconds)" (Join-Path $dir 'host.log')
 	# The client joins 3 s later, like CI; Step-Tests starts it.
 	if ($t.Client) { $item.ClientAt = $item.Started + 3 }
 }
@@ -195,9 +282,14 @@ function Start-Test($item) {
 function Step-Test($item) {
 	# A host that already died has nothing to join; don't wait out a client's ceiling for it.
 	if ($item.ClientAt -and -not $item.ClientProc -and $item.HostProc.HasExited) { $item.ClientAt = $null }
+	if ($item.Deadline -and -not $item.HostProc.HasExited -and $Clock.Elapsed.TotalSeconds -ge $item.Deadline) {
+		try { $item.HostProc.Kill() } catch {}
+		$item.TimedOut = $true
+		$item.HostProc.WaitForExit(5000) | Out-Null
+	}
 	if ($item.ClientAt -and -not $item.ClientProc -and $Clock.Elapsed.TotalSeconds -ge $item.ClientAt) {
 		$t = $Tests[$item.Name]
-		$item.ClientProc = Start-Godot "--headless --path . -- --join=127.0.0.1 --port=$($item.Port) --name=Target --no-steam --measure=`"$($item.ClientJson)`" --run-seconds=$($t.Client)" (Join-Path $item.Dir 'target.log')
+		$item.ClientProc = Start-Godot "--headless --path . -- --join=127.0.0.1 --port=$($item.Port) --name=Target --no-steam $($t.Extra) --measure=`"$($item.ClientJson)`" --run-seconds=$($t.Client)" (Join-Path $item.Dir 'target.log')
 	}
 	if (-not $item.HostProc.HasExited) { return $false }
 	if ($item.ClientAt -and -not $item.ClientProc) { return $false }
@@ -211,8 +303,13 @@ function Complete-Test($item) {
 	$Times[$name] = $seconds
 	$ok = $false
 	$notes = @()
-	if ($name -eq 'smoke') {
-		$ok = ($item.HostProc.ExitCode -eq 0)
+	if ($name -eq 'smoke' -or $name -eq 'guardrail') {
+		$ok = ($item.HostProc.ExitCode -eq 0) -and -not $item.TimedOut
+		if ($item.TimedOut) { $notes += "still running after $([math]::Round($item.Deadline - $item.Started)) s, killed (a script error before quit()?)" }
+		if ($name -eq 'guardrail' -and -not $ok) {
+			Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[Guardrail\] (HIT|self-check FAIL)' -ErrorAction SilentlyContinue |
+				Select-Object -First 10 | ForEach-Object { $notes += $_.Line }
+		}
 	} else {
 		$t = $Tests[$name]
 		try {

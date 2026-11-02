@@ -218,3 +218,31 @@ Format: date, the decision, why, what else was considered, and when to revisit.
 - **Why:** every test ran out a fixed `--run-seconds` timer even when it finished early, one after another, so the full local suite took about 20 minutes and CI about the same. Waiting that long made agents test less often.
 - **How:** each `net/dev/*_test.gd` sets `result["done"] = true` wherever it ends. `net/dev/dev_tools.gd` on the host watches for that, waits a moment for replication to land, pushes the heat once more, writes its report, and tells clients (`_rpc_finish`) to write theirs and quit; then it quits. `--run-seconds` is now only a ceiling for a hung test. Each test port gets its own test save, so `tools/ci_local.ps1` runs several tests at once; the bot soaks run together afterwards on a quiet machine, because they judge smoothness. In CI each OS runs a "features" job and a "soaks" job side by side.
 - **Considered:** shortening the timers instead. That only trades speed for flakiness, and the timers would still be wrong whenever a test changes.
+
+### 2026-11-01: CI ports are fixed per test, and the humor guardrail is one checked list
+
+- **Why ports:** `tools/ci_local.ps1` gave each test `7794 + its position` in `$Tests`, so nine features merged in parallel would each have taken 7808 and reshuffled every port after them (critic C1). Now each `$Tests` entry names its `Port`; an entry without one still falls back to its position, so old entries keep their ports. The runner refuses to start when two tests share a port or a test takes a smoke or soak port, and it warns (and `-CheckPorts` fails) when a port differs from the `--port=` of the `netcode.yml` step that runs the same `--<x>-test` flag. `-PortOffset` still shifts every port, explicit ones included. An optional `Extra` key is appended to both the host and the client args, for network conditions such as `--sim-lag=120`; CI puts the same args on both lines of its step.
+- **CI ports.** A new test takes the next free port here, sets `Port` in `$Tests`, and uses the same port in `netcode.yml`:
+
+  | Port | Test | Port | Test |
+  | --- | --- | --- | --- |
+  | 7791 | smoke | 7806 | hire |
+  | 7792 | soak (bots) | 7807 | rival |
+  | 7793 | event-soak | 7808 | settings |
+  | 7794 | job | 7809 | hotbar |
+  | 7795 | bonk | 7810 | icons |
+  | 7796 | work | 7811 | audio |
+  | 7797 | throw | 7812 | cast |
+  | 7798 | water | 7813 | art |
+  | 7799 | mower | 7814 | shop |
+  | 7800 | board | 7815 | drive (`Extra = '--sim-lag=120'`) |
+  | 7801 | gag | 7816 | townmap |
+  | 7802 | brawl | 7817 | skate |
+  | 7803 | day | 7818 | pursuit |
+  | 7804 | town | 7819 | balance |
+  | 7805 | layout | 7820 | next free |
+
+  `guardrail` (a `--script` run) and `balance-sim` (Python only) have no port. Probe result keys are `<name>_test`.
+- **Why one guardrail list:** the art spec's sign check and the cast spec's string audit each had their own regex, and they disagreed (art banned lowercase "ice", which winter needs; cast banned "go back to", which instructions need). `net/dev/guardrail.gd` (`class_name Guardrail`, also preloadable) holds the one `PATTERNS` list; `check(text)` returns printable hits, `sweep(value, path)` walks arrays and dictionaries, `sweep_script(path)` walks a script's constants, and `sweep_source(path)` reads string literals as text for scripts that need the `Net` autoload to load. `self_check()` runs the `SHOULD_HIT` and `SHOULD_PASS` samples. `tools/guardrail_check.gd` runs the self-check and sweeps the text tables headless; it is the `guardrail` step in `ci_local` and `netcode.yml`. What the patterns mean for writing is in `docs/GAME.md`.
+- **The guardrail never passes by not looking.** A script in `SOURCES` that doesn't compile (say it starts using an autoload) is a hit of its own, and its literals are swept as text instead; move it to `SOURCE_TEXT` if it only compiles inside the game. A listed file that no longer exists is a hit too, and the summary counts the files actually swept. Spelled-out acronyms are caught with any separator (I.C.E., I-C-E, N I C E). `ci_local` kills the step after 60 s (a script error before `quit()` leaves headless Godot running). In `netcode.yml` the Guardrail step has `continue-on-error` and a 2-minute timeout, and a "Guardrail verdict" step after every feature test fails the job, so a wording hit doesn't skip the netcode results; new feature-test steps go above the verdict.
+- **Considered:** a word list without regex (misses "papers, please" and dotted acronyms), and a guardrail dev test inside the game (needs a port and a host, for a check that needs neither).

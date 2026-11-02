@@ -6,6 +6,11 @@
 # each quitting as soon as its test is done) and "soaks" (the bot soaks, which
 # run a fixed time and judge smoothness, so they get a runner to themselves).
 # --run-seconds on a feature test is only a ceiling for a hung test.
+#
+# Ports are fixed per test (docs/DECISIONS.md, "CI ports"): smoke 7791, the soaks
+# 7792 and 7793, feature tests 7794 up. Each step's --port= must equal the Port of
+# the same test in tools/ci_local.ps1's $Tests; `tools\ci_local.ps1 -CheckPorts`
+# compares them.
 name: netcode
 
 on:
@@ -60,6 +65,16 @@ jobs:
         if: matrix.part == 'features'
         run: |
           "$GODOT" --headless --path . -- --smoke-test --port=7791
+
+      # A wording hit must not skip every netcode test after it, so this step only
+      # records its outcome; "Guardrail verdict" near the end fails the job.
+      - name: Guardrail (no real agencies, no jokes about origin, status or accents)
+        id: guardrail
+        if: (success() || failure()) && matrix.part == 'features'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          "$GODOT" --headless --path . --script res://tools/guardrail_check.gd
 
       - name: Job test (two whole jobs, rides included)
         if: matrix.part == 'features'
@@ -236,6 +251,13 @@ jobs:
             exit 0
           fi
           exit "$code"
+
+      # Keep this after every feature test (add new tests above it).
+      - name: Guardrail verdict
+        if: always() && matrix.part == 'features' && steps.guardrail.outcome == 'failure'
+        run: |
+          echo "::error::The humor guardrail failed (outcome: ${{ steps.guardrail.outcome }}). See the Guardrail step for each hit; reword the line."
+          exit 1
 
       - name: Upload soak reports
         if: always()
