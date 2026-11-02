@@ -23,7 +23,10 @@ param(
 	[switch]$SkipSoak,
 	[switch]$SkipImport,
 	[switch]$List,
-	[int]$Jobs = 0
+	[int]$Jobs = 0,
+	# Shifts every port (and so every test save) by this much, so runs in two worktrees
+	# at once don't collide. Use a multiple of 100.
+	[int]$PortOffset = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -148,19 +151,20 @@ if (-not (Test-Path $Godot)) { throw "Godot not found at $Godot. Set `$env:GODOT
 
 if (-not $SkipImport) {
 	Write-Host '== import' -ForegroundColor Cyan
-	$p = Start-Godot '--headless --path . --import' (Join-Path $env:TEMP 'lma-import.log')
+	$p = Start-Godot '--headless --path . --import' (Join-Path $env:TEMP "lma-import-$PortOffset.log")
 	$p.WaitForExit()
 }
 
 $Results = [ordered]@{}
 $Times = @{}
 $Clock = [Diagnostics.Stopwatch]::StartNew()
-Clear-TestSave
+# Each test clears its own port's save when it starts; nothing clears every save, since
+# another worktree's run (-PortOffset) may be using its own.
 
 # The queue: smoke first, then every feature test on its own port (7794 up, matching CI).
 $Queue = New-Object System.Collections.Generic.List[object]
-if (Wants 'smoke') { $Queue.Add(@{ Name = 'smoke'; Port = 7791 }) }
-$Port = 7794
+if (Wants 'smoke') { $Queue.Add(@{ Name = 'smoke'; Port = 7791 + $PortOffset }) }
+$Port = 7794 + $PortOffset
 foreach ($name in $Tests.Keys) {
 	if (Wants $name) { $Queue.Add(@{ Name = $name; Port = $Port }) }
 	$Port++
@@ -280,8 +284,8 @@ function Start-Soak([string]$name, [string]$soakArgs) {
 $Soaks = @()
 $env:GODOT = ($Godot -replace '\\', '/')
 $env:PYTHON = ($Python -replace '\\', '/')
-if (Wants 'soak') { $Soaks += Start-Soak 'soak' '-n 4 -s 45 -P 7792' }
-if (Wants 'event-soak') { $Soaks += Start-Soak 'event-soak' '-n 4 -s 170 -e 65 -P 7793' }
+if (Wants 'soak') { Clear-TestSave (7792 + $PortOffset); $Soaks += Start-Soak 'soak' "-n 4 -s 45 -P $(7792 + $PortOffset)" }
+if (Wants 'event-soak') { Clear-TestSave (7793 + $PortOffset); $Soaks += Start-Soak 'event-soak' "-n 4 -s 170 -e 65 -P $(7793 + $PortOffset)" }
 if ($Soaks.Count -gt 1) { Write-Host "== $($Soaks.Count) bot soaks, together" -ForegroundColor Cyan }
 elseif ($Soaks.Count -eq 1) { Write-Host '== bot soak' -ForegroundColor Cyan }
 foreach ($s in $Soaks) {
