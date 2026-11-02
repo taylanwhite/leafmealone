@@ -20,6 +20,8 @@ const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 const _FirstPersonArms = preload("res://player/first_person_arms.gd")
+const _Pockets = preload("res://player/pockets.gd")
+const _Hotbar = preload("res://net/components/hotbar.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -123,8 +125,17 @@ func _ready() -> void:
 	else:
 		# A toggle crouch tapped before this body existed doesn't spawn it crouched.
 		Settings.release_toggles()
+	if get_node_or_null("Pockets") == null:
+		var pockets_node := _Pockets.new()
+		pockets_node.name = "Pockets"
+		add_child(pockets_node)
 	_dress_up()
 	_apply_presentation()
+
+
+## The hotbar's player side (player/pockets.gd): the selected slot and what's in them.
+func pockets() -> Node:
+	return get_node_or_null("Pockets")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -289,7 +300,7 @@ func _step_sleep() -> bool:
 		return false
 	if not _was_sleeping:
 		_was_sleeping = true
-		_release_held(false)
+		_stow_hands()
 		var spot := int(clock.call("cot_of", name.to_int()))
 		for cot: Node in get_tree().get_nodes_in_group("cots"):
 			if int(cot.get("index")) == spot:
@@ -313,7 +324,7 @@ func set_hidden_in(spot: Node3D) -> void:
 		return
 	velocity = Vector3.ZERO
 	if spot != null:
-		_release_held(false)
+		_stow_hands()
 		global_position = spot.global_position + Vector3(0.0, 0.1, 0.0)
 	elif leaving != null and leaving.has_method("exit_position"):
 		global_position = leaving.call("exit_position")
@@ -400,7 +411,7 @@ func is_climbing() -> bool:
 
 ## F at a set-up ladder's foot takes it down (into your hands).
 func _take_ladder() -> bool:
-	if _held_prop() != null:
+	if not _hands_can_pick_up():
 		return false
 	var ladder := _nearest_ladder()
 	if ladder == null:
@@ -568,7 +579,8 @@ func _hand_task() -> bool:
 
 ## The nearest litter or weed within reach, with empty hands: {task, at}, or {}.
 func _nearest_hand_task() -> Dictionary:
-	if _held_prop() != null:
+	# A pocket tool in hand doesn't stop you; something big does.
+	if not _hands_can_pick_up():
 		return {}
 	var tasks := get_tree().get_first_node_in_group("job_tasks")
 	if tasks == null:
@@ -818,7 +830,7 @@ func set_pile(hidden: bool) -> void:
 		return
 	in_pile = hidden
 	if hidden:
-		_release_held(false)
+		_stow_hands()
 		velocity = Vector3.ZERO
 		say_to_all("vo_heave")
 	else:
@@ -923,8 +935,9 @@ func _grab_nearby() -> bool:
 		if barrow != null:
 			barrow.call("request_load_held")
 			return true
-	# One thing at a time.
-	if held != null:
+	# Something big in both hands: nothing else fits. A pocket item in hand goes
+	# in its pocket on the host when the new thing comes up (net/components/hotbar.gd).
+	if not _hands_can_pick_up():
 		return false
 	var closest := _best_pickup()
 	if closest == null:
@@ -943,7 +956,7 @@ func _best_pickup() -> Node3D:
 	var best_score := INF
 	for node: Node in get_tree().get_nodes_in_group("props"):
 		var prop := node as Node3D
-		if prop == null or int(prop.get("held_by")) != 0:
+		if prop == null or not bool(prop.call("is_loose")):
 			continue
 		var offset := prop.global_position - global_position
 		var distance := offset.length()
@@ -1014,11 +1027,15 @@ func interaction_hint() -> Dictionary:
 		var barrow := _nearest_kind("wheelbarrow", 2.4) as Node3D
 		if barrow != null:
 			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0)}
-	if held != null:
+	if not _hands_can_pick_up():
 		return {}
 	var closest := _best_pickup()
 	if closest == null:
 		return {}
+	# A pocket item with every pocket full (and no stack of its kind to join): say so.
+	var closest_kind := str(closest.get("kind"))
+	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
+		return {"text": _Strings.UI["prompt_pockets_full"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "plain": true}
 	var prop_label := str(closest.get("label"))
 	var text: String = _Strings.UI["prompt_pick_up"] % prop_label if prop_label != "" else _Strings.UI["prompt_pick_up_plain"]
 	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
@@ -1056,6 +1073,27 @@ func _nearest_kind(prop_kind: String, reach: float) -> Node:
 			closest = node
 			closest_distance = distance
 	return closest
+
+
+## Hands away (hiding, a pile, a cot): a pocket item goes back in its pocket, a
+## big item is set down. Knockouts and faints still drop what's in hand (_release_held).
+func _stow_hands() -> void:
+	if not is_multiplayer_authority():
+		return
+	var held := _held_prop()
+	if held == null:
+		return
+	if _Hotbar.is_pocketable(str(held.get("kind"))) and pockets() != null:
+		pockets().call("select", -1)
+	else:
+		_release_held(false)
+
+
+## True when what's in hand can go in a pocket (or nothing is in hand), so E may
+## still pick something up: the host pockets the one in hand first.
+func _hands_can_pick_up() -> bool:
+	var held := _held_prop()
+	return held == null or _Hotbar.is_pocketable(str(held.get("kind")))
 
 
 func _release_held(throw_it: bool) -> void:
@@ -1211,12 +1249,17 @@ func _rpc_say(sound_name: String) -> void:
 func carry_speed_scale() -> float:
 	if carrying != 0:
 		return Constants.CARRY_PLAYER_SPEED_SHARE
+	var kg := 0.0
 	var held := _held_prop()
-	if held == null or not held.has_method("weight_kg"):
+	if held != null and held.has_method("weight_kg"):
+		kg = float(held.call("weight_kg"))
+		if Constants.ROLLING_KINDS.has(str(held.get("kind"))):
+			kg *= Constants.ROLLING_WEIGHT_SHARE
+	# What's in your pockets counts for a share of its weight (Constants.POCKET_WEIGHT_SHARE).
+	if pockets() != null:
+		kg += float(pockets().call("pocket_weight_kg")) * Constants.POCKET_WEIGHT_SHARE
+	if kg <= 0.0:
 		return 1.0
-	var kg := float(held.call("weight_kg"))
-	if Constants.ROLLING_KINDS.has(str(held.get("kind"))):
-		kg *= Constants.ROLLING_WEIGHT_SHARE
 	return maxf(Constants.CARRY_SPEED_FLOOR, 1.0 - kg * Constants.CARRY_SLOWDOWN_PER_KG)
 
 

@@ -80,6 +80,8 @@ var settings_test: bool = false
 ## --shop-test: buying, hours, stock, supplies and the shops save (net/dev/shop_test.gd).
 ## Also the one timed run that uses the real starter supplies (net/shops/shops.gd).
 var shop_test: bool = false
+## --hotbar-test: pockets, slots, stacks, hands full, emptied pockets (net/dev/hotbar_test.gd).
+var hotbar_test: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -89,7 +91,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or shop_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or shop_test or hotbar_test
 
 
 func read() -> void:
@@ -211,5 +213,7 @@ func read() -> void:
 			settings_test = true
 		elif argument == "--shop-test":
 			shop_test = true
+		elif argument == "--hotbar-test":
+			hotbar_test = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

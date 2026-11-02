@@ -780,3 +780,53 @@ const KEYBIND_GROUPS: Array[Dictionary] = [
 	{"id": "working", "actions": [&"primary", &"secondary", &"interact", &"take", &"drop"]},
 	{"id": "crew", "actions": [&"phone", &"push_to_talk", &"toggle_camera", &"toggle_music", &"pause"]},
 ]
+
+# ---- hotbar
+# The pockets (docs/GAME.md, "2026-11-01, the hotbar"; net/components/hotbar.gd,
+# player/pockets.gd). Inventory lives on the props themselves (pocketed_by, pocket_slot).
+
+## Pocket slots on keys 1 to 5. Read through Hotbar.capacity(peer), never directly,
+## so a future Tool Belt can add some.
+const HOTBAR_SLOTS: int = 5
+## How each prop kind is carried. "pocket" items go in a slot and come out into
+## your hands; "arms" (hugged), "shoulder" and "push" (rolled) fill both hands and
+## can't be pocketed. A kind missing here counts as "arms": never pocketable.
+## Leaf bags stay out of pockets on purpose, so the wheelbarrow keeps its job.
+const ITEM_CARRY: Dictionary = {
+	"rake": "pocket", "leaf_blower": "pocket", "hedge_trimmer": "pocket",
+	"paint_roller": "pocket", "hose": "pocket", "turf_sign": "pocket", "gas_can": "pocket",
+	"leaf_bag": "arms", "gnome": "arms", "trash": "arms",
+	"fertilizer_bag": "arms", "rock_salt": "arms", "grass_seed": "arms", "junk": "arms",
+	"ladder": "shoulder",
+	"lawn_mower": "push", "wheelbarrow": "push", "pressure_washer": "push",
+}
+## Kinds that stack in one slot, and how many fit. Everything else is one per slot.
+const HOTBAR_STACK: Dictionary = {"turf_sign": 5}
+## Pocketed things count for this share of their weight when walking.
+const POCKET_WEIGHT_SHARE: float = 0.25
+## How long drawing an item from a pocket takes to look like (the dip and rise).
+const HOTBAR_DRAW_SECONDS: float = 0.22
+## How long the item's name stays up over the bar after a switch.
+const HOTBAR_NAME_SECONDS: float = 1.6
+## After a local slot pick, the owner trusts its own predicted selection over the
+## replicated state for this long.
+const HOTBAR_PREDICT_SECONDS: float = 0.5
+## Emptied pockets (a capture, leaving the yard): items land this far apart (m),
+## start this high above the spot (m), and pop up at this speed (m/s), each one
+## this share faster than the last, so they land one after another, itemized.
+## A height stagger rather than a timed one (docs/DECISIONS.md): everything changes
+## hands in the same tick, so nothing is half-owned while it waits its turn.
+const CONFISCATE_SPREAD: float = 0.6
+const CONFISCATE_DROP_HEIGHT: float = 0.5
+const CONFISCATE_POP: float = 2.5
+const CONFISCATE_POP_STEP: float = 0.2
+## Emptied pockets land at least this far inside the yard's pad (m), unless the
+## spot is more than CONFISCATE_NEAR_YARD_METERS from it (the yard moved, or
+## that's the store), where they're left where they are.
+const CONFISCATE_PAD_INSET: float = 2.0
+const CONFISCATE_NEAR_YARD_METERS: float = 200.0
+## Steps jangle with at least this many things in your pockets.
+const HOTBAR_JANGLE_AT: int = 3
+## A pocketed prop's body rides along this high above its owner's feet, out of
+## everyone's way (collision off); its look is posed on the body (chunk D).
+const POCKET_FOLLOW_HEIGHT: float = 0.9

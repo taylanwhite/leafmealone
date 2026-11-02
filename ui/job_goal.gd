@@ -99,9 +99,10 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 	var rake_free := false
 	for node: Node in tree.get_nodes_in_group("props"):
 		var kind := str(node.get("kind"))
-		if kind == "leaf_bag" and int(node.get("held_by")) == 0:
+		# Loose means nobody holds it or has it in a pocket (net_prop.gd is_loose).
+		if kind == "leaf_bag" and bool(node.call("is_loose")):
 			loose += 1
-		elif kind == "rake" and int(node.get("held_by")) == 0:
+		elif kind == "rake" and bool(node.call("is_loose")):
 			rake_free = true
 	if loose > 0:
 		return _Strings.UI["goal_carry_loose"] % loose

@@ -283,6 +283,7 @@ What counts as "cleaned" is one function on the leaf field that the design can c
 - Grabbing and throwing go through request RPCs. The host attaches the prop to the carrier's replicated hold point and simulates it.
 - The carrier's own client draws the held prop's visual at the hand until it is released, to hide one round trip of lag. This is an approved cosmetic prediction.
 - When a player disconnects or is captured, the host releases anything that player was holding.
+- Pockets (`net/components/hotbar.gd`): a prop with `pocketed_by` set is in that peer's pocket, in hotbar slot `pocket_slot`. It is non-solid, follows its owner on the host, and is never pushed, mown, loaded or brought back in. "Free on the ground" is `is_loose()`, never `held_by == 0`. `World/Hotbar.host_settle(peer)` is the only place that moves pocket items between hand and pocket: at most one held per peer, pocket before draw. Clients ask with `request_select(slot)`. A capture, leaving the yard mid-job, or a disconnect empties the pockets onto the yard.
 
 ## Rides: the truck and the van
 

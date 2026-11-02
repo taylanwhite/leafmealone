@@ -154,6 +154,12 @@ $Tests = [ordered]@{
 		Extra = '--shop-test'
 		Check = { param($h, $c) [bool]$h.shop_test.ok -and [bool]$c.shop_test.ok -and (Same $h.shops $c.shops) }
 	}
+	# Pockets: slots, stacks, hands full, emptied pockets; the client must see the same pockets.
+	hotbar = @{
+		Port = 7809
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --hotbar-test'; Seconds = 60; Client = 55
+		Check = { param($h, $c) [bool]$h.hotbar_test.ok -and (Same $h.hotbar $c.hotbar) }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

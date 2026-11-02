@@ -81,6 +81,10 @@ func _ready() -> void:
 	var brawl := preload("res://net/components/brawl.gd").new()
 	brawl.name = "Brawl"
 	add_child(brawl)
+	# The pockets (net/components/hotbar.gd): what's in whose slots, host-decided.
+	var hotbar := preload("res://net/components/hotbar.gd").new()
+	hotbar.name = "Hotbar"
+	add_child(hotbar)
 	_dress()
 	_SharedLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):
@@ -418,7 +422,7 @@ func _spawn_job_tools() -> void:
 		var tool := BAG_SCENE.instantiate()
 		tool.name = "Tool_%s_%d" % [tool_id, _lots_loaded]
 		tool.set("kind", tool_id)
-		tool.set("label", tool_id)
+		tool.set("label", preload("res://ui/strings.gd").item_name(tool_id))
 		tool.set("color", Color(0.8, 0.8, 0.8))
 		tool.add_to_group("job_tools")
 		%RuntimeProps.add_child(tool, true)

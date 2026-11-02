@@ -602,13 +602,16 @@ func _win_back(hood_id: String, because_of: String) -> void:
 			return
 
 
-## Host: a sign someone picked up for the first time has been pulled.
+## Host: a sign someone picked up for the first time has been pulled. Picked up
+## means in hand or in a pocket (a sign that joins a stack goes straight into
+## the pocket, net/components/hotbar.gd), so this asks is_loose, not held_by.
 func _watch_signs() -> void:
 	var signs := get_tree().get_nodes_in_group("turf_signs")
 	if signs.is_empty():
 		return
 	for node: Node in signs:
-		if node.get_meta("pulled", false) or int(node.get("held_by")) == 0:
+		var loose := bool(node.call("is_loose")) if node.has_method("is_loose") else int(node.get("held_by")) == 0
+		if node.get_meta("pulled", false) or loose:
 			continue
 		node.set_meta("pulled", true)
 		var left := 0
