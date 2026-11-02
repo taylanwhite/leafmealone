@@ -339,7 +339,7 @@ User arguments come after `--` and are read with `OS.get_cmdline_user_args()`.
 | `--join=<address>` | Join an ENet host as soon as the game launches |
 | `--port=<n>` | ENet port (default `Constants.DEFAULT_PORT`) |
 | `--name=<text>` | Display name for ENet sessions |
-| `--start-zone=<store\|lot\|border\|town>` | Host only: start everyone in that zone, for testing |
+| `--start-zone=<store\|lot\|border\|town>` | Host only: start everyone in that zone, for testing (`town` needs the connected town; the legacy world starts them at the store) |
 | `--town-map` / `--legacy-map` | Host only: build the connected town, or the legacy separate zones (default `Constants.TOWN_MAP_DEFAULT`). Clients get the host's choice with the world's spawn data |
 | `--lot=<n>` | Host only: which lot to load into the lot slot, for testing |
 | `--no-steam` | Skip Steam initialization entirely |

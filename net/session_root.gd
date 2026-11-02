@@ -41,13 +41,9 @@ func _spawn_world() -> void:
 
 
 ## Host: --legacy-map wins, then --town-map, then Constants.TOWN_MAP_DEFAULT.
+## The decision lives in Net so its start zone can follow it too.
 static func wants_town_map() -> bool:
-	var args := Net.dev_options()
-	if bool(args.get("legacy_map")):
-		return false
-	if bool(args.get("town_map")):
-		return true
-	return Constants.TOWN_MAP_DEFAULT
+	return Net.wants_town_map()
 
 
 ## Every peer: builds the world (not yet in the tree) from the spawn data.

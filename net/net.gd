@@ -404,6 +404,16 @@ func start_zone() -> Zone:
 	return _initial_zone()
 
 
+## Host: the world mode it builds. --legacy-map wins, then --town-map, then
+## Constants.TOWN_MAP_DEFAULT. Clients read the mode from the world instead.
+func wants_town_map() -> bool:
+	if _args.legacy_map:
+		return false
+	if _args.town_map:
+		return true
+	return Constants.TOWN_MAP_DEFAULT
+
+
 ## --lot value. 0 means the world may choose the test lot.
 func requested_lot() -> int:
 	return _args.lot
@@ -482,7 +492,8 @@ func _initial_zone() -> Zone:
 		"transit":
 			return Zone.TRANSIT
 		"town":
-			return Zone.TOWN
+			# TOWN exists only in the connected town; the legacy world starts them at the store.
+			return Zone.TOWN if wants_town_map() else Zone.STORE
 		_:
 			return Zone.STORE
 

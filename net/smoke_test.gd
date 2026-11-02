@@ -7,6 +7,9 @@ extends Node
 const TIMEOUT_SECONDS: float = 30.0
 ## How far a zone change without a teleport may move the player (they stand still).
 const QUIET_ZONE_MAX_METERS: float = 0.5
+## Where the client steps from its spawn slot before that check, so a wrong
+## teleport back to a spawn slot moves it measurably.
+const QUIET_STEP_OFF: Vector3 = Vector3(4.0, 0.0, 0.0)
 ## How close to the job site a player sent to the LOT must land.
 const LOT_ARRIVAL_METERS: float = 60.0
 const _Timeline: Script = preload("res://border/hazard_timeline.gd")
@@ -87,12 +90,7 @@ func _launch_client() -> void:
 func _client_process() -> void:
 	if not _reported_players and _player_count() >= 2 and _world() != null:
 		_reported_players = true
-		Net.player_zone_changed.connect(_on_zone_changed)
-		var me := _find_player(Net.local_peer_id())
-		if me != null:
-			_quiet_from = me.global_position
-		# The world mode came with the world's spawn data; the host checks it matches.
-		_rpc_status.rpc_id(1, "players_visible", 1.0 if bool(_world().call("is_town_map")) else 0.0)
+		_report_players_visible()
 	if _watching_leaf:
 		var field := get_tree().get_first_node_in_group("leaf_field")
 		if field != null and _elapsed() >= _next_clock_probe and Net.has_clock_sample() and int(field.call("sample_world", _leaf_at)) == _leaf_expected:
@@ -108,6 +106,22 @@ func _client_process() -> void:
 		if gnome != null and gnome.global_position.distance_to(_prop_at) < 1.0:
 			_watching_prop = false
 			_rpc_status.rpc_id(1, "prop_match", Net.server_time())
+
+
+func _report_players_visible() -> void:
+	Net.player_zone_changed.connect(_on_zone_changed)
+	var me := _find_player(Net.local_peer_id())
+	if me != null:
+		# Step off the spawn slot first (the client owns its body), so a stray
+		# teleport on the quiet TOWN change would land back on the slot and show.
+		me.global_position += QUIET_STEP_OFF
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		if not is_instance_valid(me):
+			return
+		_quiet_from = me.global_position
+	# The world mode came with the world's spawn data; the host checks it matches.
+	_rpc_status.rpc_id(1, "players_visible", 1.0 if bool(_world().call("is_town_map")) else 0.0)
 
 
 func _host_leaf_step() -> void:
