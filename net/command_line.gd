@@ -29,6 +29,10 @@ var open_shop: bool = false
 var open_board: bool = false
 ## --yard-size=N: every job's yard is this size (0 small, 1 regular, 2 big), -1 for the offer's.
 var yard_size: int = -1
+## --hood=<id>: every job yard is in this neighborhood (net/town/neighborhoods.gd id),
+## built in its style with its street block (levels/town/hood_styles.gd), for tests
+## and screenshots. The host's choice reaches clients with the lot.
+var hood: String = ""
 var walk_straight: bool = false
 var ride_at: float = -1.0
 var job_test: bool = false
@@ -153,6 +157,8 @@ func read() -> void:
 			open_shop = true
 		elif argument.begins_with("--yard-size="):
 			yard_size = int(argument.trim_prefix("--yard-size="))
+		elif argument.begins_with("--hood="):
+			hood = argument.trim_prefix("--hood=")
 		elif argument == "--open-board":
 			open_board = true
 		elif argument.begins_with("--ride-at="):

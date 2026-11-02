@@ -1231,3 +1231,9 @@ const ART_SPEED_BUMP_FROM_X: float = 12.0
 ## Grass across a block: the square's half size and the tuft spacing (props/grass.gd).
 const ART_BLOCK_GRASS_HALF: float = 70.0
 const ART_BLOCK_GRASS_SPACING: float = 0.48
+
+# ---- art: the job yard
+# The job yard in its neighborhood's style (levels/lots/lot_generator.gd; art chunk 6).
+## The yard's own trees are never shorter than this (m), whatever the hood's trees are:
+## they are what buries the lawn in leaves.
+const ART_YARD_TREE_MIN_HEIGHT: float = 6.5
