@@ -9,6 +9,20 @@ extends PanelContainer
 signal closed
 
 const _Strings = preload("res://ui/strings.gd")
+const _Icons = preload("res://ui/icons.gd")
+const _Seasons = preload("res://core/seasons.gd")
+const _Hoods = preload("res://net/town/neighborhoods.gd")
+## The night icon beside the title, and the rank badge (with a bonus sparkle) on a
+## RANK UP line.
+const TITLE_ICON_PX: float = 40.0
+const RANK_UP_BADGE_PX: float = 48.0
+const RANK_UP_SPARKLE_PX: float = 24.0
+## Each line's icon is this much taller than its text size.
+const ICON_OVER_TEXT_PX: int = 4
+## A line's words wrap at this width, less the icon in front of them.
+const LINE_WIDTH: float = 420.0
+## The card's lines scroll past this height, so the card fits a 1280x720 screen.
+const ROWS_MAX_HEIGHT: float = 520.0
 const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
 const ORANGE := Color(0.93, 0.47, 0.13)
@@ -17,6 +31,7 @@ const NIGHT := Color(0.16, 0.2, 0.34)
 
 var _title: Label
 var _rows: VBoxContainer
+var _scroll: ScrollContainer
 
 
 func _ready() -> void:
@@ -29,10 +44,16 @@ func _ready() -> void:
 	column.add_theme_constant_override("separation", 10)
 	add_child(column)
 	_title = _text("", 32, NIGHT)
-	column.add_child(_title)
+	column.add_child(_Icons.row("night", _title, TITLE_ICON_PX))
+	# A big day (rank-ups with their badges, a season, a town morning) can be taller
+	# than the screen: past ROWS_MAX_HEIGHT the lines scroll (_fit_rows).
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	column.add_child(_scroll)
 	_rows = VBoxContainer.new()
 	_rows.add_theme_constant_override("separation", 6)
-	column.add_child(_rows)
+	_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll.add_child(_rows)
 	var close := Button.new()
 	close.text = _Strings.UI["summary_close"]
 	close.add_theme_font_size_override("font_size", 18)
@@ -65,43 +86,47 @@ func _watch(clock: Node) -> void:
 
 func show_summary(summary: Dictionary) -> void:
 	for child: Node in _rows.get_children():
+		# Out of the list now, not at the end of the frame, so _fit_rows measures only the new lines.
+		_rows.remove_child(child)
 		child.queue_free()
 	_title.text = _Strings.UI["summary_title"] % int(summary.get("day", 1))
 	# How the day went, in one line. Every peer picks the same one from the summary.
 	_line(_Strings.summary_quip(summary), INK.lightened(0.25), 17)
-	_line(_Strings.UI["summary_jobs"] % int(summary.get("jobs", 0)), INK)
-	_line(_Strings.UI["summary_cash"] % int(summary.get("cash", 0)), INK)
-	_line(_Strings.UI["summary_stars"] % int(summary.get("stars", 0)), INK)
-	_line(_Strings.UI["summary_xp"] % int(summary.get("xp_banked", 0)), ORANGE.darkened(0.1), 20)
+	_line(_Strings.UI["summary_jobs"] % int(summary.get("jobs", 0)), INK, 18, "check")
+	_line(_Strings.UI["summary_cash"] % int(summary.get("cash", 0)), INK, 18, "cash")
+	_line(_Strings.UI["summary_stars"] % int(summary.get("stars", 0)), INK, 18, "star")
+	_line(_Strings.UI["summary_xp"] % int(summary.get("xp_banked", 0)), ORANGE.darkened(0.1), 20, "xp")
 	var wages: Dictionary = summary.get("wages", {})
 	if int(wages.get("wages", 0)) > 0:
-		_line(_Strings.UI["summary_wages"] % int(wages["wages"]), INK)
+		_line(_Strings.UI["summary_wages"] % int(wages["wages"]), INK, 18, "bill")
 	for name_quit: Variant in (wages.get("quit", []) as Array):
-		_line(_Strings.UI["summary_quit"] % str(name_quit), Color(0.75, 0.2, 0.15))
+		_line(_Strings.UI["summary_quit"] % str(name_quit), Color(0.75, 0.2, 0.15), 18, "warning")
 	_rows.add_child(HSeparator.new())
 	for rank_up: Variant in (summary.get("rank_ups", []) as Array):
 		var entry := rank_up as Dictionary
-		_line(_Strings.UI["summary_rank_up"] % str(entry.get("title", "")), GREEN, 22)
+		_rank_up_line(_Strings.UI["summary_rank_up"] % str(entry.get("title", "")), int(entry.get("tier", Campaign.crew_tier())))
 		_line(_Strings.rank_blurb(int(entry.get("tier", 0))), INK.lightened(0.15), 15)
 		var unlock := str(entry.get("unlock", ""))
 		if unlock != "":
-			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(unlock), INK)
+			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(unlock), INK, 18, _Icons.for_unlock(unlock))
 		for extra: Variant in (entry.get("extras", []) as Array):
-			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(str(extra)), INK)
-	_line(_Strings.UI["summary_rank"] % str(summary.get("title", "")), NIGHT, 18)
+			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(str(extra)), INK, 18, _Icons.for_unlock(str(extra)))
+	_line(_Strings.UI["summary_rank"] % str(summary.get("title", "")), NIGHT, 18, _Icons.for_rank(int(summary.get("tier", Campaign.crew_tier()))))
 	if summary.has("season"):
 		_rows.add_child(HSeparator.new())
-		_line(str(summary["season"]), Color(0.2, 0.45, 0.7), 20)
+		# The arrival line is for the day after the one that ended (net/day/day_clock.gd).
+		_line(str(summary["season"]), Color(0.2, 0.45, 0.7), 20, _Icons.for_season(_Seasons.of_day(int(summary.get("day", 1)) + 1)))
 	var town: Dictionary = summary.get("town", {})
 	if not town.is_empty():
 		_rows.add_child(HSeparator.new())
 		for hood: Variant in (town.get("opened", []) as Array):
-			_line(_Strings.UI["summary_opened"] % str(hood), GREEN, 20)
+			_line(_Strings.UI["summary_opened"] % str(hood), GREEN, 20, _hood_icon(str(hood)))
 		for poached: Variant in (town.get("poached", []) as Array):
-			_line(_Strings.UI["summary_poached"] % str(poached), Color(0.1, 0.5, 0.25))
+			_line(_Strings.UI["summary_poached"] % str(poached), Color(0.1, 0.5, 0.25), 18, "brand_turfmasters")
 		if int(town.get("missed", 0)) > 0:
-			_line(_Strings.UI["summary_missed"] % int(town["missed"]), INK.lightened(0.3))
-		_line(_Strings.UI["summary_requests"] % int(town.get("requests", 0)), INK)
+			_line(_Strings.UI["summary_missed"] % int(town["missed"]), INK.lightened(0.3), 18, "warning")
+		_line(_Strings.UI["summary_requests"] % int(town.get("requests", 0)), INK, 18, "app_texts")
+	_fit_rows()
 	visible = true
 	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -119,12 +144,42 @@ func close_window() -> void:
 		closed.emit()
 
 
-func _line(value: String, color: Color, size: int = 18) -> void:
+## A line of the card, with its icon in front when icon_id isn't "".
+func _line(value: String, color: Color, size: int = 18, icon_id: String = "") -> void:
 	var label := _text(value, size, color)
 	# A wrapping label needs a width, or it wraps every word onto its own line.
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size.x = 420.0
-	_rows.add_child(label)
+	label.custom_minimum_size.x = LINE_WIDTH
+	if icon_id == "":
+		_rows.add_child(label)
+		return
+	var px := float(size + ICON_OVER_TEXT_PX)
+	label.custom_minimum_size.x = LINE_WIDTH - px - 6.0
+	_rows.add_child(_Icons.row(icon_id, label, px))
+
+
+## The lines' box is as tall as the lines, up to ROWS_MAX_HEIGHT; past that they scroll.
+func _fit_rows() -> void:
+	_scroll.custom_minimum_size.y = minf(_rows.get_combined_minimum_size().y, ROWS_MAX_HEIGHT)
+	_scroll.scroll_vertical = 0
+
+
+## RANK UP: the new rank's badge, big, the line, and a bonus sparkle after it.
+func _rank_up_line(value: String, tier: int) -> void:
+	var label := _text(value, 22, GREEN)
+	var row := _Icons.row(_Icons.for_rank(tier), label, RANK_UP_BADGE_PX)
+	var sparkle := _Icons.rect("bonus", RANK_UP_SPARKLE_PX)
+	sparkle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(sparkle)
+	_rows.add_child(row)
+
+
+## A neighborhood's name (town.gd on_new_day "opened") back to its pin.
+func _hood_icon(hood_name: String) -> String:
+	for hood: Dictionary in _Hoods.HOODS:
+		if str(hood["name"]) == hood_name:
+			return _Icons.for_hood(str(hood["id"]))
+	return ""
 
 
 func _text(value: String, size: int, color: Color) -> Label:

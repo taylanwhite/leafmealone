@@ -1231,3 +1231,12 @@ const ART_SPEED_BUMP_FROM_X: float = 12.0
 ## Grass across a block: the square's half size and the tuft spacing (props/grass.gd).
 const ART_BLOCK_GRASS_HALF: float = 70.0
 const ART_BLOCK_GRASS_SPACING: float = 0.48
+
+# ---- icons
+# The catalog windows' icon motion (ui/catalog_look.gd; icons chunk D).
+## Hovering a shop card bounces its shelf icon up to this scale, over this long.
+const ICONS_HOVER_SCALE: float = 1.08
+const ICONS_HOVER_SECONDS: float = 0.12
+## A confirmed buy squash-pops the item's icon: this much wider then taller, over this long.
+const ICONS_POP_STRETCH: float = 0.22
+const ICONS_POP_SECONDS: float = 0.3

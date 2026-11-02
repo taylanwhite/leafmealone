@@ -1920,3 +1920,13 @@ const MUSIC_TITLES: Dictionary = {
 ## A track's title, or "" when it has none.
 static func track_title(title_key: String) -> String:
 	return str(MUSIC_TITLES.get(title_key, ""))
+
+# ---- icons
+# The catalog windows' icon rows (ui/catalog_look.gd; icons chunk D). Kept apart
+# from UI so the icon chunks and other writers don't edit the same lines.
+
+const ICON_UI: Dictionary = {
+	# The job board's crew rating, around its five star icons.
+	"board_rating_lead": "Crew rating:",
+	"board_rating_jobs": "(%d jobs)",
+}
