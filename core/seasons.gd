@@ -75,17 +75,25 @@ static var _applied := false
 ## Every peer: set the look for this day's season. The shader globals tint the
 ## foliage (props/stylized.gd) and lay snow and flowers (props/surfaces.gd). When
 ## the season actually changes, or on the first call, every node in group
-## "seasonal" gets apply_season(season) to restyle itself. Cosmetic and local.
+## "seasonal" gets apply_season(season) to restyle itself, and the day before a
+## turn prewarm_season(next), when it has one, to get ready. Cosmetic and local.
 static func apply_look(day: int) -> void:
 	var season := of_day(day)
 	RenderingServer.global_shader_parameter_set("season_foliage", FOLIAGE[season])
 	RenderingServer.global_shader_parameter_set("season_snow", SNOW[season])
 	RenderingServer.global_shader_parameter_set("season_bloom", BLOOM[season])
+	var tree := Engine.get_main_loop() as SceneTree
+	# The day before a turn, nodes may build tomorrow's look ahead, spread over
+	# frames (props/tree_node.gd), so the turn itself only swaps.
+	# prewarm_season is optional for a "seasonal" node.
+	if tree != null and turns_on(day + 1):
+		for node: Node in tree.get_nodes_in_group("seasonal"):
+			if node.has_method("prewarm_season"):
+				node.call("prewarm_season", of_day(day + 1))
 	if _applied and season == _current:
 		return
 	_current = season
 	_applied = true
-	var tree := Engine.get_main_loop() as SceneTree
 	if tree != null:
 		tree.call_group("seasonal", "apply_season", season)
 

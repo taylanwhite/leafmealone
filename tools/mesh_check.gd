@@ -68,7 +68,7 @@ func _init() -> void:
 	quit(1 if failed else 0)
 
 
-## Every tree kind x autumn crown x variant x season (props/trees.gd): the near
+## Every tree kind x crown x variant (negative ones too) x season (props/trees.gd): the near
 ## mesh within Constants.ART_TREE_MAX_TRIANGLES and the far one within
 ## ART_TREE_FAR_MAX_TRIANGLES (and cheaper than the near one); the season rules
 ## (broadleaf kinds bare in winter, evergreens never bare, spring blossoms, summer
@@ -84,9 +84,14 @@ func _check_trees() -> bool:
 		var most_far := 0
 		var problems := PackedStringArray()
 		var forms := {}
-		var kind_crowns: Array = ["", "green", "red"] if evergreen.has(kind) else crowns
+		# Evergreens ignore the crown's colors, but the crown is part of their seed
+		# (countryside.gd hands pines random autumn crowns), so every one is a shape.
+		var kind_crowns: Array = [""] + crowns if evergreen.has(kind) else crowns
+		var variants: int = trees.get("VARIANTS")
 		for crown: String in kind_crowns:
-			for variant: int in 4:
+			# Callers pass negative variants too (store and town dressing), and
+			# variant % VARIANTS keeps the sign: -3..-1 are shapes of their own.
+			for variant: int in range(1 - variants, variants):
 				for season: int in 4:
 					var near: ArrayMesh = trees.call("mesh_for", kind, crown, variant, season)
 					var far: ArrayMesh = trees.call("mesh_for", kind, crown, variant, season, true)
@@ -101,7 +106,7 @@ func _check_trees() -> bool:
 						problems.append("%s near %d triangles" % [label, near_triangles])
 					if far_triangles <= 0 or far_triangles > Constants.ART_TREE_FAR_MAX_TRIANGLES or far_triangles >= near_triangles:
 						problems.append("%s far %d triangles (near %d)" % [label, far_triangles, near_triangles])
-					problems.append_array(_tree_rule(kind, crown, season, form, evergreen))
+					problems.append_array(_tree_rule(trees, kind, crown, season, form))
 					for mesh: ArrayMesh in [near, far]:
 						var bad := _bad_vertices(mesh)
 						if bad > 0:
@@ -132,26 +137,32 @@ func _bad_vertices(mesh: ArrayMesh) -> int:
 	return bad
 
 
-func _tree_rule(kind: String, crown: String, season: int, form: Array, evergreen: Array) -> PackedStringArray:
+## The exact season mapping (docs/GAME.md, "trees through the year"), written out
+## here on its own so a swapped or loosened rule in trees.gd fails.
+func _tree_rule(trees: Script, kind: String, crown: String, season: int, form: Array) -> PackedStringArray:
 	var problems := PackedStringArray()
-	var label := "%s %s season %d -> %s" % [kind, crown, season, str(form)]
-	var shown := str(form[1])
-	var wearing := str(form[2])
+	var evergreen: bool = (trees.get("EVERGREEN") as Array).has(kind)
+	var want_crown := crown
+	var want_form := "full"
 	match season:
-		0:
-			if shown != crown or wearing != "full":
-				problems.append("%s: autumn must be as asked" % label)
 		1:
-			if wearing != ("snowy" if evergreen.has(kind) else "bare"):
-				problems.append("%s: winter form" % label)
+			want_form = "snowy" if evergreen else "bare"
 		2:
-			if not evergreen.has(kind) and not (shown == "spring_green" or shown.begins_with("blossom")):
-				problems.append("%s: spring crown" % label)
-			if kind == "broadleaf" and crown == "red" and shown != "blossom_pink":
-				problems.append("%s: red broadleaves blossom pink" % label)
+			if not evergreen:
+				# Only broadleaves blossom: red ones pink, yellow ones white.
+				want_crown = "spring_green"
+				if kind == "broadleaf" and crown == "red":
+					want_crown = "blossom_pink"
+				elif kind == "broadleaf" and crown == "yellow":
+					want_crown = "blossom_white"
 		3:
-			if not evergreen.has(kind) and not (shown == "green" or shown == "deep_green"):
-				problems.append("%s: summer crown" % label)
+			if not evergreen:
+				want_crown = "deep_green" if ["red", "rust", "orange"].has(crown) else "green"
+	if str(form[0]) != kind or str(form[1]) != want_crown or str(form[2]) != want_form:
+		problems.append("%s %s season %d -> %s, want [%s, %s, %s]" % [kind, crown, season, str(form), kind, want_crown, want_form])
+	# (A blossom crown asked for outright is shown as asked; the seasons never give one.)
+	if (kind == "birch" or kind == "willow") and str(form[1]).begins_with("blossom") and str(form[1]) != crown:
+		problems.append("%s %s season %d: birches and willows never blossom" % [kind, crown, season])
 	return problems
 
 
@@ -184,8 +195,21 @@ func _check_tree_node(trees: Script) -> bool:
 			problems.append("back to autumn: a different mesh")
 	if tree.find_children("*", "StaticBody3D", true, false).size() != 1:
 		problems.append("solid tree without its trunk collider")
+	# Prewarm: the day before a turn a tree builds the next season into the cache
+	# (one frame's budget always fits one tree), so the turn itself builds nothing.
+	trees.set("_cache", {})
+	var warm: Node3D = trees.call("spawn", holder, Vector3(20.0, 0.0, 0.0), 7.0, "willow", "orange", -2)
+	var built := (trees.get("_cache") as Dictionary).size()
+	warm.call("prewarm_season", 3)
+	warm.call("_process", 0.0)
+	var warmed := (trees.get("_cache") as Dictionary).size()
+	if warmed != built + 1 or warm.is_processing():
+		problems.append("prewarm built %d meshes (want 1), still processing %s" % [warmed - built, warm.is_processing()])
+	warm.call("apply_season", 3)
+	if (trees.get("_cache") as Dictionary).size() != warmed or str(warm.get_meta("crown", "")) != "deep_green":
+		problems.append("the summer turn after a prewarm built again or wore %s" % warm.get_meta("crown", ""))
 	holder.free()
-	print("[MeshCheck] tree node    %s  LOD at %.0f m, season swap" % ["ok  " if problems.is_empty() else "FAIL", Constants.ART_TREE_LOD_DISTANCE])
+	print("[MeshCheck] tree node    %s  LOD at %.0f m, season swap, prewarm" % ["ok  " if problems.is_empty() else "FAIL", Constants.ART_TREE_LOD_DISTANCE])
 	for problem: String in problems:
 		print("[MeshCheck]   %s" % problem)
 	return problems.is_empty()

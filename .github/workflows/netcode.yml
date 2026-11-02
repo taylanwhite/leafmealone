@@ -76,6 +76,14 @@ jobs:
         run: |
           "$GODOT" --headless --path . --script res://tools/guardrail_check.gd
 
+      # Headless, no port: closed shapes, house contracts, and every tree kind, crown,
+      # variant and season against its budget, the season rules and the LOD wiring.
+      - name: Mesh check (shapes, houses, tree budgets, seasons and LOD)
+        if: matrix.part == 'features'
+        timeout-minutes: 3
+        run: |
+          "$GODOT" --headless --path . --script res://tools/mesh_check.gd
+
       - name: Job test (two whole jobs, rides included)
         if: matrix.part == 'features'
         run: |

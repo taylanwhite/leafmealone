@@ -199,7 +199,9 @@ func _trees_new(root: Node3D) -> void:
 
 ## Every tree kind through the year: one row per kind (broadleaf red and orange,
 ## pine, birch, willow, cypress), one column per season (autumn, winter, spring,
-## summer, left to right). Render with --season=1 to see the snow settle too.
+## summer, left to right), each a spawned tree turned with apply_season. Render
+## with --season=1 to see the snow settle too. Past ART_TREE_LOD_DISTANCE from the
+## camera (the back rows of the first view) trees show their far mesh, as in game.
 func _trees_seasons(root: Node3D) -> void:
 	var rows: Array = [["broadleaf", "red"], ["broadleaf", "orange"], ["pine", ""], ["birch", "yellow"], ["willow", "yellow"], ["cypress", ""]]
 	# --row=N builds just that row (in its place), to single one out.
@@ -210,7 +212,9 @@ func _trees_seasons(root: Node3D) -> void:
 		var entry: Array = rows[row]
 		for season: int in 4:
 			var at := Vector3((float(season) - 1.5) * 9.0, 0.0, -float(row) * 9.0)
-			_tree_mesh(root, _Trees.mesh_for(entry[0], entry[1], row, season), entry[0], at, 7.0)
+			# Spawned and turned with apply_season, the path the game takes at a turn.
+			var tree: Node3D = _Trees.spawn(root, at, 7.0, entry[0], entry[1], row)
+			tree.call("apply_season", season)
 			if row == 0:
 				_label(root, Seasons.IDS[season], at + Vector3(0.0, 8.4, 3.0), 0.02)
 	root.set_meta("views", [

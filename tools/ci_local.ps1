@@ -174,8 +174,10 @@ $Tests = [ordered]@{
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'
 if (Test-Path $ExtraTests) { . $ExtraTests }
 
-# Steps that are not a host/client pair: smoke (port 7791) and the guardrail script (no port).
-$AllNames = @('smoke', 'guardrail') + @($Tests.Keys) + @('soak', 'event-soak')
+# Steps that are not a host/client pair: smoke (port 7791), and the guardrail and mesh
+# check scripts (no port).
+$Scripts = @{ guardrail = 'res://tools/guardrail_check.gd'; meshcheck = 'res://tools/mesh_check.gd' }
+$AllNames = @('smoke', 'guardrail', 'meshcheck') + @($Tests.Keys) + @('soak', 'event-soak')
 if ($List) { $AllNames; exit 0 }
 
 # Each test's base port: its Port key, else 7794 + its position (how ports were given
@@ -289,6 +291,7 @@ foreach ($m in @(Get-PortMismatches)) { Write-Host "warning: $m (tools\ci_local.
 $Queue = New-Object System.Collections.Generic.List[object]
 if (Wants 'smoke') { $Queue.Add(@{ Name = 'smoke'; Port = 7791 + $PortOffset }) }
 if (Wants 'guardrail') { $Queue.Add(@{ Name = 'guardrail'; Port = 0 }) }
+if (Wants 'meshcheck') { $Queue.Add(@{ Name = 'meshcheck'; Port = 0 }) }
 foreach ($name in $Tests.Keys) {
 	if (Wants $name) { $Queue.Add(@{ Name = $name; Port = $BasePorts[$name] + $PortOffset }) }
 }
@@ -296,7 +299,7 @@ foreach ($name in $Tests.Keys) {
 function Start-Test($item) {
 	$name = $item.Name
 	$port = $item.Port
-	# Port 0 (the guardrail) has no save; Clear-TestSave 0 would clear every worktree's.
+	# Port 0 (the guardrail, the mesh check) has no save; Clear-TestSave 0 would clear every worktree's.
 	if ($port -gt 0) { Clear-TestSave $port }
 	$dir = Join-Path $Root "build\soak\local-$name"
 	if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
@@ -307,11 +310,11 @@ function Start-Test($item) {
 		$item.HostProc = Start-Godot "--headless --path . -- --smoke-test --port=$port" (Join-Path $dir 'host.log')
 		return
 	}
-	if ($name -eq 'guardrail') {
-		$item.HostProc = Start-Godot '--headless --path . --script res://tools/guardrail_check.gd' (Join-Path $dir 'host.log')
-		# A script error before quit() leaves headless Godot running; the guardrail has no
-		# --run-seconds ceiling of its own, so it gets a deadline here (Step-Test kills it).
-		$item.Deadline = $item.Started + 60
+	if ($Scripts.ContainsKey($name)) {
+		$item.HostProc = Start-Godot "--headless --path . --script $($Scripts[$name])" (Join-Path $dir 'host.log')
+		# A script error before quit() leaves headless Godot running; these scripts have no
+		# --run-seconds ceiling of their own, so they get a deadline here (Step-Test kills them).
+		$item.Deadline = $item.Started + $(if ($name -eq 'meshcheck') { 150 } else { 60 })
 		return
 	}
 	$t = $Tests[$name]
@@ -347,11 +350,15 @@ function Complete-Test($item) {
 	$Times[$name] = $seconds
 	$ok = $false
 	$notes = @()
-	if ($name -eq 'smoke' -or $name -eq 'guardrail') {
+	if ($name -eq 'smoke' -or $Scripts.ContainsKey($name)) {
 		$ok = ($item.HostProc.ExitCode -eq 0) -and -not $item.TimedOut
 		if ($item.TimedOut) { $notes += "still running after $([math]::Round($item.Deadline - $item.Started)) s, killed (a script error before quit()?)" }
 		if ($name -eq 'guardrail' -and -not $ok) {
 			Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[Guardrail\] (HIT|self-check FAIL)' -ErrorAction SilentlyContinue |
+				Select-Object -First 10 | ForEach-Object { $notes += $_.Line }
+		}
+		if ($name -eq 'meshcheck' -and -not $ok) {
+			Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[MeshCheck\].*FAIL|\[MeshCheck\]   ' -ErrorAction SilentlyContinue |
 				Select-Object -First 10 | ForEach-Object { $notes += $_.Line }
 		}
 	} else {
