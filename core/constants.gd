@@ -933,6 +933,10 @@ const ART_TREE_LOD_MARGIN: float = 6.0
 const ART_SMALL_PROP_HEIGHT: float = 0.7
 const ART_SMALL_PROP_RANGE: float = 60.0
 const ART_MEDIUM_PROP_RANGE: float = 140.0
+## Props fade out over this many meters at the end of their range
+## (props/prop_catalog.gd fade()); props this long on any side never fade.
+const ART_PROP_FADE_MARGIN: float = 6.0
+const ART_LARGE_PROP_SIZE: float = 8.0
 ## Repeated props are batched into MultiMeshes per square chunk this many meters wide.
 const ART_PROP_CHUNK: float = 32.0
 ## Draw-call proxies: GeometryInstance3Ds under a street block and under a yard's dressing.

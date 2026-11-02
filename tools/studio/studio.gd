@@ -27,6 +27,12 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _HouseBuilder = preload("res://levels/town/house_builder.gd")
 const _Archetypes = preload("res://levels/town/house_archetypes.gd")
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
+const _PropCatalog = preload("res://props/prop_catalog.gd")
+const _StreetProps = preload("res://props/street_props.gd")
+const _YardExtras = preload("res://props/yard_extras.gd")
+const _EstateProps = preload("res://props/estate_props.gd")
+const _SeasonProps = preload("res://props/season_props.gd")
+const _WaterSurface = preload("res://props/water_surface.gd")
 const VIEW_SIZE := Vector2i(720, 720)
 
 var _subject := "trees"
@@ -155,6 +161,28 @@ func _build(root: Node3D) -> void:
 		"house":
 			var archetype := _archetype if _archetype != "" else str(_HoodStyles.archetypes_for(_hood, _stories())[0])
 			_HouseBuilder.build(root, Vector3.ZERO, _house_req(archetype, _seed))
+		"street_props":
+			var street: Array[String] = []
+			for kind: String in _StreetProps.KINDS:
+				if not _StreetProps.VEHICLES.has(kind):
+					street.append(kind)
+			_catalog_lineup(root, street, 6)
+		"cars":
+			_catalog_lineup(root, _StreetProps.VEHICLES, 3)
+		"yard_extras":
+			_catalog_lineup(root, _YardExtras.KINDS, 5)
+		"estate":
+			_catalog_lineup(root, _EstateProps.KINDS, 5)
+		"seasonal_props":
+			_catalog_lineup(root, _SeasonProps.KINDS, 6)
+		"water":
+			_water(root)
+		"prop":
+			# One catalog prop: --kind=<id> (--color=<html> optional).
+			var tint := Color.html(str(_options.get("color", "ffffff")))
+			var kind := str(_options.get("kind", "flamingo"))
+			var lift := 2.4 if kind in ["icicle_run", "string_lights", "wreath"] else 0.0
+			_PropCatalog.place(root, kind, Transform3D(Basis.IDENTITY, Vector3(0.0, lift, 0.0)), tint, {"season": _season, "lights": str(_options.get("lights", "classic"))})
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
 
@@ -318,6 +346,82 @@ func _builds(hood: String, archetype: String) -> bool:
 
 func _stories() -> int:
 	return clampi(int(_options.get("stories", "2" if _size == 2 else "1")), 1, 2)
+
+
+## A prop catalog lineup (props/prop_catalog.gd): kinds in rows of columns,
+## each placed with its extras (glows, water, words) and labeled with its kind.
+## Every view looks at one row from the front (-Z), four rows to a page
+## (--page=1 for rows 5-8); rows sit 40 m apart so no view sees another row.
+## --view=back looks at the backs. Render with --season=1 to check snow on top and none underneath.
+func _catalog_lineup(root: Node3D, kinds: Array[String], columns: int) -> void:
+	var page := int(_options.get("page", "0"))
+	var back := str(_options.get("view", "")) == "back"
+	var rows := ceili(float(kinds.size()) / float(columns))
+	var views: Array = []
+	for row: int in rows:
+		var offset := Vector3((float(row) - float(rows - 1) * 0.5) * 40.0, 0.0, 0.0)
+		var items := kinds.slice(row * columns, mini((row + 1) * columns, kinds.size()))
+		var boxes: Array[AABB] = []
+		var total := 0.0
+		var tallest := 0.6
+		for kind: String in items:
+			var box: AABB = _PropCatalog.mesh(kind).get_meta("aabb")
+			boxes.append(box)
+			total += maxf(box.size.x, 0.8) + 1.2
+			tallest = maxf(tallest, box.size.y)
+		var x := -total * 0.5
+		for index: int in items.size():
+			var box := boxes[index]
+			var width := maxf(box.size.x, 0.8)
+			# Things that hang (icicles, lights, wreaths) are lifted so they show.
+			var lift := -box.position.y + 0.4 if items[index] in ["icicle_run", "string_lights", "wreath"] else 0.0
+			var at := offset + Vector3(x + 0.6 + width * 0.5 - box.get_center().x, lift, -box.get_center().z)
+			_PropCatalog.place(root, items[index], Transform3D(Basis.IDENTITY, at), Color.WHITE, {"season": _season})
+			_label(root, items[index], offset + Vector3(x + 0.6 + width * 0.5, box.end.y + lift + 0.45, 0.0), 0.006)
+			x += width + 1.2
+		var distance := maxf((total * 0.5) / tan(deg_to_rad(25.0)), tallest * 2.0)
+		var side := 1.0 if back else -1.0
+		views.append({"from": offset + Vector3(0.0, tallest * 0.6 + distance * 0.22, side * distance), "at": offset + Vector3(0.0, tallest * 0.38, 0.0), "fov": 50.0})
+	var shown := views.slice(page * 4, page * 4 + 4)
+	# A short page fills its other views with three-quarter shots of the same rows.
+	var count := shown.size()
+	for index: int in range(count, 4):
+		if count == 0:
+			break
+		var view: Dictionary = (shown[index % count] as Dictionary).duplicate()
+		var at: Vector3 = view["at"]
+		var from: Vector3 = view["from"]
+		view["from"] = at + Basis(Vector3.UP, 0.7 if index % 2 == 0 else -0.7) * (from - at) * 0.7
+		shown.append(view)
+	root.set_meta("views", shown)
+
+
+## Water (props/water_surface.gd): a pool, a hot tub, a fountain, a kiddie pool
+## and a birdbath on the lawn; a lake with a dock, boats, a swim platform and a
+## buoy behind them (frozen, with the fishing shanty, at --season=1).
+func _water(root: Node3D) -> void:
+	var opts := {"season": _season}
+	var lake := _WaterSurface.plane(Vector2(44.0, 26.0), _WaterSurface.lake_kind(_season), 44)
+	lake.position = Vector3(0.0, 0.1, -16.0)
+	root.add_child(lake)
+	_PropCatalog.place(root, "pool_inground", Transform3D(Basis.IDENTITY, Vector3(-10.0, 0.0, 6.0)), Color.WHITE, opts)
+	_PropCatalog.place(root, "hot_tub", Transform3D(Basis.IDENTITY, Vector3(-3.0, 0.0, 6.0)), Color.WHITE, opts)
+	_PropCatalog.place(root, "fountain_tiered", Transform3D(Basis.IDENTITY, Vector3(3.5, 0.0, 6.5)), Color.WHITE, opts)
+	_PropCatalog.place(root, "kiddie_pool", Transform3D(Basis.IDENTITY, Vector3(8.5, 0.0, 6.0)), Color.WHITE, opts)
+	_PropCatalog.place(root, "birdbath", Transform3D(Basis.IDENTITY, Vector3(11.0, 0.0, 6.0)), Color.WHITE, opts)
+	_PropCatalog.place(root, "dock", Transform3D(Basis.IDENTITY, Vector3(6.0, 0.0, -3.0)), Color.WHITE, opts)
+	_PropCatalog.place(root, "boat_row", Transform3D(Basis(Vector3.UP, 0.2), Vector3(8.6, -0.22, -8.5)), Color.WHITE, {"seed": 0})
+	_PropCatalog.place(root, "boat_motor", Transform3D(Basis(Vector3.UP, -0.1), Vector3(3.0, -0.3, -10.0)), Color.WHITE, {"seed": 3})
+	_PropCatalog.place(root, "swim_platform", Transform3D(Basis.IDENTITY, Vector3(-6.0, -0.05, -12.0)), Color.WHITE, opts)
+	_PropCatalog.place(root, "buoy", Transform3D(Basis.IDENTITY, Vector3(-1.0, -0.15, -20.0)), Color.WHITE, opts)
+	if _season == 1:
+		_PropCatalog.place(root, "fishing_shanty", Transform3D(Basis(Vector3.UP, 0.4), Vector3(-12.0, 0.03, -18.0)), Color.WHITE, opts)
+	root.set_meta("views", [
+		{"from": Vector3(14.0, 11.0, 20.0), "at": Vector3(0.0, 0.0, -2.0), "fov": 55.0},
+		{"from": Vector3(-6.5, 3.2, 12.0), "at": Vector3(-7.0, 0.2, 6.0), "fov": 50.0},
+		{"from": Vector3(6.0, 2.8, 11.5), "at": Vector3(4.0, 1.2, 6.5), "fov": 45.0},
+		{"from": Vector3(12.0, 3.5, 2.0), "at": Vector3(5.0, 0.0, -9.0), "fov": 50.0},
+	])
 
 
 func _sample_color(pattern: String) -> Color:

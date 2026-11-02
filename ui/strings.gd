@@ -1690,3 +1690,64 @@ const TOWN_SIGNS: Dictionary = {
 	"county_road": "COUNTY RD 9",
 	"depot_road": "DEPOT RD",
 }
+
+# ---- art
+# The words on the neighborhood looks' props and set pieces (props/prop_catalog.gd
+# place(), levels/town/set_pieces.gd; docs/GAME.md, "the neighborhood looks"). Keys
+# are what levels/town/hood_styles.gd "signs" and PropCatalog.LABELS name. The jokes
+# punch at bureaucracy, rent and impossible work. No sign ever says "ice" (the salt
+# is SNOW-B-GONE) and none names a real agency; net/dev/guardrail.gd checks.
+
+const SIGNS: Dictionary = {
+	# Maple Row
+	"maple_entrance": "MAPLE ROW\nEst. 1952. Leaves since 1952.",
+	"watch_maple": "NEIGHBORHOOD WATCH\nWe see you. We see everything.",
+	# Dandelion Acres
+	"dandelion_entrance": "DANDELION ACRES\nMobile Home Community\nEst. 1971",
+	"dandelion_speed": "SPEED\nLIMIT\n7\n(was 15)",
+	"dandelion_office": "OFFICE\nRent due Fri. No exceptions.\nNo, not even you.",
+	# Birchwood Commons
+	"birchwood_entrance": "BIRCHWOOD COMMONS\nLuxury Living From The Low 400s",
+	"birchwood_pool": "NO LIFEGUARD ON DUTY.\nOr ever.",
+	# Oak Hollow
+	"hoa_entrance": "OAK HOLLOW\nA Covenant Community",
+	"hoa_rules": "OAK HOLLOW HOA RULES\nLAWN: 2.5 IN. MAX\nMAILBOXES: APPROVED BEIGE\nFENCES: FORM 27-B\nJOY: BY PERMIT ONLY",
+	"hoa_violation": "NOTICE OF\nVIOLATION",
+	"hoa_gate": "RESIDENTS &\nAPPROVED VENDORS ONLY",
+	"hoa_slow": "SLOW\nCHILDREN AT PLAY\n(QUIETLY)",
+	# Lakeside
+	"lakeside_entrance": "LAKESIDE\nWhere The Leaves Go To Float",
+	"lakeside_no_wake": "NO WAKE\n(the neighbors are napping)",
+	# Mansion Hill
+	"mansion_gate": "SUMMIT ESTATES\nBy Appointment",
+	"mansion_private": "PRIVATE ROAD.\nYes, this one too.",
+	"mansion_lawn": "PLEASE DO NOT\nLOOK AT THE LAWN",
+	# Homie Depot
+	"store_pylon": "HOMIE DEPOT\nEverything for the yard you'll never finish",
+	"aisle_1": "AISLE 1\nRAKES & REGRETS",
+	"aisle_2": "AISLE 2\nBAGS (LEAF, BIG, BIGGER)",
+	"aisle_3": "AISLE 3\nGLOVES (LEFT HANDS ONLY)",
+	"aisle_4": "AISLE 4\nLADDERS (CLIMB AT OWN RISK)",
+	"aisle_5": "AISLE 5\nHOSES & HOPE",
+	"aisle_6": "AISLE 6\n(this aisle does not exist)",
+	"aisle_7": "AISLE 7\nGARDEN (aisle 6 is a myth)",
+	"pro_desk": "PRO DESK\nPros only. Pros are anyone with cash.",
+	"homie_month": "HOMIE OF THE MONTH\nMARTY\n(every month)",
+	"returns": "RETURNS\nNo.",
+	"wet_floor": "CAUTION\nWET FLOOR\n(it's always wet)",
+	"restock": "AISLE CLOSED FOR RESTOCK\nSINCE 2019",
+	"salt": "SNOW-B-GONE\nROCK SALT",
+	# Around the yards
+	"lemonade": "LEMONADE\n50¢\n(was 25¢)",
+	"yard_sale": "YARD SALE\nNO EARLY BIRDS",
+	"beware_dog": "BEWARE OF DOG\n(he is very small)",
+	"for_sale": "FOR SALE\nLeaves included",
+	"stop": "STOP",
+	"speed_limit": "SPEED\nLIMIT\n25",
+}
+
+## Names painted on the boats at Lakeside's docks (props/prop_catalog.gd).
+const BOAT_NAMES: Array[String] = [
+	"Second Mortgage", "Knot Working", "Reel Estate", "Dock Holiday", "Leaf It Be", "Sea-Lebrity",
+	"Unpaid Leave", "Overdraft", "Raking It In", "Mulch Ado", "The Deductible", "Nauti Buoy",
+]
