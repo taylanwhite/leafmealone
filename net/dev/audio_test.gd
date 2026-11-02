@@ -17,13 +17,14 @@ extends Node
 ##   music_files  every .ogg in assets/audio/music (tools/make_music.py, then
 ##                tools/encode_ogg.py; chunk 2) loads as Vorbis with a sane length
 ## The music director (chunk 3; docs/DECISIONS.md "Audio: a local music director"):
-##   moods          every mood has tracks or a stand-in, every track it names is in
-##                  TRACKS and loads at its length, stingers and titles line up
+##   moods          every mood has tracks unless MOODS_WAITING lists it, every track it
+##                  names is in TRACKS and loads at its length, stingers and titles line up
 ##   picker_table   pick_mood's rules, case by case, and push_mood over them
 ##   schedule_sim   900 simulated seconds of work music: loops, a rest, the next
 ##                  track; urgent moods fade fast and never rest; rests can be off
 ##   store_morning  the director (group music_director) plays the store at 8 AM
-##   now_playing    the Settings window's Sound tab has its "Now playing" row
+##   now_playing    the Settings window's Sound tab has its "Now playing" row, and
+##                  opened from the pause buttons it keeps the music muffled
 ##   register       a confirmed buy at Homie Depot rings the register cue
 ##   ride_to_lot    the mood holds through Chefty's ride, then the yard's work music
 ##   hot            a hot yard (heat) gets Hot Yard
@@ -52,6 +53,10 @@ const SIM_SECONDS: float = 900.0
 const SIM_STEP: float = 0.25
 ## Extra seconds a mood change may take past MUSIC_MOOD_HOLD_SECONDS (ticks, fades).
 const MOOD_SLACK_SECONDS: float = 1.0
+## The moods allowed to have no tracks yet (silence never has any). Every other
+## mood fails the moods check without one; audio chunks 4a and 4b take each mood
+## out of this list as they give it its track, so the check tightens with them.
+const MOODS_WAITING: Array[String] = ["hot", "warning", "chase", "crossing", "road"]
 ## How long the host waits for the Target client before going on alone.
 const CLIENT_WAIT_SECONDS: float = 10.0
 
@@ -436,6 +441,10 @@ func _moods() -> bool:
 		var stand_in := _Tracks.stand_in(mood_id)
 		if tracks.is_empty() and mood_id != "silence":
 			waiting.append(mood_id)
+			if not MOODS_WAITING.has(mood_id):
+				bad.append("%s has no tracks and is not in MOODS_WAITING" % mood_id)
+		elif MOODS_WAITING.has(mood_id):
+			bad.append("%s has tracks now: take it out of MOODS_WAITING" % mood_id)
 		if stand_in != "" and stand_in != "hold" and (not _Tracks.has_mood(stand_in) or _Tracks.tracks_for(stand_in).is_empty()):
 			bad.append("%s stands in with %s, which plays nothing" % [mood_id, stand_in])
 		for id: String in tracks:
@@ -602,6 +611,18 @@ func _now_playing(music: Node) -> bool:
 	var has_row := labels.has(str(_Strings.UI["row_now_playing"]))
 	ui.call("close_settings")
 	await get_tree().process_frame
+	# Settings opened from the pause buttons hides them, and the music stays muffled.
+	var tick := Constants.MUSIC_TICK_SECONDS + 0.1
+	var shut_at_start := not bool(ui.call("pause_open"))
+	ui.call("open_settings", true, "sound")
+	await get_tree().create_timer(tick).timeout
+	var paused := bool(ui.call("pause_open"))
+	var muffled := bool(music.call("is_muffling"))
+	ui.call("_dismiss_settings")
+	await get_tree().create_timer(tick).timeout
+	var cleared := not bool(ui.call("pause_open")) and not bool(music.call("is_muffling"))
+	print("[AudioTest] Settings from pause: pause_open %s -> %s, muffled %s, cleared after %s" % [not shut_at_start, paused, muffled, cleared])
+	var pause_muffle := shut_at_start and paused and muffled and cleared
 	var track := str(music.call("current_track"))
 	var title := str(music.call("now_playing_title"))
 	var title_ok := title == _Strings.track_title(_Tracks.title_key(track)) and (track == "" or title != "")
@@ -613,7 +634,7 @@ func _now_playing(music: Node) -> bool:
 			if deck is AudioStreamPlayer and deck.name.begins_with("Deck") and (deck as AudioStreamPlayer).playing:
 				audible = true
 	print("[AudioTest] Now playing row %s: %s (%s), playing %s" % [has_row, title, track, audible])
-	return has_row and title_ok and audible
+	return has_row and title_ok and audible and pause_muffle
 
 
 ## A buy the host confirms rings the register; a refused one doesn't.
