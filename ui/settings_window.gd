@@ -12,9 +12,12 @@ extends PanelContainer
 ## caught in _input before the GUI or the game sees it. Esc cancels, Backspace
 ## clears the slot (both hard-wired, so a rebound pause can't trap you), a key
 ## another action has swaps (Settings.bind), and refusals say why in the footer.
-## Esc (the pause action) while not waiting closes the window, before it can
-## toggle pause. A new display mode waits Constants.DISPLAY_REVERT_SECONDS for
-## "Keep" and reverts by itself.
+## A left click binds Left click only on the waiting slot itself; anywhere else
+## it cancels and goes on to what it hit. Esc (the pause action) while not
+## waiting closes the window, before it can toggle pause. While open, the form
+## holds keyboard focus and keeps every non-GUI key from the world behind it.
+## A new display mode waits Constants.DISPLAY_REVERT_SECONDS for "Keep" and
+## reverts by itself.
 ##
 ## ui/ui_root.gd builds it (open_settings / close_settings) with its dim
 ## backdrop; the test (net/dev/settings_test.gd) reads current_tab(),
@@ -33,6 +36,9 @@ const SLOT_WIDTH: float = 180.0
 const ROW_FONT: int = 18
 ## Previews played when a volume slider is let go (the music plays by itself).
 const PREVIEWS: Dictionary = {"sfx_volume": "bag", "chatter_volume": "babble", "ambience_volume": "bird"}
+## The keys the form itself uses (moving focus, sliders, pressing a button);
+## every other key stops at the form, so the world behind it hears nothing.
+const GUI_ACTIONS: Array[StringName] = [&"ui_accept", &"ui_select", &"ui_cancel", &"ui_up", &"ui_down", &"ui_left", &"ui_right", &"ui_focus_next", &"ui_focus_prev", &"ui_page_up", &"ui_page_down", &"ui_home", &"ui_end"]
 
 ## The dim layer behind the card; ui_root makes it and hands it over.
 var backdrop: Control
@@ -56,6 +62,8 @@ var _listen_action: StringName = &""
 var _listen_slot: int = -1
 var _dragging: String = ""
 var _revert_left: float = 0.0
+## What had keyboard focus before the window opened (it gets it back on close).
+var _focus_before: Control = null
 
 
 func _ready() -> void:
@@ -127,12 +135,18 @@ func _ready() -> void:
 
 func open(tab := "sound", came_from_pause := false) -> void:
 	from_pause = came_from_pause
+	# The backdrop only stops the mouse; keyboard focus would stay on the menu,
+	# lobby or pause button behind it, so it moves onto the form's tab pills.
+	var owner_now := get_viewport().gui_get_focus_owner()
+	if not visible:
+		_focus_before = owner_now if owner_now != null and not is_ancestor_of(owner_now) else null
 	visible = true
 	if backdrop != null:
 		backdrop.visible = true
 	_set_notice("")
 	show_tab(tab)
 	_fit()
+	_focus_tab()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -147,6 +161,23 @@ func close_window() -> void:
 	if backdrop != null:
 		backdrop.visible = false
 	closed.emit()
+	# Focus goes back where it was, if that button is still on screen (the pause
+	# buttons come back in the closed handler above).
+	if is_instance_valid(_focus_before) and _focus_before.is_visible_in_tree():
+		_focus_before.grab_focus()
+	_focus_before = null
+
+
+## Keyboard focus on the open tab's pill.
+func _focus_tab() -> void:
+	var pill: Control = _tab_buttons.get(_tab)
+	if pill != null and pill.is_visible_in_tree():
+		pill.grab_focus()
+
+
+func _focus_inside() -> bool:
+	var owner_now := get_viewport().gui_get_focus_owner()
+	return owner_now != null and is_ancestor_of(owner_now)
 
 
 ## Centered by anchors at its full size, or smaller when a big UI scale leaves
@@ -575,16 +606,50 @@ func _input(event: InputEvent) -> void:
 					_accept(key)
 			get_viewport().set_input_as_handled()
 		elif event is InputEventMouseButton:
-			if (event as InputEventMouseButton).pressed:
+			var button := event as InputEventMouseButton
+			if button.pressed and button.button_index == MOUSE_BUTTON_LEFT and not _on_listening_card(button):
+				# A left click anywhere but the waiting slot is changing your
+				# mind, not binding Left click: it cancels, and the click goes on
+				# to whatever it hit (Done, a tab, another slot).
+				_stop_listening()
+				return
+			if button.pressed:
 				_accept(event)
 			get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("pause"):
 		close_window()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("phone"):
-		# The phone stays in your pocket while the form is out.
+		return
+	if not event is InputEventKey:
+		return
+	if not _focus_inside():
+		# Focus wandered behind the backdrop (an arrow key found the menu's
+		# buttons): it comes back, and this key doesn't press anything there.
+		_focus_tab()
 		get_viewport().set_input_as_handled()
+		return
+	# The phone stays in your pocket, and the world behind the form (the clerk,
+	# the job board, a zone gate, a cot, the camera) hears no game keys.
+	if event.is_action("phone") or not _is_gui_key(event):
+		get_viewport().set_input_as_handled()
+
+
+func _is_gui_key(event: InputEvent) -> bool:
+	for action: StringName in GUI_ACTIONS:
+		if InputMap.has_action(action) and event.is_action(action):
+			return true
+	return false
+
+
+## Whether a click landed on the slot that is waiting (the one way to bind Left click).
+func _on_listening_card(event: InputEventMouseButton) -> bool:
+	var key := "%s/%d" % [_listen_action, _listen_slot]
+	if not _slots.has(key):
+		return false
+	var card: Control = _slots[key]
+	var local := card.make_input_local(event) as InputEventMouseButton
+	return Rect2(Vector2.ZERO, card.size).has_point(local.position)
 
 
 # ---------------------------------------------------------------- display

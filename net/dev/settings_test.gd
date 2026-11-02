@@ -458,6 +458,23 @@ func _window() -> bool:
 	await get_tree().process_frame
 	if not window.visible or not bool(ui.call("any_window_open")):
 		ok = _fail("window", "open_settings: visible %s, any_window_open %s" % [window.visible, ui.call("any_window_open")])
+	# Keyboard focus moves onto the form, and game keys stop at it: the world
+	# behind (the clerk, the board, a zone gate, the camera) hears nothing.
+	if not bool(window.call("_focus_inside")):
+		ok = _fail("window", "open left keyboard focus on %s" % get_viewport().gui_get_focus_owner())
+	var ear := _Ear.new()
+	add_child(ear)
+	await _key(KEY_E)
+	await _key(KEY_J)
+	var heard_open := ear.heard
+	ui.call("close_settings")
+	await _key(KEY_J)
+	var heard_closed := ear.heard - heard_open
+	ear.queue_free()
+	if heard_open != 0 or heard_closed != 1:
+		ok = _fail("window", "behind the open window the world heard %d keys (closed: %d)" % [heard_open, heard_closed])
+	ui.call("open_settings")
+	await get_tree().process_frame
 	var tabs: Array = window.get("TABS")
 	if tabs.size() != 5:
 		ok = _fail("window", "%d tabs, not 5" % tabs.size())
@@ -494,6 +511,23 @@ func _window() -> bool:
 	if _Sfx.log.count("ui_stamp") <= stamps:
 		ok = _fail("window", "no stamp for the new binding")
 	print("[SettingsTest] the footer says: %s" % (window.get("_notice") as Label).text)
+	# A left click away from the waiting slot cancels; one on the slot binds Left click.
+	var before_click := _snapshot_bindings()
+	window.call("listen", &"interact", 1)
+	await _click(Vector2(2.0, 2.0))
+	if bool(window.call("is_listening")) or _snapshot_bindings() != before_click or not window.visible:
+		ok = _fail("window", "a click away: listening %s, bindings changed %s" % [window.call("is_listening"), _snapshot_bindings() != before_click])
+	window.call("listen", &"interact", 1)
+	for frame: int in 3:
+		await get_tree().process_frame
+	var card := (window.get("_slots") as Dictionary)["interact/1"] as Control
+	# Input arrives in window pixels; the stretch transform takes it to the canvas.
+	var on_card := get_viewport().get_final_transform() * (card.get_global_transform_with_canvas() * (card.size * 0.5))
+	await _click(on_card)
+	var left_code := Settings.event_to_code(_mouse_event(MOUSE_BUTTON_LEFT))
+	if bool(window.call("is_listening")) or Settings.binding(&"interact", 1) != left_code:
+		ok = _fail("window", "a click on the waiting slot: listening %s, interact/1 is %s" % [window.call("is_listening"), Settings.binding(&"interact", 1)])
+	Settings.reset_bindings()
 	# Esc while listening cancels, and changes nothing; Esc again closes.
 	var before := _snapshot_bindings()
 	window.call("listen", &"interact", 1)
@@ -523,7 +557,19 @@ func _window() -> bool:
 	if not (waiting and reverted and kept):
 		ok = _fail("window", "display revert: waiting %s, reverted %s, kept %s" % [waiting, reverted, kept])
 	Settings.reset_section("video")
+	# Nobody presses Keep: the countdown runs out and the mode goes back.
+	var saved_mode := int(Settings.saved_value("video", "window_mode"))
+	window.call("_choose", "video", "window_mode", 1)
+	window.set("_revert_left", 0.05)
+	await get_tree().create_timer(0.25).timeout
+	await get_tree().process_frame
+	var timed_out := int(Settings.get_value("video", "window_mode")) == saved_mode and not (window.get("_keep") as Button).visible
+	# Closing the form while a mode waits is not a keep either.
+	window.call("_choose", "video", "window_mode", 1)
 	ui.call("close_settings")
+	var closed_reverted := int(Settings.get_value("video", "window_mode")) == saved_mode and int(Settings.saved_value("video", "window_mode")) == saved_mode and not (window.get("_keep") as Button).visible
+	if not (timed_out and closed_reverted):
+		ok = _fail("window", "display revert by itself: countdown %s, on close %s" % [timed_out, closed_reverted])
 	# From pause: the pause buttons step aside, and come back on close.
 	ui.call("open_pause")
 	var leave := ui.get("_leave") as Button
@@ -610,6 +656,27 @@ func _press(action: StringName, pressed: bool) -> void:
 	Input.parse_input_event(event)
 	await get_tree().process_frame
 	await get_tree().process_frame
+
+
+## A real left click (press and release) at a viewport position.
+func _click(at: Vector2) -> void:
+	for pressed: bool in [true, false]:
+		var event := _mouse_event(MOUSE_BUTTON_LEFT)
+		event.pressed = pressed
+		event.position = at
+		event.global_position = at
+		Input.parse_input_event(event)
+		await get_tree().process_frame
+	await get_tree().process_frame
+
+
+## A node behind the Settings window that counts the key presses it hears.
+class _Ear extends Node:
+	var heard: int = 0
+
+	func _unhandled_input(event: InputEvent) -> void:
+		if event is InputEventKey and (event as InputEventKey).pressed:
+			heard += 1
 
 
 ## A real key press and release through Input, the way a keyboard sends it.

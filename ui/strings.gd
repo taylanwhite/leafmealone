@@ -393,7 +393,7 @@ const UI: Dictionary = {
 	"keys_group_crew": "Crew",
 	"keys_group_other": "Other",
 	"keys_listening": "Press a key or click…",
-	"keys_hint": "Click a slot, then press a key or mouse button. Esc cancels, Backspace clears.",
+	"keys_hint": "Click a slot, then press a key or mouse button (click the slot again for Left click). Esc or a click elsewhere cancels, Backspace clears.",
 	"keys_reset_all": "Reset all keys",
 	"keys_reset_row": "↺",
 	"notice_stamped": "%s is now %s. Stamped and filed.",
