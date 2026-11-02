@@ -21,16 +21,46 @@ const TRIM := Color(0.92, 0.9, 0.86)
 const GRILLE := Color(0.14, 0.14, 0.15)
 const PAINT := {"roughness": 0.55, "specular": 0.25}
 
+## Chefty's 8 seats in its own space (gap-specs/critic.md C21): the driver and
+## shotgun on the cab's bench, then the bed two across, three deep. A seat is
+## where the rider's feet go; the cab's are low because riders sit there
+## (player/cartoon_body.gd sit()). The bed's first row clears the water tank.
+const CHEFTY_SEATS: Array[Vector3] = [
+	Vector3(-0.45, 0.62, -2.05), Vector3(0.45, 0.62, -2.05),
+	Vector3(-0.5, 1.0, -0.05), Vector3(0.5, 1.0, -0.05),
+	Vector3(-0.5, 1.0, 0.9), Vector3(0.5, 1.0, 0.9),
+	Vector3(-0.5, 1.0, 1.85), Vector3(0.5, 1.0, 1.85),
+]
+## The cab seats (driver, shotgun); the rest are in the bed.
+const CHEFTY_CAB_SEATS: int = 2
+## Where the steering wheel's hub sits (driver's side), and how far it leans back.
+const STEERING_WHEEL_AT := Vector3(-0.45, 1.52, -2.52)
+const STEERING_WHEEL_TILT: float = -0.95
+const STEERING_WHEEL_RADIUS: float = 0.19
+## The doors and the tailgate, in Chefty's space, where you get in.
+const CHEFTY_DRIVER_DOOR := Vector3(-1.6, 0.0, -2.0)
+const CHEFTY_SHOTGUN_DOOR := Vector3(1.6, 0.0, -2.0)
+const CHEFTY_TAILGATE := Vector3(0.0, 0.0, 3.4)
+
 static var _cache: Dictionary = {}
 
 
-## Chefty: a rounded cab-over cab up front and an open bed behind it.
-static func build_truck(parent: Node3D, color: Color) -> Node3D:
+## Chefty: a rounded cab-over cab up front and an open bed behind it. opts
+## (critic C21, one signature for every truck): color, decal (shops' livery, ""
+## for none), dents (0..3, driving C3), interior (an open cab with a bench, a dash
+## and a SteeringWheel node, for the drivable Chefty). A plain Color still works.
+## Every option is in the cache key.
+static func build_truck(parent: Node3D, opts: Variant = {}) -> Node3D:
+	var options: Dictionary = {"color": opts} if opts is Color else (opts as Dictionary if opts is Dictionary else {})
+	var color: Color = options.get("color", Color(0.75, 0.22, 0.15))
+	var interior := bool(options.get("interior", false))
 	var look := _root(parent, "TruckLook")
-	var key := "truck|%s" % color.to_html()
+	var key := "truck|%s|%s|%d|%s" % [color.to_html(), str(options.get("decal", "")), int(options.get("dents", 0)), interior]
 	if not _cache.has(key):
-		_cache[key] = _truck_mesh(color)
+		_cache[key] = _truck_mesh(color, interior)
 	look.add_child(_Stylized.instance(_cache[key], PAINT))
+	if interior:
+		_steering_wheel(look)
 	# Solid: you bump into it, and thrown bags land in the bed.
 	_solid(look, [
 		[Vector3(0.0, 0.65, -0.1), Vector3(2.3, 0.8, 5.6)],
@@ -70,19 +100,23 @@ static func build_van(parent: Node3D, color: Color) -> Node3D:
 	return look
 
 
-static func _truck_mesh(color: Color) -> ArrayMesh:
+static func _truck_mesh(color: Color, interior: bool = false) -> ArrayMesh:
 	var kit := _MeshKit.new()
 	var dark := color.darkened(0.25)
 	# Frame and lower body; the bed floor sits at y 1.0 under the riders.
 	kit.rbox(Vector3(0.0, 0.72, -0.1), Vector3(1.12, 0.3, 2.75), color, 6.0)
 	kit.rbox(Vector3(0.0, 0.42, 0.0), Vector3(0.9, 0.14, 2.5), GRILLE, 6.0)
-	# Cab-over cab with a short rounded nose.
-	kit.rbox(Vector3(0.0, 1.72, -2.0), Vector3(1.12, 0.72, 0.74), color, 5.0)
+	if interior:
+		_open_cab(kit, color, dark)
+	else:
+		# Cab-over cab with a short rounded nose.
+		kit.rbox(Vector3(0.0, 1.72, -2.0), Vector3(1.12, 0.72, 0.74), color, 5.0)
+		# Glass: windshield and side windows, set into the cab.
+		kit.rbox(Vector3(0.0, 2.04, -2.68), Vector3(0.98, 0.32, 0.08), GLASS, 6.0, {"shade": false})
+		for side: float in [-1.0, 1.0]:
+			kit.rbox(Vector3(side * 1.1, 2.04, -1.95), Vector3(0.05, 0.3, 0.5), GLASS, 6.0, {"shade": false})
 	kit.rbox(Vector3(0.0, 1.12, -2.7), Vector3(1.1, 0.24, 0.22), color, 4.0)
-	# Glass: windshield and side windows, set into the cab.
-	kit.rbox(Vector3(0.0, 2.04, -2.68), Vector3(0.98, 0.32, 0.08), GLASS, 6.0, {"shade": false})
 	for side: float in [-1.0, 1.0]:
-		kit.rbox(Vector3(side * 1.1, 2.04, -1.95), Vector3(0.05, 0.3, 0.5), GLASS, 6.0, {"shade": false})
 		# A door handle.
 		kit.rbox(Vector3(side * 1.13, 1.62, -1.62), Vector3(0.025, 0.03, 0.09), CHROME, 4.0)
 		# Mirrors on stalks.
@@ -110,6 +144,76 @@ static func _truck_mesh(color: Color) -> ArrayMesh:
 	# A roof light bar, just for the silhouette.
 	kit.rbox(Vector3(0.0, 2.47, -2.0), Vector3(0.5, 0.05, 0.14), dark, 4.0)
 	return kit.commit()
+
+
+## The drivable Chefty's cab: open windows (no glass, so you can see who's
+## driving), a roof on four pillars, door panels, a dash and a bench seat. The
+## cab spans the old closed cab's box (y 1.0 to 2.44, z -2.74 to -1.26).
+static func _open_cab(kit: RefCounted, color: Color, dark: Color) -> void:
+	var seat := Color(0.55, 0.36, 0.22)
+	# The back wall behind the bench, the roof, and the four pillars.
+	kit.call("rbox", Vector3(0.0, 1.72, -1.31), Vector3(1.12, 0.72, 0.05), color, 5.0)
+	kit.call("rbox", Vector3(0.0, 2.38, -2.0), Vector3(1.14, 0.07, 0.76), color, 5.0)
+	for side: float in [-1.0, 1.0]:
+		kit.call("rbox", Vector3(side * 1.06, 1.98, -2.66), Vector3(0.06, 0.36, 0.06), color, 4.0)
+		kit.call("rbox", Vector3(side * 1.06, 1.98, -1.36), Vector3(0.06, 0.36, 0.06), color, 4.0)
+		# The door panels up to the window line.
+		kit.call("rbox", Vector3(side * 1.08, 1.3, -2.0), Vector3(0.05, 0.3, 0.7), color, 5.0)
+		# A little rear window in the back wall's upper corners.
+		kit.call("rbox", Vector3(side * 0.55, 2.0, -1.255), Vector3(0.32, 0.16, 0.012), GLASS, 6.0, {"shade": false})
+	# The dash, with a glovebox line and two round gauges.
+	kit.call("rbox", Vector3(0.0, 1.42, -2.58), Vector3(1.04, 0.18, 0.12), dark, 5.0)
+	kit.call("rbox", Vector3(0.45, 1.36, -2.455), Vector3(0.22, 0.06, 0.008), GRILLE, 4.0, {"shade": false})
+	for x: float in [-0.56, -0.34]:
+		kit.call("rbox", Vector3(x, 1.52, -2.455), Vector3(0.06, 0.06, 0.008), TRIM, 6.0, {"shade": false})
+	# The bench: a cushion and a back.
+	kit.call("rbox", Vector3(0.0, 1.12, -1.78), Vector3(0.95, 0.1, 0.3), seat, 6.0)
+	kit.call("rbox", Vector3(0.0, 1.48, -1.44), Vector3(0.95, 0.3, 0.08), seat, 6.0)
+	# The column the wheel sits on.
+	kit.call("rbox", STEERING_WHEEL_AT + Vector3(0.0, -0.1, -0.1), Vector3(0.035, 0.035, 0.14), GRILLE, 4.0)
+
+
+## The steering wheel, its own node so it turns with the driver's steering
+## (chefty_drive.gd): a pivot leaned back toward the driver; spin it about its Z.
+static func _steering_wheel(look: Node3D) -> void:
+	var key := "steering_wheel"
+	if not _cache.has(key):
+		var kit := _MeshKit.new()
+		var ring := PackedVector3Array()
+		var radii := PackedFloat32Array()
+		for index: int in 17:
+			var angle := TAU * float(index) / 16.0
+			ring.append(Vector3(cos(angle), sin(angle), 0.0) * STEERING_WHEEL_RADIUS)
+			radii.append(0.022)
+		kit.tube(ring, radii, GRILLE, 6, {"jitter": 0.0, "cap": false})
+		# Three spokes and a hub, so you can see it turn.
+		for spoke: int in 3:
+			var angle := PI * 0.5 + TAU * float(spoke) / 3.0
+			kit.tube(PackedVector3Array([Vector3.ZERO, Vector3(cos(angle), sin(angle), 0.0) * STEERING_WHEEL_RADIUS]), PackedFloat32Array([0.016, 0.014]), CHROME, 5, {"jitter": 0.0})
+		kit.rbox(Vector3.ZERO, Vector3(0.045, 0.045, 0.025), Color(0.85, 0.2, 0.15), 6.0)
+		_cache[key] = kit.commit()
+	var pivot := Node3D.new()
+	pivot.name = "SteeringWheel"
+	pivot.position = STEERING_WHEEL_AT
+	pivot.rotation = Vector3(STEERING_WHEEL_TILT, 0.0, 0.0)
+	look.add_child(pivot)
+	pivot.add_child(_Stylized.instance(_cache[key], PAINT))
+
+
+## Turn a truck's steering wheel to steer (-1 full left .. 1 full right).
+static func set_steering(look: Node3D, steer: float) -> void:
+	var wheel := look.get_node_or_null("SteeringWheel") as Node3D if look != null else null
+	if wheel != null:
+		wheel.rotation = Vector3(STEERING_WHEEL_TILT, 0.0, -steer * Constants.CHEFTY_WHEEL_TURN)
+
+
+## Where the driver's hands go on the wheel (world space): [right, left].
+static func wheel_grips(look: Node3D) -> Array[Vector3]:
+	var wheel := look.get_node_or_null("SteeringWheel") as Node3D if look != null else null
+	if wheel == null:
+		return [Vector3.INF, Vector3.INF]
+	var r := STEERING_WHEEL_RADIUS
+	return [wheel.global_transform * Vector3(r * 0.94, r * 0.3, 0.0), wheel.global_transform * Vector3(-r * 0.94, r * 0.3, 0.0)]
 
 
 static func _van_mesh(color: Color) -> ArrayMesh:

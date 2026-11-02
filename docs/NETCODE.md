@@ -235,7 +235,7 @@ After a teleport, `NetSmoother` on other peers sees a jump larger than its snap 
 | Channel | Use | Mode |
 | --- | --- | --- |
 | 0 | Gameplay RPCs, leaf field chunk updates | reliable |
-| 1 | High-frequency input and clock sync | unreliable_ordered |
+| 1 | High-frequency input and clock sync, vehicle input and pose snapshots | unreliable_ordered |
 | 2 | Voice | unreliable_ordered |
 
 ## Replication and smoothing
@@ -294,6 +294,15 @@ Players never walk around inside a moving vehicle. That is the hardest problem i
 - On arrival the host unseats everyone and moves them to the destination zone's markers.
 - The van fills seats from the captured roster, so its visible occupants always equal the number of captured players [DEC-018]. A captured player who disconnects is removed from the roster and their seat empties on every peer.
 - Whether the trip is visible or a short fade is a presentation choice for PLAY. The netcode is the same either way.
+
+**Drivable Chefty (the connected town, driving chunk C1; `net/components/chefty_drive.gd`).** Still seated: nobody walks inside it. In `--town-map` worlds `World/Rides/Chefty` is made in code on every peer (`levels/world.gd _add_chefty`) and is driven, not pathed. It keeps the ride contract above (`seat_of`, `seat_transform`, `depart`, the bags), so nothing that uses Chefty changes.
+
+- **Authority:** the host simulates it (`net/components/vehicle_sim.gd`, a pure step function over a CharacterBody3D chassis on `Constants.VEHICLE_LAYER`) and owns the 8 seats, the bags and the horn. Clients ask: `_rpc_request_enter(kind)`, `_rpc_request_exit()`, `_rpc_request_swap()`; the host answers with `_rpc_seats(riders, driver)` (reliable, the whole seat list), `_rpc_horn(on)`, `_rpc_bags(job_bags, job_value, spent_bags)`. A late joiner asks `_rpc_request_state()` and gets `_rpc_state(...)`.
+- **Input:** the driver's own peer sends `_rpc_input(seq, throttle, steer, flags)` every physics tick on channel 1, unreliable_ordered. The host uses one per tick (two when more than `CHEFTY_INPUT_QUEUE_CATCHUP` are queued), holds the last one when none arrive, and brakes after `CHEFTY_INPUT_TIMEOUT`.
+- **Snapshots:** `_rpc_snap(t, pos, yaw, vel, yaw_rate, steer, ack)` from the host 30 times a second on channel 1, unreliable_ordered, with `ack` the last driver input it used. An explicit RPC, not a synchronizer: Chefty is a static node, and the snapshot needs its own timestamp and ack.
+- **Prediction:** the driver's peer runs the same sim on its own inputs at once; on a snapshot it puts the chassis at the host's pose, replays the inputs after `ack`, and fades the jump out of what it draws (`CHEFTY_CORRECTION_HALF_LIFE`; past `CHEFTY_SNAP_ERROR` it snaps). The snapshot is only stored when it arrives; the replay runs at the start of the next physics tick, because `move_and_slide` moves by the physics step only inside a physics frame (in the RPC callback it used the render frame's delta, and every replay fell short). Everyone else draws the snapshots `CHEFTY_VIEW_DELAY` behind with `net/components/vehicle_view.gd` on physics ticks (priority 50, between the vehicle and the riders), not with NetSmoother, so riders stay glued to their seats.
+- **Zones:** riders keep their zone while they ride. Getting out in the town re-labels the player with `Net.set_player_zone()` from where they stand (the store's lot, the job site, else `TOWN`) until driving chunk D's zone tracker does it for everyone.
+- **Bails and captures:** a bail sends `_rpc_seats`, the teleport and `_rpc_thrown` back to back on reliable channel 0, so they land in order, usually in one poll; `player.set_thrown` catches the seat up first (`_seat_on_ride`), or the fling would be dropped as if still seated. A capture (`director.note_capture`) calls `drop_rider` on every vehicle, so a rider caught in the bed leaves the seat before the van seats them.
 
 ## Enforcement crew and run events
 

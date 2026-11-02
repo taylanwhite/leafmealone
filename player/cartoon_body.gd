@@ -121,6 +121,12 @@ var _stars: Node3D
 var _stars_left: float = 0.0
 ## How far the hips and head drop when crouching, in meters.
 const CROUCH_DROP: float = 0.3
+## Sitting (sit(1), a Chefty cab seat): the hips this high over the seat's
+## floor, the legs out in front this far (radians).
+const SIT_HIPS: float = 0.48
+const SIT_LEGS: float = 1.42
+## 0 on your feet, 1 sitting, 2 riding standing up (a truck's bed: no walk cycle).
+var _sit_pose: int = 0
 ## Share of a player's look up and down that the visible head shows.
 const HEAD_TILT_SHARE: float = 0.35
 const GESTURE_SECONDS: Dictionary = {
@@ -406,6 +412,9 @@ func _physics_process(delta: float) -> void:
 		_squash = 1.0
 	_was_air = in_air
 	_squash = maxf(0.0, _squash - delta * 5.0)
+	# Riding along isn't walking, however fast the truck goes.
+	if _sit_pose != 0:
+		_speed = 0.0
 	var walk := clampf(_speed / 5.0, 0.0, 1.4)
 	var swing := sin(_phase) * 0.65 * walk
 	_legs[0].rotation.x = swing
@@ -432,6 +441,8 @@ func _physics_process(delta: float) -> void:
 		bounce = maxf(0.0, sin(_phase)) * 0.11 * walk
 	var breathe := sin(_time * 2.2) * 0.012 * (1.0 - walk)
 	var drop := CROUCH_DROP if crouching else 0.0
+	if _sit_pose == 1:
+		drop = 0.82 - SIT_HIPS
 	_hips.position.y = 0.82 + bounce - drop - _squash * 0.08
 	# The head rides with the body, and a player's camera with it.
 	_head_stand_y = lerpf(_head_stand_y, _head_base_y - drop + bounce * 0.6 - _squash * 0.06, clampf(delta * 12.0, 0.0, 1.0))
@@ -443,6 +454,8 @@ func _physics_process(delta: float) -> void:
 			_legs[index].rotation.x = -0.9
 		if in_air:
 			_legs[index].rotation.x = 0.5 if index == 0 else -0.25
+		if _sit_pose == 1:
+			_legs[index].rotation.x = SIT_LEGS
 	for index: int in _arms.size():
 		var side := -1.0 if index == 0 else 1.0
 		# Flailing up when airborne, the way cartoon people jump.
@@ -463,6 +476,13 @@ func _physics_process(delta: float) -> void:
 	_apply_hold(delta)
 	_animate_face(delta)
 	_apply_fall(delta)
+
+
+## In a seat: 1 sitting (Chefty's cab: hips down, legs out front), 2 riding
+## standing (the bed: still, no walk cycle), 0 back on your feet. player.gd calls
+## it every frame on every peer, from the riders the vehicle replicates.
+func sit(pose: int = 1) -> void:
+	_sit_pose = pose
 
 
 ## Lying on the back, limbs splayed, head and all, and stars circling while dizzy.

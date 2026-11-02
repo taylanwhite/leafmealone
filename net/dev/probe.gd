@@ -96,7 +96,12 @@ func _measure_judder() -> void:
 	if camera == null:
 		return
 	var at := camera.get_global_transform_interpolated().origin
-	_measure_ride_wobble(at)
+	# The driver's chase camera (player/vehicle_camera.gd) trails the truck on
+	# purpose; wobble is about sitting still in your seat, so it doesn't count.
+	if camera.name == "VehicleCamera":
+		_ride_rel_last = Vector3.INF
+	else:
+		_measure_ride_wobble(at)
 	var walking := false
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if node.name == str(Net.local_peer_id()) and node is CharacterBody3D:
@@ -194,6 +199,9 @@ func write_report() -> void:
 		"icons_test": preload("res://net/dev/icons_test.gd").result.duplicate(true),
 		"town_site": _town_site(),
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
+		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
+		"drive": _drive(),
+		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
 		"heat": _heat(),
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},
@@ -265,6 +273,15 @@ func _town_site() -> Dictionary:
 		"colliders": int(colliders.call("layout_hash")) if colliders != null else 0,
 		"slot_hidden": streamer.call("hidden_slots") if streamer != null else [],
 	}
+
+
+## The drivable Chefty as this peer sees it (chefty_drive.gd dev_report: riders,
+## driver, prediction error, horn, ...). {} in the legacy world.
+func _drive() -> Dictionary:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty == null or not chefty.has_method("dev_report"):
+		return {}
+	return chefty.call("dev_report")
 
 
 ## The NICE BOYS as this peer sees them, by node name: name tag, last bark, outfit.

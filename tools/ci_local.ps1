@@ -176,6 +176,18 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --town-map --townmap-test'; Seconds = 60; Client = 55
 		Check = { param($h, $c) [bool]$h.townmap_test.ok -and (Same $h.town_site $c.town_site) -and ([int]$c.town_site.house_shapes -eq 47) }
 	}
+	# The drivable Chefty (driving:C1) over a laggy link: the client drives (each
+	# input's first prediction ends within 1.5 m of the host's pose after it, and
+	# within 0.25 m on average), both see the same riders, the client's snapshots
+	# never stall, riders sit still in their seats both on the host (its own sim)
+	# and on the client (drawn 100 ms behind through vehicle_view while the host
+	# drives), and the client ends up out of the truck in the town.
+	drive = @{
+		Port = 7815
+		Host = '--host --name=Tester --no-steam --town-map --sim-loss=1 --job-seed=777 --yard-size=1 --drive-test'; Seconds = 110; Client = 105
+		Extra = '--sim-lag=120'
+		Check = { param($h, $c) [bool]$h.drive_test.ok -and $c -ne $null -and ([double]$c.drive.prediction_error_max_m -lt 1.5) -and ([double]$c.drive.prediction_error_mean_m -lt 0.25) -and ([int]$c.drive.prediction_samples -gt 100) -and (Same $h.drive.riders $c.drive.riders) -and ([double]$c.vehicle_view.max_gap_ms -lt 400) -and ([int]$h.ride_frames -gt 0) -and ([double]$h.ride_wobble_m -lt 0.05) -and ([int]$c.ride_frames -gt 0) -and ([double]$c.ride_wobble_m -lt 0.05) -and ($c.zone -eq 'TOWN') }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

@@ -129,7 +129,13 @@ func _targets(delta: float) -> Dictionary:
 	var wind_up := float(_player.get("_wind_up"))
 	var swing_left := float(_player.get("_swing_left"))
 	var punch_wind := float(_player.get("_punch_wind"))
-	if int(_player.get("carried_by")) != 0 or bool(_player.get("thrown")):
+	var wheel: Array = _player.call("wheel_grips") if _player.has_method("wheel_grips") else []
+	if not wheel.is_empty() and (wheel[0] as Vector3).is_finite():
+		# Driving Chefty: both hands on the wheel, turning with it (grips are [right, left]).
+		hands[1] = to_local(wheel[0])
+		hands[0] = to_local(wheel[1])
+		snap = true
+	elif int(_player.get("carried_by")) != 0 or bool(_player.get("thrown")):
 		# Carried or flying: kicking and flailing.
 		for side: int in 2:
 			hands[side] = REST[side] + Vector3(sin(_time * 16.0 + float(side) * 3.0) * 0.12, 0.2 + cos(_time * 13.0 + float(side)) * 0.12, -0.05)
