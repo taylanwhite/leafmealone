@@ -30,6 +30,9 @@
 | assets/audio/sfx/babble_3.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/babble_4.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/babble_5.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/ui_tick.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/ui_pop.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/ui_stamp.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/bird_1.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/sfx/bird_2.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/sfx/bird_3.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |

@@ -846,12 +846,19 @@ const HOLD_ACTIONS: Array[StringName] = [
 ]
 ## Bindings per action (two slots: a main key and an alternate).
 const BINDING_SLOTS: int = 2
+## The Settings window (ui/settings_window.gd): its card size at 100% UI scale,
+## the least gap it keeps to the screen edge when a bigger UI scale shrinks the
+## screen, and the shortest time between two slider ticks, in milliseconds.
+const SETTINGS_WINDOW_SIZE: Vector2 = Vector2(820.0, 580.0)
+const SETTINGS_WINDOW_MARGIN: float = 20.0
+const SETTINGS_TICK_GAP_MS: int = 60
 ## How the Keys tab groups actions, in order. Any other non-ui_ action is listed
 ## under "other" automatically. A feature adding an action may add it to a group here.
 const KEYBIND_GROUPS: Array[Dictionary] = [
 	{"id": "moving", "actions": [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch"]},
 	{"id": "working", "actions": [&"primary", &"secondary", &"interact", &"take", &"drop"]},
-	{"id": "crew", "actions": [&"phone", &"push_to_talk", &"toggle_camera", &"toggle_music", &"pause"]},
+	{"id": "pockets", "actions": [&"slot_1", &"slot_2", &"slot_3", &"slot_4", &"slot_5", &"slot_next", &"slot_prev"]},
+	{"id": "crew","actions": [&"phone", &"push_to_talk", &"toggle_camera", &"toggle_music", &"pause"]},
 ]
 
 # ---- hotbar

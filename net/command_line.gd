@@ -77,6 +77,10 @@ var legacy_map: bool = false
 var audio_test: bool = false
 ## --settings-test: volumes, look, FOV, bindings and the settings file (net/dev/settings_test.gd).
 var settings_test: bool = false
+## For screenshots: --open-settings=<sound|controls|keys|video|interface> opens the
+## Settings window on that tab after a second; "keys:listen" leaves a slot waiting
+## for a key, "keys:swap" rebinds Interact to F so the swap notice shows.
+var open_settings: String = ""
 ## --shop-test: buying, hours, stock, supplies and the shops save (net/dev/shop_test.gd).
 ## Also the one timed run that uses the real starter supplies (net/shops/shops.gd).
 var shop_test: bool = false
@@ -93,7 +97,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or shop_test or hotbar_test or townmap_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or townmap_test
 
 
 func read() -> void:
@@ -213,6 +217,8 @@ func read() -> void:
 			audio_test = true
 		elif argument == "--settings-test":
 			settings_test = true
+		elif argument.begins_with("--open-settings="):
+			open_settings = argument.trim_prefix("--open-settings=")
 		elif argument == "--shop-test":
 			shop_test = true
 		elif argument == "--hotbar-test":
