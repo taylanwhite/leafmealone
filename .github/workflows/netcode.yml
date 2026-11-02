@@ -255,6 +255,15 @@ jobs:
           grep "SettingsTest" build/soak/ci-settings/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-settings/host.json'))['settings_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Icons test (every icon and recipe, coverage, key tokens, the window icon)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-icons
+          "$GODOT" --headless --path . -- --host --port=7810 --name=Tester --no-steam --rank=40 --icons-test --measure="$PWD/build/soak/ci-icons/host.json" --run-seconds=40 > build/soak/ci-icons/host.log 2>&1
+          grep "IconsTest" build/soak/ci-icons/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-icons/host.json'))['icons_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Shop test (buying, hours, stock, supplies, paying a crewmate, the shops save)
         if: matrix.part == 'features'
         run: |

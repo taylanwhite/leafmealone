@@ -88,6 +88,8 @@ var shop_test: bool = false
 var hotbar_test: bool = false
 ## --townmap-test: the connected town's layout, roads, routes, slots and colliders (net/dev/townmap_test.gd).
 var townmap_test: bool = false
+## --icons-test: every icon, its recipe, coverage, key tokens and the window icon (net/dev/icons_test.gd).
+var icons_test: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -97,7 +99,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or townmap_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or townmap_test or icons_test
 
 
 func read() -> void:
@@ -225,5 +227,7 @@ func read() -> void:
 			hotbar_test = true
 		elif argument == "--townmap-test":
 			townmap_test = true
+		elif argument == "--icons-test":
+			icons_test = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

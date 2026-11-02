@@ -191,6 +191,7 @@ func write_report() -> void:
 		"day": _day(),
 		"town": _town(),
 		"townmap_test": preload("res://net/dev/townmap_test.gd").result.duplicate(true),
+		"icons_test": preload("res://net/dev/icons_test.gd").result.duplicate(true),
 		"town_site": _town_site(),
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"heat": _heat(),
