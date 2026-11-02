@@ -427,6 +427,22 @@ const UI: Dictionary = {
 	"action_slot_5": "Pocket 5",
 	"action_slot_next": "Next pocket",
 	"action_slot_prev": "Previous pocket",
+	# ---- driving: Chefty (net/components/chefty_drive.gd, player/seated.gd, ui/drive_hud.gd)
+	"action_honk": "Honk",
+	"prompt_drive": "Drive Chefty",
+	"prompt_ride_shotgun": "Ride shotgun",
+	"prompt_ride_bed": "Hop in the bed",
+	"prompt_get_out": "Get out",
+	"prompt_bail_out": "Bail out!",
+	"prompt_swap_seat": "Swap seats",
+	"prompt_seat_taken": "Somebody's driving",
+	"prompt_too_fast": "Slow down first",
+	"drive_hud_speed": "%d MPH",
+	"drive_hud_bed": "Bed %d/%d ($%d)",
+	"drive_hud_driver": "Driver: %s",
+	"drive_hud_no_driver": "Nobody's driving",
+	"drive_hud_keys_driver": "{key:move_forward} Gas   {key:move_back} Brake   {key:move_left} {key:move_right} Steer   {key:jump} Handbrake   {key:honk} Honk   {key:take} Swap   {key:interact} Get out",
+	"drive_hud_keys_rider": "{key:take} Swap seats   {key:toggle_camera} Camera   {key:interact} Get out",
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -1646,6 +1662,9 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/error_host": [1, 1],
 	"UI/error_join": [1, 1],
 	"UI/ride_chefty_label": [4, 1],
+	"UI/drive_hud_speed": [1, 1],
+	"UI/drive_hud_bed": [3, 1],
+	"UI/drive_hud_driver": [1, 1],
 	"UI/phone_text_head": [3, 1],
 	"UI/popup_cash": [1, 1],
 }

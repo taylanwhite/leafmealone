@@ -267,6 +267,48 @@ def music_loop() -> list[float]:
     return out[:loop_length]
 
 
+# ---------------------------------------------------------------- driving (Chefty)
+
+def engine_idle() -> list[float]:
+    """Chefty's engine: a lumpy little putt-putt with a buzzy exhaust note under
+    it. One speed; net/components/chefty_drive.gd pitches it up with speed."""
+    rng = random.Random(71)
+    seconds = 2.0
+    out = s.silence(seconds)
+    rate = 14.0
+    t = 0.0
+    beat = 0
+    while t < seconds:
+        # Every fourth putt is a little louder: the engine has a limp too.
+        level = 0.9 if beat % 4 == 0 else 0.6 + rng.uniform(-0.08, 0.08)
+        s.mix_into(out, s.blip(0.06, 140.0, 80.0, 55.0), t, level * 0.8)
+        s.mix_into(out, s.decay(s.lowpass(s.noise(rng, 0.05), 700.0), 70.0), t, level)
+        t += 1.0 / (rate * rng.uniform(0.97, 1.03))
+        beat += 1
+    body = s.lowpass(s.tone(seconds, 56.0, "square", (2.0, 0.03)), 400.0)
+    s.mix_into(out, body, 0.0, 0.3)
+    return seamless(out, 0.25)
+
+
+def skid() -> list[float]:
+    """Tires squealing through a drift: a wobbly rubbery whistle over a hiss."""
+    rng = random.Random(72)
+    seconds = 1.4
+    squeal = s.tone(seconds, 1250.0, "triangle", (11.0, 0.03))
+    squeal = s.bandpass(squeal, 1250.0, 2.0)
+    hiss = s.bandpass(s.noise(rng, seconds), 2600.0, 1.5)
+    out = [a * 0.8 + b * 0.35 for a, b in zip(squeal, hiss)]
+    return seamless(out, 0.2)
+
+
+def horn_loop() -> list[float]:
+    """Chefty's horn held down: the long 'BWAAH' going on and on, seamless."""
+    seconds = 1.2
+    raw = s.tone(seconds, 415.0, "square", (9.0, 0.012))
+    out = [a + 0.5 * b for a, b in zip(s.bandpass(raw, 830.0, 1.3), s.bandpass(raw, 1700.0, 2.0))]
+    return seamless(out, 0.2)
+
+
 SOUNDS = {
     "mower_loop": (mower_loop, 0, 0.55),
     "blower_loop": (blower_loop, 0, 0.5),
@@ -282,6 +324,10 @@ SOUNDS = {
     "dog": (dog, 0, 0.5),
     "car_pass": (car_pass, 0, 0.5),
     "music_loop": (music_loop, 0, 0.6),
+    # ---- driving (Chefty, net/components/chefty_drive.gd)
+    "engine_idle": (engine_idle, 0, 0.5),
+    "skid": (skid, 0, 0.4),
+    "horn_loop": (horn_loop, 0, 0.6),
 }
 
 

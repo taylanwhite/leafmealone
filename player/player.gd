@@ -23,6 +23,7 @@ const _FirstPersonArms = preload("res://player/first_person_arms.gd")
 const _PropLooks = preload("res://props/prop_looks.gd")
 const _Pockets = preload("res://player/pockets.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
+const _Seated = preload("res://player/seated.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -97,6 +98,12 @@ var _thrown_left: float = 0.0
 var _coat_shown: int = 0
 var _mound: Node3D
 var _next_strain: float = 0.0
+## The ride whose seat this player is on and which seat (every peer, from the
+## ride's riders), and, on the owner, how far the head is turned from the seat's
+## facing (player/seated.gd).
+var _seat_ride: Node
+var _seat_slot: int = -1
+var seat_look: float = 0.0
 
 
 func _enter_tree() -> void:
@@ -142,7 +149,10 @@ func pockets() -> Node:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority():
 		return
-	if event.is_action_pressed("toggle_camera"):
+	# In a drivable vehicle's seat, E, F and the camera key are the seat's.
+	if _Seated.handle_input(self, event):
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("toggle_camera"):
 		%CameraRig.toggle()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _water_hookup():
@@ -165,6 +175,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("primary") and _whack():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _Seated.try_enter(self):
 		get_viewport().set_input_as_handled()
 	# G (drop) is wound up and released in _wind_up, on physics ticks.
 		get_viewport().set_input_as_handled()
@@ -199,12 +211,15 @@ func _physics_process(delta: float) -> void:
 		%FirstPerson.position.y = -1.05 if in_pile else 0.0
 		if in_pile and (Input.is_action_just_pressed("move_forward") or Input.is_action_just_pressed("jump")):
 			set_pile(false)
+		var seated_in_vehicle := in_vehicle()
 		if _crossing_drive:
 			_look = Vector2.ZERO
 			body_yaw = PI
-		else:
+		elif not seated_in_vehicle:
 			_apply_look()
-		if _hidden_spot != null or in_pile:
+		if seated_in_vehicle:
+			_Seated.step(self, delta)
+		elif _hidden_spot != null or in_pile:
 			velocity = Vector3.ZERO
 		elif _step_sleep():
 			pass
@@ -231,17 +246,24 @@ func _physics_process(delta: float) -> void:
 ## physics interpolation smooths both the same way. Going through the network
 ## smoother's delay instead made riders slide back and forth against the vehicle.
 func _seat_on_ride() -> void:
+	var was_ride := _seat_ride
+	var was_slot := _seat_slot
 	var seat := _current_seat()
 	var was_on_seat := _on_seat
 	_on_seat = seat != Transform3D()
 	if was_on_seat != _on_seat:
 		reset_physics_interpolation()
+	if is_multiplayer_authority() and (was_ride != _seat_ride or was_slot != _seat_slot) and ((was_ride != null and was_ride.is_in_group("vehicles")) or (_seat_ride != null and _seat_ride.is_in_group("vehicles"))):
+		_Seated.on_seat_changed(self, _on_seat, _seat_slot)
 	if not _on_seat:
 		return
 	if is_multiplayer_authority():
 		global_position = seat.origin
 		velocity = Vector3.ZERO
-	$Visual.global_transform = Transform3D(global_basis, seat.origin)
+	# A drivable vehicle's riders face the way it does on every peer (their own
+	# peer turns just the head); a legacy ride's keep their own facing.
+	var facing := seat.basis.orthonormalized() if _seat_ride != null and _seat_ride.is_in_group("vehicles") else global_basis
+	$Visual.global_transform = Transform3D(facing, seat.origin)
 
 
 ## For net/components/net_smoother.gd: while true, the smoother leaves the visual alone.
@@ -254,8 +276,33 @@ func _current_seat() -> Transform3D:
 	for ride: Node in get_tree().get_nodes_in_group("rides"):
 		var index := int(ride.call("seat_of", peer_id))
 		if index >= 0:
+			_seat_ride = ride
+			_seat_slot = index
 			return ride.call("seat_transform", index)
+	_seat_ride = null
+	_seat_slot = -1
 	return Transform3D()
+
+
+## In a drivable vehicle's seat (Chefty in the connected town), on every peer.
+func in_vehicle() -> bool:
+	return _on_seat and _Seated.vehicle_of(self) != null
+
+
+## The ride this player's seat is on (every peer knows), or null.
+func seat_ride() -> Node:
+	return _seat_ride
+
+
+## Which seat on seat_ride(), or -1.
+func seat_slot() -> int:
+	return _seat_slot
+
+
+## For player/first_person_arms.gd: the driver's hands on the wheel, [right,
+## left] in world space, or [] when not driving.
+func wheel_grips() -> Array:
+	return _Seated.wheel_grips(self)
 
 
 func set_riding(ride: Node3D, seat_index: int) -> void:
@@ -638,7 +685,7 @@ func _on_pile() -> bool:
 func _step_punch(delta: float) -> void:
 	_punch_cool = maxf(0.0, _punch_cool - delta)
 	_swing_left = maxf(0.0, _swing_left - delta)
-	var can := _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not is_up_high() and not is_sleeping()
+	var can := _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not in_vehicle() and not is_up_high() and not is_sleeping()
 	var pressing := can and _punch_cool <= 0.0 and Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	# Empty hands on leaves rake by hand (equipment/rake.gd). A wind-up only
 	# starts there when someone is in front to hit; once started it keeps going.
@@ -882,7 +929,12 @@ func _process(_delta: float) -> void:
 	# first-person arms use too), except when they're flat on their back.
 	if body_now != null:
 		var held := _held_prop() as Node3D
-		if held != null and anim_state != AnimState.KNOCKED and carried_by == 0:
+		# Sitting in Chefty's cab, standing in its bed, hands on the wheel if driving.
+		body_now.call("sit", _Seated.pose_for(self))
+		var wheel := _Seated.wheel_grips(self)
+		if not wheel.is_empty():
+			body_now.call("set_hold", wheel[0], wheel[1])
+		elif held != null and anim_state != AnimState.KNOCKED and carried_by == 0:
 			var grips := _PropLooks.grip_points(held, self)
 			body_now.call("set_hold", grips[0], grips[1])
 		else:
@@ -987,6 +1039,9 @@ func _best_pickup() -> Node3D:
 ## What E would do right now, for the prompt in ui/interaction_prompt.gd, in the
 ## same order _unhandled_input tries them. Empty when E does nothing here.
 func interaction_hint() -> Dictionary:
+	# Seated in Chefty the drive HUD shows the seat's keys (ui/drive_hud.gd).
+	if in_vehicle():
+		return {}
 	if _hidden_spot != null:
 		return {"text": _Strings.UI["prompt_unhide"], "at": _hidden_spot.global_position + Vector3(0.0, 2.2, 0.0)}
 	var paint_held := _held_prop()
@@ -1037,11 +1092,10 @@ func interaction_hint() -> Dictionary:
 		var barrow := _nearest_kind("wheelbarrow", 2.4) as Node3D
 		if barrow != null:
 			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0)}
-	if not _hands_can_pick_up():
-		return {}
-	var closest := _best_pickup()
+	# Picking things up beats getting in: by the tailgate there are bags to load.
+	var closest := _best_pickup() if _hands_can_pick_up() else null
 	if closest == null:
-		return {}
+		return _Seated.hint(self)
 	# A pocket item with every pocket full (and no stack of its kind to join): say so.
 	var closest_kind := str(closest.get("kind"))
 	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
@@ -1190,7 +1244,7 @@ func wind_up_seconds() -> float:
 ## Hold on too long and you strain, then faint and drop it.
 func _step_wind_up(delta: float) -> void:
 	var held := _held_prop()
-	var pressing := Input.is_action_pressed("drop") and (held != null or carrying != 0) and _stun_left <= 0.0 and _hidden_spot == null
+	var pressing := Input.is_action_pressed("drop") and (held != null or carrying != 0) and _stun_left <= 0.0 and _hidden_spot == null and not in_vehicle()
 	if pressing:
 		if _wind_up < 0.0:
 			_wind_up = 0.0

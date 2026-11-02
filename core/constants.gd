@@ -751,6 +751,108 @@ const STORE_LAYOUT: Dictionary = {
 	"propane_cage": {"owner": "art", "rect": Rect2(-9.6, -9.8, 2.0, 2.6), "at": Vector3(-8.6, 0.0, -8.5), "yaw": PI * 0.5},
 }
 
+# ---- driving: Chefty (driving chunk C1, net/components/chefty_drive.gd and
+# vehicle_sim.gd; docs/DECISIONS.md "Chefty is a host-simulated arcade vehicle").
+# First guesses, tuned by driving it. TODO(balance): not in the workbook.
+## Physics layer 5 (bit value 16): vehicle chassis. A chassis masks the world (1)
+## and other chassis (16); players never touch it, they bump the rendered truck.
+const VEHICLE_LAYER: int = 16
+## Where Chefty waits in the connected town: on the TruckPad, nose to the road (+X).
+const CHEFTY_PARK_SPOT := Vector3(10.0, 0.0, 8.0)
+const CHEFTY_PARK_YAW: float = -PI * 0.5
+## Speeds in m/s, rates in m/s^2. Reverse is capped at its own speed.
+const CHEFTY_TOP_SPEED: float = 19.0
+const CHEFTY_REVERSE_SPEED: float = 6.0
+const CHEFTY_ACCEL: float = 6.5
+const CHEFTY_BRAKE: float = 14.0
+## Slowing with no throttle (m/s^2), and drag that grows with speed squared.
+const CHEFTY_COAST_DRAG: float = 1.2
+const CHEFTY_AIR_DRAG: float = 0.012
+## The handbrake slows the wheels this hard (m/s^2) and lets the tail out.
+const CHEFTY_HANDBRAKE_DECEL: float = 4.0
+## Steering: radians per second of turn at full lock, reached from this speed up;
+## at top speed only this share of it is left, so it can't spin on a dime at 19.
+const CHEFTY_STEER_RATE: float = 1.9
+const CHEFTY_STEER_FULL_AT: float = 4.0
+const CHEFTY_STEER_HIGH_SPEED_SHARE: float = 0.45
+## How fast the turn rate follows the wheel (rad/s^2), and the handbrake's extra bite.
+const CHEFTY_YAW_RESPONSE: float = 9.0
+const CHEFTY_DRIFT_STEER_SHARE: float = 1.35
+## Sideways grip: how fast a slide dies away, per second (gripping, drifting).
+const CHEFTY_GRIP: float = 9.0
+const CHEFTY_DRIFT_GRIP: float = 1.6
+## Suspension: wheel radius over the ground, how far below a hub a ray looks for
+## ground, how fast the body settles onto it, and gravity with no ground (m/s^2).
+const CHEFTY_RIDE_HEIGHT: float = 0.46
+const CHEFTY_SUSPENSION_RAY: float = 1.2
+const CHEFTY_SUSPENSION_RATE: float = 14.0
+const CHEFTY_GRAVITY: float = 18.0
+## The hub positions of the four wheels in Chefty's own space (x, z).
+const CHEFTY_WHEELS: Array[Vector2] = [Vector2(-1.08, -1.85), Vector2(1.08, -1.85), Vector2(-1.08, 1.85), Vector2(1.08, 1.85)]
+## The chassis box (what hits walls): its size and its center over the ground.
+const CHEFTY_CHASSIS_SIZE := Vector3(2.2, 1.5, 5.8)
+const CHEFTY_CHASSIS_CENTER := Vector3(0.0, 1.2, -0.1)
+## How much the body leans with the throttle and in turns (radians per m/s^2).
+const CHEFTY_LEAN_PITCH: float = 0.006
+const CHEFTY_LEAN_ROLL: float = 0.008
+const CHEFTY_LEAN_MAX: float = 0.09
+## The steering wheel turns this far at full lock (radians).
+const CHEFTY_WHEEL_TURN: float = 2.2
+## perk:chefty_tuneup (Hedge Hog IV) raises the top speed by this share; each dent
+## takes this share off it.
+const CHEFTY_TUNEUP_SHARE: float = 1.08
+const CHEFTY_DENT_SPEED_SHARE: float = 0.03
+const CHEFTY_MAX_DENTS: int = 3
+## Bumping something soft (a prop, a crew member) keeps this share of the speed,
+## and the chassis ignores it for this long, so it never stops dead on a gnome.
+const CHEFTY_SOFT_HIT_KEEP: float = 0.9
+const CHEFTY_SOFT_HIT_SECONDS: float = 0.3
+## Seats: the driver, shotgun, and six in the bed (two across, three deep).
+const CHEFTY_SEATS: int = 8
+## Getting in: how close to the door or tailgate (m), and the driver's seat only
+## while Chefty is slower than this (m/s). Getting out: a normal exit under this
+## speed, a bail (flung out with this share of Chefty's velocity) above it.
+const CHEFTY_ENTER_RADIUS: float = 3.0
+const CHEFTY_ENTER_MAX_SPEED: float = 3.0
+const CHEFTY_EXIT_MAX_SPEED: float = 4.0
+const CHEFTY_BAIL_SHARE: float = 0.6
+const CHEFTY_SEAT_SWAP_MAX_SPEED: float = 3.0
+## Netcode (docs/NETCODE.md, "Rides"): the host holds the driver's last input this
+## long before it brakes; pose snapshots per second; how far behind real time the
+## other peers draw Chefty; past this much prediction error the driver snaps; and
+## the half-life the driver's smaller corrections fade over.
+const CHEFTY_INPUT_TIMEOUT: float = 0.5
+const CHEFTY_SNAP_HZ: int = 30
+const CHEFTY_VIEW_DELAY: float = 0.1
+const CHEFTY_VIEW_EXTRAPOLATE: float = 0.1
+const CHEFTY_VIEW_SNAP_METERS: float = 3.0
+const CHEFTY_SNAP_ERROR: float = 5.0
+const CHEFTY_CORRECTION_HALF_LIFE: float = 0.12
+## The host eats at most this many queued driver inputs per tick (two when the
+## queue runs longer than CHEFTY_INPUT_QUEUE_CATCHUP).
+const CHEFTY_INPUT_QUEUE_CATCHUP: int = 3
+## How a stopped Chefty with nobody driving parks: under this speed it's parked.
+const CHEFTY_PARK_SPEED: float = 0.6
+## Until the autopilot (driving chunk C2), depart() hops Chefty to its stop: the
+## riders sit this long, then arrive like the legacy ride.
+const CHEFTY_HOP_SECONDS: float = 8.0
+## The driver's chase camera (player/vehicle_camera.gd): how far back and up,
+## how far ahead it looks per m/s, its field of view from standstill to top speed,
+## and how fast it swings round behind.
+const CHEFTY_CAMERA_BACK: float = 7.5
+const CHEFTY_CAMERA_UP: float = 3.2
+const CHEFTY_CAMERA_LEAD: float = 0.12
+const CHEFTY_CAMERA_FOV := Vector2(70.0, 82.0)
+const CHEFTY_CAMERA_FOLLOW: float = 5.0
+## Looking around from a seat: how far the head turns either way (radians).
+const CHEFTY_SEAT_LOOK_YAW: float = 2.0
+## The horn: the one-shot "bwah-BWAAH" first, then this long held before the loop.
+const CHEFTY_HORN_LOOP_AFTER: float = 0.45
+## The engine's pitch from idle to top speed, and the skid when sliding faster
+## than this sideways (m/s).
+const CHEFTY_ENGINE_PITCH := Vector2(0.8, 1.9)
+const CHEFTY_SKID_SLIP: float = 3.0
+
 
 # ---- audio
 # audio/ (docs/DECISIONS.md, "Audio: buses, a sound bank, positional sounds").
@@ -862,7 +964,7 @@ const GRAPHICS_PRESETS: Dictionary = {
 ## action adds it here (gap-specs/critic.md C14, C15).
 const HOLD_ACTIONS: Array[StringName] = [
 	&"move_forward", &"move_back", &"move_left", &"move_right", &"sprint", &"crouch",
-	&"primary", &"secondary", &"drop", &"push_to_talk",
+	&"primary", &"secondary", &"drop", &"push_to_talk", &"honk",
 ]
 ## Bindings per action (two slots: a main key and an alternate).
 const BINDING_SLOTS: int = 2
@@ -878,7 +980,7 @@ const KEYBIND_GROUPS: Array[Dictionary] = [
 	{"id": "moving", "actions": [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch"]},
 	{"id": "working", "actions": [&"primary", &"secondary", &"interact", &"take", &"drop"]},
 	{"id": "pockets", "actions": [&"slot_1", &"slot_2", &"slot_3", &"slot_4", &"slot_5", &"slot_next", &"slot_prev"]},
-	{"id": "crew","actions": [&"phone", &"push_to_talk", &"toggle_camera", &"toggle_music", &"pause"]},
+	{"id": "crew","actions": [&"phone", &"push_to_talk", &"honk", &"toggle_camera", &"toggle_music", &"pause"]},
 ]
 
 # ---- hotbar

@@ -308,6 +308,18 @@ jobs:
           grep "TownmapTest" build/soak/ci-townmap/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-townmap/host.json')); t=json.load(open('build/soak/ci-townmap/target.json')); sys.exit(0 if h['townmap_test'].get('ok') and h['town_site'] == t['town_site'] and t['town_site'].get('house_shapes') == 47 else 1)"
 
+      - name: Drive test (the drivable Chefty over 120 ms of lag, driver prediction, seats, horn)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-drive
+          "$GODOT" --headless --path . -- --host --port=7815 --name=Tester --no-steam --town-map --sim-loss=1 --job-seed=777 --yard-size=1 --drive-test --sim-lag=120 --measure="$PWD/build/soak/ci-drive/host.json" --run-seconds=110 > build/soak/ci-drive/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7815 --name=Target --no-steam --sim-lag=120 --measure="$PWD/build/soak/ci-drive/target.json" --run-seconds=105 > build/soak/ci-drive/target.log 2>&1
+          wait
+          grep "DriveTest" build/soak/ci-drive/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-drive/host.json')); t=json.load(open('build/soak/ci-drive/target.json')); sys.exit(0 if h['drive_test'].get('ok') and t['drive'].get('prediction_error_max_m', 99) < 1.5 and h['drive'].get('riders') == t['drive'].get('riders') and t['vehicle_view'].get('max_gap_ms', 9999) < 400 and h.get('ride_wobble_m', 1) < 0.05 and t.get('zone') == 'TOWN' else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

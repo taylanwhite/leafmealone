@@ -42,6 +42,7 @@ var _job_site_house: int = -1
 func _ready() -> void:
 	add_to_group("world")
 	%RuntimeProps.add_to_group("runtime_props")
+	_add_chefty()
 	# The sun is set up by levels/shared_look.gd.
 	var director := preload("res://net/run_events/director.gd").new()
 	director.name = "RunDirector"
@@ -107,6 +108,19 @@ func _ready() -> void:
 	Net.player_joined.connect(_on_player_joined)
 	Net.player_left.connect(_on_player_left)
 	Net.player_zone_changed.connect(_on_zone_changed)
+
+
+## Chefty, made here on every peer at the same path (World/Rides/Chefty, which its
+## RPCs need) before anything looks for it: the drivable one in the connected
+## town (net/components/chefty_drive.gd), the server-clock ride in the legacy
+## world (net/components/ride.gd).
+func _add_chefty() -> void:
+	if $Rides.has_node("Chefty"):
+		return
+	var script: Script = preload("res://net/components/chefty_drive.gd") if town_map else preload("res://net/components/ride.gd")
+	var chefty := script.new() as Node3D
+	chefty.name = "Chefty"
+	$Rides.add_child(chefty)
 
 
 ## Cosmetic set dressing for each zone, the scenery around them, and the shared

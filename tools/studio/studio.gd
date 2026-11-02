@@ -148,6 +148,31 @@ func _build(root: Node3D) -> void:
 			root.add_child(truck)
 			truck.rotation.y = PI * 0.8
 			preload("res://props/vehicles.gd").build_truck(truck, Color(0.75, 0.22, 0.15))
+		"chefty_cab":
+			# The drivable Chefty's open cab (driving C1): a driver with hands on the
+			# wheel and a passenger sitting, a rider standing in the bed; for head
+			# and roof clearance and the steering wheel.
+			var vehicles := preload("res://props/vehicles.gd")
+			var truck := Node3D.new()
+			root.add_child(truck)
+			truck.rotation.y = PI * 0.8
+			var look: Node3D = vehicles.build_truck(truck, {"color": Color(0.75, 0.22, 0.15), "interior": true})
+			vehicles.set_steering(look, float(_options.get("steer", "0.4")))
+			for index: int in 3:
+				var body: Node3D = _CartoonBody.new()
+				body.call("dress_from_seed", 11 + index * 5)
+				truck.add_child(body)
+				body.position = vehicles.CHEFTY_SEATS[0] if index == 0 else (vehicles.CHEFTY_SEATS[1] if index == 1 else vehicles.CHEFTY_SEATS[3])
+				body.call("build")
+				body.call("sit", 1 if index < 2 else 2)
+				if index == 0 and body.is_inside_tree():
+					var grips: Array = vehicles.wheel_grips(look)
+					body.call("set_hold", grips[0], grips[1])
+			root.set_meta("views", [
+				{"from": Vector3(-5.5, 3.6, -4.5), "at": Vector3(0.0, 1.6, 0.0), "fov": 40.0},
+				{"from": Vector3(-2.6, 2.4, 2.0), "at": Vector3(-0.6, 1.7, 1.4), "fov": 40.0},
+				{"from": Vector3(0.5, 7.0, 1.0), "at": Vector3(0.0, 1.0, 0.0), "fov": 45.0},
+			])
 		"van":
 			var van := Node3D.new()
 			root.add_child(van)

@@ -363,9 +363,12 @@ func _room_for(peer_id: int, item: Node) -> int:
 	return -1
 
 
-## Hidden, in a pile, asleep, carried, or carrying a teammate (both arms are
-## full of them): nothing comes out of a pocket.
+## Hidden, in a pile, asleep, carried, carrying a teammate (both arms are full
+## of them), or in a Chefty seat (hands on the wheel or the rail): nothing comes
+## out of a pocket.
 func _busy(player: Node) -> bool:
+	if player.has_method("in_vehicle") and bool(player.call("in_vehicle")):
+		return true
 	return bool(player.call("is_hidden")) or bool(player.call("is_sleeping")) or int(player.get("carried_by")) != 0 or int(player.get("carrying")) != 0
 
 

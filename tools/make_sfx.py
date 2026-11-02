@@ -303,6 +303,28 @@ def van() -> list[float]:
     return out
 
 
+def truck_horn() -> list[float]:
+    """Chefty's horn (the drivable one): a short 'bwah' and a long 'BWAAH', a
+    nasal, slightly flat two-tone like a delivery truck that's seen things."""
+    out = silence(0.75)
+    for start, seconds, freq, gain in [(0.0, 0.13, 311.0, 0.75), (0.17, 0.5, 415.0, 1.0)]:
+        raw = tone(seconds, glide(freq * 0.97, freq, seconds * 0.4), "square", (9.0, 0.012))
+        nasal = [a + 0.5 * b for a, b in zip(bandpass(raw, freq * 2.0, 1.3), bandpass(raw, freq * 4.1, 2.0))]
+        mix_into(out, envelope(nasal, 0.012, 0.05), start, gain)
+    return out
+
+
+def door_slam() -> list[float]:
+    """Chefty's door: a hollow 'bonk' and a padded 'thunk' as the latch catches."""
+    rng = random.Random(610)
+    out = silence(0.45)
+    mix_into(out, blip(0.16, 320.0, 140.0, 22.0), 0.0, 0.8)
+    mix_into(out, decay(lowpass(noise(rng, 0.12), 500.0), 35.0), 0.0, 0.9)
+    mix_into(out, blip(0.12, 150.0, 70.0, 30.0), 0.09, 1.0)
+    mix_into(out, decay(highpass(noise(rng, 0.03), 2500.0), 120.0), 0.09, 0.25)
+    return out
+
+
 def brass(seconds: float, freq, vibrato: tuple = (5.5, 0.012)) -> list[float]:
     """A cartoon trombone: a saw shaped to sound like a brass 'bwah'."""
     raw = tone(seconds, freq, "saw", vibrato)
@@ -498,6 +520,9 @@ SOUNDS = {
     "ui_tick": (ui_tick, 0, 0.35),
     "ui_pop": (ui_pop, 0, 0.45),
     "ui_stamp": (ui_stamp, 0, 0.7),
+    # ---- driving (Chefty, net/components/chefty_drive.gd)
+    "truck_horn": (truck_horn, 0, 0.75),
+    "door_slam": (door_slam, 0, 0.7),
 }
 
 

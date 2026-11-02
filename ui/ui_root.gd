@@ -90,6 +90,10 @@ func _ready() -> void:
 	var phone := preload("res://ui/phone.gd").new()
 	phone.name = "Phone"
 	add_child(phone)
+	# Chefty's dash while you sit in it (the connected town).
+	var drive_hud := preload("res://ui/drive_hud.gd").new()
+	drive_hud.name = "DriveHud"
+	add_child(drive_hud)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = "Dev host (ENet)"

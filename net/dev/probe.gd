@@ -194,6 +194,9 @@ func write_report() -> void:
 		"icons_test": preload("res://net/dev/icons_test.gd").result.duplicate(true),
 		"town_site": _town_site(),
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
+		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
+		"drive": _drive(),
+		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
 		"heat": _heat(),
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},
@@ -265,6 +268,15 @@ func _town_site() -> Dictionary:
 		"colliders": int(colliders.call("layout_hash")) if colliders != null else 0,
 		"slot_hidden": streamer.call("hidden_slots") if streamer != null else [],
 	}
+
+
+## The drivable Chefty as this peer sees it (chefty_drive.gd dev_report: riders,
+## driver, prediction error, horn, ...). {} in the legacy world.
+func _drive() -> Dictionary:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty == null or not chefty.has_method("dev_report"):
+		return {}
+	return chefty.call("dev_report")
 
 
 ## The NICE BOYS as this peer sees them, by node name: name tag, last bark, outfit.
