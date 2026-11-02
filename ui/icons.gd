@@ -30,6 +30,7 @@ extends RefCounted
 const _Ranks = preload("res://core/ranks.gd")
 const _Seasons = preload("res://core/seasons.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _InputLabels = preload("res://core/input_labels.gd")
 
 const DIR := "res://assets/icons/"
 ## No icon is bigger than this on either side (icons_test checks it).
@@ -100,13 +101,12 @@ const TEXT_AVATARS: Dictionary = {
 	"rusty": "brand_rustys",
 }
 
-## OS.get_keycode_string() names whose id isn't just the name lowercased.
-const KEY_NAMES: Dictionary = {
-	"Escape": "esc", "Tab": "tab", "Space": "space", "Shift": "shift", "Ctrl": "ctrl",
-	"Alt": "alt", "Enter": "enter", "Kp Enter": "enter", "Backspace": "backspace",
-	"BackSpace": "backspace", "Up": "up", "Down": "down", "Left": "left", "Right": "right",
+## Key labels (core/input_labels.gd event_label) whose keycap id isn't just the
+## label lowercased: "Esc" is already key_esc, "Escape" covers an unmapped name.
+const KEY_IDS: Dictionary = {
+	"Escape": "esc", "Kp Enter": "enter", "BackSpace": "backspace",
 }
-## Mouse button index -> id (its plain-text label is Strings.KEY_LABELS[id]).
+## Mouse button index -> id (its plain-text label is Strings.UI "key_mouse_<index>").
 const MOUSE_IDS: Dictionary = {
 	MOUSE_BUTTON_LEFT: "mouse_left", MOUSE_BUTTON_RIGHT: "mouse_right",
 	MOUSE_BUTTON_MIDDLE: "mouse_middle", MOUSE_BUTTON_XBUTTON1: "mouse_4",
@@ -250,17 +250,21 @@ static func for_unlock(unlock: String) -> String:
 
 # ---------------------------------------------------------------- keys
 
-## The keycap or mouse id for an action's first binding ("key_e", "mouse_left"),
-## or "" when it has none. Physical keycodes, so it works headless and on any
-## layout. TODO(settings): read through core/input_labels.gd once it lands, so a
-## rebinding shows at once (critic C5); InputMap already reflects applied binds.
+## The keycap or mouse id for the binding a prompt names ("key_e", "mouse_left"),
+## or "" when nothing is bound. It reads the same binding as the text does
+## (core/input_labels.gd, the one key-name source, critic C4/C5), so a rebound
+## key shows its own cap at once. A key's id is its label lowercased ("Esc" ->
+## key_esc, "F3" -> key_f3); one without a cap (a numpad key, a letter another
+## layout puts there) gives an id has() says no to, and rich() prints its text.
 static func key_id(action: StringName) -> String:
-	var event := _first_event(action)
-	if event is InputEventKey:
-		var name := _key_name(event as InputEventKey)
-		return "" if name == "" else "key_" + str(KEY_NAMES.get(name, name.to_lower())).replace(" ", "_")
+	var event := _InputLabels.event_of(action)
 	if event is InputEventMouseButton:
 		return str(MOUSE_IDS.get((event as InputEventMouseButton).button_index, ""))
+	if event is InputEventKey:
+		var text := _InputLabels.event_label(event)
+		if text == _Strings.UI["key_unbound"]:
+			return ""
+		return "key_" + str(KEY_IDS.get(text, text.to_lower())).replace(" ", "_")
 	return ""
 
 
@@ -270,32 +274,10 @@ static func for_action(action: StringName) -> String:
 	return id if has(id) else ""
 
 
-## What a key reads as in plain text: "E", "Tab", "LMB", or Strings.KEY_LABELS
-## "unbound" when nothing is bound (never the internal action id). Key names are
-## the engine's (OS.get_keycode_string); mouse names live in ui/strings.gd.
-## TODO(settings): delegate to core/input_labels.gd once settings:1 lands (C4).
+## What a key reads as in plain text, the way Settings shows it: "E", "Tab",
+## "Left click", or the unbound mark. Never the internal action id.
 static func key_label(action: StringName) -> String:
-	var event := _first_event(action)
-	if event is InputEventKey:
-		var name := _key_name(event as InputEventKey)
-		if name != "":
-			return name
-	elif event is InputEventMouseButton:
-		var mouse := str(MOUSE_IDS.get((event as InputEventMouseButton).button_index, "mouse"))
-		return str(_Strings.KEY_LABELS.get(mouse, _Strings.KEY_LABELS["mouse"]))
-	return str(_Strings.KEY_LABELS["unbound"])
-
-
-static func _first_event(action: StringName) -> InputEvent:
-	if not InputMap.has_action(action):
-		return null
-	var events := InputMap.action_get_events(action)
-	return events[0] if not events.is_empty() else null
-
-
-static func _key_name(event: InputEventKey) -> String:
-	var code := event.physical_keycode if event.physical_keycode != KEY_NONE else event.keycode
-	return OS.get_keycode_string(code) if code != KEY_NONE else ""
+	return _InputLabels.label(action)
 
 
 # ---------------------------------------------------------------- nodes and text
@@ -344,7 +326,9 @@ static func bbcode(id: String, px: float) -> String:
 
 ## Text with {key:action} and {icon:id} tokens as RichTextLabel markup: keycaps and
 ## icons px tall. Everything else is literal, so '[' (in a player's name, say) is
-## escaped. A key without a cap falls back to "[E]" text.
+## escaped. A key without a cap falls back to the text Strings.keyed gives it
+## ("[E]", "[Left click]"), and a token naming no action stays as written, as it
+## does there.
 static func rich(text: String, px: float) -> String:
 	var out := ""
 	var at := 0
@@ -352,7 +336,9 @@ static func rich(text: String, px: float) -> String:
 		out += _escape(text.substr(at, found.get_start() - at))
 		var kind := found.get_string(1)
 		var value := found.get_string(2)
-		if kind == "key":
+		if kind == "key" and not InputMap.has_action(StringName(value)):
+			out += _escape(found.get_string())
+		elif kind == "key":
 			var cap := bbcode(for_action(StringName(value)), px)
 			out += cap if cap != "" else _escape("[%s]" % key_label(StringName(value)))
 		else:
@@ -362,22 +348,16 @@ static func rich(text: String, px: float) -> String:
 
 
 ## Text with its tokens as plain text: {key:a} is "[E]", {icon:x} is dropped. For
-## Labels, Label3Ds, logs and tests. (critic C4: this is Strings.keyed's job once
-## the settings feature adds it; then this becomes an alias for it.)
+## Labels, Label3Ds, logs and tests. An alias of Strings.keyed (critic C4), the
+## one plain-text key renderer.
 static func plain(text: String) -> String:
-	var out := ""
-	var at := 0
-	for found: RegExMatch in _tokens().search_all(text):
-		out += text.substr(at, found.get_start() - at)
-		if found.get_string(1) == "key":
-			out += "[%s]" % key_label(StringName(found.get_string(2)))
-		at = found.get_end()
-	return out + text.substr(at)
+	return _Strings.keyed(text)
 
 
+## The same token grammar Strings.keyed reads.
 static func _tokens() -> RegEx:
 	if _token == null:
-		_token = RegEx.create_from_string("\\{(key|icon):([A-Za-z0-9_]+)\\}")
+		_token = RegEx.create_from_string("\\{(key|icon):([a-z0-9_]+)\\}")
 	return _token
 
 

@@ -168,6 +168,11 @@ detect_3d/compress_to=0
 process/fix_alpha_border=true
 """
 
+## The window and exe icon: its PNG is the project icon, and making it also
+## writes app_icon.ico with these sizes for the Windows export.
+const APP_ICON := "app_icon"
+const ICO_SIZES: Array[int] = [16, 32, 48, 256]
+
 const SHEET_CELL := Vector2i(116, 150)
 const SHEET_COLUMNS: int = 10
 
@@ -243,6 +248,8 @@ func _make(id: String, recipe: Dictionary) -> void:
 	else:
 		_failed += 1
 	print("[IconStudio] %s -> %s (%s)" % [id, file, error_string(error)])
+	if id == APP_ICON and error == OK:
+		_write_ico(image)
 
 
 # ---------------------------------------------------------------- the 3D pass
@@ -442,6 +449,46 @@ func _capture(viewport: SubViewport) -> Image:
 	var image := viewport.get_texture().get_image()
 	image.convert(Image.FORMAT_RGBA8)
 	return image
+
+
+## The Windows icon file next to app_icon.png: an ICO directory whose entries are
+## PNGs (Vista and later read those at every size), one per ICO_SIZES, each shrunk
+## from the 256 px icon with Lanczos. The Windows export embeds it in the exe.
+func _write_ico(source: Image) -> void:
+	var file := _out + APP_ICON + ".ico"
+	var blobs: Array[PackedByteArray] = []
+	for px: int in ICO_SIZES:
+		var copy := source.duplicate() as Image
+		if copy.get_width() != px or copy.get_height() != px:
+			copy.resize(px, px, Image.INTERPOLATE_LANCZOS)
+		blobs.append(copy.save_png_to_buffer())
+	var handle := FileAccess.open(ProjectSettings.globalize_path(file), FileAccess.WRITE)
+	if handle == null:
+		push_error("[IconStudio] can't write %s" % file)
+		_failed += 1
+		return
+	# ICONDIR: reserved, type 1 (icon), image count. Little-endian, as FileAccess writes.
+	handle.store_16(0)
+	handle.store_16(1)
+	handle.store_16(blobs.size())
+	var offset := 6 + 16 * blobs.size()
+	for index: int in blobs.size():
+		var px := ICO_SIZES[index]
+		# ICONDIRENTRY: width, height (0 means 256), colors, reserved, planes, bits,
+		# byte size, offset.
+		handle.store_8(px % 256)
+		handle.store_8(px % 256)
+		handle.store_8(0)
+		handle.store_8(0)
+		handle.store_16(1)
+		handle.store_16(32)
+		handle.store_32(blobs[index].size())
+		handle.store_32(offset)
+		offset += blobs[index].size()
+	for blob: PackedByteArray in blobs:
+		handle.store_buffer(blob)
+	handle.close()
+	print("[IconStudio] %s -> %s (%d sizes)" % [APP_ICON, file, blobs.size()])
 
 
 func _write_sidecar(file: String) -> void:

@@ -15,25 +15,31 @@ const _Strings = preload("res://ui/strings.gd")
 ## bound), or the InputMap's events in order for an action Settings doesn't
 ## keep. An action with nothing bound reads Strings.UI["key_unbound"].
 static func label(action: StringName, slot := -1) -> String:
+	return event_label(event_of(action, slot))
+
+
+## The binding label() names: the key or mouse button event of that slot, or null
+## when nothing is bound there. ui/icons.gd key_id picks its keycap from it, so
+## the picture and the text always name the same key.
+static func event_of(action: StringName, slot := -1) -> InputEvent:
 	if not InputMap.has_action(action):
-		return _Strings.UI["key_unbound"]
+		return null
 	if slot >= 0:
 		var settings := _settings()
 		if settings != null and bool(settings.call("has_slots", action)):
 			var code := str(settings.call("binding", action, slot))
-			var event: InputEvent = settings.call("code_to_event", code) if code != "" else null
-			return event_label(event) if event != null else _Strings.UI["key_unbound"]
+			return settings.call("code_to_event", code) if code != "" else null
 	var events: Array[InputEvent] = []
 	for event: InputEvent in InputMap.action_get_events(action):
 		if event is InputEventKey or event is InputEventMouseButton:
 			events.append(event)
 	if events.is_empty():
-		return _Strings.UI["key_unbound"]
+		return null
 	if slot < 0:
-		return event_label(events[0])
+		return events[0]
 	if slot >= events.size():
-		return _Strings.UI["key_unbound"]
-	return event_label(events[slot])
+		return null
+	return events[slot]
 
 
 ## The Settings autoload, or null (a tool script, or before autoloads exist).
