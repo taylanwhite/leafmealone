@@ -6,6 +6,11 @@
 # each quitting as soon as its test is done) and "soaks" (the bot soaks, which
 # run a fixed time and judge smoothness, so they get a runner to themselves).
 # --run-seconds on a feature test is only a ceiling for a hung test.
+#
+# Ports are fixed per test (docs/DECISIONS.md, "CI ports"): smoke 7791, the soaks
+# 7792 and 7793, feature tests 7794 up. Each step's --port= must equal the Port of
+# the same test in tools/ci_local.ps1's $Tests; `tools\ci_local.ps1 -CheckPorts`
+# compares them.
 name: netcode
 
 on:
@@ -60,6 +65,11 @@ jobs:
         if: matrix.part == 'features'
         run: |
           "$GODOT" --headless --path . -- --smoke-test --port=7791
+
+      - name: Guardrail (no real agencies, no jokes about origin, status or accents)
+        if: matrix.part == 'features'
+        run: |
+          "$GODOT" --headless --path . --script res://tools/guardrail_check.gd
 
       - name: Job test (two whole jobs, rides included)
         if: matrix.part == 'features'

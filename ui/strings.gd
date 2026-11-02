@@ -277,7 +277,7 @@ static func unlock_name(unlock: String) -> String:
 const HOMEOWNER_LINES: Dictionary = {
 	"thrilled": [
 		"Oh my GOD. You can see the GRASS. I forgot we HAD grass.",
-		"Take this. Take it. If the Nice Boys ask, you were never here.",
+		"Take this. Take it. If the NICE BOYS ask, you were never here.",
 		"The neighbors are going to be sick with envy. Here. Buy something loud.",
 		"Cleanest it's been in years. I'm putting you in the will. Not for much.",
 		"Ten out of ten. I'm tipping in cash so there's no paper trail.",
@@ -304,7 +304,7 @@ const HOMEOWNER_LINES: Dictionary = {
 		"I watched the whole thing from the window. All of it. Here.",
 		"The seasons changed. The leaves came back. You were still here.",
 		"Did you take a nap in the bags? Here's your money.",
-		"I nearly called the Nice Boys myself. Kidding. Mostly. Here.",
+		"I nearly called the NICE BOYS myself. Kidding. Mostly. Here.",
 		"My coffee went cold three times. Three. Here.",
 	],
 	"messy": [

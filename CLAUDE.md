@@ -37,7 +37,7 @@ Every change gets run, and you report what you ran.
 
 ### Adding a test
 
-New gameplay gets an automated test, like everything since M1: a `net/dev/<x>_test.gd` node with a static `result` dict that gets `"done": true` at every place the test ends, pass or fail (that is what lets the run quit early, and a test that never sets it runs out its `--run-seconds` ceiling), a flag in `net/command_line.gd` (and its `wants_dev_tools()` list), an `_add()` branch in `net/dev/dev_tools.gd`, the result key in `net/dev/probe.gd`, a step in `.github/workflows/netcode.yml` on the next free port, and the same entry in `tools/ci_local.ps1`'s `$Tests` table.
+New gameplay gets an automated test, like everything since M1: a `net/dev/<x>_test.gd` node with a static `result` dict that gets `"done": true` at every place the test ends, pass or fail (that is what lets the run quit early, and a test that never sets it runs out its `--run-seconds` ceiling), a flag in `net/command_line.gd` (and its `wants_dev_tools()` list), an `_add()` branch in `net/dev/dev_tools.gd`, the result key in `net/dev/probe.gd`, and a port. Use the next port in the "CI ports" table in `docs/DECISIONS.md` (or the one that table already reserves for your test), set it explicitly as `Port = 78xx` in the test's `tools/ci_local.ps1` `$Tests` entry, and use the same port in its `.github/workflows/netcode.yml` step; never rely on the table position. Extra args both sides need (say `--sim-lag=120`) go in the entry's `Extra` key and on both lines of the CI step. `tools\ci_local.ps1 -CheckPorts` confirms every port matches `netcode.yml`. Any new player-facing text must pass `net/dev/guardrail.gd`; a new table of it goes in `tools/guardrail_check.gd`'s `SOURCES`.
 
 ## Versioning
 
