@@ -9,6 +9,7 @@ const _LowPoly = preload("res://props/low_poly.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
+const _Strings = preload("res://ui/strings.gd")
 ## The Visual node sits this high above the prop's base.
 const VISUAL_HEIGHT: float = 0.35
 ## Tools held up in front of the face and aimed with the view, and where they sit
@@ -414,7 +415,7 @@ static func _turf_sign(look: Node3D) -> void:
 	look.add_child(_Stylized.instance(kit.commit(), {"roughness": 0.35, "specular": 0.45}))
 	for side: float in [1.0, -1.0]:
 		var label := Label3D.new()
-		label.text = "TurfMasters™\nLAWNS DONE RIGHT"
+		label.text = _Strings.UI["rival_sign_text"]
 		label.font_size = 28
 		# Narrow enough to stay on the panel, and one-sided: each face has its own
 		# label, so neither shows through mirrored past the edges (now that the sign

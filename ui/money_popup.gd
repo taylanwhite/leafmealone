@@ -3,6 +3,7 @@ extends Label3D
 ## Authority: local, cosmetic. A "+$9" that pops up, floats, and fades where money
 ## was made: a bag filled, bags loaded into the truck, the homeowner's cash taken.
 
+const _Strings = preload("res://ui/strings.gd")
 const RISE_METERS: float = 1.2
 const LIFE_SECONDS: float = 1.6
 const GREEN := Color(0.55, 1.0, 0.45)
@@ -19,7 +20,7 @@ static func pop(tree: SceneTree, at: Vector3, amount: int) -> void:
 	if world == null:
 		return
 	var popup: Label3D = load("res://ui/money_popup.gd").new()
-	popup.text = "+$%d" % amount
+	popup.text = str(_Strings.UI["popup_cash"]) % amount
 	world.add_child(popup)
 	popup.global_position = at
 	popup._start = at

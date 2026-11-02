@@ -121,7 +121,7 @@ static func sweep(value: Variant, path: String = "") -> Array:
 
 
 ## Sweeps every constant of a script (for example res://ui/strings.gd). Paths look
-## like "strings.gd:UI.cue_arrived". A script that doesn't compile has no constants
+## like "strings.gd:UI.status_crew_here". A script that doesn't compile has no constants
 ## to read, so it counts as a hit of its own (never a silent pass) and its string
 ## literals are swept as text instead; move it to SOURCE_TEXT in
 ## tools/guardrail_check.gd if it can only compile inside the game.

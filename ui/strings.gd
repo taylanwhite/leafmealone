@@ -27,12 +27,10 @@ const UI: Dictionary = {
 	"voice_mute": "Mute",
 	"voice_close": "Close",
 	"voice_nobody": "Nobody else is here yet.",
-	"cue_radio": "RADIO: the NICE BOYS are on the way to this address",
 	"cue_countdown": "%d",
-	"cue_arrived": "The NICE BOYS are here. Run. Hide. Break line of sight.",
-	"cue_clear": "All clear",
-	# ---- cast: the NICE BOYS, their van and beacon, and text that moves here from
-	# inline sites (wired up by later cast chunks; docs/GAME.md "2026-11-01, the cast").
+	# ---- cast: the NICE BOYS, their van and beacon, and text that moved here from
+	# inline sites (docs/GAME.md "2026-11-01, the cast"). The run cues' radio,
+	# arrival and all-clear lines are pools in CUE_LINES.
 	"van_label": "NICE BOYS Courtesy Shuttle",
 	"van_side": "THE NICE BOYS",
 	"van_motto": "Courtesy Patrol · We Noticed.",
@@ -63,6 +61,8 @@ const UI: Dictionary = {
 	"error_join": "Could not join: %s",
 	"ride_chefty_label": "Chefty\n%d/%d bags  $%d%s",
 	"ride_chefty_full": " full",
+	# A rider in the van with no name yet, by peer id.
+	"ride_rider_unnamed": "Player %d",
 	"phone_no_favorite": "no favorite job",
 	"picky_0": "easy to please",
 	"picky_1": "a little picky",
@@ -71,6 +71,12 @@ const UI: Dictionary = {
 	"phone_text_head": "%s  ·  Day %d %s",
 	"phone_close_x": "✕",
 	"popup_cash": "+$%d",
+	# The HUD's cleanup and Chefty rows (ui/ui_root.gd). The amounts are the icons
+	# spec's keys (critic C7), so its icon rows can show them without the words.
+	"hud_cleanup_amount": "%.1f%%",
+	"hud_chefty_amount": "%d/%d",
+	"hud_cleanup_row": "Cleanup %s",
+	"hud_chefty_row": "Chefty %s bags",
 	# ---- end cast
 	"hide_taken": "Occupied",
 	"hud_hidden": "Hiding. E to come out.",
@@ -133,7 +139,6 @@ const UI: Dictionary = {
 	"prompt_dump_truck": "Dump into Chefty",
 	"prompt_take_cash": "Take the cash ($%d)",
 	"cash_amount": "$%d",
-	"homeowner_thanks": "Thanks!",
 	"hud_wallet": "Cash $%d",
 	# The goal line (ui/job_goal.gd): what to do next on the job.
 	"shop_tool_unlocks": "Unlocks: %s",
@@ -1672,8 +1677,13 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/drive_hud_bed": [3, 1],
 	"UI/drive_hud_driver": [1, 1],
 	"UI/drive_hud_keys_seat": [2, 1],
+	"UI/ride_rider_unnamed": [1, 1],
 	"UI/phone_text_head": [3, 1],
 	"UI/popup_cash": [1, 1],
+	"UI/hud_cleanup_amount": [1, 1],
+	"UI/hud_chefty_amount": [2, 1],
+	"UI/hud_cleanup_row": [1, 1],
+	"UI/hud_chefty_row": [1, 1],
 }
 
 

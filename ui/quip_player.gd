@@ -3,6 +3,7 @@ extends Node
 ## Local presentation. Plays draft workbook lines with a cooldown and a per-session cap.
 
 const _Strings: Script = preload("res://ui/strings.gd")
+const _Director = preload("res://net/run_events/director.gd")
 
 var _label: Label
 var _hide_at: float = 0.0
@@ -87,7 +88,7 @@ func _watch_cleanup() -> void:
 
 func _watch_throwback() -> void:
 	var crossing := get_tree().get_first_node_in_group("border_return")
-	var thrown := crossing != null and str(crossing.call("status_line")) == "Thrown back"
+	var thrown := crossing != null and bool(crossing.call("is_thrown_back"))
 	if thrown and not _throw_latched:
 		_try("border_fail")
 	_throw_latched = thrown
@@ -110,10 +111,16 @@ func _watch_director() -> void:
 	_last_roster = roster.size()
 
 
-func _on_phase(status: String) -> void:
-	if status.find("on the way") >= 0:
+## Reads the director's phase, not its status text: the text is writing and can
+## change (it once said "are here" while this looked for "is here", so Q-009 never
+## played).
+func _on_phase(_status: String) -> void:
+	if _director == null:
+		return
+	var phase := int(_director.call("phase"))
+	if phase == _Director.Phase.WARNING:
 		_try("run_warning")
-	elif status.find("is here") >= 0:
+	elif phase == _Director.Phase.CHASE:
 		_try("crew_arrival")
 
 

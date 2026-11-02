@@ -9,6 +9,7 @@ const CREW_SCENE: PackedScene = preload("res://npcs/crew_member.tscn")
 const _RideScript: Script = preload("res://net/components/ride.gd")
 const _Rules: Script = preload("res://net/run_events/rules.gd")
 const _Economy = preload("res://core/economy.gd")
+const _Strings = preload("res://ui/strings.gd")
 ## From the lot zone's origin, where the crew appears.
 const CREW_ARRIVAL_OFFSET := Vector3(16.0, 0.1, 0.0)
 
@@ -109,7 +110,7 @@ func van_occupied() -> int:
 func force_event() -> void:
 	if not Net.is_host() or _phase != Phase.QUIET:
 		return
-	_set_phase(Phase.WARNING, "The NICE BOYS are on the way")
+	_set_phase(Phase.WARNING, _Strings.UI["status_crew_coming"])
 
 
 ## Host only. Put this peer in the open cohort. The smoke test uses a short window.
@@ -194,7 +195,7 @@ func _consider_roll() -> void:
 		return
 	var chance := _Economy.run_roll_chance(heat, Campaign.lots_completed())
 	if heat >= Constants.HEAT_RAID_AT or randf() < chance:
-		_set_phase(Phase.WARNING, "The NICE BOYS are on the way")
+		_set_phase(Phase.WARNING, _Strings.UI["status_crew_coming"])
 
 
 ## The crew's heat now, 0 to 100.
@@ -205,7 +206,7 @@ func _heat() -> float:
 
 func _begin_chase() -> void:
 	_last_event_time = Net.server_time()
-	_set_phase(Phase.CHASE, "The NICE BOYS are here")
+	_set_phase(Phase.CHASE, _Strings.UI["status_crew_here"])
 	# The day summary's "raided" quip (Strings.summary_quip).
 	Campaign.note_day("raids", 1.0)
 	_spawn_crew()

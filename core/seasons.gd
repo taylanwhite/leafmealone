@@ -4,11 +4,14 @@ extends RefCounted
 ## The seasons (docs/SPINE.md, "Seasons"): the endless loop. The town keeps
 ## needing different work as the year turns. Pure data and math from the day
 ## number, the same on every peer. Autumn is the game's home season: the most
-## leaves and the colors the art was made for.
+## leaves and the colors the art was made for. Their names and the day summary's
+## line when one turns are writing, so they live in ui/strings.gd (SEASON_NAMES,
+## SEASON_ARRIVALS), in this file's order.
 
-const NAMES: Array[String] = ["Autumn", "Winter", "Spring", "Summer"]
-## The same seasons as ids, in the same order: the one list every system keys
-## on (Catalog item "seasons", icons' for_season).
+const _Strings = preload("res://ui/strings.gd")
+
+## The seasons as ids, autumn first: the one list every system keys on (Catalog
+## item "seasons", icons' for_season).
 const IDS: Array[String] = ["autumn", "winter", "spring", "summer"]
 
 ## How much of a yard's leaves come back, by season.
@@ -29,13 +32,6 @@ const FOLIAGE: Array[Color] = [
 	Color(0.5, 0.74, 0.32, 0.7),
 	Color(0.34, 0.58, 0.24, 0.8),
 ]
-## One line when it turns, for the day's summary.
-const ARRIVALS: Array[String] = [
-	"Autumn is back. Leaves everywhere. You're welcome.",
-	"Winter. Fewer leaves, frozen gutters, and everybody pays a little extra.",
-	"Spring. Weeds, mowing, and hedges with ambitions.",
-	"Summer. Mowing, pools, and fences that need paint.",
-]
 
 
 ## Which season a day is in: 0 autumn, 1 winter, 2 spring, 3 summer.
@@ -51,7 +47,7 @@ static func year_of(day: int) -> int:
 
 
 static func name_of(season: int) -> String:
-	return NAMES[posmod(season, 4)]
+	return _Strings.SEASON_NAMES[posmod(season, 4)]
 
 
 ## True on the first day of a season (not day 1).

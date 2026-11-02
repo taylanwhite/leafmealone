@@ -48,7 +48,7 @@ func _ready() -> void:
 	_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(_header)
 	var close := Button.new()
-	close.text = "✕"
+	close.text = _Strings.UI["phone_close_x"]
 	close.flat = true
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(close_phone)
@@ -208,7 +208,7 @@ func _texts(town: Node) -> void:
 		bubble.add_theme_stylebox_override("panel", _box(BUBBLE_JOB if is_job else BUBBLE, 14, BUBBLE, 0, 10))
 		var column := VBoxContainer.new()
 		bubble.add_child(column)
-		var head := "%s  ·  Day %d %s" % [str(message.get("from", "")), int(message.get("day", 1)), str(message.get("time", ""))]
+		var head := str(_Strings.UI["phone_text_head"]) % [str(message.get("from", "")), int(message.get("day", 1)), str(message.get("time", ""))]
 		column.add_child(_text(head, 13, SOFT))
 		var body := _text(str(message.get("text", "")), 16, INK)
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -268,14 +268,14 @@ func _clients(town: Node) -> void:
 				last_text = _Strings.UI["phone_last_days"] % (today - last)
 			var likes := str(owner.get("likes", ""))
 			var likes_text := str(_Strings.UI.get("task_" + likes, "")) if likes != "" else ""
-			var detail := _Strings.UI["phone_client_detail"] % [_picky(float(owner.get("standards", 0.3))), likes_text if likes_text != "" else "no favorite job", int(house.get("jobs", 0)), last_text]
+			var detail := _Strings.UI["phone_client_detail"] % [_picky(float(owner.get("standards", 0.3))), likes_text if likes_text != "" else str(_Strings.UI["phone_no_favorite"]), int(house.get("jobs", 0)), last_text]
 			var detail_label := _text(detail, 13, SOFT)
 			detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			detail_label.custom_minimum_size.x = 300
 			card.add_child(detail_label)
-			var blurb: Dictionary = _Hoods.PERSONALITIES.get(str(owner.get("personality", "")), {})
-			if not blurb.is_empty():
-				var blurb_label := _text(str(blurb["blurb"]), 13, SOFT)
+			var blurb := str(_Strings.PERSONALITY_BLURBS.get(str(owner.get("personality", "")), ""))
+			if blurb != "":
+				var blurb_label := _text(blurb, 13, SOFT)
 				blurb_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 				blurb_label.custom_minimum_size.x = 300
 				card.add_child(blurb_label)
@@ -302,7 +302,7 @@ func _map(town: Node) -> void:
 			line = _Strings.UI["phone_hood_locked"] % [str(hood["name"]), _Ranks.title(_Ranks.tier_of("hood:" + hood_id))]
 			color = SOFT
 		_list.add_child(_text(line, 17, color))
-		var blurb := _text(str(hood["blurb"]), 13, SOFT)
+		var blurb := _text(str(_Strings.HOOD_BLURBS.get(hood_id, "")), 13, SOFT)
 		blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		blurb.custom_minimum_size.x = 300
 		_list.add_child(blurb)
@@ -385,13 +385,9 @@ func _hearts(relationship: float) -> String:
 
 
 func _picky(standards: float) -> String:
-	if standards < 0.25:
-		return "easy to please"
-	if standards < 0.5:
-		return "a little picky"
-	if standards < 0.75:
-		return "picky"
-	return "impossible"
+	# UI picky_0 (under a quarter) to picky_3 (three quarters and up).
+	var level := clampi(int(floor(standards * 4.0)), 0, 3)
+	return str(_Strings.UI["picky_%d" % level])
 
 
 func _text(value: String, size: int, color: Color) -> Label:
