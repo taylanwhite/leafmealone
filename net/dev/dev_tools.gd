@@ -2,7 +2,7 @@ extends Node
 
 ## Authority: local. Development tools turned on by command-line flags:
 ## --bot, --bot-stay, --measure=<file>, --screenshot=<dir>, --run-seconds=<n>,
-## --mute-audio, --run-event-at=<n>, and --open-shop.
+## --mute-audio, --run-event-at=<n>, --open-shop and --open-settings=<tab>.
 ## tools/soak.sh launches whole sessions with them. Nothing here runs in a
 ## normal game.
 
@@ -91,6 +91,22 @@ func _ready() -> void:
 			var ui := get_tree().get_first_node_in_group("game_ui")
 			if ui != null:
 				ui.call("open_job_board")
+		)
+	if str(options.get("open_settings")) != "":
+		# For screenshots of the Settings window: "<tab>", "keys:listen" or "keys:swap".
+		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
+			var ui := get_tree().get_first_node_in_group("game_ui")
+			var parts := str(options.get("open_settings")).split(":")
+			if ui != null:
+				ui.call("open_settings", false, parts[0])
+			var window := get_tree().get_first_node_in_group("settings_window")
+			if window == null or parts.size() < 2:
+				return
+			if parts[1] == "listen":
+				window.call("listen", &"interact", 0)
+			elif parts[1] == "swap":
+				window.call("listen", &"interact", 0)
+				window.call("_accept", Settings.code_to_event("key:%d" % KEY_F))
 		)
 	if str(options.get("open_phone")) != "":
 		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:

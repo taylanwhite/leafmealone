@@ -21,6 +21,10 @@ var _crew_button: Button
 var _voice_button: Button
 var _rake_hint: Label
 var _voice_panel: PanelContainer
+var _settings: PanelContainer
+var _settings_backdrop: ColorRect
+var _settings_button: Button
+var _fps: Label
 
 const _Strings = preload("res://ui/strings.gd")
 
@@ -122,6 +126,7 @@ func _ready() -> void:
 	_voice_button.offset_bottom = -120.0
 	_voice_button.pressed.connect(func() -> void: _voice_panel.call("open"))
 	add_child(_voice_button)
+	_build_settings()
 	Net.state_changed.connect(_on_state_changed)
 	Net.session_ended.connect(_on_session_ended)
 	_on_state_changed(Net.current_state())
@@ -130,6 +135,10 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _cleanup == null:
 		return
+	if _fps != null:
+		_fps.visible = bool(Settings.get_value("interface", "show_fps"))
+		if _fps.visible:
+			_fps.text = _Strings.UI["fps_label"] % roundi(Engine.get_frames_per_second())
 	var fields := get_tree().get_nodes_in_group("leaf_field")
 	if fields.is_empty() or Net.current_state() != Net.State.IN_SESSION:
 		_cleanup.visible = false
@@ -202,24 +211,114 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
-## The pause buttons: Leave Session, Voice, and (for the host) the NICE BOYS.
+## The pause buttons: Leave Session, Voice, Settings, and (for the host) the NICE BOYS.
 func open_pause() -> void:
 	if Net.is_automated() or Net.current_state() != Net.State.IN_SESSION:
 		return
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_leave.visible = true
 	_voice_button.visible = true
+	_settings_button.visible = true
 	if _crew_button != null:
 		_crew_button.visible = Net.is_host()
 
 
 func close_pause() -> void:
+	_hide_pause_buttons()
+	recapture_mouse()
+
+
+func _hide_pause_buttons() -> void:
 	_leave.visible = false
-	_voice_button.visible = false
-	_voice_panel.visible = false
+	if _voice_button != null:
+		_voice_button.visible = false
+		_voice_panel.visible = false
+	if _settings_button != null:
+		_settings_button.visible = false
 	if _crew_button != null:
 		_crew_button.visible = false
-	recapture_mouse()
+
+
+## The Settings window (ui/settings_window.gd), from the main menu, the lobby, or
+## the pause buttons (from_pause: the pause buttons step aside and come back when
+## it closes). tab is one of its TABS.
+func open_settings(from_pause := false, tab := "sound") -> void:
+	if _settings == null:
+		return
+	if from_pause:
+		_hide_pause_buttons()
+	_settings.call("open", tab, from_pause)
+
+
+func close_settings() -> void:
+	if _settings != null:
+		_settings.call("close_window")
+
+
+func _on_settings_closed() -> void:
+	if bool(_settings.get("from_pause")) and Net.current_state() == Net.State.IN_SESSION:
+		open_pause()
+	else:
+		recapture_mouse()
+
+
+## Closes the window without bringing the pause buttons back (the state changed).
+func _dismiss_settings() -> void:
+	if _settings != null and _settings.visible:
+		_settings.set("from_pause", false)
+		_settings.call("close_window")
+
+
+## The window and its backdrop come last, so they draw over the HUD and catch
+## keys first; the buttons that open it sit in the main menu (above Quit), the
+## lobby and the pause stack (above Voice). The FPS counter is top center
+## (critic.md C7: the corners belong to the day HUD and rank badge).
+func _build_settings() -> void:
+	var menu_button := Button.new()
+	menu_button.text = _Strings.UI["menu_settings"]
+	menu_button.pressed.connect(func() -> void: open_settings())
+	var panel := %Menu.get_node("Panel")
+	panel.add_child(menu_button)
+	panel.move_child(menu_button, (%QuitButton as Node).get_index())
+	var lobby_button := Button.new()
+	lobby_button.text = _Strings.UI["lobby_settings"]
+	lobby_button.pressed.connect(func() -> void: open_settings())
+	_lobby.add_child(lobby_button)
+	_lobby.move_child(lobby_button, _start_button.get_index())
+	_settings_button = Button.new()
+	_settings_button.text = _Strings.UI["pause_settings"]
+	_settings_button.visible = false
+	_settings_button.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_settings_button.offset_left = -110.0
+	_settings_button.offset_right = 110.0
+	_settings_button.offset_top = -208.0
+	_settings_button.offset_bottom = -168.0
+	_settings_button.pressed.connect(func() -> void: open_settings(true))
+	add_child(_settings_button)
+	_fps = Label.new()
+	_fps.visible = false
+	_fps.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	_fps.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_fps.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_fps.offset_top = 4.0
+	_fps.add_theme_font_size_override("font_size", 13)
+	_fps.add_theme_color_override("font_shadow_color", Color.BLACK)
+	_fps.add_theme_constant_override("shadow_offset_x", 1)
+	_fps.add_theme_constant_override("shadow_offset_y", 1)
+	_fps.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_fps)
+	_settings_backdrop = ColorRect.new()
+	_settings_backdrop.name = "SettingsBackdrop"
+	_settings_backdrop.color = Color(0.0, 0.0, 0.0, 0.45)
+	_settings_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_settings_backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	_settings_backdrop.visible = false
+	add_child(_settings_backdrop)
+	_settings = preload("res://ui/settings_window.gd").new()
+	_settings.name = "SettingsWindow"
+	_settings.set("backdrop", _settings_backdrop)
+	add_child(_settings)
+	_settings.connect("closed", _on_settings_closed)
 
 
 ## Tabbing out of the game pauses it on purpose, so the mouse is yours and
@@ -266,9 +365,9 @@ func _build_lobby() -> void:
 
 
 ## Whether any window that wants the mouse is up: the shop, the job board, a
-## receipt, the day's summary, the phone, or the pause buttons.
+## receipt, the day's summary, the phone, Settings, or the pause buttons.
 func any_window_open() -> bool:
-	for window: Control in [_shop, _job_board, _payout, _leave]:
+	for window: Control in [_shop, _job_board, _payout, _leave, _settings]:
 		if window != null and window.visible:
 			return true
 	for group: String in ["phone", "day_summary"]:
@@ -356,9 +455,7 @@ func _on_call_crew_pressed() -> void:
 	if director != null and Net.is_host():
 		director.call("force_event")
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_leave.visible = false
-	if _crew_button != null:
-		_crew_button.visible = false
+	_hide_pause_buttons()
 
 
 func _on_leave_pressed() -> void:
@@ -372,10 +469,8 @@ func _on_state_changed(next_state: Net.State) -> void:
 	_menu.visible = next_state == Net.State.OFFLINE
 	if _lobby != null:
 		_lobby.visible = next_state == Net.State.LOBBY
-	_leave.visible = false
-	if _voice_button != null:
-		_voice_button.visible = false
-		_voice_panel.visible = false
+	_dismiss_settings()
+	_hide_pause_buttons()
 	if next_state == Net.State.IN_SESSION:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:
@@ -392,6 +487,7 @@ func _show_menu() -> void:
 	_menu.visible = true
 	if _lobby != null:
 		_lobby.visible = false
+	_dismiss_settings()
 	_leave.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -399,6 +495,7 @@ func _show_menu() -> void:
 func _show_ended(reason: String) -> void:
 	_menu.visible = false
 	_connecting.visible = false
+	_dismiss_settings()
 	_leave.visible = false
 	_ended_reason.text = reason
 	_ended.visible = true

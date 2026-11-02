@@ -440,6 +440,32 @@ def grind() -> list[float]:
     return envelope(out, 0.01, 0.25)
 
 
+def ui_tick() -> list[float]:
+    """The Settings window's slider step: a tiny wooden pip."""
+    out = blip(0.04, 1800.0, 1400.0, 90.0)
+    return [value + 0.3 * other for value, other in zip(out, decay(tone(0.04, 3600.0, "triangle"), 140.0))]
+
+
+def ui_pop() -> list[float]:
+    """A tab or button press: a soft cartoon pop with a little puff of air."""
+    out = silence(0.12)
+    mix_into(out, blip(0.08, 500.0, 900.0, 40.0), 0.0, 0.9)
+    rng = random.Random(61)
+    mix_into(out, decay(bandpass(noise(rng, 0.05), 1400.0, 1.5), 70.0), 0.0, 0.35)
+    return out
+
+
+def ui_stamp() -> list[float]:
+    """A key binding accepted: a rubber stamp's thunk on a desk, and the paper rustling."""
+    out = silence(0.32)
+    rng = random.Random(62)
+    thud_ = lowpass(decay(tone(0.22, glide(120.0, 85.0, 0.15), "triangle"), 22.0), 600.0)
+    mix_into(out, thud_, 0.0, 1.0)
+    mix_into(out, decay(lowpass(noise(rng, 0.03), 900.0), 120.0), 0.0, 0.6)
+    mix_into(out, envelope(highpass(noise(rng, 0.06), 3000.0), 0.01, 0.04), 0.07, 0.3)
+    return out
+
+
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
     "step": (step, 4, 0.3),
@@ -469,6 +495,9 @@ SOUNDS = {
     "mower_start": (mower_start, 0, 0.6),
     "chop": (chop, 0, 0.75),
     "grind": (grind, 0, 0.7),
+    "ui_tick": (ui_tick, 0, 0.35),
+    "ui_pop": (ui_pop, 0, 0.45),
+    "ui_stamp": (ui_stamp, 0, 0.7),
 }
 
 

@@ -23,14 +23,22 @@ extends Node
 ##   migration    an old file with only [audio] music keeps it, and gets a version
 ##   corrupt      an empty-parsing and an unparseable file both load defaults
 ##   interface    UI scale, caption size, voice mode, the music key, clamping, presets
-## The checks for graphics (settings:2), the window (settings:3) and key tokens in
-## every string (settings:4) join later. Each step prints a [SettingsTest] line.
+##   window       the Settings window (settings:3, check 15): it opens and counts as
+##                a window, all five tabs build, the Keys tab has a row per action
+##                with a real name, a slot listens and takes a real key press (with
+##                a swap and a stamp), Esc cancels listening and then closes, a
+##                preset redraws the video controls, a new display mode reverts
+##                unless kept, and opening from pause hides and restores the pause
+##                buttons
+## The checks for graphics (settings:2) and key tokens in every string
+## (settings:4) join later. Each step prints a [SettingsTest] line.
 ## The test deletes its settings file at the start and the end.
 
 const _Buses = preload("res://audio/buses.gd")
 const _Bank = preload("res://audio/sound_bank.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _InputLabels = preload("res://core/input_labels.gd")
+const _Sfx = preload("res://audio/sfx.gd")
 ## How long the test waits for the session, the world and the player.
 const START_TIMEOUT_SECONDS: float = 30.0
 ## How close a measured angle or volume has to be.
@@ -78,6 +86,7 @@ func _run() -> void:
 	_check("migration", _migration())
 	_check("corrupt", _corrupt(defaults))
 	_check("interface", _interface())
+	_check("window", await _window())
 	_wipe()
 	_finish()
 
@@ -439,6 +448,145 @@ func _interface() -> bool:
 	return ok
 
 
+func _window() -> bool:
+	var ok := true
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var window := get_tree().get_first_node_in_group("settings_window") as Control
+	if ui == null or window == null:
+		return _fail("window", "no game UI or no settings window")
+	ui.call("open_settings")
+	await get_tree().process_frame
+	if not window.visible or not bool(ui.call("any_window_open")):
+		ok = _fail("window", "open_settings: visible %s, any_window_open %s" % [window.visible, ui.call("any_window_open")])
+	# Keyboard focus moves onto the form, and game keys stop at it: the world
+	# behind (the clerk, the board, a zone gate, the camera) hears nothing.
+	if not bool(window.call("_focus_inside")):
+		ok = _fail("window", "open left keyboard focus on %s" % get_viewport().gui_get_focus_owner())
+	var ear := _Ear.new()
+	add_child(ear)
+	await _key(KEY_E)
+	await _key(KEY_J)
+	var heard_open := ear.heard
+	ui.call("close_settings")
+	await _key(KEY_J)
+	var heard_closed := ear.heard - heard_open
+	ear.queue_free()
+	if heard_open != 0 or heard_closed != 1:
+		ok = _fail("window", "behind the open window the world heard %d keys (closed: %d)" % [heard_open, heard_closed])
+	ui.call("open_settings")
+	await get_tree().process_frame
+	var tabs: Array = window.get("TABS")
+	if tabs.size() != 5:
+		ok = _fail("window", "%d tabs, not 5" % tabs.size())
+	for tab: String in tabs:
+		window.call("show_tab", tab)
+		if str(window.call("current_tab")) != tab or int(window.call("row_count")) == 0:
+			ok = _fail("window", "tab %s: current %s, %d rows" % [tab, window.call("current_tab"), window.call("row_count")])
+	# The Keys tab: one row per rebindable action, each with its own name.
+	window.call("show_tab", "keys")
+	var actions := Settings.rebindable_actions()
+	var labels: PackedStringArray = window.call("row_labels")
+	if labels.size() != actions.size():
+		ok = _fail("window", "the Keys tab has %d rows for %d actions" % [labels.size(), actions.size()])
+	for action: StringName in actions:
+		if not _Strings.UI.has("action_%s" % action) or not labels.has(str(_Strings.UI["action_%s" % action])):
+			ok = _fail("window", "no named row for %s" % action)
+	for label: String in labels:
+		if label.begins_with("action_"):
+			ok = _fail("window", "row label %s is a missing string" % label)
+	print("[SettingsTest] the Keys tab lists %d actions" % labels.size())
+	# Listening: a real G press goes to interact, and drop (G) gets interact's old key.
+	var interact_old := Settings.binding(&"interact", 0)
+	var drop_old := Settings.binding(&"drop", 0)
+	window.call("listen", &"interact", 0)
+	if not bool(window.call("is_listening")) or str(window.call("binding_text", &"interact", 0)) != _Strings.UI["keys_listening"]:
+		ok = _fail("window", "listen didn't wait for a key")
+	var stamps := _Sfx.log.count("ui_stamp")
+	await _key(KEY_G)
+	var g_text := _InputLabels.event_label(_key_event(KEY_G))
+	if drop_old != "key:%d" % KEY_G or Settings.binding(&"interact", 0) != drop_old or Settings.binding(&"drop", 0) != interact_old:
+		ok = _fail("window", "G while listening: interact %s, drop %s (was %s, %s)" % [Settings.binding(&"interact", 0), Settings.binding(&"drop", 0), interact_old, drop_old])
+	if bool(window.call("is_listening")) or str(window.call("binding_text", &"interact", 0)) != g_text or str(window.call("binding_text", &"drop", 0)) != _InputLabels.event_label(Settings.code_to_event(interact_old)):
+		ok = _fail("window", "after G the slots read %s and %s" % [window.call("binding_text", &"interact", 0), window.call("binding_text", &"drop", 0)])
+	if _Sfx.log.count("ui_stamp") <= stamps:
+		ok = _fail("window", "no stamp for the new binding")
+	print("[SettingsTest] the footer says: %s" % (window.get("_notice") as Label).text)
+	# A left click away from the waiting slot cancels; one on the slot binds Left click.
+	var before_click := _snapshot_bindings()
+	window.call("listen", &"interact", 1)
+	await _click(Vector2(2.0, 2.0))
+	if bool(window.call("is_listening")) or _snapshot_bindings() != before_click or not window.visible:
+		ok = _fail("window", "a click away: listening %s, bindings changed %s" % [window.call("is_listening"), _snapshot_bindings() != before_click])
+	window.call("listen", &"interact", 1)
+	for frame: int in 3:
+		await get_tree().process_frame
+	var card := (window.get("_slots") as Dictionary)["interact/1"] as Control
+	# Input arrives in window pixels; the stretch transform takes it to the canvas.
+	var on_card := get_viewport().get_final_transform() * (card.get_global_transform_with_canvas() * (card.size * 0.5))
+	await _click(on_card)
+	var left_code := Settings.event_to_code(_mouse_event(MOUSE_BUTTON_LEFT))
+	if bool(window.call("is_listening")) or Settings.binding(&"interact", 1) != left_code:
+		ok = _fail("window", "a click on the waiting slot: listening %s, interact/1 is %s" % [window.call("is_listening"), Settings.binding(&"interact", 1)])
+	Settings.reset_bindings()
+	# Esc while listening cancels, and changes nothing; Esc again closes.
+	var before := _snapshot_bindings()
+	window.call("listen", &"interact", 1)
+	await _key(KEY_ESCAPE)
+	if bool(window.call("is_listening")) or _snapshot_bindings() != before or not window.visible:
+		ok = _fail("window", "Esc while listening: listening %s, window %s, bindings changed %s" % [window.call("is_listening"), window.visible, _snapshot_bindings() != before])
+	await _key(KEY_ESCAPE)
+	if window.visible or bool(ui.call("any_window_open")):
+		ok = _fail("window", "a second Esc left the window open")
+	Settings.reset_bindings()
+	# A preset moves every video control; a new display mode waits for Keep.
+	ui.call("open_settings", false, "video")
+	Settings.apply_preset("low")
+	var rows: Dictionary = window.get("_rows")
+	if (rows["video/shadows"]["control"] as OptionButton).selected != 1 or (rows["video/preset"]["control"] as OptionButton).selected != 0 or (rows["video/ssao"]["control"] as CheckButton).button_pressed:
+		ok = _fail("window", "the low preset didn't redraw the video tab")
+	Settings.apply_preset("high")
+	if (rows["video/shadows"]["control"] as OptionButton).selected != 3 or not (rows["video/ssao"]["control"] as CheckButton).button_pressed:
+		ok = _fail("window", "the high preset didn't redraw the video tab")
+	window.call("_choose", "video", "window_mode", 1)
+	var waiting := int(Settings.get_value("video", "window_mode")) == 1 and int(Settings.saved_value("video", "window_mode")) == 0 and (window.get("_keep") as Button).visible
+	window.call("_revert_display")
+	var reverted := int(Settings.get_value("video", "window_mode")) == 0 and not (window.get("_keep") as Button).visible
+	window.call("_choose", "video", "window_mode", 1)
+	window.call("_keep_display")
+	var kept := int(Settings.saved_value("video", "window_mode")) == 1
+	if not (waiting and reverted and kept):
+		ok = _fail("window", "display revert: waiting %s, reverted %s, kept %s" % [waiting, reverted, kept])
+	Settings.reset_section("video")
+	# Nobody presses Keep: the countdown runs out and the mode goes back.
+	var saved_mode := int(Settings.saved_value("video", "window_mode"))
+	window.call("_choose", "video", "window_mode", 1)
+	window.set("_revert_left", 0.05)
+	await get_tree().create_timer(0.25).timeout
+	await get_tree().process_frame
+	var timed_out := int(Settings.get_value("video", "window_mode")) == saved_mode and not (window.get("_keep") as Button).visible
+	# Closing the form while a mode waits is not a keep either.
+	window.call("_choose", "video", "window_mode", 1)
+	ui.call("close_settings")
+	var closed_reverted := int(Settings.get_value("video", "window_mode")) == saved_mode and int(Settings.saved_value("video", "window_mode")) == saved_mode and not (window.get("_keep") as Button).visible
+	if not (timed_out and closed_reverted):
+		ok = _fail("window", "display revert by itself: countdown %s, on close %s" % [timed_out, closed_reverted])
+	# From pause: the pause buttons step aside, and come back on close.
+	ui.call("open_pause")
+	var leave := ui.get("_leave") as Button
+	var settings_button := ui.get("_settings_button") as Button
+	if not settings_button.visible:
+		ok = _fail("window", "the pause buttons have no Settings button")
+	settings_button.pressed.emit()
+	await get_tree().process_frame
+	if not window.visible or leave.visible or settings_button.visible:
+		ok = _fail("window", "from pause: window %s, leave %s, settings button %s" % [window.visible, leave.visible, settings_button.visible])
+	ui.call("close_settings")
+	if window.visible or not leave.visible or not settings_button.visible:
+		ok = _fail("window", "closing from pause: window %s, leave %s" % [window.visible, leave.visible])
+	ui.call("close_pause")
+	return ok
+
+
 # ---------------------------------------------------------------- helpers
 
 func _me() -> Node3D:
@@ -507,6 +655,39 @@ func _press(action: StringName, pressed: bool) -> void:
 	event.pressed = pressed
 	Input.parse_input_event(event)
 	await get_tree().process_frame
+	await get_tree().process_frame
+
+
+## A real left click (press and release) at a viewport position.
+func _click(at: Vector2) -> void:
+	for pressed: bool in [true, false]:
+		var event := _mouse_event(MOUSE_BUTTON_LEFT)
+		event.pressed = pressed
+		event.position = at
+		event.global_position = at
+		Input.parse_input_event(event)
+		await get_tree().process_frame
+	await get_tree().process_frame
+
+
+## A node behind the Settings window that counts the key presses it hears.
+class _Ear extends Node:
+	var heard: int = 0
+
+	func _unhandled_input(event: InputEvent) -> void:
+		if event is InputEventKey and (event as InputEventKey).pressed:
+			heard += 1
+
+
+## A real key press and release through Input, the way a keyboard sends it.
+func _key(keycode: Key) -> void:
+	var press := _key_event(keycode)
+	Input.parse_input_event(press)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var release := _key_event(keycode)
+	release.pressed = false
+	Input.parse_input_event(release)
 	await get_tree().process_frame
 
 
