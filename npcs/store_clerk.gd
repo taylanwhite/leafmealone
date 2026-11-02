@@ -32,10 +32,9 @@ const SHOP_REACH: float = 3.0
 ## How close someone must be for the clerk to look at them and greet them.
 const NOTICE_RANGE: float = 7.0
 const GREET_COOLDOWN_SECONDS: float = 8.0
-## Before this hour, the day's first greet is a "morning" line.
-const MORNING_UNTIL_HOUR: float = 12.0
 const APRON := Color(0.93, 0.47, 0.13)
 ## The caption's size on screen at the normal caption size (Settings.caption_scale()).
+## Presentation, not tuning: it matches the homeowner caption (docs/DECISIONS.md).
 const CAPTION_PIXEL_SIZE: float = 0.0011
 
 ## The last line he said on this peer, and why (for tests and the probe).
@@ -51,7 +50,7 @@ var _greeted_at: float = -1000.0
 var _local_was_near: bool = false
 ## The day of the last greet, so the first one of a day can be "morning".
 var _greeted_day: int = -1
-## The local player was taken over the border since the last greet.
+## The local player was taken over the border and Marty hasn't said his after-raid line yet.
 var _was_raided: bool = false
 
 
@@ -143,7 +142,7 @@ func greet_trigger() -> String:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var day := int(clock.get("day")) if clock != null else 1
 	var hour := float(clock.call("hour")) if clock != null else Constants.DAY_START_HOUR
-	if day != _greeted_day and hour < MORNING_UNTIL_HOUR:
+	if day != _greeted_day and hour < Constants.CLERK_MORNING_UNTIL_HOUR:
 		return "morning"
 	if _was_raided:
 		return "after_raid"
@@ -195,7 +194,9 @@ func _greet() -> void:
 	var trigger := greet_trigger()
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	_greeted_day = int(clock.get("day")) if clock != null else 1
-	_was_raided = false
+	# A morning greet wins over the raid; the after-raid line waits for the next greet.
+	if trigger == "after_raid":
+		_was_raided = false
 	say_line(trigger)
 
 

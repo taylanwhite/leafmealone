@@ -23,8 +23,6 @@ const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
 const REACT_SECONDS: float = 2.6
 const CAPTION_SECONDS: float = 8.0
-## The goodbye after the cash is grabbed is longer than the old "Thanks!", so it stays up longer.
-const PAID_CAPTION_SECONDS: float = 3.5
 ## Gesture, sound, and face for each mood.
 const STAGING: Dictionary = {
 	"thrilled": {"gesture": "cheer", "sound": "vo_ah", "mood": "raised"},
@@ -218,20 +216,8 @@ func _handle_talk(peer_id: int) -> void:
 	var mood := _judge(value + task_value)
 	# Their water isn't free.
 	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
-	# Whatever they broke comes up first, most of the time; then their water bill.
-	var pool := mood
 	var bills_owed: Dictionary = tasks.get("bills") if tasks != null else {}
-	if mood != "nothing" and not bills_owed.is_empty() and _rng.randf() < 0.7:
-		var reasons: Array = bills_owed.keys()
-		var reason := "bill_%s" % str(reasons[_rng.randi() % reasons.size()])
-		if _Strings.HOMEOWNER_LINES.has(reason):
-			pool = reason
-	elif mood != "nothing" and bills_owed.is_empty() and water_fee > 0 and _rng.randf() < Constants.HOMEOWNER_WATER_LINE_CHANCE:
-		pool = "bill_water"
-	# Otherwise they usually talk like themselves (Strings.PERSONALITY_LINES).
-	var personality := _personality()
-	if pool == mood and personality != "" and _rng.randf() < Constants.HOMEOWNER_PERSONALITY_LINE_CHANCE:
-		pool = "%s/%s" % [personality, mood]
+	var pool := choose_pool(mood, bills_owed, water_fee, _personality(), _rng)
 	var lines: Array = _Strings.homeowner_pool(pool)
 	var line_index := _rng.randi() % lines.size()
 	# Whatever the crew broke or hurt comes off too: a new hose, a new gnome, medical bills.
@@ -248,6 +234,24 @@ func _handle_talk(peer_id: int) -> void:
 		if _phase == Phase.REACTING:
 			_rpc_offer.rpc()
 	)
+
+
+## Host: which Strings.homeowner_pool() the reaction comes from. Whatever the crew
+## broke comes up first, most of the time; then the water bill; otherwise they
+## usually talk like themselves (Strings.PERSONALITY_LINES). Static so
+## net/dev/cast_test.gd can roll it with a seeded rng.
+static func choose_pool(mood: String, bills_owed: Dictionary, water_fee: int, personality: String, rng: RandomNumberGenerator) -> String:
+	var pool := mood
+	if mood != "nothing" and not bills_owed.is_empty() and rng.randf() < Constants.HOMEOWNER_BILL_LINE_CHANCE:
+		var reasons: Array = bills_owed.keys()
+		var reason := "bill_%s" % str(reasons[rng.randi() % reasons.size()])
+		if _Strings.HOMEOWNER_LINES.has(reason):
+			pool = reason
+	elif mood != "nothing" and bills_owed.is_empty() and water_fee > 0 and rng.randf() < Constants.HOMEOWNER_WATER_LINE_CHANCE:
+		pool = "bill_water"
+	if pool == mood and personality != "" and rng.randf() < Constants.HOMEOWNER_PERSONALITY_LINE_CHANCE:
+		pool = "%s/%s" % [personality, mood]
+	return pool
 
 
 ## How the homeowner feels about the job. No bags delivered means no pay.
@@ -362,7 +366,7 @@ func _rpc_paid(_peer_id: int) -> void:
 	_body.call("gesture", "wave")
 	# Seeded by the amount, which every peer has, so they all hear the same goodbye.
 	_caption.text = _Strings.pick_seeded(_Strings.HOMEOWNER_LINES["paid"], _amount)
-	_caption_left = PAID_CAPTION_SECONDS
+	_caption_left = Constants.HOMEOWNER_PAID_CAPTION_SECONDS
 	_speak("babble")
 
 

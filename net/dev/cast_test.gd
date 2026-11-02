@@ -18,7 +18,8 @@ extends Node
 ##   8. Strings.summary_quip() picks the right bucket, the same line every time
 ## Phase A, the lines in the game (cast:2, host):
 ##  W1. Marty's line fits the moment (morning, greet or night, after_raid, open or
-##      closed) and every trigger's line is his own, shown in his caption
+##      closed; a morning greet keeps the after-raid line for the next greet) and
+##      every trigger's line is his own, shown in his caption
 ##  W2. the town's texts come from TEXT_LINES: Marty's welcome, and each request in
 ##      the client's own personality's voice with their address; the town save
 ##      has rival_announced
@@ -26,6 +27,8 @@ extends Node
 ##  W4. the day summary card shows the quip and the rank-up's blurb
 ##  W5. no hired hand is named for a nationality
 ##  W6. (in phase C) the forced raid is tallied for the summary (Campaign.note_day)
+##  W7. the homeowner's reaction pool (homeowner.gd choose_pool, a seeded rng): their
+##      personality's voice, bill_water and breakage bills as often as Constants says
 ## Phase B, the look (host, a scratch node outside the world):
 ##   9. a plain cartoon body's triangles, reported against the character budget
 ##  10. the head NICE BOY and a NICE BOY, dressed by CrewMember.dress(): outfit,
@@ -49,6 +52,9 @@ const _CrewMember = preload("res://npcs/crew_member.gd")
 const _NiceSeal = preload("res://props/nice_seal.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _RunCues = preload("res://ui/run_cues.gd")
+const _Homeowner = preload("res://npcs/homeowner.gd")
+## Step W7: how many seeded reactions to roll for each homeowner pool case.
+const POOL_ROLLS: int = 400
 
 ## Steps 9-10: the outfit and its triangles (cast:4).
 const PHASE_B_LOOK: bool = true
@@ -553,7 +559,7 @@ func _wiring() -> void:
 	if clerk != null:
 		var marty: Dictionary = _Strings.KEEPER_LINES["marty"]
 		var clock := get_tree().get_first_node_in_group("day_clock")
-		var morning := clock != null and float(clock.call("hour")) < float(_constant("res://npcs/store_clerk.gd", "MORNING_UNTIL_HOUR", 12.0))
+		var morning := clock != null and float(clock.call("hour")) < Constants.CLERK_MORNING_UNTIL_HOUR
 		_wire(not morning or str(clerk.call("greet_trigger")) == "morning", "W1 the day's first greet before noon is 'morning', not '%s'" % clerk.call("greet_trigger"))
 		clerk.call("_greet")
 		var quiet := clock != null and bool(clock.call("is_quiet_hours"))
@@ -562,6 +568,17 @@ func _wiring() -> void:
 		_wire(str(clerk.call("greet_trigger")) == "after_raid", "W1 a greet after a trip over the border is 'after_raid', not '%s'" % clerk.call("greet_trigger"))
 		clerk.call("_greet")
 		_wire(str(clerk.call("greet_trigger")) != "after_raid", "W1 'after_raid' is said once")
+		# A raid, then the next day's first greet before noon: "morning" wins, and the
+		# after-raid line is kept for the greet after it, not lost.
+		clerk.call("_on_zone_changed", Net.local_peer_id(), Net.Zone.BORDER)
+		clerk.set("_greeted_day", -1)
+		var first := str(clerk.call("greet_trigger"))
+		_wire(first == ("morning" if morning else "after_raid"), "W1 a new day's first greet after a raid is '%s', not '%s'" % ["morning" if morning else "after_raid", first])
+		clerk.call("_greet")
+		if first == "morning":
+			_wire(str(clerk.call("greet_trigger")) == "after_raid", "W1 a morning greet keeps the after-raid line for the next greet, not '%s'" % clerk.call("greet_trigger"))
+			clerk.call("_greet")
+		_wire(str(clerk.get("last_trigger")) == "after_raid" and str(clerk.call("greet_trigger")) != "after_raid", "W1 the after-raid line was said, once")
 		var shops := get_tree().get_first_node_in_group("shops")
 		var open := shops == null or bool(shops.call("is_open", "homie_depot"))
 		_wire(str(clerk.call("open_trigger")) == ("open" if open else "closed"), "W1 opening the window says '%s'" % ("open" if open else "closed"))
@@ -620,7 +637,72 @@ func _wiring() -> void:
 	# W5: hired hands are never named for a nationality.
 	var hire_names: Array = _constant("res://net/crew/hires.gd", "NAMES", [])
 	_wire(not hire_names.is_empty() and not hire_names.has("Dutch"), "W5 the hire nicknames have no 'Dutch'")
-	print("[CastTest] steps W1-W5, the lines in the game: %s" % (_problems.size() == before))
+	_homeowner_pools()
+	print("[CastTest] steps W1-W5 and W7, the lines in the game: %s" % (_problems.size() == before))
+
+
+## Step W7: the homeowner's reaction pool (npcs/homeowner.gd choose_pool), rolled
+## with a seeded rng: a homeowner with a personality talks like themselves about as
+## often as Constants says, a water-only bill comes up, breakage comes first, and
+## every pool picked resolves to real lines.
+func _homeowner_pools() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2611
+	var mood := "happy"
+	var personality := str(_Strings.PERSONALITY_LINES.keys()[0])
+	var own: Array = _Strings.PERSONALITY_LINES[personality][mood]
+	# A homeowner with a personality and nothing owed.
+	var spoke_own := 0
+	var stray: Array[String] = []
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool(mood, {}, 0, personality, rng)
+		if pool == "%s/%s" % [personality, mood] and _Strings.homeowner_pool(pool) == own:
+			spoke_own += 1
+		elif pool != mood:
+			stray.append(pool)
+	var share := float(spoke_own) / float(POOL_ROLLS)
+	_wire(stray.is_empty(), "W7 a %s homeowner owed nothing says a %s or %s/%s line, not %s" % [personality, mood, personality, mood, str(stray.slice(0, 3))])
+	_wire(absf(share - Constants.HOMEOWNER_PERSONALITY_LINE_CHANCE) < 0.1, "W7 a %s homeowner talks like themselves %.2f of the time (Constants: %.2f)" % [personality, share, Constants.HOMEOWNER_PERSONALITY_LINE_CHANCE])
+	# No personality (a test yard): always the mood's pool.
+	var plain := true
+	for roll: int in POOL_ROLLS:
+		plain = plain and _Homeowner.choose_pool(mood, {}, 0, "", rng) == mood
+	_wire(plain, "W7 a homeowner with no personality says a %s line" % mood)
+	# Owed only for water: bill_water about as often as Constants says; never with no fee.
+	var water := 0
+	var water_free := true
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool(mood, {}, 25, personality, rng)
+		if pool == "bill_water":
+			water += 1
+		water_free = water_free and _Homeowner.choose_pool(mood, {}, 0, personality, rng) != "bill_water"
+	var water_share := float(water) / float(POOL_ROLLS)
+	_wire(not _Strings.homeowner_pool("bill_water").is_empty() and str(_Strings.homeowner_pool("bill_water")[0]) != "", "W7 there are bill_water lines")
+	_wire(absf(water_share - Constants.HOMEOWNER_WATER_LINE_CHANCE) < 0.1, "W7 a water-only bill comes up %.2f of the time (Constants: %.2f)" % [water_share, Constants.HOMEOWNER_WATER_LINE_CHANCE])
+	_wire(water_free, "W7 no water fee, no bill_water line")
+	# Breakage owed: that bill first, about as often as Constants says; never water.
+	var hose := 0
+	var hose_water := false
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool(mood, {"hose": 40}, 25, personality, rng)
+		hose += 1 if pool == "bill_hose" else 0
+		hose_water = hose_water or pool == "bill_water"
+	var hose_share := float(hose) / float(POOL_ROLLS)
+	_wire(absf(hose_share - Constants.HOMEOWNER_BILL_LINE_CHANCE) < 0.1 and not hose_water, "W7 a broken hose comes up %.2f of the time (Constants: %.2f), never the water" % [hose_share, Constants.HOMEOWNER_BILL_LINE_CHANCE])
+	# Nothing delivered: never a bill, whatever is owed.
+	var nothing := true
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool("nothing", {"hose": 40}, 25, personality, rng)
+		nothing = nothing and not pool.begins_with("bill_")
+	_wire(nothing, "W7 a homeowner who got nothing never brings up a bill")
+	# Every personality x mood the host can pick names a real pool.
+	var missing: Array[String] = []
+	for each: Variant in _Strings.PERSONALITY_LINES.keys():
+		for staged: Variant in (_constant("res://npcs/homeowner.gd", "STAGING", {}) as Dictionary).keys():
+			var lines: Array = _Strings.homeowner_pool("%s/%s" % [each, staged])
+			if lines.is_empty() or str(lines[0]) == "":
+				missing.append("%s/%s" % [each, staged])
+	_wire(missing.is_empty(), "W7 every personality/mood pool the host can pick has lines; missing %s" % str(missing))
 
 
 func _wire(condition: bool, what: String) -> void:

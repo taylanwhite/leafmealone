@@ -678,6 +678,14 @@ const RIVAL_TAUNT_CHANCE: float = 0.5
 const RIVAL_SIGN_TEXT_CHANCE: float = 0.35
 ## How long a shopkeeper's caption stays over their head (npcs/store_clerk.gd).
 const CLERK_CAPTION_SECONDS: float = 4.0
+## Before this hour, a shopkeeper's first greet of the day is a "morning" line.
+const CLERK_MORNING_UNTIL_HOUR: float = 12.0
+## How often a homeowner the crew owes for breakage brings the bill up first
+## (npcs/homeowner.gd choose_pool; it was an inline 0.7).
+const HOMEOWNER_BILL_LINE_CHANCE: float = 0.7
+## How long the homeowner's goodbye (HOMEOWNER_LINES.paid) stays up after the cash
+## is grabbed. Longer than the old "Thanks!", so it can be read.
+const HOMEOWNER_PAID_CAPTION_SECONDS: float = 3.5
 
 
 # ---- driving
