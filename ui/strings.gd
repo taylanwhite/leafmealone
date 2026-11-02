@@ -272,6 +272,40 @@ const UI: Dictionary = {
 	"phone_poached": "With TurfMasters™ now. Win them back: great work on their street, or pull the signs.",
 	"summary_quit": "%s quit (no pay)",
 	"clerk_name": "Marty",
+	# ---- settings: key names and rebinding (core/settings.gd, core/input_labels.gd)
+	"action_move_forward": "Move forward",
+	"action_move_back": "Move back",
+	"action_move_left": "Move left",
+	"action_move_right": "Move right",
+	"action_jump": "Jump",
+	"action_sprint": "Sprint",
+	"action_crouch": "Crouch",
+	"action_primary": "Rake / use",
+	"action_secondary": "Bag / alt use",
+	"action_interact": "Interact",
+	"action_take": "Take",
+	"action_drop": "Throw / drop",
+	"action_phone": "Phone",
+	"action_push_to_talk": "Push to talk",
+	"action_toggle_camera": "Camera view",
+	"action_toggle_music": "Music on/off",
+	"action_pause": "Pause",
+	"action_toggle_debug": "Debug overlay",
+	"key_unbound": "—",
+	"key_mouse_1": "Left click",
+	"key_mouse_2": "Right click",
+	"key_mouse_3": "Middle click",
+	"key_mouse_4": "Wheel up",
+	"key_mouse_5": "Wheel down",
+	"key_mouse_6": "Wheel left",
+	"key_mouse_7": "Wheel right",
+	"key_mouse_8": "Mouse 4",
+	"key_mouse_9": "Mouse 5",
+	"notice_swapped": "%s was %s. Swapped: %s is now %s.",
+	"notice_took": "%s was %s. %s has no key now.",
+	"notice_needs_hold": "%s needs a button you can hold down.",
+	"notice_keep_pause": "Keep at least one way to pause. Everyone needs a break.",
+	# ---- end settings
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -1558,3 +1592,36 @@ static func quip_bucket(summary: Dictionary) -> String:
 static func summary_quip(summary: Dictionary) -> String:
 	var bucket := quip_bucket(summary)
 	return pick_seeded(SUMMARY_QUIPS.get(bucket, []), hash([int(summary.get("day", 1)), bucket]))
+
+
+# ---------------------------------------------------------------- settings
+
+## Key names OS.get_keycode_string spells out too long for a keycap.
+const KEY_NAMES: Dictionary = {
+	"Escape": "Esc",
+	"PageUp": "PgUp",
+	"PageDown": "PgDn",
+}
+
+
+## Player-facing text names keys with {key:<action>} tokens, never a hard-coded
+## letter, so a rebound key shows the player's own key (gap-specs/critic.md C4).
+## keyed() gives plain text: {key:interact} becomes "[E]" (or "[R]" once rebound),
+## from the live InputMap through core/input_labels.gd, and {icon:<id>} is
+## removed (ui/icons.gd draws it as a picture). Static and autoload-free.
+static func keyed(text: String) -> String:
+	if not text.contains("{"):
+		return text
+	# load, not preload: input_labels.gd preloads this script for its key names.
+	var labels: Script = load("res://core/input_labels.gd")
+	var tokens := RegEx.create_from_string("\\{(key|icon):([a-z0-9_]+)\\}")
+	var out := ""
+	var at := 0
+	for found: RegExMatch in tokens.search_all(text):
+		out += text.substr(at, found.get_start() - at)
+		if found.get_string(1) == "key" and InputMap.has_action(StringName(found.get_string(2))):
+			out += "[%s]" % str(labels.call("label", StringName(found.get_string(2))))
+		elif found.get_string(1) == "key":
+			out += found.get_string()
+		at = found.get_end()
+	return out + text.substr(at)
