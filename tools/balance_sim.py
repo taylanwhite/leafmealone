@@ -1583,8 +1583,14 @@ def run_checks(game: Game, crews: dict, parity, strict: bool, self_problems=()) 
             add("(g) endless catalog left, crew %s" % key, days is not None and days >= T["endless_catalog_days"], days, T["endless_catalog_days"])
     if parity is not None:
         add("(f) engine parity: constants", not parity["constant_mismatches"], len(parity["constant_mismatches"]), 0, baseline_ok=False)
-        add("(f) engine parity: formulas", not parity["case_mismatches"] and parity["cases"] > 0,
-            {"cases": parity["cases"], "mismatches": len(parity["case_mismatches"])}, 0, baseline_ok=False)
+        # A case for a function the sim has no mirror of is drift too: the engine
+        # grew a formula that the sim can't follow.
+        add("(f) engine parity: formulas", not parity["case_mismatches"] and not parity["unknown_functions"] and parity["cases"] > 0,
+            {"cases": parity["cases"], "mismatches": len(parity["case_mismatches"]), "unmirrored": parity["unknown_functions"]}, 0,
+            baseline_ok=False)
+        # The engine's own rules about the tables (net/dev/balance_test.gd invariants).
+        add("(f) engine invariants (--balance-test ok)", parity["engine_ok"] is True,
+            {"failed": parity["failed_invariants"]}, True, baseline_ok=False)
 
     # Warnings (blocking with --strict).
     pace = C["RANK_PACE_HOURS"]
@@ -1658,6 +1664,13 @@ def engine_parity(path: str, tables: dict) -> dict:
     if result is None:
         raise UsageError("--engine-dump %s has no balance_test result" % path)
     engine_consts = result.get("constants", {})
+    if isinstance(engine_consts, str):
+        # --balance-test stores the dump as a JSON string, so PowerShell can read
+        # the rest of host.json (its tables have keys ConvertFrom-Json rejects).
+        try:
+            engine_consts = json.loads(engine_consts)
+        except ValueError as error:
+            raise UsageError("--engine-dump %s: its constants don't parse: %s" % (path, error))
     mismatches = []
     for script, names in NEEDED.items():
         engine_script = None
@@ -1691,8 +1704,9 @@ def engine_parity(path: str, tables: dict) -> dict:
             continue
         if not same(ours, case.get("out")):
             case_mismatches.append({"fn": fn, "args": case.get("args"), "ours": ours, "engine": case.get("out")})
+    failed = [row.get("name") for row in result.get("invariants", []) if isinstance(row, dict) and not row.get("ok")]
     return {"constant_mismatches": mismatches, "case_mismatches": case_mismatches, "cases": len(cases),
-            "unknown_functions": sorted(set(unknown)), "engine_ok": result.get("ok")}
+            "unknown_functions": sorted(set(unknown)), "engine_ok": result.get("ok"), "failed_invariants": failed}
 
 
 def mirror_functions(tables: dict) -> dict:

@@ -176,15 +176,24 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --town-map --townmap-test'; Seconds = 60; Client = 55
 		Check = { param($h, $c) [bool]$h.townmap_test.ok -and (Same $h.town_site $c.town_site) -and ([int]$c.town_site.house_shapes -eq 47) }
 	}
+	# The engine half of the balance lab (net/dev/balance_test.gd): every tuning constant,
+	# a grid of economy formulas, and the tables' invariants. Host only, a second or two.
+	# The balance-sim step then compares its host.json with tools/balance_sim.py.
+	balance = @{
+		Port = 7819
+		Host = '--host --name=Tester --no-steam --balance-test'; Seconds = 20
+		Check = { param($h, $c) [bool]$h.balance_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'
 if (Test-Path $ExtraTests) { . $ExtraTests }
 
-# Steps that are not a host/client pair: smoke (port 7791), and the guardrail and mesh
-# check scripts (no port).
+# Steps that are not a host/client pair: smoke (port 7791), the guardrail and mesh
+# check scripts (no port), and balance-sim (Python only, no Godot: tools/balance_sim.py
+# --check, against the balance test's engine dump when there is one).
 $Scripts = @{ guardrail = 'res://tools/guardrail_check.gd'; meshcheck = 'res://tools/mesh_check.gd' }
-$AllNames = @('smoke', 'guardrail', 'meshcheck') + @($Tests.Keys) + @('soak', 'event-soak')
+$AllNames = @('smoke', 'guardrail', 'meshcheck') + @($Tests.Keys) + @('balance-sim', 'soak', 'event-soak')
 if ($List) { $AllNames; exit 0 }
 
 # Each test's base port: its Port key, else 7794 + its position (how ports were given
@@ -277,9 +286,11 @@ function Start-Godot([string]$argLine, [string]$log) {
 	$p
 }
 
-if (-not (Test-Path $Godot)) { throw "Godot not found at $Godot. Set `$env:GODOT." }
+# balance-sim is Python only: "-Only balance-sim" needs no Godot and no import.
+$NeedsGodot = @($AllNames | Where-Object { $_ -ne 'balance-sim' -and (Wants $_) }).Count -gt 0
+if ($NeedsGodot -and -not (Test-Path $Godot)) { throw "Godot not found at $Godot. Set `$env:GODOT." }
 
-if (-not $SkipImport) {
+if ($NeedsGodot -and -not $SkipImport) {
 	Write-Host '== import' -ForegroundColor Cyan
 	$p = Start-Godot '--headless --path . --import' (Join-Path $env:TEMP "lma-import-$PortOffset.log")
 	$p.WaitForExit()
@@ -419,6 +430,53 @@ try {
 			if ($p -and -not $p.HasExited) { try { $p.Kill() } catch {} }
 		}
 	}
+}
+
+## The balance lab (docs/BALANCE.md): tools/balance_sim.py --check, with the balance test's
+## host.json as --engine-dump when it exists, so a constant the sim's parser reads wrong or a
+## formula whose mirror drifted fails here. --baseline until balance:E retunes: the tuning
+## checks report without failing; parity and the engine's invariants always fail.
+if (Wants 'balance-sim') {
+	Write-Host '== balance sim' -ForegroundColor Cyan
+	$started = $Clock.Elapsed.TotalSeconds
+	$dir = Join-Path $Root 'build\soak\local-balance-sim'
+	if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+	New-Item -ItemType Directory -Force $dir | Out-Null
+	$dump = Join-Path $Root 'build\soak\local-balance\host.json'
+	$log = Join-Path $dir 'sim.log'
+	$notes = @()
+	$simArgs = "tools\balance_sim.py --check --baseline --report `"$(Join-Path $dir 'report.json')`" --md `"$(Join-Path $dir 'report.md')`""
+	if (Test-Path $dump) {
+		$simArgs += " --engine-dump `"$dump`""
+		if (-not (Wants 'balance')) { $notes += "engine dump from $((Get-Item $dump).LastWriteTime) (run -Only balance,balance-sim for a fresh one)" }
+	} else {
+		$notes += 'no engine dump (build\soak\local-balance\host.json); parity not checked'
+	}
+	$ok = $false
+	if (-not (Test-Path $Python)) {
+		$notes += "Python not found at $Python. Set `$env:PYTHON."
+	} else {
+		$p = Start-Process -FilePath $Python -ArgumentList $simArgs -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+		$null = $p.Handle
+		$p.WaitForExit()
+		$ok = $p.ExitCode -eq 0
+		if ($p.ExitCode -eq 2) { $notes += 'usage or parse error (exit 2)' }
+		# The parity and self-test lines, then the totals; --baseline's excused tuning failures
+		# are in the log and the report.
+		$summary = Select-String -Path $log -Pattern '^(PASS|FAIL) +(\(f\)|self-test)|blocking checks failed|^BASELINE' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
+		$notes += @($summary)
+		if (-not $ok) {
+			Select-String -Path $log -Pattern '^  parity:' -ErrorAction SilentlyContinue | Select-Object -First 12 | ForEach-Object { $notes += $_.Line }
+			$notes += "every check: $log"
+			if (Test-Path "$log.err") { Get-Content "$log.err" -Tail 8 | ForEach-Object { $notes += $_ } }
+		}
+	}
+	$seconds = [math]::Round($Clock.Elapsed.TotalSeconds - $started)
+	$Times['balance-sim'] = $seconds
+	$color = if ($ok) { 'Green' } else { 'Red' }
+	Write-Host ("{0,-5} {1,-11} {2,4} s" -f $(if ($ok) { 'pass' } else { 'FAIL' }), 'balance-sim', $seconds) -ForegroundColor $color
+	foreach ($n in $notes) { Write-Host "      $n" -ForegroundColor Yellow }
+	$Results['balance-sim'] = $ok
 }
 
 ## Starts one bot soak in the background; its output goes to build\soak\local-<name>.out.

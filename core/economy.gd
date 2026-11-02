@@ -8,8 +8,10 @@ extends RefCounted
 ## A new economy formula goes in this file. tools/balance_sim.py mirrors every
 ## function here line for line (its Economy class, docs/BALANCE.md), so changing a
 ## formula here means changing its mirror in the same commit. The engine parity
-## test (--balance-test, balance:D) will run a grid of calls here and fail when the
-## two disagree; balance_sim.py --engine-dump already compares them.
+## test (--balance-test, net/dev/balance_test.gd) runs a grid of calls here, and
+## balance_sim.py --check --engine-dump fails when the two disagree (CI and the
+## balance-sim step of tools/ci_local.ps1). A new function here gets cases in that
+## grid and a mirror in the sim, or the check fails on an unmirrored case.
 ##
 ## No class_name, so it can't clash with anything: preload it.
 ##   const _Economy = preload("res://core/economy.gd")
