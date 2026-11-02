@@ -4,7 +4,8 @@ extends Node3D
 ## The homeowner waits by the truck (Taylan, 2026-10-19, docs/GAME.md). Talk to
 ## them when you're done: they react to how clean the yard is, how long you took,
 ## and a little randomness, with a caption over their head, a goofy noise, and
-## body language to match. Then they hold out the cash, and whoever grabs it
+## body language to match (the line: a bill they're owed, else usually their own
+## personality's, Strings.homeowner_pool). Then they hold out the cash, and whoever grabs it
 ## settles the job: the crew is paid the bags' value times the mood's multiplier
 ## (Constants.HOMEOWNER_PAY_BY_MOOD), split by contribution, and Chefty heads home.
 ## Lives in the lot scene, so every peer has it at the same path.
@@ -22,6 +23,8 @@ const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
 const REACT_SECONDS: float = 2.6
 const CAPTION_SECONDS: float = 8.0
+## The goodbye after the cash is grabbed is longer than the old "Thanks!", so it stays up longer.
+const PAID_CAPTION_SECONDS: float = 3.5
 ## Gesture, sound, and face for each mood.
 const STAGING: Dictionary = {
 	"thrilled": {"gesture": "cheer", "sound": "vo_ah", "mood": "raised"},
@@ -115,6 +118,15 @@ func _client_name() -> String:
 	return str(get_tree().get_first_node_in_group("town").call("owner_name", house_id))
 
 
+## Their personality (net/town/neighborhoods.gd PERSONALITIES), "" for a test yard.
+func _personality() -> String:
+	var house_id := _house_id()
+	if house_id < 0:
+		return ""
+	var entry: Dictionary = get_tree().get_first_node_in_group("town").call("house", house_id)
+	return str((entry.get("owner", {}) as Dictionary).get("personality", ""))
+
+
 ## How picky this homeowner is, 0 to 1 (0.3 for a test yard).
 func _standards() -> float:
 	var house_id := _house_id()
@@ -204,7 +216,9 @@ func _handle_talk(peer_id: int) -> void:
 			task_value += pay
 			task_lines.append([task, int(round(done * 100.0)), pay])
 	var mood := _judge(value + task_value)
-	# Whatever they broke comes up first, most of the time.
+	# Their water isn't free.
+	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
+	# Whatever they broke comes up first, most of the time; then their water bill.
 	var pool := mood
 	var bills_owed: Dictionary = tasks.get("bills") if tasks != null else {}
 	if mood != "nothing" and not bills_owed.is_empty() and _rng.randf() < 0.7:
@@ -212,10 +226,14 @@ func _handle_talk(peer_id: int) -> void:
 		var reason := "bill_%s" % str(reasons[_rng.randi() % reasons.size()])
 		if _Strings.HOMEOWNER_LINES.has(reason):
 			pool = reason
-	var lines: Array = _Strings.HOMEOWNER_LINES.get(pool, [""])
+	elif mood != "nothing" and bills_owed.is_empty() and water_fee > 0 and _rng.randf() < Constants.HOMEOWNER_WATER_LINE_CHANCE:
+		pool = "bill_water"
+	# Otherwise they usually talk like themselves (Strings.PERSONALITY_LINES).
+	var personality := _personality()
+	if pool == mood and personality != "" and _rng.randf() < Constants.HOMEOWNER_PERSONALITY_LINE_CHANCE:
+		pool = "%s/%s" % [personality, mood]
+	var lines: Array = _Strings.homeowner_pool(pool)
 	var line_index := _rng.randi() % lines.size()
-	# Their water isn't free.
-	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
 	# Whatever the crew broke or hurt comes off too: a new hose, a new gnome, medical bills.
 	var bills: Dictionary = (tasks.get("bills") as Dictionary).duplicate() if tasks != null else {}
 	var bills_total := int(tasks.call("bills_total")) if tasks != null else 0
@@ -308,7 +326,8 @@ func _rpc_request_state() -> void:
 func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -> void:
 	_amount = amount
 	_phase = Phase.WAITING if mood == "nothing" else Phase.REACTING
-	var lines: Array = _Strings.HOMEOWNER_LINES.get(pool if pool != "" else mood, [""])
+	# pool is "<mood>", "bill_<reason>" or "<personality>/<mood>" (Strings.homeowner_pool).
+	var lines: Array = _Strings.homeowner_pool(pool if pool != "" else mood)
 	_caption.text = str(lines[clampi(line_index, 0, lines.size() - 1)])
 	_caption_left = CAPTION_SECONDS
 	var staging: Dictionary = STAGING.get(mood, STAGING["fine"])
@@ -341,8 +360,9 @@ func _rpc_paid(_peer_id: int) -> void:
 	_cash.visible = false
 	_body.set("mood", "raised")
 	_body.call("gesture", "wave")
-	_caption.text = _Strings.UI["homeowner_thanks"]
-	_caption_left = 2.5
+	# Seeded by the amount, which every peer has, so they all hear the same goodbye.
+	_caption.text = _Strings.pick_seeded(_Strings.HOMEOWNER_LINES["paid"], _amount)
+	_caption_left = PAID_CAPTION_SECONDS
 	_speak("babble")
 
 

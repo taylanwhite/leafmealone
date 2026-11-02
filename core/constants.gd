@@ -666,6 +666,18 @@ const CHARACTER_TRIANGLE_BUDGET: int = 5000
 ## The most triangles the NICE BOYS' outfit (visor, aviators, grin, uniform, props)
 ## may add over a plain body (player/cartoon_body.gd, net/dev/cast_test.gd).
 const CREW_OUTFIT_TRIANGLE_BUDGET: int = 1200
+## cast:2, the lines in the game. How often a homeowner with a personality speaks
+## from their own pool (Strings.PERSONALITY_LINES) instead of the generic mood one.
+const HOMEOWNER_PERSONALITY_LINE_CHANCE: float = 0.65
+## When the crew owes the homeowner only for water, how often they mention it
+## (Strings.HOMEOWNER_LINES.bill_water).
+const HOMEOWNER_WATER_LINE_CHANCE: float = 0.5
+## How often TurfMasters™ text a taunt after poaching a client, and a complaint
+## when one of their signs is pulled (net/town/town.gd).
+const RIVAL_TAUNT_CHANCE: float = 0.5
+const RIVAL_SIGN_TEXT_CHANCE: float = 0.35
+## How long a shopkeeper's caption stays over their head (npcs/store_clerk.gd).
+const CLERK_CAPTION_SECONDS: float = 4.0
 
 
 # ---- driving

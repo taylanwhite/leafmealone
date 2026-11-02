@@ -210,6 +210,14 @@ func take_day_summary() -> Dictionary:
 	return tally
 
 
+## Host only: add to one of today's day-summary counters ("raids", "caught", ...).
+## The one entry point for counters kept outside this file (critic C18); the
+## summary card and its quip read them (ui/day_summary.gd, Strings.summary_quip).
+func note_day(key: String, amount: float) -> void:
+	if Net.is_host():
+		_tally(key, amount)
+
+
 func _tally(key: String, amount: float) -> void:
 	_day_tally[key] = float(_day_tally.get(key, 0.0)) + amount
 

@@ -309,7 +309,7 @@ func _build_store() -> void:
 	_shop.connect("bought", func(_item_id: StringName) -> void:
 		var clerk := get_tree().get_first_node_in_group("store_clerk")
 		if clerk != null:
-			clerk.call("chatter")
+			clerk.call("say_line", "buy")
 	)
 
 

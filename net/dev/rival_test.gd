@@ -4,10 +4,13 @@ extends Node
 ## rival, TurfMasters™ (net/town/town.gd): days map to seasons, winter pays more
 ## and has fewer leaves; a poached client stops texting; a neighbor's yard on
 ## their street has the rival's sign in it; pulling the sign up pays XP and wins
-## the client back. Run with --rank=17 (Mulch Mule III, when they arrive).
+## the client back; TurfMasters™ text a sore-loser line about it, and say hello
+## once (saved as rival_announced) on their first morning in town. Run with
+## --rank=17 (Mulch Mule III, when they arrive).
 ## Each step prints a [RivalTest] line.
 
 const _Seasons = preload("res://core/seasons.gd")
+const _Strings = preload("res://ui/strings.gd")
 
 static var result: Dictionary = {}
 
@@ -70,6 +73,16 @@ func _run() -> void:
 	var back := not bool(town.call("house", victim)["poached"]) and (town.get("requests") as Array).has(victim) and Campaign.pending_xp() > xp_before
 	print("[RivalTest] pulling the sign won %s back, with XP: %s" % [town.call("owner_name", victim), back])
 	ok = ok and back
+	# TurfMasters™ text you themselves: sore about the win-back, and once (only
+	# once, saved) to say hello on their first morning in town (cast:2).
+	var sore := _rival_texts(town, "rival_sore") >= 1
+	print("[RivalTest] TurfMasters™ texted a sore-loser line about the win-back: %s" % sore)
+	ok = ok and sore
+	town.call("_rival_morning")
+	town.call("_rival_morning")
+	var hello := _rival_texts(town, "rival_arrival") == 1 and bool(town.get("rival_announced")) and bool(((town.call("_save_section") as Dictionary)["town"] as Dictionary).get("rival_announced", false))
+	print("[RivalTest] TurfMasters™ said hello once, and the save remembers: %s" % hello)
+	ok = ok and hello
 	# Winter: more pay, fewer leaves.
 	clock.set("day", Constants.SEASON_DAYS + 1)
 	town.set("_day", Constants.SEASON_DAYS + 1)
@@ -85,6 +98,17 @@ func _run() -> void:
 	ok = ok and cold and thin
 	result = {"ok": ok, "done": true}
 	print("[RivalTest] all ok: %s" % ok)
+
+
+## How many of the town's texts are from TurfMasters™ (kind "rival") with a line
+## from this Strings.TEXT_LINES pool.
+func _rival_texts(town: Node, pool: String) -> int:
+	var count := 0
+	for entry: Variant in (town.get("texts") as Array):
+		var text: Dictionary = entry
+		if str(text.get("kind", "")) == "rival" and str(text.get("from", "")) == _Strings.UI["rival_name"] and (_Strings.TEXT_LINES[pool] as Array).has(str(text.get("text", ""))):
+			count += 1
+	return count
 
 
 func _town() -> Node:

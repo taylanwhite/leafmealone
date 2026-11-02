@@ -14,6 +14,7 @@ signal sleepers_changed
 
 const _Ranks = preload("res://core/ranks.gd")
 const _Seasons = preload("res://core/seasons.gd")
+const _Strings = preload("res://ui/strings.gd")
 
 ## Day number, 1 on a new campaign.
 var day: int = 1
@@ -219,7 +220,7 @@ func _end_day() -> void:
 	summary["title"] = _Ranks.title(tier_after)
 	summary["rank_ups"] = unlocked
 	if _Seasons.turns_on(day + 1):
-		summary["season"] = _Seasons.ARRIVALS[_Seasons.of_day(day + 1)]
+		summary["season"] = _Strings.SEASON_ARRIVALS[_Seasons.of_day(day + 1)]
 	# Payroll first, so a hand who quits isn't counted on tomorrow.
 	var hires := get_tree().get_first_node_in_group("hires")
 	if hires != null:
