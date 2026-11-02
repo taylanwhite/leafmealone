@@ -59,7 +59,7 @@
 | assets/audio/sfx/truck_horn.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/door_slam.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/engine_idle.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
-| assets/audio/sfx/skid.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
+| assets/audio/sfx/skid.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/horn_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/music/rake_it_easy.ogg | Original, synthesized by tools/make_music.py, encoded by tools/encode_ogg.py | Project original | no | Python, Godot Movie Maker (encode) |
 | assets/audio/music/st_day_end.ogg | Original, synthesized by tools/make_music.py, encoded by tools/encode_ogg.py | Project original | no | Python, Godot Movie Maker (encode) |

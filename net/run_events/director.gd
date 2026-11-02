@@ -125,6 +125,11 @@ func note_capture(peer_id: int) -> void:
 		return
 	_cohort.append(peer_id)
 	_release_held(peer_id)
+	# Caught sitting in Chefty: out of the seat, or they'd stay glued to it (the
+	# first ride with them in a seat wins) while the van takes them away.
+	for vehicle: Node in get_tree().get_nodes_in_group("vehicles"):
+		if vehicle.has_method("drop_rider"):
+			vehicle.call("drop_rider", peer_id)
 	_log("capture", {"peer_id": peer_id})
 	if _batching:
 		return

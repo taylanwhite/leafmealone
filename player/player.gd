@@ -823,6 +823,11 @@ func _rpc_thrown(velocity_now: Vector3, thrower: int) -> void:
 
 
 func set_thrown(velocity_now: Vector3, _thrower: int) -> void:
+	# A bail out of Chefty (chefty_drive.gd host_eject) clears the seat and throws
+	# in the same breath: on the host in one call, on a client in one poll (the
+	# seats and the throw ride the same reliable channel, in order). Catch the seat
+	# up now, or _apply_bonk still sees us seated and drops the fling.
+	_seat_on_ride()
 	carried_by = 0
 	thrown = true
 	_thrown_left = 1.5

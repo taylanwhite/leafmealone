@@ -89,7 +89,7 @@ static func step(chassis: CharacterBody3D, state: Dictionary, input: Dictionary,
 	var yaw := float(state["yaw"])
 	var vel: Vector3 = state["vel"]
 	var air := bool(state["air"])
-	state["steer"] = move_toward(float(state["steer"]), steer, dt * 6.0)
+	state["steer"] = move_toward(float(state["steer"]), steer, dt * Constants.CHEFTY_STEER_SPEED)
 	# Turn first, with the speed the wheels had: the heading swings and the
 	# velocity has to follow it through the tires' grip.
 	var speed_before := vel.dot(forward_of(yaw))
@@ -114,14 +114,14 @@ static func step(chassis: CharacterBody3D, state: Dictionary, input: Dictionary,
 		if brake:
 			along = move_toward(along, 0.0, float(params["brake"]) * dt)
 		elif throttle > 0.01:
-			if along < -0.3:
+			if along < -Constants.CHEFTY_REVERSE_SWITCH_SPEED:
 				along = move_toward(along, 0.0, float(params["brake"]) * throttle * dt)
 			elif along < top:
 				along = minf(along + float(params["accel"]) * throttle * dt, top)
 			else:
 				along = move_toward(along, top, float(params["coast_drag"]) * dt)
 		elif throttle < -0.01:
-			if along > 0.3:
+			if along > Constants.CHEFTY_REVERSE_SWITCH_SPEED:
 				along = move_toward(along, 0.0, float(params["brake"]) * -throttle * dt)
 			else:
 				along = maxf(along - float(params["accel"]) * -throttle * dt, -float(params["reverse_speed"]))
@@ -137,8 +137,8 @@ static func step(chassis: CharacterBody3D, state: Dictionary, input: Dictionary,
 	# Lean back on the gas, nose down on the brakes, out of the turn.
 	var lean_max := Constants.CHEFTY_LEAN_MAX
 	var lateral := yaw_rate * along
-	state["lean_pitch"] = lerpf(float(state["lean_pitch"]), clampf(accel_along * Constants.CHEFTY_LEAN_PITCH, -lean_max, lean_max), clampf(dt * 8.0, 0.0, 1.0))
-	state["lean_roll"] = lerpf(float(state["lean_roll"]), clampf(-lateral * Constants.CHEFTY_LEAN_ROLL, -lean_max, lean_max), clampf(dt * 6.0, 0.0, 1.0))
+	state["lean_pitch"] = lerpf(float(state["lean_pitch"]), clampf(accel_along * Constants.CHEFTY_LEAN_PITCH, -lean_max, lean_max), clampf(dt * Constants.CHEFTY_LEAN_PITCH_RATE, 0.0, 1.0))
+	state["lean_roll"] = lerpf(float(state["lean_roll"]), clampf(-lateral * Constants.CHEFTY_LEAN_ROLL, -lean_max, lean_max), clampf(dt * Constants.CHEFTY_LEAN_ROLL_RATE, 0.0, 1.0))
 	# Slide along walls; soft things (props, people) only slow it a little.
 	var before_slide := vel
 	_expire_skips(chassis, state)
@@ -212,7 +212,7 @@ static func _suspend(chassis: CharacterBody3D, state: Dictionary, params: Dictio
 		origin.y = maxf(origin.y, -5.0)
 	else:
 		var ground := ground_sum / float(found)
-		if origin.y > ground + 0.08 and vy <= 0.5:
+		if origin.y > ground + Constants.CHEFTY_LAND_GAP and vy <= Constants.CHEFTY_LAND_RISE_SPEED:
 			# Coming down: fall onto it.
 			state["air"] = true
 			vy -= float(params["gravity"]) * dt

@@ -29,6 +29,7 @@ signal driver_changed(peer_id: int)
 
 const _Vehicles = preload("res://props/vehicles.gd")
 const _VehicleView = preload("res://net/components/vehicle_view.gd")
+const _VehicleBody = preload("res://net/components/vehicle_body.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Sfx = preload("res://audio/sfx.gd")
@@ -75,11 +76,17 @@ var _watchers: Dictionary = {}
 var _seq: int = 0
 var _pending: Array[Dictionary] = []
 var _predicted: Dictionary = {}
+## The newest snapshot for the driver, reconciled on the next physics tick.
+var _snap_waiting: Dictionary = {}
 var _offset := Vector3.ZERO
 var _yaw_offset: float = 0.0
 var _last_ack: int = 0
 var _prediction_error_max: float = 0.0
+var _prediction_error_sum: float = 0.0
+var _prediction_error_count: int = 0
 var _corrections: int = 0
+## Host, for drive_test: each peer's last time getting out, peer -> {at, bail}.
+var _last_exits: Dictionary = {}
 ## This peer's own seated player's controls, set each tick by player/seated.gd.
 var _local_input: Dictionary = {}
 ## Tests (_rpc_dev_script): scripted inputs that play through the normal path.
@@ -98,9 +105,11 @@ var _job_bags: int = 0
 var _job_value: int = 0
 var _spent_bags: int = 0
 var _was_moving: bool = false
-## Sound, built when nothing better is attached (audio/vehicle_sound.gd, audio:7).
+## Sound, built when nothing better is attached (audio/vehicle_sound.gd, audio:7):
+## the engine loop, and whether this plays the skid one-shot itself (and when next).
 var _engine: AudioStreamPlayer3D
-var _skid: AudioStreamPlayer3D
+var _own_skid: bool = false
+var _skid_left: float = 0.0
 var _horn_player: AudioStreamPlayer3D
 var _horn_held: float = 0.0
 
@@ -117,6 +126,12 @@ func _ready() -> void:
 	_refresh_params()
 	_refresh_label()
 	_refresh_role()
+	# perk:chefty_tuneup can arrive mid-session (the crew ranks up at day end):
+	# every peer runs the same numbers again, so prediction keeps matching the host.
+	if not Campaign.rank_changed.is_connected(_refresh_params):
+		Campaign.rank_changed.connect(_refresh_params)
+	if not Campaign.campaign_loaded.is_connected(_refresh_params):
+		Campaign.campaign_loaded.connect(_refresh_params)
 	if Net.is_host():
 		if not Net.player_left.is_connected(_on_player_left):
 			Net.player_left.connect(_on_player_left)
@@ -138,7 +153,9 @@ func _build() -> void:
 	shape.position = Constants.CHEFTY_CHASSIS_CENTER
 	_chassis.add_child(shape)
 	add_child(_chassis)
-	_body = Node3D.new()
+	var body := _VehicleBody.new()
+	body.vehicle = self
+	_body = body
 	_body.name = "Body"
 	add_child(_body)
 	_look = _Vehicles.build_truck(_body, {"color": COLOR, "interior": true})
@@ -170,6 +187,8 @@ func _build() -> void:
 
 ## The sim's numbers: Chefty's, less its dents, plus the tune-up perk.
 func _refresh_params() -> void:
+	if _look == null:
+		return
 	_params = VehicleSim.chefty_params(_dents, Campaign.has_perk("chefty_tuneup"))
 	var solid := _look.get_node_or_null("Solid") as CollisionObject3D if _look != null else null
 	_params["exclude"] = [solid.get_rid()] if solid != null else []
@@ -485,8 +504,10 @@ func _handle_exit(peer_id: int) -> void:
 	var spot := _exit_spot(seat)
 	var facing := yaw()
 	player.call("send_teleport", Transform3D(Basis(Vector3.UP, facing), spot))
-	if Vector2(moving.x, moving.z).length() > Constants.CHEFTY_EXIT_MAX_SPEED:
-		host_eject(peer_id, moving * Constants.CHEFTY_BAIL_SHARE + Vector3.UP * 3.0)
+	var bail := Vector2(moving.x, moving.z).length() > Constants.CHEFTY_EXIT_MAX_SPEED
+	if bail:
+		host_eject(peer_id, moving * Constants.CHEFTY_BAIL_SHARE + Vector3.UP * Constants.CHEFTY_BAIL_UP)
+	_last_exits[peer_id] = {"at": spot, "bail": bail}
 	_note_zone(peer_id, spot)
 
 
@@ -534,11 +555,12 @@ func _exit_spot(seat: int) -> Vector3:
 	var side := -1.0 if (seat == SEAT_DRIVER or (seat >= _Vehicles.CHEFTY_CAB_SEATS and _Vehicles.CHEFTY_SEATS[seat].x < 0.0)) else 1.0
 	var z := _Vehicles.CHEFTY_SEATS[seat].z
 	var flat := Transform3D(Basis(Vector3.UP, yaw()), Vector3(body_position().x, _chassis.global_position.y, body_position().z))
+	var lift := 0.1
 	var candidates: Array[Vector3] = [
-		flat * Vector3(side * 1.9, 0.1, z),
-		flat * Vector3(-side * 1.9, 0.1, z),
-		flat * Vector3(0.0, 0.1, 3.6),
-		flat * Vector3(0.0, 2.6, -2.0),
+		flat * Vector3(side * Constants.CHEFTY_EXIT_SIDE, lift, z),
+		flat * Vector3(-side * Constants.CHEFTY_EXIT_SIDE, lift, z),
+		flat * Vector3(0.0, lift, Constants.CHEFTY_EXIT_BEHIND),
+		flat * Constants.CHEFTY_EXIT_ROOF,
 	]
 	for candidate: Vector3 in candidates:
 		if _clear_at(candidate):
@@ -550,10 +572,11 @@ func _clear_at(at: Vector3) -> bool:
 	var space := get_world_3d().direct_space_state
 	var query := PhysicsShapeQueryParameters3D.new()
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.35
-	capsule.height = 1.6
+	capsule.radius = Constants.CHEFTY_EXIT_CAPSULE.x
+	capsule.height = Constants.CHEFTY_EXIT_CAPSULE.y
 	query.shape = capsule
-	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, 0.95, 0.0))
+	# Its bottom just clear of the ground.
+	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, capsule.height * 0.5 + 0.15, 0.0))
 	query.collision_mask = 1
 	var exclude: Array[RID] = [_chassis.get_rid()]
 	for rid: RID in _params.get("exclude", []):
@@ -614,6 +637,10 @@ func _physics_process(delta: float) -> void:
 	if Net.is_host():
 		_host_step(delta)
 	elif driver() == Net.local_peer_id() and driver() != 0:
+		if not _snap_waiting.is_empty():
+			var snap := _snap_waiting
+			_snap_waiting = {}
+			_reconcile(snap["pos"], float(snap["yaw"]), snap["vel"], float(snap["yaw_rate"]), int(snap["ack"]))
 		_predict_step(delta)
 	_update_presentation(delta)
 
@@ -684,6 +711,9 @@ func _predict_step(delta: float) -> void:
 	while _pending.size() > PREDICTION_HISTORY:
 		_pending.pop_front()
 	VehicleSim.step(_chassis, _state, input, _params, delta)
+	# Where this input was first predicted to put Chefty. Replays on later
+	# snapshots never rewrite it, so the error measured against the host's pose
+	# after the same input is the whole round trip's, not the last two ticks'.
 	_predicted[_seq] = _chassis.global_position
 	_predicted.erase(_seq - PREDICTION_HISTORY)
 	# The drawn pose carries what's left of the last correction, fading out.
@@ -699,7 +729,10 @@ func _predict_step(delta: float) -> void:
 ## input it acked, the inputs since replayed, and the jump faded out of the view.
 func _reconcile(pos: Vector3, yaw_now: float, vel: Vector3, yaw_rate: float, ack: int) -> void:
 	if ack > _last_ack and _predicted.has(ack):
-		_prediction_error_max = maxf(_prediction_error_max, (_predicted[ack] as Vector3).distance_to(pos))
+		var error := (_predicted[ack] as Vector3).distance_to(pos)
+		_prediction_error_max = maxf(_prediction_error_max, error)
+		_prediction_error_sum += error
+		_prediction_error_count += 1
 	_last_ack = maxi(_last_ack, ack)
 	while not _pending.is_empty() and int(_pending[0]["seq"]) <= ack:
 		_pending.pop_front()
@@ -712,7 +745,6 @@ func _reconcile(pos: Vector3, yaw_now: float, vel: Vector3, yaw_rate: float, ack
 	var dt := get_physics_process_delta_time()
 	for entry: Dictionary in _pending:
 		VehicleSim.step(_chassis, _state, entry["input"], _params, dt)
-		_predicted[int(entry["seq"])] = _chassis.global_position
 	var jump := before - _chassis.global_position
 	if jump.length() > 0.05:
 		_corrections += 1
@@ -738,8 +770,8 @@ func apply_view_pose(pos: Vector3, yaw_now: float, vel: Vector3, snapped: bool) 
 	_view_vel = vel
 	_view_state["yaw"] = yaw_now
 	var lean := Constants.CHEFTY_LEAN_MAX
-	_view_state["lean_pitch"] = lerpf(float(_view_state["lean_pitch"]), clampf(accel.dot(forward) * Constants.CHEFTY_LEAN_PITCH, -lean, lean), clampf(dt * 8.0, 0.0, 1.0))
-	_view_state["lean_roll"] = lerpf(float(_view_state["lean_roll"]), clampf(-turn * vel.dot(forward) * Constants.CHEFTY_LEAN_ROLL, -lean, lean), clampf(dt * 6.0, 0.0, 1.0))
+	_view_state["lean_pitch"] = lerpf(float(_view_state["lean_pitch"]), clampf(accel.dot(forward) * Constants.CHEFTY_LEAN_PITCH, -lean, lean), clampf(dt * Constants.CHEFTY_LEAN_PITCH_RATE, 0.0, 1.0))
+	_view_state["lean_roll"] = lerpf(float(_view_state["lean_roll"]), clampf(-turn * vel.dot(forward) * Constants.CHEFTY_LEAN_ROLL, -lean, lean), clampf(dt * Constants.CHEFTY_LEAN_ROLL_RATE, 0.0, 1.0))
 	_body.global_transform = VehicleSim.body_transform(pos, _view_state)
 	if snapped:
 		_body.reset_physics_interpolation()
@@ -770,6 +802,7 @@ func _refresh_role() -> void:
 		_yaw_offset = wrapf(_body.global_rotation.y - float(_state["yaw"]), -PI, PI)
 		_pending.clear()
 		_predicted.clear()
+		_snap_waiting = {}
 
 
 ## Host: Chefty came to a stop (it's parked) or set off.
@@ -884,6 +917,8 @@ func dev_report() -> Dictionary:
 		"riders": riders_list,
 		"driver": driver(),
 		"prediction_error_max_m": _prediction_error_max,
+		"prediction_error_mean_m": _prediction_error_sum / maxf(float(_prediction_error_count), 1.0),
+		"prediction_samples": _prediction_error_count,
 		"corrections": _corrections,
 		"horn_seen": _horn_log.duplicate(),
 		"crashes_seen": 0,
@@ -893,6 +928,11 @@ func dev_report() -> Dictionary:
 		"pos": [at.x, at.y, at.z],
 		"yaw": float(_state["yaw"]),
 	}
+
+
+## Host, tests: this peer's last exit {at, bail}, or {}.
+func dev_last_exit(peer_id: int) -> Dictionary:
+	return (_last_exits.get(peer_id, {}) as Dictionary).duplicate()
 
 
 ## The chassis's pose as the sim has it here (host: the truth; the driver: the
@@ -924,19 +964,22 @@ func engine_state() -> Dictionary:
 
 
 ## The engine and skid: audio/vehicle_sound.gd when it exists (audio chunk 7),
-## else a plain engine loop pitched by speed and a skid loop. Nothing headless.
+## else a plain engine loop pitched by speed and the skid one-shot. Nothing
+## headless. vehicle_sound sits under Body, so it moves with the drawn truck, and
+## reads parent.engine_state() (critic C13): Body (vehicle_body.gd) hands that
+## through to here. Its state_source Callable is set too, before it's in the tree.
 func _attach_sound() -> void:
 	if Net.is_automated() or DisplayServer.get_name() == "headless":
 		return
 	if ResourceLoader.exists("res://audio/vehicle_sound.gd"):
 		var vehicle_sound: Node = load("res://audio/vehicle_sound.gd").new()
 		vehicle_sound.name = "VehicleSound"
+		if "state_source" in vehicle_sound:
+			vehicle_sound.set("state_source", engine_state)
 		_body.add_child(vehicle_sound)
-		# It reads engine_state() from its parent.
-		vehicle_sound.set_meta("state_source", self)
 	else:
 		_engine = _sound_loop("engine_idle", "Engine")
-		_skid = _sound_loop("skid", "Skid")
+		_own_skid = true
 	_horn_player = _sound_loop("horn_loop", "Horn")
 
 
@@ -945,9 +988,9 @@ func _sound_loop(id: String, node_name: String) -> AudioStreamPlayer3D:
 	player.name = node_name
 	player.stream = _Sfx.looped(id)
 	player.bus = _SoundBank.bus(id)
-	player.unit_size = 8.0
-	player.max_distance = 70.0
-	player.volume_db = -40.0
+	player.unit_size = Constants.SFX_UNIT_SIZE
+	player.max_distance = Constants.CHEFTY_SOUND_MAX_DISTANCE
+	player.volume_db = -80.0
 	player.position = Vector3(0.0, 1.0, -2.2)
 	_body.add_child(player)
 	return player
@@ -960,23 +1003,27 @@ func _update_sound(delta: float) -> void:
 		if bool(state["on"]):
 			if not _engine.playing:
 				_engine.play()
-			_engine.pitch_scale = lerpf(Constants.CHEFTY_ENGINE_PITCH.x, Constants.CHEFTY_ENGINE_PITCH.y, share) + absf(float(state["throttle"])) * 0.08
-			_engine.volume_db = lerpf(-14.0, -4.0, share)
+			_engine.pitch_scale = lerpf(Constants.CHEFTY_ENGINE_PITCH.x, Constants.CHEFTY_ENGINE_PITCH.y, share) + absf(float(state["throttle"])) * Constants.CHEFTY_ENGINE_THROTTLE_PITCH
+			_engine.volume_db = lerpf(Constants.CHEFTY_ENGINE_DB.x, Constants.CHEFTY_ENGINE_DB.y, share)
 		elif _engine.playing:
 			_engine.stop()
-		if _skid != null and _skid.stream != null:
-			var skidding := bool(state["skidding"]) and share > 0.2
-			if skidding and not _skid.playing:
-				_skid.play()
-			elif not skidding and _skid.playing:
-				_skid.stop()
-			_skid.volume_db = -6.0
+	if _own_skid:
+		# The skid one-shot when a slide starts, and again while it lasts.
+		var state := engine_state()
+		var share := clampf(float(state["speed"]) / Constants.CHEFTY_TOP_SPEED, 0.0, 1.0)
+		if bool(state["skidding"]) and share > Constants.CHEFTY_SKID_MIN_SPEED_SHARE:
+			_skid_left -= delta
+			if _skid_left <= 0.0:
+				_play_on("skid")
+				_skid_left = Constants.CHEFTY_SKID_REPEAT
+		else:
+			_skid_left = 0.0
 	if _horn_player != null and _horn_player.stream != null:
 		var honking := _horn or (driver() == Net.local_peer_id() and driver() != 0 and bool(_input_from_local().get("horn", false)))
 		_horn_held = _horn_held + delta if honking else 0.0
 		var loop := _horn_held > Constants.CHEFTY_HORN_LOOP_AFTER
 		if loop and not _horn_player.playing:
-			_horn_player.volume_db = -2.0
+			_horn_player.volume_db = Constants.CHEFTY_HORN_LOOP_DB
 			_horn_player.play()
 		elif not loop and _horn_player.playing:
 			_horn_player.stop()
@@ -1022,7 +1069,7 @@ func _rpc_input(seq: int, throttle: float, steer: float, flags: int) -> void:
 		return
 	_queue.append({"seq": seq, "throttle": clampf(throttle, -1.0, 1.0), "steer": clampf(steer, -1.0, 1.0), "flags": flags})
 	# A stalled link must not let the queue grow without end.
-	while _queue.size() > 30:
+	while _queue.size() > Constants.CHEFTY_INPUT_QUEUE_MAX:
 		_queue.pop_front()
 
 
@@ -1031,7 +1078,11 @@ func _rpc_snap(t: float, pos: Vector3, yaw_now: float, vel: Vector3, yaw_rate: f
 	_view.call("add_snap", t, pos, yaw_now, vel)
 	_state["steer"] = steer
 	if driver() == Net.local_peer_id() and driver() != 0:
-		_reconcile(pos, yaw_now, vel, yaw_rate, ack)
+		# Reconciled on the next physics tick, not here: the replay steps through
+		# move_and_slide, which only moves by the physics step inside a physics
+		# frame (out here it'd use the render frame's delta and fall behind).
+		if _snap_waiting.is_empty() or ack >= int(_snap_waiting["ack"]):
+			_snap_waiting = {"pos": pos, "yaw": yaw_now, "vel": vel, "yaw_rate": yaw_rate, "ack": ack}
 	else:
 		_chassis.global_position = pos
 		_chassis.global_rotation = Vector3(0.0, yaw_now, 0.0)

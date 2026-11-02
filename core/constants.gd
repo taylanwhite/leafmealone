@@ -852,6 +852,40 @@ const CHEFTY_HORN_LOOP_AFTER: float = 0.45
 ## than this sideways (m/s).
 const CHEFTY_ENGINE_PITCH := Vector2(0.8, 1.9)
 const CHEFTY_SKID_SLIP: float = 3.0
+## Chefty's own engine loop (until audio/vehicle_sound.gd): extra pitch at full
+## throttle, its volume from idle to top speed (dB), the horn loop's volume, and
+## how far away either is heard (m).
+const CHEFTY_ENGINE_THROTTLE_PITCH: float = 0.08
+const CHEFTY_ENGINE_DB := Vector2(-14.0, -4.0)
+const CHEFTY_HORN_LOOP_DB: float = -2.0
+const CHEFTY_SOUND_MAX_DISTANCE: float = 70.0
+## The skid one-shot (critic C12: audio's `skid`): only above this share of top
+## speed, and fired again this often while the slide lasts (s).
+const CHEFTY_SKID_MIN_SPEED_SHARE: float = 0.2
+const CHEFTY_SKID_REPEAT: float = 0.55
+## How fast the front wheels follow the stick (full lock per second x this).
+const CHEFTY_STEER_SPEED: float = 6.0
+## Under this speed (m/s) the gas against the way you're rolling stops braking
+## and starts driving the other way.
+const CHEFTY_REVERSE_SWITCH_SPEED: float = 0.3
+## Suspension: more than this far above the ground (m) and not rising faster
+## than this (m/s), Chefty falls onto it instead of being held up.
+const CHEFTY_LAND_GAP: float = 0.08
+const CHEFTY_LAND_RISE_SPEED: float = 0.5
+## How quickly the body's lean follows the throttle and the turn (per second).
+const CHEFTY_LEAN_PITCH_RATE: float = 8.0
+const CHEFTY_LEAN_ROLL_RATE: float = 6.0
+## A bail (getting out above CHEFTY_EXIT_MAX_SPEED) adds this much upward speed (m/s).
+const CHEFTY_BAIL_UP: float = 3.0
+## The host keeps at most this many of the driver's inputs queued (a stalled link).
+const CHEFTY_INPUT_QUEUE_MAX: int = 30
+## Where someone getting out stands, in Chefty's space: this far to the side of
+## their seat, else the other side, else this far behind the tailgate, else on the
+## roof. A spot counts as clear when a player-sized capsule fits there.
+const CHEFTY_EXIT_SIDE: float = 1.9
+const CHEFTY_EXIT_BEHIND: float = 3.6
+const CHEFTY_EXIT_ROOF := Vector3(0.0, 2.6, -2.0)
+const CHEFTY_EXIT_CAPSULE := Vector2(0.35, 1.6)
 
 
 # ---- audio

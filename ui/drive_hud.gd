@@ -52,10 +52,20 @@ func _process(_delta: float) -> void:
 	var driver_id := int(vehicle.call("driver"))
 	_driver.text = _Strings.UI["drive_hud_driver"] % Net.player_name(driver_id) if driver_id != 0 else _Strings.UI["drive_hud_no_driver"]
 	var driving := driver_id == Net.local_peer_id()
-	_keys.text = _Strings.keyed(_Strings.UI["drive_hud_keys_driver" if driving else "drive_hud_keys_rider"])
+	_keys.text = _Strings.keyed(_Strings.UI["drive_hud_keys_driver" if driving else "drive_hud_keys_rider"] + "   " + _seat_keys(player, vehicle))
 	var screen := get_viewport_rect().size
 	_panel.reset_size()
 	position = Vector2(screen.x - _panel.size.x - 16.0, screen.y - _panel.size.y - 16.0)
+
+
+## F and E as they'd go right now: the cab's seats only swap while slow (the
+## host refuses it faster), and getting out fast is a bail (chefty_drive.gd).
+func _seat_keys(player: Node, vehicle: Node) -> String:
+	var speed := float(vehicle.call("speed"))
+	var in_cab := bool(vehicle.call("is_cab_seat", int(player.call("seat_slot"))))
+	var swap: String = _Strings.UI["prompt_too_fast" if in_cab and speed >= Constants.CHEFTY_SEAT_SWAP_MAX_SPEED else "prompt_swap_seat"]
+	var out: String = _Strings.UI["prompt_bail_out" if speed > Constants.CHEFTY_EXIT_MAX_SPEED else "prompt_get_out"]
+	return _Strings.UI["drive_hud_keys_seat"] % [swap, out]
 
 
 func _local_player() -> Node:

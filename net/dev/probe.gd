@@ -96,7 +96,12 @@ func _measure_judder() -> void:
 	if camera == null:
 		return
 	var at := camera.get_global_transform_interpolated().origin
-	_measure_ride_wobble(at)
+	# The driver's chase camera (player/vehicle_camera.gd) trails the truck on
+	# purpose; wobble is about sitting still in your seat, so it doesn't count.
+	if camera.name == "VehicleCamera":
+		_ride_rel_last = Vector3.INF
+	else:
+		_measure_ride_wobble(at)
 	var walking := false
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if node.name == str(Net.local_peer_id()) and node is CharacterBody3D:

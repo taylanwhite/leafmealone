@@ -325,6 +325,17 @@ def door_slam() -> list[float]:
     return out
 
 
+def skid() -> list[float]:
+    """Tires squealing as Chefty sheds speed or slides: a wobbly rubbery whistle
+    that sags in pitch over a hiss. A one-shot (critic C12: audio's `skid`);
+    chefty_drive.gd fires it again while a drift lasts."""
+    rng = random.Random(72)
+    seconds = 0.7
+    squeal = bandpass(tone(seconds, glide(1380.0, 1120.0, seconds), "triangle", (11.0, 0.03)), 1250.0, 2.0)
+    hiss = bandpass(noise(rng, seconds), 2600.0, 1.5)
+    return envelope([a * 0.8 + b * 0.35 for a, b in zip(squeal, hiss)], 0.02, 0.3)
+
+
 def brass(seconds: float, freq, vibrato: tuple = (5.5, 0.012)) -> list[float]:
     """A cartoon trombone: a saw shaped to sound like a brass 'bwah'."""
     raw = tone(seconds, freq, "saw", vibrato)
@@ -523,6 +534,7 @@ SOUNDS = {
     # ---- driving (Chefty, net/components/chefty_drive.gd)
     "truck_horn": (truck_horn, 0, 0.75),
     "door_slam": (door_slam, 0, 0.7),
+    "skid": (skid, 0, 0.45),
 }
 
 

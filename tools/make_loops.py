@@ -290,17 +290,6 @@ def engine_idle() -> list[float]:
     return seamless(out, 0.25)
 
 
-def skid() -> list[float]:
-    """Tires squealing through a drift: a wobbly rubbery whistle over a hiss."""
-    rng = random.Random(72)
-    seconds = 1.4
-    squeal = s.tone(seconds, 1250.0, "triangle", (11.0, 0.03))
-    squeal = s.bandpass(squeal, 1250.0, 2.0)
-    hiss = s.bandpass(s.noise(rng, seconds), 2600.0, 1.5)
-    out = [a * 0.8 + b * 0.35 for a, b in zip(squeal, hiss)]
-    return seamless(out, 0.2)
-
-
 def horn_loop() -> list[float]:
     """Chefty's horn held down: the long 'BWAAH' going on and on, seamless."""
     seconds = 1.2
@@ -326,7 +315,6 @@ SOUNDS = {
     "music_loop": (music_loop, 0, 0.6),
     # ---- driving (Chefty, net/components/chefty_drive.gd)
     "engine_idle": (engine_idle, 0, 0.5),
-    "skid": (skid, 0, 0.4),
     "horn_loop": (horn_loop, 0, 0.6),
 }
 
