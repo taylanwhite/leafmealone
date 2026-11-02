@@ -53,3 +53,4 @@
 | assets/audio/sfx/trimmer_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/sfx/washer_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/sfx/wind_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
+| assets/icons/*.png, assets/icons/app_icon.ico | Original, generated in-house by tools/studio/icon_studio.gd from the project's own code models and code-drawn shapes (labels in Godot's built-in fallback font); no third-party source | Project original | no | Godot (tools/studio/icon_studio.gd) |
