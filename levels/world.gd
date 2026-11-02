@@ -49,8 +49,11 @@ func _ready() -> void:
 	var crossing := preload("res://net/border_return.gd").new()
 	crossing.name = "BorderReturn"
 	add_child(crossing)
-	_add_curb($StoreZone)
-	_add_curb($LotZone)
+	# In the connected town people walk and drive out of the store and the yard,
+	# so only the border keeps its pad walls.
+	if not town_map:
+		_add_curb($StoreZone)
+		_add_curb($LotZone)
 	_add_curb($BorderZone)
 	# Sound effects live at UIRoot/Audio/Sfx (audio/audio_root.gd), so menus have sound too.
 	var ambience := preload("res://audio/ambience.gd").new()
@@ -113,6 +116,39 @@ func _ready() -> void:
 func _dress() -> void:
 	_StoreDressing.dress($StoreZone)
 	_BorderDressing.dress($BorderZone)
+	if town_map:
+		_dress_town()
+	else:
+		_dress_legacy()
+	add_child(preload("res://levels/outline_pass.gd").new())
+	# The clerk behind the counter. Local on every peer: nothing about it is shared.
+	var clerk := preload("res://npcs/store_clerk.gd").new()
+	clerk.name = "StoreClerk"
+	$StoreZone.add_child(clerk)
+	clerk.position = CLERK_SPOT
+
+
+## The connected town (net/town/town_map.gd, docs/GAME.md "Gutterford"): its
+## colliders (the same on every peer), its dressing, and its houses. The store
+## keeps its own dressing, grass, and walkers; the legacy lot street, the lot's
+## surroundings, and the countryside drive aren't built, since the town is all
+## of that.
+func _dress_town() -> void:
+	var colliders := preload("res://levels/town/town_colliders.gd").new()
+	add_child(colliders)
+	preload("res://levels/town/town_dressing.gd").dress(self)
+	var streamer := preload("res://levels/town/town_streamer.gd").new()
+	add_child(streamer)
+	_StreetLife.dress_store($StoreZone)
+	_Grass.plant($StoreZone, 70.0, 0.52, 11)
+	_Pedestrians.populate($StoreZone, [
+		[Vector3(21.4, 0.1, -140.0), Vector3(21.4, 0.1, 140.0)],
+		[Vector3(32.6, 0.1, -140.0), Vector3(32.6, 0.1, 140.0)],
+	], 7, 11)
+	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
+
+
+func _dress_legacy() -> void:
 	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0])
 	_Surroundings.dress($LotZone, GRASS, 22, false, [PI * 0.75])
 	_Neighborhood.dress($LotZone, 22)
@@ -134,12 +170,6 @@ func _dress() -> void:
 	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
 	# The drive from Homie Depot to the town passes country, not a void.
 	preload("res://levels/dressing/countryside.gd").dress(self)
-	add_child(preload("res://levels/outline_pass.gd").new())
-	# The clerk behind the counter. Local on every peer: nothing about it is shared.
-	var clerk := preload("res://npcs/store_clerk.gd").new()
-	clerk.name = "StoreClerk"
-	$StoreZone.add_child(clerk)
-	clerk.position = CLERK_SPOT
 
 
 ## The crew camp's cots by the store's side wall (props/cot.gd). Local on every
@@ -196,11 +226,26 @@ func is_town_map() -> bool:
 func place_job_site(site: Transform3D, house_id: int) -> void:
 	if not town_map:
 		return
+	# The slot the site leaves shows its house again; the one it takes hides its
+	# house and colliders, since the job yard builds its own.
+	if _job_site_house >= 0 and _job_site_house != house_id:
+		_show_slot(_job_site_house, true)
 	_job_site_house = house_id
+	if house_id >= 0:
+		_show_slot(house_id, false)
 	var zone := $LotZone as Node3D
 	zone.global_transform = Transform3D(Basis.IDENTITY, site.origin)
 	zone.reset_physics_interpolation()
-	# Driving chunks B and E: TownColliders and TownStreamer hide house_id's slot here.
+
+
+## A town slot's dressing house and colliders, on or off.
+func _show_slot(house_id: int, on: bool) -> void:
+	var colliders := get_node_or_null("TownColliders")
+	if colliders != null:
+		colliders.call("set_slot_enabled", house_id, on)
+	var streamer := get_node_or_null("TownStreamer")
+	if streamer != null:
+		streamer.call("set_slot_hidden", house_id, not on)
 
 
 ## The town house the job site was placed on, or -1.

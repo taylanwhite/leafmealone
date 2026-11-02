@@ -24,6 +24,18 @@ const DARK := Color(0.16, 0.17, 0.2)
 const SHELF := Color(0.5, 0.36, 0.24)
 const LINE := Color(0.95, 0.94, 0.88)
 const STRIPE := Color(0.95, 0.8, 0.2)
+## The parking lot's fixed pieces, in StoreZone space. Each one sits inside a
+## "store" reservation in Constants.STORE_LAYOUT and clear of everyone else's
+## (net/dev/townmap_test.gd checks it), so nothing new lands on them.
+const PARKED_CARS: Array[Vector3] = [Vector3(-7.5, 0.0, 15.6), Vector3(-4.5, 0.0, 15.6), Vector3(-1.5, 0.0, 15.6)]
+const LOT_LAMPS: Array[Vector3] = [Vector3(17.0, 0.0, 17.0), Vector3(17.0, 0.0, -17.0), Vector3(-9.0, 0.0, 17.0), Vector3(7.8, 0.0, 17.0)]
+const TREE_ISLANDS: Array[Vector3] = [Vector3(18.5, 0.0, -18.5), Vector3(-10.0, 0.0, 18.5), Vector3(18.5, 0.0, 18.5)]
+const CART_CORRAL_AT := Vector3(-7.5, 0.0, 10.0)
+## Ground footprints (x, z) of those pieces, in meters.
+const CAR_FOOTPRINT := Vector2(2.0, 4.5)
+const LAMP_FOOTPRINT := Vector2(0.6, 0.6)
+const TREE_ISLAND_SIZE: float = 3.0
+const CART_CORRAL_FOOTPRINT := Vector2(1.4, 4.2)
 
 
 static func dress(zone: Node3D) -> void:
@@ -84,7 +96,7 @@ static func _building(root: Node3D) -> void:
 		_LowPoly.window(root, 3.0, 2.0, Vector3(front + 0.03, 2.2, z), Color(0.85, 0.85, 0.82), PI * 0.5)
 	# A low concrete walk along the front.
 	_LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.15, 34.0), Vector3(front + 1.5, 0.05, -2.0), Color(0.72, 0.7, 0.66)), "concrete")
-	_carts(root, Vector3(-7.5, 0.0, 10.0))
+	_carts(root, CART_CORRAL_AT)
 
 
 ## The garden center corner: shelves stocked with the gear you buy here.
@@ -144,14 +156,15 @@ static func _parking(root: Node3D) -> void:
 		_LowPoly.box(root, Vector3(0.12, 0.02, 5.0), Vector3(x, 0.01, 15.5), LINE)
 	_LowPoly.box(root, Vector3(18.0, 0.02, 0.12), Vector3(0.0, 0.01, 13.0), LINE)
 	var cars: Array[Color] = [Color(0.3, 0.42, 0.62), Color(0.85, 0.82, 0.74), Color(0.55, 0.15, 0.15)]
-	for index: int in [0, 2, 5]:
+	# The east stalls stay empty: Lunch Money parks there (Constants.SHOP_SITES).
+	for index: int in PARKED_CARS.size():
 		var car := _YardModels.node("car", cars[index % cars.size()], Vector3.ONE, {"roughness": 0.5, "specular": 0.3})
 		root.add_child(car)
-		car.position = Vector3(-7.5 + float(index) * 3.0, 0.0, 15.6)
-	for corner: Vector3 in [Vector3(17, 0, 17), Vector3(17, 0, -17), Vector3(-9, 0, 17), Vector3(4, 0, 17)]:
+		car.position = PARKED_CARS[index]
+	for corner: Vector3 in LOT_LAMPS:
 		_Neighborhood.lamp(root, corner, PI * 0.5 if corner.x > 0.0 else -PI * 0.5)
 	# Tree islands: a curbed planter with a tree and mulch.
-	for at: Vector3 in [Vector3(18.5, 0.0, -3.0), Vector3(-10.0, 0.0, 18.5), Vector3(18.5, 0.0, 18.5)]:
+	for at: Vector3 in TREE_ISLANDS:
 		_LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.25, 3.0), at + Vector3(0.0, 0.12, 0.0), Color(0.7, 0.68, 0.64)), "concrete")
 		_LowPoly.paint(_LowPoly.box(root, Vector3(2.6, 0.28, 2.6), at + Vector3(0.0, 0.14, 0.0), Color(0.36, 0.24, 0.17)), "dirt")
 		_Trees.spawn(root, at + Vector3(0.0, 0.25, 0.0), 6.5, "broadleaf", "orange", int(at.x + at.z), false, at.x)

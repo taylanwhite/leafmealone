@@ -97,24 +97,55 @@ func _note(value: Variant) -> void:
 
 # ---------------------------------------------------------------- the house
 
-func _house() -> void:
-	var widths: Vector2 = Constants.YARD_HOUSE_WIDTH[_size]
-	var width := _rng.randf_range(widths.x, widths.y)
-	var depth := _rng.randf_range(6.5, 9.0) + (1.0 if _size == 2 else 0.0)
+## The house's numbers, drawn first from a yard's rng right after it is seeded
+## with the house's seed. The job yard (_house) and the town's view of the same
+## house (levels/town/fallback_house.gd, and art's HouseBuilder.request_for
+## later) both use it, so the house you drive past is the house you work at.
+## The draws and their order are fixed: changing them changes every yard
+## (work_test and layout_test check the layout hash). Yard space: x and z in
+## -20..20, the front at +Z.
+static func house_spec(rng: RandomNumberGenerator, size: int) -> Dictionary:
+	var widths: Vector2 = Constants.YARD_HOUSE_WIDTH[clampi(size, 0, 2)]
+	var width := rng.randf_range(widths.x, widths.y)
+	var depth := rng.randf_range(6.5, 9.0) + (1.0 if size == 2 else 0.0)
 	# Small yards have bungalows, big yards two stories.
-	var stories := 2 if _rng.randf() < 0.4 else 1
+	var stories := 2 if rng.randf() < 0.4 else 1
 	# (Was `stories = _size`, which gave small yards a zero-story house: a roof
 	# sitting on its foundation. --layout-test caught it.)
-	if _size == 0:
+	if size == 0:
 		stories = 1
-	elif _size == 2:
+	elif size == 2:
 		stories = 2
-	var center_x := _rng.randf_range(-YARD_HALF + width * 0.5 + 2.5, YARD_HALF - width * 0.5 - 2.5)
-	var center_z := -YARD_HALF + depth * 0.5 + _rng.randf_range(2.5, 6.0)
-	var wall: Color = _Neighborhood.WALLS[_rng.randi() % _Neighborhood.WALLS.size()]
-	var roof: Color = _Neighborhood.ROOFS[_rng.randi() % _Neighborhood.ROOFS.size()]
-	var trim: Color = _Neighborhood.TRIMS[_rng.randi() % _Neighborhood.TRIMS.size()]
-	var garage := _rng.randf() < 0.5
+	var center_x := rng.randf_range(-YARD_HALF + width * 0.5 + 2.5, YARD_HALF - width * 0.5 - 2.5)
+	var center_z := -YARD_HALF + depth * 0.5 + rng.randf_range(2.5, 6.0)
+	var wall: Color = _Neighborhood.WALLS[rng.randi() % _Neighborhood.WALLS.size()]
+	var roof: Color = _Neighborhood.ROOFS[rng.randi() % _Neighborhood.ROOFS.size()]
+	var trim: Color = _Neighborhood.TRIMS[rng.randi() % _Neighborhood.TRIMS.size()]
+	var garage := rng.randf() < 0.5
+	return {
+		"width": width, "depth": depth, "stories": stories, "center_x": center_x, "center_z": center_z,
+		"wall": wall, "roof": roof, "trim": trim, "garage": garage,
+	}
+
+
+## The house a yard with this seed and size gets, without building the yard.
+static func spec_for_seed(seed_value: int, size: int) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	return house_spec(rng, clampi(size, 0, 2))
+
+
+func _house() -> void:
+	var spec := house_spec(_rng, _size)
+	var width: float = spec["width"]
+	var depth: float = spec["depth"]
+	var stories: int = spec["stories"]
+	var center_x: float = spec["center_x"]
+	var center_z: float = spec["center_z"]
+	var wall: Color = spec["wall"]
+	var roof: Color = spec["roof"]
+	var trim: Color = spec["trim"]
+	var garage: bool = spec["garage"]
 	var at := Vector3(center_x, 0.0, center_z)
 	var house: Node3D = _Neighborhood.house(self, at, width, depth, stories, wall, roof, trim, garage)
 	var height := 0.5 + 3.0 * float(stories)
