@@ -13,7 +13,9 @@ signal speaking_changed(peer_id: int, is_speaking: bool)
 
 enum Transport { ENET, STEAM }
 enum State { OFFLINE, CONNECTING, LOBBY, IN_SESSION }
-enum Zone { STORE, LOT, BORDER, TRANSIT }
+## TOWN (appended, so the others keep their values) is the connected town's
+## streets: anywhere that isn't the store or the job site (docs/NETCODE.md Zones).
+enum Zone { STORE, LOT, BORDER, TRANSIT, TOWN }
 enum VoiceMode { PUSH_TO_TALK, VOICE_ACTIVATION }
 
 const CHANNEL_COUNT: int = 3
@@ -213,14 +215,27 @@ func players_in_zone(zone: Zone) -> Array[int]:
 
 
 ## Host only. Update the registry and tell every peer, including the owner, to teleport.
-func move_player_to_zone(peer_id: int, zone: Zone, spawn_marker: StringName = &"") -> void:
+## teleport = false only re-labels the player where they stand (set_player_zone).
+func move_player_to_zone(peer_id: int, zone: Zone, spawn_marker: StringName = &"", teleport: bool = true) -> void:
 	if not _hosting:
 		push_error("[Net] move_player_to_zone is host only")
 		return
 	if not _players.has(peer_id):
 		return
 	_players[peer_id]["zone"] = zone
-	_rpc_zone_changed.rpc(peer_id, int(zone), String(spawn_marker))
+	_rpc_zone_changed.rpc(peer_id, int(zone), String(spawn_marker), teleport)
+
+
+## Host only. The player walked or drove into another zone by themselves (the
+## connected town works zones out from where people are): update the registry
+## and tell every peer, with no teleport. Nothing is sent if the zone is the same.
+func set_player_zone(peer_id: int, zone: Zone) -> void:
+	if not _hosting:
+		push_error("[Net] set_player_zone is host only")
+		return
+	if not _players.has(peer_id) or player_zone(peer_id) == zone:
+		return
+	move_player_to_zone(peer_id, zone, &"", false)
 
 
 ## Host clock in seconds since the session started. Clients use the ping estimate.
@@ -389,6 +404,16 @@ func start_zone() -> Zone:
 	return _initial_zone()
 
 
+## Host: the world mode it builds. --legacy-map wins, then --town-map, then
+## Constants.TOWN_MAP_DEFAULT. Clients read the mode from the world instead.
+func wants_town_map() -> bool:
+	if _args.legacy_map:
+		return false
+	if _args.town_map:
+		return true
+	return Constants.TOWN_MAP_DEFAULT
+
+
 ## --lot value. 0 means the world may choose the test lot.
 func requested_lot() -> int:
 	return _args.lot
@@ -466,6 +491,9 @@ func _initial_zone() -> Zone:
 			return Zone.BORDER
 		"transit":
 			return Zone.TRANSIT
+		"town":
+			# TOWN exists only in the connected town; the legacy world starts them at the store.
+			return Zone.TOWN if wants_town_map() else Zone.STORE
 		_:
 			return Zone.STORE
 
@@ -510,7 +538,12 @@ func _replace_registry(payload: Array) -> void:
 func _apply_zone_request(peer_id: int, zone: Zone) -> void:
 	if not _players.has(peer_id):
 		return
-	if zone != Zone.STORE and zone != Zone.LOT and zone != Zone.BORDER:
+	if zone != Zone.STORE and zone != Zone.LOT and zone != Zone.BORDER and zone != Zone.TOWN:
+		return
+	# The world says which zones exist and are open (levels/world.gd can_enter_zone):
+	# TOWN only in the connected town, and there the LOT only once a yard is loaded.
+	var world := get_tree().get_first_node_in_group("world")
+	if world != null and world.has_method("can_enter_zone") and not bool(world.call("can_enter_zone", zone)):
 		return
 	move_player_to_zone(peer_id, zone)
 
@@ -640,12 +673,13 @@ func _rpc_request_zone(zone_value: int) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_zone_changed(peer_id: int, zone_value: int, spawn_marker: String) -> void:
+func _rpc_zone_changed(peer_id: int, zone_value: int, spawn_marker: String, teleport: bool) -> void:
 	var zone := zone_value as Zone
 	if _players.has(peer_id):
 		_players[peer_id]["zone"] = zone
 	# TRANSIT means the ride is carrying them. Do not teleport them to a spawn.
-	if zone != Zone.TRANSIT:
+	# teleport = false: they got there themselves (set_player_zone).
+	if teleport and zone != Zone.TRANSIT:
 		_teleport_owner(peer_id, zone, spawn_marker)
 	player_zone_changed.emit(peer_id, zone)
 

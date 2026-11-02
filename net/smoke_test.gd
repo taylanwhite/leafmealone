@@ -1,9 +1,17 @@
 extends Node
 
 ## Authority: host decides pass or fail. The client only reports what it can see.
-## Covers connection, handshake, player replication, and a host-ordered zone move.
+## Covers connection, handshake, player replication, the world mode arriving with
+## the world, a zone change without a teleport, and a host-ordered zone move.
 
 const TIMEOUT_SECONDS: float = 30.0
+## How far a zone change without a teleport may move the player (they stand still).
+const QUIET_ZONE_MAX_METERS: float = 0.5
+## Where the client steps from its spawn slot before that check, so a wrong
+## teleport back to a spawn slot moves it measurably.
+const QUIET_STEP_OFF: Vector3 = Vector3(4.0, 0.0, 0.0)
+## How close to the job site a player sent to the LOT must land.
+const LOT_ARRIVAL_METERS: float = 60.0
 const _Timeline: Script = preload("res://border/hazard_timeline.gd")
 
 var _started_msec: int = 0
@@ -20,6 +28,7 @@ var _watching_prop: bool = false
 var _prop_at: Vector3 = Vector3.ZERO
 var _next_clock_probe: float = 0.0
 var _reported_van: bool = false
+var _quiet_from: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -40,10 +49,23 @@ func _process(_delta: float) -> void:
 
 
 func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
-	if peer_id != Net.local_peer_id() or zone != Net.Zone.LOT:
+	if peer_id != Net.local_peer_id():
 		return
 	var body := _find_player(peer_id)
-	if body == null or body.global_position.x < 500.0:
+	if body == null:
+		return
+	# Net.set_player_zone: re-labelled where they stand, never teleported.
+	if zone == Net.Zone.TOWN:
+		_rpc_status.rpc_id(1, "zone_quiet", body.global_position.distance_to(_quiet_from))
+		return
+	if zone != Net.Zone.LOT:
+		return
+	# The job site moves in the connected town, so measure from wherever it is.
+	var world := _world()
+	var site: Node3D = null
+	if world != null:
+		site = world.get_node_or_null("LotZone") as Node3D
+	if site == null or body.global_position.distance_to(site.global_position) > LOT_ARRIVAL_METERS:
 		return
 	_rpc_status.rpc_id(1, "zone_moved", 0.0)
 
@@ -66,10 +88,9 @@ func _launch_client() -> void:
 
 
 func _client_process() -> void:
-	if not _reported_players and _player_count() >= 2:
+	if not _reported_players and _player_count() >= 2 and _world() != null:
 		_reported_players = true
-		Net.player_zone_changed.connect(_on_zone_changed)
-		_rpc_status.rpc_id(1, "players_visible", 0.0)
+		_report_players_visible()
 	if _watching_leaf:
 		var field := get_tree().get_first_node_in_group("leaf_field")
 		if field != null and _elapsed() >= _next_clock_probe and Net.has_clock_sample() and int(field.call("sample_world", _leaf_at)) == _leaf_expected:
@@ -85,6 +106,22 @@ func _client_process() -> void:
 		if gnome != null and gnome.global_position.distance_to(_prop_at) < 1.0:
 			_watching_prop = false
 			_rpc_status.rpc_id(1, "prop_match", Net.server_time())
+
+
+func _report_players_visible() -> void:
+	Net.player_zone_changed.connect(_on_zone_changed)
+	var me := _find_player(Net.local_peer_id())
+	if me != null:
+		# Step off the spawn slot first (the client owns its body), so a stray
+		# teleport on the quiet TOWN change would land back on the slot and show.
+		me.global_position += QUIET_STEP_OFF
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		if not is_instance_valid(me):
+			return
+		_quiet_from = me.global_position
+	# The world mode came with the world's spawn data; the host checks it matches.
+	_rpc_status.rpc_id(1, "players_visible", 1.0 if bool(_world().call("is_town_map")) else 0.0)
 
 
 func _host_leaf_step() -> void:
@@ -170,6 +207,18 @@ func _rpc_status(stage: String, client_time: float) -> void:
 		if _player_count() < 2:
 			_finish(false, "host cannot see both players")
 			return
+		var host_town := _world() != null and bool(_world().call("is_town_map"))
+		if (client_time > 0.5) != host_town:
+			_finish(false, "client world mode differs from the host's (host town_map %s)" % host_town)
+			return
+		Net.set_player_zone(_client_id, Net.Zone.TOWN)
+	elif stage == "zone_quiet" and _saw_players and not _moved:
+		if client_time > QUIET_ZONE_MAX_METERS:
+			_finish(false, "a zone change without a teleport moved the client %.2f m" % client_time)
+			return
+		if Net.player_zone(_client_id) != Net.Zone.TOWN:
+			_finish(false, "host registry lost the client's TOWN zone")
+			return
 		Net.move_player_to_zone(_client_id, Net.Zone.LOT)
 		_moved = true
 	elif stage == "zone_moved" and _moved and _leaf_phase == "":
@@ -218,6 +267,10 @@ func _host_ride_step() -> void:
 			return
 		_leaf_phase = "capture"
 		director.call("force_capture", 1)
+
+
+func _world() -> Node:
+	return get_tree().get_first_node_in_group("world")
 
 
 func _player_count() -> int:

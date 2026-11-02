@@ -68,6 +68,11 @@ var start_day: int = 0
 ## --end-day-at=<s> ends the day then (the host), so the summary card shows.
 var open_phone: String = ""
 var end_day_at: float = -1.0
+## The host's world mode (net/session_root.gd): --town-map builds the connected
+## town, --legacy-map the separate store, lot and border zones. Neither means
+## Constants.TOWN_MAP_DEFAULT. Clients get the host's mode with the world.
+var town_map: bool = false
+var legacy_map: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -189,5 +194,9 @@ func read() -> void:
 			open_phone = argument.trim_prefix("--open-phone=")
 		elif argument.begins_with("--end-day-at="):
 			end_day_at = float(argument.trim_prefix("--end-day-at="))
+		elif argument == "--town-map":
+			town_map = true
+		elif argument == "--legacy-map":
+			legacy_map = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

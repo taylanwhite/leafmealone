@@ -27,9 +27,16 @@ const SPAWN_SPACING: float = 1.4
 ## Spawn slots to check for a free one before giving up and sharing.
 const SPAWN_SLOTS_TO_TRY: int = 16
 
+## The connected town (true) or the legacy separate zones (false). The host picks
+## it, and net/session_root.gd sets it from the spawn data before _ready, so it is
+## the same on every peer and never changes for this world.
+var town_map: bool = false
+
 var _lots_loaded: int = 0
 var _lot_swap_serial: int = 0
 var _bag_serial: int = 0
+## The town house whose yard the job site sits on, or -1 (legacy, or no site placed).
+var _job_site_house: int = -1
 
 
 func _ready() -> void:
@@ -168,6 +175,48 @@ func _add_curb(zone: Node3D) -> void:
 		shape_node.position = span["at"]
 		curb.add_child(shape_node)
 
+
+
+## Every peer. The connected town is being built in steps (driving chunks A to I);
+## until then it plays like the legacy world with zones that can be walked into.
+func is_town_map() -> bool:
+	return town_map
+
+
+## Every peer. Moves the one job site (LotZone, and everything yard-relative with
+## it) onto a town house's yard, before that yard's lot loads. Yards are never
+## rotated: site's basis stays the identity and the yard faces +Z. A no-op in
+## the legacy world, where LotZone keeps its place.
+func place_job_site(site: Transform3D, house_id: int) -> void:
+	if not town_map:
+		return
+	_job_site_house = house_id
+	var zone := $LotZone as Node3D
+	zone.global_transform = Transform3D(Basis.IDENTITY, site.origin)
+	zone.reset_physics_interpolation()
+	# Driving chunks B and E: TownColliders and TownStreamer hide house_id's slot here.
+
+
+## The town house the job site was placed on, or -1.
+func job_site_house() -> int:
+	return _job_site_house
+
+
+## Host. Whether a player may be sent into zone by request (Net._apply_zone_request:
+## the debug gates and bots). TOWN only exists in the connected town; there the
+## LOT needs a loaded yard, or an automated or bot session, which gets one on demand.
+func can_enter_zone(zone: Net.Zone) -> bool:
+	match zone:
+		Net.Zone.STORE, Net.Zone.BORDER:
+			return true
+		Net.Zone.LOT:
+			if not town_map:
+				return true
+			return %LotSlot.get_child_count() > 0 or Net.is_automated() or bool(Net.dev_options().get("bot"))
+		Net.Zone.TOWN:
+			return town_map
+		_:
+			return false
 
 
 ## World position used when the host teleports a player into a zone.
@@ -470,7 +519,9 @@ func _on_zone_changed(_peer_id: int, zone: Net.Zone) -> void:
 	# Only for test and dev paths; in play, the yard comes with Chefty, and a
 	# straggler back from the border with no yard left goes to the store
 	# (net/border_return.gd).
-	if Net.is_host() and Net.is_automated() and zone == Net.Zone.LOT and %LotSlot.get_child_count() == 0:
+	# In the connected town, bot sessions get theirs on demand too (can_enter_zone).
+	var on_demand := Net.is_automated() or (town_map and bool(Net.dev_options().get("bot")))
+	if Net.is_host() and on_demand and zone == Net.Zone.LOT and %LotSlot.get_child_count() == 0:
 		_load_job_lot()
 
 
@@ -503,5 +554,6 @@ func _spawn_points(zone: Net.Zone) -> Node3D:
 			return %LotSpawnPoints
 		Net.Zone.BORDER:
 			return %BorderSpawnPoints
+		# STORE, and TOWN until driving chunk B gives the town its own respawn points.
 		_:
 			return %StoreSpawnPoints

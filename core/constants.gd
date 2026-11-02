@@ -649,3 +649,10 @@ const PAY_CREWMATE_STEPS: Array[int] = [20, 100]
 ## A workbook quip (ui/quip_player.gd) waits this long before it can play again.
 ## Moved from ui/strings.gd; the workbook's cooldown minutes are still open.
 const QUIP_COOLDOWN_SECONDS: float = 90.0
+
+
+# ---- driving
+## The connected town (docs/DECISIONS.md 2026-11-01): the host builds the town map
+## when true, and the legacy separate zones when false. --town-map and --legacy-map
+## override it. False until the cut-over (driving chunk H).
+const TOWN_MAP_DEFAULT: bool = false
