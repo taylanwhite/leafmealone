@@ -102,6 +102,9 @@ var last_render: Dictionary = {}
 var last_display: Dictionary = {}
 
 var _values: Dictionary = {}
+## What the file should hold: _values minus anything last set with persist false
+## (a slider preview, a display mode waiting for "Keep"). save_now writes this.
+var _stored: Dictionary = {}
 ## action (String) -> PackedStringArray of Constants.BINDING_SLOTS codes.
 var _slots: Dictionary = {}
 var _default_slots: Dictionary = {}
@@ -122,6 +125,8 @@ func _ready() -> void:
 	add_child(_save_timer)
 	_load()
 	_apply_all()
+	# A crouch toggled in a menu or the last session doesn't carry into the next.
+	Net.state_changed.connect(func(_state: Variant) -> void: release_toggles())
 
 
 func _notification(what: int) -> void:
@@ -153,8 +158,19 @@ func get_value(section: String, key: String) -> Variant:
 	return (DEFAULTS.get(section, {}) as Dictionary).get(key)
 
 
+## The value the file holds (or will hold at the next save) for section/key. A
+## value set with persist false reads its old, saved value here until a
+## persisted set; a revert is set_value(section, key, saved_value(...), false).
+func saved_value(section: String, key: String) -> Variant:
+	var table: Dictionary = _stored.get(section, {})
+	if table.has(key):
+		return table[key]
+	return (DEFAULTS.get(section, {}) as Dictionary).get(key)
+
+
 ## Sets one value, clamped to its range, and applies only what it affects.
-## persist false changes it for this run without saving.
+## persist false changes it for this run only: no later save writes it, until
+## the same key is set again with persist true (or its section is reset).
 func set_value(section: String, key: String, value: Variant, persist := true) -> void:
 	if not DEFAULTS.has(section) or not (DEFAULTS[section] as Dictionary).has(key):
 		push_warning("[Settings] no setting %s/%s" % [section, key])
@@ -162,12 +178,16 @@ func set_value(section: String, key: String, value: Variant, persist := true) ->
 	var clean: Variant = _coerce(section, key, value)
 	var old: Variant = get_value(section, key)
 	(_values[section] as Dictionary)[key] = clean
-	if section == "video" and key != "preset":
-		_note_custom(key, clean)
+	if section == "video" and key != "preset" and _goes_custom(_values["video"], key, clean):
+		_values["video"]["preset"] = "custom"
+		changed.emit(&"video", &"preset", "custom")
 	_apply(section, key)
 	if typeof(old) != typeof(clean) or old != clean:
 		changed.emit(StringName(section), StringName(key), clean)
 	if persist:
+		(_stored[section] as Dictionary)[key] = clean
+		if section == "video" and key != "preset" and _goes_custom(_stored["video"], key, clean):
+			_stored["video"]["preset"] = "custom"
 		_mark_dirty()
 
 
@@ -184,6 +204,7 @@ func reset_section(section: String) -> void:
 		(_values[section] as Dictionary)[key] = value
 		if old != value:
 			changed.emit(StringName(section), StringName(key), value)
+	_stored[section] = (DEFAULTS[section] as Dictionary).duplicate(true)
 	_apply_section(section)
 	_mark_dirty()
 
@@ -194,11 +215,14 @@ func apply_preset(preset_name: String) -> bool:
 		return false
 	var preset: Dictionary = Constants.GRAPHICS_PRESETS[preset_name]
 	var video: Dictionary = _values["video"]
+	var stored: Dictionary = _stored["video"]
 	for key: String in preset:
 		var clean: Variant = _coerce("video", key, preset[key])
+		stored[key] = clean
 		if video[key] != clean:
 			video[key] = clean
 			changed.emit(&"video", StringName(key), clean)
+	stored["preset"] = preset_name
 	if video["preset"] != preset_name:
 		video["preset"] = preset_name
 		changed.emit(&"video", &"preset", preset_name)
@@ -213,7 +237,7 @@ func save_now() -> Error:
 	file.set_value("meta", "version", FILE_VERSION)
 	for section: String in DEFAULTS:
 		for key: String in DEFAULTS[section]:
-			file.set_value(section, key, get_value(section, key))
+			file.set_value(section, key, saved_value(section, key))
 	# Only the bindings that differ from the project's, so a changed default
 	# still reaches players who never touched that action.
 	for action: String in _slots:
@@ -281,6 +305,13 @@ func _input(event: InputEvent) -> void:
 		_latched[action] = not bool(_latched[action])
 
 
+## Unlatches toggle sprint and crouch. Called when the session state changes and
+## when the local player spawns (player/player.gd).
+func release_toggles() -> void:
+	for action: String in _latched:
+		_latched[action] = false
+
+
 func _toggle_key(action: StringName) -> String:
 	if action == &"sprint":
 		return "toggle_sprint"
@@ -305,6 +336,11 @@ func rebindable_actions() -> Array[StringName]:
 			continue
 		actions.append(action)
 	return actions
+
+
+## Whether Settings keeps slots for action (core/input_labels.gd asks).
+func has_slots(action: StringName) -> bool:
+	return _slots.has(String(action))
 
 
 ## The code in one of action's slots ("" when empty).
@@ -482,8 +518,9 @@ func _bound_count(action: StringName) -> int:
 
 
 ## The actions in winners keep their codes; any other action holding one of them
-## loses it (pause falls back to its default if it would end up empty). Returns
-## the actions that changed.
+## loses it. Pause falls back to its default keys if it would end up empty, and
+## those keys then come off every other action, winners included (pause always
+## keeps a key). Returns the actions that changed.
 func _drop_conflicts(winners: Array) -> Array[StringName]:
 	var taken: Dictionary = {}
 	for action: String in winners:
@@ -502,6 +539,20 @@ func _drop_conflicts(winners: Array) -> Array[StringName]:
 					touched.append(StringName(action))
 	if _bound_count(&"pause") == 0 and _default_slots.has("pause"):
 		_slots["pause"] = (_default_slots["pause"] as PackedStringArray).duplicate()
+		if not touched.has(&"pause"):
+			touched.append(&"pause")
+		for code: String in _slots["pause"]:
+			if code == "":
+				continue
+			for action: String in _slots:
+				if action == "pause":
+					continue
+				var codes: PackedStringArray = _slots[action]
+				var index := codes.find(code)
+				if index >= 0:
+					_set_code(action, index, "")
+					if not touched.has(StringName(action)):
+						touched.append(StringName(action))
 	return touched
 
 
@@ -540,6 +591,11 @@ func _apply_bindings(actions: Array) -> void:
 # ---------------------------------------------------------------- file
 
 func _load() -> void:
+	_read_file()
+	_stored = _values.duplicate(true)
+
+
+func _read_file() -> void:
 	_values = DEFAULTS.duplicate(true)
 	_slots = {}
 	for action: String in _default_slots:
@@ -571,7 +627,10 @@ func _load() -> void:
 				codes.append(event_to_code(event) if event != null else "")
 			_slots[action] = codes
 			overridden.append(action)
-	_drop_conflicts(overridden)
+	# One at a time, so two saved actions on one key (a hand-edited file) can't
+	# both keep it: the later one wins.
+	for action: String in overridden:
+		_drop_conflicts([action])
 
 
 func _mark_dirty() -> void:
@@ -644,16 +703,14 @@ func _int_max(key: String) -> int:
 	return 0
 
 
-## A video key a preset sets, changed by hand, makes the preset "custom".
-func _note_custom(key: String, value: Variant) -> void:
-	var video: Dictionary = _values["video"]
+## Whether a video key a preset sets, changed by hand to value, makes video's
+## (a _values or _stored table) preset "custom".
+func _goes_custom(video: Dictionary, key: String, value: Variant) -> bool:
 	var current := str(video["preset"])
 	if current == "custom" or not Constants.GRAPHICS_PRESETS.has(current):
-		return
+		return false
 	var preset: Dictionary = Constants.GRAPHICS_PRESETS[current]
-	if preset.has(key) and _coerce("video", key, preset[key]) != value:
-		video["preset"] = "custom"
-		changed.emit(&"video", &"preset", "custom")
+	return preset.has(key) and _coerce("video", key, preset[key]) != value
 
 
 # ---------------------------------------------------------------- applying
@@ -670,7 +727,7 @@ func _apply_section(section: String) -> void:
 			_apply_audio()
 			_apply_voice_mode()
 		"controls":
-			_latched = {"sprint": false, "crouch": false}
+			release_toggles()
 		"video":
 			_apply_video()
 		"interface":

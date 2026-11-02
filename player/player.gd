@@ -120,6 +120,9 @@ func _ready() -> void:
 		Net.speaking_changed.connect(_on_speaking_changed)
 	if not is_multiplayer_authority():
 		_attach_voice()
+	else:
+		# A toggle crouch tapped before this body existed doesn't spawn it crouched.
+		Settings.release_toggles()
 	_dress_up()
 	_apply_presentation()
 

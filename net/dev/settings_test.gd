@@ -10,13 +10,18 @@ extends Node
 ##   volumes      a volume sets its bus in decibels; 0 mutes it, 1 unmutes it
 ##   routing      bags play on Sfx, babble and the player's mouth on Chatter
 ##   look         sensitivity and invert Y turn mouse motion into yaw and pitch
+##                (headless can't capture the mouse, so there the motion goes
+##                straight into player._look and _unhandled_input isn't exercised;
+##                a windowed run takes the real path)
 ##   fov          a new field of view reaches both cameras at once
 ##   bindings     rebinding, swapping on conflict, mouse and wheel bindings, the
-##                wheel refused for held actions, pause never left unbound, reset
+##                wheel refused for held actions, pause never left unbound (also
+##                when a reset strips it), per-slot labels, reset
 ##   toggle       toggle crouch latches on a press and off on the next
-##   persistence  saved values and bindings come back on reload; unsaved ones don't
+##   persistence  saved values and bindings come back on reload; unsaved ones don't,
+##                and a persist-false value never reaches the file via another save
 ##   migration    an old file with only [audio] music keeps it, and gets a version
-##   corrupt      an unreadable file loads defaults without a crash
+##   corrupt      an empty-parsing and an unparseable file both load defaults
 ##   interface    UI scale, caption size, voice mode, the music key, clamping, presets
 ## The checks for graphics (settings:2), the window (settings:3) and key tokens in
 ## every string (settings:4) join later. Each step prints a [SettingsTest] line.
@@ -25,6 +30,7 @@ extends Node
 const _Buses = preload("res://audio/buses.gd")
 const _Bank = preload("res://audio/sound_bank.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _InputLabels = preload("res://core/input_labels.gd")
 ## How long the test waits for the session, the world and the player.
 const START_TIMEOUT_SECONDS: float = 30.0
 ## How close a measured angle or volume has to be.
@@ -262,9 +268,24 @@ func _bindings(defaults: Dictionary) -> bool:
 	r = Settings.bind(&"sprint", 0, "mouse:%d" % MOUSE_BUTTON_WHEEL_DOWN)
 	if bool(r["ok"]) or str(r["notice"]) == "" or _codes(&"sprint") != sprint_before:
 		ok = _fail("bindings", "the wheel bound sprint: %s" % r)
+	# An explicit slot's label is that Settings slot, even with slot 0 emptied.
+	Settings.clear_binding(&"jump", 0)
+	var mouse_4 := _InputLabels.event_label(_mouse_event(MOUSE_BUTTON_XBUTTON1))
+	if _InputLabels.label(&"jump", 0) != _Strings.UI["key_unbound"] or _InputLabels.label(&"jump", 1) != mouse_4 or Settings.key_label(&"jump", 1) != mouse_4 or _InputLabels.label(&"jump") != mouse_4:
+		ok = _fail("bindings", "jump labels: slot 0 %s, slot 1 %s, first %s" % [_InputLabels.label(&"jump", 0), _InputLabels.label(&"jump", 1), _InputLabels.label(&"jump")])
 	r = Settings.clear_binding(&"pause", 0)
 	if bool(r["ok"]) or Settings.binding(&"pause", 0) == "":
 		ok = _fail("bindings", "pause lost its last key: %s" % r)
+	# Pause gets its default back when a reset strips it, and that key leaves
+	# whoever had taken it, so no key is on two actions.
+	Settings.reset_bindings()
+	var escape := Settings.default_binding(&"pause", 0)
+	Settings.bind(&"pause", 0, "key:%d" % KEY_E)
+	Settings.bind(&"take", 0, escape)
+	Settings.reset_action(&"interact")
+	var shared := _shared_codes()
+	if Settings.binding(&"pause", 0) != escape or not shared.is_empty() or InputMap.event_is_action(Settings.code_to_event(escape), &"take"):
+		ok = _fail("bindings", "after the pause reset: pause %s, take %s, shared %s" % [Settings.binding(&"pause", 0), Settings.binding(&"take", 0), shared])
 	print("[SettingsTest] interact reads %s, take %s; refusals: %s" % [Settings.key_label(&"interact"), Settings.key_label(&"take"), r["notice"]])
 	Settings.reset_bindings()
 	if Settings.binding(&"interact", 0) != "key:%d" % KEY_E or Settings.binding(&"take", 0) != "key:%d" % KEY_F:
@@ -314,6 +335,24 @@ func _persistence() -> bool:
 		ok = _fail("persistence", "file has sensitivity %s, interact %s" % [file.get_value("controls", "sensitivity", null), saved_keys])
 	if file.has_section_key("keys", "take"):
 		ok = _fail("persistence", "an untouched action was written")
+	# A value set with persist false stays out of the file, even when another
+	# key's save writes it (a slider preview, a display mode awaiting "Keep").
+	Settings.set_value("controls", "fov", 90.0, false)
+	Settings.set_value("video", "shadows", 2, false)
+	Settings.set_value("controls", "invert_y", true)
+	Settings.save_now()
+	file = ConfigFile.new()
+	file.load(Settings.path())
+	if not is_equal_approx(float(file.get_value("controls", "fov", 0.0)), Constants.FOV_DEFAULT) or int(file.get_value("video", "shadows", -1)) != 3 or str(file.get_value("video", "preset", "")) != "high" or not bool(file.get_value("controls", "invert_y", false)):
+		ok = _fail("persistence", "a transient value reached the file: fov %s, shadows %s, preset %s, invert %s" % [file.get_value("controls", "fov", null), file.get_value("video", "shadows", null), file.get_value("video", "preset", null), file.get_value("controls", "invert_y", null)])
+	if not is_equal_approx(Settings.fov(), 90.0) or not is_equal_approx(float(Settings.saved_value("controls", "fov")), Constants.FOV_DEFAULT) or str(Settings.get_value("video", "preset")) != "custom":
+		ok = _fail("persistence", "live fov %s, saved fov %s, live preset %s" % [Settings.fov(), Settings.saved_value("controls", "fov"), Settings.get_value("video", "preset")])
+	Settings.set_value("controls", "fov", 90.0)
+	Settings.save_now()
+	file = ConfigFile.new()
+	file.load(Settings.path())
+	if not is_equal_approx(float(file.get_value("controls", "fov", 0.0)), 90.0):
+		ok = _fail("persistence", "fov set again with persist didn't save: %s" % file.get_value("controls", "fov", null))
 	Settings.set_value("controls", "sensitivity", 0.5, false)
 	Settings.bind(&"interact", 0, "key:%d" % KEY_T)
 	Settings.reload()
@@ -323,6 +362,7 @@ func _persistence() -> bool:
 		ok = _fail("persistence", "reload didn't bring R back to interact")
 	Settings.reset_bindings()
 	Settings.reset_section("controls")
+	Settings.reset_section("video")
 	Settings.save_now()
 	return ok
 
@@ -346,10 +386,21 @@ func _migration() -> bool:
 func _corrupt(defaults: Dictionary) -> bool:
 	var ok := true
 	Settings.save_now()
+	# ConfigFile reads "garbage{{" as an empty file: defaults by the normal path.
 	_write("garbage{{")
 	Settings.reload()
 	if not bool(Settings.get_value("audio", "music")) or str(Settings.get_value("video", "preset")) != "high" or _snapshot_bindings() != defaults:
-		ok = _fail("corrupt", "a broken file didn't give defaults")
+		ok = _fail("corrupt", "a garbage file didn't give defaults")
+	# This one fails to parse, so it takes the unreadable-file path, and the
+	# sensitivity before the bad line must not leak through.
+	print("[SettingsTest] the next two ConfigFile parse errors are expected")
+	_write("[controls]\nsensitivity=2.0\n[audio]\nmusic=@@@\n")
+	var probe := ConfigFile.new()
+	if probe.load(Settings.path()) == OK:
+		ok = _fail("corrupt", "the unparseable file parsed, so the unreadable path isn't tested")
+	Settings.reload()
+	if not bool(Settings.get_value("audio", "music")) or not is_equal_approx(float(Settings.get_value("controls", "sensitivity")), 1.0) or _snapshot_bindings() != defaults:
+		ok = _fail("corrupt", "an unparseable file gave music %s, sensitivity %s" % [Settings.get_value("audio", "music"), Settings.get_value("controls", "sensitivity")])
 	return ok
 
 
@@ -404,6 +455,18 @@ func _cameras(me: Node3D) -> Array[Camera3D]:
 		if camera != null:
 			cameras.append(camera)
 	return cameras
+
+
+## Codes bound to more than one rebindable action in the InputMap.
+func _shared_codes() -> Array[String]:
+	var owner: Dictionary = {}
+	var shared: Array[String] = []
+	for action: StringName in Settings.rebindable_actions():
+		for code: String in _codes(action):
+			if owner.has(code) and owner[code] != action and not shared.has(code):
+				shared.append(code)
+			owner[code] = action
+	return shared
 
 
 ## Every rebindable action's key and mouse codes, as the InputMap has them now.
