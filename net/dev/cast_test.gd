@@ -30,7 +30,8 @@ extends Node
 ##  W7. the homeowner's reaction pool (homeowner.gd choose_pool, a seeded rng): their
 ##      personality's voice, bill_water and breakage bills as often as Constants says
 ## Phase A, the inline sweep's follow-ups (cast:3, host):
-##  Q2. the border crossing answers is_thrown_back(), which the quip player reads
+##  Q2. the border crossing answers is_thrown_back() (true only while running and
+##      thrown back), and a quip player watching it plays border_fail once per throw
 ##  Q3. season names, and neighborhood and personality blurbs, read from Strings
 ##  Q1. (in phase C) the director's status is the Strings text, and the quip player
 ##      plays its run_warning and crew_arrival (Q-009) lines from the phase number
@@ -677,6 +678,8 @@ func _wiring() -> void:
 	# instead of matching its status text.
 	var crossing := get_tree().get_first_node_in_group("border_return")
 	_wire(crossing != null and crossing.has_method("is_thrown_back") and not bool(crossing.call("is_thrown_back")), "Q2 the border crossing says is_thrown_back() (false with nobody crossing)")
+	if crossing != null and crossing.has_method("is_thrown_back"):
+		_throwback(crossing)
 	# Q3 (cast:3): text that moved out of game code reads the same through its new home.
 	_wire(_Seasons.name_of(0) == _Strings.SEASON_NAMES[0] and _Seasons.name_of(5) == _Strings.SEASON_NAMES[1], "Q3 Seasons.name_of() reads Strings.SEASON_NAMES")
 	for hood: Dictionary in _Hoods.HOODS:
@@ -685,6 +688,37 @@ func _wiring() -> void:
 		_wire(not (_Hoods.PERSONALITIES[personality] as Dictionary).has("blurb"), "Q3 %s's blurb lives in Strings.PERSONALITY_BLURBS" % personality)
 	_homeowner_pools()
 	print("[CastTest] steps W1-W5 and W7, the lines in the game: %s" % (_problems.size() == before))
+
+
+## Q2 (cast:3): is_thrown_back() is true only while the local player is running
+## and was thrown back, and a quip player watching it plays the border_fail line
+## once per throw. Done in one frame on the real crossing, whose state is put back
+## before its _process can see it.
+func _throwback(crossing: Node) -> void:
+	var saved := {}
+	for field: String in ["_running", "_local_done", "_threw_back"]:
+		saved[field] = crossing.get(field)
+	crossing.set("_running", true)
+	crossing.set("_local_done", false)
+	crossing.set("_threw_back", true)
+	_wire(bool(crossing.call("is_thrown_back")), "Q2 is_thrown_back() is true while running and thrown back")
+	var quips: Node = _QuipPlayer.new()
+	quips.name = "CastThrowQuips"
+	add_child(quips)
+	quips.call("_watch_throwback")
+	quips.call("_watch_throwback")
+	var id := _quip_id("border_fail")
+	var played: Dictionary = quips.get("_played")
+	_wire(id != "" and int(played.get(id, 0)) == 1, "Q2 a throw-back plays the border_fail quip (%s) once; played: %s" % [id, JSON.stringify(played)])
+	crossing.set("_local_done", true)
+	_wire(not bool(crossing.call("is_thrown_back")), "Q2 is_thrown_back() is false once the local player is done")
+	crossing.set("_local_done", false)
+	crossing.set("_threw_back", false)
+	_wire(not bool(crossing.call("is_thrown_back")), "Q2 is_thrown_back() is false while running without a throw-back")
+	for field: String in saved:
+		crossing.set(field, saved[field])
+	remove_child(quips)
+	quips.queue_free()
 
 
 ## Step W7: the homeowner's reaction pool (npcs/homeowner.gd choose_pool), rolled
