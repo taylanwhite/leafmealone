@@ -153,7 +153,7 @@ static func choose_tasks(rng: RandomNumberGenerator, size: int = 1) -> PackedStr
 		return chosen_tasks
 	var count := rng.randi_range(Constants.JOB_EXTRA_TASKS.x, Constants.JOB_EXTRA_TASKS.y) + int(Constants.YARD_EXTRA_TASKS[size])
 	# Now and then one of them needs a tool the crew doesn't have yet.
-	var wants_unowned := rng.randf() < 0.3
+	var wants_unowned := rng.randf() < Constants.JOB_UNOWNED_TASK_CHANCE
 	var pick_unowned := rng.randi()
 	if wants_unowned and not unowned.is_empty():
 		chosen_tasks.append(unowned[pick_unowned % unowned.size()])

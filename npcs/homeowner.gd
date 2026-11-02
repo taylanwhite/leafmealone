@@ -21,9 +21,6 @@ const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
 const REACT_SECONDS: float = 2.6
 const CAPTION_SECONDS: float = 8.0
-## The share of a fresh-looking yard that counts as clean.
-const CLEAN_ENOUGH: float = 0.85
-const MESSY_BELOW: float = 0.5
 ## Gesture, sound, and face for each mood.
 const STAGING: Dictionary = {
 	"thrilled": {"gesture": "cheer", "sound": "vo_ah", "mood": "raised"},
@@ -240,8 +237,8 @@ func _judge(value: int) -> String:
 	var field := get_tree().get_first_node_in_group("leaf_field")
 	# Picky owners want it cleaner before they're happy, and call it a mess sooner.
 	var standards := _standards()
-	var clean_enough := clampf(CLEAN_ENOUGH + (standards - 0.3) * 0.25, 0.7, 0.97)
-	var messy_below := clampf(MESSY_BELOW + (standards - 0.3) * 0.3, 0.3, 0.75)
+	var clean_enough := clampf(Constants.HOMEOWNER_CLEAN_ENOUGH + (standards - 0.3) * Constants.HOMEOWNER_STANDARDS_CLEAN_SLOPE, 0.7, 0.97)
+	var messy_below := clampf(Constants.HOMEOWNER_MESSY_BELOW + (standards - 0.3) * Constants.HOMEOWNER_STANDARDS_MESSY_SLOPE, 0.3, 0.75)
 	# How done the whole job is: the leaves and every task asked for, weighed alike.
 	var clean := float(field.call("cleaned_fraction")) if field != null else 0.0
 	var tasks := get_tree().get_first_node_in_group("job_tasks")
@@ -264,9 +261,9 @@ func _judge(value: int) -> String:
 	elif slow:
 		mood = "slow"
 	elif clean >= clean_enough:
-		mood = "thrilled" if _rng.randf() < 0.6 else "happy"
+		mood = "thrilled" if _rng.randf() < Constants.HOMEOWNER_THRILLED_CHANCE else "happy"
 	else:
-		mood = "happy" if _rng.randf() < 0.5 else "fine"
+		mood = "happy" if _rng.randf() < Constants.HOMEOWNER_HAPPY_CHANCE else "fine"
 	# Some days people are just in a mood, either way.
 	var roll := _rng.randf()
 	if roll < 0.12:

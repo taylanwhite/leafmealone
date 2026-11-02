@@ -100,14 +100,14 @@ func _items() -> Array[Dictionary]:
 			"id": Campaign.RAKE_UPGRADE,
 			"name": _Strings.UI["shop_rake_name"],
 			"blurb": _Strings.UI["shop_rake_blurb"] % Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER,
-			"price": Balance.BASELINE_TIER_1_TOOL_COST,
+			"price": Campaign.price_of(Campaign.RAKE_UPGRADE),
 			"color": Color(0.85, 0.55, 0.25),
 		},
 		{
 			"id": Campaign.WHEELBARROW_UPGRADE,
 			"name": _Strings.UI["shop_barrow_name"],
 			"blurb": _Strings.UI["shop_barrow_blurb"] % [Constants.WHEELBARROW_UPGRADED_BAG_CAPACITY, Constants.WHEELBARROW_BAG_CAPACITY],
-			"price": Balance.BASELINE_TIER_1_TOOL_COST,
+			"price": Campaign.price_of(Campaign.WHEELBARROW_UPGRADE),
 			"color": Color(0.55, 0.22, 0.18),
 		},
 	])

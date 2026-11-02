@@ -436,8 +436,8 @@ func _shape_leaves(lot: Node3D) -> void:
 	for tree: Vector3 in _trees:
 		trees.append(to_global(tree))
 	var house := _house_rect
-	var spread := _rng.randf_range(4.5, 6.5)
-	var base := _rng.randf_range(0.45, 0.75) * float(Constants.YARD_LEAVES[_size])
+	var spread := _rng.randf_range(Constants.YARD_TREE_SPREAD.x, Constants.YARD_TREE_SPREAD.y)
+	var base := _rng.randf_range(Constants.YARD_LEAF_BASE.x, Constants.YARD_LEAF_BASE.y) * float(Constants.YARD_LEAVES[_size])
 	# A yard done recently has had less time to fill back up.
 	var grown := clampf(mess, 0.0, 1.5)
 	field.call("shape_initial", func(world: Vector3) -> float:
@@ -447,7 +447,7 @@ func _shape_leaves(lot: Node3D) -> void:
 		var amount := base
 		for tree: Vector3 in trees:
 			var distance := Vector2(world.x - tree.x, world.z - tree.z).length()
-			amount += 1.6 * exp(-distance * distance / (2.0 * spread * spread))
+			amount += Constants.YARD_TREE_LEAVES * exp(-distance * distance / (2.0 * spread * spread))
 		# None under the pool.
 		if _pool_at != Vector3.INF and Vector2(local.x - _pool_at.x, local.z - _pool_at.z).length() < POOL_RADIUS + 0.2:
 			return 0.0
@@ -457,7 +457,7 @@ func _shape_leaves(lot: Node3D) -> void:
 			return 0.0
 		if Rect2(-10.0, 12.0, 6.5, 7.0).has_point(Vector2(local.x, local.z)):
 			return 0.0
-		return clampf(amount * grown, 0.0, 2.6)
+		return clampf(amount * grown, 0.0, Constants.YARD_LEAF_CAP)
 	)
 
 
