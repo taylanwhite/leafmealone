@@ -265,6 +265,9 @@ function Start-Test($item) {
 	}
 	if ($name -eq 'guardrail') {
 		$item.HostProc = Start-Godot '--headless --path . --script res://tools/guardrail_check.gd' (Join-Path $dir 'host.log')
+		# A script error before quit() leaves headless Godot running; the guardrail has no
+		# --run-seconds ceiling of its own, so it gets a deadline here (Step-Test kills it).
+		$item.Deadline = $item.Started + 60
 		return
 	}
 	$t = $Tests[$name]
@@ -279,6 +282,11 @@ function Start-Test($item) {
 function Step-Test($item) {
 	# A host that already died has nothing to join; don't wait out a client's ceiling for it.
 	if ($item.ClientAt -and -not $item.ClientProc -and $item.HostProc.HasExited) { $item.ClientAt = $null }
+	if ($item.Deadline -and -not $item.HostProc.HasExited -and $Clock.Elapsed.TotalSeconds -ge $item.Deadline) {
+		try { $item.HostProc.Kill() } catch {}
+		$item.TimedOut = $true
+		$item.HostProc.WaitForExit(5000) | Out-Null
+	}
 	if ($item.ClientAt -and -not $item.ClientProc -and $Clock.Elapsed.TotalSeconds -ge $item.ClientAt) {
 		$t = $Tests[$item.Name]
 		$item.ClientProc = Start-Godot "--headless --path . -- --join=127.0.0.1 --port=$($item.Port) --name=Target --no-steam $($t.Extra) --measure=`"$($item.ClientJson)`" --run-seconds=$($t.Client)" (Join-Path $item.Dir 'target.log')
@@ -296,7 +304,8 @@ function Complete-Test($item) {
 	$ok = $false
 	$notes = @()
 	if ($name -eq 'smoke' -or $name -eq 'guardrail') {
-		$ok = ($item.HostProc.ExitCode -eq 0)
+		$ok = ($item.HostProc.ExitCode -eq 0) -and -not $item.TimedOut
+		if ($item.TimedOut) { $notes += "still running after $([math]::Round($item.Deadline - $item.Started)) s, killed (a script error before quit()?)" }
 		if ($name -eq 'guardrail' -and -not $ok) {
 			Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[Guardrail\] (HIT|self-check FAIL)' -ErrorAction SilentlyContinue |
 				Select-Object -First 10 | ForEach-Object { $notes += $_.Line }

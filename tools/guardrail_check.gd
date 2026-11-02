@@ -34,20 +34,24 @@ func _init() -> void:
 	failed = not problems.is_empty()
 	print("[Guardrail] self-check %s (%d patterns)" % ["ok" if problems.is_empty() else "FAIL", (_Guardrail.get("PATTERNS") as Array).size()])
 	var total := 0
+	var swept := 0
+	# A listed file that is gone (renamed or moved) is a hit: fix the list, don't skip it.
 	for path: String in SOURCES:
-		if not ResourceLoader.exists(path):
-			continue
-		var hits: Array = _Guardrail.call("sweep_script", path)
+		var hits: Array = ["%s: missing (update SOURCES in tools/guardrail_check.gd)" % path]
+		if ResourceLoader.exists(path):
+			hits = _Guardrail.call("sweep_script", path)
+			swept += 1
 		for hit: String in hits:
 			print("[Guardrail] HIT  %s" % hit)
 		total += hits.size()
 	for path: String in SOURCE_TEXT:
-		if not FileAccess.file_exists(path):
-			continue
-		var hits: Array = _Guardrail.call("sweep_source", path)
+		var hits: Array = ["%s: missing (update SOURCE_TEXT in tools/guardrail_check.gd)" % path]
+		if FileAccess.file_exists(path):
+			hits = _Guardrail.call("sweep_source", path)
+			swept += 1
 		for hit: String in hits:
 			print("[Guardrail] HIT  %s" % hit)
 		total += hits.size()
-	print("[Guardrail] sweep %s: %d hit(s) in %d file(s)" % ["ok" if total == 0 else "FAIL", total, SOURCES.size() + SOURCE_TEXT.size()])
+	print("[Guardrail] sweep %s: %d hit(s) in %d of %d file(s)" % ["ok" if total == 0 else "FAIL", total, swept, SOURCES.size() + SOURCE_TEXT.size()])
 	failed = failed or total > 0
 	quit(1 if failed else 0)

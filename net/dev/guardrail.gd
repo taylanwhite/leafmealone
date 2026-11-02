@@ -25,8 +25,8 @@ const PATTERNS: Array = [
 	# ---- Real agencies. The NICE BOYS are a made-up HOA-meets-parking-enforcement crew.
 	{"id": "agency", "re": "\\b(ICE|CBP|DHS|USCIS|HSI|ERO|FBI|DEA|ATF|IRS|INS|TSA)\\b",
 		"why": "a real agency's acronym"},
-	{"id": "agency", "re": "(?i)\\b(I\\.\\s?C\\.\\s?E|N\\.\\s?I\\.\\s?C\\.\\s?E)\\b",
-		"why": "a dotted acronym that spells ICE (N.I.C.E. included)"},
+	{"id": "agency", "re": "(?i)\\b(N[.\\s-]+)?I[.\\s-]+C[.\\s-]+E\\b",
+		"why": "a spelled-out acronym that spells ICE (I.C.E., I-C-E, N.I.C.E., N I C E)"},
 	{"id": "agency", "re": "(?i)\\bice\\s+(agents?|officers?|raids?|patrol|squads?|vans?|men|teams?|units?|enforcement|cream)\\b",
 		"why": "an 'ICE' pun ('ice cream' is the obvious trap)"},
 	{"id": "agency", "re": "(?i)\\b(immigra\\w*|emigra\\w*|homeland|border\\s+patrol|customs|border\\s+protection|la\\s+migra|migra|the\\s+feds|federal\\s+agents?)\\b",
@@ -62,7 +62,8 @@ const PATTERNS: Array = [
 ## Lines each pattern family must catch, and clean lines nothing may catch.
 ## self_check() runs both; tools/guardrail_check.gd prints the result.
 const SHOULD_HIT: Array = [
-	"ICE is on the way", "An I.C.E. van", "N.I.C.E. compliance", "Free ice cream truck",
+	"ICE is on the way", "An I.C.E. van", "N.I.C.E. compliance", "N-I-C-E", "I-C-E", "N I C E",
+	"N. I. C. E.", "Free ice cream truck",
 	"Homeland Security notice", "Call the police!", "Two cops and a sheriff", "Border Patrol",
 	"Customs paperwork", "the feds are here", "Illegally parked rake", "Show me your papers",
 	"Papers, please", "Deportation notice", "green card", "Go back where you came from", "Thanks, amigo",
@@ -120,11 +121,18 @@ static func sweep(value: Variant, path: String = "") -> Array:
 
 
 ## Sweeps every constant of a script (for example res://ui/strings.gd). Paths look
-## like "strings.gd:UI.cue_arrived".
+## like "strings.gd:UI.cue_arrived". A script that doesn't compile has no constants
+## to read, so it counts as a hit of its own (never a silent pass) and its string
+## literals are swept as text instead; move it to SOURCE_TEXT in
+## tools/guardrail_check.gd if it can only compile inside the game.
 static func sweep_script(script_path: String) -> Array:
 	var script: Script = load(script_path)
 	if script == null:
 		return ["%s: could not load" % script_path]
+	if not script.can_instantiate():
+		var fallback: Array = ["%s: did not compile, so its constants could not be swept (literals swept as text)" % script_path]
+		fallback.append_array(sweep_source(script_path))
+		return fallback
 	var hits: Array = []
 	var constants: Dictionary = script.get_script_constant_map()
 	for const_name: String in constants:
