@@ -24,6 +24,7 @@ const ENET_THROTTLE_INTERVAL_MS: int = 5000
 const _CommandLineScript = preload("res://net/command_line.gd")
 const _ClockSyncScript = preload("res://net/clock_sync.gd")
 const _LinkPeerScript = preload("res://net/dev/link_peer.gd")
+const _Strings = preload("res://ui/strings.gd")
 
 var _state: State = State.OFFLINE
 var _transport: Transport = Transport.ENET
@@ -427,7 +428,7 @@ func steam_available() -> bool:
 ## Why the Steam host button is disabled, or empty when Steam is ready.
 func steam_unavailable_reason() -> String:
 	if _steam == null:
-		return "Steam is not running"
+		return _Strings.UI["end_steam_not_running"]
 	return str(_steam.get("unavailable_reason"))
 
 
@@ -460,7 +461,7 @@ func complete_steam_join() -> void:
 
 ## Called by SteamBridge when lobby setup fails.
 func abandon_steam_lobby() -> void:
-	_shutdown("Steam lobby failed")
+	_shutdown(_Strings.UI["end_steam_lobby_failed"])
 
 
 ## Called by the session when a replicated or local world is in the tree.
@@ -501,7 +502,7 @@ func _initial_zone() -> Zone:
 func _resolved_name(peer_id: int) -> String:
 	if _local_name != "":
 		return _local_name
-	return "Player %d" % peer_id
+	return _Strings.UI["player_unnamed"] % peer_id
 
 
 func _add_player(peer_id: int, display_name: String, steam_id: int, zone: Zone) -> void:
@@ -617,11 +618,11 @@ func _on_connected_to_server() -> void:
 
 
 func _on_connection_failed() -> void:
-	_shutdown("Connection failed")
+	_shutdown(_Strings.UI["end_connection_failed"])
 
 
 func _on_server_disconnected() -> void:
-	_shutdown("Host left")
+	_shutdown(_Strings.UI["end_host_left"])
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -630,10 +631,10 @@ func _rpc_hello(build_version: String, display_name: String) -> void:
 		return
 	var sender := multiplayer.get_remote_sender_id()
 	if build_version != Constants.BUILD_VERSION:
-		_rpc_rejected.rpc_id(sender, "Version mismatch")
+		_rpc_rejected.rpc_id(sender, _Strings.UI["end_version_mismatch"])
 		multiplayer.multiplayer_peer.disconnect_peer(sender)
 		return
-	var resolved := display_name if display_name != "" else "Player %d" % sender
+	var resolved := display_name if display_name != "" else _Strings.UI["player_unnamed"] % sender
 	var steam_id := 0
 	if _steam != null:
 		steam_id = int(_steam.call("steam_id_for_peer", sender))

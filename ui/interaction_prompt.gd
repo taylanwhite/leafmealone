@@ -1,7 +1,7 @@
 extends Node
 
 ## Authority: local, cosmetic. One small "[E]  Hide"-style prompt floating over
-## whatever E would act on right now (docs/FEEL.md, "How characters play"), in
+## whatever interact would act on right now (docs/FEEL.md, "How characters play"), in
 ## place of instructions in the HUD. The local player decides first
 ## (player.gd interaction_hint), then anything in the "prompt_sources" group that
 ## the player is standing in (job posts, zone gates, the store clerk).
@@ -25,10 +25,21 @@ func _process(_delta: float) -> void:
 	if hint.is_empty():
 		_label.visible = false
 		return
-	# A hint marked "plain" is a notice, not an action, so it gets no key label.
-	_label.text = str(hint["text"]) if bool(hint.get("plain", false)) else _Strings.UI["prompt_format"] % str(hint["text"])
+	_label.text = text_for(hint)
 	_label.global_position = hint["at"]
 	_label.visible = true
+
+
+## What a hint reads as: "[E]  Hide", naming the player's own key. The hint's
+## optional "key" is the action that does it (interact when absent; a chauffeur
+## or shop prompt may name another, critic.md C8). A hint marked "plain" is a
+## notice, not an action, so it gets no key in front, but any {key:} tokens in
+## its text still name the player's keys.
+static func text_for(hint: Dictionary) -> String:
+	var text := str(hint.get("text", ""))
+	if not bool(hint.get("plain", false)):
+		text = _Strings.UI["prompt_format"] % [str(hint.get("key", "interact")), text]
+	return _Strings.keyed(text)
 
 
 func _current_hint() -> Dictionary:

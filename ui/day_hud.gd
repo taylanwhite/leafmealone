@@ -70,7 +70,7 @@ func _process(_delta: float) -> void:
 	var phone := get_tree().get_first_node_in_group("phone")
 	var unread := int(phone.call("unread")) if phone != null else 0
 	if unread > 0:
-		_note.text = (_Strings.UI["hud_unread"] % unread) + ("\n" + _note.text if _note.text != "" else "")
+		_note.text = _Strings.keyed(_Strings.UI["hud_unread"] % unread) +("\n" + _note.text if _note.text != "" else "")
 		_note.modulate = Color(1.0, 0.9, 0.6)
 
 

@@ -13,6 +13,10 @@ const _Strings = preload("res://ui/strings.gd")
 
 func _ready() -> void:
 	add_to_group("prompt_sources")
+	# The pad's painted sign (world.tscn keeps no words of its own).
+	var sign := get_node_or_null("Label") as Label3D
+	if sign != null:
+		sign.text = str(_Strings.UI.get("gate_sign_%s" % destination_zone, ""))
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 	collision_layer = 0

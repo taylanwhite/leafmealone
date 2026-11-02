@@ -18,11 +18,11 @@ const UI: Dictionary = {
 	"speaking_nameplate": "%s  (talking)",
 	"lobby_talking": "  talking",
 	"hud_talking": "Talking",
-	"hud_push_to_talk": "Hold V to talk",
+	"hud_push_to_talk": "Hold {key:push_to_talk} to talk",
 	"voice_button": "Voice",
 	"voice_title": "Voice chat",
 	"voice_unavailable": "Voice chat works in Steam sessions.",
-	"voice_mode_push": "Push to talk (hold V)",
+	"voice_mode_push": "Push to talk: hold {key:push_to_talk}",
 	"voice_mode_open": "Open mic (talks when it hears you)",
 	"voice_mute": "Mute",
 	"voice_close": "Close",
@@ -44,7 +44,7 @@ const UI: Dictionary = {
 	"status_crew_here": "The NICE BOYS are here",
 	"border_step_off": "Step off the van",
 	"border_thrown_back": "Thrown back",
-	"border_lanes": "Red bar blocks one side. Stand on the empty side. A and D move sideways. Exit in %d s.",
+	"border_lanes": "Red bar blocks one side. Stand on the empty side. {key:move_left} and {key:move_right} move sideways. Exit in %d s.",
 	"border_exit_open": "Exit is open. Walk to the green line.",
 	"border_exit_mark": "EXIT",
 	"border_hint": "Stand on the empty side of the red bar",
@@ -79,8 +79,8 @@ const UI: Dictionary = {
 	"hud_chefty_row": "Chefty %s bags",
 	# ---- end cast
 	"hide_taken": "Occupied",
-	"hud_hidden": "Hiding. E to come out.",
-	"prompt_format": "[E]  %s",
+	"hud_hidden": "Hiding. {key:interact} to come out.",
+	"prompt_format": "{key:%s}  %s",
 	"prompt_hide": "Hide",
 	"prompt_unhide": "Come out",
 	"prompt_load_bag": "Load the bag",
@@ -96,9 +96,9 @@ const UI: Dictionary = {
 	"heat_warn_0": "Curtains are twitching.",
 	"heat_warn_1": "Somebody's on the phone.",
 	"prompt_grab_player": "Grab %s",
-	"prompt_put_down_player": "Put %s down  (G throws them)",
+	"prompt_put_down_player": "Put %s down   {key:drop} throws them",
 	"hud_carried": "You're being carried. Mash keys to wriggle free!",
-	"hud_punch": "Hold left click to wind up a punch",
+	"hud_punch": "Hold {key:primary} to wind up a punch",
 	"board_title": "JOBS",
 	"board_house": "No. %d",
 	"board_size_0": "Small yard",
@@ -120,7 +120,7 @@ const UI: Dictionary = {
 	"prompt_gate_lot": "Go to the lot",
 	"prompt_gate_store": "Back to Homie Depot",
 	"prompt_gate_border": "Go to the border",
-	"hud_rake_hint": "Left click  rake leaves into a pile     Right click  bag them     Hold G  throw",
+	"hud_rake_hint": "{key:primary}  rake leaves into a pile     {key:secondary}  bag them     Hold {key:drop}  throw",
 	"shop_title": "Homie Depot",
 	"shop_subtitle": "Tools and upgrades",
 	"shop_credits": "Your cash: $%d",
@@ -151,9 +151,9 @@ const UI: Dictionary = {
 	"tool_pressure_washer": "Pressure washer",
 	"tool_hedge_trimmer": "Hedge trimmer",
 	"tool_paint_roller": "Paint roller",
-	"tool_blurb_leaf_blower": "Blasts leaves into piles way faster than raking. Hold left click.",
+	"tool_blurb_leaf_blower": "Blasts leaves into piles way faster than raking. Hold {key:primary}.",
 	"tool_blurb_lawn_mower": "Push it around to mow. Heavy, loud, satisfying.",
-	"tool_blurb_ladder": "Reach the gutters. Hold left click under one to scoop it out.",
+	"tool_blurb_ladder": "Reach the gutters. Hold {key:primary} under one to scoop it out.",
 	"tool_blurb_hose": "Spray dirty windows clean from across the yard.",
 	"tool_blurb_pressure_washer": "Blasts the grime off driveways.",
 	"tool_blurb_hedge_trimmer": "Turns shaggy hedges into neat ones.",
@@ -171,37 +171,37 @@ const UI: Dictionary = {
 	"task_line": "%s  %d%%",
 	"task_needs": "%s (needs a %s)",
 	"prompt_pick_litter": "Pick up",
-	"prompt_climb_up": "Climb up    F  take it down",
+	"prompt_climb_up": "Climb up    {key:take}  take it down",
 	"task_clear_roof": "Clear the leaves off the roof",
 	"task_skim_pool": "Scoop the leaves out of the pool",
 	"prompt_skim_pool": "Scoop out the leaves",
-	"goal_roof": "Hold left click to scoop the roof and gutters (W at the ladder's top steps onto the roof)",
-	"goal_mower_running": "Push it over the lawn. Left click stops it; let go and it drives off",
-	"goal_start_mower": "Left click to pull the cord and start it (pull again to stop it)",
-	"goal_dip_roller": "The roller's dry. E at the paint bucket to dip it",
+	"goal_roof": "Hold {key:primary} to scoop the roof and gutters ({key:move_forward} at the ladder's top steps onto the roof)",
+	"goal_mower_running": "Push it over the lawn. {key:primary} stops it; let go and it drives off",
+	"goal_start_mower": "{key:primary} to pull the cord and start it (pull again to stop it)",
+	"goal_dip_roller": "The roller's dry. {key:interact} at the paint bucket to dip it",
 	"prompt_dip": "Dip the roller",
 	"prompt_hook_chefty": "Hook the hose to Chefty's tank",
 	"prompt_hook_spigot": "Hook the hose to the house (they'll bill you)",
 	"prompt_hook_hydrant": "Hook the hose to the hydrant (uh oh)",
 	"prompt_unhook": "Unhook the hose",
 	"prompt_refill": "Fill the washer",
-	"goal_hook_hose": "Hook the hose up first: E at Chefty's tank, the house spigot, or a hydrant",
-	"goal_refill": "The washer's empty. E at a water source to fill it",
+	"goal_hook_hose": "Hook the hose up first: {key:interact} at Chefty's tank, the house spigot, or a hydrant",
+	"goal_refill": "The washer's empty. {key:interact} at a water source to fill it",
 	"goal_washer_tank": "Pressure wash the driveway (tank %d%%)",
 	"receipt_water": "Water from the house",
 	"receipt_bill_hose": "A new hose (you mowed it)",
 	"receipt_bill_gnome": "A new gnome (you mowed it)",
 	"receipt_bill_medical": "Medical bills",
 	"prompt_climb_down": "Climb down",
-	"goal_set_ladder": "Walk up to the house and left click under a gutter to set the ladder up",
-	"goal_gutters": "Hold left click to scoop the gutters (a leaf blower goes faster). W steps onto the roof",
+	"goal_set_ladder": "Walk up to the house and {key:primary} under a gutter to set the ladder up",
+	"goal_gutters": "Hold {key:primary} to scoop the gutters (a leaf blower goes faster). {key:move_forward} steps onto the roof",
 	"prompt_pull_weed": "Pull weed",
 	"goal_task": "Next: %s",
 	"receipt_task": "%s (%d%%)",
 	"goal_board": "Board Chefty to head to the job",
 	"goal_grab_rake": "Grab the rake",
-	"goal_rake": "Rake leaves into one big pile, then right click to bag it",
-	"goal_carry_held": "Carry the bag to Chefty and press E",
+	"goal_rake": "Rake leaves into one big pile, then {key:secondary} to bag it",
+	"goal_carry_held": "Carry the bag to Chefty and press {key:interact}",
 	"goal_carry_loose": "Carry the bags to Chefty (%d lying around)",
 	"goal_talk": "Talk to the homeowner to get paid ($%d in Chefty)",
 	"goal_rake_or_talk": "Grab the rake for more, or talk to the homeowner to get paid ($%d in Chefty)",
@@ -217,20 +217,20 @@ const UI: Dictionary = {
 	# The spine (docs/SPINE.md): the day, sleeping, the crew's rank, the town, the phone.
 	"prompt_cot": "Lie down  (%d of %d in bed)",
 	"prompt_cot_early": "Too early for bed (after 6 PM)",
-	"pile_value": "Pile: $%d  (right click)",
+	"pile_value": "Pile: $%d  {key:secondary}",
 	"pile_thin": "Pile's too thin to bag",
 	"prompt_cot_lying": "Zzz... %d of %d in bed. Move to get up",
-	"prompt_cot_host": "Zzz... %d of %d in bed. Hold E: everyone to bed",
+	"prompt_cot_host": "Zzz... %d of %d in bed. Hold {key:interact}: everyone to bed",
 	"camp_sign": "CREW CAMP\nmgmt. not responsible",
 	"hud_clock": "Day %d · %s  %s",
 	"hud_quiet_hours": "Quiet hours: +%d%% pay, noise draws more heat",
 	"hud_closed": "2 AM. Go to bed, the crew camp is by the side wall",
 	"hud_rank": "%s",
-	"hud_unread": "%d new texts  (Tab)",
+	"hud_unread": "%d new texts  {key:phone}",
 	"hud_xp": "%d / %d XP  (+%d tonight)",
-	"goal_no_jobs": "No jobs right now. Check your phone (Tab), or sleep it off at the crew camp",
+	"goal_no_jobs": "No jobs right now. Check your phone {key:phone}, or sleep it off at the crew camp",
 	"goal_sleep": "It's 2 AM. Sleep at the crew camp by the side wall",
-	"goal_texts": "You've got texts. Tab to read them, then pick a job at the board",
+	"goal_texts": "You've got texts. {key:phone} to read them, then pick a job at the board",
 	"board_client_line": "%s, %s",
 	"board_none": "Nobody's asked for a job yet. Wait for a text, or sleep on it.",
 	"receipt_bonus": "Night shift and rank bonus",
@@ -253,7 +253,7 @@ const UI: Dictionary = {
 	"phone_tab_clients": "Clients",
 	"phone_tab_map": "Map",
 	"phone_tab_crew": "Crew",
-	"phone_close": "Put it away (Tab)",
+	"phone_close": "Put it away  {key:phone}",
 	"phone_no_texts": "No texts yet.",
 	"phone_take_job": "Take it",
 	"phone_job_up_next": "Up next",
@@ -450,6 +450,34 @@ const UI: Dictionary = {
 	## The seat's own two keys, after the line above: prompt_swap_seat or
 	## prompt_too_fast, then prompt_get_out or prompt_bail_out.
 	"drive_hud_keys_seat": "{key:take} %s   {key:interact} %s",
+	# ---- settings:4: words that used to be written into scenes and net/ (the main
+	# menu in ui/ui_root.tscn, the world's signs in levels/world.tscn, net/net.gd's
+	# fallbacks and session-ended reasons). The menu's own labels and buttons:
+	"menu_title": "Leaf Me Alone",
+	"menu_name_placeholder": "Name",
+	"menu_host_steam": "Host on Steam",
+	"menu_address_placeholder": "Address",
+	"menu_join": "Join",
+	"menu_quit": "Quit",
+	"menu_connecting": "Connecting",
+	"menu_back": "Back",
+	"pause_leave": "Leave Session",
+	# Signs: the old board sign by Chefty (levels/job_post.gd; the floating prompt
+	# says it now, so the sign stays hidden) and the zone gates' pads (levels/zone_gate.gd).
+	"sign_board_chefty": "{key:interact} to board Chefty",
+	"gate_sign_lot": "To the lot",
+	"gate_sign_store": "Back to Homie Depot",
+	"gate_sign_border": "To the border",
+	# A player who joined without a name, by peer id (net/net.gd).
+	"player_unnamed": "Player %d",
+	# Why a session ended (net/net.gd, net/steam_bridge.gd), on the menu's ended screen.
+	"end_host_left": "Host left",
+	"end_connection_failed": "Connection failed",
+	"end_version_mismatch": "Version mismatch",
+	"end_steam_lobby_failed": "Steam lobby failed",
+	"end_steam_not_running": "Steam is not running",
+	"end_steam_skipped": "Steam is off for this run",
+	# ---- end settings:4
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -711,9 +739,9 @@ const SHOP_UI: Dictionary = {
 	"item_hedge_trimmer": "Hedge trimmer",
 	"item_pressure_washer": "Pressure washer",
 	"item_paint_roller": "Paint roller",
-	"item_blurb_leaf_blower": "Blasts leaves into piles way faster than raking. Hold left click.",
+	"item_blurb_leaf_blower": "Blasts leaves into piles way faster than raking. Hold {key:primary}.",
 	"item_blurb_lawn_mower": "Push it around to mow. Heavy, loud, satisfying.",
-	"item_blurb_ladder": "Reach the gutters. Hold left click under one to scoop it out.",
+	"item_blurb_ladder": "Reach the gutters. Hold {key:primary} under one to scoop it out.",
 	"item_blurb_hose": "Spray dirty windows clean from across the yard.",
 	"item_blurb_hedge_trimmer": "Turns shaggy hedges into neat ones.",
 	"item_blurb_pressure_washer": "Blasts the grime off driveways.",
@@ -929,7 +957,7 @@ const SHOP_UI: Dictionary = {
 	"prompt_vending": "Use the Snak-o-Matic",
 	"hud_out_of_bags": "Out of lawn bags. Homie Depot, the Snak-o-Matic, or your phone.",
 	"hud_out_of_gas": "Out of gas",
-	"goal_out_of_gas": "Out of gas. Hold the gas can and press E at the tool",
+	"goal_out_of_gas": "Out of gas. Hold the gas can and press {key:interact} at the tool",
 	# The red gas can that rides along with the tools (core/tool_tiers.gd can_label).
 	"prop_gas_can": "Gas can (%.1f gal)",
 	# Holding a gas can with nothing left in it.
@@ -1125,8 +1153,10 @@ static func shop_item_name(id: String) -> String:
 	return str(SHOP_UI.get("item_" + id, id))
 
 
+## A catalog item's blurb as a player reads it: its {key:} tokens name the
+## player's own keys ("Hold [Left click].").
 static func shop_item_blurb(id: String) -> String:
-	return str(SHOP_UI.get("item_blurb_" + id, ""))
+	return keyed(str(SHOP_UI.get("item_blurb_" + id, "")))
 
 
 ## What a prop kind is called, for the hotbar and pickup prompts: UI item_<kind>,
@@ -1389,7 +1419,7 @@ const TEXT_LINES: Dictionary = {
 	},
 	# From Marty (UI clerk_name): the first morning's welcome, and leads he passes on.
 	"clerk_intro": [
-		"Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. The cots by the side wall are yours after 6 PM. Tab to check your phone.",
+		"Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. The cots by the side wall are yours after 6 PM. {key:phone} to check your phone.",
 	],
 	"clerk_lead": [
 		"Somebody came by the store asking for a leaf crew. I gave them your number. You're welcome.",
@@ -1684,6 +1714,9 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/hud_chefty_amount": [2, 1],
 	"UI/hud_cleanup_row": [1, 1],
 	"UI/hud_chefty_row": [1, 1],
+	# settings:4: the prompt is "{key:<action>}  <what it does>".
+	"UI/prompt_format": [2, 1],
+	"UI/player_unnamed": [1, 1],
 }
 
 
@@ -1780,17 +1813,26 @@ const KEY_NAMES: Dictionary = {
 }
 
 
+## keyed()'s compiled token pattern (not a const: the string audits walk every const here).
+static var _key_tokens: RegEx
+
+
 ## Player-facing text names keys with {key:<action>} tokens, never a hard-coded
 ## letter, so a rebound key shows the player's own key (gap-specs/critic.md C4).
 ## keyed() gives plain text: {key:interact} becomes "[E]" (or "[R]" once rebound),
 ## from the live InputMap through core/input_labels.gd, and {icon:<id>} is
 ## removed (ui/icons.gd draws it as a picture). Static and autoload-free.
+## Display code calls it every frame (the goal line, the HUD, the prompt), so the
+## pattern is compiled once. The text it names is never cached: a rebinding shows
+## on the next frame.
 static func keyed(text: String) -> String:
 	if not text.contains("{"):
 		return text
 	# load, not preload: input_labels.gd preloads this script for its key names.
 	var labels: Script = load("res://core/input_labels.gd")
-	var tokens := RegEx.create_from_string("\\{(key|icon):([a-z0-9_]+)\\}")
+	if _key_tokens == null:
+		_key_tokens = RegEx.create_from_string("\\{(key|icon):([a-z0-9_]+)\\}")
+	var tokens := _key_tokens
 	var out := ""
 	var at := 0
 	for found: RegExMatch in tokens.search_all(text):

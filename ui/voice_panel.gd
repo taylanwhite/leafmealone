@@ -28,7 +28,7 @@ func _ready() -> void:
 	_unavailable.text = _Strings.UI["voice_unavailable"]
 	box.add_child(_unavailable)
 	_mode = OptionButton.new()
-	_mode.add_item(_Strings.UI["voice_mode_push"], Net.VoiceMode.PUSH_TO_TALK)
+	_mode.add_item(_Strings.keyed(_Strings.UI["voice_mode_push"]), Net.VoiceMode.PUSH_TO_TALK)
 	_mode.add_item(_Strings.UI["voice_mode_open"], Net.VoiceMode.VOICE_ACTIVATION)
 	_mode.item_selected.connect(func(index: int) -> void:
 		Settings.set_value("audio", "voice_mode", _mode.get_item_id(index))
@@ -47,6 +47,8 @@ func _ready() -> void:
 
 func open() -> void:
 	_unavailable.visible = not Net.voice_available()
+	# The push-to-talk key may have been rebound since the panel was built.
+	_mode.set_item_text(_mode.get_item_index(Net.VoiceMode.PUSH_TO_TALK), _Strings.keyed(_Strings.UI["voice_mode_push"]))
 	_mode.select(_mode.get_item_index(Net.voice_mode()))
 	_rebuild()
 	visible = true

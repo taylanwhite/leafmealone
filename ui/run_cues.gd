@@ -8,8 +8,14 @@ extends CanvasLayer
 
 const _Strings = preload("res://ui/strings.gd")
 const _BeaconScript = preload("res://npcs/arrival_beacon.gd")
+const _QuipPlayer = preload("res://ui/quip_player.gd")
 ## Seconds before arrival that the countdown shows and ticks.
 const COUNTDOWN_SECONDS: int = 5
+## The cue caption's font size at the normal caption size; Settings.caption_scale()
+## multiplies it (presentation, like quip_player's FONT_SIZE). The radio, arrival
+## and all-clear lines are captions and follow interface.captions; the countdown,
+## vignette, beacon and sounds are the warning itself and always show.
+const CAPTION_FONT_SIZE: int = 28
 const CAPTION_SECONDS: float = 3.5
 const WARNING_TINT := Color(1.0, 0.62, 0.12)
 const CHASE_TINT := Color(0.95, 0.22, 0.16)
@@ -51,8 +57,22 @@ func _ready() -> void:
 	_material.shader = shader
 	_vignette.material = _material
 	add_child(_vignette)
-	_caption = _label(28, Control.PRESET_CENTER_TOP, 90.0)
+	_caption = _label(CAPTION_FONT_SIZE, Control.PRESET_CENTER_TOP, 90.0)
+	_caption.name = "CueCaption"
 	_countdown = _label(96, Control.PRESET_CENTER, -140.0)
+	_style_caption()
+	Settings.changed.connect(_on_settings_changed)
+
+
+func _on_settings_changed(section: StringName, _key: StringName, _value: Variant) -> void:
+	if section == &"interface":
+		_style_caption()
+
+
+## Size and backdrop from Settings, like the quip caption (ui/quip_player.gd).
+func _style_caption() -> void:
+	_caption.add_theme_font_size_override("font_size", roundi(CAPTION_FONT_SIZE * Settings.caption_scale()))
+	_QuipPlayer.apply_backdrop(_caption)
 
 
 func _label(size: int, preset: Control.LayoutPreset, offset_y: float) -> Label:
@@ -72,6 +92,8 @@ func _label(size: int, preset: Control.LayoutPreset, offset_y: float) -> Label:
 func _process(delta: float) -> void:
 	var director := get_tree().get_first_node_in_group("run_director")
 	var on_lot := Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
+	_caption_left = maxf(0.0, _caption_left - delta)
+	_caption.visible = _caption_left > 0.0 and _QuipPlayer.captions_on()
 	if director == null or Net.current_state() != Net.State.IN_SESSION:
 		_set_strength(0.0)
 		return
@@ -84,8 +106,8 @@ func _process(delta: float) -> void:
 		# Quiet to quiet is just the first frame, not a cue.
 		if on_lot and not (phase == 0 and previous == 0):
 			_enter_phase(director, phase, previous, started)
-	_caption_left = maxf(0.0, _caption_left - delta)
-	_caption.visible = _caption_left > 0.0
+	# A cue shown this frame is visible from this frame.
+	_caption.visible = _caption_left > 0.0 and _QuipPlayer.captions_on()
 	_flash = maxf(0.0, _flash - delta * 1.6)
 	if not on_lot:
 		_countdown.visible = false
