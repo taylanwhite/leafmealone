@@ -55,6 +55,13 @@ const PROMPT_ACTIONS: Array[StringName] = [
 const RESERVED_APPS: Array[String] = ["hires", "shop", "deliveries", "properties", "closet"]
 ## How long the UI (the game_ui, phone, town and day_clock groups) may take to come up.
 const UI_TIMEOUT_SECONDS: float = 15.0
+## How long the checks may take once the UI is up before the watchdog ends the run.
+const RUN_TIMEOUT_SECONDS: float = 15.0
+## Every check, in the order _run runs them (the watchdog's "not reached" list).
+const CHECK_ORDER: Array[String] = [
+	"ids", "recipes", "coverage", "tokens", "prompt_format", "catalog", "window_icon",
+	"shop", "board", "phone", "hud", "prompt",
+]
 ## Frames a window gets to build and lay out before it is measured.
 const LAYOUT_FRAMES: int = 3
 ## A window must fit the design resolution with this margin on each axis.
@@ -67,15 +74,21 @@ static var result: Dictionary = {}
 
 var _started: bool = false
 var _waited: float = 0.0
+var _run_waited: float = 0.0
+## The check _run is in, "" when none is.
+var _running: String = ""
 ## Every finding, by check name; a check passed when its list is empty.
 var _found: Dictionary = {}
 var _out: Dictionary = {}
 
 
 func _process(delta: float) -> void:
-	if _started:
-		return
 	_waited += delta
+	if _started:
+		_run_waited += delta
+		if _run_waited > RUN_TIMEOUT_SECONDS and not result.get("done", false):
+			_watchdog()
+		return
 	var tree := get_tree()
 	var ready := Net.current_state() == Net.State.IN_SESSION
 	for group: String in ["game_ui", "phone", "town", "day_clock"]:
@@ -91,24 +104,53 @@ func _process(delta: float) -> void:
 
 func _run() -> void:
 	await get_tree().create_timer(0.5).timeout
-	_check("ids", _ids())
-	_check("recipes", _recipes())
-	_check("coverage", _coverage())
-	_check("tokens", _tokens())
-	_check("prompt_format", _prompt_format())
-	_check("catalog", _catalog())
-	_check("window_icon", _window_icon())
-	_check("shop", await _shop())
-	_check("board", await _board())
-	_check("phone", await _phone())
-	_check("hud", await _hud())
-	_check("prompt", _prompt())
-	_finish("")
+	_check(_begin("ids"), _ids())
+	_check(_begin("recipes"), _recipes())
+	_check(_begin("coverage"), _coverage())
+	_check(_begin("tokens"), _tokens())
+	_check(_begin("prompt_format"), _prompt_format())
+	_check(_begin("catalog"), _catalog())
+	_check(_begin("window_icon"), _window_icon())
+	_check(_begin("shop"), await _shop())
+	_check(_begin("board"), await _board())
+	_check(_begin("phone"), await _phone())
+	_check(_begin("hud"), await _hud())
+	_check(_begin("prompt"), _prompt())
+	_running = ""
+	if not result.get("done", false):
+		_finish("")
+
+
+## Names the check about to run, so the watchdog can tell which one stalled.
+func _begin(check_name: String) -> String:
+	_running = check_name
+	return check_name
+
+
+## A check that hit a script error never returns, and _run dies with it. After
+## RUN_TIMEOUT_SECONDS this ends the run anyway: the stalled check and any not
+## reached get one gap each, so a stalled PENDING check still can't fail the run,
+## while a live check that stalled or never ran fails it with an error.
+func _watchdog() -> void:
+	var stalled := _running
+	if stalled != "":
+		_found[stalled] = ["aborted (script error?)"]
+		print("[IconsTest] %s: aborted" % stalled)
+	var error := ""
+	for check_name: String in CHECK_ORDER:
+		if _found.has(check_name):
+			continue
+		_found[check_name] = ["not reached"]
+		if not PENDING.has(check_name) and error == "":
+			error = "%s was not reached" % check_name
+	if stalled != "" and not PENDING.has(stalled):
+		error = "%s aborted" % stalled
+	_finish(error)
 
 
 # ---------------------------------------------------------------- checks
 
-func _ids() -> Array[String]:
+func _ids() -> Variant:
 	var missing: Array[String] = []
 	var oversize: Array[String] = []
 	for id: String in _Icons.IDS:
@@ -134,7 +176,7 @@ func _ids() -> Array[String]:
 	return gaps
 
 
-func _recipes() -> Array[String]:
+func _recipes() -> Variant:
 	var gaps: Array[String] = []
 	var script := load(RECIPES_PATH) as Script
 	if script == null:
@@ -152,7 +194,7 @@ func _recipes() -> Array[String]:
 	return gaps
 
 
-func _coverage() -> Array[String]:
+func _coverage() -> Variant:
 	var gaps: Array[String] = []
 	for tool_id: String in Constants.TOOL_PRICES:
 		_need(gaps, "tool " + tool_id, _Icons.for_tool(tool_id))
@@ -232,7 +274,7 @@ func _rebind() -> Array[String]:
 	return gaps
 
 
-func _tokens() -> Array[String]:
+func _tokens() -> Variant:
 	var gaps: Array[String] = []
 	var tokens := RegEx.create_from_string("\\{(key|icon):([a-z0-9_]+)\\}")
 	var texts: Array[Array] = []
@@ -275,7 +317,7 @@ func _tokens() -> Array[String]:
 
 ## The interaction prompt as the game formats it: settings:4 turns prompt_format
 ## into a "{key:%s}  %s" string; until then it hard-codes its key.
-func _prompt_format() -> Array[String]:
+func _prompt_format() -> Variant:
 	var gaps: Array[String] = []
 	var format := str(_Strings.UI.get("prompt_format", ""))
 	if not format.contains("{key:%s}"):
@@ -291,7 +333,7 @@ func _prompt_format() -> Array[String]:
 
 ## Every Catalog item, and every shop item a rank unlocks, has an icon
 ## (critic.md C9 and C32; the art is the icons:catalog chunk's).
-func _catalog() -> Array[String]:
+func _catalog() -> Variant:
 	var gaps: Array[String] = []
 	for item_id: Variant in Catalog.ITEMS:
 		var id := _Icons.for_shop_item(StringName(str(item_id)))
@@ -307,7 +349,7 @@ func _catalog() -> Array[String]:
 	return gaps
 
 
-func _window_icon() -> Array[String]:
+func _window_icon() -> Variant:
 	var gaps: Array[String] = []
 	var icon := str(ProjectSettings.get_setting("application/config/icon", ""))
 	if icon != APP_ICON_PATH:
@@ -333,7 +375,7 @@ func _window_icon() -> Array[String]:
 
 # ---------------------------------------------------------------- UI checks (pending until D to F)
 
-func _shop() -> Array[String]:
+func _shop() -> Variant:
 	var gaps: Array[String] = []
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var shop := ui.get_node_or_null("ShopWindow") as Control
@@ -365,7 +407,7 @@ func _shop() -> Array[String]:
 	return gaps
 
 
-func _board() -> Array[String]:
+func _board() -> Variant:
 	var gaps: Array[String] = []
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var board := ui.get_node_or_null("JobBoardWindow") as Control
@@ -395,9 +437,14 @@ func _board() -> Array[String]:
 	return gaps
 
 
-func _phone() -> Array[String]:
+func _phone() -> Variant:
 	var gaps: Array[String] = []
 	var phone := get_tree().get_first_node_in_group("phone") as Control
+	for method: String in ["open_phone", "show_app", "close_phone"]:
+		if phone == null or not phone.has_method(method):
+			gaps.append("the phone has no %s()" % method)
+	if not gaps.is_empty():
+		return gaps
 	phone.call("open_phone", "crew")
 	await _frames(LAYOUT_FRAMES)
 	var tabs: Dictionary = phone.get("_tabs") if phone.get("_tabs") is Dictionary else {}
@@ -433,7 +480,7 @@ func _phone() -> Array[String]:
 	return gaps
 
 
-func _hud() -> Array[String]:
+func _hud() -> Variant:
 	var gaps: Array[String] = []
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var day_hud := ui.get_node_or_null("DayHud")
@@ -448,11 +495,14 @@ func _hud() -> Array[String]:
 		gaps.append("ui_root _hud_rows has no cash icon")
 	var list := preload("res://ui/task_list.gd").new() as Node
 	add_child(list)
-	var line := list.call("_task_line", "mow_lawn", 0.5) as Node
-	if line == null or not _icons_under(line).has("task_mow_lawn"):
-		gaps.append("task_list row has no task_mow_lawn badge")
-	if line != null and line.get_parent() == null:
-		line.free()
+	if not list.has_method("_task_line"):
+		gaps.append("task_list has no _task_line()")
+	else:
+		var line := list.call("_task_line", "mow_lawn", 0.5) as Node
+		if line == null or not _icons_under(line).has("task_mow_lawn"):
+			gaps.append("task_list row has no task_mow_lawn badge")
+		if line != null and line.get_parent() == null:
+			line.free()
 	list.queue_free()
 	var heat := ui.get_node_or_null("HeatMeter")
 	if heat == null or not _icons_under(heat).has("heat"):
@@ -460,7 +510,7 @@ func _hud() -> Array[String]:
 	return gaps
 
 
-func _prompt() -> Array[String]:
+func _prompt() -> Variant:
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var prompt := ui.get_node_or_null("InteractionPrompt")
 	var ok := prompt is Control and not _of_class(prompt, "RichTextLabel").is_empty()
@@ -542,7 +592,17 @@ func _frames(count: int) -> void:
 		await get_tree().process_frame
 
 
-func _check(check_name: String, gaps: Array[String]) -> void:
+## Checks return Variant and this takes it untyped on purpose: a check that hits a
+## script error returns null (a typed Array[String] return would come back empty,
+## a false pass, and a typed parameter would turn null into an error that kills
+## _run), and null becomes a gap here.
+func _check(check_name: String, returned: Variant) -> void:
+	var gaps: Array[String] = []
+	if returned is Array:
+		for gap: Variant in returned:
+			gaps.append(str(gap))
+	else:
+		gaps.append("returned %s, not a gap list (script error?)" % type_string(typeof(returned)))
 	_found[check_name] = gaps
 	var note := " (pending: %s)" % PENDING[check_name] if PENDING.has(check_name) else ""
 	print("[IconsTest] %s: %s%s" % [check_name, "ok" if gaps.is_empty() else "%d gaps" % gaps.size(), note])
