@@ -129,6 +129,12 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --rank=17 --rival-test'; Seconds = 20
 		Check = { param($h, $c) [bool]$h.rival_test.ok }
 	}
+	# Host only until cast:4 turns on the networked phase; then it gets Client = 40 and
+	# compares $h.crew_cast with $c.crew_cast.
+	cast = @{
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --cast-test'; Seconds = 45; Port = 7812
+		Check = { param($h, $c) [bool]$h.cast_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

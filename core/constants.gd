@@ -642,3 +642,10 @@ const CHEFTY_PAINTS: Dictionary = {
 }
 ## The phone's "Pay a crewmate" buttons, in dollars.
 const PAY_CREWMATE_STEPS: Array[int] = [20, 100]
+
+
+# ---- cast
+## The cast's lines (ui/strings.gd, docs/GAME.md "2026-11-01, the cast").
+## A workbook quip (ui/quip_player.gd) waits this long before it can play again.
+## Moved from ui/strings.gd; the workbook's cooldown minutes are still open.
+const QUIP_COOLDOWN_SECONDS: float = 90.0

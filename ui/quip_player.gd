@@ -126,7 +126,7 @@ func _try(trigger: String) -> void:
 		if played >= int(row["max_session"]):
 			return
 		var now := Time.get_ticks_msec() / 1000.0
-		if now - float(_last_at.get(id, -1000.0)) < float(_Strings.COOLDOWN_SECONDS):
+		if now - float(_last_at.get(id, -1000.0)) < Constants.QUIP_COOLDOWN_SECONDS:
 			return
 		_played[id] = played + 1
 		_last_at[id] = now

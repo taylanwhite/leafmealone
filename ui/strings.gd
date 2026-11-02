@@ -1,9 +1,17 @@
 extends RefCounted
 
-## Draft lines from the workbook Humor & Quips sheet. Not canon.
-## Cooldown minutes in the sheet are still TBD, so playback uses one stand-in cooldown.
-
-const COOLDOWN_SECONDS: float = 90.0
+## Every player-facing sentence in the game lives here, so it can be read and
+## reviewed in one place (docs/DECISIONS.md, 2026-11-01). --cast-test
+## (net/dev/cast_test.gd) audits all of it: no empty or unfinished text, nothing
+## that crosses the humor guardrail, "NICE BOYS" in capitals, the right number of
+## %s/%d slots per pool (FORMAT_ARGS), and a pool for every personality, mood,
+## rank, neighborhood, season, unlock, bark kind and shopkeeper trigger.
+## LINES are the workbook's Humor & Quips drafts, kept with their Q ids. The rest
+## was written for the game and is canon until changed (docs/GAME.md, developer
+## notes). How often a quip may repeat is Constants.QUIP_COOLDOWN_SECONDS.
+## Proper nouns that are also data ids stay with their data: rank names in
+## core/ranks.gd, neighborhood, street and homeowner names in
+## net/town/neighborhoods.gd, hire nicknames in net/crew/hires.gd.
 
 ## Plain interface text. Not jokes, so not in the workbook.
 const UI: Dictionary = {
@@ -23,6 +31,47 @@ const UI: Dictionary = {
 	"cue_countdown": "%d",
 	"cue_arrived": "The NICE BOYS are here. Run. Hide. Break line of sight.",
 	"cue_clear": "All clear",
+	# ---- cast: the NICE BOYS, their van and beacon, and text that moves here from
+	# inline sites (wired up by later cast chunks; docs/GAME.md "2026-11-01, the cast").
+	"van_label": "NICE BOYS Courtesy Shuttle",
+	"van_side": "THE NICE BOYS",
+	"van_motto": "Courtesy Patrol · We Noticed.",
+	"van_rear": "HOW'S MY ENFORCING? FILL OUT FORM 9-B",
+	"beacon_label": "NICE BOYS INBOUND",
+	"crew_tag": "NICE BOY %s",
+	"crew_tag_lead": "HEAD NICE BOY %s",
+	"rival_name": "TurfMasters™",
+	"rival_sign_text": "TurfMasters™\nLAWNS DONE RIGHT",
+	"status_crew_coming": "The NICE BOYS are on the way",
+	"status_crew_here": "The NICE BOYS are here",
+	"border_step_off": "Step off the van",
+	"border_thrown_back": "Thrown back",
+	"border_lanes": "Red bar blocks one side. Stand on the empty side. A and D move sideways. Exit in %d s.",
+	"border_exit_open": "Exit is open. Walk to the green line.",
+	"border_exit_mark": "EXIT",
+	"border_hint": "Stand on the empty side of the red bar",
+	"menu_dev_host": "Dev host (ENet)",
+	"pause_call_crew": "Call the NICE BOYS",
+	"lobby_title": "Lobby",
+	"lobby_ready_button": "Ready",
+	"lobby_invite": "Invite Friends",
+	"lobby_start": "Start",
+	"lobby_leave": "Leave Session",
+	"lobby_ready": "ready",
+	"lobby_not_ready": "not ready",
+	"error_host": "Could not host: %s",
+	"error_join": "Could not join: %s",
+	"ride_chefty_label": "Chefty\n%d/%d bags  $%d%s",
+	"ride_chefty_full": " full",
+	"phone_no_favorite": "no favorite job",
+	"picky_0": "easy to please",
+	"picky_1": "a little picky",
+	"picky_2": "picky",
+	"picky_3": "impossible",
+	"phone_text_head": "%s  ·  Day %d %s",
+	"phone_close_x": "✕",
+	"popup_cash": "+$%d",
+	# ---- end cast
 	"hide_taken": "Occupied",
 	"hud_hidden": "Hiding. E to come out.",
 	"prompt_format": "[E]  %s",
@@ -78,7 +127,7 @@ const UI: Dictionary = {
 	"shop_rake_blurb": "Raking moves %.2fx as many leaves.",
 	"shop_barrow_name": "Bigger wheelbarrow",
 	"shop_barrow_blurb": "Holds %d bags instead of %d.",
-	"homeowner_name": "[HOMEOWNER NAME]",
+	"homeowner_name": "The Homeowner",
 	"prompt_talk": "Talk to the homeowner",
 	"prompt_toss_truck": "Toss into Chefty",
 	"prompt_dump_truck": "Dump into Chefty",
@@ -284,11 +333,12 @@ static func unlock_name(unlock: String) -> String:
 		return "%s opens" % hood_id.capitalize()
 	return unlock
 
-## What the homeowner says when you report the job done, by mood. Taylan wrote the
-## first two on 2026-10-19. The rest are plain stand-ins until there are real lines.
 ## What the homeowner says when you ask to be paid, by mood (Taylan, 2026-10-21:
-## funny, and they know who the NICE BOYS are). The "bill_*" pools replace the
-## mood line some of the time when the crew owes for something they broke.
+## funny, and they know who the NICE BOYS are). Taylan's own 2026-10-19 line,
+## "You did a great job, here's a tip!", is in "thrilled". The "bill_*" pools
+## replace the mood line some of the time when the crew owes for something it
+## broke; "paid" is said once the cash is grabbed. A homeowner with a personality
+## usually speaks from PERSONALITY_LINES instead (homeowner_pool(), below).
 const HOMEOWNER_LINES: Dictionary = {
 	"thrilled": [
 		"Oh my GOD. You can see the GRASS. I forgot we HAD grass.",
@@ -297,6 +347,7 @@ const HOMEOWNER_LINES: Dictionary = {
 		"Cleanest it's been in years. I'm putting you in the will. Not for much.",
 		"Ten out of ten. I'm tipping in cash so there's no paper trail.",
 		"I cried a little. Don't look at me. Here, take it and go.",
+		"You did a great job, here's a tip!",
 	],
 	"happy": [
 		"Nice work, nice boys. Wait. No. Forget I said that.",
@@ -319,6 +370,8 @@ const HOMEOWNER_LINES: Dictionary = {
 		"I watched the whole thing from the window. All of it. Here.",
 		"The seasons changed. The leaves came back. You were still here.",
 		"Did you take a nap in the bags? Here's your money.",
+		# Flagged for Taylan (2026-11-01): the one line that jokes about calling
+		# enforcement on the workers. Kept for now, recased.
 		"I nearly called the NICE BOYS myself. Kidding. Mostly. Here.",
 		"My coffee went cold three times. Three. Here.",
 	],
@@ -351,6 +404,18 @@ const HOMEOWNER_LINES: Dictionary = {
 		"I saw the foot. The whole street saw the foot. The clinic bill's yours.",
 		"Somebody's foot is in my hedge. I'm taking the clinic off the top.",
 		"Not my foot, not my problem, but the ambulance was my phone call. Here.",
+	],
+	# ---- cast
+	"bill_water": [
+		"That was MY water. I could hear the meter spinning.",
+		"I'm billing you for the water. And for the sound of it.",
+		"Next time bring your own water. Or rain.",
+	],
+	"paid": [
+		"Thanks!",
+		"Pleasure doing business. Mostly.",
+		"Same time next week? Don't answer that.",
+		"Go on, before I check the gutters.",
 	],
 }
 
@@ -707,8 +772,8 @@ const SHOP_UI: Dictionary = {
 
 ## What the shopkeepers say ({keeper: {trigger: [lines]}}, docs/GAME.md
 ## "Shops"). Triggers: greet (walking up), morning, night, open (the window
-## opens), buy (Shops.result ok), after_raid, closed. Marty's lines come from the
-## cast writing (cast:2); these are Rusty, Dot, and the Snak-o-Matic's screen.
+## opens), buy (Shops.result ok), after_raid, closed. Rusty, Dot and the
+## Snak-o-Matic's screen are the shops writing; Marty's lines (last) are the cast's.
 const KEEPER_LINES: Dictionary = {
 	"rusty": {
 		"greet": [
@@ -821,6 +886,46 @@ const KEEPER_LINES: Dictionary = {
 			"THERE IS NO CLOSED. THERE IS ONLY SNACK.",
 		],
 	},
+	# Marty runs Homie Depot: a deadpan lifer who takes the store far too seriously and
+	# lets the crew sleep by the side wall (cast writing).
+	"marty": {
+		"greet": [
+			"Welcome to Homie Depot. If we don't have it, you didn't need it.",
+			"Back again? The rakes missed you. I didn't. Kidding. I did.",
+			"Aisle nine is out of aisle nine.",
+			"Don't touch the display mower. It's load-bearing.",
+		],
+		"morning": [
+			"Rise and shine. The leaves didn't sleep, so neither did I.",
+			"New day, new leaves. Same me.",
+			"Morning. Your cots are where you left them. So is the smell.",
+		],
+		"night": [
+			"We're open. We're always open. I don't know how to leave.",
+			"Keep it down. The cots are trying to sleep.",
+			"Quiet hours. Whisper your purchases.",
+		],
+		"open": [
+			"What'll it be? Don't say leaves. You have all the leaves.",
+			"Everything's on sale. Not for you. In general.",
+			"Here's the catalog. I wrote the descriptions. They're all true.",
+		],
+		"buy": [
+			"Great choice. No refunds, spiritually or financially.",
+			"That one comes with a warranty. The warranty is me saying good luck.",
+			"Ring ring. That's the register. It's happy for you.",
+		],
+		"after_raid": [
+			"Rough day? The NICE BOYS came in earlier and bought forty clipboards.",
+			"You look like you got a courtesy notice. It's the eyes.",
+			"Heard the van. Want a cot? You want a cot.",
+		],
+		"closed": [
+			"The sign says closed. The sign is wrong. I'm here.",
+			"We're closed. Technically. Spiritually, I'm still on shift.",
+			"Closed. Come back in eight hours. I'll be right here. I'm always right here.",
+		],
+	},
 }
 
 
@@ -831,3 +936,625 @@ static func shop_item_name(id: String) -> String:
 
 static func shop_item_blurb(id: String) -> String:
 	return str(SHOP_UI.get("item_blurb_" + id, ""))
+
+
+# ---------------------------------------------------------------- cast
+# The cast's writing (docs/GAME.md, "2026-11-01, the cast"). Every joke here aims
+# at forms, citations, quotas, clipboards, impossible work or homeowner pettiness.
+# None aims at where anyone is from, their papers, language or accent, and the
+# name NICE is never spelled out as an acronym (net/dev/cast_test.gd checks).
+
+const _Ranks = preload("res://core/ranks.gd")
+
+## Homeowners by personality (net/town/neighborhoods.gd PERSONALITIES), then mood
+## (npcs/homeowner.gd STAGING). Pool id "<personality>/<mood>" (homeowner_pool()).
+## Used about two times in three when the homeowner has a personality.
+const PERSONALITY_LINES: Dictionary = {
+	"easygoing": {
+		"thrilled": [
+			"Whoa. WHOA. Is that my lawn? I thought it was a rumor.",
+			"You absolute legends. Keep the change. Keep all the change.",
+			"Best day of my life, and I've been married twice.",
+		],
+		"happy": [
+			"Looks great. I'd have done it myself, but, you know. I wouldn't have.",
+			"Nice! I don't know the going rate, so I just grabbed some money.",
+			"Sweet. The leaves were stressing out the dog.",
+		],
+		"fine": [
+			"Hey, it's a yard now. Good enough for me. Here.",
+			"Eh, they'll be back tomorrow anyway. Here.",
+			"I mean, I wasn't gonna do it. So. Yeah. Here.",
+		],
+		"slow": [
+			"Took a while, huh? No worries. Well, some worries. Here.",
+			"I fell asleep in the hammock waiting. Twice. Honestly, nice.",
+			"Long day? Mine too. I watched you the whole time.",
+		],
+		"messy": [
+			"There's still a lot of leaves, buddy. Like, a lot a lot.",
+			"I'm chill, but my lawn isn't. Here's less.",
+			"Half a yard is better than... no, it's half. Here's half-ish.",
+		],
+		"nothing": [
+			"No bags? That's cool. That's cool. Is it cool? No.",
+			"You guys just hanging out? Respect. Can't pay for it, though.",
+			"I'll pay when there's leaves in the truck, dude. Any leaves.",
+		],
+	},
+	"chatty": {
+		"thrilled": [
+			"Oh, this is WONDERFUL. Wait till I tell my sister. And her book club. And the mailman.",
+			"My knee's been acting up, so you've saved me. Let me tell you about the knee. Actually, here's money.",
+			"I'm putting you on my holiday card. You, the truck, the rake. All of it.",
+		],
+		"happy": [
+			"Lovely! My husband used to rake. Badly. You're much better. Here.",
+			"Good job, hon! Did I tell you about my cousin's gutters? Remind me next time.",
+			"Nice work! I talked the whole time. Did you hear any of it? Here.",
+		],
+		"fine": [
+			"Well, it's not how Gerald did it, but Gerald lives in Florida now. Here.",
+			"It's fine! Fine. Do you want lemonade? No? More for me. Here.",
+			"That'll do. That'll do! I say that about everything. Here.",
+		],
+		"slow": [
+			"I've told you my whole life story twice. TWICE. And you're only done now?",
+			"I started a scarf when you got here. It's a blanket now.",
+			"My soap opera had a wedding, a divorce, and a secret twin while you raked.",
+		],
+		"messy": [
+			"Now, I don't like to complain, but I'm going to. At length.",
+			"Hon, there are more leaves than when I started talking, and I talked a LOT.",
+			"I'll tell everyone you did great. I'll be lying. Here's less.",
+		],
+		"nothing": [
+			"No bags, sweetie? Was it something I said? I said a lot.",
+			"Empty truck! Well, sit down. I'll tell you about my knee instead.",
+			"An hour, zero bags. I talked for an hour. I guess we're even.",
+		],
+	},
+	"grumpy": {
+		"thrilled": [
+			"Hm. Huh. Well. ...It's good. Tell no one I said that.",
+			"I've hated every crew I ever hired. I don't hate you. Take it before I change my mind.",
+			"Fine. FINE. It's perfect. Are you happy? Here.",
+		],
+		"happy": [
+			"Not bad. I've seen worse. I've mostly seen worse.",
+			"Acceptable. Here's money. Don't spend it on anything fun.",
+			"You did okay. My standards are low, but they exist.",
+		],
+		"fine": [
+			"It's a yard. I've got a yard. Thrilling. Here.",
+			"In my day we raked uphill. Both ways. Here.",
+			"I've had better. I've had worse. Mostly better.",
+		],
+		"slow": [
+			"I aged. Look at me. I aged watching you.",
+			"I could've grown a beard. I did grow a beard. Here.",
+			"By the time you finished, the trees wanted a second opinion.",
+		],
+		"messy": [
+			"I can see leaves from my recliner. My recliner faces the wall.",
+			"Garbage work. Here's garbage money.",
+			"You raked like the leaves owed you money.",
+		],
+		"nothing": [
+			"Get off my lawn. No, wait. Clean my lawn. THEN get off it.",
+			"Zero bags. Zero dollars. I'm a fair man.",
+			"I've seen squirrels do more. I've PAID squirrels to do more.",
+		],
+	},
+	"neat_freak": {
+		"thrilled": [
+			"Every blade. Every single blade. I may weep. Here.",
+			"I measured. You're within tolerance. Nobody is ever within my tolerance.",
+			"It's perfect. I'm vacuuming it anyway, but it's perfect.",
+		],
+		"happy": [
+			"Very good. I found one leaf, but I've decided to let it live.",
+			"Crisp edges. I noticed the edges. Here.",
+			"Ninety-seven percent. I'll do the other three with tweezers.",
+		],
+		"fine": [
+			"It's... fine. I'll redo it tonight with a flashlight.",
+			"There's a leaf on the walkway. There's a leaf on the walkway. Here.",
+			"I'm paying you, but I'm also making a list.",
+		],
+		"slow": [
+			"I had a schedule. It was color-coded. You ruined all the colors.",
+			"I alphabetized my spices while I waited. Then by expiry. Then by mood.",
+			"I timed you. I won't say the number out loud.",
+		],
+		"messy": [
+			"I need you to see what I see. Leaves. Everywhere. Here's less.",
+			"This is a crime scene, and the leaves are the victims. And the suspects.",
+			"I'm docking you a dollar a leaf. Kidding. It's more than that.",
+		],
+		"nothing": [
+			"The truck is empty and the yard is full. That's the opposite of what I asked.",
+			"I color-coded the bags for you. You didn't fill a single color.",
+			"Nothing? I need to lie down on something clean.",
+		],
+	},
+	"nosy": {
+		"thrilled": [
+			"Beautiful! The Hendersons are SO jealous. I watched them watch you.",
+			"Now everyone will ask who did it, and I'll tell them. I tell everyone everything.",
+			"Perfect! I'm telling the whole street. I told half of it while you worked.",
+		],
+		"happy": [
+			"Good work! Who's the tall one? Single? Asking for the whole street.",
+			"Very nice. I took photos. For the newsletter. And my files.",
+			"Nice job! I saw your break at 2:14. Don't worry, I won't tell. I'll tell.",
+		],
+		"fine": [
+			"It's alright. Number twelve's crew did better. I watched through their blinds.",
+			"Fine. I wrote down everything you did, so I'll know if it was fine.",
+			"Here. Don't tell number eight what I paid you. I'll tell them myself.",
+		],
+		"slow": [
+			"I watched the whole thing with binoculars. It was a slow movie.",
+			"You took so long the neighbors started a betting pool. I lost.",
+			"I've learned so much about you. Too much. Here.",
+		],
+		"messy": [
+			"The whole street can see this. I KNOW, because I asked the whole street.",
+			"Mrs. Albright's leaves are on my side now. Did you DO that?",
+			"I'll be telling people about this. Accurately, for once.",
+		],
+		"nothing": [
+			"I watched you do nothing for an hour. I have it written down. Timestamped.",
+			"No bags? The neighbors are going to TALK. I'm the neighbors.",
+			"I was so excited to watch you work. I'm still waiting to.",
+		],
+	},
+	"penny_pincher": {
+		"thrilled": [
+			"Spectacular. Count it twice. Actually, give it back, I'll count it.",
+			"Worth every penny. I mean that literally. Here are the pennies.",
+			"I'm so happy I'm tipping. A coupon. It's barely expired.",
+		],
+		"happy": [
+			"Nice work. Here. Some of it's in quarters.",
+			"Good. I'd pay more, but I'd rather not.",
+			"Here's your money. I'm going to miss it.",
+		],
+		"fine": [
+			"That's fine. Do you take exposure as payment? No? Fine. Here.",
+			"Adequate. I'm paying for adequate. Adequate is on sale.",
+			"Full rate. For a slightly smaller yard.",
+		],
+		"slow": [
+			"I pay by the job, not the hour. Just so you know, I thought about switching.",
+			"You took so long I almost started charging YOU rent.",
+			"Time is money, and you used up all of mine.",
+		],
+		"messy": [
+			"I'm not paying for leaves I can still see. I'm a very visual person.",
+			"I did the math. I always do the math. Here's the math.",
+			"Half a yard, half a payment. Rounded down. I always round down.",
+		],
+		"nothing": [
+			"Zero bags times my rate is my favorite number.",
+			"Money for nothing? Me too. Nobody's getting it.",
+			"This money stays right where it belongs. With me.",
+		],
+	},
+}
+## Phone texts. The host composes them from these pools and saves the final text.
+## "request" has a generic pool and one per personality (client_line()); each
+## request line takes the address (%s).
+const TEXT_LINES: Dictionary = {
+	"request": {
+		"generic": [
+			"Leaves are back. You know where I live. %s.",
+			"Can your crew come by today? %s. Bring the good rake.",
+			"It's a jungle out here again. %s, whenever you can.",
+			"Hi it's me. The yard. %s. Please.",
+			"My spouse says the yard is \"a disgrace\". %s. Help.",
+		],
+		"easygoing": [
+			"Yo, leaves are back at %s. Whenever. No rush. Kind of a rush.",
+			"Hey, it's me from %s. The yard's doing the thing again.",
+			"%s could use you. Bring snacks, or don't. Chill either way.",
+		],
+		"chatty": [
+			"Hi!! It's me, from %s!! The leaves are back and so is my knee thing, long story, come by!!",
+			"Hello, dear. %s again. Bring the tall one. He listens.",
+			"%s, today if you can! I have so much to tell you. Also, leaves.",
+		],
+		"grumpy": [
+			"%s. Leaves. Now.",
+			"Leaves again at %s. Don't make it a whole thing.",
+			"%s. You know the drill. Don't be late, or early.",
+		],
+		"neat_freak": [
+			"%s. I counted 4,112 leaves this morning. I need that number to be zero.",
+			"%s needs you. The walkway has been compromised.",
+			"Please come to %s. Bring the good rake. The one with all its teeth.",
+		],
+		"nosy": [
+			"Hi, it's %s! Number six got a crew yesterday, so I need one TODAY.",
+			"Come by %s! I'll make coffee and you can tell me about everyone.",
+			"%s, whenever you're free. I already know when you're free.",
+		],
+		"penny_pincher": [
+			"%s has leaves. Is there a loyalty discount? There should be.",
+			"Job at %s. I hear your rates are reasonable. I'll be the judge.",
+			"%s. Bring your own bags. And your own water. And your own lunch.",
+		],
+	},
+	# From Marty (UI clerk_name): the first morning's welcome, and leads he passes on.
+	"clerk_intro": [
+		"Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. The cots by the side wall are yours after 6 PM. Tab to check your phone.",
+	],
+	"clerk_lead": [
+		"Somebody came by the store asking for a leaf crew. I gave them your number. You're welcome.",
+		"Lady at register two needs her yard done. I said you were the best. I lied a little.",
+		"Guy bought eleven rakes and gave up. Sending him your way.",
+	],
+	# A referral is referral_body % [how, address, neighborhood], where how is
+	# referral_named % referrer, or a referral_anon line.
+	"referral_named": [
+		"%s says you're good with a rake.",
+		"%s won't stop talking about you.",
+		"%s gave me your number, and a warning.",
+		"%s says you're the crew with the wheelbarrow trick.",
+	],
+	"referral_anon": [
+		"Saw your truck around.",
+		"Your truck parked by my house and I took it as a sign.",
+		"Found your number on a leaf.",
+	],
+	"referral_body": [
+		"Hi! %s I'm at %s in %s. Got leaves?",
+		"%s I'm over at %s, %s. My yard is an emergency.",
+		"%s It's %s, in %s. When can you start? Yesterday?",
+	],
+	# TurfMasters™: a client leaving you, and coming back (why, then a tail line).
+	"poached": [
+		"TurfMasters™ came by with a coupon. Sorry, hon. It's just business.",
+		"A man in a TurfMasters™ polo said you people \"lack synergy\". I'm trying them.",
+		"TurfMasters™ does my lawn now. They have a jingle. Do YOU have a jingle?",
+		"TurfMasters™ gave me a fridge magnet. Nobody's ever given me a fridge magnet.",
+		"They said they'd do my lawn 'at scale'. I don't know what it means, but I want it.",
+	],
+	"won_back_named": [
+		"Saw what you did for %s. TurfMasters™ mulched my petunias.",
+		"%s's yard looks incredible. TurfMasters™ painted my grass green. With paint.",
+		"%s told me everything. TurfMasters™ never told me anything.",
+	],
+	"won_back_signs": [
+		"Somebody pulled the TurfMasters™ signs. Was that you? Come back?",
+		"The TurfMasters™ signs are gone and I feel free.",
+		"No more signs on my lawn. Was that you? Thank you?",
+	],
+	"won_back_tail": [
+		"I'm back, if you'll have me.",
+		"Take me back. I'll pay on time. Mostly.",
+		"Same yard. Same me. Fewer coupons.",
+	],
+	# From TurfMasters™ themselves (UI rival_name, text kind "rival").
+	"rival_arrival": [
+		"Hi! TurfMasters™ is proud to be your town's new Lawn Solution™. Your services are no longer required™.",
+		"TurfMasters™ has arrived! LAWNS DONE RIGHT™. Lawns done by you: under review™.",
+	],
+	"rival_taunt": [
+		"Thank you for choosing TurfMasters™! (Not you. Your client.)",
+		"Another satisfied TurfMasters™ customer! Formerly yours! Synergy!",
+		"This is an automated message from TurfMasters™. We are automating your clients.",
+		"TurfMasters™ Tip: have you tried being a franchise?",
+	],
+	"rival_sign": [
+		"We noticed a TurfMasters™ sign is missing. Our signs have feelings™.",
+		"Please return our sign. It was on a payment plan.",
+		"Pulling signs is not a LAWN SOLUTION™.",
+	],
+	"rival_sore": [
+		"TurfMasters™ is aware of some churn. We have scheduled a meeting about the churn.",
+		"We're sorry to see a customer go. To you. Specifically you.",
+		"TurfMasters™ wishes you the best™. Legally.",
+	],
+	# Hired hands (net/crew/hires.gd). hire_quit takes another hand's name.
+	"hire_hired": [
+		"Thanks for the gig, boss. I'll be on the truck. I bring my own rake (it's yours now).",
+		"First day! Where do I put my lunch? In a leaf bag? Got it.",
+		"Reporting for duty. I've raked before. Once. In a dream.",
+	],
+	"hire_quit": [
+		"No pay, no rake. I'm out. Tell %s I said bye.",
+		"No pay, no play. Tell %s the good wheelbarrow is behind the shed.",
+		"I'm out. %s owes me five bucks. Collect it for me.",
+	],
+	"hire_fired": [
+		"Fine. FINE. I'm keeping the gloves.",
+		"That's fair. I did throw the rake at the homeowner.",
+		"I'll be fine. I'm going to TurfMasters™. Kidding. Unless.",
+	],
+}
+
+## Run-event captions (ui/run_cues.gd). Picked with pick_seeded() from the phase's
+## start time, so every peer shows the same line.
+const CUE_LINES: Dictionary = {
+	"radio": [
+		"RADIO: the NICE BOYS are on the way to this address",
+		"RADIO: Courtesy Patrol to all units, we have a yard situation at this address.",
+		"RADIO: Somebody reported excessive raking at this address.",
+		"RADIO: The NICE BOYS are on the way. They packed extra clipboards.",
+	],
+	"arrived": [
+		"The NICE BOYS are here. Run. Hide. Break line of sight.",
+		"The NICE BOYS are here. Hide in a pile, throw a gnome, be anywhere else.",
+		"The NICE BOYS are here. Don't let them see you get into a pile.",
+	],
+	"clear": [
+		"All clear",
+		"All clear. The NICE BOYS left a courtesy notice on your rake.",
+		"All clear. Somebody's filling out a LOT of forms about you.",
+		"All clear. They'll be back. They have a quota.",
+	],
+}
+
+## What the NICE BOYS call out (npcs/crew_member.gd barks), by what they're doing.
+## The host picks the kind and the line; the caption carries the joke, the audio
+## is megaphone babble.
+const CREW_BARKS: Dictionary = {
+	"arrive": [
+		"Hello hello! This is a courtesy visit!",
+		"Nobody move! Politely!",
+		"Hi! We've had a complaint about your vibes!",
+		"Everybody stay right there and have a NICE day!",
+		"This yard was selected for a random friendliness check!",
+	],
+	"spot": [
+		"Sir! SIR! A word! Several words! On a form!",
+		"Excuse me! You appear to be raking without a smile!",
+		"Hold it right there, friend!",
+		"I see you! I'm writing down that I see you!",
+		"Stop! In the name of neighborliness!",
+	],
+	"chase": [
+		"Running is a violation of the walking ordinance!",
+		"We just want to talk! It's a short form! Eleven pages!",
+		"Slow down! My lanyard's tangling!",
+		"This would go faster if you'd cooperate pleasantly!",
+		"You're making my clipboard nervous!",
+	],
+	"lost": [
+		"Where'd they go? Check behind the... everything.",
+		"Nobody panic. I'll make a note that we lost them.",
+		"They were RIGHT here. I have it in writing.",
+		"Has anybody seen a suspicious rake?",
+		"Fan out! But not too far, we carpool.",
+	],
+	"search": [
+		"Come out, come out, wherever you're non-compliant!",
+		"We have cookies! They're for evidence!",
+		"Statistically, you're in a leaf pile.",
+		"Psst. Is anybody hiding? You can just tell us.",
+		"This pile looks suspiciously fluffy.",
+	],
+	"pile": [
+		"I saw that! Leaf piles are not a valid hiding place, per section 4!",
+		"Knock knock! On the pile!",
+		"We saw you go in there, friend!",
+	],
+	"caught": [
+		"Gotcha! Have a NICE day!",
+		"Thank you for your cooperation! Into the van!",
+		# Flagged for Taylan (2026-11-01): riffs on generic arrest language, names no agency.
+		"You have the right to remain pleasant!",
+		"Another happy customer!",
+		"Don't worry, the van has cupholders!",
+	],
+	"bonked": [
+		"OW! That's a citation!",
+		"Assaulting a clipboard is a serious offense!",
+		"My visor! I'm writing this up!",
+		"Rude! Very, very rude!",
+		"Was that a GNOME?!",
+	],
+}
+
+## The NICE BOYS' name tags (crew_tag()): suburban middle-manager names, none of
+## them a homeowner's first name, picked per day so they change daily.
+const CREW_NAMES: Array[String] = [
+	"BRENT", "TODD", "KYLE", "CHIP", "LANCE", "TREVOR",
+	"SKIP", "DIRK", "RODNEY", "WADE", "CLINT", "DARREN",
+]
+
+## Under "RANK UP" on the day summary when the crew reaches a rank's tier I,
+## keyed by the rank's name (core/ranks.gd NAMES and ENDLESS_NAME).
+const RANK_BLURBS: Dictionary = {
+	"Rake Rookie": "Everybody starts somewhere. You started in a leaf pile.",
+	"Leaf Grunt": "Promoted from 'those guys' to 'that crew'.",
+	"Bag Hauler": "Your backs hurt in a professional way now.",
+	"Mulch Mule": "Strong, stubborn, faintly smells of mulch. Somebody else is noticing.",
+	"Hedge Hog": "Prickly. Productive. Kind of cute about it.",
+	"Turf Boss": "People call you boss now. Some of them even mean it.",
+	"Lawn Lord": "Mansion Hill knows your name. Mansion Hill mispronounces it.",
+	"Yard Baron": "You own the block. Well, you rake it. Same thing, spiritually.",
+	"The Lawnfather": "You don't do lawns anymore. Lawns get done, out of respect.",
+}
+
+## Under a rank-up to tiers II to V (and each Lawnfather star), in tier order.
+const TIER_BLURBS: Array[String] = [
+	"A little more legit than yesterday.",
+	"Your rake has a slightly better reputation.",
+	"The neighbors upgraded you from 'hey, you' to 'hey, you guys'.",
+	"Somebody wrote your number on their fridge.",
+]
+
+## How the day went, for the summary quip (summary_quip()).
+const QUIP_BUCKETS: Array[String] = ["zero", "rough", "solid", "great", "raided"]
+
+## One line under the day summary's title, by QUIP_BUCKETS.
+const SUMMARY_QUIPS: Dictionary = {
+	"zero": [
+		"No jobs today. The leaves won this round. They win most rounds.",
+		"A day off! Nobody approved it, but a day off.",
+		"Zero jobs. The cots got a lot of use, though.",
+	],
+	"rough": [
+		"Not every day is a good day. Today was not every day.",
+		"The yards fought back. Tomorrow: revenge (raking).",
+		"Somebody's gnome is still talking about you.",
+	],
+	"solid": [
+		"Another day, another mountain of leaves moved slightly to the left.",
+		"The town is a little less crunchy because of you.",
+		"Good work. The trees have already started on tomorrow's batch.",
+	],
+	"great": [
+		"A legendary day. The leaves are writing songs about you. Sad ones.",
+		"Five-star crew. Somebody frame this receipt.",
+		"The whole town is talking. Mostly the nosy ones, but still.",
+	],
+	"raided": [
+		"The NICE BOYS came by. You were not, technically, compliant.",
+		"A raid, a chase, a van ride. Just a normal day of yard work.",
+		"Somebody got a courtesy notice today. Nobody was courteous about it.",
+	],
+}
+
+## The phone's line about each neighborhood (net/town/neighborhoods.gd HOODS ids).
+const HOOD_BLURBS: Dictionary = {
+	"maple_row": "Bungalows, old trees, and neighbors who all know each other's business.",
+	"dandelion_acres": "A mobile-home park with huge shared lawns. Cash only, no questions.",
+	"birchwood_commons": "Newer two-stories, first pools, and a lot of opinions about edging.",
+	"oak_hollow": "The HOA. Everything is a violation, including you.",
+	"lakeside": "Pools, boathouses, and hedges as long as a ferry.",
+	"mansion_hill": "Estates. Celebrity clients. Lawyers on retainer for the gnome incidents.",
+}
+
+## The phone's line about each homeowner personality.
+const PERSONALITY_BLURBS: Dictionary = {
+	"easygoing": "Easy to please. Easy to forget to pay you.",
+	"chatty": "Will tell you about their knee. Tips well.",
+	"grumpy": "Has never been happy. Might be, for you.",
+	"neat_freak": "Counts the leaves. Pays for perfect.",
+	"nosy": "Watches from the window. Knows everyone.",
+	"penny_pincher": "Has a coupon for you. Expired.",
+}
+
+## The seasons' names and the day summary's line when one turns, in core/seasons.gd
+## order (autumn, winter, spring, summer).
+const SEASON_NAMES: Array[String] = ["Autumn", "Winter", "Spring", "Summer"]
+const SEASON_ARRIVALS: Array[String] = [
+	"Autumn is back. Leaves everywhere. You're welcome.",
+	"Winter. Fewer leaves, frozen gutters, and everybody pays a little extra.",
+	"Spring. Weeds, mowing, and hedges with ambitions.",
+	"Summer. Mowing, pools, and fences that need paint.",
+]
+
+## The audit's contract (net/dev/cast_test.gd): pool path -> [how many %s/%d/%.Nf
+## slots every line has, the fewest lines the pool may have]. A path covers the
+## pools under it ("TEXT_LINES/request" covers every personality's request pool).
+## A pool with no entry here takes [0, 3]. A single string (a UI key) is checked
+## only when it has an exact entry.
+const FORMAT_ARGS: Dictionary = {
+	"TEXT_LINES/request": [1, 3],
+	"TEXT_LINES/clerk_intro": [0, 1],
+	"TEXT_LINES/referral_named": [1, 3],
+	"TEXT_LINES/referral_body": [3, 3],
+	"TEXT_LINES/won_back_named": [1, 3],
+	"TEXT_LINES/rival_arrival": [0, 2],
+	"TEXT_LINES/hire_quit": [1, 3],
+	"CREW_NAMES": [0, 8],
+	"SEASON_NAMES": [0, 4],
+	"SEASON_ARRIVALS": [0, 4],
+	"TIER_BLURBS": [0, 4],
+	"UI/crew_tag": [1, 1],
+	"UI/crew_tag_lead": [1, 1],
+	"UI/border_lanes": [1, 1],
+	"UI/error_host": [1, 1],
+	"UI/error_join": [1, 1],
+	"UI/ride_chefty_label": [4, 1],
+	"UI/phone_text_head": [3, 1],
+	"UI/popup_cash": [1, 1],
+}
+
+
+## The lines for a homeowner pool id: "<mood>" or "bill_<reason>" from
+## HOMEOWNER_LINES, or "<personality>/<mood>" from PERSONALITY_LINES. [""] when
+## there is no such pool, so an index into it never crashes.
+static func homeowner_pool(pool: String) -> Array:
+	var lines: Array = []
+	var slash := pool.find("/")
+	if slash >= 0:
+		var by_mood: Dictionary = PERSONALITY_LINES.get(pool.substr(0, slash), {})
+		lines = by_mood.get(pool.substr(slash + 1), [])
+	else:
+		lines = HOMEOWNER_LINES.get(pool, [])
+	return lines if not lines.is_empty() else [""]
+
+
+## A line picked with the caller's rng (host-side choices; send the result or the index).
+static func pick(lines: Array, rng: RandomNumberGenerator) -> String:
+	if lines.is_empty():
+		return ""
+	return str(lines[rng.randi() % lines.size()])
+
+
+## A line picked from a seed every peer already has, so all of them show the same one.
+static func pick_seeded(lines: Array, seed_value: int) -> String:
+	if lines.is_empty():
+		return ""
+	return str(lines[posmod(seed_value, lines.size())])
+
+
+## A phone text line of this kind for a homeowner's personality: their own pool
+## when TEXT_LINES has one, else the generic pool.
+static func client_line(kind: String, personality: String, rng: RandomNumberGenerator) -> String:
+	var entry: Variant = TEXT_LINES.get(kind, [])
+	if entry is Dictionary:
+		var pools: Dictionary = entry
+		var lines: Array = pools.get(personality, pools.get("generic", []))
+		return pick(lines, rng)
+	return pick(entry as Array, rng)
+
+
+## A NICE BOY's name tag: Crew1 leads. The same on every peer for a day, new the next.
+## The day picks a start name and each crew member steps one along, so a raid
+## never has two BRENTs (up to CREW_NAMES.size() crew).
+static func crew_tag(index: int, day: int) -> String:
+	var who := CREW_NAMES[posmod(hash(day) + index - 1, CREW_NAMES.size())]
+	return str(UI["crew_tag_lead" if index == 1 else "crew_tag"]) % who
+
+
+## The line under a rank-up to this tier: the rank's own blurb at its tier I (and
+## the first Lawnfather tier), else the tier's.
+static func rank_blurb(tier: int) -> String:
+	var ranked := _Ranks.NAMES.size() * _Ranks.TIERS_PER_RANK
+	if tier >= ranked:
+		if tier == ranked:
+			return str(RANK_BLURBS.get(_Ranks.ENDLESS_NAME, ""))
+		return TIER_BLURBS[posmod(tier - ranked - 1, TIER_BLURBS.size())]
+	var step := posmod(tier, _Ranks.TIERS_PER_RANK)
+	if step == 0:
+		return str(RANK_BLURBS.get(_Ranks.NAMES[int(float(tier) / float(_Ranks.TIERS_PER_RANK))], ""))
+	return TIER_BLURBS[(step - 1) % TIER_BLURBS.size()]
+
+
+## How the day went (QUIP_BUCKETS), from the day summary: no jobs; a raid; four and
+## a half stars or better over two jobs or more; under three stars; otherwise solid.
+static func quip_bucket(summary: Dictionary) -> String:
+	var jobs := int(summary.get("jobs", 0))
+	if jobs <= 0:
+		return "zero"
+	if int(summary.get("raids", 0)) > 0:
+		return "raided"
+	var average := float(summary.get("stars", 0.0)) / float(jobs)
+	if jobs >= 2 and average >= 4.5:
+		return "great"
+	if average < 3.0:
+		return "rough"
+	return "solid"
+
+
+## The day summary's quip: the bucket's line for this day, the same on every peer.
+static func summary_quip(summary: Dictionary) -> String:
+	var bucket := quip_bucket(summary)
+	return pick_seeded(SUMMARY_QUIPS.get(bucket, []), hash([int(summary.get("day", 1)), bucket]))
