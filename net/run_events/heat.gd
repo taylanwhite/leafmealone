@@ -9,6 +9,7 @@ extends Node
 signal heat_changed(value: float)
 
 const SYNC_SECONDS: float = 0.25
+const _ToolTiers = preload("res://core/tool_tiers.gd")
 
 var heat: float = 0.0
 var _dirty: bool = false
@@ -46,6 +47,13 @@ func after_raid() -> void:
 	add(minf(0.0, Constants.HEAT_AFTER_RAID - heat), "raid")
 
 
+## The heat a running tool of this kind and tier makes per second, before the
+## hour's and the hood's scale: Constants.HEAT_NOISE_PER_SECOND times its tier's
+## TOOL_TIER_NOISE. For tests and for any UI that says "quieter: -30% heat".
+static func noise_for(kind: String, tier: int) -> float:
+	return float(Constants.HEAT_NOISE_PER_SECOND.get(kind, 0.0)) * _ToolTiers.noise(tier)
+
+
 ## How many NICE BOYS this much heat brings.
 func crew_count() -> int:
 	return clampi(1 + int(floor(heat / Constants.HEAT_PER_EXTRA_CREW)), 1, Constants.HEAT_MAX_CREW)
@@ -54,11 +62,11 @@ func crew_count() -> int:
 func _process(delta: float) -> void:
 	if not Net.is_host():
 		return
-	# Noise: every running tool on the lot, by kind.
+	# Noise: every running tool on the lot, by kind and tier (a Mk III whispers).
 	var noise := 0.0
 	for node: Node in get_tree().get_nodes_in_group("props"):
 		if bool(node.get("spraying")):
-			noise += float(Constants.HEAT_NOISE_PER_SECOND.get(str(node.get("kind")), 0.0))
+			noise += noise_for(str(node.get("kind")), _ToolTiers.tier_of(node))
 	if noise > 0.0:
 		# Louder after 9 PM, and fancier neighborhoods call it in faster (docs/SPINE.md).
 		add(noise * delta * _noise_scale())

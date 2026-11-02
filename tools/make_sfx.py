@@ -440,6 +440,38 @@ def grind() -> list[float]:
     return envelope(out, 0.01, 0.25)
 
 
+def sputter() -> list[float]:
+    """Out of gas: the engine's putt-putt slows, coughs, and dies with a sad little 'ptoo'."""
+    rng = random.Random(71)
+    out = silence(1.5)
+    t = 0.0
+    seconds = 1.05
+    while t < seconds:
+        progress = t / seconds
+        pitch = 88.0 - 30.0 * progress
+        level = 1.0 - 0.45 * progress
+        mix_into(out, blip(0.08, pitch * 1.6, pitch, 40.0), t, 0.8 * level)
+        mix_into(out, decay(lowpass(noise(rng, 0.06), 800.0), 55.0), t, 1.1 * level)
+        # Each pop comes later than the last: 13 a second down to 3.
+        t += 1.0 / (13.0 - 10.0 * progress)
+    # 'Ptoo': a puff of air and a tiny drooping toot.
+    mix_into(out, envelope(bandpass(noise(rng, 0.09), 1800.0, 1.2), 0.004, 0.06), seconds + 0.12, 0.7)
+    toot = envelope(tone(0.22, glide(330.0, 190.0, 0.2), "triangle"), 0.01, 0.12)
+    mix_into(out, toot, seconds + 0.16, 0.45)
+    return out
+
+
+def glug() -> list[float]:
+    """Gas going in: a few hollow glugs, each bubble rising, over a slosh."""
+    rng = random.Random(72)
+    out = silence(0.75)
+    for index in range(4):
+        bubble = decay(tone(0.09, glide(170.0 + index * 25.0, 430.0 + index * 30.0, 0.07)), 30.0)
+        mix_into(out, bubble, 0.04 + index * 0.14 + rng.uniform(-0.015, 0.015), 0.9)
+    mix_into(out, envelope(lowpass(noise(rng, 0.65), 500.0), 0.05, 0.25), 0.02, 0.5)
+    return out
+
+
 def ui_tick() -> list[float]:
     """The Settings window's slider step: a tiny wooden pip."""
     out = blip(0.04, 1800.0, 1400.0, 90.0)
@@ -495,6 +527,8 @@ SOUNDS = {
     "mower_start": (mower_start, 0, 0.6),
     "chop": (chop, 0, 0.75),
     "grind": (grind, 0, 0.7),
+    "sputter": (sputter, 0, 0.65),
+    "glug": (glug, 0, 0.55),
     "ui_tick": (ui_tick, 0, 0.35),
     "ui_pop": (ui_pop, 0, 0.45),
     "ui_stamp": (ui_stamp, 0, 0.7),

@@ -16,6 +16,9 @@ const LOOPS: Dictionary = {
 	"hedge_trimmer": "trimmer_loop",
 	"paint_roller": "roller_loop",
 }
+## Tiers sound different (core/tool_tiers.gd): Constants.TOOL_TIER_VOLUME_DB
+## and TOOL_TIER_PITCH.
+const _ToolTiers = preload("res://core/tool_tiers.gd")
 ## How fast the sound swells in and dies away, in volume share per second.
 const FADE_PER_SECOND := 6.0
 ## Quietest volume, in decibels, before it stops playing.
@@ -58,9 +61,11 @@ func _process(delta: float) -> void:
 		return
 	if not playing:
 		play(randf() * stream.get_length())
-	volume_db = linear_to_db(_level)
+	# Tiers sound different: a Mk III purrs low and quiet, a used one rattles loud.
+	var tier := _ToolTiers.tier_of(get_parent())
+	volume_db = linear_to_db(_level) + _ToolTiers.volume_db(tier)
 	# A little engine wobble so two mowers don't drone in unison.
-	pitch_scale = 1.0 + sin(Time.get_ticks_msec() / 1000.0 * 1.3 + get_instance_id() % 7) * 0.02
+	pitch_scale = _ToolTiers.pitch(tier) + sin(Time.get_ticks_msec() / 1000.0 * 1.3 + get_instance_id() % 7) * 0.02
 
 
 func _running() -> bool:
@@ -70,6 +75,9 @@ func _running() -> bool:
 	if kind == "lawn_mower":
 		return bool(prop.get("spraying"))
 	if holder == 0:
+		return false
+	# An empty gas tool won't even pretend.
+	if not _ToolTiers.has_fuel(prop):
 		return false
 	if kind == "hose" and str(prop.get("hose_source")) == "":
 		return false

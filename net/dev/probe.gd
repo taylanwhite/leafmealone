@@ -309,7 +309,21 @@ func _shops() -> Dictionary:
 		buff_ids[Net.player_name(int(peer_id))] = running
 	var owned: Array = (shops.get("crew_owned") as Array).duplicate()
 	owned.sort()
+	# The tools out on the yard as this peer sees them: "tier fuel%" per kind (and
+	# the gas can's fill), so a client proves tier and fuel replicate.
+	var tools := {}
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var kind := str(node.get("kind"))
+		if node.is_queued_for_deletion() or not (Constants.TOOL_PRICES.has(kind) or kind == "gas_can"):
+			continue
+		tools[kind] = "%d %d%%" % [int(node.get("tier")), roundi(float(node.get("water") if kind == "gas_can" else node.get("fuel")))]
+	var tool_kinds := tools.keys()
+	tool_kinds.sort()
+	var sorted_tools := {}
+	for kind: Variant in tool_kinds:
+		sorted_tools[kind] = tools[kind]
 	return {
+		"tools": sorted_tools,
 		"supplies": sorted_supplies,
 		"stock_day": int(shops.get("stock_day")),
 		"stock_hash": hash(JSON.stringify(shops.get("stock"), "", true)),

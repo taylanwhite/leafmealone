@@ -23,6 +23,7 @@ const _FirstPersonArms = preload("res://player/first_person_arms.gd")
 const _PropLooks = preload("res://props/prop_looks.gd")
 const _Pockets = preload("res://player/pockets.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
+const _ToolTiers = preload("res://core/tool_tiers.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -97,6 +98,9 @@ var _thrown_left: float = 0.0
 var _coat_shown: int = 0
 var _mound: Node3D
 var _next_strain: float = 0.0
+## A notice over your head (flash_hint) and when it goes (ticks msec).
+var _notice_text: String = ""
+var _notice_until: int = 0
 
 
 func _enter_tree() -> void:
@@ -146,6 +150,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		%CameraRig.toggle()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _water_hookup():
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _refuel():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _toggle_climb():
 		get_viewport().set_input_as_handled()
@@ -390,6 +396,42 @@ func _water_hookup() -> bool:
 	return true
 
 
+## E with the gas can in hand by a gas tool that isn't full: fill it up
+## (net_prop.gd request_refuel; the host pours).
+func _refuel() -> bool:
+	var held := _held_prop()
+	if held == null or str(held.get("kind")) != "gas_can" or held.call("refuel_target") == null:
+		return false
+	held.call("request_refuel")
+	return true
+
+
+## Local: a notice over your head for a few seconds ("Out of lawn bags...",
+## "Out of gas..."), shown by the interaction prompt ahead of everything else.
+func flash_hint(text: String) -> void:
+	_notice_text = text
+	_notice_until = Time.get_ticks_msec() + int(Constants.SUPPLY_NOTICE_SECONDS * 1000.0)
+
+
+## What's keeping the tool in hand from working, as a plain hint: an empty gas
+## tool, an empty gas can, or a rake with the crew out of bags. {} when nothing.
+func _supply_hint() -> Dictionary:
+	var held := _held_prop() as Node3D
+	if held == null:
+		return {}
+	var held_kind := str(held.get("kind"))
+	var above := held.global_position + Vector3(0.0, 1.0, 0.0)
+	if _ToolTiers.is_gas_tool(held_kind) and not _ToolTiers.has_fuel(held):
+		return {"text": _Strings.SHOP_UI["hud_out_of_gas"], "at": above, "plain": true}
+	if held_kind == "gas_can" and _ToolTiers.can_gallons(held) <= 0.0:
+		return {"text": _Strings.SHOP_UI["hud_can_empty"], "at": above, "plain": true}
+	if held_kind == "rake" and Net.player_zone(name.to_int()) == Net.Zone.LOT:
+		var field := get_tree().get_first_node_in_group("leaf_field")
+		if field != null and str(field.call("bag_type")) == "":
+			return {"text": _Strings.SHOP_UI["hud_out_of_bags"], "at": above, "plain": true}
+	return {}
+
+
 func _nearest_bucket() -> Node3D:
 	for node: Node in get_tree().get_nodes_in_group("paint_buckets"):
 		var bucket := node as Node3D
@@ -544,7 +586,8 @@ func _step_climb(delta: float) -> void:
 	var top: Vector3 = _ladder.get("ladder_top")
 	var up := top - foot
 	var out := Vector3(-up.x, 0.0, -up.z).normalized()
-	_climb = move_toward(_climb, _climb_target, delta / Constants.LADDER_CLIMB_SECONDS)
+	# Better ladders climb faster; the Mk III twice as fast (core/tool_tiers.gd).
+	_climb = move_toward(_climb, _climb_target, delta / Constants.LADDER_CLIMB_SECONDS * _ToolTiers.climb_speed(_ToolTiers.tier_of(_ladder)))
 	# At the top your feet are a rung below the gutter, so it's at chest height.
 	var reach := maxf(0.0, (up.length() - 1.45) / up.length())
 	global_position = foot + up * (reach * _climb) + out * 0.35
@@ -987,6 +1030,9 @@ func _best_pickup() -> Node3D:
 ## What E would do right now, for the prompt in ui/interaction_prompt.gd, in the
 ## same order _unhandled_input tries them. Empty when E does nothing here.
 func interaction_hint() -> Dictionary:
+	# A fresh notice (out of bags, out of gas) beats every prompt for a moment.
+	if _notice_text != "" and Time.get_ticks_msec() < _notice_until:
+		return {"text": _notice_text, "at": global_position + Vector3(0.0, 2.2, 0.0), "plain": true}
 	if _hidden_spot != null:
 		return {"text": _Strings.UI["prompt_unhide"], "at": _hidden_spot.global_position + Vector3(0.0, 2.2, 0.0)}
 	var paint_held := _held_prop()
@@ -1000,6 +1046,13 @@ func interaction_hint() -> Dictionary:
 			if str(water_held.get("kind")) == "hose":
 				key = "prompt_unhook" if str(water_held.get("hose_source")) == str(source.get_meta("kind")) else "prompt_hook_" + str(source.get_meta("kind"))
 			return {"text": _Strings.UI[key], "at": source.global_position + Vector3(0.0, 0.9, 0.0)}
+	# The gas can in hand by a gas tool that isn't full: fill it up (ahead of
+	# picking anything up, gap-specs critic C29).
+	var can_held := _held_prop()
+	if can_held != null and str(can_held.get("kind")) == "gas_can":
+		var thirsty := can_held.call("refuel_target") as Node3D
+		if thirsty != null:
+			return {"text": _Strings.SHOP_UI["prompt_refuel"] % int(float(thirsty.get("fuel"))), "at": thirsty.global_position + Vector3(0.0, 0.9, 0.0)}
 	if _ladder != null:
 		return {"text": _Strings.UI["prompt_climb_down"], "at": global_position + Vector3(0.0, 2.2, 0.0) - global_basis.z * 0.6}
 	var ladder := _nearest_ladder()
@@ -1038,10 +1091,11 @@ func interaction_hint() -> Dictionary:
 		if barrow != null:
 			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0)}
 	if not _hands_can_pick_up():
-		return {}
+		return _supply_hint()
 	var closest := _best_pickup()
 	if closest == null:
-		return {}
+		# Nothing to do with E: say what's wrong with the tool in hand, if anything.
+		return _supply_hint()
 	# A pocket item with every pocket full (and no stack of its kind to join): say so.
 	var closest_kind := str(closest.get("kind"))
 	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):

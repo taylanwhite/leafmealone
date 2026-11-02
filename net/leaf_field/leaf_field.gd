@@ -8,7 +8,9 @@ signal chunk_changed(chunk_index: int)
 signal stroke_visual(at: Vector3)
 ## units is how much leaf density went into the bag, which sets its value.
 signal bag_requested(at: Vector3, units: int)
-signal bag_refused(peer_id: int)
+## Why a bag didn't happen: "thin" (rake a pile first) or "no_bags" (the crew's
+## out of lawn and contractor bags; Shops' supplies).
+signal bag_refused(peer_id: int, reason: String)
 
 const CHUNK_SIZE: int = 16
 ## A fresh lot starts thin enough that a raked pile can grow about four times
@@ -19,6 +21,10 @@ const CLEAN_DENSITY: int = 8
 const REACH_METERS: float = 3.5
 const SEND_INTERVAL: float = 0.1
 const _Economy = preload("res://core/economy.gd")
+const _ToolTiers = preload("res://core/tool_tiers.gd")
+## Bag types, in the order they're used: contractor bags scoop wider
+## (Constants.BIG_BAG_RADIUS_SCALE), then plain lawn bags. Shops supply ids.
+const BAG_SUPPLIES: Array[String] = ["big_bags", "lawn_bags"]
 
 @export var cell_size: float = 0.5
 @export var grid_width: int = 80
@@ -160,9 +166,36 @@ func request_collect(origin: Vector3, radius: float) -> void:
 	if Net.is_host():
 		_handle_collect(Net.local_peer_id(), origin, radius)
 	else:
-		if _player_in_reach(Net.local_peer_id(), origin):
+		# No bags left (as far as this peer has heard): nothing to predict.
+		if _player_in_reach(Net.local_peer_id(), origin) and bag_type() != "":
 			_apply_collect(origin, radius, false)
 		_rpc_request_collect.rpc_id(1, origin, radius)
+
+
+## Which bag the next pile goes in: "big_bags" while the crew has contractor
+## bags, else "lawn_bags", or "" when it's out of both. Any peer (supplies
+## replicate); a scene with no Shops node never runs out.
+func bag_type() -> String:
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops == null:
+		return "lawn_bags"
+	for supply_id: String in BAG_SUPPLIES:
+		if float(shops.call("supply", supply_id)) >= 1.0:
+			return supply_id
+	return ""
+
+
+## How wide a bag of this type scoops.
+static func bag_radius(supply_id: String, radius: float) -> float:
+	return radius * (Constants.BIG_BAG_RADIUS_SCALE if supply_id == "big_bags" else 1.0)
+
+
+## Host: use up one bag of this type from the crew's supply. True when it was there.
+func _take_bag(supply_id: String) -> bool:
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops == null:
+		return true
+	return bool(shops.call("consume", supply_id, 1.0))
 
 
 ## Host: a hired hand's rake stroke (npcs/crew_hand.gd). A real rake, at the
@@ -183,9 +216,16 @@ func host_hand_rake(origin: Vector3, direction: Vector3, skill: float) -> int:
 func host_hand_collect(origin: Vector3) -> int:
 	if not Net.is_host() or not _inside_grid(origin):
 		return 0
-	if _units_within(origin, Constants.BAG_RADIUS) < int(Constants.MIN_BAG_CELLS * INITIAL_DENSITY):
+	# Hands bag with the crew's bags too: contractor bags first, none when it's out.
+	var supply_id := bag_type()
+	if supply_id == "":
 		return 0
-	var removed := _apply_collect(origin, Constants.BAG_RADIUS, false)
+	var radius := bag_radius(supply_id, Constants.BAG_RADIUS)
+	if _units_within(origin, radius) < int(Constants.MIN_BAG_CELLS * INITIAL_DENSITY):
+		return 0
+	if not _take_bag(supply_id):
+		return 0
+	var removed := _apply_collect(origin, radius, false)
 	_removed_units += float(removed) * _unit_scale
 	if removed > 0:
 		_rpc_stroke.rpc(origin)
@@ -271,12 +311,20 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 	var max_strength := Constants.RAKE_STRENGTH if has_rake else Constants.HAND_RAKE_STRENGTH
 	var max_width := Constants.RAKE_WIDTH if has_rake else Constants.HAND_RAKE_WIDTH
 	var cells := Constants.RAKE_STROKE_CELLS if has_rake else 1
-	# A leaf blower shoves leaves much farther than any rake.
-	if holds_kind(peer_id, "leaf_blower"):
-		_mark_running(peer_id, "leaf_blower")
-		max_strength = Constants.BLOWER_STRENGTH
-		max_width = Constants.BLOWER_WIDTH
-		cells = Constants.BLOWER_CELLS
+	# A leaf blower shoves leaves much farther than any rake; a better one harder
+	# and wider, the Mk III farther still (core/tool_tiers.gd). An empty one is a
+	# very loud-looking pair of bare hands.
+	var tool_scale := 1.0
+	var blower := held_prop(peer_id, "leaf_blower")
+	if blower != null and _ToolTiers.has_fuel(blower):
+		var tier := _ToolTiers.tier_of(blower)
+		blower.call("mark_spraying")
+		tool_scale = _ToolTiers.speed(tier)
+		max_strength = Constants.BLOWER_STRENGTH * tool_scale
+		max_width = Constants.BLOWER_WIDTH * _ToolTiers.reach(tier)
+		cells = _ToolTiers.blower_cells(tier)
+		strength *= tool_scale
+		width *= _ToolTiers.reach(tier)
 	var moved := _stroke_cells(origin, direction, minf(width, max_width), minf(strength, max_strength) * Campaign.rake_multiplier(peer_id), cells)
 	if moved <= 0:
 		return
@@ -291,16 +339,21 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float) -> void:
 	if not _player_in_reach(peer_id, origin):
 		_send_snapshot(peer_id)
 		return
-	# Too few leaves here to fill a bag: rake a pile first. Nothing is taken.
-	if _units_within(origin, minf(radius, Constants.BAG_RADIUS)) < int(Constants.MIN_BAG_CELLS * INITIAL_DENSITY):
-		if peer_id == Net.local_peer_id():
-			_on_bag_refused()
-		else:
-			# Undo the client's predicted bagging, then tell them why.
-			_send_snapshot(peer_id)
-			_rpc_bag_refused.rpc_id(peer_id)
+	# Every pile takes a bag from the crew's supply: contractor bags first (they
+	# scoop wider), then lawn bags. Out of both, nothing is bagged.
+	var supply_id := bag_type()
+	if supply_id == "":
+		_refuse_bag(peer_id, "no_bags")
 		return
-	var removed := _apply_collect(origin, minf(radius, Constants.BAG_RADIUS), true)
+	var scoop := bag_radius(supply_id, minf(radius, Constants.BAG_RADIUS))
+	# Too few leaves here to fill a bag: rake a pile first. Nothing is taken.
+	if _units_within(origin, scoop) < int(Constants.MIN_BAG_CELLS * INITIAL_DENSITY):
+		_refuse_bag(peer_id, "thin")
+		return
+	if not _take_bag(supply_id):
+		_refuse_bag(peer_id, "no_bags")
+		return
+	var removed := _apply_collect(origin, scoop, true)
 	if removed <= 0:
 		return
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(removed) * _unit_scale)
@@ -430,6 +483,14 @@ func holds_kind(peer_id: int, held_kind: String) -> bool:
 	return false
 
 
+## The prop of this kind this peer has in hand, or null.
+func held_prop(peer_id: int, held_kind: String) -> Node:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == held_kind and int(node.get("held_by")) == peer_id:
+			return node
+	return null
+
+
 ## Host: the tool this peer carries ran just now, so everyone hears it.
 func _mark_running(peer_id: int, held_kind: String) -> void:
 	for node: Node in get_tree().get_nodes_in_group("props"):
@@ -459,14 +520,24 @@ func _units_within(origin: Vector3, radius: float) -> int:
 	return total
 
 
-## The bagging player hears that there wasn't enough here.
+## Host: no bag for this peer, and why ("thin", "no_bags"). A client's
+## predicted bagging is undone first.
+func _refuse_bag(peer_id: int, reason: String) -> void:
+	if peer_id == Net.local_peer_id():
+		_on_bag_refused(reason)
+	else:
+		_send_snapshot(peer_id)
+		_rpc_bag_refused.rpc_id(peer_id, reason)
+
+
+## The bagging player hears why there's no bag.
 @rpc("authority", "call_remote", "reliable")
-func _rpc_bag_refused() -> void:
-	_on_bag_refused()
+func _rpc_bag_refused(reason: String) -> void:
+	_on_bag_refused(reason)
 
 
-func _on_bag_refused() -> void:
-	bag_refused.emit(Net.local_peer_id())
+func _on_bag_refused(reason: String) -> void:
+	bag_refused.emit(Net.local_peer_id(), reason)
 
 
 func _add_density(x: int, z: int, delta: int) -> void:

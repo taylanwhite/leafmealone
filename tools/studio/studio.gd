@@ -143,6 +143,8 @@ func _build(root: Node3D) -> void:
 				root.add_child(model)
 				model.position = Vector3(float(index) * 1.0 - 2.0, 0.0, 0.0)
 				model.rotation.y = PI + 0.5
+		"tool_tiers":
+			_tool_tiers(root)
 		"truck":
 			var truck := Node3D.new()
 			root.add_child(truck)
@@ -201,6 +203,42 @@ func _build(root: Node3D) -> void:
 			_PropCatalog.place(root, kind, Transform3D(Basis.IDENTITY, Vector3(0.0, lift, 0.0)), tint, {"season": _season, "lights": str(_options.get("lights", "classic"))})
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
+
+
+## The seven tools at every tier (props/yard_models.gd tier trim): a row per
+## tool, used, stock, Mk II and Mk III left to right, and the gas can at the end.
+## --tool=<id> shows just that tool's four, close up.
+func _tool_tiers(root: Node3D) -> void:
+	var models := preload("res://props/yard_models.gd")
+	var tools: Array = Catalog.TOOLS.duplicate()
+	var only := str(_options.get("tool", ""))
+	if only != "":
+		tools = [only]
+	for row: int in tools.size():
+		for tier: int in 4:
+			var model: Node3D = models.node(tools[row], Color(0.8, 0.8, 0.8), Vector3(0.7, 0.7, 0.7), {"roughness": 0.55, "specular": 0.3}, tier)
+			root.add_child(model)
+			# Tiers across (x), tools down the rows (z), each turned side-on to the camera.
+			model.position = Vector3((float(tier) - 1.5) * 2.8, 0.05 if tools[row] != "ladder" else 0.08, float(row) * 1.4 - float(tools.size() - 1) * 0.7)
+			model.rotation.y = PI * 0.5
+	if only == "":
+		var can: Node3D = models.node("gas_can")
+		root.add_child(can)
+		can.position = Vector3(6.2, 0.0, 0.0)
+		can.rotation.y = -0.6
+		root.set_meta("views", [
+			{"from": Vector3(3.0, 9.0, 11.0), "at": Vector3(0.6, 0.0, 0.0), "fov": 48.0},
+			{"from": Vector3(-2.8, 2.6, 5.2), "at": Vector3(-2.8, 0.2, 1.2), "fov": 50.0},
+			{"from": Vector3(2.8, 2.6, 5.2), "at": Vector3(2.8, 0.2, 1.2), "fov": 50.0},
+			{"from": Vector3(6.2, 0.9, 1.4), "at": Vector3(6.2, 0.22, 0.0), "fov": 35.0},
+		])
+	else:
+		root.set_meta("views", [
+			{"from": Vector3(0.0, 3.5, 6.5), "at": Vector3(0.0, 0.25, 0.0), "fov": 50.0},
+			{"from": Vector3(-4.2, 1.2, 1.8), "at": Vector3(-4.2, 0.25, 0.0), "fov": 40.0},
+			{"from": Vector3(1.4, 1.2, 1.8), "at": Vector3(1.4, 0.25, 0.0), "fov": 40.0},
+			{"from": Vector3(4.2, 1.2, 1.8), "at": Vector3(4.2, 0.25, 0.0), "fov": 40.0},
+		])
 
 
 ## The new tree kinds and forms (props/trees.gd). Front row, spawned so they

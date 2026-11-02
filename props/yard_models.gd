@@ -15,19 +15,53 @@ const STEEL := Color(0.62, 0.64, 0.66)
 const KRAFT := Color(0.72, 0.55, 0.34)
 const LEAVES: Array[Color] = [Color(0.9, 0.48, 0.15), Color(0.93, 0.72, 0.22), Color(0.75, 0.25, 0.14)]
 const SMOOTH := {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0}
+## Where each tool's tier trim goes: the main body boxes of its model below, as
+## [center, half extents] (tool space, faces -Z). Mk II gets a chrome stripe
+## over each; Mk III a black shell, a gold stripe and flames down the sides; a
+## used one rust blotches and a strip of duct tape.
+const TIER_TRIM: Dictionary = {
+	"leaf_blower": [[Vector3(0.0, 0.2, 0.08), Vector3(0.14, 0.16, 0.18)]],
+	"lawn_mower": [[Vector3(0.0, 0.2, 0.0), Vector3(0.3, 0.08, 0.32)]],
+	"ladder": [[Vector3(-0.22, 0.0, 0.0), Vector3(0.025, 0.05, 1.2)], [Vector3(0.22, 0.0, 0.0), Vector3(0.025, 0.05, 1.2)]],
+	"hose": [[Vector3(0.0, 0.3, 0.0), Vector3(0.17, 0.035, 0.035)]],
+	"pressure_washer": [[Vector3(0.0, 0.38, 0.0), Vector3(0.22, 0.24, 0.18)]],
+	"hedge_trimmer": [[Vector3(0.0, 0.15, 0.12), Vector3(0.09, 0.09, 0.16)]],
+	"paint_roller": [[Vector3(0.0, 0.0, 0.15), Vector3(0.024, 0.024, 0.15)]],
+}
+const CHROME := Color(0.86, 0.88, 0.92)
+const GOLD := Color(0.93, 0.74, 0.22)
+const MK3_BLACK := Color(0.1, 0.1, 0.11)
+const RUST := Color(0.5, 0.27, 0.12)
+const TAPE := Color(0.6, 0.62, 0.64)
+const FLAMES: Array[Color] = [Color(0.92, 0.2, 0.08), Color(0.98, 0.52, 0.1), Color(1.0, 0.85, 0.25)]
+## Trim pieces stay low-poly: a tool is small and there are seven of them.
+const TRIM_DETAIL := {"detail": 1}
+const TRIM_BLOB := {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0}
 
 static var _cache: Dictionary = {}
 
 
-static func node(kind: String, color: Color = Color.WHITE, size: Vector3 = Vector3.ONE, options: Dictionary = {}) -> MeshInstance3D:
+## tier dresses one of the seven tools (TIER_TRIM): 0 used, 1 stock (none), 2 Mk
+## II, 3 Mk III. Anything else ignores it.
+static func node(kind: String, color: Color = Color.WHITE, size: Vector3 = Vector3.ONE, options: Dictionary = {}, tier: int = 1) -> MeshInstance3D:
+	var trim := tier if TIER_TRIM.has(kind) and tier != 1 else 1
 	var key := "%s|%s|%s" % [kind, color.to_html(), size]
+	if trim != 1:
+		key += "|tier%d" % trim
 	if not _cache.has(key):
-		_cache[key] = _build(kind, color, size)
+		_cache[key] = _build(kind, color, size, trim)
 	return _Stylized.instance(_cache[key], options if not options.is_empty() else {"roughness": 0.8, "specular": 0.15})
 
 
-static func _build(kind: String, color: Color, size: Vector3) -> ArrayMesh:
+static func _build(kind: String, color: Color, size: Vector3, tier: int = 1) -> ArrayMesh:
 	var kit := _MeshKit.new()
+	_build_kind(kit, kind, color, size)
+	if tier != 1 and TIER_TRIM.has(kind):
+		_tier_trim(kit, kind, tier)
+	return kit.commit()
+
+
+static func _build_kind(kit: RefCounted, kind: String, color: Color, size: Vector3) -> void:
 	match kind:
 		"rake":
 			_rake(kit)
@@ -75,9 +109,68 @@ static func _build(kind: String, color: Color, size: Vector3) -> ArrayMesh:
 			_wand(kit)
 		"paint_bucket":
 			_paint_bucket(kit)
+		"gas_can":
+			_gas_can(kit)
 		_:
-			kit.rbox(Vector3(0.0, size.y * 0.5, 0.0), size * 0.5, color, 6.0)
-	return kit.commit()
+			kit.call("rbox", Vector3(0.0, size.y * 0.5, 0.0), size * 0.5, color, 6.0)
+
+
+## A tool's tier, worn on its body boxes (TIER_TRIM): Mk II a chrome racing
+## stripe and pinstripes, Mk III a black shell with a gold stripe and flames
+## licking back from the front, a used one rust blotches and duct tape. Thin
+## bodies (ladder rails, the hose reel's axle, the roller's handle) get rings
+## instead of stripes.
+static func _tier_trim(kit: RefCounted, kind: String, tier: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([kind, tier])
+	for body: Array in (TIER_TRIM[kind] as Array):
+		var center: Vector3 = body[0]
+		var half: Vector3 = body[1]
+		var thin := minf(half.x, half.y) < 0.06
+		match tier:
+			Catalog.TIER_MK2:
+				_trim_stripes(kit, center, half, thin, CHROME)
+			Catalog.TIER_MK3:
+				kit.call("rbox", center, half + Vector3(0.012, 0.012, 0.012), MK3_BLACK, 5.0, {"detail": 2})
+				_trim_stripes(kit, center, half + Vector3(0.012, 0.012, 0.012), thin, GOLD)
+				if not thin:
+					_trim_flames(kit, center, half + Vector3(0.012, 0.012, 0.012))
+			Catalog.TIER_USED:
+				# A strip of duct tape slapped round the middle, a bit crooked, and
+				# rust where it scraped.
+				kit.call("rbox", center, Vector3(half.x + 0.012, half.y + 0.012, maxf(0.03, half.z * 0.16)), TAPE, 4.0, {"detail": 2, "basis": Basis(Vector3.RIGHT, 0.22)})
+				for index: int in 3:
+					var side := -1.0 if index % 2 == 0 else 1.0
+					var along := rng.randf_range(-0.7, 0.7) * half.z
+					var up := rng.randf_range(-0.5, 0.5) * half.y
+					var size := Vector3(0.008, maxf(half.y * 0.25, 0.01), maxf(half.z * 0.18, 0.012))
+					kit.call("blob", center + Vector3(side * (half.x + 0.004), up, along), size, RUST.darkened(rng.randf_range(0.0, 0.2)), TRIM_BLOB)
+
+
+## Racing stripes on a body box: one down the middle of the top and a pinstripe
+## along each side. A thin body gets three rings instead.
+static func _trim_stripes(kit: RefCounted, center: Vector3, half: Vector3, thin: bool, color: Color) -> void:
+	if thin:
+		for t: float in [-0.55, 0.0, 0.55]:
+			kit.call("rbox", center + Vector3(0.0, 0.0, t * half.z), Vector3(half.x + 0.006, half.y + 0.006, 0.012), color, 4.0, TRIM_DETAIL)
+		return
+	# Kept short of the rounded ends, so nothing sticks out past the body.
+	kit.call("rbox", center + Vector3(0.0, half.y + 0.002, 0.0), Vector3(half.x * 0.2, 0.008, half.z * 0.72), color, 3.0, TRIM_DETAIL)
+	for side: float in [-1.0, 1.0]:
+		kit.call("rbox", center + Vector3(side * (half.x + 0.002), half.y * 0.35, 0.0), Vector3(0.007, half.y * 0.07, half.z * 0.72), color, 3.0, TRIM_DETAIL)
+
+
+## Hot-rod flames down both sides of a body box: three tongues streaming back
+## from the front (-Z) at different heights and lengths, red with a yellow core.
+static func _trim_flames(kit: RefCounted, center: Vector3, half: Vector3) -> void:
+	var tongues: Array[Vector2] = [Vector2(-0.45, 0.75), Vector2(-0.05, 1.0), Vector2(0.35, 0.6)]
+	for side: float in [-1.0, 1.0]:
+		for tongue: Vector2 in tongues:
+			var length := half.z * 0.42 * tongue.y
+			var front := -half.z * 0.78
+			var at := center + Vector3(side * (half.x + 0.003), half.y * tongue.x, front + length)
+			kit.call("blob", at, Vector3(0.006, half.y * 0.16, length), FLAMES[0], TRIM_BLOB)
+			kit.call("blob", at + Vector3(side * 0.003, 0.0, -length * 0.25), Vector3(0.005, half.y * 0.08, length * 0.6), FLAMES[2], TRIM_BLOB)
 
 
 ## The job's one rake, standing up: a wooden handle with a rubber grip, a metal
@@ -388,6 +481,20 @@ static func _wand(kit: RefCounted) -> void:
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.04), Vector3(0, 0.0, -0.8)]), PackedFloat32Array([0.012, 0.012]), Color(0.75, 0.76, 0.78), 8, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.78), Vector3(0, 0.0, -0.86)]), PackedFloat32Array([0.02, 0.016]), black, 8, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0, -0.12, 0.13), Vector3(0, -0.3, 0.2)]), PackedFloat32Array([0.012, 0.012]), black, 6, {"jitter": 0.0})
+
+
+## The crew's red gas can: a flat jerry can with an X pressed in each side, a
+## handle across the top (where it's held, prop_looks.gd HOLDS), and a yellow
+## spout up front (-Z).
+static func _gas_can(kit: RefCounted) -> void:
+	var red := Color(0.84, 0.14, 0.1)
+	kit.call("rbox", Vector3(0.0, 0.17, 0.0), Vector3(0.08, 0.16, 0.13), red, 5.0, {"detail": 2})
+	for side: float in [-1.0, 1.0]:
+		for lean: float in [-1.0, 1.0]:
+			kit.call("rbox", Vector3(side * 0.083, 0.17, 0.0), Vector3(0.006, 0.012, 0.15), red.darkened(0.25), 3.0, {"detail": 1, "basis": Basis(Vector3.RIGHT, lean * 0.82)})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.32, -0.07), Vector3(0, 0.4, -0.045), Vector3(0, 0.4, 0.045), Vector3(0, 0.32, 0.07)]), PackedFloat32Array([0.016, 0.017, 0.017, 0.016]), Color(0.12, 0.12, 0.13), 6, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(0, 0.3, -0.1), Vector3(0, 0.37, -0.17), Vector3(0, 0.43, -0.22)]), PackedFloat32Array([0.022, 0.016, 0.012]), Color(0.95, 0.8, 0.2), 8, {"jitter": 0.0, "cap": true})
+	kit.call("blob", Vector3(0.0, 0.335, 0.09), Vector3(0.025, 0.012, 0.025), Color(0.12, 0.12, 0.13), TRIM_BLOB)
 
 
 ## A gallon of white paint with the lid off and a drip down the side.

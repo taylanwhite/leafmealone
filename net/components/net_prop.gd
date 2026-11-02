@@ -4,6 +4,7 @@ const _PropLooks = preload("res://props/prop_looks.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _WaterSources = preload("res://net/work/water_sources.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
+const _ToolTiers = preload("res://core/tool_tiers.gd")
 
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
@@ -58,6 +59,16 @@ const _Hotbar = preload("res://net/components/hotbar.gd")
 ## A ladder set up against the house: where its top rests (world space), or zero
 ## when it isn't set up. Its position is its foot. Replicated.
 @export var ladder_top := Vector3.ZERO
+## A tool's tier: 0 used, 1 stock, 2 Mk II, 3 Mk III (core/tool_tiers.gd). The
+## host sets it from the best one the crew owns. Replicated; the look and
+## name follow it.
+@export var tier: int = 1:
+	set(value):
+		tier = value
+		_refresh_label()
+## A gas tool's tank, 0 to 100 (Constants.GAS_TOOLS). Burns while it runs; at 0
+## it sputters and dies until someone fills it from the gas can. Replicated.
+@export var fuel: float = 100.0
 
 var _airborne: bool = false
 var _spray_left: float = 0.0
@@ -443,7 +454,14 @@ func _over_hose(hose: Node3D, at: Vector3) -> bool:
 func _rpc_mower_fx(what: String, at: Vector3) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		sfx.call("play_at", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk", "runaway": "mower_start"}.get(what, "bonk"), at)
+		sfx.call("play_at", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk", "runaway": "mower_start", "sputter": "sputter", "glug": "glug"}.get(what, "bonk"), at)
+	# Running dry and filling up are only heard (and the holder told).
+	if what == "sputter" or what == "glug":
+		if what == "sputter" and held_by != 0 and held_by == Net.local_peer_id():
+			var holder := _player(held_by)
+			if holder != null and holder.has_method("flash_hint"):
+				holder.call("flash_hint", preload("res://ui/strings.gd").SHOP_UI["goal_out_of_gas"])
+		return
 	var looks := get_tree().get_first_node_in_group("task_looks")
 	if looks != null:
 		looks.call("work_fx", "pick_litter" if what == "clank" else ("mow_lawn" if what == "chop" else "clean_gutters"), at + Vector3.UP * 0.3)
@@ -473,7 +491,13 @@ func _pull_cord(peer_id: int) -> void:
 		spraying = false
 		_rpc_mower_fx.rpc("clank", global_position)
 		return
-	var chance := Constants.MOWER_START_CHANCE + Constants.MOWER_START_GAIN * float(_pulls)
+	# An empty tank never catches: a pull, and the sad little cough.
+	if fuel <= 0.0:
+		_rpc_pull_fx.rpc(false)
+		_rpc_mower_fx.rpc("sputter", global_position)
+		return
+	# Better tiers catch sooner; a used one fights you; the Mk III always starts.
+	var chance := _ToolTiers.start_chance(_ToolTiers.tier_of(self), _pulls)
 	_pulls += 1
 	var caught := randf() < chance
 	if caught:
@@ -499,9 +523,78 @@ func _rpc_pull_fx(caught: bool) -> void:
 
 ## Host: the tool ran just now (job_tasks and leaf_field say so on each use).
 func mark_spraying() -> void:
+	# A gas tool with an empty tank doesn't run, whoever asks.
+	if not _ToolTiers.has_fuel(self):
+		return
 	_spray_left = 0.3
 	if not spraying:
 		spraying = true
+
+
+## Host: a running gas tool burns its tank (core/tool_tiers.gd: thirstier used,
+## thriftier Mk II and III). Empty, it sputters and dies.
+func _step_fuel(delta: float) -> void:
+	if not spraying or not _ToolTiers.is_gas_tool(kind) or fuel <= 0.0:
+		return
+	fuel = maxf(0.0, fuel - _ToolTiers.burn_per_second(kind, _ToolTiers.tier_of(self)) * delta)
+	if fuel <= 0.0:
+		spraying = false
+		_spray_left = 0.0
+		_runaway_left = 0.0
+		_pulls = 0
+		_rpc_mower_fx.rpc("sputter", global_position)
+
+
+## The holder of the gas can presses E by a gas tool: the host pours what the
+## tank needs (Constants.GAS_PER_TANK fills it from empty) out of the can.
+func request_refuel() -> void:
+	if Net.is_host():
+		_refuel(Net.local_peer_id())
+	else:
+		_rpc_request_refuel.rpc_id(1)
+
+
+## The gas tool the holder of this gas can would fill: the closest one within
+## reach that isn't full, or null. Every peer can ask (the prompt does).
+func refuel_target() -> Node3D:
+	if kind != "gas_can" or held_by == 0 or _ToolTiers.can_gallons(self) <= 0.0:
+		return null
+	var holder := _player(held_by)
+	if holder == null:
+		return null
+	var best: Node3D = null
+	var best_distance := Constants.PICKUP_REACH
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var other := node as Node3D
+		if other == null or other == self or not _ToolTiers.is_gas_tool(str(other.get("kind"))) or float(other.get("fuel")) >= 100.0:
+			continue
+		var distance := other.global_position.distance_to(holder.global_position)
+		if distance < best_distance:
+			best = other
+			best_distance = distance
+	return best
+
+
+func _refuel(peer_id: int) -> void:
+	if kind != "gas_can" or held_by != peer_id:
+		return
+	var target := refuel_target()
+	if target == null:
+		return
+	var needed := (100.0 - float(target.get("fuel"))) / 100.0 * Constants.GAS_PER_TANK
+	var poured := minf(needed, _ToolTiers.can_gallons(self))
+	if poured <= 0.0:
+		return
+	water = _ToolTiers.can_water(_ToolTiers.can_gallons(self) - poured)
+	target.set("fuel", minf(100.0, float(target.get("fuel")) + poured / maxf(Constants.GAS_PER_TANK, 0.001) * 100.0))
+	label = _ToolTiers.can_label(_ToolTiers.can_gallons(self))
+	_rpc_mower_fx.rpc("glug", target.global_position)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_refuel() -> void:
+	if Net.is_host():
+		_refuel(multiplayer.get_remote_sender_id())
 
 
 ## Host: a tool stops running a moment after its last use. A mower's flag is its
@@ -536,7 +629,7 @@ func _step_hose(delta: float) -> void:
 	if source == null:
 		hose_source = ""
 		return
-	if source.global_position.distance_to(global_position) > Constants.HOSE_LENGTH:
+	if source.global_position.distance_to(global_position) > _ToolTiers.hose_length(_ToolTiers.tier_of(self)):
 		_whip_from = source.global_position
 		_whip_t = 0.0
 		_whipped.clear()
@@ -582,6 +675,7 @@ func request_throw(direction: Vector3, power: float = 1.0) -> void:
 
 
 func _host_step() -> void:
+	_step_fuel(get_physics_process_delta_time())
 	if kind != "lawn_mower":
 		_step_spray(get_physics_process_delta_time())
 	elif held_by == 0:
@@ -626,7 +720,9 @@ func _host_step() -> void:
 			if Vector2(global_position.x - was.x, global_position.z - was.z).length() > 0.01:
 				var tasks := get_tree().get_first_node_in_group("job_tasks")
 				if tasks != null:
-					tasks.call("host_work", "mow_lawn", global_position, 0.75, get_physics_process_delta_time(), held_by)
+					# A better mower cuts faster and wider (core/tool_tiers.gd).
+					var mower_tier := _ToolTiers.tier_of(self)
+					tasks.call("host_work", "mow_lawn", global_position, 0.75 * _ToolTiers.reach(mower_tier), get_physics_process_delta_time() * _ToolTiers.speed(mower_tier), held_by)
 			_mower_hits(player)
 		return
 	for node: Node in get_tree().get_nodes_in_group("players"):

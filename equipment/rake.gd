@@ -280,17 +280,20 @@ func _stroke(player: CharacterBody3D, bag: bool, strength: float, width: float) 
 	_burst(origin, forward, width > Constants.HAND_RAKE_WIDTH)
 
 
-## A refused bag (too few leaves) gets a puzzled "eh?" from you.
+## A refused bag (too few leaves) gets a puzzled "eh?" from you; out of bags,
+## you're also told where to get more.
 ## Each job loads a new lot and leaf field, so hook whichever one is current.
 func _hook_refusal() -> void:
 	var field := _field_near(Vector3.ZERO)
 	if field == null or field == _hooked_field or not field.has_signal("bag_refused"):
 		return
 	_hooked_field = field
-	field.connect("bag_refused", func(peer_id: int) -> void:
+	field.connect("bag_refused", func(peer_id: int, reason: String) -> void:
 		var player := get_parent()
 		if player != null and peer_id == player.name.to_int():
 			player.call("say", "vo_eh")
+			if reason == "no_bags" and player.has_method("flash_hint"):
+				player.call("flash_hint", preload("res://ui/strings.gd").SHOP_UI["hud_out_of_bags"])
 	)
 
 
