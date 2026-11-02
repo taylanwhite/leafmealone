@@ -37,6 +37,19 @@ const TOUR: Dictionary = {
 		["crew_camp", Vector3(-3.0, 1.9, -9.5), Vector3(-8.2, 0.5, -13.5)],
 		["crew_camp_close", Vector3(-5.6, 1.4, -12.0), Vector3(-8.0, 0.4, -13.8)],
 	],
+	# The connected town (net/town/town_map.gd), in world space, once per run.
+	"Town": [
+		["town_overview", Vector3(250.0, 75.0, 110.0), Vector3(430.0, 0.0, -30.0)],
+		["welcome_sign", Vector3(309.0, 2.4, 7.0), Vector3(325.0, 2.4, 1.0)],
+		["town_square", Vector3(296.0, 24.0, 44.0), Vector3(332.0, 0.0, 2.0)],
+		["maple_row", Vector3(372.0, 4.5, -104.0), Vector3(520.0, 2.0, -122.0)],
+		["maple_yards_above", Vector3(470.0, 70.0, -50.0), Vector3(470.0, 0.0, -125.0)],
+		["oak_hollow_gate", Vector3(326.0, 3.5, 262.0), Vector3(356.0, 4.0, 270.0)],
+		["lakeside_docks", Vector3(520.0, 16.0, -400.0), Vector3(540.0, 0.0, -452.0)],
+		["mansion_hill_gate", Vector3(326.0, 3.5, 402.0), Vector3(356.0, 3.0, 410.0)],
+		["field_office", Vector3(352.0, 4.0, -418.0), Vector3(318.0, 3.0, -436.0)],
+		["depot_ramp_and_sign", Vector3(6.0, 3.0, 24.0), Vector3(15.5, 0.8, 14.5)],
+	],
 }
 
 
@@ -118,6 +131,11 @@ func _tour(camera: Camera3D, label: String) -> void:
 	var world := get_tree().get_first_node_in_group("world")
 	if world == null:
 		return
+	if bool(world.call("is_town_map")) and not _toured.has("Town"):
+		_toured["Town"] = true
+		for stop: Array in TOUR["Town"]:
+			camera.look_at_from_position(stop[1], stop[2], Vector3.UP)
+			await _shoot("%s/%s_tour_%s.png" % [_dir, label, stop[0]])
 	var zone_names := {Net.Zone.STORE: "StoreZone", Net.Zone.LOT: "LotZone", Net.Zone.BORDER: "BorderZone"}
 	var zone_name: String = zone_names.get(Net.player_zone(Net.local_peer_id()), "")
 	var zone := world.get_node_or_null(zone_name) as Node3D

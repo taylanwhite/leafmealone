@@ -1684,3 +1684,27 @@ const KEY_LABELS: Dictionary = {
 	"mouse": "Mouse",
 	"unbound": "Unbound",
 }
+
+
+# ---- driving
+# Gutterford's signs (levels/town/town_dressing.gd; docs/GAME.md, "Gutterford").
+# The jokes punch at the work and the paperwork, never at people.
+
+const TOWN_SIGNS: Dictionary = {
+	"welcome_title": "GUTTERFORD",
+	"welcome_sign": "A Nice Place To Rake*",
+	"welcome_fine_print": "*Raking subject to HOA approval. Leaves not included. Leaves always included.",
+	"founders_rake": "THE FOUNDER'S RAKE\nHe raked this whole valley.\nHe never finished.",
+	"field_office_sign": "NICE BOYS\nRegional Field Office\n(Satellite Annex B)",
+	"field_office_banner": "NOW HIRING: BOYS",
+	"field_office_form": "Form 27-B: Request To Be Nice\nSubmit in triplicate. Nicely.",
+	"hoa_arch": "OAK HOLLOW\nAn HOA Community",
+	"hoa_flag": "VIOLATION",
+	"mansion_gate": "MANSION HILL\nResidents and Their Lawyers Only",
+	"depot_safe_sign": "NO NICENESS BEYOND THIS POINT.\nMgmt.",
+	"ramp_sign": "MARTY'S RAMP\nMy nephew built it. Not my problem.",
+	"lake_sign": "LAKE GUTTERFORD\nNo swimming. No fishing. No raking the lake.",
+	"main_street": "MAIN ST",
+	"county_road": "COUNTY RD 9",
+	"depot_road": "DEPOT RD",
+}

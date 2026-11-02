@@ -190,6 +190,9 @@ func write_report() -> void:
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
 		"town": _town(),
+		"townmap_test": preload("res://net/dev/townmap_test.gd").result.duplicate(true),
+		"town_site": _town_site(),
+		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"heat": _heat(),
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},
@@ -238,6 +241,29 @@ func _town() -> Dictionary:
 	if town == null:
 		return {}
 	return {"houses": hash(JSON.stringify(town.get("houses"))), "requests": town.get("requests"), "known": (town.call("known_houses") as Array).size()}
+
+
+## The connected town as this peer built it (net/town/town_map.gd): the layout,
+## the solid town (TownColliders), the job site's house and where the yard
+## stands, and the slots hidden for it. CI compares the host's with a client's
+## (net/dev/townmap_test.gd). {} in the legacy world.
+func _town_site() -> Dictionary:
+	var world := get_tree().get_first_node_in_group("world")
+	if world == null or not bool(world.call("is_town_map")):
+		return {}
+	var colliders := world.get_node_or_null("TownColliders")
+	var streamer := world.get_node_or_null("TownStreamer")
+	var lot_zone := world.get_node_or_null("LotZone") as Node3D
+	var origin := lot_zone.global_position.snappedf(0.01) if lot_zone != null else Vector3.ZERO
+	return {
+		"layout": TownMap.LAYOUT_VERSION,
+		"map": TownMap.layout_hash(),
+		"house_id": int(world.call("job_site_house")),
+		"lot_origin": [origin.x, origin.y, origin.z],
+		"house_shapes": int(colliders.call("house_shapes_enabled")) if colliders != null else -1,
+		"colliders": int(colliders.call("layout_hash")) if colliders != null else 0,
+		"slot_hidden": streamer.call("hidden_slots") if streamer != null else [],
+	}
 
 
 ## The NICE BOYS as this peer sees them, by node name: name tag, last bark, outfit.

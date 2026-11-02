@@ -160,6 +160,13 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --hotbar-test'; Seconds = 60; Client = 55
 		Check = { param($h, $c) [bool]$h.hotbar_test.ok -and (Same $h.hotbar $c.hotbar) }
 	}
+	# Gutterford's layout, roads, routes, store reservations and colliders (driving:B);
+	# the client gets the town mode with the world and must build the same solid town.
+	townmap = @{
+		Port = 7816
+		Host = '--host --name=Tester --no-steam --town-map --townmap-test'; Seconds = 60; Client = 55
+		Check = { param($h, $c) [bool]$h.townmap_test.ok -and (Same $h.town_site $c.town_site) -and ([int]$c.town_site.house_shapes -eq 47) }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

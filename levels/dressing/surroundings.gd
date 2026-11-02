@@ -61,6 +61,14 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 		_house(root, at, walls[index % walls.size()], -angle + PI * 0.5)
 
 
+## The same clouds around root, for dressing that has its own ground (the
+## connected town, levels/town/town_dressing.gd).
+static func clouds(root: Node3D, seed_value: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	_clouds(root, rng)
+
+
 ## Puffy low-poly clouds well out past the trees, high up, drifting nowhere.
 static func _clouds(root: Node3D, rng: RandomNumberGenerator) -> void:
 	if _cloud_meshes.is_empty():
