@@ -21,6 +21,10 @@ const XP_FIRST_TIER: int = 150
 const XP_PER_TIER_STEP: int = 25
 ## Each Lawnfather star after that.
 const XP_ENDLESS_TIER: int = 1200
+## The curve's name, "first/step/endless" ("150/25/1200"). A save remembers it
+## (crew.curve, gap balance:E) so banked XP can follow a retune of the three
+## numbers above (core/economy.gd migrate_xp).
+const CURVE_ID: String = "%d/%d/%d" % [XP_FIRST_TIER, XP_PER_TIER_STEP, XP_ENDLESS_TIER]
 ## Each Lawnfather star adds this to every payout, up to the cap.
 const ENDLESS_PAY_PER_STAR: float = 0.01
 const ENDLESS_PAY_CAP: float = 0.25
@@ -106,6 +110,15 @@ static func xp_for_tier(tier: int) -> int:
 	if tier >= NAMES.size() * TIERS_PER_RANK:
 		return XP_ENDLESS_TIER
 	return XP_FIRST_TIER + XP_PER_TIER_STEP * tier
+
+
+## Total banked XP it takes to reach this tier from the start (tier 0 is 0).
+## Tests use it instead of writing XP numbers that a retune would break.
+static func xp_to_reach(tier: int) -> int:
+	var total := 0
+	for below: int in maxi(0, tier):
+		total += xp_for_tier(below)
+	return total
 
 
 ## The tier reached with this much banked XP.

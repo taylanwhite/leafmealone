@@ -14,6 +14,7 @@ signal rating_changed
 signal rank_changed
 
 const _Ranks = preload("res://core/ranks.gd")
+const _Economy = preload("res://core/economy.gd")
 const SAVE_PATH := "user://saves/campaign.json"
 ## Timed test runs (--run-seconds, the smoke test) keep their own save, so they
 ## never touch the real crew's cash, progress, or rating. One per port, so
@@ -294,12 +295,12 @@ func finish_job(paid: float = -1.0, details: Dictionary = {}) -> void:
 ## Host: XP for a finished job, flat per piece of work, never per dollar, so a
 ## windfall can't skip ranks. Returns what was awarded.
 func _award_job_xp(fraction: float, details: Dictionary) -> int:
-	var xp := float(Constants.XP_LEAVES_FULL) * clampf(fraction / Constants.XP_LEAVES_CLEAN_AT, 0.0, 1.0)
+	# Each task line is [task, percent done, pay] (homeowner._handle_talk).
+	var task_done: Array = []
 	for line: Variant in (details.get("tasks", []) as Array):
 		if typeof(line) == TYPE_ARRAY and (line as Array).size() >= 2:
-			xp += float(Constants.XP_PER_TASK) * clampf(float(line[1]) / 100.0, 0.0, 1.0)
-	xp += float(Constants.XP_PER_STAR) * float(details.get("stars", 0))
-	var amount := int(round(xp))
+			task_done.append(float(line[1]) / 100.0)
+	var amount := _Economy.job_xp(fraction, task_done, int(details.get("stars", 0)), Net.peer_ids().size())
 	add_xp(amount, "jobs")
 	return amount
 

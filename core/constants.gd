@@ -443,6 +443,14 @@ const HOMEOWNER_STANDARDS_CLEAN_SLOPE: float = 0.25
 const HOMEOWNER_STANDARDS_MESSY_SLOPE: float = 0.3
 const HOMEOWNER_THRILLED_CHANCE: float = 0.6
 const HOMEOWNER_HAPPY_CHANCE: float = 0.5
+## The standards those two lines are set for, and how far standards can push each
+## (core/economy.gd mood_thresholds, gap balance:B; the values the clamps always had,
+## as plain floats so they keep full precision).
+const HOMEOWNER_STANDARDS_PIVOT: float = 0.3
+const HOMEOWNER_CLEAN_ENOUGH_MIN: float = 0.7
+const HOMEOWNER_CLEAN_ENOUGH_MAX: float = 0.97
+const HOMEOWNER_MESSY_BELOW_MIN: float = 0.3
+const HOMEOWNER_MESSY_BELOW_MAX: float = 0.75
 
 ## The job board (levels/job_board.gd choose_tasks): the chance a job asks for
 ## one task that needs a tool the crew doesn't own yet.

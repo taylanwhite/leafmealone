@@ -22,6 +22,7 @@ signal texted(text: Dictionary)
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
 const _Seasons = preload("res://core/seasons.gd")
+const _Economy = preload("res://core/economy.gd")
 ## Texts kept for the phone, newest last.
 const MAX_TEXTS: int = 40
 
@@ -156,9 +157,7 @@ func mess(house_id: int, on_day: int = -1) -> float:
 		return 1.0
 	var today := _day if on_day < 0 else on_day
 	var last := int(entry.get("last_day", -1))
-	if last < 0:
-		return Constants.TOWN_FIRST_MESS
-	return clampf(float(today - last) * Constants.TOWN_REGROW_PER_DAY, Constants.TOWN_MIN_MESS, 1.0)
+	return _Economy.regrow(today - last, last < 0)
 
 
 func is_hood_open(hood_id: String) -> bool:
@@ -263,7 +262,7 @@ func on_job_finished(_fraction: float, details: Dictionary) -> int:
 	var stars := int(details.get("stars", 0))
 	var first_time := int(entry.get("jobs", 0)) == 0
 	if stars > 0:
-		entry["relationship"] = clampf(float(entry.get("relationship", 0.0)) + float(stars - 3) * Constants.TOWN_RELATIONSHIP_PER_STAR + Constants.TOWN_RELATIONSHIP_PER_JOB, 0.0, 100.0)
+		entry["relationship"] = _Economy.relationship_after(float(entry.get("relationship", 0.0)), stars)
 	entry["jobs"] = int(entry.get("jobs", 0)) + 1
 	entry["last_day"] = _day
 	houses[current_house] = entry

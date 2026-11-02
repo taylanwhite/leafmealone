@@ -12,6 +12,7 @@ extends Node
 
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Ranks = preload("res://core/ranks.gd")
+const _Economy = preload("res://core/economy.gd")
 
 static var result: Dictionary = {}
 
@@ -72,7 +73,7 @@ func _run() -> void:
 	Campaign.finish_job(120.0, {"mood": "thrilled", "tasks": []})
 	await get_tree().create_timer(0.3).timeout
 	var after: Dictionary = town.call("house", house_id)
-	var expected_rel := Constants.TOWN_START_RELATIONSHIP + 2.0 * Constants.TOWN_RELATIONSHIP_PER_STAR + 2.0
+	var expected_rel := _Economy.relationship_after(Constants.TOWN_START_RELATIONSHIP, 5)
 	var paid := int(after.get("jobs", 0)) == 1 and int(after.get("last_day", -1)) == 1 and absf(float(after.get("relationship", 0.0)) - expected_rel) < 0.01 and not (town.get("requests") as Array).has(house_id)
 	print("[TownTest] after a 5-star job: %d jobs, relationship %.0f (expected %.0f), request cleared: %s" % [int(after.get("jobs", 0)), float(after.get("relationship", 0.0)), expected_rel, paid])
 	ok = ok and paid
@@ -94,7 +95,7 @@ func _run() -> void:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	clock.call("force_sleep")
 	await get_tree().create_timer(0.5).timeout
-	var regrow := absf(float(town.call("mess", house_id)) - Constants.TOWN_REGROW_PER_DAY) < 0.001
+	var regrow := absf(float(town.call("mess", house_id)) - _Economy.regrow(1, false)) < 0.001
 	print("[TownTest] day %d: the yard done yesterday is %.0f%% grown back: %s" % [int(clock.get("day")), float(town.call("mess", house_id)) * 100.0, regrow])
 	ok = ok and regrow
 	var morning := not (town.get("requests") as Array).is_empty()
@@ -115,10 +116,7 @@ func _run() -> void:
 
 ## XP from what's banked to the start of this tier.
 func _xp_to(tier: int) -> int:
-	var total := 0
-	for index: int in tier:
-		total += _Ranks.xp_for_tier(index)
-	return maxi(0, total - Campaign.crew_xp() - Campaign.pending_xp())
+	return maxi(0, _Ranks.xp_to_reach(tier) - Campaign.crew_xp() - Campaign.pending_xp())
 
 
 func _known_in(town: Node, hood_id: String) -> int:
