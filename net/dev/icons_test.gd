@@ -17,20 +17,22 @@ extends Node
 ##                rich() draws the keycap, plain() the "[E]" text; '[' is escaped
 ##   window_icon  project.godot names app_icon.png, and app_icon.ico is a real
 ##                .ico with at least 4 sizes
-##   shop         every Homie Depot card has its item's icon on a shelf, the header
-##                has the brand mark and the wallet's cash icon, and it fits 1280x720
+##   shop         every Homie Depot card (meta "item_id") shows that item's own
+##                icon (Icons.for_shop_item), the header has the brand mark and
+##                the wallet's cash icon, and it fits 1280x720
 ##   board        every job board offer card has task badges and a cash pay line
 ##   receipt      the payout receipt shows the bag, task, mood, bill, water, cash,
 ##                star, bonus, xp and split icons, and fits
 ##   summary      the day summary shows an icon on every line, the rank badge on a
 ##                RANK UP, the unlock's and season's icons, and fits
-## The checks of the UI that shows the icons (phone, hud, prompt),
+## The checks of the UI that shows the icons (shop, phone, hud, prompt),
 ## of the prompt string's tokens and of the shop catalog's icons are written here
 ## too, but they belong to later chunks. Until a check's chunk lands it is in
 ## PENDING: it still runs, and its findings go in result["pending"], but it can't
 ## fail the test. The chunk that builds it deletes its PENDING line (critic.md:
-## icons:D, icons:E and icons:F turn on theirs; icons:F turns on prompt_format
-## once settings:4 has tokenized the prompt; icons:catalog turns on catalog).
+## shops:4 turns on shop with its tabbed shop window; icons:E and icons:F turn on
+## theirs; icons:F turns on prompt_format once settings:4 has tokenized the
+## prompt; icons:catalog turns on catalog).
 ## It never renders, so it runs headless. Each check prints an [IconsTest] line.
 
 const _Icons = preload("res://ui/icons.gd")
@@ -45,6 +47,8 @@ const APP_ICON_PATH := "res://assets/icons/app_icon.png"
 
 ## Check -> the chunk that turns it on (and deletes its line here).
 const PENDING: Dictionary = {
+	# critic.md's W5 order gives the shop window to shops:4 (its tabbed rewrite).
+	"shop": "shops:4",
 	"phone": "icons:E",
 	"hud": "icons:E",
 	"prompt": "icons:F",
@@ -398,10 +402,26 @@ func _shop() -> Variant:
 		gaps.append("no cards grid")
 	elif shop.has_method("_items") and card_count != (shop.call("_items") as Array).size():
 		gaps.append("%d cards for %d items" % [card_count, (shop.call("_items") as Array).size()])
-	var shelf: Array[String] = _icons_under(cards)
-	_out["shop_icons"] = shelf.size()
-	if card_count == 0 or shelf.size() < card_count:
-		gaps.append("%d shelf icons for %d cards" % [shelf.size(), card_count])
+	# Each card on its own: it names its item (meta "item_id") and shows that item's
+	# own icon. Counting every icon under the grid would let the price tags' cash
+	# icons and the task badges stand in for missing item icons.
+	var shown_items := 0
+	if card_count == 0:
+		gaps.append("no shop cards")
+	elif cards != null:
+		for card: Node in cards.get_children():
+			if not card.has_meta("item_id"):
+				gaps.append("a card (%s) has no item_id meta" % card.name)
+				continue
+			var item_id := StringName(card.get_meta("item_id"))
+			var want := _Icons.for_shop_item(item_id)
+			if want == "":
+				gaps.append("%s has no shop icon id" % item_id)
+			elif not _icons_under(card).has(want):
+				gaps.append("%s's card doesn't show %s" % [item_id, want])
+			else:
+				shown_items += 1
+	_out["shop_item_icons"] = shown_items
 	for id: String in ["brand_homie_depot", "cash"]:
 		if not _icons_under(shop).has(id):
 			gaps.append("no %s icon in the window" % id)

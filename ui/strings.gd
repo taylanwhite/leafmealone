@@ -110,7 +110,6 @@ const UI: Dictionary = {
 	"board_picked": "NEXT UP",
 	"board_window_title": "Job Board",
 	"board_window_subtitle": "Pick where Chefty goes next. Leaves pay by the bag.",
-	"board_rating": "Crew rating: %s  (%d jobs)",
 	"board_rating_none": "Crew rating: no reviews yet",
 	"receipt_stars": "The homeowner's review: %s",
 	"board_take": "Take this job",

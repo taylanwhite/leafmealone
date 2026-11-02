@@ -2,37 +2,27 @@ extends PanelContainer
 
 ## Authority: local. The Homie Depot shop window, styled like a store catalog
 ## (docs/FEEL.md, "How characters deal with shops"): a card per item with its
-## icon on a shelf, its price, what it does, and whether you own it or can afford
-## it. The sticker look (shelf, stamps, badges, hover and buy pop) is
-## ui/catalog_look.gd's. Buying asks the host through Campaign.request_purchase(),
-## which checks the price and credits.
+## price, what it does, and whether you own it or can afford it. Buying asks the
+## host through Campaign.request_purchase(), which checks the price and credits.
 
 signal bought(item_id: StringName)
 
 const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
-const _Icons = preload("res://ui/icons.gd")
-const _Look = preload("res://ui/catalog_look.gd")
 const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
 const ORANGE := Color(0.93, 0.47, 0.13)
 const CARD := Color(1.0, 0.98, 0.93)
 const CARD_WIDTH: float = 190.0
-const CARD_MARGIN: int = 8
-## Each tool's color: its card's shelf is tinted from it (ui/catalog_look.gd shelf()).
+## Card swatch colors for tools, until each has a picture.
 const TOOL_COLORS: Dictionary = {
 	"leaf_blower": Color(0.95, 0.55, 0.15), "lawn_mower": Color(0.2, 0.55, 0.3), "ladder": Color(0.75, 0.75, 0.72),
 	"hose": Color(0.25, 0.6, 0.35), "pressure_washer": Color(0.95, 0.8, 0.2), "hedge_trimmer": Color(0.85, 0.25, 0.2),
 	"paint_roller": Color(0.35, 0.55, 0.85),
 }
 
-## How long after a confirmed buy a redrawn card still pops (_pop_bought).
-const POP_REMEMBER_MSEC: int = 600
-
 var _credits: Label
 var _cards: GridContainer
-var _pop_item: StringName = &""
-var _pop_until_msec: int = 0
 
 
 func _ready() -> void:
@@ -40,35 +30,25 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	add_theme_stylebox_override("panel", _box(PAPER, 18, ORANGE, 6))
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 12)
+	column.add_theme_constant_override("separation", 14)
 	add_child(column)
-	# One header line, so two rows of shelves fit 1280x720: the brand mark, the
-	# name and what's sold, then the wallet and Close.
 	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 14)
 	column.add_child(header)
 	var title := _text(_Strings.UI["shop_title"], 34, ORANGE)
-	var brand := _Look.brand_title("brand_homie_depot", title)
-	title.size_flags_horizontal = Control.SIZE_FILL
-	var subtitle := _text(_Strings.UI["shop_subtitle"], 16, INK.lightened(0.3))
-	subtitle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	subtitle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	brand.add_child(subtitle)
-	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(brand)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(title)
 	_credits = _text("", 20, INK)
-	var wallet := _Look.wallet(_credits)
-	wallet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	header.add_child(wallet)
-	var close := _button(_Strings.UI["shop_close"], INK)
-	close.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	close.pressed.connect(close_window)
-	header.add_child(close)
+	header.add_child(_credits)
+	column.add_child(_text(_Strings.UI["shop_subtitle"], 16, INK.lightened(0.3)))
 	_cards = GridContainer.new()
 	_cards.columns = 5
 	_cards.add_theme_constant_override("h_separation", 12)
 	_cards.add_theme_constant_override("v_separation", 12)
 	column.add_child(_cards)
+	var close := _button(_Strings.UI["shop_close"], INK)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_END
+	close.pressed.connect(close_window)
+	column.add_child(close)
 	Campaign.credits_changed.connect(func(_peer_id: int, _amount: int) -> void: _refresh_if_open())
 	Campaign.unlocks_changed.connect(_refresh_if_open)
 
@@ -106,21 +86,18 @@ func _items() -> Array[Dictionary]:
 	var items: Array[Dictionary] = []
 	for tool_id: String in Constants.TOOL_PRICES:
 		var unlocks := PackedStringArray()
-		var tasks := PackedStringArray()
 		for task_id: String in Constants.TASK_TOOLS:
 			if str(Constants.TASK_TOOLS[task_id]) == tool_id:
 				unlocks.append(str(_Strings.UI["task_" + task_id]))
-				tasks.append(task_id)
-		# What it unlocks is a row of task badges under the blurb (_card), named on hover.
+		var blurb := str(_Strings.UI["tool_blurb_" + tool_id])
+		if not unlocks.is_empty():
+			blurb += "\n" + _Strings.UI["shop_tool_unlocks"] % ", ".join(unlocks)
 		items.append({
 			"id": StringName(tool_id),
 			"name": _Strings.UI["tool_" + tool_id],
-			"blurb": str(_Strings.UI["tool_blurb_" + tool_id]),
-			"unlocks": unlocks,
+			"blurb": blurb,
 			"price": Campaign.price_of(StringName(tool_id)),
 			"color": TOOL_COLORS.get(tool_id, Color.GRAY),
-			"icon": _Icons.for_shop_item(StringName(tool_id)),
-			"tasks": tasks,
 		})
 	items.append_array([
 		{
@@ -129,7 +106,6 @@ func _items() -> Array[Dictionary]:
 			"blurb": _Strings.UI["shop_rake_blurb"] % Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER,
 			"price": Campaign.price_of(Campaign.RAKE_UPGRADE),
 			"color": Color(0.85, 0.55, 0.25),
-			"icon": _Icons.for_shop_item(Campaign.RAKE_UPGRADE),
 		},
 		{
 			"id": Campaign.WHEELBARROW_UPGRADE,
@@ -137,7 +113,6 @@ func _items() -> Array[Dictionary]:
 			"blurb": _Strings.UI["shop_barrow_blurb"] % [Constants.WHEELBARROW_UPGRADED_BAG_CAPACITY, Constants.WHEELBARROW_BAG_CAPACITY],
 			"price": Campaign.price_of(Campaign.WHEELBARROW_UPGRADE),
 			"color": Color(0.55, 0.22, 0.18),
-			"icon": _Icons.for_shop_item(Campaign.WHEELBARROW_UPGRADE),
 		},
 	])
 	return items
@@ -155,30 +130,9 @@ func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 	if not visible or item_id == "give":
 		return
 	if code == "ok":
-		_pop_bought(StringName(item_id))
 		bought.emit(StringName(item_id))
 	else:
 		_refresh()
-
-
-## The bought item's icon squash-pops (ui/catalog_look.gd pop()). The sale also
-## redraws the cards (credits and unlocks change) in either order, so the pop is
-## remembered for a moment and played again on the redrawn card.
-func _pop_bought(item_id: StringName) -> void:
-	_pop_item = item_id
-	_pop_until_msec = Time.get_ticks_msec() + POP_REMEMBER_MSEC
-	_pop_card.call_deferred()
-
-
-func _pop_card() -> void:
-	if _cards == null:
-		return
-	for card: Node in _cards.get_children():
-		if card.is_queued_for_deletion() or card.get_meta("item_id", &"") != _pop_item:
-			continue
-		var shelf := card.get_meta("shelf", null) as Control
-		if shelf != null:
-			_Look.pop(shelf.get_meta("shelf_icon", null) as Control)
 
 
 func _shops() -> Node:
@@ -187,55 +141,36 @@ func _shops() -> Node:
 
 func _refresh() -> void:
 	var wallet := Campaign.credits(Net.local_peer_id())
-	_credits.text = _Strings.UI["cash_amount"] % wallet
+	_credits.text = _Strings.UI["shop_credits"] % wallet
 	for child: Node in _cards.get_children():
 		child.queue_free()
 	for item: Dictionary in _items():
 		_cards.add_child(_card(item, wallet))
-	if Time.get_ticks_msec() < _pop_until_msec:
-		_pop_card.call_deferred()
 
 
 func _card(item: Dictionary, wallet: int) -> Control:
 	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(CARD_WIDTH, 0)
-	var card_box := _box(CARD, 12, INK.lightened(0.6), 2)
-	# Tighter than a window's margins: two rows of cards must fit 1280x720.
-	card_box.content_margin_left = CARD_MARGIN
-	card_box.content_margin_right = CARD_MARGIN
-	card_box.content_margin_top = CARD_MARGIN
-	card_box.content_margin_bottom = CARD_MARGIN
-	card.add_theme_stylebox_override("panel", card_box)
-	card.set_meta("item_id", item["id"])
+	card.add_theme_stylebox_override("panel", _box(CARD, 12, INK.lightened(0.6), 2))
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	card.add_child(column)
-	var owned := Campaign.is_unlocked(item["id"])
-	var affordable := wallet >= int(item["price"])
-	# The crew's rank gates what Homie Depot will sell them (core/ranks.gd).
-	var for_sale := Campaign.is_for_sale(item["id"])
-	# The item's icon on a shelf tinted its color, its price tag stuck on the corner:
-	# OWNED gets a check, a rank lock a lock.
-	var tag := _Look.price_tag(_text(_Strings.UI["shop_price"] % int(item["price"]), 15, ORANGE.darkened(0.15)))
-	var shelf := _Look.shelf(str(item.get("icon", "")), item["color"], owned, not for_sale, tag)
-	card.set_meta("shelf", shelf)
-	column.add_child(shelf)
-	_Look.hover(card, shelf)
+	# A chunky swatch stands in for the item's picture until there is art for it.
+	var swatch := ColorRect.new()
+	swatch.color = item["color"]
+	swatch.custom_minimum_size = Vector2(0, 10)
+	column.add_child(swatch)
 	column.add_child(_text(str(item["name"]), 18, INK))
 	var blurb := _text(str(item["blurb"]), 13, INK.lightened(0.25))
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	# A fixed wrap width, or the label asks for a tall, narrow size first.
-	blurb.custom_minimum_size = Vector2(CARD_WIDTH - 2.0 * CARD_MARGIN - 4.0, 0.0)
+	blurb.custom_minimum_size = Vector2(CARD_WIDTH - 40.0, 0.0)
 	column.add_child(blurb)
-	var tasks: PackedStringArray = item.get("tasks", PackedStringArray())
-	if not tasks.is_empty():
-		var lead := _text((_Strings.UI["shop_tool_unlocks"] % "").strip_edges(), 13, INK.lightened(0.25))
-		column.add_child(_Look.task_badges(tasks, item.get("unlocks", PackedStringArray()), lead))
-	# The button sits at the card's foot, so buttons line up across a row.
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	column.add_child(spacer)
+	column.add_child(_text(_Strings.UI["shop_price"] % int(item["price"]), 16, ORANGE.darkened(0.15)))
+	var owned := Campaign.is_unlocked(item["id"])
+	var affordable := wallet >= int(item["price"])
+	# The crew's rank gates what Homie Depot will sell them (core/ranks.gd).
+	var for_sale := Campaign.is_for_sale(item["id"])
 	var label: String = _Strings.UI["shop_owned"] if owned else (_Strings.UI["shop_buy"] if affordable else _Strings.UI["shop_short"])
 	if not owned and not for_sale:
 		label = _Strings.UI["shop_needs_rank"] % _Ranks.title(_Ranks.tier_of(Catalog.gate_of(String(item["id"]))))
@@ -251,7 +186,6 @@ func _card(item: Dictionary, wallet: int) -> Control:
 		Campaign.request_purchase(item_id)
 		# With Shops in the world, `bought` waits for the host's "ok" (_on_shop_result).
 		if _shops() == null:
-			_pop_bought(item_id)
 			bought.emit(item_id)
 	)
 	column.add_child(buy)

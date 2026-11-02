@@ -6,6 +6,11 @@ extends "res://ui/shop_window.gd"
 ## crew doesn't have it), and what the jobs pay. The crew rating is a row of
 ## stars. Picking one asks the host through levels/job_board.gd.
 
+## Its own names for these, not the parent's: shops chunk 4 rewrites
+## ui/shop_window.gd and may declare _Icons/_Look there, and a subclass can't
+## redeclare a parent's constant.
+const _BoardIcons = preload("res://ui/icons.gd")
+const _BoardLook = preload("res://ui/catalog_look.gd")
 const CARD_WIDE: float = 250.0
 ## The neighborhood pin beside a client card's address.
 const HOOD_PIN_PX: float = 20.0
@@ -74,7 +79,7 @@ func _offer_card(offer: Dictionary, index: int, picked: bool, locked: bool) -> C
 		var where := _text("%d %s · %s" % [int(offer["house"]), str(offer.get("street", "")), str(offer.get("hood_name", ""))], 14, INK.lightened(0.3))
 		where.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		where.custom_minimum_size = Vector2(CARD_WIDE - 40.0 - HOOD_PIN_PX - 6.0, 0.0)
-		column.add_child(_Icons.row(_Icons.for_hood(str(offer.get("hood", ""))), where, HOOD_PIN_PX))
+		column.add_child(_BoardIcons.row(_BoardIcons.for_hood(str(offer.get("hood", ""))), where, HOOD_PIN_PX))
 	else:
 		column.add_child(_text(_Strings.UI["board_house"] % int(offer["house"]), 22, INK))
 	column.add_child(_text(_Strings.UI["board_size_%d" % int(offer.get("size", 1))], 15, INK.lightened(0.3)))
@@ -88,11 +93,11 @@ func _offer_card(offer: Dictionary, index: int, picked: bool, locked: bool) -> C
 		var label := _text(line, 14, INK.lightened(0.15))
 		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		# The badge and, for a missing tool, its icon and lock take this much of the row.
-		var icons_wide := _Icons.SIZE_ROW + 6.0 + ((_Look.MISSING_TOOL_PX + 6.0) * 2.0 if missing else 0.0)
+		var icons_wide := _BoardIcons.SIZE_ROW + 6.0 + ((_BoardLook.MISSING_TOOL_PX + 6.0) * 2.0 if missing else 0.0)
 		label.custom_minimum_size = Vector2(CARD_WIDE - 40.0 - icons_wide, 0.0)
-		column.add_child(_Look.task_line(task, label, tool if missing else ""))
+		column.add_child(_BoardLook.task_line(task, label, tool if missing else ""))
 	var pay: int = load("res://levels/job_board.gd").task_pay(offer)
-	column.add_child(_Look.price_row(_text(_Strings.UI["board_pay"] % pay, 18, ORANGE.darkened(0.15))))
+	column.add_child(_BoardLook.price_row(_text(_Strings.UI["board_pay"] % pay, 18, ORANGE.darkened(0.15))))
 	var label: String = _Strings.UI["board_taken"] if picked else (_Strings.UI["board_locked"] if locked else _Strings.UI["board_take"])
 	var take := _button(label, ORANGE if not picked and not locked else INK.lightened(0.5))
 	take.disabled = picked or locked
@@ -114,5 +119,5 @@ func _show_rating(rating: float, count: int) -> void:
 		_rating.add_child(_text(_Strings.UI["board_rating_none"], 18, color))
 		return
 	_rating.add_child(_text(_Strings.ICON_UI["board_rating_lead"], 18, color))
-	_rating.add_child(_Look.stars(rating))
+	_rating.add_child(_BoardLook.stars(rating))
 	_rating.add_child(_text(_Strings.ICON_UI["board_rating_jobs"] % count, 18, color))
