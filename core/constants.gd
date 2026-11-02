@@ -409,3 +409,9 @@ const QUIP_LOW_CLEANUP_AFTER: float = 120.0
 ## Where right-click looks for the pile ahead (equipment/rake.gd): from this far to this far, in meters.
 const PILE_SEARCH_NEAR: float = 1.0
 const PILE_SEARCH_FAR: float = 3.2
+
+# ---- driving
+## The connected town (docs/DECISIONS.md 2026-11-01): the host builds the town map
+## when true, and the legacy separate zones when false. --town-map and --legacy-map
+## override it. False until the cut-over (driving chunk H).
+const TOWN_MAP_DEFAULT: bool = false

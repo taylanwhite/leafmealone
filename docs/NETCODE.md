@@ -26,7 +26,7 @@ Two autoloads, both owned by NET, are the only way game code touches networking 
 ```gdscript
 enum Transport { ENET, STEAM }
 enum State { OFFLINE, CONNECTING, IN_SESSION }
-enum Zone { STORE, LOT, BORDER, TRANSIT }
+enum Zone { STORE, LOT, BORDER, TRANSIT, TOWN }  # TOWN: the connected town's streets
 
 signal state_changed(new_state: State)
 signal player_joined(peer_id: int)
@@ -51,7 +51,8 @@ func current_state() -> State
 # Zones (see "Zones")
 func player_zone(peer_id: int) -> Zone
 func players_in_zone(zone: Zone) -> Array[int]
-func move_player_to_zone(peer_id: int, zone: Zone, spawn_marker: StringName = &"") -> void  # host only
+func move_player_to_zone(peer_id: int, zone: Zone, spawn_marker: StringName = &"", teleport: bool = true) -> void  # host only
+func set_player_zone(peer_id: int, zone: Zone) -> void  # host only: re-label, no teleport
 
 # Shared clock (see "Shared clock")
 func server_time() -> float                   # seconds on the host's clock, valid on every peer
@@ -138,7 +139,8 @@ Session flow:
 
 ## Zones
 
-- The host tracks which zone each player is in. `Net.player_zone()` and `player_zone_changed` are the only source of truth for that. Never infer a player's zone from their position.
+- The host tracks which zone each player is in. `Net.player_zone()` and `player_zone_changed` are the only source of truth for that. Never infer a player's zone from their position on your own. The one exception is the host in the connected town (`world.is_town_map()`, see DECISIONS 2026-11-01), where people walk and drive between places: the host works the zone out from replicated positions and publishes it with `Net.set_player_zone()`, which changes the registry without a teleport (`_rpc_zone_changed`'s `teleport` flag is false). Everyone else still reads `Net.player_zone()`.
+- The world says which zones exist: `world.can_enter_zone(zone)` gates requested moves (debug gates, bots). `TOWN` exists only in the connected town.
 - Moving a player between zones is host-ordered. The host calls `Net.move_player_to_zone()`, which updates the registry and tells the owning peer to teleport its character to the marker, using the host-to-owner pattern below. While a player rides the truck or van, their zone is `TRANSIT`.
 - Proximity voice needs nothing special. Zones are far apart, so voices from other zones are naturally out of range.
 - Start with every synchronized object visible to every peer. With 8 players and small state, bandwidth is fine. Add MultiplayerSynchronizer visibility filtering per zone only if the debug overlay shows it is needed, and log that in `DECISIONS.md`.
@@ -337,7 +339,8 @@ User arguments come after `--` and are read with `OS.get_cmdline_user_args()`.
 | `--join=<address>` | Join an ENet host as soon as the game launches |
 | `--port=<n>` | ENet port (default `Constants.DEFAULT_PORT`) |
 | `--name=<text>` | Display name for ENet sessions |
-| `--start-zone=<store\|lot\|border>` | Host only: start everyone in that zone, for testing |
+| `--start-zone=<store\|lot\|border\|town>` | Host only: start everyone in that zone, for testing |
+| `--town-map` / `--legacy-map` | Host only: build the connected town, or the legacy separate zones (default `Constants.TOWN_MAP_DEFAULT`). Clients get the host's choice with the world's spawn data |
 | `--lot=<n>` | Host only: which lot to load into the lot slot, for testing |
 | `--no-steam` | Skip Steam initialization entirely |
 | `--smoke-test` | Run the automated smoke test and exit (implies `--no-steam`) |
