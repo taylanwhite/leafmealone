@@ -38,7 +38,6 @@ extends RefCounted
 const _LotBuilder = preload("res://levels/town/lot_builder.gd")
 const _StreetBuilder = preload("res://levels/town/street_builder.gd")
 const _SetPieces = preload("res://levels/town/set_pieces.gd")
-const _SeasonDressing = preload("res://levels/town/season_dressing.gd")
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const _Parcel = preload("res://levels/town/parcel.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
@@ -99,6 +98,7 @@ static func build(parent: Node3D, xform: Transform3D, hood_id: String, block_see
 	for req: Dictionary in reqs:
 		plans.append(_LotBuilder.plan(req))
 	_top_up(look, slots, reqs, plans, street)
+	_labels(slots, reqs, plans)
 	# 3. Set pieces, side boundaries, the back boundary, street trees and cars.
 	var pieces := _set_pieces(root, look, slots, plans, lamps, length, season, block_seed, batch, far_y)
 	digest.append(pieces)
@@ -283,6 +283,8 @@ static func _requests(slots: Array, look: Dictionary, block_seed: int, season: i
 			"hood": hood, "seed": hash([block_seed, "neighbor", slot["id"]]), "season": season,
 			"frontage": slot["frontage"], "detail": detail, "batch": batch, "kit": kit, "grass_root": root,
 			"vacant": bool(slot["vacant"]) or bool(slot["office"]), "rebel": index == rebel, "force": [],
+			# Set dressing nobody is hired at: neighbors-only archetypes allowed.
+			"neighbor": true,
 			"name": "Parcel_%s" % str(slot["id"]).replace("-", "m"),
 		}
 		if index == flamingo:
@@ -330,6 +332,29 @@ static func _top_up(look: Dictionary, slots: Array, reqs: Array, plans: Array, s
 				need -= after - before
 			else:
 				(req["force"] as Array).pop_back()
+
+
+## Hands out Constants.ART_VIOLATION_LABELS NOTICE OF VIOLATION signs to the
+## block's plain violation flags, nearest the job first (the rest stay batched).
+## Labels only swap how a flag is drawn, never where it stands, so the replan
+## keeps every parcel's layout.
+static func _labels(slots: Array, reqs: Array, plans: Array) -> void:
+	var left := Constants.ART_VIOLATION_LABELS
+	var order: Array = range(slots.size())
+	order.sort_custom(func(a: int, b: int) -> bool: return absf(float(slots[a]["x"])) < absf(float(slots[b]["x"])))
+	for index: int in order:
+		if left <= 0:
+			return
+		var plain := 0
+		for entry: Dictionary in (plans[index] as Dictionary)["props"]:
+			if str(entry["kind"]) == "hoa_flag" and not (entry.get("opts", {}) as Dictionary).has("sign"):
+				plain += 1
+		if plain == 0:
+			continue
+		var req: Dictionary = reqs[index]
+		req["labels"] = mini(left, plain)
+		plans[index] = _LotBuilder.plan(req)
+		left -= int(req["labels"])
 
 
 # ---------------------------------------------------------------- the block's pieces
@@ -534,15 +559,16 @@ static func _parked_cars(look: Dictionary, length: float, rng: RandomNumberGener
 static func _inflatable_spot(slots: Array, plans: Array, block_seed: int) -> Variant:
 	var candidates: Array = []
 	for index: int in plans.size():
+		# The free front lawn only (LotBuilder's decor "front": clear of the drive,
+		# the car on it and every placed prop).
 		var decor: Dictionary = (plans[index] as Dictionary).get("decor", {})
-		var yard: Array = decor.get("yard", [])
-		if bool(((plans[index] as Dictionary)["req"] as Dictionary)["vacant"]) or yard.is_empty():
+		if bool(((plans[index] as Dictionary)["req"] as Dictionary)["vacant"]) or not decor.has("front"):
 			continue
 		candidates.append(index)
 	if candidates.is_empty():
 		return null
 	var index: int = candidates[posmod(hash([block_seed, "inflatable"]), candidates.size())]
-	var rect: Rect2 = (((plans[index] as Dictionary)["decor"] as Dictionary)["yard"] as Array)[0]
+	var rect: Rect2 = ((plans[index] as Dictionary)["decor"] as Dictionary)["front"]
 	return (slots[index] as Dictionary)["xform"] * Vector3(rect.get_center().x, 0.0, rect.get_center().y)
 
 
@@ -559,6 +585,9 @@ static func _build_async(state: Dictionary) -> void:
 			await tree.process_frame
 			if not is_instance_valid(root) or not root.is_inside_tree():
 				return
+		# A season that turned mid-build (parcel.gd moved root.season): the rest
+		# are built for it, and the ones already built turned with it.
+		(reqs[index] as Dictionary)["season"] = int(root.get("season"))
 		_LotBuilder.build(root, (slots[index] as Dictionary)["xform"], reqs[index])
 	await tree.process_frame
 	if not is_instance_valid(root) or not root.is_inside_tree():
@@ -573,7 +602,8 @@ static func _finish(state: Dictionary) -> void:
 	var look: Dictionary = state["look"]
 	var batch: RefCounted = state["batch"]
 	var length := float(state["length"])
-	var season := int(state["season"])
+	# root.season: the requested one, or the one a mid-build season turn moved it to.
+	var season := int(root.get("season"))
 	if bool(state["grass"]):
 		_grass(root, look, state["yard"], bool(state["is_job"]), length, season, int(state["seed"]))
 	batch.call("commit")
@@ -581,7 +611,8 @@ static func _finish(state: Dictionary) -> void:
 	ground.add_to_group("street_surface")
 	for view: Node in ground.get_children():
 		view.add_to_group("street_surface")
-	_SeasonDressing.block_decor(root, season, root.get("decor"))
+	# The block's season decor, once (levels/town/parcel.gd).
+	root.call("dress")
 	var digest: Array = state["digest"]
 	digest.append(batch.call("hash"))
 	var art_hash := hash(digest)

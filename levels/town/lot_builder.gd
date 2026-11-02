@@ -30,8 +30,11 @@ extends RefCounted
 ##              parent in the kit holder's space); else its own "Ground"
 ##   grass_root a Node3D whose props/grass.gd keep_clear rects get the house, drive,
 ##              walk and beds (grass_xform: parent in grass_root's space)
-##   neighbor   true (default): may be a neighbors-only archetype; false for a house
-##              someone can be hired at
+##   neighbor   false (default): a house someone can be hired at, drawn exactly as
+##              its job yard's (HouseBuilder.request_for(..., false)), so a town
+##              house and its job yard are the same house; true only for set
+##              dressing nobody is ever hired at (the job block's neighbors), which
+##              may be a neighbors-only archetype. Ignored (false) when job is true.
 ##   job        true: the job's own house (no string lights, no lawn clutter)
 ##   force      [kind, ...] props this parcel must have (the block's signature top-up)
 ##   uniform    {archetype, width, depth, stories}: overrides (Oak Hollow's sameness)
@@ -57,7 +60,6 @@ const _HouseKit = preload("res://props/house_kit.gd")
 const _Trees = preload("res://props/trees.gd")
 const _Grass = preload("res://props/grass.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
-const _SeasonDressing = preload("res://levels/town/season_dressing.gd")
 const _Parcel = preload("res://levels/town/parcel.gd")
 
 const CONCRETE := Color(0.7, 0.68, 0.64)
@@ -97,8 +99,10 @@ static func build(parent: Node3D, xform: Transform3D, req: Dictionary) -> Node3D
 	root.set("season", int(r["season"]))
 	root.set("decor", p["decor"])
 	root.set("lights", not bool(r["job"]))
-	parent.add_child(root)
 	var detail := str(r["detail"])
+	root.set("detail", detail)
+	# Not dressed yet: a season turn before dress() below only moves root.season.
+	parent.add_child(root)
 	# Repeated props into the shared batch (in its root's space) or our own.
 	var batch: RefCounted = r.get("batch", null)
 	var to_batch := Transform3D.IDENTITY
@@ -142,8 +146,8 @@ static func build(parent: Node3D, xform: Transform3D, req: Dictionary) -> Node3D
 		_Trees.spawn(root, tree[0], float(tree[3]), str(tree[1]), str(tree[2]), int(tree[4]), false, float(tree[5]))
 	if bool(r["solid"]):
 		_solids(root, p)
-	if detail != "far":
-		_SeasonDressing.decorate(root, p["decor"], look, int(r["season"]), int(r["seed"]), not bool(r["job"]))
+	# The season decor, once (a far parcel gets none; parcel.gd knows).
+	root.call("dress")
 	var grass_root: Node3D = r.get("grass_root", null)
 	if grass_root != null:
 		var to_grass: Transform3D = r.get("grass_xform", Transform3D.IDENTITY) * xform
@@ -219,8 +223,10 @@ static func normalized(req: Dictionary) -> Dictionary:
 	r["depth"] = float(r.get("depth", Constants.ART_PARCEL_DEPTH))
 	r["detail"] = str(r.get("detail", "full"))
 	r["solid"] = bool(r.get("solid", false))
-	r["neighbor"] = bool(r.get("neighbor", true))
 	r["job"] = bool(r.get("job", false))
+	# A job house is never a neighbors-only archetype, whatever the caller says:
+	# it has to be the same house as its job yard (HouseBuilder.request_for).
+	r["neighbor"] = bool(r.get("neighbor", false)) and not bool(r["job"])
 	r["force"] = r.get("force", [])
 	r["uniform"] = r.get("uniform", {})
 	r["rebel"] = bool(r.get("rebel", false))
@@ -348,14 +354,22 @@ static func plan(req: Dictionary) -> Dictionary:
 			_cars_and_bins(p, rng, look, drive_x, drive_side, half_d, wide)
 	_trees(p, rng, look, front_lawn, back_lawn, half_w, half_d, drive_side)
 	# What the season dresses: lawns free of everything above.
+	# front: the free front lawn alone (the block's inflatable snowman), or absent.
 	var yard: Array = []
+	var front_free := Rect2()
 	for rect: Rect2 in [front_lawn, back_lawn]:
 		if rect.size.x > 2.0 and rect.size.y > 2.0:
-			yard.append(_free_rect(p, rect))
+			var free := _free_rect(p, rect)
+			if free.size.x >= 2.0 and free.size.y >= 2.0:
+				yard.append(free)
+				if rect == front_lawn:
+					front_free = free
 	p["decor"] = {
 		"house_at": p["house_at"], "spec": p["house_spec"], "beds": p["beds"], "trees": _decor_trees(p),
 		"drive": p["drive"], "walk": p["walk"], "pools": p["pools"], "yard": yard, "job": bool(r["job"]),
 	}
+	if front_free.has_area():
+		p["decor"]["front"] = front_free
 	p["hash"] = _hash(p)
 	return p
 
@@ -469,6 +483,8 @@ static func _beds(p: Dictionary, rng: RandomNumberGenerator, look: Dictionary, w
 		(p["taken"] as Array).append(Rect2(x - length * 0.5, front + 0.1, length, 1.2))
 		p["clear"].append([center, size + Vector3(0.2, 0.0, 0.2)])
 		if str(look.get("bed_edge", "")) == "tire":
+			# The tire planters stand just past the bed, on the lawn: keep them clear too.
+			(p["taken"] as Array).append(Rect2(x - length * 0.5, front + 1.3, length, 1.0))
 			for index: int in maxi(1, int(length / 1.1)):
 				_prop(p, "tire_planter", Transform3D(Basis.IDENTITY, center + Vector3(-length * 0.5 + 0.55 + float(index) * 1.1, 0.0, 0.85)))
 
@@ -508,6 +524,7 @@ static func _front_fence(p: Dictionary, rng: RandomNumberGenerator, look: Dictio
 			_prop(p, "gate_pillar", Transform3D(Basis.IDENTITY, Vector3(drive_x + side * 2.05, 0.0, z)))
 			if rng.randf() < 0.6:
 				_prop(p, "lion_statue", Transform3D(Basis(Vector3.UP, PI), Vector3(drive_x + side * 2.9, 0.0, z - 1.2)))
+				(p["taken"] as Array).append(Rect2(drive_x + side * 2.9 - 0.7, z - 1.9, 1.4, 1.4))
 		_prop(p, "iron_gate", Transform3D(Basis.IDENTITY, Vector3(drive_x, 0.0, z)))
 	(p["taken"] as Array).append(Rect2(-half_w, z - 0.5, half_w * 2.0, 1.0))
 
@@ -588,7 +605,9 @@ static func _free_rect(p: Dictionary, rect: Rect2) -> Rect2:
 		var right := Rect2(Vector2(taken.end.x, best.position.y), Vector2(maxf(best.end.x - taken.end.x, 0.0), best.size.y))
 		best = left if left.get_area() >= right.get_area() else right
 		if best.size.x < 2.0:
-			return rect
+			# Too little lawn left: no clutter here at all (an empty Rect2 callers
+			# skip), never the whole lawn with the drive and props on it.
+			return Rect2()
 	return best
 
 

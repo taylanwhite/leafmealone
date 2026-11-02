@@ -14,6 +14,11 @@ extends RefCounted
 ## - every house inside its parcel, every parcel's colliders and skyline boxes
 ## - HouseBuilder.request_for only picks archetypes the hood builds
 ## - every sign key a style names exists in Strings.SIGNS
+## - violation flags: the rebel flamingo's and ART_VIOLATION_LABELS more show words
+## - LotBuilder alone: a job or plain parcel is its job yard's house (never a
+##   neighbors-only archetype); season decor is built once, turns without leaving
+##   any behind, and never comes to a far parcel; the lawn clutter's rects keep
+##   off the drive, the trees and every prop
 ## and for Maple Row in all four seasons (and Lakeside in winter): four different
 ## hashes, winter's decor, bare trees and frozen lake, spring's blossoms, autumn's pumpkins.
 
@@ -36,6 +41,7 @@ static func run() -> bool:
 	tree.root.add_child(holder)
 	var ok := _check_requests()
 	ok = _check_signs() and ok
+	ok = _check_parcels(holder) and ok
 	Seasons.apply_look(Seasons.first_day_of(0))
 	for hood: String in _HoodStyles.ids():
 		ok = _check_hood(holder, hood) and ok
@@ -100,6 +106,14 @@ static func _check_hood(holder: Node3D, hood: String) -> bool:
 	if visuals > Constants.ART_BLOCK_MAX_VISUALS:
 		problems.append("%d visuals (budget %d)" % [visuals, Constants.ART_BLOCK_MAX_VISUALS])
 	problems.append_array(_lane(block))
+	# Violation flags: the rebel flamingo's three plus ART_VIOLATION_LABELS more show words.
+	var flags := int(counts.get("violation_flag", 0))
+	if flags > 0:
+		var flamingos := _instances(block, "flamingo", false)
+		var worded := _instances(block, "hoa_flag", true)
+		var want := mini(flags, 3 * flamingos + Constants.ART_VIOLATION_LABELS)
+		if worded != want:
+			problems.append("violation flags: %d of %d show words, want %d" % [worded, flags, want])
 	var parcels := 0
 	for node: Node in block.find_children("Parcel*", "Node3D", false, false):
 		parcels += 1
@@ -201,6 +215,104 @@ static func _check_seasons(holder: Node3D) -> bool:
 		problems.append("lakeside winter: lake water %s" % (water.get_meta("water_kind", "") if water != null else "missing"))
 	_free(holder, lake_block)
 	return _report("seasons", problems, "maple_row x 4 seasons, lakeside in winter")
+
+
+## How many kind props stand under root (batched ones by their prop_instances);
+## placed_only: only the ones placed on their own (a flag with words is).
+static func _instances(root: Node, kind: String, placed_only: bool) -> int:
+	var count := 0
+	for node: Node in root.find_children("*", "", true, false):
+		if str(node.get_meta("prop_kind", "")) != kind:
+			continue
+		if node is MultiMeshInstance3D:
+			if not placed_only:
+				count += int(node.get_meta("prop_instances", 1))
+		elif str(node.get_parent().get_meta("prop_kind", "")) != kind:
+			# A placed prop's root (its own mesh view carries the same meta).
+			count += 1
+	return count
+
+
+## LotBuilder on its own: a job (or plain) parcel is its job yard's house; its
+## season decor is built once and turns cleanly; a far parcel stays bare; the
+## lawn clutter's free rects keep off the drive, the trees and every prop.
+static func _check_parcels(holder: Node3D) -> bool:
+	var problems := PackedStringArray()
+	for hood: String in _HoodStyles.ids():
+		for index: int in 40:
+			var house_seed := 5000 + index * 53
+			var size := index % 3
+			var want := _HouseBuilder.request_for(hood, house_seed, size, {}, false)
+			for req: Dictionary in [{"job": true}, {}, {"job": true, "neighbor": true}]:
+				req["hood"] = hood
+				req["seed"] = house_seed
+				req["size"] = size
+				var house: Dictionary = _LotBuilder.plan(req)["house_req"]
+				var archetype := str(house["archetype"])
+				if archetype != str(want["archetype"]) or house["door"] != want["door"] or house["wall"] != want["wall"]:
+					problems.append("%s seed %d %s: %s, its job yard's is %s" % [hood, house_seed, req.keys(), archetype, want["archetype"]])
+				elif not _HoodStyles.archetypes_for(hood, int(house["stories"])).has(archetype):
+					problems.append("%s seed %d %s: neighbors-only archetype %s" % [hood, house_seed, req.keys(), archetype])
+			problems.append_array(_decor_rects(_LotBuilder.plan({"hood": hood, "seed": house_seed, "size": size, "neighbor": true}), "%s seed %d" % [hood, house_seed]))
+		if problems.size() > 10:
+			break
+	# Season decor: asked for winter in autumn, then turned twice. Always one holder.
+	Seasons.apply_look(Seasons.first_day_of(0))
+	var parcel := _LotBuilder.build(holder, Transform3D.IDENTITY, {"hood": "maple_row", "seed": 77, "season": 1})
+	var far := _LotBuilder.build(holder, Transform3D(Basis.IDENTITY, Vector3(60.0, 0.0, 0.0)), {"hood": "maple_row", "seed": 78, "detail": "far"})
+	var steps: Array = [[-1, 1], [1, 1], [2, 2], [0, 0]]
+	for step: Array in steps:
+		if int(step[0]) >= 0:
+			Seasons.apply_look(Seasons.first_day_of(int(step[0])))
+		var holders := _decor_holders(parcel)
+		if holders.size() != 1:
+			problems.append("season %d: %d season decor holders on a parcel" % [int(step[1]), holders.size()])
+		elif int(parcel.get("season")) != int(step[1]):
+			problems.append("parcel season %d, want %d" % [int(parcel.get("season")), int(step[1])])
+		if not _decor_holders(far).is_empty():
+			problems.append("season %d: a far parcel got season decor" % int(step[1]))
+	_free(holder, parcel)
+	_free(holder, far)
+	Seasons.apply_look(Seasons.first_day_of(0))
+	return _report("parcels", problems, "%d hoods x 40 seeds: job house = job yard, decor clear; decor once a season" % _HoodStyles.ids().size())
+
+
+static func _decor_holders(parcel: Node) -> Array:
+	var out: Array = []
+	for child: Node in parcel.get_children():
+		if child.name == &"SeasonDecor" or child.is_in_group("season_decor"):
+			out.append(child)
+	return out
+
+
+## Every decor yard rect is clear of the drive, the trees and every placed prop.
+static func _decor_rects(p: Dictionary, label: String) -> PackedStringArray:
+	var problems := PackedStringArray()
+	var decor: Dictionary = p["decor"]
+	var rects: Array = (decor["yard"] as Array).duplicate()
+	if decor.has("front"):
+		rects.append(decor["front"])
+	var drive: Array = p["drive"]
+	for rect: Rect2 in rects:
+		if not rect.has_area():
+			problems.append("%s: an empty decor rect" % label)
+			continue
+		if drive.size() == 2:
+			var a: Vector3 = drive[0]
+			var b: Vector3 = drive[1]
+			var width := float(p.get("drive_width", 4.2))
+			if rect.intersects(Rect2(a.x - width * 0.5, a.z, width, b.z - a.z)):
+				problems.append("%s: decor rect %s on the drive" % [label, rect])
+		for entry: Dictionary in p["props"]:
+			var at := (entry["xform"] as Transform3D).origin
+			if rect.has_point(Vector2(at.x, at.z)):
+				problems.append("%s: decor rect %s holds a %s" % [label, rect, entry["kind"]])
+				break
+		for tree: Array in p["trees"]:
+			if rect.has_point(Vector2((tree[0] as Vector3).x, (tree[0] as Vector3).z)):
+				problems.append("%s: decor rect %s holds a tree" % [label, rect])
+				break
+	return problems
 
 
 static func _free(holder: Node3D, node: Node) -> void:

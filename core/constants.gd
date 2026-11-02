@@ -1023,7 +1023,9 @@ const ART_WALK_TOP: float = 0.04
 const ART_HOUSE_MAX_DRAW_CALLS: int = 10
 ## Tries per prop when a parcel looks for a free spot on its lawn.
 const ART_PARCEL_SPOT_TRIES: int = 16
-## How many violation flags on a block show their NOTICE OF VIOLATION words (the rest batch).
+## How many violation flags on a block show their NOTICE OF VIOLATION words, nearest
+## the job first (levels/town/block_builder.gd _labels; the rest batch). The rebel
+## flamingo's three always do, on top of these.
 const ART_VIOLATION_LABELS: int = 3
 ## A far-side parcel whose house would sit within this many meters of the NICE BOYS
 ## van's way out (the lot's PI * 0.75 corridor, levels/world.gd) is left a vacant lot.

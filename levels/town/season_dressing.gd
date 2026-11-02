@@ -163,6 +163,9 @@ static func _place(root: Node3D, kind: String, xform: Transform3D, season: int, 
 
 ## Fallen leaves on the lawn: a few patches of flat flakes, one mesh.
 static func _leaves(root: Node3D, yard: Array, rng: RandomNumberGenerator) -> void:
+	# No free lawn: no leaves (never a pile at the parcel origin, under the house).
+	if yard.is_empty():
+		return
 	var kit := _MeshKit.new()
 	for _patch: int in Constants.ART_NEIGHBOR_LEAF_PATCHES:
 		var center := _spot(yard, rng)
