@@ -642,6 +642,8 @@ const CHEFTY_PAINTS: Dictionary = {
 }
 ## The phone's "Pay a crewmate" buttons, in dollars.
 const PAY_CREWMATE_STEPS: Array[int] = [20, 100]
+## The most of one consumable a single buy can take (net/shops/shops.gd).
+const SHOP_MAX_QTY: int = 25
 
 
 # ---- cast

@@ -140,6 +140,12 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-hour=8 --audio-test'; Seconds = 45; Port = 7811
 		Check = { param($h, $c) [bool]$h.audio_test.ok }
 	}
+	# Port from the integration review's table (gap-specs/critic.md): 7814.
+	shop = @{
+		Port = 7814
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --all-tools --rank=22 --start-hour=10 --shop-test'; Seconds = 100; Client = 95
+		Check = { param($h, $c) [bool]$h.shop_test.ok -and (Same $h.shops $c.shops) }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

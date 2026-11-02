@@ -182,6 +182,8 @@ func write_report() -> void:
 		"crew_cast": _crew_cast(),
 		"audio_test": preload("res://net/dev/audio_test.gd").result.duplicate(true),
 		"audio": _audio(),
+		"shop_test": preload("res://net/dev/shop_test.gd").result.duplicate(true),
+		"shops": _shops(),
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
 		"town": _town(),
@@ -252,6 +254,40 @@ func _crew_cast() -> Array:
 		})
 	crew.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return str(a["node"]) < str(b["node"]))
 	return crew
+
+
+## The shops as this peer sees them (net/shops/shops.gd): the crew's supplies,
+## a hash of today's stock, everyone's looks (by save key), Chefty's look,
+## the truck paint the crew owns, and whose buffs are running. CI compares the
+## host's with a client's (net/dev/shop_test.gd). Later shop chunks add each
+## body's hat and Chefty's built color.
+func _shops() -> Dictionary:
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops == null:
+		return {}
+	var supplies: Dictionary = shops.get("supplies")
+	var sorted_supplies := {}
+	var ids := supplies.keys()
+	ids.sort()
+	for id: Variant in ids:
+		sorted_supplies[str(id)] = snappedf(float(supplies[id]), 0.01)
+	var buff_ids := {}
+	var buffs: Dictionary = shops.get("buffs")
+	for peer_id: Variant in buffs:
+		var running: Array = (buffs[peer_id] as Dictionary).keys()
+		running.sort()
+		buff_ids[Net.player_name(int(peer_id))] = running
+	var owned: Array = (shops.get("crew_owned") as Array).duplicate()
+	owned.sort()
+	return {
+		"supplies": sorted_supplies,
+		"stock_day": int(shops.get("stock_day")),
+		"stock_hash": hash(JSON.stringify(shops.get("stock"), "", true)),
+		"looks_hash": hash(JSON.stringify(shops.get("looks"), "", true)),
+		"truck": JSON.stringify(shops.get("truck"), "", true),
+		"crew_owned": owned,
+		"buffs": buff_ids,
+	}
 
 
 ## The crew's heat as this peer sees it.

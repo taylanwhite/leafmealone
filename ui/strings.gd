@@ -735,6 +735,11 @@ const SHOP_UI: Dictionary = {
 	"shop_result_eaten": "The machine thanks you for your donation.",
 	"shop_result_full": "No room for more",
 	"shop_result_season": "Not this season",
+	"shop_result_unknown": "They don't sell that here",
+	# Clock faces for opening hours (net/shops/shops.gd hour_text, opens_text).
+	"shop_hour_am": "%d AM",
+	"shop_hour_pm": "%d PM",
+	"shop_opens_tomorrow": "tomorrow, %s",
 	# Prompts, hints, and goals.
 	"prompt_shop_closed": "Closed. Opens %s",
 	"prompt_look_at": "Look at %s",
