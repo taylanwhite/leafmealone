@@ -2,12 +2,10 @@ extends Node
 
 ## Local presentation. The neighborhood's background sound around the local
 ## player: a breeze through the trees, birds now and then, a dog a few yards
-## over, a car going by on the lot's street, and a laid-back music loop that M
-## turns off and on (remembered between sessions). Nothing here is shared.
-## Its players sit on the Ambience bus (the music on Music; audio/buses.gd), and
-## its tuning is Constants.AMBIENCE_*. The music moves to the music director
-## later (gap-specs/audio.json chunk 3). Whether music is on is the Settings
-## autoload's audio/music (core/settings.gd), which M flips.
+## over, and a car going by on the lot's street. Nothing here is shared. Its
+## players sit on the Ambience bus (audio/buses.gd), and its tuning is
+## Constants.AMBIENCE_*. The music, and M, are the music director's
+## (audio/music_director.gd, under UIRoot/Audio).
 
 const _Sfx = preload("res://audio/sfx.gd")
 const _Bank = preload("res://audio/sound_bank.gd")
@@ -15,8 +13,6 @@ const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 
 
 var _wind: AudioStreamPlayer
-var _music: AudioStreamPlayer
-var _music_on: bool = true
 var _waits: Dictionary = {}
 var _car: AudioStreamPlayer3D
 var _car_t: float = -1.0
@@ -28,14 +24,8 @@ func _ready() -> void:
 	# Nobody hears a headless run (tests, bots), so don't play anything there.
 	if Net.is_automated() or DisplayServer.get_name() == "headless":
 		set_process(false)
-		set_process_unhandled_input(false)
 		return
 	_wind = _loop_player("wind_loop", Constants.AMBIENCE_WIND_DB)
-	_music = _loop_player("music_loop", Constants.AMBIENCE_MUSIC_DB)
-	_music_on = bool(Settings.get_value("audio", "music"))
-	if not _music_on:
-		_music.stop()
-	Settings.changed.connect(_on_setting_changed)
 	_waits = {
 		"bird": _between(Constants.AMBIENCE_FIRST_BIRD),
 		"dog": _between(Constants.AMBIENCE_DOG_GAP),
@@ -69,21 +59,6 @@ func _loop_player(id: String, db: float) -> AudioStreamPlayer:
 	add_child(player)
 	player.play()
 	return player
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("toggle_music"):
-		Settings.set_value("audio", "music", not _music_on)
-
-
-func _on_setting_changed(section: StringName, key: StringName, value: Variant) -> void:
-	if section != &"audio" or key != &"music" or bool(value) == _music_on:
-		return
-	_music_on = bool(value)
-	if _music_on:
-		_music.play()
-	else:
-		_music.stop()
 
 
 func _process(delta: float) -> void:

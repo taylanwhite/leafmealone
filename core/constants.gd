@@ -777,11 +777,10 @@ const MUSIC_MUFFLE_CUTOFF_HZ: float = 900.0
 ## point. audio/music_tracks.gd's loop_offset adds it; encode_ogg.py checks it.
 const MUSIC_ENCODE_LEAD_SECONDS: float = 0.0200113
 
-## The neighborhood's background (audio/ambience.gd): wind and the old music loop,
-## in decibels; the wind drops this much more in transit and at the border.
+## The neighborhood's background (audio/ambience.gd): the wind, in decibels; it
+## drops this much more in transit and at the border.
 const AMBIENCE_WIND_DB: float = -14.0
 const AMBIENCE_WIND_AWAY_DB: float = -8.0
-const AMBIENCE_MUSIC_DB: float = -15.0
 ## Seconds between one-shots, as a random range; the first bird comes this soon.
 const AMBIENCE_BIRD_GAP: Vector2 = Vector2(3.0, 9.0)
 const AMBIENCE_FIRST_BIRD: Vector2 = Vector2(1.0, 4.0)
@@ -799,6 +798,38 @@ const AMBIENCE_CAR_SECONDS: float = 4.0
 ## One-shots out in the neighborhood: full volume inside this, gone past that (meters).
 const AMBIENCE_UNIT_SIZE: float = 12.0
 const AMBIENCE_MAX_DISTANCE: float = 90.0
+
+## The music director (audio/music_director.gd, audio/music_schedule.gd). A
+## track plays this loud (dB, before the Music bus); a stinger a little louder.
+const MUSIC_TRACK_DB: float = -6.0
+const MUSIC_STINGER_DB: float = -3.0
+## Crossfade seconds for a normal change, and for a raid or the crossing.
+const MUSIC_FADE_SECONDS: float = 2.5
+const MUSIC_FADE_URGENT_SECONDS: float = 0.4
+## A calm mood has to hold this long before the music follows (a teleport doesn't flap it).
+const MUSIC_MOOD_HOLD_SECONDS: float = 1.5
+## How often the director looks at the game, in seconds.
+const MUSIC_TICK_SECONDS: float = 0.25
+## Calm music plays a track this many loops, then rests this long (random in
+## the range) with ambience only, then plays the mood's next track.
+const MUSIC_LOOPS_BEFORE_REST: int = 2
+const MUSIC_REST_SECONDS: Vector2 = Vector2(45.0, 120.0)
+## Hot Yard on the lot from this much heat, until it cools below the exit.
+const MUSIC_HOT_HEAT: float = 65.0
+const MUSIC_HOT_HEAT_EXIT: float = 55.0
+## The yard's evening music from this hour (quiet hours, Constants.QUIET_HOURS_START, take over later).
+const MUSIC_GOLDEN_HOUR: float = 17.0
+## Music ducks this many dB under a stinger, over this many seconds each way.
+const MUSIC_STINGER_DUCK_DB: float = -14.0
+const MUSIC_DUCK_FADE_SECONDS: float = 0.25
+## The game cues (audio/cue_hooks.gd): one phone buzz at most this often (seconds),
+## how long a text waits to see whether the day summary is coming with it, and how
+## often the task list is checked for a task just done.
+const PHONE_BUZZ_GAP_SECONDS: float = 1.2
+const CUE_TEXT_SETTLE_SECONDS: float = 0.3
+const CUE_TASK_POLL_SECONDS: float = 0.5
+## A task counts as done at this many percent (the task list turns it green).
+const TASK_DONE_PERCENT: int = 95
 
 # ---- settings
 ## Player settings (core/settings.gd, user://settings.cfg; docs/DECISIONS.md

@@ -326,17 +326,15 @@ func _heat() -> float:
 	return float(heat.get("heat")) if heat != null else -1.0
 
 
-## What this peer heard: the music director's mood, track and stingers (once it
-## exists, gap-specs/audio.json chunk 3) and any unregistered sound ids.
+## What this peer heard: the music director's mood, track and stingers
+## (audio/music_director.gd) and any unregistered sound ids.
 func _audio() -> Dictionary:
 	var director := get_tree().get_first_node_in_group("music_director")
 	var report := {"mood": "", "track": "", "stingers": [], "unknown_sfx": preload("res://audio/sfx.gd").unknown.duplicate()}
 	if director != null:
 		report["mood"] = str(director.call("current_mood"))
 		report["track"] = str(director.call("current_track"))
-		var stingers: Variant = director.get_script().get("stinger_log")
-		if stingers is Array:
-			report["stingers"] = (stingers as Array).duplicate()
+		report["stingers"] = (director.call("stingers") as Array).duplicate()
 	return report
 
 
