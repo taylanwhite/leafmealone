@@ -15,20 +15,39 @@ extends Node
 ##      (report only for now; cast:3 moves them and makes this step fail)
 ##   7. Strings.homeowner_pool() resolves mood, bill and personality pools
 ##   8. Strings.summary_quip() picks the right bucket, the same line every time
-## Phase B (the NICE BOYS' look, the van livery, the beacon) and Phase C (the
-## crew on a client: outfits, name tags, barks) come with cast:4 to cast:6, which
-## flip the PHASE_* switches below and fill in their steps.
+## Phase B, the look (host, a scratch node outside the world):
+##   9. a plain cartoon body's triangles, reported against the character budget
+##  10. the head NICE BOY and a NICE BOY, dressed by CrewMember.dress(): outfit,
+##      visor, grin, every named outfit part, and the outfit's extra triangles
+##      within Constants.CREW_OUTFIT_TRIANGLE_BUDGET; a chest seal under 200
+##  11-12. the van's livery and the beacon (cast:5, PHASE_B_VAN)
+## Phase C, a raid with a client watching (a client named Target joins):
+##  13. a client joins  14. the director calls the NICE BOYS  15. they freeze
+##  16. each wears the right outfit and the name tag Strings.crew_tag() gives, and
+##      the old capsule is hidden. CI compares probe.gd's crew_cast on both peers.
+##  17. barks reach the client (cast:6, PHASE_C_BARKS)
 
 const _Strings = preload("res://ui/strings.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Ranks = preload("res://core/ranks.gd")
 
-## Steps 9-12: the outfit and its triangles (cast:4), the van and beacon (cast:5).
-const PHASE_B_LOOK: bool = false
+const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _CrewMember = preload("res://npcs/crew_member.gd")
+const _NiceSeal = preload("res://props/nice_seal.gd")
+const _MeshKit = preload("res://props/mesh_kit.gd")
+
+## Steps 9-10: the outfit and its triangles (cast:4).
+const PHASE_B_LOOK: bool = true
+## Steps 11-12: the van and the beacon (cast:5).
+const PHASE_B_VAN: bool = false
 ## Steps 13-16: crew outfits and name tags on a networked crew (cast:4).
-const PHASE_C_CREW: bool = false
+const PHASE_C_CREW: bool = true
 ## Step 17: barks reach the client (cast:6).
 const PHASE_C_BARKS: bool = false
+## Step 13 waits this long for a client to join.
+const CLIENT_WAIT_SECONDS: float = 15.0
+## After the crew arrives, this long for the spawn to reach the client.
+const CREW_SETTLE_SECONDS: float = 1.5
 
 ## Words and names that never appear in player-facing text (docs/GAME.md, "Rules
 ## for agents working on content"; CLAUDE.md). One pattern per line, so a writer
@@ -98,6 +117,10 @@ const SWEEP_LITERAL := "\"[A-Za-z][^\"%\\n]*\\s[A-Za-z][^\"\\n]*\""
 const SWEEP_ALLOW: Array[String] = ["HOMIE DEPOT", "Chefty"]
 
 static var result: Dictionary = {}
+## The crew as the host saw it in phase C, by node name: tag and outfit.
+static var cast: Dictionary = {}
+## Phase B's measurements: triangles of a plain body, each outfit, and the seal.
+static var look: Dictionary = {}
 
 var _started: bool = false
 var _problems: Array[String] = []
@@ -122,30 +145,136 @@ func _run() -> void:
 	var inline := _sweep_inline()
 	if PHASE_B_LOOK:
 		await _phase_b()
-	else:
-		print("[CastTest] phase B (look, van, beacon) is off until cast:4 and cast:5")
 	if PHASE_C_CREW:
 		await _phase_c()
-	else:
-		print("[CastTest] phase C (the crew on a client) is off until cast:4 and cast:6")
 	var ok := _problems.is_empty()
 	result = {
 		"ok": ok, "done": true, "problems": _problems.duplicate(),
 		"strings": counts.x, "pools": counts.y, "inline_text": inline,
+		"look": look.duplicate(), "cast": cast.duplicate(true),
 	}
 	print("[CastTest] all ok: %s (%d problems, %d strings, %d pools)" % [ok, _problems.size(), counts.x, counts.y])
 
 
-## Steps 9-12, filled in by cast:4 (outfit parts and triangle budget) and cast:5
-## (van livery, beacon).
+## Steps 9-12: the NICE BOYS' outfit and its triangles (cast:4), then the van and
+## the beacon (cast:5, PHASE_B_VAN). Built in a scratch node outside the world.
 func _phase_b() -> void:
+	var scratch := Node3D.new()
+	scratch.name = "CastScratch"
+	add_child(scratch)
+	var before := _problems.size()
+	# Step 9: a plain body, the baseline every character starts from.
+	var plain: Node3D = _CartoonBody.new()
+	plain.call("dress_from_seed", 3)
+	scratch.add_child(plain)
+	plain.call("build")
+	var plain_triangles := _triangles(plain)
+	print("[CastTest] step 9: a plain cartoon body is %d triangles (the character budget is %d; over it before the outfit, see docs/ART.md)" % [plain_triangles, Constants.CHARACTER_TRIANGLE_BUDGET])
+	look["plain_triangles"] = plain_triangles
+	# Step 10: the head NICE BOY and a NICE BOY, dressed by the crew's own helper.
+	for index: int in [1, 2]:
+		var body: Node3D = _CartoonBody.new()
+		_CrewMember.dress(body, index)
+		scratch.add_child(body)
+		body.position.x = float(index) * 2.0
+		body.call("build")
+		var outfit := str(body.get("outfit"))
+		var want := "nice_boy_lead" if index == 1 else "nice_boy"
+		_look(outfit == want, "10 NICE BOY %d wears %s, not '%s'" % [index, want, outfit])
+		_look(str(body.get("hat_style")) == "visor", "10 NICE BOY %d wears a visor, not '%s'" % [index, body.get("hat_style")])
+		_look(bool(body.get("grin")) and bool(body.get("shades")), "10 NICE BOY %d grins behind sunglasses" % index)
+		for part: String in _CartoonBody.OUTFIT_PARTS.get(want, []):
+			var node := body.find_child(part, true, false)
+			_look(node is MeshInstance3D and (node as MeshInstance3D).mesh != null, "10 NICE BOY %d has a %s" % [index, part])
+		var triangles := _triangles(body)
+		var extra := triangles - plain_triangles
+		_look(extra <= Constants.CREW_OUTFIT_TRIANGLE_BUDGET, "10 NICE BOY %d's outfit adds %d triangles, the budget is %d" % [index, extra, Constants.CREW_OUTFIT_TRIANGLE_BUDGET])
+		print("[CastTest] step 10: NICE BOY %d (%s) is %d triangles, %+d over a plain body (outfit budget %d, character budget %d)" % [index, outfit, triangles, extra, Constants.CREW_OUTFIT_TRIANGLE_BUDGET, Constants.CHARACTER_TRIANGLE_BUDGET])
+		look["%s_triangles" % want] = triangles
+	# The gestures barks will use exist, and the seal stays small at chest size.
+	for gesture: String in ["point", "scribble"]:
+		_look(_CartoonBody.GESTURE_SECONDS.has(gesture), "10 the body has a '%s' gesture" % gesture)
+	var seal := _MeshKit.new()
+	_NiceSeal.add(seal, Vector3.ZERO, 0.045, Vector3.FORWARD)
+	var seal_triangles := seal.vertex_count() / 3
+	_look(seal_triangles > 0 and seal_triangles < 200, "10 a chest-size Daisy Seal is under 200 triangles (%d)" % seal_triangles)
+	look["seal_triangles"] = seal_triangles
+	if PHASE_B_VAN:
+		pass # Steps 11-12 (the van's livery, the beacon) come with cast:5.
+	else:
+		print("[CastTest] steps 11-12 (van, beacon) are off until cast:5")
+	scratch.queue_free()
 	await get_tree().process_frame
+	print("[CastTest] steps 9-10, the NICE BOYS' look: %s" % (_problems.size() == before))
 
 
-## Steps 13-17, filled in by cast:4 (outfits and name tags on a client) and cast:6
-## (barks; PHASE_C_BARKS).
+## Steps 13-16 (cast:4): a raid on a real lot, with a client watching. Every NICE
+## BOY wears the right outfit and name tag, the same on the client (CI compares
+## probe.gd's crew_cast). Step 17, barks, comes with cast:6 (PHASE_C_BARKS).
 func _phase_c() -> void:
-	await get_tree().process_frame
+	var before := _problems.size()
+	# Step 13: a client.
+	var waited := 0.0
+	while Net.peer_ids().size() < 2 and waited < CLIENT_WAIT_SECONDS:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	if Net.peer_ids().size() < 2:
+		_fail("13 no client", "nobody joined in %d s" % int(CLIENT_WAIT_SECONDS))
+		return
+	print("[CastTest] step 13: a client joined")
+	# Step 14: call the NICE BOYS and wait for them to arrive.
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director == null:
+		_fail("14 no director", "no run_director in the world")
+		return
+	director.call("force_event")
+	waited = 0.0
+	var limit := Constants.RUN_WARNING_SECONDS + 4.0
+	while get_tree().get_nodes_in_group("crew").is_empty() and waited < limit:
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	var crew := get_tree().get_nodes_in_group("crew")
+	if crew.is_empty():
+		_fail("14 no crew", "nobody arrived %d s after the call" % int(limit))
+		return
+	# Step 15: frozen where they stand, so nobody is caught and they don't leave.
+	for member: Node in crew:
+		member.set("_stun_left", 60.0)
+	print("[CastTest] step 14-15: %d NICE BOYS arrived, frozen" % crew.size())
+	# Let the spawn reach the client before the reports are written.
+	await get_tree().create_timer(CREW_SETTLE_SECONDS).timeout
+	# Step 16: outfit, name tag, no capsule.
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var day := int(clock.get("day")) if clock != null else 1
+	for member: Node in get_tree().get_nodes_in_group("crew"):
+		var index := int(member.call("crew_index"))
+		var body := member.get_node_or_null("Visual/CartoonBody")
+		var label := member.get_node_or_null("Visual/Label") as Label3D
+		var capsule := member.get_node_or_null("Visual/Body") as Node3D
+		var want := "nice_boy_lead" if index == 1 else "nice_boy"
+		_look(body != null and str(body.get("outfit")) == want, "16 %s wears %s" % [member.name, want])
+		var tag := _Strings.crew_tag(index, day)
+		_look(label != null and label.text == tag, "16 %s's tag reads '%s', not '%s'" % [member.name, tag, label.text if label != null else "(no label)"])
+		_look(capsule == null or not capsule.visible, "16 %s's placeholder capsule is hidden" % member.name)
+		cast[str(member.name)] = {"tag": label.text if label != null else "", "outfit": str(body.get("outfit")) if body != null else ""}
+	if PHASE_C_BARKS:
+		pass # Step 17 (barks reach the client) comes with cast:6.
+	print("[CastTest] steps 13-16, the crew on a client: %s %s" % [_problems.size() == before, JSON.stringify(cast)])
+
+
+## Triangles drawn under root: every MeshInstance3D's faces.
+func _triangles(root: Node) -> int:
+	var total := 0
+	for node: Node in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh := (node as MeshInstance3D).mesh
+		if mesh != null:
+			total += mesh.get_faces().size() / 3
+	return total
+
+
+func _look(condition: bool, what: String) -> void:
+	if not condition:
+		_fail("look", what)
 
 
 func _fail(rule: String, detail: String) -> void:

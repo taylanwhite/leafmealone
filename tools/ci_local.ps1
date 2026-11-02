@@ -129,11 +129,11 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --rank=17 --rival-test'; Seconds = 20
 		Check = { param($h, $c) [bool]$h.rival_test.ok }
 	}
-	# Host only until cast:4 turns on the networked phase; then it gets Client = 40 and
-	# compares $h.crew_cast with $c.crew_cast.
+	# The string audit and the crew's look on the host, then the same NICE BOYS (outfits,
+	# name tags, and from cast:6 barks) on the client.
 	cast = @{
-		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --cast-test'; Seconds = 45; Port = 7812
-		Check = { param($h, $c) [bool]$h.cast_test.ok }
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --cast-test'; Seconds = 45; Client = 40; Port = 7812
+		Check = { param($h, $c) [bool]$h.cast_test.ok -and $c -ne $null -and @($h.crew_cast).Count -ge 1 -and (Same $h.crew_cast $c.crew_cast) }
 	}
 	# Port from the integration review's table (gap-specs/critic.md): 7811.
 	audio = @{

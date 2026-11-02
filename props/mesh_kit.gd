@@ -355,6 +355,14 @@ func vertex_count() -> int:
 	return _vertices.size()
 
 
+## One flat triangle, a, b, c clockwise seen from the side normal points to.
+## For flat decals such as props/nice_seal.gd's Daisy Seal.
+func triangle(a: Vector3, b: Vector3, c: Vector3, normal: Vector3, color: Color) -> void:
+	_add(a, normal, color)
+	_add(b, normal, color)
+	_add(c, normal, color)
+
+
 ## The finished mesh, or null if nothing was added.
 func commit() -> ArrayMesh:
 	if _vertices.is_empty():

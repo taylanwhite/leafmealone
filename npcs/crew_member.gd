@@ -1,7 +1,8 @@
 extends CharacterBody3D
 
 ## Authority: host. Clients display the replicated body.
-## Placeholder name until the crew is designed. OQ-010 counterplay v0:
+## A NICE BOY, the fictional enforcement crew (docs/GAME.md; their look, OQ-012,
+## is decided: see _dress_up). OQ-010 counterplay v0:
 ## - It chases whoever it can see. Sprinting outruns it.
 ## - Out of sight, it goes to where it last saw someone, searches around there
 ##   for Constants.CREW_SEARCH_SECONDS, then patrols the lot.
@@ -13,6 +14,10 @@ const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 const _LotNav = preload("res://npcs/lot_nav.gd")
+const _NiceSeal = preload("res://props/nice_seal.gd")
+const _Strings = preload("res://ui/strings.gd")
+## The NICE BOYS' khaki shorts.
+const KHAKI := Color(0.8, 0.7, 0.52)
 ## Close enough to a search or patrol point to pick the next one, in meters.
 const WAYPOINT_REACHED: float = 1.5
 ## Patrol points stay this far inside the lot's edge.
@@ -40,20 +45,18 @@ func _ready() -> void:
 		_bake_navmesh()
 
 
-## Placeholder look until the crew is designed (OQ-012): a cartoon person in plain
-## dark work clothes, a cap, and dark glasses. No lettering, logo, or insignia.
+## The NICE BOYS' look (OQ-012, decided; docs/GAME.md "2026-11-01, the cast"):
+## Courtesy Lavender polos, khaki shorts, knee socks, sun visors, gold aviators, a
+## clipboard, and a fixed grin under the angry brows. Crew1, the head NICE BOY,
+## carries a megaphone and a whistle instead of a clipboard. The look and the name
+## tag are pure functions of the node name and the day, so every peer agrees.
 func _dress_up() -> void:
 	var visual := get_node_or_null("Visual") as Node3D
 	if visual == null or visual.has_node("CartoonBody"):
 		return
 	var body := _CartoonBody.new()
 	body.name = "CartoonBody"
-	body.shirt = Color(0.22, 0.25, 0.32)
-	body.pants = Color(0.17, 0.18, 0.2)
-	body.skin = _CartoonBody.SKIN_TONES[absi(hash(name)) % _CartoonBody.SKIN_TONES.size()]
-	body.hat_style = "cap"
-	body.hat_color = Color(0.15, 0.16, 0.19)
-	body.shades = true
+	dress(body, crew_index())
 	visual.add_child(body)
 	# The crew turns its +Z toward where it walks (see _steer), and bodies face -Z.
 	body.rotation.y = PI
@@ -67,6 +70,36 @@ func _dress_up() -> void:
 	var capsule := visual.get_node_or_null("Body") as Node3D
 	if capsule != null:
 		capsule.visible = false
+	var tag := visual.get_node_or_null("Label") as Label3D
+	if tag != null:
+		tag.text = _Strings.crew_tag(crew_index(), _day())
+
+
+## Dresses an unbuilt CartoonBody as NICE BOY number index (1 is the head NICE
+## BOY). Shared by the crew and tools/studio, so the studio shows the real look;
+## call body.build() after.
+static func dress(body: Node3D, index: int) -> void:
+	body.set("shirt", _NiceSeal.LAVENDER)
+	body.set("pants", KHAKI)
+	body.set("skin", _CartoonBody.SKIN_TONES[absi(hash("Crew%d" % index)) % _CartoonBody.SKIN_TONES.size()])
+	body.set("hair", _CartoonBody.HAIR[absi(hash("hair%d" % index)) % _CartoonBody.HAIR.size()])
+	body.set("hat_style", "visor")
+	body.set("hat_color", _NiceSeal.LAVENDER)
+	body.set("shades", true)
+	body.set("shades_style", "aviator")
+	body.set("grin", true)
+	body.set("outfit", "nice_boy_lead" if index == 1 else "nice_boy")
+
+
+## Which NICE BOY this is, from the node name the director gives it (Crew1 is the lead).
+func crew_index() -> int:
+	return maxi(1, str(name).trim_prefix("Crew").to_int())
+
+
+## Today's day number (the day clock replicates it), or 1 without one.
+func _day() -> int:
+	var clock := get_tree().get_first_node_in_group("day_clock") if is_inside_tree() else null
+	return int(clock.get("day")) if clock != null else 1
 
 
 ## Host only: whether this crew member has a clear view of that player now.
