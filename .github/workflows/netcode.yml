@@ -276,7 +276,7 @@ jobs:
           grep "ShopTest" build/soak/ci-shop/host.log build/soak/ci-shop/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-shop/host.json')); t=json.load(open('build/soak/ci-shop/target.json')); sys.exit(0 if h['shop_test'].get('ok') and t['shop_test'].get('ok') and h['shops'] == t['shops'] else 1)"
 
-      - name: Hotbar test (pockets, slots, stacks, hands full, emptied pockets)
+      - name: Hotbar test (pockets, slots, stacks, hands full, emptied pockets, holds)
         if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi

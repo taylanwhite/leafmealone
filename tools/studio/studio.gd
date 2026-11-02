@@ -148,6 +148,10 @@ func _build(root: Node3D) -> void:
 				{"from": Vector3(0.45, 1.85, 1.45), "at": Vector3(0.0, 1.62, 0.0), "fov": 38.0},
 				{"from": Vector3(1.1, 2.6, 1.3), "at": Vector3(0.0, 1.4, 0.0), "fov": 40.0},
 			])
+		"holds":
+			_holds(root)
+		"gestures":
+			_gestures(root)
 		"surfaces":
 			_surfaces(root)
 		"houses":
@@ -211,6 +215,196 @@ func _hold_gesture(body: Node3D, gesture_name: String) -> void:
 	body.call("gesture", gesture_name)
 	for _step: int in 30:
 		body.call("_physics_process", 1.0 / 60.0)
+
+
+## A stand-in for a yard prop (net/components/net_prop.gd): just the fields the
+## looks read, so props/prop_looks.gd can dress and pose it like the real thing.
+class StudioProp extends Node3D:
+	var kind := ""
+	var hose_source := ""
+	var held_by := 0
+	var spraying := false
+	var water := 100.0
+	var ladder_top := Vector3.ZERO
+
+
+## Holds (docs/GAME.md, "2026-11-01, holds"): a row of cartoon bodies, each
+## holding one thing the way the game poses it (prop_looks.gd pose_rake, pose_tool,
+## pose_held) with their arms on its grips (grip_points -> CartoonBody.set_hold).
+## --kinds=gnome,trash picks which; with one kind the views close in on it.
+func _holds(root: Node3D) -> void:
+	var all := ["rake", "leaf_bag", "gnome", "trash", "turf_sign", "wheelbarrow", "lawn_mower", "ladder", "leaf_blower", "hedge_trimmer", "paint_roller", "hose", "pressure_washer"]
+	var kinds: Array = all
+	if _options.has("kinds"):
+		kinds = str(_options["kinds"]).split(",", false)
+	var looks := preload("res://props/prop_looks.gd")
+	var holders: Array[Node3D] = []
+	var props: Array[Node3D] = []
+	for index: int in kinds.size():
+		var kind := str(kinds[index])
+		# A mini holder like a player: Visual at the feet facing -Z, Head at 1.6 m.
+		var holder := Node3D.new()
+		holder.name = "Holder_%s" % kind
+		root.add_child(holder)
+		holder.position = Vector3((float(index) - float(kinds.size() - 1) * 0.5) * 1.9, 0.0, 0.0)
+		var visual := Node3D.new()
+		visual.name = "Visual"
+		holder.add_child(visual)
+		var head := Node3D.new()
+		head.name = "Head"
+		visual.add_child(head)
+		head.position.y = 1.6
+		var body: Node3D = _CartoonBody.new()
+		body.name = "CartoonBody"
+		body.call("dress_from_seed", 11 + index * 5)
+		visual.add_child(body)
+		body.call("build", head)
+		var prop := StudioProp.new()
+		prop.name = "Prop_%s" % kind
+		prop.kind = kind
+		prop.held_by = 1
+		root.add_child(prop)
+		var mesh := MeshInstance3D.new()
+		mesh.name = "Visual"
+		mesh.position.y = looks.VISUAL_HEIGHT
+		prop.add_child(mesh)
+		looks.dress(prop, kind, _prop_color(kind))
+		prop.global_transform = Transform3D(holder.global_basis, _hold_spot(holder, kind))
+		holders.append(holder)
+		props.append(prop)
+	# Pose, aim the arms, and run the bodies long enough for the reach to blend in.
+	for _step: int in 30:
+		for index: int in holders.size():
+			var prop := props[index]
+			var kind := str(prop.get("kind"))
+			if kind == "rake":
+				looks.pose_rake(prop, holders[index], false)
+			elif Constants.TOOL_PRICES.has(kind):
+				looks.pose_tool(prop, holders[index])
+			else:
+				looks.pose_held(prop, holders[index])
+			if kind == "wheelbarrow":
+				looks.show_bags(prop, 3)
+			var grips: Array[Vector3] = looks.grip_points(prop, holders[index])
+			var body := holders[index].get_node("Visual/CartoonBody")
+			body.call("set_hold", grips[0], grips[1])
+			body.call("_physics_process", 1.0 / 60.0)
+	# Reports how far each hand landed from its grip, for judging numbers.
+	for index: int in holders.size():
+		var grips: Array[Vector3] = looks.grip_points(props[index], holders[index])
+		var body := holders[index].get_node("Visual/CartoonBody")
+		var report := ""
+		for side: int in 2:
+			if grips[side].is_finite():
+				var shoulder: Vector3 = body.call("shoulder_position", side)
+				report += " %s %.2f m" % ["right" if side == 0 else "left", shoulder.distance_to(grips[side])]
+		print("[Studio] holds %s:%s" % [str(props[index].get("kind")), report])
+	if kinds.size() == 1:
+		root.set_meta("views", [
+			{"from": Vector3(1.5, 1.55, -2.2), "at": Vector3(0.0, 1.0, -0.4), "fov": 45.0},
+			{"from": Vector3(-2.6, 1.3, -0.4), "at": Vector3(0.0, 1.0, -0.4), "fov": 45.0},
+			{"from": Vector3(1.2, 2.0, 2.1), "at": Vector3(0.0, 1.0, -0.4), "fov": 45.0},
+			{"from": Vector3(0.9, 2.05, 0.35), "at": Vector3(0.0, 0.9, -0.6), "fov": 55.0},
+		])
+	else:
+		var half := float(kinds.size() - 1) * 0.5 * 1.9
+		root.set_meta("views", [
+			{"from": Vector3(-half * 0.5, 1.8, -5.2), "at": Vector3(-half * 0.5, 1.0, 0.0), "fov": 48.0},
+			{"from": Vector3(half * 0.5, 1.8, -5.2), "at": Vector3(half * 0.5, 1.0, 0.0), "fov": 48.0},
+			{"from": Vector3(-half * 0.5 - 2.0, 1.6, -2.2), "at": Vector3(-half * 0.5, 1.0, -0.3), "fov": 55.0},
+			{"from": Vector3(half * 0.5 + 2.0, 2.2, 3.4), "at": Vector3(half * 0.5, 1.0, -0.3), "fov": 55.0},
+		])
+
+
+## Where the game puts a held prop's body (net_prop.gd _hold_position), for the
+## kinds whose look is posed relative to it.
+func _hold_spot(holder: Node3D, kind: String) -> Vector3:
+	var looks := preload("res://props/prop_looks.gd")
+	var forward := -holder.global_basis.z
+	var right := holder.global_basis.x
+	match kind:
+		"lawn_mower":
+			return holder.global_position + forward * 1.15
+		"pressure_washer":
+			return holder.global_position + right * 0.85 + forward * 0.2
+		"ladder":
+			return holder.global_position + Vector3(0.0, 1.45, 0.0) + right * 0.3
+		"leaf_blower", "hedge_trimmer", "hose", "paint_roller":
+			return holder.global_position + Vector3(0.0, 0.8, 0.0) + forward * 0.55 + right * 0.25
+		"leaf_bag":
+			var at := holder.global_transform * (Vector3(0.0, 1.6, 0.0) + looks.BAG_HANDS)
+			return at - holder.global_basis * ((looks.BAG_RIM[0] + looks.BAG_RIM[1]) * 0.5)
+		"rake":
+			return holder.global_position + Vector3(0.0, 0.75, 0.0) + forward * 0.9 + right * 0.35
+	var entry: Dictionary = looks.HOLDS.get(kind, {})
+	return holder.global_transform * (entry.get("at", Vector3(0.0, 1.2, -1.15)) as Vector3)
+
+
+func _prop_color(kind: String) -> Color:
+	match kind:
+		"trash":
+			return Color(0.25, 0.28, 0.3)
+		"wheelbarrow":
+			return Color(0.55, 0.22, 0.18)
+		"turf_sign":
+			return Color(0.1, 0.55, 0.28)
+	return Color(0.7, 0.7, 0.7)
+
+
+## The gestures that move the arms, frozen where they read, every body in profile
+## facing +X: offer, punch, watch, rake, point and wave, then a hired hand raking
+## with their rake and one hauling a bag (npcs/crew_hand.gd builds both).
+func _gestures(root: Node3D) -> void:
+	var lineup: Array = [["offer", 18], ["punch", 9], ["watch", 30], ["rake", 30], ["point", 30], ["wave", 30]]
+	for index: int in lineup.size():
+		var body: Node3D = _CartoonBody.new()
+		body.call("dress_from_seed", 3 + index * 7)
+		root.add_child(body)
+		# In profile, facing +X (image right in every view), so ahead and behind read.
+		body.position = Vector3(float(index) * 1.3 - 3.25, 0.0, 0.0)
+		body.rotation.y = -PI * 0.5
+		body.call("build")
+		body.call("gesture", lineup[index][0])
+		for _step: int in int(lineup[index][1]):
+			body.call("_physics_process", 1.0 / 60.0)
+		# Frozen there for the render.
+		body.set_physics_process(false)
+	# A hired hand, built the way npcs/crew_hand.gd builds one (its Visual faces +Z).
+	var hand := Node3D.new()
+	hand.name = "CrewHand"
+	root.add_child(hand)
+	hand.position = Vector3(4.6, 0.0, 0.0)
+	hand.rotation.y = PI * 0.5
+	var body: Node3D = _CartoonBody.new()
+	body.call("dress_from_seed", 5)
+	body.set("shirt", Color(0.93, 0.5, 0.18))
+	hand.add_child(body)
+	body.rotation.y = PI
+	body.call("build")
+	preload("res://npcs/crew_hand.gd").add_hand_rake(hand)
+	body.call("gesture", "rake")
+	for _step: int in 30:
+		body.call("_physics_process", 1.0 / 60.0)
+	body.set_physics_process(false)
+	# And one hauling a bag.
+	var hauler := Node3D.new()
+	hauler.name = "CrewHauler"
+	root.add_child(hauler)
+	hauler.position = Vector3(6.0, 0.0, 0.0)
+	hauler.rotation.y = PI * 0.5
+	var hauler_body: Node3D = _CartoonBody.new()
+	hauler_body.call("dress_from_seed", 9)
+	hauler_body.set("shirt", Color(0.93, 0.5, 0.18))
+	hauler.add_child(hauler_body)
+	hauler_body.rotation.y = PI
+	hauler_body.call("build")
+	preload("res://npcs/crew_hand.gd").add_hand_bag(hauler)
+	root.set_meta("views", [
+		{"from": Vector3(0.6, 1.4, 9.0), "at": Vector3(0.6, 1.0, 0.0), "fov": 50.0},
+		{"from": Vector3(-2.6, 1.3, 3.6), "at": Vector3(-2.6, 1.0, 0.0), "fov": 45.0},
+		{"from": Vector3(1.3, 1.3, 3.6), "at": Vector3(1.3, 1.0, 0.0), "fov": 45.0},
+		{"from": Vector3(5.3, 1.2, 4.0), "at": Vector3(5.3, 0.8, 0.0), "fov": 45.0},
+	])
 
 
 ## Every surface pattern (props/surfaces.gd): a 2 m cube of each with its name,

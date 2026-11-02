@@ -6,16 +6,20 @@ extends Node
 ## so Pockets._unhandled_input sees them), the selected number again puts your
 ## hands away, G only drops what's in hand, signs stack and the next one comes
 ## out, big things fill both hands and refuse a switch, pockets slow you a
-## little, and leaving the yard or being caught empties them. It ends with a
-## known set of pockets that CI compares with a client's view (probe "hotbar").
-## Holds and grips are hotbar chunk C; step 9 of the spec is theirs.
+## little, and leaving the yard or being caught empties them. Step 9 checks the
+## holds (chunk C): hands on the real grips of the sign, gnome, trash can and
+## wheelbarrow, the arms reaching them. It ends with a known set of pockets that
+## CI compares with a client's view (probe "hotbar", grip_ok included).
 ## Each step prints a [HotbarTest] line and records a boolean in result["steps"].
 
 const _Hotbar = preload("res://net/components/hotbar.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _PropLooks = preload("res://props/prop_looks.gd")
 const PROP_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 ## How long to wait for the client to join, so it sees the whole run.
 const CLIENT_WAIT_SECONDS: float = 12.0
+## Windowed with --screenshot: how long step 9 shows each hold for the capture.
+const HOLD_LINGER_SECONDS: float = 4.0
 
 static var result: Dictionary = {}
 
@@ -178,6 +182,10 @@ func _run() -> void:
 	var sign_again := _in_hand() != null and str(_in_hand().get("kind")) == "turf_sign"
 	_step("8b hands away %s; carrying: key blocked %s, host refused %s; set down, sign drawn %s" % [hands_away, key_blocked, host_blocked, sign_again], hands_away and key_blocked and host_blocked and sign_again)
 
+	# 9. Holds (chunk C): the hands land on the real grips, the arms reach them,
+	# and the gnome, trash can, sign and wheelbarrow sit the way HOLDS says.
+	await _check_holds()
+
 	# 10. Pockets weigh a quarter.
 	var expected := _expected_speed()
 	var speed := float(me.call("carry_speed_scale"))
@@ -222,12 +230,154 @@ func _run() -> void:
 	await _tap(&"slot_1")
 	var final_slots := _Hotbar.snapshot(get_tree()).get(Net.player_name(_id()), {}) as Dictionary
 	var want := [["rake", 1], ["leaf_blower", 1], ["turf_sign", 2], ["", 0], ["", 0]]
-	var final_ok := JSON.stringify(final_slots.get("slots", [])) == JSON.stringify(want) and str(final_slots.get("hand", "")) == "rake"
-	_step("12 final pockets %s, hand %s" % [JSON.stringify(final_slots.get("slots", [])), final_slots.get("hand", "")], final_ok)
+	await _ticks(10)
+	final_slots = _Hotbar.snapshot(get_tree()).get(Net.player_name(_id()), {}) as Dictionary
+	var final_ok := JSON.stringify(final_slots.get("slots", [])) == JSON.stringify(want) and str(final_slots.get("hand", "")) == "rake" and bool(final_slots.get("grip_ok", false))
+	_step("12 final pockets %s, hand %s, grip_ok %s" % [JSON.stringify(final_slots.get("slots", [])), final_slots.get("hand", ""), final_slots.get("grip_ok", false)], final_ok)
 	await _seconds(1.0)
 	result["ok"] = _ok
 	result["done"] = true
 	print("[HotbarTest] all ok: %s" % _ok)
+
+
+# ---------------------------------------------------------------- holds (step 9)
+
+## 9a the sign in hand, 9b the gnome, 9c the trash can, 9d the wheelbarrow, 9e
+## the right arm pointing at its grip. Each big thing is set down again after,
+## which brings the sign back out.
+func _check_holds() -> void:
+	var me := _me()
+	var body := me.get_node_or_null("Visual/CartoonBody") as Node3D
+	if body == null:
+		_step("9 holds: no CartoonBody on the host's player", false)
+		return
+	await _ticks(10)
+	var sign := _in_hand() as Node3D
+	var sign_ok := sign != null and str(sign.get("kind")) == "turf_sign" and _grips_on(sign, me, body, 1)
+	_step("9a sign in hand: right hand on its wire, left hand free %s" % sign_ok, sign_ok)
+	await _linger()
+	var gnome := _prop("gnome")
+	# Each hold on a clear spot of its own, so what was set down before isn't in
+	# the way (or in the screenshots).
+	await _go_to(Vector3(-6.0, 0.1, 9.0), 0.0)
+	await _grab(gnome)
+	await _ticks(10)
+	var look := gnome.get_node_or_null("Visual/Look") as Node3D
+	var ahead := -me.global_basis.z
+	var upright := look != null and look.global_basis.y.normalized().dot(Vector3.UP) > 0.95
+	var facing := look != null and (-look.global_basis.z).normalized().dot(Vector3(ahead.x, 0.0, ahead.z).normalized()) > 0.8
+	var hugged := _holds(gnome) and _grips_on(gnome, me, body, 2)
+	var aimed := _arm_on_grip(body, _PropLooks.grip_points(gnome, me)[0])
+	_step("9b gnome hugged %s, upright %s, facing ahead %s" % [hugged, upright, facing], hugged and upright and facing)
+	_step("9e right arm points at its grip %s" % aimed, aimed)
+	await _linger()
+	await _hold_g(0.08)
+	await _ticks(6)
+	var trash := _prop("trash")
+	await _go_to(Vector3(-3.5, 0.1, 9.0), 0.0)
+	await _grab(trash)
+	await _ticks(10)
+	var by_handles := _holds(trash) and _grips_on(trash, me, body, 2)
+	_step("9c trash can by its side handles %s" % by_handles, by_handles)
+	await _linger()
+	await _hold_g(0.08)
+	await _ticks(6)
+	var barrow := _prop("wheelbarrow")
+	await _go_to(Vector3(-1.0, 0.1, 9.0), 0.0)
+	await _grab(barrow)
+	await _ticks(10)
+	var ground := me.global_position.y
+	var tray := barrow.get_node_or_null("Visual/Look") as Node3D
+	var on_wheel := tray != null and absf(tray.global_position.y - ground) <= 0.15
+	var grips := _PropLooks.grip_points(barrow, me)
+	var lifted := true
+	var heights := ""
+	for point: Vector3 in grips:
+		lifted = lifted and point.is_finite() and point.y - ground >= 0.65 and point.y - ground <= 0.95
+		heights += " %.2f" % (point.y - ground if point.is_finite() else -1.0)
+	var pushed := _holds(barrow) and _grips_on(barrow, me, body, 2)
+	_step("9d wheelbarrow on its wheel %s (base %.2f m up), handles lifted to%s m %s, hands on them %s" % [on_wheel, tray.global_position.y - ground if tray != null else -1.0, heights, lifted, pushed], on_wheel and lifted and pushed)
+	await _linger()
+	await _hold_g(0.08)
+	await _ticks(6)
+	# The shouldered ladder (a hand through a rung) and the pushed mower (both on the bar).
+	var others := ""
+	var others_ok := true
+	for entry: Array in [["ladder", 1, 2.0], ["lawn_mower", 2, 4.5]]:
+		await _go_to(Vector3(float(entry[2]), 0.1, 9.0), 0.0)
+		var thing := _prop(str(entry[0]))
+		if thing == null:
+			others += " %s missing" % entry[0]
+			others_ok = false
+			continue
+		await _grab(thing)
+		await _ticks(10)
+		var on := _holds(thing) and _grips_on(thing, me, body, int(entry[1]))
+		others += " %s %s" % [entry[0], on]
+		others_ok = others_ok and on
+		await _linger()
+		await _hold_g(0.08)
+		await _ticks(6)
+	_step("9g%s" % others, others_ok)
+	var sign_back := _in_hand() != null and str(_in_hand().get("kind")) == "turf_sign"
+	_step("9f set down, sign back in hand %s" % sign_back, sign_back)
+
+
+## Windowed with --screenshot, each hold stays up long enough for net/dev/capture.gd
+## to catch it in first person and from outside (a selfie). Headless: no wait.
+func _linger() -> void:
+	if str(Net.dev_options().get("screenshot_dir")) != "" and DisplayServer.get_name() != "headless":
+		await _seconds(HOLD_LINGER_SECONDS)
+
+
+## The held prop's grips: exactly `hands` of them real, each on the model (within
+## 0.08 m of its look's world bounds) and within reach of its shoulder.
+func _grips_on(prop: Node3D, holder: Node3D, body: Node3D, hands: int) -> bool:
+	var points := _PropLooks.grip_points(prop, holder)
+	var bounds := _look_bounds(prop)
+	var real := 0
+	for side: int in points.size():
+		var point := points[side]
+		if not point.is_finite():
+			continue
+		real += 1
+		var on_model := bounds.size != Vector3.ZERO and _distance_to_box(point, bounds) <= 0.08
+		var shoulder: Vector3 = body.call("shoulder_position", side)
+		var in_reach := shoulder.distance_to(point) <= Constants.HOLD_GRIP_REACH
+		if not on_model or not in_reach:
+			print("[HotbarTest] %s grip %d: %.3f m off the model, %.2f m from the shoulder" % [prop.get("kind"), side, _distance_to_box(point, bounds), shoulder.distance_to(point)])
+			return false
+	return real == hands
+
+
+## The right arm's -Y points at the right grip.
+func _arm_on_grip(body: Node3D, grip: Vector3) -> bool:
+	if not grip.is_finite():
+		return false
+	var shoulder: Vector3 = body.call("shoulder_position", 0)
+	var arm: Vector3 = body.call("arm_direction", 0)
+	var dot := arm.dot((grip - shoulder).normalized())
+	print("[HotbarTest] right arm . grip = %.3f" % dot)
+	return dot > 0.9
+
+
+func _look_bounds(prop: Node3D) -> AABB:
+	var look := prop.get_node_or_null("Visual/Look") as Node3D
+	var total := AABB()
+	var first := true
+	if look == null:
+		return total
+	for node: Node in look.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		var box := mesh.global_transform * mesh.get_aabb()
+		total = box if first else total.merge(box)
+		first = false
+	return total
+
+
+func _distance_to_box(point: Vector3, box: AABB) -> float:
+	var inside := point.clamp(box.position, box.end)
+	return point.distance_to(inside)
 
 
 # ---------------------------------------------------------------- helpers

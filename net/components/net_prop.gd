@@ -134,6 +134,9 @@ func _pose_look() -> void:
 		_PropLooks.pose_ladder_up(self, ladder_top)
 	elif Constants.TOOL_PRICES.has(kind):
 		_PropLooks.pose_tool(self, _player(held_by) if held_by != 0 else null)
+	elif _PropLooks.HOLDS.has(kind):
+		# The gnome, trash can, sign and wheelbarrow: held the way the HOLDS table says.
+		_PropLooks.pose_held(self, _player(held_by) if held_by != 0 else null)
 
 
 ## Lying free in the world: nobody holds it or has it in a pocket. Any check that
@@ -610,9 +613,12 @@ func _host_step() -> void:
 		_runaway_left = 0.0
 		var was := global_position
 		global_position = _hold_position(player)
-		# A carried bag hangs upright, facing whoever carries it.
+		# A carried bag hangs upright, facing whoever carries it; so do the things
+		# held the HOLDS way (the gnome, the trash can, a sign, the wheelbarrow).
 		if kind == "leaf_bag":
 			global_rotation = Vector3(0.0, player.global_rotation.y, 0.0)
+		elif _held_the_holds_way():
+			global_rotation = Vector3(0.0, player.global_rotation.y + float((_PropLooks.HOLDS[kind] as Dictionary).get("yaw", 0.0)), 0.0)
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
 		# A mower being pushed mows whatever it rolls over, once it's running.
@@ -1017,10 +1023,21 @@ func _refresh_label() -> void:
 		%Label.text = label if label != "" else name
 
 
+## A held kind placed by props/prop_looks.gd HOLDS (its entry has "at"), and not
+## a tool, which pose_tool places.
+func _held_the_holds_way() -> bool:
+	return not Constants.TOOL_PRICES.has(kind) and _PropLooks.HOLDS.has(kind) and (_PropLooks.HOLDS[kind] as Dictionary).has("at")
+
+
 func _hold_position(player: CharacterBody3D) -> Vector3:
 	# The rake is held low and close, tines on the leaves. Everything else at chest height.
 	var forward := -player.global_transform.basis.z
 	var right := player.global_transform.basis.x
+	if _held_the_holds_way():
+		# Where its look is held (prop_looks.gd pose_held), in the holder's body
+		# space: the body rides with it, so a set-down starts from the hands.
+		var level := Basis(Vector3.UP, player.global_rotation.y)
+		return player.global_position + level * ((_PropLooks.HOLDS[kind] as Dictionary)["at"] as Vector3)
 	match kind:
 		"lawn_mower":
 			# Pushed along the ground in front.
