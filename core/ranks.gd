@@ -4,7 +4,7 @@ extends RefCounted
 ## The crew's rank (docs/SPINE.md, "Crew rank"). Pure data and math, the same
 ## on every peer: a tier index (0 = Rake Rookie I) comes from total banked XP.
 ## Eight ranks of five tiers, then The Lawnfather, which never ends.
-## Every tier unlocks something, so no rank-up is ever empty.
+## Every tier unlocks something (some tiers more, EXTRA_UNLOCKS), so no rank-up is ever empty.
 
 const NAMES: Array[String] = [
 	"Rake Rookie", "Leaf Grunt", "Bag Hauler", "Mulch Mule",
@@ -72,6 +72,34 @@ const UNLOCKS: Array[String] = [
 	"feature:lawnfather",        # V: the endless rank begins
 ]
 
+# ---- shops
+## More unlocks at a tier, on top of UNLOCKS (which is never reordered: tests and
+## saves depend on it). Other systems add theirs here too. tier -> ids.
+const EXTRA_UNLOCKS: Dictionary = {
+	2: ["feature:lunch_money"],          # Rake Rookie III: Lunch Money parks at Homie Depot
+	5: ["feature:salvage"],              # Leaf Grunt I: Rusty's opens with Dandelion Acres
+	7: ["shop:leaf_blower_mk2"],         # Leaf Grunt III
+	9: ["shop:big_bags"],                # Leaf Grunt V: contractor bags
+	11: ["shop:lawn_mower_mk2"],         # Bag Hauler II
+	12: ["feature:truck_paint"],         # Bag Hauler III: Chefty paint and decals
+	14: ["shop:ladder_mk2"],             # Bag Hauler V
+	16: ["feature:deliveries"],          # Mulch Mule II: the phone's Orders app
+	17: ["shop:hose_mk2"],               # Mulch Mule III
+	19: ["shop:hedge_trimmer_mk2"],      # Mulch Mule V
+	20: ["shop:pressure_washer_mk2"],    # Hedge Hog I
+	21: ["shop:rake_tier_2"],            # Hedge Hog II: The Leafinator
+	22: ["shop:paint_roller_mk2"],       # Hedge Hog III
+	25: ["shop:leaf_blower_mk3"],        # Turf Boss I
+	26: ["shop:lawn_mower_mk3"],         # Turf Boss II
+	27: ["shop:ladder_mk3"],             # Turf Boss III
+	28: ["shop:hose_mk3"],               # Turf Boss IV
+	29: ["shop:hedge_trimmer_mk3"],      # Turf Boss V
+	30: ["shop:pressure_washer_mk3"],    # Lawn Lord I
+	31: ["shop:paint_roller_mk3"],       # Lawn Lord II
+	33: ["shop:paint_gold"],             # Lawn Lord IV: GOLD
+	39: ["shop:hat_crown"],              # Yard Baron V: the crown, with The Lawnfather
+}
+
 
 ## XP needed to go from this tier to the next.
 static func xp_for_tier(tier: int) -> int:
@@ -115,18 +143,42 @@ static func unlock_at(tier: int) -> String:
 	return UNLOCKS[tier - 1]
 
 
-## Every unlock reached by this tier.
+## Everything a tier brings: its UNLOCKS entry first, then EXTRA_UNLOCKS.
+static func unlocks_at(tier: int) -> PackedStringArray:
+	var out := PackedStringArray()
+	var primary := unlock_at(tier)
+	if primary != "":
+		out.append(primary)
+	for extra: Variant in (EXTRA_UNLOCKS.get(tier, []) as Array):
+		out.append(str(extra))
+	return out
+
+
+## Every unlock reached by this tier, in tier order.
 static func unlocks_through(tier: int) -> PackedStringArray:
 	var out := PackedStringArray()
-	for index: int in mini(tier, UNLOCKS.size()):
-		out.append(UNLOCKS[index])
+	for reached: int in range(1, mini(tier, _last_unlock_tier()) + 1):
+		out.append_array(unlocks_at(reached))
 	return out
 
 
 ## The tier that unlocks this (e.g. "shop:ladder"), or 0 if it's open from the start.
 static func tier_of(unlock: String) -> int:
 	var index := UNLOCKS.find(unlock)
-	return index + 1 if index >= 0 else 0
+	if index >= 0:
+		return index + 1
+	for tier: Variant in EXTRA_UNLOCKS:
+		if (EXTRA_UNLOCKS[tier] as Array).has(unlock):
+			return int(tier)
+	return 0
+
+
+## The highest tier that unlocks anything.
+static func _last_unlock_tier() -> int:
+	var last := UNLOCKS.size()
+	for tier: Variant in EXTRA_UNLOCKS:
+		last = maxi(last, int(tier))
+	return last
 
 
 ## Lawnfather stars add a little to every payout.

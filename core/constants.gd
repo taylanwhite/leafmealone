@@ -86,6 +86,7 @@ const ITEM_WEIGHT_KG: Dictionary = {
 	"leaf_blower": 4.5, "lawn_mower": 24.0, "ladder": 8.0, "hose": 4.0,
 	"pressure_washer": 13.0, "hedge_trimmer": 4.0, "paint_roller": 1.5,
 	"turf_sign": 2.0,
+	"gas_can": 6.0, "fertilizer_bag": 9.0, "rock_salt": 9.0, "grass_seed": 5.0,
 }
 ## A leaf bag gets heavier with the leaves in it: this much per dollar of value, up to the cap.
 const LEAF_BAG_KG_PER_DOLLAR: float = 0.4
@@ -409,3 +410,180 @@ const QUIP_LOW_CLEANUP_AFTER: float = 120.0
 ## Where right-click looks for the pile ahead (equipment/rake.gd): from this far to this far, in meters.
 const PILE_SEARCH_NEAR: float = 1.0
 const PILE_SEARCH_FAR: float = 3.2
+
+
+# ---- shops
+# The shops (docs/GAME.md, "Shops"). The catalog's ids and shapes are data in
+# core/catalog.gd; every number they need is here. First guesses, tuned by playing.
+
+## Where each shop is, in its zone's own space (contract with the drivable town:
+## this is the single source of where shops stand). counter/keeper are where you
+## buy and who stands there; area is the yard or shelves you can also buy from.
+const SHOP_SITES: Dictionary = {
+	"homie_depot": {
+		"zone": "StoreZone", "counter": Vector3(0.0, 0.0, -8.0), "keeper": Vector3(0.0, 0.0, -9.3),
+		"yaw": 0.0, "area": Rect2(8.5, -16.5, 9.0, 7.0),
+	},
+	"rustys": {
+		"zone": "StoreZone", "counter": Vector3(15.2, 0.0, -4.5), "keeper": Vector3(16.4, 0.0, -4.5),
+		"yaw": -PI / 2.0, "area": Rect2(12.5, -8.0, 7.5, 12.0),
+		"scale": Vector3(14.2, 0.0, -1.8), "rack": Vector3(18.6, 0.0, 0.5),
+	},
+	"lunch_money": {
+		"zone": "StoreZone", "truck": Vector3(3.0, 0.0, 15.6), "counter": Vector3(5.2, 0.0, 15.4),
+		"keeper": Vector3(4.2, 0.0, 15.6), "yaw": 0.0, "area": Rect2(4.2, 14.0, 2.4, 3.0),
+	},
+	"snak_o_matic": {
+		"zone": "StoreZone", "counter": Vector3(-11.5, 0.0, 4.5), "keeper": Vector3(-11.5, 0.0, 4.5),
+		"yaw": PI / 2.0, "area": Rect2(-11.5, 3.5, 2.0, 2.0),
+	},
+	"back_room": {"zone": "StoreZone", "counter": Vector3(-10.5, 0.0, -18.4)},
+}
+## Opening hours, in clock hours (26 is 2 AM): open at x, close at y.
+const SHOP_HOURS: Dictionary = {
+	"homie_depot": Vector2(7.0, 21.0), "rustys": Vector2(9.0, 18.0),
+	"lunch_money": Vector2(11.0, 23.0), "snak_o_matic": Vector2(0.0, 99.0),
+}
+## Rusty goes fishing every this many days (GONE FISHIN').
+const RUSTYS_CLOSED_EVERY: int = 7
+## How close you must be to a shop's counter (or inside its area) to buy, plus
+## the host's slack for lag.
+const SHOP_REACH: float = 3.0
+const SHOP_REACH_SLACK: float = 1.5
+
+## Prices for everything that isn't a tool tier (tools are TOOL_PRICES x
+## TOOL_TIER_PRICE). Snak-o-Matic prices here are before VENDING_PRICE_SCALE.
+const SHOP_PRICES: Dictionary = {
+	# Upgrades. The first two match Balance.BASELINE_TIER_1_TOOL_COST.
+	"rake_tier_1": 120, "wheelbarrow_tier_1": 120, "rake_tier_2": 1200,
+	# Supplies.
+	"lawn_bags": 8, "big_bags": 14, "gas_can": 12, "fertilizer": 18, "grass_seed": 15, "rock_salt": 10,
+	# Food: Lunch Money, then the Snak-o-Matic.
+	"hot_dog": 6, "turbo_juice": 9, "coffee": 4,
+	"vend_bags": 4, "vend_sandwich": 3, "vend_turbo": 9,
+	# Hats and shirts.
+	"hat_hd_cap": 25, "hat_beanie": 40, "hat_bucket": 60, "hat_hard": 90, "hat_cowboy": 180,
+	"hat_chef": 250, "hat_lunch_money": 45, "hat_cone": 35, "hat_propeller": 75, "hat_viking": 300,
+	"hat_crown": 2500,
+	"shirt_0": 30, "shirt_1": 30, "shirt_2": 30, "shirt_3": 30,
+	"shirt_4": 30, "shirt_5": 30, "shirt_6": 30, "shirt_7": 30, "shirt_hivis": 120,
+	# Chefty: paint and decals. Factory red is free, so you can always go back.
+	"paint_classic": 0, "paint_mint": 400, "paint_sunset": 400, "paint_pink": 500,
+	"paint_black": 800, "paint_gold": 5000,
+	"decal_stripes": 250, "decal_googly": 350, "decal_flames": 600, "decal_leaves": 900, "decal_rust": 50,
+}
+## What each shop puts out every morning; an item not listed never runs out.
+const SHOP_DAILY_STOCK: Dictionary = {
+	"homie_depot": {"lawn_bags": 12, "big_bags": 6, "gas_can": 10, "fertilizer": 6, "grass_seed": 6, "rock_salt": 8},
+	"rustys": {},
+	"lunch_money": {},
+	"snak_o_matic": {"vend_bags": 4, "vend_sandwich": 6, "vend_turbo": 6},
+}
+
+## Tool tiers, indexed by tier: 0 used, 1 stock, 2 Mk II, 3 Mk III.
+## Price, work speed, noise heat, fuel use, reach, engine volume (dB), and how
+## much easier a pull-start catches.
+const TOOL_TIER_PRICE: Array[float] = [0.55, 1.0, 3.5, 10.0]
+const TOOL_TIER_SPEED: Array[float] = [0.85, 1.0, 1.35, 1.8]
+const TOOL_TIER_NOISE: Array[float] = [1.35, 1.0, 0.7, 0.4]
+const TOOL_TIER_FUEL: Array[float] = [1.3, 1.0, 0.8, 0.6]
+const TOOL_TIER_REACH: Array[float] = [1.0, 1.0, 1.15, 1.3]
+const TOOL_TIER_VOLUME_DB: Array[float] = [3.0, 0.0, -5.0, -10.0]
+const TOOL_TIER_START_BONUS: Array[float] = [-0.1, 0.0, 0.2, 0.35]
+## Each Mk III's one silly perk: the mower's start chance (always), the hose's
+## length in m, the washer tank lasting this many times longer, the ladder
+## climbing this many times faster, the trimmer's width and the roller's paint
+## times this, and the blower shoving leaves this many times farther.
+const MK3_PERKS: Dictionary = {
+	"lawn_mower": 1.0, "hose": 40.0, "pressure_washer": 2.0, "ladder": 2.0,
+	"hedge_trimmer": 2.0, "paint_roller": 3.0, "leaf_blower": 1.5,
+}
+
+## Supplies are the crew's, not a player's. What one catalog item adds to its
+## supply (bags in a roll, gallons in a can, sacks).
+const SUPPLY_PER_ITEM: Dictionary = {
+	"lawn_bags": 25, "big_bags": 15, "gas_can": 5.0, "fertilizer": 1, "grass_seed": 1, "rock_salt": 1,
+	"vend_bags": 10,
+}
+## A new crew's supplies. Timed test runs (other than --shop-test) never run out.
+const STARTER_SUPPLIES: Dictionary = {
+	"lawn_bags": 40, "big_bags": 0, "gas": 6.0, "fertilizer": 0, "grass_seed": 0, "rock_salt": 0,
+}
+const TEST_STARTER_SUPPLIES: Dictionary = {
+	"lawn_bags": 9999, "big_bags": 9999, "gas": 9999.0, "fertilizer": 9999, "grass_seed": 9999, "rock_salt": 9999,
+}
+## Each morning a crew with fewer bags than this gets topped up to it (Marty's
+## "found a few behind the paint mixer").
+const EMERGENCY_BAGS: int = 5
+## Contractor bags scoop this much wider.
+const BIG_BAG_RADIUS_SCALE: float = 1.3
+
+## Gas: which tools burn it, how much of a tank each burns per second running
+## (out of 100), the gallons in a tank, and the most a gas can carries.
+const GAS_TOOLS: Array[String] = ["lawn_mower", "leaf_blower", "hedge_trimmer", "pressure_washer"]
+const FUEL_BURN_PER_SECOND: Dictionary = {
+	"lawn_mower": 0.5, "leaf_blower": 0.6, "hedge_trimmer": 0.4, "pressure_washer": 0.35,
+}
+const GAS_PER_TANK: float = 1.0
+const GAS_CAN_CARRY: float = 5.0
+
+## Deliveries: a flat fee plus a share of the price, how many clock hours they
+## take, when after-hours orders land, and how many can be open at once.
+const DELIVERY_FEE: int = 15
+const DELIVERY_FEE_SHARE: float = 0.1
+const DELIVERY_HOURS: float = 2.0
+const DELIVERY_AFTER_HOURS_ARRIVE: float = 9.0
+const DELIVERY_MAX_OPEN: int = 3
+
+## Snacks: how long each buff lasts and what it multiplies (speed: walking,
+## carry: the slowdown from weight, strain: how long you can hold a throw,
+## stroke: the time between rake strokes). "then" chains into another buff.
+const BUFFS: Dictionary = {
+	"full": {"seconds": 360.0, "carry": 0.5},
+	"turbo": {"seconds": 240.0, "speed": 1.2, "stroke": 0.8, "then": "crash"},
+	"crash": {"seconds": 20.0, "speed": 0.75},
+	"coffee": {"seconds": 480.0, "strain": 1.6},
+	"queasy": {"seconds": 20.0, "speed": 0.8},
+}
+## The Snak-o-Matic: its markup, how often it eats your money, and how often
+## its sandwich makes you queasy instead of full.
+const VENDING_PRICE_SCALE: float = 1.5
+const VENDING_EAT_CHANCE: float = 0.1
+const VENDING_QUEASY_CHANCE: float = 0.5
+
+## Junk for Rusty's: weight in kg and base value range per type, the vintage
+## flamingo jackpot, how many a yard has by hood ("" is every other hood),
+## Chefty's junk slots, and how close to the scale junk counts as on it.
+const JUNK_TYPES: Dictionary = {
+	"old_tv": {"kg": 18.0, "value": Vector2i(15, 30)},
+	"tire": {"kg": 10.0, "value": Vector2i(6, 12)},
+	"grill": {"kg": 20.0, "value": Vector2i(20, 40)},
+	"toilet": {"kg": 28.0, "value": Vector2i(25, 45)},
+	"bike": {"kg": 12.0, "value": Vector2i(15, 35)},
+	"flamingo": {"kg": 1.5, "value": Vector2i(4, 10)},
+	"mannequin": {"kg": 9.0, "value": Vector2i(10, 25)},
+	"boombox": {"kg": 5.0, "value": Vector2i(12, 30)},
+}
+const JUNK_JACKPOT: Dictionary = {"chance": 0.05, "value": 120}
+const JUNK_PER_HOOD: Dictionary = {"dandelion_acres": Vector2i(3, 6), "": Vector2i(0, 2)}
+const TRUCK_JUNK_CAPACITY: int = 8
+const JUNK_SCALE_RADIUS: float = 1.8
+## Rusty's mood multiplies every offer (rolled each morning), and where his
+## chalkboard turns from GRUMPY to so-so to PAYING GOOD.
+const RUSTY_MOOD := Vector2(0.8, 1.25)
+const RUSTY_MOOD_BANDS: Array[float] = [0.95, 1.1]
+## Haggling: the chance it works, what a win adds, and what offending him takes off for good.
+const HAGGLE_WIN_CHANCE: float = 0.5
+const HAGGLE_WIN: float = 0.3
+const HAGGLE_LOSE: float = 0.25
+## Used tools on Rusty's rack each day, at least and at most.
+const USED_TOOLS_PER_DAY := Vector2i(1, 2)
+
+## Chefty's paint jobs.
+const CHEFTY_PAINTS: Dictionary = {
+	"paint_classic": Color(0.75, 0.22, 0.15), "paint_mint": Color(0.55, 0.86, 0.72),
+	"paint_sunset": Color(0.96, 0.52, 0.24), "paint_pink": Color(0.96, 0.42, 0.7),
+	"paint_black": Color(0.12, 0.12, 0.13), "paint_gold": Color(0.9, 0.72, 0.22),
+}
+## The phone's "Pay a crewmate" buttons, in dollars.
+const PAY_CREWMATE_STEPS: Array[int] = [20, 100]

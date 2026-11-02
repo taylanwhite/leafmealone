@@ -76,6 +76,11 @@ func _run() -> void:
 	var summary_ok := ups.size() == 2 and str((ups[1] as Dictionary).get("unlock", "")) == "shop:leaf_blower"
 	print("[DayTest] the summary lists %d rank-ups, the last unlocking %s: %s" % [ups.size(), (ups[1] as Dictionary).get("unlock", "") if ups.size() > 1 else "?", summary_ok])
 	ok = ok and summary_ok
+	# A tier can bring more than one thing (core/ranks.gd EXTRA_UNLOCKS): Rake Rookie III also opens Lunch Money.
+	var extras: Array = (ups[1] as Dictionary).get("extras", []) if ups.size() > 1 else []
+	var extras_ok := extras == ["feature:lunch_money"] and Campaign.is_feature_on("lunch_money") and not Campaign.is_feature_on("salvage")
+	print("[DayTest] the rank-up also lists %s, and Lunch Money is open but Rusty's isn't: %s" % [str(extras), extras_ok])
+	ok = ok and extras_ok
 	var blower_open := Campaign.is_for_sale(&"leaf_blower") and not Campaign.is_for_sale(&"lawn_mower")
 	print("[DayTest] now the leaf blower is for sale and the mower isn't yet: %s" % blower_open)
 	ok = ok and blower_open

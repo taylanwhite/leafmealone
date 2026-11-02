@@ -198,7 +198,10 @@ func _end_day() -> void:
 	var tier_after := Campaign.crew_tier()
 	var unlocked: Array = []
 	for tier: int in range(tier_before + 1, tier_after + 1):
-		unlocked.append({"tier": tier, "title": _Ranks.title(tier), "unlock": _Ranks.unlock_at(tier)})
+		# extras: what else the tier brings (core/ranks.gd EXTRA_UNLOCKS).
+		var extras: Array = Array(_Ranks.unlocks_at(tier))
+		extras.erase(_Ranks.unlock_at(tier))
+		unlocked.append({"tier": tier, "title": _Ranks.title(tier), "unlock": _Ranks.unlock_at(tier), "extras": extras})
 	var summary := Campaign.take_day_summary()
 	summary["day"] = day
 	summary["xp_banked"] = banked

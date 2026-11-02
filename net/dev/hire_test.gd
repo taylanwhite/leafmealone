@@ -33,7 +33,7 @@ func _run() -> void:
 	var open := int(hires.call("slots")) >= 1 and bool(hires.call("can_hire"))
 	print("[HireTest] hiring is open at this rank (%d slot): %s" % [int(hires.call("slots")), open])
 	ok = ok and open
-	Campaign.call("_add_credits", me, 1000)
+	Campaign.pay(me, 1000)
 	var before := Campaign.credits(me)
 	hires.call("request_hire")
 	await get_tree().create_timer(0.3).timeout

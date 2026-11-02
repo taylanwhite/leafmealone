@@ -254,15 +254,30 @@ const UNLOCK_NAMES: Dictionary = {
 	"feature:lawnfather": "the endless rank: The Lawnfather",
 	"shop:rake_tier_1": "the rake tune-up at Homie Depot",
 	"shop:wheelbarrow_tier_1": "the bigger wheelbarrow at Homie Depot",
+	# ---- shops
+	"feature:salvage": "Rusty's Salvage & Pawn opens (he buys junk)",
+	"feature:lunch_money": "Lunch Money, a food truck, parks at Homie Depot",
+	"feature:deliveries": "deliveries: order from Homie Depot on your phone",
+	"feature:truck_paint": "paint jobs and decals for Chefty",
+	"shop:rake_tier_2": "The Leafinator rake at Homie Depot",
+	"shop:big_bags": "contractor bags at Homie Depot",
+	"shop:paint_gold": "GOLD paint for Chefty at Homie Depot",
+	"shop:hat_crown": "the Lawnfather's crown at Homie Depot",
 }
 
 
-## What an unlock id reads as: "the ladder at Homie Depot", "Oak Hollow opens".
+## What an unlock id reads as: "the ladder at Homie Depot", "Oak Hollow opens",
+## "the leaf blower Mk II at Homie Depot".
 static func unlock_name(unlock: String) -> String:
 	if UNLOCK_NAMES.has(unlock):
 		return str(UNLOCK_NAMES[unlock])
 	if unlock.begins_with("shop:"):
 		var tool := unlock.trim_prefix("shop:")
+		if not UI.has("tool_" + tool) and SHOP_UI.has("item_" + tool):
+			# Any other catalog item: its name, at the shop that sells it.
+			var item_name := str(SHOP_UI["item_" + tool])
+			var shop := str(Catalog.item(tool).get("shop", "homie_depot"))
+			return "the %s at %s" % [item_name.left(1).to_lower() + item_name.substr(1), str(SHOP_UI.get("shop_title_" + shop, shop))]
 		return "the %s at Homie Depot" % str(UI.get("tool_" + tool, tool)).to_lower()
 	if unlock.begins_with("hood:"):
 		var hood_id := unlock.trim_prefix("hood:")
@@ -412,3 +427,407 @@ const MOOD_NAMES: Dictionary = {
 static func stars(rating: float) -> String:
 	var filled := clampi(int(round(rating)), 0, 5)
 	return "★".repeat(filled) + "☆".repeat(5 - filled)
+
+
+# ---- shops
+# docs/GAME.md, "Shops". Every core/catalog.gd id has item_<id> and item_blurb_<id>;
+# every shop has shop_title_<shop>, every tab shop_tab_<tab>. Kept apart from UI so
+# the shop chunks and other writers don't edit the same lines.
+
+const SHOP_UI: Dictionary = {
+	# Shops and tabs.
+	"shop_title_homie_depot": "Homie Depot",
+	"shop_title_rustys": "Rusty's Salvage & Pawn",
+	"shop_title_lunch_money": "Lunch Money",
+	"shop_title_snak_o_matic": "Snak-o-Matic",
+	"shop_subtitle_homie_depot": "Tools, upgrades, and everything a crew runs out of",
+	"shop_subtitle_rustys": "WE BUY JUNK. WE SELL JUNK.",
+	"shop_subtitle_lunch_money": "Food-shaped fuel. Chefty-certified.",
+	"shop_subtitle_snak_o_matic": "EXACT CHANGE PREFERRED. NOT REQUIRED. NOT RETURNED.",
+	"shop_tab_tools": "Tools",
+	"shop_tab_upgrades": "Upgrades",
+	"shop_tab_supplies": "Supplies",
+	"shop_tab_workwear": "Workwear",
+	"shop_tab_truck": "Truck",
+	"shop_tab_sell": "Sell",
+	"shop_tab_used": "Used",
+	"shop_tab_oddities": "Oddities",
+	"shop_tab_menu": "Menu",
+	"shop_tab_snacks": "Snacks",
+	"shop_hours": "Open %s to %s",
+	"shop_hours_always": "Open all hours. Watching.",
+	# Keepers.
+	"keeper_marty": "Marty",
+	"keeper_rusty": "Rusty",
+	"keeper_dot": "Dot",
+	# Tools: stock (the names match UI tool_*), Mk II, Mk III, and Rusty's used ones.
+	"item_leaf_blower": "Leaf blower",
+	"item_lawn_mower": "Lawn mower",
+	"item_ladder": "Ladder",
+	"item_hose": "Garden hose",
+	"item_hedge_trimmer": "Hedge trimmer",
+	"item_pressure_washer": "Pressure washer",
+	"item_paint_roller": "Paint roller",
+	"item_blurb_leaf_blower": "Blasts leaves into piles way faster than raking. Hold left click.",
+	"item_blurb_lawn_mower": "Push it around to mow. Heavy, loud, satisfying.",
+	"item_blurb_ladder": "Reach the gutters. Hold left click under one to scoop it out.",
+	"item_blurb_hose": "Spray dirty windows clean from across the yard.",
+	"item_blurb_hedge_trimmer": "Turns shaggy hedges into neat ones.",
+	"item_blurb_pressure_washer": "Blasts the grime off driveways.",
+	"item_blurb_paint_roller": "Fresh paint on faded fences.",
+	"item_leaf_blower_mk2": "Leaf blower Mk II",
+	"item_lawn_mower_mk2": "Lawn mower Mk II",
+	"item_ladder_mk2": "Ladder Mk II",
+	"item_hose_mk2": "Garden hose Mk II",
+	"item_hedge_trimmer_mk2": "Hedge trimmer Mk II",
+	"item_pressure_washer_mk2": "Pressure washer Mk II",
+	"item_paint_roller_mk2": "Paint roller Mk II",
+	"item_blurb_leaf_blower_mk2": "Faster, wider, quieter. The neighbors only mostly hear it.",
+	"item_blurb_lawn_mower_mk2": "Cuts faster and grumbles less. Starts on a good day.",
+	"item_blurb_ladder_mk2": "Longer reach, fewer wobbles. Wobbles still included.",
+	"item_blurb_hose_mk2": "A longer hose with opinions about water pressure.",
+	"item_blurb_hedge_trimmer_mk2": "Sharper, quieter, and slightly smug about it.",
+	"item_blurb_pressure_washer_mk2": "More pressure, less noise, same lack of safety rails.",
+	"item_blurb_paint_roller_mk2": "A fatter roller for people with places to be.",
+	"item_leaf_blower_mk3": "Leaf blower Mk III",
+	"item_lawn_mower_mk3": "Lawn mower Mk III",
+	"item_ladder_mk3": "Ladder Mk III",
+	"item_hose_mk3": "Garden hose Mk III",
+	"item_hedge_trimmer_mk3": "Hedge trimmer Mk III",
+	"item_pressure_washer_mk3": "Pressure washer Mk III",
+	"item_paint_roller_mk3": "Paint roller Mk III",
+	"item_blurb_leaf_blower_mk3": "Black and gold. Shoves leaves into next week. Whispers.",
+	"item_blurb_lawn_mower_mk3": "Starts on the first pull. Every pull. It respects you.",
+	"item_blurb_ladder_mk3": "Climbs twice as fast. Do not ask how a ladder does that.",
+	"item_blurb_hose_mk3": "Forty meters of hose. Water the whole block. Get billed by the whole block.",
+	"item_blurb_hedge_trimmer_mk3": "Cuts a double-wide swath. Hedges fear it.",
+	"item_blurb_pressure_washer_mk3": "The tank lasts twice as long. Driveways surrender.",
+	"item_blurb_paint_roller_mk3": "Holds three times the paint. Dip less, roll more, judge others.",
+	"item_leaf_blower_used": "Used leaf blower",
+	"item_lawn_mower_used": "Used lawn mower",
+	"item_ladder_used": "Used ladder",
+	"item_hose_used": "Used garden hose",
+	"item_hedge_trimmer_used": "Used hedge trimmer",
+	"item_pressure_washer_used": "Used pressure washer",
+	"item_paint_roller_used": "Used paint roller",
+	"item_blurb_leaf_blower_used": "Works. Slower, louder, thirstier. Rusty says it has character.",
+	"item_blurb_lawn_mower_used": "Takes a few extra pulls. And a few words you shouldn't say.",
+	"item_blurb_ladder_used": "Every rung is there. Rusty counted twice.",
+	"item_blurb_hose_used": "Only leaks where it counts.",
+	"item_blurb_hedge_trimmer_used": "Rattles like a shopping cart. Still trims.",
+	"item_blurb_pressure_washer_used": "Loud enough to hear from the next hood. Mostly washes.",
+	"item_blurb_paint_roller_used": "Pre-painted. Several colors. None of them yours.",
+	# Upgrades.
+	"item_rake_tier_1": "Rake tune-up",
+	"item_blurb_rake_tier_1": "Raking moves more leaves per stroke.",
+	"item_rake_tier_2": "The Leafinator",
+	"item_blurb_rake_tier_2": "The rake tune-up, again, harder. Rake Mk III. Not street legal.",
+	"item_wheelbarrow_tier_1": "Bigger wheelbarrow",
+	"item_blurb_wheelbarrow_tier_1": "Holds twice the bags. Tips over twice as dramatically.",
+	# Supplies (for the whole crew).
+	"item_lawn_bags": "Lawn bags",
+	"item_blurb_lawn_bags": "A roll of bags. Every pile you bag uses one.",
+	"item_big_bags": "Contractor bags",
+	"item_blurb_big_bags": "Scoop wider, so fewer, fatter bags. Used before lawn bags.",
+	"item_gas_can": "Gas can",
+	"item_blurb_gas_can": "Gas for the mower, blower, trimmer, and washer. Rides along in Chefty.",
+	"item_fertilizer": "Fertilizer",
+	"item_blurb_fertilizer": "Spring and summer. Lawns love it. Noses don't.",
+	"item_grass_seed": "Grass seed",
+	"item_blurb_grass_seed": "Spring only. Bare patches, meet your future.",
+	"item_rock_salt": "Rock salt",
+	"item_blurb_rock_salt": "Winter only. For walks that have it out for somebody.",
+	"item_vend_bags": "Bag roll (small)",
+	"item_blurb_vend_bags": "A small roll of bags, at vending-machine prices.",
+	# Workwear.
+	"item_hat_hd_cap": "Homie Depot cap",
+	"item_blurb_hat_hd_cap": "Orange. Official-ish. Marty's employee discount does not apply.",
+	"item_hat_beanie": "Beanie",
+	"item_blurb_hat_beanie": "Warm ears, cool crew.",
+	"item_hat_bucket": "Bucket hat",
+	"item_blurb_hat_bucket": "Keeps the sun off and the respect away.",
+	"item_hat_hard": "Hard hat",
+	"item_blurb_hat_hard": "For when the ladder wins.",
+	"item_hat_cowboy": "Cowboy hat",
+	"item_blurb_hat_cowboy": "Yeehaw is a lifestyle. So is raking.",
+	"item_hat_chef": "Chefty chef's hat",
+	"item_blurb_hat_chef": "Chefty-brand. Cooks nothing. Commands respect.",
+	"item_hat_crown": "The Lawnfather's crown",
+	"item_blurb_hat_crown": "For the crew who raked the whole town. Heavy is the head.",
+	"item_shirt_0": "Red shirt dye",
+	"item_shirt_1": "Orange shirt dye",
+	"item_shirt_2": "Yellow shirt dye",
+	"item_shirt_3": "Green shirt dye",
+	"item_shirt_4": "Teal shirt dye",
+	"item_shirt_5": "Blue shirt dye",
+	"item_shirt_6": "Purple shirt dye",
+	"item_shirt_7": "Gray shirt dye",
+	"item_blurb_shirt_0": "Your shirt, but red. Hides ketchup.",
+	"item_blurb_shirt_1": "Your shirt, but orange. Matches the cones.",
+	"item_blurb_shirt_2": "Your shirt, but yellow. Visible from space.",
+	"item_blurb_shirt_3": "Your shirt, but green. Camouflage on a lawn.",
+	"item_blurb_shirt_4": "Your shirt, but teal. Nobody knows why.",
+	"item_blurb_shirt_5": "Your shirt, but blue. Calm under pressure washers.",
+	"item_blurb_shirt_6": "Your shirt, but purple. Royalty of the rake.",
+	"item_blurb_shirt_7": "Your shirt, but gray. Blends into the paperwork.",
+	"item_shirt_hivis": "Hi-vis vest",
+	"item_blurb_shirt_hivis": "Looks official. The NICE BOYS can tell.",
+	# Chefty: paint and decals.
+	"item_paint_classic": "Factory red paint",
+	"item_blurb_paint_classic": "Chefty as the factory intended. Free, because it's already on there.",
+	"item_paint_mint": "Mint paint",
+	"item_blurb_paint_mint": "Fresh. Minty. Smells like paint.",
+	"item_paint_sunset": "Sunset paint",
+	"item_blurb_paint_sunset": "Orange fading into more orange. Very evening.",
+	"item_paint_pink": "Hot pink paint",
+	"item_blurb_paint_pink": "Impossible to lose in a parking lot.",
+	"item_paint_black": "Matte black paint",
+	"item_blurb_paint_black": "Very serious. Very stealthy. Still says Chefty.",
+	"item_paint_gold": "GOLD paint",
+	"item_blurb_paint_gold": "Solid gold. Not actually gold. Do not scratch it anyway.",
+	"item_decal_stripes": "Racing stripes",
+	"item_blurb_decal_stripes": "Adds zero speed. Feels like more.",
+	"item_decal_googly": "Googly eyes",
+	"item_blurb_decal_googly": "On the grille. Chefty sees you now.",
+	"item_decal_flames": "Flames",
+	"item_blurb_decal_flames": "Hot rod energy for a truck full of leaves.",
+	"item_decal_leaves": "Leaf wrap",
+	"item_blurb_decal_leaves": "Chefty, covered in the thing you get paid to remove.",
+	"item_decal_rust": "Rust bucket",
+	"item_blurb_decal_rust": "Painted-on rust. Cheapest decal in town. Rusty's proudest work.",
+	# Rusty's oddities.
+	"item_hat_cone": "Traffic cone hat",
+	"item_blurb_hat_cone": "Found it. Do not ask where. Do not return it there.",
+	"item_hat_propeller": "Propeller beanie",
+	"item_blurb_hat_propeller": "Spins when you run. Lift not included.",
+	"item_hat_viking": "Viking helmet",
+	"item_blurb_hat_viking": "Raid yards. Politely. With permission and an invoice.",
+	# Lunch Money.
+	"item_hot_dog": "Hot dog",
+	"item_blurb_hot_dog": "Full for a while: carrying heavy things slows you half as much.",
+	"item_turbo_juice": "Turbo Juice",
+	"item_blurb_turbo_juice": "Fast feet and fast rake strokes. Then the crash. Then the yawn.",
+	"item_coffee": "Burnt coffee",
+	"item_blurb_coffee": "Hold heavy things longer before you strain or faint. Tastes like a tire.",
+	"item_hat_lunch_money": "Lunch Money trucker cap",
+	"item_blurb_hat_lunch_money": "Dot's merch. Mesh back. Smells faintly of onions.",
+	# Snak-o-Matic.
+	"item_vend_sandwich": "Gas-station-adjacent sandwich",
+	"item_blurb_vend_sandwich": "Half the time you're full. The other half, you know what you did.",
+	"item_vend_turbo": "Turbo Juice (warm)",
+	"item_blurb_vend_turbo": "The same Turbo Juice, from a machine, at room temperature.",
+	# Junk for Rusty's.
+	"junk_old_tv": "Old TV",
+	"junk_tire": "Bald tire",
+	"junk_grill": "Busted grill",
+	"junk_toilet": "Toilet",
+	"junk_bike": "Bike frame",
+	"junk_flamingo": "Lawn flamingo",
+	"junk_mannequin": "Mannequin",
+	"junk_boombox": "Boombox",
+	"junk_flamingo_vintage": "Vintage flamingo",
+	# Buffs.
+	"buff_full": "Full",
+	"buff_turbo": "Turbo",
+	"buff_crash": "Crashing",
+	"buff_coffee": "Wired",
+	"buff_queasy": "Queasy",
+	# The shop window.
+	"shop_stock_left": "%d left today",
+	"shop_crew_has": "Crew has: %d bags · %d gal",
+	"shop_sold_out": "SOLD OUT",
+	"shop_owned_tag": "OWNED",
+	"shop_price_tag": "$%d",
+	"shop_rank_tag": "Rank: %s",
+	"shop_free": "Free",
+	"shop_buy_qty": "x%d",
+	"shop_next_tier": "%s $%d",
+	"shop_wear": "Wear",
+	"shop_wearing": "Wearing",
+	"shop_apply": "Put it on Chefty",
+	"shop_applied": "On Chefty",
+	"shop_out_of_season": "Not this season",
+	"shop_closed_shutter": "CLOSED\nOpens %s",
+	"shop_offer": "Rusty offers $%d",
+	"shop_take": "Take it",
+	"shop_haggle": "Haggle",
+	"shop_scale_empty": "Put junk on the scale.",
+	"haggle_won": "Fine. FINE. You drive a hard bargain for a toilet.",
+	"haggle_lost": "Now it's worth less. Emotionally.",
+	"rusty_mood_0": "TODAY: GRUMPY",
+	"rusty_mood_1": "TODAY: EH",
+	"rusty_mood_2": "TODAY: PAYING GOOD",
+	"gone_fishin": "GONE FISHIN'\nback tomorrow, probably",
+	# What the host says back about a buy (Shops.result codes).
+	"shop_result_ok": "Bought: %s",
+	"shop_result_closed": "Closed",
+	"shop_result_far": "Get closer to the counter",
+	"shop_result_locked": "Not for sale at your rank yet",
+	"shop_result_sold_out": "Sold out",
+	"shop_result_owned": "You already own that",
+	"shop_result_needs": "You need the one before it first",
+	"shop_result_short": "Not enough cash",
+	"shop_result_eaten": "The machine thanks you for your donation.",
+	"shop_result_full": "No room for more",
+	"shop_result_season": "Not this season",
+	# Prompts, hints, and goals.
+	"prompt_shop_closed": "Closed. Opens %s",
+	"prompt_look_at": "Look at %s",
+	"prompt_refuel": "Fill it up (%d%%)",
+	"prompt_vending": "Use the Snak-o-Matic",
+	"hud_out_of_bags": "Out of lawn bags. Homie Depot, the Snak-o-Matic, or your phone.",
+	"hud_out_of_gas": "Out of gas",
+	"goal_out_of_gas": "Out of gas. Hold the gas can and press E at the tool",
+	# Phone: Orders (app id "deliveries") and Closet.
+	"phone_tab_deliveries": "Orders",
+	"phone_tab_closet": "Closet",
+	"deliveries_title": "Homie Depot Deliveries",
+	"deliveries_locked": "Deliveries open at %s",
+	"deliveries_order": "Order ($%d incl. fees)",
+	"deliveries_fees": "Price + $%d + %d%% (delivery fee, service fee, fee fee)",
+	"deliveries_eta": "%s  ·  arrives %s",
+	"deliveries_cap": "%d of %d orders on the way",
+	"deliveries_none": "Nothing on the way.",
+	"deliveries_full": "That's every order the van can take. The van has feelings.",
+	"closet_title": "Closet",
+	"closet_empty": "Nothing in here but a lonely hanger. Buy a hat.",
+	"closet_wearing": "Wearing: %s",
+	"pay_crewmate_title": "Pay a crewmate",
+	"pay_crewmate_button": "$%d to %s",
+	"pay_crewmate_sent": "You sent %s $%d",
+	"pay_crewmate_got": "%s sent you $%d",
+	# Texts.
+	"text_from_marty": "Marty (Homie Depot)",
+	"text_from_rusty": "Rusty",
+	"text_from_deliveries": "Homie Depot Deliveries",
+	"text_emergency_bags": "Found a few bags behind the paint mixer. Don't tell the manager.",
+	"text_rusty_welcome": "Heard you're working the Acres. Bring me their junk. I pay cash. Mostly.",
+	"text_delivery": "Your order's on the pallet in the back room: %s. Nobody signed for it. Nobody ever does.",
+}
+
+## What the shopkeepers say ({keeper: {trigger: [lines]}}, docs/GAME.md
+## "Shops"). Triggers: greet (walking up), morning, night, open (the window
+## opens), buy (Shops.result ok), after_raid, closed. Marty's lines come from the
+## cast writing (cast:2); these are Rusty, Dot, and the Snak-o-Matic's screen.
+const KEEPER_LINES: Dictionary = {
+	"rusty": {
+		"greet": [
+			"Yard's open. Mind the tires, they bite.",
+			"Bring me something heavy. Heavy pays.",
+			"Look around. Don't touch the mannequin. She's shy.",
+		],
+		"morning": [
+			"Early bird gets the bald tire.",
+			"Coffee's on. Coffee's always on. Coffee's mostly rust.",
+			"New junk came in. Same as the old junk, but newer.",
+		],
+		"night": [
+			"Shouldn't you be raking somebody's yard in the dark?",
+			"Closing soon. The raccoons run the night shift.",
+			"Late shoppers get the late prices. Same prices. Later.",
+		],
+		"open": [
+			"Scale's calibrated. By me. Trust the scale.",
+			"Everything's for sale except my opinion. That's free.",
+			"Cash only. Cash mostly. Cash eventually.",
+		],
+		"buy": [
+			"Pleasure doing business. Mostly my pleasure.",
+			"No refunds. No returns. No questions. No answers.",
+			"That one's got character. Character's extra. You're welcome.",
+		],
+		"after_raid": [
+			"Saw the NICE BOYS go by. Very tidy van. Suspiciously tidy.",
+			"They asked if I'd seen you. I said I only see junk.",
+			"Clipboard crews. Never once bought a single tire.",
+		],
+		"closed": [
+			"GONE FISHIN'. The fish are not biting. Neither am I.",
+			"Closed. Try again when the sign says so.",
+			"Rusty's out. The junk is in. The junk will wait.",
+		],
+	},
+	"dot": {
+		"greet": [
+			"Hi hi hi! Hungry? You look hungry. Everyone looks hungry.",
+			"Welcome to Lunch Money! It's a truck! It's a lifestyle!",
+			"Ooh, a customer! My favorite kind of person!",
+		],
+		"morning": [
+			"Coffee's burnt already! That's how you know it's working!",
+			"Breakfast hot dog? Breakfast hot dog.",
+			"Early shift! I love an early shift! I've been up since four!",
+		],
+		"night": [
+			"Night menu is the day menu but spookier!",
+			"Turbo Juice after dark? Bold. I respect bold.",
+			"Last call for food-shaped fuel!",
+		],
+		"open": [
+			"Everything's made fresh-ish to order!",
+			"Turbo Juice isn't approved by anybody! It's just juice! Turbo!",
+			"Hot dogs, coffee, juice. The holy trinity of yard work!",
+		],
+		"buy": [
+			"Enjoy! Chew! Chew more than that!",
+			"Lunch Money thanks you! Chefty thanks you! I thank you!",
+			"Great choice! They're all great choices! There are three!",
+		],
+		"after_raid": [
+			"Those NICE BOYS tried to inspect my napkins. My napkins are fine!",
+			"Still here! Still serving! Still very legally parked!",
+			"Rough day? Rough days need hot dogs.",
+		],
+		"closed": [
+			"Kitchen's closed! The kitchen is also the truck!",
+			"Back tomorrow! Dot needs her beauty sleep!",
+			"We're closed but I'm still waving! Hi!",
+		],
+	},
+	"snak_o_matic": {
+		"greet": [
+			"HELLO VALUED CUSTOMER. INSERT CASH. INSERT HOPE.",
+			"SNAK-O-MATIC IS LISTENING. SNAK-O-MATIC IS ALWAYS LISTENING.",
+			"PLEASE STAND STILL WHILE SNAK-O-MATIC JUDGES YOU.",
+		],
+		"morning": [
+			"GOOD MORNING. SANDWICHES WERE RESTOCKED AT SOME POINT.",
+			"BREAKFAST OPTIONS: SANDWICH. SANDWICH AGAIN.",
+			"SNAK-O-MATIC NEVER SLEEPS. SNAK-O-MATIC NEVER FORGETS.",
+		],
+		"night": [
+			"OPEN ALL NIGHT. LIKE A FRIDGE LIGHT.",
+			"AFTER-HOURS PRICING IS THE SAME. THE GUILT IS EXTRA.",
+			"THE STORE IS CLOSED. SNAK-O-MATIC IS NOT. SNAK-O-MATIC IS NEVER CLOSED.",
+		],
+		"open": [
+			"SELECT AN ITEM. SELECT IT WITH CONFIDENCE.",
+			"ALL SALES FINAL. SOME SALES FINAL-ER.",
+			"PRICES INCLUDE THE CONVENIENCE OF ME.",
+		],
+		"buy": [
+			"THANK YOU. DISPENSING. PROBABLY.",
+			"ENJOY YOUR SNACK. SNAK-O-MATIC WILL KNOW IF YOU DON'T.",
+			"TRANSACTION COMPLETE. FRIENDSHIP PENDING.",
+		],
+		"after_raid": [
+			"SNAK-O-MATIC SAW NOTHING. SNAK-O-MATIC HAS NO EYES. LEGALLY.",
+			"VISITORS IN A VAN ASKED FOR RECEIPTS. SNAK-O-MATIC DOES NOT DO RECEIPTS.",
+			"STRESS DETECTED. RECOMMENDED: SANDWICH.",
+		],
+		"closed": [
+			"OUT OF ORDER. JUST KIDDING. SNAK-O-MATIC IS NEVER OUT OF ORDER.",
+			"SNAK-O-MATIC IS OPEN. SNAK-O-MATIC IS ALWAYS OPEN.",
+			"THERE IS NO CLOSED. THERE IS ONLY SNACK.",
+		],
+	},
+}
+
+
+## A catalog item's name: "Leaf blower Mk II". Falls back to the id.
+static func shop_item_name(id: String) -> String:
+	return str(SHOP_UI.get("item_" + id, id))
+
+
+static func shop_item_blurb(id: String) -> String:
+	return str(SHOP_UI.get("item_blurb_" + id, ""))

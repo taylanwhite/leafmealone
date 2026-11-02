@@ -92,7 +92,7 @@ func _items() -> Array[Dictionary]:
 			"id": StringName(tool_id),
 			"name": _Strings.UI["tool_" + tool_id],
 			"blurb": blurb,
-			"price": int(Constants.TOOL_PRICES[tool_id]),
+			"price": Campaign.price_of(StringName(tool_id)),
 			"color": TOOL_COLORS.get(tool_id, Color.GRAY),
 		})
 	items.append_array([
@@ -100,14 +100,14 @@ func _items() -> Array[Dictionary]:
 			"id": Campaign.RAKE_UPGRADE,
 			"name": _Strings.UI["shop_rake_name"],
 			"blurb": _Strings.UI["shop_rake_blurb"] % Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER,
-			"price": Balance.BASELINE_TIER_1_TOOL_COST,
+			"price": Campaign.price_of(Campaign.RAKE_UPGRADE),
 			"color": Color(0.85, 0.55, 0.25),
 		},
 		{
 			"id": Campaign.WHEELBARROW_UPGRADE,
 			"name": _Strings.UI["shop_barrow_name"],
 			"blurb": _Strings.UI["shop_barrow_blurb"] % [Constants.WHEELBARROW_UPGRADED_BAG_CAPACITY, Constants.WHEELBARROW_BAG_CAPACITY],
-			"price": Balance.BASELINE_TIER_1_TOOL_COST,
+			"price": Campaign.price_of(Campaign.WHEELBARROW_UPGRADE),
 			"color": Color(0.55, 0.22, 0.18),
 		},
 	])
@@ -153,7 +153,7 @@ func _card(item: Dictionary, wallet: int) -> Control:
 	var for_sale := Campaign.is_for_sale(item["id"])
 	var label: String = _Strings.UI["shop_owned"] if owned else (_Strings.UI["shop_buy"] if affordable else _Strings.UI["shop_short"])
 	if not owned and not for_sale:
-		label = _Strings.UI["shop_needs_rank"] % _Ranks.title(_Ranks.tier_of("shop:" + String(item["id"])))
+		label = _Strings.UI["shop_needs_rank"] % _Ranks.title(_Ranks.tier_of(Catalog.gate_of(String(item["id"]))))
 	var buy := _button(label, ORANGE if affordable and not owned and for_sale else INK.lightened(0.5))
 	buy.disabled = owned or not affordable or not for_sale
 	var item_id: StringName = item["id"]

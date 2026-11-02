@@ -79,6 +79,8 @@ func show_summary(summary: Dictionary) -> void:
 		var unlock := str(entry.get("unlock", ""))
 		if unlock != "":
 			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(unlock), INK)
+		for extra: Variant in (entry.get("extras", []) as Array):
+			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(str(extra)), INK)
 	_line(_Strings.UI["summary_rank"] % str(summary.get("title", "")), NIGHT, 18)
 	if summary.has("season"):
 		_rows.add_child(HSeparator.new())
