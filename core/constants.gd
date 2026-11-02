@@ -659,6 +659,13 @@ const SHOP_MAX_QTY: int = 25
 ## A workbook quip (ui/quip_player.gd) waits this long before it can play again.
 ## Moved from ui/strings.gd; the workbook's cooldown minutes are still open.
 const QUIP_COOLDOWN_SECONDS: float = 90.0
+## docs/ART.md's budget for one character, in triangles. The plain cartoon body is
+## already over it (measured by --cast-test; docs/DECISIONS.md 2026-11-01), so the
+## test reports the total and budgets only what an outfit adds.
+const CHARACTER_TRIANGLE_BUDGET: int = 5000
+## The most triangles the NICE BOYS' outfit (visor, aviators, grin, uniform, props)
+## may add over a plain body (player/cartoon_body.gd, net/dev/cast_test.gd).
+const CREW_OUTFIT_TRIANGLE_BUDGET: int = 1200
 
 
 # ---- driving

@@ -13,6 +13,7 @@ extends Node3D
 ## Matches player.gd's AnimState: IDLE, WALK, SPRINT, CROUCH, AIR.
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
+const _NiceSeal = preload("res://props/nice_seal.gd")
 const STATE_CROUCH: int = 3
 const STATE_AIR: int = 4
 const STATE_KNOCKED: int = 5
@@ -40,11 +41,22 @@ const HEAD_LAYER: int = 2
 @export var shirt := SHIRTS[0]
 @export var pants := PANTS[0]
 @export var hair := HAIR[0]
-## "cap", "hair", or "none".
+## "cap", "hair", "visor" (a sun visor, hair poking out on top; the NICE BOYS), or "none".
 @export var hat_style := "hair"
 @export var hat_color := Color(0.2, 0.2, 0.22)
-## Dark glasses over the eyes, for the crew's placeholder look.
+## Sunglasses over the eyes (the NICE BOYS wear them), in shades_style.
 @export var shades := false
+## "aviator": gold rims and dark teardrop lenses. "plain": two dark lenses.
+@export var shades_style := "aviator"
+## A uniform over the clothes (docs/GAME.md, "2026-11-01, the cast"): "" for none,
+## "nice_boy" (polo collar, lanyard and ID card, Daisy Seal patch, fanny pack,
+## knee socks, a clipboard in the left hand) or "nice_boy_lead" (the same, with a
+## whistle on the lanyard and a megaphone in the right hand instead). Its parts are
+## named MeshInstance3D nodes (OUTFIT_PARTS) so tests can find them.
+@export var outfit := ""
+## A fixed wide grin instead of the flat mouth. With the crew's angry brows, a
+## furious smile.
+@export var grin := false
 
 var _head_root: Node3D
 var _face: Node3D
@@ -56,6 +68,10 @@ var _gesture_time: float = 0.0
 var _gesture_length: float = 0.0
 var _brow_lift: float = 0.0
 var _brow_tilt: float = 0.0
+## The outfit's clipboard, tilted up to write on in the scribble gesture, and the
+## lead's megaphone, kept level while pointing with it.
+var _clipboard: Node3D
+var _megaphone: Node3D
 
 ## Set by player/character_life.gd each frame. Where the eyes look, in world
 ## space, or INF to look straight ahead.
@@ -105,7 +121,30 @@ const GESTURE_SECONDS: Dictionary = {
 	"wave": 1.4, "scratch": 1.6, "stretch": 2.2, "watch": 1.8, "shuffle": 1.2,
 	"cheer": 1.8, "flail": 0.9, "startle": 0.8, "look_around": 2.4, "stumble": 0.9,
 	"offer": 0.6, "windmill": 0.8, "punch": 0.45, "rake": 1.1,
+	"point": 0.9, "scribble": 1.4,
 }
+## The named parts an outfit adds, by outfit (the test looks for every one).
+const OUTFIT_PARTS: Dictionary = {
+	"nice_boy": ["Socks", "Collar", "Lanyard", "Badge", "Insignia", "FannyPack", "VisorSeal", "Clipboard"],
+	"nice_boy_lead": ["Socks", "Collar", "Lanyard", "Badge", "Insignia", "FannyPack", "VisorSeal", "Megaphone", "Whistle"],
+}
+const SOCK := Color(0.97, 0.97, 0.95)
+const SNEAKER := Color(0.95, 0.95, 0.93)
+const LANYARD := Color(0.86, 0.16, 0.16)
+const GOLD := Color(0.88, 0.7, 0.28)
+const LENS := Color(0.1, 0.12, 0.15)
+const MEGAPHONE := Color(0.98, 0.5, 0.1)
+const CLIPBOARD := Color(0.55, 0.36, 0.2)
+const SILVER := Color(0.78, 0.8, 0.84)
+const FANNY_PACK := Color(0.2, 0.62, 0.62)
+## How much higher the brows sit over sunglasses, in meters.
+const BROW_OVER_SHADES: float = 0.024
+## The point gesture's arm, straight out ahead, in radians of x turn.
+const POINT_ARM: float = 1.5
+## The scribble gesture: the clipboard arm raised in front, and the board tilted
+## back on top of that so the paper faces the writer.
+const SCRIBBLE_BOARD_ARM: float = 1.1
+const SCRIBBLE_BOARD_TILT: float = 1.1
 ## How far the pupils can travel inside the eye, in meters.
 const PUPIL_RANGE := Vector2(0.026, 0.02)
 
@@ -131,14 +170,20 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 	_own_head = own_head
 	_hips = _pivot(self, Vector3(0.0, 0.82, 0.0))
 	_torso = _pivot(_hips, Vector3.ZERO)
-	var shoe := Color(0.18, 0.14, 0.12)
+	var shoe := Color(0.18, 0.14, 0.12) if outfit == "" else SNEAKER
 	# Pelvis on the hips, the shirt's hem hanging over it from the torso.
 	_kit_part(_hips, _blob_mesh(Vector3(0.0, -0.02, 0.0), Vector3(0.19, 0.13, 0.15), pants), Vector3.ZERO)
 	_kit_part(_torso, _torso_mesh(shirt), Vector3.ZERO)
 	for side: float in [-1.0, 1.0]:
 		var leg := _pivot(_hips, Vector3(side * 0.1, 0.0, 0.0))
-		_kit_part(leg, _limb_mesh([Vector3(0.0, 0.0, 0.0), Vector3(0.0, -0.36, 0.0), Vector3(0.0, -0.72, 0.0)], [0.088, 0.078, 0.07], pants), Vector3.ZERO)
-		_kit_part(leg, _shoe_mesh(shoe), Vector3(0.0, -0.76, -0.04))
+		# The leg is child 0 and the shoe child 1 (_show_foot hides the shoe).
+		if outfit != "":
+			# Shorts, bare shins and white knee socks.
+			_kit_part(leg, _leg_mesh(pants, skin, SOCK), Vector3.ZERO).name = "Socks"
+			_kit_part(leg, _shoe_mesh(shoe, Color(0.7, 0.72, 0.74)), Vector3(0.0, -0.76, -0.04))
+		else:
+			_kit_part(leg, _limb_mesh([Vector3(0.0, 0.0, 0.0), Vector3(0.0, -0.36, 0.0), Vector3(0.0, -0.72, 0.0)], [0.088, 0.078, 0.07], pants), Vector3.ZERO)
+			_kit_part(leg, _shoe_mesh(shoe), Vector3(0.0, -0.76, -0.04))
 		_legs.append(leg)
 		var arm := _pivot(_torso, Vector3(side * 0.25, 0.46, 0.0))
 		arm.rotation.z = side * 0.12
@@ -150,6 +195,8 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 	_head_base_y = _head_root.position.y
 	_head_stand_y = _head_base_y
 	_build_head(_head_root)
+	if outfit != "":
+		_build_outfit()
 	# Your own body, not just your head: looking down in first person, the torso
 	# right under the camera filled the screen.
 	if _own_head:
@@ -163,13 +210,23 @@ func set_coat(color: Color, amount: float) -> void:
 		(node as MeshInstance3D).set_instance_shader_parameter("tint", Color(color.r, color.g, color.b, amount))
 
 
-## Play a gesture once: "wave", "scratch", "stretch", "watch", "shuffle",
-## "cheer", "flail", "startle", "look_around", or "stumble". A new one replaces
+## Play a gesture once, any key of GESTURE_SECONDS: "wave", "scratch", "stretch",
+## "watch", "shuffle", "cheer", "flail", "startle", "look_around", "stumble",
+## "point", "scribble" (writing on the outfit's clipboard), ... A new one replaces
 ## the current one.
 func gesture(gesture_name: String) -> void:
 	_gesture = gesture_name
 	_gesture_time = 0.0
 	_gesture_length = float(GESTURE_SECONDS.get(gesture_name, 1.5))
+	_rest_props()
+
+
+## Held props back in their resting grip (a gesture may have tilted them).
+func _rest_props() -> void:
+	if _clipboard != null:
+		_clipboard.rotation = Vector3.ZERO
+	if _megaphone != null:
+		_megaphone.rotation = Vector3.ZERO
 
 
 func is_gesturing() -> bool:
@@ -216,14 +273,21 @@ func _build_head(root: Node3D) -> void:
 		brow.rotation.z = side * -0.12
 		_brows.append(brow)
 	_mouth = _pivot(face, Vector3(0.0, -0.115, -0.238))
-	_on_head_layer(_kit_part(_mouth, _blob_mesh(Vector3.ZERO, Vector3(0.048, 0.013, 0.012), Color(0.32, 0.1, 0.1), false), Vector3.ZERO))
-	if shades:
+	if grin:
+		_on_head_layer(_kit_part(_mouth, _grin_mesh(), Vector3.ZERO))
+	else:
+		_on_head_layer(_kit_part(_mouth, _blob_mesh(Vector3.ZERO, Vector3(0.048, 0.013, 0.012), Color(0.32, 0.1, 0.1), false), Vector3.ZERO))
+	if shades and shades_style == "aviator":
+		_on_head_layer(_kit_part(face, _aviator_mesh(), Vector3.ZERO, {"roughness": 0.2, "specular": 0.8}))
+	elif shades:
 		var glasses := _MeshKit.new()
 		for side: float in [-1.0, 1.0]:
 			glasses.blob(Vector3(side * 0.095, 0.06, -0.255), Vector3(0.075, 0.05, 0.015), PUPIL, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
 		glasses.box(Vector3(0.0, 0.07, -0.258), Vector3(0.06, 0.015, 0.012), PUPIL)
 		_on_head_layer(_kit_part(face, glasses.commit(), Vector3.ZERO, {"roughness": 0.15, "specular": 0.8}))
 	match hat_style:
+		"visor":
+			_on_head_layer(_kit_part(face, _visor_mesh(), Vector3.ZERO))
 		# Caps and hair sit clear of the head everywhere they cover it, and their
 		# lumps only push outward, so the scalp never pokes through.
 		"cap":
@@ -456,7 +520,8 @@ func _animate_face(delta: float) -> void:
 	_brow_tilt = lerpf(_brow_tilt, tilt, clampf(delta * 10.0, 0.0, 1.0))
 	for index: int in _brows.size():
 		var side := -1.0 if index == 0 else 1.0
-		_brows[index].position.y = 0.16 + _brow_lift
+		# Over sunglasses the brows sit a little higher, so they still show.
+		_brows[index].position.y = 0.16 + _brow_lift + (BROW_OVER_SHADES if shades else 0.0)
 		# Worried brows lift toward the middle, angry ones dip toward it.
 		_brows[index].rotation.z = side * (-0.12 + _brow_tilt)
 		if _straining:
@@ -561,10 +626,29 @@ func _animate_gesture(delta: float) -> void:
 			_torso.rotation.x = lerpf(_torso.rotation.x, -0.6, fade)
 			left.rotation.x = -2.0 * sin(t * 16.0)
 			right.rotation.x = 2.0 * sin(t * 16.0)
+		"point":
+			# The right arm straight out ahead at whoever it means. A positive x
+			# turn swings a hanging arm forward (-Z). The lead's megaphone stays
+			# level, aimed where he points.
+			right.rotation.x = lerpf(right.rotation.x, POINT_ARM, fade)
+			right.rotation.z = lerpf(right.rotation.z, 0.04, fade)
+			if _megaphone != null:
+				_megaphone.rotation.x = -right.rotation.x * fade
+		"scribble":
+			# Writing a citation: the clipboard up in front, tilted toward the face,
+			# the pencil hand scratching away at it.
+			left.rotation.x = lerpf(left.rotation.x, SCRIBBLE_BOARD_ARM, fade)
+			left.rotation.z = lerpf(left.rotation.z, 0.5, fade)
+			right.rotation.x = lerpf(right.rotation.x, 0.95 + 0.07 * sin(t * 31.0), fade)
+			right.rotation.z = lerpf(right.rotation.z, -0.55 + 0.05 * sin(t * 23.0), fade)
+			_face.rotation.x -= 0.25 * fade
+			if _clipboard != null:
+				_clipboard.rotation.x = SCRIBBLE_BOARD_TILT * fade
 	if t >= _gesture_length:
 		if _gesture == "look_around":
 			face_turn = 0.0
 		_gesture = ""
+		_rest_props()
 
 
 func _on_head_layer(node: Node3D) -> void:
@@ -625,11 +709,170 @@ func _arm_mesh(side: float) -> ArrayMesh:
 
 
 ## A rounded shoe with a lighter sole, toes pointing forward (-Z).
-func _shoe_mesh(color: Color) -> ArrayMesh:
+func _shoe_mesh(color: Color, sole := Color(0.82, 0.78, 0.7)) -> ArrayMesh:
 	var kit := _MeshKit.new()
 	kit.blob(Vector3(0.0, 0.0, -0.03), Vector3(0.075, 0.055, 0.14), color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
-	kit.blob(Vector3(0.0, -0.035, -0.03), Vector3(0.077, 0.018, 0.142), Color(0.82, 0.78, 0.7), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+	kit.blob(Vector3(0.0, -0.035, -0.03), Vector3(0.077, 0.018, 0.142), sole, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
 	return kit.commit()
+
+
+# ---------------------------------------------------------------- the NICE BOYS
+# Outfit parts (docs/ART.md, "The NICE BOYS"). The body is already over the
+# character triangle budget, so everything here is blob detail 0 or 1, boxes, and
+# tubes of 8 sides or fewer, never rbox (net/dev/cast_test.gd counts the extra).
+# The exceptions match the body part they cover, so it can't poke through between
+# facets (docs/DECISIONS.md, the NICE BOYS' look): the shorts, socks and stripe
+# match the plain leg's 10, the collar and visor band the 12-sided shirt collar
+# and the head, the megaphone 10 so the bell reads round. They cost 48 triangles
+# (62 on the head NICE BOY) more than 8 sides would.
+
+const _SMOOTH: Dictionary = {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0}
+
+
+## Shorts, bare shins, and white knee socks with a lavender stripe, hip to ankle.
+func _leg_mesh(shorts: Color, shin: Color, sock: Color) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.blob(Vector3.ZERO, Vector3.ONE * 0.093, shorts, _SMOOTH)
+	kit.tube(PackedVector3Array([Vector3(0, 0, 0), Vector3(0, -0.3, 0)]), PackedFloat32Array([0.096, 0.093]), shorts, 10, {"jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0, -0.28, 0), Vector3(0, -0.51, 0)]), PackedFloat32Array([0.058, 0.055]), shin, 8, {"jitter": 0.0, "cap": false})
+	kit.tube(PackedVector3Array([Vector3(0, -0.49, 0), Vector3(0, -0.74, 0)]), PackedFloat32Array([0.061, 0.064]), sock, 10, {"jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0, -0.515, 0), Vector3(0, -0.54, 0)]), PackedFloat32Array([0.0635, 0.0635]), _NiceSeal.ROSETTE, 10, {"jitter": 0.0, "cap": false})
+	return kit.commit()
+
+
+## Gold-rimmed aviators: dark lenses, a top bar, and arms back to the ears.
+func _aviator_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var thin := {"jitter": 0.0, "cap": false}
+	for side: float in [-1.0, 1.0]:
+		var middle := Vector3(side * 0.1, 0.07, -0.272)
+		# Teardrop: a flat top, the bottom sagging lowest toward the outside.
+		var rim := PackedVector3Array()
+		for step: int in 15:
+			var angle := TAU * float(step) / 14.0
+			var s := sin(angle)
+			var height := 0.062 * pow(s, 0.6) if s >= 0.0 else -0.1 * pow(-s, 0.85)
+			var width := 0.082 + (0.012 * -s if cos(angle) * side > 0.0 and s < 0.0 else 0.0)
+			rim.append(middle + Vector3(cos(angle) * width - side * 0.012 * minf(s, 0.0), height, -0.004))
+		kit.tube(rim, PackedFloat32Array([0.0055]), GOLD, 4, thin)
+		kit.blob(middle + Vector3(0.0, 0.005, 0.0), Vector3(0.08, 0.06, 0.01), LENS, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		kit.blob(middle + Vector3(side * 0.008, -0.035, 0.001), Vector3(0.074, 0.064, 0.009), LENS, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		kit.tube(PackedVector3Array([Vector3(side * 0.18, 0.12, -0.27), Vector3(side * 0.218, 0.115, -0.17), Vector3(side * 0.25, 0.1, -0.08), Vector3(side * 0.266, 0.09, 0.01)]), PackedFloat32Array([0.006]), GOLD, 4, thin)
+	# The double bridge: a straight top bar right across, and a small arch between.
+	kit.tube(PackedVector3Array([Vector3(-0.18, 0.13, -0.274), Vector3(0.0, 0.134, -0.286), Vector3(0.18, 0.13, -0.274)]), PackedFloat32Array([0.0065]), GOLD, 4, thin)
+	kit.tube(PackedVector3Array([Vector3(-0.025, 0.1, -0.283), Vector3(0.0, 0.108, -0.287), Vector3(0.025, 0.1, -0.283)]), PackedFloat32Array([0.0055]), GOLD, 4, thin)
+	return kit.commit()
+
+
+## A wide fixed grin, curled up at the corners, with a row of teeth. In the mouth
+## pivot's space; it follows the face's curve.
+func _grin_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var lip := PackedVector3Array()
+	var teeth := PackedVector3Array()
+	for step: int in 9:
+		var u := float(step) / 8.0 * 2.0 - 1.0
+		var x := u * 0.075
+		# The face's surface here, in the mouth pivot's space (it sits at z -0.238).
+		var surface := -0.221 * sqrt(maxf(0.0, 1.0 - pow(x / 0.229, 2.0))) + 0.238
+		lip.append(Vector3(x, 0.03 * u * u - 0.006, surface - 0.012))
+		if absf(u) <= 0.75:
+			teeth.append(Vector3(x * 0.95, 0.03 * u * u + 0.004, surface - 0.016))
+	kit.tube(lip, PackedFloat32Array([0.013]), Color(0.3, 0.08, 0.1), 6, {"jitter": 0.0})
+	kit.tube(teeth, PackedFloat32Array([0.0075]), Color(0.98, 0.97, 0.94), 5, {"jitter": 0.0})
+	return kit.commit()
+
+
+## A sun visor: a band round the head, a brim out front, hair poking out over the
+## top and at the back. In the head's space.
+func _visor_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	# The scalp under the band, and short hair at the back and sides.
+	kit.blob(Vector3(0.0, 0.15, 0.035), Vector3(0.226, 0.18, 0.226), hair, _SMOOTH)
+	kit.blob(Vector3(0.0, 0.0, 0.12), Vector3(0.24, 0.14, 0.16), hair, {"detail": 1, "lumps": 0.12, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
+	# Tufts sticking up out of the open top.
+	for tuft: int in 5:
+		var angle := TAU * float(tuft) / 5.0 + 0.4
+		var at := Vector3(cos(angle) * 0.1, 0.3 + 0.02 * float(tuft % 2), sin(angle) * 0.1 + 0.02)
+		kit.blob(at, Vector3(0.085, 0.075, 0.085), hair, {"detail": 1, "lumps": 0.35, "lump_scale": 3.5, "outward": true, "flat": false, "jitter": 0.0, "seed": tuft})
+	kit.blob(Vector3(0.0, 0.33, 0.02), Vector3(0.08, 0.07, 0.08), hair, {"detail": 1, "lumps": 0.35, "lump_scale": 3.5, "outward": true, "flat": false, "jitter": 0.0, "seed": 9})
+	kit.tube(PackedVector3Array([Vector3(0, 0.2, 0), Vector3(0, 0.285, 0)]), PackedFloat32Array([0.232, 0.2]), hat_color, 12, {"jitter": 0.0, "cap": false})
+	kit.blob(Vector3(0.0, 0.214, -0.318), Vector3(0.18, 0.016, 0.135), hat_color.darkened(0.08), _SMOOTH)
+	return kit.commit()
+
+
+## The NICE BOYS' uniform over the clothes. Every part is a named MeshInstance3D
+## (OUTFIT_PARTS); the torso parts ride the torso, so they lean and breathe with it.
+func _build_outfit() -> void:
+	var lead := outfit == "nice_boy_lead"
+	# A white polo collar, squashed front to back like the chest.
+	var collar := _MeshKit.new()
+	collar.tube(PackedVector3Array([Vector3(0, 0.47, 0), Vector3(0, 0.55, 0)]), PackedFloat32Array([0.188, 0.13]), SOCK, 12, {"jitter": 0.0, "cap": false})
+	_kit_part(_torso, _squashed(collar.commit(), Vector3(1.0, 1.0, 0.82)), Vector3.ZERO).name = "Collar"
+	# The lanyard: a red V from the collar down to the ID card, and the polo's flaps.
+	var cord := _MeshKit.new()
+	for side: float in [-1.0, 1.0]:
+		cord.tube(PackedVector3Array([Vector3(side * 0.075, 0.49, -0.14), Vector3(side * 0.045, 0.42, -0.165), Vector3(side * 0.012, 0.335, -0.176)]), PackedFloat32Array([0.0075]), LANYARD, 4, {"jitter": 0.0})
+		cord.box(Vector3(side * 0.04, 0.455, -0.163), Vector3(0.065, 0.045, 0.008), SOCK, Basis(Vector3.BACK, side * 0.5) * Basis(Vector3.RIGHT, -0.25))
+	_kit_part(_torso, cord.commit(), Vector3.ZERO).name = "Lanyard"
+	# The ID card: a lavender header, a photo, a name line.
+	var card := _MeshKit.new()
+	card.box(Vector3(0.0, 0.28, -0.171), Vector3(0.075, 0.095, 0.006), SOCK)
+	card.box(Vector3(0.0, 0.315, -0.1745), Vector3(0.075, 0.02, 0.002), _NiceSeal.ROSETTE)
+	card.box(Vector3(-0.016, 0.278, -0.1745), Vector3(0.028, 0.034, 0.002), Color(0.45, 0.55, 0.68))
+	card.box(Vector3(0.017, 0.284, -0.1745), Vector3(0.026, 0.006, 0.002), _NiceSeal.INK)
+	card.box(Vector3(0.017, 0.271, -0.1745), Vector3(0.026, 0.006, 0.002), _NiceSeal.INK)
+	_kit_part(_torso, card.commit(), Vector3.ZERO).name = "Badge"
+	# The Daisy Seal patch on the left breast, tilted to sit on the curve of the chest.
+	var patch := _MeshKit.new()
+	_NiceSeal.add(patch, Vector3(-0.103, 0.405, -0.138), 0.045, Vector3(-0.43, 0.0, -0.9))
+	_kit_part(_torso, patch.commit(), Vector3.ZERO, {"roughness": 0.7, "specular": 0.2}).name = "Insignia"
+	# The fanny pack on a strap round the hips, outside the shirt's hem.
+	var pack := _MeshKit.new()
+	var strap := PackedVector3Array()
+	for step: int in 13:
+		var angle := TAU * float(step) / 12.0
+		strap.append(Vector3(cos(angle) * 0.224, -0.035, sin(angle) * 0.192))
+	pack.tube(strap, PackedFloat32Array([0.013]), FANNY_PACK.darkened(0.45), 4, {"jitter": 0.0, "cap": false})
+	pack.blob(Vector3(0.0, -0.04, -0.205), Vector3(0.105, 0.055, 0.04), FANNY_PACK, _SMOOTH)
+	pack.box(Vector3(0.0, -0.025, -0.244), Vector3(0.12, 0.006, 0.004), SILVER)
+	_kit_part(_hips, pack.commit(), Vector3.ZERO).name = "FannyPack"
+	# Another seal on the front of the visor's band, above the brim.
+	if hat_style == "visor" and _face != null:
+		var badge := _MeshKit.new()
+		_NiceSeal.add(badge, Vector3(0.0, 0.257, -0.214), 0.024, Vector3(0.0, 0.37, -1.0))
+		var visor_seal := _kit_part(_face, badge.commit(), Vector3.ZERO, {"roughness": 0.7, "specular": 0.2})
+		visor_seal.name = "VisorSeal"
+		_on_head_layer(visor_seal)
+	if lead:
+		# A whistle on the lanyard, and a megaphone in the right hand.
+		var whistle := _MeshKit.new()
+		whistle.tube(PackedVector3Array([Vector3(0.05, 0.318, -0.18), Vector3(0.085, 0.312, -0.181)]), PackedFloat32Array([0.011, 0.009]), SILVER, 6, {"jitter": 0.0, "cap_start": true})
+		whistle.blob(Vector3(0.052, 0.31, -0.18), Vector3(0.016, 0.016, 0.014), SILVER, {"detail": 0, "lumps": 0.0, "flat": false, "jitter": 0.0})
+		_kit_part(_torso, whistle.commit(), Vector3.ZERO, {"roughness": 0.25, "specular": 0.7}).name = "Whistle"
+		var horn := _MeshKit.new()
+		var axis := 0.075
+		horn.tube(PackedVector3Array([Vector3(0, axis, 0.08), Vector3(0, axis, -0.2)]), PackedFloat32Array([0.028, 0.1]), MEGAPHONE, 10, {"jitter": 0.0, "cap": false})
+		horn.tube(PackedVector3Array([Vector3(0, axis, -0.15), Vector3(0, axis, -0.18)]), PackedFloat32Array([0.0845, 0.0955]), SOCK, 10, {"jitter": 0.0, "cap": false})
+		horn.tube(PackedVector3Array([Vector3(0, axis, -0.19), Vector3(0, axis, -0.197)]), PackedFloat32Array([0.094, 0.095]), MEGAPHONE.darkened(0.3), 10, {"jitter": 0.0})
+		horn.tube(PackedVector3Array([Vector3(0, axis, -0.196), Vector3(0, axis, -0.199)]), PackedFloat32Array([0.045, 0.045]), Color(0.18, 0.16, 0.16), 8, {"jitter": 0.0})
+		horn.tube(PackedVector3Array([Vector3(0, axis, 0.13), Vector3(0, axis, 0.075)]), PackedFloat32Array([0.02, 0.026]), Color(0.18, 0.16, 0.16), 6, {"jitter": 0.0, "cap_start": true, "cap": false})
+		horn.box(Vector3(0.0, 0.025, -0.01), Vector3(0.028, 0.075, 0.035), Color(0.18, 0.16, 0.16))
+		_megaphone = _kit_part(_arms[1], horn.commit(), Vector3(0.0, -0.52, -0.01))
+		_megaphone.name = "Megaphone"
+		_on_head_layer(_megaphone)
+	else:
+		# A clipboard hanging from the left hand, paper facing out.
+		var board := _MeshKit.new()
+		board.box(Vector3(0.0, -0.1, 0.0), Vector3(0.18, 0.25, 0.012), CLIPBOARD)
+		board.box(Vector3(0.0, -0.115, -0.0075), Vector3(0.16, 0.2, 0.003), SOCK)
+		for line: int in 4:
+			board.box(Vector3(-0.01 + float(line % 2) * 0.012, -0.065 - float(line) * 0.03, -0.0095), Vector3(0.1, 0.006, 0.0015), Color(0.4, 0.42, 0.55))
+		board.box(Vector3(-0.055, -0.188, -0.0095), Vector3(0.02, 0.02, 0.0015), LANYARD)
+		board.box(Vector3(0.0, 0.012, -0.009), Vector3(0.075, 0.032, 0.014), SILVER)
+		_clipboard = _kit_part(_arms[0], board.commit(), Vector3(-0.02, -0.5, -0.052))
+		_clipboard.name = "Clipboard"
+		_on_head_layer(_clipboard)
 
 
 func _squashed(mesh: ArrayMesh, scale_by: Vector3) -> ArrayMesh:

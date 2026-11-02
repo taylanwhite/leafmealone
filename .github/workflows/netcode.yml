@@ -226,14 +226,17 @@ jobs:
           grep "RivalTest" build/soak/ci-rival/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-rival/host.json'))['rival_test']; sys.exit(0 if r.get('ok') else 1)"
 
-      - name: Cast test (string table audit, humor guardrail, line coverage; the crew's look and barks come later)
+      - name: Cast test (string table audit, humor guardrail, line coverage, the NICE BOYS' look, outfits and name tags match on a client)
         if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-cast
-          "$GODOT" --headless --path . -- --host --port=7812 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --cast-test --measure="$PWD/build/soak/ci-cast/host.json" --run-seconds=45 > build/soak/ci-cast/host.log 2>&1
+          "$GODOT" --headless --path . -- --host --port=7812 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --start-day=7 --cast-test --measure="$PWD/build/soak/ci-cast/host.json" --run-seconds=45 > build/soak/ci-cast/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7812 --name=Target --no-steam --measure="$PWD/build/soak/ci-cast/target.json" --run-seconds=40 > build/soak/ci-cast/target.log 2>&1
+          wait
           grep "CastTest" build/soak/ci-cast/host.log || true
-          $PY -c "import json,sys; r=json.load(open('build/soak/ci-cast/host.json'))['cast_test']; sys.exit(0 if r.get('ok') else 1)"
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-cast/host.json')); t=json.load(open('build/soak/ci-cast/target.json')); sys.exit(0 if h['cast_test'].get('ok') and len(h['crew_cast']) >= 3 and h['crew_cast'] == t['crew_cast'] else 1)"
 
       - name: Audio test (buses, sound bank, every sound file, Sfx, positional sounds)
         if: matrix.part == 'features'

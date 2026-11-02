@@ -135,6 +135,19 @@ func _build(root: Node3D) -> void:
 			root.add_child(van)
 			van.rotation.y = PI * 0.8
 			preload("res://props/vehicles.gd").build_van(van, Color(0.16, 0.17, 0.2))
+		"nice_boys":
+			_nice_boys(root)
+		"nice_boy":
+			# One NICE BOY close up: --index=1 is the head NICE BOY, --gesture=<name>
+			# holds a gesture mid-way.
+			var body := _nice_boy(root, int(_options.get("index", "2")), Vector3.ZERO, PI * 0.85)
+			_hold_gesture(body, str(_options.get("gesture", "")))
+			root.set_meta("views", [
+				{"from": Vector3(1.6, 1.6, 3.0), "at": Vector3(0.0, 1.0, 0.0), "fov": 40.0},
+				{"from": Vector3(-3.0, 1.3, 0.6), "at": Vector3(0.0, 1.0, 0.0), "fov": 40.0},
+				{"from": Vector3(0.45, 1.85, 1.45), "at": Vector3(0.0, 1.62, 0.0), "fov": 38.0},
+				{"from": Vector3(1.1, 2.6, 1.3), "at": Vector3(0.0, 1.4, 0.0), "fov": 40.0},
+			])
 		"surfaces":
 			_surfaces(root)
 		"houses":
@@ -144,6 +157,60 @@ func _build(root: Node3D) -> void:
 			_HouseBuilder.build(root, Vector3.ZERO, _house_req(archetype, _seed))
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
+
+
+## The NICE BOYS in a row (docs/ART.md, "The NICE BOYS"): the head NICE BOY with
+## his megaphone, one writing a citation, one more, and at the ends a player and a
+## Marty-dressed body, so the lavender reads apart from everyone else. Dressed the
+## way npcs/crew_member.gd dresses them.
+func _nice_boys(root: Node3D) -> void:
+	var player: Node3D = _CartoonBody.new()
+	player.call("dress_from_seed", 3)
+	root.add_child(player)
+	player.position = Vector3(-2.6, 0.0, 0.0)
+	player.rotation.y = PI + 0.3
+	player.call("build")
+	_nice_boy(root, 1, Vector3(-1.3, 0.0, 0.0), PI + 0.15)
+	_hold_gesture(_nice_boy(root, 2, Vector3(0.0, 0.0, 0.0), PI), "scribble")
+	_nice_boy(root, 3, Vector3(1.3, 0.0, 0.0), PI - 0.15)
+	var clerk: Node3D = _CartoonBody.new()
+	clerk.set("shirt", Color(0.93, 0.47, 0.13))
+	clerk.set("pants", Color(0.28, 0.3, 0.38))
+	clerk.set("skin", _CartoonBody.SKIN_TONES[2])
+	clerk.set("hat_style", "cap")
+	clerk.set("hat_color", Color(0.93, 0.47, 0.13).darkened(0.2))
+	root.add_child(clerk)
+	clerk.position = Vector3(2.6, 0.0, 0.0)
+	clerk.rotation.y = PI - 0.3
+	clerk.call("build")
+	root.set_meta("views", [
+		{"from": Vector3(1.8, 2.3, 8.4), "at": Vector3(0.0, 0.95, 0.0), "fov": 40.0},
+		{"from": Vector3(-0.6, 1.6, 2.6), "at": Vector3(-0.65, 1.2, 0.0), "fov": 45.0},
+		{"from": Vector3(0.0, 1.5, 2.2), "at": Vector3(0.0, 1.15, 0.0), "fov": 45.0},
+		{"from": Vector3(-5.5, 1.6, -2.5), "at": Vector3(0.0, 1.0, 0.0), "fov": 40.0},
+	])
+
+
+func _nice_boy(root: Node3D, index: int, at: Vector3, yaw: float) -> Node3D:
+	var body: Node3D = _CartoonBody.new()
+	preload("res://npcs/crew_member.gd").dress(body, index)
+	root.add_child(body)
+	body.position = at
+	body.rotation.y = yaw
+	body.call("build")
+	# The crew's CharacterLife keeps them angry: a furious grin.
+	body.set("mood", "angry")
+	return body
+
+
+## Starts a gesture and runs the body's animation a little way into it, so the
+## render catches it held.
+func _hold_gesture(body: Node3D, gesture_name: String) -> void:
+	if gesture_name == "":
+		return
+	body.call("gesture", gesture_name)
+	for _step: int in 30:
+		body.call("_physics_process", 1.0 / 60.0)
 
 
 ## Every surface pattern (props/surfaces.gd): a 2 m cube of each with its name,
