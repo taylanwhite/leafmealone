@@ -13,6 +13,7 @@ const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 const _Grass = preload("res://props/grass.gd")
+const _Surfaces = preload("res://props/surfaces.gd")
 
 ## The street runs along x in front of the yard.
 const SIDEWALK_NEAR := Vector2(20.3, 22.3)
@@ -21,7 +22,8 @@ const SIDEWALK_FAR := Vector2(31.7, 33.7)
 const STREET_LENGTH: float = 260.0
 const ASPHALT := Color(0.3, 0.3, 0.32)
 const CONCRETE := Color(0.72, 0.7, 0.66)
-const LINE_YELLOW := Color(0.93, 0.78, 0.3)
+## Center-line dashes, meters long, on a period of twice that (props/surfaces.gd "road").
+const DASH: float = 3.0
 const HEDGE := Color(0.24, 0.42, 0.22)
 const PICKET := Color(0.92, 0.9, 0.84)
 const WALLS: Array[Color] = [
@@ -76,11 +78,10 @@ static func dress(zone: Node3D, seed_value: int) -> void:
 static func _street(root: Node3D) -> void:
 	var center := (STREET.x + STREET.y) * 0.5
 	var width := STREET.y - STREET.x
-	_LowPoly.paint(_LowPoly.box(root, Vector3(STREET_LENGTH, 0.1, width), Vector3(0.0, -0.04, center), ASPHALT), "asphalt")
-	# Dashed double center line.
-	for x: float in range(-int(STREET_LENGTH * 0.5), int(STREET_LENGTH * 0.5), 6):
-		for offset: float in [-0.12, 0.12]:
-			_LowPoly.box(root, Vector3(3.0, 0.02, 0.1), Vector3(float(x) + 1.5, 0.02, center + offset), LINE_YELLOW)
+	# Asphalt with a dashed double center line, painted by the road surface.
+	var street := _LowPoly.box(root, Vector3(STREET_LENGTH, 0.1, width), Vector3(0.0, -0.04, center), ASPHALT)
+	street.name = "Street"
+	_LowPoly.paint(street, "road", _Surfaces.road_params("double_yellow", width * 0.5, DASH))
 	for span: Vector2 in [SIDEWALK_NEAR, SIDEWALK_FAR]:
 		_LowPoly.paint(_LowPoly.box(root, Vector3(STREET_LENGTH, 0.16, span.y - span.x), Vector3(0.0, 0.02, (span.x + span.y) * 0.5), CONCRETE), "concrete")
 	# Curbs: a lip between each sidewalk and the road.
@@ -196,8 +197,9 @@ static func _fence_panel(root: Node3D, at: Vector3) -> void:
 	fence.position = at
 
 
-## A straight road from one point to another on the ground: asphalt, a dashed
-## double center line, and optionally curbs and sidewalks on both sides.
+## A straight road from one point to another on the ground: asphalt with a
+## dashed double center line painted on (one mesh), and optionally curbs and
+## sidewalks on both sides.
 static func road(root: Node3D, from: Vector3, to: Vector3, width: float = 8.8, sidewalks: bool = true) -> void:
 	var holder := Node3D.new()
 	holder.name = "Road"
@@ -206,10 +208,9 @@ static func road(root: Node3D, from: Vector3, to: Vector3, width: float = 8.8, s
 	var length := flat.length()
 	holder.position = (from + to) * 0.5
 	holder.rotation.y = atan2(-flat.z, flat.x)
-	_LowPoly.paint(_LowPoly.box(holder, Vector3(length, 0.1, width), Vector3(0.0, -0.04, 0.0), ASPHALT), "asphalt")
-	for x: float in range(-int(length * 0.5), int(length * 0.5) - 3, 6):
-		for offset: float in [-0.12, 0.12]:
-			_LowPoly.box(holder, Vector3(3.0, 0.02, 0.1), Vector3(float(x) + 1.5, 0.02, offset), LINE_YELLOW)
+	# The center line is painted by the road surface; a stub too short for one dash gets none.
+	var lines := "double_yellow" if length >= DASH * 2.0 else "none"
+	_LowPoly.paint(_LowPoly.box(holder, Vector3(length, 0.1, width), Vector3(0.0, -0.04, 0.0), ASPHALT), "road", _Surfaces.road_params(lines, width * 0.5, DASH))
 	if not sidewalks:
 		return
 	for side: float in [-1.0, 1.0]:

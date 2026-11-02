@@ -100,7 +100,8 @@ static func _visit(node: Node) -> void:
 
 ## Paint every plain mesh with a procedural surface (props/surfaces.gd), lit and
 ## matte like painted toys. Its own color is the base. Safe to call again after a
-## mesh is tagged: the first color it had is remembered.
+## mesh is tagged: the first color it had is remembered. Metas "surface_params"
+## (Vector4) and "surface_accent" (Color) tune the pattern when present.
 static func _shade(mesh: MeshInstance3D) -> void:
 	if mesh.has_meta("keep_material"):
 		return
@@ -116,7 +117,9 @@ static func _shade(mesh: MeshInstance3D) -> void:
 		base = source.albedo_color
 		mesh.set_meta("surface_base", base)
 	var surface := str(mesh.get_meta("surface", _surface_by_name(mesh)))
-	mesh.material_override = _Surfaces.material(surface, base)
+	var accent: Color = mesh.get_meta("surface_accent", Color(0, 0, 0, 0))
+	var params: Vector4 = mesh.get_meta("surface_params", Vector4.ZERO)
+	mesh.material_override = _Surfaces.material(surface, base, accent, params)
 
 
 static func _surface_by_name(mesh: MeshInstance3D) -> String:

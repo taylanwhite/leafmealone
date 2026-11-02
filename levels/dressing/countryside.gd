@@ -11,8 +11,11 @@ extends RefCounted
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
+const _Surfaces = preload("res://props/surfaces.gd")
 const ASPHALT := Color(0.3, 0.3, 0.32)
-const LINE_YELLOW := Color(0.93, 0.78, 0.3)
+## The center line's dashes: longer and further apart than a town street's.
+const DASH: float = 4.0
+const DASH_PERIOD: float = 12.0
 const GRASS := Color(0.42, 0.52, 0.3)
 const FENCE := Color(0.55, 0.42, 0.3)
 const CROWNS: Array[String] = ["orange", "red", "yellow", "rust", "turning"]
@@ -84,8 +87,5 @@ static func _road(root: Node3D, from: Vector2, to: Vector2) -> void:
 	var length := flat.length()
 	holder.position = Vector3((from.x + to.x) * 0.5, 0.0, (from.y + to.y) * 0.5)
 	holder.rotation.y = atan2(-flat.y, flat.x)
-	_LowPoly.paint(_LowPoly.box(holder, Vector3(length + 2.0, 0.1, 8.0), Vector3(0.0, -0.06, 0.0), ASPHALT), "asphalt")
-	var x := -length * 0.5
-	while x < length * 0.5 - 4.0:
-		_LowPoly.box(holder, Vector3(4.0, 0.02, 0.14), Vector3(x + 2.0, 0.0, 0.0), LINE_YELLOW)
-		x += 12.0
+	# One mesh: the road surface paints the single dashed line (props/surfaces.gd "road").
+	_LowPoly.paint(_LowPoly.box(holder, Vector3(length + 2.0, 0.1, 8.0), Vector3(0.0, -0.06, 0.0), ASPHALT), "road", _Surfaces.road_params("single_yellow", 4.0, DASH, DASH_PERIOD))

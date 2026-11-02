@@ -12,12 +12,16 @@ const _SharedLook = preload("res://levels/shared_look.gd")
 
 
 ## Say what node (and every mesh under it) is made of, and repaint it now.
-static func paint(node: Node, surface: String) -> Node:
+## params and accent tune the pattern (props/surfaces.gd: road lines, lawn
+## stripes, herringbone pavers, ...); left out, the pattern's defaults.
+static func paint(node: Node, surface: String, params := Vector4.ZERO, accent := Color(0, 0, 0, 0)) -> Node:
 	var meshes: Array[Node] = node.find_children("*", "MeshInstance3D", true, false)
 	if node is MeshInstance3D:
 		meshes.append(node)
 	for mesh: Node in meshes:
 		mesh.set_meta("surface", surface)
+		mesh.set_meta("surface_params", params)
+		mesh.set_meta("surface_accent", accent)
 		_SharedLook.restyle(mesh)
 	return node
 

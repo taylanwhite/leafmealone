@@ -140,3 +140,11 @@ season_foliage={
 "type": "color",
 "value": Color(1, 1, 1, 0)
 }
+season_snow={
+"type": "float",
+"value": 0.0
+}
+season_bloom={
+"type": "float",
+"value": 0.0
+}
