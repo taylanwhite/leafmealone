@@ -15,8 +15,8 @@ extends SceneTree
 ## contract, the HouseSpec metas, gutter and eave clearance, and the triangle
 ## budget (levels/town/house_builder.gd check()); and
 ## that every neighborhood style (levels/town/hood_styles.gd) only names
-## archetypes that exist, none of them neighbors-only for a job house.
-## Exits 1 on any failure.
+## archetypes that exist, none of them neighbors-only for a job house; and runs
+## tools/prop_check.gd (the prop catalog). Exits 1 on any failure.
 
 const _MeshKit: Script = preload("res://props/mesh_kit.gd")
 const _HouseKit: Script = preload("res://props/house_kit.gd")
@@ -62,6 +62,8 @@ func _init() -> void:
 	failed = not _check_houses() or failed
 	_HouseKit.set("audit", false)
 	failed = not _check_styles() or failed
+	# The prop catalog: budgets, winding, place(), styles' kinds, sign words, batching.
+	failed = not preload("res://tools/prop_check.gd").run() or failed
 	quit(1 if failed else 0)
 
 
