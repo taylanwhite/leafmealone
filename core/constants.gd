@@ -680,28 +680,40 @@ const TOWN_LAMP_SPACING: float = 36.0
 const TOWN_PEDESTRIANS_PER_STREET: int = 3
 ## Country trees scattered on the open land between the store and the streets.
 const TOWN_COUNTRY_TREES: int = 90
+## The town's grass runs this many meters past TOWN_BOUNDS on every side (only
+## up to the border's own ground on the +Z side).
+const TOWN_GROUND_MARGIN: float = 250.0
 
 ## Homie Depot's lot, reserved by whoever builds there (gap-specs/critic.md C28), in
 ## StoreZone space (x, z), so shops, art and driving never stack two things on one
 ## spot. SHOP_SITES above stays the shops' own source of counters and buy areas;
 ## each shop's reservation here covers its SHOP_SITES area and counter (the
-## townmap test checks both, and that no two reservations overlap). "at" and
-## "yaw" place the thing; rects with no "at" are keep-clear zones.
-## Owners: store (the base dressing), shops, art, driving.
+## garden center's and Rusty's are that area itself), and the townmap test
+## checks both, that no two reservations overlap, and that the store's fixed
+## pieces (levels/dressing/store_dressing.gd's cars, lamps, tree islands and
+## cart corral, and the job board) sit inside "store" reservations and clear of
+## everyone else's. "at" and "yaw" place the thing; rects with no "at" are
+## keep-clear zones. Owners: store (the base dressing), shops, art, driving.
 const STORE_LAYOUT: Dictionary = {
 	"building": {"owner": "store", "rect": Rect2(-34.0, -19.0, 14.0, 34.0)},
 	"lobby": {"owner": "art", "rect": Rect2(-20.0, -19.0, 8.0, 34.0)},
 	"checkout": {"owner": "store", "rect": Rect2(-2.5, -10.6, 5.0, 4.2)},
+	"job_board": {"owner": "store", "rect": Rect2(-6.0, -9.1, 2.8, 1.0)},
 	"lot_gate": {"owner": "store", "rect": Rect2(-2.0, -18.0, 4.0, 4.0)},
 	"crew_camp": {"owner": "store", "rect": Rect2(-9.2, -16.8, 2.4, 6.6)},
 	"back_room": {"owner": "shops", "rect": Rect2(-11.6, -19.4, 2.2, 2.2)},
 	"snak_o_matic": {"owner": "shops", "rect": Rect2(-12.0, 3.0, 3.0, 3.0)},
-	"garden_center": {"owner": "shops", "rect": Rect2(8.5, -16.5, 9.0, 7.0)},
-	"rustys": {"owner": "shops", "rect": Rect2(12.5, -8.0, 7.5, 12.0)},
+	"garden_center": {"owner": "shops", "rect": SHOP_SITES["homie_depot"]["area"]},
+	"rustys": {"owner": "shops", "rect": SHOP_SITES["rustys"]["area"]},
 	"lunch_money": {"owner": "shops", "rect": Rect2(0.6, 13.5, 6.4, 4.5)},
 	"spawns": {"owner": "store", "rect": Rect2(-1.5, 4.5, 5.0, 3.0)},
 	"cart_corral": {"owner": "store", "rect": Rect2(-8.4, 7.6, 1.8, 4.8)},
-	"parking_west": {"owner": "store", "rect": Rect2(-9.5, 13.0, 9.9, 5.0)},
+	# Three parked cars, a lamp and a tree island.
+	"parking_west": {"owner": "store", "rect": Rect2(-11.6, 13.0, 12.0, 7.2)},
+	"lamp_lunch": {"owner": "store", "rect": Rect2(7.4, 16.6, 0.8, 0.8)},
+	# The corner tree islands, each with a lamp at its inner corner.
+	"corner_ne": {"owner": "store", "rect": Rect2(16.6, 16.6, 3.6, 3.6)},
+	"corner_se": {"owner": "store", "rect": Rect2(16.6, -20.2, 3.6, 3.6)},
 	"truck_pad": {"owner": "driving", "rect": Rect2(7.9, 4.4, 4.2, 7.2)},
 	# Chefty's way out to the road: nothing may stand here.
 	"chefty_exit": {"owner": "driving", "rect": Rect2(12.2, 4.4, 8.3, 7.4)},

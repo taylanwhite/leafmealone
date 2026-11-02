@@ -49,7 +49,7 @@ static func dress(world: Node3D) -> Node3D:
 	var root := Node3D.new()
 	root.name = "TownDressing"
 	world.add_child(root)
-	_ground(root)
+	_ground(root, world)
 	_roads(root)
 	_square(root)
 	_street_signs(root)
@@ -72,10 +72,20 @@ static func dress(world: Node3D) -> Node3D:
 	return root
 
 
-## Grass to the horizon under the whole town, a hair below the lot's floor.
-static func _ground(root: Node3D) -> void:
+## Grass to the horizon under the whole town, a hair below the lot's floor. Its
+## +Z edge stops where the border's own ground begins (both tops sit at y -0.02,
+## so an overlap would z-fight grass against sand).
+static func _ground(root: Node3D, world: Node3D) -> void:
 	var bounds := TownMap.TOWN_BOUNDS
-	var ground := _LowPoly.box(root, Vector3(bounds.size.x + 500.0, 0.2, bounds.size.z + 500.0), Vector3(bounds.get_center().x, -0.12, bounds.get_center().z), GRASS)
+	var margin := Constants.TOWN_GROUND_MARGIN
+	var start := Vector2(bounds.position.x - margin, bounds.position.z - margin)
+	var end := Vector2(bounds.end.x + margin, bounds.end.z + margin)
+	var border := world.get_node_or_null("BorderZone") as Node3D
+	if border != null and border.position.z > bounds.end.z:
+		end.y = minf(end.y, border.position.z - _Surroundings.GROUND_SIZE * 0.5)
+	var size := end - start
+	var center := (start + end) * 0.5
+	var ground := _LowPoly.box(root, Vector3(size.x, 0.2, size.y), Vector3(center.x, -0.12, center.y), GRASS)
 	ground.name = "Ground"
 	_LowPoly.paint(ground, "grass")
 

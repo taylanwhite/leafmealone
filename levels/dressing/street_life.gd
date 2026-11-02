@@ -8,6 +8,7 @@ extends RefCounted
 ## every peer sees the same street.
 
 const _Doodles = preload("res://props/doodles.gd")
+const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
 const CHALK_KINDS: Array[String] = ["smiley", "stick_figure", "sun", "house", "hearts"]
 
 
@@ -46,7 +47,9 @@ static func dress_store(zone: Node3D) -> void:
 	# Notes stuck to the checkout counter, and posters on the parking lights.
 	for index: int in 3:
 		_Doodles.place_paper(root, _Doodles.note(30 + index), Vector3(-0.9 + float(index) * 0.35, 0.72 + rng.randf_range(-0.08, 0.08), -7.5), Vector3.BACK, Vector2(0.19, 0.19), rng.randf_range(-0.3, 0.3))
-	for lamp: Vector3 in [Vector3(17.0, 0.0, 17.0), Vector3(17.0, 0.0, -17.0), Vector3(4.0, 0.0, 17.0)]:
+	for lamp: Vector3 in _StoreDressing.LOT_LAMPS:
+		if lamp.x < 0.0:
+			continue
 		_Doodles.place_paper(root, _Doodles.poster(int(lamp.x + lamp.z) + 500), lamp + Vector3(0.0, 2.1, -0.1), Vector3.FORWARD, Vector2(0.3, 0.41), rng.randf_range(-0.12, 0.12))
 
 

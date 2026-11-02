@@ -34,6 +34,8 @@ const TOUR: Dictionary = {
 		["checkout", Vector3(0.0, 1.6, -5.2), Vector3(0.0, 0.8, -7.6)],
 		["job_board", Vector3(-4.0, 1.7, -5.6), Vector3(-4.6, 1.5, -8.6)],
 		["parking", Vector3(10.0, 1.8, 14.0), Vector3(3.0, 0.0, 9.0)],
+		["parking_lot_rows", Vector3(4.0, 3.0, 6.0), Vector3(1.0, 0.5, 17.0)],
+		["garden_corner", Vector3(8.0, 4.0, -2.0), Vector3(18.5, 0.5, -18.0)],
 		["crew_camp", Vector3(-3.0, 1.9, -9.5), Vector3(-8.2, 0.5, -13.5)],
 		["crew_camp_close", Vector3(-5.6, 1.4, -12.0), Vector3(-8.0, 0.4, -13.8)],
 	],

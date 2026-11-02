@@ -15,6 +15,11 @@ extends Node
 
 const _Fallback = preload("res://levels/town/fallback_house.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
+const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
+const _JobBoard = preload("res://levels/job_board.gd")
+const _Surroundings = preload("res://levels/dressing/surroundings.gd")
+## The job board's posts stand 2.5 m apart (levels/job_board.gd _build_board).
+const JOB_BOARD_FOOTPRINT := Vector2(2.7, 0.4)
 ## Which STORE_LAYOUT reservations hold each shop's counter and buy area.
 const SHOP_RESERVATIONS: Dictionary = {
 	"homie_depot": ["checkout", "garden_center"],
@@ -206,6 +211,39 @@ func _check_store(problems: Array[String]) -> void:
 			if not rects.any(func(rect: Rect2) -> bool: return rect.grow(0.01).encloses(area)):
 				uncovered.append("%s area" % shop)
 	_verdict(uncovered.is_empty(), "every shop's counter and area reserved (missing: %s)" % [uncovered], problems)
+	# The pieces already standing on the lot: each inside a "store" reservation
+	# and clear of every other owner's, so a new piece can't land on one.
+	var misplaced: Array[String] = []
+	for fixture: Array in _store_fixtures():
+		var footprint: Rect2 = fixture[1]
+		var held := false
+		for entry_name: Variant in names:
+			var entry: Dictionary = layout[entry_name]
+			var rect: Rect2 = entry["rect"]
+			if str(entry["owner"]) == "store":
+				held = held or rect.grow(0.01).encloses(footprint)
+			elif rect.intersects(footprint):
+				misplaced.append("%s on %s" % [fixture[0], entry_name])
+		if not held:
+			misplaced.append("%s unreserved" % fixture[0])
+	_verdict(misplaced.is_empty(), "the lot's fixed pieces reserved and clear (%s)" % [misplaced], problems)
+
+
+## [name, footprint (x, z)] for every fixed piece the store dressing and the job
+## board put on Homie Depot's lot.
+func _store_fixtures() -> Array:
+	var fixtures: Array = []
+	var add := func(label: String, at: Vector3, size: Vector2) -> void:
+		fixtures.append([label, Rect2(Vector2(at.x, at.z) - size * 0.5, size)])
+	for at: Vector3 in _StoreDressing.PARKED_CARS:
+		add.call("car %s" % at, at, _StoreDressing.CAR_FOOTPRINT)
+	for at: Vector3 in _StoreDressing.LOT_LAMPS:
+		add.call("lamp %s" % at, at, _StoreDressing.LAMP_FOOTPRINT)
+	for at: Vector3 in _StoreDressing.TREE_ISLANDS:
+		add.call("tree island %s" % at, at, Vector2.ONE * _StoreDressing.TREE_ISLAND_SIZE)
+	add.call("cart corral", _StoreDressing.CART_CORRAL_AT, _StoreDressing.CART_CORRAL_FOOTPRINT)
+	add.call("job board", _JobBoard.BOARD_AT, JOB_BOARD_FOOTPRINT)
+	return fixtures
 
 
 func _check_colliders(world: Node, problems: Array[String]) -> void:
@@ -224,6 +262,15 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 	var query := PhysicsRayQueryParameters3D.create(Vector3(200.0, 5.0, 200.0), Vector3(200.0, -5.0, 200.0), 1)
 	var hit := space.intersect_ray(query)
 	_verdict(not hit.is_empty() and absf(float((hit["position"] as Vector3).y) + 0.02) < 0.05, "the town's ground is solid out in the country (%s)" % hit.get("position", "nothing"), problems)
+	# The town's grass and the border's sand share a height, so they must not overlap.
+	var ground := world.get_node_or_null("TownDressing/Ground") as VisualInstance3D
+	var border := world.get_node_or_null("BorderZone") as Node3D
+	if ground != null and border != null:
+		var reach := (ground.global_transform * ground.get_aabb()).end.z
+		var sand := border.global_position.z - _Surroundings.GROUND_SIZE * 0.5
+		_verdict(reach <= sand + 0.01, "the town's grass stops at the border's sand (z %.1f, sand from %.1f)" % [reach, sand], problems)
+	else:
+		_verdict(false, "the town's ground and the border zone exist", problems)
 
 
 ## The house the town shows at a slot is the house the job yard builds there:
