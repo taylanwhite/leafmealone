@@ -30,7 +30,11 @@ uniform bool seasonal = true;
 varying float sway;
 varying float world_up;
 
+// Clamped first: MSAA can extrapolate a vertex color a hair below zero at a
+// triangle's edge, and pow() of a negative is NaN, which glow smears into a
+// white flare.
 vec3 to_linear(vec3 c) {
+	c = max(c, vec3(0.0));
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
 
@@ -77,6 +81,7 @@ shader_type spatial;
 render_mode unshaded, fog_disabled, cull_back, shadows_disabled;
 
 vec3 to_linear(vec3 c) {
+	c = max(c, vec3(0.0));
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
 

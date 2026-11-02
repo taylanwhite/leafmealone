@@ -23,6 +23,7 @@ const _SharedLook = preload("res://levels/shared_look.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
+const _Stylized = preload("res://props/stylized.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _HouseBuilder = preload("res://levels/town/house_builder.gd")
 const _Archetypes = preload("res://levels/town/house_archetypes.gd")
@@ -98,7 +99,18 @@ func _build(root: Node3D) -> void:
 			_Trees.spawn(root, Vector3(0.0, 0.0, -9.0), 9.0, "pine", "", 0)
 			_Trees.spawn(root, Vector3(-9.0, 0.0, -8.0), 8.0, "pine", "", 1)
 		"tree":
-			_Trees.spawn(root, Vector3.ZERO, 7.0, str(_options.get("kind", "broadleaf")), str(_options.get("crown", "orange")), int(_options.get("variant", "0")))
+			# --far=1 shows the far LOD mesh up close instead.
+			if str(_options.get("far", "0")) == "1":
+				var kind := str(_options.get("kind", "broadleaf"))
+				root.add_child(_Stylized.instance(_Trees.mesh_for(kind, str(_options.get("crown", "orange")), int(_options.get("variant", "0")), _season, true), _Trees.material_options(kind)))
+			else:
+				_Trees.spawn(root, Vector3.ZERO, 7.0, str(_options.get("kind", "broadleaf")), str(_options.get("crown", "orange")), int(_options.get("variant", "0")))
+		"trees_new":
+			_trees_new(root)
+		"trees_seasons":
+			_trees_seasons(root)
+		"tree_lod":
+			_tree_lod(root)
 		"characters":
 			for index: int in 5:
 				var body: Node3D = _CartoonBody.new()
@@ -189,6 +201,88 @@ func _build(root: Node3D) -> void:
 			_PropCatalog.place(root, kind, Transform3D(Basis.IDENTITY, Vector3(0.0, lift, 0.0)), tint, {"season": _season, "lights": str(_options.get("lights", "classic"))})
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
+
+
+## The new tree kinds and forms (props/trees.gd). Front row, spawned so they
+## wear --season: birch, willow and cypress in two crowns each. Back row, fixed
+## forms whatever the season: bare broadleaf, birch and willow, the snowy pine,
+## and the spring and summer crowns.
+func _trees_new(root: Node3D) -> void:
+	var front: Array = [["birch", "yellow"], ["birch", "orange"], ["willow", "yellow"], ["willow", "turning"], ["cypress", ""], ["cypress", "", 2]]
+	for index: int in front.size():
+		var entry: Array = front[index]
+		var at := Vector3(float(index) * 8.0 - 20.0, 0.0, 0.0)
+		_Trees.spawn(root, at, 7.0, entry[0], entry[1], int(entry[2]) if entry.size() > 2 else index)
+		_label(root, "%s %s" % [entry[0], entry[1]], at + Vector3(0.0, 8.2, 0.0), 0.012)
+	var back: Array = [["broadleaf", "red", "red", "bare"], ["birch", "yellow", "yellow", "bare"], ["willow", "yellow", "yellow", "bare"], ["pine", "", "", "snowy"], ["broadleaf", "red", "blossom_pink", "full"], ["broadleaf", "yellow", "blossom_white", "full"], ["broadleaf", "orange", "spring_green", "full"], ["broadleaf", "rust", "deep_green", "full"]]
+	for index: int in back.size():
+		var entry: Array = back[index]
+		var at := Vector3(float(index) * 8.0 - 28.0, 0.0, -14.0)
+		var mesh := _Trees.form_mesh(entry[0], entry[1], index, entry[2], entry[3])
+		_tree_mesh(root, mesh, entry[0], at, 7.0)
+		_label(root, "%s %s" % [entry[0], entry[3] if entry[3] != "full" else entry[2]], at + Vector3(0.0, 8.2, 0.0), 0.012)
+	root.set_meta("views", [
+		{"from": Vector3(4.0, 9.0, 34.0), "at": Vector3(-2.0, 3.5, -6.0), "fov": 55.0},
+		{"from": Vector3(-12.0, 4.0, 13.0), "at": Vector3(-12.0, 3.6, 0.0), "fov": 50.0},
+		{"from": Vector3(10.0, 4.0, 13.0), "at": Vector3(10.0, 3.6, 0.0), "fov": 50.0},
+		{"from": Vector3(-8.0, 7.0, 4.0), "at": Vector3(-8.0, 3.6, -14.0), "fov": 55.0},
+	])
+
+
+## Every tree kind through the year: one row per kind (broadleaf red and orange,
+## pine, birch, willow, cypress), one column per season (autumn, winter, spring,
+## summer, left to right), each a spawned tree turned with apply_season. Render
+## with --season=1 to see the snow settle too. Past ART_TREE_LOD_DISTANCE from the
+## camera (the back rows of the first view) trees show their far mesh, as in game.
+func _trees_seasons(root: Node3D) -> void:
+	var rows: Array = [["broadleaf", "red"], ["broadleaf", "orange"], ["pine", ""], ["birch", "yellow"], ["willow", "yellow"], ["cypress", ""]]
+	# --row=N builds just that row (in its place), to single one out.
+	var only := int(_options.get("row", "-1"))
+	for row: int in rows.size():
+		if only >= 0 and row != only:
+			continue
+		var entry: Array = rows[row]
+		for season: int in 4:
+			var at := Vector3((float(season) - 1.5) * 9.0, 0.0, -float(row) * 9.0)
+			# Spawned and turned with apply_season, the path the game takes at a turn.
+			var tree: Node3D = _Trees.spawn(root, at, 7.0, entry[0], entry[1], row)
+			tree.call("apply_season", season)
+			if row == 0:
+				_label(root, Seasons.IDS[season], at + Vector3(0.0, 8.4, 3.0), 0.02)
+	root.set_meta("views", [
+		{"from": Vector3(0.0, 24.0, 30.0), "at": Vector3(0.0, 2.0, -20.0), "fov": 55.0},
+		{"from": Vector3(-9.0, 6.0, 14.0), "at": Vector3(-9.0, 3.5, -6.0), "fov": 55.0},
+		{"from": Vector3(9.0, 6.0, 14.0), "at": Vector3(9.0, 3.5, -6.0), "fov": 55.0},
+		{"from": Vector3(0.0, 6.0, -20.0), "at": Vector3(0.0, 3.5, -40.0), "fov": 60.0},
+	])
+
+
+## Near and far LOD side by side for every kind in --season (near on the left
+## of each pair), seen from Constants.ART_TREE_LOD_DISTANCE, where the game swaps
+## them: the swap is invisible when each pair reads as twins.
+func _tree_lod(root: Node3D) -> void:
+	var kinds: Array = [["broadleaf", "red"], ["broadleaf", "yellow"], ["pine", ""], ["birch", "yellow"], ["willow", "yellow"], ["cypress", ""]]
+	for index: int in kinds.size():
+		var entry: Array = kinds[index]
+		var x := (float(index) - 2.5) * 14.0
+		var height := 8.5
+		_tree_mesh(root, _Trees.mesh_for(entry[0], entry[1], index, _season), entry[0], Vector3(x - 3.4, 0.0, 0.0), height)
+		_tree_mesh(root, _Trees.mesh_for(entry[0], entry[1], index, _season, true), entry[0], Vector3(x + 3.4, 0.0, 0.0), height)
+	var distance := Constants.ART_TREE_LOD_DISTANCE
+	root.set_meta("views", [
+		{"from": Vector3(0.0, 3.0, distance + 20.0), "at": Vector3(0.0, 4.0, 0.0), "fov": 70.0},
+		{"from": Vector3(-28.0, 2.0, distance), "at": Vector3(-28.0, 4.0, 0.0), "fov": 32.0},
+		{"from": Vector3(0.0, 2.0, distance), "at": Vector3(0.0, 4.0, 0.0), "fov": 32.0},
+		{"from": Vector3(28.0, 2.0, distance), "at": Vector3(28.0, 4.0, 0.0), "fov": 32.0},
+	])
+
+
+## One tree mesh as a plain instance (no LOD switching), height meters tall.
+func _tree_mesh(root: Node3D, mesh: Mesh, kind: String, at: Vector3, height: float) -> void:
+	var view := _Stylized.instance(mesh, _Trees.material_options(kind))
+	root.add_child(view)
+	view.position = at
+	view.scale = Vector3.ONE * height / _Trees.BUILD_HEIGHT
 
 
 ## The NICE BOYS in a row (docs/ART.md, "The NICE BOYS"): the head NICE BOY with

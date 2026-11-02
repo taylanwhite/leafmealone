@@ -952,6 +952,9 @@ const ART_TREE_FAR_MAX_TRIANGLES: int = 900
 ## Trees swap to their far mesh past this many meters (with this much fade margin).
 const ART_TREE_LOD_DISTANCE: float = 55.0
 const ART_TREE_LOD_MARGIN: float = 6.0
+## The day before a season turns, trees build their next season's meshes ahead,
+## spending at most about this many milliseconds a frame (one build always fits).
+const ART_TREE_PREWARM_MS_PER_FRAME: float = 4.0
 ## Props shorter than this are "small": they fade out sooner and cast no shadow.
 const ART_SMALL_PROP_HEIGHT: float = 0.7
 const ART_SMALL_PROP_RANGE: float = 60.0
