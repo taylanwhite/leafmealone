@@ -1,8 +1,9 @@
 extends PanelContainer
 
 ## Authority: local. The card at the end of a day (net/day/day_clock.gd): jobs,
-## cash, stars, the XP banked by sleeping, every rank-up and what it unlocked,
-## and what the town did overnight. Styled like the payout receipt.
+## cash, stars, the XP banked by sleeping, every rank-up (with its blurb) and what
+## it unlocked, and what the town did overnight, under a quip about how the day
+## went (Strings.summary_quip). Styled like the payout receipt.
 
 const _Strings = preload("res://ui/strings.gd")
 const PAPER := Color(0.97, 0.93, 0.84)
@@ -63,6 +64,8 @@ func show_summary(summary: Dictionary) -> void:
 	for child: Node in _rows.get_children():
 		child.queue_free()
 	_title.text = _Strings.UI["summary_title"] % int(summary.get("day", 1))
+	# How the day went, in one line. Every peer picks the same one from the summary.
+	_line(_Strings.summary_quip(summary), INK.lightened(0.25), 17)
 	_line(_Strings.UI["summary_jobs"] % int(summary.get("jobs", 0)), INK)
 	_line(_Strings.UI["summary_cash"] % int(summary.get("cash", 0)), INK)
 	_line(_Strings.UI["summary_stars"] % int(summary.get("stars", 0)), INK)
@@ -76,6 +79,7 @@ func show_summary(summary: Dictionary) -> void:
 	for rank_up: Variant in (summary.get("rank_ups", []) as Array):
 		var entry := rank_up as Dictionary
 		_line(_Strings.UI["summary_rank_up"] % str(entry.get("title", "")), GREEN, 22)
+		_line(_Strings.rank_blurb(int(entry.get("tier", 0))), INK.lightened(0.15), 15)
 		var unlock := str(entry.get("unlock", ""))
 		if unlock != "":
 			_line(_Strings.UI["summary_unlock"] % _Strings.unlock_name(unlock), INK)

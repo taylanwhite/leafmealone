@@ -201,6 +201,8 @@ func _heat() -> float:
 func _begin_chase() -> void:
 	_last_event_time = Net.server_time()
 	_set_phase(Phase.CHASE, "The NICE BOYS are here")
+	# The day summary's "raided" quip (Strings.summary_quip).
+	Campaign.note_day("raids", 1.0)
 	_spawn_crew()
 
 
@@ -225,6 +227,7 @@ func _close_cohort() -> void:
 		roster.append(peer_id)
 	if roster.is_empty():
 		return
+	Campaign.note_day("caught", float(roster.size()))
 	_rpc_cohort.rpc(_cohort_id, roster, _hazard_seed, Net.server_time())
 	var van := get_parent().get_node_or_null("Rides/Van")
 	if van != null:

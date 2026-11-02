@@ -110,7 +110,7 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 		1:
 			_play("warning")
 			_play("radio")
-			_show_caption(_Strings.UI["cue_radio"])
+			_show_caption(cue_line("radio", started))
 			_last_tick = -1
 			_clear_beacon()
 			_beacon = _BeaconScript.new()
@@ -120,13 +120,13 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 		2:
 			_clear_beacon()
 			_play("arrive")
-			_show_caption(_Strings.UI["cue_arrived"])
+			_show_caption(cue_line("arrived", started))
 			_flash = 1.0
 		_:
 			_clear_beacon()
 			if previous == 2:
 				_play("clear")
-				_show_caption(_Strings.UI["cue_clear"])
+				_show_caption(cue_line("clear", started))
 				_material.set_shader_parameter("tint", CLEAR_TINT)
 				_flash = 1.0
 
@@ -148,6 +148,12 @@ func _warning_frame(arrival: float) -> void:
 			_play("tick")
 	if _beacon != null:
 		_beacon.call("set_urgency", progress)
+
+
+## The caption for a cue (Strings.CUE_LINES), picked from the phase's server-time
+## start, which every peer has, so they all show the same line.
+static func cue_line(kind: String, started: float) -> String:
+	return _Strings.pick_seeded(_Strings.CUE_LINES.get(kind, []), int(started * 1000.0))
 
 
 func _show_caption(text: String) -> void:

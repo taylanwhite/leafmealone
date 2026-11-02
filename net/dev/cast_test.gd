@@ -10,11 +10,25 @@ extends Node
 ##   3. every pool has enough lines, no repeats, and the %s/%d slots FORMAT_ARGS says
 ##   4. a pool for every personality x mood, bill, text kind, keeper trigger, bark
 ##      kind, run cue, rank, day bucket, neighborhood, season, unlock, task and tool
-##   5. the humor guardrail (GUARDRAIL_PATTERNS) and "NICE BOYS" in capitals
+##   5. the humor guardrail (Guardrail.check, net/dev/guardrail.gd), which also
+##      wants "NICE BOYS" in capitals
 ##   6. player-facing sentences written inline in game code, outside ui/strings.gd
 ##      (report only for now; cast:3 moves them and makes this step fail)
 ##   7. Strings.homeowner_pool() resolves mood, bill and personality pools
 ##   8. Strings.summary_quip() picks the right bucket, the same line every time
+## Phase A, the lines in the game (cast:2, host):
+##  W1. Marty's line fits the moment (morning, greet or night, after_raid, open or
+##      closed; a morning greet keeps the after-raid line for the next greet) and
+##      every trigger's line is his own, shown in his caption
+##  W2. the town's texts come from TEXT_LINES: Marty's welcome, and each request in
+##      the client's own personality's voice with their address; the town save
+##      has rival_announced
+##  W3. run cues are a CUE_LINES line picked from the phase start, the same twice
+##  W4. the day summary card shows the quip and the rank-up's blurb
+##  W5. no hired hand is named for a nationality
+##  W6. (in phase C) the forced raid is tallied for the summary (Campaign.note_day)
+##  W7. the homeowner's reaction pool (homeowner.gd choose_pool, a seeded rng): their
+##      personality's voice, bill_water and breakage bills as often as Constants says
 ## Phase B, the look (host, a scratch node outside the world):
 ##   9. a plain cartoon body's triangles, reported against the character budget
 ##  10. the head NICE BOY and a NICE BOY, dressed by CrewMember.dress(): outfit,
@@ -37,6 +51,10 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CrewMember = preload("res://npcs/crew_member.gd")
 const _NiceSeal = preload("res://props/nice_seal.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
+const _RunCues = preload("res://ui/run_cues.gd")
+const _Homeowner = preload("res://npcs/homeowner.gd")
+## Step W7: how many seeded reactions to roll for each homeowner pool case.
+const POOL_ROLLS: int = 400
 
 ## Steps 9-10: the outfit and its triangles (cast:4).
 const PHASE_B_LOOK: bool = true
@@ -51,37 +69,10 @@ const CLIENT_WAIT_SECONDS: float = 15.0
 ## After the crew arrives, this long for the spawn to reach the client.
 const CREW_SETTLE_SECONDS: float = 1.5
 
-## Words and names that never appear in player-facing text (docs/GAME.md, "Rules
-## for agents working on content"; CLAUDE.md). One pattern per line, so a writer
-## can see why a line failed. Never weaken one to make a line pass without Taylan.
-## net/dev/guardrail.gd's PATTERNS, once it exists, are checked as well.
-const GUARDRAIL_PATTERNS: Array[String] = [
-	"\\bICE\\b", # the real agency; case-sensitive, so NICE never reads as ...ICE
-	"(?i)immigra",
-	"(?i)illegal",
-	"(?i)alien",
-	"(?i)deport",
-	"(?i)\\bvisa\\b",
-	"(?i)green card",
-	"(?i)citizen",
-	"(?i)papers,? please",
-	"(?i)your papers",
-	"(?i)go back to",
-	"(?i)where are you from",
-	"(?i)speak english",
-	"(?i)accent",
-	"(?i)ethnic",
-	"(?i)border patrol",
-	"(?i)homeland",
-	"(?i)customs",
-	"(?i)\\bpolice\\b",
-	"(?i)sheriff",
-	"(?i)\\bcops?\\b",
-	"(?i)\\b(DHS|CBP|USCIS|FBI|DEA|ATF|IRS|INS)\\b",
-	"(?i)ice cream", # the van is never an ice cream truck
-	"Nice Boys?", # canon casing is "NICE BOYS"; lowercase "nice boys" is the pun, and fine
-]
-const GUARDRAIL_SHARED_PATH := "res://net/dev/guardrail.gd"
+## The humor guardrail is one list, net/dev/guardrail.gd (critic C31): every
+## string is run through Guardrail.check(), which also holds "NICE BOYS" casing.
+## Never weaken a pattern there to make a line pass without Taylan; reword the line.
+const _Guardrail = preload("res://net/dev/guardrail.gd")
 
 ## Unfinished text. A [NAME] or [SOME NAME] slot starts with two capitals, so
 ## one-letter key labels like "[E]" are not caught.
@@ -103,8 +94,8 @@ const TEXT_KINDS: Array[String] = [
 ]
 const BILL_POOLS: Array[String] = ["bill_hose", "bill_gnome", "bill_medical", "bill_water", "paid"]
 const CUE_KINDS: Array[String] = ["radio", "arrived", "clear"]
-## Until npcs/store_clerk.gd and npcs/crew_member.gd define TRIGGERS and BARK_KINDS
-## (cast:2, cast:6), these are the lists every keeper and the crew must cover.
+## Fallbacks for npcs/store_clerk.gd TRIGGERS and npcs/crew_member.gd BARK_KINDS
+## (BARK_KINDS comes with cast:6): the lists every keeper and the crew must cover.
 const DEFAULT_KEEPER_TRIGGERS: Array[String] = ["greet", "morning", "night", "open", "buy", "after_raid", "closed"]
 const DEFAULT_BARK_KINDS: Array[String] = ["arrive", "spot", "chase", "lost", "search", "pile", "caught", "bonked"]
 
@@ -126,7 +117,6 @@ static var look: Dictionary = {}
 
 var _started: bool = false
 var _problems: Array[String] = []
-var _guardrail: Array[RegEx] = []
 var _placeholders: Array[RegEx] = []
 var _slot: RegEx
 
@@ -144,6 +134,7 @@ func _run() -> void:
 	var counts := _audit_table()
 	_coverage()
 	_api()
+	_wiring()
 	var inline := _sweep_inline()
 	if PHASE_B_LOOK:
 		await _phase_b()
@@ -249,6 +240,9 @@ func _phase_c() -> void:
 		member.set("_stun_left", 60.0)
 	print("[CastTest] step 14-15: %d NICE BOYS arrived, frozen" % crew.size())
 	_look(crew.size() == Constants.HEAT_MAX_CREW, "14 a full-heat raid brings %d NICE BOYS, not %d" % [Constants.HEAT_MAX_CREW, crew.size()])
+	# W6 (cast:2): the raid counts toward the day summary's "raided" quip.
+	var raids := float((Campaign.get("_day_tally") as Dictionary).get("raids", 0.0))
+	_wire(raids >= 1.0, "W6 the raid is tallied for the day summary (Campaign.note_day 'raids' is %.0f)" % raids)
 	# Let the spawn reach the client before the reports are written.
 	await get_tree().create_timer(CREW_SETTLE_SECONDS).timeout
 	# Step 16: outfit, name tag, no capsule. The day must not be 1, the client's
@@ -294,32 +288,25 @@ func _fail(rule: String, detail: String) -> void:
 
 
 func _compile() -> void:
-	var patterns: Array[String] = []
-	patterns.append_array(GUARDRAIL_PATTERNS)
-	if ResourceLoader.exists(GUARDRAIL_SHARED_PATH):
-		var shared: Variant = (load(GUARDRAIL_SHARED_PATH) as Script).get("PATTERNS")
-		if shared is Array:
-			for pattern: Variant in shared:
-				if pattern is String and not patterns.has(pattern):
-					patterns.append(pattern)
-	for pattern: String in patterns:
-		_guardrail.append(_regex(pattern))
 	for pattern: String in PLACEHOLDER_PATTERNS:
 		_placeholders.append(_regex(pattern))
 	_slot = _regex(SLOT_PATTERN)
-	# The patterns themselves: each bad sample must trip one, no good sample may.
+	# The guardrail's own samples (Guardrail.SHOULD_HIT and SHOULD_PASS), then the
+	# cast's: each bad sample must trip it, no good sample may.
+	for failure: Variant in _Guardrail.self_check():
+		_fail("0 guardrail self-check", str(failure))
 	for bad: String in ["Here comes ICE.", "the Nice Boys", "Papers, please!", "an ice cream van", "the police"]:
-		if not _trips(_guardrail, bad):
+		if _Guardrail.is_clean(bad):
 			_fail("0 guardrail misses", bad)
 	for bad: String in ["Hi [CLERK NAME]", "Hi [NAME]", "a stand-in line", "TODO: joke"]:
 		if not _trips(_placeholders, bad):
 			_fail("0 unfinished misses", bad)
 	for good: String in ["the NICE BOYS", "Nice work, nice boys.", "COURTESY NOTICE", "Another happy customer!", "[E]  %s"]:
-		if _trips(_guardrail, good) or _trips(_placeholders, good):
+		if not _Guardrail.is_clean(good) or _trips(_placeholders, good):
 			_fail("0 pattern too eager", good)
 	if _slots("%s at %d, %.1f%% and 25% more") != 3:
 		_fail("0 slot count", "%s at %d, %.1f%% and 25% more")
-	print("[CastTest] %d guardrail patterns, checked against samples" % _guardrail.size())
+	print("[CastTest] %d guardrail patterns (net/dev/guardrail.gd), checked against samples" % _Guardrail.PATTERNS.size())
 
 
 func _trips(patterns: Array[RegEx], text: String) -> bool:
@@ -355,9 +342,8 @@ func _audit_table() -> Vector2i:
 		for regex: RegEx in _placeholders:
 			if regex.search(text) != null:
 				_fail("2 unfinished", "%s: %s" % [path, text])
-		for regex: RegEx in _guardrail:
-			if regex.search(text) != null:
-				_fail("5 guardrail /%s/" % regex.get_pattern(), "%s: %s" % [path, text])
+		for hit: Variant in _Guardrail.check(text):
+			_fail("5 guardrail %s" % str(hit), "%s: %s" % [path, text])
 		var exact: Variant = _Strings.FORMAT_ARGS.get(path)
 		if exact is Array and _slots(text) != int(exact[0]):
 			_fail("3 slots", "%s wants %d, has %d: %s" % [path, int(exact[0]), _slots(text), text])
@@ -559,6 +545,169 @@ func _api() -> void:
 func _check(condition: bool, what: String) -> void:
 	if not condition:
 		_fail("api", what)
+
+
+# ---------------------------------------------------------------- phase A, steps W1-W5
+
+
+## Steps W1-W5 (cast:2): the lines are wired into the game, on the host.
+func _wiring() -> void:
+	var before := _problems.size()
+	# W1: Marty picks his line by what's happening, and shows it over his head.
+	var clerk := get_tree().get_first_node_in_group("store_clerk")
+	_wire(clerk != null, "W1 Marty is in the world")
+	if clerk != null:
+		var marty: Dictionary = _Strings.KEEPER_LINES["marty"]
+		var clock := get_tree().get_first_node_in_group("day_clock")
+		var morning := clock != null and float(clock.call("hour")) < Constants.CLERK_MORNING_UNTIL_HOUR
+		_wire(not morning or str(clerk.call("greet_trigger")) == "morning", "W1 the day's first greet before noon is 'morning', not '%s'" % clerk.call("greet_trigger"))
+		clerk.call("_greet")
+		var quiet := clock != null and bool(clock.call("is_quiet_hours"))
+		_wire(str(clerk.call("greet_trigger")) == ("night" if quiet else "greet"), "W1 the next greet is '%s', not '%s'" % ["night" if quiet else "greet", clerk.call("greet_trigger")])
+		clerk.call("_on_zone_changed", Net.local_peer_id(), Net.Zone.BORDER)
+		_wire(str(clerk.call("greet_trigger")) == "after_raid", "W1 a greet after a trip over the border is 'after_raid', not '%s'" % clerk.call("greet_trigger"))
+		clerk.call("_greet")
+		_wire(str(clerk.call("greet_trigger")) != "after_raid", "W1 'after_raid' is said once")
+		# A raid, then the next day's first greet before noon: "morning" wins, and the
+		# after-raid line is kept for the greet after it, not lost.
+		clerk.call("_on_zone_changed", Net.local_peer_id(), Net.Zone.BORDER)
+		clerk.set("_greeted_day", -1)
+		var first := str(clerk.call("greet_trigger"))
+		_wire(first == ("morning" if morning else "after_raid"), "W1 a new day's first greet after a raid is '%s', not '%s'" % ["morning" if morning else "after_raid", first])
+		clerk.call("_greet")
+		if first == "morning":
+			_wire(str(clerk.call("greet_trigger")) == "after_raid", "W1 a morning greet keeps the after-raid line for the next greet, not '%s'" % clerk.call("greet_trigger"))
+			clerk.call("_greet")
+		_wire(str(clerk.get("last_trigger")) == "after_raid" and str(clerk.call("greet_trigger")) != "after_raid", "W1 the after-raid line was said, once")
+		var shops := get_tree().get_first_node_in_group("shops")
+		var open := shops == null or bool(shops.call("is_open", "homie_depot"))
+		_wire(str(clerk.call("open_trigger")) == ("open" if open else "closed"), "W1 opening the window says '%s'" % ("open" if open else "closed"))
+		var caption := clerk.get_node_or_null("Caption") as Label3D
+		for trigger: Variant in _constant("res://npcs/store_clerk.gd", "TRIGGERS", DEFAULT_KEEPER_TRIGGERS):
+			clerk.call("say_line", trigger)
+			var said := str(clerk.get("last_line"))
+			_wire((marty.get(trigger, []) as Array).has(said), "W1 Marty's '%s' line is one of his: '%s'" % [trigger, said])
+			_wire(caption != null and caption.text == said, "W1 Marty's caption shows his '%s' line" % trigger)
+	# W2: the town's texts come from the pools: Marty's welcome, then requests in
+	# each client's own voice, with their address.
+	var town := get_tree().get_first_node_in_group("town")
+	_wire(town != null, "W2 the town is in the world")
+	if town != null:
+		var texts: Array = town.get("texts")
+		var intro := false
+		var requests := 0
+		for entry: Variant in texts:
+			var text: Dictionary = entry
+			var kind := str(text.get("kind", ""))
+			if kind == "intro":
+				intro = str(text.get("from", "")) == _Strings.UI["clerk_name"] and (_Strings.TEXT_LINES["clerk_intro"] as Array).has(str(text.get("text", "")))
+			elif kind == "request":
+				requests += 1
+				var house_id := int(text.get("house", -1))
+				var owner: Dictionary = (town.call("house", house_id) as Dictionary).get("owner", {})
+				var by: Dictionary = _Strings.TEXT_LINES["request"]
+				var pool: Array = by.get(str(owner.get("personality", "")), by["generic"])
+				var address := str(town.call("address", house_id))
+				var found := false
+				for line: Variant in pool:
+					found = found or str(line) % address == str(text.get("text", ""))
+				_wire(found, "W2 %s's request is in their %s voice: %s" % [text.get("from", ""), owner.get("personality", "generic"), text.get("text", "")])
+		_wire(intro, "W2 Marty's welcome text is from %s and in TEXT_LINES.clerk_intro" % _Strings.UI["clerk_name"])
+		_wire(requests > 0, "W2 there are request texts to check")
+		var section: Dictionary = (town.call("_save_section") as Dictionary).get("town", {})
+		_wire(section.has("rival_announced"), "W2 the town save has rival_announced")
+	# W3: run cues are picked from the phase's start, the same line every time.
+	for kind: String in ["radio", "arrived", "clear"]:
+		var line := _RunCues.cue_line(kind, 1234.567)
+		_wire(line == _RunCues.cue_line(kind, 1234.567) and (_Strings.CUE_LINES[kind] as Array).has(line), "W3 the %s cue is a CUE_LINES line, the same twice: %s" % [kind, line])
+	# W4: the day summary card shows the quip and each rank-up's blurb.
+	var card := get_tree().get_first_node_in_group("day_summary")
+	_wire(card != null, "W4 the day summary card exists")
+	if card != null:
+		var summary := {"day": 7, "jobs": 2, "stars": 10.0, "raids": 1.0, "title": "Leaf Grunt I",
+			"rank_ups": [{"tier": _Ranks.TIERS_PER_RANK, "title": "Leaf Grunt I", "unlock": "", "extras": []}]}
+		card.call("show_summary", summary)
+		var shown: Array[String] = []
+		for label: Node in card.find_children("*", "Label", true, false):
+			if not label.is_queued_for_deletion():
+				shown.append((label as Label).text)
+		_wire(shown.has(_Strings.summary_quip(summary)), "W4 the summary shows the raided quip: %s" % _Strings.summary_quip(summary))
+		_wire(shown.has(_Strings.rank_blurb(_Ranks.TIERS_PER_RANK)), "W4 the summary shows Leaf Grunt's blurb")
+		card.call("close_window")
+	# W5: hired hands are never named for a nationality.
+	var hire_names: Array = _constant("res://net/crew/hires.gd", "NAMES", [])
+	_wire(not hire_names.is_empty() and not hire_names.has("Dutch"), "W5 the hire nicknames have no 'Dutch'")
+	_homeowner_pools()
+	print("[CastTest] steps W1-W5 and W7, the lines in the game: %s" % (_problems.size() == before))
+
+
+## Step W7: the homeowner's reaction pool (npcs/homeowner.gd choose_pool), rolled
+## with a seeded rng: a homeowner with a personality talks like themselves about as
+## often as Constants says, a water-only bill comes up, breakage comes first, and
+## every pool picked resolves to real lines.
+func _homeowner_pools() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2611
+	var mood := "happy"
+	var personality := str(_Strings.PERSONALITY_LINES.keys()[0])
+	var own: Array = _Strings.PERSONALITY_LINES[personality][mood]
+	# A homeowner with a personality and nothing owed.
+	var spoke_own := 0
+	var stray: Array[String] = []
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool(mood, {}, 0, personality, rng)
+		if pool == "%s/%s" % [personality, mood] and _Strings.homeowner_pool(pool) == own:
+			spoke_own += 1
+		elif pool != mood:
+			stray.append(pool)
+	var share := float(spoke_own) / float(POOL_ROLLS)
+	_wire(stray.is_empty(), "W7 a %s homeowner owed nothing says a %s or %s/%s line, not %s" % [personality, mood, personality, mood, str(stray.slice(0, 3))])
+	_wire(absf(share - Constants.HOMEOWNER_PERSONALITY_LINE_CHANCE) < 0.1, "W7 a %s homeowner talks like themselves %.2f of the time (Constants: %.2f)" % [personality, share, Constants.HOMEOWNER_PERSONALITY_LINE_CHANCE])
+	# No personality (a test yard): always the mood's pool.
+	var plain := true
+	for roll: int in POOL_ROLLS:
+		plain = plain and _Homeowner.choose_pool(mood, {}, 0, "", rng) == mood
+	_wire(plain, "W7 a homeowner with no personality says a %s line" % mood)
+	# Owed only for water: bill_water about as often as Constants says; never with no fee.
+	var water := 0
+	var water_free := true
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool(mood, {}, 25, personality, rng)
+		if pool == "bill_water":
+			water += 1
+		water_free = water_free and _Homeowner.choose_pool(mood, {}, 0, personality, rng) != "bill_water"
+	var water_share := float(water) / float(POOL_ROLLS)
+	_wire(not _Strings.homeowner_pool("bill_water").is_empty() and str(_Strings.homeowner_pool("bill_water")[0]) != "", "W7 there are bill_water lines")
+	_wire(absf(water_share - Constants.HOMEOWNER_WATER_LINE_CHANCE) < 0.1, "W7 a water-only bill comes up %.2f of the time (Constants: %.2f)" % [water_share, Constants.HOMEOWNER_WATER_LINE_CHANCE])
+	_wire(water_free, "W7 no water fee, no bill_water line")
+	# Breakage owed: that bill first, about as often as Constants says; never water.
+	var hose := 0
+	var hose_water := false
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool(mood, {"hose": 40}, 25, personality, rng)
+		hose += 1 if pool == "bill_hose" else 0
+		hose_water = hose_water or pool == "bill_water"
+	var hose_share := float(hose) / float(POOL_ROLLS)
+	_wire(absf(hose_share - Constants.HOMEOWNER_BILL_LINE_CHANCE) < 0.1 and not hose_water, "W7 a broken hose comes up %.2f of the time (Constants: %.2f), never the water" % [hose_share, Constants.HOMEOWNER_BILL_LINE_CHANCE])
+	# Nothing delivered: never a bill, whatever is owed.
+	var nothing := true
+	for roll: int in POOL_ROLLS:
+		var pool := _Homeowner.choose_pool("nothing", {"hose": 40}, 25, personality, rng)
+		nothing = nothing and not pool.begins_with("bill_")
+	_wire(nothing, "W7 a homeowner who got nothing never brings up a bill")
+	# Every personality x mood the host can pick names a real pool.
+	var missing: Array[String] = []
+	for each: Variant in _Strings.PERSONALITY_LINES.keys():
+		for staged: Variant in (_constant("res://npcs/homeowner.gd", "STAGING", {}) as Dictionary).keys():
+			var lines: Array = _Strings.homeowner_pool("%s/%s" % [each, staged])
+			if lines.is_empty() or str(lines[0]) == "":
+				missing.append("%s/%s" % [each, staged])
+	_wire(missing.is_empty(), "W7 every personality/mood pool the host can pick has lines; missing %s" % str(missing))
+
+
+func _wire(condition: bool, what: String) -> void:
+	if not condition:
+		_fail("wiring", what)
 
 
 # ---------------------------------------------------------------- phase A, step 6

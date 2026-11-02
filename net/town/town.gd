@@ -27,6 +27,7 @@ const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
 const _Seasons = preload("res://core/seasons.gd")
 const _Economy = preload("res://core/economy.gd")
+const _Strings = preload("res://ui/strings.gd")
 ## Texts kept for the phone, newest last.
 const MAX_TEXTS: int = 40
 
@@ -41,6 +42,9 @@ var requests: Array = []
 var texts: Array = []
 ## The house the crew is working on right now, or -1.
 var current_house: int = -1
+## Host: TurfMasters™ have texted their hello (the first morning the rival is in
+## town). Saved; not sent to clients, who only read the texts.
+var rival_announced: bool = false
 
 var _day: int = 1
 var _daytime_checked: int = -1
@@ -92,6 +96,7 @@ func _load_saved(saved: Dictionary) -> void:
 		text_entry["house"] = int(text_entry.get("house", -1))
 		texts.append(text_entry)
 	_daytime_checked = int(saved.get("daytime_checked", -1))
+	rival_announced = bool(saved.get("rival_announced", false))
 
 
 func _process(_delta: float) -> void:
@@ -313,7 +318,7 @@ func on_new_day(new_day: int) -> Dictionary:
 				continue
 			var lead := _unknown_in(str(hood["id"]))
 			if lead >= 0:
-				_text("Marty", "lead", "Somebody came by the store asking for a leaf crew. I gave them your number. You're welcome.", -1)
+				_text(_Strings.UI["clerk_name"], "lead", _Strings.pick(_Strings.TEXT_LINES["clerk_lead"], _line_rng([lead, "lead"])), -1)
 				_meet(lead, "")
 				asked += 1
 				break
@@ -336,7 +341,7 @@ func dev_poach(house_id: int) -> void:
 		return
 	houses[house_id]["poached"] = true
 	requests.erase(house_id)
-	_text(owner_name(house_id), "poached", "TurfMasters™ came by with a coupon. Sorry, hon.", house_id)
+	_text(owner_name(house_id), "poached", str(_Strings.TEXT_LINES["poached"][0]), house_id)
 	_broadcast()
 
 
@@ -381,7 +386,7 @@ func _new_town() -> void:
 		houses[house_id]["relationship"] = Constants.TOWN_START_RELATIONSHIP
 	requests.clear()
 	texts.clear()
-	_text("Marty", "intro", "Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. The cots by the side wall are yours after 6 PM. Tab to check your phone.", -1)
+	_text(_Strings.UI["clerk_name"], "intro", _Strings.pick(_Strings.TEXT_LINES["clerk_intro"], _line_rng(["intro"])), -1)
 	# On day one everybody you know wants you.
 	for house_id: Variant in starters.slice(0, Constants.TOWN_STARTING_CLIENTS):
 		_add_request(int(house_id), rng)
@@ -458,19 +463,14 @@ func _ask_for_jobs(count: int, rng: RandomNumberGenerator) -> int:
 	return asked
 
 
-func _add_request(house_id: int, rng: RandomNumberGenerator) -> void:
+## The request text's line comes from its own seeded rng (_line_rng), never from
+## the caller's, so the pools' sizes can't shift the town's rolls. The caller's
+## rng is kept in the signature for the callers' draw order.
+func _add_request(house_id: int, _rng: RandomNumberGenerator) -> void:
 	if requests.has(house_id):
 		return
 	requests.append(house_id)
-	var entry: Dictionary = houses[house_id]
-	var lines := [
-		"Leaves are back. You know where I live. %s.",
-		"Can your crew come by today? %s. Bring the good rake.",
-		"It's a jungle out here again. %s, whenever you can.",
-		"Hi it's me. The yard. %s. Please.",
-		"My spouse says the yard is \"a disgrace\". %s. Help.",
-	]
-	var line := str(lines[rng.randi() % lines.size()]) % address(house_id)
+	var line := _Strings.client_line("request", _personality(house_id), _line_rng([house_id, "request"])) % address(house_id)
 	_text(owner_name(house_id), "request", line, house_id)
 
 
@@ -514,8 +514,10 @@ func _meet(house_id: int, referred_by: String) -> void:
 	entry["relationship"] = Constants.TOWN_START_RELATIONSHIP
 	houses[house_id] = entry
 	var hood := _Hoods.name_of(str(entry["hood"]))
-	var how := "%s says you're good with a rake." % referred_by if referred_by != "" else "Saw your truck around."
-	_text(owner_name(house_id), "referral", "Hi! %s I'm at %s in %s. Got leaves?" % [how, address(house_id), hood], house_id)
+	var lines := _line_rng([house_id, "referral"])
+	var how := _Strings.pick(_Strings.TEXT_LINES["referral_named"], lines) % referred_by if referred_by != "" else _Strings.pick(_Strings.TEXT_LINES["referral_anon"], lines)
+	var body := _Strings.pick(_Strings.TEXT_LINES["referral_body"], lines) % [how, address(house_id), hood]
+	_text(owner_name(house_id), "referral", body, house_id)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([town_seed, _day, house_id])
 	_add_request(house_id, rng)
@@ -568,6 +570,10 @@ func _rival_morning() -> Array:
 	var taken: Array = []
 	if not Campaign.is_feature_on("rival"):
 		return taken
+	# The first morning they're in town, TurfMasters™ introduce themselves.
+	if not rival_announced:
+		rival_announced = true
+		_rival_text("rival_arrival", _line_rng(["rival_arrival"]))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([town_seed, _day, "rival"])
 	if rng.randf() >= Constants.RIVAL_POACH_CHANCE:
@@ -581,12 +587,11 @@ func _rival_morning() -> Array:
 	var house_id := int(candidates[rng.randi() % candidates.size()])
 	houses[house_id]["poached"] = true
 	requests.erase(house_id)
-	var lines := [
-		"TurfMasters™ came by with a coupon. Sorry, hon. It's just business.",
-		"A man in a TurfMasters™ polo said you people \"lack synergy\". I'm trying them.",
-		"TurfMasters™ does my lawn now. They have a jingle. Do YOU have a jingle?",
-	]
-	_text(owner_name(house_id), "poached", str(lines[rng.randi() % lines.size()]), house_id)
+	var lines := _line_rng([house_id, "poached"])
+	_text(owner_name(house_id), "poached", _Strings.pick(_Strings.TEXT_LINES["poached"], lines), house_id)
+	# Half the time TurfMasters™ rub it in.
+	if lines.randf() < Constants.RIVAL_TAUNT_CHANCE:
+		_rival_text("rival_taunt", lines)
 	taken.append(owner_name(house_id))
 	return taken
 
@@ -597,8 +602,10 @@ func _win_back(hood_id: String, because_of: String) -> void:
 		if str(entry["hood"]) == hood_id and bool(entry.get("poached", false)):
 			entry["poached"] = false
 			entry["relationship"] = maxf(float(entry.get("relationship", 0.0)), Constants.TOWN_START_RELATIONSHIP)
-			var why := "Saw what you did for %s. TurfMasters™ mulched my petunias." % because_of if because_of != "" else "Somebody pulled the TurfMasters™ signs. Was that you? Come back?"
-			_text(owner_name(int(entry["id"])), "won_back", why + " I'm back, if you'll have me.", int(entry["id"]))
+			var lines := _line_rng([int(entry["id"]), "won_back"])
+			var why := _Strings.pick(_Strings.TEXT_LINES["won_back_named"], lines) % because_of if because_of != "" else _Strings.pick(_Strings.TEXT_LINES["won_back_signs"], lines)
+			_text(owner_name(int(entry["id"])), "won_back", "%s %s" % [why, _Strings.pick(_Strings.TEXT_LINES["won_back_tail"], lines)], int(entry["id"]))
+			_rival_text("rival_sore", lines)
 			Campaign.add_xp(Constants.XP_WON_BACK, "won_back")
 			var rng := RandomNumberGenerator.new()
 			rng.seed = hash([town_seed, _day, int(entry["id"]), "back"])
@@ -631,6 +638,10 @@ func on_sign_pulled(hood_id: String, signs_left: int) -> void:
 	if not Net.is_host():
 		return
 	Campaign.add_xp(Constants.XP_SIGN_PULLED, "signs")
+	# Now and then TurfMasters™ notice. Seeded by the sign, so it's one text per sign at most.
+	var lines := _line_rng([hood_id, signs_left, "sign"])
+	if lines.randf() < Constants.RIVAL_SIGN_TEXT_CHANCE:
+		_rival_text("rival_sign", lines)
 	if signs_left <= 0 and poached_in(hood_id) > 0:
 		_win_back(hood_id, "")
 	_broadcast()
@@ -641,6 +652,28 @@ func _can_do(task: String, size: int) -> bool:
 		return false
 	var tool := str(Constants.TASK_TOOLS.get(task, ""))
 	return tool == "" or Campaign.crew_tools().has(tool)
+
+
+## The owner's personality at a house (net/town/neighborhoods.gd PERSONALITIES), or "".
+func _personality(house_id: int) -> String:
+	var entry := house(house_id)
+	if entry.is_empty():
+		return ""
+	return str((entry["owner"] as Dictionary).get("personality", ""))
+
+
+## Host: an rng for picking a text's line (Strings.TEXT_LINES), seeded by the town,
+## the day and what the text is about. Kept apart from every gameplay rng, so the
+## pools can grow or shrink without moving a single request, poach or referral.
+func _line_rng(about: Array) -> RandomNumberGenerator:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([town_seed, _day, about, "line"])
+	return rng
+
+
+## Host: a text from TurfMasters™ themselves (text kind "rival").
+func _rival_text(pool: String, rng: RandomNumberGenerator) -> void:
+	_text(_Strings.UI["rival_name"], "rival", _Strings.pick(_Strings.TEXT_LINES[pool], rng), -1)
 
 
 func _text(from: String, kind: String, body: String, house_id: int) -> void:
@@ -669,6 +702,7 @@ func _save_section() -> Dictionary:
 		"requests": requests,
 		"texts": texts,
 		"daytime_checked": _daytime_checked,
+		"rival_announced": rival_announced,
 	}}
 
 

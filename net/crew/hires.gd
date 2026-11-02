@@ -10,9 +10,12 @@ extends Node
 signal changed
 
 const HAND_SCENE: PackedScene = preload("res://npcs/crew_hand.tscn")
-## Nicknames, because nobody on a leaf crew goes by their real name.
+const _Strings = preload("res://ui/strings.gd")
+## Nicknames, because nobody on a leaf crew goes by their real name. None of them
+## names a nationality or where anyone is from (docs/GAME.md, the humor guardrail):
+## "Gravy" replaced "Dutch" on 2026-11-01. A save that has a hand called Dutch keeps him.
 const NAMES: Array[String] = [
-	"Big Sal", "Tiny Dom", "Moose", "Lefty", "Squints", "Dutch", "Pep", "Bunny",
+	"Big Sal", "Tiny Dom", "Moose", "Lefty", "Squints", "Gravy", "Pep", "Bunny",
 	"Hambone", "Socks", "Noodles", "Biscuit", "Shades", "Rooster", "Pickles", "Boots",
 ]
 
@@ -20,10 +23,14 @@ const NAMES: Array[String] = [
 var hands: Array = []
 
 var _next_look: int = 1
+## Host: picks the hire texts' lines (Strings.TEXT_LINES hire_*). Its own rng, so
+## the pools' sizes never touch the hiring rolls.
+var _line_rng := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
 	add_to_group("hires")
+	_line_rng.randomize()
 	Net.player_joined.connect(_on_player_joined)
 	if not Net.is_host():
 		if multiplayer.multiplayer_peer != null:
@@ -133,7 +140,7 @@ func pay_wages() -> Dictionary:
 		var leaving: Dictionary = hands.pop_back()
 		total -= int(leaving["wage"])
 		quit.append(str(leaving["name"]))
-		_text(str(leaving["name"]), "No pay, no rake. I'm out. Tell %s I said bye." % _random_other())
+		_text(str(leaving["name"]), _Strings.pick(_Strings.TEXT_LINES["hire_quit"], _line_rng) % _random_other())
 	if total > 0 and not peers.is_empty():
 		# Split evenly; anyone short leaves the rest to the others.
 		var owed := total
@@ -181,7 +188,7 @@ func _handle_hire(peer_id: int) -> void:
 	}
 	_next_look += 1
 	hands.append(hand)
-	_text(pick, "Thanks for the gig, boss. I'll be on the truck. I bring my own rake (it's yours now).")
+	_text(pick, _Strings.pick(_Strings.TEXT_LINES["hire_hired"], _line_rng))
 	Campaign.save_now()
 	_broadcast()
 
@@ -190,7 +197,7 @@ func _handle_fire(hand_name: String) -> void:
 	for index: int in hands.size():
 		if str((hands[index] as Dictionary)["name"]) == hand_name:
 			hands.remove_at(index)
-			_text(hand_name, "Fine. FINE. I'm keeping the gloves.")
+			_text(hand_name, _Strings.pick(_Strings.TEXT_LINES["hire_fired"], _line_rng))
 			Campaign.save_now()
 			_broadcast()
 			return
