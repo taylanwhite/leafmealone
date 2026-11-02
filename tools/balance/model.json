@@ -1,0 +1,183 @@
+{
+  "_about": "Assumptions tools/balance_sim.py needs that are not game tuning: how fast people work, how they choose, and the thresholds the checks hold. The game never reads this file. Every entry has a source: 'guess' (nobody has measured it yet), a doc, a game file it mirrors by hand, or 'calibrated <date>' once balance:G measures it. A value 'const:Script.NAME.key' is read from the game's scripts; 'model:name' is another entry here. See docs/BALANCE.md.",
+
+  "leaf_rate_yard_per_min": {
+    "value": [0.055, 0.09, 0.11, 0.12],
+    "source": "guess, by crew size 1..4: a regular full yard's leaves per wall-clock minute with the job's one rake, bags and hauling (utilization already in). Matches docs/FUN.md's 6 to 12 minute jobs for 2 to 4 people."
+  },
+  "leafable_share": {
+    "value": 0.85,
+    "source": "guess: the share of the 40 m pad (Constants.PAD_HALF) that grows leaves, after the house, the swept driveway and the tool corner (levels/lots/lot_generator.gd _shape_leaves)."
+  },
+  "rake_share": {
+    "value": [1.0, 0.6, 0.45, 0.35],
+    "source": "guess, by crew size: the share of the crew's leaf rate that is the one rake, so the rake tune-up (Campaign.rake_multiplier, only for the player holding it) speeds only that part."
+  },
+  "blower_bonus": {
+    "value": [1.35, 1.25, 1.2, 1.15],
+    "source": "guess, by crew size: leaf rate with a leaf blower in the crew (it shoves leaves into piles)."
+  },
+  "blower_use_share": {
+    "value": 0.5,
+    "source": "guess: share of the leaf minutes a blower runs when the crew owns one (noise for heat)."
+  },
+  "wheelbarrow_bonus": {
+    "value": 1.08,
+    "source": "guess: leaf rate with the upgraded wheelbarrow (8 bags a trip instead of 4)."
+  },
+  "hand_leaf_rate": {
+    "value": 0.05,
+    "source": "guess: a hired hand's leaf rate per unit of skill, in regular yards per minute. npcs/crew_hand.gd rakes, bags and hauls, so a hand at full skill is close to a solo player's 0.055."
+  },
+  "bag_efficiency": {
+    "value": 0.6,
+    "source": "guess: the share of the cleaned leaves' dollar value that reaches Chefty in bags (the rest is blown off the pad, mowed into confetti, or left in half piles)."
+  },
+  "bag_value_avg": {
+    "value": 12,
+    "source": "guess from the gap spec: job_test bags are $4 to $9, a human pile tops out near $17. Chefty's cap is Constants.TRUCK_BAG_CAPACITY times this."
+  },
+  "clean_target": {
+    "value": 0.92,
+    "source": "guess: crews stop raking a little past Constants.XP_LEAVES_CLEAN_AT."
+  },
+  "clean_noise": {
+    "value": 0.04,
+    "source": "guess: spread (sd) of the cleaned fraction around the target."
+  },
+  "task_done_target": {
+    "value": 0.95,
+    "source": "guess: how much of a doable task a crew finishes."
+  },
+  "task_person_minutes": {
+    "value": {
+      "pick_litter": 1.5, "pull_weeds": 2.5, "mow_lawn": 2.0, "clean_gutters": 3.5,
+      "wash_windows": 2.5, "power_wash": 3.0, "trim_hedges": 2.5, "paint_fence": 3.0,
+      "clear_roof": 3.0, "skim_pool": 2.0
+    },
+    "source": "guess: focused minutes of one person per task on a regular yard, divided by utilization for the wall clock (mow_lawn 2.0 makes the mower run about 150 s, the gap spec's measure)."
+  },
+  "task_size_scale": {
+    "value": [0.75, 1.0, 1.35],
+    "source": "guess: task minutes on a small, regular and big yard."
+  },
+  "utilization": {
+    "value": "const:Balance.ACTIVE_CLEANUP_UTILIZATION",
+    "source": "core/balance.gd BAL-06; applied to task minutes (the leaf rates are already wall-clock)."
+  },
+  "noise_by_task": {
+    "value": {
+      "mow_lawn": {"tool": "lawn_mower", "share": 0.9},
+      "power_wash": {"tool": "pressure_washer", "share": 0.85},
+      "trim_hedges": {"tool": "hedge_trimmer", "share": 0.8}
+    },
+    "source": "guess: which tool a task runs (Constants.HEAT_NOISE_PER_SECOND keys) and for what share of the task's time."
+  },
+  "job_overhead_minutes": {
+    "value": 2.0,
+    "source": "guess: per job, the rides (net/components/ride.gd 8 s each way), unloading, the homeowner's reaction and grabbing the cash."
+  },
+  "arrive_to_work_minutes": {
+    "value": 0.4,
+    "source": "guess: from the homeowner's clock starting (Campaign.start_job_clock) to work starting, plus walking to talk at the end. Counts against patience."
+  },
+  "store_minutes_per_job": {
+    "value": 1.0,
+    "source": "guess: the job board, shopping and regrouping at Homie Depot before each job."
+  },
+  "day_overhead_minutes": {
+    "value": 1.0,
+    "source": "guess: per day, the summary card, the phone and walking to the cots."
+  },
+  "sign_minutes": {
+    "value": 0.2,
+    "source": "guess: pulling one TurfMasters sign."
+  },
+  "travel_minutes_by_hood": {
+    "value": {"legacy": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "town": [0.6, 1.0, 1.0, 1.3, 1.5, 1.8]},
+    "source": "guess, by neighborhood index, on top of job_overhead_minutes: the legacy map rides are fixed (already in the overhead); the drivable town's are guesses until TownMap lands (critic.md, driving). Constants.TOWN_MAP_DEFAULT picks the row."
+  },
+  "raid": {
+    "value": {"chase_minutes": 1.2, "capture_chance": 0.4, "border_return_minutes": 1.6},
+    "source": "guess: work lost to the warning and chase (Constants.RUN_WARNING_SECONDS + up to RUN_CHASE_SECONDS), each player's chance of being caught, and a caught player's time away (Border Return, BORDER_CROSSING_SECONDS plus the van)."
+  },
+  "water": {
+    "value": {"spigot_share": 0.35, "hose_spray_seconds": 50},
+    "source": "guess: how often a hose task hooks up to the house's spigot (Constants.SPIGOT_HOOKUP_FEE + SPIGOT_FEE_PER_SECOND), and for how long."
+  },
+  "bills": {
+    "value": {"chance": 0.15, "mean": 30},
+    "source": "guess: the chance a job breaks something billable (a hose $25, a gnome $15, a foot $40 or $120) and the average bill."
+  },
+  "homeowner_inline": {
+    "value": {"surprise_good_below": 0.12, "surprise_bad_above": 0.9},
+    "source": "mirrors npcs/homeowner.gd _judge by hand: the 'some days people are just in a mood' rolls are still inline there, not in constants.gd."
+  },
+  "town_inline": {
+    "value": {
+      "request_luck": 0.6,
+      "word_of_mouth_step": 10.0,
+      "likes_from": ["", "mow_lawn", "trim_hedges", "wash_windows", "clean_gutters", "power_wash", "paint_fence", "pull_weeds"]
+    },
+    "source": "mirrors net/town/town.gd by hand: the luck in _ask_for_jobs, the word_of_mouth step in _maybe_refer, and _make_house's likes_from are still inline there."
+  },
+
+  "pick_policy": {
+    "value": "best_pay_per_minute",
+    "source": "guess: the crew takes the offer with the best expected pay per minute (rides included)."
+  },
+  "rush_policy": {
+    "value": "best_pay_per_minute",
+    "source": "guess: when a job would outlast the homeowner's patience, the crew either finishes (and gets 'slow') or wraps up at the patience line with less done, whichever pays more per minute."
+  },
+  "buy_policy": {
+    "value": {"order": ["tool", "upgrade", "tool_tier", "truck", "property", "cosmetic"], "reserve_days_of_wages": 1.0, "endless_buffer_days": 2.0},
+    "source": "guess: crew-shared things are bought by the richest player as soon as they can pay and keep a day of wages; per_player things by each player; 'endless' and 'cosmetic' wants wait until the buyer also keeps endless_buffer_days of their income."
+  },
+  "hire_policy": {
+    "value": {"max_fee_days": 2.0, "reserve_days_of_wages": 2.0},
+    "source": "guess: hire into a free slot once the signing fee is at most this many days of per-player net income and the richest player can pay it and keep this many days of the whole payroll."
+  },
+  "start_job_cutoff_hour": {
+    "value": "const:Constants.DAY_CLOSE_HOUR",
+    "source": "levels/world.gd can_depart: no new job once the clock stops."
+  },
+  "wait_for_texts": {
+    "value": true,
+    "source": "guess: with no requests before bedtime (Constants.SLEEP_FROM_HOUR) the crew waits for the next daytime text instead of idling to bed."
+  },
+  "human_vs_bot": {
+    "value": 1.0,
+    "source": "placeholder for balance:G (calibration from soak runs)."
+  },
+
+  "seeds": {"value": 40, "source": "gap spec: 40 seeds keeps a full --check under 15 s."},
+  "days_max": {"value": 160, "source": "gap spec."},
+  "endless_days": {"value": 20, "source": "gap spec: the endless-loop check looks at 20 days past The Lawnfather."},
+
+  "targets": {
+    "value": {
+      "first_night_share": 0.9,
+      "price_days": [0.5, 2.0],
+      "buy_within_days": 2.0,
+      "hire_within_days": 2.0,
+      "hire_fee_max_days": 2.0,
+      "max_days_per_tier": 2.0,
+      "pace_band": 0.35,
+      "p10_slack_hours": 1.0,
+      "p90_slack_hours": 3.0,
+      "raid_bands": {
+        "quiet_maple_day": [0.1, 0.4],
+        "loud": [0.45, 0.75],
+        "mansion_night": [0.75, 1.0]
+      },
+      "endless_recurring_share": [0.3, 0.6],
+      "endless_catalog_days": 5.0,
+      "propose_price_days": 1.15,
+      "propose_priced_upgrades": ["rake_tier_1", "wheelbarrow_tier_1"],
+      "propose_hire_fee_days": 2.0,
+      "propose_hand_net_ratio": 1.5
+    },
+    "source": "gap-specs/balance.json tests and player_design: the thresholds of the --check checks and what --propose aims for."
+  }
+}

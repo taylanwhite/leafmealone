@@ -5,11 +5,11 @@ extends RefCounted
 ## randomness, no state. Callers read the game (stars, crew size, perks) and pass
 ## it in; the numbers come from core/constants.gd, core/ranks.gd and core/balance.gd.
 ##
-## A new economy formula goes in this file. Not yet built: tools/balance_sim.py
-## will mirror every function here line for line (balance:C), and the engine
-## parity test (--balance-test, balance:D) will check that the two agree. Once
-## they land, changing a formula here means changing its mirror too. Until then
-## nothing pins these numbers; town_test reads its expected values from here.
+## A new economy formula goes in this file. tools/balance_sim.py mirrors every
+## function here line for line (its Economy class, docs/BALANCE.md), so changing a
+## formula here means changing its mirror in the same commit. The engine parity
+## test (--balance-test, balance:D) will run a grid of calls here and fail when the
+## two disagree; balance_sim.py --engine-dump already compares them.
 ##
 ## No class_name, so it can't clash with anything: preload it.
 ##   const _Economy = preload("res://core/economy.gd")
