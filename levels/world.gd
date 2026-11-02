@@ -14,6 +14,7 @@ const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Pedestrians = preload("res://npcs/pedestrians.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
 const _Cot = preload("res://props/cot.gd")
+const _ToolTiers = preload("res://core/tool_tiers.gd")
 ## How long a swapped-out yard has to leave every peer before the picked one loads.
 const LOT_SWAP_SECONDS: float = 0.4
 const _Grass = preload("res://props/grass.gd")
@@ -391,6 +392,7 @@ func _free_lot() -> void:
 		# Out of the slot now, so a new lot can take its name this frame.
 		%LotSlot.remove_child(child)
 		child.queue_free()
+	_return_job_gas()
 	for tool: Node in get_tree().get_nodes_in_group("job_tools"):
 		tool.queue_free()
 	# Back at the store: new jobs on the board.
@@ -424,6 +426,7 @@ func reload_job_lot() -> void:
 	for child: Node in %LotSlot.get_children():
 		%LotSlot.remove_child(child)
 		child.queue_free()
+	_return_job_gas()
 	for tool: Node in get_tree().get_nodes_in_group("job_tools"):
 		tool.queue_free()
 	_lot_swap_serial += 1
@@ -457,22 +460,66 @@ func _spawn_rival_signs(lot: Node3D, offer: Dictionary) -> void:
 		sign.global_position = lot.global_position + Vector3(side * rng.randf_range(4.0, 12.0), 0.6, rng.randf_range(10.0, 17.0))
 
 
-## Host only. One of each tool the crew owns rides along, laid out by the truck.
+## Host only. One of each tool the crew owns rides along, laid out by the truck,
+## at the best tier anyone here owns. Chefty fills each gas tool's tank out of
+## the crew's gas on the way (Constants.GAS_PER_TANK each), and a red gas can
+## rides along with whatever spare gas there is (up to GAS_CAN_CARRY). Whatever
+## is left in the tanks and the can goes back into the supply after the job
+## (_return_job_gas), so the crew only pays for what it burned.
 func _spawn_job_tools() -> void:
 	var lot := %LotSlot.get_child(0) as Node3D if %LotSlot.get_child_count() > 0 else null
 	if lot == null:
 		return
+	var shops := get_node_or_null("Shops")
 	var index := 0
 	for tool_id: String in Campaign.crew_tools():
 		var tool := BAG_SCENE.instantiate()
+		var tier := Campaign.crew_tool_tier(tool_id)
 		tool.name = "Tool_%s_%d" % [tool_id, _lots_loaded]
 		tool.set("kind", tool_id)
-		tool.set("label", preload("res://ui/strings.gd").item_name(tool_id))
+		tool.set("tier", tier)
+		tool.set("label", _ToolTiers.tool_name(tool_id, tier))
 		tool.set("color", Color(0.8, 0.8, 0.8))
+		if _ToolTiers.is_gas_tool(tool_id):
+			var filled := shops == null or bool(shops.call("consume", "gas", Constants.GAS_PER_TANK))
+			tool.set("fuel", 100.0 if filled else 0.0)
 		tool.add_to_group("job_tools")
 		%RuntimeProps.add_child(tool, true)
-		tool.global_position = lot.global_position + Vector3(-5.5 - float(index % 3) * 1.4, 0.6, 13.5 + float(index / 3) * 1.6)
+		tool.global_position = _job_tool_spot(lot, index)
 		index += 1
+	if shops == null:
+		return
+	var spare := minf(float(shops.call("supply", "gas")), Constants.GAS_CAN_CARRY)
+	if spare < Constants.GAS_CAN_MIN_GALLONS or not bool(shops.call("consume", "gas", spare)):
+		return
+	var can := BAG_SCENE.instantiate()
+	can.name = "GasCan_%d" % _lots_loaded
+	can.set("kind", "gas_can")
+	can.set("water", _ToolTiers.can_water(spare))
+	can.set("label", _ToolTiers.can_label(spare))
+	can.set("color", Color(0.84, 0.14, 0.1))
+	can.add_to_group("job_tools")
+	can.add_to_group("gas_cans")
+	%RuntimeProps.add_child(can, true)
+	can.global_position = _job_tool_spot(lot, index)
+
+
+## Where the index-th thing that rides along is laid out: rows of three by the truck.
+func _job_tool_spot(lot: Node3D, index: int) -> Vector3:
+	return lot.global_position + Vector3(-5.5 - float(index % 3) * 1.4, 0.6, 13.5 + float(index / 3) * 1.6)
+
+
+## Host only. The job's over (or swapped out): the gas left in the tools' tanks
+## and in the gas can goes back into the crew's supply before they're freed.
+func _return_job_gas() -> void:
+	var shops := get_node_or_null("Shops")
+	if shops == null or not Net.is_host():
+		return
+	# Saves made meanwhile already counted this gas (Shops.supplies_to_save), so
+	# the save doesn't change here and needs no write of its own.
+	var gallons := _ToolTiers.gas_out(get_tree().get_nodes_in_group("job_tools"))
+	if gallons > 0.0:
+		shops.call("add_supply", "gas", gallons)
 
 
 func _host_depart() -> void:

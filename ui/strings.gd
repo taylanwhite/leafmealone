@@ -907,6 +907,10 @@ const SHOP_UI: Dictionary = {
 	"hud_out_of_bags": "Out of lawn bags. Homie Depot, the Snak-o-Matic, or your phone.",
 	"hud_out_of_gas": "Out of gas",
 	"goal_out_of_gas": "Out of gas. Hold the gas can and press E at the tool",
+	# The red gas can that rides along with the tools (core/tool_tiers.gd can_label).
+	"prop_gas_can": "Gas can (%.1f gal)",
+	# Holding a gas can with nothing left in it.
+	"hud_can_empty": "The can is empty. Homie Depot sells more. So does your phone, eventually.",
 	# Phone: Orders (app id "deliveries") and Closet.
 	"phone_tab_deliveries": "Orders",
 	"phone_tab_closet": "Closet",

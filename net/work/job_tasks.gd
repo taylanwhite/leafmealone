@@ -20,6 +20,7 @@ signal tasks_changed
 ## Seconds of work each request stands for; tools send one this often.
 const WORK_TICK: float = 0.15
 const SEND_INTERVAL: float = 0.1
+const _ToolTiers = preload("res://core/tool_tiers.gd")
 
 ## Task ids the homeowner asked for, besides raking.
 var active := PackedStringArray()
@@ -192,10 +193,14 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 	var player := _player(peer_id)
 	if player == null:
 		return
-	var reach := float(Constants.TASK_REACH.get(task, 2.0))
+	var tool := str(Constants.TASK_TOOLS.get(task, ""))
+	# The tool in hand's tier: better ones work faster and reach farther
+	# (core/tool_tiers.gd). Bare-hands work and the gutters are stock.
+	var held_tool := _held(peer_id, tool) if tool != "" else null
+	var tier := _ToolTiers.tier_of(held_tool) if held_tool != null else Catalog.TIER_STOCK
+	var reach := float(Constants.TASK_REACH.get(task, 2.0)) * _ToolTiers.reach(tier)
 	if player.global_position.distance_to(origin) > reach + 2.5:
 		return
-	var tool := str(Constants.TASK_TOOLS.get(task, ""))
 	# Gutters need you up a ladder, not a ladder in your hands. Scooping with a
 	# leaf blower up there goes faster than by hand.
 	var speedup := 1.0
@@ -203,10 +208,16 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 		# Up a ladder or on the roof: the spot itself checks how close you are.
 		if not bool(player.call("is_up_high")) and player.global_position.y < 2.0:
 			return
-		if _holds(peer_id, "leaf_blower"):
-			speedup = Constants.GUTTER_BLOWER_SPEEDUP
-	elif tool != "" and not _holds(peer_id, tool):
+		var blower := _held(peer_id, "leaf_blower")
+		# An empty blower is just a heavy scoop.
+		if blower != null and _ToolTiers.has_fuel(blower):
+			speedup = Constants.GUTTER_BLOWER_SPEEDUP * _ToolTiers.speed(_ToolTiers.tier_of(blower))
+	elif tool != "" and held_tool == null:
 		return
+	# A gas tool with an empty tank does nothing but sit there (net_prop sputters).
+	if held_tool != null and not _ToolTiers.has_fuel(held_tool):
+		return
+	speedup *= _ToolTiers.speed(tier)
 	if task == "trim_hedges":
 		var trimmer := _held(peer_id, "hedge_trimmer")
 		if trimmer != null:
@@ -228,12 +239,12 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 		if roller == null or float(roller.get("water")) <= 0.0:
 			return
 		roller.call("mark_spraying")
-		roller.set("water", maxf(0.0, float(roller.get("water")) - 100.0 / Constants.ROLLER_PAINT_SECONDS * WORK_TICK))
+		roller.set("water", maxf(0.0, float(roller.get("water")) - 100.0 / _ToolTiers.roller_seconds(tier) * WORK_TICK))
 	elif task == "power_wash":
 		var washer := _held(peer_id, "pressure_washer")
 		if washer == null or float(washer.get("water")) <= 0.0:
 			return
-		washer.set("water", maxf(0.0, float(washer.get("water")) - Constants.WASHER_USE_PER_SECOND * WORK_TICK))
+		washer.set("water", maxf(0.0, float(washer.get("water")) - _ToolTiers.washer_use(tier) * WORK_TICK))
 		washer.call("mark_spraying")
 	# Paint and water land on whoever's in the way too (docs/FUN.md).
 	match task:
@@ -264,30 +275,37 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 				done += _work_spot(index, amount)
 				hit = entry["at"]
 		"power_wash", "mow_lawn":
-			done = _work_cells(task, origin, 0.9, amount)
+			done = _work_cells(task, origin, 0.9 * _ToolTiers.reach(tier), amount)
 		_:
 			# Up close: the nearest spot within reach of where you stand. Gutters
-			# are overhead, so only the distance across the ground counts.
-			var best := -1
-			var best_distance := reach
-			for index: int in _spots.size():
-				var entry := _spots[index]
-				if str(entry["task"]) != task or int(entry["amount"]) <= 0:
-					continue
-				var at: Vector3 = entry["at"]
-				var distance := at.distance_to(origin)
-				if task == "clean_gutters":
-					distance = Vector2(at.x - origin.x, at.z - origin.z).length()
-					if distance > Constants.LADDER_TOP_REACH or absf(at.y - origin.y) > 2.6:
+			# are overhead, so only the distance across the ground counts. The Mk
+			# III trimmer cuts a double-wide swath: the nearest two.
+			var cuts := _ToolTiers.trimmer_spots(tier) if task == "trim_hedges" else 1
+			var worked: Array[int] = []
+			for _cut: int in cuts:
+				var best := -1
+				var best_distance := reach
+				for index: int in _spots.size():
+					var entry := _spots[index]
+					if str(entry["task"]) != task or int(entry["amount"]) <= 0 or worked.has(index):
 						continue
-				elif task == "clear_roof" and absf(at.y - origin.y) > 2.2:
-					continue
-				if distance < best_distance:
-					best = index
-					best_distance = distance
-			if best >= 0:
-				done = _work_spot(best, amount)
-				hit = _spots[best]["at"]
+					var at: Vector3 = entry["at"]
+					var distance := at.distance_to(origin)
+					if task == "clean_gutters":
+						distance = Vector2(at.x - origin.x, at.z - origin.z).length()
+						if distance > Constants.LADDER_TOP_REACH or absf(at.y - origin.y) > 2.6:
+							continue
+					elif task == "clear_roof" and absf(at.y - origin.y) > 2.2:
+						continue
+					if distance < best_distance:
+						best = index
+						best_distance = distance
+				if best < 0:
+					break
+				worked.append(best)
+				done += _work_spot(best, amount)
+				if worked.size() == 1:
+					hit = _spots[best]["at"]
 	if done > 0:
 		Campaign.record_stat(peer_id, &"objectives", float(done) / 100.0)
 		_fx(task, hit)

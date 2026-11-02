@@ -572,8 +572,10 @@ const SUPPLY_PER_ITEM: Dictionary = {
 const STARTER_SUPPLIES: Dictionary = {
 	"lawn_bags": 40, "big_bags": 0, "gas": 6.0, "fertilizer": 0, "grass_seed": 0, "rock_salt": 0,
 }
+## No contractor bags in them: those scoop wider, and the older tests measure
+## piles with plain lawn bags.
 const TEST_STARTER_SUPPLIES: Dictionary = {
-	"lawn_bags": 9999, "big_bags": 9999, "gas": 9999.0, "fertilizer": 9999, "grass_seed": 9999, "rock_salt": 9999,
+	"lawn_bags": 9999, "big_bags": 0, "gas": 9999.0, "fertilizer": 9999, "grass_seed": 9999, "rock_salt": 9999,
 }
 ## Each morning a crew with fewer bags than this gets topped up to it (Marty's
 ## "found a few behind the paint mixer").
@@ -1008,3 +1010,16 @@ const ART_HOUSE_FRONT_REACH: float = 2.6
 ## piece of one worth keeping after it is split around them, in meters.
 const ART_HOUSE_LINE_CLEARANCE: float = 0.1
 const ART_HOUSE_MIN_LINE: float = 0.4
+
+# ---- shops: tiers and consumables in play
+# Tool tiers and the crew's bags and gas at work (gap shops chunk 3; the rest of
+# the shop numbers are under "# ---- shops" above; core/tool_tiers.gd reads them).
+
+## A running engine's pitch by tier (0 used, 1 stock, 2 Mk II, 3 Mk III): used
+## rattles high, Mk III purrs low. Volume per tier is TOOL_TIER_VOLUME_DB.
+const TOOL_TIER_PITCH: Array[float] = [1.08, 1.0, 1.0, 0.92]
+## How long an out-of-bags or out-of-gas notice stays over your head (s).
+const SUPPLY_NOTICE_SECONDS: float = 3.0
+## The least spare gas (gallons, after every tank is filled) worth sending the
+## red gas can along with (levels/world.gd _spawn_job_tools).
+const GAS_CAN_MIN_GALLONS: float = 1.0

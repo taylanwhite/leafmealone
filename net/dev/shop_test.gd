@@ -12,18 +12,33 @@ extends Node
 ## client path (_rpc_request_buy, _rpc_request_give, _rpc_result) and reports
 ## its own shop_test; the host's "client_buy" step sees it land. CI also
 ## compares the host's "shops" report with the client's, which proves the state
-## replicates. Later shop chunks add steps (bags, gas, tiers, junk, snacks,
-## looks, deliveries). Each step prints a [ShopTest] line.
+## replicates. On the yard first: bags get used up (and run out), gas burns and
+## the gas can refills a tank, and the tier tables do what they say (shops chunk
+## 3); then the client runs out of bags and refuels the mower through the RPCs
+## (client_yard, _run_client_yard), and the save keeps the gas still in the job
+## tools. Later shop chunks add steps (junk, snacks, looks, deliveries). Each step
+## prints a [ShopTest] line.
 
 const _Shops = preload("res://net/shops/shops.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
+const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _Heat = preload("res://net/run_events/heat.gd")
 ## What the client buys, so the host can tell its buy from its own.
 const CLIENT_HAT: String = "hat_beanie"
 ## The host's starting cash for the client: the hat, the gift, and change.
 const CLIENT_CASH: int = 500
 ## How long either side waits for the other (the client's buy, a result).
 const WAIT_SECONDS: float = 20.0
+## How long the client waits to be sent to the store: the host checks bags, gas
+## and tiers on the yard first.
+const CLIENT_WAIT_SECONDS: float = 45.0
+## How long a gas tool with a nearly empty tank gets to run dry (it has 2 s of gas).
+const RUN_DRY_SECONDS: float = 4.0
+## The mower's tank (out of 100) the client fills up from the gas can.
+const CLIENT_REFUEL_FROM: float = 50.0
+## How long the client waits for one answer on the yard (a refusal, a fill).
+const CLIENT_ANSWER_SECONDS: float = 4.0
 
 static var result: Dictionary = {}
 
@@ -31,6 +46,8 @@ var _started: bool = false
 var _steps: Dictionary = {}
 ## The client's results from the host, in order: [code, item, amount].
 var _results: Array = []
+## Client: the host's cue for the yard half (_rpc_client_yard).
+var _yard_cue: Dictionary = {}
 
 
 func _process(_delta: float) -> void:
@@ -62,6 +79,11 @@ func _run() -> void:
 		if peer_id != me:
 			mate = peer_id
 	_step("catalog", _check_catalog())
+	# On the yard, before the store: bags get used up, gas burns, tiers do their math.
+	await _check_bags(shops)
+	await _check_gas(shops)
+	await _check_tier_math()
+	await _check_client_yard(shops, mate)
 	# The client gets cash for its own buy (_run_client), before anyone is at the store.
 	Campaign.pay(mate, CLIENT_CASH)
 	var mate_cash := Campaign.credits(mate)
@@ -188,6 +210,242 @@ func _run() -> void:
 	_finish("")
 
 
+## bags: every pile bagged takes one bag from the crew's supply; out of bags,
+## nothing is bagged and the leaves stay put ("no_bags"); a contractor bag goes
+## first and scoops wider.
+func _check_bags(shops: Node) -> void:
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	var spots := _leafy_spots(field, 3)
+	if spots.size() < 3:
+		_step("bags", false, "found only %d leafy spots on the yard" % spots.size())
+		return
+	var lawn_before := float(shops.call("supply", "lawn_bags"))
+	var big_before := float(shops.call("supply", "big_bags"))
+	var reasons: Array[String] = []
+	var heard := func(_peer_id: int, reason: String) -> void: reasons.append(reason)
+	field.connect("bag_refused", heard)
+	shops.call("dev_set_supply", "big_bags", 0)
+	shops.call("dev_set_supply", "lawn_bags", 2)
+	# One bag: a bag prop, and the supply goes 2 to 1.
+	var bags := _count_kind("leaf_bag")
+	await _stand_world(spots[0] - Vector3(1.5, 0.0, 0.0))
+	field.call("request_collect", spots[0], Constants.BAG_RADIUS)
+	await _ticks(3)
+	var made := _count_kind("leaf_bag") == bags + 1
+	var used := is_equal_approx(float(shops.call("supply", "lawn_bags")), 1.0)
+	# None left: no bag, the leaves untouched, and why.
+	shops.call("dev_set_supply", "lawn_bags", 0)
+	await _stand_world(spots[1] - Vector3(1.5, 0.0, 0.0))
+	var units := int(field.call("units_within_world", spots[1], Constants.BAG_RADIUS))
+	field.call("request_collect", spots[1], Constants.BAG_RADIUS)
+	await _ticks(3)
+	var refused := _count_kind("leaf_bag") == bags + 1 and int(field.call("units_within_world", spots[1], Constants.BAG_RADIUS)) == units and reasons.has("no_bags")
+	var hint := str((_me().call("interaction_hint") as Dictionary).get("text", ""))
+	# A contractor bag goes first, even with lawn bags left, and clears a wider circle.
+	shops.call("dev_set_supply", "big_bags", 1)
+	shops.call("dev_set_supply", "lawn_bags", 5)
+	var wide := Constants.BAG_RADIUS * Constants.BIG_BAG_RADIUS_SCALE
+	await _stand_world(spots[2] - Vector3(1.5, 0.0, 0.0))
+	field.call("request_collect", spots[2], Constants.BAG_RADIUS)
+	await _ticks(3)
+	var big := _count_kind("leaf_bag") == bags + 2 and is_equal_approx(float(shops.call("supply", "big_bags")), 0.0) \
+		and is_equal_approx(float(shops.call("supply", "lawn_bags")), 5.0) and int(field.call("units_within_world", spots[2], wide - 0.3)) == 0
+	field.disconnect("bag_refused", heard)
+	shops.call("dev_set_supply", "lawn_bags", lawn_before)
+	shops.call("dev_set_supply", "big_bags", big_before)
+	_step("bags", made and used and refused and big and hint == str(_Strings.SHOP_UI["hud_out_of_bags"]),
+		"bagged %s (supply 2 -> 1 %s); out of bags refused %s (%s, %d units stay), hint \"%s\"; contractor bag first and wider %s" % [made, used, refused, str(reasons), units, hint, big])
+
+
+## gas: Chefty filled each gas tool's tank and sent the rest along in the gas
+## can; a tank burns while it runs, sputters dry, won't start empty, and the
+## gas can fills it back up.
+func _check_gas(shops: Node) -> void:
+	var mower := _job_prop("lawn_mower")
+	var can := _job_prop("gas_can")
+	if mower == null or can == null:
+		_step("gas", false, "no mower (%s) or gas can (%s) came along" % [mower != null, can != null])
+		return
+	var gas_tools := 0
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if not node.is_queued_for_deletion() and _ToolTiers.is_gas_tool(str(node.get("kind"))):
+			gas_tools += 1
+	var in_can := _ToolTiers.can_gallons(can)
+	var spent := float(Constants.STARTER_SUPPLIES["gas"]) - float(shops.call("supply", "gas"))
+	var loaded := is_equal_approx(float(mower.get("fuel")), 100.0) and int(mower.get("tier")) == Catalog.TIER_STOCK \
+		and is_equal_approx(spent, Constants.GAS_PER_TANK * float(gas_tools) + in_can) and in_can > 0.0
+	# Grab the mower, leave it a splash of gas, and start it.
+	await _stand_world(mower.global_position + Vector3(0.0, 0.1, 1.2))
+	mower.call("request_grab")
+	await _ticks(3)
+	mower.set("fuel", 1.0)
+	for _pull: int in 12:
+		if bool(mower.get("spraying")):
+			break
+		mower.call("request_start")
+		await _ticks(2)
+	var started := bool(mower.get("spraying"))
+	var waited := 0.0
+	while waited < RUN_DRY_SECONDS and bool(mower.get("spraying")):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var dry := not bool(mower.get("spraying")) and float(mower.get("fuel")) <= 0.0
+	# Empty, it won't start, however hard you pull.
+	for _pull: int in 4:
+		mower.call("request_start")
+		await _ticks(2)
+	var dead := not bool(mower.get("spraying")) and _ToolTiers.has_fuel(mower) == false
+	# Put it down, pick up the gas can, and fill it up.
+	mower.call("request_drop")
+	await _ticks(3)
+	can.call("request_grab")
+	await _ticks(4)
+	var holding := int(can.get("held_by")) == Net.local_peer_id()
+	# The out-of-gas notice from the dead mower has the prompt for a moment first.
+	await get_tree().create_timer(Constants.SUPPLY_NOTICE_SECONDS + 0.2).timeout
+	var prompt := str((_me().call("interaction_hint") as Dictionary).get("text", ""))
+	var target: Variant = can.call("refuel_target")
+	can.call("request_refuel")
+	await _ticks(2)
+	var full := is_equal_approx(float(mower.get("fuel")), 100.0)
+	var poured := in_can - _ToolTiers.can_gallons(can)
+	can.call("request_drop")
+	await _ticks(3)
+	_step("gas", loaded and started and dry and dead and holding and target == mower and full and is_equal_approx(poured, Constants.GAS_PER_TANK) \
+		and prompt == str(_Strings.SHOP_UI["prompt_refuel"]) % 0,
+		"tanks full and %.1f gal in the can (%.1f spent for %d gas tools) %s; started %s, ran dry in %.1f s %s, dead %s; held the can %s, prompt \"%s\", filled %s, poured %.2f gal" % [in_can, spent, gas_tools, loaded, started, waited, dry, dead, holding, prompt, full, poured])
+
+
+## client_yard: a client runs out of bags and refuels through the real RPCs
+## (_rpc_request_collect answered by _rpc_bag_refused "no_bags", and
+## _rpc_request_refuel). The host empties the bags and half the mower's tank,
+## tells the client where (_rpc_client_yard), and sees nothing bagged, the
+## leaves untouched, and the tank filled from the gas can the client holds.
+func _check_client_yard(shops: Node, mate: int) -> void:
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	var mower := _job_prop("lawn_mower")
+	var can := _job_prop("gas_can")
+	var spots := _leafy_spots(field, 1)
+	if mower == null or can == null or spots.is_empty():
+		_step("client_yard", false, "no mower (%s), gas can (%s) or leafy spot (%d)" % [mower != null, can != null, spots.size()])
+		return
+	if Net.player_zone(mate) != Net.Zone.LOT:
+		Net.move_player_to_zone(mate, Net.Zone.LOT)
+		await get_tree().create_timer(0.6).timeout
+	var lawn_before := float(shops.call("supply", "lawn_bags"))
+	var big_before := float(shops.call("supply", "big_bags"))
+	shops.call("dev_set_supply", "lawn_bags", 0)
+	shops.call("dev_set_supply", "big_bags", 0)
+	mower.set("fuel", CLIENT_REFUEL_FROM)
+	var in_can := _ToolTiers.can_gallons(can)
+	var need := (100.0 - CLIENT_REFUEL_FROM) / 100.0 * Constants.GAS_PER_TANK
+	var bags := _count_kind("leaf_bag")
+	var units := int(field.call("units_within_world", spots[0], Constants.BAG_RADIUS))
+	_rpc_client_yard.rpc_id(mate, spots[0], mower.get_path(), can.get_path())
+	var waited := 0.0
+	var held := false
+	while waited < WAIT_SECONDS and not (held and is_equal_approx(float(mower.get("fuel")), 100.0) and int(can.get("held_by")) == 0):
+		held = held or int(can.get("held_by")) == mate
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var full := is_equal_approx(float(mower.get("fuel")), 100.0)
+	var poured := in_can - _ToolTiers.can_gallons(can)
+	var untouched := _count_kind("leaf_bag") == bags and int(field.call("units_within_world", spots[0], Constants.BAG_RADIUS)) == units \
+		and is_equal_approx(float(shops.call("supply", "lawn_bags")), 0.0) and is_equal_approx(float(shops.call("supply", "big_bags")), 0.0)
+	shops.call("dev_set_supply", "lawn_bags", lawn_before)
+	shops.call("dev_set_supply", "big_bags", big_before)
+	_step("client_yard", in_can >= need and untouched and held and full and is_equal_approx(poured, need),
+		"no bag and %d units stay %s; the client held the can %s, tank %.0f%% (poured %.2f of %.2f gal), after %.1f s" % [units, untouched, held, float(mower.get("fuel")), poured, need, waited])
+
+
+## The host's cue for the client's yard half (_run_client_yard): where to bag,
+## and the half-empty mower and the gas can to fill it from.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_client_yard(spot: Vector3, mower_path: NodePath, can_path: NodePath) -> void:
+	_yard_cue = {"spot": spot, "mower": mower_path, "can": can_path}
+
+
+## tier_math: what each tier does, from the tables (core/tool_tiers.gd,
+## Heat.noise_for); and a tier set on a tool reaches its look on this peer
+## (and, through the shops report's tools, the client's copy).
+func _check_tier_math() -> void:
+	var problems: Array[String] = []
+	if not is_equal_approx(_Heat.noise_for("leaf_blower", Catalog.TIER_MK2), float(Constants.HEAT_NOISE_PER_SECOND["leaf_blower"]) * 0.7):
+		problems.append("a Mk II blower's noise is %.3f" % _Heat.noise_for("leaf_blower", Catalog.TIER_MK2))
+	for kind: String in Constants.HEAT_NOISE_PER_SECOND:
+		if not (_Heat.noise_for(kind, 0) > _Heat.noise_for(kind, 1) and _Heat.noise_for(kind, 1) > _Heat.noise_for(kind, 2) and _Heat.noise_for(kind, 2) > _Heat.noise_for(kind, 3)):
+			problems.append("%s isn't quieter at every tier" % kind)
+	if not (_ToolTiers.start_chance(0, 0) < _ToolTiers.start_chance(1, 0) and _ToolTiers.start_chance(1, 0) < _ToolTiers.start_chance(2, 0)) or not is_equal_approx(_ToolTiers.start_chance(3, 0), 1.0):
+		problems.append("pull-start chances %s" % str([_ToolTiers.start_chance(0, 0), _ToolTiers.start_chance(1, 0), _ToolTiers.start_chance(2, 0), _ToolTiers.start_chance(3, 0)]))
+	if not is_equal_approx(_ToolTiers.hose_length(3), float(Constants.MK3_PERKS["hose"])) or not is_equal_approx(_ToolTiers.hose_length(2), Constants.HOSE_LENGTH * Constants.TOOL_TIER_REACH[2]):
+		problems.append("hose lengths %.1f, %.1f" % [_ToolTiers.hose_length(2), _ToolTiers.hose_length(3)])
+	if not is_equal_approx(_ToolTiers.washer_use(3), Constants.WASHER_USE_PER_SECOND / float(Constants.MK3_PERKS["pressure_washer"])) or _ToolTiers.trimmer_spots(3) != 2 or _ToolTiers.trimmer_spots(2) != 1:
+		problems.append("washer use %.2f, trimmer spots %d" % [_ToolTiers.washer_use(3), _ToolTiers.trimmer_spots(3)])
+	if not (_ToolTiers.burn_per_second("leaf_blower", 0) > _ToolTiers.burn_per_second("leaf_blower", 1) and _ToolTiers.burn_per_second("leaf_blower", 1) > _ToolTiers.burn_per_second("leaf_blower", 3)):
+		problems.append("fuel use doesn't drop with the tier")
+	if _ToolTiers.tool_name("leaf_blower", Catalog.TIER_MK2) != str(_Strings.SHOP_UI["item_leaf_blower_mk2"]) or _ToolTiers.tool_name("hose", Catalog.TIER_STOCK) != _Strings.item_name("hose"):
+		problems.append("tool names %s, %s" % [_ToolTiers.tool_name("leaf_blower", 2), _ToolTiers.tool_name("hose", 1)])
+	# The yard's blower becomes a Mk II: its look rebuilds with the trim.
+	var blower := _job_prop("leaf_blower")
+	if blower == null:
+		problems.append("no blower came along")
+	else:
+		blower.set("tier", Catalog.TIER_MK2)
+		await _ticks(2)
+		var look := blower.get_node_or_null("Visual/Look")
+		if look == null or int(look.get_meta("tier", 1)) != Catalog.TIER_MK2:
+			problems.append("the blower's look didn't take its tier")
+	for problem: String in problems:
+		print("[ShopTest]   %s" % problem)
+	_step("tier_math", problems.is_empty(), "%d problems" % problems.size())
+
+
+## Up to count spots on the yard thick enough with leaves to bag (with a
+## contractor bag's wider scoop to spare), at least 5 m apart.
+func _leafy_spots(field: Node, count: int) -> Array[Vector3]:
+	var lot := get_tree().get_first_node_in_group("world").get_node("LotZone") as Node3D
+	var need := int(Constants.MIN_BAG_CELLS * float(field.get("INITIAL_DENSITY"))) * 2
+	var found: Array[Vector3] = []
+	for z: float in [6.0, -6.0, 10.0, -10.0, 2.0, -2.0, 14.0, -14.0]:
+		for x: float in [-14.0, 14.0, -9.0, 9.0, -4.0, 4.0]:
+			var spot := lot.global_position + Vector3(x, 0.2, z)
+			if int(field.call("units_within_world", spot, Constants.BAG_RADIUS)) < need:
+				continue
+			if found.any(func(other: Vector3) -> bool: return other.distance_to(spot) < 5.0):
+				continue
+			found.append(spot)
+			if found.size() >= count:
+				return found
+	return found
+
+
+func _count_kind(kind: String) -> int:
+	return get_tree().get_nodes_in_group("props").filter(func(node: Node) -> bool: return str(node.get("kind")) == kind and not node.is_queued_for_deletion()).size()
+
+
+func _job_prop(kind: String) -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("job_tools"):
+		if str(node.get("kind")) == kind and not node.is_queued_for_deletion():
+			return node as Node3D
+	return null
+
+
+## The host stands here, in world space.
+func _stand_world(at: Vector3) -> void:
+	var me := _me()
+	if me == null:
+		return
+	me.global_position = at + Vector3(0.0, 0.1, 0.0)
+	if me is CharacterBody3D:
+		(me as CharacterBody3D).velocity = Vector3.ZERO
+	await _ticks(2)
+
+
+func _ticks(count: int) -> void:
+	for _tick: int in count:
+		await get_tree().physics_frame
+
+
 ## When Rusty's opens, around his fishing day: the evening before it skips a
 ## day, the morning of it and the evening of a plain day say tomorrow, and a
 ## plain morning says the hour.
@@ -218,8 +476,9 @@ func _run_client() -> void:
 	var hat_price := Catalog.price(CLIENT_HAT)
 	var gift: int = Constants.PAY_CREWMATE_STEPS[0]
 	shops.connect("result", func(code: String, item: String, amount: int) -> void: _results.append([code, item, amount]))
+	await _run_client_yard()
 	var waited := 0.0
-	while waited < WAIT_SECONDS and not (Net.player_zone(me) == Net.Zone.STORE and Campaign.credits(me) >= hat_price + gift and bool(shops.call("is_open", "homie_depot"))):
+	while waited < CLIENT_WAIT_SECONDS and not (Net.player_zone(me) == Net.Zone.STORE and Campaign.credits(me) >= hat_price + gift and bool(shops.call("is_open", "homie_depot"))):
 		await get_tree().create_timer(0.25).timeout
 		waited += 0.25
 	if Net.player_zone(me) != Net.Zone.STORE or Campaign.credits(me) < hat_price + gift:
@@ -257,6 +516,71 @@ func _run_client() -> void:
 	_step("client_give", odd == ["give_invalid", "give", 0] and gave == ["ok", "give", gift] and cash - Campaign.credits(me) == gift,
 		"odd gift %s, $%d gift %s, paid $%d" % [str(odd), gift, str(gave), cash - Campaign.credits(me)])
 	_finish("")
+
+
+## The client's yard half (the host's client_yard step): out of bags, its bag
+## request comes back refused ("no_bags") and the leaves stay; holding the gas
+## can by the half-empty mower, its refuel request fills the tank.
+func _run_client_yard() -> void:
+	var waited := 0.0
+	while _yard_cue.is_empty() and waited < CLIENT_WAIT_SECONDS:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	if _yard_cue.is_empty():
+		_step("client_yard", false, "the host never sent the yard cue")
+		return
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	var mower := get_node_or_null(_yard_cue["mower"] as NodePath) as Node3D
+	var can := get_node_or_null(_yard_cue["can"] as NodePath) as Node3D
+	if field == null or mower == null or can == null:
+		_step("client_yard", false, "no leaf field (%s), mower (%s) or gas can (%s) here" % [field != null, mower != null, can != null])
+		return
+	var spot: Vector3 = _yard_cue["spot"]
+	# The host's emptied supply and half tank arrive just ahead of the cue.
+	waited = 0.0
+	while waited < CLIENT_ANSWER_SECONDS and (str(field.call("bag_type")) != "" or float(mower.get("fuel")) >= 100.0):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var reasons: Array[String] = []
+	var heard := func(_peer_id: int, reason: String) -> void: reasons.append(reason)
+	field.connect("bag_refused", heard)
+	# Stand by the pile long enough for the host's copy of this player to be there too.
+	await _stand_world(spot - Vector3(1.5, 0.0, 0.0))
+	await get_tree().create_timer(0.6).timeout
+	var units := int(field.call("units_within_world", spot, Constants.BAG_RADIUS))
+	field.call("request_collect", spot, Constants.BAG_RADIUS)
+	waited = 0.0
+	while waited < CLIENT_ANSWER_SECONDS and reasons.is_empty():
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	# The host's snapshot of the cells follows the refusal.
+	await get_tree().create_timer(0.3).timeout
+	var stayed := int(field.call("units_within_world", spot, Constants.BAG_RADIUS)) == units
+	field.disconnect("bag_refused", heard)
+	# Pick up the gas can by the mower and fill it up.
+	await _stand_world(mower.global_position + Vector3(0.0, 0.1, 1.2))
+	await get_tree().create_timer(0.6).timeout
+	can.call("request_grab")
+	waited = 0.0
+	while waited < CLIENT_ANSWER_SECONDS and int(can.get("held_by")) != Net.local_peer_id():
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var holding := int(can.get("held_by")) == Net.local_peer_id()
+	var target: Variant = can.call("refuel_target")
+	can.call("request_refuel")
+	waited = 0.0
+	while waited < CLIENT_ANSWER_SECONDS and float(mower.get("fuel")) < 100.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var full := is_equal_approx(float(mower.get("fuel")), 100.0)
+	can.call("request_drop")
+	waited = 0.0
+	while waited < CLIENT_ANSWER_SECONDS and int(can.get("held_by")) != 0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var dropped := int(can.get("held_by")) == 0
+	_step("client_yard", reasons.size() == 1 and reasons[0] == "no_bags" and stayed and holding and target == mower and full and dropped,
+		"refused %s, %d units stay %s; held the can %s, it aims at the mower %s, tank full %s, put down %s" % [str(reasons), units, stayed, holding, target == mower, full, dropped])
 
 
 func _await_results(count: int) -> void:
@@ -314,7 +638,15 @@ func _check_save(shops: Node, me: int) -> bool:
 	# Read it into a fresh Shops, off the tree, and compare.
 	var copy: Node = shops.get_script().new()
 	copy.call("_read_section", section)
-	var same := JSON.stringify(copy.get("supplies"), "", true) == JSON.stringify(shops.get("supplies"), "", true) \
+	# The gas still in the job tools' tanks and the can is saved as the crew's
+	# (Shops.supplies_to_save): the yard is still loaded, so there is some.
+	var out_there := _ToolTiers.gas_out(get_tree().get_nodes_in_group("job_tools"))
+	var expected: Dictionary = shops.call("supplies_to_save")
+	var supplies_same := true
+	for id: String in _Shops.SUPPLY_IDS:
+		supplies_same = supplies_same and absf(float((copy.get("supplies") as Dictionary).get(id, -1.0)) - float(expected.get(id, -2.0))) < 0.01
+	var gas_kept := out_there > 0.0 and absf(float((copy.get("supplies") as Dictionary).get("gas", 0.0)) - float(shops.call("supply", "gas")) - out_there) < 0.01
+	var same := supplies_same and gas_kept \
 		and JSON.stringify(copy.get("stock"), "", true) == JSON.stringify(shops.get("stock"), "", true) \
 		and JSON.stringify(copy.get("looks"), "", true) == JSON.stringify(shops.get("looks"), "", true) \
 		and int(copy.get("stock_day")) == int(shops.get("stock_day"))
@@ -324,7 +656,7 @@ func _check_save(shops: Node, me: int) -> bool:
 		keys = keys and section.has(field)
 	var saved_look: Variant = (section.get("looks", {}) as Dictionary).get(key, {})
 	var hat := str((saved_look as Dictionary).get("hat", "")) if typeof(saved_look) == TYPE_DICTIONARY else ""
-	print("[ShopTest]   every key %s, reads back the same %s, hat %s, Mk II saved %s" % [keys, same, hat, unlocks.has("leaf_blower_mk2")])
+	print("[ShopTest]   every key %s, reads back the same %s (supplies %s, the %.2f gal out on the job saved %s), hat %s, Mk II saved %s" % [keys, same, supplies_same, out_there, gas_kept, hat, unlocks.has("leaf_blower_mk2")])
 	return keys and same and hat == "hat_bucket" and unlocks.has("leaf_blower_mk2")
 
 

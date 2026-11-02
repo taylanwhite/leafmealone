@@ -55,6 +55,12 @@ properties/13/replication_mode = 2
 properties/14/path = NodePath(".:pocket_slot")
 properties/14/spawn = true
 properties/14/replication_mode = 2
+properties/15/path = NodePath(".:tier")
+properties/15/spawn = true
+properties/15/replication_mode = 2
+properties/16/path = NodePath(".:fuel")
+properties/16/spawn = true
+properties/16/replication_mode = 2
 
 [node name="YardProp" type="RigidBody3D"]
 collision_layer = 1

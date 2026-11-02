@@ -60,6 +60,8 @@ const HOLDS: Dictionary = {
 	"turf_sign": {"at": Vector3(0.36, 0.46, -0.5), "yaw": 0.35, "grips": [Vector3(-0.22, 0.49, 0.0), Vector3.INF]},
 	"wheelbarrow": {"at": Vector3(0.0, 0.0, -1.12), "tilt": -0.176, "pivot": Vector3(0.0, 0.19, -0.62), "grips": [Vector3(0.25, 0.525, 0.97), Vector3(-0.25, 0.525, 0.97)]},
 	"hose": {"at": Vector3(0.0, 0.7, -0.42), "grips": [Vector3(0.15, 0.27, 0.0), Vector3(-0.15, 0.27, 0.0)]},
+	# The gas can hangs at your right side by its top handle (yard_models.gd _gas_can).
+	"gas_can": {"at": Vector3(0.3, 0.5, -0.22), "grips": [Vector3(0.0, 0.4, 0.0), Vector3.INF]},
 	"lawn_mower": {"grips": [Vector3(0.19, 0.95, 0.95), Vector3(-0.19, 0.95, 0.95)]},
 	"ladder": {"at": Vector3(0.33, 1.59, 0.0), "roll": PI * 0.5, "tilt": -0.08, "grips": [Vector3(0.0, 0.0, -0.35), Vector3.INF]},
 }
@@ -71,14 +73,18 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 	var visual := prop.get_node_or_null("Visual") as MeshInstance3D
 	if visual == null:
 		return
-	# Rebuild only when the kind changes (it can arrive after the prop is ready).
+	# Rebuild only when the kind or a tool's tier changes (either can arrive after
+	# the prop is ready). A tier dresses the tool: chrome for Mk II, black and gold
+	# for Mk III, rust and tape for a used one (props/yard_models.gd tier trim).
+	var tier := int(prop.get("tier")) if "tier" in prop else 1
 	var old := visual.get_node_or_null("Look")
 	if old != null:
-		if str(old.get_meta("kind", "")) == kind:
+		if str(old.get_meta("kind", "")) == kind and int(old.get_meta("tier", 1)) == tier:
 			return
 		old.free()
 	var look := Node3D.new()
 	look.set_meta("kind", kind)
+	look.set_meta("tier", tier)
 	look.name = "Look"
 	look.position.y = -VISUAL_HEIGHT
 	visual.add_child(look)
@@ -97,7 +103,7 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 			_turf_sign(look)
 		_:
 			# Tools and anything else props/yard_models.gd knows how to build.
-			look.add_child(_YardModels.node(kind, color, Vector3(0.7, 0.7, 0.7), {"roughness": 0.55, "specular": 0.3}))
+			look.add_child(_YardModels.node(kind, color, Vector3(0.7, 0.7, 0.7), {"roughness": 0.55, "specular": 0.3}, tier))
 	# The cube stays for its color code, but nothing draws it now.
 	visual.mesh = null
 	# Hoses trail a hose and spray water; washers spray water.
