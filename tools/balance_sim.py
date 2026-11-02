@@ -13,7 +13,7 @@ Money sinks are tools/balance/sinks.json. docs/BALANCE.md explains it all.
 
     python tools/balance_sim.py                  # print the table, write build/balance/report.json and .md
     python tools/balance_sim.py --check          # exit 1 when a blocking check fails
-    python tools/balance_sim.py --check --baseline   # run the checks, never fail (until the retune lands)
+    python tools/balance_sim.py --check --baseline   # tuning checks don't fail (until the retune lands); parity still does
     python tools/balance_sim.py --set TOWN_REGROW_PER_DAY=0.3 --set Ranks.XP_FIRST_TIER=160
     python tools/balance_sim.py --players 1,4 --seeds 20 --html
     python tools/balance_sim.py --propose        # suggest values; writes build/balance/proposal.json, edits nothing
@@ -171,16 +171,27 @@ def apply_set(tables: dict, assignment: str) -> str:
     except Exception as error:  # noqa: BLE001 - any parse failure is a usage error
         raise UsageError("--set %s: can't read %r (%s)" % (path, text, error))
     target = tables[script]
+    # A what-if changes a number the game has. A name or key that isn't there is a
+    # typo (exit 2), except the crew-scale hooks balance:E will add (OPTIONAL).
     new = keys[0] not in target
+    if new and not (len(keys) == 1 and keys[0] in OPTIONAL.get(script, [])):
+        raise UsageError("--set %s: %s has no constant %s%s" % (
+            path, script, keys[0], " (new names allowed: %s)" % ", ".join(OPTIONAL[script]) if script in OPTIONAL else ""))
     for key in keys[:-1]:
         target = _child(target, key, path)
     last = keys[-1]
     if isinstance(target, list):
+        if not last.lstrip("-").isdigit() or not -len(target) <= int(last) < len(target):
+            raise UsageError("--set %s: no index %s there" % (path, last))
         target[int(last)] = value
-    else:
-        if isinstance(target, dict) and last not in target and last.isdigit() and int(last) in target:
+    elif isinstance(target, dict):
+        if last not in target and last.isdigit() and int(last) in target:
             last = int(last)
+        if last not in target and len(keys) > 1:
+            raise UsageError("--set %s: no %s there" % (path, last))
         target[last] = value
+    else:
+        raise UsageError("--set %s: %s is not a list or dictionary" % (path, ".".join(keys[:-1])))
     if script == "Ranks" and keys[0] in ("XP_FIRST_TIER", "XP_PER_TIER_STEP", "XP_ENDLESS_TIER"):
         r = tables["Ranks"]
         r["CURVE_ID"] = "%d/%d/%d" % (r["XP_FIRST_TIER"], r["XP_PER_TIER_STEP"], r["XP_ENDLESS_TIER"])
@@ -189,7 +200,9 @@ def apply_set(tables: dict, assignment: str) -> str:
 
 def _child(container, key, path):
     if isinstance(container, list):
-        return container[int(key)]
+        if key.lstrip("-").isdigit() and -len(container) <= int(key) < len(container):
+            return container[int(key)]
+        raise UsageError("--set %s: no index %s there" % (path, key))
     if isinstance(container, dict):
         if key in container:
             return container[key]
@@ -549,7 +562,8 @@ class Run:
 
     def __init__(self, game: Game, players: int, seed: int, days_max: int, endless_days: int):
         self.g, self.n = game, players
-        self.rng = random.Random("%d:%d" % (seed, players))
+        self.seed_key = "%d:%d" % (seed, players)
+        self.rng = random.Random(self.seed_key)
         self.days_max, self.endless_days = days_max, endless_days
         C = game.C
         self.day = 1
@@ -666,9 +680,9 @@ class Run:
         tool = self.g.C["TASK_TOOLS"].get(task, "")
         return tool == "" or tool in tools
 
-    def choose_tasks(self, size, tools):
+    def choose_tasks(self, size, tools, rng):
         """levels/job_board.gd choose_tasks."""
-        C, rng = self.g.C, self.rng
+        C = self.g.C
         chosen = ["rake_leaves"]
         possible, unowned = [], []
         for task in self.g.tasks_by_order:
@@ -694,12 +708,15 @@ class Run:
     def offer_for(self, house):
         g = self.g
         tools = self.crew_tools()
-        tasks = self.choose_tasks(house.size, tools)
+        # Town.offer_for seeds its RNG with hash([house seed, _day]): a house's job is
+        # the same all day however often the crew looks at it, never a fresh re-roll.
+        rng = random.Random("%s:offer:%d:%d" % (self.seed_key, house.id, self.day))
+        tasks = self.choose_tasks(house.size, tools, rng)
         if house.likes and house.likes not in tasks and self.can_do(house.likes, house.size, tools):
             tasks.append(house.likes)
         season = g.seasons.of_day(self.day)
         favored = g.seasons.favored[season]
-        pick = favored[self.rng.randrange(len(favored))]
+        pick = favored[rng.randrange(len(favored))]
         if pick not in tasks and self.can_do(pick, house.size, tools):
             tasks.append(pick)
         return {
@@ -1375,8 +1392,10 @@ class Run:
         elif self.tier >= g.ranks.last:
             self.lawnfather_day = self.day
             self.catalog_days_at_lawnfather = self.catalog_days()
-        self.town_new_day()
+        # DayClock._end_day calls town.on_new_day(day + 1), which sets the town's day
+        # first: the morning's requests, mess and season are the new day's.
         self.day += 1
+        self.town_new_day()
 
     def catalog_days(self):
         """What's left to buy at The Lawnfather, in days of the crew's net income."""
@@ -1516,13 +1535,17 @@ def _finite(value):
 
 # ---------------------------------------------------------------- checks
 
-def run_checks(game: Game, crews: dict, parity, strict: bool) -> list:
+def run_checks(game: Game, crews: dict, parity, strict: bool, self_problems=()) -> list:
+    """Every check. baseline_ok marks the tuning checks --baseline may excuse; the
+    integrity checks (engine parity, the self-test) always fail the exit code."""
     C, T = game.C, game.M["targets"]
     checks = []
 
-    def add(name, ok, value, limit, blocking=True):
+    def add(name, ok, value, limit, blocking=True, baseline_ok=True):
         checks.append({"name": name, "ok": bool(ok), "value": value, "limit": limit,
-                       "blocking": bool(blocking or strict)})
+                       "blocking": bool(blocking or strict), "baseline_ok": bool(baseline_ok)})
+
+    add("self-test: sink prices equal Catalog.price", not self_problems, len(self_problems), 0, baseline_ok=False)
 
     arc = C["ARC_HOURS"]
     last_name = "The Lawnfather"
@@ -1559,9 +1582,9 @@ def run_checks(game: Game, crews: dict, parity, strict: bool) -> list:
             days = crews[key]["catalog_days_at_lawnfather"]
             add("(g) endless catalog left, crew %s" % key, days is not None and days >= T["endless_catalog_days"], days, T["endless_catalog_days"])
     if parity is not None:
-        add("(f) engine parity: constants", not parity["constant_mismatches"], len(parity["constant_mismatches"]), 0)
+        add("(f) engine parity: constants", not parity["constant_mismatches"], len(parity["constant_mismatches"]), 0, baseline_ok=False)
         add("(f) engine parity: formulas", not parity["case_mismatches"] and parity["cases"] > 0,
-            {"cases": parity["cases"], "mismatches": len(parity["case_mismatches"])}, 0)
+            {"cases": parity["cases"], "mismatches": len(parity["case_mismatches"])}, 0, baseline_ok=False)
 
     # Warnings (blocking with --strict).
     pace = C["RANK_PACE_HOURS"]
@@ -2025,7 +2048,7 @@ def main(argv=None) -> int:
     parser.add_argument("--html", nargs="?", const=os.path.join(REPO, "build", "balance", "report.html"), default=None)
     parser.add_argument("--check", action="store_true", help="exit 1 when a blocking check fails")
     parser.add_argument("--strict", action="store_true", help="warnings block too")
-    parser.add_argument("--baseline", action="store_true", help="with --check: run the checks but never fail the exit code (until balance:E)")
+    parser.add_argument("--baseline", action="store_true", help="with --check: the tuning checks don't fail the exit code (until balance:E); parity (f) and the self-test still do")
     parser.add_argument("--engine-dump", default=None, metavar="HOST_JSON", help="compare constants and formulas with --balance-test's output")
     parser.add_argument("--propose", action="store_true", help="search for values toward the targets; writes build/balance/proposal.json")
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
@@ -2051,7 +2074,10 @@ def main(argv=None) -> int:
         seeds = args.seeds or int(model["seeds"])
         days_max = args.days or int(model["days_max"])
         game = Game(tables, model, sinks, enforce)
-        warnings += self_test(game, lambda *_: None)
+        if args.check and not args.propose and not {1, 4} <= set(crews):
+            raise UsageError("--check needs crews 1 and 4 in --players (the blocking checks (a) to (e) are for them), got %r" % args.players)
+        self_problems = self_test(game, lambda *_: None)
+        warnings += self_problems
         if args.propose:
             proposal, game, result = propose(args.repo, args.set, args.model, args.sinks, min(seeds, 12), days_max, log)
             log("")
@@ -2068,7 +2094,7 @@ def main(argv=None) -> int:
             return EXIT_PASS
         crew_results = simulate(game, crews, seeds, days_max, int(model["endless_days"]))
         parity = engine_parity(args.engine_dump, tables) if args.engine_dump else None
-        checks = run_checks(game, crew_results, parity, args.strict)
+        checks = run_checks(game, crew_results, parity, args.strict, self_problems)
         constants_hash, model_hash = hashes(tables, args.model, args.sinks)
         report = {
             "build_version": tables["Constants"]["BUILD_VERSION"],
@@ -2117,6 +2143,10 @@ def main(argv=None) -> int:
     log("%d blocking checks failed, %d warnings; wrote %s" % (len(failed), len(warned), args.report))
     if args.check and failed:
         if args.baseline:
+            hard = [c for c in failed if not c.get("baseline_ok", True)]
+            if hard:
+                log("BASELINE does not excuse %s: the simulator or its mirror is wrong, not the tuning." % ", ".join(c["name"] for c in hard))
+                return EXIT_FAIL
             log("BASELINE: %d blocking checks fail on today's numbers; --baseline keeps the exit code 0 until balance:E retunes them." % len(failed))
             return EXIT_PASS
         return EXIT_FAIL

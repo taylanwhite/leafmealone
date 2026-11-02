@@ -10,10 +10,10 @@ Python 3 with the standard library only (`%LOCALAPPDATA%\Programs\Python\Python3
 | --- | --- |
 | `python tools/balance_sim.py` | Simulates crews 1 to 4 over 40 seeds (about 4 s), prints the summary table and every check, writes `build/balance/report.json` and `report.md`. |
 | `--check` | Exit 1 when a blocking check fails. |
-| `--check --baseline` | Runs and prints the checks but always exits 0. Today's numbers fail on purpose (see the baseline below); CI uses this until the retune (gap balance:E) drops it. |
+| `--check --baseline` | Runs and prints the checks; the tuning checks (a) to (e) and (g) don't fail the exit code. Today's numbers fail them on purpose (see the baseline below); CI uses this until the retune (gap balance:E) drops it. Engine parity (f) and the self-test are never excused: a misparsed constant or a drifted mirror exits 1 even with `--baseline`. |
 | `--strict` | Warnings block too. |
-| `--players 1,4 --seeds 20 --days 120` | Crew sizes, runs per size, and the most days a run plays. |
-| `--set NAME=VALUE` | A what-if, repeatable. NAME is `Script.NAME[.key...]` or a bare constant (looked up in Constants, then Ranks, Balance, Seasons). VALUE is a GDScript expression: `--set TOWN_REGROW_PER_DAY=0.3`, `--set Ranks.XP_FIRST_TIER=160`, `--set Constants.TOOL_PRICES.leaf_blower=400`, `--set "HIRE_SKILL=Vector2(0.5, 0.9)"`. Nothing in the repo changes. |
+| `--players 1,4 --seeds 20 --days 120` | Crew sizes, runs per size, and the most days a run plays. With `--check`, `--players` must include 1 and 4 (the blocking checks are for them), or it exits 2. |
+| `--set NAME=VALUE` | A what-if, repeatable. NAME is `Script.NAME[.key...]` or a bare constant (looked up in Constants, then Ranks, Balance, Seasons). VALUE is a GDScript expression: `--set TOWN_REGROW_PER_DAY=0.3`, `--set Ranks.XP_FIRST_TIER=160`, `--set Constants.TOOL_PRICES.leaf_blower=400`, `--set "HIRE_SKILL=Vector2(0.5, 0.9)"`. A name, key or index the game doesn't have is a typo and exits 2; only the crew-scale hooks balance:E will add (`CREW_WORK_SCALE`, `CREW_PATIENCE_SCALE`, `XP_CREW_SCALE`) may be new. Nothing in the repo changes. |
 | `--html [path]` | Also writes `build/balance/report.html`: hours per tier against the pace targets, and cash per player by day, as inline SVG, plus the tables. |
 | `--report`, `--md` | Where the JSON and Markdown go. |
 | `--engine-dump host.json` | Compares every constant the simulator reads, and a grid of formula calls, with what the engine computed (`--balance-test`'s output, gap balance:D). Any difference fails check (f). |
@@ -87,48 +87,53 @@ Blocking (exit 1 with `--check`):
 
 Warnings (blocking with `--strict`): each rank within ±35% of its pace target; the solo/quad ratio; p10 and p90 of the arc (10 − 1 h, 20 + 3 h); crews 2 and 3 inside `ARC_HOURS`; raids per job in each band (a quiet daytime Maple Row job 10 to 40%, a job with the mower and the blower 45 to 75%, Mansion Hill in quiet hours 75 to 100%).
 
-The run also checks itself: the same seed gives the same result twice, and every sink's price agrees with `Catalog.price`.
+The run also checks itself: the same seed gives the same result twice (exit 2 if not), and every sink's price agrees with `Catalog.price` (a blocking check `--baseline` doesn't excuse).
 
 ## Baseline, 2026-11-01 (build 0.4.1, today's numbers)
 
 ```
                               crew 1    crew 2    crew 3    crew 4    target
 hours to tier I of each rank (median)
-  Leaf Grunt                     2.2       1.4       1.2       1.0       1.0
-  Bag Hauler                     5.5       3.6       3.3       2.9       2.5
-  Mulch Mule                     9.7       6.1       5.4       4.8       4.5
-  Hedge Hog                     16.4      10.7       9.0       8.0       6.5
-  Turf Boss                     25.1      15.9      13.4      12.2       9.0
-  Lawn Lord                     33.8      22.4      18.9      17.0      11.5
-  Yard Baron                    45.1      30.2      25.1      22.8      14.0
-  The Lawnfather                55.4      38.6      32.2      28.9      16.0
-Lawnfather p10 (h)              50.9      34.6      29.6      25.7
-Lawnfather p90 (h)              62.1      43.4      35.6      31.2
-days to The Lawnfather          82.0      62.0      56.0      52.0
-jobs to The Lawnfather           132       123       119       118
-jobs per day                     1.6       2.0       2.1       2.3
+  Leaf Grunt                     2.2       1.4       1.0       0.9       1.0
+  Bag Hauler                     5.5       3.5       3.0       2.6       2.5
+  Mulch Mule                     9.5       6.0       5.2       4.7       4.5
+  Hedge Hog                     16.2      10.3       8.5       7.9       6.5
+  Turf Boss                     24.4      16.0      12.9      11.7       9.0
+  Lawn Lord                     33.0      22.3      18.2      16.4      11.5
+  Yard Baron                    43.8      29.7      25.1      22.4      14.0
+  The Lawnfather                54.1      37.3      31.9      28.8      16.0
+Lawnfather p10 (h)              49.9      33.5      28.2      25.5
+Lawnfather p90 (h)              61.3      42.3      35.5      31.1
+days to The Lawnfather          81.5      61.0      56.0      52.0
+jobs to The Lawnfather           130       121       118       118
+jobs per day                     1.6       1.9       2.1       2.3
 tier after night 1                 2         2         2         3
-$/player/day, Rake Rookie        579       395       307       244
-$/player/day, Hedge Hog          757       362       293       252
-$/player/day, The Lawnfather     980       694       669       564
-days of income, blower          0.15      0.23      0.26      0.32
-days of income, washer          0.50      0.79      1.01      1.28
-hire fee, days of income        0.17      0.40      0.48      0.58
-raids per job                   5.25      4.74      4.43      4.26
-days bound by clock             0.97      0.97      0.97      0.96
-jobs past patience              0.80      0.45      0.35      0.26
+$/player/day, Rake Rookie        578       379       304       230
+$/player/day, Bag Hauler         454       325       267       216
+$/player/day, Hedge Hog          732       351       295       240
+$/player/day, Lawn Lord         1030       609       511       505
+$/player/day, The Lawnfather     964       627       666       587
+days of income, blower          0.17      0.23      0.27      0.32
+days of income, washer          0.52      0.77      1.02      1.28
+hire fee, days of income        0.18      0.43      0.48      0.59
+raids per job                   5.21      4.54      4.39      4.21
+days bound by clock             0.98      0.96      0.97      0.96
+days bound by requests          0.02      0.04      0.03      0.04
+jobs past patience              0.81      0.43      0.35      0.27
 ```
 
-As expected, today's numbers fail `--check`: 12 blocking checks and 40 warnings fail (`--baseline` keeps CI green until the retune).
+As expected, today's numbers fail `--check`: 12 blocking checks and 37 warnings fail (`--baseline` keeps CI green until the retune).
 
-- **The arc is far too long:** 55 h solo and 29 h for four players, against 10 to 20 h. Solo takes 1.9 times as long as four players (target at most 1.3).
-- **The NICE BOYS are the biggest reason.** About 4 to 5 raids per job, and 97% of quiet daytime Maple Row jobs are raided (target about 25%). The director rolls every 20 s with the workbook's per-lot chance (BAL-14, 10%), rising 5% for every job ever finished to the 65% cap, so after about 11 jobs only the cooldown holds them back; and the cooldown shrinks to nothing as heat rises, while 60 s of mowing reaches 95 heat, a certain raid. Each raid costs the crew about two minutes. With raids switched off (`--set Balance.RUN_EVENT_BASE_CHANCE=0 --set Balance.RUN_CHANCE_ESCALATION_PER_TIER=0 --set HEAT_RAID_AT=1000 --set HEAT_CHANCE_AT_MAX=0`) the arc is 34 h solo, 20 h for two, 15 h for three and 13 h for four, 2.6 times as long solo.
-- **Money stops mattering at once.** Every tool costs 0.15 to 1.3 days of one player's income when it unlocks, and is bought the same day; the hiring fee is 0.2 to 0.6 days. Cash piles up to $17,000 (four players) to $54,000 (solo) per player by the night they reach The Lawnfather, with nothing to buy.
-- **Every client asks every day** (a yard regrows 0.35 a day and owners ask at 0.3), so the clock binds 97% of days, never the requests.
-- **Solo crews run out of patience:** 80% of solo jobs go past the homeowner's 12 minutes.
+(Re-recorded after review fixes: the town's morning now runs on the new day, as `DayClock._end_day` does, so a yard has a day more regrowth when it decides whether to text; and a house's offer is drawn once per day, like `Town.offer_for`'s `hash([seed, _day])`, instead of re-rolled every time the crew looks. Both moved the arc by about an hour.)
+
+- **The arc is far too long:** 54 h solo and 29 h for four players, against 10 to 20 h. Solo takes 1.9 times as long as four players (target at most 1.3).
+- **The NICE BOYS are the biggest reason.** About 4 to 5 raids per job, and 80 to 95% of quiet daytime Maple Row jobs are raided (target about 25%). The director rolls every 20 s with the workbook's per-lot chance (BAL-14, 10%), rising 5% for every job ever finished to the 65% cap, so after about 11 jobs only the cooldown holds them back; and the cooldown shrinks to nothing as heat rises, while 60 s of mowing reaches 95 heat, a certain raid. Each raid costs the crew about two minutes. With raids switched off (`--set Balance.RUN_EVENT_BASE_CHANCE=0 --set Balance.RUN_CHANCE_ESCALATION_PER_TIER=0 --set HEAT_RAID_AT=1000 --set HEAT_CHANCE_AT_MAX=0`) the arc is 34 h solo, 21 h for two, 16 h for three and 13 h for four, 2.6 times as long solo.
+- **Money stops mattering at once.** Every tool costs 0.17 to 1.3 days of one player's income when it unlocks, and is bought the same day; the hiring fee is 0.2 to 0.6 days. Cash piles up to $16,000 (four players) to $55,000 (solo) per player by the night they reach The Lawnfather, with nothing to buy.
+- **Every client asks every day** (a yard regrows 0.35 a day and owners ask at 0.3), so the clock binds 96 to 98% of days, almost never the requests.
+- **Solo crews run out of patience:** 81% of solo jobs go past the homeowner's 12 minutes.
 - The first night banks two or three tiers for every crew size (target: two to four).
 
-**What `--propose` suggested** (12 seeds per crew, starting from the gap spec's candidates; nothing applied): XP curve 164/12 (first/step), `XP_CREW_SCALE` about [2.0, 1.27, 1.09, 1.0], `CREW_WORK_SCALE[0]` about 0.7, tools $310 to $510, the tune-up and wheelbarrow about $510 and $410, a $660 signing fee and a $25 wage. Read it as a direction, not as values: it tunes the XP curve around today's raid storm, which the retune changes first (the director rolls by neighborhood and converts BAL-14 from per job to per roll), and the $25 wage says the model thinks a hand adds only $36 to $51 a day; `hand_leaf_rate` is a guess worth checking before wages are set. Rerun `--propose` after the director change.
+**What `--propose` suggested** (12 seeds per crew, starting from the gap spec's candidates; nothing applied): XP curve 111/22 (first/step), `XP_CREW_SCALE` about [2.1, 1.5, 1.29, 1.0], `CREW_WORK_SCALE[0]` about 0.53, tools $300 to $460, the tune-up and wheelbarrow about $460 and $420, a $620 signing fee and a $25 wage. Read it as a direction, not as values: it tunes the XP curve around today's raid storm, which the retune changes first (the director rolls by neighborhood and converts BAL-14 from per job to per roll), and the $25 wage says the model thinks a hand adds only $33 to $48 a day; `hand_leaf_rate` is a guess worth checking before wages are set. Rerun `--propose` after the director change.
 
 ## Adding a sink
 
@@ -157,7 +162,7 @@ As expected, today's numbers fail `--check`: 12 blocking checks and 40 warnings 
 
 ## Still to come
 
-- **balance:D**: `--balance-test` (port 7819) dumps the engine's constants and the formula grid; CI runs `balance_sim.py --check --baseline --engine-dump` on it; `ci_local.ps1` gets `balance` and `balance-sim`.
+- **balance:D**: `--balance-test` (port 7819) dumps the engine's constants and the formula grid; CI runs `balance_sim.py --check --baseline --engine-dump` on it (`--baseline` excuses only the tuning checks, so a parity mismatch fails CI); `ci_local.ps1` gets `balance` and `balance-sim`.
 - **balance:E**: the retune, from `--propose` and the checks, with the director change; `--baseline` comes off.
 - **balance:F**: sinks from the shops (tool tiers, supplies, workwear, paint, properties) go live, and the endless-loop check blocks.
 - **balance:G**: calibrate `model.json` from bot soaks.
