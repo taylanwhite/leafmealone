@@ -50,6 +50,7 @@ const _Sfx = preload("res://audio/sfx.gd")
 const _Prompt = preload("res://ui/interaction_prompt.gd")
 const _Homeowner = preload("res://npcs/homeowner.gd")
 const _QuipPlayer = preload("res://ui/quip_player.gd")
+const _RunCues = preload("res://ui/run_cues.gd")
 ## Hard-coded key names a player-facing string may not carry (settings:4, check
 ## 16): "left click", "(Tab)", "Hold G", "E to ...", "A and D", "[E]". Keys are
 ## {key:<action>} tokens, so they follow rebinding.
@@ -708,7 +709,7 @@ func _texts_in(value: Variant, path: String, out: Array) -> void:
 				_texts_in(value[index], "%s/%d" % [path, index], out)
 
 
-## Captions (settings:4): the quip caption and a homeowner's follow caption_size,
+## Captions (settings:4): the quip caption, the run-event cue caption and a homeowner's follow caption_size,
 ## caption_backdrop and captions on/off (off: no words, the babble still plays),
 ## and the quip caption and the lobby stay on screen at the biggest UI scale.
 func _captions() -> bool:
@@ -733,6 +734,17 @@ func _captions() -> bool:
 	var big := roundi(_QuipPlayer.FONT_SIZE * Constants.CAPTION_SCALES[2])
 	if caption.get_theme_font_size("font_size") != big or not caption.has_theme_stylebox_override("normal"):
 		ok = _fail("captions", "large with backdrop: size %d (want %d), backdrop %s" % [caption.get_theme_font_size("font_size"), big, caption.has_theme_stylebox_override("normal")])
+	# The run-event radio, arrival and all-clear captions follow the same settings.
+	var cues := ui.get_node_or_null("RunCues")
+	var cue := cues.get_node_or_null("CueCaption") as Label if cues != null else null
+	if cue == null:
+		ok = _fail("captions", "no UIRoot/RunCues/CueCaption")
+	else:
+		cues.call("_show_caption", "RADIO: testing, testing.")
+		await get_tree().process_frame
+		var cue_big := roundi(_RunCues.CAPTION_FONT_SIZE * Constants.CAPTION_SCALES[2])
+		if not cue.visible or cue.get_theme_font_size("font_size") != cue_big or not cue.has_theme_stylebox_override("normal"):
+			ok = _fail("captions", "cue caption large with backdrop: visible %s, size %d (want %d), backdrop %s" % [cue.visible, cue.get_theme_font_size("font_size"), cue_big, cue.has_theme_stylebox_override("normal")])
 	var screen := caption.get_viewport_rect()
 	# Anchored, not placed: its bottom edge is the corner offset above the screen's bottom.
 	if not screen.encloses(caption.get_global_rect()) or absf(caption.get_global_rect().end.y - (screen.end.y - _QuipPlayer.CORNER_OFFSET.y)) > 1.0:
@@ -753,6 +765,11 @@ func _captions() -> bool:
 	await get_tree().process_frame
 	if caption.visible or _Sfx.log.is_empty() or _Sfx.log.back() != "babble":
 		ok = _fail("captions", "captions off: visible %s, last sound %s" % [caption.visible, _Sfx.log.back() if not _Sfx.log.is_empty() else "none"])
+	if cue != null:
+		cues.call("_show_caption", "RADIO: nobody reads this either.")
+		await get_tree().process_frame
+		if cue.visible:
+			ok = _fail("captions", "cue caption shows with captions off")
 	# A homeowner's caption: hidden while off, then the large size once on.
 	var homeowner := _Homeowner.new()
 	homeowner.name = "CaptionHomeowner"
@@ -771,6 +788,10 @@ func _captions() -> bool:
 	await get_tree().process_frame
 	if caption.get_theme_font_size("font_size") != _QuipPlayer.FONT_SIZE or caption.has_theme_stylebox_override("normal"):
 		ok = _fail("captions", "reset left size %d, backdrop %s" % [caption.get_theme_font_size("font_size"), caption.has_theme_stylebox_override("normal")])
+	if cue != null:
+		if cue.get_theme_font_size("font_size") != _RunCues.CAPTION_FONT_SIZE or cue.has_theme_stylebox_override("normal"):
+			ok = _fail("captions", "reset left the cue caption at size %d, backdrop %s" % [cue.get_theme_font_size("font_size"), cue.has_theme_stylebox_override("normal")])
+		cues.set("_caption_left", 0.0)
 	caption.visible = false
 	return ok
 

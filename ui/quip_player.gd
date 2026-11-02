@@ -193,6 +193,14 @@ func _on_settings_changed(section: StringName, _key: StringName, _value: Variant
 ## and a dark rounded box behind it when caption_backdrop is on.
 func _style_caption() -> void:
 	_label.add_theme_font_size_override("font_size", roundi(FONT_SIZE * Settings.caption_scale()))
+	apply_backdrop(_label)
+	_fit_width()
+
+
+## Puts the dark rounded caption box behind a screen caption when the player's
+## caption_backdrop is on, and takes it off when it isn't. Shared with the
+## run-event captions (ui/run_cues.gd) so every screen caption looks the same.
+static func apply_backdrop(label: Label) -> void:
 	if bool(Settings.get_value("interface", "caption_backdrop")):
 		var box := StyleBoxFlat.new()
 		box.bg_color = BACKDROP_COLOR
@@ -201,10 +209,9 @@ func _style_caption() -> void:
 		box.content_margin_right = BACKDROP_MARGIN.x
 		box.content_margin_top = BACKDROP_MARGIN.y
 		box.content_margin_bottom = BACKDROP_MARGIN.y
-		_label.add_theme_stylebox_override("normal", box)
+		label.add_theme_stylebox_override("normal", box)
 	else:
-		_label.remove_theme_stylebox_override("normal")
-	_fit_width()
+		label.remove_theme_stylebox_override("normal")
 
 
 ## As wide as the line, up to MAX_WIDTH and the room the screen has at this UI
