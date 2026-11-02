@@ -1,43 +1,56 @@
 extends Node3D
 
-## Authority: local, cosmetic. Marty, the Homie Depot clerk behind the counter
-## (docs/FEEL.md, "How characters deal with shops"; docs/GAME.md, "2026-11-01,
-## the cast"): a deadpan lifer who takes the store far too seriously. Turns to
-## face whoever is closest, says something when you walk up (a caption over his
-## head with his babble), and opens the shop window when you press E across the
-## counter. Every peer has its own copy: nothing about the clerk is shared state,
-## and buying goes through Shops on the host.
+## Authority: local, cosmetic. A shopkeeper behind a counter (docs/FEEL.md, "How
+## characters deal with shops"; docs/GAME.md "Shops" and "2026-11-01, the cast"):
+## Marty at Homie Depot, Rusty at Rusty's Salvage & Pawn, Dot at Lunch Money
+## (shop_id picks which; Catalog.SHOPS names the keeper, KEEPERS dresses them).
+## Turns to face whoever is closest, says something when you walk up (a caption
+## over the head with babble), and opens their shop's window when you press E at
+## the counter. Every peer has its own copy: nothing about a keeper is shared
+## state, and buying goes through Shops on the host. levels/dressing/shop_sites.gd
+## puts one at each shop's Constants.SHOP_SITES keeper spot.
 ##
-## What he says comes from Strings.KEEPER_LINES[KEEPER][trigger]:
+## Opening hours (Constants.SHOP_HOURS): while their shop is closed Rusty and Dot
+## go home (hidden), and the counter's prompt reads "Closed. Opens 7 AM". Marty
+## never goes home (he doesn't know how; the crew sleeps by his side wall), so
+## after hours he stands behind a shuttered register: E still opens his window,
+## on the CLOSED shutter, and gets his "closed" line. A keeper whose shop the
+## crew's rank hasn't opened yet isn't there at all.
+##
+## What a keeper says comes from Strings.KEEPER_LINES[keeper][trigger]:
 ##   greet       walking up to the counter
 ##   morning     the first time you walk up on a new day, before noon
 ##   night       walking up during quiet hours
 ##   after_raid  the first time you walk up after the NICE BOYS took you over the border
 ##   open        opening the shop window
 ##   closed      opening the shop window after hours
-##   buy         a purchase the host confirmed in his window (ui/shop_window.gd
-##               `bought`, which waits for Shops.result "ok"; ui/ui_root.gd calls it)
-## Shops' generic keepers take this trigger logic over later (critic C19).
+##   buy         a purchase the host confirmed in their window (on_sale: ui/ui_root.gd
+##               calls it on ui/shop_window.gd `bought`, which waits for Shops.result "ok")
 
 const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 ## Every trigger KEEPER_LINES must have lines for (net/dev/cast_test.gd checks).
 const TRIGGERS: Array[String] = ["greet", "morning", "night", "open", "buy", "after_raid", "closed"]
-## Whose lines these are in Strings.KEEPER_LINES, and whose hours (Constants.SHOP_HOURS).
-const KEEPER: String = "marty"
-const SHOP: String = "homie_depot"
-## How close the local player must be to shop, across the counter, in meters.
-const SHOP_REACH: float = 3.0
-## How close someone must be for the clerk to look at them and greet them.
-const NOTICE_RANGE: float = 7.0
-const GREET_COOLDOWN_SECONDS: float = 8.0
 const APRON := Color(0.93, 0.47, 0.13)
+## How each keeper looks: shirt, pants, skin (CartoonBody.SKIN_TONES index), hat
+## style and color; and whether they stay behind the counter after closing.
+## Rusty is all denim overalls and a rust-red cap; Dot wears the white Lunch
+## Money top and a yellow cap (her paper hat comes with the hats, shops chunk 7).
+const KEEPERS: Dictionary = {
+	"marty": {"shirt": APRON, "pants": Color(0.28, 0.3, 0.38), "skin": 2, "hat": "cap", "hat_color": Color(0.74, 0.38, 0.1), "after_hours": true},
+	"rusty": {"shirt": Color(0.3, 0.42, 0.62), "pants": Color(0.26, 0.36, 0.55), "skin": 1, "hat": "cap", "hat_color": Color(0.55, 0.22, 0.12), "after_hours": false},
+	"dot": {"shirt": Color(0.96, 0.95, 0.9), "pants": Color(0.2, 0.2, 0.24), "skin": 3, "hat": "cap", "hat_color": Color(0.98, 0.8, 0.2), "after_hours": false},
+}
 ## The caption's size on screen at the normal caption size (Settings.caption_scale()).
 ## Presentation, not tuning: it matches the homeowner caption (docs/DECISIONS.md).
 const CAPTION_PIXEL_SIZE: float = 0.0011
 
-## The last line he said on this peer, and why (for tests and the probe).
+## Which shop this keeper runs (a Catalog.SHOPS id). Set before adding it.
+var shop_id: String = "homie_depot"
+## Whose lines and look these are (Catalog.SHOPS[shop_id].keeper), set in _ready.
+var keeper: String = "marty"
+## The last line said on this peer, and why (for tests and the probe).
 var last_line: String = ""
 var last_trigger: String = ""
 
@@ -50,20 +63,26 @@ var _greeted_at: float = -1000.0
 var _local_was_near: bool = false
 ## The day of the last greet, so the first one of a day can be "morning".
 var _greeted_day: int = -1
-## The local player was taken over the border and Marty hasn't said his after-raid line yet.
+## The local player was taken over the border and the keeper hasn't said the after-raid line yet.
 var _was_raided: bool = false
 
 
 func _ready() -> void:
+	keeper = str((Catalog.SHOPS.get(shop_id, {}) as Dictionary).get("keeper", "marty"))
+	if not KEEPERS.has(keeper):
+		keeper = "marty"
 	add_to_group("prompt_sources")
-	add_to_group("store_clerk")
+	add_to_group("shopkeepers")
+	if shop_id == "homie_depot":
+		add_to_group("store_clerk")
+	var look: Dictionary = KEEPERS[keeper]
 	_body = _CartoonBody.new()
 	_body.name = "CartoonBody"
-	_body.set("shirt", APRON)
-	_body.set("pants", Color(0.28, 0.3, 0.38))
-	_body.set("skin", _CartoonBody.SKIN_TONES[2])
-	_body.set("hat_style", "cap")
-	_body.set("hat_color", APRON.darkened(0.2))
+	_body.set("shirt", look["shirt"])
+	_body.set("pants", look["pants"])
+	_body.set("skin", _CartoonBody.SKIN_TONES[int(look["skin"])])
+	_body.set("hat_style", look["hat"])
+	_body.set("hat_color", look["hat_color"])
 	add_child(_body)
 	_body.call("build")
 	var life := _CharacterLife.new()
@@ -73,7 +92,7 @@ func _ready() -> void:
 	life.role = "clerk"
 	_body.add_child(life)
 	_tag = Label3D.new()
-	_tag.text = _Strings.UI["clerk_name"]
+	_tag.text = str(_Strings.SHOP_UI.get("keeper_" + keeper, keeper))
 	_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_tag.font_size = 40
 	_tag.outline_size = 8
@@ -101,18 +120,39 @@ func _ready() -> void:
 	_voice.bus = preload("res://audio/sound_bank.gd").bus("babble")
 	add_child(_voice)
 	Net.player_zone_changed.connect(_on_zone_changed)
+	visible = is_present()
 
 
-## The shop prompt while the local player is across the counter.
+## The shop prompt while the local player is at the counter: "Shop", or a plain
+## "Closed. Opens 7 AM" after hours. Nothing for a shop the rank hasn't opened.
 func prompt() -> Dictionary:
-	if not _local_in_reach():
+	if not _local_in_reach() or not _unlocked():
 		return {}
-	return {"text": _Strings.UI["prompt_shop"], "at": global_position + Vector3(0.0, 2.6, 0.0)}
+	var at := global_position + Vector3(0.0, 2.6, 0.0)
+	if not is_open():
+		var shops := _shops()
+		var opens := str(shops.call("opens_text", shop_id)) if shops != null else ""
+		return {"text": str(_Strings.SHOP_UI["prompt_shop_closed"]) % opens, "at": at, "plain": true}
+	return {"text": _Strings.UI["prompt_shop"], "at": at}
 
 
-## Say a line for this trigger (TRIGGERS): a caption over his head, with babble.
+## Whether the shop is open by the clock (Shops.is_open; open when there's no Shops).
+func is_open() -> bool:
+	var shops := _shops()
+	return shops == null or bool(shops.call("is_open", shop_id))
+
+
+## Whether this keeper is behind the counter right now: their shop is unlocked,
+## and open, or it's Marty, who never leaves.
+func is_present() -> bool:
+	if not _unlocked():
+		return false
+	return is_open() or bool((KEEPERS[keeper] as Dictionary).get("after_hours", false))
+
+
+## Say a line for this trigger (TRIGGERS): a caption over the head, with babble.
 func say_line(trigger: String) -> void:
-	var by_trigger: Dictionary = _Strings.KEEPER_LINES.get(KEEPER, {})
+	var by_trigger: Dictionary = _Strings.KEEPER_LINES.get(keeper, {})
 	var lines: Array = by_trigger.get(trigger, by_trigger.get("greet", []))
 	if lines.is_empty():
 		chatter()
@@ -124,7 +164,20 @@ func say_line(trigger: String) -> void:
 	chatter()
 
 
-## Babble something, with the mouth moving. Called with every line.
+## A sale the host confirmed at this keeper's shop: the "buy" line, and the
+## cash drawer slamming shut right after the register (audio/cue_hooks.gd).
+func on_sale() -> void:
+	say_line("buy")
+	if Net.is_automated() or not is_inside_tree():
+		return
+	get_tree().create_timer(Constants.SHOP_DRAWER_DELAY_SECONDS).timeout.connect(func() -> void:
+		var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
+		if sfx != null:
+			sfx.call("play_at", "cash_drawer", global_position + Vector3(0.0, 1.0, 0.0))
+	)
+
+
+## Babble something, with the mouth moving, in this keeper's voice. Called with every line.
 func chatter() -> void:
 	if Net.is_automated():
 		return
@@ -132,7 +185,7 @@ func chatter() -> void:
 	if stream == null:
 		return
 	_voice.stream = stream
-	_voice.pitch_scale = randf_range(0.95, 1.08)
+	_voice.pitch_scale = float(Constants.KEEPER_VOICE_PITCH.get(keeper, 1.0)) * randf_range(0.95, 1.08)
 	_voice.play()
 	_body.call("talk", stream.get_length() / _voice.pitch_scale)
 
@@ -153,23 +206,27 @@ func greet_trigger() -> String:
 
 ## Which line opening the shop window gets: "closed" after hours, else "open".
 func open_trigger() -> String:
-	var shops := get_tree().get_first_node_in_group("shops")
-	if shops != null and not bool(shops.call("is_open", SHOP)):
-		return "closed"
-	return "open"
+	return "open" if is_open() else "closed"
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not event.is_action_pressed("interact") or not _local_in_reach():
+	if not event.is_action_pressed("interact") or not _local_in_reach() or not is_present():
 		return
 	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null and bool(ui.call("any_window_open")):
+		return
 	if ui != null:
-		ui.call("open_store")
+		ui.call("open_shop", shop_id)
 		say_line(open_trigger())
 	get_viewport().set_input_as_handled()
 
 
 func _process(delta: float) -> void:
+	visible = is_present()
+	if not visible:
+		_caption_left = 0.0
+		_local_was_near = false
+		return
 	var nearest := _nearest_player()
 	if nearest != null:
 		# Turn toward them. Bodies face -Z, so look away from the target to face it.
@@ -178,7 +235,7 @@ func _process(delta: float) -> void:
 		rotation.y = lerp_angle(rotation.y, yaw, clampf(delta * 4.0, 0.0, 1.0))
 	var near := _local_in_reach()
 	var now := Time.get_ticks_msec() / 1000.0
-	if near and not _local_was_near and now - _greeted_at > GREET_COOLDOWN_SECONDS:
+	if near and not _local_was_near and now - _greeted_at > Constants.KEEPER_GREET_COOLDOWN_SECONDS:
 		_greeted_at = now
 		_greet()
 	_local_was_near = near
@@ -186,7 +243,7 @@ func _process(delta: float) -> void:
 	var captions_on := bool(Settings.get_value("interface", "captions"))
 	_caption.visible = _caption_left > 0.0 and captions_on
 	_caption.pixel_size = CAPTION_PIXEL_SIZE * Settings.caption_scale()
-	# His name steps aside while he talks, so the two don't pile up.
+	# The name steps aside while they talk, so the two don't pile up.
 	_tag.visible = not _caption.visible
 
 
@@ -205,19 +262,35 @@ func _on_zone_changed(peer_id: int, zone: int) -> void:
 		_was_raided = true
 
 
+func _unlocked() -> bool:
+	var shops := _shops()
+	return shops == null or bool(shops.call("is_unlocked", shop_id))
+
+
+## Whether the local player stands at this shop's counter: within SHOP_REACH of
+## its Constants.SHOP_SITES counter (the spot the host checks a buy against,
+## net/shops/shops.gd _near_site, less the host's lag slack), or of the keeper.
 func _local_in_reach() -> bool:
 	var local := _player(Net.local_peer_id())
-	return local != null and _flat_distance(local) <= SHOP_REACH
+	if local == null:
+		return false
+	if _flat_distance(local.global_position, global_position) <= Constants.SHOP_REACH:
+		return true
+	var site: Dictionary = Constants.SHOP_SITES.get(shop_id, {})
+	var zone := get_parent() as Node3D
+	if not site.has("counter") or zone == null:
+		return false
+	return _flat_distance(local.global_position, zone.to_global(site["counter"])) <= Constants.SHOP_REACH
 
 
 func _nearest_player() -> Node3D:
 	var best: Node3D = null
-	var best_distance := NOTICE_RANGE
+	var best_distance := Constants.KEEPER_NOTICE_RANGE
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var body := node as Node3D
 		if body == null:
 			continue
-		var distance := _flat_distance(body)
+		var distance := _flat_distance(body.global_position, global_position)
 		if distance < best_distance:
 			best = body
 			best_distance = distance
@@ -231,5 +304,9 @@ func _player(peer_id: int) -> Node3D:
 	return null
 
 
-func _flat_distance(body: Node3D) -> float:
-	return Vector2(body.global_position.x - global_position.x, body.global_position.z - global_position.z).length()
+func _shops() -> Node:
+	return get_tree().get_first_node_in_group("shops") if is_inside_tree() else null
+
+
+func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()

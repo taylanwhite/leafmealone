@@ -1191,6 +1191,28 @@ const SUPPLY_NOTICE_SECONDS: float = 3.0
 ## red gas can along with (levels/world.gd _spawn_job_tools).
 const GAS_CAN_MIN_GALLONS: float = 1.0
 
+# ---- shops: UI, keepers and shelves
+# The shop window, the shopkeepers and the stock you can see (gap shops chunk 4:
+# ui/shop_window.gd, npcs/store_clerk.gd, props/shelf_stock.gd,
+# levels/dressing/shop_sites.gd). Where each shop stands is SHOP_SITES above.
+## How long the shop window's answer to a buy ("Sold out", "Bought: ...") stays up (s).
+const SHOP_TOAST_SECONDS: float = 2.6
+## The quantity buttons on a supply's card.
+const SHOP_QTY_STEPS: Array[int] = [1, 5]
+## A shopkeeper turns to look at, and greets, anyone this close (m). You shop
+## from SHOP_REACH.
+const KEEPER_NOTICE_RANGE: float = 7.0
+## How long before a keeper greets the same player again (s).
+const KEEPER_GREET_COOLDOWN_SECONDS: float = 8.0
+## Each keeper's babble pitch: Rusty low and slow, Dot high and chirpy.
+const KEEPER_VOICE_PITCH: Dictionary = {"marty": 1.0, "rusty": 0.75, "dot": 1.3}
+## How close to a shelf slot you look at it, and E opens the catalog on it (m).
+const SHELF_LOOK_REACH: float = 1.6
+## The most boxes of a supply a shelf slot shows: one per unit left today.
+const SHELF_MAX_UNITS: int = 12
+## How long after the register the cash drawer slams shut (s).
+const SHOP_DRAWER_DELAY_SECONDS: float = 0.35
+
 # ---- art blocks
 # The parcel, street and block builders (levels/town/lot_builder.gd,
 # street_builder.gd, block_builder.gd, set_pieces.gd, season_dressing.gd; art chunk 5).

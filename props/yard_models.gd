@@ -9,6 +9,8 @@ extends RefCounted
 
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
+## The shops' models (the gas can lives there now; gap-specs shops chunk 4).
+const _ShopModels = preload("res://props/shop_models.gd")
 
 const WOOD := Color(0.66, 0.48, 0.3)
 const STEEL := Color(0.62, 0.64, 0.66)
@@ -110,7 +112,7 @@ static func _build_kind(kit: RefCounted, kind: String, color: Color, size: Vecto
 		"paint_bucket":
 			_paint_bucket(kit)
 		"gas_can":
-			_gas_can(kit)
+			_ShopModels.gas_can(kit)
 		_:
 			kit.call("rbox", Vector3(0.0, size.y * 0.5, 0.0), size * 0.5, color, 6.0)
 
@@ -484,20 +486,6 @@ static func _wand(kit: RefCounted) -> void:
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.04), Vector3(0, 0.0, -0.8)]), PackedFloat32Array([0.012, 0.012]), Color(0.75, 0.76, 0.78), 8, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0, 0.0, -0.78), Vector3(0, 0.0, -0.86)]), PackedFloat32Array([0.02, 0.016]), black, 8, {"jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0, -0.12, 0.13), Vector3(0, -0.3, 0.2)]), PackedFloat32Array([0.012, 0.012]), black, 6, {"jitter": 0.0})
-
-
-## The crew's red gas can: a flat jerry can with an X pressed in each side, a
-## handle across the top (where it's held, prop_looks.gd HOLDS), and a yellow
-## spout up front (-Z).
-static func _gas_can(kit: RefCounted) -> void:
-	var red := Color(0.84, 0.14, 0.1)
-	kit.call("rbox", Vector3(0.0, 0.17, 0.0), Vector3(0.08, 0.16, 0.13), red, 5.0, {"detail": 2})
-	for side: float in [-1.0, 1.0]:
-		for lean: float in [-1.0, 1.0]:
-			kit.call("rbox", Vector3(side * 0.083, 0.17, 0.0), Vector3(0.006, 0.012, 0.15), red.darkened(0.25), 3.0, {"detail": 1, "basis": Basis(Vector3.RIGHT, lean * 0.82)})
-	kit.call("tube", PackedVector3Array([Vector3(0, 0.32, -0.07), Vector3(0, 0.4, -0.045), Vector3(0, 0.4, 0.045), Vector3(0, 0.32, 0.07)]), PackedFloat32Array([0.016, 0.017, 0.017, 0.016]), Color(0.12, 0.12, 0.13), 6, {"jitter": 0.0})
-	kit.call("tube", PackedVector3Array([Vector3(0, 0.3, -0.1), Vector3(0, 0.37, -0.17), Vector3(0, 0.43, -0.22)]), PackedFloat32Array([0.022, 0.016, 0.012]), Color(0.95, 0.8, 0.2), 8, {"jitter": 0.0, "cap": true})
-	kit.call("blob", Vector3(0.0, 0.335, 0.09), Vector3(0.025, 0.012, 0.025), Color(0.12, 0.12, 0.13), TRIM_BLOB)
 
 
 ## A gallon of white paint with the lid off and a drip down the side.

@@ -26,6 +26,8 @@ var mute_audio: bool = false
 var run_event_at: float = -1.0
 var bot_stay: bool = false
 var open_shop: bool = false
+## --open-shop=<shop>[:<tab>] opens that shop's window on that tab (open_shop too).
+var open_shop_id: String = ""
 var open_board: bool = false
 ## --yard-size=N: every job's yard is this size (0 small, 1 regular, 2 big), -1 for the offer's.
 var yard_size: int = -1
@@ -151,6 +153,9 @@ func read() -> void:
 			bot_stay = true
 		elif argument == "--open-shop":
 			open_shop = true
+		elif argument.begins_with("--open-shop="):
+			open_shop = true
+			open_shop_id = argument.trim_prefix("--open-shop=")
 		elif argument.begins_with("--yard-size="):
 			yard_size = int(argument.trim_prefix("--yard-size="))
 		elif argument == "--open-board":

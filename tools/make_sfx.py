@@ -505,6 +505,33 @@ def glug() -> list[float]:
     return out
 
 
+def register() -> list[float]:
+    """The register on a confirmed buy: a mechanical 'ka' clack of keys, then a bright bell 'ching' ringing out."""
+    rng = random.Random(81)
+    out = silence(0.95)
+    mix_into(out, decay(bandpass(noise(rng, 0.05), 2200.0, 2.0), 90.0), 0.0, 0.9)
+    mix_into(out, decay(tone(0.06, 180.0, "square"), 60.0), 0.0, 0.35)
+    mix_into(out, decay(bandpass(noise(rng, 0.04), 3200.0, 2.5), 110.0), 0.045, 0.5)
+    # Two slightly sour bell partials and a shimmer, so it reads 'cash', not 'doorbell'.
+    for freq, gain in ((2093.0, 0.6), (2650.0, 0.42), (4186.0, 0.18)):
+        mix_into(out, decay(tone(0.8, freq), 6.0), 0.08, gain)
+    return out
+
+
+def cash_drawer() -> list[float]:
+    """The cash drawer slammed shut: a rattling slide, a wooden thunk, and coins jumping in their trays."""
+    rng = random.Random(82)
+    out = silence(0.6)
+    mix_into(out, envelope(bandpass(noise(rng, 0.16), 1500.0, 1.5), 0.02, 0.05), 0.0, 0.5)
+    slam = lowpass(decay(tone(0.25, glide(140.0, 70.0, 0.2), "triangle"), 18.0), 700.0)
+    mix_into(out, slam, 0.16, 1.0)
+    mix_into(out, decay(lowpass(noise(rng, 0.05), 1200.0), 80.0), 0.16, 0.7)
+    for index in range(5):
+        coin = decay(tone(0.08, rng.uniform(3200.0, 5200.0)), 45.0)
+        mix_into(out, coin, 0.19 + index * 0.035 + rng.uniform(0.0, 0.015), 0.25)
+    return out
+
+
 def ui_tick() -> list[float]:
     """The Settings window's slider step: a tiny wooden pip."""
     out = blip(0.04, 1800.0, 1400.0, 90.0)
@@ -562,6 +589,9 @@ SOUNDS = {
     "grind": (grind, 0, 0.7),
     "sputter": (sputter, 0, 0.65),
     "glug": (glug, 0, 0.55),
+    # ---- shops (chunk 4): the register on a confirmed buy, the keeper's cash drawer.
+    "register": (register, 0, 0.6),
+    "cash_drawer": (cash_drawer, 0, 0.6),
     "ui_tick": (ui_tick, 0, 0.35),
     "ui_pop": (ui_pop, 0, 0.45),
     "ui_stamp": (ui_stamp, 0, 0.7),
