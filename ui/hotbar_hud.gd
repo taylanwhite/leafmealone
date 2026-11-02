@@ -376,6 +376,13 @@ func _shake() -> Vector2:
 	return Vector2(sin(shake_left * TAU * Constants.HOTBAR_SHAKE_HZ) * Constants.HOTBAR_SHAKE_PX * share, 0.0)
 
 
+## Half the width of the slot row with a selected slot grown, centered on the
+## screen: other bottom-band text (the quip caption) keeps left of it.
+static func slots_half_width() -> float:
+	var slots := float(Constants.HOTBAR_SLOTS)
+	return (Constants.HOTBAR_SLOT_PX * slots * Constants.HOTBAR_SELECT_SCALE + Constants.HOTBAR_SLOT_GAP * (slots - 1.0)) * 0.5
+
+
 ## The bar's top (px above the bottom edge) with the selected slot raised and grown.
 func _bar_top() -> float:
 	return Constants.HOTBAR_BOTTOM_MARGIN + Constants.HOTBAR_SLOT_PX * (1.0 + (Constants.HOTBAR_SELECT_SCALE - 1.0) * 0.5) + Constants.HOTBAR_SELECT_RAISE

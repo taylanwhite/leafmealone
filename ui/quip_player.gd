@@ -14,6 +14,10 @@ const _Director = preload("res://net/run_events/director.gd")
 const FONT_SIZE: int = 22
 const CORNER_OFFSET := Vector2(80.0, 100.0)
 const MAX_WIDTH: float = 760.0
+## The gap kept to the hotbar's slot row, and the narrowest it wraps at to keep it.
+const BAND_GAP: float = 16.0
+const BAND_MIN_WIDTH: float = 340.0
+const _Hotbar = preload("res://ui/hotbar_hud.gd")
 const BACKDROP_COLOR := Color(0.0, 0.0, 0.0, 0.55)
 const BACKDROP_RADIUS: int = 10
 const BACKDROP_MARGIN := Vector2(14.0, 8.0)
@@ -222,7 +226,12 @@ func _fit_width() -> void:
 	var box := _label.get_theme_stylebox("normal")
 	var padding := box.get_minimum_size().x if box != null else 0.0
 	var natural := font.get_string_size(_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + padding + 2.0
-	var room := _label.get_viewport_rect().size.x - CORNER_OFFSET.x * 2.0
+	var view_width := _label.get_viewport_rect().size.x
+	var room := view_width - CORNER_OFFSET.x * 2.0
+	# Keep left of the hotbar's slot row (it sits in the same bottom band), but
+	# never narrower than BAND_MIN_WIDTH, so a big caption stays readable.
+	var left_of_bar := view_width * 0.5 - _Hotbar.slots_half_width() - BAND_GAP - CORNER_OFFSET.x
+	room = minf(room, maxf(left_of_bar, BAND_MIN_WIDTH))
 	_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_label.offset_right = _label.offset_left + maxf(1.0, minf(natural, minf(MAX_WIDTH, room)))
 	# Back to no height, so it settles at the new text's height, growing upward.
