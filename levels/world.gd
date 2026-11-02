@@ -341,6 +341,8 @@ func request_finish() -> void:
 func on_ride_arrived(destination: int) -> void:
 	if destination == Net.Zone.STORE:
 		_free_lot()
+	elif destination == Net.Zone.LOT and town_map:
+		on_crew_arrived()
 	elif destination == Net.Zone.LOT:
 		# The homeowner's patience starts when the crew shows up, not at the store.
 		Campaign.start_job_clock()
@@ -353,6 +355,23 @@ func on_ride_arrived(destination: int) -> void:
 		var director := get_node_or_null("RunDirector")
 		if crossing != null and director != null:
 			crossing.call("begin", director.call("cohort_roster"), int(director.call("hazard_seed")))
+
+
+## Host, the connected town. The crew got to the job's yard: a depart() trip
+## arrived, or Chefty parked by its curb (chefty_drive.gd's arrival detection,
+## however it was driven there). The homeowner's clock starts and the hired hands
+## hop off to work, once per yard: parking there again changes nothing.
+func on_crew_arrived() -> void:
+	if not Net.is_host() or %LotSlot.get_child_count() == 0:
+		return
+	var lot := %LotSlot.get_child(0)
+	if lot.has_meta("crew_arrived"):
+		return
+	lot.set_meta("crew_arrived", true)
+	Campaign.start_job_clock()
+	var hires := get_node_or_null("Hires")
+	if hires != null and Campaign.is_job_open():
+		hires.call("spawn_on_lot")
 
 
 func _load_job_lot() -> void:

@@ -512,6 +512,14 @@ const UI: Dictionary = {
 	"end_steam_not_running": "Steam is not running",
 	"end_steam_skipped": "Steam is off for this run",
 	# ---- end settings:4
+	# ---- driving: the autopilot and the chauffeur (driving chunk C2)
+	## The chauffeur's own key, after the seat's: prompt_chauffeur or
+	## prompt_chauffeur_stop. F stays the seat swap.
+	"drive_hud_keys_chauffeur": "{key:drop} %s",
+	"prompt_chauffeur": "Let %s drive",
+	"prompt_chauffeur_stop": "Pull over",
+	"drive_hud_chauffeur": "%s is driving",
+	"drive_hud_autopilot": "Chefty is driving itself. Don't ask.",
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -1759,6 +1767,10 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/drive_hud_bed": [3, 1],
 	"UI/drive_hud_driver": [1, 1],
 	"UI/drive_hud_keys_seat": [2, 1],
+	"UI/drive_hud_keys_chauffeur": [1, 1],
+	"UI/prompt_chauffeur": [1, 1],
+	"UI/drive_hud_chauffeur": [1, 1],
+	"CHAUFFEUR_QUIPS": [2, 3],
 	"UI/ride_rider_unnamed": [1, 1],
 	"UI/phone_text_head": [3, 1],
 	"UI/popup_cash": [1, 1],
@@ -1919,6 +1931,18 @@ const TOWN_SIGNS: Dictionary = {
 	"county_road": "COUNTY RD 9",
 	"depot_road": "DEPOT RD",
 }
+
+## A hired hand takes Chefty's wheel (net/components/chefty_drive.gd, the
+## chauffeur; docs/GAME.md, "Big Sal drives like Big Sal"). Both %s are the hand's
+## name. The host picks the line and sends its index.
+const CHAUFFEUR_QUIPS: Array[String] = [
+	"%s drives like %s.",
+	"%s adjusts the mirror, the seat and the radio. %s does not adjust the speed.",
+	"%s never uses the blinker. %s says it gives away the plan.",
+	"%s takes the wheel with one hand. The other hand is a gas-station coffee the size of a paint can. Classic %s.",
+	"Hands at ten and two, says %s, at a quarter past seven. That's %s for you.",
+	"%s calls the brake pedal \"a suggestion.\" %s is now driving.",
+]
 
 # ---- art
 # The words on the neighborhood looks' props and set pieces (props/prop_catalog.gd

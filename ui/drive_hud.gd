@@ -51,6 +51,10 @@ func _process(_delta: float) -> void:
 	_bed.text = _Strings.UI["drive_hud_bed"] % [int(vehicle.call("bag_count")), Constants.TRUCK_BAG_CAPACITY, int(vehicle.call("bag_value"))]
 	var driver_id := int(vehicle.call("driver"))
 	_driver.text = _Strings.UI["drive_hud_driver"] % Net.player_name(driver_id) if driver_id != 0 else _Strings.UI["drive_hud_no_driver"]
+	# The autopilot: a hired hand at the wheel, or nobody at all.
+	if driver_id == 0 and bool(vehicle.call("is_autopiloting")):
+		var chauffeur := str(vehicle.call("trip_label"))
+		_driver.text = _Strings.UI["drive_hud_chauffeur"] % chauffeur if chauffeur != "" else _Strings.UI["drive_hud_autopilot"]
 	var driving := driver_id == Net.local_peer_id()
 	_keys.text = _Strings.keyed(_Strings.UI["drive_hud_keys_driver" if driving else "drive_hud_keys_rider"] + "   " + _seat_keys(player, vehicle))
 	var screen := get_viewport_rect().size
@@ -60,12 +64,23 @@ func _process(_delta: float) -> void:
 
 ## F and E as they'd go right now: the cab's seats only swap while slow (the
 ## host refuses it faster), and getting out fast is a bail (chefty_drive.gd).
+## Then G, when a hired hand could take the wheel or is driving.
 func _seat_keys(player: Node, vehicle: Node) -> String:
 	var speed := float(vehicle.call("speed"))
 	var in_cab := bool(vehicle.call("is_cab_seat", int(player.call("seat_slot"))))
 	var swap: String = _Strings.UI["prompt_too_fast" if in_cab and speed >= Constants.CHEFTY_SEAT_SWAP_MAX_SPEED else "prompt_swap_seat"]
 	var out: String = _Strings.UI["prompt_bail_out" if speed > Constants.CHEFTY_EXIT_MAX_SPEED else "prompt_get_out"]
-	return _Strings.UI["drive_hud_keys_seat"] % [swap, out]
+	var keys: String = _Strings.UI["drive_hud_keys_seat"] % [swap, out]
+	# G lets a hired hand drive, or pulls them over (chefty_drive.gd chauffeur_action).
+	var chauffeur := str(vehicle.call("chauffeur_action", Net.local_peer_id())) if vehicle.has_method("chauffeur_action") else ""
+	match chauffeur:
+		"start":
+			var hands: Array = vehicle.call("hands_aboard")
+			if not hands.is_empty():
+				keys += "   " + _Strings.UI["drive_hud_keys_chauffeur"] % (_Strings.UI["prompt_chauffeur"] % str((hands[0] as Dictionary).get("name", "")))
+		"stop":
+			keys += "   " + _Strings.UI["drive_hud_keys_chauffeur"] % _Strings.UI["prompt_chauffeur_stop"]
+	return keys
 
 
 func _local_player() -> Node:

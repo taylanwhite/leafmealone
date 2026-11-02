@@ -20,6 +20,9 @@ extends Node
 ##      was thrown, and each landed at least 2 m from where they got out.
 ##   i. the client sits in the bed again and is caught (run director
 ##      note_capture, released at once): it's out of its seat.
+##   j-l. the autopilot (driving chunk C2, _autopilot_steps): a real depart()
+##      drive to a yard's curb, a hired hand chauffeuring and pulling over, and
+##      a warped depart() home.
 ## The client's prediction (how far its predicted Chefty was from the host's
 ## after the same input, "drive".prediction_error_max_m), the riders both peers
 ## see, and the client's snapshot gaps are checked by CI from the probe reports.
@@ -212,9 +215,170 @@ func _run(world: Node) -> void:
 		director.call("release_peer", client)
 	await get_tree().create_timer(0.5).timeout
 	_verdict(director != null and seated_before >= 2 and int(chefty.call("seat_of", client)) < 0, "i. caught in bed seat %d: now in seat %d" % [seated_before, int(chefty.call("seat_of", client))], problems)
+	await _autopilot_steps(world, chefty, host, problems)
 	# Give the client's report time to see the same seats and zone.
 	await get_tree().create_timer(1.0).timeout
 	_finish(problems.is_empty(), problems)
+
+
+## Driving chunk C2: the autopilot, depart(), the chauffeur and warp mode.
+##   j. depart([host], LOT) to Maple Row's first yard (the job site placed there
+##      on the host; driving chunk D will place it from the lot's spawn data),
+##      really driven: the host rides in a seat in TRANSIT, Chefty parks within
+##      CHEFTY_ARRIVE_RADIUS of the curb point, the host gets off into LOT, the
+##      homeowner's clock starts, and it took the time a drive takes.
+##   k. a hired hand (Big Sal) rides in a bed seat; the client in shotgun lets
+##      them drive (its own G, through _rpc_request_chauffeur): the autopilot
+##      heads home with Big Sal drawn at the wheel, the client's G again pulls
+##      over, F still slides the client over to the wheel, and the client gets
+##      out on the street.
+##   l. warp mode: depart([host], STORE) follows the route at warp speed, parks
+##      on the TruckPad, lets the host off into STORE and frees the yard; Big Sal
+##      is back in a bed seat.
+func _autopilot_steps(world: Node, chefty: Node, host: int, problems: Array[String]) -> void:
+	var house := TownMap.test_site_house()
+	world.call("place_job_site", TownMap.yard_transform(house), house)
+	var curb := TownMap.curb_point(house)
+	if int(chefty.call("seat_of", host)) >= 0:
+		chefty.call("request_exit")
+		await get_tree().create_timer(0.5).timeout
+	chefty.call("dev_place", Constants.CHEFTY_PARK_SPOT, Constants.CHEFTY_PARK_YAW)
+	await get_tree().create_timer(0.5).timeout
+	var clock_before := bool(Campaign.get("_job_clock_started"))
+	chefty.call("depart", [host], Net.Zone.LOT)
+	var riding := bool(chefty.call("is_riding")) and int(chefty.call("seat_of", host)) >= 0 and Net.player_zone(host) == Net.Zone.TRANSIT
+	var top := 0.0
+	var took := 0.0
+	while bool(chefty.call("is_riding")) and took < 75.0:
+		await get_tree().physics_frame
+		took += get_physics_process_delta_time()
+		top = maxf(top, float(chefty.call("speed")))
+	var at: Vector3 = (chefty.call("sim_pose") as Dictionary)["pos"]
+	var gap := Vector2(at.x - curb.x, at.z - curb.z).length()
+	var clock_after := bool(Campaign.get("_job_clock_started"))
+	_verdict(riding and not bool(chefty.call("is_riding")) and gap <= Constants.CHEFTY_ARRIVE_RADIUS and Net.player_zone(host) == Net.Zone.LOT and int(chefty.call("seat_of", host)) < 0 and not clock_before and clock_after and top >= 10.0 and took >= 15.0,
+		"j. depart to house %d: rode %s, %.1f s at up to %.1f m/s, parked %.1f m from the curb, host zone %s, seat %d, job clock %s -> %s" % [house, riding, took, top, gap, Net.Zone.keys()[Net.player_zone(host)], int(chefty.call("seat_of", host)), clock_before, clock_after], problems)
+	# k. The chauffeur.
+	var hires := world.get_node_or_null("Hires")
+	if hires == null:
+		_verdict(false, "k. no Hires node", problems)
+		return
+	hires.call("dev_add_hand", "Big Sal")
+	await get_tree().create_timer(0.5).timeout
+	# The client takes shotgun and asks through its own G path (a scripted
+	# "chauffeur", _rpc_request_chauffeur); CI checks the client's own
+	# chauffeur_action offered "start" then "stop" (drive.chauffeur_seen).
+	var client := _client_id()
+	var waited := 0.0
+	while int(chefty.call("seat_of", client)) != 1 and waited < 10.0:
+		var door: Vector3 = (chefty.call("body_transform") as Transform3D) * _Vehicles.CHEFTY_SHOTGUN_DOOR
+		_player(client).call("send_teleport", Transform3D(Basis.IDENTITY, door + Vector3(0.0, 0.1, 0.0)))
+		await get_tree().create_timer(0.8).timeout
+		chefty.call("dev_script", client, [{"do": "enter", "kind": 1}])
+		await get_tree().create_timer(1.2).timeout
+		waited += 2.0
+	# Give the client a moment to see its seat and the hand aboard.
+	await get_tree().create_timer(0.6).timeout
+	var in_bed := _rides(chefty, "Big Sal", 2)
+	var offered := str(chefty.call("chauffeur_action", client))
+	var from: Vector3 = (chefty.call("sim_pose") as Dictionary)["pos"]
+	chefty.call("dev_script", client, [{"do": "chauffeur"}])
+	waited = 0.0
+	while int((chefty.call("dev_report") as Dictionary)["trip"]) != 2 and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var report: Dictionary = chefty.call("dev_report")
+	var chauffeur := int(report["trip"]) == 2 and str(report["trip_label"]) == "Big Sal" and _rides(chefty, "Big Sal", 0) and not bool(chefty.call("is_riding"))
+	# Far enough that the client gets out on the street, not in the yard's zone.
+	var moved := 0.0
+	waited = 0.0
+	while moved < 40.0 and waited < 20.0 and bool(chefty.call("is_autopiloting")):
+		await get_tree().create_timer(0.2).timeout
+		waited += 0.2
+		var now: Vector3 = (chefty.call("sim_pose") as Dictionary)["pos"]
+		moved = Vector2(now.x - from.x, now.z - from.z).length()
+	var stop_offered := str(chefty.call("chauffeur_action", client))
+	chefty.call("dev_script", client, [{"do": "chauffeur"}])
+	waited = 0.0
+	while (float(chefty.call("speed")) > 0.3 or bool(chefty.call("is_autopiloting"))) and waited < 8.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var pulled_over := not bool(chefty.call("is_autopiloting")) and float(chefty.call("speed")) <= 0.3 and int(chefty.call("seat_of", client)) == 1
+	# F in shotgun still slides over with a hand aboard (G is the chauffeur's key).
+	await get_tree().create_timer(0.3).timeout
+	chefty.call("dev_script", client, [{"do": "swap"}])
+	waited = 0.0
+	while int(chefty.call("driver")) != client and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var slid := int(chefty.call("driver")) == client
+	# The client gets out where Chefty stopped, on the street (TOWN).
+	chefty.call("dev_script", client, [{"do": "exit"}])
+	waited = 0.0
+	while int(chefty.call("seat_of", client)) >= 0 and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var out := int(chefty.call("seat_of", client)) < 0 and Net.player_zone(client) == Net.Zone.TOWN
+	_verdict(in_bed and offered == "start" and chauffeur and moved >= 10.0 and stop_offered == "stop" and pulled_over and slid and out,
+		"k. the chauffeur: Big Sal in the bed %s, the client's G offers '%s', at the wheel %s, drove %.1f m, G then offers '%s', pulled over %s, F slid the client over %s, out on the street %s (%s)" % [in_bed, offered, chauffeur, moved, stop_offered, pulled_over, slid, out, Net.Zone.keys()[Net.player_zone(client)]], problems)
+	# k2. The chauffeur fired mid-trip: nobody is named or drawn at the wheel any
+	# more and Chefty pulls over. Big Sal is hired back for step l.
+	# (The client again: the host is on the yard, fenced into LOT.)
+	waited = 0.0
+	while int(chefty.call("seat_of", client)) != 1 and waited < 8.0:
+		var shotgun: Vector3 = (chefty.call("body_transform") as Transform3D) * _Vehicles.CHEFTY_SHOTGUN_DOOR
+		_player(client).call("send_teleport", Transform3D(Basis.IDENTITY, shotgun + Vector3(0.0, 0.1, 0.0)))
+		await get_tree().create_timer(0.8).timeout
+		chefty.call("dev_script", client, [{"do": "enter", "kind": 1}])
+		await get_tree().create_timer(1.2).timeout
+		waited += 2.0
+	chefty.call("dev_script", client, [{"do": "chauffeur"}])
+	waited = 0.0
+	while not bool(chefty.call("is_autopiloting")) and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.5).timeout
+	var started := bool(chefty.call("is_autopiloting")) and str(chefty.call("trip_label")) == "Big Sal" and _rides(chefty, "Big Sal", 0)
+	hires.call("_handle_fire", "Big Sal")
+	waited = 0.0
+	while (bool(chefty.call("is_autopiloting")) or float(chefty.call("speed")) > 0.3) and waited < 6.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var dropped := not bool(chefty.call("is_autopiloting")) and str(chefty.call("trip_label")) == "" and (chefty.call("cosmetic_riders") as Array).is_empty()
+	chefty.call("dev_script", client, [{"do": "exit"}])
+	waited = 0.0
+	while int(chefty.call("seat_of", client)) >= 0 and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var out_again := int(chefty.call("seat_of", client)) < 0 and Net.player_zone(client) == Net.Zone.TOWN
+	_verdict(started and dropped and out_again, "k2. Big Sal fired mid-trip: was driving %s, Chefty pulled over with nobody at the wheel %s, the client out on the street %s" % [started, dropped, out_again], problems)
+	hires.call("dev_add_hand", "Big Sal")
+	await get_tree().create_timer(0.5).timeout
+	# l. Warp home.
+	chefty.call("dev_set_warp", true)
+	chefty.call("depart", [host], Net.Zone.STORE)
+	took = 0.0
+	while bool(chefty.call("is_riding")) and took < 25.0:
+		await get_tree().physics_frame
+		took += get_physics_process_delta_time()
+	chefty.call("dev_set_warp", false)
+	at = (chefty.call("sim_pose") as Dictionary)["pos"]
+	var home := Vector2(at.x - Constants.CHEFTY_PARK_SPOT.x, at.z - Constants.CHEFTY_PARK_SPOT.z).length()
+	await get_tree().create_timer(0.5).timeout
+	var slot := world.get_node_or_null("%LotSlot")
+	var freed := slot != null and slot.get_child_count() == 0
+	_verdict(not bool(chefty.call("is_riding")) and took < 20.0 and home <= 15.0 and Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE and int(chefty.call("seat_of", host)) < 0 and freed and _rides(chefty, "Big Sal", 2),
+		"l. warped home in %.1f s: %.1f m from the TruckPad, host zone %s, seat %d, yard freed %s, Big Sal back in the bed %s" % [took, home, Net.Zone.keys()[Net.player_zone(host)], int(chefty.call("seat_of", host)), freed, _rides(chefty, "Big Sal", 2)], problems)
+
+
+## Whether a hand is drawn riding in Chefty: at the wheel (seat 0) or, with
+## min_seat 2, in any bed seat.
+func _rides(chefty: Node, hand: String, min_seat: int) -> bool:
+	for entry: Dictionary in chefty.call("cosmetic_riders"):
+		var seat := int(entry["seat"])
+		if str(entry["name"]) == hand and (seat == min_seat if min_seat == 0 else seat >= min_seat):
+			return true
+	return false
 
 
 func _client_id() -> int:

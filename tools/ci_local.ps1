@@ -182,12 +182,14 @@ $Tests = [ordered]@{
 	# within 0.25 m on average), both see the same riders, the client's snapshots
 	# never stall, riders sit still in their seats both on the host (its own sim)
 	# and on the client (drawn 100 ms behind through vehicle_view while the host
-	# drives), and the client ends up out of the truck in the town.
+	# drives), and the client ends up out of the truck in the town. The autopilot
+	# (driving:C2): the client saw all three trips (a real drive to a yard, a hired
+	# hand chauffeuring, a warp home), and both peers draw the hand riding in the bed.
 	drive = @{
 		Port = 7815
-		Host = '--host --name=Tester --no-steam --town-map --sim-loss=1 --job-seed=777 --yard-size=1 --drive-test'; Seconds = 110; Client = 105
+		Host = '--host --name=Tester --no-steam --town-map --sim-loss=1 --job-seed=777 --yard-size=1 --drive-test'; Seconds = 160; Client = 155
 		Extra = '--sim-lag=120'
-		Check = { param($h, $c) [bool]$h.drive_test.ok -and $c -ne $null -and ([double]$c.drive.prediction_error_max_m -lt 1.5) -and ([double]$c.drive.prediction_error_mean_m -lt 0.25) -and ([int]$c.drive.prediction_samples -gt 100) -and (Same $h.drive.riders $c.drive.riders) -and ([double]$c.vehicle_view.max_gap_ms -lt 400) -and ([int]$h.ride_frames -gt 0) -and ([double]$h.ride_wobble_m -lt 0.05) -and ([int]$c.ride_frames -gt 0) -and ([double]$c.ride_wobble_m -lt 0.05) -and ($c.zone -eq 'TOWN') }
+		Check = { param($h, $c) [bool]$h.drive_test.ok -and $c -ne $null -and ([double]$c.drive.prediction_error_max_m -lt 1.5) -and ([double]$c.drive.prediction_error_mean_m -lt 0.25) -and ([int]$c.drive.prediction_samples -gt 100) -and (Same $h.drive.riders $c.drive.riders) -and ([double]$c.vehicle_view.max_gap_ms -lt 400) -and ([int]$h.ride_frames -gt 0) -and ([double]$h.ride_wobble_m -lt 0.05) -and ([int]$c.ride_frames -gt 0) -and ([double]$c.ride_wobble_m -lt 0.05) -and ($c.zone -eq 'TOWN') -and ([int]$c.drive.trips_seen -ge 3) -and ((@($c.drive.chauffeur_seen) -join ',') -match 'start,stop') -and (Same $h.drive.cosmetic $c.drive.cosmetic) -and (($h.drive.cosmetic | ConvertTo-Json -Compress) -match 'Big Sal') }
 	}
 	# The engine half of the balance lab (net/dev/balance_test.gd): every tuning constant,
 	# a grid of economy formulas, and the tables' invariants. Host only, a second or two.

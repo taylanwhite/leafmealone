@@ -22,6 +22,16 @@ extends Node3D
 ## moves and what hits walls), Body (the rendered pose: TruckLook with the cab and
 ## the SteeringWheel, Seats x8, Label), View (vehicle_view.gd). Players never
 ## touch Chassis; they bump TruckLook's Solid on their own peer.
+##
+## Trips (driving chunk C2): depart() seats the party and the host's autopilot
+## (vehicle_autopilot.gd) drives the roads to the yard's curb or the TruckPad,
+## where everyone gets off into the zone like the legacy ride. With a hired hand
+## aboard and the driver's seat empty, G in the cab lets the hand drive
+## (request_chauffeur): the same autopilot, to the picked job or home, with the
+## riders free to get out. Automated runs and --warp-rides skip the driving and
+## follow the route at AUTOPILOT_TEST_WARP times cruise speed. The hands riding
+## along are drawn in the free bed seats (and at the wheel) on every peer from
+## the hires list and the seats, cosmetic only (cosmetic_riders()).
 
 signal crashed(strength: float, at: Vector3)
 signal parked(at: Vector3)
@@ -34,12 +44,16 @@ const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Sfx = preload("res://audio/sfx.gd")
 const _SoundBank = preload("res://audio/sound_bank.gd")
+const _CartoonBody = preload("res://player/cartoon_body.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
 ## Seat kinds for request_enter: the driver's seat, shotgun, the bed, or whichever
 ## door is nearest.
 enum Kind { DRIVER = 0, SHOTGUN = 1, BED = 2, NEAREST = -1 }
+## What the autopilot is doing: nothing, a depart() trip (the riders arrive in a
+## zone at the end), or a hired hand chauffeuring (the riders stay put).
+enum Trip { NONE = 0, DEPART = 1, CHAUFFEUR = 2 }
 const SEAT_DRIVER: int = 0
 const SEAT_SHOTGUN: int = 1
 ## _rpc_input flags.
@@ -96,9 +110,35 @@ var _dev_input: Dictionary = {}
 ## Non-drivers: the last drawn velocity, for the lean.
 var _view_vel := Vector3.ZERO
 var _view_state: Dictionary = {}
-## The legacy-style trip depart() makes until the autopilot exists (driving C2):
-## {start, seconds, zone, riders}. Empty when not on one.
-var _hop: Dictionary = {}
+## The trip under way, on every peer (_rpc_autopilot): its Trip kind, the zone a
+## depart() trip ends in, the hand at the wheel ("" with none aboard), and how
+## many trips this peer has seen start (tests).
+var _trip: int = Trip.NONE
+var _trip_zone: int = 0
+var _trip_label: String = ""
+var _trips_seen: int = 0
+## Tests: what this peer's own chauffeur_action() offered, each change to a
+## non-empty one in order ("start", "stop"), so CI can check a client's G key
+## offered what the host agreed to.
+var _chauffeur_seen: Array[String] = []
+var _chauffeur_last: String = ""
+## Host: the autopilot driving the trip, whether it warps, where it parks (and
+## facing which way, for a warp), and how long it has been going and may go.
+var _auto: VehicleAutopilot = null
+var _warp: bool = false
+var _warp_forced: bool = false
+var _trip_stop := Transform3D()
+var _trip_clock: float = 0.0
+var _trip_give_up: float = 0.0
+var _quip_rng := RandomNumberGenerator.new()
+## The chauffeur's quip over the cab, and how long it stays.
+var _quip_label: Label3D
+var _quip_left: float = 0.0
+## The hands drawn riding along: what was built (to rebuild only on a change), the
+## figures, and when each waves next.
+var _hands_built: String = ""
+var _hand_figures: Array[Node3D] = []
+var _wave_rng := RandomNumberGenerator.new()
 ## Bags: this job's (unpaid; what the homeowner pays for) and paid ones still in
 ## the bed (driving chunk J's mulch; always 0 for now).
 var _job_bags: int = 0
@@ -119,6 +159,8 @@ func _ready() -> void:
 	add_to_group("chefty")
 	add_to_group("vehicles")
 	_riders.resize(Constants.CHEFTY_SEATS)
+	_quip_rng.randomize()
+	_wave_rng.randomize()
 	_state = VehicleSim.new_state(Constants.CHEFTY_PARK_YAW)
 	_view_state = VehicleSim.new_state(Constants.CHEFTY_PARK_YAW)
 	_build()
@@ -170,6 +212,19 @@ func _build() -> void:
 	label.position = Vector3(0.0, 3.4, 0.0)
 	_body.add_child(label)
 	_label = label
+	# The chauffeur's quip, over the cab while it lasts.
+	var quip := Label3D.new()
+	quip.name = "Quip"
+	quip.font_size = 48
+	quip.outline_size = 10
+	quip.width = 900.0
+	quip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	quip.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	quip.modulate = Color(1.0, 0.85, 0.55)
+	quip.position = Vector3(0.0, 4.3, -1.6)
+	quip.visible = false
+	_body.add_child(quip)
+	_quip_label = quip
 	_seats = Node3D.new()
 	_seats.name = "Seats"
 	_body.add_child(_seats)
@@ -210,9 +265,31 @@ func _place(at: Vector3, yaw: float) -> void:
 
 # ---------------------------------------------------------------- the ride contract
 
-## On a trip depart() started (until the autopilot, a hop; driving C2).
+## On a trip depart() started (the riders are along for it until it arrives).
 func is_riding() -> bool:
-	return not _hop.is_empty()
+	return _trip == Trip.DEPART
+
+
+## The autopilot has the wheel: a depart() trip or a chauffeur.
+func is_autopiloting() -> bool:
+	return _trip != Trip.NONE
+
+
+## The hired hand at the wheel ("" when nobody, or nobody's aboard). The name is
+## the trip's (the host's pick when it started), and only counts while that hand
+## is still aboard: one fired or gone home at payroll mid-trip isn't driving.
+func trip_label() -> String:
+	return _trip_label if not _wheel_hand().is_empty() else ""
+
+
+## The hand drawn at the wheel: the trip's hand, while they're still aboard, else {}.
+func _wheel_hand() -> Dictionary:
+	if _trip == Trip.NONE or _trip_label == "" or driver() != 0:
+		return {}
+	for hand: Variant in hands_aboard():
+		if hand is Dictionary and str((hand as Dictionary).get("name", "")) == _trip_label:
+			return hand
+	return {}
 
 
 func seat_of(peer_id: int) -> int:
@@ -338,9 +415,10 @@ func on_job_paid() -> void:
 	clear_bags()
 
 
-## Host only. Seat these peers and take them to a zone. Until the autopilot
-## (driving C2) it's a hop: they sit for CHEFTY_HOP_SECONDS, then Chefty parks at
-## the stop (the yard's curb or the TruckPad) and they arrive like the legacy ride.
+## Host only. Seat these peers and take them to a zone: the autopilot drives the
+## roads to the stop (the yard's curb, or the TruckPad), and there everyone in a
+## seat gets off into the zone, like the legacy ride (their zone is TRANSIT on
+## the way). A chauffeur under way gives up the wheel to the trip.
 func depart(peer_ids: Array, destination_zone: int) -> void:
 	if not Net.is_host() or is_riding() or peer_ids.is_empty():
 		return
@@ -360,9 +438,63 @@ func depart(peer_ids: Array, destination_zone: int) -> void:
 		if id != 0:
 			riding.append(id)
 	_send_seats()
-	_rpc_hop.rpc(Net.server_time(), Constants.CHEFTY_HOP_SECONDS, destination_zone)
 	for id: int in riding:
 		Net.move_player_to_zone(id, Net.Zone.TRANSIT)
+	_start_trip(Trip.DEPART, destination_zone, _stop_for(destination_zone))
+
+
+## Ask the host to let a hired hand drive (or, while one is, to pull over). From
+## a cab seat, with a hand aboard and nobody in the driver's seat.
+func request_chauffeur() -> void:
+	if Net.is_host():
+		_handle_chauffeur(Net.local_peer_id())
+	else:
+		_rpc_request_chauffeur.rpc_id(1)
+
+
+## What G does about the chauffeur for this peer: "start" (let a hand drive),
+## "stop" (pull over), or "" (nothing). F always stays the seat swap. Every
+## peer can ask.
+func chauffeur_action(peer_id: int) -> String:
+	var seat := seat_of(peer_id)
+	if seat < 0 or seat >= _Vehicles.CHEFTY_CAB_SEATS:
+		return ""
+	if _trip == Trip.CHAUFFEUR:
+		return "stop"
+	if _trip != Trip.NONE or driver() != 0 or hands_aboard().is_empty() or _chauffeur_stop().is_empty():
+		return ""
+	return "start"
+
+
+## The hired hands riding along (net/crew/hires.gd's list), or [] while they're
+## off working a yard. Every peer: the list and the hands' bodies replicate.
+func hands_aboard() -> Array:
+	var hires := get_tree().get_first_node_in_group("hires")
+	if hires == null or not get_tree().get_nodes_in_group("crew_hands").is_empty():
+		return []
+	return hires.get("hands") as Array
+
+
+## Where the hands ride, drawn on every peer: [{seat, name, look}]. The trip's
+## hand at the wheel while the autopilot drives with the driver's seat empty (the
+## one the dash names, trip_label()), the rest in the free bed seats from the
+## back row forward.
+func cosmetic_riders() -> Array:
+	var hands := hands_aboard().duplicate()
+	var out: Array = []
+	var next := 0
+	var wheel := _wheel_hand()
+	if not wheel.is_empty():
+		out.append({"seat": SEAT_DRIVER, "name": str(wheel.get("name", "")), "look": int(wheel.get("look", 1))})
+		hands.erase(wheel)
+	for seat: int in range(Constants.CHEFTY_SEATS - 1, _Vehicles.CHEFTY_CAB_SEATS - 1, -1):
+		if next >= hands.size():
+			break
+		if _riders[seat] != 0:
+			continue
+		out.append({"seat": seat, "name": str(hands[next].get("name", "")), "look": int(hands[next].get("look", 1))})
+		next += 1
+	return out
 
 
 # ---------------------------------------------------------------- getting in and out
@@ -437,7 +569,8 @@ func _entry_for(from: Vector3, kind: int) -> Dictionary:
 func _seat_for_kind(kind: int) -> int:
 	match kind:
 		Kind.DRIVER:
-			if speed() >= Constants.CHEFTY_ENTER_MAX_SPEED:
+			# The autopilot (or the hand it's drawn as) has the wheel.
+			if speed() >= Constants.CHEFTY_ENTER_MAX_SPEED or _trip != Trip.NONE:
 				return -1
 			return _free_seat([SEAT_DRIVER])
 		Kind.SHOTGUN:
@@ -590,7 +723,8 @@ func _handle_swap(peer_id: int) -> void:
 	if seat < 0 or is_riding():
 		return
 	if seat < _Vehicles.CHEFTY_CAB_SEATS:
-		if speed() >= Constants.CHEFTY_SEAT_SWAP_MAX_SPEED:
+		# Nobody slides behind the wheel while a hand is driving.
+		if speed() >= Constants.CHEFTY_SEAT_SWAP_MAX_SPEED or _trip != Trip.NONE:
 			return
 		var other := SEAT_SHOTGUN if seat == SEAT_DRIVER else SEAT_DRIVER
 		_riders[seat] = _riders[other]
@@ -607,6 +741,41 @@ func _handle_swap(peer_id: int) -> void:
 		_riders[seat] = 0
 		_riders[next] = peer_id
 	_send_seats()
+
+
+func _handle_chauffeur(peer_id: int) -> void:
+	var seat := seat_of(peer_id)
+	if seat < 0 or seat >= _Vehicles.CHEFTY_CAB_SEATS:
+		return
+	if _trip == Trip.CHAUFFEUR:
+		# Pull over: the autopilot lets go, and with nobody driving Chefty brakes.
+		_end_trip()
+		return
+	if chauffeur_action(peer_id) != "start":
+		return
+	var stop := _chauffeur_stop()
+	_start_trip(Trip.CHAUFFEUR, int(stop["zone"]), stop["at"])
+
+
+## Where a chauffeur heads: the picked job's curb while a yard is loaded and
+## Chefty isn't parked at it, else home to the TruckPad, else nowhere ({}):
+## {zone, at}.
+func _chauffeur_stop() -> Dictionary:
+	var here := _chassis.global_position
+	var world := get_tree().get_first_node_in_group("world")
+	var slot := world.get_node_or_null("%LotSlot") if world != null else null
+	if slot != null and slot.get_child_count() > 0:
+		var lot := _stop_for(Net.Zone.LOT)
+		if _flat_distance(here, lot.origin) > Constants.CHEFTY_ARRIVE_RADIUS:
+			return {"zone": Net.Zone.LOT, "at": lot}
+	var home := _stop_for(Net.Zone.STORE)
+	if _flat_distance(here, home.origin) > Constants.CHEFTY_ARRIVE_RADIUS:
+		return {"zone": Net.Zone.STORE, "at": home}
+	return {}
+
+
+static func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
 func _send_seats() -> void:
@@ -630,13 +799,10 @@ func _player(peer_id: int) -> Node3D:
 func _physics_process(delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
-	if not _hop.is_empty():
-		_step_hop()
-		return
 	_step_dev_script(delta)
 	if Net.is_host():
 		_host_step(delta)
-	elif driver() == Net.local_peer_id() and driver() != 0:
+	elif driver() == Net.local_peer_id() and driver() != 0 and _trip == Trip.NONE:
 		if not _snap_waiting.is_empty():
 			var snap := _snap_waiting
 			_snap_waiting = {}
@@ -648,13 +814,16 @@ func _physics_process(delta: float) -> void:
 ## Host: this tick's inputs (usually one; two when the driver's queue runs long),
 ## the sim, and a snapshot every other tick.
 func _host_step(delta: float) -> void:
-	var steps := 2 if _queue.size() > Constants.CHEFTY_INPUT_QUEUE_CATCHUP else 1
-	for _step: int in steps:
-		var input := _host_input()
-		_set_horn(bool(input.get("horn", false)))
-		if driver() == Net.local_peer_id():
-			_local_horn(bool(input.get("horn", false)))
-		VehicleSim.step(_chassis, _state, input, _params, delta)
+	if _auto != null:
+		_autopilot_step(delta)
+	else:
+		var steps := 2 if _queue.size() > Constants.CHEFTY_INPUT_QUEUE_CATCHUP else 1
+		for _step: int in steps:
+			var input := _host_input()
+			_set_horn(bool(input.get("horn", false)))
+			if driver() == Net.local_peer_id():
+				_local_horn(bool(input.get("horn", false)))
+			VehicleSim.step(_chassis, _state, input, _params, delta)
 	_body.global_transform = VehicleSim.body_transform(_chassis.global_position, _state)
 	_tick += 1
 	var every := maxi(1, int(round(float(Engine.physics_ticks_per_second) / float(Constants.CHEFTY_SNAP_HZ))))
@@ -778,7 +947,7 @@ func apply_view_pose(pos: Vector3, yaw_now: float, vel: Vector3, snapped: bool) 
 
 
 func _uses_view() -> bool:
-	return not Net.is_host() and (driver() != Net.local_peer_id() or driver() == 0)
+	return not Net.is_host() and (driver() != Net.local_peer_id() or driver() == 0 or _trip != Trip.NONE)
 
 
 ## Who draws this peer's Chefty: the host its own sim, the driver its prediction,
@@ -805,36 +974,32 @@ func _refresh_role() -> void:
 		_snap_waiting = {}
 
 
-## Host: Chefty came to a stop (it's parked) or set off.
+## Host: Chefty came to a stop (it's parked) or set off. Parked by the job's
+## yard is the crew arriving there (arrival detection: the homeowner's clock
+## starts, the hands hop off), however it got there.
 func _note_parking() -> void:
 	var moving := speed() > Constants.CHEFTY_PARK_SPEED
 	if _was_moving and not moving:
 		parked.emit(_chassis.global_position)
+		_check_arrival(_chassis.global_position)
 	_was_moving = moving
 
 
-## The legacy-style trip (until the autopilot): sit, then park at the stop.
-func _step_hop() -> void:
-	if not Net.is_host():
-		return
-	if Net.server_time() - float(_hop["start"]) < float(_hop["seconds"]):
-		return
-	var zone := int(_hop["zone"])
-	var stop := _hop_stop(zone)
-	var riders_now: Array[int] = []
-	for id: int in _riders:
-		if id != 0:
-			riders_now.append(id)
-	_rpc_hop_arrived.rpc(stop.origin, stop.basis.get_euler().y)
-	for id: int in riders_now:
-		Net.move_player_to_zone(id, zone as Net.Zone)
+## Host: parked within CHEFTY_ARRIVE_RADIUS of the loaded yard's curb point.
+func _check_arrival(at: Vector3) -> void:
 	var world := get_tree().get_first_node_in_group("world")
-	if world != null and world.has_method("on_ride_arrived"):
-		world.call("on_ride_arrived", zone)
+	if world == null or not world.has_method("on_crew_arrived"):
+		return
+	var slot := world.get_node_or_null("%LotSlot")
+	if slot == null or slot.get_child_count() == 0:
+		return
+	if _flat_distance(at, _stop_for(Net.Zone.LOT).origin) <= Constants.CHEFTY_ARRIVE_RADIUS:
+		world.call("on_crew_arrived")
 
 
-## Where a hop parks: at the yard's curb facing along its street, or on the TruckPad.
-func _hop_stop(zone: int) -> Transform3D:
+## Where a trip to a zone parks: at the yard's curb facing along its street (the
+## job site, wherever LotZone stands), or on the TruckPad nose to the road.
+func _stop_for(zone: int) -> Transform3D:
 	var world := get_tree().get_first_node_in_group("world")
 	if zone == Net.Zone.LOT and world != null:
 		var lot_zone := world.get_node_or_null("LotZone") as Node3D
@@ -843,13 +1008,174 @@ func _hop_stop(zone: int) -> Transform3D:
 	return Transform3D(Basis(Vector3.UP, Constants.CHEFTY_PARK_YAW), Constants.CHEFTY_PARK_SPOT)
 
 
+# ---------------------------------------------------------------- the autopilot
+
+## Host: the autopilot takes the wheel for a trip to stop (a Transform3D, its
+## heading used when a warp parks there).
+func _start_trip(kind: int, zone: int, stop: Transform3D) -> void:
+	_auto = VehicleAutopilot.new()
+	_auto.start(VehicleAutopilot.plan(_chassis.global_position, stop.origin), stop.origin)
+	_warp = _warp_forced or VehicleAutopilot.wants_warp()
+	_trip_stop = stop
+	_trip_clock = 0.0
+	_trip_give_up = _auto.length() / Constants.AUTOPILOT_GIVE_UP_SPEED + Constants.AUTOPILOT_GIVE_UP_EXTRA
+	var hands := hands_aboard()
+	var label := str(hands[0].get("name", "")) if not hands.is_empty() and driver() == 0 else ""
+	var quip := -1
+	if kind == Trip.CHAUFFEUR and label != "":
+		quip = _quip_rng.randi() % _Strings.CHAUFFEUR_QUIPS.size()
+	_rpc_autopilot.rpc(kind, zone, label, quip)
+
+
+## Host, every tick of a trip: the autopilot's controls through the sim (or the
+## warp along the route), a trip that has gone on far too long warped the rest
+## of the way, and the arrival.
+func _autopilot_step(delta: float) -> void:
+	# The chauffeur was fired (or went home at payroll) mid-trip: nobody's driving,
+	# so Chefty pulls over rather than carry on by itself.
+	if _trip == Trip.CHAUFFEUR and trip_label() == "":
+		_end_trip()
+		return
+	_trip_clock += delta
+	_set_horn(false)
+	if not _warp and _trip_clock > _trip_give_up:
+		push_warning("Chefty's autopilot gave up driving after %.0f s; warping the rest" % _trip_clock)
+		_auto.start(VehicleAutopilot.plan(_chassis.global_position, _trip_stop.origin), _trip_stop.origin)
+		_warp = true
+	if _warp:
+		_warp_step(delta)
+	else:
+		VehicleSim.step(_chassis, _state, _auto.next_input(_state, _chassis.global_position, delta), _params, delta)
+	if _auto.done:
+		_arrive()
+
+
+## Warp mode: the chassis follows the route at AUTOPILOT_TEST_WARP times cruise,
+## facing along it, and parks exactly on the stop.
+func _warp_step(delta: float) -> void:
+	var pace := Constants.AUTOPILOT_TEST_WARP * Constants.AUTOPILOT_CRUISE
+	var step := _auto.warp_step(pace * delta)
+	var dir: Vector3 = step["dir"]
+	if bool(step["done"]):
+		_place(_trip_stop.origin, _trip_stop.basis.get_euler().y)
+		return
+	var heading := float(_state["yaw"])
+	if dir.length() > 0.01:
+		heading = lerp_angle(heading, VehicleAutopilot.yaw_of(dir), clampf(delta * Constants.AUTOPILOT_WARP_TURN_RATE, 0.0, 1.0))
+	var at: Vector3 = step["pos"]
+	_chassis.global_position = Vector3(at.x, _trip_stop.origin.y, at.z)
+	_chassis.global_rotation = Vector3(0.0, heading, 0.0)
+	_state["yaw"] = heading
+	_state["vel"] = dir * pace
+	_state["yaw_rate"] = 0.0
+	_state["vy"] = 0.0
+	_state["air"] = false
+
+
+## Host: the trip's over. A depart() trip lets everyone off into its zone (a
+## teleport, like the legacy ride) and tells the world; a chauffeur just parks,
+## and its riders' zones follow where Chefty stopped.
+func _arrive() -> void:
+	var kind := _trip
+	var zone := _trip_zone
+	_end_trip()
+	if kind == Trip.DEPART:
+		var riders_now: Array[int] = []
+		for id: int in _riders:
+			if id != 0:
+				riders_now.append(id)
+		_riders.fill(0)
+		_send_seats()
+		for id: int in riders_now:
+			Net.move_player_to_zone(id, zone as Net.Zone)
+		var world := get_tree().get_first_node_in_group("world")
+		if world != null and world.has_method("on_ride_arrived"):
+			world.call("on_ride_arrived", zone)
+	else:
+		for id: int in _riders:
+			if id != 0:
+				_note_zone(id, _chassis.global_position)
+
+
+## Host: the autopilot lets go (arrived, or the chauffeur pulled over).
+func _end_trip() -> void:
+	_auto = null
+	_warp = false
+	_rpc_autopilot.rpc(Trip.NONE, 0, "", -1)
+
+
 ## The steering wheel, the label, the sounds.
 func _update_presentation(delta: float) -> void:
 	var steer := float(_state.get("steer", 0.0))
-	if driver() == Net.local_peer_id() and driver() != 0:
+	if driver() == Net.local_peer_id() and driver() != 0 and _trip == Trip.NONE:
 		steer = float(_input_from_local().get("steer", 0.0))
 	_Vehicles.set_steering(_look, steer)
 	_update_sound(delta)
+	if _quip_label != null:
+		_quip_left = maxf(_quip_left - delta, 0.0)
+		_quip_label.visible = _quip_left > 0.0
+	_update_hands(delta)
+	var offered := chauffeur_action(Net.local_peer_id()) if seat_of(Net.local_peer_id()) >= 0 else ""
+	if offered != _chauffeur_last:
+		_chauffeur_last = offered
+		if offered != "":
+			_chauffeur_seen.append(offered)
+
+
+## The hands riding along, drawn from cosmetic_riders() (rebuilt only when who
+## sits where changes; nothing is drawn headless), each waving now and then.
+func _update_hands(delta: float) -> void:
+	var riding := cosmetic_riders()
+	var built := str(riding)
+	if built != _hands_built:
+		_hands_built = built
+		for figure: Node3D in _hand_figures:
+			if is_instance_valid(figure):
+				figure.queue_free()
+		_hand_figures.clear()
+		if DisplayServer.get_name() != "headless" and _seats != null:
+			for entry: Dictionary in riding:
+				_hand_figures.append(_build_hand(entry))
+	for figure: Node3D in _hand_figures:
+		if not is_instance_valid(figure) or int(figure.get_meta("seat", 0)) == SEAT_DRIVER:
+			continue
+		var wait := float(figure.get_meta("wave_in", 0.0)) - delta
+		if wait <= 0.0:
+			var body := figure.get_node_or_null("CartoonBody")
+			if body != null:
+				body.call("gesture", "wave")
+			wait = _wave_rng.randf_range(Constants.CHEFTY_HAND_WAVE_SECONDS.x, Constants.CHEFTY_HAND_WAVE_SECONDS.y)
+		figure.set_meta("wave_in", wait)
+
+
+## One hand in a seat: a crew-orange cartoon body (like npcs/crew_hand.gd's),
+## sitting in the cab or standing in the bed, with their name over them.
+func _build_hand(entry: Dictionary) -> Node3D:
+	var seat := int(entry["seat"])
+	var holder := Node3D.new()
+	holder.name = "HandRider%d" % seat
+	holder.set_meta("seat", seat)
+	holder.set_meta("wave_in", _wave_rng.randf_range(Constants.CHEFTY_HAND_FIRST_WAVE, Constants.CHEFTY_HAND_WAVE_SECONDS.x))
+	_seats.get_child(seat).add_child(holder)
+	var body := _CartoonBody.new()
+	body.name = "CartoonBody"
+	body.dress_from_seed(int(entry["look"]))
+	body.shirt = Color(0.93, 0.5, 0.18)
+	body.hat_style = "cap"
+	body.hat_color = Color(0.2, 0.32, 0.22)
+	holder.add_child(body)
+	body.build()
+	body.sit(1 if is_cab_seat(seat) else 2)
+	var tag := Label3D.new()
+	tag.name = "Name"
+	tag.text = str(entry["name"])
+	tag.font_size = 40
+	tag.outline_size = 8
+	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	tag.modulate = Color(1.0, 0.85, 0.55)
+	tag.position = Vector3(0.0, 2.2, 0.0)
+	holder.add_child(tag)
+	return holder
 
 
 # ---------------------------------------------------------------- tests
@@ -897,6 +1223,9 @@ func _step_dev_script(delta: float) -> void:
 			"swap":
 				request_swap()
 				continue
+			"chauffeur":
+				request_chauffeur()
+				continue
 		_dev_input = {"throttle": float(step.get("throttle", 0.0)), "steer": float(step.get("steer", 0.0)), "handbrake": bool(step.get("handbrake", false)), "horn": bool(step.get("horn", false))}
 		_dev_left = float(step.get("seconds", 0.0))
 		return
@@ -927,7 +1256,32 @@ func dev_report() -> Dictionary:
 		"speed": speed(),
 		"pos": [at.x, at.y, at.z],
 		"yaw": float(_state["yaw"]),
+		"trip": _trip,
+		"trip_label": trip_label(),
+		"trips_seen": _trips_seen,
+		"chauffeur_seen": _chauffeur_seen.duplicate(),
+		"cosmetic": _cosmetic_report(),
 	}
+
+
+## The hands riding along as [seat, name] pairs, for CI's host-equals-client check.
+func _cosmetic_report() -> Array:
+	var out: Array = []
+	for entry: Dictionary in cosmetic_riders():
+		out.append([int(entry["seat"]), str(entry["name"])])
+	return out
+
+
+## Host, tests: make every trip warp (true) or follow the --warp-rides and
+## automated-run default (false).
+func dev_set_warp(on: bool) -> void:
+	_warp_forced = on
+
+
+## Host, tests: how far the current trip has left to go along its route (m),
+## or -1 with no trip.
+func dev_trip_left() -> float:
+	return _auto.remaining() if _auto != null else -1.0
 
 
 ## Host, tests: this peer's last exit {at, bail}, or {}.
@@ -955,9 +1309,13 @@ func dev_place(at: Vector3, yaw_now: float) -> void:
 ## {on, throttle (-1..1), speed (m/s), skidding}.
 func engine_state() -> Dictionary:
 	var input := _input_from_local() if driver() == Net.local_peer_id() else _held
+	var throttle := float(input.get("throttle", 0.0)) if driver() != 0 else 0.0
+	if _trip != Trip.NONE:
+		# The autopilot's pedal isn't sent; the engine works as hard as it's going.
+		throttle = clampf(speed() / Constants.AUTOPILOT_CRUISE, 0.0, 1.0)
 	return {
-		"on": driver() != 0 or is_moving(),
-		"throttle": float(input.get("throttle", 0.0)) if driver() != 0 else 0.0,
+		"on": driver() != 0 or is_moving() or _trip != Trip.NONE,
+		"throttle": throttle,
 		"speed": speed(),
 		"skidding": float(_state.get("slip", 0.0)) > Constants.CHEFTY_SKID_SLIP,
 	}
@@ -1151,22 +1509,27 @@ func _rpc_bags(job_bags: int, job_value: int, spent_bags: int) -> void:
 	_refresh_label()
 
 
-@rpc("authority", "call_local", "reliable")
-func _rpc_hop(start: float, seconds: float, zone: int) -> void:
-	_hop = {"start": start, "seconds": seconds, "zone": zone}
-	_play_on("truck_horn")
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_chauffeur() -> void:
+	if Net.is_host():
+		_handle_chauffeur(multiplayer.get_remote_sender_id())
 
 
+## The autopilot took the wheel (kind a Trip) or let go (Trip.NONE): who's drawn
+## driving, and the chauffeur's quip (an index into Strings.CHAUFFEUR_QUIPS, the
+## host's pick, or -1). Cosmetic and for is_riding(); the pose comes in snapshots.
 @rpc("authority", "call_local", "reliable")
-func _rpc_hop_arrived(at: Vector3, yaw_now: float) -> void:
-	_hop = {}
-	_riders.fill(0)
-	_place(at, yaw_now)
-	_view.call("clear")
+func _rpc_autopilot(kind: int, zone: int, label: String, quip: int) -> void:
+	_trip = kind
+	_trip_zone = zone
+	_trip_label = label if kind != Trip.NONE else ""
+	if kind != Trip.NONE:
+		_trips_seen += 1
+		_play_on("truck_horn")
+	if quip >= 0 and label != "" and not _Strings.CHAUFFEUR_QUIPS.is_empty():
+		_quip_label.text = _Strings.CHAUFFEUR_QUIPS[quip % _Strings.CHAUFFEUR_QUIPS.size()] % [label, label]
+		_quip_left = Constants.CHAUFFEUR_QUIP_SECONDS
 	_refresh_role()
-	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.has_method("clear_riding"):
-			node.call("clear_riding")
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -1180,15 +1543,13 @@ func _rpc_request_state() -> void:
 	if not Net.is_host():
 		return
 	_watchers[multiplayer.get_remote_sender_id()] = true
-	var hop_left := -1.0
-	if not _hop.is_empty():
-		hop_left = float(_hop["seconds"]) - (Net.server_time() - float(_hop["start"]))
-	_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), _riders, driver(), _job_bags, _job_value, _spent_bags, _dents, _horn, hop_left, int(_hop.get("zone", 0)), _chassis.global_position, float(_state["yaw"]))
+	_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), _riders, driver(), _job_bags, _job_value, _spent_bags, _dents, _horn, _trip, _trip_zone, _trip_label, _chassis.global_position, float(_state["yaw"]))
 
 
-## A late joiner learns who sits where, what's in the bed, and where Chefty is.
+## A late joiner learns who sits where, what's in the bed, whether the autopilot
+## is driving, and where Chefty is.
 @rpc("authority", "call_remote", "reliable")
-func _rpc_state(seated: PackedInt32Array, _driver_id: int, job_bags: int, job_value: int, spent_bags: int, dents: int, horn: bool, hop_left: float, hop_zone: int, at: Vector3, yaw_now: float) -> void:
+func _rpc_state(seated: PackedInt32Array, _driver_id: int, job_bags: int, job_value: int, spent_bags: int, dents: int, horn: bool, trip: int, trip_zone: int, trip_label: String, at: Vector3, yaw_now: float) -> void:
 	_riders = seated.duplicate()
 	_riders.resize(Constants.CHEFTY_SEATS)
 	_job_bags = job_bags
@@ -1196,8 +1557,9 @@ func _rpc_state(seated: PackedInt32Array, _driver_id: int, job_bags: int, job_va
 	_spent_bags = spent_bags
 	_dents = dents
 	_horn = horn
-	if hop_left >= 0.0:
-		_hop = {"start": Net.server_time(), "seconds": hop_left, "zone": hop_zone}
+	_trip = trip
+	_trip_zone = trip_zone
+	_trip_label = trip_label
 	_place(at, yaw_now)
 	_refresh_params()
 	_refresh_role()

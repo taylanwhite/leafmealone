@@ -75,6 +75,10 @@ var end_day_at: float = -1.0
 ## Constants.TOWN_MAP_DEFAULT. Clients get the host's mode with the world.
 var town_map: bool = false
 var legacy_map: bool = false
+## --warp-rides: Chefty's autopilot trips (depart(), the chauffeur) follow their
+## route at Constants.AUTOPILOT_TEST_WARP times cruise speed instead of driving
+## it, as automated runs do (net/components/vehicle_autopilot.gd).
+var warp_rides: bool = false
 ## --audio-test: buses, the sound bank, Sfx and positional sounds (net/dev/audio_test.gd).
 var audio_test: bool = false
 ## --settings-test: volumes, look, FOV, bindings and the settings file (net/dev/settings_test.gd).
@@ -229,6 +233,8 @@ func read() -> void:
 			town_map = true
 		elif argument == "--legacy-map":
 			legacy_map = true
+		elif argument == "--warp-rides":
+			warp_rides = true
 		elif argument == "--audio-test":
 			audio_test = true
 		elif argument == "--settings-test":
