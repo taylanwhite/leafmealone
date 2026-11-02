@@ -6,21 +6,22 @@ extends Node
 ## GodotSteam's page recommends 8 KB or more for compressed voice and 20 KiB to decode into.
 const VOICE_READ_BYTES: int = 8192
 const VOICE_DECODE_BYTES: int = 20480
+const _Strings = preload("res://ui/strings.gd")
 
 var available: bool = false
-var unavailable_reason: String = "Steam is not running"
+var unavailable_reason: String = _Strings.UI["end_steam_not_running"]
 var lobby_id: int = 0
 var _creating_lobby: bool = false
 
 
 func setup(skip: bool) -> void:
 	if skip:
-		unavailable_reason = "Steam skipped"
+		unavailable_reason = _Strings.UI["end_steam_skipped"]
 		return
 	var result: Dictionary = Steam.steamInitEx(Constants.STEAM_APP_ID, true)
 	var status := int(result.get("status", 1))
 	if status != 0:
-		unavailable_reason = str(result.get("verbal", "Steam is not running"))
+		unavailable_reason = str(result.get("verbal", _Strings.UI["end_steam_not_running"]))
 		push_warning("[Net] %s" % unavailable_reason)
 		return
 	available = true

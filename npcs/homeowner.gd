@@ -23,6 +23,9 @@ const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
 const REACT_SECONDS: float = 2.6
 const CAPTION_SECONDS: float = 8.0
+## The caption's size on screen at the normal caption size; Settings'
+## caption_scale() multiplies it, like the store clerk's (presentation).
+const CAPTION_PIXEL_SIZE: float = 0.0011
 ## Gesture, sound, and face for each mood.
 const STAGING: Dictionary = {
 	"thrilled": {"gesture": "cheer", "sound": "vo_ah", "mood": "raised"},
@@ -72,10 +75,11 @@ func _ready() -> void:
 	tag.position.y = 2.2
 	add_child(tag)
 	_caption = Label3D.new()
+	_caption.name = "Caption"
 	_caption.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	# The same size on screen however close you stand: you talk to them up close.
 	_caption.fixed_size = true
-	_caption.pixel_size = 0.0011
+	_caption.pixel_size = CAPTION_PIXEL_SIZE
 	_caption.font_size = 30
 	_caption.outline_size = 10
 	_caption.width = 520.0
@@ -183,7 +187,10 @@ func _process(delta: float) -> void:
 	if _tag != null and _tag.text == _Strings.UI["homeowner_name"]:
 		_tag.text = _client_name()
 	_caption_left = maxf(0.0, _caption_left - delta)
-	_caption.visible = _caption_left > 0.0
+	# The player's caption settings: off hides the words (the voice still plays),
+	# and the size follows caption_size.
+	_caption.visible = _caption_left > 0.0 and bool(Settings.get_value("interface", "captions"))
+	_caption.pixel_size = CAPTION_PIXEL_SIZE * Settings.caption_scale()
 	# Their name steps aside while they talk, so the two don't pile up.
 	if _tag != null:
 		_tag.visible = not _caption.visible
@@ -332,8 +339,7 @@ func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -
 	_phase = Phase.WAITING if mood == "nothing" else Phase.REACTING
 	# pool is "<mood>", "bill_<reason>" or "<personality>/<mood>" (Strings.homeowner_pool).
 	var lines: Array = _Strings.homeowner_pool(pool if pool != "" else mood)
-	_caption.text = str(lines[clampi(line_index, 0, lines.size() - 1)])
-	_caption_left = CAPTION_SECONDS
+	show_caption(str(lines[clampi(line_index, 0, lines.size() - 1)]))
 	var staging: Dictionary = STAGING.get(mood, STAGING["fine"])
 	_body.set("mood", staging["mood"])
 	_body.call("gesture", staging["gesture"])
@@ -365,9 +371,15 @@ func _rpc_paid(_peer_id: int) -> void:
 	_body.set("mood", "raised")
 	_body.call("gesture", "wave")
 	# Seeded by the amount, which every peer has, so they all hear the same goodbye.
-	_caption.text = _Strings.pick_seeded(_Strings.HOMEOWNER_LINES["paid"], _amount)
-	_caption_left = Constants.HOMEOWNER_PAID_CAPTION_SECONDS
+	show_caption(_Strings.pick_seeded(_Strings.HOMEOWNER_LINES["paid"], _amount), Constants.HOMEOWNER_PAID_CAPTION_SECONDS)
 	_speak("babble")
+
+
+## Puts line over their head for seconds (hidden, but still timed, when the player
+## turned captions off; _process applies the caption settings every frame).
+func show_caption(line: String, seconds: float = CAPTION_SECONDS) -> void:
+	_caption.text = line
+	_caption_left = seconds
 
 
 func _speak(sound: String) -> void:

@@ -13,9 +13,11 @@ const _Strings = preload("res://ui/strings.gd")
 
 func _ready() -> void:
 	add_to_group("prompt_sources")
-	# ui/interaction_prompt.gd shows what E does here, so the old "E to ..." sign goes.
-	var old_sign := get_node_or_null("Label") as Node3D
+	# ui/interaction_prompt.gd shows what interact does here, so the old "E to ..."
+	# sign stays hidden; its words still come from ui/strings.gd, with the player's key.
+	var old_sign := get_node_or_null("Label") as Label3D
 	if old_sign != null:
+		old_sign.text = _Strings.keyed(_Strings.UI["sign_board_chefty"])
 		old_sign.visible = false
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)

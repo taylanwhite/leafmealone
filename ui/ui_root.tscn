@@ -18,29 +18,23 @@ custom_minimum_size = Vector2(320, 0)
 theme_override_constants/separation = 8
 
 [node name="Title" type="Label" parent="Menu/Panel"]
-text = "Leaf Me Alone"
 horizontal_alignment = 1
 
 [node name="NameField" type="LineEdit" parent="Menu/Panel"]
 unique_name_in_owner = true
-placeholder_text = "Name"
 
 [node name="HostButton" type="Button" parent="Menu/Panel"]
 unique_name_in_owner = true
-text = "Host on Steam"
 
 [node name="AddressField" type="LineEdit" parent="Menu/Panel"]
 unique_name_in_owner = true
-placeholder_text = "Address"
 text = "127.0.0.1"
 
 [node name="JoinButton" type="Button" parent="Menu/Panel"]
 unique_name_in_owner = true
-text = "Join"
 
 [node name="QuitButton" type="Button" parent="Menu/Panel"]
 unique_name_in_owner = true
-text = "Quit"
 
 [node name="Connecting" type="Label" parent="."]
 unique_name_in_owner = true
@@ -54,7 +48,6 @@ offset_left = -80.0
 offset_top = -16.0
 offset_right = 80.0
 offset_bottom = 16.0
-text = "Connecting"
 horizontal_alignment = 1
 
 [node name="SessionEnded" type="CenterContainer" parent="."]
@@ -71,12 +64,10 @@ theme_override_constants/separation = 8
 
 [node name="EndedReason" type="Label" parent="SessionEnded/Box"]
 unique_name_in_owner = true
-text = "Host left"
 horizontal_alignment = 1
 
 [node name="BackButton" type="Button" parent="SessionEnded/Box"]
 unique_name_in_owner = true
-text = "Back"
 
 [node name="LeaveButton" type="Button" parent="."]
 unique_name_in_owner = true
@@ -92,4 +83,3 @@ offset_right = 60.0
 offset_bottom = -24.0
 grow_horizontal = 2
 grow_vertical = 0
-text = "Leave Session"

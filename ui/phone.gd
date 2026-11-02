@@ -392,7 +392,8 @@ func _picky(standards: float) -> String:
 
 func _text(value: String, size: int, color: Color) -> Label:
 	var label := Label.new()
-	label.text = value
+	# Texts and lines may name keys ({key:phone}); the player reads their own.
+	label.text = _Strings.keyed(value)
 	label.add_theme_font_size_override("font_size", size)
 	label.add_theme_color_override("font_color", color)
 	return label

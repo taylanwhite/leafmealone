@@ -1231,3 +1231,7 @@ const ART_SPEED_BUMP_FROM_X: float = 12.0
 ## Grass across a block: the square's half size and the tuft spacing (props/grass.gd).
 const ART_BLOCK_GRASS_HALF: float = 70.0
 const ART_BLOCK_GRASS_SPACING: float = 0.48
+
+# ---- settings:4
+## How long a quip caption stays up at the bottom left (ui/quip_player.gd).
+const QUIP_CAPTION_SECONDS: float = 4.5

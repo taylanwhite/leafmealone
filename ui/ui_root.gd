@@ -27,10 +27,13 @@ var _settings_button: Button
 var _fps: Label
 
 const _Strings = preload("res://ui/strings.gd")
+## The lobby column's width, in UI pixels (presentation).
+const LOBBY_WIDTH: float = 320.0
 
 
 func _ready() -> void:
 	add_to_group("game_ui")
+	_scene_text()
 	# The mixer buses exist in every run, so a player's .bus always resolves.
 	preload("res://audio/buses.gd").ensure()
 	_cleanup = Label.new()
@@ -56,7 +59,7 @@ func _ready() -> void:
 	prompt.name = "InteractionPrompt"
 	add_child(prompt)
 	_rake_hint = Label.new()
-	_rake_hint.text = _Strings.UI["hud_rake_hint"]
+	_rake_hint.text = _Strings.keyed(_Strings.UI["hud_rake_hint"])
 	_rake_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	_rake_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_rake_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -166,11 +169,15 @@ func _process(_delta: float) -> void:
 		if crossing_status != "":
 			crew_line += "\n" + crossing_status
 	crew_line += _voice_line()
-	# What E does is shown over the thing itself (ui/interaction_prompt.gd), so the HUD stays short.
+	# What interact does is shown over the thing itself (ui/interaction_prompt.gd), so the HUD stays short.
 	if _rake_hint != null:
 		_rake_hint.visible = Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
+		if _rake_hint.visible:
+			# Its keys follow rebinding (Settings' Keys tab) without a restart.
+			_rake_hint.text = _Strings.keyed(_Strings.UI["hud_rake_hint"])
 	var cleanup := str(_Strings.UI["hud_cleanup_row"]) % (str(_Strings.UI["hud_cleanup_amount"]) % (fraction * 100.0))
-	_cleanup.text = (str(_Strings.UI["hud_wallet"]) % Campaign.credits(Net.local_peer_id())) + "\n" + cleanup + truck_line + crew_line
+	# The hiding, push-to-talk and crossing lines name keys with {key:} tokens.
+	_cleanup.text = _Strings.keyed((str(_Strings.UI["hud_wallet"]) % Campaign.credits(Net.local_peer_id())) + "\n" + cleanup + truck_line + crew_line)
 	if _lobby != null and _lobby.visible:
 		var lines: PackedStringArray = PackedStringArray()
 		for peer_id: int in Net.peer_ids():
@@ -342,9 +349,29 @@ func _notification(what: int) -> void:
 	open_pause()
 
 
+## The words the scene used to carry (ui_root.tscn keeps none of its own, so
+## every one is in ui/strings.gd).
+func _scene_text() -> void:
+	(%Menu.get_node("Panel/Title") as Label).text = _Strings.UI["menu_title"]
+	_name_field.placeholder_text = _Strings.UI["menu_name_placeholder"]
+	(%HostButton as Button).text = _Strings.UI["menu_host_steam"]
+	_address_field.placeholder_text = _Strings.UI["menu_address_placeholder"]
+	(%JoinButton as Button).text = _Strings.UI["menu_join"]
+	(%QuitButton as Button).text = _Strings.UI["menu_quit"]
+	_connecting.text = _Strings.UI["menu_connecting"]
+	(%BackButton as Button).text = _Strings.UI["menu_back"]
+	_leave.text = _Strings.UI["pause_leave"]
+
+
 func _build_lobby() -> void:
 	_lobby = VBoxContainer.new()
-	_lobby.position = Vector2(460, 180)
+	_lobby.name = "Lobby"
+	# Centered by anchors, growing both ways, so it stays on screen at every UI
+	# scale (Settings interface.ui_scale shrinks the logical screen).
+	_lobby.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_lobby.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_lobby.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_lobby.custom_minimum_size = Vector2(LOBBY_WIDTH, 0.0)
 	_lobby.visible = false
 	_lobby.add_theme_constant_override("separation", 8)
 	var title := Label.new()

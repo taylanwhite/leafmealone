@@ -79,7 +79,8 @@ var audio_test: bool = false
 var settings_test: bool = false
 ## For screenshots: --open-settings=<sound|controls|keys|video|interface> opens the
 ## Settings window on that tab after a second; "keys:listen" leaves a slot waiting
-## for a key, "keys:swap" rebinds Interact to F so the swap notice shows.
+## for a key, "keys:swap" rebinds Interact to F so the swap notice shows;
+## "captions" keeps it closed and shows a quip, a homeowner and her prompt instead.
 var open_settings: String = ""
 ## --shop-test: buying, hours, stock, supplies and the shops save (net/dev/shop_test.gd).
 ## Also the one timed run that uses the real starter supplies (net/shops/shops.gd).

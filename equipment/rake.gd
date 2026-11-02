@@ -246,7 +246,7 @@ func _show_pile(player: CharacterBody3D, delta: float) -> void:
 		return
 	_pile_label.visible = true
 	_pile_label.global_position = spot + Vector3(0.0, 0.5, 0.0)
-	_pile_label.text = (_Strings.UI["pile_value"] % int(field.call("dollars_for", units))) if enough else _Strings.UI["pile_thin"]
+	_pile_label.text = _Strings.keyed(_Strings.UI["pile_value"] % int(field.call("dollars_for", units))) if enough else _Strings.UI["pile_thin"]
 	_pile_label.modulate = Color(1.0, 0.85, 0.3) if enough else Color(0.8, 0.8, 0.8, 0.8)
 
 

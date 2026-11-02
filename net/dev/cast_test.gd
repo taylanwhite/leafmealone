@@ -115,7 +115,11 @@ const SWEEP_SKIP: Array[String] = ["res://ui/strings.gd", "res://net/dev/"]
 const SWEEP_SITES: Array[String] = [".text =", "text_sign(", "_status = ", "_show_ended(", "_text(", "_set_phase("]
 const SWEEP_LITERAL := "\"[A-Za-z][^\"%\\n]*\\s[A-Za-z][^\"\\n]*\""
 ## Canon brand names that may stay where they are painted.
-const SWEEP_ALLOW: Array[String] = ["HOMIE DEPOT", "Chefty"]
+const SWEEP_ALLOW: Array[String] = ["HOMIE DEPOT", "Homie Depot", "Chefty"]
+## The scene sweep (settings:4) reads .tscn files in SWEEP_DIRS and these, for
+## these properties. The scenes' text belongs in ui/strings.gd, set by the script.
+const SWEEP_SCENE_DIRS: Array[String] = ["res://border", "res://equipment"]
+const SWEEP_SCENE_PROPERTIES: Array[String] = ["text", "placeholder_text", "tooltip_text"]
 
 static var result: Dictionary = {}
 ## The crew as the host saw it in phase C, by node name: tag and outfit.
@@ -796,6 +800,8 @@ func _wire(condition: bool, what: String) -> void:
 ## Step 6: every sentence game code puts on screen itself fails the test (cast:3
 ## made it fail; before that it only reported). Move the text into ui/strings.gd
 ## and read it from there; canon brand names (SWEEP_ALLOW) may stay where painted.
+## Since settings:4 it reads scenes too: a .tscn's text, placeholder_text or
+## tooltip_text sentence fails the same way (the script sets it from Strings).
 func _sweep_inline() -> Array[String]:
 	var found: Array[String] = []
 	var literal := _regex(SWEEP_LITERAL)
@@ -818,9 +824,25 @@ func _sweep_inline() -> Array[String]:
 				if SWEEP_ALLOW.has(text):
 					continue
 				found.append("%s:%d %s" % [path.trim_prefix("res://"), number + 1, hit.get_string()])
+	# Scenes too (settings:4): a Label's or Button's words written into a .tscn.
+	var scenes: Array[String] = []
+	for dir: String in SWEEP_DIRS + SWEEP_SCENE_DIRS:
+		_list_scripts(dir, scenes, ".tscn")
+	for path: String in scenes:
+		var lines := FileAccess.get_file_as_string(path).split("\n")
+		for number: int in lines.size():
+			var line := lines[number]
+			if not _is_scene_text(line):
+				continue
+			for hit: RegExMatch in literal.search_all(line):
+				var text := hit.get_string().trim_prefix("\"").trim_suffix("\"")
+				if SWEEP_ALLOW.has(text):
+					continue
+				found.append("%s:%d %s" % [path.trim_prefix("res://"), number + 1, hit.get_string()])
 	for entry: String in found:
 		_fail("6 inline text", "%s (move it into ui/strings.gd)" % entry)
-	print("[CastTest] step 6: %d inline sentences outside ui/strings.gd (%d files read)" % [found.size(), files.size()])
+	print("[CastTest] step 6: %d inline sentences outside ui/strings.gd (%d scripts and %d scenes read)" % [found.size(), files.size(), scenes.size()])
+	_need_sweep(scenes.size() > 5, "6 the sweep read the game's scenes (%d files)" % scenes.size())
 	_need_sweep(files.size() > 50, "6 the sweep read the game's scripts (%d files)" % files.size())
 	return found
 
@@ -837,12 +859,20 @@ func _is_text_site(line: String) -> bool:
 	return false
 
 
-func _list_scripts(dir_path: String, out: Array[String]) -> void:
+## A scene property that puts words on screen: text, placeholder_text, tooltip_text.
+func _is_scene_text(line: String) -> bool:
+	for property: String in SWEEP_SCENE_PROPERTIES:
+		if line.begins_with(property + " = \""):
+			return true
+	return false
+
+
+func _list_scripts(dir_path: String, out: Array[String], extension := ".gd") -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
 		return
 	for file: String in dir.get_files():
-		if file.ends_with(".gd"):
+		if file.ends_with(extension):
 			out.append(dir_path.path_join(file))
 	for sub: String in dir.get_directories():
-		_list_scripts(dir_path.path_join(sub), out)
+		_list_scripts(dir_path.path_join(sub), out, extension)

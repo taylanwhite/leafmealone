@@ -30,8 +30,16 @@ extends Node
 ##                preset redraws the video controls, a new display mode reverts
 ##                unless kept, and opening from pause hides and restores the pause
 ##                buttons
-## The checks for graphics (settings:2) and key tokens in every string
-## (settings:4) join later. Each step prints a [SettingsTest] line.
+##   strings      (settings:4, check 16) every string names keys with {key:<action>}
+##                tokens of real actions and never hard-codes one ("left click",
+##                "(Tab)", "E to ..."); keyed() leaves no token; every action has
+##                a name; rebound keys show in the prompt, a phone line, the voice
+##                panel and the goal line; the menu and signs read from Strings
+##   captions     (settings:4) the quip caption and a homeowner's follow caption
+##                size, backdrop and on/off (off still babbles); at 125% UI scale
+##                the caption and the lobby stay on screen
+## The checks for graphics (settings:2) join later. Each step prints a
+## [SettingsTest] line.
 ## The test deletes its settings file at the start and the end.
 
 const _Buses = preload("res://audio/buses.gd")
@@ -39,6 +47,22 @@ const _Bank = preload("res://audio/sound_bank.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _InputLabels = preload("res://core/input_labels.gd")
 const _Sfx = preload("res://audio/sfx.gd")
+const _Prompt = preload("res://ui/interaction_prompt.gd")
+const _Homeowner = preload("res://npcs/homeowner.gd")
+const _QuipPlayer = preload("res://ui/quip_player.gd")
+## Hard-coded key names a player-facing string may not carry (settings:4, check
+## 16): "left click", "(Tab)", "Hold G", "E to ...", "A and D", "[E]". Keys are
+## {key:<action>} tokens, so they follow rebinding.
+const HARD_CODED_KEYS: Array[String] = [
+	"(?i)\\b(left|right|middle) click\\b",
+	"\\((Tab|Esc|Shift|Space|Ctrl|Enter|[A-WZ])\\)",
+	"\\b(Hold|hold|Press|press|Tap|tap) (Tab|Esc|Shift|Space|Ctrl|Enter|[A-Z])\\b(?![a-z'])",
+	"(^|[.:;!?] |\\(|\\s{2})(Tab|Esc|[A-Z])\\s+(to|at|and [A-Z]|steps|throws|take|stops)\\b",
+	"\\[(Tab|Esc|Shift|Space|Ctrl|Enter|[A-Z])\\]",
+]
+## Strings that name keys on purpose: the key names themselves (input_labels'
+## words), and the Keys tab's hint, whose Esc and Backspace are hard-wired.
+const KEY_NAME_PATHS: Array[String] = ["UI/key_", "UI/keys_", "KEY_NAMES/"]
 ## How long the test waits for the session, the world and the player.
 const START_TIMEOUT_SECONDS: float = 30.0
 ## How close a measured angle or volume has to be.
@@ -87,6 +111,8 @@ func _run() -> void:
 	_check("corrupt", _corrupt(defaults))
 	_check("interface", _interface())
 	_check("window", await _window())
+	_check("strings", await _strings())
+	_check("captions", await _captions())
 	_wipe()
 	_finish()
 
@@ -259,6 +285,15 @@ func _bindings(defaults: Dictionary) -> bool:
 		ok = _fail("bindings", "an R press isn't interact")
 	if _Strings.keyed("{key:interact}") != "[R]" or _Strings.keyed("Press {key:interact} {icon:hand}now") != "Press [R] now":
 		ok = _fail("bindings", "keyed gives %s" % _Strings.keyed("{key:interact}"))
+	# The floating prompt names the player's key, and a hint's own "key" (critic C8).
+	var hide_text := str(_Strings.UI["prompt_hide"])
+	var prompt := _Prompt.text_for({"text": hide_text})
+	var take_prompt := _Prompt.text_for({"text": hide_text, "key": "take"})
+	var hidden := str(_Strings.UI["hud_hidden"])
+	var plain := _Prompt.text_for({"text": hidden, "plain": true})
+	if prompt != "[R]  " + hide_text or take_prompt != "[F]  " + hide_text or plain != hidden.replace("{key:interact}", "[R]") or plain == hidden:
+		ok = _fail("bindings", "prompts read '%s', '%s', '%s'" % [prompt, take_prompt, plain])
+	print("[SettingsTest] with interact on R the prompt reads '%s'" % prompt)
 	r = Settings.bind(&"interact", 0, "key:F")
 	if not bool(r["ok"]) or str(r["swapped_with"]) != "take" or str(r["notice"]) == "" or Settings.binding(&"take", 0) != "key:%d" % KEY_R or Settings.binding(&"interact", 0) != "key:%d" % KEY_F:
 		ok = _fail("bindings", "F swap: %s, take %s, interact %s" % [r, Settings.binding(&"take", 0), Settings.binding(&"interact", 0)])
@@ -584,6 +619,159 @@ func _window() -> bool:
 	if window.visible or not leave.visible or not settings_button.visible:
 		ok = _fail("window", "closing from pause: window %s, leave %s" % [window.visible, leave.visible])
 	ui.call("close_pause")
+	return ok
+
+
+## Check 16 (settings:4): every string names keys only with {key:<action>} tokens
+## that name real actions, never a hard-coded key; keyed() leaves no token
+## behind; every rebindable action has a name; and the display code shows the
+## player's own keys once they are rebound (interact R, phone J, push to talk K).
+func _strings() -> bool:
+	var ok := true
+	var texts: Array = []
+	var constants := (_Strings as Script).get_script_constant_map()
+	for key: String in constants:
+		_texts_in(constants[key], key, texts)
+	var token := RegEx.create_from_string("\\{key:([a-z0-9_]+)\\}")
+	var hard: Array[RegEx] = []
+	for pattern: String in HARD_CODED_KEYS:
+		hard.append(RegEx.create_from_string(pattern))
+	var tokens := 0
+	for entry: Array in texts:
+		var path := str(entry[0])
+		# A "{key:%s}" is a format slot for an action name (prompt_format), not a key.
+		var text := str(entry[1]).replace("{key:%s}", "")
+		for found: RegExMatch in token.search_all(text):
+			tokens += 1
+			if not InputMap.has_action(StringName(found.get_string(1))):
+				ok = _fail("strings", "%s names no action '%s'" % [path, found.get_string(1)])
+		var shown := _Strings.keyed(text)
+		if shown.contains("{key:") or shown.contains("{icon:"):
+			ok = _fail("strings", "keyed() left a token in %s: %s" % [path, shown])
+		if KEY_NAME_PATHS.any(func(prefix: String) -> bool: return path.begins_with(prefix)):
+			continue
+		for regex: RegEx in hard:
+			var hit := regex.search(text)
+			if hit != null:
+				ok = _fail("strings", "%s hard-codes a key ('%s'): %s" % [path, hit.get_string().strip_edges(), text])
+				break
+	for action: StringName in Settings.rebindable_actions():
+		if not _Strings.UI.has("action_%s" % action):
+			ok = _fail("strings", "no Strings.UI action_%s for the Keys tab" % action)
+	print("[SettingsTest] %d strings read, %d key tokens" % [texts.size(), tokens])
+	# The display sites, with keys rebound.
+	Settings.bind(&"interact", 0, "key:%d" % KEY_R)
+	Settings.bind(&"phone", 0, "key:%d" % KEY_J)
+	Settings.bind(&"push_to_talk", 0, "key:%d" % KEY_K)
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var phone := get_tree().get_first_node_in_group("phone")
+	if phone != null:
+		var line := phone.call("_text", _Strings.UI["goal_texts"], 14, Color.WHITE) as Label
+		if not line.text.contains("[J]"):
+			ok = _fail("strings", "a phone line reads '%s'" % line.text)
+		line.free()
+	var panel := ui.get("_voice_panel") as Control
+	panel.call("open")
+	var mode := panel.get("_mode") as OptionButton
+	var push_text := mode.get_item_text(mode.get_item_index(Net.VoiceMode.PUSH_TO_TALK))
+	panel.visible = false
+	if not push_text.contains("[K]"):
+		ok = _fail("strings", "the voice panel's push to talk reads '%s'" % push_text)
+	var goal := _Strings.keyed(_Strings.UI["goal_carry_held"])
+	if not goal.ends_with("[R]"):
+		ok = _fail("strings", "the carry goal reads '%s'" % goal)
+	# The scenes' words come from Strings now (ui_root.tscn, world.tscn).
+	if (ui.get("_leave") as Button).text != _Strings.UI["pause_leave"] or (ui.get_node("%HostButton") as Button).text != _Strings.UI["menu_host_steam"]:
+		ok = _fail("strings", "the menu buttons read '%s' and '%s'" % [(ui.get("_leave") as Button).text, (ui.get_node("%HostButton") as Button).text])
+	var world := get_tree().get_first_node_in_group("world")
+	var gate := world.get_node_or_null("StoreZone/ToLot/Label") as Label3D
+	if gate != null and gate.text != _Strings.UI["gate_sign_lot"]:
+		ok = _fail("strings", "the lot gate's sign reads '%s'" % gate.text)
+	var board := world.get_node_or_null("StoreZone/Board/Label") as Label3D
+	if board != null and (board.text == "" or board.text.contains("{")):
+		ok = _fail("strings", "the board sign reads '%s'" % board.text)
+	print("[SettingsTest] rebound: '%s' / '%s' / '%s'" % [_Prompt.text_for({"text": _Strings.UI["prompt_board"]}), push_text, goal])
+	Settings.reset_bindings()
+	return ok
+
+
+## Every string under value (a Strings constant), as [path, text].
+func _texts_in(value: Variant, path: String, out: Array) -> void:
+	match typeof(value):
+		TYPE_STRING, TYPE_STRING_NAME:
+			out.append([path, str(value)])
+		TYPE_DICTIONARY:
+			for key: Variant in value:
+				_texts_in(value[key], "%s/%s" % [path, str(key)], out)
+		TYPE_ARRAY:
+			for index: int in (value as Array).size():
+				_texts_in(value[index], "%s/%d" % [path, index], out)
+
+
+## Captions (settings:4): the quip caption and a homeowner's follow caption_size,
+## caption_backdrop and captions on/off (off: no words, the babble still plays),
+## and the quip caption and the lobby stay on screen at the biggest UI scale.
+func _captions() -> bool:
+	var ok := true
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var quips := ui.get_node_or_null("Quips")
+	var caption := quips.get_node_or_null("Caption") as Label if quips != null else null
+	if caption == null:
+		return _fail("captions", "no UIRoot/Quips/Caption")
+	Settings.reset_section("interface")
+	quips.call("show_caption", "Testing. The leaves have filed an appeal.")
+	await get_tree().process_frame
+	if not caption.visible or caption.get_theme_font_size("font_size") != _QuipPlayer.FONT_SIZE or caption.has_theme_stylebox_override("normal"):
+		ok = _fail("captions", "default caption: visible %s, size %d, backdrop %s" % [caption.visible, caption.get_theme_font_size("font_size"), caption.has_theme_stylebox_override("normal")])
+	# Large, with a backdrop, at the biggest UI scale: still all on screen.
+	Settings.set_value("interface", "caption_size", 2, false)
+	Settings.set_value("interface", "caption_backdrop", true, false)
+	Settings.set_value("interface", "ui_scale", Constants.UI_SCALE_RANGE.y, false)
+	quips.call("show_caption", "A long one, to wrap: the leaves have filed an appeal, the appeal has been denied, and the leaves have retained counsel, who is also a leaf.")
+	for frame: int in 3:
+		await get_tree().process_frame
+	var big := roundi(_QuipPlayer.FONT_SIZE * Constants.CAPTION_SCALES[2])
+	if caption.get_theme_font_size("font_size") != big or not caption.has_theme_stylebox_override("normal"):
+		ok = _fail("captions", "large with backdrop: size %d (want %d), backdrop %s" % [caption.get_theme_font_size("font_size"), big, caption.has_theme_stylebox_override("normal")])
+	var screen := caption.get_viewport_rect()
+	# Anchored, not placed: its bottom edge is the corner offset above the screen's bottom.
+	if not screen.encloses(caption.get_global_rect()) or absf(caption.get_global_rect().end.y - (screen.end.y - _QuipPlayer.CORNER_OFFSET.y)) > 1.0:
+		ok = _fail("captions", "at UI scale %.2f the caption %s leaves the screen %s" % [Constants.UI_SCALE_RANGE.y, caption.get_global_rect(), screen])
+	var lobby := ui.get_node_or_null("Lobby") as Control
+	if lobby != null:
+		lobby.visible = true
+		for frame: int in 2:
+			await get_tree().process_frame
+		if not screen.encloses(lobby.get_global_rect()) or lobby.get_global_rect().get_center().distance_to(screen.get_center()) > 1.0:
+			ok = _fail("captions", "at UI scale %.2f the lobby %s leaves the screen %s" % [Constants.UI_SCALE_RANGE.y, lobby.get_global_rect(), screen])
+		lobby.visible = false
+	print("[SettingsTest] at UI scale %.2f: screen %s, caption %s, lobby %s" % [Constants.UI_SCALE_RANGE.y, screen, caption.get_global_rect(), lobby.get_global_rect() if lobby != null else Rect2()])
+	# Captions off: no words, but the babble still plays (after Sfx's repeat gap).
+	await get_tree().create_timer(Constants.SFX_DEFAULT_GAP_MS / 1000.0 + 0.1).timeout
+	Settings.set_value("interface", "captions", false, false)
+	quips.call("show_caption", "Nobody reads this.")
+	await get_tree().process_frame
+	if caption.visible or _Sfx.log.is_empty() or _Sfx.log.back() != "babble":
+		ok = _fail("captions", "captions off: visible %s, last sound %s" % [caption.visible, _Sfx.log.back() if not _Sfx.log.is_empty() else "none"])
+	# A homeowner's caption: hidden while off, then the large size once on.
+	var homeowner := _Homeowner.new()
+	homeowner.name = "CaptionHomeowner"
+	add_child(homeowner)
+	homeowner.global_position = Vector3(0.0, -40.0, 0.0)
+	homeowner.call("show_caption", "Is that my gnome?")
+	await get_tree().process_frame
+	var head := homeowner.get_node_or_null("Caption") as Label3D
+	var hidden_off := head != null and not head.visible
+	Settings.set_value("interface", "captions", true, false)
+	await get_tree().process_frame
+	if not hidden_off or head == null or not head.visible or not is_equal_approx(head.pixel_size, _Homeowner.CAPTION_PIXEL_SIZE * Constants.CAPTION_SCALES[2]):
+		ok = _fail("captions", "homeowner: hidden while off %s, shown %s, pixel size %s" % [hidden_off, head != null and head.visible, head.pixel_size if head != null else 0.0])
+	homeowner.queue_free()
+	Settings.reset_section("interface")
+	await get_tree().process_frame
+	if caption.get_theme_font_size("font_size") != _QuipPlayer.FONT_SIZE or caption.has_theme_stylebox_override("normal"):
+		ok = _fail("captions", "reset left size %d, backdrop %s" % [caption.get_theme_font_size("font_size"), caption.has_theme_stylebox_override("normal")])
+	caption.visible = false
 	return ok
 
 

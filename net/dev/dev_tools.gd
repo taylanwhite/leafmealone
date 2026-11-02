@@ -99,10 +99,14 @@ func _ready() -> void:
 				ui.call("open_job_board")
 		)
 	if str(options.get("open_settings")) != "":
-		# For screenshots of the Settings window: "<tab>", "keys:listen" or "keys:swap".
+		# For screenshots of the Settings window: "<tab>", "keys:listen" or "keys:swap";
+		# "captions" leaves it closed and shows captions and prompts instead (net/dev/caption_demo.gd).
 		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:
 			var ui := get_tree().get_first_node_in_group("game_ui")
 			var parts := str(options.get("open_settings")).split(":")
+			if parts[0] == "captions":
+				_add(preload("res://net/dev/caption_demo.gd").new(), "CaptionDemo")
+				return
 			if ui != null:
 				ui.call("open_settings", false, parts[0])
 			var window := get_tree().get_first_node_in_group("settings_window")

@@ -27,7 +27,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	var next := ""
 	if Net.current_state() == Net.State.IN_SESSION:
-		next = goal(get_tree(), Net.local_peer_id())
+		# goal() gives the string as written; its {key:} tokens become the player's keys here.
+		next = _Strings.keyed(goal(get_tree(), Net.local_peer_id()))
 	if next != text:
 		text = next
 		_pop = POP_SECONDS

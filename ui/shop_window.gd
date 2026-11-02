@@ -89,7 +89,7 @@ func _items() -> Array[Dictionary]:
 		for task_id: String in Constants.TASK_TOOLS:
 			if str(Constants.TASK_TOOLS[task_id]) == tool_id:
 				unlocks.append(str(_Strings.UI["task_" + task_id]))
-		var blurb := str(_Strings.UI["tool_blurb_" + tool_id])
+		var blurb := _Strings.keyed(str(_Strings.UI["tool_blurb_" + tool_id]))
 		if not unlocks.is_empty():
 			blurb += "\n" + _Strings.UI["shop_tool_unlocks"] % ", ".join(unlocks)
 		items.append({
