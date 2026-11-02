@@ -136,6 +136,23 @@ static func can_gallons(can: Object) -> float:
 	return clampf(float(can.get("water")), 0.0, 100.0) / 100.0 * Constants.GAS_CAN_CARRY
 
 
+## How many gallons are still out on the job among these nodes (the host's
+## "job_tools" group): what's left in the gas tools' tanks and in the gas can,
+## skipping anything already on its way out. world._return_job_gas puts it back
+## in the supply after the job; Shops' save counts it as the crew's meanwhile.
+static func gas_out(nodes: Array) -> float:
+	var gallons := 0.0
+	for node: Variant in nodes:
+		if not node is Node or (node as Node).is_queued_for_deletion():
+			continue
+		var kind := str((node as Node).get("kind"))
+		if kind == "gas_can":
+			gallons += can_gallons(node as Node)
+		elif is_gas_tool(kind):
+			gallons += clampf(float((node as Node).get("fuel")), 0.0, 100.0) / 100.0 * Constants.GAS_PER_TANK
+	return gallons
+
+
 ## A gas can's name on its prompt: "Gas can (2.5 gal)".
 static func can_label(gallons: float) -> String:
 	return str(preload("res://ui/strings.gd").SHOP_UI["prop_gas_can"]) % gallons

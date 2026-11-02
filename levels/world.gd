@@ -490,7 +490,7 @@ func _spawn_job_tools() -> void:
 	if shops == null:
 		return
 	var spare := minf(float(shops.call("supply", "gas")), Constants.GAS_CAN_CARRY)
-	if spare < 1.0 or not bool(shops.call("consume", "gas", spare)):
+	if spare < Constants.GAS_CAN_MIN_GALLONS or not bool(shops.call("consume", "gas", spare)):
 		return
 	var can := BAG_SCENE.instantiate()
 	can.name = "GasCan_%d" % _lots_loaded
@@ -515,15 +515,9 @@ func _return_job_gas() -> void:
 	var shops := get_node_or_null("Shops")
 	if shops == null or not Net.is_host():
 		return
-	var gallons := 0.0
-	for node: Node in get_tree().get_nodes_in_group("job_tools"):
-		if node.is_queued_for_deletion():
-			continue
-		var kind := str(node.get("kind"))
-		if kind == "gas_can":
-			gallons += _ToolTiers.can_gallons(node)
-		elif _ToolTiers.is_gas_tool(kind):
-			gallons += clampf(float(node.get("fuel")), 0.0, 100.0) / 100.0 * Constants.GAS_PER_TANK
+	# Saves made meanwhile already counted this gas (Shops.supplies_to_save), so
+	# the save doesn't change here and needs no write of its own.
+	var gallons := _ToolTiers.gas_out(get_tree().get_nodes_in_group("job_tools"))
 	if gallons > 0.0:
 		shops.call("add_supply", "gas", gallons)
 

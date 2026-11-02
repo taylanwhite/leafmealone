@@ -1020,3 +1020,6 @@ const ART_HOUSE_MIN_LINE: float = 0.4
 const TOOL_TIER_PITCH: Array[float] = [1.08, 1.0, 1.0, 0.92]
 ## How long an out-of-bags or out-of-gas notice stays over your head (s).
 const SUPPLY_NOTICE_SECONDS: float = 3.0
+## The least spare gas (gallons, after every tank is filled) worth sending the
+## red gas can along with (levels/world.gd _spawn_job_tools).
+const GAS_CAN_MIN_GALLONS: float = 1.0

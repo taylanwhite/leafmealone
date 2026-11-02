@@ -32,6 +32,7 @@ signal result(code: String, item_id: String, amount: int)
 
 const _Strings = preload("res://ui/strings.gd")
 const _Seasons = preload("res://core/seasons.gd")
+const _ToolTiers = preload("res://core/tool_tiers.gd")
 ## The save section's own version, for migrations (Campaign.SAVE_VERSION stays 1).
 const SECTION_VERSION: int = 1
 ## The crew's supplies. Gas is gallons (a float); the rest are counts.
@@ -539,7 +540,7 @@ func _save_section() -> Dictionary:
 		"version": SECTION_VERSION,
 		"stock_day": stock_day,
 		"stock": stock,
-		"supplies": supplies,
+		"supplies": supplies_to_save(),
 		"orders": orders,
 		"looks": looks,
 		"truck": truck,
@@ -549,6 +550,18 @@ func _save_section() -> Dictionary:
 		"junk_left": junk_left,
 		"vending_eaten": vending_eaten,
 	}}
+
+
+## The supplies as the save writes them. Chefty filled the job tools' tanks and
+## the gas can out of the supply, and what's left in them only comes back after
+## the job (world._return_job_gas), so the save counts it as the crew's already:
+## a host who quits mid-job or on the ride home loses none of it (job tools
+## aren't saved, so it can't be counted twice).
+func supplies_to_save() -> Dictionary:
+	var out := supplies.duplicate()
+	if out.has("gas") and is_inside_tree():
+		out["gas"] = _supply_value("gas", float(out["gas"]) + _ToolTiers.gas_out(get_tree().get_nodes_in_group("job_tools")))
+	return out
 
 
 ## Fills the state from a saved section (empty for a new or older save), with
