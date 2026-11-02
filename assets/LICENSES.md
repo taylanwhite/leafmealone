@@ -53,3 +53,5 @@
 | assets/audio/sfx/trimmer_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/sfx/washer_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/sfx/wind_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
+| assets/audio/music/rake_it_easy.ogg | Original, synthesized by tools/make_music.py, encoded by tools/encode_ogg.py | Project original | no | Python, Godot Movie Maker (encode) |
+| assets/audio/music/st_day_end.ogg | Original, synthesized by tools/make_music.py, encoded by tools/encode_ogg.py | Project original | no | Python, Godot Movie Maker (encode) |
