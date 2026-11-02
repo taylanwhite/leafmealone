@@ -14,6 +14,7 @@ const _Trees = preload("res://props/trees.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 const _Grass = preload("res://props/grass.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
+const _HouseBuilder = preload("res://levels/town/house_builder.gd")
 
 ## The street runs along x in front of the yard.
 const SIDEWALK_NEAR := Vector2(20.3, 22.3)
@@ -127,62 +128,19 @@ static func _neighbor(root: Node3D, rng: RandomNumberGenerator, at: Vector3, yaw
 		_leaf_patch(lot, rng, Vector3(rng.randf_range(-12.0, 12.0), 0.0, rng.randf_range(4.0, 16.0)))
 
 
-## A suburban house facing +Z, its front door at the middle of the front wall.
-## Siding walls, a shingled gable roof with overhangs, framed windows with
-## shutters, a porch with posts, steps, a chimney, and optionally a garage.
+## A suburban house facing +Z, its front door at the middle of the front wall:
+## the "classic" archetype (levels/town/house_archetypes.gd), the same shapes
+## and colors this function always built, now batched by HouseKit into about a
+## dozen meshes (shingle courses now run along the eaves, the porch stoop takes
+## no snow, and mullions are painted like the frames: docs/DECISIONS.md). Siding walls, a shingled gable roof with overhangs, framed
+## windows with shutters, a porch with posts, steps, a chimney, and optionally a
+## garage. Metas as before ("windows" [[pos, normal, size]], "roof_edge_y") plus
+## the full HouseSpec (levels/town/house_builder.gd).
 static func house(parent: Node3D, at: Vector3, width: float, depth: float, stories: int, wall: Color, roof: Color, trim: Color, garage: bool) -> Node3D:
-	var root := Node3D.new()
-	root.name = "House"
-	parent.add_child(root)
-	root.position = at
-	var story := 3.0
-	var height := story * float(stories)
-	var front := depth * 0.5
-	# Where the windows are (house space, with the way each faces), for washing them.
-	var windows: Array = []
-	# Foundation, walls, and a trim band between floors.
-	_LowPoly.paint(_LowPoly.box(root, Vector3(width + 0.3, 0.5, depth + 0.3), Vector3(0.0, 0.25, 0.0), Color(0.55, 0.53, 0.5)), "concrete")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(width, height, depth), Vector3(0.0, 0.5 + height * 0.5, 0.0), wall), "siding")
-	var top := 0.5 + height
-	for corner: float in [-1.0, 1.0]:
-		_LowPoly.paint(_LowPoly.box(root, Vector3(0.22, height, 0.22), Vector3(corner * width * 0.5, 0.5 + height * 0.5, front), trim), "planks")
-	# Roof: a gable along x with overhang, a fascia board, and a chimney.
-	var roof_node := _LowPoly.roof(root, depth + 1.4, depth * 0.38, width + 1.0, Vector3(0.0, top + depth * 0.19, 0.0), roof)
-	roof_node.rotation.y = PI * 0.5
-	_LowPoly.paint(roof_node, "shingles")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(width + 1.0, 0.2, 0.14), Vector3(0.0, top - 0.02, front + 0.68), trim), "planks")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(0.9, depth * 0.38 + 1.4, 0.9), Vector3(width * 0.28, top + depth * 0.19 + 0.3, -depth * 0.12), Color(0.58, 0.32, 0.26)), "brick")
-	# Front door with a frame, and a porch roof on posts over steps.
-	_LowPoly.paint(_LowPoly.box(root, Vector3(1.1, 2.2, 0.08), Vector3(0.0, 1.6, front + 0.03), Color(0.5, 0.18, 0.15) if wall.r < 0.8 else Color(0.2, 0.32, 0.45)), "planks")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(1.4, 0.14, 0.1), Vector3(0.0, 2.78, front + 0.05), trim), "planks")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(3.4, 0.14, 2.0), Vector3(0.0, 3.1, front + 1.0), roof), "shingles")
-	for side: float in [-1.0, 1.0]:
-		_LowPoly.paint(_LowPoly.box(root, Vector3(0.16, 2.6, 0.16), Vector3(side * 1.5, 1.8, front + 1.85), trim), "planks")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(3.2, 0.5, 2.0), Vector3(0.0, 0.25, front + 1.0), Color(0.62, 0.6, 0.57)), "concrete")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(1.6, 0.25, 0.6), Vector3(0.0, 0.12, front + 2.3), Color(0.62, 0.6, 0.57)), "concrete")
-	# Windows on every floor, front and sides, with shutters on the front.
-	for floor_index: int in stories:
-		var y := 0.5 + story * float(floor_index) + 1.65
-		var xs: Array[float] = [-width * 0.3, width * 0.3]
-		if floor_index > 0:
-			xs.append(0.0)
-		for x: float in xs:
-			if garage and floor_index == 0 and x > 0.0:
-				continue
-			_LowPoly.window(root, 1.3, 1.25, Vector3(x, y, front + 0.02), trim)
-			windows.append([Vector3(x, y, front + 0.02), Vector3.BACK])
-			for side: float in [-1.0, 1.0]:
-				_LowPoly.paint(_LowPoly.box(root, Vector3(0.36, 1.4, 0.06), Vector3(x + side * 0.92, y, front + 0.05), roof.lightened(0.15)), "planks")
-		for side: float in [-1.0, 1.0]:
-			_LowPoly.window(root, 1.1, 1.1, Vector3(side * (width * 0.5 + 0.02), y, 0.0), trim, side * PI * 0.5)
-			windows.append([Vector3(side * (width * 0.5 + 0.02), y, 0.0), Vector3(side, 0.0, 0.0)])
-	root.set_meta("windows", windows)
-	root.set_meta("roof_edge_y", top)
-	if garage:
-		var door_x := width * 0.3
-		_LowPoly.paint(_LowPoly.box(root, Vector3(2.8, 2.3, 0.1), Vector3(door_x, 1.65, front + 0.04), trim.darkened(0.04)), "siding")
-		_LowPoly.paint(_LowPoly.box(root, Vector3(3.1, 0.14, 0.12), Vector3(door_x, 2.88, front + 0.06), trim), "planks")
-	return root
+	return _HouseBuilder.build(parent, at, {
+		"archetype": "classic", "width": width, "depth": depth, "stories": stories,
+		"wall": wall, "roof": roof, "trim": trim, "garage": garage,
+	})
 
 
 static func _hedge_row(root: Node3D, at: Vector3, length: float) -> void:

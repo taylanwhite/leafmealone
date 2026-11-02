@@ -853,3 +853,44 @@ const ARC_HOURS := Vector2(10.0, 20.0)
 const RANK_PACE_HOURS: Array[float] = [0.0, 1.0, 2.5, 4.5, 6.5, 9.0, 11.5, 14.0, 16.0]
 ## A solo crew's arc may take at most this many times a four-player crew's.
 const ARC_SOLO_RATIO_MAX: float = 1.3
+
+# ---- art
+# The neighborhood looks (docs/ART.md "Houses and the kit", docs/DECISIONS.md
+# "Houses are batched by HouseKit"). Budgets are triangle counts, checked from
+# the "triangles" metas the builders record (headless safe).
+const ART_PROP_MAX_TRIANGLES: int = 2000
+const ART_HOUSE_MAX_TRIANGLES: int = 6000
+const ART_TREE_MAX_TRIANGLES: int = 7000
+const ART_TREE_FAR_MAX_TRIANGLES: int = 900
+## Trees swap to their far mesh past this many meters (with this much fade margin).
+const ART_TREE_LOD_DISTANCE: float = 55.0
+const ART_TREE_LOD_MARGIN: float = 6.0
+## Props shorter than this are "small": they fade out sooner and cast no shadow.
+const ART_SMALL_PROP_HEIGHT: float = 0.7
+const ART_SMALL_PROP_RANGE: float = 60.0
+const ART_MEDIUM_PROP_RANGE: float = 140.0
+## Repeated props are batched into MultiMeshes per square chunk this many meters wide.
+const ART_PROP_CHUNK: float = 32.0
+## Draw-call proxies: GeometryInstance3Ds under a street block and under a yard's dressing.
+const ART_BLOCK_MAX_VISUALS: int = 650
+const ART_YARD_MAX_VISUALS: int = 260
+const ART_BLOCK_PARCELS_PER_FRAME: int = 2
+const ART_NEIGHBOR_LEAF_PATCHES: int = 3
+const ART_STRING_LIGHT_SPACING: float = 0.45
+const ART_GRASS_WINTER_SPACING_SCALE: float = 1.6
+const ART_DOOR_OPEN_DISTANCE: float = 3.2
+const ART_DOOR_OPEN_SECONDS: float = 0.5
+## Chefty's lane in lot space (x, z, width, depth), kept clear of props.
+const ART_CHEFTY_LANE: Rect2 = Rect2(-75.0, 22.6, 83.0, 4.4)
+## The house footprint contract (levels/town/house_builder.gd): how far past the
+## width/2 and depth/2 box a house may reach to the sides, the back (the roof's
+## overhang), and the front (porch and steps). The lot generator reserves
+## x +-(w/2 + 0.6) and z -d/2-0.6 .. d/2+3.0 around its house.
+const ART_HOUSE_SIDE_REACH: float = 0.6
+const ART_HOUSE_BACK_REACH: float = 0.7
+const ART_HOUSE_FRONT_REACH: float = 2.6
+## How far a HouseSpec gutter or eave line keeps from a wall solid or a roof
+## blocker (levels/town/house_archetypes.gd _clear_lines), and the shortest
+## piece of one worth keeping after it is split around them, in meters.
+const ART_HOUSE_LINE_CLEARANCE: float = 0.1
+const ART_HOUSE_MIN_LINE: float = 0.4

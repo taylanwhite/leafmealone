@@ -14,6 +14,14 @@ Consistent and funny matters more than pretty. Most of our art will be AI-genera
 - Look at a model before shipping it: `Godot --path . res://tools/studio/studio.tscn -- --subject=trees --out=build/art/trees.png` renders four angles under the game's light. Add a subject in `tools/studio/studio.gd` for anything new.
 - Shapes are soft and chunky: rounded edges, lumps that only push outward on hair and hedges, no part floating loose or poking through another. Faces have eyes, brows, and mouths flush with the head.
 
+### Houses and the kit
+
+- **Architecture goes through HouseKit** (`props/house_kit.gd`): `box`, `prism` (a gable along local z, like PrismMesh), `hip`, `cylinder` (with `top_radius` and `turn`), `window`, `glow`, then `commit(parent, name)` makes one MeshInstance3D per material, painted by the surface shader. A shape's last argument is a style dict (`params`, `accent`, `snow`); surface `"glass"` is window glass. Set `kit.frame` to build a part in its own frame. Never build a house from one MeshInstance3D per box again.
+- **Houses come from `HouseBuilder.build(parent, at, req)`** (`levels/town/house_builder.gd`) in one of the archetypes in `levels/town/house_archetypes.gd`, facing +Z with the origin at the footprint's ground center. The returned `House` carries HouseSpec metas (windows, the climbable roof, gutters, solids, roof blockers, porch depth, door, spigot, eaves, footprint, triangles): hang gameplay on those, never on the archetype. Anything new that stands on the main roof or reaches its eaves (a dormer, a cross-gable, a hood, a chimney) is recorded as a roof blocker (`_blocker`, or `"blocker": true` on a `_gable`), and gutters and eaves split around it.
+- **Footprint contract:** everything within x +-(width/2 + 0.6) and z from -depth/2 - 0.7 to depth/2 + 2.6 (`Constants.ART_HOUSE_*_REACH`), and every job archetype's main roof is a climbable gable along x. Budget: `Constants.ART_HOUSE_MAX_TRIANGLES` (6000).
+- **A neighborhood's look is data** in `levels/town/hood_styles.gd`: which archetypes, palettes with their surfaces, fences, trees, ground, street, props, set pieces, and signs. Add to the data before adding code.
+- Check new archetypes with `godot --headless --path . --script res://tools/mesh_check.gd` (face orientation per shape, footprint, spec metas, gutter and eave clearance, budget for every archetype at the smallest and largest yard widths) and look at them in the studio.
+
 ### Surfaces (props/surfaces.gd)
 
 - Say what a mesh is made of with `LowPoly.paint(node, surface, params, accent)`; `levels/shared_look.gd` paints it from the mesh metas `surface`, `surface_base`, `surface_params` (Vector4) and `surface_accent` (Color). Patterns are measured in meters in the mesh's own space: walls use the vertical plane, floors and roofs use x and z.
@@ -33,7 +41,7 @@ Consistent and funny matters more than pretty. Most of our art will be AI-genera
 
 - `Godot --path . res://tools/studio/studio.tscn -- --subject=<name> --out=build/art/<name>.png`, with the windowed (or console, not headless) build, since the dummy renderer compiles no shaders. Grep its output for `SHADER ERROR`.
 - Options: `--season=0..3` (autumn, winter, spring, summer; set before the subject is built), `--hood=<id>`, `--size=0..2`, `--seed=N`, `--archetype=<id>` for the neighborhood subjects, and any `--key=value` a subject reads.
-- Subjects: trees, tree (`--kind --crown --variant`), characters, character, props, small_props, truck, van, surfaces (every pattern as a labeled cube, ground swatches, and a road strip per line style; render it in all four seasons after touching the shader).
+- Subjects: trees, tree (`--kind --crown --variant`), characters, character, props, small_props, truck, van, surfaces (every pattern as a labeled cube, ground swatches, and a road strip per line style; render it in all four seasons after touching the shader), houses (every archetype in a labeled lineup, each in a palette from a neighborhood that builds it) and house (one: `--archetype`, else the first of `--hood`'s). Both take `--width=min|max|<m>`, `--depth=<m>`, `--stories=1|2`, `--detail=far`, `--seed`, `--size`. Render houses at `--width=min` and `--width=max`, autumn and winter, after touching an archetype.
 - A subject picks its own camera by setting meta `views` on its root: an Array of `{from, at, fov}`, replacing the default four views in order.
 
 ## Game-specific notes
