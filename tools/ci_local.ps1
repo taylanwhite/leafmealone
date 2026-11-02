@@ -172,7 +172,10 @@ $Queue = New-Object System.Collections.Generic.List[object]
 if (Wants 'smoke') { $Queue.Add(@{ Name = 'smoke'; Port = 7791 + $PortOffset }) }
 $Port = 7794 + $PortOffset
 foreach ($name in $Tests.Keys) {
-	if (Wants $name) { $Queue.Add(@{ Name = $name; Port = $Port }) }
+	# An entry with its own Port (the critic's contract table) uses it; the rest go by position.
+	$at = $Port
+	if ($Tests[$name].Port) { $at = [int]$Tests[$name].Port + $PortOffset }
+	if (Wants $name) { $Queue.Add(@{ Name = $name; Port = $at }) }
 	$Port++
 }
 

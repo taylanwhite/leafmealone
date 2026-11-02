@@ -62,10 +62,10 @@ const GUARDRAIL_PATTERNS: Array[String] = [
 ]
 const GUARDRAIL_SHARED_PATH := "res://net/dev/guardrail.gd"
 
-## Unfinished text. A [SOME NAME] slot needs a space or underscore inside, so key
-## labels like "[E]" are not caught.
+## Unfinished text. A [NAME] or [SOME NAME] slot starts with two capitals, so
+## one-letter key labels like "[E]" are not caught.
 const PLACEHOLDER_PATTERNS: Array[String] = [
-	"\\[[A-Z]+[ _][A-Z _]*\\]",
+	"\\[[A-Z]{2,}[A-Z _]*\\]",
 	"(?i)\\b(todo|tbd|fixme|lorem|placeholder|stand-?ins?)\\b",
 ]
 ## A %s, %d or %.Nf slot ("%%" is removed first).
@@ -171,7 +171,7 @@ func _compile() -> void:
 	for bad: String in ["Here comes ICE.", "the Nice Boys", "Papers, please!", "an ice cream van", "the police"]:
 		if not _trips(_guardrail, bad):
 			_fail("0 guardrail misses", bad)
-	for bad: String in ["Hi [CLERK NAME]", "a stand-in line", "TODO: joke"]:
+	for bad: String in ["Hi [CLERK NAME]", "Hi [NAME]", "a stand-in line", "TODO: joke"]:
 		if not _trips(_placeholders, bad):
 			_fail("0 unfinished misses", bad)
 	for good: String in ["the NICE BOYS", "Nice work, nice boys.", "COURTESY NOTICE", "Another happy customer!", "[E]  %s"]:
@@ -324,16 +324,23 @@ func _coverage() -> void:
 	# Every unlock reads as words.
 	var unlocks: Array = _Ranks.UNLOCKS.duplicate()
 	var extra: Variant = (_Ranks as Script).get_script_constant_map().get("EXTRA_UNLOCKS")
+	# shops:1's EXTRA_UNLOCKS is tier -> Array of unlock ids: check the ids, not the tiers.
 	if extra is Dictionary:
-		unlocks.append_array((extra as Dictionary).keys())
+		for ids: Variant in (extra as Dictionary).values():
+			if ids is Array:
+				unlocks.append_array(ids as Array)
+			else:
+				unlocks.append(ids)
 	elif extra is Array:
 		unlocks.append_array(extra)
 	# "kind:id" left in the text means the name fell through; "hiring: crew hands" is prose.
+	# An underscore means a raw id leaked in ("the leaf_blower_mk2 at Homie Depot").
 	var id_like := _regex("[a-z_]+:[a-z_]+")
 	for unlock: Variant in unlocks:
 		var id := str(unlock)
 		var named := _Strings.unlock_name(id)
-		_need(named != id and id_like.search(named) == null, "unlock_name(%s) reads as words, not \"%s\"" % [id, named])
+		_need(named != id and id_like.search(named) == null and not named.contains("_"),
+				"unlock_name(%s) reads as words, not \"%s\"" % [id, named])
 	for task: Variant in Constants.TASK_TOOLS:
 		_need(_Strings.UI.has("task_%s" % task), "UI/task_%s" % task)
 	for tool: Variant in Constants.TOOL_PRICES:
@@ -383,6 +390,18 @@ func _api() -> void:
 	var tag := _Strings.crew_tag(1, 5)
 	_check(tag == _Strings.crew_tag(1, 5) and tag.begins_with("HEAD NICE BOY "), "crew_tag(1, day) is the head NICE BOY: %s" % tag)
 	_check(_Strings.crew_tag(2, 5).begins_with("NICE BOY "), "crew_tag(2, day) is a NICE BOY: %s" % _Strings.crew_tag(2, 5))
+	# No two crew in one raid share a name, and the roster changes day to day.
+	var repeats: Array[int] = []
+	var firsts: Dictionary = {}
+	for day: int in range(1, 101):
+		var names: Dictionary = {}
+		for index: int in range(1, 4):
+			names[_Strings.crew_tag(index, day).get_slice(" ", _Strings.crew_tag(index, day).get_slice_count(" ") - 1)] = true
+		if names.size() != 3:
+			repeats.append(day)
+		firsts[_Strings.crew_tag(1, day)] = true
+	_check(repeats.is_empty(), "crew_tag(1..3, day) are three different names on days 1-100; repeats on %s" % str(repeats))
+	_check(firsts.size() >= 4, "crew_tag(1, day) changes across days (%d different heads in 100 days)" % firsts.size())
 	_check(_Strings.rank_blurb(0) == _Strings.RANK_BLURBS["Rake Rookie"] and _Strings.rank_blurb(_Ranks.TIERS_PER_RANK) == _Strings.RANK_BLURBS["Leaf Grunt"], "rank_blurb at a rank's tier I is the rank's")
 	var endless := _Ranks.NAMES.size() * _Ranks.TIERS_PER_RANK
 	_check(_Strings.rank_blurb(endless) == _Strings.RANK_BLURBS[_Ranks.ENDLESS_NAME], "rank_blurb at the first Lawnfather tier is The Lawnfather's")

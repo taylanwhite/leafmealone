@@ -1106,8 +1106,10 @@ static func client_line(kind: String, personality: String, rng: RandomNumberGene
 
 
 ## A NICE BOY's name tag: Crew1 leads. The same on every peer for a day, new the next.
+## The day picks a start name and each crew member steps one along, so a raid
+## never has two BRENTs (up to CREW_NAMES.size() crew).
 static func crew_tag(index: int, day: int) -> String:
-	var who := CREW_NAMES[posmod(hash([day, index]), CREW_NAMES.size())]
+	var who := CREW_NAMES[posmod(hash(day) + index - 1, CREW_NAMES.size())]
 	return str(UI["crew_tag_lead" if index == 1 else "crew_tag"]) % who
 
 
