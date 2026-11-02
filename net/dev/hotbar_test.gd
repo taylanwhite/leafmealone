@@ -87,6 +87,8 @@ func _run() -> void:
 		sign.set("kind", "turf_sign")
 		sign.set("label", _Strings.item_name("turf_sign"))
 		sign.set("color", Color(0.1, 0.55, 0.28))
+		# Rival signs, as world.gd plants them, so the town's watcher counts them pulled.
+		sign.add_to_group("turf_signs")
 		props.add_child(sign, true)
 		sign.global_position = me.global_position + Vector3(-1.5 - float(index) * 0.8, 0.5, 1.5)
 		signs.append(sign)
@@ -94,7 +96,8 @@ func _run() -> void:
 	_refusals.clear()
 	await _grab(signs[0])
 	var refused_full := await _wait_for(func() -> bool: return _refusals.has("full"), 10)
-	_step("4 pockets full: refused %s, sign still loose %s" % [refused_full, bool(signs[0].call("is_loose"))], refused_full and bool(signs[0].call("is_loose")))
+	var not_pulled := not bool(signs[0].get_meta("pulled", false))
+	_step("4 pockets full: refused %s, sign still loose %s, not pulled %s" % [refused_full, bool(signs[0].call("is_loose")), not_pulled], refused_full and bool(signs[0].call("is_loose")) and not_pulled)
 
 	# 5. Keys: 1 draws the rake, the wheel steps to the blower, 2 again is bare hands.
 	await _tap(&"slot_1")
@@ -122,6 +125,13 @@ func _run() -> void:
 	for sign: Node3D in signs:
 		await _grab(sign)
 	var stacked := (_slots()[2] as Array).size() == 3 and _in_hand() != null and str(_in_hand().get("kind")) == "turf_sign"
+	# Signs that went straight into the stack (never in hand) count as pulled too.
+	var all_pulled := await _wait_for(func() -> bool:
+		for sign: Node3D in signs:
+			if not bool(sign.get_meta("pulled", false)):
+				return false
+		return true, 10)
+	_step("7a three signs stacked %s, all counted pulled by the town %s" % [stacked, all_pulled], stacked and all_pulled)
 	await _go_to(Vector3(0.0, 0.1, 12.5), PI)
 	var thrown := _in_hand() as Node3D
 	var start := me.global_position
@@ -151,6 +161,22 @@ func _run() -> void:
 	await _ticks(6)
 	var sign_back := bool(gnome.call("is_loose")) and _in_hand() != null and str(_in_hand().get("kind")) == "turf_sign"
 	_step("8 gnome hugged %s, switch refused %s, set down and sign back %s" % [hugged, no_switch, sign_back], hugged and no_switch and sign_back)
+
+	# 8b. Carrying a teammate fills both arms: hands away, then neither a key nor a
+	# direct ask draws anything until they're set down.
+	await _tap(&"slot_3")
+	var hands_away := _held_count() == 0 and int(pockets.get("selected")) == -1
+	me.call("set_carry_state", 424242, 0)
+	await _tap(&"slot_1")
+	var key_blocked := _held_count() == 0
+	get_tree().get_first_node_in_group("hotbar").call("request_select", 0)
+	await _ticks(6)
+	var host_blocked := _held_count() == 0
+	me.call("set_carry_state", 0, 0)
+	await _ticks(3)
+	await _tap(&"slot_3")
+	var sign_again := _in_hand() != null and str(_in_hand().get("kind")) == "turf_sign"
+	_step("8b hands away %s; carrying: key blocked %s, host refused %s; set down, sign drawn %s" % [hands_away, key_blocked, host_blocked, sign_again], hands_away and key_blocked and host_blocked and sign_again)
 
 	# 10. Pockets weigh a quarter.
 	var expected := _expected_speed()

@@ -65,14 +65,14 @@ func _step(direction: int) -> int:
 
 
 ## Slot keys do nothing while a window has the mouse, or while hidden, in a pile,
-## asleep, carried, thrown, or winding up a throw.
+## asleep, carried, carrying a teammate, thrown, or winding up a throw.
 func _blocked() -> bool:
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	if ui != null and ui.has_method("any_window_open") and bool(ui.call("any_window_open")):
 		return true
 	if bool(_player.call("is_hidden")) or bool(_player.call("is_sleeping")):
 		return true
-	if int(_player.get("carried_by")) != 0 or bool(_player.get("thrown")):
+	if int(_player.get("carried_by")) != 0 or int(_player.get("carrying")) != 0 or bool(_player.get("thrown")):
 		return true
 	return float(_player.call("wind_up_seconds")) >= 0.0
 

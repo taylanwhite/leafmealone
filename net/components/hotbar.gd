@@ -235,7 +235,7 @@ func host_settle(peer_id: int) -> void:
 		if room >= 0:
 			item.set("pocket_slot", room)
 		else:
-			var at: Vector3 = (player as Node3D).global_position + Vector3(0.0, 0.5, 0.0) if player != null else (item as Node3D).global_position
+			var at: Vector3 = (player as Node3D).global_position + Vector3.UP * Constants.CONFISCATE_DROP_HEIGHT if player != null else (item as Node3D).global_position
 			item.call("host_unown", at, Vector3.ZERO)
 	var want: Node = null
 	var selected := selected_of(peer_id)
@@ -282,9 +282,9 @@ func host_empty_pockets(peer_id: int, reason: String) -> void:
 	var radius := 0.0 if items.size() == 1 else maxf(Constants.CONFISCATE_SPREAD, Constants.CONFISCATE_SPREAD * float(items.size()) / TAU)
 	for index: int in items.size():
 		var angle := TAU * float(index) / float(items.size())
-		var at := center + Vector3(cos(angle), 0.0, sin(angle)) * radius + Vector3(0.0, 0.5, 0.0)
+		var at := center + Vector3(cos(angle), 0.0, sin(angle)) * radius + Vector3.UP * Constants.CONFISCATE_DROP_HEIGHT
 		# Each one pops a little higher than the last, so they land one after another: itemized.
-		var pop := Vector3.UP * Constants.CONFISCATE_POP * (1.0 + 0.2 * float(index))
+		var pop := Vector3.UP * Constants.CONFISCATE_POP * (1.0 + Constants.CONFISCATE_POP_STEP * float(index))
 		items[index].call("host_unown", at, pop)
 	if reason != "gone":
 		_send_selected(peer_id, -1)
@@ -357,9 +357,10 @@ func _room_for(peer_id: int, item: Node) -> int:
 	return -1
 
 
-## Hidden, in a pile, asleep or carried: nothing comes out of a pocket.
+## Hidden, in a pile, asleep, carried, or carrying a teammate (both arms are
+## full of them): nothing comes out of a pocket.
 func _busy(player: Node) -> bool:
-	return bool(player.call("is_hidden")) or bool(player.call("is_sleeping")) or int(player.get("carried_by")) != 0
+	return bool(player.call("is_hidden")) or bool(player.call("is_sleeping")) or int(player.get("carried_by")) != 0 or int(player.get("carrying")) != 0
 
 
 ## A point pulled inside the yard's pad (Constants.PAD_RECTS), so emptied
@@ -370,9 +371,9 @@ func _on_pad(at: Vector3) -> Vector3:
 	if zone == null:
 		return at
 	var rect: Rect2 = Constants.PAD_RECTS.get("LotZone", Rect2(-20.0, -20.0, 40.0, 40.0))
-	var inner := rect.grow(-2.0)
+	var inner := rect.grow(-Constants.CONFISCATE_PAD_INSET)
 	var local := at - zone.global_position
-	if Vector2(local.x, local.z).length() > 200.0:
+	if Vector2(local.x, local.z).length() > Constants.CONFISCATE_NEAR_YARD_METERS:
 		# Nowhere near the yard (it moved, or this is the store): leave it be.
 		return at
 	return zone.global_position + Vector3(clampf(local.x, inner.position.x, inner.end.x), local.y, clampf(local.z, inner.position.y, inner.end.y))

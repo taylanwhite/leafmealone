@@ -728,11 +728,20 @@ const HOTBAR_NAME_SECONDS: float = 1.6
 ## After a local slot pick, the owner trusts its own predicted selection over the
 ## replicated state for this long.
 const HOTBAR_PREDICT_SECONDS: float = 0.5
-## Emptied pockets (a capture, leaving the yard): items land this far apart, this
-## long after each other, popped up at this speed (m/s).
+## Emptied pockets (a capture, leaving the yard): items land this far apart (m),
+## start this high above the spot (m), and pop up at this speed (m/s), each one
+## this share faster than the last, so they land one after another, itemized.
+## A height stagger rather than a timed one (docs/DECISIONS.md): everything changes
+## hands in the same tick, so nothing is half-owned while it waits its turn.
 const CONFISCATE_SPREAD: float = 0.6
-const CONFISCATE_STAGGER_SECONDS: float = 0.08
+const CONFISCATE_DROP_HEIGHT: float = 0.5
 const CONFISCATE_POP: float = 2.5
+const CONFISCATE_POP_STEP: float = 0.2
+## Emptied pockets land at least this far inside the yard's pad (m), unless the
+## spot is more than CONFISCATE_NEAR_YARD_METERS from it (the yard moved, or
+## that's the store), where they're left where they are.
+const CONFISCATE_PAD_INSET: float = 2.0
+const CONFISCATE_NEAR_YARD_METERS: float = 200.0
 ## Steps jangle with at least this many things in your pockets.
 const HOTBAR_JANGLE_AT: int = 3
 ## A pocketed prop's body rides along this high above its owner's feet, out of
