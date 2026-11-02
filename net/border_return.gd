@@ -7,6 +7,7 @@ extends Node
 
 const _Layout: Script = preload("res://border/lane_layout.gd")
 const _Timeline: Script = preload("res://border/hazard_timeline.gd")
+const _Strings = preload("res://ui/strings.gd")
 
 ## OQ-011. Set true to send the whole cohort back and restart the clock.
 const RESET_WHOLE_COHORT: bool = false
@@ -41,6 +42,12 @@ func _ready() -> void:
 
 func status_line() -> String:
 	return _status
+
+
+## True while the local player is being thrown back to the start of their lane.
+## ui/quip_player.gd plays its border_fail line on this, not on the status text.
+func is_thrown_back() -> bool:
+	return _running and not _local_done and _threw_back
 
 
 ## Host only. Called when the van arrives at the border.
@@ -98,19 +105,19 @@ func _update_status() -> void:
 		_status = ""
 		return
 	if _staging:
-		_status = "Step off the van"
+		_status = _Strings.UI["border_step_off"]
 		return
 	if not _running:
 		_status = ""
 		return
 	if _threw_back:
-		_status = "Thrown back"
+		_status = _Strings.UI["border_thrown_back"]
 		return
 	var left := Constants.BORDER_CROSSING_SECONDS - _elapsed()
 	if left > 0.0:
-		_status = "Red bar blocks one side. Stand on the empty side. A and D move sideways. Exit in %d s." % int(ceil(left))
+		_status = _Strings.UI["border_lanes"] % int(ceil(left))
 	else:
-		_status = "Exit is open. Walk to the green line."
+		_status = _Strings.UI["border_exit_open"]
 
 
 func _check_local_player() -> void:
@@ -309,7 +316,7 @@ func _build_lane(border: Node3D, lane: int) -> void:
 	border.add_child(exit_pad)
 	_guides.append(exit_pad)
 	var exit_label := Label3D.new()
-	exit_label.text = "EXIT"
+	exit_label.text = _Strings.UI["border_exit_mark"]
 	exit_label.font_size = 96
 	exit_label.modulate = Color(0.4, 1.0, 0.45)
 	exit_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -317,7 +324,7 @@ func _build_lane(border: Node3D, lane: int) -> void:
 	border.add_child(exit_label)
 	_guides.append(exit_label)
 	var hint := Label3D.new()
-	hint.text = "Stand on the empty side of the red bar"
+	hint.text = _Strings.UI["border_hint"]
 	hint.font_size = 48
 	hint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	hint.position = Vector3(center_x, 2.6, -float(_Layout.HALF_LENGTH))

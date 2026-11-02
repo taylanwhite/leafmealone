@@ -64,7 +64,7 @@ Observed:
 - Vending and cash machines sit outside stores.
 
 For us:
-- Homie Depot gets a clerk standing behind the counter who babbles when you walk up. Pressing E opens a shop window styled like a store catalog with item cards, prices, and what you can afford. Their name and personality are design decisions: use `[CLERK NAME]` until the workbook has one.
+- Homie Depot gets a clerk standing behind the counter who babbles when you walk up. Pressing E opens a shop window styled like a store catalog with item cards, prices, and what you can afford. He is Marty, a deadpan lifer who takes the store far too seriously (docs/GAME.md, "2026-11-01, the cast"); his lines are `Strings.KEEPER_LINES.marty`.
 - Tools appear on the shelves as physical items you can see before you buy them.
 - Opening hours, reputation ranks, and phone ordering all need design decisions first. They'd fit the structure (`Campaign` already gates unlocks), but don't build them unasked.
 

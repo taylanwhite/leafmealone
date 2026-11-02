@@ -12,8 +12,8 @@ extends Node
 ##      kind, run cue, rank, day bucket, neighborhood, season, unlock, task and tool
 ##   5. the humor guardrail (Guardrail.check, net/dev/guardrail.gd), which also
 ##      wants "NICE BOYS" in capitals
-##   6. player-facing sentences written inline in game code, outside ui/strings.gd
-##      (report only for now; cast:3 moves them and makes this step fail)
+##   6. no player-facing sentence written inline in game code, outside ui/strings.gd
+##      (fails since cast:3, which moved the last ones)
 ##   7. Strings.homeowner_pool() resolves mood, bill and personality pools
 ##   8. Strings.summary_quip() picks the right bucket, the same line every time
 ## Phase A, the lines in the game (cast:2, host):
@@ -29,6 +29,11 @@ extends Node
 ##  W6. (in phase C) the forced raid is tallied for the summary (Campaign.note_day)
 ##  W7. the homeowner's reaction pool (homeowner.gd choose_pool, a seeded rng): their
 ##      personality's voice, bill_water and breakage bills as often as Constants says
+## Phase A, the inline sweep's follow-ups (cast:3, host):
+##  Q2. the border crossing answers is_thrown_back(), which the quip player reads
+##  Q3. season names, and neighborhood and personality blurbs, read from Strings
+##  Q1. (in phase C) the director's status is the Strings text, and the quip player
+##      plays its run_warning and crew_arrival (Q-009) lines from the phase number
 ## Phase B, the look (host, a scratch node outside the world):
 ##   9. a plain cartoon body's triangles, reported against the character budget
 ##  10. the head NICE BOY and a NICE BOY, dressed by CrewMember.dress(): outfit,
@@ -53,6 +58,8 @@ const _NiceSeal = preload("res://props/nice_seal.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _RunCues = preload("res://ui/run_cues.gd")
 const _Homeowner = preload("res://npcs/homeowner.gd")
+const _QuipPlayer = preload("res://ui/quip_player.gd")
+const _Seasons = preload("res://core/seasons.gd")
 ## Step W7: how many seeded reactions to roll for each homeowner pool case.
 const POOL_ROLLS: int = 400
 
@@ -225,7 +232,16 @@ func _phase_c() -> void:
 	var heat := get_tree().get_first_node_in_group("heat")
 	if heat != null:
 		heat.call("add", 100.0, "test")
+	# Q1 (cast:3): a quip player of the test's own (automated runs have no HUD, so
+	# no UIRoot/Quips) watches the director from before the call.
+	var quips: Node = _QuipPlayer.new()
+	quips.name = "CastQuips"
+	add_child(quips)
+	await get_tree().process_frame
+	await get_tree().process_frame
 	director.call("force_event")
+	var coming := str(director.call("status_line"))
+	_look(coming == str(_Strings.UI["status_crew_coming"]), "Q1 the warning's status is UI status_crew_coming, not '%s'" % coming)
 	waited = 0.0
 	var limit := Constants.RUN_WARNING_SECONDS + 4.0
 	while get_tree().get_nodes_in_group("crew").is_empty() and waited < limit:
@@ -234,7 +250,19 @@ func _phase_c() -> void:
 	var crew := get_tree().get_nodes_in_group("crew")
 	if crew.is_empty():
 		_fail("14 no crew", "nobody arrived %d s after the call" % int(limit))
+		quips.queue_free()
 		return
+	var here := str(director.call("status_line"))
+	_look(here == str(_Strings.UI["status_crew_here"]), "Q1 the arrival's status is UI status_crew_here, not '%s'" % here)
+	# The quip player reads the director's phase, not its text: the warning plays
+	# its run_warning line and the arrival its crew_arrival line (Q-009, which the
+	# old "is here" match never played).
+	var played: Dictionary = quips.get("_played")
+	for trigger: String in ["run_warning", "crew_arrival"]:
+		var id := _quip_id(trigger)
+		_look(id != "" and int(played.get(id, 0)) >= 1, "Q1 the %s quip (%s) played; played: %s" % [trigger, id, JSON.stringify(played)])
+	print("[CastTest] Q1: status '%s' then '%s'; quips played %s" % [coming, here, JSON.stringify(played)])
+	quips.queue_free()
 	# Step 15: frozen where they stand, so nobody is caught and they don't leave.
 	for member: Node in crew:
 		member.set("_stun_left", 60.0)
@@ -265,6 +293,14 @@ func _phase_c() -> void:
 	if PHASE_C_BARKS:
 		pass # Step 17 (barks reach the client) comes with cast:6.
 	print("[CastTest] steps 13-16, the crew on a client: %s %s" % [_problems.size() == before, JSON.stringify(cast)])
+
+
+## The workbook quip (Strings.LINES) id for a trigger, or "".
+func _quip_id(trigger: String) -> String:
+	for row: Dictionary in _Strings.LINES:
+		if str(row["trigger"]) == trigger:
+			return str(row["id"])
+	return ""
 
 
 ## Triangles drawn under root: every MeshInstance3D's faces.
@@ -637,6 +673,16 @@ func _wiring() -> void:
 	# W5: hired hands are never named for a nationality.
 	var hire_names: Array = _constant("res://net/crew/hires.gd", "NAMES", [])
 	_wire(not hire_names.is_empty() and not hire_names.has("Dutch"), "W5 the hire nicknames have no 'Dutch'")
+	# Q2 (cast:3): the quip player asks the crossing whether you were thrown back,
+	# instead of matching its status text.
+	var crossing := get_tree().get_first_node_in_group("border_return")
+	_wire(crossing != null and crossing.has_method("is_thrown_back") and not bool(crossing.call("is_thrown_back")), "Q2 the border crossing says is_thrown_back() (false with nobody crossing)")
+	# Q3 (cast:3): text that moved out of game code reads the same through its new home.
+	_wire(_Seasons.name_of(0) == _Strings.SEASON_NAMES[0] and _Seasons.name_of(5) == _Strings.SEASON_NAMES[1], "Q3 Seasons.name_of() reads Strings.SEASON_NAMES")
+	for hood: Dictionary in _Hoods.HOODS:
+		_wire(not hood.has("blurb"), "Q3 %s's blurb lives in Strings.HOOD_BLURBS, not neighborhoods.gd" % hood["id"])
+	for personality: Variant in _Hoods.PERSONALITIES:
+		_wire(not (_Hoods.PERSONALITIES[personality] as Dictionary).has("blurb"), "Q3 %s's blurb lives in Strings.PERSONALITY_BLURBS" % personality)
 	_homeowner_pools()
 	print("[CastTest] steps W1-W5 and W7, the lines in the game: %s" % (_problems.size() == before))
 
@@ -713,7 +759,9 @@ func _wire(condition: bool, what: String) -> void:
 # ---------------------------------------------------------------- phase A, step 6
 
 
-## Report only (until cast:3): every sentence game code puts on screen itself.
+## Step 6: every sentence game code puts on screen itself fails the test (cast:3
+## made it fail; before that it only reported). Move the text into ui/strings.gd
+## and read it from there; canon brand names (SWEEP_ALLOW) may stay where painted.
 func _sweep_inline() -> Array[String]:
 	var found: Array[String] = []
 	var literal := _regex(SWEEP_LITERAL)
@@ -737,9 +785,15 @@ func _sweep_inline() -> Array[String]:
 					continue
 				found.append("%s:%d %s" % [path.trim_prefix("res://"), number + 1, hit.get_string()])
 	for entry: String in found:
-		print("[CastTest] inline text (report only): %s" % entry)
-	print("[CastTest] step 6: %d inline sentences outside ui/strings.gd (report only until cast:3)" % found.size())
+		_fail("6 inline text", "%s (move it into ui/strings.gd)" % entry)
+	print("[CastTest] step 6: %d inline sentences outside ui/strings.gd (%d files read)" % [found.size(), files.size()])
+	_need_sweep(files.size() > 50, "6 the sweep read the game's scripts (%d files)" % files.size())
 	return found
+
+
+func _need_sweep(condition: bool, what: String) -> void:
+	if not condition:
+		_fail("6 sweep", what)
 
 
 func _is_text_site(line: String) -> bool:

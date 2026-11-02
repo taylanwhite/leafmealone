@@ -92,7 +92,7 @@ func _ready() -> void:
 	add_child(phone)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
-	dev_host.text = "Dev host (ENet)"
+	dev_host.text = _Strings.UI["menu_dev_host"]
 	dev_host.pressed.connect(_on_dev_host_pressed)
 	%Menu.get_node("Panel").add_child(dev_host)
 	_build_lobby()
@@ -104,7 +104,7 @@ func _ready() -> void:
 	%BackButton.pressed.connect(_show_menu)
 	_leave.pressed.connect(_on_leave_pressed)
 	_crew_button = Button.new()
-	_crew_button.text = "Call the NICE BOYS"
+	_crew_button.text = _Strings.UI["pause_call_crew"]
 	_crew_button.visible = false
 	_crew_button.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_crew_button.offset_left = -110.0
@@ -148,7 +148,8 @@ func _process(_delta: float) -> void:
 	var truck_line := ""
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	if chefty != null:
-		truck_line = "\nChefty %d/%d bags" % [int(chefty.call("bag_count")), Constants.TRUCK_BAG_CAPACITY]
+		var bags := str(_Strings.UI["hud_chefty_amount"]) % [int(chefty.call("bag_count")), Constants.TRUCK_BAG_CAPACITY]
+		truck_line = "\n" + str(_Strings.UI["hud_chefty_row"]) % bags
 	var crew_line := ""
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
@@ -164,15 +165,12 @@ func _process(_delta: float) -> void:
 	# What E does is shown over the thing itself (ui/interaction_prompt.gd), so the HUD stays short.
 	if _rake_hint != null:
 		_rake_hint.visible = Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
-	_cleanup.text = (str(_Strings.UI["hud_wallet"]) % Campaign.credits(Net.local_peer_id())) + "\nCleanup %.1f%%%s%s" % [
-		fraction * 100.0,
-		truck_line,
-		crew_line,
-	]
+	var cleanup := str(_Strings.UI["hud_cleanup_row"]) % (str(_Strings.UI["hud_cleanup_amount"]) % (fraction * 100.0))
+	_cleanup.text = (str(_Strings.UI["hud_wallet"]) % Campaign.credits(Net.local_peer_id())) + "\n" + cleanup + truck_line + crew_line
 	if _lobby != null and _lobby.visible:
 		var lines: PackedStringArray = PackedStringArray()
 		for peer_id: int in Net.peer_ids():
-			var ready := "ready" if Net.is_player_ready(peer_id) else "not ready"
+			var ready: String = _Strings.UI["lobby_ready"] if Net.is_player_ready(peer_id) else _Strings.UI["lobby_not_ready"]
 			var talking: String = _Strings.UI["lobby_talking"] if Net.is_player_speaking(peer_id) else ""
 			lines.append("%s  %s%s" % [Net.player_name(peer_id), ready, talking])
 		_lobby_players.text = "\n".join(lines)
@@ -337,19 +335,19 @@ func _build_lobby() -> void:
 	_lobby.visible = false
 	_lobby.add_theme_constant_override("separation", 8)
 	var title := Label.new()
-	title.text = "Lobby"
+	title.text = _Strings.UI["lobby_title"]
 	_lobby_players = Label.new()
 	var ready := Button.new()
-	ready.text = "Ready"
+	ready.text = _Strings.UI["lobby_ready_button"]
 	ready.pressed.connect(func() -> void: Net.set_ready(not Net.is_player_ready(Net.local_peer_id())))
 	var invite := Button.new()
-	invite.text = "Invite Friends"
+	invite.text = _Strings.UI["lobby_invite"]
 	invite.pressed.connect(func() -> void: Net.invite_friends())
 	_start_button = Button.new()
-	_start_button.text = "Start"
+	_start_button.text = _Strings.UI["lobby_start"]
 	_start_button.pressed.connect(func() -> void: Net.start_session())
 	var leave := Button.new()
-	leave.text = "Leave Session"
+	leave.text = _Strings.UI["lobby_leave"]
 	leave.pressed.connect(_on_leave_pressed)
 	var voice := Button.new()
 	voice.text = _Strings.UI["voice_button"]
@@ -429,21 +427,21 @@ func _on_host_pressed() -> void:
 		return
 	var error := Net.host(Net.Transport.STEAM)
 	if error != OK:
-		_show_ended("Could not host: %s" % error_string(error))
+		_show_ended(str(_Strings.UI["error_host"]) % error_string(error))
 
 
 func _on_dev_host_pressed() -> void:
 	Net.set_local_name(_name_field.text)
 	var error := Net.host(Net.Transport.ENET)
 	if error != OK:
-		_show_ended("Could not host: %s" % error_string(error))
+		_show_ended(str(_Strings.UI["error_host"]) % error_string(error))
 
 
 func _on_join_pressed() -> void:
 	Net.set_local_name(_name_field.text)
 	var error := Net.join_enet(_address_field.text.strip_edges())
 	if error != OK:
-		_show_ended("Could not join: %s" % error_string(error))
+		_show_ended(str(_Strings.UI["error_join"]) % error_string(error))
 
 
 func _on_quit_pressed() -> void:

@@ -11,6 +11,7 @@ const LOT_PARK := Vector3(1007.0, 0.0, 24.6)
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const _Vehicles = preload("res://props/vehicles.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
+const _Strings = preload("res://ui/strings.gd")
 
 var _riding: bool = false
 var _start_time: float = 0.0
@@ -145,7 +146,7 @@ func clear_bags() -> void:
 ## Called on every peer before the van departs. Chefty builds itself in _ready.
 func setup_as_van(from_point: Vector3, to_point: Vector3) -> void:
 	add_to_group("vans")
-	_vehicle_name = "Van"
+	_vehicle_name = _Strings.UI["van_label"]
 	_vehicle_color = Color(0.16, 0.17, 0.2)
 	if _body != null:
 		var truck := _body.get_node_or_null("TruckLook")
@@ -281,14 +282,14 @@ func _refresh_label() -> void:
 	if _label == null:
 		return
 	if is_in_group("vans"):
-		var lines: PackedStringArray = PackedStringArray(["Van"])
+		var lines: PackedStringArray = PackedStringArray([_Strings.UI["van_label"]])
 		for peer_id: Variant in _riders:
 			var shown := Net.player_name(int(peer_id))
-			lines.append(shown if shown != "" else "Player %d" % int(peer_id))
+			lines.append(shown if shown != "" else str(_Strings.UI["ride_rider_unnamed"]) % int(peer_id))
 		_label.text = "\n".join(lines)
 		return
-	var full := " full" if _bags >= Constants.TRUCK_BAG_CAPACITY else ""
-	_label.text = "Chefty\n%d/%d bags  $%d%s" % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value, full]
+	var full: String = _Strings.UI["ride_chefty_full"] if _bags >= Constants.TRUCK_BAG_CAPACITY else ""
+	_label.text = _Strings.UI["ride_chefty_label"] % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value, full]
 
 
 @rpc("any_peer", "call_remote", "reliable")
