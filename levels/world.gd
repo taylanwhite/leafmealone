@@ -67,6 +67,10 @@ func _ready() -> void:
 	var hires := preload("res://net/crew/hires.gd").new()
 	hires.name = "Hires"
 	add_child(hires)
+	# Every shop's buying, stock, and the crew's supplies (net/shops/shops.gd).
+	var shops := preload("res://net/shops/shops.gd").new()
+	shops.name = "Shops"
+	add_child(shops)
 	_add_cots()
 	var board := preload("res://levels/job_board.gd").new()
 	board.name = "JobBoard"

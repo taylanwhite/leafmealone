@@ -72,6 +72,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/audio_test.gd").new(), "AudioTest")
 	if bool(options.get("settings_test")):
 		_add(preload("res://net/dev/settings_test.gd").new(), "SettingsTest")
+	if bool(options.get("shop_test")):
+		_add(preload("res://net/dev/shop_test.gd").new(), "ShopTest")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
 		get_tree().create_timer(OPEN_SHOP_AFTER_SECONDS).timeout.connect(func() -> void:

@@ -214,9 +214,19 @@ func _tally(key: String, amount: float) -> void:
 	_day_tally[key] = float(_day_tally.get(key, 0.0)) + amount
 
 
-## Ask the host to buy a stock tool or an upgrade at Homie Depot's counter.
+## Ask the host to buy a stock tool or an upgrade at Homie Depot's counter. Kept
+## for the old callers: with the Shops node (net/shops/shops.gd) it is a buy of
+## one at Homie Depot, with all of Shops' checks (hours, distance, rank, cash).
+## Only tools and upgrades, as the old counter sold; everything else goes
+## through Shops.request_buy.
 func request_purchase(item_id: StringName) -> void:
-	if Net.is_host():
+	var kind := str(Catalog.item(String(item_id)).get("kind", ""))
+	if kind != "tool" and kind != "upgrade":
+		return
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops != null:
+		shops.call("request_buy", "homie_depot", String(item_id), 1)
+	elif Net.is_host():
 		_handle_purchase(Net.local_peer_id(), item_id)
 	else:
 		_rpc_request_purchase.rpc_id(1, String(item_id))
@@ -437,6 +447,13 @@ func tool_tier(peer_id: int, tool: String) -> int:
 		if peer_has_unlock(peer_id, StringName(Catalog.tool_item(tool, tier))):
 			return tier
 	return Catalog.TIER_NONE
+
+
+## The save key a player's cash and unlocks are kept under ("steam:<id>" or
+## "name:<name>"). The same on every peer, from the roster, so other saved
+## per-player state (Shops' looks) can key on it.
+func key_of(peer_id: int) -> String:
+	return _key_for(peer_id)
 
 
 ## The best tier of a tool anyone in this session owns: the crew brings the best one.
@@ -683,7 +700,12 @@ func _empty_stats() -> Dictionary:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_request_purchase(item_id: String) -> void:
-	if Net.is_host():
+	if not Net.is_host():
+		return
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops != null:
+		shops.call("host_buy", multiplayer.get_remote_sender_id(), "homie_depot", item_id, 1)
+	else:
 		_handle_purchase(multiplayer.get_remote_sender_id(), StringName(item_id))
 
 

@@ -137,6 +137,16 @@ func force_sleep() -> void:
 		_end_day()
 
 
+## Host, tests only: set the clock to this hour (7 to 26) of the same day and
+## tell every peer, through the same state RPC a late joiner gets.
+func set_hour_for_tests(target_hour: float) -> void:
+	if not Net.is_host():
+		return
+	var at := clampf((target_hour - Constants.DAY_START_HOUR) * 60.0, 0.0, _end_minutes())
+	day_started_at = Net.server_time() - at * _seconds_per_minute()
+	_rpc_state.rpc(day, day_started_at, sleepers, cots)
+
+
 ## Host, every frame the host holds E on a cot: three seconds drags everyone to bed.
 func hold_force(delta: float) -> float:
 	if not Net.is_host():

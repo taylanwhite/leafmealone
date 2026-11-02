@@ -87,6 +87,8 @@ func _run() -> void:
 	var freed := (hires.get("hands") as Array).is_empty() and bool(hires.call("can_hire"))
 	print("[HireTest] let %s go, the slot is free: %s" % [name_of, freed])
 	ok = ok and freed
+	# The counter's buys go through the Shops node, which wants you at the counter.
+	await _stand_at_counter()
 	ok = _check_wallet(me) and ok
 	await get_tree().create_timer(1.0).timeout
 	result = {"ok": ok, "done": true}
@@ -137,6 +139,18 @@ func _check_wallet(me: int) -> bool:
 	print("[HireTest] catalog prices apply the tier and vending markups: %s" % prices)
 	ok = ok and prices
 	return ok
+
+
+## The host stands across Homie Depot's counter (Constants.SHOP_SITES).
+func _stand_at_counter() -> void:
+	var world := get_tree().get_first_node_in_group("world")
+	var zone := world.get_node_or_null("StoreZone") as Node3D if world != null else null
+	var counter: Vector3 = (Constants.SHOP_SITES["homie_depot"] as Dictionary)["counter"]
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()) and zone != null:
+			(node as Node3D).global_position = zone.to_global(counter + Vector3(0.0, 0.1, 1.8))
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 
 
 func _hires() -> Node:
