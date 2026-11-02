@@ -8,10 +8,20 @@ extends Node3D
 ## The subject stands on grass under the game's own sky, sun, and post effects
 ## (levels/shared_look.gd). Views: a hero three-quarter shot, the side, from
 ## above, and a close-up. Works with the window covered: it forces each draw.
-## Subjects are listed in _build().
+## Subjects are listed in _build(). A subject can pick its own views by setting
+## meta "views" on the subject root: an Array of {from, at, fov}, up to four.
+##
+## Options, after the "--":
+## - --season=N: 0 autumn, 1 winter, 2 spring, 3 summer. The season's look
+##   (snow, flowers, foliage tint; core/seasons.gd) is set before the subject is
+##   built, so seasonal subjects build their season too. Default autumn.
+## - --hood=<id>, --size=N, --seed=N, --archetype=<id>: what the neighborhood
+##   subjects build (net/town/neighborhoods.gd ids; yard size 0-2).
+## - anything else as --key=value, read by the subject (_options).
 
 const _SharedLook = preload("res://levels/shared_look.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
+const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const VIEW_SIZE := Vector2i(720, 720)
@@ -19,6 +29,11 @@ const VIEW_SIZE := Vector2i(720, 720)
 var _subject := "trees"
 var _out := "build/art/studio.png"
 var _options: Dictionary = {}
+var _season := 0
+var _hood := "maple_row"
+var _size := 1
+var _seed := 1
+var _archetype := ""
 
 
 func _ready() -> void:
@@ -30,6 +45,12 @@ func _ready() -> void:
 		elif argument.begins_with("--") and argument.contains("="):
 			var pair := argument.trim_prefix("--").split("=", true, 1)
 			_options[pair[0]] = pair[1]
+	_season = posmod(int(_options.get("season", "0")), 4)
+	_hood = str(_options.get("hood", _hood))
+	_size = clampi(int(_options.get("size", str(_size))), 0, 2)
+	_seed = int(_options.get("seed", str(_seed)))
+	_archetype = str(_options.get("archetype", _archetype))
+	Seasons.apply_look(Seasons.first_day_of(_season))
 	_stage()
 	var content := Node3D.new()
 	content.name = "Subject"
@@ -111,15 +132,103 @@ func _build(root: Node3D) -> void:
 			root.add_child(van)
 			van.rotation.y = PI * 0.8
 			preload("res://props/vehicles.gd").build_van(van, Color(0.16, 0.17, 0.2))
+		"surfaces":
+			_surfaces(root)
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
+
+
+## Every surface pattern (props/surfaces.gd): a 2 m cube of each with its name,
+## big flat swatches of the ground patterns, and a strip of road in each line
+## style. Render it per season to see snow and flowers.
+func _surfaces(root: Node3D) -> void:
+	# Newest patterns first, so they fill the two front rows the close-ups look at.
+	var samples: Array = []
+	var names: Array = _Surfaces.PATTERNS.keys()
+	names.reverse()
+	for pattern: String in names:
+		samples.append([pattern, pattern, Vector4.ZERO])
+	samples.insert(names.find("stone") + 1, ["stone (ashlar)", "stone", Vector4(1, 0, 0, 0)])
+	samples.insert(names.find("pavers") + 1, ["pavers (herringbone)", "pavers", Vector4(1, 0, 0, 0)])
+	samples.insert(names.find("lawn_stripes") + 1, ["grass (dandelions)", "grass", Vector4(0, 0, 0.6, 0)])
+	for index: int in samples.size():
+		var sample: Array = samples[index]
+		var at := Vector3(float(index % 8) * 3.0 - 10.5, 1.0, -3.0 - floorf(index / 8.0) * 3.0)
+		_LowPoly.paint(_LowPoly.box(root, Vector3(2.0, 2.0, 2.0), at, _sample_color(sample[1])), sample[1], sample[2])
+		_label(root, sample[0], at + Vector3(0.0, 1.35, 0.0))
+	# Ground swatches, flat, where floor patterns read at their real scale.
+	var grounds: Array = [["grass", Vector4.ZERO], ["lawn_stripes", Vector4.ZERO], ["gravel", Vector4.ZERO], ["pavers", Vector4.ZERO], ["pavers", Vector4(1, 0, 0, 0)], ["tile_floor", Vector4.ZERO], ["concrete", Vector4.ZERO], ["dirt", Vector4.ZERO]]
+	for index: int in grounds.size():
+		var at := Vector3(float(index) * 5.0 - 17.5, 0.02, 3.0)
+		_LowPoly.paint(_LowPoly.box(root, Vector3(4.6, 0.04, 4.6), at, _sample_color(grounds[index][0])), grounds[index][0], grounds[index][1])
+	# Roads: one strip per line style, 16 m long, three to a row.
+	var styles: Array = _Surfaces.ROAD_LINES.keys()
+	for index: int in styles.size():
+		var style: String = styles[index]
+		var half_width := 6.0 if style in ["parking", "crosswalk"] else 4.4
+		var length := 12.0 if style == "crosswalk" else 16.0
+		var at := Vector3(float(index % 3) * 19.0 - 19.0, 0.0, 16.0 + floorf(index / 3.0) * 15.0)
+		_LowPoly.paint(_LowPoly.box(root, Vector3(length, 0.1, half_width * 2.0), at, Color(0.3, 0.3, 0.32)), "road", _Surfaces.road_params(style, half_width))
+		_label(root, style, at + Vector3(0.0, 1.2, -half_width - 0.6), 0.025)
+	root.set_meta("views", [
+		# Everything: cubes and swatches.
+		{"from": Vector3(14.0, 13.0, 13.0), "at": Vector3(0.0, 0.5, -5.0), "fov": 50.0},
+		# Close-ups on the two front rows, left half then right half.
+		{"from": Vector3(-6.0, 6.5, 6.5), "at": Vector3(-6.0, 0.4, -5.5), "fov": 55.0},
+		{"from": Vector3(6.0, 6.5, 6.5), "at": Vector3(6.0, 0.4, -5.5), "fov": 55.0},
+		# The roads from above.
+		{"from": Vector3(0.0, 44.0, 52.0), "at": Vector3(0.0, 0.0, 33.0), "fov": 55.0},
+	])
+
+
+func _sample_color(pattern: String) -> Color:
+	match pattern:
+		"grass", "lawn_stripes", "foliage":
+			return Color(0.36, 0.55, 0.24)
+		"brick":
+			return Color(0.6, 0.32, 0.26)
+		"roof_tiles":
+			return Color(0.72, 0.38, 0.24)
+		"shakes", "bark", "planks", "board_batten":
+			return Color(0.6, 0.42, 0.28)
+		"stucco":
+			return Color(0.9, 0.84, 0.72)
+		"corrugated":
+			return Color(0.66, 0.78, 0.82)
+		"skin":
+			return Color(0.85, 0.66, 0.52)
+		"dirt":
+			return Color(0.5, 0.38, 0.26)
+		"pavers":
+			return Color(0.66, 0.4, 0.3)
+		"tile_floor":
+			return Color(0.88, 0.86, 0.82)
+		"shingles":
+			return Color(0.36, 0.3, 0.3)
+		"siding":
+			return Color(0.62, 0.72, 0.8)
+		"fabric":
+			return Color(0.7, 0.3, 0.3)
+		_:
+			return Color(0.66, 0.65, 0.62)
+
+
+func _label(root: Node3D, text: String, at: Vector3, pixel_size: float = 0.008) -> void:
+	var label := Label3D.new()
+	label.text = text
+	label.font_size = 48
+	label.pixel_size = pixel_size
+	label.outline_size = 10
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	root.add_child(label)
+	label.position = at
 
 
 func _render(content: Node3D) -> void:
 	var bounds := _bounds(content)
 	var center := bounds.get_center()
 	var reach := maxf(bounds.size.length() * 0.5, 0.5)
-	var views := [
+	var views: Array = [
 		# Hero: three-quarter, a little above eye level.
 		{"from": center + Vector3(0.75, 0.25, 1.0).normalized() * reach * 2.3, "at": center, "fov": 40.0},
 		# Side.
@@ -129,6 +238,10 @@ func _render(content: Node3D) -> void:
 		# Close-up, toward the upper part where the detail is.
 		{"from": center + Vector3(0.6, 0.35, 1.0).normalized() * reach * 0.95 + Vector3(0.0, bounds.size.y * 0.15, 0.0), "at": center + Vector3(0.0, bounds.size.y * 0.15, 0.0), "fov": 45.0},
 	]
+	# A subject that knows where to look says so; the rest keep the default four.
+	var custom: Array = content.get_meta("views", [])
+	for index: int in mini(custom.size(), views.size()):
+		views[index] = custom[index]
 	var viewports: Array[SubViewport] = []
 	for view: Dictionary in views:
 		var viewport := SubViewport.new()

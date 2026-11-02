@@ -18,8 +18,17 @@ uniform float translucency = 0.0;
 instance uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 0.0);
 // The season (core/seasons.gd): what swaying foliage shifts toward, and how far.
 global uniform vec4 season_foliage;
+// How much snow the season lays on upward faces (core/seasons.gd SNOW).
+global uniform float season_snow;
+// How much of that snow this material takes: 0 for anything alive or carried
+// (characters, arms, held tools), 1 for outdoor props. Opt-in.
+uniform float snow_cover = 0.0;
+// Whether swaying parts follow season_foliage. Off for meshes that are built
+// per season already (tree crowns carry their own season colors).
+uniform bool seasonal = true;
 
 varying float sway;
+varying float world_up;
 
 vec3 to_linear(vec3 c) {
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
@@ -27,6 +36,7 @@ vec3 to_linear(vec3 c) {
 
 void vertex() {
 	sway = COLOR.a;
+	world_up = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz).y;
 	if (wind > 0.0 && COLOR.a > 0.0) {
 		vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 		float phase = dot(NODE_POSITION_WORLD.xz, vec2(0.37, 0.21));
@@ -44,11 +54,14 @@ void vertex() {
 void fragment() {
 	vec3 base = COLOR.rgb;
 	// Only what sways (crowns, grass) changes with the season; trunks and houses don't.
-	if (season_foliage.a > 0.0 && sway > 0.25) {
+	if (seasonal && season_foliage.a > 0.0 && sway > 0.25) {
 		float light = dot(base, vec3(0.3, 0.55, 0.15));
-		vec3 seasonal = season_foliage.rgb * (0.7 + 0.6 * light);
-		base = mix(base, seasonal, season_foliage.a);
+		vec3 turned = season_foliage.rgb * (0.7 + 0.6 * light);
+		base = mix(base, turned, season_foliage.a);
 	}
+	// Snow settles on whatever faces up, on materials that take it.
+	float snow = season_snow * snow_cover * smoothstep(0.5, 0.85, world_up);
+	base = mix(base, vec3(0.93, 0.95, 0.99), snow);
 	ALBEDO = mix(to_linear(base), to_linear(tint.rgb), tint.a);
 	ROUGHNESS = roughness_value;
 	SPECULAR = specular_value;
@@ -79,7 +92,10 @@ static var _cache: Dictionary = {}
 
 
 ## options: wind (meters of sway at alpha 1), roughness, specular, translucency,
-## double_sided (for thin things like grass blades).
+## double_sided (for thin things like grass blades), snow (0-1: how much of the
+## season's snow settles on upward faces; default 0, so characters, arms, and held
+## things never turn white; outdoor props opt in with 1.0), seasonal (default true:
+## swaying parts follow the season_foliage tint; false for meshes built per season).
 static func material(options: Dictionary = {}) -> ShaderMaterial:
 	var key := str(options)
 	if _cache.has(key):
@@ -95,6 +111,8 @@ static func material(options: Dictionary = {}) -> ShaderMaterial:
 	made.set_shader_parameter("roughness_value", float(options.get("roughness", 0.92)))
 	made.set_shader_parameter("specular_value", float(options.get("specular", 0.12)))
 	made.set_shader_parameter("translucency", float(options.get("translucency", 0.0)))
+	made.set_shader_parameter("snow_cover", clampf(float(options.get("snow", 0.0)), 0.0, 1.0))
+	made.set_shader_parameter("seasonal", bool(options.get("seasonal", true)))
 	_cache[key] = made
 	return made
 

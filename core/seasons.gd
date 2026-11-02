@@ -59,6 +59,42 @@ static func turns_on(day: int) -> bool:
 	return day > 1 and of_day(day) != of_day(day - 1)
 
 
-## Every peer: tint the foliage for this day's season (props/stylized.gd reads it).
+## How much snow settles on upward faces, by season (shader global season_snow:
+## props/surfaces.gd everywhere, props/stylized.gd where a material opts in).
+const SNOW: Array[float] = [0.0, 0.85, 0.0, 0.0]
+## How many flowers dot the lawns, by season (shader global season_bloom, read by
+## the grass and lawn_stripes surfaces). A surface can keep a floor of its own
+## (Dandelion Acres keeps its dandelions all year).
+const BLOOM: Array[float] = [0.0, 0.0, 0.8, 0.15]
+
+## The season the look was last set to on this peer, and whether it was set yet.
+static var _current := 0
+static var _applied := false
+
+
+## Every peer: set the look for this day's season. The shader globals tint the
+## foliage (props/stylized.gd) and lay snow and flowers (props/surfaces.gd). When
+## the season actually changes, or on the first call, every node in group
+## "seasonal" gets apply_season(season) to restyle itself. Cosmetic and local.
 static func apply_look(day: int) -> void:
-	RenderingServer.global_shader_parameter_set("season_foliage", FOLIAGE[of_day(day)])
+	var season := of_day(day)
+	RenderingServer.global_shader_parameter_set("season_foliage", FOLIAGE[season])
+	RenderingServer.global_shader_parameter_set("season_snow", SNOW[season])
+	RenderingServer.global_shader_parameter_set("season_bloom", BLOOM[season])
+	if _applied and season == _current:
+		return
+	_current = season
+	_applied = true
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree != null:
+		tree.call_group("seasonal", "apply_season", season)
+
+
+## The season the look is showing on this peer (autumn until apply_look runs).
+static func current() -> int:
+	return _current
+
+
+## The first day of a season in year one, for the studio and tests.
+static func first_day_of(season: int) -> int:
+	return 1 + posmod(season, 4) * maxi(1, Constants.SEASON_DAYS)
