@@ -52,7 +52,6 @@ const PENDING: Dictionary = {
 	"phone": "icons:E",
 	"hud": "icons:E",
 	"prompt": "icons:F",
-	"prompt_format": "settings:4, then icons:F",
 	"catalog": "icons:catalog",
 }
 ## The actions a prompt names most; they need a keycap whatever Settings lists.
@@ -326,8 +325,8 @@ func _tokens() -> Variant:
 	return gaps
 
 
-## The interaction prompt as the game formats it: settings:4 turns prompt_format
-## into a "{key:%s}  %s" string; until then it hard-codes its key.
+## The interaction prompt as the game formats it: since settings:4, prompt_format
+## is a "{key:%s}  %s" string (live from W5; icons:F keeps it passing).
 func _prompt_format() -> Variant:
 	var gaps: Array[String] = []
 	var format := str(_Strings.UI.get("prompt_format", ""))
