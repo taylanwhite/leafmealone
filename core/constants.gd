@@ -683,6 +683,15 @@ const SFX_UNIT_SIZE: float = 8.0
 const SFX_MAX_DISTANCE: float = 60.0
 ## The low-pass on the Music bus (audio/buses.gd) for "heard from another room".
 const MUSIC_MUFFLE_CUTOFF_HZ: float = 900.0
+## Where a looping music track goes back to, past the end of its intro: every
+## .ogg tools/encode_ogg.py writes ends with one extra 20 ms frame of its own
+## loop start, so playing to the end and jumping to intro + this is seamless.
+## (Godot's Movie Maker records whole frames and starts 66 samples late, and
+## Godot plays an .ogg to its last packet; docs/DECISIONS.md, "Audio: the music
+## pipeline".) It is half a sample over 0.02 s because Godot truncates a seek
+## time to a whole sample, and 9.6 + 0.02 lands a hair under 9.62 in floating
+## point. audio/music_tracks.gd's loop_offset adds it; encode_ogg.py checks it.
+const MUSIC_ENCODE_LEAD_SECONDS: float = 0.0200113
 
 ## The neighborhood's background (audio/ambience.gd): wind and the old music loop,
 ## in decibels; the wind drops this much more in transit and at the border.

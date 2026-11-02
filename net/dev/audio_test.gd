@@ -14,7 +14,9 @@ extends Node
 ##   positional   a bag, a throw and a heavy bonk on the lot are play_at where they
 ##                happened (Sfx.placed), not 2D
 ##   no_unknown   nothing asked Sfx for an unregistered id during the whole run
-## Each step prints an [AudioTest] line. Later chunks add the music checks.
+##   music_files  every .ogg in assets/audio/music (tools/make_music.py, then
+##                tools/encode_ogg.py; chunk 2) loads as Vorbis with a sane length
+## Each step prints an [AudioTest] line. Later chunks add the music director checks.
 
 const _Bank = preload("res://audio/sound_bank.gd")
 const _Buses = preload("res://audio/buses.gd")
@@ -22,6 +24,9 @@ const _SfxScript = preload("res://audio/sfx.gd")
 
 ## A loop shorter than this would stutter.
 const LOOP_MIN_SECONDS: float = 0.5
+## The soundtrack: every track is at most 150 s plus the one frame the encode adds.
+const MUSIC_DIR: String = "res://assets/audio/music/"
+const MUSIC_MAX_SECONDS: float = 150.5
 ## How long the ride may take before the test gives up on it.
 const RIDE_TIMEOUT_SECONDS: float = 20.0
 ## Where the source scan doesn't look.
@@ -56,6 +61,7 @@ func _run() -> void:
 	_check("bank_files", _bank_files())
 	_check("source_scan", _source_scan())
 	_check("buses", _buses())
+	_check("music_files", _music_files())
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	var at_home := sfx != null and str(sfx.get_path()).ends_with("UIRoot/Audio/Sfx")
 	print("[AudioTest] Sfx is at %s" % (str(sfx.get_path()) if sfx != null else "nowhere"))
@@ -159,6 +165,28 @@ func _source_scan() -> bool:
 			scanner_ok = false
 	print("[AudioTest] the scanner reads ids right: %s" % scanner_ok)
 	return bad.is_empty() and scanner_ok
+
+
+func _music_files() -> bool:
+	var dir := DirAccess.open(MUSIC_DIR)
+	if dir == null:
+		print("[AudioTest] no %s" % MUSIC_DIR)
+		return false
+	var ok := true
+	var count := 0
+	for file: String in dir.get_files():
+		if not file.ends_with(".ogg"):
+			continue
+		count += 1
+		var path := MUSIC_DIR.path_join(file)
+		var stream := load(path) as AudioStreamOggVorbis
+		var seconds := stream.get_length() if stream != null else 0.0
+		var good := stream != null and seconds > 1.0 and seconds <= MUSIC_MAX_SECONDS
+		print("[AudioTest] music %s: %s, %.4f s" % [file, stream.get_class() if stream != null else "not Vorbis", seconds])
+		if not good:
+			(result["bad_lengths"] as Array).append("%s %.2fs" % [path, seconds])
+		ok = ok and good
+	return ok and count > 0
 
 
 func _walk(dir_path: String, out: Array[String]) -> void:
