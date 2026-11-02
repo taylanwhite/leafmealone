@@ -85,6 +85,8 @@ Until these are decided, build the behavior so the answer can change without a r
 
 - **2026-11-01, later.** Hired hands wear crew orange and go by nicknames (Big Sal, Tiny Dom, Moose, Lefty, Squints, Dutch, Pep, Bunny, Hambone, Socks, Noodles, Biscuit, Shades, Rooster, Pickles, Boots); they rake, bag, and haul, never the chaos jobs. **TurfMasters™** ("LAWNS DONE RIGHT") poach clients who aren't happy with you and plant green lawn signs on their street; pulling the signs up or doing great work on the street wins clients back. The year has four seasons of seven days: autumn (the most leaves), winter (frosted trees, fewer leaves, gutters and roofs, +15% pay), spring (weeds, mowing, hedges), summer (mowing, pools, fences, +5% pay).
 
+- **2026-11-01, balance.** Every economy number now lives in `core/constants.gd` (the "balance" section holds the ones that used to be written inline: daytime texts, relationship steps, referral and win-back XP, the homeowner's verdict, unowned-tool tasks, leaf cover, hire skill, the run-event progress gate). Every shop price that isn't a base tool is in `Constants.SHOP_PRICES` (the rake tune-up and the wheelbarrow upgrade, still $120 each, no longer the workbook's BAL tool cost). No number changed; the retune comes later, from `tools/balance_sim.py`.
+
 ## Rules for agents working on content
 
 - Agents may create canon (Taylan, 2026-11-01): names, lore, client characters, and dialogue. Record each one in this file's developer notes in the same commit, so the next agent uses it instead of inventing another. The store name Homie Depot, the Chefty truck logo, and the enforcement crew's name, the NICE BOYS, are Taylan's and stay.

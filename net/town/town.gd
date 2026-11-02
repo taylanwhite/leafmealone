@@ -24,9 +24,6 @@ const _JobBoard = preload("res://levels/job_board.gd")
 const _Seasons = preload("res://core/seasons.gd")
 ## Texts kept for the phone, newest last.
 const MAX_TEXTS: int = 40
-## In-game hours when a client may text a job during the day.
-const DAYTIME_TEXT_HOURS: Array[float] = [10.0, 13.0, 16.0, 19.0]
-const DAYTIME_TEXT_CHANCE: float = 0.5
 
 var town_seed: int = 0
 ## Every house: {id, hood, number, street, seed, size, owner: {first, last,
@@ -101,12 +98,12 @@ func _process(_delta: float) -> void:
 		return
 	# Now and then during the day, a client texts a job.
 	var hour := float(clock.call("hour"))
-	for slot: int in DAYTIME_TEXT_HOURS.size():
-		if slot > _daytime_checked and hour >= DAYTIME_TEXT_HOURS[slot]:
+	for slot: int in Constants.TOWN_DAYTIME_TEXT_HOURS.size():
+		if slot > _daytime_checked and hour >= Constants.TOWN_DAYTIME_TEXT_HOURS[slot]:
 			_daytime_checked = slot
 			var rng := RandomNumberGenerator.new()
 			rng.seed = hash([town_seed, _day, slot])
-			if rng.randf() < DAYTIME_TEXT_CHANCE:
+			if rng.randf() < Constants.TOWN_DAYTIME_TEXT_CHANCE:
 				if _ask_for_jobs(1, rng) > 0:
 					_broadcast()
 
@@ -266,7 +263,7 @@ func on_job_finished(_fraction: float, details: Dictionary) -> int:
 	var stars := int(details.get("stars", 0))
 	var first_time := int(entry.get("jobs", 0)) == 0
 	if stars > 0:
-		entry["relationship"] = clampf(float(entry.get("relationship", 0.0)) + float(stars - 3) * Constants.TOWN_RELATIONSHIP_PER_STAR + 2.0, 0.0, 100.0)
+		entry["relationship"] = clampf(float(entry.get("relationship", 0.0)) + float(stars - 3) * Constants.TOWN_RELATIONSHIP_PER_STAR + Constants.TOWN_RELATIONSHIP_PER_JOB, 0.0, 100.0)
 	entry["jobs"] = int(entry.get("jobs", 0)) + 1
 	entry["last_day"] = _day
 	houses[current_house] = entry
@@ -297,7 +294,7 @@ func on_new_day(new_day: int) -> Dictionary:
 			continue
 		missed += 1
 		var entry: Dictionary = houses[int(house_id)]
-		entry["relationship"] = maxf(0.0, float(entry.get("relationship", 0.0)) - 3.0)
+		entry["relationship"] = maxf(0.0, float(entry.get("relationship", 0.0)) - Constants.TOWN_RELATIONSHIP_MISSED)
 	requests.clear()
 	if current_house >= 0:
 		requests.append(current_house)
@@ -519,7 +516,7 @@ func _meet(house_id: int, referred_by: String) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([town_seed, _day, house_id])
 	_add_request(house_id, rng)
-	Campaign.add_xp(Constants.XP_NEW_CLIENT / 2, "referral")
+	Campaign.add_xp(Constants.XP_REFERRAL, "referral")
 
 
 ## A neighborhood the rank just opened, with nobody there yet: the best client
@@ -546,7 +543,7 @@ func _open_new_hoods() -> Array:
 			if bool(entry.get("known", false)) and float(entry.get("relationship", 0.0)) > best_relationship:
 				best_relationship = float(entry.get("relationship", 0.0))
 				best = int(entry["id"])
-		_meet(target, owner_name(best) if best >= 0 and best_relationship >= Constants.TOWN_REFERRAL_AT * 0.75 else "")
+		_meet(target, owner_name(best) if best >= 0 and best_relationship >= Constants.TOWN_REFERRAL_AT * Constants.TOWN_LEAD_REFERRAL_SHARE else "")
 		opened.append(_Hoods.name_of(hood_id))
 	return opened
 
@@ -599,7 +596,7 @@ func _win_back(hood_id: String, because_of: String) -> void:
 			entry["relationship"] = maxf(float(entry.get("relationship", 0.0)), Constants.TOWN_START_RELATIONSHIP)
 			var why := "Saw what you did for %s. TurfMasters™ mulched my petunias." % because_of if because_of != "" else "Somebody pulled the TurfMasters™ signs. Was that you? Come back?"
 			_text(owner_name(int(entry["id"])), "won_back", why + " I'm back, if you'll have me.", int(entry["id"]))
-			Campaign.add_xp(Constants.XP_NEW_CLIENT / 2, "won_back")
+			Campaign.add_xp(Constants.XP_WON_BACK, "won_back")
 			var rng := RandomNumberGenerator.new()
 			rng.seed = hash([town_seed, _day, int(entry["id"]), "back"])
 			_add_request(int(entry["id"]), rng)

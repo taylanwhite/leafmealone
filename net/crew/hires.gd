@@ -176,7 +176,7 @@ func _handle_hire(peer_id: int) -> void:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var hand := {
 		"name": pick,
-		"skill": rng.randf_range(0.55, 0.85),
+		"skill": rng.randf_range(Constants.HIRE_SKILL.x, Constants.HIRE_SKILL.y),
 		"wage": Constants.HIRE_DAILY_WAGE,
 		"look": _next_look * 7907 + 13,
 		"hired_day": int(clock.get("day")) if clock != null else 1,

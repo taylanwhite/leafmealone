@@ -362,12 +362,13 @@ func _unlock_list(peer_id: int) -> PackedStringArray:
 	return names
 
 
-## What an item costs: the upgrades from the workbook, tools from Constants.TOOL_PRICES.
-## -1 for something the store doesn't sell.
+## What an item costs: base tools from Constants.TOOL_PRICES, everything else
+## from Constants.SHOP_PRICES. -1 for something the store doesn't sell.
 func price_of(item_id: StringName) -> int:
-	if item_id == RAKE_UPGRADE or item_id == WHEELBARROW_UPGRADE:
-		return Balance.BASELINE_TIER_1_TOOL_COST
-	return int(Constants.TOOL_PRICES.get(String(item_id), -1))
+	var id := String(item_id)
+	if Constants.SHOP_PRICES.has(id):
+		return int(Constants.SHOP_PRICES[id])
+	return int(Constants.TOOL_PRICES.get(id, -1))
 
 
 ## Host: every tool someone in this session owns. The crew brings them all to the job.

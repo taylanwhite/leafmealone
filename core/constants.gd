@@ -409,3 +409,63 @@ const QUIP_LOW_CLEANUP_AFTER: float = 120.0
 ## Where right-click looks for the pile ahead (equipment/rake.gd): from this far to this far, in meters.
 const PILE_SEARCH_NEAR: float = 1.0
 const PILE_SEARCH_FAR: float = 3.2
+
+
+# ---- balance
+# Economy numbers that used to sit inline in the gameplay scripts, moved here with
+# the same values (gap balance:A) so tools/balance_sim.py can read every one of
+# them from this file. TODO(balance): not in the workbook yet.
+
+## The town (net/town/town.gd): in-game hours when a client may text a job during
+## the day, and the chance at each one.
+const TOWN_DAYTIME_TEXT_HOURS: Array[float] = [10.0, 13.0, 16.0, 19.0]
+const TOWN_DAYTIME_TEXT_CHANCE: float = 0.5
+## Relationship a paid job adds on top of the stars, and what a request nobody
+## took costs the next morning.
+const TOWN_RELATIONSHIP_PER_JOB: float = 2.0
+const TOWN_RELATIONSHIP_MISSED: float = 3.0
+## Marty's lead in a new neighborhood credits a client at least this share of
+## TOWN_REFERRAL_AT.
+const TOWN_LEAD_REFERRAL_SHARE: float = 0.75
+## XP for meeting a client by referral (or Marty's lead), and for winning one
+## back from TurfMasters™.
+const XP_REFERRAL: int = 25
+const XP_WON_BACK: int = 25
+
+## The homeowner's verdict (npcs/homeowner.gd _judge): how done the job must be
+## to be clean enough, and below what it is a mess, for an owner of standards 0.3;
+## how much each step of standards above that moves them; and the odds of the
+## better mood in each band.
+const HOMEOWNER_CLEAN_ENOUGH: float = 0.85
+const HOMEOWNER_MESSY_BELOW: float = 0.5
+const HOMEOWNER_STANDARDS_CLEAN_SLOPE: float = 0.25
+const HOMEOWNER_STANDARDS_MESSY_SLOPE: float = 0.3
+const HOMEOWNER_THRILLED_CHANCE: float = 0.6
+const HOMEOWNER_HAPPY_CHANCE: float = 0.5
+
+## The job board (levels/job_board.gd choose_tasks): the chance a job asks for
+## one task that needs a tool the crew doesn't own yet.
+const JOB_UNOWNED_TASK_CHANCE: float = 0.3
+
+## Leaves on a fresh yard (levels/lots/lot_generator.gd _shape_leaves): the even
+## base cover (a random pick in this range, times YARD_LEAVES), what each tree
+## heaps under itself, how far that spreads (meters, a random pick in this range),
+## and the most any cell starts with.
+const YARD_LEAF_BASE := Vector2(0.45, 0.75)
+const YARD_TREE_LEAVES: float = 1.6
+const YARD_TREE_SPREAD := Vector2(4.5, 6.5)
+const YARD_LEAF_CAP: float = 2.6
+
+## A hired hand's skill (net/crew/hires.gd), a random pick in this range.
+const HIRE_SKILL := Vector2(0.55, 0.85)
+
+## A run event only rolls once the job is at least this far along (net/run_events/rules.gd).
+const RUN_PROGRESS_FRACTION: float = 0.1
+
+## Every shop price that isn't a base tool (TOOL_PRICES): the upgrades now; the
+## shops work adds consumables, cosmetics, gear and services here. Catalog.price
+## and Campaign.price_of read it.
+const SHOP_PRICES: Dictionary = {
+	"rake_tier_1": 120,
+	"wheelbarrow_tier_1": 120,
+}
