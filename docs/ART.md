@@ -24,8 +24,9 @@ Consistent and funny matters more than pretty. Most of our art will be AI-genera
 ### Seasons in the art
 
 - `Seasons.apply_look(day)` runs on every peer and sets three shader globals: `season_foliage` (the old crown and grass tint), `season_snow` (0.85 in winter) and `season_bloom` (0.8 in spring, 0.15 in summer). Declare any new global in `project.godot` `[shader_globals]` in the same commit as the shader that reads it, or every material fails to compile.
-- Every surface gets snow on faces that point up, in soft drifts; asphalt, roads and gravel only get a grey slush; skin never does. Lawns get flower dots from the bloom.
-- Vertex-color meshes (`props/stylized.gd`) only get snow when their material opts in: option `snow` (0-1, default 0), so characters, the first-person arms and held things never turn white. Outdoor props pass `snow: 1.0`. Option `seasonal: false` stops the foliage tint for meshes that are built per season (tree crowns).
+- Every surface (props/surfaces.gd) gets snow on faces that point up, in soft drifts; asphalt, roads and gravel only get a grey slush; skin and tile_floor never do. Lawns get flower dots from the bloom.
+- **Indoors opts out.** Surfaces snow is on by default and turned down per mesh: `Surfaces.material(pattern, color, accent, params, snow)` (0-1, default 1), set from the mesh meta `surface_snow` or `LowPoly.paint(node, surface, params, accent, snow)`. Pass 0 for anything under a roof (the Homie Depot lobby, garage floors, porches).
+- Vertex-color meshes (`props/stylized.gd`) only get snow when their material opts in: option `snow` (0-1, default 0), so characters, the first-person arms and held things never turn white. Nothing opts in yet: YardModels' fences, hedges, sheds and cars stay clear until a later art chunk passes `snow: 1.0` for its outdoor kinds. Option `seasonal: false` stops the foliage tint for meshes that are built per season (tree crowns).
 - When the season changes (and once at start), every node in group `seasonal` gets `apply_season(season)` to rebuild or swap itself. `Seasons.current()` is the season showing; `Seasons.first_day_of(season)` is a day in it.
 
 ### The studio

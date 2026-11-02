@@ -26,7 +26,8 @@ extends RefCounted
 ##
 ## Seasons: the shader globals season_snow and season_bloom (core/seasons.gd) lay
 ## snow on every upward face (roads, gravel, and asphalt only get slush) and dot
-## lawns with flowers. Skin never gets snow.
+## lawns with flowers. Skin and tile_floor never get snow, and material()'s snow
+## argument (mesh meta "surface_snow") turns it down or off for anything indoors.
 
 const PATTERNS: Dictionary = {
 	"plain": 0, "grass": 1, "asphalt": 2, "concrete": 3, "brick": 4, "siding": 5,
@@ -55,6 +56,8 @@ uniform vec4 params = vec4(0.0);
 // The season (core/seasons.gd): snow on upward faces, flowers on lawns.
 global uniform float season_snow;
 global uniform float season_bloom;
+// How much of that snow this material takes (material()'s snow): 0 under a roof.
+uniform float snow_cover = 1.0;
 
 varying vec3 local_position;
 varying vec3 local_normal;
@@ -428,12 +431,13 @@ void fragment() {
 		color = shade(base.rgb, (grain - 0.5) * 0.12);
 	}
 	// Snow settles on whatever faces up, in soft drifts; roads and gravel only get slush.
-	if (season_snow > 0.0 && pattern != 13) {
+	// Skin (13) and tile_floor (24, always indoors) never get any.
+	if (season_snow > 0.0 && snow_cover > 0.0 && pattern != 13 && pattern != 24) {
 		float drift = fbm(world_pos.xz * 0.35) + (noise(world_pos.xz * 3.0) - 0.5) * 0.12 + season_snow * 0.25;
-		float snow = season_snow * smoothstep(0.45, 0.8, world_up) * smoothstep(0.32, 0.5, drift);
+		float snow = snow_cover * season_snow * smoothstep(0.45, 0.8, world_up) * smoothstep(0.32, 0.5, drift);
 		if (pattern == 2 || pattern == 25 || pattern == 20) {
 			snow *= 0.2;
-			color *= 1.0 - season_snow * 0.08;
+			color *= 1.0 - snow_cover * season_snow * 0.08;
 		}
 		color = mix(color, SNOW_WHITE * (0.9 + 0.1 * fbm(world_pos.xz * 1.7)), snow);
 		rough = mix(rough, 0.6, snow);
@@ -451,10 +455,13 @@ static var _cache: Dictionary = {}
 
 ## A material painting pattern in color. accent is the mortar, gaps, or second
 ## color; left out, it is a darker shade of color. params tune the pattern (see
-## the top of this file). Shared between meshes with the same settings.
-static func material(pattern: String, color: Color, accent := Color(0, 0, 0, 0), params := Vector4.ZERO) -> ShaderMaterial:
+## the top of this file). snow (0-1) is how much of the season's snow it takes:
+## 0 for anything under a roof (store and garage floors, porches), and tile_floor
+## never takes any. Shared between meshes with the same settings.
+static func material(pattern: String, color: Color, accent := Color(0, 0, 0, 0), params := Vector4.ZERO, snow: float = 1.0) -> ShaderMaterial:
 	var second := accent if accent.a > 0.0 else _default_accent(pattern, color)
-	var key := "%s|%s|%s|%s" % [pattern, color.to_html(), second.to_html(), params]
+	snow = clampf(snow, 0.0, 1.0)
+	var key := "%s|%s|%s|%s|%s" % [pattern, color.to_html(), second.to_html(), params, snow]
 	if _cache.has(key):
 		return _cache[key]
 	if _shader == null:
@@ -466,6 +473,7 @@ static func material(pattern: String, color: Color, accent := Color(0, 0, 0, 0),
 	made.set_shader_parameter("base", color)
 	made.set_shader_parameter("accent", second)
 	made.set_shader_parameter("params", params)
+	made.set_shader_parameter("snow_cover", snow)
 	_cache[key] = made
 	return made
 

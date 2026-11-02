@@ -94,7 +94,7 @@ static var _cache: Dictionary = {}
 ## options: wind (meters of sway at alpha 1), roughness, specular, translucency,
 ## double_sided (for thin things like grass blades), snow (0-1: how much of the
 ## season's snow settles on upward faces; default 0, so characters, arms, and held
-## things never turn white; outdoor props pass 1.0), seasonal (default true:
+## things never turn white; outdoor props opt in with 1.0), seasonal (default true:
 ## swaying parts follow the season_foliage tint; false for meshes built per season).
 static func material(options: Dictionary = {}) -> ShaderMaterial:
 	var key := str(options)
