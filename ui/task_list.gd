@@ -59,8 +59,9 @@ func _task_line(task: String, done: float) -> Label:
 	if tool != "" and not _crew_has(tool):
 		return _label(_Strings.UI["task_needs"] % [name, str(_Strings.UI["tool_" + tool]).to_lower()], 15, LOCKED)
 	var percent := int(round(done * 100.0))
-	var check := "✓ " if percent >= 95 else "• "
-	return _label(check + _Strings.UI["task_line"] % [name, percent], 15, DONE if percent >= 95 else OPEN)
+	var finished := percent >= Constants.TASK_DONE_PERCENT
+	var check := "✓ " if finished else "• "
+	return _label(check + _Strings.UI["task_line"] % [name, percent], 15, DONE if finished else OPEN)
 
 
 ## Whether a tool for this came along on the job (a prop of that kind exists).

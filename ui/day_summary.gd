@@ -5,6 +5,9 @@ extends PanelContainer
 ## it unlocked, and what the town did overnight, under a quip about how the day
 ## went (Strings.summary_quip). Styled like the payout receipt.
 
+## The card was put away (audio/cue_hooks.gd plays the morning stinger on it).
+signal closed
+
 const _Strings = preload("res://ui/strings.gd")
 const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
@@ -107,10 +110,13 @@ func show_summary(summary: Dictionary) -> void:
 
 
 func close_window() -> void:
+	var was_open := visible
 	visible = false
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	if ui != null:
 		ui.call("recapture_mouse")
+	if was_open:
+		closed.emit()
 
 
 func _line(value: String, color: Color, size: int = 18) -> void:

@@ -232,6 +232,15 @@ func close_pause() -> void:
 	recapture_mouse()
 
 
+## Whether the pause menu is up (the music director muffles the music then):
+## the pause buttons, or the Settings window opened from them (which hides the
+## buttons until it closes).
+func pause_open() -> bool:
+	if _leave != null and _leave.visible:
+		return true
+	return _settings != null and _settings.visible and bool(_settings.get("from_pause"))
+
+
 func _hide_pause_buttons() -> void:
 	_leave.visible = false
 	if _voice_button != null:

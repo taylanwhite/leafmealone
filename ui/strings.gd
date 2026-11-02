@@ -1876,3 +1876,35 @@ const BOAT_NAMES: Array[String] = [
 	"Second Mortgage", "Knot Working", "Reel Estate", "Dock Holiday", "Leaf It Be", "Sea-Lebrity",
 	"Unpaid Leave", "Overdraft", "Raking It In", "Mulch Ado", "The Deductible", "Nauti Buoy",
 ]
+
+# ---- audio
+## The soundtrack's titles (audio/music_tracks.gd title_key), shown as "Now
+## playing" in the Settings window's Sound tab. The whole planned soundtrack is
+## here; audio/music_tracks.gd lists the ones that exist so far.
+const MUSIC_TITLES: Dictionary = {
+	"track_leaf_me_alone_theme": "Leaf Me Alone (Main Theme)",
+	"track_rake_it_easy": "Rake It Easy",
+	"track_curb_appeal": "Curb Appeal",
+	"track_golden_hour": "Golden Hour",
+	"track_homie_depot_muzak": "Aisle Seven",
+	"track_quiet_hours": "Quiet Hours",
+	"track_hot_yard": "Hot Yard",
+	"track_nice_boys_incoming": "Paperwork Incoming",
+	"track_nice_boys_chase": "The NICE BOYS",
+	"track_lane_change": "Lane Change",
+	"track_old_tune": "The Old Tune (it was here first)",
+	"track_st_day_end": "Clock Out",
+	"track_st_rank_up": "Promoted!",
+	"track_st_season": "New Season",
+	"track_st_morning": "Rise and Rake",
+	"track_st_new_client": "New Client",
+	"track_st_job_paid": "Paid",
+	"track_st_busted": "Busted",
+	"track_st_made_it": "Made It Back",
+	"track_st_lost_em": "Lost 'Em",
+}
+
+
+## A track's title, or "" when it has none.
+static func track_title(title_key: String) -> String:
+	return str(MUSIC_TITLES.get(title_key, ""))

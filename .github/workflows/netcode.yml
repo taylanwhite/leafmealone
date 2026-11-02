@@ -246,14 +246,17 @@ jobs:
           grep "CastTest" build/soak/ci-cast/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-cast/host.json')); t=json.load(open('build/soak/ci-cast/target.json')); sys.exit(0 if h['cast_test'].get('ok') and len(h['crew_cast']) >= 3 and h['crew_cast'] == t['crew_cast'] else 1)"
 
-      - name: Audio test (buses, sound bank, every sound file, Sfx, positional sounds)
+      - name: Audio test (buses, sound bank, every sound file, Sfx, positional sounds, music director, stingers, cues)
         if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-audio
-          "$GODOT" --headless --path . -- --host --port=7811 --name=Tester --no-steam --start-hour=8 --audio-test --measure="$PWD/build/soak/ci-audio/host.json" --run-seconds=45 > build/soak/ci-audio/host.log 2>&1
+          "$GODOT" --headless --path . -- --host --port=7811 --name=Tester --no-steam --start-hour=8 --audio-test --measure="$PWD/build/soak/ci-audio/host.json" --run-seconds=70 > build/soak/ci-audio/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7811 --name=Target --no-steam --measure="$PWD/build/soak/ci-audio/target.json" --run-seconds=65 > build/soak/ci-audio/target.log 2>&1
+          wait
           grep "AudioTest" build/soak/ci-audio/host.log || true
-          $PY -c "import json,sys; r=json.load(open('build/soak/ci-audio/host.json'))['audio_test']; sys.exit(0 if r.get('ok') else 1)"
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-audio/host.json')); t=json.load(open('build/soak/ci-audio/target.json')); s=t['audio']['stingers']; sys.exit(0 if h['audio_test'].get('ok') and 'st_day_end' in s and 'st_rank_up' in s else 1)"
       - name: Settings test (buses, volumes, look, FOV, rebinding and conflicts, presets, saving)
         if: matrix.part == 'features'
         run: |
