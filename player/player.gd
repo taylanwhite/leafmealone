@@ -10,7 +10,6 @@ const WALK_SPEED: float = 5.0
 const SPRINT_SPEED: float = 8.0
 const CROUCH_SPEED: float = 2.5
 const JUMP_VELOCITY: float = 4.5
-const MOUSE_SENSITIVITY: float = 0.003
 const _WaterSources = preload("res://net/work/water_sources.gd")
 const STAND_HEIGHT: float = 1.8
 const CROUCH_HEIGHT: float = 1.1
@@ -1074,14 +1073,17 @@ func holding_prop() -> bool:
 	return false
 
 
+## Mouse sensitivity and invert look are this machine's settings (core/settings.gd).
 func _apply_look() -> void:
-	body_yaw -= _look.x * MOUSE_SENSITIVITY
-	head_pitch = clampf(head_pitch - _look.y * MOUSE_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT)
+	var turn := Settings.look_scale()
+	body_yaw -= _look.x * turn.x
+	head_pitch = clampf(head_pitch - _look.y * turn.y, -PITCH_LIMIT, PITCH_LIMIT)
 	_look = Vector2.ZERO
 
 
 func _simulate(delta: float) -> void:
-	var crouching := Input.is_action_pressed("crouch")
+	# Hold or toggle, as the player chose (Settings controls/toggle_crouch).
+	var crouching := Settings.is_held(&"crouch")
 	_apply_stance(crouching)
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
@@ -1099,7 +1101,7 @@ func _simulate(delta: float) -> void:
 	var speed := WALK_SPEED
 	if crouching:
 		speed = CROUCH_SPEED
-	elif Input.is_action_pressed("sprint"):
+	elif Settings.is_held(&"sprint"):
 		speed = SPRINT_SPEED
 	speed *= carry_speed_scale()
 	if foot_hurt >= 2:
@@ -1373,7 +1375,7 @@ func _update_anim(crouching: bool, direction: Vector3) -> void:
 		anim_state = AnimState.CROUCH
 	elif direction.is_zero_approx():
 		anim_state = AnimState.IDLE
-	elif Input.is_action_pressed("sprint"):
+	elif Settings.is_held(&"sprint"):
 		anim_state = AnimState.SPRINT
 	else:
 		anim_state = AnimState.WALK

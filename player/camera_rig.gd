@@ -10,6 +10,8 @@ var _active: bool = false
 
 func _ready() -> void:
 	_apply()
+	if not Settings.changed.is_connected(_on_setting_changed):
+		Settings.changed.connect(_on_setting_changed)
 
 
 ## Aimed on physics ticks like everything it follows, so physics interpolation
@@ -35,3 +37,11 @@ func toggle() -> void:
 func _apply() -> void:
 	%FirstPerson.current = _active and first_person
 	%OverShoulder.current = _active and not first_person
+	# Field of view is this machine's setting (core/settings.gd), for both views.
+	%FirstPerson.fov = Settings.fov()
+	%OverShoulder.fov = Settings.fov()
+
+
+func _on_setting_changed(section: StringName, key: StringName, _value: Variant) -> void:
+	if section == &"controls" and key == &"fov":
+		_apply()

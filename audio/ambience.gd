@@ -6,13 +6,13 @@ extends Node
 ## turns off and on (remembered between sessions). Nothing here is shared.
 ## Its players sit on the Ambience bus (the music on Music; audio/buses.gd), and
 ## its tuning is Constants.AMBIENCE_*. The music moves to the music director
-## later (gap-specs/audio.json chunk 3), and the settings file to Settings.
+## later (gap-specs/audio.json chunk 3). Whether music is on is the Settings
+## autoload's audio/music (core/settings.gd), which M flips.
 
 const _Sfx = preload("res://audio/sfx.gd")
 const _Bank = preload("res://audio/sound_bank.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 
-const SETTINGS_PATH := "user://settings.cfg"
 
 var _wind: AudioStreamPlayer
 var _music: AudioStreamPlayer
@@ -32,11 +32,10 @@ func _ready() -> void:
 		return
 	_wind = _loop_player("wind_loop", Constants.AMBIENCE_WIND_DB)
 	_music = _loop_player("music_loop", Constants.AMBIENCE_MUSIC_DB)
-	var settings := ConfigFile.new()
-	if settings.load(SETTINGS_PATH) == OK:
-		_music_on = bool(settings.get_value("audio", "music", true))
+	_music_on = bool(Settings.get_value("audio", "music"))
 	if not _music_on:
 		_music.stop()
+	Settings.changed.connect(_on_setting_changed)
 	_waits = {
 		"bird": _between(Constants.AMBIENCE_FIRST_BIRD),
 		"dog": _between(Constants.AMBIENCE_DOG_GAP),
@@ -74,15 +73,17 @@ func _loop_player(id: String, db: float) -> AudioStreamPlayer:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_music"):
-		_music_on = not _music_on
-		if _music_on:
-			_music.play()
-		else:
-			_music.stop()
-		var settings := ConfigFile.new()
-		settings.load(SETTINGS_PATH)
-		settings.set_value("audio", "music", _music_on)
-		settings.save(SETTINGS_PATH)
+		Settings.set_value("audio", "music", not _music_on)
+
+
+func _on_setting_changed(section: StringName, key: StringName, value: Variant) -> void:
+	if section != &"audio" or key != &"music" or bool(value) == _music_on:
+		return
+	_music_on = bool(value)
+	if _music_on:
+		_music.play()
+	else:
+		_music.stop()
 
 
 func _process(delta: float) -> void:
