@@ -271,7 +271,7 @@ func _render_subject(recipe: Dictionary, render: Vector2i) -> Image:
 	camera.near = 0.01
 	camera.far = 200.0
 	viewport.add_child(camera)
-	_frame(camera, bounds, float(recipe.get("pad", _Recipes.padding(recipe))))
+	_frame(camera, bounds, _corners(yaw), float(recipe.get("pad", _Recipes.padding(recipe))), float(recipe.get("roll", 0.0)))
 	camera.current = true
 	var image := await _capture(viewport)
 	viewport.queue_free()
@@ -310,16 +310,20 @@ func _stage(viewport: SubViewport) -> void:
 	viewport.add_child(fill)
 
 
-## Puts the camera on ICON_VIEW so the bounds' corners fill the frame less the
-## padding, centered on what the camera sees (not just the box's middle).
-func _frame(camera: Camera3D, bounds: AABB, padding: float) -> void:
+## Puts the camera on ICON_VIEW so the subject's corners (each mesh's own box, so
+## a long tool posed on the diagonal isn't framed by its much bigger world box)
+## fill the frame less the padding, centered on what the camera sees. roll turns
+## the camera about its view axis, degrees: it lays a long, thin subject corner
+## to corner so it still reads at SIZE_ROW (docs/ART.md, "Icons").
+func _frame(camera: Camera3D, bounds: AABB, points: Array[Vector3], padding: float, roll: float) -> void:
 	var back := ICON_VIEW.normalized()
-	var right := Vector3.UP.cross(back).normalized()
+	var level := Vector3.UP.cross(back).normalized()
+	var right := level.rotated(back, deg_to_rad(roll))
 	var up := back.cross(right).normalized()
 	var center := bounds.get_center()
 	var corners: Array[Vector3] = []
-	for index: int in 8:
-		corners.append(bounds.get_endpoint(index) - center)
+	for point: Vector3 in points:
+		corners.append(point - center)
 	var low := Vector2(INF, INF)
 	var high := Vector2(-INF, -INF)
 	for corner: Vector3 in corners:
@@ -334,6 +338,19 @@ func _frame(camera: Camera3D, bounds: AABB, padding: float) -> void:
 		distance = maxf(distance, across / reach + corner.dot(back))
 	var at := center + right * middle.x + up * middle.y + back * distance
 	camera.global_transform = Transform3D(Basis(right, up, back), at)
+
+
+## The world-space corners of every visible mesh's own bounds under root.
+func _corners(root: Node3D) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	for node: Node in root.find_children("*", "VisualInstance3D", true, false):
+		var visual := node as VisualInstance3D
+		if not visual.visible or visual is Light3D:
+			continue
+		var box := visual.get_aabb()
+		for index: int in 8:
+			out.append(visual.global_transform * box.get_endpoint(index))
+	return out
 
 
 func _bounds(root: Node3D) -> AABB:

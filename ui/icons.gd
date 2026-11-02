@@ -29,6 +29,7 @@ extends RefCounted
 
 const _Ranks = preload("res://core/ranks.gd")
 const _Seasons = preload("res://core/seasons.gd")
+const _Strings = preload("res://ui/strings.gd")
 
 const DIR := "res://assets/icons/"
 ## No icon is bigger than this on either side (icons_test checks it).
@@ -53,7 +54,7 @@ const IDS: PackedStringArray = [
 	"item_hydrant", "item_paint_bucket", "item_water_tank", "item_turf_sign",
 	"item_chefty", "item_van",
 	# Upgrades: the base model with a "+" sticker.
-	"upgrade_rake_tier_1", "upgrade_wheelbarrow_tier_1",
+	"upgrade_rake_tier_1", "upgrade_rake_tier_2", "upgrade_wheelbarrow_tier_1",
 	# Task badges (256): a disc in the work family's color with a 3D vignette.
 	"task_rake_leaves", "task_pick_litter", "task_pull_weeds", "task_mow_lawn",
 	"task_clean_gutters", "task_wash_windows", "task_power_wash", "task_trim_hedges",
@@ -105,17 +106,12 @@ const KEY_NAMES: Dictionary = {
 	"Alt": "alt", "Enter": "enter", "Kp Enter": "enter", "Backspace": "backspace",
 	"BackSpace": "backspace", "Up": "up", "Down": "down", "Left": "left", "Right": "right",
 }
-## Mouse button index -> id, and the short label plain text uses for it.
+## Mouse button index -> id (its plain-text label is Strings.KEY_LABELS[id]).
 const MOUSE_IDS: Dictionary = {
 	MOUSE_BUTTON_LEFT: "mouse_left", MOUSE_BUTTON_RIGHT: "mouse_right",
 	MOUSE_BUTTON_MIDDLE: "mouse_middle", MOUSE_BUTTON_XBUTTON1: "mouse_4",
 	MOUSE_BUTTON_XBUTTON2: "mouse_5", MOUSE_BUTTON_WHEEL_UP: "wheel_up",
 	MOUSE_BUTTON_WHEEL_DOWN: "wheel_down",
-}
-const MOUSE_LABELS: Dictionary = {
-	MOUSE_BUTTON_LEFT: "LMB", MOUSE_BUTTON_RIGHT: "RMB", MOUSE_BUTTON_MIDDLE: "MMB",
-	MOUSE_BUTTON_XBUTTON1: "Mouse 4", MOUSE_BUTTON_XBUTTON2: "Mouse 5",
-	MOUSE_BUTTON_WHEEL_UP: "Wheel Up", MOUSE_BUTTON_WHEEL_DOWN: "Wheel Down",
 }
 ## feature:<id> unlocks -> the icon that stands for them.
 const FEATURE_ICONS: Dictionary = {
@@ -124,8 +120,6 @@ const FEATURE_ICONS: Dictionary = {
 	"lunch_money": "brand_lunch_money", "salvage": "brand_rustys",
 	"truck_paint": "item_chefty", "deliveries": "app_deliveries",
 }
-## Tool tier suffixes from core/catalog.gd tool_item(): they show the base tool.
-const TIER_SUFFIXES: Array[String] = ["_used", "_mk2", "_mk3"]
 
 static var _cache: Dictionary = {}
 static var _warned: Dictionary = {}
@@ -171,16 +165,44 @@ static func for_tool(tool_id: String) -> String:
 	return "tool_" + tool_id
 
 
-## A shop item id: a base tool, a tool at another tier (its base tool's icon until
-## tier overlays exist), or an upgrade.
+## A core/catalog.gd item id -> its icon, by the item's kind, in the id families
+## of gap-specs/critic.md (contracts, "Icons"):
+##   tool, tier, used_tool  tool_<tool> (the tier_used / tier_2 / tier_3 overlays
+##                          go on top of it at the call site)
+##   upgrade                upgrade_<id>
+##   consumable             supply_<supply>  ("gas_can" is supply_gas)
+##   snack                  snack_<id>
+##   cosmetic hat           hat_<style>      (the item id already is)
+##   cosmetic shirt         shirt            (tinted by the caller)
+##   truck paint            paint_swatch     (tinted by the caller)
+##   truck decal            decal_<x>        (the item id)
+## Anything else (an id the catalog doesn't know) is "", "no icon", not a guess.
+## The supply, snack, hat, shirt, paint and decal art is the icons:catalog chunk's.
 static func for_shop_item(item_id: StringName) -> String:
 	var id := String(item_id)
-	if Constants.TOOL_PRICES.has(id):
-		return for_tool(id)
-	for suffix: String in TIER_SUFFIXES:
-		if id.ends_with(suffix) and Constants.TOOL_PRICES.has(id.trim_suffix(suffix)):
-			return for_tool(id.trim_suffix(suffix))
-	return "upgrade_" + id
+	var entry := Catalog.item(id)
+	if entry.is_empty():
+		return for_tool(id) if Constants.TOOL_PRICES.has(id) else ""
+	match str(entry.get("kind", "")):
+		"tool", "tier", "used_tool":
+			return for_tool(str(entry.get("tool", id)))
+		"upgrade":
+			return "upgrade_" + id
+		"consumable":
+			return "supply_" + str(entry.get("supply", id))
+		"snack":
+			return "snack_" + id
+		"cosmetic", "truck_cosmetic":
+			match str(entry.get("slot", "")):
+				"hat":
+					return "hat_" + str(entry.get("style", id.trim_prefix("hat_")))
+				"shirt":
+					return "shirt"
+				"paint":
+					return "paint_swatch"
+				"decal":
+					return id
+	return ""
 
 
 static func for_task(task_id: String) -> String:
@@ -248,16 +270,20 @@ static func for_action(action: StringName) -> String:
 	return id if has(id) else ""
 
 
-## What a key reads as in plain text: "E", "Tab", "LMB", or the action's name
-## when nothing is bound.
+## What a key reads as in plain text: "E", "Tab", "LMB", or Strings.KEY_LABELS
+## "unbound" when nothing is bound (never the internal action id). Key names are
+## the engine's (OS.get_keycode_string); mouse names live in ui/strings.gd.
+## TODO(settings): delegate to core/input_labels.gd once settings:1 lands (C4).
 static func key_label(action: StringName) -> String:
 	var event := _first_event(action)
 	if event is InputEventKey:
 		var name := _key_name(event as InputEventKey)
-		return name if name != "" else String(action)
-	if event is InputEventMouseButton:
-		return str(MOUSE_LABELS.get((event as InputEventMouseButton).button_index, "Mouse"))
-	return String(action)
+		if name != "":
+			return name
+	elif event is InputEventMouseButton:
+		var mouse := str(MOUSE_IDS.get((event as InputEventMouseButton).button_index, "mouse"))
+		return str(_Strings.KEY_LABELS.get(mouse, _Strings.KEY_LABELS["mouse"]))
+	return str(_Strings.KEY_LABELS["unbound"])
 
 
 static func _first_event(action: StringName) -> InputEvent:

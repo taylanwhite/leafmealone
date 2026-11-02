@@ -9,6 +9,10 @@ extends RefCounted
 ##   "yaw"    degrees the subject turns about Y before it is framed (models face
 ##            -Z and the camera looks from +Z, so 180 shows a model's front)
 ##   "tilt"   optional Vector3 degrees, the subject's pose before the yaw
+##   "roll"   optional degrees the camera turns about its view axis: long, thin
+##            tools lie corner to corner so they still read at SIZE_ROW (20 px)
+##   "pad"    optional margin share, overriding MODEL_PADDING / BADGE_PADDING
+##   "sticker_color" optional fill of the "plus" sticker (gold for a second tier)
 ##   "build"  model and badge: the static builder below that makes the subject,
 ##            with "model" / "color" / "size" read by build_model
 ##   "sticker" optional: "plus" puts the orange upgrade sticker in the corner
@@ -84,13 +88,13 @@ const STICKER_SHARE: float = 0.8
 
 const RECIPES: Dictionary = {
 	# ---- tools (256, 3D)
-	"tool_leaf_blower": {"kind": "model", "px": 256, "build": "build_model", "model": "leaf_blower", "yaw": 120.0},
+	"tool_leaf_blower": {"kind": "model", "px": 256, "build": "build_model", "model": "leaf_blower", "yaw": 120.0, "roll": -30.0},
 	"tool_lawn_mower": {"kind": "model", "px": 256, "build": "build_model", "model": "lawn_mower", "yaw": 200.0},
-	"tool_ladder": {"kind": "model", "px": 256, "build": "build_model", "model": "ladder", "yaw": 160.0, "tilt": Vector3(-72.0, 0.0, 0.0)},
+	"tool_ladder": {"kind": "model", "px": 256, "build": "build_model", "model": "ladder", "yaw": 160.0, "tilt": Vector3(-72.0, 0.0, 0.0), "roll": 40.0},
 	"tool_hose": {"kind": "model", "px": 256, "build": "build_model", "model": "hose", "yaw": 105.0},
 	"tool_pressure_washer": {"kind": "model", "px": 256, "build": "build_model", "model": "pressure_washer", "yaw": 200.0},
-	"tool_hedge_trimmer": {"kind": "model", "px": 256, "build": "build_model", "model": "hedge_trimmer", "yaw": 150.0, "tilt": Vector3(25.0, 0.0, 60.0)},
-	"tool_paint_roller": {"kind": "model", "px": 256, "build": "build_model", "model": "paint_roller", "yaw": 120.0, "tilt": Vector3(-35.0, 0.0, 0.0)},
+	"tool_hedge_trimmer": {"kind": "model", "px": 256, "build": "build_model", "model": "hedge_trimmer", "yaw": 150.0, "tilt": Vector3(25.0, 0.0, 60.0), "roll": 30.0},
+	"tool_paint_roller": {"kind": "model", "px": 256, "build": "build_model", "model": "paint_roller", "yaw": 120.0, "tilt": Vector3(-35.0, 0.0, 0.0), "roll": -15.0},
 	# ---- items (256, 3D)
 	"item_rake": {"kind": "model", "px": 256, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0)},
 	"item_leaf_bag": {"kind": "model", "px": 256, "build": "build_model", "model": "leaf_bag", "yaw": 200.0},
@@ -105,7 +109,8 @@ const RECIPES: Dictionary = {
 	"item_van": {"kind": "model", "px": 256, "build": "build_van", "yaw": 145.0},
 	# ---- upgrades: the base model plus the "+" sticker
 	"upgrade_rake_tier_1": {"kind": "model", "px": 256, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0), "sticker": "plus"},
-	"upgrade_wheelbarrow_tier_1": {"kind": "model", "px": 256, "build": "build_model", "model": "wheelbarrow", "color": WHEELBARROW_RED, "yaw": 125.0, "sticker": "plus"},
+	"upgrade_rake_tier_2": {"kind": "model", "px": 256, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0), "sticker": "plus", "sticker_color": GOLD},
+	"upgrade_wheelbarrow_tier_1":{"kind": "model", "px": 256, "build": "build_model", "model": "wheelbarrow", "color": WHEELBARROW_RED, "yaw": 125.0, "sticker": "plus"},
 	# ---- task badges (256): a disc in the family color, a vignette over its rim
 	"task_rake_leaves": {"kind": "badge", "px": 256, "shape": "disc", "family": "leaves", "build": "build_task_rake_leaves", "yaw": 200.0},
 	"task_pick_litter": {"kind": "badge", "px": 256, "shape": "disc", "family": "by_hand", "build": "build_task_pick_litter", "yaw": 160.0},
@@ -496,12 +501,14 @@ static func shield_points(size: float, inset: float) -> PackedVector2Array:
 
 
 ## The upgrade sticker: an orange disc with a fat white "+", top-right.
-static func draw_plus_sticker(canvas: CanvasItem, size: float, _recipe: Dictionary) -> void:
+## "sticker_color" recolors it: a second upgrade tier wears gold.
+static func draw_plus_sticker(canvas: CanvasItem, size: float, recipe: Dictionary) -> void:
 	var center := Vector2(0.79, 0.21) * size
 	var radius := 0.16 * size
+	var fill: Color = recipe.get("sticker_color", ORANGE)
 	canvas.draw_circle(center, radius, INK, true, -1.0, true)
-	canvas.draw_circle(center, radius * 0.84, ORANGE, true, -1.0, true)
-	canvas.draw_circle(center + Vector2(-0.03, -0.035) * size, radius * 0.45, ORANGE.lightened(0.15), true, -1.0, true)
+	canvas.draw_circle(center, radius * 0.84, fill, true, -1.0, true)
+	canvas.draw_circle(center + Vector2(-0.03, -0.035) * size, radius * 0.45, fill.lightened(0.15), true, -1.0, true)
 	var arm := radius * 0.52
 	var thick := radius * 0.34
 	canvas.draw_rect(Rect2(center - Vector2(arm, thick * 0.5), Vector2(arm * 2.0, thick)), WHITE)
