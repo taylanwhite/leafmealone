@@ -47,8 +47,6 @@ const APP_ICON_PATH := "res://assets/icons/app_icon.png"
 
 ## Check -> the chunk that turns it on (and deletes its line here).
 const PENDING: Dictionary = {
-	# critic.md's W5 order gives the shop window to shops:4 (its tabbed rewrite).
-	"shop": "shops:4",
 	"phone": "icons:E",
 	"hud": "icons:E",
 	"prompt": "icons:F",

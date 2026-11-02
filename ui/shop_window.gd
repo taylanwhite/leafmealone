@@ -362,6 +362,8 @@ func _card(data: Dictionary, wallet: int, shops: Node, open: bool) -> Control:
 	card.custom_minimum_size = Vector2(CARD_WIDTH, 0)
 	card.add_theme_stylebox_override("panel", _tight(CARD, 12, FOCUS if focused else INK.lightened(0.6), 4 if focused else 2))
 	card.set_meta("item", id)
+	# icons_test's shop check finds each card's item by this meta (icons:D contract).
+	card.set_meta("item_id", id)
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	card.add_child(column)
