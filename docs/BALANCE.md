@@ -16,7 +16,7 @@ Python 3 with the standard library only (`%LOCALAPPDATA%\Programs\Python\Python3
 | `--set NAME=VALUE` | A what-if, repeatable. NAME is `Script.NAME[.key...]` or a bare constant (looked up in Constants, then Ranks, Balance, Seasons). VALUE is a GDScript expression: `--set TOWN_REGROW_PER_DAY=0.3`, `--set Ranks.XP_FIRST_TIER=160`, `--set Constants.TOOL_PRICES.leaf_blower=400`, `--set "HIRE_SKILL=Vector2(0.5, 0.9)"`. A name, key or index the game doesn't have is a typo and exits 2; only the crew-scale hooks balance:E will add (`CREW_WORK_SCALE`, `CREW_PATIENCE_SCALE`, `XP_CREW_SCALE`) may be new. Nothing in the repo changes. |
 | `--html [path]` | Also writes `build/balance/report.html`: hours per tier against the pace targets, and cash per player by day, as inline SVG, plus the tables. |
 | `--report`, `--md` | Where the JSON and Markdown go. |
-| `--engine-dump host.json` | Compares every constant the simulator reads, and a grid of formula calls, with what the engine computed (`--balance-test`'s output, gap balance:D). Any difference fails check (f). |
+| `--engine-dump host.json` | Compares every constant the simulator reads, and a grid of formula calls, with what the engine computed (`--balance-test`'s probe report, below). Any difference, a case the sim has no mirror for, or a failed engine invariant fails check (f). |
 | `--propose` | Searches for values toward the targets (below) and prints a diff; writes `build/balance/proposal.json`. Edits nothing. About a minute; local only, never in CI. |
 
 Exit codes: 0 pass, 1 a blocking check failed, 2 a parse or usage error (a constant the simulator needs is missing or doesn't parse, a bad `--set`, a bad file).
@@ -27,7 +27,7 @@ Exit codes: 0 pass, 1 a blocking check failed, 2 a parse or usage error (a const
 
 **It reads the game, never a copy.** `tools/balance/gdconst.py` parses the top-level `const` declarations of `core/constants.gd`, `core/balance.gd`, `core/ranks.gd`, `core/seasons.gd`, `net/town/neighborhoods.gd` and `core/catalog.gd` (numbers, strings, arrays, dictionaries, `Vector2`/`Vector2i`/`Vector3`/`Rect2`/`Color`, `&"names"`, `PI`, arithmetic, earlier constants of the same file, and `"%d" % [..]`). Anything it can't read is reported, not guessed, and a constant the simulator needs that doesn't parse stops the run with exit 2. On 2026-11-01 every constant in all six files parses (390 in all), and every one the simulator reads matched an engine dump of the same scripts.
 
-**It mirrors the formulas exactly.** The `Economy` class in `balance_sim.py` is `core/economy.gd` line for line (with Godot's rounding: halves away from zero), and `Ranks`, `Seasons` and `Catalog` mirror `ranks.gd`, `seasons.gd` and `Catalog.price`. A grid of 496 calls computed by the engine matched the mirror exactly on 2026-11-01 (a scratch dump; balance:D makes it the `--balance-test` CI step). Changing a formula in `core/economy.gd` means changing the mirror in the same commit.
+**It mirrors the formulas exactly.** The `Economy` class in `balance_sim.py` is `core/economy.gd` line for line (with Godot's rounding: halves away from zero), and `Ranks`, `Seasons` and `Catalog` mirror `ranks.gd`, `seasons.gd` and `Catalog.price`. The engine's grid of 1,171 calls (`--balance-test`, below) matches the mirror exactly, and CI checks it on every run. Changing a formula in `core/economy.gd` means changing the mirror in the same commit.
 
 **What it mirrors by hand** (keep in step; the parity check can't see these):
 
@@ -82,7 +82,7 @@ Blocking (exit 1 with `--check`):
 - **(c)** every tool in `TOOL_PRICES` is bought within 2 days of unlocking (median), and costs 0.5 to 2.0 days of one player's income when it unlocks.
 - **(d)** the hiring fee is at most 2 days of a player's income when hiring opens, the crew hires within 2 days, and the hire policy never makes a hand quit.
 - **(e)** before The Lawnfather, no tier takes more than 2 days (median).
-- **(f)** with `--engine-dump`: every constant the simulator reads equals the engine's (floats to 1e-6), and every formula case matches.
+- **(f)** with `--engine-dump`: every constant the simulator reads equals the engine's (floats to 1e-6), every formula case matches (and has a mirror), and the engine's invariants passed. `--baseline` never excuses it.
 - **(g)** with `enforce_endless` in `sinks.json` (gap balance:F): over 20 days past The Lawnfather, recurring sinks (wages, consumables, rent) take 30 to 60% of gross income, and the unbought catalog is worth at least 5 days of net income at The Lawnfather.
 
 Warnings (blocking with `--strict`): each rank within ±35% of its pace target; the solo/quad ratio; p10 and p90 of the arc (10 − 1 h, 20 + 3 h); crews 2 and 3 inside `ARC_HOURS`; raids per job in each band (a quiet daytime Maple Row job 10 to 40%, a job with the mower and the blower 45 to 75%, Mansion Hill in quiet hours 75 to 100%).
@@ -135,6 +135,18 @@ As expected, today's numbers fail `--check`: 12 blocking checks and 37 warnings 
 
 **What `--propose` suggested** (12 seeds per crew, starting from the gap spec's candidates; nothing applied): XP curve 111/22 (first/step), `XP_CREW_SCALE` about [2.1, 1.5, 1.29, 1.0], `CREW_WORK_SCALE[0]` about 0.53, tools $300 to $460, the tune-up and wheelbarrow about $460 and $420, a $620 signing fee and a $25 wage. Read it as a direction, not as values: it tunes the XP curve around today's raid storm, which the retune changes first (the director rolls by neighborhood and converts BAL-14 from per job to per roll), and the $25 wage says the model thinks a hand adds only $33 to $48 a day; `hand_leaf_rate` is a guess worth checking before wages are set. Rerun `--propose` after the director change.
 
+## The engine parity test
+
+`--balance-test` (`net/dev/balance_test.gd`, port 7819, host only, about a second) is the engine's half of check (f). Its probe report (`balance_test` in `host.json`) holds:
+
+- `constants`: `get_script_constant_map()` of the six scripts the simulator reads, as `{script: {name: value}}` with vectors and colors as lists. It is a JSON string inside the report, because one table (`JUNK_PER_HOOD`) has a `""` key that PowerShell 5.1's `ConvertFrom-Json` rejects; the simulator decodes it.
+- `cases`: `[{fn, args, out}]` for a fixed grid: `Ranks.xp_for_tier`, `xp_to_reach`, `tier_for_xp` and `xp_into_tier` at every tier edge to Lawnfather ★6, `pay_bonus`, `tier_of` for every unlock, `Seasons.of_day` for days 1 to 60 and `year_of`, `Catalog.price` for every item, and every `core/economy.gd` function over its inputs (job XP by cleaned share, tasks, stars and crew; `migrate_xp` between today's curve, the legacy one, a steeper one and a bad id; regrow; relationship; the verdict lines; pay by mood and budget; bag perks; crew scales; the raid roll over heat and progress). The simulator calls its mirror with the same arguments.
+- `invariants`, which set `ok`: every `shop:` unlock has a price, every tool unlocks by tier 25, every `hood:` unlock is a neighborhood, the crew-scale tables (once they exist) have one entry above 0 per crew size, `RANK_PACE_HOURS` has a target per rank, rises, and ends inside `ARC_HOURS`, tiers and XP agree at every edge, and a save keeps its tier across an XP-curve change (`Campaign.crew_xp_from_save`, what loading runs) and writes `crew.curve`.
+
+Locally: `tools\ci_local.ps1 -Only balance,balance-sim` (about 10 s). `balance-sim` alone needs no Godot and uses the last `build\soak\local-balance\host.json` if there is one (and says how old it is). In CI it is the "Balance simulator" step. A new function in `core/economy.gd` gets cases in the grid and a mirror in `balance_sim.py` (`mirror_functions`); a case with no mirror fails (f).
+
+**Retuning the rank curve.** Saves keep `crew.curve` (`Ranks.CURVE_ID`, "first/step/endless"). On load, XP banked under another curve (or under `Ranks.LEGACY_CURVE_ID`, "150/25/1200", for saves from before the key) moves onto today's at the same tier and fraction (`Economy.migrate_xp`), so changing `XP_FIRST_TIER`, `XP_PER_TIER_STEP` or `XP_ENDLESS_TIER` never costs a crew its rank. Pending XP is kept as it is; owned items stay owned; hands keep their saved wage.
+
 ## Adding a sink
 
 `tools/balance/sinks.json` lists every place money can go. An entry:
@@ -162,7 +174,6 @@ As expected, today's numbers fail `--check`: 12 blocking checks and 37 warnings 
 
 ## Still to come
 
-- **balance:D**: `--balance-test` (port 7819) dumps the engine's constants and the formula grid; CI runs `balance_sim.py --check --baseline --engine-dump` on it (`--baseline` excuses only the tuning checks, so a parity mismatch fails CI); `ci_local.ps1` gets `balance` and `balance-sim`.
 - **balance:E**: the retune, from `--propose` and the checks, with the director change; `--baseline` comes off.
 - **balance:F**: sinks from the shops (tool tiers, supplies, workwear, paint, properties) go live, and the endless-loop check blocks.
 - **balance:G**: calibrate `model.json` from bot soaks.

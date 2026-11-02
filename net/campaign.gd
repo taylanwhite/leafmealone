@@ -623,7 +623,9 @@ func _save_data() -> Dictionary:
 		"lots_completed": _lots_completed,
 		"ratings": _ratings,
 		"players": _bank,
-		"crew": {"xp": _crew_xp, "pending": _pending_xp},
+		# curve: which XP curve the banked XP is counted on, so a retune of
+		# core/ranks.gd can carry it over on the next load (crew_xp_from_save).
+		"crew": {"xp": _crew_xp, "pending": _pending_xp, "curve": _Ranks.CURVE_ID},
 	}, true)
 	_save_hooks = _save_hooks.filter(func(hook: Callable) -> bool: return hook.is_valid())
 	for extra: Callable in _save_hooks:
@@ -684,8 +686,24 @@ func _load() -> void:
 	if typeof(players) == TYPE_DICTIONARY:
 		_bank = players
 	var crew := save_section("crew")
-	_crew_xp = int(crew.get("xp", 0))
+	_crew_xp = crew_xp_from_save(crew)
+	if _crew_xp != int(crew.get("xp", 0)):
+		print("[Campaign] banked XP moved from curve %s to %s: %d -> %d, still %s" % [
+			str(crew.get("curve", _Ranks.LEGACY_CURVE_ID)), _Ranks.CURVE_ID, int(crew.get("xp", 0)), _crew_xp,
+			_Ranks.title(_Ranks.tier_for_xp(_crew_xp))])
+	# Pending XP is today's, not yet banked on any curve's tiers: kept as it is.
 	_pending_xp = int(crew.get("pending", 0))
+
+
+## The banked XP a saved "crew" section holds, on today's XP curve. A save banked
+## under another curve (crew.curve; a save from before the key is on
+## Ranks.LEGACY_CURVE_ID) keeps its tier and how far into it the crew was
+## (core/economy.gd migrate_xp), so a retune never costs anyone a rank. The next
+## save writes today's curve.
+static func crew_xp_from_save(crew: Dictionary) -> int:
+	var xp := int(crew.get("xp", 0))
+	var curve := str(crew.get("curve", _Ranks.LEGACY_CURVE_ID))
+	return _Economy.migrate_xp(xp, curve, _Ranks.CURVE_ID)
 
 
 func _read_save(path: String) -> Dictionary:

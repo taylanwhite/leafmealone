@@ -25,6 +25,9 @@ const XP_ENDLESS_TIER: int = 1200
 ## (crew.curve, gap balance:E) so banked XP can follow a retune of the three
 ## numbers above (core/economy.gd migrate_xp).
 const CURVE_ID: String = "%d/%d/%d" % [XP_FIRST_TIER, XP_PER_TIER_STEP, XP_ENDLESS_TIER]
+## The curve a save without crew.curve was banked under: every save made before
+## the key existed. Never change it; it is history, not tuning.
+const LEGACY_CURVE_ID: String = "150/25/1200"
 ## Each Lawnfather star adds this to every payout, up to the cap.
 const ENDLESS_PAY_PER_STAR: float = 0.01
 const ENDLESS_PAY_CAP: float = 0.25
