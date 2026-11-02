@@ -904,6 +904,22 @@ const HOTBAR_JANGLE_AT: int = 3
 ## everyone's way (collision off); its look is posed on the body (chunk D).
 const POCKET_FOLLOW_HEIGHT: float = 0.9
 
+# ---- hotbar holds
+# Hands on what you hold, first and third person (props/prop_looks.gd HOLDS and
+# grip_points, player/cartoon_body.gd set_hold).
+## How long a body's arm takes to reach for a held thing, or let go of it (s).
+const HOLD_BLEND_SECONDS: float = 0.15
+## A body's arm from the shoulder to the middle of the mitten (m). A grip closer
+## than this shortens the arm (a cartoon foreshortening), down to HOLD_ARM_SHORTEST
+## of its length; a farther one stretches it, up to HOLD_ARM_LONGEST, and past
+## that is reached for and missed a little.
+const HOLD_ARM_REACH: float = 0.5
+const HOLD_ARM_SHORTEST: float = 0.78
+const HOLD_ARM_LONGEST: float = 1.15
+## A grip farther than this from its shoulder (m) doesn't count as held (the
+## probe's grip_ok, hotbar_test step 9).
+const HOLD_GRIP_REACH: float = 0.62
+
 # ---- balance targets
 # What tools/balance_sim.py holds the economy to (docs/BALANCE.md). The game never
 # reads these; the simulator's --check does, and the retune (gap balance:E) sets

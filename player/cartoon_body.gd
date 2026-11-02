@@ -72,6 +72,12 @@ var _brow_tilt: float = 0.0
 ## lead's megaphone, kept level while pointing with it.
 var _clipboard: Node3D
 var _megaphone: Node3D
+## Hands on a held thing (set_hold): [right, left] targets in the parent's space
+## (a player's Visual), INF for a free hand; the last real one, to let go smoothly;
+## and how far each arm has reached, 0 to 1.
+var _hold_targets: Array[Vector3] = [Vector3.INF, Vector3.INF]
+var _hold_last: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
+var _hold_weight: Array[float] = [0.0, 0.0]
 
 ## Set by player/character_life.gd each frame. Where the eyes look, in world
 ## space, or INF to look straight ahead.
@@ -229,6 +235,65 @@ func _rest_props() -> void:
 		_megaphone.rotation = Vector3.ZERO
 
 
+## Put the hands on something held: world-space targets [right, left] from
+## props/prop_looks.gd grip_points, Vector3.INF for a hand that's free. Each arm
+## swings round from its shoulder to point at its target, blended in and out over
+## Constants.HOLD_BLEND_SECONDS, on top of walking and gestures; not while flat on
+## the back. player.gd calls it every frame on every peer; NPCs never do. The
+## targets are kept relative to the parent (the smoothed Visual), so they ride
+## along between the frame they're set and the tick that aims the arms. A hold
+## stretches or shortens the arm a little to land the hand (Constants.HOLD_ARM_*).
+func set_hold(right: Vector3, left: Vector3) -> void:
+	var into := _hold_frame().affine_inverse()
+	_hold_targets[0] = into * right if right.is_finite() else Vector3.INF
+	_hold_targets[1] = into * left if left.is_finite() else Vector3.INF
+
+
+## Where an arm hangs from, in world space: side 0 the right shoulder, 1 the left
+## (the order of grip_points).
+func shoulder_position(side: int) -> Vector3:
+	if _arms.size() < 2:
+		return global_position + Vector3(0.0, 1.28, 0.0)
+	return _arms[1 - clampi(side, 0, 1)].global_position
+
+
+## Which way an arm points from its shoulder toward its hand, in world space
+## (side 0 right, 1 left). For tests.
+func arm_direction(side: int) -> Vector3:
+	if _arms.size() < 2:
+		return Vector3.DOWN
+	return -_arms[1 - clampi(side, 0, 1)].global_basis.y.normalized()
+
+
+func _hold_frame() -> Transform3D:
+	var parent := get_parent() as Node3D
+	return parent.global_transform if parent != null else global_transform
+
+
+## Aim each arm with a target at it (set_hold), blended with whatever the walk or
+## a gesture did. The arm hangs along its pivot's -Y, so the pivot turns that axis
+## onto the target; a target closer than the arm's length foreshortens the arm.
+func _apply_hold(delta: float) -> void:
+	var frame := _hold_frame()
+	for side: int in 2:
+		var arm := _arms[1 - side]
+		var target := _hold_targets[side]
+		if target.is_finite():
+			_hold_last[side] = target
+		var want := 1.0 if target.is_finite() and fallen <= 0.3 else 0.0
+		_hold_weight[side] = move_toward(_hold_weight[side], want, delta / maxf(Constants.HOLD_BLEND_SECONDS, 0.001))
+		if _hold_weight[side] <= 0.0:
+			continue
+		var parent := arm.get_parent() as Node3D
+		var local := parent.global_transform.affine_inverse() * (frame * _hold_last[side]) - arm.position
+		if local.length() < 0.01:
+			continue
+		var blend := smoothstep(0.0, 1.0, _hold_weight[side])
+		arm.quaternion = arm.quaternion.slerp(Quaternion(Vector3.DOWN, local.normalized()), blend)
+		var reach := clampf(local.length() / Constants.HOLD_ARM_REACH, Constants.HOLD_ARM_SHORTEST, Constants.HOLD_ARM_LONGEST)
+		arm.scale = Vector3(1.0, lerpf(1.0, reach, blend), 1.0)
+
+
 func is_gesturing() -> bool:
 	return _gesture != ""
 
@@ -354,6 +419,10 @@ func _physics_process(delta: float) -> void:
 		_legs[0].rotation.x = swing * 0.2
 		_legs[0].rotation.z = -0.12
 		swing *= 1.2
+	# A hold (_apply_hold) last tick may have turned and foreshortened the arms.
+	for arm: Node3D in _arms:
+		arm.rotation.y = 0.0
+		arm.scale = Vector3.ONE
 	_arms[0].rotation.x = -swing * 0.9
 	_arms[1].rotation.x = swing * 0.9
 	var bounce := absf(sin(_phase)) * 0.06 * walk
@@ -391,6 +460,7 @@ func _physics_process(delta: float) -> void:
 	_show_bandage()
 	_show_foot()
 	_animate_gesture(delta)
+	_apply_hold(delta)
 	_animate_face(delta)
 	_apply_fall(delta)
 
@@ -579,7 +649,9 @@ func _animate_gesture(delta: float) -> void:
 			right.rotation.z = lerpf(right.rotation.z, 2.9, fade)
 			_torso.scale.y += 0.05 * fade
 		"watch":
-			left.rotation.x = lerpf(left.rotation.x, -1.3, fade)
+			# The left wrist up in front of the chest. A positive x turn swings a
+			# hanging arm forward (-Z); negative swung these arms out behind.
+			left.rotation.x = lerpf(left.rotation.x, 1.3, fade)
 			left.rotation.z = lerpf(left.rotation.z, 0.6, fade)
 			_face.rotation.x -= 0.35 * fade
 		"shuffle":
@@ -600,8 +672,8 @@ func _animate_gesture(delta: float) -> void:
 			face_turn = sin(t * 2.6) * 0.6
 		"offer":
 			# Both hands out, holding something for you to take.
-			left.rotation.x = lerpf(left.rotation.x, -1.35, fade)
-			right.rotation.x = lerpf(right.rotation.x, -1.35, fade)
+			left.rotation.x = lerpf(left.rotation.x, 1.35, fade)
+			right.rotation.x = lerpf(right.rotation.x, 1.35, fade)
 			left.rotation.z = lerpf(left.rotation.z, -0.2, fade)
 			right.rotation.z = lerpf(right.rotation.z, 0.2, fade)
 		"windmill":
@@ -610,18 +682,21 @@ func _animate_gesture(delta: float) -> void:
 			right.rotation.z = 0.5
 			_torso.rotation.y = 0.2 * sin(t * 16.0)
 		"punch":
+			# The right fist straight out ahead, the right shoulder turned into it.
 			var swing := sin(clampf(t / 0.3, 0.0, 1.0) * PI)
-			right.rotation.x = -1.7 * swing
+			right.rotation.x = 1.7 * swing
 			right.rotation.z = 0.15
-			_torso.rotation.y = -0.4 * swing
+			_torso.rotation.y = 0.4 * swing
 		"rake":
 			# Both hands low on a handle, pulling toward the body: a hired hand at work.
 			var pull := sin(t * 5.7)
-			left.rotation.x = lerpf(left.rotation.x, -0.9 + 0.45 * pull, fade)
-			right.rotation.x = lerpf(right.rotation.x, -0.75 + 0.45 * pull, fade)
+			# Reaching out ahead (positive x) and pulling back, bent over the work
+			# (a negative torso x leans forward, as walking does).
+			left.rotation.x = lerpf(left.rotation.x, 0.9 + 0.45 * pull, fade)
+			right.rotation.x = lerpf(right.rotation.x, 0.75 + 0.45 * pull, fade)
 			left.rotation.z = lerpf(left.rotation.z, -0.25, fade)
 			right.rotation.z = lerpf(right.rotation.z, 0.25, fade)
-			_torso.rotation.x = lerpf(_torso.rotation.x, 0.18 + 0.08 * pull, fade)
+			_torso.rotation.x = lerpf(_torso.rotation.x, -0.18 - 0.08 * pull, fade)
 		"stumble":
 			_torso.rotation.x = lerpf(_torso.rotation.x, -0.6, fade)
 			left.rotation.x = -2.0 * sin(t * 16.0)

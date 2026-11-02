@@ -14,6 +14,13 @@ const _YardModels = preload("res://props/yard_models.gd")
 
 enum State { FIND, WALK, RAKE, BAG, HAUL, REST }
 
+## Where the hand's rake sits under their Visual (+Z ahead): its tine collar
+## (the model's origin) just above the ground ahead, the handle tipped back up
+## into the "rake" gesture's hands. Layout, not tuning.
+const HAND_RAKE_AT := Vector3(0.0, 0.21, 1.05)
+const HAND_RAKE_TURN := Vector3(-0.72, 0.0, 0.0)
+const HAND_BAG_AT := Vector3(0.0, 0.55, 0.4)
+
 ## Replicated: the name over their head, how they look, what their arms are doing.
 var hand_name: String = ""
 var look_seed: int = 0
@@ -76,22 +83,36 @@ func _dress_up() -> void:
 	life.body = body
 	life.role = "crew"
 	body.add_child(life)
-	var rake := _YardModels.node("rake")
-	rake.name = "HandRake"
-	visual.add_child(rake)
-	rake.position = Vector3(0.35, 0.15, -0.45)
-	rake.rotation = Vector3(-0.5, 0.0, 0.1)
-	rake.scale = Vector3.ONE * 0.8
-	var bag := _YardModels.node("leaf_bag")
-	bag.name = "HandBag"
-	visual.add_child(bag)
-	bag.position = Vector3(0.0, 0.55, -0.45)
-	bag.scale = Vector3.ONE * 0.7
-	bag.visible = false
+	add_hand_rake(visual)
+	add_hand_bag(visual).visible = false
 	var label := get_node_or_null("Visual/Label") as Label3D
 	if label != null:
 		label.text = hand_name
 		label.modulate = Color(1.0, 0.85, 0.55)
+
+
+## The hired hand's own rake, under their Visual (which faces +Z here; the body is
+## turned to match): tines on the ground ahead, the handle running back up into
+## the hands of the "rake" gesture. Also used by the studio (tools/studio, "gestures").
+static func add_hand_rake(visual: Node3D) -> Node3D:
+	var rake := _YardModels.node("rake")
+	rake.name = "HandRake"
+	visual.add_child(rake)
+	rake.position = HAND_RAKE_AT
+	rake.rotation = HAND_RAKE_TURN
+	rake.scale = Vector3.ONE * 0.8
+	return rake
+
+
+## The bag a hired hand hauls to Chefty, hugged in front of them (it used to
+## float behind their back: the Visual faces +Z here).
+static func add_hand_bag(visual: Node3D) -> Node3D:
+	var bag := _YardModels.node("leaf_bag")
+	bag.name = "HandBag"
+	visual.add_child(bag)
+	bag.position = HAND_BAG_AT
+	bag.scale = Vector3.ONE * 0.7
+	return bag
 
 
 ## Something thrown hit them (net/components/net_prop.gd): they flinch and keep working.

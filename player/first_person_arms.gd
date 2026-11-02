@@ -26,13 +26,8 @@ const POLES: Array[Vector3] = [Vector3(-0.6, -0.8, 0.0), Vector3(0.6, -0.8, 0.0)
 ## Hands at rest, in head space, and how far they swing while walking.
 const REST: Array[Vector3] = [Vector3(-0.24, -0.28, -0.4), Vector3(0.24, -0.28, -0.4)]
 const SWING: float = 0.1
-## Where the hands go on each aimed tool, in its Look space: [right, left].
-const GRIPS: Dictionary = {
-	"hose": [Vector3(0.0, -0.09, 0.06), Vector3(-0.05, -0.02, -0.12)],
-	"leaf_blower": [Vector3(0.0, 0.29, 0.07), Vector3(-0.06, 0.1, -0.28)],
-	"hedge_trimmer": [Vector3(0.0, 0.2, 0.09), Vector3(-0.05, 0.12, -0.06)],
-	"paint_roller": [Vector3(0.0, 0.0, 0.16), Vector3(-0.09, -0.05, 0.02)],
-}
+## The grips each held thing gives the hands live in props/prop_looks.gd
+## (TOOL_GRIPS, HOLDS, grip_points), shared with everyone's view of your body.
 ## How fast the hands chase a new target, per second.
 const FOLLOW: float = 16.0
 ## A quick reach when you grab something, in seconds.
@@ -208,69 +203,35 @@ func _targets(delta: float) -> Dictionary:
 	return {"hands": hands, "snap": snap}
 
 
-## Hands on whatever's held. Returns true when they should follow it exactly.
+## Hands on whatever's held, on the same grips everyone else sees your body hold
+## (props/prop_looks.gd grip_points). Returns true when they should follow it exactly.
 func _on_item(held: Node, hands: Array[Vector3]) -> bool:
 	var kind := str(held.get("kind"))
-	var prop := held as Node3D
-	var right := _player.global_basis.x
-	match kind:
-		"rake":
-			# On the handle pose_rake runs up into RAKE_GRIP: left hand at the top,
-			# right hand a little way down it, so both ride the stroke with it.
-			var pose := prop.get_node_or_null("Visual/Look/Pose") as Node3D
-			if pose != null and pose.top_level:
-				var along := float(pose.get_meta("grip", _PropLooks.RAKE_TOP))
-				hands[0] = to_local(pose.global_transform * Vector3(0.0, along, 0.0))
-				hands[1] = to_local(pose.global_transform * Vector3(0.0, along - _PropLooks.RAKE_HAND_GAP, 0.0))
-				return true
-			hands[1] = Vector3(0.2, -0.26, -0.36)
-			hands[0] = Vector3(-0.04, -0.3, -0.42)
-			return true
-		"leaf_bag":
-			# Hung from both hands by its rolled top (prop_looks.gd BAG_HANDS / BAG_RIM).
-			var bag := prop.get_node_or_null("Visual/Look") as Node3D
-			if bag != null:
-				hands[1] = to_local(bag.global_transform * _PropLooks.BAG_RIM[0])
-				hands[0] = to_local(bag.global_transform * _PropLooks.BAG_RIM[1])
-				return true
-		"hose", "leaf_blower", "hedge_trimmer", "paint_roller":
-			var look := prop.get_node_or_null("Visual/Look") as Node3D
-			if look != null and _PropLooks.HANDHELD.has(kind) and not (kind == "hose" and str(held.get("hose_source")) == ""):
-				# Where each model's grips are (props/yard_models.gd, drawn at 0.7 scale).
-				var grips: Array = GRIPS[kind]
-				hands[1] = to_local(look.global_transform * (grips[0] as Vector3))
-				hands[0] = to_local(look.global_transform * (grips[1] as Vector3))
-				return true
-			# A hose that isn't hooked up is just carried.
-			hands[1] = to_local(prop.global_position + right * 0.18)
-			hands[0] = to_local(prop.global_position - right * 0.18)
-			return true
-		"pressure_washer":
-			var wand := prop.get_node_or_null("Wand") as Node3D
-			if wand != null and wand.visible:
-				hands[1] = to_local(wand.global_transform * Vector3(0.0, -0.11, 0.1))
-				hands[0] = to_local(wand.global_transform * Vector3(-0.03, -0.02, -0.3))
-				return true
-		"lawn_mower":
-			# Pushing: both hands out on the bar, rocking with each step.
-			var rock := sin(_phase) * 0.03
-			hands[1] = Vector3(0.2, -0.3 + rock, -0.42)
-			hands[0] = Vector3(-0.2, -0.3 - rock, -0.42)
-			return false
-		"ladder":
-			# Up on the right shoulder, held by one hand; the other swings.
-			hands[1] = Vector3(0.3, -0.12, -0.08)
-			hands[0] = REST[0] + Vector3(0.0, 0.0, sin(_phase) * SWING * 0.5)
-			return false
-		"wheelbarrow":
-			hands[1] = Vector3(0.24, -0.34, -0.36)
-			hands[0] = Vector3(-0.24, -0.34, -0.36)
-			return false
-	# Anything else is carried out in front, arms up and open around it.
-	var bob := sin(_phase) * 0.02
-	hands[1] = Vector3(0.26, -0.2 + bob, -0.4)
-	hands[0] = Vector3(-0.26, -0.2 - bob, -0.4)
-	return false
+	var grips := _PropLooks.grip_points(held as Node3D, _player)
+	var gripped := false
+	# grip_points is [right, left]; these arms are [left, right].
+	for side: int in 2:
+		if grips[side].is_finite():
+			hands[1 - side] = to_local(grips[side])
+			gripped = true
+	if not gripped:
+		# Nothing to hold on to (a rake not posed yet): arms up and open around it.
+		var bob := sin(_phase) * 0.02
+		hands[1] = Vector3(0.26, -0.2 + bob, -0.4)
+		hands[0] = Vector3(-0.26, -0.2 - bob, -0.4)
+		return false
+	# A free hand (the sign, the ladder) swings along as you walk.
+	for side: int in 2:
+		if not grips[side].is_finite():
+			hands[1 - side] = REST[1 - side] + Vector3(0.0, 0.0, sin(_phase + float(side) * PI) * SWING * 0.5)
+	# Pushed and shouldered things rock with each step, and the hands follow
+	# them smoothly instead of exactly.
+	if kind in ["lawn_mower", "wheelbarrow", "ladder"]:
+		var rock := sin(_phase) * 0.03
+		hands[1] += Vector3(0.0, rock, 0.0)
+		hands[0] += Vector3(0.0, -rock, 0.0)
+		return false
+	return true
 
 
 ## Two-bone IK in head space: aim the upper arm at an elbow that bends toward

@@ -20,6 +20,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 const _FirstPersonArms = preload("res://player/first_person_arms.gd")
+const _PropLooks = preload("res://props/prop_looks.gd")
 const _Pockets = preload("res://player/pockets.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
@@ -877,6 +878,15 @@ func _process(_delta: float) -> void:
 	if _mound != null:
 		_mound.scale.y = 3.2 + sin(Time.get_ticks_msec() / 1000.0 * 2.5) * 0.15
 	var body_now := get_node_or_null("Visual/CartoonBody")
+	# Everyone sees this player's hands on what they hold (the grips their own
+	# first-person arms use too), except when they're flat on their back.
+	if body_now != null:
+		var held := _held_prop() as Node3D
+		if held != null and anim_state != AnimState.KNOCKED and carried_by == 0:
+			var grips := _PropLooks.grip_points(held, self)
+			body_now.call("set_hold", grips[0], grips[1])
+		else:
+			body_now.call("set_hold", Vector3.INF, Vector3.INF)
 	if body_now != null and not bool(body_now.call("is_gesturing")):
 		if carried_by != 0:
 			body_now.call("gesture", "flail")

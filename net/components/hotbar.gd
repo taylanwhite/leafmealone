@@ -13,6 +13,7 @@ extends Node
 ## and every other pocket item pocketed. With a big item (arms, shoulder, push) in
 ## hand, every pocket item stays pocketed. Settle always pockets before it draws.
 
+const _PropLooks = preload("res://props/prop_looks.gd")
 const REFUSE: int = -2
 const BIG: int = -1
 
@@ -111,12 +112,15 @@ static func in_hand(tree: SceneTree, peer_id: int) -> Node:
 
 
 ## What every player carries, keyed by player name, for net/dev/probe.gd: slots
-## as [kind, count] ("" and 0 when empty), the kind in hand, and grip_ok (whether
-## the held item's grips resolve on this peer; hotbar chunk C makes it real).
+## as [kind, count] ("" and 0 when empty), the kind in hand, and grip_ok: whether
+## the held item's grips resolve on this peer, from its own replicated view, within
+## reach of the holder's shoulders (props/prop_looks.gd grips_ok; true when the
+## hands are empty). A client agreeing with the host proves remote holds land.
 static func snapshot(tree: SceneTree) -> Dictionary:
 	var out: Dictionary = {}
 	var names: Array[String] = []
 	var ids: Dictionary = {}
+	var bodies: Dictionary = {}
 	for node: Node in tree.get_nodes_in_group("players"):
 		var peer_id := node.name.to_int()
 		if peer_id <= 0:
@@ -126,6 +130,7 @@ static func snapshot(tree: SceneTree) -> Dictionary:
 			shown = str(peer_id)
 		names.append(shown)
 		ids[shown] = peer_id
+		bodies[shown] = node
 	names.sort()
 	for shown: String in names:
 		var peer_id := int(ids[shown])
@@ -133,7 +138,8 @@ static func snapshot(tree: SceneTree) -> Dictionary:
 		for slot: Array in slots_of(tree, peer_id):
 			slots.append([str(slot[0].get("kind")) if not slot.is_empty() else "", slot.size()])
 		var hand := in_hand(tree, peer_id)
-		out[shown] = {"slots": slots, "hand": str(hand.get("kind")) if hand != null else "", "grip_ok": true}
+		var grip_ok := hand == null or _PropLooks.grips_ok(hand as Node3D, bodies[shown] as Node3D)
+		out[shown] = {"slots": slots, "hand": str(hand.get("kind")) if hand != null else "", "grip_ok": grip_ok}
 	return out
 
 
