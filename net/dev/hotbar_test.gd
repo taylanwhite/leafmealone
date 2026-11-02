@@ -301,9 +301,15 @@ func _check_hud_bar() -> void:
 		await _frames(3)
 		ui.call("close_pause")
 		await _frames(3)
-		# Back up once nothing's open. (A windowed run that loses focus reopens the
-		# pause buttons by itself, ui_root _notification; then the bar stays down.)
-		back = bool(ui.call("any_window_open")) != bool((hud.get("last_model") as Dictionary).get("shown", false))
+		# Back up once nothing's open. Headless (CI) it must be: no window, bar up. A
+		# windowed run that loses focus reopens the pause buttons by itself (ui_root
+		# _notification), so there it only checks the bar agrees with the windows.
+		var open_now := bool(ui.call("any_window_open"))
+		var shown_now := bool((hud.get("last_model") as Dictionary).get("shown", false))
+		if DisplayServer.get_name() == "headless":
+			back = not open_now and shown_now
+		else:
+			back = open_now != shown_now
 	var base := {"in_session": true, "zone": Net.Zone.LOT, "window_open": false, "seated": false, "carrying": false}
 	var rule := bool(_HotbarHud.shown_when(base))
 	rule = rule and not bool(_HotbarHud.shown_when(base.merged({"zone": Net.Zone.BORDER, "carrying": true}, true)))

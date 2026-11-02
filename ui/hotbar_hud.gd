@@ -49,6 +49,7 @@ const HINT_STAYS: Array[String] = ["rake"]
 
 # Text sizes (px at the 1280x720 design size).
 const KEY_FONT: int = 12
+const KEY_MIN_FONT: int = 7   # a long key name ("Mouse 4") shrinks down to this
 const CHIP_FONT: int = 15
 const BADGE_FONT: int = 13
 const TAG_FONT: int = 11
@@ -102,6 +103,14 @@ func _ready() -> void:
 	_card_box = _UiStyle.box(Color(0.08, 0.06, 0.05, 0.86), 12, _UiStyle.ORANGE, 2, 0)
 	_hint = _rich(HINT_FONT)
 	_card_hint = _rich(CARD_LINE_FONT - 1)
+	# A rebind changes the keycaps the cached hint lines were built with.
+	Settings.bindings_changed.connect(_forget_hints)
+
+
+## Drop the cached hint bbcode so the next frame rebuilds it with today's keys.
+func _forget_hints() -> void:
+	_hint_source = ""
+	_card_hint_source = ""
 
 
 func _rich(font_size: int) -> RichTextLabel:
@@ -288,6 +297,13 @@ func _process(delta: float) -> void:
 		last_model = {}
 		_hint.visible = false
 		_card_hint.visible = false
+		# Nothing from the last session carries into the next one.
+		toast_text = ""
+		_toast_left = 0.0
+		shake_left = 0.0
+		_name_left = 0.0
+		_last_selected = -99
+		_forget_hints()
 		_attach(null)
 		queue_redraw()
 		return
@@ -478,11 +494,14 @@ func _draw_slots(font: Font) -> void:
 func _draw_slot(font: Font, view: Dictionary, rect: Rect2, index: int, alpha: float, scale_all: float) -> void:
 	var text_color := Color(TEXT_COLOR, 0.85 * alpha)
 	var kind := str(view.get("kind", ""))
-	# The slot's key, top left: its binding (rebindable), or its number.
+	# The slot's key, top left: its binding as Settings names it ("1", "Q",
+	# "Mouse 4"). A long name shrinks to fit the slot rather than lying with the
+	# slot's number.
 	var key := _Icons.key_label(StringName("slot_%d" % (index + 1)))
-	if key.length() > 3:
-		key = str(index + 1)
 	var key_size := maxi(8, roundi(KEY_FONT * scale_all))
+	var key_room := rect.size.x - 10.0
+	while key_size > KEY_MIN_FONT and font.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, key_size).x > key_room:
+		key_size -= 1
 	draw_string(font, rect.position + Vector2(5.0, 4.0 + key_size), key, HORIZONTAL_ALIGNMENT_LEFT, -1, key_size, text_color)
 	if kind == "":
 		if index == int(last_model.get("selected", -1)) and _Icons.has("hand"):
