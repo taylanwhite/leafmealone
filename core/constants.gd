@@ -835,9 +835,6 @@ const CHEFTY_CORRECTION_HALF_LIFE: float = 0.12
 const CHEFTY_INPUT_QUEUE_CATCHUP: int = 3
 ## How a stopped Chefty with nobody driving parks: under this speed it's parked.
 const CHEFTY_PARK_SPEED: float = 0.6
-## Until the autopilot (driving chunk C2), depart() hops Chefty to its stop: the
-## riders sit this long, then arrive like the legacy ride.
-const CHEFTY_HOP_SECONDS: float = 8.0
 ## The driver's chase camera (player/vehicle_camera.gd): how far back and up,
 ## how far ahead it looks per m/s, its field of view from standstill to top speed,
 ## and how fast it swings round behind.
@@ -888,6 +885,70 @@ const CHEFTY_EXIT_SIDE: float = 1.9
 const CHEFTY_EXIT_BEHIND: float = 3.6
 const CHEFTY_EXIT_ROOF := Vector3(0.0, 2.6, -2.0)
 const CHEFTY_EXIT_CAPSULE := Vector2(0.35, 1.6)
+
+# ---- driving: the autopilot and the chauffeur (driving chunk C2,
+# net/components/vehicle_autopilot.gd; docs/DECISIONS.md "The autopilot").
+# First guesses, tuned by watching it drive. TODO(balance): not in the workbook.
+## Pure pursuit: aim this far ahead along the route (m), and look this far ahead
+## of where the truck got when finding where it is on the route.
+const AUTOPILOT_LOOKAHEAD: float = 8.0
+const AUTOPILOT_PROJECT_AHEAD: float = 40.0
+## Speeds (m/s): cruising, round a sharp corner (sharper than CORNER_ANGLE
+## radians), while the nose points more than TURN_ANGLE off the route, and the
+## least it creeps at until the stop.
+const AUTOPILOT_CRUISE: float = 14.0
+const AUTOPILOT_CORNER_SPEED: float = 6.0
+const AUTOPILOT_CORNER_ANGLE: float = 0.5
+const AUTOPILOT_TURN_ANGLE: float = 0.9
+const AUTOPILOT_TURN_SPEED: float = 4.0
+const AUTOPILOT_CREEP_SPEED: float = 1.5
+## Slowing for corners and the stop is planned at this rate (m/s^2), looking
+## this far ahead for corners, and reaching corner speed this far before the
+## corner (pure pursuit starts turning a lookahead early).
+const AUTOPILOT_BRAKE_DECEL: float = 5.0
+const AUTOPILOT_CORNER_SCAN: float = 40.0
+const AUTOPILOT_CORNER_EARLY: float = 6.0
+## The stop: parked once stopped within STOP_RADIUS, or stopped within
+## SETTLE_RADIUS for SETTLE_SECONDS.
+const AUTOPILOT_STOP_RADIUS: float = 1.5
+const AUTOPILOT_SETTLE_RADIUS: float = 4.0
+const AUTOPILOT_SETTLE_SECONDS: float = 2.0
+## Steering per radian of heading error; the throttle (and the brakes) reach full
+## at this many m/s off the speed it wants, never under MIN_THROTTLE once used,
+## and nothing within COAST_BAND over it.
+const AUTOPILOT_STEER_GAIN: float = 2.2
+const AUTOPILOT_THROTTLE_BAND: float = 3.0
+const AUTOPILOT_MIN_THROTTLE: float = 0.25
+const AUTOPILOT_COAST_BAND: float = 0.6
+## Backing up: when the route is more than REVERSE_ANGLE behind the nose, or the
+## truck pushed slower than STUCK_SPEED for STUCK_SECONDS; for up to
+## REVERSE_SECONDS at this throttle, until it points within REVERSE_EXIT.
+const AUTOPILOT_REVERSE_ANGLE: float = 2.1
+const AUTOPILOT_REVERSE_EXIT: float = 0.9
+const AUTOPILOT_REVERSE_SECONDS: float = 3.0
+const AUTOPILOT_REVERSE_THROTTLE: float = 0.7
+const AUTOPILOT_STUCK_SPEED: float = 0.5
+const AUTOPILOT_STUCK_SECONDS: float = 1.5
+## Planning: road points closer than this to the last are skipped (m), and the
+## route lines up in the stop's lane this far before it.
+const AUTOPILOT_MIN_STEP: float = 3.0
+const AUTOPILOT_LANE_LEAD: float = 10.0
+## Warp mode (automated runs and --warp-rides): the truck follows the route at
+## this many times cruise speed, with no driving.
+const AUTOPILOT_TEST_WARP: float = 4.0
+## How fast a warping truck swings round to face along the route (per second).
+const AUTOPILOT_WARP_TURN_RATE: float = 12.0
+## A trip still going after its route's length at GIVE_UP_SPEED, plus
+## GIVE_UP_EXTRA seconds, warps the rest of the way: nobody is ever stranded.
+const AUTOPILOT_GIVE_UP_SPEED: float = 3.0
+const AUTOPILOT_GIVE_UP_EXTRA: float = 30.0
+## Chefty counts as at a yard when it parks within this many meters of its curb
+## point (TownMap.CURB_POINT): the homeowner's clock starts.
+const CHEFTY_ARRIVE_RADIUS: float = 14.0
+## The chauffeur's quip floats over the cab this long (s), and the hands riding
+## in the bed wave every so often (a random wait in this range, s).
+const CHAUFFEUR_QUIP_SECONDS: float = 4.5
+const CHEFTY_HAND_WAVE_SECONDS := Vector2(3.0, 9.0)
 
 
 # ---- audio

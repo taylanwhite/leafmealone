@@ -107,7 +107,19 @@ func spawn_on_lot() -> void:
 		node.global_position = Vector3(at.x - 1.5 + float(index) * 1.0, at.y + 0.2, at.z - 2.6)
 
 
+## Host, tests: a hand joins without the signing fee or the rank (drive_test's
+## chauffeur). Not saved unless something else saves.
+func dev_add_hand(hand_name: String) -> void:
+	if not Net.is_host():
+		return
+	hands.append({"name": hand_name, "skill": Constants.HIRE_SKILL.x, "wage": Constants.HIRE_DAILY_WAGE, "look": _next_look * 7907 + 13, "hired_day": 1, "bags": 0, "earned": 0})
+	_next_look += 1
+	_broadcast()
+
+
 ## Host: the job's over (paid, or the yard went away). Back on the truck.
+## In the connected town they're drawn riding in Chefty's free bed seats while
+## they're not working a yard (chefty_drive.gd cosmetic_riders()).
 func despawn() -> void:
 	if not Net.is_host():
 		return

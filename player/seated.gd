@@ -64,7 +64,12 @@ static func handle_input(player: Node, event: InputEvent) -> bool:
 		vehicle.call("request_exit")
 		return true
 	if event.is_action_pressed("take"):
-		vehicle.call("request_swap")
+		# In the cab with a hired hand aboard and nobody at the wheel, F lets the
+		# hand drive (and F again pulls over); otherwise it swaps seats.
+		if vehicle.has_method("chauffeur_action") and str(vehicle.call("chauffeur_action", player.name.to_int())) != "":
+			vehicle.call("request_chauffeur")
+		else:
+			vehicle.call("request_swap")
 		return true
 	if event.is_action_pressed("toggle_camera"):
 		var chase := not bool(player.get_meta("vehicle_chase", false))
