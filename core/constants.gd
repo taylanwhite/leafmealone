@@ -1237,3 +1237,15 @@ const ART_BLOCK_GRASS_SPACING: float = 0.48
 ## The yard's own trees are never shorter than this (m), whatever the hood's trees are:
 ## they are what buries the lawn in leaves.
 const ART_YARD_TREE_MIN_HEIGHT: float = 6.5
+## The fewest clear_roof spots a job house of each yard size (small, regular,
+## big) may have, whatever its archetype: about the old box house's 12 and 20,
+## since the task pays the same flat rate. --layout-test checks it.
+const ART_YARD_ROOF_SPOTS_MIN: Array[int] = [10, 10, 16]
+## How close two roof-leaf spots on one slope may sit (m), when spots blocked by
+## a dormer or chimney slide to free roof.
+const ART_YARD_ROOF_SPOT_GAP: float = 0.9
+## How far past the house's rectangle the flower beds may reach (m): the deepest
+## porch (ART_HOUSE_FRONT_REACH) plus a bed and its tire edging. Always kept
+## clear in front of every house, so where a hood's door puts the beds never
+## changes where a tree, a hiding spot or litter lands.
+const ART_YARD_BED_STRIP: float = 1.5

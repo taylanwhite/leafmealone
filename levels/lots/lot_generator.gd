@@ -20,8 +20,10 @@ extends Node3D
 ## the fences, beds, trees, ground and drive follow the style. The roof, gutters,
 ## windows and spigot come from the house's HouseSpec. Look-only choices come
 ## from a second rng (_art, seeded hash([job_seed, "art"])); the gameplay rng's
-## draws and their order are frozen, so the hood never moves a tree, a hedge,
-## the pool, a hiding spot or a piece of litter by itself. When the yard is
+## draws and their order are frozen, and so is everything that goes into _taken
+## (the beds get a fixed strip in front of every house), so the hood never moves
+## a tree, a hedge, the pool, a hiding spot or a piece of litter
+## (--layout-test compares them across hoods). When the yard is
 ## done, the street block around it (levels/town/block_builder.gd) is built over
 ## the next few frames: neighbors, the street, set pieces, all cosmetic.
 
@@ -272,6 +274,20 @@ func _roof(roof: Dictionary) -> void:
 	# The leaves cover the part of the slope over the walls (the eaves overhang
 	# the gable ends by half a meter each side).
 	var span := maxf(width - 1.0, 2.0)
+	# How many spots, and the gameplay rng's jitter draws, come from the yard's own
+	# house width (as on the old box house), never from the archetype's roof, so
+	# the hood never changes how many draws there are.
+	var columns := maxi(2, int((_house_rect.size.x - 1.2) / 2.2))
+	var gap := Constants.ART_YARD_ROOF_SPOT_GAP
+	var free := func(spot: Vector3, taken: Array[Vector3]) -> bool:
+		if blockers.any(func(blocker: AABB) -> bool: return blocker.has_point(spot)):
+			return false
+		return not taken.any(func(other: Vector3) -> bool: return other.distance_to(spot) < gap)
+	var on_slope := func(x: float, row: float, side: float) -> Vector3:
+		return Vector3(x, top + rise * row + 0.05, center.z + side * half_run * (1.0 - row))
+	var front_spots: Array[Vector3] = []
+	var back_spots: Array[Vector3] = []
+	var slopes := {1.0: front_spots, -1.0: back_spots}
 	for side: float in [1.0, -1.0]:
 		var normal := Vector3(0.0, cos(slope), side * sin(slope))
 		var shape := CollisionShape3D.new()
@@ -280,16 +296,39 @@ func _roof(roof: Dictionary) -> void:
 		shape.shape = box
 		shape.transform = Transform3D(Basis(Vector3.RIGHT, side * slope), Vector3(center.x, top + rise * 0.5, center.z + side * half_run * 0.5) - normal * 0.15)
 		body.add_child(shape)
-		var columns := maxi(2, int(span / 2.2))
+		var spots: Array[Vector3] = slopes[side]
 		for row: float in [0.3, 0.7]:
 			for column: int in columns:
 				# Drawn even when the spot is blocked: the gameplay rng's draws never change.
 				var x := center.x - span * 0.5 + (float(column) + 0.5) * span / float(columns) + _rng.randf_range(-0.4, 0.4)
-				var spot := Vector3(x, top + rise * row + 0.05, center.z + side * half_run * (1.0 - row))
-				if blockers.any(func(blocker: AABB) -> bool: return blocker.has_point(spot)):
-					continue
-				var index: int = _tasks.call("define_spot", "clear_roof", to_global(spot), normal, 1.0)
-				_looks.call("add_roof_leaves", index, to_global(spot), normal)
+				var spot: Vector3 = on_slope.call(x, row, side)
+				if free.call(spot, spots):
+					spots.append(spot)
+	# Spots a dormer, a chimney or a narrow roof took slide to whatever free roof
+	# is left (middle rows first, from the middle out): first on their own
+	# slope, then, for a slope that is all dormers (an estate's front), on the
+	# other one, so every house's roof is about as much work as the old box's.
+	var steps := maxi(1, int(span / 0.5))
+	var fill := func(side: float, wanted: int) -> void:
+		var spots: Array[Vector3] = slopes[side]
+		for row: float in [0.5, 0.3, 0.7, 0.15, 0.85]:
+			for step: int in steps + 1:
+				if spots.size() >= wanted:
+					return
+				var offset := float(ceili(float(step) * 0.5)) * span / float(steps) * (1.0 if step % 2 == 1 else -1.0)
+				var spot: Vector3 = on_slope.call(center.x + offset, row, side)
+				if absf(offset) <= span * 0.5 and free.call(spot, spots):
+					spots.append(spot)
+	for side: float in [1.0, -1.0]:
+		fill.call(side, columns * 2)
+	for side: float in [1.0, -1.0]:
+		var other: Array[Vector3] = slopes[-side]
+		fill.call(side, columns * 4 - other.size())
+	for side: float in [1.0, -1.0]:
+		var normal := Vector3(0.0, cos(slope), side * sin(slope))
+		for spot: Vector3 in slopes[side]:
+			var index: int = _tasks.call("define_spot", "clear_roof", to_global(spot), normal, 1.0)
+			_looks.call("add_roof_leaves", index, to_global(spot), normal)
 
 
 ## Gutters on the main roof's front and back eaves (HouseSpec "gutters", split
@@ -357,25 +396,45 @@ func _drive_surface() -> String:
 
 ## Flower beds in front of the porch, either side of the front walk, edged in
 ## the hood's way (brick, stone, timber, a row of old tires), with weeds coming
-## up among the flowers. A bed reaching past the house's rectangle is marked
-## taken, so nothing else lands in it.
+## up among the flowers.
+##
+## Whether each bed is there, how long it is, and its flowers and weeds are the
+## gameplay rng's draws in their old order and count, decided against the
+## house's middle as on the old box house, so the hood never changes them (nor
+## how often a yard has weeds to pull). Only where they stand is the hood's:
+## either side of the walk to its door (_bed_xs). A strip in front of every house
+## (Constants.ART_YARD_BED_STRIP) is kept clear for them whatever the porch, so
+## nothing placed later moves with the hood either.
 func _beds() -> void:
-	var front := _porch_front() + 0.1
-	var walk_x := _door_x()
-	var edge := str(_style.get("bed_edge", "concrete"))
-	var flowers := WINTER_FLOWERS if Seasons.current() == 1 else FLOWER_COLORS
+	var middle := _house_rect.get_center().x
+	var beds: Array = []
 	for side: float in [-1.0, 1.0]:
 		if _rng.randf() < 0.25:
 			continue
 		var length := _rng.randf_range(2.4, 3.6)
-		var x := walk_x + side * (1.1 + length * 0.5)
-		var rect := Rect2(x - length * 0.5, front, length, 1.3)
-		if rect.position.x < _house_rect.position.x or rect.end.x > _house_rect.end.x:
+		var x := middle + side * (1.1 + length * 0.5)
+		if x - length * 0.5 < _house_rect.position.x or x + length * 0.5 > _house_rect.end.x:
 			continue
+		var blooms: Array = []
+		for flower: int in int(length * 2.0):
+			blooms.append([_rng.randf_range(-0.35, 0.35), _rng.randi()])
+		var weeds: Array[Vector2] = []
+		for weed: int in _rng.randi_range(3, 5):
+			weeds.append(Vector2(_rng.randf_range(-length * 0.45, length * 0.45), _rng.randf_range(-0.45, 0.45)))
+		beds.append([side, length, blooms, weeds])
+	_taken.append(Rect2(_house_rect.position.x, _house_rect.end.y, _house_rect.size.x, Constants.ART_YARD_BED_STRIP))
+	var xs := _bed_xs(beds)
+	var front := _porch_front() + 0.1
+	var edge := str(_style.get("bed_edge", "concrete"))
+	var flowers := WINTER_FLOWERS if Seasons.current() == 1 else FLOWER_COLORS
+	for bed_index: int in beds.size():
+		var bed: Array = beds[bed_index]
+		var length: float = bed[1]
+		var x: float = xs[bed_index]
+		var rect := Rect2(x - length * 0.5, front, length, 1.3)
 		# Tires stick out past the bed's front edge.
 		var reach := Rect2(rect.position, rect.size + Vector2(0.0, 0.45 if edge == "tire" else 0.0))
 		_no_lawn.append(reach)
-		_taken.append(reach.grow(0.1))
 		var center := Vector3(rect.get_center().x, 0.0, rect.get_center().y)
 		_kit.call("box", Vector3(length, 0.12, 1.3), center + Vector3(0.0, 0.06, 0.0), BED_DIRT, "dirt")
 		if edge == "tire":
@@ -389,17 +448,62 @@ func _beds() -> void:
 			var look: Array = BED_EDGES.get(edge, BED_EDGES["concrete"])
 			_kit.call("box", Vector3(length + 0.2, 0.18, 0.12), center + Vector3(0.0, 0.09, 0.7), look[0], look[1])
 		var kit := _MeshKit.new()
-		for flower: int in int(length * 2.0):
-			var spot := center + Vector3(-length * 0.5 + 0.3 + float(flower) * 0.5, 0.0, _rng.randf_range(-0.35, 0.35))
+		var blooms: Array = bed[2]
+		for flower: int in blooms.size():
+			var spot := center + Vector3(-length * 0.5 + 0.3 + float(flower) * 0.5, 0.0, float(blooms[flower][0]))
 			kit.tube(PackedVector3Array([spot, spot + Vector3(0.0, 0.32, 0.0)]), PackedFloat32Array([0.015, 0.012]), Color(0.3, 0.55, 0.25), 4, {"jitter": 0.0, "sway_to": 0.6})
-			kit.blob(spot + Vector3(0.0, 0.36, 0.0), Vector3(0.09, 0.06, 0.09), flowers[_rng.randi() % flowers.size()], {"detail": 1, "lumps": 0.3, "flat": true, "jitter": 0.05, "sway": 0.8, "seed": flower})
+			kit.blob(spot + Vector3(0.0, 0.36, 0.0), Vector3(0.09, 0.06, 0.09), flowers[int(blooms[flower][1]) % flowers.size()], {"detail": 1, "lumps": 0.3, "flat": true, "jitter": 0.05, "sway": 0.8, "seed": flower})
 		add_child(_Stylized.instance(kit.commit(), {"wind": 0.04, "roughness": 0.9}))
-		for weed: int in _rng.randi_range(3, 5):
-			var spot := center + Vector3(_rng.randf_range(-length * 0.45, length * 0.45), 0.12, _rng.randf_range(-0.45, 0.45))
+		for weed: Vector2 in bed[3]:
+			var spot := center + Vector3(weed.x, 0.12, weed.y)
 			var index: int = _tasks.call("define_spot", "pull_weeds", to_global(spot), Vector3.UP, 0.3)
 			_looks.call("add_weed", index, to_global(spot))
 		_note(["bed", rect])
 	_art_notes.append(["beds", edge])
+
+
+## Where each bed ([side, length, ...]) stands along the house front (its
+## center x): either side of the walk at the door, or, when the door sits too
+## near a corner for a bed on that side, past its sibling on the roomy side, or
+## failing that both slid toward the middle until they fit. Never off the house.
+func _bed_xs(beds: Array) -> Array[float]:
+	var door := _door_x()
+	var low := _house_rect.position.x
+	var high := _house_rect.end.x
+	var xs: Array[float] = []
+	var misfits: Array[int] = []
+	# How far along each side of the walk is already used.
+	var used := {-1.0: 1.1, 1.0: 1.1}
+	for index: int in beds.size():
+		var side: float = beds[index][0]
+		var length: float = beds[index][1]
+		var x := door + side * (1.1 + length * 0.5)
+		xs.append(x)
+		if x - length * 0.5 < low or x + length * 0.5 > high:
+			misfits.append(index)
+		else:
+			used[side] = 1.1 + length + 0.4
+	for index: int in misfits:
+		var side: float = -float(beds[index][0])
+		var length: float = beds[index][1]
+		var x := door + side * (float(used[side]) + length * 0.5)
+		if x - length * 0.5 >= low and x + length * 0.5 <= high:
+			xs[index] = x
+			used[side] = float(used[side]) + length + 0.4
+			continue
+		# No room by the door: the pair round the house's walkable middle.
+		var walk_low := low
+		var walk_high := high
+		for bed: Array in beds:
+			if float(bed[0]) < 0.0:
+				walk_low = low + 1.1 + float(bed[1])
+			else:
+				walk_high = high - 1.1 - float(bed[1])
+		var walk := clampf(door, walk_low, walk_high)
+		for each: int in beds.size():
+			xs[each] = walk + float(beds[each][0]) * (1.1 + float(beds[each][1]) * 0.5)
+		break
+	return xs
 
 
 # ---------------------------------------------------------------- the yard
@@ -678,15 +782,19 @@ func _water(lot: Node3D) -> void:
 
 
 ## Two loungers by a big yard's pool, where there's room (decoration: no
-## collider, placed by the art rng). Lawn and litter keep off them.
+## collider). Lawn and litter keep off them. Every hood gets them in the same
+## places (their own rng, from the job seed alone, and a _taken the hood never
+## changes), so the litter scattered after them never moves with the hood.
 func _pool_lounge() -> void:
 	if _pool_at == Vector3.INF:
 		return
+	var lounge := RandomNumberGenerator.new()
+	lounge.seed = hash([_job_seed, "lounge"])
 	var placed := 0
 	for _attempt: int in 12:
 		if placed >= 2:
 			break
-		var angle := _art.randf() * TAU
+		var angle := lounge.randf() * TAU
 		var reach := POOL_RADIUS + 1.8
 		var at := _pool_at + Vector3(cos(angle) * reach, 0.0, sin(angle) * reach)
 		var rect := Rect2(at.x - 1.1, at.z - 1.1, 2.2, 2.2)

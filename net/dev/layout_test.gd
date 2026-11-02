@@ -13,8 +13,11 @@ extends Node
 ## chunk 6): the yard took the hood's style and one of its archetypes, the
 ## HouseBody's boxes stay inside the house's rectangle, roof leaves, gutters and
 ## windows are out in the open (never inside a wall, a dormer or a chimney),
-## gutters run along both eaves, the spigot is on a wall, and the yard's
-## dressing stays within Constants.ART_YARD_MAX_VISUALS.
+## gutters run along both eaves, the roof has at least
+## Constants.ART_YARD_ROOF_SPOTS_MIN leaves to clear, the spigot is on a wall,
+## the yard's dressing stays within Constants.ART_YARD_MAX_VISUALS, and every
+## hood's yard for one seed and size has the same trees, hiding spots, hedges,
+## pool, litter and weed count (the hood is only a look).
 
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const SEEDS_PER_SIZE: int = 12
@@ -53,6 +56,8 @@ func _run() -> void:
 	# Every neighborhood's yards: the same checks, and the house contract.
 	var had_hood := str(options.get("hood"))
 	var most_visuals := {}
+	# The first hood's gameplay layout per size and seed: every other hood must match it.
+	var layouts := {}
 	for hood: String in _HoodStyles.ids():
 		options.set("hood", hood)
 		for size: int in 3:
@@ -62,6 +67,12 @@ func _run() -> void:
 				problems.append_array(_check(lot, label))
 				problems.append_array(_check_house(lot, hood, label))
 				if lot != null:
+					var key := "%d/%d" % [size, seed_value]
+					var layout := _gameplay_layout(lot)
+					if not layouts.has(key):
+						layouts[key] = [hood, layout]
+					elif layouts[key][1] != layout:
+						problems.append("%s: the gameplay layout differs from %s's (trees, hiding spots, litter, hedges, pool or weeds moved with the hood)" % [label, layouts[key][0]])
 					var visuals := lot.get_node("Dressing").find_children("*", "GeometryInstance3D", true, false).size()
 					most_visuals[hood] = maxi(int(most_visuals.get(hood, 0)), visuals)
 					if visuals > Constants.ART_YARD_MAX_VISUALS:
@@ -74,6 +85,29 @@ func _run() -> void:
 	result = {"ok": ok, "yards": yards, "problems": problems.size(), "yard_visuals": most_visuals, "done": true}
 	print("[LayoutTest] most visuals in a yard's dressing, by hood: %s" % most_visuals)
 	print("[LayoutTest] %d yards checked, %d problems, all ok: %s" % [yards, problems.size(), ok])
+
+
+## What the hood must never move (lot_generator.gd keeps the gameplay rng and
+## its taken areas frozen): the trees, hiding spots, hedges, pool and litter,
+## and how many weeds there are to pull.
+func _gameplay_layout(lot: Node3D) -> Array:
+	var trees: Array = lot.get_node("Dressing").get("_trees")
+	var hides := []
+	for child: Node in lot.get_children():
+		if str(child.name) in ["Shed", "BigBin", "Hedge"]:
+			hides.append([str(child.name), (child as Node3D).position.snapped(Vector3.ONE * 0.01)])
+	var spots := []
+	var weeds := 0
+	var tasks := lot.get_node_or_null("JobTasks")
+	if tasks != null:
+		for index: int in int(tasks.call("spot_count")):
+			var spot: Dictionary = tasks.call("spot", index)
+			var task := str(spot["task"])
+			if task in ["pick_litter", "trim_hedges", "skim_pool"]:
+				spots.append([task, (spot["at"] as Vector3).snapped(Vector3.ONE * 0.01)])
+			elif task == "pull_weeds":
+				weeds += 1
+	return [trees.duplicate(), hides, spots, weeds]
 
 
 ## Frees the yard and loads seed_value's at size, with every task; waits for
@@ -150,8 +184,9 @@ func _check_house(lot: Node3D, hood: String, label: String) -> Array[String]:
 				eaves["front" if (spot["normal"] as Vector3).z > 0.0 else "back"] += 1
 			if _inside_solid(space, lot, point):
 				out.append("%s: a %s spot is inside %s at %s" % [label, task, _what_is_at(space, lot, point), lot.to_local(point)])
-	if roof_spots == 0:
-		out.append("%s: no roof leaves" % label)
+	var size := clampi(int(lot.get("yard_size")), 0, 2)
+	if roof_spots < Constants.ART_YARD_ROOF_SPOTS_MIN[size]:
+		out.append("%s: only %d roof leaves (at least %d)" % [label, roof_spots, Constants.ART_YARD_ROOF_SPOTS_MIN[size]])
 	if int(eaves["front"]) == 0 or int(eaves["back"]) == 0:
 		out.append("%s: gutters front %d, back %d" % [label, eaves["front"], eaves["back"]])
 	# The spigot hangs on a wall: within 0.3 m of a HouseBody box.
