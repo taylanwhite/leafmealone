@@ -463,8 +463,8 @@ const HIRE_SKILL := Vector2(0.55, 0.85)
 const RUN_PROGRESS_FRACTION: float = 0.1
 
 ## Every shop price that isn't a base tool (TOOL_PRICES): the upgrades now; the
-## shops work adds consumables, cosmetics, gear and services here. Catalog.price
-## and Campaign.price_of read it.
+## shops work adds consumables, cosmetics, gear and services here. Campaign.price_of
+## reads it (Catalog.price will, after shops:1).
 const SHOP_PRICES: Dictionary = {
 	"rake_tier_1": 120,
 	"wheelbarrow_tier_1": 120,
