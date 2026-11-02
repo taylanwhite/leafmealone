@@ -1666,3 +1666,21 @@ static func keyed(text: String) -> String:
 			out += found.get_string()
 		at = found.get_end()
 	return out + text.substr(at)
+
+
+# ---- icons
+# Plain-text key names for ui/icons.gd key_label() ("[LMB]  Hide"), keyed by the
+# icon id of the mouse button. Keyboard keys read as the engine names them ("E",
+# "Tab"). TODO(settings): moves to core/input_labels.gd when settings:1 lands.
+
+const KEY_LABELS: Dictionary = {
+	"mouse_left": "LMB",
+	"mouse_right": "RMB",
+	"mouse_middle": "MMB",
+	"mouse_4": "Mouse 4",
+	"mouse_5": "Mouse 5",
+	"wheel_up": "Wheel Up",
+	"wheel_down": "Wheel Down",
+	"mouse": "Mouse",
+	"unbound": "Unbound",
+}
