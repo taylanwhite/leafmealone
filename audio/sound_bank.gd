@@ -52,11 +52,9 @@ const SOUNDS: Dictionary = {
 	"arrive": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.5, "db": 0.0},
 	"tick": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
 	"clear": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.0, "db": 0.0},
-	# ---- audio 4b: an escape sequence (net/border_return.gd today). The starting
-	# pistol and whistle when it starts (2D, it's yours), and the boing and slide
-	# whistle down when a hazard throws you back (where you were hit).
-	"crossing_go": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": 0.0},
-	"crossing_bonk": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# ---- audio 4b's crossing_go and crossing_bonk went with Border Return (R2
+	# chunk 6); Satellite Annex B's sounds are chunk 5's (net/annex/annex.gd plays
+	# stand-ins from this table until they're in).
 	# The Settings window (ui/settings_window.gd): a wooden pip per slider step or
 	# toggle, a soft pop for tabs and buttons, a rubber stamp for a new key binding.
 	"ui_tick": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": -4.0},

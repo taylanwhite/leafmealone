@@ -60,17 +60,12 @@ var _look := Vector2.ZERO
 var _ride: Node3D
 var _seat_index: int = -1
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-var _throwback_left: float = 0.0
-var _throwback_from: Vector3 = Vector3.ZERO
-var _throwback_to: Vector3 = Vector3.ZERO
-var _crossing_bounded: bool = false
-var _crossing_drive: bool = false
 ## Hiding spot this player is inside, set by the host through net/components/hide_spot.gd.
 var _hidden_spot: Node3D
 var _last_anim: AnimState = AnimState.IDLE
 var _on_seat: bool = false
-var _crossing_min: Vector3 = Vector3.ZERO
-var _crossing_max: Vector3 = Vector3.ZERO
+## _dress_up has already waited once for this player's name.
+var _dress_waited: bool = false
 var _step_wait: float = 0.0
 ## Bonked by a thrown item: no control for this long. Knocked flat if the item was heavy.
 var _stun_left: float = 0.0
@@ -220,10 +215,7 @@ func _physics_process(delta: float) -> void:
 		if in_pile and (Input.is_action_just_pressed("move_forward") or Input.is_action_just_pressed("jump")):
 			set_pile(false)
 		var seated_in_vehicle := in_vehicle()
-		if _crossing_drive:
-			_look = Vector2.ZERO
-			body_yaw = PI
-		elif not seated_in_vehicle:
+		if not seated_in_vehicle:
 			_apply_look()
 		if seated_in_vehicle:
 			_Seated.step(self, delta)
@@ -233,8 +225,6 @@ func _physics_process(delta: float) -> void:
 			pass
 		elif carried_by != 0:
 			_step_carried(delta)
-		elif _throwback_left > 0.0:
-			_step_throwback(delta)
 		elif _ladder != null:
 			_step_climb(delta)
 		elif _stun_left > 0.0 and _ride == null:
@@ -1431,14 +1421,7 @@ func _simulate(delta: float) -> void:
 	elif Input.is_action_just_pressed("jump") and not crouching:
 		velocity.y = JUMP_VELOCITY
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var direction := Vector3.ZERO
-	if _crossing_drive:
-		# The border camera looks toward the exit. W moves that way, A and D step across the lane.
-		direction = Vector3(input_dir.x, 0.0, -input_dir.y)
-		if direction.length() > 0.001:
-			direction = direction.normalized()
-	else:
-		direction = (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
+	var direction := (transform.basis * Vector3(input_dir.x, 0.0, input_dir.y)).normalized()
 	var speed := WALK_SPEED
 	if crouching:
 		speed = CROUCH_SPEED
@@ -1547,6 +1530,9 @@ func _rpc_say(sound_name: String) -> void:
 
 ## Heavy things slow you down while you carry them (Constants.CARRY_SLOWDOWN_PER_KG).
 func carry_speed_scale() -> float:
+	# Something set on this player from outside (the Annex's big stamp, R2 chunk 6).
+	if has_meta(&"speed_share"):
+		return float(get_meta(&"speed_share"))
 	if carrying != 0:
 		return Constants.CARRY_PLAYER_SPEED_SHARE
 	var kg := 0.0
@@ -1628,9 +1614,6 @@ func _stay_on_the_pad() -> void:
 	var pad := _pad_for_zone(world, zone)
 	if pad == null:
 		return
-	if _crossing_bounded:
-		global_position.x = clampf(global_position.x, _crossing_min.x, _crossing_max.x)
-		global_position.z = clampf(global_position.z, _crossing_min.z, _crossing_max.z)
 	var offset := global_position - pad.global_position
 	var rect: Rect2 = Constants.PAD_RECTS.get(String(pad.name), Rect2(-20.0, -20.0, 40.0, 40.0))
 	var past_edge := not rect.grow(1.0).has_point(Vector2(offset.x, offset.z))
@@ -1652,45 +1635,6 @@ func _stay_in_town() -> void:
 	var bounds := TownMap.TOWN_BOUNDS
 	global_position.x = clampf(global_position.x, bounds.position.x, bounds.end.x)
 	global_position.z = clampf(global_position.z, bounds.position.z, bounds.end.z)
-
-
-func is_throwing_back() -> bool:
-	return _throwback_left > 0.0
-
-
-## Comic toss back to the start of the lane. The owning player plays it immediately.
-func play_throwback(to: Vector3) -> void:
-	if _throwback_left > 0.0:
-		return
-	_throwback_from = global_position
-	_throwback_to = to
-	say("vo_oof")
-	_throwback_left = Constants.BORDER_THROWBACK_SECONDS
-	velocity = Vector3.ZERO
-
-
-func set_crossing_view(active: bool) -> void:
-	_crossing_drive = active
-	if not active:
-		_crossing_bounded = false
-	if is_multiplayer_authority():
-		%CameraRig.set_active(not active)
-
-
-func set_crossing_bounds(enabled: bool, min_corner: Vector3, max_corner: Vector3) -> void:
-	_crossing_bounded = enabled
-	_crossing_min = min_corner
-	_crossing_max = max_corner
-
-
-func _step_throwback(delta: float) -> void:
-	_throwback_left = maxf(_throwback_left - delta, 0.0)
-	var t := 1.0 - clampf(_throwback_left / Constants.BORDER_THROWBACK_SECONDS, 0.0, 1.0)
-	var pos := _throwback_from.lerp(_throwback_to, t)
-	pos.y += sin(t * PI) * 2.2
-	global_position = pos
-	body_yaw += delta * 14.0
-	velocity = Vector3.ZERO
 
 
 func _pad_for_zone(world: Node3D, zone: Net.Zone) -> Node3D:
@@ -1771,9 +1715,17 @@ func _apply_presentation() -> void:
 func _dress_up() -> void:
 	if $Visual.has_node("CartoonBody"):
 		return
+	var shown := Net.player_name(name.to_int())
+	# A body that spawns on a client before the session's names reach it waits
+	# for its name (_on_player_joined), or that client dresses it by peer id and
+	# everyone else by name: two looks for one person (the host's outfit at the
+	# Annex in 0.4.5). A short ceiling, so nobody stays a capsule if it never comes.
+	if shown == "" and not _dress_waited:
+		_dress_waited = true
+		get_tree().create_timer(Constants.DRESS_NAME_WAIT_SECONDS).timeout.connect(_dress_up)
+		return
 	var body := _CartoonBody.new()
 	body.name = "CartoonBody"
-	var shown := Net.player_name(name.to_int())
 	body.dress_from_seed(hash(shown) if shown != "" else name.to_int())
 	$Visual.add_child(body)
 	body.build(%Head, is_multiplayer_authority())
@@ -1846,6 +1798,7 @@ func _refresh_name() -> void:
 func _on_player_joined(peer_id: int) -> void:
 	if peer_id == name.to_int():
 		_refresh_name()
+		_dress_up()
 
 
 func _on_speaking_changed(peer_id: int, _is_speaking: bool) -> void:

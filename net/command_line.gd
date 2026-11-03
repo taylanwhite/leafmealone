@@ -116,6 +116,8 @@ var balance_test: bool = false
 var scenario: String = ""
 var observer: bool = false
 var playtest_tools_test: bool = false
+## --annex-test: Satellite Annex B, its schedule, forms and turnstile (net/dev/annex_test.gd, R2 chunk 6).
+var annex_test: bool = false
 ## --fixed-step=N: this run was launched with the engine's --fixed-fps N (which
 ## scripts can't see), so every frame is exactly 1/N s of game time. The dev tools
 ## then hold it to real time (net/dev/pacer.gd) and Net's clock counts game time
@@ -144,7 +146,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or annex_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test
 
 
 func read() -> void:
@@ -293,6 +295,8 @@ func read() -> void:
 			observer = true
 		elif argument == "--playtest-tools-test":
 			playtest_tools_test = true
+		elif argument == "--annex-test":
+			annex_test = true
 		elif argument.begins_with("--fixed-step="):
 			fixed_step = maxi(0, int(argument.trim_prefix("--fixed-step=")))
 		elif argument == "--art-test":

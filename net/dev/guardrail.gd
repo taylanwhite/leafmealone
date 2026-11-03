@@ -84,7 +84,7 @@ const SHOULD_HIT: Array = [
 ]
 const SHOULD_PASS: Array = [
 	"The NICE BOYS are here. Run. Hide. Break line of sight.", "nice boys finish last",
-	"Watch the ice on the driveway", "The lake froze solid", "Border Return",
+	"Watch the ice on the driveway", "The lake froze solid",
 	"RADIO: the NICE BOYS are on the way to this address", "Homie Depot", "Chefty",
 	"Unpermitted wheelbarrow parking, ma'am", "Paperwork Incoming", "Office of Curb Appeal",
 	"Spotless. Spick-and-span would be a stretch.", "a custom paint job", "Notice of Niceness",

@@ -28,6 +28,11 @@ VOICE_LATENCY_SLACK_MS = 100
 VOICE_UNDERRUN_SLACK = 0.02
 # How late a run event cue may show beyond the network delay, in milliseconds.
 CUE_SLACK_MS = 100
+# Annex B (R2 chunk 6): a caught bot that reached it this long before the run ended
+# must be home again (the soak's day, ANNEX_CAP_SECONDS_SOAK 50, plus closing's way out
+# and the trip home, with slack), and this share of visits must end before closing.
+ANNEX_DAY_SECONDS = 80
+ANNEX_BEFORE_CLOSING_SHARE = 0.8
 
 
 def main() -> int:
@@ -148,6 +153,31 @@ def main() -> int:
               f"{long_per_minute:>8.0f} {report['fps_median']:>4.0f} {voice_cells}")
     print()
 
+    annex_line = ""
+    if event_at >= 0:
+        captured = [name for name, report in reports.items() if "BORDER" in report.get("zones", [])]
+        returned = [name for name, report in reports.items()
+                    if "BORDER" in report.get("zones", [])
+                    and any(zone in ("LOT", "STORE", "TOWN") for zone in report["zones"][report["zones"].index("BORDER"):])]
+        hides = reports.get("Host", {}).get("hide_spots", {})
+        visits = reports.get("Host", {}).get("annex", {}).get("stats", {}).get("visits", [])
+        before_closing = [visit for visit in visits if not visit.get("closing")]
+        annex_line = (f"run event: {len(captured)} captured, {len(returned)} back from Annex B "
+              f"({len(before_closing)} of {len(visits)} out before closing), "
+              f"{hides.get('entered', 0)} hid, {hides.get('pulled_out', 0)} pulled out of hiding")
+    # Annex B (R2 chunk 6): every caught bot gets home, unless the run ended before
+    # the Annex could have let it out; most do their paperwork before closing.
+    if event_at >= 0:
+        for name in captured:
+            if name in returned:
+                continue
+            report = reports[name]
+            first = float(report.get("annex", {}).get("first_at_s", -1.0))
+            if first >= 0 and report["session_seconds"] - first > ANNEX_DAY_SECONDS:
+                failures.append(f"{name}: went to Annex B {report['session_seconds'] - first:.0f} s before the end and never came back")
+        if visits and len(before_closing) / len(visits) < ANNEX_BEFORE_CLOSING_SHARE:
+            failures.append(f"only {len(before_closing)} of {len(visits)} caught bots finished their paperwork before closing "
+                            f"(at least {ANNEX_BEFORE_CLOSING_SHARE:.0%})")
     if failures:
         verdict, code = "FAIL", 1
     elif busy:
@@ -160,13 +190,8 @@ def main() -> int:
         print(f"  busy: {line}")
     for line in warnings:
         print(f"  note: {line}")
-    if event_at >= 0:
-        captured = [name for name, report in reports.items() if "BORDER" in report.get("zones", [])]
-        returned = [name for name, report in reports.items()
-                    if "BORDER" in report.get("zones", []) and "LOT" in report["zones"][report["zones"].index("BORDER"):]]
-        hides = reports.get("Host", {}).get("hide_spots", {})
-        print(f"run event: {len(captured)} captured, {len(returned)} crossed back to the lot, "
-              f"{hides.get('entered', 0)} hid, {hides.get('pulled_out', 0)} pulled out of hiding")
+    if annex_line:
+        print(annex_line)
     # Bots work the job on the lot (net/dev/bot_job.gd). Informational, not a pass/fail check.
     work = reports.get("Host", {}).get("lot_work")
     if work:

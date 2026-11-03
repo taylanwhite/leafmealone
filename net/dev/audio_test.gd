@@ -33,8 +33,8 @@ extends Node
 ##   raid           the warning cuts in at once, then the chase, then back after
 ##   day_end        sleeping: Clock Out then Promoted!, silence under the card, Rise
 ##                  and Rake when it closes, and one buzz for the night's texts
-##   escape         (chunk 4b) the border cuts to the escape music, the crossing's
-##                  start, throw-back and finish play their pistol, boing and
+##   escape         (chunk 4b, R2 chunk 6) Annex B has its music at once, the big
+##                  stamp spotted switches to the escape cue, the turnstile plays
 ##                  "Made It Back"; "crossing" is still a mood (escape's alias)
 ## The Target client checks itself through its probe "audio" report: its stingers
 ## must include Clock Out and Promoted! (ci_local and netcode.yml).
@@ -783,51 +783,42 @@ func _day_end(music: Node) -> bool:
 	return day_end and card and silent and held and morning and buzz_ok
 
 
-## An escape sequence (Border Return today; audio chunk 4b): the border cuts to
-## the escape music at once (urgent), the start fires the starting pistol, a
-## throw-back's boing rides on you through the flight, and finishing plays "Made It Back". The
-## crossing's own RPC handlers run here as plain calls, so nothing goes over the
-## network, and _rpc_end puts the crossing back as it was.
+## Satellite Annex B (R2 chunk 6, audio chunk 4b's escape cue): Annex B gets its
+## music at once (urgent; "annex_hold" once chunk 5's muzak is in, the escape cue
+## until then), the Head NICE BOY spotting his big stamp off its pad hard-switches
+## to the escape cue (his _rpc_override(&"spotted")), and pushing through the
+## turnstile plays "Made It Back". The Annex's own RPC handlers run here as plain
+## calls, so nothing goes over the network, and _rpc_end puts it back as it was.
 func _escape(music: Node) -> bool:
-	var crossing := get_tree().get_first_node_in_group("border_return")
+	var annex := get_tree().get_first_node_in_group("annex")
 	var me := _me()
-	if crossing == null or me == null:
-		print("[AudioTest] no Border Return or no player")
+	if annex == null or me == null:
+		print("[AudioTest] no Annex or no player")
 		return false
 	var me_id := Net.local_peer_id()
 	Net.move_player_to_zone(me_id, Net.Zone.BORDER)
-	var cut := await _wait_mood(music, [&"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_FADE_URGENT_SECONDS + 0.2)
+	var cut := await _wait_mood(music, [&"annex_hold", &"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_FADE_URGENT_SECONDS + 0.2)
+	var at_annex := str(music.call("current_mood"))
+	await get_tree().physics_frame
+	var made_before := _Director.stinger_log.count("st_made_it")
+	var now := Net.server_time()
+	var form := {"boxes": PackedStringArray(["A", "B"]), "stamped": 2, "approved": true, "carbons": 0, "redirected": false, "after_hours": false, "fast_pass": false}
+	annex.call("_rpc_begin_local", 0, [me_id], 4242, now, {me_id: form}, now + Constants.ANNEX_CAP_SECONDS)
+	annex.call("_rpc_override", {"kind": "spotted", "w": "head", "at": 0.05, "until": 3.0, "peer": me_id})
+	var spotted := await _wait_mood(music, [&"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_FADE_URGENT_SECONDS + 0.4)
 	var track := str(music.call("current_track"))
 	var plays := track == _Tracks.tracks_for("escape")[0]
-	await get_tree().physics_frame
-	var go_before := _SfxScript.log.count("crossing_go")
-	var bonk_before := _SfxScript.log.count("crossing_bonk")
-	var made_before := _Director.stinger_log.count("st_made_it")
-	_SfxScript.placed.clear()
-	var roster: Array[int] = [me_id]
-	var finished: Array[int] = []
-	crossing.set("_roster", roster)
-	crossing.set("_finished", finished)
-	crossing.call("_rpc_go", Net.server_time())
-	var go := _SfxScript.log.count("crossing_go") == go_before + 1
-	var where := me.global_position
-	crossing.call("_rpc_throwback", where)
-	# The bonk rides on the flying body (play_on), so its landing pomf lands under you.
-	var entry := _placed("crossing_bonk")
-	var on_me: bool = not entry.is_empty() and entry["kind"] == "on" and entry["node"] == str(me.get_path())
-	var bonk := _SfxScript.log.count("crossing_bonk") == bonk_before + 1 and on_me
-	# Let the throw-back land before leaving, or it drags the body back to the border.
-	var flying := 0.0
-	while bool(me.call("is_throwing_back")) and flying < Constants.BORDER_THROWBACK_SECONDS + 1.0:
-		await get_tree().physics_frame
-		flying += get_physics_process_delta_time()
-	crossing.call("_rpc_clear", me_id)
+	annex.call("_rpc_stage", me_id, "inside", Net.server_time())
+	annex.call("_rpc_through", me_id, Net.server_time(), 30.0, false, PackedStringArray(["Ambient raking ...... $0.00"]), "TOTAL DUE $0.00")
 	var made_it: bool = _Director.stinger_log.count("st_made_it") == made_before + 1 and _Director.stinger_log.back() == "st_made_it"
-	crossing.call("_rpc_end")
+	annex.call("_rpc_end")
+	var pusher := get_tree().get_first_node_in_group("music_director")
+	if pusher != null:
+		pusher.call("pop_mood", &"annex_spotted")
 	Net.move_player_to_zone(me_id, Net.Zone.STORE)
 	var after := await _wait_mood(music, [&"store", &"night", &"silence"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
-	print("[AudioTest] escape: the border cuts to escape %s playing %s (%s), pistol %s, bonk riding on you %s, Made It Back %s, back to %s %s" % [cut, track, plays, go, bonk, made_it, music.call("current_mood"), after])
-	return cut and plays and go and bonk and made_it and after
+	print("[AudioTest] escape: Annex B cuts to %s %s, spotted -> escape %s playing %s (%s), Made It Back %s, back to %s %s" % [at_annex, cut, spotted, track, plays, made_it, music.call("current_mood"), after])
+	return cut and spotted and plays and made_it and after
 
 
 ## The host stands at a shop's counter, on the customer's side (as --shop-test does).

@@ -1,0 +1,2234 @@
+extends Node
+
+## Authority: host for who is at Satellite Annex B, every form, every stamp, the
+## big stamp, the turnstile and closing time. World/Annex (group "annex"), made by
+## levels/world.gd on every peer. docs/GAME.md "Form 27-B, in Triplicate" is the
+## design; gap-specs/nice_boys.json chunk 6 the spec.
+##
+## Caught players arrive at AnnexCurb (by the Shuttle, R2 chunk 4, which calls
+## begin(); without it, world.on_ride_arrived(BORDER) does), follow the Greeter
+## in and get a Form 27-B: a row of boxes, each a window's pictogram. Walk onto a
+## lit window's counter spot and its clerk stamps your next box. The clerks keep
+## routines (net/annex/annex_schedule.gd, a pure function of the seed and time),
+## so while one is on the phone or on a break you can stamp your own box (hold
+## interact on his stamp), at the risk of a carbon copy if he looks. Ring a bell
+## and he turns to his filing cabinet and his neighbour leans over to look. Window
+## D opens once. A full form goes to the Head NICE BOY's desk; while he's away
+## anyone can lift his big stamp. An approved form goes in the OUTGOING tray, the
+## turnstile turns, and you're out, with a receipt for $0.00. Friends still free
+## can visit (net/annex/visitor_door.gd), co-sign, ring bells and carry the big
+## stamp. At closing time everyone is approved AFTER HOURS and let out.
+##
+## Networking: every cosmetic thing is a pure function of (seed, begin time,
+## ordered overrides, server time) on every peer; the host decides every outcome
+## and sends it reliably: _rpc_begin, _rpc_join, _rpc_override(entry), _rpc_form,
+## _rpc_big_stamp, _rpc_turnstile, _rpc_cosigned, _rpc_closing, _rpc_through,
+## _rpc_end, _rpc_snapshot. Clients only ask: _rpc_request_* (client_t clamped to
+## the grace window). The set (World/BorderZone/AnnexSet), the staff bodies, the
+## clipboard and the slip are R2 chunk 5's; until those files exist, this uses
+## net/annex/annex_greybox.gd and net/annex/annex_paper.gd, which answer the same calls.
+
+const _Schedule = preload("res://net/annex/annex_schedule.gd")
+const _Form = preload("res://net/annex/form_state.gd")
+const _Receipt = preload("res://net/annex/receipt_lines.gd")
+const _Greybox = preload("res://net/annex/annex_greybox.gd")
+const _Paper = preload("res://net/annex/annex_paper.gd")
+const _VisitorDoor = preload("res://net/annex/visitor_door.gd")
+const _Strings = preload("res://ui/strings.gd")
+const _Bank = preload("res://audio/sound_bank.gd")
+## Other chunks' files, reached only through load() behind ResourceLoader.exists.
+const SET_SCRIPT := "res://levels/annex/annex_b.gd"
+const FORM_SCRIPT := "res://props/form_27b.gd"
+const RECEIPT_SCRIPT := "res://props/receipt_slip.gd"
+const SERVING := Constants.ANNEX_SERVING_WINDOWS
+## The staff bodies' play(state, at, args) (C10): a state, not a sound.
+const STAFF_PLAY: StringName = &"play"
+## Each serving window's neighbour, for the bell's lean (B leans either way, by bell count).
+const NEIGHBOURS: Dictionary = {"A": ["B"], "B": ["A", "C"], "C": ["B"]}
+## Where a rider is in their visit.
+const STAGE_WALK := "walk"
+const STAGE_INSIDE := "inside"
+const STAGE_THROUGH := "through"
+const STAGE_OUT := "out"
+## Chunk 5's sound ids, and what plays until they exist.
+const SOUND_FALLBACK: Dictionary = {
+	"stamp_kachunk": "ui_stamp", "stamp_smudge": "whoosh", "desk_bell": "ui_pop", "office_ding": "clear",
+	"blinds_rattle": "whoosh", "turnstile_clack": "ui_tick", "turnstile_clunk": "thud", "door_chime": "ui_pop",
+	"pen_squeak": "ui_tick", "punch_card": "ui_stamp", "copier_beep": "tick", "party_toot": "register",
+	"closing_bell": "warning", "lights_off_clunk": "thud", "clerk_snore": "", "receipt_print": "ui_tick",
+	"whistle": "warning",
+}
+
+signal rider_through_turnstile(peer_id: int)
+signal annex_ended
+
+## For the probe, annex_test and the soak: totals since launch, and each visit.
+static var stats: Dictionary = {"begun": 0, "riders": 0, "through": 0, "closing_outs": 0, "served": 0, "self_stamps": 0, "carbons": 0, "bells": 0, "wrong_windows": 0, "window_d": 0, "approved": 0, "big_stamps": 0, "spotted": 0, "cosigns": 0, "visitors": 0, "bounces": 0, "ended": 0, "visits": []}
+
+# ---- every peer, from the host's messages
+var _active: bool = false
+var _trip_id: int = 0
+var _seed: int = 0
+var _start_at: float = 0.0
+var _close_at: float = 0.0
+var _roster: Array[int] = []
+var _visitors: Array[int] = []
+## peer -> form (net/annex/form_state.gd).
+var _forms: Dictionary = {}
+## peer -> {stage, joined_at, out_at}.
+var _stages: Dictionary = {}
+var _overrides: Array = []
+var _icons: Dictionary = {}
+var _quirks: Dictionary = {}
+var _d_open_at: float = 0.0
+var _big_holder: int = 0
+var _closing: bool = false
+var _serves_shown: int = 0
+
+# ---- host only
+var _queues: Dictionary = {}
+var _serving: Dictionary = {}
+var _holds: Dictionary = {}
+var _bell_last: Dictionary = {}
+var _bell_count: int = 0
+var _wrong_until: Dictionary = {}
+var _redirected: Dictionary = {}
+var _cosigned: Dictionary = {}
+var _heat_at_catch: Dictionary = {}
+var _counts: Dictionary = {}
+var _d_used: bool = false
+var _spot_wait: float = 0.0
+var _pending: Array = []
+var _returning: Dictionary = {}
+var _visitor_home: Dictionary = {}
+var _last_request: Dictionary = {}
+
+# ---- local presentation
+var _set: Node3D
+var _shown: Dictionary = {}
+var _form_view: Node3D
+var _dwell_window: String = ""
+var _dwell: float = 0.0
+var _retry: float = 0.0
+var _hold_kind: String = ""
+var _hold_window: String = ""
+var _urgent_shown: bool = false
+var _rows_off: int = 0
+var _doors: Array[Node] = []
+## The local player may pass the turnstile until then (server time).
+var _turnstile_open_until: float = -1.0
+var _turnstile_passing: bool = false
+## The walk-in behind the Greeter: an anchor per rider that every peer moves the
+## same way from the server clock, with the rider staged behind it (R2 chunk 1).
+var _walk_anchors: Dictionary = {}
+static var _first_visit_quipped: bool = false
+
+
+func _ready() -> void:
+	add_to_group("annex")
+	add_to_group("prompt_sources")
+	if not Net.player_left.is_connected(_on_player_left):
+		Net.player_left.connect(_on_player_left)
+	if not Net.player_joined.is_connected(_on_player_joined):
+		Net.player_joined.connect(_on_player_joined)
+
+
+# ---------------------------------------------------------------- public (C13)
+
+
+func is_active() -> bool:
+	return _active
+
+
+## From ANNEX_URGENT_AT: the clock races, the lights flicker, the escape cue.
+func urgent() -> bool:
+	return _active and _t() >= _urgent_at()
+
+
+func roster() -> Array[int]:
+	return _roster.duplicate()
+
+
+func visitors() -> Array[int]:
+	return _visitors.duplicate()
+
+
+func form_of(peer_id: int) -> Dictionary:
+	return (_forms.get(peer_id, {}) as Dictionary).duplicate(true)
+
+
+func stage_of(peer_id: int) -> String:
+	return str((_stages.get(peer_id, {}) as Dictionary).get("stage", ""))
+
+
+func seed_value() -> int:
+	return _seed
+
+
+func overrides() -> Array:
+	return _overrides.duplicate(true)
+
+
+## Seconds since the Annex began (the schedule's clock).
+func elapsed() -> float:
+	return _t()
+
+
+## The effective state of a window ("A".."D", or "head") right now, every peer.
+func window_now(window: String) -> Dictionary:
+	return _Schedule.effective(_seed, window, _t(), _overrides)
+
+
+func big_stamp_holder() -> int:
+	return _big_holder
+
+
+## For recorder.gd, remote play and the probe.
+func status() -> Dictionary:
+	if not _active:
+		return {"active": false}
+	var me := Net.local_peer_id()
+	var out := {"active": true, "t": snappedf(_t(), 0.1), "roster": _roster.size(), "visitors": _visitors.size(), "closing": _closing, "urgent": urgent()}
+	if _forms.has(me):
+		var form: Dictionary = _forms[me]
+		out["form"] = "%d/%d%s" % [int(form["stamped"]), (form["boxes"] as PackedStringArray).size(), " approved" if bool(form["approved"]) else ""]
+		out["next"] = _Form.next_window(form)
+		out["stage"] = stage_of(me)
+	return out
+
+
+## Host. The shuttle's riders reached AnnexCurb: their visit starts at server time at.
+func begin(trip_id: int, riders: Array, at: float = -1.0) -> void:
+	if not Net.is_host() or riders.is_empty():
+		return
+	var when := maxf(at, Net.server_time())
+	var fresh: Array[int] = []
+	for entry: Variant in riders:
+		var peer_id := int(entry)
+		if not _roster.has(peer_id) and Net.peer_ids().has(peer_id):
+			fresh.append(peer_id)
+	if fresh.is_empty():
+		return
+	if _active:
+		for peer_id: int in fresh:
+			var form := _new_form(peer_id, _roster.size())
+			_arrive(peer_id, form)
+			_rpc_join.rpc(peer_id, form, when)
+		return
+	var director := get_tree().get_first_node_in_group("run_director")
+	var raid_seed := int(director.call("hazard_seed")) if director != null and director.has_method("hazard_seed") else 0
+	if raid_seed == 0:
+		raid_seed = randi()
+	_trip_id = trip_id
+	_seed = absi(raid_seed ^ (trip_id * 7919 + 1))
+	_reset_host()
+	var forms := {}
+	for index: int in fresh.size():
+		forms[fresh[index]] = _new_form(fresh[index], index)
+	var cap := Constants.ANNEX_CAP_SECONDS_SOAK if float(Net.dev_options().get("run_event_at")) >= 0.0 else Constants.ANNEX_CAP_SECONDS
+	var roster_list: Array = []
+	for peer_id: int in fresh:
+		roster_list.append(peer_id)
+	# At the curb first (the zone move goes out before the begin, so every peer
+	# stages the walk-in from the curb, not from the yard).
+	for peer_id: int in fresh:
+		_arrive(peer_id, forms[peer_id])
+	_rpc_begin.rpc(trip_id, roster_list, _seed, when, forms, SERVING, _Schedule.quirks(_seed).keys(), _Schedule.d_open_at(_seed), when + cap)
+	stats["begun"] = int(stats["begun"]) + 1
+	var telemetry := get_tree().get_first_node_in_group("telemetry")
+	if telemetry != null and telemetry.has_method("mark_annex_start"):
+		telemetry.call("mark_annex_start")
+
+
+## Host. A free friend came in through a visitor door.
+func add_visitor(peer_id: int, home: Dictionary = {}) -> void:
+	if not Net.is_host() or not _active or _visitors.has(peer_id) or _roster.has(peer_id):
+		return
+	_visitor_home[peer_id] = home
+	var list: Array = []
+	for id: int in _visitors:
+		list.append(id)
+	list.append(peer_id)
+	_rpc_visitors.rpc(list)
+	stats["visitors"] = int(stats["visitors"]) + 1
+
+
+## Host. A visitor leaves (back through the door they used).
+func remove_visitor(peer_id: int) -> void:
+	if not Net.is_host() or not _visitors.has(peer_id):
+		return
+	_send_visitor_home(peer_id)
+
+
+## Host, dev tools only (scenarios, annex_test): jump the Annex's clock so it
+## reads t seconds since it began, on every peer. Overrides keep their schedule
+## times; the walk-in and closing move with the clock.
+func dev_retime(t_target: float) -> void:
+	if not Net.is_host() or not _active:
+		return
+	var start := Net.server_time() - t_target
+	_rpc_retime.rpc(start, start + (_close_at - _start_at))
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_retime(start_at: float, close_at: float) -> void:
+	var shift := start_at - _start_at
+	_start_at = start_at
+	_close_at = close_at
+	for key: Variant in _stages.keys():
+		var entry: Dictionary = _stages[key]
+		entry["joined_at"] = float(entry.get("joined_at", start_at)) + shift
+	_shown.clear()
+	_urgent_shown = false
+	_rows_off = 0
+
+
+## Host, dev tools only: put a rider's form in this state on every peer.
+func dev_set_form(peer_id: int, form: Dictionary) -> void:
+	if Net.is_host() and _forms.has(peer_id):
+		_send_form(peer_id, form, Net.server_time(), "")
+
+
+## Dev tools only (annex_test): the last report a client sent back.
+var dev_report: Dictionary = {}
+
+
+## Host, dev tools only: have one client do what its player would (the same
+## requests its input sends), or report what it sees.
+func dev_client(peer_id: int, op: String, args: Array = []) -> void:
+	if Net.is_host():
+		_rpc_dev_client.rpc_id(peer_id, op, args)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_dev_client(op: String, args: Array) -> void:
+	var now := Net.server_time()
+	match op:
+		"self_stamp":
+			_rpc_request_self_stamp.rpc_id(1, str(args[0]), bool(args[1]), now)
+		"bell":
+			_rpc_request_bell.rpc_id(1, str(args[0]))
+		"desk":
+			_rpc_request_desk.rpc_id(1)
+		"tray":
+			_rpc_request_tray.rpc_id(1)
+		"big":
+			_rpc_request_big_stamp.rpc_id(1, str(args[0]), int(args[1]))
+		"report":
+			var seeds: Array = args[0] if not args.is_empty() else []
+			var hashes := []
+			for entry: Variant in seeds:
+				hashes.append(_Schedule.hash_samples(int(entry), 200))
+			var windows := {}
+			if _active:
+				for window: String in Constants.ANNEX_WINDOWS + ["head"]:
+					windows[window] = int(window_now(window)["state"])
+			var looks := {}
+			for node: Node in get_tree().get_nodes_in_group("players"):
+				var body := node.get_node_or_null("Visual/CartoonBody")
+				if body != null and Net.player_zone(str(node.name).to_int()) == Net.Zone.BORDER:
+					looks[str(node.name)] = str(hash([body.get("shirt"), body.get("pants"), body.get("skin"), body.get("hair"), body.get("hat_style"), body.get("outfit")]))
+			var me := Net.local_peer_id()
+			_rpc_dev_report.rpc_id(1, {"hashes": hashes, "windows": windows, "looks": looks, "active": _active, "form": form_of(me), "stage": stage_of(me), "seed": _seed, "t": _t(), "form_view": _form_view != null and is_instance_valid(_form_view)})
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_dev_report(report: Dictionary) -> void:
+	if Net.is_host():
+		dev_report = report
+		dev_report["received_at"] = Net.server_time()
+
+
+func snapshot() -> Dictionary:
+	if not _active:
+		return {"active": false}
+	return {"active": true, "trip_id": _trip_id, "seed": _seed, "start_at": _start_at, "close_at": _close_at, "roster": _roster.duplicate(), "visitors": _visitors.duplicate(), "forms": _forms.duplicate(true), "stages": _stages.duplicate(true), "overrides": _overrides.duplicate(true), "big_holder": _big_holder, "closing": _closing}
+
+
+## A late joiner's copy of the room (they spectate; they're never in the roster).
+func apply_snapshot(snap: Dictionary) -> void:
+	if not bool(snap.get("active", false)):
+		return
+	_rpc_begin_local(int(snap["trip_id"]), snap["roster"], int(snap["seed"]), float(snap["start_at"]), snap["forms"], float(snap["close_at"]))
+	_visitors.clear()
+	for entry: Variant in snap["visitors"]:
+		_visitors.append(int(entry))
+	_stages = (snap["stages"] as Dictionary).duplicate(true)
+	_overrides = (snap["overrides"] as Array).duplicate(true)
+	_big_holder = int(snap["big_holder"])
+	_closing = bool(snap["closing"])
+	_apply_big_stamp(_big_holder, Net.server_time())
+
+
+# ---------------------------------------------------------------- host: begin, arrive, finish
+
+
+func _reset_host() -> void:
+	_queues.clear()
+	_serving.clear()
+	_holds.clear()
+	_bell_last.clear()
+	_bell_count = 0
+	_wrong_until.clear()
+	_redirected.clear()
+	_cosigned.clear()
+	_counts.clear()
+	_d_used = false
+	_pending.clear()
+	_returning.clear()
+	_visitor_home.clear()
+	_spot_wait = 0.0
+
+
+func _new_form(peer_id: int, index: int) -> Dictionary:
+	var heat := float(_heat_at_catch.get(peer_id, _heat_now()))
+	var visits_before := int(Campaign.call("annex_visits", peer_id)) if Campaign.has_method("annex_visits") else 0
+	var fast := visits_before > 0 and visits_before % Constants.ANNEX_FAST_PASS_EVERY == 0
+	var form := _Form.make(_Form.boxes_for(_seed, index, heat, SERVING), fast)
+	_counts[peer_id] = {"heat": heat}
+	return form
+
+
+## Host: a rider is at the curb (moved there if the shuttle didn't), the visit counts.
+func _arrive(peer_id: int, _form: Dictionary) -> void:
+	var curb := _marker("AnnexCurb")
+	var body := _player(peer_id)
+	if Net.player_zone(peer_id) != Net.Zone.BORDER or body == null or curb == null or body.global_position.distance_to(curb.global_position) > 4.0:
+		Net.move_player_to_zone(peer_id, Net.Zone.BORDER, &"AnnexCurb")
+	if Campaign.has_method("note_annex_visit"):
+		Campaign.call("note_annex_visit", peer_id)
+	_set_encounter_stage(peer_id, "ANNEX")
+	stats["riders"] = int(stats["riders"]) + 1
+
+
+## Host: a rider pushed through the turnstile (or was let out at closing).
+func _through(peer_id: int, by_closing: bool) -> void:
+	var stage: Dictionary = _stages.get(peer_id, {})
+	if str(stage.get("stage", "")) != STAGE_INSIDE:
+		return
+	var now := Net.server_time()
+	var seconds := maxf(now - float(stage.get("joined_at", _start_at)), 0.0)
+	var best := float(Campaign.call("annex_best", peer_id)) if Campaign.has_method("annex_best") else 0.0
+	var tally: Dictionary = _counts.get(peer_id, {})
+	if by_closing:
+		tally["closing"] = 1
+	tally.merge(_raid_stats(peer_id))
+	var lines := _Receipt.lines(hash([_seed, peer_id]), tally, seconds, best)
+	var total := _Receipt.total_line(tally)
+	if Campaign.has_method("note_annex_time"):
+		Campaign.call("note_annex_time", peer_id, seconds)
+	Campaign.add_xp(Constants.XP_PAPERWORK, "paperwork")
+	stats["through"] = int(stats["through"]) + 1
+	if by_closing:
+		stats["closing_outs"] = int(stats["closing_outs"]) + 1
+	(stats["visits"] as Array).append({"peer": peer_id, "seconds": snappedf(seconds, 0.1), "closing": by_closing, "boxes": (form_of(peer_id).get("boxes", PackedStringArray()) as PackedStringArray).size()})
+	var telemetry := get_tree().get_first_node_in_group("telemetry")
+	if telemetry != null and telemetry.has_method("mark_annex_finish"):
+		telemetry.call("mark_annex_finish", peer_id)
+	if _big_holder == peer_id:
+		_host_return_stamp(now)
+	_rpc_through.rpc(peer_id, now, seconds, by_closing, lines, total)
+	_maybe_return()
+
+
+## Host: send the finished riders home, all together (ANNEX_FINISH_AS_GROUP) once
+## nobody is still inside, else each as they come out.
+func _maybe_return() -> void:
+	var waiting: Array[int] = []
+	var inside := 0
+	for peer_id: int in _roster:
+		var stage := stage_of(peer_id)
+		if stage == STAGE_THROUGH and not _returning.has(peer_id):
+			waiting.append(peer_id)
+		elif stage == STAGE_INSIDE or stage == STAGE_WALK:
+			inside += 1
+	if waiting.is_empty() or (Constants.ANNEX_FINISH_AS_GROUP and inside > 0):
+		return
+	var leave_at := Net.server_time() + Constants.ANNEX_RETURN_WAIT
+	for peer_id: int in waiting:
+		_returning[peer_id] = leave_at
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null and shuttle.has_method("host_start_return"):
+		var peers: Array = []
+		for id: int in waiting:
+			peers.append(id)
+		shuttle.call("host_start_return", peers, _drop_target())
+		for id: int in waiting:
+			_returning[id] = INF
+	else:
+		_pending.append({"at": leave_at, "do": "send_home", "peers": waiting.duplicate()})
+
+
+## Where riders go back to: the yard if one is waiting, else Homie Depot.
+func _drop_target() -> Dictionary:
+	var slot := get_parent().get_node_or_null("LotZone/LotSlot")
+	var yard_waiting := slot != null and slot.get_child_count() > 0
+	return {"zone": Net.Zone.LOT if yard_waiting else Net.Zone.STORE, "marker": ""}
+
+
+## Host, without the Shuttle: home by the host's teleport, let go with immunity.
+func _send_home(peer_id: int) -> void:
+	if not Net.peer_ids().has(peer_id):
+		return
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and director.has_method("release_peer"):
+		# With R2 chunk 2's director the drop-off's own immunity, else its default.
+		var takes_immunity := false
+		for method: Dictionary in director.get_method_list():
+			if str(method["name"]) == "release_peer":
+				takes_immunity = (method["args"] as Array).size() >= 2
+		if takes_immunity:
+			director.call("release_peer", peer_id, Constants.ANNEX_DROP_IMMUNITY)
+		else:
+			director.call("release_peer", peer_id)
+	_set_encounter_stage(peer_id, "FREE")
+	Net.move_player_to_zone(peer_id, int(_drop_target()["zone"]) as Net.Zone)
+	_rpc_out.rpc(peer_id)
+
+
+func _send_visitor_home(peer_id: int) -> void:
+	var home: Dictionary = _visitor_home.get(peer_id, {})
+	_visitor_home.erase(peer_id)
+	var zone := int(home.get("zone", Net.Zone.STORE))
+	var at: Variant = home.get("at", null)
+	if at is Transform3D:
+		Net.move_player_to_zone(peer_id, zone as Net.Zone, &"", false)
+		_rpc_place.rpc_id(peer_id, at)
+	else:
+		Net.move_player_to_zone(peer_id, zone as Net.Zone)
+	var list: Array = []
+	for id: int in _visitors:
+		if id != peer_id:
+			list.append(id)
+	_rpc_visitors.rpc(list)
+
+
+# ---------------------------------------------------------------- host: the room
+
+
+func _process(delta: float) -> void:
+	if Net.is_host():
+		_watch_catches()
+		if _active:
+			_host_tick(delta)
+	if _active:
+		_present(delta)
+		_local_input(delta)
+
+
+## Remember each caught player's heat at the catch (the form's length).
+func _watch_catches() -> void:
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director == null:
+		return
+	var roster: Array = director.call("cohort_roster")
+	for entry: Variant in roster:
+		if not _heat_at_catch.has(int(entry)):
+			_heat_at_catch[int(entry)] = _heat_now()
+	for key: Variant in _heat_at_catch.keys():
+		if not roster.has(key) and not _roster.has(int(key)):
+			_heat_at_catch.erase(key)
+
+
+func _host_tick(delta: float) -> void:
+	var now := Net.server_time()
+	var t := _t()
+	# Timed host actions (a serve's stamp, the desk slam, the stamp taken back, the trip home).
+	var due: Array = []
+	for item: Dictionary in _pending:
+		if now >= float(item["at"]):
+			due.append(item)
+	for item: Dictionary in due:
+		_pending.erase(item)
+		_do(item)
+	# The walk-in ends: the clipboard.
+	for peer_id: int in _roster:
+		var stage: Dictionary = _stages.get(peer_id, {})
+		if str(stage.get("stage", "")) == STAGE_WALK and now >= float(stage.get("joined_at", 0.0)) + Constants.ANNEX_GREETER_WALK:
+			_rpc_stage.rpc(peer_id, STAGE_INSIDE, now)
+	_serve_queues(now, t)
+	_step_holds(now, t)
+	_spot_check(delta, now, t)
+	_watch_turnstile(now)
+	if not _closing and now >= _close_at:
+		_host_closing(now)
+	if _closing and now >= _close_at + Constants.ANNEX_CLOSING_OUT:
+		for peer_id: int in _roster:
+			if stage_of(peer_id) == STAGE_INSIDE or stage_of(peer_id) == STAGE_WALK:
+				_rpc_stage.rpc(peer_id, STAGE_INSIDE, now)
+				_force_out(peer_id)
+	_maybe_end()
+
+
+func _do(item: Dictionary) -> void:
+	var now := Net.server_time()
+	match str(item["do"]):
+		"serve_done":
+			var peer_id := int(item["peer"])
+			var window := str(item["window"])
+			_serving.erase(window)
+			if not _forms.has(peer_id) or _Form.next_window(_forms[peer_id]) != window:
+				return
+			var form: Dictionary = _Form.stamp(_forms[peer_id])
+			if _quirks.get(window, "") == "redirect" and not bool(_redirected.get(peer_id, false)):
+				_redirected[peer_id] = true
+				form = _Form.redirect(form, _redirect_window(window, form))
+				_bump(peer_id, "redirect")
+			stats["served"] = int(stats["served"]) + 1
+			_send_form(peer_id, form, now, window)
+		"approve_done":
+			var peer_id := int(item["peer"])
+			if _forms.has(peer_id) and not bool(_forms[peer_id]["approved"]):
+				stats["approved"] = int(stats["approved"]) + 1
+				_send_form(peer_id, _Form.approve(_forms[peer_id]), now, "head")
+		"stamp_back":
+			_host_return_stamp(now, int(item.get("peer", 0)))
+		"send_home":
+			for entry: Variant in item["peers"]:
+				_send_home(int(entry))
+		"visitors_home":
+			for peer_id: int in _visitors.duplicate():
+				_send_visitor_home(peer_id)
+		"visit":
+			var peer_id := int(item["peer"])
+			if Net.peer_ids().has(peer_id) and _active:
+				Net.move_player_to_zone(peer_id, Net.Zone.BORDER, &"AnnexSide")
+				add_visitor(peer_id, item["home"])
+
+
+func _serve_queues(now: float, t: float) -> void:
+	for window: String in Constants.ANNEX_WINDOWS:
+		if _serving.has(window):
+			continue
+		var queue: Array = _queues.get(window, [])
+		while not queue.is_empty():
+			var peer_id := int(queue[0])
+			var counter := _window_spot(window, "Counter")
+			var body := _player(peer_id)
+			var still := body != null and counter != Vector3.INF and _flat(body.global_position, counter) <= Constants.ANNEX_QUEUE_REACH and _forms.has(peer_id) and _Form.next_window(_forms[peer_id]) == window
+			if not still:
+				queue.pop_front()
+				continue
+			if bool(_Schedule.effective(_seed, window, t, _overrides)["serving"]):
+				queue.pop_front()
+				_start_serve(peer_id, window, now)
+			break
+		_queues[window] = queue
+
+
+func _start_serve(peer_id: int, window: String, now: float) -> void:
+	var until := now + Constants.ANNEX_SERVE_SECONDS
+	_serving[window] = {"peer": peer_id, "until": until}
+	_add_override({"kind": "serve", "w": window, "at": now, "until": until, "peer": peer_id})
+	_pending.append({"at": until, "do": "serve_done", "peer": peer_id, "window": window})
+
+
+## Self-stamps and co-signing: holds the host times.
+func _step_holds(now: float, t: float) -> void:
+	for key: Variant in _holds.keys():
+		var peer_id := int(key)
+		var hold: Dictionary = _holds[key]
+		var body := _player(peer_id)
+		var window := str(hold.get("window", ""))
+		if str(hold["kind"]) == "self_stamp":
+			var spot := _window_spot(window, "StampPad")
+			if body == null or spot == Vector3.INF or _flat(body.global_position, spot) > Constants.ANNEX_STAMP_REACH + 0.4:
+				_holds.erase(key)
+				continue
+			var state := _Schedule.effective(_seed, window, t, _overrides)
+			if bool(state["looking"]):
+				# Caught with a hand on his stamp: a carbon copy, a smile, a scribble.
+				_holds.erase(key)
+				_add_override({"kind": "notice", "w": window, "at": now, "until": now + 1.4, "peer": peer_id})
+				stats["carbons"] = int(stats["carbons"]) + 1
+				_bump(peer_id, "carbon")
+				if _forms.has(peer_id):
+					_send_form(peer_id, _Form.carbon(_forms[peer_id], window), now, "")
+				continue
+			if now - float(hold["start"]) >= Constants.ANNEX_SELF_STAMP_HOLD:
+				_holds.erase(key)
+				var ok := _forms.has(peer_id) and _Form.next_window(_forms[peer_id]) == window and not bool(_forms[peer_id]["approved"])
+				_rpc_stamped.rpc(peer_id, window, now, ok)
+				if ok:
+					stats["self_stamps"] = int(stats["self_stamps"]) + 1
+					_send_form(peer_id, _Form.stamp(_forms[peer_id]), now, "")
+		elif str(hold["kind"]) == "cosign":
+			var sheet := _marker("CoSignSheet")
+			if body == null or sheet == null or _flat(body.global_position, sheet.global_position) > Constants.ANNEX_SHEET_REACH + 0.4:
+				_holds.erase(key)
+				continue
+			if now - float(hold["start"]) >= Constants.ANNEX_COSIGN_HOLD:
+				_holds.erase(key)
+				_host_cosign(peer_id, now)
+
+
+## The Head NICE BOY's view of his big stamp, ANNEX_STAMP_SPOT_HZ times a second.
+func _spot_check(delta: float, now: float, t: float) -> void:
+	if _big_holder == 0:
+		return
+	_spot_wait -= delta
+	if _spot_wait > 0.0:
+		return
+	_spot_wait = 1.0 / Constants.ANNEX_STAMP_SPOT_HZ
+	var head := _Schedule.effective(_seed, "head", t, _overrides)
+	if not bool(head["looking"]) or int(head["state"]) == _Schedule.S.SPOTTED:
+		return
+	var body := _player(_big_holder)
+	var desk := _marker("HeadDesk")
+	if body == null or desk == null:
+		return
+	if not _head_sees(desk, body.global_position + Vector3(0.0, 1.0, 0.0)):
+		return
+	stats["spotted"] = int(stats["spotted"]) + 1
+	_add_override({"kind": "spotted", "w": "head", "at": now, "until": now + Constants.ANNEX_SPOTTED_WALK + 0.6, "peer": _big_holder})
+	_pending.append({"at": now + Constants.ANNEX_SPOTTED_WALK, "do": "stamp_back", "peer": _big_holder})
+
+
+## He looks out across his desk (toward DeskSpot) from his chair: a cone and a clear line.
+func _head_sees(desk: Node3D, point: Vector3) -> bool:
+	var spot := desk.get_node_or_null("DeskSpot") as Node3D
+	var facing := (spot.global_position - desk.global_position) if spot != null else -desk.global_basis.z
+	facing.y = 0.0
+	facing = facing.normalized()
+	var eye := desk.global_position - facing * 0.8 + Vector3(0.0, 1.55, 0.0)
+	var to := point - eye
+	var flat := Vector3(to.x, 0.0, to.z)
+	if flat.length() < 0.05:
+		return true
+	if rad_to_deg(facing.angle_to(flat.normalized())) > Constants.ANNEX_CLERK_VIEW_DEG * 0.5:
+		return false
+	var space := (desk as Node3D).get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(eye, point, 1)
+	var hit := space.intersect_ray(query)
+	return hit.is_empty() or (hit["position"] as Vector3).distance_to(point) < 0.6
+
+
+func _host_return_stamp(now: float, from_peer: int = 0) -> void:
+	if _big_holder == 0:
+		return
+	var holder := _big_holder
+	if from_peer != 0 and from_peer != holder:
+		return
+	if from_peer != 0 and _forms.has(holder):
+		# Taken back: the holder's approval and one box's ink smudge off.
+		_send_form(holder, _Form.smudge(_forms[holder]), now, "smudge")
+	_big_holder = 0
+	_rpc_big_stamp.rpc(0, now)
+
+
+func _host_cosign(visitor: int, now: float) -> void:
+	if bool(_cosigned.get(visitor, false)):
+		return
+	_cosigned[visitor] = true
+	stats["cosigns"] = int(stats["cosigns"]) + 1
+	_rpc_cosigned.rpc(visitor, now)
+	for peer_id: int in _roster:
+		if stage_of(peer_id) != STAGE_INSIDE or not _forms.has(peer_id):
+			continue
+		var form: Dictionary = _forms[peer_id]
+		if bool(form["approved"]) or _Form.is_full(form):
+			continue
+		_bump(peer_id, "cosigned")
+		_send_form(peer_id, _Form.stamp(form), now, "cosign")
+		if Campaign.has_method("add_rescue"):
+			Campaign.call("add_rescue", visitor, &"cosign")
+
+
+## Approved riders who pushed through: out. Anyone else at the turnstile bounces
+## (the bar's collider already stopped them; the clunk is the host's).
+func _watch_turnstile(_now: float) -> void:
+	var turnstile := _marker("Turnstile")
+	var forecourt := _marker("Forecourt")
+	if turnstile == null or forecourt == null:
+		return
+	var out_dir := forecourt.global_position - turnstile.global_position
+	out_dir.y = 0.0
+	out_dir = out_dir.normalized()
+	for peer_id: int in _roster:
+		if stage_of(peer_id) != STAGE_INSIDE:
+			continue
+		var form: Dictionary = _forms.get(peer_id, {})
+		# Through with a form in the tray, or anyone once closing has opened it for all.
+		if not bool(form.get("approved", false)) or not (bool(form.get("dropped", false)) or _closing):
+			continue
+		var body := _player(peer_id)
+		if body == null:
+			continue
+		var offset := body.global_position - turnstile.global_position
+		if offset.dot(out_dir) > 0.45 and Vector3(offset.x, 0.0, offset.z).length() < 4.0:
+			_through(peer_id, false)
+
+
+func _host_closing(now: float) -> void:
+	_closing = true
+	for peer_id: int in _roster:
+		if stage_of(peer_id) == STAGE_INSIDE and _forms.has(peer_id) and not bool(_forms[peer_id]["approved"]):
+			_forms[peer_id] = _Form.approve(_forms[peer_id], true)
+	_rpc_closing.rpc(now, _forms)
+
+
+## Closing time's stragglers: out through the door-swing iris (R2 chunk 1) to the
+## forecourt, counted as let out at closing.
+func _force_out(peer_id: int) -> void:
+	var iris_owner := _player(peer_id)
+	if iris_owner == null:
+		return
+	_rpc_door_iris.rpc_id(peer_id, Net.server_time())
+	Net.move_player_to_zone(peer_id, Net.Zone.BORDER, &"Forecourt")
+	_through(peer_id, true)
+
+
+func _maybe_end() -> void:
+	var anyone := false
+	for peer_id: int in _roster:
+		var stage := stage_of(peer_id)
+		if stage != STAGE_OUT and not (stage == STAGE_THROUGH and float(_returning.get(peer_id, 0.0)) == INF):
+			anyone = true
+	if anyone:
+		return
+	if not _visitors.is_empty():
+		var queued := false
+		for item: Dictionary in _pending:
+			queued = queued or str(item["do"]) == "visitors_home"
+		if not queued:
+			_pending.append({"at": Net.server_time() + Constants.ANNEX_RETURN_WAIT, "do": "visitors_home"})
+		return
+	_rpc_end.rpc()
+
+
+func _send_form(peer_id: int, form: Dictionary, at: float, source: String) -> void:
+	_forms[peer_id] = form
+	_rpc_form.rpc(peer_id, form, at, source)
+
+
+## Overrides travel and are kept in the schedule's clock (seconds since the
+## Annex began), like annex_schedule.gd's own segments; callers pass server times.
+func _add_override(entry: Dictionary) -> void:
+	var rel := entry.duplicate()
+	rel["at"] = float(entry["at"]) - _start_at
+	rel["until"] = float(entry["until"]) - _start_at
+	_rpc_override.rpc(rel)
+
+
+func _bump(peer_id: int, key: String) -> void:
+	var tally: Dictionary = _counts.get(peer_id, {})
+	tally[key] = int(tally.get(key, 0)) + 1
+	_counts[peer_id] = tally
+
+
+## The one more window Redirect sticks on: not this one, not the one after it.
+func _redirect_window(window: String, form: Dictionary) -> String:
+	var after := _Form.next_window(form)
+	for other: String in SERVING:
+		if other != window and other != after:
+			return other
+	return SERVING[0] if SERVING[0] != window else SERVING[1]
+
+
+## What the raid noticed, when the raid side (R2 chunks 2-3) can say.
+func _raid_stats(peer_id: int) -> Dictionary:
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and director.has_method("raid_stats"):
+		var got: Variant = director.call("raid_stats", peer_id)
+		if typeof(got) == TYPE_DICTIONARY:
+			return got
+	return {}
+
+
+# ---------------------------------------------------------------- requests (host)
+
+
+func _sender() -> int:
+	var id := multiplayer.get_remote_sender_id()
+	return Net.local_peer_id() if id == 0 else id
+
+
+func _client_time(client_t: float) -> float:
+	var now := Net.server_time()
+	return clampf(client_t, now - Constants.ANNEX_GRACE, now)
+
+
+func _inside(peer_id: int) -> bool:
+	return _active and _roster.has(peer_id) and stage_of(peer_id) == STAGE_INSIDE
+
+
+func _in_room(peer_id: int) -> bool:
+	return _inside(peer_id) or (_active and _visitors.has(peer_id))
+
+
+## Rate limit for one peer's asks of one kind.
+func _allow(peer_id: int, kind: String, gap: float) -> bool:
+	var key := "%d:%s" % [peer_id, kind]
+	var now := Net.server_time()
+	if now - float(_last_request.get(key, -100.0)) < gap:
+		return false
+	_last_request[key] = now
+	return true
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_serve(window: String, client_t: float) -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if not _inside(peer_id) or not _forms.has(peer_id) or not Constants.ANNEX_WINDOWS.has(window):
+		return
+	var form: Dictionary = _forms[peer_id]
+	var body := _player(peer_id)
+	var counter := _window_spot(window, "Counter")
+	if body == null or counter == Vector3.INF or _flat(body.global_position, counter) > Constants.ANNEX_COUNTER_REACH + 0.35:
+		return
+	var now := Net.server_time()
+	var at := _client_time(client_t)
+	if bool(form["approved"]):
+		return
+	if window == "D":
+		var d_state := _Schedule.effective(_seed, "D", _t_at(at), _overrides)
+		if int(d_state["state"]) == _Schedule.S.D_OPEN and not _d_used and not _Form.is_full(form):
+			_d_used = true
+			stats["window_d"] = int(stats["window_d"]) + 1
+			_bump(peer_id, "window_d")
+			_add_override({"kind": "volley", "w": "D", "at": now, "until": now + 1.6, "peer": peer_id})
+			_add_override({"kind": "shut", "w": "D", "at": now + 1.6, "until": now + 100000.0})
+			_send_form(peer_id, _Form.stamp_all(form), now + 0.8, "D")
+		return
+	if _Form.is_full(form):
+		return
+	var next := _Form.next_window(form)
+	if window != next:
+		if now < float(_wrong_until.get(peer_id, 0.0)) or _serving.has(window):
+			return
+		_wrong_until[peer_id] = now + Constants.ANNEX_WRONG_WINDOW
+		stats["wrong_windows"] = int(stats["wrong_windows"]) + 1
+		_bump(peer_id, "wrong_window")
+		_add_override({"kind": "wrong_window", "w": window, "at": now, "until": now + Constants.ANNEX_WRONG_WINDOW, "peer": peer_id, "right": next})
+		return
+	for item: Variant in _serving.values():
+		if int((item as Dictionary)["peer"]) == peer_id:
+			return
+	var queue: Array = _queues.get(window, [])
+	if _serving.has(window) or not bool(_Schedule.effective(_seed, window, _t_at(at), _overrides)["serving"]) or (not queue.is_empty() and int(queue[0]) != peer_id):
+		if not queue.has(peer_id):
+			queue.append(peer_id)
+		_queues[window] = queue
+		return
+	queue.erase(peer_id)
+	_queues[window] = queue
+	_start_serve(peer_id, window, now)
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_self_stamp(window: String, down: bool, client_t: float) -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if not down:
+		if _holds.has(peer_id) and str((_holds[peer_id] as Dictionary)["kind"]) == "self_stamp":
+			_holds.erase(peer_id)
+		return
+	if not _inside(peer_id) or not SERVING.has(window):
+		return
+	var body := _player(peer_id)
+	var spot := _window_spot(window, "StampPad")
+	if body == null or spot == Vector3.INF or _flat(body.global_position, spot) > Constants.ANNEX_STAMP_REACH + 0.35:
+		return
+	_holds[peer_id] = {"kind": "self_stamp", "window": window, "start": _client_time(client_t)}
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_bell(window: String) -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if not _in_room(peer_id) or not SERVING.has(window):
+		return
+	var body := _player(peer_id)
+	var spot := _window_spot(window, "Bell")
+	if body == null or spot == Vector3.INF or _flat(body.global_position, spot) > Constants.ANNEX_BELL_REACH + 0.35:
+		return
+	var now := Net.server_time()
+	if now - float(_bell_last.get(window, -100.0)) < Constants.ANNEX_BELL_COOLDOWN:
+		return
+	_bell_last[window] = now
+	_bell_count += 1
+	stats["bells"] = int(stats["bells"]) + 1
+	_bump(peer_id, "bell")
+	var t := _t()
+	var state := _Schedule.effective(_seed, window, t, _overrides)
+	var s := int(state["state"])
+	if s == _Schedule.S.BREAK or s == _Schedule.S.JAM:
+		_add_override({"kind": "hurry_back", "w": window, "at": now, "until": maxf(_abs(float(state["until"])), now + Constants.ANNEX_RETURN_WALK + Constants.ANNEX_OPEN.x), "bell": true, "peer": peer_id})
+	elif s == _Schedule.S.ASLEEP:
+		_add_override({"kind": "wake", "w": window, "at": now, "until": maxf(_abs(float(state["until"])), now + Constants.ANNEX_WAKE_SECONDS + Constants.ANNEX_OPEN.x), "bell": true, "peer": peer_id})
+	elif s == _Schedule.S.OPEN or s == _Schedule.S.TELEGRAPH or s == _Schedule.S.LUNCH_BITE or s == _Schedule.S.RETURN:
+		# "One moment!": he turns to his filing cabinet; every third ring he turns back early.
+		var turn := Constants.ANNEX_BELL_EARLY_AT if _bell_count % Constants.ANNEX_BELL_EARLY_EVERY == 0 else Constants.ANNEX_BELL_TURN
+		_add_override({"kind": "cabinet", "w": window, "at": now, "until": now + turn, "bell": true, "peer": peer_id})
+		var options: Array = NEIGHBOURS.get(window, [])
+		if not options.is_empty():
+			var neighbour := str(options[_bell_count % options.size()])
+			var theirs := _Schedule.effective(_seed, neighbour, t, _overrides)
+			if bool(theirs["looking"]) and int(theirs["state"]) != _Schedule.S.SERVING:
+				_add_override({"kind": "lean", "w": neighbour, "at": now + 0.2, "until": now + turn, "toward": window})
+	else:
+		_add_override({"kind": "ding", "w": window, "at": now, "until": now, "bell": true, "peer": peer_id})
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_desk() -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if not _inside(peer_id) or not _forms.has(peer_id):
+		return
+	var form: Dictionary = _forms[peer_id]
+	if bool(form["approved"]) or not _Form.is_full(form):
+		return
+	var desk := _marker("HeadDesk")
+	var spot := desk.get_node_or_null("DeskSpot") as Node3D if desk != null else null
+	var body := _player(peer_id)
+	if spot == null or body == null or _flat(body.global_position, spot.global_position) > Constants.ANNEX_DESK_REACH + 0.35:
+		return
+	var head := _Schedule.effective(_seed, "head", _t(), _overrides)
+	if int(head["state"]) != _Schedule.S.DESK or _big_holder != 0:
+		return
+	var now := Net.server_time()
+	var slam := now + Constants.ANNEX_HEAD_WINDUP + Constants.ANNEX_HEAD_SLAM
+	_add_override({"kind": "approve", "w": "head", "at": now, "until": slam + 0.5, "peer": peer_id})
+	_pending.append({"at": slam, "do": "approve_done", "peer": peer_id})
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_big_stamp(op: String, target: int) -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if not _in_room(peer_id):
+		return
+	var now := Net.server_time()
+	var body := _player(peer_id)
+	var pad := _marker("HeadDesk/Pad")
+	match op:
+		"grab":
+			if _big_holder != 0 or body == null or pad == null or _flat(body.global_position, pad.global_position) > Constants.ANNEX_DESK_REACH + 0.4:
+				return
+			var head := _Schedule.effective(_seed, "head", _t(), _overrides)
+			if bool(head["looking"]):
+				return
+			_big_holder = peer_id
+			stats["big_stamps"] = int(stats["big_stamps"]) + 1
+			_rpc_big_stamp.rpc(peer_id, now)
+		"drop":
+			if _big_holder == peer_id and body != null and pad != null and _flat(body.global_position, pad.global_position) <= Constants.ANNEX_DESK_REACH + 0.6:
+				_host_return_stamp(now)
+		"self", "friend":
+			if _big_holder != peer_id:
+				return
+			var who := peer_id if op == "self" else target
+			if not _inside(who) or not _forms.has(who) or bool(_forms[who]["approved"]):
+				return
+			var other := _player(who)
+			if who != peer_id and (other == null or body == null or other.global_position.distance_to(body.global_position) > Constants.ANNEX_BIG_STAMP_REACH + 0.4):
+				return
+			_bump(who, "big_stamp")
+			stats["approved"] = int(stats["approved"]) + 1
+			_rpc_big_slam.rpc(peer_id, who, now)
+			_send_form(who, _Form.approve(_forms[who]), now + 0.12, "big_stamp")
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_cosign(down: bool) -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if not down:
+		if _holds.has(peer_id) and str((_holds[peer_id] as Dictionary)["kind"]) == "cosign":
+			_holds.erase(peer_id)
+		return
+	if not _visitors.has(peer_id) or bool(_cosigned.get(peer_id, false)):
+		return
+	_holds[peer_id] = {"kind": "cosign", "start": Net.server_time()}
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_tray() -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if not _inside(peer_id) or not _allow(peer_id, "tray", 0.8):
+		return
+	var body := _player(peer_id)
+	var tray := _marker("OutgoingTray")
+	var turnstile := _marker("Turnstile")
+	if body == null or tray == null:
+		return
+	var near_tray := _flat(body.global_position, tray.global_position) <= Constants.ANNEX_TRAY_REACH + 0.4
+	var near_gate := turnstile != null and _flat(body.global_position, turnstile.global_position) <= 1.3
+	if not near_tray and not near_gate:
+		return
+	var form: Dictionary = _forms.get(peer_id, {})
+	var now := Net.server_time()
+	if bool(form.get("approved", false)):
+		if not bool(form.get("dropped", false)):
+			form = form.duplicate(true)
+			form["dropped"] = true
+			_send_form(peer_id, form, now, "tray")
+		_rpc_turnstile.rpc(peer_id, now, true)
+	elif near_gate:
+		stats["bounces"] = int(stats["bounces"]) + 1
+		_rpc_turnstile.rpc(peer_id, now, false)
+
+
+## A visitor door was used (net/annex/visitor_door.gd, on the user's own peer).
+func request_visit(door_name: String) -> void:
+	_rpc_request_visit.rpc_id(1, door_name)
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_visit(door_name: String) -> void:
+	if not Net.is_host() or not _active:
+		return
+	var peer_id := _sender()
+	if _roster.has(peer_id) or _visitors.has(peer_id) or Net.player_zone(peer_id) == Net.Zone.BORDER:
+		return
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and bool(director.call("is_captured", peer_id)):
+		return
+	var door: Node3D = null
+	for node: Node in _doors:
+		if is_instance_valid(node) and str(node.name) == door_name:
+			door = node as Node3D
+	var body := _player(peer_id)
+	if door == null or body == null or _flat(body.global_position, door.global_position) > Constants.ANNEX_DOOR_REACH + 0.6:
+		return
+	var home := {"zone": Net.player_zone(peer_id), "at": door.call("out_transform")}
+	_rpc_door_iris.rpc_id(peer_id, Net.server_time())
+	# Through the door behind the iris (R2 chunk 1) when there is one, else a cut.
+	var wait := 0.4 if get_tree().get_first_node_in_group("iris") != null else 0.0
+	_pending.append({"at": Net.server_time() + wait, "do": "visit", "peer": peer_id, "home": home})
+
+
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_request_leave() -> void:
+	if not Net.is_host():
+		return
+	var peer_id := _sender()
+	if _visitors.has(peer_id):
+		_send_visitor_home(peer_id)
+
+
+# ---------------------------------------------------------------- every peer: the messages
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_begin(trip_id: int, roster_in: Array, seed_in: int, start_at: float, forms: Dictionary, _windows: Array, _quirk_windows: Array, _d_at: float, close_at: float) -> void:
+	_rpc_begin_local(trip_id, roster_in, seed_in, start_at, forms, close_at)
+	# Free players learn who's at the Annex, once (they could visit).
+	var me := Net.local_peer_id()
+	if not _roster.has(me) and not _roster.is_empty():
+		_quip("teammate_inside", [_name_of(_roster[0])])
+
+
+func _rpc_begin_local(trip_id: int, roster_in: Array, seed_in: int, start_at: float, forms: Dictionary, close_at: float) -> void:
+	_active = true
+	_trip_id = trip_id
+	_seed = seed_in
+	_start_at = start_at
+	_close_at = close_at
+	_roster.clear()
+	_forms.clear()
+	_stages.clear()
+	_overrides.clear()
+	_visitors.clear()
+	_shown.clear()
+	_big_holder = 0
+	_closing = false
+	_urgent_shown = false
+	_rows_off = 0
+	_serves_shown = 0
+	_icons = _Schedule.window_icons(_seed)
+	_quirks = _Schedule.quirks(_seed)
+	_d_open_at = _Schedule.d_open_at(_seed)
+	for entry: Variant in roster_in:
+		var peer_id := int(entry)
+		_roster.append(peer_id)
+		_forms[peer_id] = (forms.get(peer_id, forms.get(str(peer_id), {})) as Dictionary).duplicate(true)
+		_stages[peer_id] = {"stage": STAGE_WALK, "joined_at": start_at}
+	_ensure_set()
+	_park_old_van(true)
+	var sheet := _set_node("CoSignSheet")
+	if sheet != null:
+		sheet.remove_meta("signed_by_me")
+	_dress_set()
+	_open_doors()
+	for peer_id: int in _roster:
+		_queue_walk(peer_id, start_at)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_join(peer_id: int, form: Dictionary, at: float) -> void:
+	if not _roster.has(peer_id):
+		_roster.append(peer_id)
+	_forms[peer_id] = form.duplicate(true)
+	_stages[peer_id] = {"stage": STAGE_WALK, "joined_at": at}
+	_greeter_walk(at)
+	_queue_walk(peer_id, at)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_stage(peer_id: int, stage: String, at: float) -> void:
+	var entry: Dictionary = _stages.get(peer_id, {"joined_at": at})
+	if str(entry.get("stage", "")) == stage:
+		return
+	entry["stage"] = stage
+	_stages[peer_id] = entry
+	if stage != STAGE_WALK:
+		_end_walk(peer_id)
+	if stage == STAGE_INSIDE:
+		_sound_at("punch_card", _staff_pos("Greeter"))
+		_staff_play("Greeter", &"greeter_offer", at, {})
+		if peer_id == Net.local_peer_id():
+			_show_form()
+			if not _first_visit_quipped:
+				_first_visit_quipped = true
+				_quip("first_visit", [])
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_override(entry: Dictionary) -> void:
+	_overrides.append(entry)
+	_overrides.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["at"]) < float(b["at"]))
+	# Old ones that ended long ago can go.
+	var t := _t()
+	while _overrides.size() > 64 and float((_overrides[0] as Dictionary)["until"]) < t - 30.0:
+		_overrides.pop_front()
+	_present_override(entry)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_form(peer_id: int, form: Dictionary, at: float, source: String) -> void:
+	var before: Dictionary = _forms.get(peer_id, {})
+	_forms[peer_id] = form.duplicate(true)
+	var where := _form_sound_spot(source, peer_id)
+	if int(form.get("stamped", 0)) > int(before.get("stamped", 0)) or (bool(form.get("approved", false)) and not bool(before.get("approved", false))):
+		_sound_at("stamp_kachunk", where, -4.0 if source == "cosign" else 0.0)
+		if source == "head":
+			_sound_at("party_toot", where)
+	elif source == "smudge":
+		_sound_at("stamp_smudge", where)
+	if peer_id == Net.local_peer_id():
+		_update_form_view(at)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_stamped(peer_id: int, window: String, at: float, ok: bool) -> void:
+	var piece := _set_node("Windows/%s" % window)
+	if piece != null and piece.has_method("set_state"):
+		piece.call("set_state", &"stamp_down", at)
+	if ok:
+		return
+	# Down on the wrong box: a dry thump, no ink.
+	_sound_at("turnstile_clunk", _window_spot(window, "StampPad"), -6.0)
+	if peer_id == Net.local_peer_id():
+		_hold_kind = ""
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_big_stamp(holder: int, at: float) -> void:
+	_big_holder = holder
+	_apply_big_stamp(holder, at)
+	if holder == 0:
+		_sound_at("stamp_smudge", _set_point("HeadDesk/Pad"), -6.0)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_big_slam(holder: int, target: int, at: float) -> void:
+	var stamp := _set_node("HeadDesk/BigStamp")
+	if stamp != null and stamp.has_method("set_state"):
+		stamp.call("set_state", &"slam", at)
+	var body := _player(target)
+	_sound_at("stamp_kachunk", body.global_position + Vector3(0.0, 1.2, 0.0) if body != null else _staff_pos("HeadNiceBoy"))
+	if holder == Net.local_peer_id() or target == Net.local_peer_id():
+		_sound("party_toot")
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_turnstile(peer_id: int, at: float, open: bool) -> void:
+	var turnstile := _set_node("Turnstile")
+	if turnstile == null:
+		return
+	if turnstile.has_method("set_state"):
+		turnstile.call("set_state", &"open" if open else &"bounce", at)
+	_sound_at("turnstile_clack" if open else "turnstile_clunk", (turnstile as Node3D).global_position + Vector3(0.0, 0.9, 0.0))
+	if not open or peer_id != Net.local_peer_id():
+		return
+	# Only the opener's own body passes: their own peer simulates it (_step_turnstile).
+	_turnstile_open_until = maxf(_turnstile_open_until, Net.server_time() + Constants.ANNEX_TURNSTILE_OPEN + 0.6)
+	if _form_view != null and is_instance_valid(_form_view):
+		_form_view.set("shown", false)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_cosigned(visitor: int, at: float) -> void:
+	var sheet := _set_node("CoSignSheet")
+	if sheet != null and sheet.has_method("set_state"):
+		sheet.call("set_state", &"signing", at)
+	_sound_at("pen_squeak", _set_point("CoSignSheet"))
+	if visitor == Net.local_peer_id():
+		_hold_kind = ""
+		if sheet != null:
+			sheet.set_meta("signed_by_me", true)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_visitors(list: Array) -> void:
+	_visitors.clear()
+	for entry: Variant in list:
+		_visitors.append(int(entry))
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_closing(at: float, forms: Dictionary) -> void:
+	_closing = true
+	for key: Variant in forms.keys():
+		_forms[int(key)] = (forms[key] as Dictionary).duplicate(true)
+	for window: String in Constants.ANNEX_WINDOWS:
+		_overrides.append({"kind": "closing", "w": window, "at": at - _start_at, "until": at - _start_at + 100000.0})
+	_sound("closing_bell")
+	# The turnstile turns for everyone now.
+	var turnstile := _set_node("Turnstile")
+	if turnstile != null and turnstile.has_method("set_state"):
+		turnstile.call("set_state", &"open", at)
+
+	for window: String in Constants.ANNEX_WINDOWS:
+		var piece := _set_node("Windows/%s" % window)
+		if piece != null and piece.has_method("set_state"):
+			piece.call("set_state", &"blind_down", at + 0.6)
+	_staff_play("Janitor", &"janitor_mop", at, {"path": _path_points("JanitorPath")})
+	if _forms.has(Net.local_peer_id()):
+		_update_form_view(at)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_through(peer_id: int, at: float, seconds: float, by_closing: bool, lines: PackedStringArray, total: String) -> void:
+	var entry: Dictionary = _stages.get(peer_id, {})
+	entry["stage"] = STAGE_THROUGH
+	entry["out_at"] = at
+	_stages[peer_id] = entry
+	rider_through_turnstile.emit(peer_id)
+	if peer_id != Net.local_peer_id():
+		return
+	# Out into daylight: the stinger (chunk 5's cue_hooks plays it when it listens).
+	if rider_through_turnstile.get_connections().is_empty():
+		var music := get_tree().get_first_node_in_group("music_director")
+		if music != null:
+			music.call("stinger", &"st_made_it")
+	_hide_form()
+	_show_receipt(lines, total, at)
+	if by_closing:
+		_quip("closing", [])
+	elif seconds < Constants.ANNEX_FAST_SECONDS:
+		_quip("fast", [])
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_out(peer_id: int) -> void:
+	var entry: Dictionary = _stages.get(peer_id, {})
+	entry["stage"] = STAGE_OUT
+	_stages[peer_id] = entry
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_left(peer_id: int) -> void:
+	_end_walk(peer_id)
+	_roster.erase(peer_id)
+	_visitors.erase(peer_id)
+	_forms.erase(peer_id)
+	_stages.erase(peer_id)
+	if _big_holder == peer_id:
+		_big_holder = 0
+		_apply_big_stamp(0, Net.server_time())
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_end() -> void:
+	for peer_id: Variant in _walk_anchors.keys():
+		_end_walk(int(peer_id))
+	_active = false
+	_roster.clear()
+	_visitors.clear()
+	_forms.clear()
+	_stages.clear()
+	_overrides.clear()
+	_big_holder = 0
+	_closing = false
+	_hide_form()
+	_apply_big_stamp(0, Net.server_time())
+	_close_doors()
+	_reset_set()
+	_park_old_van(false)
+	_turnstile_open_until = -1.0
+	_step_turnstile()
+	stats["ended"] = int(stats["ended"]) + 1
+	annex_ended.emit()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_snapshot(snap: Dictionary) -> void:
+	apply_snapshot(snap)
+
+
+## To one player: put yourself here (a visitor back at their door).
+@rpc("authority", "call_local", "reliable")
+func _rpc_place(at: Transform3D) -> void:
+	var me := _player(Net.local_peer_id())
+	if me != null and me.has_method("apply_network_teleport"):
+		me.call("apply_network_teleport", at)
+
+
+## To one player: the closing door-swing iris (R2 chunk 1's group "iris").
+@rpc("authority", "call_local", "reliable")
+func _rpc_door_iris(at: float) -> void:
+	var iris := get_tree().get_first_node_in_group("iris")
+	if iris != null and iris.has_method("close"):
+		iris.call("close", at, 0.35, &"door")
+		get_tree().create_timer(0.6).timeout.connect(func() -> void:
+			if is_instance_valid(iris) and iris.has_method("open"):
+				iris.call("open", Net.server_time()))
+
+
+func _on_player_joined(peer_id: int) -> void:
+	if Net.is_host() and _active and peer_id != Net.local_peer_id():
+		_rpc_snapshot.rpc_id(peer_id, snapshot())
+
+
+func _on_player_left(peer_id: int) -> void:
+	_heat_at_catch.erase(peer_id)
+	if not Net.is_host() or not _active:
+		return
+	_holds.erase(peer_id)
+	for window: Variant in _queues.keys():
+		(_queues[window] as Array).erase(peer_id)
+	for window: Variant in _serving.keys():
+		if int((_serving[window] as Dictionary)["peer"]) == peer_id:
+			_serving.erase(window)
+	_visitor_home.erase(peer_id)
+	if _roster.has(peer_id) or _visitors.has(peer_id):
+		_rpc_left.rpc(peer_id)
+	if _roster.is_empty() and _visitors.is_empty():
+		_rpc_end.rpc()
+
+
+# ---------------------------------------------------------------- every peer: presentation
+
+
+func _t() -> float:
+	return Net.server_time() - _start_at
+
+
+func _t_at(at: float) -> float:
+	return at - _start_at
+
+
+func _urgent_at() -> float:
+	return (_close_at - _start_at) - (Constants.ANNEX_CAP_SECONDS - Constants.ANNEX_URGENT_AT)
+
+
+func _abs(t_value: float) -> float:
+	return _start_at + t_value
+
+
+## The set: chunk 5's AnnexSet when it's there, else the grey box.
+func _ensure_set() -> void:
+	var zone := get_parent().get_node_or_null("BorderZone") as Node3D
+	if zone == null:
+		return
+	_set = zone.get_node_or_null("AnnexSet") as Node3D
+	if _set == null and not ResourceLoader.exists(SET_SCRIPT):
+		_set = _Greybox.build(zone, _seed)
+	if _set != null:
+		_set.add_to_group("annex_set")
+
+
+func _dress_set() -> void:
+	if _set == null:
+		return
+	if ResourceLoader.exists(SET_SCRIPT) and not bool(_set.get_meta("greybox", false)):
+		var script: Script = load(SET_SCRIPT)
+		if script.has_method("apply_run"):
+			script.call("apply_run", _set, SERVING)
+	else:
+		_Greybox.apply_run(_set, _icons)
+	var lines := _set.get_node_or_null("LightRows")
+	if lines != null:
+		for row: Node in lines.get_children():
+			if row.has_method("set_state"):
+				row.call("set_state", &"on", _start_at)
+	var clock := _set.get_node_or_null("WallClock")
+	if clock != null and clock.has_method("set_speed"):
+		clock.call("set_speed", 1.0)
+	var entrance := _set.get_node_or_null("Entrance")
+	if entrance != null and entrance.has_method("set_state"):
+		# The doors stay open: nobody is kept in, the turnstile is the way home.
+		entrance.call("set_state", &"open", _start_at)
+	_greeter_walk(_start_at)
+
+
+func _reset_set() -> void:
+	if _set == null or not is_instance_valid(_set):
+		return
+	for window: String in Constants.ANNEX_WINDOWS:
+		var piece := _set.get_node_or_null("Windows/%s" % window)
+		if piece != null and piece.has_method("set_state"):
+			piece.call("set_state", &"blind_down" if window == "D" else &"lamp_off", Net.server_time())
+	var staff := _set.get_node_or_null("Staff")
+	if staff != null:
+		for member: Node in staff.get_children():
+			if member.has_method("play"):
+				member.call(STAFF_PLAY, &"counter_idle", Net.server_time(), {})
+
+
+func _greeter_walk(at: float) -> void:
+	# He waves the riders over from the doors, then leads them in.
+	_staff_play("Greeter", &"wave_up", at, {"stay": true})
+	_later(at + Constants.ANNEX_WALK_LEAD_DELAY, func() -> void:
+		if _active:
+			_staff_play("Greeter", &"greeter_lead", at + Constants.ANNEX_WALK_LEAD_DELAY, {"path": _path_points("GreeterPath")})
+			_sound_at("door_chime", _set_point("Entrance")))
+
+
+## Every peer: a rider's walk-in starts a moment after the begin (the zone move
+## that puts them at the curb arrives first), staged behind its anchor.
+func _queue_walk(peer_id: int, joined_at: float) -> void:
+	_later(joined_at + Constants.ANNEX_WALK_STAGE_DELAY, func() -> void:
+		if _active and stage_of(peer_id) == STAGE_WALK:
+			_start_walk(peer_id, joined_at))
+
+
+func _start_walk(peer_id: int, joined_at: float) -> void:
+	var body := _player(peer_id)
+	var path := _walk_path()
+	if body == null or not body.has_method("set_staged") or path.size() < 2 or _walk_anchors.has(peer_id):
+		return
+	var anchor := Node3D.new()
+	anchor.name = "Walk%d" % peer_id
+	add_child(anchor)
+	anchor.set_meta("joined_at", joined_at)
+	anchor.set_meta("path", path)
+	_place_walk_anchor(anchor)
+	var index := maxi(_roster.find(peer_id), 0)
+	var lateral := -0.45 if index % 2 == 0 else 0.45
+	var behind := 0.9 + float(floori(index / 2.0)) * 1.1
+	body.call("set_staged", anchor, Transform3D(Basis.IDENTITY, Vector3(lateral, 0.0, behind)), Constants.STAGE_BLEND_DEFAULT, &"walk_behind")
+	if peer_id == Net.local_peer_id() and body.has_method("set_control_lock"):
+		body.call("set_control_lock", &"stage_walk", true)
+	_walk_anchors[peer_id] = anchor
+
+
+func _end_walk(peer_id: int) -> void:
+	var anchor: Node3D = _walk_anchors.get(peer_id, null)
+	_walk_anchors.erase(peer_id)
+	var body := _player(peer_id)
+	if body != null and anchor != null and body.has_method("clear_staged"):
+		body.call("clear_staged")
+	if body != null and peer_id == Net.local_peer_id() and body.has_method("set_control_lock"):
+		body.call("set_control_lock", &"stage_walk", false)
+	if anchor != null and is_instance_valid(anchor):
+		anchor.queue_free()
+
+
+## Curb, doors, threshold: the walk-in's line.
+func _walk_path() -> Array:
+	var out: Array = []
+	for marker: String in ["AnnexCurb", "Entrance", "Threshold"]:
+		var at := _set_point(marker)
+		if at != Vector3.INF:
+			out.append(Vector3(at.x, at.y, at.z))
+	return out
+
+
+## Where a walk anchor is now: eased along its line by the server clock,
+## facing the way it goes. The same on every peer.
+func _place_walk_anchor(anchor: Node3D) -> void:
+	var path: Array = anchor.get_meta("path")
+	var p := clampf((Net.server_time() - float(anchor.get_meta("joined_at"))) / Constants.ANNEX_GREETER_WALK, 0.0, 1.0)
+	p = p * p * (3.0 - 2.0 * p)
+	var total := 0.0
+	for index: int in range(1, path.size()):
+		total += (path[index] as Vector3).distance_to(path[index - 1])
+	var want := p * total
+	var at: Vector3 = path[0]
+	var heading := Vector3.FORWARD
+	for index: int in range(1, path.size()):
+		var a: Vector3 = path[index - 1]
+		var b: Vector3 = path[index]
+		var length := a.distance_to(b)
+		heading = Vector3(b.x - a.x, 0.0, b.z - a.z).normalized()
+		if want <= length or index == path.size() - 1:
+			at = a.lerp(b, clampf(want / maxf(length, 0.001), 0.0, 1.0))
+			break
+		want -= length
+	anchor.global_transform = Transform3D(Basis.looking_at(heading, Vector3.UP), at)
+
+
+func _physics_process(_delta: float) -> void:
+	for anchor: Variant in _walk_anchors.values():
+		if is_instance_valid(anchor):
+			_place_walk_anchor(anchor as Node3D)
+
+
+## The room, every frame: each window's clerk, lamp and blind from its effective
+## state, the head's desk routine, Window D, urgency and closing.
+func _present(_delta: float) -> void:
+	_step_turnstile()
+	if _set == null or not is_instance_valid(_set):
+		_ensure_set()
+		if _set == null:
+			return
+	var t := _t()
+	var now := Net.server_time()
+	for window: String in Constants.ANNEX_WINDOWS + ["head"]:
+		var state := _Schedule.effective(_seed, window, t, _overrides)
+		var key := "%d@%.3f" % [int(state["state"]), float(state["since"])]
+		if str(_shown.get(window, "")) == key:
+			continue
+		_shown[window] = key
+		_show_state(window, state)
+	if urgent() and not _urgent_shown:
+		_urgent_shown = true
+		var clock := _set.get_node_or_null("WallClock")
+		if clock != null and clock.has_method("set_speed"):
+			clock.call("set_speed", 8.0)
+		_set_rows(&"flicker", now)
+	if _closing:
+		# The rows clunk off from the back of the room, ANNEX_LIGHT_ROW_OFF_GAP apart.
+		var since := now - (_close_at + 1.2)
+		var due := clampi(floori(since / Constants.ANNEX_LIGHT_ROW_OFF_GAP) + 1, 0, 4) if since >= 0.0 else 0
+		while _rows_off < due:
+			var row := _set.get_node_or_null("LightRows/Row%d" % _rows_off)
+			if row != null and row.has_method("set_state"):
+				row.call("set_state", &"off", now)
+			_sound_at("lights_off_clunk", (row as Node3D).global_position if row is Node3D else _set_point("Threshold"), -4.0)
+			_rows_off += 1
+	var board := _set.get_node_or_null("NowServing")
+	if board != null and board.has_method("show_number"):
+		var serves := 0
+		for entry: Dictionary in _overrides:
+			if str(entry.get("kind", "")) == "serve" and float(entry["at"]) <= t:
+				serves += 1
+		if serves != _serves_shown:
+			_serves_shown = serves
+			board.call("show_number", serves)
+
+
+func _show_state(window: String, state: Dictionary) -> void:
+	var s := int(state["state"])
+	var since := _abs(float(state["since"]))
+	var args: Dictionary = state.get("args", {})
+	if window == "head":
+		_show_head(s, since, args)
+		return
+	var piece := _set.get_node_or_null("Windows/%s" % window)
+	var clerk := "Clerk%s" % window
+	if piece != null and piece.has_method("set_state"):
+		var lit := [_Schedule.S.OPEN, _Schedule.S.D_OPEN, _Schedule.S.SERVING, _Schedule.S.PEER_FORM, _Schedule.S.NOTICE, _Schedule.S.TELEGRAPH, _Schedule.S.VOLLEY].has(s)
+		piece.call("set_state", &"lamp_on" if lit else &"lamp_off", since)
+		if s == _Schedule.S.BREAK or s == _Schedule.S.JAM:
+			piece.call("set_state", &"clock_sign", since)
+		if window == "D":
+			var up := s == _Schedule.S.D_OPEN or s == _Schedule.S.VOLLEY
+			piece.call("set_state", &"blind_up" if up else &"blind_down", since)
+			if s == _Schedule.S.D_OPEN:
+				_sound_at("blinds_rattle", _window_spot("D", "Counter"))
+				_sound_at("office_ding", _window_spot("D", "Counter"))
+	var play_args := {}
+	var name_now: StringName = state["name"]
+	match s:
+		_Schedule.S.BREAK, _Schedule.S.JAM:
+			var spot := _window_spot(window, "BreakSpot%d" % int(args.get("spot", 0)))
+			if s == _Schedule.S.JAM:
+				spot = _set_point("Copier/Spot")
+				var copier := _set_node("Copier")
+				if copier != null and copier.has_method("set_state"):
+					copier.call("set_state", &"jam", since)
+				_sound_at("copier_beep", spot)
+			if spot != Vector3.INF:
+				play_args["to"] = spot
+			play_args["path"] = _gate_path(window, true)
+		_Schedule.S.RETURN:
+			play_args["path"] = _gate_path(window, false)
+		_Schedule.S.LEAN:
+			var toward := str(args.get("toward", "A"))
+			play_args["dir"] = _window_spot(toward, "ClerkSeat") - _window_spot(window, "ClerkSeat")
+		_Schedule.S.PEER_FORM:
+			play_args["right"] = str(args.get("right", ""))
+			var right := _window_spot(str(args.get("right", "")), "Counter")
+			if right != Vector3.INF:
+				play_args["face"] = right
+			var line := _set_node("FloorLines/%s" % str(args.get("right", "")))
+			if line != null and line.has_method("set_state"):
+				line.call("set_state", &"pulse", since)
+			_sound_at("babble", _window_spot(window, "Counter"), -3.0)
+		_Schedule.S.SERVING:
+			_staff_play(clerk, &"wave_up", since, {})
+			_later(since + 1.0, func() -> void: _window_state(window, &"stamp_lifted", since + 1.0))
+			_later(since + Constants.ANNEX_SERVE_SECONDS - 0.15, func() -> void: _window_state(window, &"stamp_down", since + Constants.ANNEX_SERVE_SECONDS - 0.15))
+		_Schedule.S.NOTICE:
+			_sound_at("babble", _window_spot(window, "Counter"), -3.0)
+		_Schedule.S.ASLEEP:
+			_sound_at("clerk_snore", _window_spot(window, "ClerkSeat"), -8.0)
+	_staff_play(clerk, name_now, since, play_args)
+	if s == _Schedule.S.SERVING:
+		# The serve's beats: take the form, stamp it, hand it back.
+		_later(since + 0.4, func() -> void: _staff_play(clerk, &"take_form", since + 0.4, {}))
+		_later(since + 1.2, func() -> void: _staff_play(clerk, &"stamp", since + 1.2, {}))
+		_later(since + 1.7, func() -> void: _staff_play(clerk, &"hand_back", since + 1.7, {}))
+	elif s == _Schedule.S.NOTICE:
+		_later(since + 0.5, func() -> void: _staff_play(clerk, &"add_carbon", since + 0.5, {}))
+	elif s == _Schedule.S.CABINET:
+		_later(since + Constants.ANNEX_BELL_TWITCH_AT, func() -> void:
+			if _active and int(_Schedule.effective(_seed, window, _t(), _overrides)["state"]) == _Schedule.S.CABINET:
+				_staff_play(clerk, &"twitch_turn_back", since + Constants.ANNEX_BELL_TWITCH_AT, {}))
+
+
+## A clerk's way out of his booth (or back in): the set's gate markers when it
+## has them, else straight there.
+func _gate_path(window: String, out: bool) -> Array:
+	var inside := _window_spot(window, "GateIn")
+	var outside := _window_spot(window, "GateOut")
+	if inside == Vector3.INF or outside == Vector3.INF:
+		return []
+	var path := [inside, outside]
+	var aisle := _window_spot(window, "Aisle")
+	if aisle != Vector3.INF:
+		path.append(aisle)
+	if not out:
+		path.reverse()
+	return path
+
+
+## Run do at server time at (now if that's past): a beat inside a state.
+func _later(at: float, do: Callable) -> void:
+	var wait := at - Net.server_time()
+	if wait <= 0.0:
+		do.call()
+		return
+	get_tree().create_timer(wait).timeout.connect(do)
+
+
+func _window_state(window: String, state: StringName, at: float) -> void:
+	var piece := _set_node("Windows/%s" % window)
+	if piece != null and piece.has_method("set_state"):
+		piece.call("set_state", state, at)
+
+
+func _show_head(s: int, since: float, args: Dictionary) -> void:
+	match s:
+		_Schedule.S.AWAY:
+			var to_cooler := int(args.get("spot", 0)) != 0
+			var spot := _set_point("Cooler/Spot" if to_cooler else "Copier/Spot")
+			var walk := {"to": spot} if spot != Vector3.INF else {}
+			if to_cooler and bool(_set.get_meta("greybox", false)):
+				# Across the room between the queues and the chairs, not through them.
+				walk["path"] = [_set.to_global(Vector3(-6.4, 0.0, 2.3)), _set.to_global(Vector3(6.4, 0.0, 2.3))]
+			_staff_play("HeadNiceBoy", &"walk_to", since, walk)
+		_Schedule.S.APPROVE:
+			_staff_play("HeadNiceBoy", &"head_windup_slam", since, {})
+			var stamp := _set_node("HeadDesk/BigStamp")
+			if stamp != null and stamp.has_method("set_state"):
+				stamp.call("set_state", &"slam", since)
+		_Schedule.S.SPOTTED:
+			_staff_play("HeadNiceBoy", &"gasp_whistle", since, {})
+			_sound_at("whistle", _staff_pos("HeadNiceBoy"))
+			var holder := _player(int(args.get("peer", 0)))
+			if holder != null:
+				get_tree().create_timer(0.5).timeout.connect(func() -> void:
+					if is_instance_valid(holder):
+						_staff_play("HeadNiceBoy", &"walk_hand_out", since + 0.5, {"to": holder.global_position}))
+			var music := get_tree().get_first_node_in_group("music_director")
+			if music != null and music.has_method("push_mood"):
+				music.call("push_mood", &"annex_spotted", &"escape", 80)
+				get_tree().create_timer(Constants.ANNEX_SPOTTED_ESCAPE).timeout.connect(func() -> void:
+					if is_instance_valid(music):
+						music.call("pop_mood", &"annex_spotted"))
+		_:
+			var back := {}
+			var head_body := _set_node("Staff/HeadNiceBoy") as Node3D
+			if head_body != null and bool(_set.get_meta("greybox", false)) and _set.to_local(head_body.global_position).x > 0.0:
+				back["path"] = [_set.to_global(Vector3(6.4, 0.0, 2.3)), _set.to_global(Vector3(-6.4, 0.0, 2.3))]
+			_staff_play("HeadNiceBoy", &"counter_idle", since, back)
+
+
+## The turnstile lets the local player's body through while it's turning for
+## them (or at closing), and stops it again after.
+func _step_turnstile() -> void:
+	var turnstile := _set_node("Turnstile")
+	if turnstile == null:
+		return
+	var open := Net.server_time() < _turnstile_open_until or (_closing and _roster.has(Net.local_peer_id()))
+	if open == _turnstile_passing:
+		return
+	_turnstile_passing = open
+	# Its bar's shapes, on this peer only: the one body here that collides with
+	# it is the local player's (everyone simulates their own), so this lets
+	# exactly them through.
+	for node: Node in turnstile.find_children("*", "CollisionShape3D", true, false):
+		(node as CollisionShape3D).set_deferred("disabled", open)
+
+
+## A newly arrived override's sound (the state changes play through _present).
+func _present_override(entry: Dictionary) -> void:
+	if bool(entry.get("bell", false)):
+		_sound_at("desk_bell", _window_spot(str(entry["w"]), "Bell"))
+
+
+func _set_rows(state: StringName, at: float) -> void:
+	var rows := _set.get_node_or_null("LightRows") if _set != null else null
+	if rows == null:
+		return
+	for row: Node in rows.get_children():
+		if row.has_method("set_state"):
+			row.call("set_state", state, at)
+
+
+func _apply_big_stamp(holder: int, at: float) -> void:
+	var stamp := _set_node("HeadDesk/BigStamp")
+	if stamp == null:
+		return
+	var body := _player(holder) if holder != 0 else null
+	if stamp.has_method("set_held"):
+		stamp.call("set_held", body)
+	if stamp.has_method("set_state"):
+		stamp.call("set_state", &"held" if body != null else &"on_pad", at)
+	# Two-handed and heavy: the holder walks slower (player.gd carry_speed_scale).
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(holder) and holder != 0:
+			node.set_meta(&"speed_share", Constants.ANNEX_BIG_STAMP_SLOW)
+		elif node.has_meta(&"speed_share"):
+			node.remove_meta(&"speed_share")
+
+
+## Without the Shuttle (R2 chunk 4), the old ride's van ends its trip at the
+## BorderZone's origin, which is the middle of the Annex: out of sight while the
+## Annex is open (local, cosmetic), back for the next raid's ride.
+func _park_old_van(hide: bool) -> void:
+	if get_tree().get_first_node_in_group("nice_shuttle") != null:
+		return
+	var van := get_parent().get_node_or_null("Rides/Van") as Node3D
+	if van == null:
+		return
+	van.visible = not hide
+	# Nor anything to walk into.
+	for node: Node in van.find_children("*", "CollisionObject3D", true, false):
+		var body := node as CollisionObject3D
+		if hide and not body.has_meta("annex_layer"):
+			body.set_meta("annex_layer", body.collision_layer)
+			body.collision_layer = 0
+		elif not hide and body.has_meta("annex_layer"):
+			body.collision_layer = int(body.get_meta("annex_layer"))
+			body.remove_meta("annex_layer")
+
+
+func _open_doors() -> void:
+	_close_doors()
+	var world := get_parent()
+	for door: Node in _VisitorDoor.place_all(world, self):
+		_doors.append(door)
+
+
+func _close_doors() -> void:
+	for door: Node in _doors:
+		if is_instance_valid(door):
+			door.queue_free()
+	_doors.clear()
+
+
+# ---------------------------------------------------------------- local player
+
+
+func _local_input(delta: float) -> void:
+	var me_id := Net.local_peer_id()
+	var me := _player(me_id)
+	if me == null or Net.player_zone(me_id) != Net.Zone.BORDER:
+		_end_hold()
+		return
+	var pos := me.global_position
+	_retry -= delta
+	var form: Dictionary = _forms.get(me_id, {})
+	if _inside(me_id) and not form.is_empty() and not bool(form.get("approved", false)):
+		# Standing on a counter spot asks to be served (the wrong one gets a head shake).
+		var on := ""
+		for window: String in Constants.ANNEX_WINDOWS:
+			var counter := _window_spot(window, "Counter")
+			if counter != Vector3.INF and _flat(pos, counter) <= Constants.ANNEX_COUNTER_REACH:
+				on = window
+				break
+		if on != _dwell_window:
+			_dwell_window = on
+			_dwell = 0.0
+		elif on != "":
+			_dwell += delta
+		if on != "" and _dwell >= Constants.ANNEX_COUNTER_DWELL and _retry <= 0.0:
+			_retry = Constants.ANNEX_RETRY_SECONDS
+			_rpc_request_serve.rpc_id(1, on, Net.server_time())
+		# A full form at the desk.
+		var spot := _set_point("HeadDesk/DeskSpot")
+		if _Form.is_full(form) and spot != Vector3.INF and _flat(pos, spot) <= Constants.ANNEX_DESK_REACH and _retry <= 0.0:
+			_retry = Constants.ANNEX_RETRY_SECONDS
+			_rpc_request_desk.rpc_id(1)
+	if _inside(me_id) and not form.is_empty():
+		# At the tray, or walking into the turnstile.
+		var tray := _set_point("OutgoingTray")
+		var gate := _set_point("Turnstile")
+		var near := (tray != Vector3.INF and _flat(pos, tray) <= Constants.ANNEX_TRAY_REACH and bool(form.get("approved", false))) or (gate != Vector3.INF and _flat(pos, gate) <= 1.0)
+		if near and _retry <= 0.0:
+			_retry = Constants.ANNEX_RETRY_SECONDS * 2.0
+			_rpc_request_tray.rpc_id(1)
+	# A hold ends when interact comes up or you walk off.
+	if _hold_kind != "" and not Input.is_action_pressed(&"interact"):
+		_end_hold()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not _active or not event.is_action_type():
+		return
+	var me_id := Net.local_peer_id()
+	var me := _player(me_id)
+	if me == null or Net.player_zone(me_id) != Net.Zone.BORDER or not _in_room(me_id):
+		return
+	if event.is_action_pressed(&"interact"):
+		if _press_interact(me):
+			get_viewport().set_input_as_handled()
+	elif event.is_action_pressed(&"primary") and _big_holder == me_id:
+		var friend := _friend_in_front(me)
+		if friend != 0:
+			_rpc_request_big_stamp.rpc_id(1, "friend", friend)
+		else:
+			_rpc_request_big_stamp.rpc_id(1, "self", 0)
+		get_viewport().set_input_as_handled()
+
+
+## What interact does here, nearest thing first. True when it did something.
+func _press_interact(me: Node3D) -> bool:
+	var me_id := Net.local_peer_id()
+	var pos := me.global_position
+	var target := _interact_target(pos)
+	match str(target.get("kind", "")):
+		"stamp":
+			_hold_kind = "self_stamp"
+			_hold_window = str(target["window"])
+			var piece := _set_node("Windows/%s" % _hold_window)
+			if piece != null and piece.has_method("set_state"):
+				piece.call("set_state", &"stamp_lifted", Net.server_time())
+			_rpc_request_self_stamp.rpc_id(1, _hold_window, true, Net.server_time())
+			return true
+		"bell":
+			_rpc_request_bell.rpc_id(1, str(target["window"]))
+			return true
+		"big_stamp":
+			_rpc_request_big_stamp.rpc_id(1, "drop" if _big_holder == me_id else "grab", 0)
+			return true
+		"sheet":
+			_hold_kind = "cosign"
+			_rpc_request_cosign.rpc_id(1, true)
+			return true
+		"side_door":
+			_rpc_request_leave.rpc_id(1)
+			return true
+	return false
+
+
+func _end_hold() -> void:
+	if _hold_kind == "self_stamp":
+		var piece := _set_node("Windows/%s" % _hold_window)
+		if piece != null and piece.has_method("set_state"):
+			piece.call("set_state", &"stamp_down", Net.server_time())
+		_rpc_request_self_stamp.rpc_id(1, _hold_window, false, Net.server_time())
+	elif _hold_kind == "cosign":
+		_rpc_request_cosign.rpc_id(1, false)
+	_hold_kind = ""
+	_hold_window = ""
+
+
+## The nearest thing interact can act on from here: {kind, window, at}.
+func _interact_target(pos: Vector3) -> Dictionary:
+	var me_id := Net.local_peer_id()
+	var best := {}
+	var best_d := INF
+	var rider := _inside(me_id)
+	var visitor := _visitors.has(me_id)
+	for window: String in SERVING:
+		if rider:
+			var stamp := _window_spot(window, "StampPad")
+			var d := _flat(pos, stamp) if stamp != Vector3.INF else INF
+			if d <= Constants.ANNEX_STAMP_REACH and d < best_d:
+				best_d = d
+				best = {"kind": "stamp", "window": window, "at": _stamp_point(window)}
+		var bell := _window_spot(window, "Bell")
+		var db := _flat(pos, bell) if bell != Vector3.INF else INF
+		if db <= Constants.ANNEX_BELL_REACH and db < best_d:
+			best_d = db
+			best = {"kind": "bell", "window": window, "at": bell + Vector3(0.0, 1.35, -0.6)}
+	var pad := _set_point("HeadDesk/Pad")
+	if pad != Vector3.INF and (_big_holder == 0 or _big_holder == me_id):
+		var dp := _flat(pos, pad)
+		if dp <= Constants.ANNEX_DESK_REACH and dp < best_d:
+			best_d = dp
+			best = {"kind": "big_stamp", "at": pad + Vector3(0.0, 0.5, 0.0)}
+	if visitor:
+		var sheet := _set_point("CoSignSheet")
+		var ds := _flat(pos, sheet) if sheet != Vector3.INF else INF
+		if ds <= Constants.ANNEX_SHEET_REACH and ds < best_d and not bool(_cosigned_local()):
+			best_d = ds
+			best = {"kind": "sheet", "at": sheet + Vector3(0.0, 1.4, 0.0)}
+		var door := _set_point("SideDoor")
+		var dd := _flat(pos, door) if door != Vector3.INF else INF
+		if dd <= Constants.ANNEX_DOOR_REACH and dd < best_d:
+			best_d = dd
+			best = {"kind": "side_door", "at": door + Vector3(0.0, 1.6, 0.0)}
+	return best
+
+
+func _cosigned_local() -> bool:
+	var sheet := _set_node("CoSignSheet")
+	return sheet != null and bool(sheet.get_meta("signed_by_me", false))
+
+
+## The prompt for interaction_prompt.gd: just the key over the thing.
+func prompt() -> Dictionary:
+	if not _active:
+		return {}
+	var me_id := Net.local_peer_id()
+	var me := _player(me_id)
+	if me == null or Net.player_zone(me_id) != Net.Zone.BORDER or not _in_room(me_id):
+		return {}
+	var target := _interact_target(me.global_position)
+	if target.is_empty():
+		return {}
+	return {"text": "{key:interact}", "plain": true, "at": target["at"]}
+
+
+## While holding the big stamp, a friend within reach in front of you.
+func _friend_in_front(me: Node3D) -> int:
+	var forward := -me.global_basis.z
+	var best := 0
+	var best_d := INF
+	for peer_id: int in _roster:
+		if peer_id == Net.local_peer_id() or not _inside(peer_id):
+			continue
+		var body := _player(peer_id)
+		if body == null:
+			continue
+		var to := body.global_position - me.global_position
+		var d := to.length()
+		if d <= Constants.ANNEX_BIG_STAMP_REACH and forward.dot(to.normalized()) > 0.3 and d < best_d:
+			best = peer_id
+			best_d = d
+	return best
+
+
+func _show_form() -> void:
+	_hide_form()
+	var me := Net.local_peer_id()
+	var form: Dictionary = _forms.get(me, {})
+	if form.is_empty():
+		return
+	var looks := {}
+	for window: String in SERVING:
+		looks[window] = {"icon_id": str(_icons.get(window, "")), "color": _Greybox.window_color(window)}
+	var boxes: PackedStringArray = form["boxes"]
+	if ResourceLoader.exists(FORM_SCRIPT):
+		var script: Script = load(FORM_SCRIPT)
+		_form_view = script.call("make", boxes, looks)
+	else:
+		_form_view = _Paper.make(boxes, looks)
+	if _form_view == null:
+		return
+	add_child(_form_view)
+	var player := _player(me)
+	if _form_view.has_method("attach_first_person") and player != null:
+		_form_view.call("attach_first_person", player)
+	if _form_view.has_method("punch_card") and Campaign.has_method("annex_visits"):
+		_form_view.call("punch_card", int(Campaign.call("annex_visits", me)))
+	if _form_view.has_method("fast_pass"):
+		_form_view.call("fast_pass", bool(form.get("fast_pass", false)))
+	_update_form_view(Net.server_time())
+
+
+func _update_form_view(at: float) -> void:
+	if _form_view == null or not is_instance_valid(_form_view):
+		return
+	var form: Dictionary = _forms.get(Net.local_peer_id(), {})
+	if form.is_empty():
+		return
+	if "after_hours" in _form_view:
+		_form_view.set("after_hours", bool(form.get("after_hours", false)))
+	if _form_view.has_method("set_progress"):
+		_form_view.call("set_progress", int(form["stamped"]), form["boxes"], bool(form["approved"]), at)
+	if _form_view.has_method("glow"):
+		_form_view.call("glow", bool(form["approved"]))
+	if bool(form.get("dropped", false)):
+		_form_view.set("shown", false)
+
+
+func _hide_form() -> void:
+	if _form_view != null and is_instance_valid(_form_view):
+		_form_view.queue_free()
+	_form_view = null
+
+
+func _show_receipt(lines: PackedStringArray, total: String, at: float) -> void:
+	var slip: Node3D = null
+	if ResourceLoader.exists(RECEIPT_SCRIPT):
+		var script: Script = load(RECEIPT_SCRIPT)
+		slip = script.new() as Node3D
+	else:
+		slip = _Paper.make_receipt()
+	if slip == null:
+		return
+	add_child(slip)
+	if slip.has_method("show_slip"):
+		slip.call("show_slip", lines, total, at, Constants.ANNEX_RECEIPT_SECONDS)
+	elif slip.has_method("print_slip"):
+		slip.call("print_slip", lines, total, at, Constants.ANNEX_RECEIPT_SECONDS)
+
+
+func _quip(kind: String, args: Array) -> void:
+	var pool: Array = _Strings.ANNEX_QUIPS.get(kind, [])
+	if pool.is_empty():
+		return
+	var line := str(pool[absi(hash([_seed, kind, Net.local_peer_id()])) % pool.size()])
+	if not args.is_empty():
+		line = line % args
+	var stack := get_tree().get_first_node_in_group("caption_stack")
+	if stack != null and stack.has_method("push"):
+		stack.call("push", &"quip", line, Constants.QUIP_CAPTION_SECONDS)
+		return
+	var quips := get_tree().root.find_child("Quips", true, false)
+	if quips != null and quips.has_method("show_caption"):
+		quips.call("show_caption", line)
+
+
+# ---------------------------------------------------------------- helpers
+
+
+func _staff_play(staff_name: String, state: StringName, at: float, args: Dictionary) -> void:
+	var member := _set_node("Staff/%s" % staff_name)
+	if member != null and member.has_method("play"):
+		member.call(STAFF_PLAY, state, at, args)
+
+
+func _staff_pos(staff_name: String) -> Vector3:
+	var member := _set_node("Staff/%s" % staff_name) as Node3D
+	return member.global_position + Vector3(0.0, 1.5, 0.0) if member != null else _set_point("Threshold")
+
+
+func _set_node(path: String) -> Node:
+	if _set == null or not is_instance_valid(_set):
+		return null
+	return _set.get_node_or_null(path)
+
+
+func _set_point(path: String) -> Vector3:
+	var node := _set_node(path) as Node3D
+	return node.global_position if node != null else Vector3.INF
+
+
+func _marker(path: String) -> Node3D:
+	if _set == null or not is_instance_valid(_set):
+		_ensure_set()
+	return _set_node(path) as Node3D
+
+
+func _window_spot(window: String, spot: String) -> Vector3:
+	return _set_point("Windows/%s/%s" % [window, spot])
+
+
+func _stamp_point(window: String) -> Vector3:
+	var pad := _window_spot(window, "StampPad")
+	var seat := _window_spot(window, "ClerkSeat")
+	if pad == Vector3.INF:
+		return Vector3.INF
+	# Over the counter between the spot and his seat, at counter height.
+	var mid := pad.lerp(seat, 0.45) if seat != Vector3.INF else pad
+	return mid + Vector3(0.0, 1.45, 0.0)
+
+
+func _form_sound_spot(source: String, peer_id: int) -> Vector3:
+	if Constants.ANNEX_WINDOWS.has(source):
+		return _window_spot(source, "Counter") + Vector3(0.0, 1.2, -0.6)
+	if source == "head":
+		return _set_point("HeadDesk/Pad")
+	if source == "cosign":
+		# Distant: from the windows.
+		return _window_spot("B", "ClerkSeat") + Vector3(0.0, 1.2, 0.0)
+	var body := _player(peer_id)
+	return body.global_position + Vector3(0.0, 1.2, 0.0) if body != null else _set_point("Threshold")
+
+
+func _path_points(path_name: String) -> Array:
+	var path := _set_node(path_name) as Path3D
+	var out: Array = []
+	if path == null or path.curve == null:
+		return out
+	for index: int in path.curve.point_count:
+		out.append(path.to_global(path.curve.get_point_position(index)))
+	return out
+
+
+func _sound(id: String) -> void:
+	var real := _sound_id(id)
+	if real == "":
+		return
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", real)
+
+
+func _sound_at(id: String, at: Vector3, db: float = 0.0) -> void:
+	var real := _sound_id(id)
+	if real == "" or at == Vector3.INF:
+		return
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play_at", real, at, db)
+
+
+## The id to play: chunk 5's when the sound bank has it, else its stand-in.
+func _sound_id(id: String) -> String:
+	if _Bank.has(id):
+		return id
+	var stand_in := str(SOUND_FALLBACK.get(id, ""))
+	return stand_in if stand_in != "" and _Bank.has(stand_in) else ""
+
+
+func _set_encounter_stage(peer_id: int, stage_name: String) -> void:
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	if encounter == null or not encounter.has_method("host_set_stage"):
+		return
+	var stages: Variant = encounter.get_script().get_script_constant_map().get("Stage", {})
+	if typeof(stages) == TYPE_DICTIONARY and (stages as Dictionary).has(stage_name):
+		encounter.call("host_set_stage", peer_id, int(stages[stage_name]), {})
+
+
+func _heat_now() -> float:
+	var heat := get_tree().get_first_node_in_group("heat")
+	return float(heat.get("heat")) if heat != null else 0.0
+
+
+func _name_of(peer_id: int) -> String:
+	var name_text := Net.player_name(peer_id)
+	return name_text if name_text != "" else str(_Strings.UI.get("player_unnamed", "%d")) % peer_id
+
+
+func _player(peer_id: int) -> Node3D:
+	if peer_id == 0:
+		return null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id) and node is Node3D:
+			return node as Node3D
+	return null
+
+
+static func _flat(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()

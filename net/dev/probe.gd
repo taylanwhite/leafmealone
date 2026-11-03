@@ -39,6 +39,8 @@ var _zones: Array[String] = []
 ## The host's zones in order as this peer heard them (townmap_test: a client's
 ## registry follows the host's position-derived zones in the connected town).
 var _host_zones: Array[String] = []
+## Seconds into the run this peer first reached Annex B (Zone.BORDER), or -1.
+var _border_at: float = -1.0
 
 
 func _ready() -> void:
@@ -46,6 +48,8 @@ func _ready() -> void:
 	Net.player_zone_changed.connect(func(peer_id: int, zone: Net.Zone) -> void:
 		if peer_id == Net.local_peer_id():
 			_zones.append(Net.Zone.keys()[zone])
+			if zone == Net.Zone.BORDER and _border_at < 0.0:
+				_border_at = float(Time.get_ticks_msec() - _started_msec) / 1000.0
 		if peer_id == 1:
 			_host_zones.append(Net.Zone.keys()[zone])
 	)
@@ -207,6 +211,8 @@ func write_report() -> void:
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
 		"playtest_tools_test": preload("res://net/dev/playtest_tools_test.gd").result.duplicate(true),
+		"annex": _annex(),
+		"annex_test": preload("res://net/dev/annex_test.gd").result.duplicate(true),
 		"drive": _drive(),
 		"rake_net_test": _test_result_by_path("res://net/dev/rake_net_test.gd"),
 		"leaf_motion_test": _test_result_by_path("res://net/dev/leaf_motion_test.gd"),
@@ -551,3 +557,27 @@ func _percentile(values: Array[float], fraction: float) -> float:
 	var sorted := values.duplicate()
 	sorted.sort()
 	return sorted[clampi(int(round(fraction * (sorted.size() - 1))), 0, sorted.size() - 1)]
+
+## Satellite Annex B (R2 chunk 6): its totals since launch, this peer's view of
+## the visit now, and every BORDER player's look as this peer dresses them (the
+## host and a client must agree: 0.4.5's host saw white outfits there).
+func _annex() -> Dictionary:
+	var annex := get_tree().get_first_node_in_group("annex")
+	var out := {"stats": preload("res://net/annex/annex.gd").stats.duplicate(true), "first_at_s": _border_at}
+	if annex != null:
+		out["status"] = annex.call("status")
+	var found := {}
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if Net.player_zone(str(node.name).to_int()) != Net.Zone.BORDER:
+			continue
+		var body := node.get_node_or_null("Visual/CartoonBody")
+		if body != null:
+			found[str(node.name)] = str(hash([body.get("shirt"), body.get("pants"), body.get("skin"), body.get("hair"), body.get("hat_style"), body.get("outfit")]))
+	# In name order, so two peers' reports compare as JSON.
+	var names := found.keys()
+	names.sort()
+	var looks := {}
+	for key: Variant in names:
+		looks[key] = found[key]
+	out["looks"] = looks
+	return out

@@ -49,6 +49,9 @@ func _physics_process(delta: float) -> void:
 	if _jump_held:
 		Input.action_release(&"jump")
 		_jump_held = false
+	# R2: each chunk's tick, the first that takes control wins (chunk 2 adds the rest).
+	if has_method("_r2_annex_tick") and bool(call("_r2_annex_tick", delta)):
+		return
 	if _during_run_event(player):
 		_job.call("stop")
 		return
@@ -165,3 +168,166 @@ func _own_player() -> Node:
 		if node.name == own_name:
 			return node
 	return null
+
+# ---- R2:6
+# Satellite Annex B (net/annex/annex.gd): a caught bot does its paperwork the
+# way a person would. Walk to the window its next box needs and stand on the
+# counter spot while he's open; when he's looking away, hold interact on his
+# stamp; ring an asleep clerk's bell; take a full form to the Head NICE BOY's
+# desk; drop the approved one in the tray and push through the turnstile. It
+# never touches the big stamp. Returns true while it's steering.
+
+const _AnnexSchedule = preload("res://net/annex/annex_schedule.gd")
+const _AnnexForm = preload("res://net/annex/form_state.gd")
+## Close enough to a spot to stop on it, in meters.
+const ANNEX_STOP_METERS: float = 0.3
+## How long a self-stamp hold lasts (a little over the host's ANNEX_SELF_STAMP_HOLD).
+const ANNEX_HOLD_SECONDS: float = 1.35
+
+var _annex_walking: bool = true
+var _annex_hold_left: float = 0.0
+var _annex_bell_wait: float = 0.0
+var _annex_check_left: float = 1.0
+var _annex_last_spot: Vector3 = Vector3.ZERO
+var _annex_side_left: float = 0.0
+var _annex_side: StringName = &"move_left"
+
+
+func _r2_annex_tick(delta: float) -> bool:
+	var annex := get_tree().get_first_node_in_group("annex")
+	var me_id := Net.local_peer_id()
+	var player := _own_player() as Node3D
+	if annex == null or player == null or Net.player_zone(me_id) != Net.Zone.BORDER or not bool(annex.call("is_active")) or str(annex.call("stage_of", me_id)) != "inside":
+		if not _annex_walking:
+			_annex_walking = true
+			Input.action_press(&"move_forward")
+		if _annex_hold_left > 0.0:
+			_annex_hold_left = 0.0
+			_annex_interact(false)
+		return false
+	Input.action_release(&"sprint")
+	Input.action_release(&"crouch")
+	if _annex_side_left <= 0.0:
+		for action: StringName in STRAFE_ACTIONS:
+			Input.action_release(action)
+	_annex_bell_wait -= delta
+	if _annex_hold_left > 0.0:
+		_annex_hold_left -= delta
+		if _annex_hold_left <= 0.0:
+			_annex_interact(false)
+		_annex_stop()
+		return true
+	var form: Dictionary = annex.call("form_of", me_id)
+	if form.is_empty():
+		return true
+	var target := Vector3.INF
+	if bool(form.get("approved", false)):
+		# The tray, then through the turnstile into the forecourt.
+		if not bool(form.get("dropped", false)):
+			_annex_go(player, _annex_point("OutgoingTray"), 0.6)
+			return true
+		# Line up in front of the turnstile, then straight through: it turns for us,
+		# though it looks solid to the steering's ray.
+		var gate := _annex_point("Turnstile")
+		var out := _annex_point("Forecourt")
+		if gate != Vector3.INF and out != Vector3.INF:
+			var outward := Vector3(out.x - gate.x, 0.0, out.z - gate.z).normalized()
+			var front := gate - outward * 0.9
+			var offset := player.global_position - gate
+			var side := offset.dot(outward)
+			var lateral := absf(offset.dot(Vector3(-outward.z, 0.0, outward.x)))
+			if side < -0.3 and lateral > 0.3:
+				_annex_go(player, front, 0.0)
+				return true
+		_annex_go(player, out, 0.0, true)
+		return true
+	if _AnnexForm.is_full(form):
+		_annex_go(player, _annex_point("HeadDesk/DeskSpot"), 0.0)
+		return true
+	var window := _AnnexForm.next_window(form)
+	var state: Dictionary = annex.call("window_now", window)
+	var s := int(state["state"])
+	if s == _AnnexSchedule.S.ASLEEP and _annex_bell_wait <= 0.0:
+		var bell := _annex_point("Windows/%s/Bell" % window)
+		if _annex_go(player, bell, 0.0):
+			_annex_bell_wait = 3.0
+			_annex_interact(true)
+			_annex_interact(false)
+		return true
+	if not bool(state["looking"]) and float(state["until"]) - float(annex.call("elapsed")) > ANNEX_HOLD_SECONDS + 0.4:
+		# He's looking away long enough: his stamp.
+		if _annex_go(player, _annex_point("Windows/%s/StampPad" % window), 0.0):
+			_annex_hold_left = ANNEX_HOLD_SECONDS
+			_annex_interact(true)
+		return true
+	_annex_go(player, _annex_point("Windows/%s/Counter" % window), 0.0)
+	return true
+
+
+## Walk toward a point (back meters short of it); true once standing on it.
+func _annex_go(player: Node3D, point: Vector3, back: float, straight: bool = false) -> bool:
+	if point == Vector3.INF:
+		_annex_stop()
+		return false
+	var flat := Vector3(point.x - player.global_position.x, 0.0, point.z - player.global_position.z)
+	if flat.length() <= ANNEX_STOP_METERS + back:
+		_annex_stop()
+		return true
+	_face(player, point if straight else _annex_steer(player, point))
+	# Pressed every tick: the job or the chase code may have let go of it.
+	_annex_walking = true
+	Input.action_press(&"move_forward")
+	# Stuck on a bench or a booth wall: sidestep a moment, the way people do.
+	_annex_check_left -= get_physics_process_delta_time()
+	if _annex_check_left <= 0.0:
+		_annex_check_left = 1.0
+		var stuck := player.global_position.distance_to(_annex_last_spot) < 0.25
+		_annex_last_spot = player.global_position
+		if stuck:
+			_annex_side_left = 0.9
+			_annex_side = &"move_left" if _rng.randf() < 0.5 else &"move_right"
+	if _annex_side_left > 0.0:
+		_annex_side_left -= get_physics_process_delta_time()
+		Input.action_press(_annex_side)
+		if _annex_side_left <= 0.0:
+			Input.action_release(_annex_side)
+	return false
+
+
+## Where to head for point: straight at it when the way is clear at knee height,
+## else the nearest turn either side that is (round a row of chairs, a counter).
+func _annex_steer(player: Node3D, point: Vector3) -> Vector3:
+	var from := player.global_position + Vector3(0.0, 0.45, 0.0)
+	var flat := Vector3(point.x - from.x, 0.0, point.z - from.z)
+	var reach := minf(flat.length(), 2.5)
+	if reach < 0.3:
+		return point
+	var space := player.get_world_3d().direct_space_state
+	var dir := flat.normalized()
+	for turn: float in [0.0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5, 2.2, -2.2]:
+		var heading := dir.rotated(Vector3.UP, turn)
+		var query := PhysicsRayQueryParameters3D.create(from, from + heading * reach, 1)
+		query.exclude = [(player as CollisionObject3D).get_rid()]
+		var hit := space.intersect_ray(query)
+		if hit.is_empty():
+			return player.global_position + heading * 2.0
+	return point
+
+
+func _annex_stop() -> void:
+	if _annex_walking:
+		_annex_walking = false
+		Input.action_release(&"move_forward")
+
+
+func _annex_interact(pressed: bool) -> void:
+	var event := InputEventAction.new()
+	event.action = &"interact"
+	event.pressed = pressed
+	Input.parse_input_event(event)
+
+
+func _annex_point(path: String) -> Vector3:
+	var world := get_tree().get_first_node_in_group("world")
+	var node := world.get_node_or_null("BorderZone/AnnexSet/" + path) as Node3D if world != null else null
+	return node.global_position if node != null else Vector3.INF

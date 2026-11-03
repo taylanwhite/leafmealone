@@ -231,7 +231,7 @@ func _run() -> void:
 		_step("11b capture path: no run director", false)
 	else:
 		# The real capture path's drop (director.note_capture calls it); note_capture
-		# itself would start Border Return, which isn't this test's business.
+		# itself would send the van to Annex B, which isn't this test's business.
 		_notices.clear()
 		var caught := _Hotbar.items_of(get_tree(), _id())
 		director.call("_release_held", _id())
@@ -268,7 +268,7 @@ func _run() -> void:
 ## their icons, the hose selected and in hand with its hint, the roller's paint
 ## strip; it hides under the pause buttons and under Settings opened from them
 ## (any_window_open), and comes back when they close; and the visibility rule
-## (shown_when) keeps it off in Border Return and a Chefty seat, and off the yard
+## (shown_when) keeps it off at Annex B and in a Chefty seat, and off the yard
 ## unless something's carried.
 func _check_hud_bar() -> void:
 	await _frames(3)

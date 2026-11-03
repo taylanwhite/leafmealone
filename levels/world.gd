@@ -52,9 +52,11 @@ func _ready() -> void:
 	var director := preload("res://net/run_events/director.gd").new()
 	director.name = "RunDirector"
 	add_child(director)
-	var crossing := preload("res://net/border_return.gd").new()
-	crossing.name = "BorderReturn"
-	add_child(crossing)
+	# Satellite Annex B, where the NICE BOYS' shuttle takes whoever they caught
+	# (net/annex/annex.gd, docs/GAME.md "Form 27-B, in Triplicate").
+	var annex := preload("res://net/annex/annex.gd").new()
+	annex.name = "Annex"
+	add_child(annex)
 	# In the connected town people walk and drive out of the store and the yard,
 	# so only the border keeps its pad walls.
 	if not town_map:
@@ -333,6 +335,12 @@ func get_spawn_transform(zone: Net.Zone, spawn_marker: StringName, peer_id: int)
 	var points := _spawn_points(zone)
 	if spawn_marker != &"" and points.has_node(String(spawn_marker)):
 		return points.get_node(String(spawn_marker)).global_transform
+	# A marker the zone's set builds at runtime (the Annex's AnnexCurb, AnnexSide,
+	# Forecourt, Threshold), found under the zone itself.
+	if spawn_marker != &"" and points.get_parent() != null:
+		var built := points.get_parent().find_child(String(spawn_marker), true, false) as Node3D
+		if built != null:
+			return built.global_transform
 	var markers := points.get_children()
 	if markers.is_empty():
 		return points.global_transform
@@ -397,10 +405,11 @@ func on_ride_arrived(destination: int) -> void:
 		if hires != null and Campaign.is_job_open():
 			hires.call("spawn_on_lot")
 	elif destination == Net.Zone.BORDER:
-		var crossing := get_node_or_null("BorderReturn")
+		# The Shuttle (R2 chunk 4) starts the Annex itself; the old ride lands here.
+		var annex := get_node_or_null("Annex")
 		var director := get_node_or_null("RunDirector")
-		if crossing != null and director != null:
-			crossing.call("begin", director.call("cohort_roster"), int(director.call("hazard_seed")))
+		if annex != null and director != null and get_tree().get_first_node_in_group("nice_shuttle") == null:
+			annex.call("begin", 0, director.call("cohort_roster"), Net.server_time())
 
 
 ## Host, the connected town. The crew got to the job's yard: someone walked (or
@@ -805,8 +814,8 @@ func _on_player_joined(peer_id: int) -> void:
 ## smoke test): give them the picked yard if none is there.
 func _on_zone_changed(_peer_id: int, zone: Net.Zone) -> void:
 	# Only for test and dev paths; in play, the yard comes with Chefty, and a
-	# straggler back from the border with no yard left goes to the store
-	# (net/border_return.gd).
+	# straggler back from Annex B with no yard left goes to the store
+	# (net/annex/annex.gd).
 	# In the connected town, bot sessions get theirs on demand too (can_enter_zone).
 	var on_demand := Net.is_automated() or (town_map and bool(Net.dev_options().get("bot")))
 	if Net.is_host() and on_demand and zone == Net.Zone.LOT and %LotSlot.get_child_count() == 0:

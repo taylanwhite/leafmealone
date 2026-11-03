@@ -382,9 +382,25 @@ jobs:
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-playtest
-          "$GODOT" --headless --path . --fixed-fps 30 -- --host --port=7820 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test --measure="$PWD/build/soak/ci-playtest/host.json" --run-seconds=90 > build/soak/ci-playtest/host.log 2>&1
+          "$GODOT" --headless --path . --fixed-fps 30 -- --host --port=7820 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test --measure="$PWD/build/soak/ci-playtest/host.json" --run-seconds=150 > build/soak/ci-playtest/host.log 2>&1
           grep "PlaytestToolsTest" build/soak/ci-playtest/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-playtest/host.json'))['playtest_tools_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
+
+      # Satellite Annex B (R2 chunk 6): the pure schedule on both peers and its
+      # never-wait guarantee, forms, stamps, bells, Window D, the big stamp, co-signing,
+      # the turnstile, closing time, the receipt and save section, a late joiner, a
+      # disconnect, and the same looks for everyone at the Annex on both peers.
+      - name: Annex test (Form 27-B over 150 ms of lag)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-annex
+          "$GODOT" --headless --path . -- --host --port=7830 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --annex-test --sim-lag=150 --measure="$PWD/build/soak/ci-annex/host.json" --run-seconds=150 > build/soak/ci-annex/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7830 --name=Target --no-steam --sim-lag=150 --measure="$PWD/build/soak/ci-annex/target.json" --run-seconds=145 > build/soak/ci-annex/target.log 2>&1
+          wait
+          grep "AnnexTest" build/soak/ci-annex/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-annex/host.json')); t=json.load(open('build/soak/ci-annex/target.json')); print(h['annex_test'].get('error','')); sys.exit(0 if h['annex_test'].get('ok') and h['annex'].get('looks') == t['annex'].get('looks') else 1)"
 
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
@@ -399,7 +415,7 @@ jobs:
           fi
           exit "$code"
 
-      - name: Run event soak (cues, hiding, captures, Border Return)
+      - name: Run event soak (cues, hiding, captures, the Annex)
         if: runner.os == 'Linux' && matrix.part == 'soaks'
         run: |
           export PYTHON=python3

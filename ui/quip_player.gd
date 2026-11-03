@@ -29,7 +29,6 @@ var _last_at: Dictionary = {}
 var _seen_lot: bool = false
 var _director: Node
 var _last_roster: int = 0
-var _throw_latched: bool = false
 
 
 func _ready() -> void:
@@ -66,7 +65,6 @@ func _process(_delta: float) -> void:
 		_label.visible = false
 	_watch_director()
 	_watch_cleanup()
-	_watch_throwback()
 
 
 func _on_zone(peer_id: int, zone: Net.Zone) -> void:
@@ -113,14 +111,6 @@ func _watch_cleanup() -> void:
 	if float(fields[0].call("cleaned_fraction")) < 0.08:
 		_try("low_cleanup")
 
-
-func _watch_throwback() -> void:
-	var crossing := get_tree().get_first_node_in_group("border_return")
-	# Border Return goes away in R2 chunk 6; until then its throwback still quips.
-	var thrown := crossing != null and crossing.has_method("is_thrown_back") and bool(crossing.call("is_thrown_back"))
-	if thrown and not _throw_latched:
-		_try("border_fail")
-	_throw_latched = thrown
 
 
 func _watch_director() -> void:

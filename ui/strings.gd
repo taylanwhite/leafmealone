@@ -42,12 +42,6 @@ const UI: Dictionary = {
 	"rival_sign_text": "TurfMasters™\nLAWNS DONE RIGHT",
 	"status_crew_coming": "The NICE BOYS are on the way",
 	"status_crew_here": "The NICE BOYS are here",
-	"border_step_off": "Step off the van",
-	"border_thrown_back": "Thrown back",
-	"border_lanes": "Red bar blocks one side. Stand on the empty side. {key:move_left} and {key:move_right} move sideways. Exit in %d s.",
-	"border_exit_open": "Exit is open. Walk to the green line.",
-	"border_exit_mark": "EXIT",
-	"border_hint": "Stand on the empty side of the red bar",
 	"menu_dev_host": "Dev host (ENet)",
 	"pause_call_crew": "Call the NICE BOYS",
 	"lobby_title": "Lobby",
@@ -736,12 +730,6 @@ const LINES: Array[Dictionary] = [
 		"line": "The lawn has requested additional documentation.",
 		"max_session": 1,
 	},
-	{
-		"id": "Q-010",
-		"trigger": "border_fail",
-		"line": "That crossing has been returned to sender.",
-		"max_session": 1,
-	},
 ]
 
 ## How each homeowner mood reads on the payout receipt.
@@ -1209,9 +1197,10 @@ const KEEPER_LINES: Dictionary = {
 			"Ring ring. That's the register. It's happy for you.",
 		],
 		"after_raid": [
-			"Rough day? The NICE BOYS came in earlier and bought forty clipboards.",
-			"You look like you got a courtesy notice. It's the eyes.",
-			"Heard the van. Want a cot? You want a cot.",
+			"Annex B, huh? Window D still closed?",
+			"You've got stamp ink on your thumb. Triplicate?",
+			"The NICE BOYS bought forty clipboards this morning. Now I know why.",
+			"Heard the shuttle. Want a cot? You want a cot.",
 		],
 		"closed": [
 			"The sign says closed. The sign is wrong. I'm here.",
@@ -1779,7 +1768,6 @@ const FORMAT_ARGS: Dictionary = {
 	"TIER_BLURBS": [0, 4],
 	"UI/crew_tag": [1, 1],
 	"UI/crew_tag_lead": [1, 1],
-	"UI/border_lanes": [1, 1],
 	"UI/error_host": [1, 1],
 	"UI/error_join": [1, 1],
 	"UI/ride_chefty_label": [4, 1],
@@ -1806,6 +1794,13 @@ const FORMAT_ARGS: Dictionary = {
 	# settings:4: the prompt is "{key:<action>}  <what it does>".
 	"UI/prompt_format": [2, 1],
 	"UI/player_unnamed": [1, 1],
+	# R2:6
+	"ANNEX_QUIPS/teammate_inside": [1, 3],
+	"RECEIPT_FORMAT/line": [2, 1],
+	"RECEIPT_FORMAT/time": [1, 1],
+	"RECEIPT_FORMAT/time_best": [2, 1],
+	"RECEIPT_FORMAT/total": [1, 1],
+	"ANNEX_UI/window": [1, 1],
 }
 
 
@@ -2055,10 +2050,8 @@ const MUSIC_TITLES: Dictionary = {
 	"track_hot_yard": "Hot Yard",
 	"track_nice_boys_incoming": "Paperwork Incoming",
 	"track_nice_boys_chase": "The NICE BOYS",
-	# The escape/end-sequence cue (escape_run). "Lane Change" was its working
-	# title while it was only Border Return's; the old key still answers.
+	# The escape/end-sequence cue (escape_run).
 	"track_escape_run": "Clean Getaway",
-	"track_lane_change": "Clean Getaway",
 	"track_st_day_end": "Clock Out",
 	"track_st_rank_up": "Promoted!",
 	"track_st_season": "New Season",
@@ -2074,6 +2067,144 @@ const MUSIC_TITLES: Dictionary = {
 ## A track's title, or "" when it has none.
 static func track_title(title_key: String) -> String:
 	return str(MUSIC_TITLES.get(title_key, ""))
+
+# ---- nice boys: Form 27-B
+# Satellite Annex B (net/annex/, docs/GAME.md "Form 27-B, in Triplicate"). The
+# room explains itself (pictograms, lamps, bells, stamps); these are the words on
+# the paper and the jokes on the receipt.
+
+## The till slip after the turnstile (net/annex/receipt_lines.gd): 4-6 itemized
+## lines picked from what you did, each "<label> ...... $0.00". Keys are the
+## things the Annex and the raid noticed; "general" fills the rest.
+const RECEIPT_LINES: Dictionary = {
+	"hid": [
+		"Unauthorized hedge occupancy",
+		"Shrubbery loitering, first degree",
+		"Undeclared bush residency",
+	],
+	"piled": [
+		"Leaf pile habitation, unpermitted",
+		"Impersonating a leaf pile",
+		"Burrowing in municipal foliage",
+	],
+	"peeked": [
+		"Excessive peeking",
+		"Peeking without a peeking permit",
+		"Suspicious eyeballs in foliage",
+	],
+	"bonked": [
+		"Unsolicited gnome delivery",
+		"Bonking a NICE BOY, courteously",
+		"Lawn ornament velocity surplus",
+	],
+	"wriggled": [
+		"Wriggling during a courtesy",
+		"Squirming, pursuant to Form 9-B",
+		"Non-compliant shimmying",
+	],
+	"loud": [
+		"Mowing at an unneighborly volume",
+		"Leaf blower decibel surplus",
+		"Rake noise above courtesy level",
+	],
+	"carbon": [
+		"Carbon copies, complimentary",
+		"Self-service stamping, observed",
+		"Duplicate triplicates",
+	],
+	"window_d": [
+		"Use of Window D, unprecedented",
+		"Witnessing Window D",
+		"Window D gratuity, declined",
+	],
+	"big_stamp": [
+		"Borrowing the big stamp",
+		"Unlicensed APPROVED, NICELY",
+		"Stamp handling without a stamp handler",
+	],
+	"cosigned": [
+		"Co-signed by a suspiciously nice friend",
+		"Friendship-assisted paperwork",
+		"Second signature, legible",
+	],
+	"closing": [
+		"Staying past closing time",
+		"Keeping the janitor waiting",
+		"After-hours approval, waived",
+	],
+	"bell": [
+		"Excessive bell ringing",
+		"Ding-related disturbance",
+		"Ringing for service, repeatedly",
+	],
+	"wrong_window": [
+		"Standing at the wrong window",
+		"Pictogram misreading",
+		"Window confusion, minor",
+	],
+	"redirect": [
+		"Redirected, as is tradition",
+		"One more window, as a treat",
+		"Scenic route through the windows",
+	],
+	"general": [
+		"General leaf-adjacent activity",
+		"Yard work without a yard permit",
+		"Being on a lawn, broadly",
+		"Rake possession, casual",
+		"Ambient raking",
+		"Leaving leaves where leaves were",
+	],
+}
+## How the slip's lines are put together (receipt_lines.gd).
+const RECEIPT_FORMAT: Dictionary = {
+	"header": "NICE BOYS SATELLITE ANNEX B",
+	"line": "%s ...... $%s",
+	"time": "Time at Annex B ...... %s",
+	"time_best": "Time at Annex B ...... %s (best %s)",
+	"total": "TOTAL DUE $%s",
+	"waived": "Courtesy waived. Have a NICE day!",
+}
+## Flavor lines at the Annex, shown like quips (captions on only).
+const ANNEX_QUIPS: Dictionary = {
+	# Your first Form 27-B, once per session.
+	"first_visit": [
+		"Triplicate. Of course it's triplicate.",
+		"Somewhere, a filing cabinet is smiling.",
+		"Form 27-B. Request To Be Nice. Nicely.",
+	],
+	# Out in under ANNEX_FAST_SECONDS.
+	"fast": [
+		"Fastest paperwork in the county. Suspicious.",
+		"In and out. The clerks are shaken.",
+		"That form never stood a chance.",
+	],
+	# Let out at closing time.
+	"closing": [
+		"Closing time. Even paperwork goes home.",
+		"Approved, technically. Nobody checks after hours.",
+		"The janitor has seen things today.",
+	],
+	# A free player, once per Annex, the moment a teammate gets their form.
+	"teammate_inside": [
+		"%s is in line at Annex B. Bring a pen.",
+		"%s has been handed Form 27-B. Friends may co-sign.",
+		"%s is at Annex B. Visiting hours: now.",
+	],
+}
+## The words on things in the room (the clipboard, the tray, the visitor door).
+const ANNEX_UI: Dictionary = {
+	"form_title": "Form 27-B",
+	"form_sub": "Request To Be Nice",
+	"approved": "APPROVED, NICELY",
+	"after_hours": "AFTER HOURS",
+	"outgoing": "OUTGOING",
+	"courtesy_desk": "COURTESY DESK",
+	"annex_sign": "SATELLITE ANNEX B",
+	"window": "WINDOW %s",
+	"back_soon": "BACK IN 5 MINUTES",
+	"snore": "z Z z",
+}
 
 # ---- icons
 # The catalog windows' icon rows (ui/catalog_look.gd; icons chunk D). Kept apart

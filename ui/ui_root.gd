@@ -11,7 +11,7 @@ extends CanvasLayer
 @onready var _leave: Button = %LeaveButton
 
 ## Top-left: [cash] $340, [leaf] 42.0%, [Chefty] 4/50 (on a job), then _status
-## for the crew, crossing and voice lines (icons chunk E).
+## for the crew and voice lines (icons chunk E).
 var _hud_rows: VBoxContainer
 var _wallet_label: Label
 var _cleanup_label: Label
@@ -181,14 +181,10 @@ func _process(delta: float) -> void:
 		# stay in the director's logs, not on the HUD.
 		if status != "" and status != str(_Strings.UI["status_crew_coming"]) and status != str(_Strings.UI["status_crew_here"]):
 			crew_line = "\n" + status
-	var crossing := get_tree().get_first_node_in_group("border_return")
-	if crossing != null and crossing.has_method("status_line"):
-		var crossing_status := str(crossing.call("status_line"))
-		if crossing_status != "":
-			crew_line += "\n" + crossing_status
+
 	crew_line += _voice_line()
 	# What interact does is shown over the thing itself (ui/interaction_prompt.gd), so
-	# the HUD stays short. The hiding, push-to-talk and crossing lines name keys with
+	# the HUD stays short. The hiding and push-to-talk lines name keys with
 	# {key:} tokens; the status block is a Label, so they read as "[E]".
 	crew_line = _Icons.plain(crew_line.trim_prefix("\n"))
 	_status.visible = crew_line != ""

@@ -2,19 +2,25 @@ extends Node
 
 ## Authority: host, dev builds only. Scenario jumps (docs/PLAYTEST.md): put the
 ## host's player at a moment worth judging in a second or two, through the same
-## code the game runs (the run director's phases and captures, the van, Border
-## Return, hiding spots, the leaf field's rake strokes, Chefty's seats), so what
+## code the game runs (the run director's phases and captures, the van, Annex
+## B, hiding spots, the leaf field's rake strokes, Chefty's seats), so what
 ## gets recorded is what players get. Only the starting position is arranged.
 ## remote_play.gd's ["scenario", name] step and the --scenario=<name> flag call
 ## run(); the playtest tools test (net/dev/playtest_tools_test.gd) checks each
 ## one reaches its state.
 ##
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, hide,
-## border_return, van_ride, store, drive (that one needs --town-map).
+## van_ride, annex, annex_break, annex_heist, annex_bigstamp, annex_window_d,
+## annex_visit (needs a second player), annex_closing, store, drive (that one
+## needs --town-map). border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "hide", "border_return", "van_ride", "store", "drive"]
+const _Sched = preload("res://net/annex/annex_schedule.gd")
+## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
+const ANNEX_SEED: int = 271828
+const ANNEX_TRIP: int = 1
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "hide", "border_return", "van_ride", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive"]
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
@@ -88,8 +94,20 @@ func run(scenario: String) -> Dictionary:
 			out = await _caught()
 		"hide":
 			out = await _hide()
-		"border_return":
-			out = await _border_return()
+		"border_return", "annex":
+			out = await _annex()
+		"annex_break":
+			out = await _annex_break()
+		"annex_heist":
+			out = await _annex_heist()
+		"annex_bigstamp":
+			out = await _annex_bigstamp()
+		"annex_window_d":
+			out = await _annex_window_d()
+		"annex_visit":
+			out = await _annex_visit()
+		"annex_closing":
+			out = await _annex_closing()
 		"van_ride":
 			out = await _van_ride()
 		"store":
@@ -234,28 +252,211 @@ func _van_ride() -> Dictionary:
 		return ride if ride != null and bool(ride.call("is_riding")) and int(ride.call("seat_of", Net.local_peer_id())) >= 0 else null)
 	if van == null:
 		return {"error": "the van didn't leave with you in it"}
-	return {"note": "in the van, %.0f s from the border" % float(van.get("_duration")), "zone": _zone()}
+	return {"note": "in the van, %.0f s from Annex B" % float(van.get("_duration")), "zone": _zone()}
 
 
-## Border Return starts now: caught, and the van ride skipped to its end.
-func _border_return() -> Dictionary:
-	var ride: Dictionary = await _van_ride()
-	if ride.has("error"):
-		return ride
-	var van := _van()
-	# The ride's place on its path is a function of the shared clock: move its
-	# start back so it arrives on the next tick, through its own arrival code.
-	# Only the host's start moves: other peers (an observer) see the van drive on
-	# normally until the arrival message parks it at the route's end, a cut, so
-	# a 3P recording of this moment is the real thing only from the border on.
-	van.set("_start_time", Net.server_time() - float(van.get("_duration")))
-	var there: Variant = await _wait_for(func() -> Variant:
-		return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.BORDER else null)
-	if there == null:
-		return {"error": "never got to the border"}
+## Satellite Annex B (R2 chunk 6): you're through the door with Form 27-B in your
+## hands, a step back from the counter of the window your first box needs. The
+## visit starts the way the shuttle starts it (Annex.begin), with a fixed raid
+## seed so a recording shows the same room every time.
+func _annex() -> Dictionary:
+	var started: Dictionary = await _annex_start([Net.local_peer_id()])
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	var window := str(preload("res://net/annex/form_state.gd").next_window(form))
+	_stand_by(_annex_point("Windows/%s/Counter" % window), _annex_point("Windows/%s/ClerkSeat" % window), 1.4)
 	await _ticks(3)
-	var crossing := get_tree().get_first_node_in_group("border_return")
-	return {"note": "Border Return staging; the lanes start in %.0f s" % Constants.BORDER_STAGING_SECONDS, "zone": _zone(), "status": str(crossing.call("status_line")) if crossing != null else ""}
+	return {"moment": "annex", "note": "Form 27-B in hand, window %s ahead (%d boxes)" % [window, (form["boxes"] as PackedStringArray).size()], "window": window, "zone": _zone(), "annex": annex.call("status")}
+
+
+func _reached_annex() -> bool:
+	var annex := _annex_node()
+	return annex != null and bool(annex.call("is_active")) and str(annex.call("stage_of", Net.local_peer_id())) == "inside" and _zone() == "BORDER"
+
+
+## A clerk about to stand up and stretch for his break: the window your next box
+## needs, its telegraph 2 s away.
+func _annex_break() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var window := str(started["window"])
+	var at := _find_state(annex, window, [_Sched.S.TELEGRAPH], [_Sched.S.BREAK, _Sched.S.JAM, _Sched.S.ASLEEP])
+	if at < 0.0:
+		return {"error": "no break coming at window %s" % window}
+	annex.call("dev_retime", at - 2.0)
+	await _ticks(3)
+	return {"moment": "annex_break", "note": "window %s's clerk telegraphs his break in 2 s" % window, "window": window}
+
+
+func _reached_annex_break() -> bool:
+	return _reached_annex()
+
+
+## A heist: your next box's clerk is on the phone or away, and you're at his stamp.
+func _annex_heist() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var window := str(started["window"])
+	var at := _find_state(annex, window, [_Sched.S.PHONE, _Sched.S.BREAK], [])
+	if at < 0.0:
+		return {"error": "window %s never looks away" % window}
+	annex.call("dev_retime", at + 0.3)
+	_stand_by(_annex_point("Windows/%s/StampPad" % window), _annex_point("Windows/%s/ClerkSeat" % window), 0.25)
+	await _ticks(3)
+	return {"moment": "annex_heist", "note": "window %s's clerk is looking away; hold interact on his stamp" % window, "window": window}
+
+
+func _reached_annex_heist() -> bool:
+	return _reached_annex()
+
+
+## The Head NICE BOY just went to the copier: a full form, and his big stamp on its pad in front of you.
+func _annex_bigstamp() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var at := _find_state(annex, "head", [_Sched.S.AWAY], [])
+	if at < 0.0:
+		return {"error": "the Head NICE BOY never leaves his desk"}
+	annex.call("dev_retime", at + 1.5)
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	form["stamped"] = (form["boxes"] as PackedStringArray).size() - 1
+	annex.call("dev_set_form", Net.local_peer_id(), form)
+	_stand_by(_annex_point("HeadDesk/Pad"), _annex_point("HeadDesk"), 0.9)
+	await _ticks(3)
+	return {"moment": "annex_bigstamp", "note": "he's away; interact lifts his big stamp, primary stamps"}
+
+
+func _reached_annex_bigstamp() -> bool:
+	return _reached_annex()
+
+
+## Window D's blinds go up in 2 s; you're halfway across the room.
+func _annex_window_d() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var d_at := float(preload("res://net/annex/annex_schedule.gd").d_open_at(int(annex.call("seed_value"))))
+	annex.call("dev_retime", d_at - 2.0)
+	_stand_by(_annex_point("Windows/D/Counter"), _annex_point("Windows/D/ClerkSeat"), 4.0)
+	await _ticks(3)
+	return {"moment": "annex_window_d", "note": "Window D opens in 2 s"}
+
+
+func _reached_annex_window_d() -> bool:
+	return _reached_annex()
+
+
+## A friend at the Annex (the second player is the rider), and you at the visitor
+## door: the Field Office's in the town, the Courtesy Desk by Homie Depot otherwise.
+func _annex_visit() -> Dictionary:
+	var friend := 0
+	for peer_id: int in Net.peer_ids():
+		if peer_id != Net.local_peer_id():
+			friend = peer_id
+			break
+	if friend == 0:
+		return {"error": "annex_visit needs a second player to be the one at the Annex (tools\\play.ps1 -Observer)"}
+	if not bool(_world().call("is_town_map")):
+		Net.move_player_to_zone(Net.local_peer_id(), Net.Zone.STORE)
+		await _wait_for(func() -> Variant: return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE else null)
+	var started: Dictionary = await _annex_start([friend])
+	if started.has("error"):
+		return started
+	await _ticks(3)
+	var door: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("annex_doors"):
+		door = node as Node3D
+	if door == null:
+		return {"error": "no visitor door"}
+	var out: Transform3D = door.call("out_transform")
+	_place(out.origin, out.basis.get_euler().y + PI, -0.05)
+	await _ticks(3)
+	return {"moment": "annex_visit", "note": "%s is at Annex B; the door in front of you lets you in" % Net.player_name(friend)}
+
+
+func _reached_annex_visit() -> bool:
+	var annex := _annex_node()
+	return annex != null and bool(annex.call("is_active")) and not get_tree().get_nodes_in_group("annex_doors").is_empty()
+
+
+## Closing time in 10 s: the clock races, the lights flicker.
+func _annex_closing() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var status: Dictionary = annex.call("status")
+	annex.call("dev_retime", Constants.ANNEX_CAP_SECONDS - 10.0)
+	await _ticks(3)
+	return {"moment": "annex_closing", "note": "closing time in 10 s", "was": status}
+
+
+func _reached_annex_closing() -> bool:
+	var annex := _annex_node()
+	return _reached_annex() and bool(annex.call("urgent"))
+
+
+## Begin a visit for these riders the way the shuttle does, and wait for the walk-in.
+func _annex_start(riders: Array) -> Dictionary:
+	var annex := _annex_node()
+	var director := _director()
+	if annex == null or director == null:
+		return {"error": "no Annex (net/annex/annex.gd) in this world"}
+	if bool(annex.call("is_active")):
+		annex.rpc("_rpc_end")
+		await _ticks(2)
+	director.set("_hazard_seed", ANNEX_SEED)
+	annex.call("begin", ANNEX_TRIP, riders, Net.server_time())
+	var first := int(riders[0])
+	var inside: Variant = await _wait_for(func() -> Variant:
+		return true if str(annex.call("stage_of", first)) == "inside" else null)
+	if inside == null:
+		return {"error": "the walk-in never finished (stage %s)" % annex.call("stage_of", first)}
+	return {}
+
+
+## The schedule's first moment from now on where the window enters one of states
+## (followed by one of then, when given). -1 when there's none in the day.
+func _find_state(annex: Node, window: String, states: Array, then: Array) -> float:
+	var seed_value := int(annex.call("seed_value"))
+	var t := float(annex.call("elapsed")) + 1.0
+	while t < Constants.ANNEX_CAP_SECONDS - 12.0:
+		var state := _Sched.window_state(seed_value, window, t)
+		if states.has(int(state["state"])):
+			if then.is_empty() or then.has(int(_Sched.window_state(seed_value, window, float(state["until"]) + 0.01)["state"])):
+				return float(state["since"])
+			t = float(state["until"]) + 0.01
+			continue
+		t = float(state["until"]) + 0.01
+	return -1.0
+
+
+## Stand back from a spot, facing what it faces (toward look_at), on the floor.
+func _stand_by(spot: Vector3, look_at: Vector3, back: float) -> void:
+	if spot == Vector3.INF:
+		return
+	var away := Vector3(spot.x - look_at.x, 0.0, spot.z - look_at.z).normalized() if look_at != Vector3.INF else Vector3.BACK
+	var at := spot + away * back
+	_place(Vector3(at.x, spot.y + 0.1, at.z), _yaw_toward(at, spot - away * 2.0), -0.12)
+
+
+func _annex_node() -> Node:
+	return get_tree().get_first_node_in_group("annex")
+
+
+func _annex_point(path: String) -> Vector3:
+	var set_root := _world().get_node_or_null("BorderZone/AnnexSet")
+	var node := set_root.get_node_or_null(path) as Node3D if set_root != null else null
+	return node.global_position if node != null else Vector3.INF
 
 
 ## Back at the store (Homie Depot), the way the debug zone gates send you.
@@ -296,12 +497,12 @@ func _drive() -> Dictionary:
 
 
 ## Undo whatever an earlier moment left behind (a raid, a capture, a ride, a
-## crossing, a hiding spot, a seat), so each scenario starts clean.
+## visit to Annex B, a hiding spot, a seat), so each scenario starts clean.
 func reset() -> void:
 	var me_id := Net.local_peer_id()
 	var me := _me()
 	var director := _director()
-	var crossing := get_tree().get_first_node_in_group("border_return")
+	var annex := _annex_node()
 	if me != null:
 		var spot := preload("res://net/components/hide_spot.gd").spot_of(get_tree(), me_id)
 		if spot != null:
@@ -320,10 +521,16 @@ func reset() -> void:
 			director.call("_dismiss_crew")
 		var safe: Dictionary = director.get("_safe_until")
 		safe.erase(me_id)
-	if crossing != null and (crossing.get("_roster") as Array).has(me_id):
-		crossing.call("_send_home", me_id)
+	if annex != null and bool(annex.call("is_active")):
+		# Closed up, and everyone it held back where the game would send them.
+		var held: Array = annex.call("roster")
+		held.append_array(annex.call("visitors"))
+		annex.rpc("_rpc_end")
+		for peer_id: Variant in held:
+			if Net.player_zone(int(peer_id)) == Net.Zone.BORDER:
+				Net.move_player_to_zone(int(peer_id), Net.Zone.STORE)
 	# A van still on its way (empty now) finishes its trip, or it can't leave again
-	# (the host's start time only, as in _border_return: other peers see it jump
+	# (the host's start time only: other peers see it jump
 	# to the route's end when it arrives; start an observer recording after this).
 	var van := _van()
 	if van != null and bool(van.call("is_riding")):
