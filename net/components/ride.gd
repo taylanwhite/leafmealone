@@ -10,6 +10,7 @@ const LOT_PARK := Vector3(1007.0, 0.0, 24.6)
 ## Chefty's bed, in its own space: bags that land in here are loaded.
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const _Vehicles = preload("res://props/vehicles.gd")
+const _NiceVan = preload("res://props/nice_van.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Strings = preload("res://ui/strings.gd")
 
@@ -54,7 +55,10 @@ func _physics_process(_delta: float) -> void:
 		return
 	var duration := maxf(_duration, 0.1)
 	var along := clampf((Net.server_time() - _start_time) / duration, 0.0, 1.0)
-	_place(1.0 - along if _reverse else along)
+	# The van pulls away from the curb and slows at the end instead of popping to
+	# speed (props/nice_van.gd); Chefty's legacy ride keeps its even pace.
+	var shown := _NiceVan.depart_progress(along, duration, _path.curve.get_baked_length()) if is_in_group("vans") else along
+	_place(1.0 - shown if _reverse else shown)
 	if Net.is_host() and along >= 1.0:
 		_arrive()
 
@@ -147,7 +151,7 @@ func clear_bags() -> void:
 func setup_as_van(from_point: Vector3, to_point: Vector3) -> void:
 	add_to_group("vans")
 	_vehicle_name = _Strings.UI["van_label"]
-	_vehicle_color = Color(0.16, 0.17, 0.2)
+	_vehicle_color = _Vehicles.VAN_PAINT
 	if _body != null:
 		var truck := _body.get_node_or_null("TruckLook")
 		if truck != null:
@@ -155,11 +159,9 @@ func setup_as_van(from_point: Vector3, to_point: Vector3) -> void:
 		_Vehicles.build_van(_body, _vehicle_color)
 		if _label != null:
 			_label.position.y = 3.9
-	var curve := Curve3D.new()
-	curve.add_point(from_point)
-	curve.add_point((from_point + to_point) * 0.5 + Vector3(0.0, 3.0, 0.0))
-	curve.add_point(to_point)
-	_path.curve = curve
+	# The road out starts where the van pulled up (net/run_events/van_arrival.gd),
+	# facing the same way, so the two read as one van.
+	_path.curve = _NiceVan.departure_curve(from_point, to_point)
 	while _seats != null and _seats.get_child_count() < Constants.MAX_PLAYERS:
 		var seat := Marker3D.new()
 		seat.name = "Seat%d" % _seats.get_child_count()

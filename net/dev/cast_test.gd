@@ -40,7 +40,11 @@ extends Node
 ##  10. the head NICE BOY and a NICE BOY, dressed by CrewMember.dress(): outfit,
 ##      visor, grin, every named outfit part, and the outfit's extra triangles
 ##      within Constants.CREW_OUTFIT_TRIANGLE_BUDGET; a chest seal under 200
-##  11-12. the van's livery and the beacon (cast:5, PHASE_B_VAN)
+##  11. the van (props/nice_van.gd): its lettering is the strings' and passes the
+##      guardrail, it keeps its 5 collision boxes, it has wheels, see-through glass
+##      and the dome; the pull-up ends exactly where the ride out starts
+##  12. the beacon: seal, cones, notices and label; the seal spins; it folds away
+##  14b. (in phase C) the van pulled up and is parked at the curb as the crew arrives
 ## Phase C, a raid with a client watching (a client named Target joins):
 ## Phase C runs at full heat (the test adds it) on a day other than 1 (--start-day),
 ## so the client must show plain NICE BOYS and tags from the day the host sends.
@@ -67,7 +71,11 @@ const POOL_ROLLS: int = 400
 ## Steps 9-10: the outfit and its triangles (cast:4).
 const PHASE_B_LOOK: bool = true
 ## Steps 11-12: the van and the beacon (cast:5).
-const PHASE_B_VAN: bool = false
+const PHASE_B_VAN: bool = true
+const _Vehicles = preload("res://props/vehicles.gd")
+const _NiceVan = preload("res://props/nice_van.gd")
+const _BeaconScript = preload("res://npcs/arrival_beacon.gd")
+const _VanArrival = preload("res://net/run_events/van_arrival.gd")
 ## Steps 13-16: crew outfits and name tags on a networked crew (cast:4).
 const PHASE_C_CREW: bool = true
 ## Step 17: barks reach the client (cast:6).
@@ -205,12 +213,175 @@ func _phase_b() -> void:
 	_look(seal_triangles > 0 and seal_triangles < 200, "10 a chest-size Daisy Seal is under 200 triangles (%d)" % seal_triangles)
 	look["seal_triangles"] = seal_triangles
 	if PHASE_B_VAN:
-		pass # Steps 11-12 (the van's livery, the beacon) come with cast:5.
+		_van_look(scratch)
+		_van_roads()
+		await _van_called_off(scratch)
+		await _beacon(scratch)
 	else:
 		print("[CastTest] steps 11-12 (van, beacon) are off until cast:5")
 	scratch.queue_free()
 	await get_tree().process_frame
-	print("[CastTest] steps 9-10, the NICE BOYS' look: %s" % (_problems.size() == before))
+	print("[CastTest] steps 9-12, the NICE BOYS' look, van and beacon: %s" % (_problems.size() == before))
+
+
+## Step 11 (cast:5): the Courtesy Shuttle's livery is the strings' text and passes
+## the guardrail, it keeps the five collision boxes riders rely on, and it has
+## wheels, see-through glass, the dome, and a Daisy Seal-sized mesh.
+func _van_look(scratch: Node3D) -> void:
+	var holder := Node3D.new()
+	scratch.add_child(holder)
+	holder.position = Vector3(20.0, 0.0, 0.0)
+	var van: Node3D = _Vehicles.build_van(holder, _Vehicles.VAN_PAINT)
+	_look(van != null and van.name == "VanLook", "11 build_van makes a VanLook")
+	if van == null:
+		return
+	var livery := van.get_node_or_null("Livery")
+	_look(livery != null, "11 the van has VanLook/Livery")
+	var texts: Array[String] = []
+	for node: Node in van.find_children("*", "Label3D", true, false):
+		var text := (node as Label3D).text
+		texts.append(text)
+		_look(_Guardrail.is_clean(text), "11 the van's lettering '%s' passes the guardrail" % text)
+	if livery != null:
+		var painted := livery.find_children("*", "Label3D", true, false).size()
+		_look(painted >= 3, "11 the livery has at least 3 lettering labels (%d)" % painted)
+	for key: String in ["van_side", "van_motto", "van_rear"]:
+		_look(texts.has(str(_Strings.UI[key])), "11 the van carries UI %s ('%s'); it has %s" % [key, _Strings.UI[key], texts])
+	var solid := van.get_node_or_null("Solid")
+	var boxes := solid.find_children("*", "CollisionShape3D", false, false).size() if solid != null else 0
+	_look(boxes == 5, "11 VanLook/Solid keeps exactly 5 collision boxes (%d)" % boxes)
+	var wheels := van.get_node_or_null("Wheels")
+	_look(wheels != null and wheels.get_child_count() == 4, "11 the van has 4 wheels that can roll")
+	for part: String in ["Shell/Body", "Shell/Glass", "Shell/Dome", "Motion"]:
+		_look(van.get_node_or_null(part) != null, "11 the van has %s" % part)
+	var glass := van.get_node_or_null("Shell/Glass") as MeshInstance3D
+	if glass != null:
+		var material := glass.material_override as BaseMaterial3D
+		_look(material != null and material.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED, "11 the van's glass is see-through")
+	var triangles := _triangles(van)
+	look["van_triangles"] = triangles
+	print("[CastTest] step 11: the van is %d triangles, lettering %s" % [triangles, texts])
+	holder.queue_free()
+
+
+## Step 11, the roads (cast:5): the van that pulls up (van_arrival.gd) ends where
+## and facing how the ride leaving with riders starts, so the swap can't be seen;
+## the pull-up stops at the curb, and both start from rest.
+func _van_roads() -> void:
+	var park := Vector3(994.0, 0.0, 28.6)
+	var parked := _NiceVan.pose(_NiceVan.arrival_curve(park), 1.0)
+	var leaving := _NiceVan.pose(_NiceVan.departure_curve(park, Vector3(0.0, 0.0, 1000.0)), 0.0)
+	var gap := parked.origin.distance_to(leaving.origin)
+	var turn := parked.basis.get_rotation_quaternion().angle_to(leaving.basis.get_rotation_quaternion())
+	_look(gap < 0.01 and turn < deg_to_rad(1.0), "11 the parked van and the leaving ride line up (%.3f m, %.2f deg apart)" % [gap, rad_to_deg(turn)])
+	_look(is_equal_approx(_NiceVan.arrive_progress(Constants.VAN_ARRIVE_SECONDS), 1.0) and _NiceVan.arrive_progress(0.0) == 0.0, "11 the pull-up runs 0 to 1")
+	var dt := 0.05
+	var last_step := _NiceVan.arrive_progress(Constants.VAN_ARRIVE_SECONDS) - _NiceVan.arrive_progress(Constants.VAN_ARRIVE_SECONDS - dt)
+	_look(last_step * Constants.VAN_ARRIVE_DISTANCE / dt < 1.0, "11 the van creeps the last bit to the curb (%.2f m/s)" % (last_step * Constants.VAN_ARRIVE_DISTANCE / dt))
+	# A ride the length of the lot-to-border road, and a short one.
+	for road: Vector2 in [Vector2(8.0, 1414.0), Vector2(8.0, 30.0)]:
+		var pulled := _NiceVan.depart_progress(Constants.VAN_PULL_SECONDS / road.x, road.x, road.y) * road.y
+		_look(pulled <= 0.5 * Constants.VAN_PULL_ACCEL * Constants.VAN_PULL_SECONDS * Constants.VAN_PULL_SECONDS + 0.01, "11 the ride pulls out from the curb like a van (%.1f m in %.1f s on a %.0f m road)" % [pulled, Constants.VAN_PULL_SECONDS, road.y])
+		_look(is_equal_approx(_NiceVan.depart_progress(1.0, road.x, road.y), 1.0), "11 the ride ends at the end of a %.0f m road" % road.y)
+		var previous := 0.0
+		for step: int in 201:
+			var now := _NiceVan.depart_progress(float(step) / 200.0, road.x, road.y)
+			_look(now >= previous - 0.000001, "11 the ride never backs up (step %d, %.0f m road)" % [step, road.y])
+			previous = now
+
+
+## A stand-in run director for step 11's call-off: the phase and times
+## net/run_events/van_arrival.gd reads, set by the test.
+class FakeDirector extends Node:
+	var phase_now: int = 0
+	var arrive_at: float = 0.0
+	var started: float = 0.0
+	var park := Vector3(-600.0, 0.0, 28.6)
+
+	func phase() -> int:
+		return phase_now
+
+	func arrival_time() -> float:
+		return arrive_at if phase_now == 1 else -1.0
+
+	func phase_started_at() -> float:
+		return started
+
+	func van_park_point() -> Vector3:
+		return park
+
+
+## Step 11, called off (cast:5): a van that is still pulling up when the call is off
+## (everyone left the lot, or the crew gave up) drives on down the street from
+## where it is, without a jump back to the curb, and is gone after
+## Constants.VAN_LEAVE_SECONDS. Run against a stand-in director, out of the world.
+func _van_called_off(scratch: Node3D) -> void:
+	var holder := Node.new()
+	holder.name = "FakeWorld"
+	scratch.add_child(holder)
+	var director := FakeDirector.new()
+	director.name = "FakeDirector"
+	holder.add_child(director)
+	var arrival: Node = _VanArrival.new()
+	director.add_child(arrival)
+	# A warning whose van is 3.5 s into its 5 s pull-up, braking.
+	director.phase_now = 1
+	director.arrive_at = Net.server_time() + Constants.VAN_ARRIVE_SECONDS - 3.5
+	await _physics_ticks(12)
+	var van: Node3D = arrival.call("van_look")
+	var state := str(arrival.call("state_name"))
+	_look(van != null and state == "arriving", "11 a van pulls up during the warning (%s)" % state)
+	if van == null:
+		holder.queue_free()
+		return
+	var before := van.global_position
+	director.phase_now = 0
+	await _physics_ticks(3)
+	var after := van.global_position
+	var step := (after - before).dot(_NiceVan.STREET_DIR)
+	_look(str(arrival.call("state_name")) == "leaving", "11 a called-off van leaves")
+	_look(step > 0.0 and before.distance_to(after) < 2.0, "11 it drives on from where it was (%.2f m on, %.2f m moved)" % [step, before.distance_to(after)])
+	await get_tree().create_timer(0.6).timeout
+	_look((van.global_position - after).dot(_NiceVan.STREET_DIR) > 0.5, "11 it keeps going down the street")
+	var waited := 0.0
+	while str(arrival.call("state_name")) != "" and waited < Constants.VAN_LEAVE_SECONDS + 1.5:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+	_look(str(arrival.call("state_name")) == "", "11 the called-off van is gone after %.1f s" % Constants.VAN_LEAVE_SECONDS)
+	print("[CastTest] step 11: a called-off van drove on %.2f m in 3 ticks and was gone %.1f s later" % [step, waited + 0.6])
+	holder.queue_free()
+
+
+func _physics_ticks(count: int) -> void:
+	for _tick: int in count:
+		await get_tree().physics_frame
+
+
+## Step 12 (cast:5): the Courtesy Flare has its seal, cones, notices and label, the
+## seal spins, and dismiss() folds it away and frees it.
+func _beacon(scratch: Node3D) -> void:
+	var beacon: Node3D = _BeaconScript.new()
+	scratch.add_child(beacon)
+	beacon.position = Vector3(-20.0, 0.0, 0.0)
+	beacon.call("set_urgency", 1.0)
+	var seal := beacon.get_node_or_null("Seal") as Node3D
+	var spin := seal.rotation.y if seal != null else 0.0
+	await get_tree().process_frame
+	await get_tree().process_frame
+	for part: String in ["Seal", "Cones", "Notices", "Label"]:
+		_look(beacon.get_node_or_null(part) != null, "12 the beacon has %s" % part)
+	_look(seal != null and not is_equal_approx(seal.rotation.y, spin), "12 the beacon's seal spins")
+	var label := beacon.get_node_or_null("Label") as Label3D
+	_look(label != null and label.text == str(_Strings.UI["beacon_label"]), "12 the beacon reads UI beacon_label")
+	var notices := beacon.get_node_or_null("Notices")
+	_look(notices != null and notices.get_child_count() == Constants.BEACON_NOTICES, "12 the beacon drops %d notices" % Constants.BEACON_NOTICES)
+	beacon.call("dismiss")
+	var waited := 0.0
+	while is_instance_valid(beacon) and waited < Constants.BEACON_DISMISS_SECONDS + 1.0:
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	_look(not is_instance_valid(beacon), "12 a dismissed beacon folds away and is freed")
+	print("[CastTest] step 12: the beacon spun, dropped notices and folded away in %.2f s" % waited)
 
 
 ## Steps 13-16 (cast:4): a raid on a real lot, with a client watching. Every NICE
@@ -278,6 +449,15 @@ func _phase_c() -> void:
 	_wire(raids >= 1.0, "W6 the raid is tallied for the day summary (Campaign.note_day 'raids' is %.0f)" % raids)
 	# Let the spawn reach the client before the reports are written.
 	await get_tree().create_timer(CREW_SETTLE_SECONDS).timeout
+	# Step 14b (cast:5): the van pulled up with them and is parked at the curb.
+	if PHASE_B_VAN:
+		var arrival := get_tree().get_first_node_in_group("van_arrival")
+		var parked := str(arrival.call("state_name")) if arrival != null else "(no van_arrival)"
+		var van_look: Node3D = arrival.call("van_look") if arrival != null else null
+		var park: Vector3 = director.call("van_park_point")
+		var off := van_look.global_position.distance_to(park) if van_look != null else -1.0
+		_look(parked == "parked" and van_look != null and off < 0.05, "14b the NICE BOYS' van is parked at the curb (%s, %.2f m off)" % [parked, off])
+		print("[CastTest] step 14b: the van is %s, %.3f m from its parking spot" % [parked, off])
 	# Step 16: outfit, name tag, no capsule. The day must not be 1, the client's
 	# default before the host's state arrives, or a client that ignored the
 	# replicated day would still show the same tags (CI passes --start-day=7).

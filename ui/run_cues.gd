@@ -194,7 +194,11 @@ func _play(sound_name: String) -> void:
 		sfx.call("play", sound_name)
 
 
+## The beacon folds itself away (npcs/arrival_beacon.gd dismiss) rather than vanishing.
 func _clear_beacon() -> void:
 	if is_instance_valid(_beacon):
-		_beacon.queue_free()
+		if _beacon.has_method("dismiss"):
+			_beacon.call("dismiss")
+		else:
+			_beacon.queue_free()
 	_beacon = null

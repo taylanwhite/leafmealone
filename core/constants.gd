@@ -1396,3 +1396,53 @@ const ART_YARD_ROOF_SPOT_GAP: float = 0.9
 ## clear in front of every house, so where a hood's door puts the beds never
 ## changes where a tree, a hiding spot or litter lands.
 const ART_YARD_BED_STRIP: float = 1.5
+
+# ---- cast: the van and the beacon
+# The NICE BOYS' Courtesy Shuttle (props/nice_van.gd) and Courtesy Flare
+# (npcs/arrival_beacon.gd); cast chunk 5, docs/GAME.md "2026-11-02, the Courtesy Shuttle".
+## The van pulls up over the last this many seconds of the warning, parking as the
+## crew arrives (net/run_events/van_arrival.gd)...
+const VAN_ARRIVE_SECONDS: float = 5.0
+## ...from this far down the street (m)...
+const VAN_ARRIVE_DISTANCE: float = 60.0
+## ...cruising for this share of the time, then braking evenly to the curb.
+const VAN_ARRIVE_CRUISE_SHARE: float = 0.55
+## Leaving without anyone (the crew gave up): it pulls away at this (m/s^2), and is
+## gone after this many seconds.
+const VAN_LEAVE_ACCEL: float = 4.0
+const VAN_LEAVE_SECONDS: float = 7.0
+## The ride leaving with riders (net/components/ride.gd) pulls out from the curb at
+## this (m/s^2) for this long (s) before making up the ride's distance, instead of
+## popping to speed.
+const VAN_PULL_ACCEL: float = 6.0
+const VAN_PULL_SECONDS: float = 1.6
+## It drives straight along the curb this far (m) before bending away toward the border.
+const VAN_LEAD_OUT: float = 8.0
+## The body sways on its springs: radians of lean per m/s^2, at most this much, with
+## this spring stiffness and damping (one overshoot when it stops).
+const VAN_SWAY_PER_ACCEL: float = 0.005
+const VAN_SWAY_MAX: float = 0.035
+const VAN_SWAY_STIFFNESS: float = 140.0
+const VAN_SWAY_DAMPING: float = 9.0
+## Braking harder than this (m/s^2) lights the brake lights; the taillights' glow
+## when cruising and when braking.
+const VAN_BRAKE_LIGHT_ACCEL: float = 1.5
+const VAN_TAIL_GLOW: float = 1.2
+const VAN_BRAKE_GLOW: float = 5.0
+## The amber dome's pulse, per second.
+const VAN_DOME_PULSE_HZ: float = 1.1
+## A van moving farther than this in one physics tick was placed, not driven: its
+## wheels and springs ignore it.
+const VAN_TELEPORT_METERS: float = 6.0
+## The arrival beacon's Daisy Seal spins this fast (rad/s) when the warning starts
+## and when the crew arrives.
+const BEACON_SPIN_MIN: float = 0.6
+const BEACON_SPIN_MAX: float = 5.0
+## Its ring of traffic cones (m), the courtesy notices fluttering down around it,
+## from how high (m) and how long each fall takes (s, from..to).
+const BEACON_CONE_RING: float = 1.6
+const BEACON_NOTICES: int = 8
+const BEACON_NOTICE_HEIGHT: float = 10.0
+const BEACON_NOTICE_FALL := Vector2(3.0, 5.0)
+## When the crew arrives the beacon folds away over this long (s) instead of vanishing.
+const BEACON_DISMISS_SECONDS: float = 0.6

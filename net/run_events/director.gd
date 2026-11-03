@@ -12,6 +12,11 @@ const _Economy = preload("res://core/economy.gd")
 const _Strings = preload("res://ui/strings.gd")
 ## From the lot zone's origin, where the crew appears.
 const CREW_ARRIVAL_OFFSET := Vector3(16.0, 0.1, 0.0)
+## From the lot zone's origin, where the van parks: the street's far lane in front
+## of the yard, wheels on the ground. It pulls up there (van_arrival.gd) and leaves
+## from there with whoever was caught.
+const VAN_PARK_OFFSET := Vector3(-6.0, 0.0, 28.6)
+const _VanArrival: Script = preload("res://net/run_events/van_arrival.gd")
 
 signal phase_changed(status: String)
 
@@ -36,6 +41,10 @@ func _ready() -> void:
 	add_to_group("run_director")
 	if not Net.player_left.is_connected(_on_player_left):
 		Net.player_left.connect(_on_player_left)
+	# The van pulling up, on every peer, timed from the phases (cosmetic).
+	var arrival: Node = _VanArrival.new()
+	arrival.name = "VanArrival"
+	add_child(arrival)
 
 
 func status_line() -> String:
@@ -63,6 +72,12 @@ func arrival_time() -> float:
 func crew_arrival_point() -> Vector3:
 	var lot := get_parent().get_node("LotZone") as Node3D
 	return lot.position + CREW_ARRIVAL_OFFSET
+
+
+## Where the NICE BOYS' van parks at the lot, and where its ride starts (world space).
+func van_park_point() -> Vector3:
+	var lot := get_parent().get_node("LotZone") as Node3D
+	return lot.global_position + VAN_PARK_OFFSET
 
 
 func cohort_size() -> int:
@@ -260,14 +275,9 @@ func _build_van() -> void:
 		van = _RideScript.new()
 		van.name = "Van"
 		rides.add_child(van)
-	var lot := get_parent().get_node("LotZone") as Node3D
 	var border := get_parent().get_node("BorderZone") as Node3D
-	van.call(
-		"setup_as_van",
-		# From the street's far lane in front of the yard, wheels on the ground.
-		lot.global_position + Vector3(-6.0, 0.0, 28.6),
-		border.global_position + Vector3(0.0, 0.0, 0.0)
-	)
+	# From where the van pulled up and parked (van_arrival.gd).
+	van.call("setup_as_van", van_park_point(), border.global_position)
 
 
 func _release_held(peer_id: int) -> void:
