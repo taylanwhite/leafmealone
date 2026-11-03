@@ -14,7 +14,8 @@ extends RefCounted
 ##                 already painted makes no sound
 ##   props         ladder_clack at its top, ladder_crash when a knocked-over one stops
 ##                 tumbling (none when taken down by hand), hose_click, bag_plop,
-##                 pickup_heavy off the ground but nothing out of a pocket, a sign's
+##                 pickup_heavy off the ground (into hands, or pocketed and drawn in
+##                 one tick, the hotbar's way) but nothing out of a pocket, a sign's
 ##                 first pull and then an ordinary pickup
 ##   task_sounds   task_looks.work_fx plays its TASK_SOUNDS id at the spot, held to
 ##                 its gap per patch; the mower's borrowed bursts and the mower's
@@ -317,12 +318,24 @@ static func _props(tree: SceneTree, world: Node3D, at: Vector3) -> bool:
 	heard["bag_plop"] = not _placed("bag_plop").is_empty()
 	heard["pickup_heavy"] = not _placed("pickup_heavy").is_empty()
 	# Out of a pocket is the hotbar's draw, never a pickup.
+	hose.pocketed_by = 1
+	await _wait(tree, 0.2)
 	var pickups := _SfxScript.log.count("pickup_light") + _SfxScript.log.count("pickup_heavy")
-	hose.set_meta("drawn_from_pocket", true)
+	hose.pocketed_by = 0
 	hose.held_by = 1
 	await _wait(tree, 0.2)
 	heard["draw_quiet"] = _SfxScript.log.count("pickup_light") + _SfxScript.log.count("pickup_heavy") == pickups
 	hose.queue_free()
+	# Off the ground the hotbar's way: pocketed, then drawn, in one tick. Heard once.
+	var can := _stub_prop(world, at + Vector3(1.5, 0.0, 1.0), "gas_can")
+	await _wait(tree, 0.05)
+	var heavies := _SfxScript.log.count("pickup_heavy")
+	can.pocketed_by = 1
+	can.pocketed_by = 0
+	can.held_by = 1
+	await _wait(tree, 0.2)
+	heard["pocket_pickup"] = _SfxScript.log.count("pickup_heavy") == heavies + 1
+	can.queue_free()
 	barrow.queue_free()
 	# A TurfMasters sign: its first pull out of the lawn, then just a sign.
 	var sign_prop := _stub_prop(world, at + Vector3(3.0, 0.0, 0.0), "turf_sign")

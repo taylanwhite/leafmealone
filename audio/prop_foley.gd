@@ -10,9 +10,12 @@ extends Node
 ##               Constants.FOLEY_LADDER_FALL_SECONDS.y.
 ##   hose_source "" to a source: hose_click (hooked up)
 ##   stored_bags up: bag_plop (a bag into the wheelbarrow)
-##   held_by     0 to someone, off the ground (never out of a pocket, critic C12;
-##               the hotbar has its draw): pickup_light or pickup_heavy by its
-##               weight, and a TurfMasters sign's first pull is a sign_pull.
+##   picked up   lying loose (held_by and pocketed_by both 0) to carried, in hand
+##               or straight into a pocket (the hotbar pockets a pickup, then
+##               draws it, in one tick: watching held_by alone heard nothing in
+##               rec_crew_litter_1p): pickup_light or pickup_heavy by its weight,
+##               and a TurfMasters sign's first pull is a sign_pull. Never out of
+##               a pocket into a hand (critic C12; the hotbar has its draw).
 ## The first tick only reads the state, so a prop that arrives already set up or
 ## held (a late join, a spawn into someone's hands) makes no sound.
 
@@ -22,7 +25,7 @@ var _primed: bool = false
 var _ladder_set: bool = false
 var _hose: String = ""
 var _bags: int = 0
-var _held: int = 0
+var _loose: bool = true
 var _sign_pulled: bool = false
 ## A knocked-over ladder on its way down: seconds since, and its last rotation.
 var _falling: float = -1.0
@@ -38,13 +41,14 @@ func _process(delta: float) -> void:
 	var hose := str(prop.get("hose_source"))
 	var bags := int(prop.get("stored_bags"))
 	var held := int(prop.get("held_by"))
+	var loose := held == 0 and int(prop.get("pocketed_by")) == 0
 	if not _primed:
 		_primed = true
 		_ladder_set = ladder_set
 		_hose = hose
 		_bags = bags
-		_held = held
-		_sign_pulled = held != 0 or int(prop.get("pocketed_by")) != 0
+		_loose = loose
+		_sign_pulled = not loose
 		return
 	if kind == "ladder":
 		_ladder(ladder_set, held, delta)
@@ -56,10 +60,9 @@ func _process(delta: float) -> void:
 		if bags > _bags:
 			_play("bag_plop", prop.global_position + Vector3.UP * 0.5)
 		_bags = bags
-	if held != _held:
-		if _held == 0 and held != 0 and not bool(prop.get_meta("drawn_from_pocket", false)):
-			_picked_up(kind)
-		_held = held
+	if _loose and not loose:
+		_picked_up(kind)
+	_loose = loose
 
 
 func _picked_up(kind: String) -> void:

@@ -74,8 +74,8 @@ var _dress_waited: bool = false
 ## World/Shops, looked up once (snack_buff).
 var _shops_node: Node
 var _step_wait: float = 0.0
-## When H may honk again on Chefty's ride (ticks msec).
-var _honk_ready_msec: int = 0
+## When H may honk again on Chefty's ride (game seconds).
+var _honk_ready_at: float = 0.0
 ## Bonked by a thrown item: no control for this long. Knocked flat if the item was heavy.
 var _stun_left: float = 0.0
 var _knocked: bool = false
@@ -1887,9 +1887,10 @@ func _rpc_say(sound_name: String) -> void:
 func _honk() -> bool:
 	if _ride == null or not is_instance_valid(_ride) or not _ride.is_in_group("chefty"):
 		return false
-	var now := Time.get_ticks_msec()
-	if now >= _honk_ready_msec:
-		_honk_ready_msec = now + int(Constants.HORN_COOLDOWN_SECONDS * 1000.0)
+	# Game time (physics ticks), so a slowed run holds the cooldown as a player feels it.
+	var now := float(Engine.get_physics_frames()) / float(Engine.physics_ticks_per_second)
+	if now >= _honk_ready_at:
+		_honk_ready_at = now + Constants.HORN_COOLDOWN_SECONDS
 		say_to_all("truck_horn")
 	return true
 

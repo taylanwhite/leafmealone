@@ -37,7 +37,11 @@ static var steps: Array[Dictionary] = []
 
 var _primed: bool = false
 var _last_phase: float = NAN
-var _last_step_msec: int = -100000
+## Game seconds this node has run, and when the last footstep sounded: the step
+## gap is game time, so a slowed or fixed-step run spaces steps as a player hears
+## them at full speed.
+var _clock: float = 0.0
+var _last_step_at: float = -100.0
 var _step_count: int = 0
 var _coat: int = 0
 var _carried_by: int = 0
@@ -60,6 +64,7 @@ func _exit_tree() -> void:
 func _physics_process(delta: float) -> void:
 	if player == null or body == null or not is_instance_valid(body):
 		return
+	_clock += delta
 	var coat := int(player.get("coat"))
 	var carried_by := int(player.get("carried_by"))
 	var thrown := bool(player.get("thrown"))
@@ -109,10 +114,9 @@ func _footsteps() -> void:
 		return
 	if not _stepping():
 		return
-	var now := Time.get_ticks_msec()
-	if now - _last_step_msec < int(Constants.FOLEY_STEP_MIN_SECONDS * 1000.0):
+	if _clock - _last_step_at < Constants.FOLEY_STEP_MIN_SECONDS:
 		return
-	_last_step_msec = now
+	_last_step_at = _clock
 	var id := surface_id(player, body.global_position)
 	var db := Constants.FOLEY_STEP_DB + (0.0 if player.is_multiplayer_authority() else Constants.FOLEY_STEP_OTHER_DB)
 	var anim := int(player.get("anim_state"))
@@ -121,6 +125,11 @@ func _footsteps() -> void:
 	elif anim == ANIM_SPRINT:
 		db += Constants.FOLEY_STEP_SPRINT_DB
 	var at := body.global_position + Vector3.UP * 0.05
+	# Out of earshot (a teammate at the store while you're on the yard): no player
+	# made at all, so four crews' feet don't churn sound nodes nobody hears.
+	var cam := get_viewport().get_camera_3d()
+	if not _silent() and cam != null and cam.global_position.distance_to(at) > Constants.FOLEY_STEP_MAX_DISTANCE:
+		return
 	_play(id, at, db, _peer())
 	steps.append({"peer": _peer(), "id": id, "db": db})
 	if steps.size() > _Sfx.LOG_SIZE:

@@ -4076,10 +4076,15 @@ const ESCORT_CAM_ROOM: float = 1.2
 const FOLEY_STEP_MIN_SECONDS: float = 0.22
 ## The bank's own throttle on one body's footsteps (ms), under that.
 const FOLEY_STEP_GAP_MS: int = 200
-## Footstep trims (dB): every step (heard over the music and the breeze in the
-## first recordings, where they were buried), a teammate's on top of that (four
-## crews' feet stay under the work), crouched (sneaking is quiet) and sprinting.
-const FOLEY_STEP_DB: float = 4.0
+## Footstep trims (dB): every step, a teammate's on top of that (four crews' feet
+## stay under the work), crouched (sneaking is quiet) and sprinting. At +4 your
+## own steps in leaves peaked at -8 dBFS over music at -28 (rec_yardwalk_1p): a
+## drum over everything. At 0 they peak near -12, under the rake and the horn.
+const FOLEY_STEP_DB: float = 0.0
+## The pavement step (a thin heel click) peaked 6 dB under a step in leaves on the
+## store's lot (rec_walk_store_1p), and still 8 dB under at +4 on the yard's
+## sidewalk (rec_crew_litter_1p): this evens it out.
+const FOLEY_STEP_HARD_DB: float = 9.0
 const FOLEY_STEP_OTHER_DB: float = -4.0
 const FOLEY_STEP_CROUCH_DB: float = -9.0
 const FOLEY_STEP_SPRINT_DB: float = 1.5
@@ -4120,7 +4125,9 @@ const TASK_SFX_GAP_MS: Dictionary = {
 ## fade in over AMBIENCE_NIGHT_FADE_HOURS; they sit this loud (dB).
 const AMBIENCE_NIGHT_FROM_HOUR: float = 19.5
 const AMBIENCE_NIGHT_FADE_HOURS: float = 0.5
-const AMBIENCE_CRICKETS_DB: float = -15.0
+## At -15 the chirps sat 10 dB under the night's breeze, which itself sat at
+## -39 dBFS (rec_night_1p): no night at all. At -7 they're the top of the bed.
+const AMBIENCE_CRICKETS_DB: float = -7.0
 ## How fast the crickets follow you in and out of doors (dB per second).
 const AMBIENCE_CRICKETS_FADE_DB_PER_SECOND: float = 30.0
 ## An owl a few yards over at night: seconds between, how far (m) and how high.
