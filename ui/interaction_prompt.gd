@@ -12,7 +12,13 @@ extends Control
 ## when that point is behind the camera, while a window is open, and while the
 ## moment has you (ui/hud_mode.gd, through current_hint). It never pops: it fades
 ## and grows in, fades out where it was, bumps when its words change, and glides
-## (never jumps) from one thing to the next.
+## (never jumps) from one thing to the next. A hint's optional "source" says which
+## thing it is over (a node, or any value that names it), so two bags a hand apart
+## still glide and a thing moving fast is still followed exactly; a hint with no
+## source falls back to "its point jumped more than ICONS_PROMPT_RETARGET_M".
+## It steps up out of the way of anyone talking (the NICE BOYS' bubbles from
+## ui/overheads.gd, and any Label3D in the AVOID_GROUP: a keeper's or a
+## homeowner's caption and name).
 ##
 ## Camera3D.unproject_position already answers in canvas units under the
 ## canvas_items stretch, UI scale included (it measures get_visible_rect(), which
@@ -31,6 +37,8 @@ const PILL_RADIUS: int = 10
 const PILL_MARGIN := Vector2(10, 6)
 const TEXT_COLOR := Color(1.0, 0.97, 0.88)
 const FONT_SIZE: int = 22
+## Label3Ds in this group (words over someone's head) are kept clear of the pill.
+const AVOID_GROUP := "prompt_avoid"
 
 ## What the prompt offers now as plain text ("" when nothing): the hint, not the
 ## pill's fade or whether its point is on screen. For tests.
@@ -52,6 +60,14 @@ var _glide := Vector2.ZERO
 ## Where the pill's center was drawn last frame.
 var _last_center := Vector2.ZERO
 var _bump: float = 0.0
+## Which thing the last hint was over (identity_of), or null when it didn't say.
+var _identity: Variant = null
+## Screen offset keeping it clear of words over someone's head, eased.
+var _dodge := Vector2.ZERO
+## Coming up from nothing: the dodge starts where it's wanted, no glide.
+var _dodge_fresh: bool = true
+## How far the pill was last pushed to keep it inside the screen (px).
+var _edge_shift := Vector2.ZERO
 
 
 func _ready() -> void:
@@ -87,8 +103,15 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var camera := get_viewport().get_camera_3d()
+	if _window_open():
+		# A window takes the screen: the pill goes with the world behind it, at
+		# once (a fade would show for a frame or two over the window's edge).
+		current_text = ""
+		_alpha = 0.0
+		_pill.visible = false
+		return
 	var hint: Dictionary = {}
-	if camera != null and Net.current_state() == Net.State.IN_SESSION and not _window_open():
+	if camera != null and Net.current_state() == Net.State.IN_SESSION:
 		hint = _current_hint()
 	present(hint, camera, delta)
 
@@ -113,9 +136,16 @@ func present(hint: Dictionary, camera: Camera3D, delta: float) -> void:
 		_alpha = 0.0
 		_pill.visible = false
 		return
-	_glide *= exp(-Constants.ICONS_PROMPT_GLIDE_RATE * delta)
+	var settle := exp(-Constants.ICONS_PROMPT_GLIDE_RATE * delta)
+	_glide *= settle
 	_bump *= exp(-Constants.ICONS_PROMPT_BUMP_RATE * delta)
-	_place(screen_point(camera, _at) + _glide)
+	var center := screen_point(camera, _at) + _glide
+	var dodge := _dodge_for(center, _avoid_rects(camera))
+	_dodge = dodge if _dodge_fresh else dodge + (_dodge - dodge) * settle
+	_dodge_fresh = false
+	# Fading out it goes with its point, off the edge if that's where it's going,
+	# rather than being pushed along the edge into the HUD's corners.
+	_place(center + _dodge, want > 0.0)
 	_pill.visible = true
 
 
@@ -123,15 +153,22 @@ func present(hint: Dictionary, camera: Camera3D, delta: float) -> void:
 func _show(hint: Dictionary, camera: Camera3D) -> void:
 	var rich := rich_for(hint)
 	var at := hint["at"] as Vector3
+	var identity: Variant = identity_of(hint)
 	if _alpha <= 0.0 or not _has_at:
 		# Coming up from nothing: straight onto its spot, no glide from the last one.
 		_glide = Vector2.ZERO
 		_bump = 0.0
+		_dodge_fresh = true
 	else:
-		if at.distance_to(_at) > Constants.ICONS_PROMPT_RETARGET_M:
-			_glide = _last_center - screen_point(camera, at)
+		# Another thing (by what the hints say they're over, else by the jump):
+		# glide over from where it was drawn. The same thing, however fast it
+		# moved, is followed exactly.
+		var other: bool = identity != _identity if identity != null and _identity != null else at.distance_to(_at) > Constants.ICONS_PROMPT_RETARGET_M
+		if other:
+			_glide = _last_center - _dodge - screen_point(camera, at)
 		if rich != _shown_rich:
 			_bump = Constants.ICONS_PROMPT_BUMP
+	_identity = identity
 	if rich != _shown_rich:
 		_shown_rich = rich
 		_label.text = rich
@@ -152,17 +189,69 @@ func _in_view(camera: Camera3D, at: Vector3) -> bool:
 	return view.has_point(screen_point(camera, at))
 
 
+## Which thing a hint is over and what it offers there, or null when the hint
+## has no "source" (a node is named by its instance id).
+static func identity_of(hint: Dictionary) -> Variant:
+	var source: Variant = hint.get("source")
+	if source == null:
+		return null
+	if source is Object:
+		source = (source as Object).get_instance_id()
+	return [source, str(hint.get("text", ""))]
+
+
+## Where words over someone's head are on screen now: the NICE BOYS' bubbles
+## (ui/overheads.gd's last rects) and every showing Label3D in AVOID_GROUP.
+func _avoid_rects(camera: Camera3D) -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	var overheads := get_parent().get_node_or_null("Overheads") if get_parent() != null else null
+	if overheads != null:
+		for entry: Dictionary in overheads.get("last_rects"):
+			if str(entry.get("kind")) == "bubble":
+				out.append(entry["rect"] as Rect2)
+	var view := get_viewport().get_visible_rect().size
+	for node: Node in get_tree().get_nodes_in_group(AVOID_GROUP):
+		var label := node as Label3D
+		if label == null or not label.is_visible_in_tree() or label.text == "" or label.transparency > 0.95:
+			continue
+		var rect := _Overheads.screen_rect(label, camera, view)
+		if rect.size != Vector2.ZERO:
+			out.append(rect)
+	return out
+
+
+## How far to move a pill centered here so it sits clear of those rects: up
+## above one it would touch, or below it when above would leave the screen.
+func _dodge_for(center: Vector2, rects: Array[Rect2]) -> Vector2:
+	var size := _pill.get_combined_minimum_size()
+	var gap := Constants.ICONS_PROMPT_AVOID_GAP_PX
+	var shift := Vector2.ZERO
+	for rect: Rect2 in rects:
+		var pill := Rect2(center + shift - size * 0.5, size)
+		if not pill.intersects(rect.grow(gap)):
+			continue
+		var up := rect.position.y - gap - pill.end.y
+		if pill.position.y + up >= Constants.ICONS_PROMPT_EDGE_PX:
+			shift.y += up
+		else:
+			shift.y += rect.end.y + gap - pill.position.y
+	return shift
+
+
 ## Centers the pill on a screen point, kept inside the screen, with the
 ## grow-in, fade and bump.
-func _place(center: Vector2) -> void:
+func _place(center: Vector2, keep_inside: bool = true) -> void:
 	var size := _pill.get_combined_minimum_size()
 	_pill.size = size
 	_pill.pivot_offset = size * 0.5
 	var view := get_viewport().get_visible_rect().size
 	var edge := Constants.ICONS_PROMPT_EDGE_PX
 	var top_left := center - size * 0.5
-	top_left.x = clampf(top_left.x, edge, maxf(edge, view.x - size.x - edge))
-	top_left.y = clampf(top_left.y, edge, maxf(edge, view.y - size.y - edge))
+	if keep_inside:
+		var inside := Vector2(clampf(top_left.x, edge, maxf(edge, view.x - size.x - edge)), clampf(top_left.y, edge, maxf(edge, view.y - size.y - edge)))
+		_edge_shift = inside - top_left
+	# While fading out the last push stays as it was (no jump), and no new one.
+	top_left += _edge_shift
 	_pill.position = top_left.round()
 	_last_center = top_left + size * 0.5
 	var grow := _ease_out_back(_alpha) if _rising else _alpha

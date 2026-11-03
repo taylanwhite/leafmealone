@@ -141,6 +141,20 @@ func reach_distance(at: Vector3) -> float:
 	return Vector2(local.x - nearest.x, local.z - nearest.z).length()
 
 
+## Where the "Hide" prompt floats for someone standing at `from`: just over the
+## top of the spot, above the part of it nearest them (so the pill is over the
+## hedge you'd dive into, not over its middle or out of sight above you), and
+## never higher than a door (a shed's roof is above your view up close).
+func prompt_point(from: Vector3) -> Vector3:
+	var local := global_transform.affine_inverse() * from
+	var half := box_size * 0.5
+	var inset := Vector2(minf(Constants.ICONS_PROMPT_HIDE_INSET, half.x * 0.5), minf(Constants.ICONS_PROMPT_HIDE_INSET, half.z * 0.5))
+	var x := clampf(local.x, -half.x + inset.x, half.x - inset.x)
+	var z := clampf(local.z, -half.z + inset.y, half.z - inset.y)
+	var y := minf(box_size.y + Constants.ICONS_PROMPT_HIDE_ABOVE, Constants.ICONS_PROMPT_HIDE_MAX_Y)
+	return global_transform * Vector3(x, y, z)
+
+
 ## The side someone at this point would come in by: the face they stand
 ## before (a shed only by its door).
 func side_toward(at: Vector3) -> int:

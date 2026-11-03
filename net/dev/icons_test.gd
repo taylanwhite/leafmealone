@@ -651,6 +651,11 @@ func _prompt() -> Variant:
 		gaps.append("no Pill under InteractionPrompt")
 		return gaps
 	prompt.process_mode = Node.PROCESS_MODE_DISABLED
+	# The yard's own words over heads (the homeowner's name) would move the pill
+	# out of their way; the placement checks want it where its point is.
+	var avoided := get_tree().get_nodes_in_group(_Prompt.AVOID_GROUP)
+	for node: Node in avoided:
+		node.remove_from_group(_Prompt.AVOID_GROUP)
 	var ahead := camera.global_position - camera.global_basis.z * 4.0
 	var here := ahead + camera.global_basis.x * 0.6
 	for _frame: int in 3:
@@ -674,6 +679,63 @@ func _prompt() -> Variant:
 	_out["prompt_glide"] = {"first_step_px": snappedf(first_step, 0.1), "gap_px": snappedf(gap_px, 0.1), "settled_px": snappedf(settled, 0.1)}
 	if first_step > gap_px * 0.6 or settled > 1.5:
 		gaps.append("retarget moved %.1f px of %.1f on its first frame, %.1f px off after 1 s" % [first_step, gap_px, settled])
+	# Two things a hand apart (two bags, a clump of weeds): the hints say which
+	# thing they're over, so it still glides, however close they are.
+	var near_a := ahead + camera.global_basis.x * 0.15
+	var near_b := ahead - camera.global_basis.x * 0.15
+	for _frame: int in 30:
+		prompt.call("present", {"text": "Pick up", "at": near_a, "source": "bag:1"}, camera, 1.0 / 30.0)
+	var near_from := _pill_center(pill)
+	prompt.call("present", {"text": "Pick up", "at": near_b, "source": "bag:2"}, camera, 1.0 / 30.0)
+	var near_step := _pill_center(pill).distance_to(near_from)
+	var near_gap := near_from.distance_to(camera.unproject_position(near_b))
+	for _frame: int in 30:
+		prompt.call("present", {"text": "Pick up", "at": near_b, "source": "bag:2"}, camera, 1.0 / 30.0)
+	var near_settled := _pill_center(pill).distance_to(camera.unproject_position(near_b))
+	_out["prompt_near_glide"] = {"first_step_px": snappedf(near_step, 0.1), "gap_px": snappedf(near_gap, 0.1), "settled_px": snappedf(near_settled, 0.1)}
+	if near_gap < 10.0 or near_step > near_gap * 0.6 or near_settled > 1.5:
+		gaps.append("two things 0.3 m apart: moved %.1f px of %.1f on the first frame, %.1f px off after 1 s" % [near_step, near_gap, near_settled])
+	# One thing moving fast (Chefty at full speed, a hitch frame): followed
+	# exactly, every frame, never trailing behind on a glide.
+	var worst_follow := 0.0
+	for step: int in 6:
+		var moving := ahead + camera.global_basis.x * (-1.5 + 0.6 * float(step)) + camera.global_basis.y * 0.3
+		prompt.call("present", {"text": "Pick up", "at": moving, "source": "bag:2"}, camera, 1.0 / 30.0)
+		worst_follow = maxf(worst_follow, _pill_center(pill).distance_to(camera.unproject_position(moving)))
+	_out["prompt_follow_px"] = snappedf(worst_follow, 0.01)
+	if worst_follow > 1.5:
+		gaps.append("a thing moving 0.6 m a frame is trailed by %.1f px" % worst_follow)
+	# Words over someone's head (a keeper's line) right where the pill would
+	# be: it steps up out of their way, gliding, and sits clear of them.
+	var line := Label3D.new()
+	line.text = "New day, new leaves."
+	line.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	line.fixed_size = true
+	line.pixel_size = 0.0012
+	line.font_size = 30
+	line.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	get_tree().get_first_node_in_group("world").add_child(line)
+	line.global_position = ahead - camera.global_basis.y * 0.05
+	for _frame: int in 30:
+		prompt.call("present", {"text": "Shop", "at": ahead, "source": "keeper"}, camera, 1.0 / 30.0)
+	var clear_before := _pill_rect(pill)
+	line.add_to_group(_Prompt.AVOID_GROUP)
+	var view_size := get_viewport().get_visible_rect().size
+	var line_rect := preload("res://ui/overheads.gd").screen_rect(line, camera, view_size)
+	prompt.call("present", {"text": "Shop", "at": ahead, "source": "keeper"}, camera, 1.0 / 30.0)
+	var dodge_step := _pill_rect(pill).position.distance_to(clear_before.position)
+	for _frame: int in 30:
+		prompt.call("present", {"text": "Shop", "at": ahead, "source": "keeper"}, camera, 1.0 / 30.0)
+	var dodged := _pill_rect(pill)
+	_out["prompt_avoid"] = {"line": [line_rect.position, line_rect.end], "pill_before": [clear_before.position, clear_before.end], "pill_after": [dodged.position, dodged.end], "first_step_px": snappedf(dodge_step, 0.1)}
+	if not clear_before.intersects(line_rect):
+		gaps.append("the avoid check's line doesn't sit on the pill to begin with")
+	elif dodged.intersects(line_rect) or dodged.end.y > line_rect.position.y:
+		gaps.append("the pill sits on a keeper's line: pill %s, line %s" % [dodged, line_rect])
+	elif dodge_step > (clear_before.end.y - line_rect.position.y) * 0.6 + Constants.ICONS_PROMPT_AVOID_GAP_PX:
+		gaps.append("the pill jumped %.1f px out of a line's way in one frame" % dodge_step)
+	line.queue_free()
+	await _frames(1)
 	# Behind the camera: gone.
 	prompt.call("present", {"text": "Hide", "at": camera.global_position + camera.global_basis.z * 3.0}, camera, 1.0)
 	if pill.visible:
@@ -703,9 +765,25 @@ func _prompt() -> Variant:
 	root.content_scale_factor = scale_was
 	await _frames(1)
 	prompt.call("present", {}, camera, 1.0)
+	for node: Node in avoided:
+		if is_instance_valid(node):
+			node.add_to_group(_Prompt.AVOID_GROUP)
 	prompt.process_mode = Node.PROCESS_MODE_INHERIT
-	# A window takes the prompt away, live.
+	# A window takes the prompt away, live: first a live prompt up in front of
+	# the camera, then the shop opens over it.
 	if ui.has_method("open_store"):
+		var source := AheadSource.new()
+		source.name = "IconsTestPromptSource"
+		source.camera = camera
+		add_child(source)
+		source.add_to_group("prompt_sources")
+		var up_frames := 0
+		while up_frames < 60 and not (str(prompt.get("current_text")) != "" and pill.visible and pill.modulate.a > 0.99):
+			await _frames(1)
+			up_frames += 1
+		_out["prompt_live_before_shop"] = {"text": str(prompt.get("current_text")), "visible": pill.visible, "alpha": snappedf(pill.modulate.a, 0.01), "frames": up_frames}
+		if str(prompt.get("current_text")) == "" or not pill.visible:
+			gaps.append("no live prompt came up before the shop opened ('%s', %s)" % [prompt.get("current_text"), "up" if pill.visible else "hidden"])
 		ui.call("open_store")
 		await _frames(LAYOUT_FRAMES)
 		if str(prompt.get("current_text")) != "" or pill.visible:
@@ -713,7 +791,23 @@ func _prompt() -> Variant:
 		var shop := ui.get_node_or_null("ShopWindow")
 		if shop != null and shop.has_method("close_window"):
 			shop.call("close_window")
+		source.queue_free()
 	return gaps
+
+
+## A prompt source that always offers one, just in front of the camera.
+class AheadSource extends Node:
+	var camera: Camera3D
+
+	func prompt() -> Dictionary:
+		if camera == null or not is_instance_valid(camera):
+			return {}
+		return {"text": "Test", "at": camera.global_position - camera.global_basis.z * 3.0}
+
+
+## The pill's rect as laid out (before its grow and bump scale).
+func _pill_rect(pill: Control) -> Rect2:
+	return Rect2(pill.position, pill.size)
 
 
 ## The middle of the pill as drawn (scale is about its pivot, the middle).

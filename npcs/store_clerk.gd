@@ -98,6 +98,8 @@ func _ready() -> void:
 	_tag.outline_size = 8
 	_tag.position.y = 2.25
 	add_child(_tag)
+	# The interact pill keeps clear of their name and lines (ui/interaction_prompt.gd).
+	_tag.add_to_group("prompt_avoid")
 	# Styled like the homeowner's caption: the same size on screen however close you stand.
 	_caption = Label3D.new()
 	_caption.name = "Caption"
@@ -114,6 +116,7 @@ func _ready() -> void:
 	_caption.no_depth_test = true
 	_caption.visible = false
 	add_child(_caption)
+	_caption.add_to_group("prompt_avoid")
 	_voice = AudioStreamPlayer3D.new()
 	_voice.position.y = 1.6
 	_voice.unit_size = 4.0

@@ -74,6 +74,8 @@ func _ready() -> void:
 	tag.outline_size = 8
 	tag.position.y = 2.2
 	add_child(tag)
+	# The interact pill keeps clear of their name and lines (ui/interaction_prompt.gd).
+	tag.add_to_group("prompt_avoid")
 	_caption = Label3D.new()
 	_caption.name = "Caption"
 	_caption.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -90,6 +92,7 @@ func _ready() -> void:
 	_caption.no_depth_test = true
 	_caption.visible = false
 	add_child(_caption)
+	_caption.add_to_group("prompt_avoid")
 	_voice = AudioStreamPlayer3D.new()
 	_voice.position.y = 1.6
 	_voice.unit_size = 4.0

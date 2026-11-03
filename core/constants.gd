@@ -2758,6 +2758,16 @@ const ICONS_PROMPT_RETARGET_M: float = 0.5
 const ICONS_PROMPT_GLIDE_RATE: float = 16.0
 ## The pill keeps this many pixels inside the screen's edges.
 const ICONS_PROMPT_EDGE_PX: float = 12.0
+## ...and this many pixels clear of words over someone's head (a NICE BOY's
+## bubble, a keeper's caption or name), stepping up out of their way.
+const ICONS_PROMPT_AVOID_GAP_PX: float = 6.0
+## The "Hide" pill floats this far (m) over the top of a hiding spot, above the
+## part of it nearest you (this far in from its edges), and never higher than
+## this over the ground: a shed's door, not its roof (net/components/hide_spot.gd
+## prompt_point).
+const ICONS_PROMPT_HIDE_ABOVE: float = 0.12
+const ICONS_PROMPT_HIDE_INSET: float = 0.3
+const ICONS_PROMPT_HIDE_MAX_Y: float = 1.9
 ## The "+$9" popup's coin: its height in the label's own pixels, the gap between
 ## it and the text, how fast it spins (rad/s), and how thin it gets edge-on (a
 ## coin has a rim; it never vanishes to a line).
