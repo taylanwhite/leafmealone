@@ -95,6 +95,8 @@ const COOLER_AT := Vector2(-0.86, 0.12)
 ## The riders' cab shot: the eye, and what it looks at (the daisy, a touch low).
 const FRESHENER_CAM := Vector3(0.05, 2.66, -0.4)
 const FRESHENER_LOOK := Vector3(0.0, 2.42, -2.3)
+## The engine's sound comes from here, under the hood.
+const ENGINE_AT := Vector3(0.0, 1.0, -2.6)
 ## The back doors' hinges (x) and how far they swing open (radians).
 const BACK_HINGE_X: float = 1.05
 const BACK_DOOR_OPEN: float = 1.9

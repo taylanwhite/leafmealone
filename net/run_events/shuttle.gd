@@ -335,10 +335,29 @@ func is_gone() -> bool:
 	var leg := _current_leg(trip, now)
 	if leg.is_empty():
 		return false
-	# Driving away now it never stops in sight: gone once nobody on the yard sees it.
-	if int(leg["k"]) == Leg.DEPART and Net.is_host() and leg_distance(leg, now - float(leg["t"])) >= Constants.VAN_HIDE_METERS and not _seen_by_yard(trip, now, []):
-		return true
+	# Driving away it never stops in sight, and anyone still watching it go draws it
+	# carrying on down the road out to VAN_VANISH_METERS (_draw_trip's ghost): the
+	# crew riding it stays aboard until nobody on the yard could still see that van,
+	# never vanishing from seats that are visibly still driving off (review r2b:van).
+	var drive := _last_drive_leg(trip, now)
+	if Net.is_host() and not drive.is_empty() and int(leg["k"]) in [Leg.DEPART, Leg.HIDDEN]:
+		if int(leg["k"]) == Leg.DEPART and leg_distance(leg, now - float(leg["t"])) < Constants.VAN_HIDE_METERS:
+			return false
+		return not _seen_by_yard_at(trip, leg_pose(drive, now).origin, [], Constants.VAN_VANISH_METERS)
 	return int(leg["k"]) in [Leg.HIDDEN, Leg.ANNEX_ARRIVE, Leg.ANNEX_PARKED, Leg.LEAVE] and _leg_done(trip, now)
+
+
+## The DEPART leg the van is on, or (hidden now) the one it hid at the end of.
+func _last_drive_leg(trip: Trip, now: float) -> Dictionary:
+	var found: Dictionary = {}
+	for entry: Dictionary in trip.legs:
+		if float(entry["t"]) > now:
+			break
+		if int(entry["k"]) == Leg.DEPART and entry.has("p"):
+			found = entry
+		elif int(entry["k"]) != Leg.HIDDEN:
+			found = {}
+	return found
 
 
 ## Host, from the Annex (C13): these peers ride home. A return van waits at the
@@ -1165,7 +1184,9 @@ func _plan_route_from(trip: Trip, at: float, kind: int, v0: float) -> void:
 	# host never plans (and ground-checks) 200 m of road in one tick.
 	var points := _street_points_from(trip, pose, Constants.VAN_HIDE_METERS, _avoid_points(trip))
 	var length := _polyline_length(points)
-	var segs := _drive_segments(v0, length, true)
+	# A road cut short (no way round something, or no ground) brakes to a stop
+	# before its end instead of coasting on through whatever cut it.
+	var segs := _drive_segments(v0, length, not _route_cut)
 	trip.legs.append({"k": kind, "t": at, "p": points, "v0": v0, "segs": segs})
 	var end_t := at + _segs_seconds(segs)
 	var end_pose := _route_pose(points, length)
@@ -1191,7 +1212,7 @@ func _plan_leave(trip: Trip, at: float) -> void:
 	var pose := _pose(trip, pull)
 	var points := _street_points_from(trip, pose, Constants.VAN_HIDE_METERS, _avoid_points(trip))
 	var length := _polyline_length(points)
-	var segs := _drive_segments(0.0, length, true)
+	var segs := _drive_segments(0.0, length, not _route_cut)
 	trip.legs.append({"k": Leg.LEAVE, "t": pull, "p": points, "v0": 0.0, "segs": segs})
 	_send_plan(trip)
 	_rpc_beat.rpc(trip.id, "pull", pull)
@@ -1417,6 +1438,22 @@ func _route(origin: Vector3, h: Vector3, right: Vector3, along: Array[float], ba
 				break
 		stats["swerves"] = int(stats.get("swerves", 0)) + 1
 		if not found:
+			# No way round with room to spare for the people about: round the things
+			# that can't step aside, then. People never end a route: an arrival cut
+			# short at someone would start its approach right in front of them, and a
+			# drive-away cut there would stop in the street (review r2b:van).
+			if not _route_blocked(at, h, false):
+				continue
+			for step: int in range(1, 25):
+				var offset := 0.6 * float((step + 1) / 2) * (-1.0 if step % 2 == 1 else 1.0)
+				var lateral := base[index] + offset
+				if lateral < -Constants.VAN_SWERVE_RANGE.x or lateral > Constants.VAN_SWERVE_RANGE.y:
+					continue
+				if not _route_blocked(at + right * offset, h, false):
+					need[index] = offset
+					found = true
+					break
+		if not found:
 			# No way round: the route ends short of it (walked from the fixed end).
 			blocked[index] = true
 	# Each swerve eased in and out over VAN_SWERVE_EASE meters either side.
@@ -1438,14 +1475,17 @@ func _route(origin: Vector3, h: Vector3, right: Vector3, along: Array[float], ba
 	var order: Array[int] = []
 	for index: int in count:
 		order.append(count - 1 - index if fixed > 0 else index)
+	_route_cut = false
 	for index: int in order:
 		var point := origin + h * along[index] + right * lateral_final[index]
 		var y := _ground_y(point, origin.y, true)
 		if blocked.has(index):
 			stats["route_blocked_ends"] = int(stats.get("route_blocked_ends", 0)) + 1
+			_route_cut = true
 			break
 		if y < -1000.0:
 			stats["route_ground_misses"] = int(stats["route_ground_misses"]) + 1
+			_route_cut = true
 			break
 		kept[index] = Vector3(point.x, y, point.z)
 	var out := PackedVector3Array()
@@ -1460,8 +1500,8 @@ func _route(origin: Vector3, h: Vector3, right: Vector3, along: Array[float], ba
 
 ## Something standing where a van-sized slice of road (VAN_ROUTE_CLEARANCE) at
 ## this point would be: a tree, a car, a post, a prop. People and the yard's
-## invisible pad walls don't count.
-func _route_blocked(at: Vector3, h: Vector3) -> bool:
+## invisible pad walls don't count; people standing there do unless people is off.
+func _route_blocked(at: Vector3, h: Vector3, people: bool = true) -> bool:
 	var space := get_world_3d().direct_space_state if is_inside_tree() else null
 	if space == null:
 		return false
@@ -1480,7 +1520,7 @@ func _route_blocked(at: Vector3, h: Vector3) -> bool:
 	var slice := Transform3D(Basis.looking_at(h, Vector3.UP), at)
 	# Someone standing in the road: it goes round them with room to spare, never
 	# brushing past (R2b van).
-	if _person_in(slice, Constants.VAN_ROUTE_CLEARANCE, Constants.VAN_PERSON_CLEARANCE):
+	if people and _person_in(slice, Constants.VAN_ROUTE_CLEARANCE, Constants.VAN_PERSON_CLEARANCE):
 		return true
 	return _tree_in(slice, Constants.VAN_ROUTE_CLEARANCE)
 
@@ -1493,7 +1533,7 @@ func _person_in(xform: Transform3D, size: Vector3, margin: float) -> bool:
 		if riding.has(node.name.to_int()) or not node is Node3D:
 			continue
 		var local := inverse * (node as Node3D).global_position
-		if absf(local.x) < size.x * 0.5 + margin and absf(local.z) < size.z * 0.5 + margin and absf(local.y) < 3.0:
+		if absf(local.x) < size.x * 0.5 + margin and absf(local.z) < size.z * 0.5 + margin and absf(local.y) < Constants.VAN_PERSON_HEIGHT:
 			return true
 	return false
 
@@ -1526,6 +1566,10 @@ func _tree_in(xform: Transform3D, size: Vector3) -> bool:
 
 var _trees: Array = []
 var _trees_at: int = -100000
+## Whether the last _route ended short of its far end (something it can't get
+## round, or the ground running out): a drive-away on it brakes to a stop there
+## instead of coasting on through (review r2b:van).
+var _route_cut: bool = false
 
 
 ## A route on from a pose: along its facing, merging back to the lane over the
@@ -1914,6 +1958,7 @@ func _rpc_seat(trip_id: int, peer_id: int, seat: int, at: float, mode: int, from
 	trip.unseats.erase(peer_id)
 	trip.staged_pose.erase(peer_id)
 	trip.my_beats.erase("unseat%d" % peer_id)
+	trip.my_beats.erase("step%d" % peer_id)
 	if Net.is_host():
 		trip.last_seat_done = maxf(trip.last_seat_done, at + _board_seconds(trip, peer_id))
 
@@ -1924,11 +1969,6 @@ func _rpc_unseat(trip_id: int, peer_id: int, exit: Vector3, at: float) -> void:
 	if trip == null or not trip.seats.has(peer_id):
 		return
 	trip.unseats[peer_id] = {"at": at, "exit": exit}
-	if Net.is_host():
-		# For the tests: nobody steps down before the side door is open.
-		stats["unseats"] = int(stats.get("unseats", 0)) + 1
-		if not _door_fully_open(trip, "side", at + Constants.VAN_BUCKLE_SECONDS * 0.6):
-			stats["unseats_shut_door"] = int(stats.get("unseats_shut_door", 0)) + 1
 
 
 ## The Annex (or the legacy crossing) has the riders now: off this van's seats.
@@ -2041,13 +2081,13 @@ func _build_engine(trip: Trip) -> void:
 	player.bus = _Bank.bus("engine_idle")
 	player.unit_size = Constants.VAN_ENGINE_UNIT_SIZE
 	player.max_distance = Constants.VAN_ENGINE_MAX_DISTANCE
-	player.volume_db = -80.0
-	player.position = Vector3(0.0, 1.0, -2.6)
+	player.volume_db = Constants.VAN_ENGINE_SILENT_DB
+	player.position = _NiceVan.ENGINE_AT
 	trip.look.add_child(player)
 	trip.engine = player
 
 
-func _engine(trip: Trip, leg: Dictionary, now: float) -> void:
+func _engine(trip: Trip, leg: Dictionary, now: float, delta: float) -> void:
 	var player := trip.engine
 	if player == null or not is_instance_valid(player):
 		return
@@ -2062,10 +2102,11 @@ func _engine(trip: Trip, leg: Dictionary, now: float) -> void:
 		speed = leg_speed(trip.ghost_leg, now - float(trip.ghost_leg["t"]))
 	elif leg.has("segs"):
 		speed = leg_speed(leg, now - float(leg["t"]))
-	var share := clampf(speed / Constants.VAN_CRUISE, 0.0, 1.2)
+	var share := clampf(speed / Constants.VAN_CRUISE, 0.0, Constants.VAN_ENGINE_SHARE_MAX)
 	var rider := _local_is_rider(trip)
 	var db := lerpf(Constants.VAN_ENGINE_DB.x, Constants.VAN_ENGINE_DB.y, minf(share, 1.0)) + (Constants.VAN_ENGINE_RIDER_DB if rider else 0.0)
-	player.volume_db = lerpf(player.volume_db, db, 0.2) if player.volume_db > -60.0 else db
+	var ease := 1.0 - exp(-Constants.VAN_ENGINE_SMOOTH * maxf(delta, 0.0))
+	player.volume_db = lerpf(player.volume_db, db, ease) if player.volume_db > Constants.VAN_ENGINE_EASE_FLOOR_DB else db
 	player.pitch_scale = lerpf(Constants.VAN_ENGINE_PITCH.x, Constants.VAN_ENGINE_PITCH.y, share)
 
 
@@ -2171,7 +2212,7 @@ func _draw_trip(trip: Trip, now: float, delta: float) -> void:
 	trip.placed = true
 	_doors_and_lights(trip, now)
 	_sounds(trip, leg, now)
-	_engine(trip, leg, now)
+	_engine(trip, leg, now, delta)
 	_driver(trip, now, kind)
 	_place_riders(trip, now)
 	_place_crew(trip, now)
@@ -2428,15 +2469,33 @@ func _place_riders(trip: Trip, now: float) -> void:
 		if int(entry["mode"]) == BOARD_IRIS and now < float(entry["at"]) and not trip.staged_pose.has(peer):
 			# Still where they stand until their iris has shut.
 			continue
+		var leaving := trip.unseats.has(peer)
+		var unseat_at := float((trip.unseats[peer] as Dictionary)["at"]) if leaving else INF
+		var step_at := unseat_at + Constants.VAN_BUCKLE_SECONDS * 0.6
+		# This peer still watches the van drive away on its old road (the ghost,
+		# _draw_trip) while the host has it at its next stop: whoever rides it stays
+		# in their seat until it's out of sight here, then is off and gone at once
+		# (review r2b:van: under lag an observer saw the rider step out of the ghost
+		# mid-street, then pop 690 m to the Annex).
+		var held := leaving and trip.ghosting and peer != Net.local_peer_id()
 		var anchor := _anchor(trip, "p%d" % peer)
-		var placed := _rider_local(trip, peer, now)
+		var placed := _rider_local(trip, peer, minf(now, unseat_at) if held else now)
 		anchor.transform = placed[0] as Transform3D
 		var sat := bool(placed[1])
 		var player := _player(peer)
 		if player == null:
 			continue
-		var leaving := trip.unseats.has(peer)
-		var done := leaving and now >= float((trip.unseats[peer] as Dictionary)["at"]) + Constants.VAN_BUCKLE_SECONDS * 0.6 + Constants.VAN_STEP_SECONDS
+		if Net.is_host() and now >= step_at and not trip.my_beats.has("step%d" % peer):
+			# For the tests: nobody steps down before the side door is open (or as it
+			# shuts), judged on the frame the step starts, once every door event
+			# planned around the stop (the Annex's open and the shut after) is in
+			# (review r2b:van: judged when the unseat arrived, it couldn't see a later
+			# shut overwriting the open).
+			trip.my_beats["step%d" % peer] = true
+			stats["unseats"] = int(stats.get("unseats", 0)) + 1
+			if not _door_fully_open(trip, "side", step_at) or not _door_open(trip, "side", step_at + Constants.VAN_STEP_SECONDS * 0.99):
+				stats["unseats_shut_door"] = int(stats.get("unseats_shut_door", 0)) + 1
+		var done := leaving and not held and now >= step_at + Constants.VAN_STEP_SECONDS
 		if done:
 			_unstage_rider(trip, peer, false)
 			trip.seats.erase(peer)
@@ -2534,7 +2593,13 @@ func _local_rider_beats(now: float) -> void:
 		var iris := get_tree().get_first_node_in_group("iris")
 		if iris != null and iris.has_method("close"):
 			var at := float(entry["at"])
-			iris.call("close", maxf(at - Constants.VAN_IRIS_SECONDS - Constants.VAN_BOARD_IRIS_MARGIN * 0.5, now), Constants.VAN_IRIS_SECONDS, &"seal")
+			if iris.has_method("amount_at") and float(iris.call("amount_at", now)) > 0.0:
+				# Already shutting (the Annex's closing-time door swing): it takes that
+				# shut over and stays shut into the seat, one iris instead of the door,
+				# a blink of forecourt, then the seal (review r2b:van).
+				iris.call("close", now, Constants.VAN_IRIS_SECONDS, iris.call("shape") if iris.has_method("shape") else &"seal")
+			else:
+				iris.call("close", maxf(at - Constants.VAN_IRIS_SECONDS - Constants.VAN_BOARD_IRIS_MARGIN * 0.5, now), Constants.VAN_IRIS_SECONDS, &"seal")
 			iris.call("open", at + Constants.VAN_BOARD_IRIS_HOLD, Constants.VAN_IRIS_SECONDS)
 	for trip: Trip in _trips.values():
 		if not trip.seats.has(me) or trip.unseats.has(me) or trip.look == null:
@@ -3112,7 +3177,13 @@ func _locally_seen(trip: Trip, far: float = Constants.VAN_HIDE_METERS) -> bool:
 
 ## Host: whether anyone on the yard (not a rider) might see the van now.
 func _seen_by_yard(trip: Trip, now: float, riders: Array) -> bool:
-	var center := _pose(trip, now).origin + Vector3(0.0, 1.6, 0.0)
+	return _seen_by_yard_at(trip, _pose(trip, now).origin, riders, Constants.VAN_HIDE_METERS)
+
+
+## Host: whether anyone on the yard (not a rider) within far of a van standing at
+## origin has a line to it.
+func _seen_by_yard_at(trip: Trip, origin: Vector3, riders: Array, far: float) -> bool:
+	var center := origin + Vector3(0.0, 1.6, 0.0)
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var peer := node.name.to_int()
 		if riders.has(peer) or seat_info(peer).size() > 0:
@@ -3121,7 +3192,7 @@ func _seen_by_yard(trip: Trip, now: float, riders: Array) -> bool:
 		if zone != Net.Zone.LOT and zone != Net.Zone.TOWN:
 			continue
 		var eye := (node as Node3D).global_position + Vector3(0.0, 1.6, 0.0)
-		if eye.distance_to(center) > Constants.VAN_HIDE_METERS:
+		if eye.distance_to(center) > far:
 			continue
 		if _line_clear(eye, center, trip) or _line_clear(eye, center + Vector3(0.0, 1.2, 0.0), trip):
 			return true

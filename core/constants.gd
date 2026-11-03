@@ -2949,6 +2949,8 @@ const VAN_VANISH_METERS: float = 200.0
 ## Someone standing in the road: the route passes them, and it parks, this far (m)
 ## clear of the van's sides.
 const VAN_PERSON_CLEARANCE: float = 0.5
+## Who counts as standing in the road: within this height (m) of the road there.
+const VAN_PERSON_HEIGHT: float = 3.0
 ## The engine, heard coming down the street: its loop's reach (m), level from idle
 ## to cruise (dB), the cut inside the cabin (dB), and pitch from idle to cruise.
 const VAN_ENGINE_UNIT_SIZE: float = 16.0
@@ -2956,6 +2958,15 @@ const VAN_ENGINE_MAX_DISTANCE: float = 120.0
 const VAN_ENGINE_DB := Vector2(-12.0, 1.0)
 const VAN_ENGINE_RIDER_DB: float = -7.0
 const VAN_ENGINE_PITCH := Vector2(0.7, 1.45)
+## The loop's level before it first plays (dB, silent), and below this (dB) it
+## jumps straight to its level instead of easing up from silence.
+const VAN_ENGINE_SILENT_DB: float = -80.0
+const VAN_ENGINE_EASE_FLOOR_DB: float = -60.0
+## How fast its level eases toward the speed's (per second, exponential).
+const VAN_ENGINE_SMOOTH: float = 12.0
+## Its pitch keeps climbing a little past cruise (a drive-on downhill): speed's
+## share of VAN_CRUISE is capped here.
+const VAN_ENGINE_SHARE_MAX: float = 1.2
 
 # ---- toss: polish
 # Your own leaf bag through your own eyes (props/carry_view.gd, docs/GAME.md

@@ -100,6 +100,8 @@ var _d_used: bool = false
 var _spot_wait: float = 0.0
 var _pending: Array = []
 var _returning: Dictionary = {}
+## Host: closing-time stragglers whose door is swinging shut (out once it has).
+var _forcing_out: Dictionary = {}
 var _visitor_home: Dictionary = {}
 var _last_request: Dictionary = {}
 
@@ -377,6 +379,7 @@ func _reset_host() -> void:
 	_d_used = false
 	_pending.clear()
 	_returning.clear()
+	_forcing_out.clear()
 	_visitor_home.clear()
 	_spot_wait = 0.0
 
@@ -600,6 +603,8 @@ func _do(item: Dictionary) -> void:
 			if Net.peer_ids().has(peer_id) and _active:
 				Net.move_player_to_zone(peer_id, Net.Zone.BORDER, &"AnnexSide")
 				add_visitor(peer_id, item["home"])
+		"force_out":
+			_force_out_now(int(item["peer"]))
 
 
 func _serve_queues(now: float, t: float) -> void:
@@ -775,11 +780,28 @@ func _host_closing(now: float) -> void:
 
 ## Closing time's stragglers: out through the door-swing iris (R2 chunk 1) to the
 ## forecourt, counted as let out at closing.
+## Out behind the door once it has swung shut (ANNEX_DOOR_IRIS_WAIT, as a visit
+## goes in): moved in the same tick, the forecourt showed before the door did
+## (R2b van review: the interior cut to the street, then the door swung shut).
 func _force_out(peer_id: int) -> void:
+	if _forcing_out.has(peer_id):
+		return
 	var iris_owner := _player(peer_id)
 	if iris_owner == null:
 		return
+	_forcing_out[peer_id] = true
 	_rpc_door_iris.rpc_id(peer_id, Net.server_time())
+	var wait := Constants.ANNEX_DOOR_IRIS_WAIT if get_tree().get_first_node_in_group("iris") != null else 0.0
+	if wait <= 0.0:
+		_force_out_now(peer_id)
+		return
+	_pending.append({"at": Net.server_time() + wait, "do": "force_out", "peer": peer_id})
+
+
+func _force_out_now(peer_id: int) -> void:
+	_forcing_out.erase(peer_id)
+	if not Net.peer_ids().has(peer_id) or not _active:
+		return
 	Net.move_player_to_zone(peer_id, Net.Zone.BORDER, &"Forecourt")
 	_through(peer_id, true)
 
@@ -1405,9 +1427,16 @@ func _rpc_door_iris(at: float) -> void:
 	var iris := get_tree().get_first_node_in_group("iris")
 	if iris != null and iris.has_method("close"):
 		iris.call("close", at, 0.35, &"door")
+		var mine: int = int(iris.call("close_count")) if iris.has_method("close_count") else -1
 		get_tree().create_timer(0.6).timeout.connect(func() -> void:
-			if is_instance_valid(iris) and iris.has_method("open"):
-				iris.call("open", Net.server_time()))
+			if not is_instance_valid(iris) or not iris.has_method("open"):
+				return
+			# Someone closed it again since (the ride home's boarding seal, R2b van):
+			# the shut is theirs, and opening it here showed the forecourt for a
+			# blink between the two.
+			if mine >= 0 and int(iris.call("close_count")) != mine:
+				return
+			iris.call("open", Net.server_time()))
 
 
 func _on_player_joined(peer_id: int) -> void:
