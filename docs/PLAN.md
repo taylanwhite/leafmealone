@@ -193,7 +193,7 @@ The spine
 - [x] `[NET]` Crew rank (`core/ranks.gd`, `Campaign`): XP per job banked at bedtime, every tier unlocks something, the shop is rank-gated, perks.
 - [x] `[NET]` The persistent town (`net/town/`): six neighborhoods of houses and homeowners, requests, regrowth, relationships, referrals, rank-opened neighborhoods; the job board offers the town's requests; `--town-test`.
 - [x] `[PLAY]` The HUD clock and rank, the day summary card, and the crew phone (Tab).
-- [ ] `[PLAY]` Each neighborhood looks like itself (house styles, trees, street dressing from `neighborhoods.gd` "look").
+- [x] `[PLAY]` Each neighborhood looks like itself (house styles, trees, street dressing: `levels/town/hood_styles.gd` and the builders, art chunks 1-7; checked by `--art-test`).
 - [x] `[PLAY]` A screenshot pass on everything new, and a clipping check (`--layout-test`; it found zero-story bungalows on every small yard).
 - [ ] `[SHARED] (human)` Play a full day with friends; tune `MINUTES_PER_HOUR`, XP, and regrowth.
 

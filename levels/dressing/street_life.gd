@@ -8,7 +8,11 @@ extends RefCounted
 ## so every peer sees the same street.
 
 const _Doodles = preload("res://props/doodles.gd")
-const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
+## Loaded when the store is dressed, not preloaded: the block builder uses this
+## file, and tools/mesh_check.gd (a --script run, where autoloads are not yet
+## names) compiles it; preloading the store pulled in its shelves, which name
+## Campaign, and printed a compile error on every mesh check.
+const STORE_DRESSING: String = "res://levels/dressing/store_dressing.gd"
 const CHALK_KINDS: Array[String] = ["smiley", "stick_figure", "sun", "house", "hearts"]
 ## Along the block's near sidewalk, where chalk drawings go (x, lot space); the
 ## hopscotch is in front of the yard's tools at x -9.
@@ -88,7 +92,7 @@ static func dress_store(zone: Node3D) -> void:
 	# Notes stuck to the checkout counter, and posters on the parking lights.
 	for index: int in 3:
 		_Doodles.place_paper(root, _Doodles.note(30 + index), Vector3(-0.9 + float(index) * 0.35, 0.72 + rng.randf_range(-0.08, 0.08), -7.5), Vector3.BACK, Vector2(0.19, 0.19), rng.randf_range(-0.3, 0.3))
-	for lamp: Vector3 in _StoreDressing.LOT_LAMPS:
+	for lamp: Vector3 in (load(STORE_DRESSING) as Script).get_script_constant_map()["LOT_LAMPS"]:
 		if lamp.x < 0.0:
 			continue
 		_Doodles.place_paper(root, _Doodles.poster(int(lamp.x + lamp.z) + 500), lamp + Vector3(0.0, 2.1, -0.1), Vector3.FORWARD, Vector2(0.3, 0.41), rng.randf_range(-0.12, 0.12))

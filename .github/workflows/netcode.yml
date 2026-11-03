@@ -82,7 +82,10 @@ jobs:
         if: matrix.part == 'features'
         timeout-minutes: 3
         run: |
-          "$GODOT" --headless --path . --script res://tools/mesh_check.gd
+          mkdir -p build/soak/ci-meshcheck
+          "$GODOT" --headless --path . --script res://tools/mesh_check.gd 2>&1 | tee build/soak/ci-meshcheck/host.log
+          # It must reach its last check: a --script that stops early can still exit 0.
+          grep -q "BlockCheck\] seasons" build/soak/ci-meshcheck/host.log
 
       - name: Job test (two whole jobs, rides included)
         if: matrix.part == 'features'
@@ -212,6 +215,18 @@ jobs:
           "$GODOT" --headless --path . -- --host --port=7805 --name=Tester --no-steam --start-zone=lot --layout-test --measure="$PWD/build/soak/ci-layout/host.json" --run-seconds=120 > build/soak/ci-layout/host.log 2>&1
           grep "LayoutTest" build/soak/ci-layout/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-layout/host.json'))['layout_test']; sys.exit(0 if r.get('ok') else 1)"
+
+      - name: Art test (every neighborhood and season - styles, signatures, budgets, layout, determinism; a client builds the same block)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-art
+          "$GODOT" --headless --path . -- --host --port=7813 --name=Tester --no-steam --legacy-map --start-zone=lot --job-seed=777 --hood=lakeside --start-day=8 --art-test --measure="$PWD/build/soak/ci-art/host.json" --run-seconds=150 > build/soak/ci-art/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7813 --name=Target --no-steam --measure="$PWD/build/soak/ci-art/target.json" --run-seconds=140 > build/soak/ci-art/target.log 2>&1
+          wait
+          grep "ArtTest\|\[Art\]" build/soak/ci-art/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-art/host.json')); t=json.load(open('build/soak/ci-art/target.json')); sys.exit(0 if h['art_test'].get('ok') and h['lot_art'] != 0 and h['lot_art'] == t['lot_art'] else 1)"
 
       - name: Hire test (a hired hand rakes, bags, and loads Chefty; wages at bedtime)
         if: matrix.part == 'features'

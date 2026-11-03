@@ -10,6 +10,10 @@ extends RefCounted
 ##   the drive; snowbanks along the curbs and the block's one sagging inflatable
 ## - spring: tulip beds and petals under the blossom trees
 ## - summer: a sprinkler, a pool float, a beach umbrella, sometimes a lemonade stand
+## The job house (decor "job", levels/lots/lot_generator.gd) gets the porch and
+## bed decor only, never anything on the lawn where the work is: pumpkins, a
+## mums pot set into the back of each bed (beside no weed), a wreath and snow piles along the shoveled drive, tulips, a pool float
+## in the middle of the pool and a pinwheel in a bed. No string lights.
 ## The hood's decor style shades it: "approved" (Oak Hollow: the same warm-white
 ## lights and the same wreath on every door), "homemade" (mismatched lights, a
 ## dead bulb or two, lights on half the eaves), "pro" (Mansion Hill: big bulbs on
@@ -20,7 +24,8 @@ extends RefCounted
 ## the style, the season, and the seed: every peer decorates the same.
 ##
 ## A parcel's decor dict (levels/town/lot_builder.gd plan()["decor"]), parcel space:
-##   house_at, spec (the HouseSpec, house space), beds [[center, size]], trees
+##   house_at, spec (the HouseSpec, house space), beds [[center, size]] (a job
+##   bed adds its mums pot's spot or null: [center, size, mums]), trees
 ##   [[at, kind, crown]], drive [from, to], walk [from, to], pools [at], yard
 ##   [Rect2 free lawn spots], job (bool)
 
@@ -60,7 +65,12 @@ static func decorate(parcel: Node3D, spec: Dictionary, style: Dictionary, season
 			if rng.randf() < 0.6:
 				batch.add("pumpkin_small", Transform3D(Basis.IDENTITY, step + Vector3(1.25, 0.0, 0.3)))
 			for bed: Array in spec.get("beds", []):
-				batch.add("mums_pot", Transform3D(Basis.IDENTITY, (bed[0] as Vector3) + Vector3(0.0, 0.0, 0.9)))
+				if not job:
+					batch.add("mums_pot", Transform3D(Basis.IDENTITY, (bed[0] as Vector3) + Vector3(0.0, 0.0, 0.9)))
+				elif bed.size() > 2 and bed[2] is Vector3:
+					# The job's pot stands in the bed, at the back by the porch, its
+					# base set into the soil: never on the lawn, the edging or a weed.
+					batch.add("mums_pot", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), (bed[2] as Vector3) + Vector3(0.0, (bed[1] as Vector3).y * 0.5, 0.0)))
 			if not job and not yard.is_empty() and rng.randf() < 0.3:
 				var spot := _spot(yard, rng)
 				batch.add("hay_bale" if rng.randf() < 0.7 else "scarecrow", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), spot))
@@ -82,7 +92,15 @@ static func decorate(parcel: Node3D, spec: Dictionary, style: Dictionary, season
 			if not job and not yard.is_empty() and rng.randf() < 0.55:
 				batch.add("snowman", Transform3D(Basis(Vector3.UP, PI + rng.randf_range(-0.5, 0.5)), _spot(yard, rng)))
 			var drive: Array = spec.get("drive", [])
-			if drive.size() == 2:
+			if job and drive.size() == 2:
+				# The job's drive was shoveled the long way: piles along its edges,
+				# short of the curb, where the homeowner waits and Chefty parks.
+				var from: Vector3 = drive[0]
+				for at: Vector3 in Constants.ART_JOB_SNOW_PILES:
+					# Long side along the drive, the smaller heap toward it.
+					var yaw := -signf(at.x) * PI * 0.5 + rng.randf_range(-0.2, 0.2)
+					batch.add("snow_pile", Transform3D(Basis(Vector3.UP, yaw), from + at))
+			elif drive.size() == 2:
 				var end: Vector3 = drive[1]
 				for side: float in [-1.0, 1.0]:
 					batch.add("snow_pile", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), end + Vector3(side * 2.4, 0.0, -1.5 - rng.randf() * 2.0)))
@@ -102,7 +120,17 @@ static func decorate(parcel: Node3D, spec: Dictionary, style: Dictionary, season
 				if rng.randf() < 0.4:
 					batch.add("beach_umbrella", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), _spot(yard, rng)))
 			for pool: Vector3 in spec.get("pools", []):
-				batch.add("pool_float", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), pool + Vector3(1.2, 0.08, 0.4)))
+				# The job's pool float bobs in the middle, clear of the leaves to skim.
+				var float_at := pool if job else pool + Vector3(1.2, 0.08, 0.4)
+				batch.add("pool_float", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), float_at))
+			if job:
+				# A pinwheel stuck in a bed by the walk.
+				var beds: Array = spec.get("beds", [])
+				if not beds.is_empty():
+					var bed: Array = beds[rng.randi() % beds.size()]
+					var size: Vector3 = bed[1]
+					var toward := signf(door.x - (bed[0] as Vector3).x)
+					batch.add("pinwheel", Transform3D(Basis(Vector3.UP, rng.randf_range(-0.4, 0.4)), (bed[0] as Vector3) + Vector3(toward * (size.x * 0.5 - 0.2), 0.0, -size.z * 0.5 + 0.2)))
 			var walk: Array = spec.get("walk", [])
 			if not job and walk.size() == 2 and rng.randf() < 0.12:
 				var curb: Vector3 = walk[1]

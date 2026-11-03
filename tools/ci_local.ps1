@@ -120,6 +120,15 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --layout-test'; Seconds = 120
 		Check = { param($h, $c) [bool]$h.layout_test.ok }
 	}
+	# Every neighborhood's look in the running game (art chunk 7, net/dev/art_test.gd):
+	# styles, signatures, budgets, layout, determinism, the seasons and the words. The
+	# client must build the same yard and block from the replicated hood, seed and day.
+	# --legacy-map until the town map moves the lot (gap-specs/critic.md C32).
+	art = @{
+		Port = 7813
+		Host = '--host --name=Tester --no-steam --legacy-map --start-zone=lot --job-seed=777 --hood=lakeside --start-day=8 --art-test'; Seconds = 150; Client = 140
+		Check = { param($h, $c) [bool]$h.art_test.ok -and $c -ne $null -and ([int64]$h.lot_art -ne 0) -and (Same $h.lot_art $c.lot_art) }
+	}
 	hire = @{
 		Port = 7806
 		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --rank=22 --hire-test'; Seconds = 70; Client = 65
@@ -400,6 +409,12 @@ function Complete-Test($item) {
 	if ($name -eq 'smoke' -or $Scripts.ContainsKey($name)) {
 		$ok = ($item.HostProc.ExitCode -eq 0) -and -not $item.TimedOut
 		if ($item.TimedOut) { $notes += "still running after $([math]::Round($item.Deadline - $item.Started)) s, killed (a script error before quit()?)" }
+		# The mesh check must reach its last check (tools/block_check.gd's seasons): a
+		# --script that stops early, or never compiles, can still exit 0.
+		if ($name -eq 'meshcheck' -and $ok -and -not (Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[BlockCheck\] seasons' -Quiet)) {
+			$ok = $false
+			$notes += 'exited 0 without reaching the block check''s seasons (see host.log.err)'
+		}
 		if ($name -eq 'guardrail' -and -not $ok) {
 			Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[Guardrail\] (HIT|self-check FAIL)' -ErrorAction SilentlyContinue |
 				Select-Object -First 10 | ForEach-Object { $notes += $_.Line }

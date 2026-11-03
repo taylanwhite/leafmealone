@@ -1320,9 +1320,13 @@ const ART_PROP_FADE_MARGIN: float = 6.0
 const ART_LARGE_PROP_SIZE: float = 8.0
 ## Repeated props are batched into MultiMeshes per square chunk this many meters wide.
 const ART_PROP_CHUNK: float = 32.0
-## Draw-call proxies: GeometryInstance3Ds under a street block and under a yard's dressing.
-const ART_BLOCK_MAX_VISUALS: int = 650
-const ART_YARD_MAX_VISUALS: int = 260
+## Draw-call proxies: GeometryInstance3Ds under a street block and under a yard's
+## dressing, about 1.15x the most --art-test measured over every hood, size and
+## season (art chunk 7: a block 567, Dandelion Acres in winter; a yard 154, Oak
+## Hollow's big yard in spring, its house's own season decor included). Every tree
+## draws two meshes (its near Look and its far LookFar), so a tree counts twice.
+const ART_BLOCK_MAX_VISUALS: int = 652
+const ART_YARD_MAX_VISUALS: int = 177
 const ART_BLOCK_PARCELS_PER_FRAME: int = 2
 const ART_NEIGHBOR_LEAF_PATCHES: int = 3
 const ART_STRING_LIGHT_SPACING: float = 0.45
@@ -1475,6 +1479,23 @@ const ART_YARD_ROOF_SPOT_GAP: float = 0.9
 ## clear in front of every house, so where a hood's door puts the beds never
 ## changes where a tree, a hiding spot or litter lands.
 const ART_YARD_BED_STRIP: float = 1.5
+## The front walk's width (m), and how far a bed's inner edge stays from the
+## walk's middle (0.45 m of lawn between them).
+const ART_YARD_WALK_WIDTH: float = 1.3
+const ART_YARD_BED_FROM_WALK: float = 1.1
+## Beds side by side keep this much lawn between them (m).
+const ART_YARD_BED_GAP: float = 0.4
+## The least room a side of the walk needs to hold a (shortened) bed of its own (m).
+const ART_YARD_BED_MIN_LENGTH: float = 1.2
+## The job house's autumn mums pot stands in its bed, at the back by the porch:
+## its center this far in from the bed's back and side edges (m), and at least
+## this far (xz) from every weed, so it never hides one. No clear spot, no pot.
+const ART_JOB_MUMS_INSET: float = 0.32
+const ART_JOB_MUMS_WEED_CLEAR: float = 0.45
+## The job yard's winter snow piles, from the house end of its drive (parcel
+## space): on the drive's edges, clear of the lawn's litter, the tools by the
+## drive and the homeowner's spot at the curb.
+const ART_JOB_SNOW_PILES: Array[Vector3] = [Vector3(-2.45, 0.0, 6.0), Vector3(2.45, 0.0, 10.5)]
 
 # ---- cast: the van and the beacon
 # The NICE BOYS' Courtesy Shuttle (props/nice_van.gd) and Courtesy Flare

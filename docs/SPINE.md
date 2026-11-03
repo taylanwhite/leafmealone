@@ -120,8 +120,11 @@ Later apps: Hires, Properties, Deliveries.
 
 Built 2026-11-01: hiring (`net/crew/hires.gd`, `npcs/crew_hand.gd`), the rival
 (in `net/town/town.gd`), and seasons (`core/seasons.gd`, a global foliage tint in
-`props/stylized.gd`). Not built yet: properties, winter's own work, and each
-neighborhood's own look.
+`props/stylized.gd`). Built 2026-11-02: each neighborhood's own look (the data in
+`levels/town/hood_styles.gd`; the house, parcel, street and block builders in
+`levels/town/`), and the seasons change that look (snow, blossoms, bare trees,
+season decor on every house, the job's too), checked by `--art-test`. Not built
+yet: properties and winter's own work.
 
 - **Hiring.** At Turf Boss, crew hands can be hired from the job board. They come
   along on Chefty and rake, bag, and haul (the bot that already rakes is their

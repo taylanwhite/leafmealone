@@ -5,7 +5,8 @@ extends Node
 ## look broken in screenshots: solid pieces inside each other (a hedge through
 ## the house, a shed in the pool, a tree trunk in a wall), props and the rake
 ## starting inside something or off the yard, and work spots (weeds, litter,
-## windows, gutters) buried inside a solid where nobody can reach them. Prints
+## windows, gutters) buried inside a solid where nobody can reach them, and
+## flower beds lying across the front walk or each other. Prints
 ## one [LayoutTest] line per problem and a summary. Run with --start-zone=lot.
 ##
 ## Then every neighborhood (--hood's sweep, levels/town/hood_styles.gd) at
@@ -236,6 +237,19 @@ func _check(lot: Node3D, label: String) -> Array[String]:
 			out.append("%s: %s starts off the yard at %s" % [label, prop_name, local])
 		if _inside_solid(space, lot, prop.global_position + Vector3(0.0, 0.2, 0.0)):
 			out.append("%s: %s starts inside %s at %s" % [label, prop_name, _what_is_at(space, lot, prop.global_position + Vector3(0.0, 0.2, 0.0)), local])
+	# Flower beds keep off the front walk and off each other (lot_generator.gd
+	# metas front_walk and bed_rects, yard space).
+	var dressing := lot.get_node_or_null("Dressing")
+	if dressing != null:
+		var walk: Rect2 = dressing.get_meta("front_walk", Rect2())
+		var beds: Array = dressing.get_meta("bed_rects", [])
+		for index: int in beds.size():
+			var bed: Rect2 = beds[index]
+			if walk.has_area() and bed.intersects(walk):
+				out.append("%s: a flower bed %s lies across the front walk %s" % [label, bed, walk])
+			for other_index: int in range(index + 1, beds.size()):
+				if bed.intersects(beds[other_index] as Rect2):
+					out.append("%s: two flower beds overlap (%s, %s)" % [label, bed, beds[other_index]])
 	# Work spots on the ground can be reached: not inside a solid.
 	var tasks := lot.get_node_or_null("JobTasks")
 	if tasks != null:
