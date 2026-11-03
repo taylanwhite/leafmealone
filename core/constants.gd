@@ -3622,9 +3622,22 @@ const SNACK_DRINK_SIP := Vector2(0.55, 1.45)
 ## A snack handed over this long ago (server s) is still eaten on screen by a
 ## peer that only hears of it now (a late snapshot); older ones are not.
 const SNACK_SHOW_WINDOW: float = 4.0
-## How long the hand-over takes before you start eating, by shop (s): Dot
-## passing it through the hatch, the machine dropping it to the tray.
-const SNACK_HANDOVER_SECONDS: Dictionary = {"lunch_money": 0.55, "snak_o_matic": 0.85}
+## How long the hand-over takes before you start eating, by shop (s from the
+## sale to the food in your hand): Dot reaching it out through the hatch, the
+## machine dropping it to the tray and it hopping out of the flap.
+const SNACK_HANDOVER_SECONDS: Dictionary = {"lunch_money": 1.1, "snak_o_matic": 1.3}
+## The pass at the end of a hand-over, by shop: how long the food takes from the
+## giver (Dot's hand, the machine's tray) to yours (s), and how high it arcs on
+## the way (m). The machine's flap spits it out; you catch it.
+const SNACK_PASS: Dictionary = {"lunch_money": Vector2(0.25, 0.05), "snak_o_matic": Vector2(0.3, 0.3)}
+## How long before the food reaches you your hand starts out to meet it (s).
+const SNACK_REACH_SECONDS: float = 0.45
+## Dot's arm out through the hatch toward the buyer: how long it takes to come
+## out and to go back after the pass (s), and how far toward them she aims (m;
+## past her arm's length, so it stretches all the way).
+const SNACK_GIVER_OUT_SECONDS: float = 0.45
+const SNACK_GIVER_BACK_SECONDS: float = 0.4
+const SNACK_GIVER_REACH: float = 0.75
 ## What a buff looks like on you while it runs (player/snack_eater.gd): Turbo's
 ## jitter (m) and wide eyes (eye height share); the crash's heavy lids (share)
 ## and nodding head (rad); coffee's twitch, one every x to y s; queasy's green face.

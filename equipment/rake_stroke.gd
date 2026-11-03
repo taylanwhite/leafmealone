@@ -80,7 +80,10 @@ static func idle() -> Dictionary:
 ## starts from standing still (it lifts out and plants), else it continues the
 ## last swing's way back through the air. phase < 0 is idle. Continuous in phase:
 ## the head never moves more than a few cm per tick at 60 Hz.
-static func sample(phase: float, load: float = 0.0, side: float = 1.0, fresh: bool = false) -> Dictionary:
+## cycle: this swing's length (s; the actor's st["cycle"], which a snack's
+## stroke buff shortens), so the camera's nod lands with the real plant;
+## <= 0 takes the unbuffed tempo.
+static func sample(phase: float, load: float = 0.0, side: float = 1.0, fresh: bool = false, cycle: float = -1.0) -> Dictionary:
 	if phase < 0.0:
 		return idle()
 	var plant := _plant()
@@ -140,7 +143,7 @@ static func sample(phase: float, load: float = 0.0, side: float = 1.0, fresh: bo
 	var wind_up := sin(PI * clampf(settle / plant, 0.0, 1.0)) if settle < plant else 0.0
 	out["hip"] = Constants.RAKE_HIP_SHIFT * wind_up - Constants.RAKE_LUNGE_DRIVE * lunge_share
 	# The nod: down fast at the plant, back slowly.
-	var since := (phase - plant) * cycle_seconds(0)
+	var since := (phase - plant) * (cycle if cycle > 0.0 else cycle_seconds(0))
 	if since >= 0.0:
 		var dip := smoothstep(0.0, Constants.RAKE_CAM_DIP_IN, since) * (1.0 - smoothstep(Constants.RAKE_CAM_DIP_IN, Constants.RAKE_CAM_DIP_OUT, since))
 		out["cam_pitch"] = -Constants.RAKE_CAM_DIP_DEG * dip
@@ -243,10 +246,10 @@ static func display(actor: int) -> Dictionary:
 static func _raw(st: Dictionary) -> Dictionary:
 	match int(st["mode"]):
 		Mode.SWING:
-			return sample(float(st["phase"]), float(st["load"]), float(st["side"]), bool(st["fresh"]))
+			return sample(float(st["phase"]), float(st["load"]), float(st["side"]), bool(st["fresh"]), float(st["cycle"]))
 		Mode.TAIL:
 			# Finishing the way back down (phase 1 to 1 + plant), with no next swing.
-			return sample(float(st["phase"]), float(st["load"]), float(st["side"]), false)
+			return sample(float(st["phase"]), float(st["load"]), float(st["side"]), false, float(st["cycle"]))
 		Mode.SETTLE:
 			var length := maxf(Constants.RAKE_REMOTE_IDLE_BLEND, 0.001)
 			var w := smoothstep(0.0, 1.0, 1.0 - float(st["settle_left"]) / length)

@@ -114,7 +114,16 @@ func _run() -> void:
 	while client_wait < WAIT_SECONDS and not (str((shops.call("look_of", mate) as Dictionary).get("hat", "")) == CLIENT_HAT and Campaign.credits(me) - host_cash >= gift and client_snacked.call()):
 		await get_tree().create_timer(0.25).timeout
 		client_wait += 0.25
-	_step("client_snack", client_snacked.call(), "the client's vend_turbo landed as %s, the machine ate %d" % [str(shops.call("snack_of", mate)), int(shops.get("vending_eaten")) - eaten_before])
+	# Every peer plays a snack from the snapshot: here, the host's copy of the
+	# client's body has to drink it too (or, if the machine kept the money, the
+	# host's machine has its can stuck on a coil).
+	var seen_here := false
+	if not (shops.call("snack_of", mate) as Dictionary).is_empty():
+		seen_here = await _ate(_player_node(mate), "drink", 4.0)
+	elif int(shops.get("vending_eaten")) > eaten_before:
+		var machine := get_tree().get_first_node_in_group("vending_machines")
+		seen_here = machine != null and machine.get("_stuck") != null
+	_step("client_snack", client_snacked.call() and seen_here, "the client's vend_turbo landed as %s, the machine ate %d, the host saw it %s" % [str(shops.call("snack_of", mate)), int(shops.get("vending_eaten")) - eaten_before, seen_here])
 	# Its cash for the snack, so the hat-and-gift sum below still adds up.
 	mate_cash -= Catalog.price(CLIENT_SNACK)
 	var mate_hat := str((shops.call("look_of", mate) as Dictionary).get("hat", ""))
@@ -616,8 +625,10 @@ func _check_vending(shops: Node, me: int) -> bool:
 			problems.append("the sandwich landed as %s" % str(snack))
 		if int(shops.call("stock_left", "snak_o_matic", "vend_sandwich")) != left - 1 or int(shops.get("vending_eaten")) != eaten:
 			problems.append("stock %d -> %d, eaten %d -> %d" % [left, int(shops.call("stock_left", "snak_o_matic", "vend_sandwich")), eaten, int(shops.get("vending_eaten"))])
-		if shelf_count != stocked:
-			problems.append("the machine shows %d snacks for %d in stock" % [shelf_count, stocked])
+		# One front snack a unit in stock, less what's stuck on a coil today.
+		var stuck := (shops.get("vending_stuck") as Array).size()
+		if shelf_count != stocked - stuck:
+			problems.append("the machine shows %d snacks for %d in stock (%d stuck)" % [shelf_count, stocked, stuck])
 		if not await _ate(_me(), "eat", 4.0):
 			problems.append("the body never ate it")
 		var after := "gesture belly_pat" if buff == "full" else "burp"
@@ -1145,7 +1156,11 @@ func _shops() -> Node:
 
 
 func _me() -> Node3D:
+	return _player_node(Net.local_peer_id())
+
+
+func _player_node(peer_id: int) -> Node3D:
 	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.name == str(Net.local_peer_id()):
+		if node.name == str(peer_id):
 			return node as Node3D
 	return null

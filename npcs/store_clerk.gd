@@ -65,10 +65,9 @@ var _local_was_near: bool = false
 var _greeted_day: int = -1
 ## The local player was taken to Annex B (Zone.BORDER) and the keeper hasn't said the after-raid line yet.
 var _was_raided: bool = false
-## Dot's hand-over: the snack in her hand, how long it stays, and the newest one handed.
-var _handing: Node3D
-var _handing_left: float = 0.0
+## Dot's hand-over: the server time of the newest sale she's handing out, and who to.
 var _handed_at: float = -1.0
+var _handing_to: int = 0
 
 
 func _ready() -> void:
@@ -243,7 +242,10 @@ func _process(delta: float) -> void:
 		_caption_left = 0.0
 		_local_was_near = false
 		return
-	var nearest := _nearest_player()
+	# Whoever she's handing a snack to, else whoever's closest.
+	var nearest := _player(_handing_to) if _handing_to != 0 else null
+	if nearest == null:
+		nearest = _nearest_player()
 	if nearest != null:
 		# Turn toward them. Bodies face -Z, so look away from the target to face it.
 		var to := nearest.global_position - global_position
@@ -330,16 +332,13 @@ func _flat_distance(a: Vector3, b: Vector3) -> float:
 
 # ---- Lunch Money (shops chunk 6): Dot hands each snack out through the hatch.
 
-## Dot, on every peer: a snack bought from her (World/Shops.snacks, replicated)
-## comes out in her hand with the offer gesture and leaves it as the buyer's
-## hand comes up (Constants.SNACK_HANDOVER_SECONDS; player/snack_eater.gd
-## starts eating then).
-func _watch_snacks(delta: float) -> void:
-	if _handing != null:
-		_handing_left -= delta
-		if _handing_left <= 0.0:
-			_handing.queue_free()
-			_handing = null
+## Dot, on every peer: a snack bought from her (World/Shops.snacks, replicated,
+## with the server time of the sale) has her turn to the buyer and reach her
+## right arm out through the hatch toward them (CartoonBody.reach_at), hold it
+## there till the pass, and bring it back after. The food itself is the
+## buyer's snack_eater's (player/snack_eater.gd): it sits at hand_point() until
+## it crosses to the buyer's hand at Constants.SNACK_HANDOVER_SECONDS.
+func _watch_snacks(_delta: float) -> void:
 	if keeper != "dot":
 		return
 	var shops := _shops()
@@ -352,17 +351,28 @@ func _watch_snacks(delta: float) -> void:
 		if at <= _handed_at or str(Catalog.item(str(snack.get("item", ""))).get("shop", "")) != shop_id:
 			continue
 		_handed_at = at
-		if Net.server_time() - at < float(Constants.SNACK_HANDOVER_SECONDS.get(shop_id, 0.0)):
-			_hand_over(str(snack.get("item", "")), at)
+		_handing_to = int(peer_id)
+	_reach_out()
 
 
-func _hand_over(item: String, at: float) -> void:
-	_body.call("gesture", "offer")
-	var hand := _body.call("pose_part", "prop_hand") as Node3D
-	if hand == null:
+## Her arm out toward the buyer, by how far along the hand-over is.
+func _reach_out() -> void:
+	var handover := float(Constants.SNACK_HANDOVER_SECONDS.get(shop_id, 0.0))
+	var e := Net.server_time() - _handed_at
+	var buyer := _player(_handing_to) if _handing_to != 0 else null
+	var shoulder := _body.call("pose_part", "arm_r") as Node3D
+	if buyer == null or shoulder == null or _handed_at < 0.0 or e > handover + Constants.SNACK_GIVER_BACK_SECONDS:
+		(_body.get("reach_weight") as Array)[0] = 0.0
+		_handing_to = 0 if e > handover + Constants.SNACK_GIVER_BACK_SECONDS else _handing_to
 		return
-	if _handing != null:
-		_handing.queue_free()
-	_handing = preload("res://props/shop_models.gd").food(item)
-	hand.add_child(_handing)
-	_handing_left = float(Constants.SNACK_HANDOVER_SECONDS.get(shop_id, 0.0)) - (Net.server_time() - at)
+	var out := clampf(e / Constants.SNACK_GIVER_OUT_SECONDS, 0.0, 1.0)
+	var back := clampf((handover + Constants.SNACK_GIVER_BACK_SECONDS - e) / Constants.SNACK_GIVER_BACK_SECONDS, 0.0, 1.0)
+	var toward := (buyer.global_position + Vector3.UP * 1.15) - shoulder.global_position
+	(_body.get("reach_at") as Array)[0] = shoulder.global_position + toward.normalized() * Constants.SNACK_GIVER_REACH
+	(_body.get("reach_weight") as Array)[0] = minf(out, back)
+
+
+## Where a snack in her hand is (world): what the buyer's snack_eater holds it at.
+func hand_point() -> Vector3:
+	var hand := _body.call("pose_part", "prop_hand") as Node3D
+	return hand.global_position if hand != null else global_position + Vector3.UP * 1.2

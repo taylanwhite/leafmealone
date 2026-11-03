@@ -7,13 +7,21 @@ extends Node3D
 ## dressing/shop_sites.gd); buying goes through World/Shops like any shop.
 ##
 ## The machine shows what happened from the replicated shop state, so everyone
-## at the store sees the same thing and nothing here is networked:
-## - a snack sold (its stock in Shops.stock went down): the front snack of a
-##   slot of its kind drops off its coil, falls to the bottom and the machine
-##   clunks as it lands; the slot fills back up at the next restock;
-## - money eaten (Shops.vending_eaten went up): the coil turns, the snack tips
-##   forward and sticks there, hanging, the clunk, then the sad trombone, and
-##   the screen thanks you for your donation. It hangs there till the morning.
+## at the store sees the same thing and nothing here is networked. Every slot
+## sells one item (shop_models.vending_slot_item: cans of warm Turbo, rolls of
+## bags, sandwiches), and the shelf is built from Shops.stock and
+## Shops.vending_stuck, so a late joiner sees the same gaps and the same stuck
+## snack as everyone else:
+## - a snack sold (an item's stock in Shops.stock went down): the front one of
+##   that item's top slot drops off its coil, falls to the bottom and the machine
+##   clunks as it lands (the buyer's snack_eater then has it hop out of the flap
+##   into their hand); the slot fills back up at the next restock;
+## - money eaten (Shops.vending_stuck got longer): the coil of that item turns,
+##   the snack tips forward and sticks there, hanging, the clunk, then the sad
+##   trombone, and the screen thanks you for your donation. It hangs there till
+##   the morning (a new Shops.stock_day refills every slot).
+## Nothing is read until Shops has its real state (Shops.synced): a client's
+## defaults before the first snapshot would look like a day of sales.
 ## Its screen is a little green marquee scrolling KEEPER_LINES.snak_o_matic:
 ## a hello when you walk up, a line when you open it and when it sells you
 ## something. E at the machine opens its window (ui/ui_root.gd open_shop).
@@ -24,12 +32,15 @@ const _Stylized = preload("res://props/stylized.gd")
 const _LowPoly = preload("res://props/low_poly.gd")
 const _Strings = preload("res://ui/strings.gd")
 const SHOP_ID: String = "snak_o_matic"
-## The marquee: how many letters show at once, and how fast it scrolls (letters/s).
-const SCREEN_CHARS: int = 8
+## The marquee: how many letters show at once, and how fast it scrolls
+## (letters/s). In a fixed-width face at SCREEN_PIXEL, six letters are 15 cm,
+## inside the bezel's black (shop_models _vending_machine).
+const SCREEN_CHARS: int = 6
 const SCROLL_RATE: float = 7.0
+const SCREEN_PIXEL: float = 0.0014
 const SCREEN_GREEN := Color(0.45, 1.0, 0.55)
 ## How far a stuck snack tips forward on its coil (rad).
-const STUCK_TIP: float = 0.55
+const STUCK_TIP: float = 0.95
 
 ## The last line on the screen and why (tests and the probe read them).
 var last_line: String = ""
@@ -39,8 +50,12 @@ var _fronts: Array[Node3D] = []
 var _screen: Label3D
 var _line_left: float = 0.0
 var _scroll: float = 0.0
-var _stock_seen: int = -1
-var _eaten_seen: int = -1
+## What the shelf last showed: stock per item, the stuck count, the stock day
+## (_day_seen -1 until Shops is synced and the shelf is first built).
+var _stock_seen: Dictionary = {}
+var _stuck_seen: int = 0
+var _day_seen: int = -1
+## The newest stuck snack (tests read it), null when none hangs.
 var _stuck: Node3D
 var _drops: Array[Dictionary] = []
 var _local_was_near: bool = false
@@ -65,6 +80,7 @@ func _ready() -> void:
 			snack.position = _ShopModels.vending_slot(row, slot, 0)
 			snack.set_meta("home", snack.position)
 			snack.set_meta("can", _ShopModels.vending_slot_is_can(row, slot))
+			snack.set_meta("item", _ShopModels.vending_slot_item(row, slot))
 			add_child(snack)
 			_fronts.append(snack)
 	_glass(front)
@@ -73,8 +89,12 @@ func _ready() -> void:
 	title.pixel_size = 0.0034
 	_screen = Label3D.new()
 	_screen.name = "Screen"
+	# A fixed-width face, so a line of Ms is as wide as a line of Is: an LCD.
+	var mono := SystemFont.new()
+	mono.font_names = PackedStringArray(["Consolas", "Courier New", "DejaVu Sans Mono", "monospace"])
+	_screen.font = mono
 	_screen.font_size = 30
-	_screen.pixel_size = 0.0016
+	_screen.pixel_size = SCREEN_PIXEL
 	_screen.outline_size = 0
 	_screen.modulate = SCREEN_GREEN
 	_screen.double_sided = false
@@ -209,83 +229,116 @@ func _marquee(delta: float) -> void:
 
 
 func _hook() -> void:
-	if _shops != null and is_instance_valid(_shops):
+	if _shops == null or not is_instance_valid(_shops):
+		_shops = get_tree().get_first_node_in_group("shops")
+		_day_seen = -1
+	if _shops == null or _day_seen >= 0 or not bool(_shops.get("synced")):
 		return
-	_shops = get_tree().get_first_node_in_group("shops")
-	if _shops == null:
-		return
-	_stock_seen = _stock_count()
-	_eaten_seen = int(_shops.get("vending_eaten"))
-	# A peer that joins mid-day sees the empty slots already empty.
-	_refill(_stock_count())
+	# The first real state (a client's first snapshot, or the host's own): the
+	# shelf as it stands, with nothing played. A peer that joins mid-day sees the
+	# empty slots already empty and the stuck snack already hanging.
+	_refill()
+
+
+## Where a snack comes out: the tray behind the push flap (world space).
+func tray_point() -> Vector3:
+	return to_global(_ShopModels.VENDING_TRAY)
 
 
 ## What the replicated state says happened since the last look.
 func _watch() -> void:
-	if _shops == null or not is_instance_valid(_shops):
+	if _shops == null or not is_instance_valid(_shops) or _day_seen < 0:
 		return
-	var count := _stock_count()
-	var eaten := int(_shops.get("vending_eaten"))
-	if count > _stock_seen:
+	if int(_shops.get("stock_day")) != _day_seen:
 		# A new morning: the machine's restocked, and whatever was stuck came loose.
-		_refill(count)
-	elif count < _stock_seen:
-		for _sold: int in _stock_seen - count:
-			_drop(false)
+		_refill()
+		return
+	var stock := _stock()
+	var sold := false
+	for item: Variant in stock:
+		for _unit: int in maxi(int(_stock_seen.get(item, 0)) - int(stock[item]), 0):
+			_drop(str(item), false)
+			sold = true
+	if sold:
 		say_line("buy")
-	if eaten > _eaten_seen and _eaten_seen >= 0:
-		_drop(true)
+	var stuck: Array = _shops.get("vending_stuck")
+	for index: int in range(_stuck_seen, stuck.size()):
+		_drop(str(stuck[index]), true)
 		_show(str(_Strings.SHOP_UI["shop_result_eaten"]).to_upper(), "eaten")
-	_stock_seen = count
-	_eaten_seen = eaten
+	_stock_seen = stock
+	_stuck_seen = stuck.size()
 
 
-func _stock_count() -> int:
-	var shelf: Dictionary = (_shops.get("stock") as Dictionary).get(SHOP_ID, {}) if _shops != null else {}
-	var total := 0
-	for item: Variant in shelf:
-		total += int(shelf[item])
-	return total
+## Today's stock per item, as Shops has it.
+func _stock() -> Dictionary:
+	return ((_shops.get("stock") as Dictionary).get(SHOP_ID, {}) as Dictionary).duplicate()
 
 
-## Every slot full again, or as full as today's stock (one front snack shown
-## per unit left, the rest already sold).
-func _refill(count: int) -> void:
+## The shelf from the state, with nothing played: each item's slots as full as
+## its stock (sold ones gone from the top down, _pick's order) and what the
+## machine ate today hanging on the next coils down. The same slots on every peer.
+func _refill() -> void:
 	_drops.clear()
 	_stuck = null
-	var daily := 0
-	for item: Variant in (Constants.SHOP_DAILY_STOCK.get(SHOP_ID, {}) as Dictionary):
-		daily += int(Constants.SHOP_DAILY_STOCK[SHOP_ID][item])
-	var gone := maxi(daily - count, 0)
-	for index: int in _fronts.size():
-		var snack := _fronts[index]
+	_day_seen = int(_shops.get("stock_day"))
+	_stock_seen = _stock()
+	var stuck: Array = _shops.get("vending_stuck")
+	_stuck_seen = stuck.size()
+	for snack: Node3D in _fronts:
 		snack.position = snack.get_meta("home")
 		snack.rotation = Vector3.ZERO
-		# What's been sold today is gone from the top down (_pick's order), the
-		# same slots on every peer.
-		snack.visible = index < _fronts.size() - gone
-		snack.set_meta("gone", not snack.visible)
+		snack.visible = true
+		snack.set_meta("gone", false)
+	for item: Variant in _stock_seen:
+		var slots := _slots_of(str(item))
+		var sold := clampi(slots.size() - int(_stock_seen[item]), 0, slots.size())
+		for index: int in sold:
+			slots[index].visible = false
+			slots[index].set_meta("gone", true)
+	for item: Variant in stuck:
+		var snack := _pick(str(item))
+		if snack != null:
+			snack.set_meta("gone", true)
+			_stick(snack, 1.0, 0.0)
+			_stuck = snack
 
 
-## A snack falls (stuck: tips and hangs instead). The clunk lands with it.
-func _drop(stuck: bool) -> void:
-	var snack := _pick()
+## An item's front snacks in the order they go: from the top shelf down.
+func _slots_of(item: String) -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	for index: int in range(_fronts.size() - 1, -1, -1):
+		if str(_fronts[index].get_meta("item", "")) == item:
+			out.append(_fronts[index])
+	return out
+
+
+## A snack of this item falls (stuck: tips and hangs instead). The clunk lands with it.
+func _drop(item: String, stuck: bool) -> void:
+	var snack := _pick(item)
 	if snack == null:
 		_clunk(stuck)
 		return
 	snack.set_meta("gone", true)
 	if stuck:
 		_stuck = snack
-	_drops.append({"node": snack, "t": 0.0, "stuck": stuck, "from": snack.position, "landed": false})
+	_drops.append({"node": snack, "t": 0.0, "stuck": stuck, "from": snack.get_meta("home"), "landed": false})
 
 
-## The next front snack still there: from the top down, so you can see the gap.
-func _pick() -> Node3D:
-	for index: int in range(_fronts.size() - 1, -1, -1):
-		var snack := _fronts[index]
+## The next front snack of this item still on its coil: from the top down, so
+## you can see the gap.
+func _pick(item: String) -> Node3D:
+	for snack: Node3D in _slots_of(item):
 		if snack.visible and not bool(snack.get_meta("gone", false)):
 			return snack
 	return null
+
+
+## A stuck snack's pose: turn of the coil 0..1, plus a wobble (rad).
+func _stick(snack: Node3D, turn: float, wobble: float) -> void:
+	var home: Vector3 = snack.get_meta("home")
+	# Out over the shelf's edge, leaning on the glass: its top toward you.
+	snack.position = home + Vector3(0.0, -0.025 * turn, -0.035 * turn)
+	snack.rotation.x = -(STUCK_TIP * turn * turn + wobble)
 
 
 func _step_drops(delta: float) -> void:
@@ -298,8 +351,7 @@ func _step_drops(delta: float) -> void:
 			# The coil turns, the snack creeps forward and tips over the edge... and stops.
 			var turn := clampf(t / 0.6, 0.0, 1.0)
 			var wobble := sin(clampf((t - 0.6) / 0.5, 0.0, 1.0) * PI * 3.0) * 0.12 * (1.0 - clampf((t - 0.6) / 0.5, 0.0, 1.0))
-			snack.position = from + Vector3(0.0, -0.01 * turn, -0.035 * turn)
-			snack.rotation.x = -(STUCK_TIP * turn * turn + wobble)
+			_stick(snack, turn, wobble)
 			if t >= 0.6 and not bool(drop["landed"]):
 				drop["landed"] = true
 				_clunk(true)

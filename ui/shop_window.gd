@@ -12,7 +12,8 @@ extends PanelContainer
 ##   Workwear, Oddities  Buy, or Wear once owned (the closet comes with shops chunk 7)
 ##   Truck     Buy, or Put it on Chefty once the crew owns it
 ##   Menu, Snacks  Buy; a snack the host confirms closes the window, so you see
-##             it handed over and eaten (player/snack_eater.gd)
+##             it handed over and eaten (player/snack_eater.gd), and so does the
+##             Snak-o-Matic keeping your money (you watch it stick on the coil)
 ## A closed shop shows its shutter (CLOSED, Opens 7 AM) instead of the cards.
 ## Every button asks the host (Shops.request_buy); the answer comes back as
 ## Shops.result, shown as a toast ("Sold out", "Not enough cash", "Bought: ..."),
@@ -517,6 +518,12 @@ func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 		if str(Catalog.item(item_id).get("kind", "")) == "snack":
 			close_window()
 			return
+	elif code == "eaten":
+		# The Snak-o-Matic kept the money: out of the way, so you watch it stick on
+		# its coil and hear the trombone (props/vending_machine.gd). The machine
+		# says the rest on its own screen; no toast.
+		close_window()
+		return
 	show_toast(line, code == "ok")
 	_refresh()
 

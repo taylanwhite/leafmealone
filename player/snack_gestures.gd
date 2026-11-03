@@ -100,12 +100,29 @@ static func _part(body: Node3D, part: String) -> Node3D:
 static func _ease(t: float) -> float:
 	return t * t * (3.0 - 2.0 * t)
 
-## The right arm up to the mouth by share up (0..1).
+## Which hand the food is in: 1 the right (arm_r), 0 the left, when the right
+## is busy holding something one-handed (player/snack_eater.gd sets the body's
+## "snack_side" meta for the snack it's eating).
+static func side_of(body: Node3D) -> int:
+	return int(body.get_meta("snack_side", 1))
+
+## The food hand's arm and the other one, and the mirror for the left (z turns
+## the other way: a positive z brings the left arm in across the body).
+static func _food_arm(body: Node3D) -> Node3D:
+	return _part(body, "arm_r" if side_of(body) == 1 else "arm_l")
+
+static func _other_arm(body: Node3D) -> Node3D:
+	return _part(body, "arm_l" if side_of(body) == 1 else "arm_r")
+
+static func _mirror(body: Node3D) -> float:
+	return 1.0 if side_of(body) == 1 else -1.0
+
+## The food hand up to the mouth by share up (0..1).
 static func _pose_arm_to_mouth(body: Node3D, up: float) -> void:
-	var right := _part(body, "arm_r")
-	if right != null:
-		right.rotation.x = lerpf(right.rotation.x, MOUTH_ARM.x, up)
-		right.rotation.z = lerpf(right.rotation.z, MOUTH_ARM.y, up)
+	var arm := _food_arm(body)
+	if arm != null:
+		arm.rotation.x = lerpf(arm.rotation.x, MOUTH_ARM.x, up)
+		arm.rotation.z = lerpf(arm.rotation.z, MOUTH_ARM.y * _mirror(body), up)
 
 static func _pose_eat(body: Node3D, t: float, _delta: float) -> void:
 	var length := float(SECONDS["eat"])
@@ -119,22 +136,23 @@ static func _pose_eat(body: Node3D, t: float, _delta: float) -> void:
 	var torso := _part(body, "torso")
 	if torso != null:
 		torso.rotation.x -= 0.06 * nod
-	# The other hand comes up a little under it, in case of crumbs.
-	var left := _part(body, "arm_l")
-	if left != null:
-		left.rotation.x = lerpf(left.rotation.x, 0.7, up * 0.8)
-		left.rotation.z = lerpf(left.rotation.z, 0.3, up * 0.8)
+	# The other hand comes up a little under it, in case of crumbs (unless it's
+	# holding something: the hold is laid on after the gesture and wins).
+	var other := _other_arm(body)
+	if other != null:
+		other.rotation.x = lerpf(other.rotation.x, 0.7, up * 0.8)
+		other.rotation.z = lerpf(other.rotation.z, 0.3 * _mirror(body), up * 0.8)
 
 static func _pose_drink(body: Node3D, t: float, _delta: float) -> void:
 	var length := float(SECONDS["drink"])
 	var s := t * length
 	var up := lift(s, length)
 	var tip := sip_tip(s)
-	var right := _part(body, "arm_r")
-	if right != null:
+	var arm := _food_arm(body)
+	if arm != null:
 		# Tipping it up lifts the elbow: the arm swings higher through the sip.
-		right.rotation.x = lerpf(right.rotation.x, MOUTH_ARM.x + 0.3 * tip, up)
-		right.rotation.z = lerpf(right.rotation.z, MOUTH_ARM.y, up)
+		arm.rotation.x = lerpf(arm.rotation.x, MOUTH_ARM.x + 0.3 * tip, up)
+		arm.rotation.z = lerpf(arm.rotation.z, MOUTH_ARM.y * _mirror(body), up)
 	var face := _part(body, "face")
 	if face != null:
 		face.rotation.x += 0.38 * tip

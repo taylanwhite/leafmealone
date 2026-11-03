@@ -442,9 +442,25 @@ func _shops() -> Dictionary:
 		items.sort()
 		for item: Variant in items:
 			shelf_units[str(item)] = int(units[item])
+	# Each player's last snack (shops chunk 6: every peer plays it from this), and
+	# the Snak-o-Matic's shelf as this peer built it (front snacks left, stuck).
+	var by_name := {}
+	var snacks: Dictionary = shops.get("snacks")
+	for peer_id: Variant in snacks:
+		var snack: Dictionary = snacks[peer_id]
+		by_name[Net.player_name(int(peer_id))] = "%s %s" % [str(snack.get("item", "")), str(snack.get("buff", ""))]
+	var names := by_name.keys()
+	names.sort()
+	var snack_names := {}
+	for player_name: Variant in names:
+		snack_names[player_name] = by_name[player_name]
+	var machine := get_tree().get_first_node_in_group("vending_machines")
+	var vending := "%d %d" % [int(machine.call("front_count")), (shops.get("vending_stuck") as Array).size()] if machine != null else ""
 	return {
 		"tools": sorted_tools,
 		"shelf_units": shelf_units,
+		"snacks": snack_names,
+		"vending": vending,
 		"supplies": sorted_supplies,
 		"stock_day": int(shops.get("stock_day")),
 		"stock_hash": hash(JSON.stringify(shops.get("stock"), "", true)),

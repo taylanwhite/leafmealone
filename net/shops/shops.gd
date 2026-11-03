@@ -75,6 +75,14 @@ var used_today: Array = []
 var junk_left: Array = []
 ## How much money the Snak-o-Matic has eaten, all time.
 var vending_eaten: int = 0
+## What the Snak-o-Matic ate today, in order (item ids): each one hangs stuck on
+## its coil till the morning restock, on every peer (props/vending_machine.gd).
+## Replicated, not saved (a host who reloads finds the coils turned free).
+var vending_stuck: Array = []
+## This peer holds the real state: the host from its _ready, a client once its
+## first snapshot lands. Before that a client's fields are defaults, and anything
+## that watches them for changes (the vending machine) must wait.
+var synced: bool = false
 ## The last snack each player ate: {peer id: {item, buff, at}} (at is the server
 ## time it was handed over; buff is what it gave, so a sandwich's roll shows).
 ## Every peer plays the eating from it (player/snack_eater.gd), so a bite needs
@@ -104,6 +112,7 @@ func _ready() -> void:
 	# A save from an earlier day (or none): today's shelves are put out fresh.
 	if stock_day != _today():
 		_restock(_today())
+	synced = true
 	Campaign.add_save_hook(_save_section)
 	# Clients ask for the state from their own _ready (the world may not be on
 	# them yet), and late joiners get it on Net.player_joined.
@@ -422,6 +431,7 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 	# The Snak-o-Matic keeps the money now and then. That's the whole joke.
 	if shop == "snak_o_matic" and _rng.randf() < Constants.VENDING_EAT_CHANCE:
 		vending_eaten += 1
+		vending_stuck.append(item)
 		return "eaten"
 	match kind:
 		"tool", "tier", "used_tool", "upgrade":
@@ -530,6 +540,7 @@ func _restock(day: int) -> void:
 	stock_day = day
 	arrived_today.clear()
 	haggled.clear()
+	vending_stuck.clear()
 
 
 func _set_supply(id: String, amount: float) -> void:
@@ -668,6 +679,7 @@ func _extra() -> Dictionary:
 		"arrived_today": arrived_today,
 		"stock_day": stock_day,
 		"vending_eaten": vending_eaten,
+		"vending_stuck": vending_stuck,
 		"snacks": snacks,
 	}
 
@@ -723,7 +735,9 @@ func _rpc_state(all_stock: Dictionary, all_supplies: Dictionary, all_orders: Arr
 	arrived_today = extra.get("arrived_today", [])
 	stock_day = int(extra.get("stock_day", 0))
 	vending_eaten = int(extra.get("vending_eaten", 0))
+	vending_stuck = extra.get("vending_stuck", [])
 	snacks = extra.get("snacks", {})
+	synced = true
 	for peer_id: int in Net.peer_ids():
 		var key := Campaign.key_of(peer_id)
 		if JSON.stringify(old_looks.get(key, {})) != JSON.stringify(looks.get(key, {})):

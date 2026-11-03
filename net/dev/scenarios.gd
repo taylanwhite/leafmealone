@@ -17,7 +17,8 @@ extends Node
 ## drive (that one needs --town-map), toss, toss_full, toss_close, lunch_money,
 ## snak_o_matic (at the food truck's hatch or the vending machine, at noon,
 ## with lunch money in your pocket; shops chunk 6), snack_crash (the Turbo Juice
-## crash hits you now), snack_queasy (the machine's sandwich lands queasy).
+## crash hits you now), snack_queasy (the machine's sandwich lands queasy),
+## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can).
 ## border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
@@ -26,7 +27,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "lunch_money", "snak_o_matic", "snack_crash", "snack_queasy"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -233,6 +234,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _toss(false, TOSS_CLOSE_METERS)
 		"lunch_money", "snak_o_matic":
 			out = await _snack_shop(scenario)
+		"lunch_money_rake", "snak_o_matic_can":
+			out = await _snack_holding(scenario)
 		"snack_crash", "snack_queasy":
 			out = await _snack_effect(scenario)
 	out["scenario"] = scenario
@@ -1703,6 +1706,22 @@ func _snack_shop(shop: String) -> Dictionary:
 	_stand_facing(Vector3(stand.x, zone.global_position.y, stand.z), look)
 	await _ticks(3)
 	return {"zone": _zone(), "cash": Campaign.credits(me)}
+
+## lunch_money_rake, snak_o_matic_can (shops chunk 6): the same, with the rake
+## in your hands (a snack goes in the right; the rake stays in the left) or the
+## gas can in your right (the snack goes in the left). The tool is brought from
+## wherever it lies loose.
+func _snack_holding(scenario: String) -> Dictionary:
+	var rake := scenario == "lunch_money_rake"
+	var out: Dictionary = await _snack_shop("lunch_money" if rake else "snak_o_matic")
+	if out.has("error"):
+		return out
+	var kind := "rake" if rake else "gas_can"
+	var held: String = await _hold(kind)
+	if held != kind:
+		return {"error": "couldn't get the %s (holding '%s')" % [kind, held]}
+	out["holding"] = held
+	return out
 
 ## snack_crash, snack_queasy (shops chunk 6): at the Snak-o-Matic, the buff
 ## arrives the way a real one does (World/Shops' buffs and last snack, sent to

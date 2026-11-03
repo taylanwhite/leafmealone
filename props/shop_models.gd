@@ -47,13 +47,13 @@ const VENDING_RECESS: float = 0.28
 ## The lit header's middle, over the window (m up from the base).
 const VENDING_HEADER_Y: float = 1.86
 ## Its shelves of snacks behind the glass: how many rows and slots a row, and
-## the colors of what's in them (the store's own brands, all made up).
+## how many of the slots hold the 10-bag rolls (vending_slot_item). One slot a
+## unit of Constants.SHOP_DAILY_STOCK.snak_o_matic: 6 cans, 4 rolls, 6 sandwiches.
 const VENDING_ROWS: int = 4
 const VENDING_SLOTS: int = 4
-const VENDING_SNACK_COLORS: Array[Color] = [
-	Color(0.95, 0.5, 0.15), Color(1.0, 0.85, 0.25), Color(0.78, 0.2, 0.15), Color(0.3, 0.62, 0.3),
-	Color(0.6, 0.4, 0.8), Color(0.35, 0.6, 0.95), Color(0.95, 0.95, 0.9), Color(0.55, 0.35, 0.2),
-]
+const VENDING_BAG_SLOTS: int = 4
+## The tray behind the push flap, where a snack lands (cabinet space).
+const VENDING_TRAY := Vector3(-0.13, 0.36, -0.37)
 
 static var _cache: Dictionary = {}
 
@@ -277,7 +277,9 @@ static func _vending_machine(kit: RefCounted) -> void:
 	# The control panel: a darker strip, the screen's black bezel, slots and keys.
 	var panel_x := (win.end.x + half.x) * 0.5
 	kit.call("rbox", Vector3(panel_x, center.y, front - 0.008), Vector3((half.x - win.end.x) * 0.5 - 0.05, win.size.y * 0.5, 0.012), dark, 6.0, {"detail": 1})
-	kit.call("rbox", Vector3(panel_x, win.end.y - 0.14, front - 0.022), Vector3(0.11, 0.07, 0.008), Color(0.05, 0.06, 0.05), 6.0, {"detail": 1, "shade": false})
+	# The screen's bezel: boxy, so its black face is nearly all of its 22 x 14 cm
+	# (the marquee's six letters fit inside it, props/vending_machine.gd).
+	kit.call("rbox", Vector3(panel_x, win.end.y - 0.14, front - 0.022), Vector3(0.11, 0.07, 0.008), Color(0.05, 0.06, 0.05), 14.0, {"detail": 3, "shade": false})
 	kit.call("rbox", Vector3(panel_x, win.end.y - 0.32, front - 0.022), Vector3(0.06, 0.012, 0.008), INK, 4.0, {"detail": 1})
 	kit.call("rbox", Vector3(panel_x, win.end.y - 0.4, front - 0.024), Vector3(0.012, 0.03, 0.008), Color(0.75, 0.76, 0.78), 4.0, {"detail": 1})
 	for row: int in 4:
@@ -304,14 +306,38 @@ static func vending_slot_is_can(row: int, slot: int) -> bool:
 	return (row + slot) % 3 == 0
 
 
-## One snack of a slot's kind and color, centered on at.
-static func vending_snack(kit: RefCounted, row: int, slot: int, at: Vector3) -> void:
-	var color: Color = VENDING_SNACK_COLORS[(row * 3 + slot * 5) % VENDING_SNACK_COLORS.size()]
+## What a slot sells (a Snak-o-Matic catalog item), the same on every peer: the
+## cans are the warm Turbo Juice, the first VENDING_BAG_SLOTS of the other slots
+## from the bottom are the 10-bag rolls, and the rest are sandwiches. A sale
+## drops the front one of a slot of that item (props/vending_machine.gd).
+static func vending_slot_item(row: int, slot: int) -> String:
 	if vending_slot_is_can(row, slot):
-		kit.call("tube", PackedVector3Array([at + Vector3(0.0, -0.065, 0.0), at + Vector3(0.0, 0.065, 0.0)]), PackedFloat32Array([0.03, 0.03]), color, 8, {"jitter": 0.0, "cap": true, "cap_start": true})
-	else:
-		kit.call("rbox", at, Vector3(0.05, 0.065, 0.02), color, 4.0, {"detail": 1})
-		kit.call("rbox", at + Vector3(0.0, 0.0, -0.021), Vector3(0.03, 0.02, 0.002), color.lightened(0.5), 4.0, {"detail": 1, "shade": false})
+		return "vend_turbo"
+	var boxes_before := 0
+	for index: int in row * VENDING_SLOTS + slot:
+		if not vending_slot_is_can(index / VENDING_SLOTS, index % VENDING_SLOTS):
+			boxes_before += 1
+	return "vend_bags" if boxes_before < VENDING_BAG_SLOTS else "vend_sandwich"
+
+
+## One snack of a slot's item, centered on at: a warm Turbo can (the faded green
+## and its yellow band), a sandwich in its plastic wedge standing on end, or a
+## roll of bags in a kraft sleeve.
+static func vending_snack(kit: RefCounted, row: int, slot: int, at: Vector3) -> void:
+	match vending_slot_item(row, slot):
+		"vend_turbo":
+			var body := Color(0.4, 0.72, 0.5)
+			kit.call("tube", PackedVector3Array([at + Vector3(0.0, -0.065, 0.0), at + Vector3(0.0, 0.065, 0.0)]), PackedFloat32Array([0.03, 0.03]), body, 8, {"jitter": 0.0, "cap": true, "cap_start": true})
+			kit.call("tube", PackedVector3Array([at + Vector3(0.0, -0.012, 0.0), at + Vector3(0.0, 0.012, 0.0)]), PackedFloat32Array([0.0305, 0.0305]), Color(1.0, 0.86, 0.15), 8, {"jitter": 0.0, "cap": false})
+		"vend_sandwich":
+			var bread := Color(0.95, 0.9, 0.78)
+			kit.call("rbox", at, Vector3(0.05, 0.062, 0.022), bread, 4.0, {"detail": 1})
+			# The filling seen through the wedge: lettuce over ham.
+			kit.call("rbox", at + Vector3(0.0, 0.0, -0.023), Vector3(0.045, 0.008, 0.002), Color(0.45, 0.72, 0.3), 4.0, {"detail": 1, "shade": false})
+			kit.call("rbox", at + Vector3(0.0, -0.014, -0.023), Vector3(0.042, 0.006, 0.002), Color(0.92, 0.6, 0.55), 4.0, {"detail": 1, "shade": false})
+		_:
+			kit.call("rbox", at, Vector3(0.05, 0.065, 0.022), KRAFT, 4.0, {"detail": 1})
+			kit.call("rbox", at + Vector3(0.0, 0.01, -0.023), Vector3(0.05, 0.02, 0.002), LEAF_GREEN, 4.0, {"detail": 1, "shade": false})
 
 
 ## A food model to hold (SNACK_MODELS), its own instance.
