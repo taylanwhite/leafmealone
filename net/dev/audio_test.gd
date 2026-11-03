@@ -991,15 +991,19 @@ func _leaf_audio(sfx: Node) -> bool:
 	checks["shuffle"] = shuffled
 	checks["step_id"] = LeafAudio.step_id(10) == "step_leaves" and LeafAudio.step_id(100) == "step_leaves_deep" and LeafAudio.step_id(220) == "step_leaves_pile"
 	checks["bank_keys"] = _Bank.shuffle("rake_scrape") and not _Bank.shuffle("bonk") and is_equal_approx(_Bank.unit_size("rake_plant"), Constants.RAKE_SFX_UNIT_SIZE) and is_equal_approx(_Bank.unit_size("bonk"), Constants.SFX_UNIT_SIZE) and _Bank.wobble("bonk") == Constants.SFX_PITCH_WOBBLE
-	# The scrape's pitch follows the swing (stretched over half of it, clamped),
-	# and the play carries it to Sfx.
-	var pitch_ok := is_equal_approx(LeafAudio.scrape_pitch(0.6), 1.0) and is_equal_approx(LeafAudio.scrape_pitch(0.2), Constants.RAKE_SCRAPE_PITCH.y) and is_equal_approx(LeafAudio.scrape_pitch(2.0), Constants.RAKE_SCRAPE_PITCH.x)
+	# The scrape's pitch follows the swing (stretched over its drive, clamped),
+	# and the play carries it to Sfx. A swing whose drive lasts exactly the scrape
+	# file plays it at pitch 1 (R1b integration: read off the phase table, which
+	# rakefeel:look lengthened, instead of assuming a 0.6 s swing drives 0.3 s).
+	var drive_share := LeafAudio.swing_phase("drive_end") - LeafAudio.swing_phase("plant")
+	var even_tempo := Constants.RAKE_SCRAPE_SECONDS / drive_share
+	var pitch_ok := is_equal_approx(LeafAudio.scrape_pitch(even_tempo), 1.0) and is_equal_approx(LeafAudio.scrape_pitch(0.2), Constants.RAKE_SCRAPE_PITCH.y) and is_equal_approx(LeafAudio.scrape_pitch(2.0), Constants.RAKE_SCRAPE_PITCH.x)
 	var quick := stroke.call("rake", 9013, 3000, 0, base + Vector3(0.0, 0.0, -4.0)) as Dictionary
-	quick["tempo"] = 0.55
+	quick["tempo"] = even_tempo * 0.9
 	leaf.call("handle", quick)
 	await get_tree().create_timer(0.1).timeout
 	var scrape := _placed("rake_scrape")
-	checks["scrape_pitch"] = pitch_ok and not scrape.is_empty() and is_equal_approx(float(scrape["pitch"]), LeafAudio.scrape_pitch(0.55)) and float(scrape["pitch"]) > 1.05
+	checks["scrape_pitch"] = pitch_ok and not scrape.is_empty() and is_equal_approx(float(scrape["pitch"]), LeafAudio.scrape_pitch(even_tempo * 0.9)) and float(scrape["pitch"]) > 1.05
 	checks["crew_tempo"] = await _crew_tempo_ok(leaf, base + Vector3(4.0, 0.0, -4.0))
 	# What a real (windowed) play would build: the bank's reach, the asked pitch
 	# times the id's wobble, the asked volume within the id's jitter.
@@ -1087,6 +1091,12 @@ func _leaf_sync(leaf: Node) -> Dictionary:
 		if _SfxScript.log.count("leaf_flick") > flicks:
 			ticks = Engine.get_physics_frames() - from
 			break
+	# The check runs as each physics_frame signal fires, which is before that
+	# tick's _physics_process (LeafAudio's flush), so it sees a play one tick after
+	# the tick it played on (R1b integration: with rakefeel:look's phases the
+	# flick is 8.6 ticks out, plays on tick 9 and was read as 10).
+	if ticks >= 0:
+		ticks -= 1
 	var want := wait * float(Engine.physics_ticks_per_second)
 	print("[AudioTest] sync_ticks: queued %s, the flick played after %d ticks (its moment is %.1f ticks away)" % [queued, ticks, want])
 	out["sync_ticks"] = ticks >= 0 and absf(float(ticks) - want) <= 1.0 and not queued.is_empty() and str((queued[0] as Dictionary)["id"]) == "leaf_flick"
