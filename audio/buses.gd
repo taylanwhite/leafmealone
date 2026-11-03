@@ -10,6 +10,9 @@ extends RefCounted
 ##   UI        menu clicks and the HUD's run cues
 ##   Chatter   character noises: NPC babble, vo_*, the player's mouth, crew barks
 ##   Voice     proximity voice chat
+##   SfxClear  effects right at a hider's own ears (audio/sfx.gd play_clear): it
+##             skips the hiding muffle on Sfx (player/hide_view.gd) but follows
+##             Sfx's volume and mute (FOLLOWS; the settings have no fader for it)
 ## ensure() is idempotent: ui_root, audio_root and tools call it freely.
 
 const MASTER := &"Master"
@@ -19,6 +22,7 @@ const AMBIENCE := &"Ambience"
 const UI := &"UI"
 const CHATTER := &"Chatter"
 const VOICE := &"Voice"
+const SFX_CLEAR := &"SfxClear"
 
 ## Each bus and the bus it sends to, in creation order.
 const LAYOUT: Array = [
@@ -28,7 +32,10 @@ const LAYOUT: Array = [
 	[&"UI", &"Sfx"],
 	[&"Chatter", &"Master"],
 	[&"Voice", &"Master"],
+	[&"SfxClear", &"Master"],
 ]
+## A bus that takes another's volume and mute, not a fader of its own.
+const FOLLOWS: Dictionary = {&"SfxClear": &"Sfx"}
 
 
 static func ensure() -> void:
@@ -46,6 +53,19 @@ static func ensure() -> void:
 		low_pass.cutoff_hz = Constants.MUSIC_MUFFLE_CUTOFF_HZ
 		AudioServer.add_bus_effect(music, low_pass)
 		AudioServer.set_bus_effect_enabled(music, AudioServer.get_bus_effect_count(music) - 1, false)
+	sync_followers()
+
+
+## Every FOLLOWS bus takes its leader's volume and mute now (core/settings.gd
+## calls it whenever it sets the faders).
+static func sync_followers() -> void:
+	for follower: StringName in FOLLOWS:
+		var index := AudioServer.get_bus_index(follower)
+		var leader := AudioServer.get_bus_index(FOLLOWS[follower])
+		if index < 0 or leader < 0:
+			continue
+		AudioServer.set_bus_volume_db(index, AudioServer.get_bus_volume_db(leader))
+		AudioServer.set_bus_mute(index, AudioServer.is_bus_mute(leader))
 
 
 ## True when every bus is there and sends where LAYOUT says.

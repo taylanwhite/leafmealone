@@ -1297,6 +1297,22 @@ func _state() -> Dictionary:
 	var annex := get_tree().get_first_node_in_group("annex")
 	if annex != null and bool(annex.call("is_active")):
 		out["annex"] = annex.call("status")
+	# The music: its track, and while hiding is asking for the chase's "hide!"
+	# section, whether the song is really playing inside it (R2c hide).
+	var music := get_tree().get_first_node_in_group("music_director")
+	if music != null and music.has_method("section_requested"):
+		var song := {"track": str(music.get("_track"))}
+		if bool(music.call("section_requested", &"hide")):
+			song["hide"] = true
+			var decks: Array = music.get("_decks")
+			if not decks.is_empty():
+				var deck: AudioStreamPlayer = (decks[int(music.get("_front"))] as Dictionary)["player"]
+				var tracks := preload("res://audio/music_tracks.gd")
+				var span: Array = tracks.section_seconds(str(song["track"]), "hide")
+				var at := deck.get_playback_position() - tracks.lead_seconds(str(song["track"]))
+				song["at"] = snappedf(at, 0.01)
+				song["in_hide"] = span.size() >= 2 and at >= float(span[0]) - 0.05 and at <= float(span[1]) + 0.05
+		out["music"] = song
 	var camera := get_viewport().get_camera_3d()
 	if camera != null:
 		out["camera"] = "%s/%s" % [camera.get_parent().name, camera.name] if camera.get_parent() != null else str(camera.name)

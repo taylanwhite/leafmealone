@@ -1310,7 +1310,7 @@ func host_inspect_resolve(crew: Node) -> Dictionary:
 			var crew_at := (crew as Node3D).global_position
 			var away := crew_at - global_position
 			away.y = 0.0
-			toward = crew_at - away.normalized() * Constants.HIDE_PULL_STANDOFF if away.length() > 0.1 else crew_at
+			toward = crew_at - away.normalized() * Constants.HIDE_PILE_PULL_STANDOFF if away.length() > 0.1 else crew_at
 			toward.y = global_position.y
 		# The leaves part around his face first, then out you come (R2b hide); the
 		# gotcha stands you where you land (encounter.gd reads the meta).
@@ -1358,7 +1358,8 @@ func _rpc_pile_inspect(crew_index: int, at: float, phase: StringName) -> void:
 				for pat: int in 3:
 					get_tree().create_timer(0.3 + 0.45 * float(pat)).timeout.connect(func() -> void:
 						if is_instance_valid(sfx):
-							sfx.call("play_at", "peek_rustle", where, -2.0))
+							# Yours land right over your head: past the muffle (R2c hide).
+							sfx.call("play_clear" if is_multiplayer_authority() and in_pile and sfx.has_method("play_clear") else "play_at", "peek_rustle", where, -2.0))
 		&"near_miss":
 			load("res://props/hide_spot.gd").crew_gesture(crew, "shrug_notice", "scratch")
 		_:

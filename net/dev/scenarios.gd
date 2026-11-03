@@ -11,7 +11,7 @@ extends Node
 ##
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, spotted, lunge,
 ## dodge, gotcha, cite_rescue, escort, hide, hide_bin, hide_shed, pile, peek,
-## inspect_near, inspect_found, border_return, van_ride, van_seated, van_unbuckle,
+## inspect_near, inspect_found, pile_found, border_return, van_ride, van_seated, van_unbuckle,
 ## van_straggler, van_straggler_far, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
 ## annex_window_d, annex_turnstile, annex_visit (needs a second player), annex_closing, store,
 ## drive (that one needs --town-map), toss, toss_full, toss_close, rustys (needs
@@ -29,7 +29,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_turnstile", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_turnstile", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -210,6 +210,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _inspect_near()
 		"inspect_found":
 			out = await _inspect_found()
+		"pile_found":
+			out = await _pile_found()
 		"border_return", "annex":
 			out = await _annex()
 		"annex_break":
@@ -899,6 +901,56 @@ func _inspect_found() -> Dictionary:
 
 func _reached_inspect_found() -> bool:
 	return _reached_peek()
+
+
+## In a raked pile, seen diving in; a NICE BOY walks over, pats it and finds you
+## (R2c hide: the pile's find, and the mound after it).
+func _pile_found() -> Dictionary:
+	var on_pile: Dictionary = await _pile()
+	if on_pile.has("error"):
+		return on_pile
+	var director := _director()
+	var me := _me()
+	var me_id := Net.local_peer_id()
+	var safe: Dictionary = director.get("_safe_until")
+	safe[me_id] = Net.server_time() + 3.0
+	director.call("_begin_chase")
+	await _ticks(4)
+	var van := _van()
+	if van != null:
+		van.call("dev_reset")
+	for each: Node in get_tree().get_nodes_in_group("crew"):
+		if each.has_method("host_set_mode"):
+			each.call("host_set_mode", 0)
+		each.set_physics_process(false)
+	var crew := _crew()
+	if crew == null:
+		return {"error": "no NICE BOY spawned"}
+	var ahead := -me.global_basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized()
+	var watch_at := me.global_position + ahead * 7.0 + Vector3(-ahead.z, 0.0, ahead.x) * 3.0
+	_placing("crew")
+	crew.global_position = Vector3(watch_at.x, me.global_position.y, watch_at.z)
+	var look := me.global_position - watch_at
+	crew.rotation.y = atan2(look.x, look.z)
+	for index: int in range(1, get_tree().get_nodes_in_group("crew").size()):
+		var other := get_tree().get_nodes_in_group("crew")[index] as Node3D
+		other.global_position = me.global_position - ahead * 25.0 + Vector3(float(index) * 3.0, 0.0, 0.0)
+	me.call("_hide_view").call("predict_pile_dive")
+	_field().call("request_pile_hide")
+	var inside: Variant = await _wait_for(func() -> Variant: return true if bool(me.get("in_pile")) else null)
+	if inside == null:
+		return {"error": "couldn't get into the pile"}
+	# He watched you go in (leaf_field.gd marks it when a NICE BOY sees the dive).
+	me.set_meta("pile_seen", true)
+	await get_tree().create_timer(Constants.HIDE_ENTER_SECONDS + 0.4).timeout
+	_inspect_soon(me, INSPECT_LEAD_SECONDS)
+	return {"moment": "pile_found", "note": "in the pile, seen going in; he pats it in %.1f s" % INSPECT_LEAD_SECONDS, "phase": _phase()}
+
+
+func _reached_pile_found() -> bool:
+	return bool(_me().get("in_pile")) and _phase() == "CHASE"
 
 
 ## The chase on, the crew held where this scenario puts them (no crew brain
