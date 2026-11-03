@@ -7,14 +7,16 @@ extends RefCounted
 ##
 ## TRACKS: id -> {file, bpm, bars, intro_bars, loop, stinger, title_key, db}
 ##   file        the .ogg tools/make_music.py and tools/encode_ogg.py made
+##   bpm         the exact tempo make_music.py rendered ("bpm_exact" in its
+##               sidecar): it nudges a song's tempo so the loop and its intro are
+##               whole 20 ms frames, and loop_offset() is only sample-exact with it
 ##   bars        the whole track, intro included, in 4/4 bars
 ##   intro_bars  bars before the loop start (a loop goes back to A, not the top)
 ##   title_key   its title, ui/strings.gd MUSIC_TITLES
 ##   db          volume trim on top of Constants.MUSIC_TRACK_DB
-## Only tracks that exist are listed (audio chunk 3). The rest of the planned
-## soundtrack joins in chunks 4a and 4b, which also take "old_tune" back out:
-## until then the old 8-bar loop that ambience.gd used to play stands in for
-## the calm moods that have no track of their own yet.
+## Only tracks that exist are listed. The calm moods' music came in audio chunk
+## 4a (it retired the old 8-bar stand-in loop); the tension tracks and the rest
+## of the stingers come in 4b.
 ##
 ## MOODS: mood -> {tracks, rests, urgent, priority, stand_in?}
 ##   tracks    played in turn, never the same one twice in a row when there are two
@@ -28,17 +30,20 @@ extends RefCounted
 const TRACKS: Dictionary = {
 	"rake_it_easy": {"file": "res://assets/audio/music/rake_it_easy.ogg", "bpm": 100.0, "bars": 54, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_rake_it_easy", "db": 0.0},
 	"st_day_end": {"file": "res://assets/audio/music/st_day_end.ogg", "bpm": 60.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_day_end", "db": 0.0},
-	# The old tune from the first sound pass (tools/make_loops.py), at the level it
-	# always had under ambience.gd (-15 dB). Chunk 4 retires it.
-	"old_tune": {"file": "res://assets/audio/sfx/music_loop.wav", "bpm": 92.0, "bars": 8, "intro_bars": 0, "loop": true, "stinger": false, "title_key": "track_old_tune", "db": -9.0},
+	# The calm moods (audio chunk 4a; docs/GAME.md "the calm moods' music").
+	"leaf_me_alone_theme": {"file": "res://assets/audio/music/leaf_me_alone_theme.ogg", "bpm": 96.0, "bars": 44, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_leaf_me_alone_theme", "db": 0.0},
+	"curb_appeal": {"file": "res://assets/audio/music/curb_appeal.ogg", "bpm": 108.1081081081081, "bars": 48, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_curb_appeal", "db": 0.0},
+	"golden_hour": {"file": "res://assets/audio/music/golden_hour.ogg", "bpm": 88.07339449541284, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_golden_hour", "db": 0.0},
+	"homie_depot_muzak": {"file": "res://assets/audio/music/homie_depot_muzak.ogg", "bpm": 111.8881118881119, "bars": 48, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_homie_depot_muzak", "db": 0.0},
+	"quiet_hours": {"file": "res://assets/audio/music/quiet_hours.ogg", "bpm": 80.0, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_quiet_hours", "db": 0.0},
 }
 
 const MOODS: Dictionary = {
-	"title": {"tracks": ["old_tune"], "rests": false, "urgent": false, "priority": 90},
-	"work_morning": {"tracks": ["rake_it_easy"], "rests": true, "urgent": false, "priority": 10},
-	"work_evening": {"tracks": ["old_tune"], "rests": true, "urgent": false, "priority": 10},
-	"store": {"tracks": ["old_tune"], "rests": true, "urgent": false, "priority": 10},
-	"night": {"tracks": ["old_tune"], "rests": true, "urgent": false, "priority": 20},
+	"title": {"tracks": ["leaf_me_alone_theme"], "rests": false, "urgent": false, "priority": 90},
+	"work_morning": {"tracks": ["rake_it_easy", "curb_appeal"], "rests": true, "urgent": false, "priority": 10},
+	"work_evening": {"tracks": ["golden_hour"], "rests": true, "urgent": false, "priority": 10},
+	"store": {"tracks": ["homie_depot_muzak"], "rests": true, "urgent": false, "priority": 10},
+	"night": {"tracks": ["quiet_hours"], "rests": true, "urgent": false, "priority": 20},
 	"hot": {"tracks": [], "rests": true, "urgent": false, "priority": 30, "stand_in": "work_morning"},
 	"warning": {"tracks": [], "rests": false, "urgent": true, "priority": 60},
 	"chase": {"tracks": [], "rests": false, "urgent": true, "priority": 70},

@@ -584,12 +584,25 @@ def i_gong(f, hold, vel, rng, glide=None):
     return apply(out, swell)
 
 
+def i_chime(f, hold, vel, rng, glide=None):
+    """A store PA chime: a soft-mallet tubular bell, round and a little hollow,
+    with a slow shimmer (the 'ding-dong' before an announcement)."""
+    seconds = max(hold, 0.3) + 1.6
+    out = partials(f, seconds, [(1.0, 1.0, 1.5), (2.0, 0.32, 2.6), (3.0, 0.1, 4.5), (4.2, 0.05, 8.0)])
+    shimmer = [1.0 - 0.08 * (0.5 + 0.5 * math.sin(TAU * 3.1 * i / RATE)) for i in range(len(out))]
+    out = apply(out, shimmer)
+    mallet = expdecay(one_pole_lp(noise(rng, 0.012), 1800.0), 300.0)
+    mix(out, mallet, 0, 0.08)
+    return apply(out, adsr(len(out), 0.004, int((hold + 0.8) * RATE), 0.6))
+
+
 INSTRUMENTS = {
     "nylon": i_nylon, "banjo": i_banjo, "marimba": i_marimba, "vibes": i_vibes, "glock": i_glock,
     "music_box": i_music_box, "ep": i_ep, "organ": i_organ, "clav": i_clav, "pizz": i_pizz,
     "pulse": i_pulse, "triangle": i_triangle, "upright": i_upright, "synth_bass": i_synth_bass,
     "tuba": i_tuba, "brass": i_brass, "muted_trumpet": i_muted_trumpet, "kazoo": i_kazoo,
     "whistle": i_whistle, "choir": i_choir, "slide_whistle": i_slide_whistle, "gong": i_gong,
+    "chime": i_chime,
 }
 
 
@@ -670,6 +683,14 @@ def d_woodblock(vel, rng):
     return out
 
 
+def d_tock(vel, rng):
+    """The clock's 'tock': a lower, hollower woodblock than d_woodblock's 'tick'."""
+    out = expdecay(osc(780.0, 0.14, "triangle"), 34.0)
+    mix(out, expdecay(osc(1630.0, 0.14), 60.0), 0, 0.25)
+    mix(out, expdecay(biquad_bp(noise(rng, 0.02), 1200.0, 2.0), 160.0), 0, 0.3)
+    return out
+
+
 def d_tambourine(vel, rng):
     out = silence(0.28)
     for at in (0.0, 0.012, 0.026):
@@ -746,7 +767,7 @@ def d_police_whistle(vel, rng):
 DRUMS = {
     "kick": d_kick, "snare": d_snare, "brush": d_brush, "sweep": d_sweep, "hat": d_hat,
     "hat_open": d_hat_open, "shaker": d_shaker, "clap": d_clap, "rim": d_rim, "snap": d_snap,
-    "cowbell": d_cowbell, "woodblock": d_woodblock, "tambourine": d_tambourine, "tom_hi": d_tom_hi,
+    "cowbell": d_cowbell, "woodblock": d_woodblock, "tock": d_tock, "tambourine": d_tambourine, "tom_hi": d_tom_hi,
     "tom_lo": d_tom_lo, "crash": d_crash, "typewriter": d_typewriter, "type_bell": d_type_bell,
     "rubber_stamp": d_rubber_stamp, "police_whistle": d_police_whistle,
 }
@@ -764,10 +785,12 @@ PLACEMENT = {
 class NoteCache:
     """Renders each distinct (instrument, pitch, length, velocity) once."""
 
-    def __init__(self, seed: int):
+    def __init__(self, seed: int, drum_ramp: float = 0.0):
         self.seed = seed
         self.store: dict = {}
         self.hits = 0
+        # Seconds of fade-in on every drum hit (Song.drum_ramp).
+        self.drum_ramp = drum_ramp
 
     def get(self, inst: str, midi: float | None, hold: float, vel: float, glide_midi: float | None = None, variant: int = 0) -> list[float]:
         vel_bucket = round(max(0.05, min(1.25, vel)) * 8.0) / 8.0
@@ -784,6 +807,9 @@ class NoteCache:
             samples = INSTRUMENTS[inst](hz(midi), hold_key, vel_bucket, rng, hz(glide_midi) if glide_midi is not None else None)
         peak = max(1e-9, max(abs(v) for v in samples))
         samples = [v / peak * vel_bucket for v in samples]
+        ramp_n = int(self.drum_ramp * RATE) if inst in DRUMS else 0
+        for i in range(min(ramp_n, len(samples))):
+            samples[i] *= i / ramp_n
         self.store[key] = samples
         return samples
 
@@ -1050,7 +1076,7 @@ class Section:
 class Song:
     def __init__(self, song_id: str, title: str, bpm: float, key: str, seed: int, sections: dict, form: list,
                  loop_from: str | None = "A", swing: float = 0.0, swing_unit: int = 16, stinger: bool = False,
-                 stinger_tail: float = 0.6, humanize: float = 0.004):
+                 stinger_tail: float = 0.6, humanize: float = 0.004, drum_ramp: float = 0.0):
         self.id = song_id
         self.title = title
         self.bpm = bpm
@@ -1064,12 +1090,19 @@ class Song:
         self.stinger = stinger
         self.stinger_tail = stinger_tail
         self.humanize = humanize
+        # A fade-in this long (seconds) on every drum hit: a kick or hat whose
+        # first sample is its loudest, landing right on the loop start, reads
+        # as a click at the seam. 0.7 ms is inaudible on the hit itself.
+        self.drum_ramp = drum_ramp
         self.step_seconds = 60.0 / bpm / 4.0
         if not stinger:
             # A loop is a whole number of 20 ms frames long (tools/encode_ogg.py
-            # explains why): the tempo moves by a few thousandths of a bpm at most.
-            steps = self.bars * 16
-            self.step_seconds = round(steps * self.step_seconds * FRAME_RATE) / FRAME_RATE / steps
+            # explains why), and so is its intro, so the loop start is a whole
+            # sample and the game's seek lands on it exactly: the frame grid is
+            # set on the largest stretch both divide into. The tempo moves by
+            # about a tenth of a bpm at most (Rake It Easy's 100 bpm is exact).
+            unit = math.gcd(self.bars * 16, self.intro_bars() * 16) or self.bars * 16
+            self.step_seconds = round(unit * self.step_seconds * FRAME_RATE) / FRAME_RATE / unit
 
     @property
     def bpm_exact(self) -> float:
@@ -1231,7 +1264,7 @@ def render(song: Song, only_section: str | None = None, mono: bool = False) -> d
     # what follows the loop start is only the loop's own sound (plus the end's
     # ring-out folded onto it): then the jump from the end back to A is seamless.
     loop_index = form.index(song.loop_from) if ls > 0 else 0
-    cache = NoteCache(song.seed)
+    cache = NoteCache(song.seed, song.drum_ramp)
     body: dict = {}
     pre: dict = {}
     human = random.Random(song.seed)
@@ -1498,7 +1531,395 @@ def st_day_end() -> Song:
                 stinger_tail=0.6)
 
 
-SONGS = {song.id: song for song in (rake_it_easy(), st_day_end())}
+# ---------------------------------------------------------------- the calm moods (audio chunk 4a)
+
+def leaf_me_alone_theme() -> Song:
+    """'Leaf Me Alone (Main Theme)': the menu and lobby. 96 bpm, F major, 44 bars
+    (110 s), a light shuffle. A banjo strum intro, a kazoo melody over a tuba
+    oom-pah (the hook sings the title: 'Leaf me a-LONE'), a whistled B section on
+    the ragtime changes, a breakdown of slide-whistle jokes over the oom-pah, and
+    a shout chorus with everyone in that climbs back into A."""
+    hook = ("C5:3 A4:1 F4:2 ~C5:6! r:4 | D5:2 C5:1 D5:1 F#4:2 A4:2 D5:4 C5:4 | "
+            "Bb4:3 G4:1 D4:2 ~Bb4:6 r:4 | C5:2 Bb4:1 C5:1 E4:2 G4:2 Bb4:2 A4:2 G4:4 | "
+            "C5:3 A4:1 F4:2 ~C5:6! r:4 | D5:2 Eb5:1 D5:1 C5:2 A4:2 F#4:4 D4:4 | "
+            "G4:2 Bb4:2 D5:2 F5:2! E5:2 D5:2 C5:2 Bb4:2 | ")
+    hook_end = "A4:2 F4:2 ~C5:4 F5:4! r:4"
+    # The shout's last bar climbs chromatically into A's first note.
+    shout_end = "F5:4 C5:2 A4:2 G4:2 A4:2 Bb4:2 B4:2"
+    whistle_b = ("D6:6 C6:2 A5:4 F5:4 | D6:6 C6:2 Ab5:4 F5:4 | C6:4 A5:2 F5:2 A5:8 | F#5:4 A5:2 C6:2 ~D6:8 | "
+                 "Bb5:6 A5:2 G5:4 D5:4 | E5:4 G5:2 Bb5:2 ~C6:8 | C6:4 A5:4 C6:4 F#5:4 | Bb5:4 A5:2 G5:2 E5:4 C5:4")
+    a_chords = ["F6", "D7", "Gm7", "C7", "F6", "D7", "Gm7 C7", "F6"]
+    oompah = "R-----..5-----.."
+    pah = "....x-......x-.."
+    strum = "x-x-x-x-x-x-x-x-"
+    kick = "x.......x......."
+    backbeat = "....x.......x..."
+    hats = "x.x.x.x.x.x.x.x."
+
+    def band(extra: list) -> list:
+        return extra + [
+            bass("tuba", oompah, low=34, gain=0.66),
+            comp("banjo", pah, gain=0.34, pan=-0.3, verb=0.14),
+            comp("ep", "x-------x-------", gain=0.12, pan=0.3, verb=0.25),
+            drum("kick", kick, gain=0.7),
+            drum("snare", backbeat, gain=0.26),
+            drum("hat", hats, gain=0.22),
+            drum("tambourine", backbeat, gain=0.12),
+        ]
+    sections = {
+        "intro": Section(4, ["F6", "D7", "Gm7", "C7"], [
+            comp("banjo", strum, gain=0.55, pan=-0.2, verb=0.18),
+            bass("tuba", oompah, low=34, gain=0.7, only=[2, 3]),
+            drum("kick", kick, gain=0.55, only=[2, 3]),
+            drum("hat", "....x.......x...", gain=0.12, only=[1, 2, 3]),
+            # A slide whistle 'wheee' up into the tune (it ends before the loop point).
+            slide([("3:3", 430.0), ("3:12", 1450.0)], gain=0.3, pan=0.15, verb=0.25),
+        ]),
+        "A": Section(8, a_chords, band([
+            melody("kazoo", hook + hook_end, gain=0.42, pan=0.05, verb=0.16),
+        ])),
+        "B": Section(8, ["Bbmaj7", "Bdim7", "F/C", "D7", "Gm7", "C7", "Am7 D7", "Gm7 C7"], [
+            melody("whistle", whistle_b, gain=0.21, pan=-0.1, verb=0.3),
+            bass("tuba", "R-------5-------", low=34, gain=0.62),
+            arp("banjo", "1.3.5.3.6.3.5.3.", gain=0.28, pan=-0.3, verb=0.14),
+            comp("ep", "x-------x-------", gain=0.2, pan=0.3, verb=0.25),
+            drum("kick", kick, gain=0.6),
+            drum("brush", backbeat, gain=0.4),
+            drum("hat", hats, gain=0.1),
+            drum("crash", "x...............", gain=0.14, only=[0]),
+        ]),
+        "A2": Section(8, a_chords, band([
+            melody("kazoo", hook + hook_end, gain=0.41, pan=0.05, verb=0.16),
+            melody("glock", hook + hook_end, shift=12, gain=0.14, pan=0.25, verb=0.25),
+            arp("banjo", "1.3.6.1.3.6.1.6.", gain=0.2, pan=-0.35, verb=0.14),
+        ])),
+        "breakdown": Section(8, ["Gm7", "C7", "Gm7", "C7", "Am7", "D7", "Gm7", "C7"], [
+            bass("tuba", oompah, low=34, gain=0.75),
+            drum("woodblock", "....x.......x...", gain=0.3),
+            drum("kick", "x...............", gain=0.55),
+            comp("banjo", pah, gain=0.24, pan=-0.3, only=[4, 5, 6, 7]),
+            # The jokes: a question, a raspberry, a fall, a bonk, a wobble, an answer, a wheee and a whoops.
+            slide([("0:2", 520.0), ("0:10", 1500.0)], gain=0.3, pan=0.2, verb=0.25),
+            hits("kazoo", [("1:8", "G3", 1, 1.0), ("1:10", "G3", 1, 1.0), ("1:12", "F#3", 4, 1.0)], gain=0.3, pan=-0.1),
+            slide([("2:0", 1600.0), ("2:4", 1680.0), ("2:12", 380.0)], gain=0.3, pan=-0.2, verb=0.25),
+            drum("cowbell", "........x.x.....", gain=0.22, only=[3]),
+            slide([("4:0", 700.0), ("4:3", 1100.0), ("4:5", 800.0), ("4:8", 1300.0), ("4:12", 1900.0)], gain=0.28, pan=0.2, verb=0.25),
+            hits("kazoo", [("5:8", "D4", 2, 0.9), ("5:10", "F#4", 2, 0.9), ("5:12", "A4", 2, 0.9), ("5:14", "C5", 2, 1.0)], gain=0.3),
+            slide([("6:0", 880.0), ("6:8", 2000.0)], gain=0.28, pan=0.1, verb=0.25),
+            slide([("7:0", 2000.0), ("7:6", 440.0)], gain=0.28, pan=-0.1, verb=0.25),
+            drum("tom_hi", "........x.x.....", gain=0.3, only=[7]),
+            drum("tom_lo", "............x.x.", gain=0.35, only=[7]),
+        ]),
+        "shout": Section(8, ["F6", "D7", "Gm7", "C7", "F6", "D7", "Gm7 C7", "F6 C7"], band([
+            melody("kazoo", hook + shout_end, gain=0.42, pan=0.05, verb=0.16),
+            melody("whistle", hook + shout_end, shift=12, gain=0.13, pan=-0.2, verb=0.3),
+            arp("banjo", "1.3.6.1.3.6.1.6.", gain=0.2, pan=-0.35, verb=0.14),
+            drum("tambourine", "..............x.", gain=0.12),
+            drum("crash", "x...............", gain=0.16, only=[0]),
+        ])),
+    }
+    return Song("leaf_me_alone_theme", "Leaf Me Alone (Main Theme)", 96.0, "F major", 4301, sections,
+                ["intro", "A", "B", "A2", "breakdown", "shout"], loop_from="A", swing=0.18, swing_unit=8,
+                drum_ramp=0.0007)
+
+
+def curb_appeal() -> Song:
+    """'Curb Appeal': the other work track, so mornings take turns with Rake It
+    Easy. 108 bpm, G major, 48 bars (106.7 s). Banjo forward rolls and rock
+    cowbell (quarters and eighths, never a salsa bell pattern), a kazoo hook in
+    B, kazoo call-and-response in A2, a claps-and-cowbell breakdown and a
+    half-time whistled bridge over organ."""
+    roll = "1.3.6.1.3.6.1.6."
+    a_chords = ["G6", "C9", "G6", "D7sus4 D7", "Em7", "A9", "Am7 D7", "G6"]
+    b_chords = ["Cadd9", "G/B", "Am7", "D9", "Cadd9", "G/B", "Am7 D7", "G6"]
+    two_beat = ["R---....5---....", "R---3---5---p---"]
+    hook = ("E5:2 G5:2 E5:2 D5:2 C5:4 r:2 G4:2 | B4:2 D5:2 G5:4 F#5:2 G5:2 r:4 | "
+            "A4:2 C5:2 E5:2 G5:2! E5:2 C5:2 A4:4 | F#4:2 A4:2 C5:2 D5:4 r:2 D5:1 E5:1 F#5:2 | "
+            "G5:2 G5:2 E5:2 D5:2 C5:4 r:2 G4:2 | B4:2 D5:2 G5:4 ~B5:4! r:4 | "
+            "C5:2 E5:2 G5:2 E5:2 D5:2 F#5:2 A5:2 F#5:2 | G5:4! D5:2 B4:2 G4:4 r:4")
+    answers = ("r:16 | r:8 E5:2 G5:2 Bb5:2! G5:2 | r:16 | r:8 F#5:2 A5:2 C5:2 D5:2 | "
+               "r:16 | r:8 C#5:2 E5:2 G5:2! B4:2 | r:16 | r:4 D5:2 E5:2 G5:4! r:4")
+    bridge_whistle = ("B5:6 A5:2 G5:4 E5:4 | C#6:6 B5:2 A5:4 E5:4 | G5:6 E5:2 B5:8 | A5:6 F#5:2 D5:4 C6:4 | "
+                      "D6:6 B5:2 F#5:4 A5:4 | G#5:6 B5:2 D6:8 | C6:4 B5:2 A5:2 E5:4 G5:4 | G5:8 F#5:8")
+    kick = "x.......x......."
+    backbeat = "....x.......x..."
+    hats = "x.o.x.o.x.o.x.o."
+
+    def groove(extra: list, bell: str = "x...x...x...x...") -> list:
+        return extra + [
+            bass("upright", two_beat, gain=0.85),
+            drum("kick", kick, gain=0.75),
+            drum("snare", backbeat, gain=0.28),
+            drum("hat", hats, gain=0.15),
+            drum("cowbell", bell, gain=0.11),
+        ]
+    sections = {
+        "intro": Section(4, ["G6", "C9", "G6", "D7sus4 D7"], [
+            arp("banjo", roll, gain=0.6, pan=-0.25, verb=0.14),
+            bass("upright", two_beat, gain=0.8, only=[2, 3]),
+            drum("kick", kick, gain=0.6, only=[2, 3]),
+            drum("cowbell", "x...x...x...x.x.", gain=0.13, only=[3]),
+        ]),
+        "A": Section(8, a_chords, groove([
+            arp("banjo", roll, gain=0.4, pan=-0.25, verb=0.14),
+            comp("ep", "x-----..x-----..", gain=0.24, pan=0.3, verb=0.2),
+        ])),
+        "B": Section(8, b_chords, [
+            melody("kazoo", hook, gain=0.34, pan=0.08, verb=0.16),
+            arp("banjo", "1.3.6.3.1.3.6.3.", gain=0.28, pan=-0.3, verb=0.14),
+            comp("ep", "x-------x-------", gain=0.2, pan=0.3, verb=0.2),
+            bass("upright", "R---3---5---p---", gain=0.85),
+            drum("kick", "x.......x.x.....", gain=0.75),
+            drum("clap", backbeat, gain=0.26),
+            drum("hat", hats, gain=0.15),
+            drum("cowbell", "x.x.x.x.x.x.x.x.", gain=0.1),
+            drum("crash", "x...............", gain=0.15, only=[0]),
+        ]),
+        "A2": Section(8, a_chords, groove([
+            melody("kazoo", answers, gain=0.32, pan=0.15, verb=0.18),
+            arp("banjo", roll, gain=0.36, pan=-0.25, verb=0.14),
+            comp("ep", "x-----..x-----..", gain=0.22, pan=0.3, verb=0.2),
+            drum("tambourine", backbeat, gain=0.12),
+        ])),
+        "breakdown": Section(8, ["G6", "G6", "C9", "C9", "G6", "G6", "D7sus4", "D7"], [
+            bass("upright", "R-------5---R---", gain=0.9),
+            drum("clap", backbeat, gain=0.32),
+            drum("cowbell", "x.x.x.x.x.x.x.x.", gain=0.16),
+            drum("kick", kick, gain=0.65),
+            arp("banjo", "1...3...6...3...", gain=0.3, pan=-0.3, only=[4, 5, 6, 7]),
+            drum("tom_hi", "........x.x.....", gain=0.3, only=[7]),
+            drum("tom_lo", "............x.x.", gain=0.35, only=[7]),
+        ]),
+        "bridge": Section(8, ["Em7", "A9", "Cmaj7", "D7", "Bm7", "E7", "Am7", "D7sus4 D7"], [
+            melody("whistle", bridge_whistle, gain=0.19, pan=-0.1, verb=0.3),
+            comp("organ", "x-------x-------", gain=0.14, pan=0.25, verb=0.22),
+            arp("banjo", "1...3...6...3...", gain=0.24, pan=-0.3, verb=0.16),
+            bass("upright", "R-------5-------", gain=0.85),
+            drum("kick", "x...............", gain=0.6),
+            drum("snare", "........x.......", gain=0.26),
+            drum("hat", "x...x...x...x...", gain=0.12),
+            drum("crash", "x...............", gain=0.12, only=[0]),
+        ]),
+        "turn": Section(4, ["G6", "E7", "Am7", "D7sus4 D7"], groove([
+            arp("banjo", roll, gain=0.38, pan=-0.25, verb=0.14),
+            comp("ep", "x-----..x-----..", gain=0.22, pan=0.3, verb=0.2),
+            drum("tom_hi", "........x.x.....", gain=0.3, only=[3]),
+            drum("tom_lo", "............x.x.", gain=0.35, only=[3]),
+        ])),
+    }
+    return Song("curb_appeal", "Curb Appeal", 108.0, "G major", 4401, sections,
+                ["intro", "A", "B", "A2", "breakdown", "bridge", "turn"], loop_from="A", swing=0.1, drum_ramp=0.0007)
+
+
+def golden_hour() -> Song:
+    """'Golden Hour': the yard from 5 PM to 9 PM, when the light goes orange and
+    the crew slows down. 88 bpm, Eb major, 40 bars (109.1 s), a soft swing.
+    Mellow electric piano on 9ths and 13ths, upright bass, brushes stirring the
+    snare, and a harmon-muted trumpet singing the tune; the B section gives the
+    tune to the piano, and the bridge leans on Dbmaj7 (a borrowed chord) for the
+    last of the sun."""
+    a_chords = ["Ebmaj9", "Cm9", "Fm9", "Bb13", "Gm7", "C7b9", "Fm9", "Bb13"]
+    tune = ("r:2 Bb4:2 Eb5:2 F5:2 G5:8 | Bb5:4 G5:2 Eb5:2 D5:8 | r:2 C5:2 F5:2 G5:2 Ab5:6 G5:2 | "
+            "F5:4 D5:2 Bb4:2 G5:8 | r:2 D5:2 G5:2 Bb5:2 A5:2 ~G5:6 | E5:4 Db5:2 Bb4:2 G4:8 | "
+            "Ab4:2 C5:2 Eb5:2 G5:2! F5:4 Eb5:4 | D5:8 r:8")
+    piano = ("C6:4 Bb5:2 G5:2 Eb5:8 | B5:4 Bb5:2 F5:2 Eb5:8 | D6:2 Bb5:2 G5:2 F5:2 G5:8 | "
+             "E5:2 G5:2 Bb5:2 Db6:2 C6:8 | Ab5:4 G5:2 F5:2 C5:8 | D5:2 F5:2 Ab5:2 C6:2 Bb5:8 | "
+             "G5:6 F5:2 Eb5:4 D5:4 | Eb5:4 C5:4 D5:8")
+    bridge = ("Eb5:6 C5:2 G5:8 | F5:6 D5:2 Bb4:8 | Ab4:4 C5:4 Eb5:4 F5:4 | G5:12 r:4 | "
+              "F5:6 Ab5:2 C6:8 | Bb5:4 G5:2 E5:2 Db5:8 | C5:2 Eb5:2 F5:2 G5:2 Ab5:4 G5:4 | F5:8 D5:8")
+    two_feel = "R-------5-----.p"
+    walk = "R...3...5...p..."
+
+    def brushes(extra: list, ride: bool = False) -> list:
+        return extra + [
+            drum("sweep", "x.......x.......", gain=0.22),
+            drum("brush", "....x.......x...", gain=0.34),
+            drum("brush", "..o....o..o...o.", gain=0.12),
+            drum("kick", "x.........x.....", gain=0.4),
+            drum("hat", "x...x.x.x...x.x." if ride else "....x.......x...", gain=0.09 if ride else 0.07),
+        ]
+    sections = {
+        "intro": Section(4, ["Abmaj9", "Gm7", "Fm9", "Bb13"], [
+            comp("ep", "x-----------..x-", gain=0.3, pan=-0.15, verb=0.3),
+            bass("upright", "R-------5-------", gain=0.75, only=[2, 3]),
+            drum("sweep", "x.......x.......", gain=0.2, only=[2, 3]),
+            drum("brush", "............x.x.", gain=0.25, only=[3]),
+        ]),
+        "A": Section(8, a_chords, brushes([
+            melody("muted_trumpet", tune, gain=0.42, pan=0.12, verb=0.3),
+            comp("ep", "x-----.x-----...", gain=0.3, pan=-0.2, verb=0.22),
+            bass("upright", two_feel, gain=0.85),
+        ])),
+        "B": Section(8, ["Abmaj9", "Abm6", "Gm7", "C7b9", "Fm9", "Bb13", "Ebmaj9 Cm9", "Fm9 Bb13"], brushes([
+            melody("ep", piano, gain=0.32, pan=0.15, verb=0.28),
+            comp("ep", "x-------..x-----", gain=0.22, pan=-0.25, verb=0.22),
+            bass("upright", walk, gain=0.85),
+        ], ride=True)),
+        "A2": Section(8, a_chords, brushes([
+            melody("muted_trumpet", tune, gain=0.42, pan=0.12, verb=0.3),
+            arp("nylon", "1...3...5...4...", gain=0.26, pan=-0.35, verb=0.22),
+            comp("ep", "x-----.x-----...", gain=0.26, pan=-0.2, verb=0.22),
+            bass("upright", two_feel, gain=0.85),
+        ])),
+        "bridge": Section(8, ["Abmaj7", "Gm7", "Fm7", "Ebmaj7", "Dbmaj7", "C7b9", "Fm9", "Bb7sus4 Bb13"], brushes([
+            melody("muted_trumpet", bridge, gain=0.42, pan=0.12, verb=0.32),
+            comp("ep", "x-------x-------", gain=0.26, pan=-0.2, verb=0.24),
+            arp("vibes", "....5.......3...", gain=0.12, pan=0.35, verb=0.3),
+            bass("upright", walk, gain=0.85),
+        ], ride=True)),
+        "turn": Section(4, ["Cm9", "F9", "Fm9", "Bb13"], brushes([
+            melody("muted_trumpet", "r:16 | r:16 | r:16 | r:8 F5:4 ~D5:4", gain=0.36, pan=0.12, verb=0.3),
+            comp("ep", "x-----.x-----...", gain=0.28, pan=-0.2, verb=0.22),
+            arp("nylon", "1...3...5...4...", gain=0.24, pan=-0.35, verb=0.22),
+            bass("upright", walk, gain=0.85),
+        ])),
+    }
+    return Song("golden_hour", "Golden Hour", 88.0, "Eb major", 4501, sections,
+                ["intro", "A", "B", "A2", "bridge", "turn"], loop_from="A", swing=0.28, swing_unit=8,
+                drum_ramp=0.0007)
+
+
+def homie_depot_muzak() -> Song:
+    """'Aisle Seven': Homie Depot by day. 112 bpm, Bb major, 48 bars (102.9 s).
+    Swing-shuffle lounge muzak (never bossa): a vibraphone tune, organ comping
+    and an organ B tune, walking bass, a ride pattern. The store PA's ding-dong
+    chime announces the section changes, and the last tune does the classic
+    cheesy key change up a half step (and the PA dings up a half step with it),
+    then a turnaround slides back down to Bb for the loop."""
+    a_chords = ["Bb6", "Gm7", "Cm7", "F7", "Dm7", "G7", "Cm7 F7", "Bb6"]
+    tune = ("D5:2 F5:2 G5:4 F5:2 D5:2 Bb4:4 | D5:2 F5:2 Bb5:4 A5:2 G5:2 D5:4 | "
+            "Eb5:2 G5:2 Bb5:4 G5:2 Eb5:2 C5:4 | A4:2 C5:2 Eb5:4 D5:2 C5:2 A4:4 | "
+            "F5:2 A5:2 C6:4 A5:2 F5:2 D5:4 | B4:2 D5:2 F5:4 E5:2 D5:2 B4:4 | "
+            "C5:2 Eb5:2 G5:2 Bb5:2 A5:2 F5:2 Eb5:2 C5:2 | D5:4 Bb4:4 r:8")
+    organ_tune = ("G5:6 F5:2 Eb5:4 D5:4 | Db5:6 E5:2 G5:4 Bb5:4 | D5:6 C5:2 Bb4:8 | B4:4 D5:4 F5:4 Ab5:4 | "
+                  "G5:6 F5:2 Eb5:4 C5:4 | A4:4 C5:4 Eb5:4 F5:4 | D5:4 F5:4 B4:4 D5:4 | Eb5:4 C5:4 r:8")
+    bridge_tune = ("Bb5:4 A5:2 G5:2 D5:8 | E5:4 F5:2 G5:2 Bb5:8 | A5:4 G5:2 F5:2 E5:8 | F5:4 E5:2 D5:2 A4:8 | "
+                   "Bb4:2 D5:2 F5:2 A5:2 G5:8 | Bb5:2 G5:2 E5:2 D5:2 C5:8 | C5:2 E5:2 G5:4 F#5:2 A5:2 C6:4 | "
+                   "B5:4 G#5:4 r:8")
+    walk = "R...3...5...p..."
+    shuffle = "....x-......x-.."
+
+    def ding(bar: int, shift: int = 0) -> Part:
+        # The PA's 'ding-dong' (a major third down), in the last bar of a section.
+        high, low = midi_of("F5") + shift, midi_of("D5") + shift
+        return hits("chime", [("%d:8" % bar, high, 4, 0.9), ("%d:12" % bar, low, 8, 0.85)], gain=0.42, pan=0.0, verb=0.35)
+
+    def lounge(extra: list) -> list:
+        return extra + [
+            bass("upright", walk, gain=0.9),
+            drum("hat", "x...x.x.x...x.x.", gain=0.19),
+            drum("brush", "....x.......x...", gain=0.3),
+            drum("kick", "x...x...x...x...", gain=0.22),
+        ]
+    sections = {
+        "intro": Section(4, ["Bb6", "Gm7", "Cm7", "F7"], [
+            hits("chime", [("0:0", "F5", 4, 0.9), ("0:4", "D5", 8, 0.85)], gain=0.42, pan=0.0, verb=0.35),
+            comp("organ", "........x-------", gain=0.2, pan=-0.25, verb=0.2, only=[0]),
+            comp("organ", "x-----..x-----..", gain=0.2, pan=-0.25, verb=0.2, only=[1, 2, 3]),
+            arp("vibes", "1.2.3.4.6.4.3.2.", low=58, gain=0.2, pan=0.25, verb=0.25, only=[2, 3]),
+            bass("upright", walk, gain=0.75, only=[2, 3]),
+            drum("hat", "x...x.x.x...x.x.", gain=0.12, only=[2, 3]),
+        ]),
+        "A": Section(8, a_chords, lounge([
+            melody("vibes", tune, gain=0.42, pan=0.15, verb=0.25),
+            comp("organ", shuffle, gain=0.22, pan=-0.25, verb=0.2),
+            ding(7),
+        ])),
+        "B": Section(8, ["Ebmaj7", "Edim7", "Bb/F", "G7", "Cm7", "F7", "Bb6 G7", "Cm7 F7"], lounge([
+            melody("organ", organ_tune, gain=0.4, pan=-0.1, verb=0.22),
+            comp("vibes", "x-----..x-----..", gain=0.2, pan=0.3, verb=0.25),
+        ])),
+        "A2": Section(8, a_chords, lounge([
+            melody("vibes", tune, gain=0.42, pan=0.15, verb=0.25),
+            melody("organ", tune, shift=-12, gain=0.16, pan=-0.2, verb=0.2),
+            comp("organ", shuffle, gain=0.18, pan=-0.25, verb=0.2),
+            ding(7),
+        ])),
+        "bridge": Section(8, ["Gm7", "C9", "Fmaj7", "Dm7", "Gm7", "C9", "Am7 D7", "C#m7 F#7"], lounge([
+            melody("vibes", bridge_tune, gain=0.4, pan=0.15, verb=0.25),
+            comp("organ", "x-------x-------", gain=0.2, pan=-0.25, verb=0.2),
+            ding(7, shift=1),
+        ])),
+        "A3": Section(8, ["B6", "G#m7", "C#m7", "F#7", "D#m7", "G#7", "C#m7 F#7", "B6"], lounge([
+            melody("vibes", tune, shift=1, gain=0.44, pan=0.15, verb=0.25),
+            melody("organ", tune, shift=-11, gain=0.18, pan=-0.2, verb=0.2),
+            comp("organ", shuffle, gain=0.18, pan=-0.25, verb=0.2),
+            drum("tambourine", "....x.......x...", gain=0.12),
+            drum("crash", "x...............", gain=0.14, only=[0]),
+        ])),
+        "turn": Section(4, ["B6", "C#m7 F#7", "Cm7", "F7"], lounge([
+            comp("organ", "x-----..x-----..", gain=0.2, pan=-0.25, verb=0.2),
+            arp("vibes", "1.2.3.4.6.4.3.2.", low=58, gain=0.2, pan=0.25, verb=0.25, only=[0, 1, 2]),
+            ding(3),
+        ])),
+    }
+    return Song("homie_depot_muzak", "Aisle Seven", 112.0, "Bb major", 4601, sections,
+                ["intro", "A", "B", "A2", "bridge", "A3", "turn"], loop_from="A", swing=0.3, swing_unit=8,
+                drum_ramp=0.0007)
+
+
+def quiet_hours() -> Song:
+    """'Quiet Hours': anywhere from 9 PM until the crew sleeps; risk-for-money
+    night work. 80 bpm, A dorian, 40 bars (120 s). A tiptoeing pizzicato sneak
+    (low staccato eighths and a high tiptoe answer), soft electric piano, a low
+    whistled tune like someone keeping themselves company in the dark, and a
+    breakdown of nothing but a woodblock clock, held bass and a hushed choir."""
+    a_chords = ["Am9", "D9", "Am9", "D9", "Cmaj7", "Bm7", "Am9", "Bm7 E7b9"]
+    sneak = "1.3.5.3.1.3.5.3."
+    tiptoe = "..5...4...3.2..."
+    whistle_b = ("E5:4 D5:2 C5:2 B4:8 | D5:4 A4:2 B4:2 F#4:8 |E4:2 A4:2 B4:2 C5:2 E5:8 | F#5:4 E5:4 ~C5:8 | "
+                 "E5:4 G5:2 E5:2 B4:8 | A4:4 B4:2 D5:2 F#5:8 | A4:4 B4:4 D5:4 E5:4 | G#4:6 F4:2 E4:8")
+    whistle_a = ("r:4 E5:2 C5:2 A4:8 | r:4 F#5:2 E5:2 D5:4 C5:4 | r:4 E5:2 G5:2 A5:4 G5:4 | E5:12 r:4 | "
+                 "r:4 G5:2 E5:2 C5:4 B4:4 | D5:4 F#5:4 A5:8 | G5:4 E5:4 C5:4 B4:4 | A4:8 G#4:8")
+    clock = [drum("woodblock", "x.......x.......", gain=0.26), drum("tock", "....x.......x...", gain=0.26)]
+
+    def night(extra: list) -> list:
+        return extra + [
+            arp("pizz", sneak, low=45, gain=0.5, pan=-0.2, verb=0.18),
+            # Restruck on the half bar, so the two-chord bars change under the pad too.
+            bass("upright", "R-------R-------", gain=0.4),
+            comp("ep", "x-------x-------", gain=0.18, pan=0.25, verb=0.32),
+            drum("kick", "x.......x.......", gain=0.35),
+            drum("brush", "....x.......x...", gain=0.2),
+            drum("hat", "..o...o...o...o.", gain=0.07),
+        ]
+    sections = {
+        "intro": Section(4, ["Am9", "Am9", "D9", "E7b9"], [
+            drum("woodblock", "x.......x.......", gain=0.4),
+            drum("tock", "....x.......x...", gain=0.4),
+            arp("pizz", sneak, low=45, gain=0.46, pan=-0.2, verb=0.18, only=[1, 2, 3]),
+            comp("ep", "x---------------", gain=0.18, pan=0.25, verb=0.32, only=[2, 3]),
+            bass("upright", "R---------------", gain=0.38, only=[3]),
+        ]),
+        "A": Section(8, a_chords, night([
+            arp("pizz", tiptoe, low=57, gain=0.3, pan=0.3, verb=0.2),
+        ])),
+        "B": Section(8, ["Cmaj7", "Bm7", "Am9", "D9", "Cmaj7", "Bm7", "E7sus4", "E7b9"], night([
+            melody("whistle", whistle_b, gain=0.15, pan=0.1, verb=0.32),
+        ])),
+        "breakdown": Section(8, ["Am9", "Am9", "D9", "D9", "Cmaj7", "Bm7", "Am9", "E7b9"], clock + [
+            bass("upright", "R---------------", gain=0.55),
+            arp("pizz", "1.......5.......", low=45, gain=0.46, pan=-0.2, verb=0.2),
+            comp("choir", "x---------------", center=60, gain=0.14, verb=0.4, only=[4, 5, 6, 7]),
+            hits("vibes", [("1:8", "E6", 2, 0.5), ("3:8", "F#6", 2, 0.5), ("5:8", "B5", 2, 0.5), ("7:4", "G#5", 2, 0.5)],
+                 gain=0.16, pan=0.35, verb=0.4),
+        ]),
+        "A2": Section(8, a_chords, night([
+            melody("whistle", whistle_a, gain=0.15, pan=0.1, verb=0.32),
+            arp("pizz", tiptoe, low=57, gain=0.24, pan=0.3, verb=0.2),
+        ])),
+        "turn": Section(4, ["Am9", "D9", "Cmaj7 Bm7", "E7sus4 E7b9"], night([
+            arp("pizz", tiptoe, low=57, gain=0.3, pan=0.3, verb=0.2),
+            drum("woodblock", "x.......x.......", gain=0.16, only=[3]),
+            drum("tock", "....x.......x...", gain=0.16, only=[3]),
+        ])),
+    }
+    return Song("quiet_hours", "Quiet Hours", 80.0, "A dorian", 4701, sections,
+                ["intro", "A", "B", "breakdown", "A2", "turn"], loop_from="A", swing=0.08, drum_ramp=0.0007)
+
+
+SONGS = {song.id: song for song in (rake_it_easy(), st_day_end(), leaf_me_alone_theme(), curb_appeal(), golden_hour(),
+                                    homie_depot_muzak(), quiet_hours())}
 
 
 def main() -> int:
