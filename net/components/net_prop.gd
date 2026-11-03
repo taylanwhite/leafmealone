@@ -117,6 +117,10 @@ var _runaway_dir := Vector3.FORWARD
 var _runaway_stuck: float = 0.0
 var _runaway_last := Vector3.INF
 var _thrown_at: float = 0.0
+## Host: spilled out of Chefty's bed (host_spill), the bed won't catch it until
+## this physics frame (game time, not the wall clock: a paced or busy session
+## runs slower than real time, and a wall-clock window ran out mid-flight).
+var _no_catch_until: int = 0
 ## Everyone this throw already hit, so one throw bonks each person once.
 var _bonked: Array[Node] = []
 ## A leaf bag Chefty's bed caught, on its way into its spot in the load (every
@@ -353,6 +357,34 @@ func host_unown(at: Vector3, pop: Vector3) -> void:
 	_set_solid(true)
 	linear_velocity = pop
 	angular_velocity = Vector3.ZERO
+
+
+## Host: thrown out of Chefty's bed in a crash or a drift (driving chunk C3,
+## chefty_drive.gd host_spill): it flies with this velocity, tumbling, and the
+## bed doesn't catch it again for no_catch seconds (it starts in the bed).
+func host_spill(velocity_now: Vector3, no_catch: float) -> void:
+	if not Net.is_host():
+		return
+	_no_catch_until = Engine.get_physics_frames() + int(no_catch * float(Engine.physics_ticks_per_second))
+	linear_velocity = velocity_now
+	angular_velocity = Vector3(randf_range(-6.0, 6.0), randf_range(-3.0, 3.0), randf_range(-6.0, 6.0))
+	_airborne = true
+	_thrower = 0
+	_thrown_at = Net.server_time()
+	_bonked.clear()
+
+
+## Host: Chefty drove into this loose thing (chefty_drive.gd): it's shoved off
+## with this velocity (a change, added to what it had), unless someone holds it.
+func host_vehicle_push(push: Vector3) -> void:
+	if not Net.is_host() or not is_loose():
+		return
+	linear_velocity += push
+	angular_velocity += Vector3(randf_range(-4.0, 4.0), randf_range(-2.0, 2.0), randf_range(-4.0, 4.0))
+	_airborne = true
+	_thrower = 0
+	_thrown_at = Net.server_time()
+	_bonked.clear()
 
 
 ## Whoever carries this, in hand or in a pocket, or 0.
@@ -1452,6 +1484,9 @@ func _try_load_bag() -> void:
 	# Tossed into Chefty's bed, or dropping into it from over it: caught
 	# (net/components/bed_toss.gd catches()), or batted back out of a full one.
 	var truck := get_tree().get_first_node_in_group("chefty")
+	# Just spilled out of the bed (host_spill): it isn't caught on its way out.
+	if Engine.get_physics_frames() < _no_catch_until:
+		truck = null
 	if truck != null and truck.has_method("bed_transform"):
 		var count := int(truck.call("bag_count"))
 		if count >= Constants.TRUCK_BAG_CAPACITY:

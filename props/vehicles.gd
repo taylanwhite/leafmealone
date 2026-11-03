@@ -80,10 +80,16 @@ static func build_truck(parent: Node3D, opts: Variant = {}) -> Node3D:
 	look.add_child(tank)
 	tank.position = Vector3(-0.55, 1.05, -0.75)
 	_WaterSources.make(look, "chefty", Vector3(-0.55, 1.2, -0.3))
+	# The logos are named so dents can knock letters off them (set_dents).
 	for side: float in [-1.0, 1.0]:
-		_LowPoly.text_sign(look, "Chefty", Vector3(side * 1.17, 1.55, -1.95), 64, TRIM, side * PI * 0.5)
-	_LowPoly.text_sign(look, "Chefty", Vector3(0.0, 1.32, 2.68), 56, TRIM)
+		var logo := _LowPoly.text_sign(look, "Chefty", Vector3(side * 1.17, 1.55, -1.95), 64, TRIM, side * PI * 0.5)
+		logo.name = "LogoLeft" if side < 0.0 else "LogoRight"
+	var tail := _LowPoly.text_sign(look, "Chefty", Vector3(0.0, 1.32, 2.68), 56, TRIM)
+	tail.name = "LogoTail"
+	_front_bumper(look)
 	_lights(look, -2.97, 1.12, 2.66)
+	if int(options.get("dents", 0)) > 0:
+		set_dents(look, int(options.get("dents", 0)))
 	return look
 
 
@@ -229,6 +235,92 @@ static func _googly_pupils(look: Node3D) -> void:
 		pupil.position = Vector3(0.0, -(GOOGLY_RADIUS - GOOGLY_PUPIL) * 0.9, 0.0)
 		eye.add_child(pupil)
 
+## The chrome front bumper, its own node hinged at its left end, so a dent can
+## let its right end droop (set_dents).
+static func _front_bumper(look: Node3D) -> void:
+	if not _cache.has("front_bumper"):
+		var kit := _MeshKit.new()
+		kit.rbox(Vector3(BUMPER_HINGE_X_OFFSET, 0.0, 0.0), Vector3(1.2, 0.12, 0.12), CHROME, 4.0)
+		_cache["front_bumper"] = kit.commit()
+	var hinge := Node3D.new()
+	hinge.name = "FrontBumper"
+	hinge.position = Vector3(-BUMPER_HINGE_X_OFFSET, 0.74, -3.0)
+	look.add_child(hinge)
+	hinge.add_child(_Stylized.instance(_cache["front_bumper"], PAINT))
+
+
+## Chefty's dents (0..Constants.CHEFTY_MAX_DENTS), on every peer from the host's
+## count (driving chunk C3, docs/GAME.md "Crash comedy"): each dent knocks a
+## letter off every logo (Chefty, Cheft, Chef, Che), the first lets the front
+## bumper's right end droop and crumples the nose, the second loses the front
+## right hubcap (chefty_drive.gd rolls one away), the third crumples a door. 0
+## puts it all back (Marty's Body Shop).
+static func set_dents(look: Node3D, dents: int) -> void:
+	if look == null:
+		return
+	dents = clampi(dents, 0, Constants.CHEFTY_MAX_DENTS)
+	for logo_name: String in ["LogoLeft", "LogoRight", "LogoTail"]:
+		var logo := look.get_node_or_null(logo_name) as Label3D
+		if logo != null:
+			logo.text = "Chefty".left(6 - dents)
+	var bumper := look.get_node_or_null("FrontBumper") as Node3D
+	if bumper != null:
+		bumper.rotation = Vector3(0.0, 0.0, -Constants.CHEFTY_DENT_BUMPER_DROOP[dents])
+	var old := look.get_node_or_null("Dents")
+	if old != null:
+		old.free()
+	if dents <= 0:
+		return
+	var key := "dents_%d" % dents
+	if not _cache.has(key):
+		_cache[key] = _dents_mesh(dents)
+	var marks := _Stylized.instance(_cache[key], PAINT)
+	marks.name = "Dents"
+	look.add_child(marks)
+
+
+## Where the front right wheel's hubcap was (Chefty's own space), its outward axis +X.
+const HUBCAP_AT := Vector3(1.28, 0.46, -1.85)
+const HUBCAP_RADIUS: float = 0.26
+## The front bumper's hinge sits this far in from its left end's middle.
+const BUMPER_HINGE_X_OFFSET: float = 1.15
+
+
+## The dents' marks, cumulative: a crumpled nose; the bare hub where the
+## hubcap was; a caved-in shotgun door.
+static func _dents_mesh(dents: int) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var crease := Color(0.75, 0.22, 0.15).darkened(0.45)
+	# The nose, pushed in at the right headlight: dark folds in the paint.
+	kit.blob(Vector3(0.62, 1.1, -2.93), Vector3(0.22, 0.12, 0.04), crease, {"detail": 1, "lumps": 0.45, "seed": 3, "flat": false})
+	kit.blob(Vector3(0.4, 1.22, -2.92), Vector3(0.12, 0.06, 0.03), crease.darkened(0.2), {"detail": 1, "lumps": 0.5, "seed": 5, "flat": false})
+	if dents >= 2:
+		# The hubcap's gone: a dull steel hub and its lug nuts.
+		kit.tube(PackedVector3Array([HUBCAP_AT - Vector3(0.012, 0.0, 0.0), HUBCAP_AT + Vector3(0.012, 0.0, 0.0)]), PackedFloat32Array([HUBCAP_RADIUS, HUBCAP_RADIUS]), Color(0.27, 0.27, 0.29), 14, {"jitter": 0.0, "cap": true, "cap_start": true})
+		for nut: int in 5:
+			var angle := TAU * float(nut) / 5.0
+			kit.blob(HUBCAP_AT + Vector3(0.02, sin(angle) * 0.1, cos(angle) * 0.1), Vector3(0.018, 0.022, 0.022), Color(0.6, 0.6, 0.62), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	if dents >= 3:
+		# The shotgun door, caved in.
+		kit.blob(Vector3(1.13, 1.32, -1.95), Vector3(0.03, 0.2, 0.3), crease, {"detail": 1, "lumps": 0.5, "seed": 9, "flat": false})
+		kit.blob(Vector3(1.12, 1.18, -1.72), Vector3(0.025, 0.08, 0.14), crease.darkened(0.2), {"detail": 1, "lumps": 0.5, "seed": 11, "flat": false})
+	return kit.commit()
+
+
+## The hubcap that rolls off (chefty_drive.gd): a chrome disc, its axis along X.
+static func hubcap_mesh() -> ArrayMesh:
+	if not _cache.has("hubcap"):
+		var kit := _MeshKit.new()
+		kit.tube(PackedVector3Array([Vector3(-0.025, 0.0, 0.0), Vector3(0.0, 0.0, 0.0), Vector3(0.025, 0.0, 0.0)]), PackedFloat32Array([HUBCAP_RADIUS, HUBCAP_RADIUS, HUBCAP_RADIUS * 0.6]), CHROME, 16, {"jitter": 0.0, "cap": true, "cap_start": true})
+		kit.tube(PackedVector3Array([Vector3(0.02, 0.0, 0.0), Vector3(0.035, 0.0, 0.0)]), PackedFloat32Array([HUBCAP_RADIUS * 0.25, HUBCAP_RADIUS * 0.2]), CHROME.darkened(0.3), 10, {"jitter": 0.0, "cap": true, "cap_start": true})
+		_cache["hubcap"] = kit.commit()
+	return _cache["hubcap"]
+
+
+## Chefty's chrome, for the pieces chefty_drive.gd draws on its own.
+static func stylized(mesh: Mesh) -> MeshInstance3D:
+	return _Stylized.instance(mesh, PAINT)
+
 
 ## The NICE BOYS' van, the Courtesy Shuttle (props/nice_van.gd): a "VanLook" with
 ## its livery, rolling wheels, the five collision boxes, and an open right side.
@@ -276,7 +368,7 @@ static func _truck_mesh(color: Color, interior: bool = false) -> ArrayMesh:
 	kit.rbox(Vector3(0.0, 1.12, -2.93), Vector3(0.62, 0.17, 0.03), GRILLE, 6.0, {"shade": false})
 	for index: int in 3:
 		kit.rbox(Vector3(0.0, 1.02 + float(index) * 0.1, -2.96), Vector3(0.58, 0.012, 0.012), CHROME, 4.0)
-	kit.rbox(Vector3(0.0, 0.74, -3.0), Vector3(1.2, 0.12, 0.12), CHROME, 4.0)
+	# (The front bumper is its own node: _front_bumper.)
 	kit.rbox(Vector3(0.0, 0.74, 2.78), Vector3(1.18, 0.11, 0.1), CHROME, 4.0)
 	# A roof light bar, just for the silhouette.
 	kit.rbox(Vector3(0.0, 2.47, -2.0), Vector3(0.5, 0.05, 0.14), dark, 4.0)

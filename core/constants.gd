@@ -695,6 +695,9 @@ const SHOP_PRICES: Dictionary = {
 	"paint_classic": 0, "paint_mint": 400, "paint_sunset": 400, "paint_pink": 500,
 	"paint_black": 800, "paint_gold": 5000,
 	"decal_stripes": 250, "decal_googly": 350, "decal_flames": 600, "decal_leaves": 900, "decal_rust": 50,
+	# Chefty's gear and Marty's Body Shop (driving chunk C3): the Chefty Net, and a
+	# repair, priced per dent (a repair buys as many as Chefty has).
+	"chefty_net": 120, "chefty_repair": 25,
 }
 ## What each shop puts out every morning; an item not listed never runs out.
 const SHOP_DAILY_STOCK: Dictionary = {
@@ -4211,6 +4214,175 @@ const AMBIENCE_MOWER_UNTIL_HOUR: float = 19.0
 const AMBIENCE_MOWER_RANGE: Vector2 = Vector2(45.0, 70.0)
 const AMBIENCE_MOWER_DB: float = -3.0
 const AMBIENCE_FAR_MAX_DISTANCE: float = 130.0
+
+# ---- driving: crash comedy and the bed (driving chunk C3, net/components/chefty_drive.gd
+# and chefty_crash.gd; docs/GAME.md "Crash comedy"). First guesses, tuned by
+# crashing it with a crew aboard. TODO(balance): not in the workbook.
+## A crash is Chefty losing at least this much speed into something solid (m/s,
+## the speed it hit with, square on); none again for this long (s).
+const CHEFTY_CRASH_MIN_SPEED: float = 6.0
+const CHEFTY_CRASH_COOLDOWN: float = 0.8
+## A hit's lost speed is added up over the ticks it takes, at most this long (s).
+const CHEFTY_CRASH_GATHER_SECONDS: float = 0.1
+## Harder than this (m/s), the riders in the bed fly out; harder than this, Chefty
+## barrel-rolls on screen (the chassis never flips) and the horn sticks.
+const CHEFTY_EJECT_SPEED: float = 11.0
+const CHEFTY_TUMBLE_SPEED: float = 16.0
+## Bags out of the bed per m/s over CHEFTY_CRASH_MIN_SPEED (at least one), and the
+## Chefty Net's share of every spill.
+const CHEFTY_SPILL_PER_MPS: float = 0.5
+const CHEFTY_NET_SPILL_SHARE: float = 0.5
+## A drift (handbrake, sliding) faster than this (m/s) spills a bag with this chance
+## per second, sliding sideways faster than CHEFTY_DRIFT_SPILL_SLIP (m/s).
+const CHEFTY_DRIFT_SPILL_SPEED: float = 10.0
+const CHEFTY_DRIFT_SPILL_CHANCE: float = 0.25
+const CHEFTY_DRIFT_SPILL_SLIP: float = 3.0
+## A spilled bag keeps this share of Chefty's speed from before the hit, goes up
+## this fast (m/s), out over its side rail about this fast (m/s), and the bed
+## won't catch it again for this long (s).
+## (Played with a crew: at a third of the speed and 5 m/s up, the bags hit the back
+## of the cab and dropped straight back into the bed, which caught them again.)
+const CHEFTY_SPILL_CARRY: float = 0.12
+const CHEFTY_SPILL_UP: float = 6.0
+const CHEFTY_SPILL_SIDE: float = 3.8
+const CHEFTY_SPILL_NO_CATCH: float = 3.0
+## Bags and riders thrown out of the bed pass through the truck (and the bags
+## through each other) this long (s), long enough to clear its rails and cab.
+const CHEFTY_SPILL_CLEAR_SECONDS: float = 0.45
+## A rider thrown out of the bed keeps this share of Chefty's speed, plus this much
+## up (m/s) and up to CHEFTY_EJECT_SIDE out to their side.
+const CHEFTY_EJECT_SHARE: float = 0.7
+const CHEFTY_EJECT_UP: float = 7.0
+## (Little sideways: the bags go out over the side rails, the riders forward over
+## the cab, so nobody lands under a bag.)
+const CHEFTY_EJECT_SIDE: float = 0.8
+## The barrel roll: how long it takes (s), how high it hops (m), and the height it
+## rolls about (m, Chefty's middle). The stuck horn blares this long (s).
+const CHEFTY_TUMBLE_SECONDS: float = 1.15
+const CHEFTY_TUMBLE_HOP: float = 1.7
+const CHEFTY_TUMBLE_PIVOT_Y: float = 1.1
+const CHEFTY_HORN_STUCK_SECONDS: float = 3.0
+## Being Chefty'd: someone standing within this far (m) ahead of the bumper (or
+## behind the tailgate, backing up), across the truck's width plus
+## CHEFTY_RUNOVER_SIDE, at more than CHEFTY_RUNOVER_SPEED (m/s), is bonked flying
+## with this share of Chefty's speed and this much up (m/s); once per person per
+## CHEFTY_RUNOVER_COOLDOWN (s).
+const CHEFTY_RUNOVER_SPEED: float = 4.0
+const CHEFTY_RUNOVER_REACH: float = 1.0
+const CHEFTY_RUNOVER_SIDE: float = 0.35
+const CHEFTY_RUNOVER_SHARE: float = 0.9
+const CHEFTY_RUNOVER_UP: float = 4.5
+const CHEFTY_RUNOVER_COOLDOWN: float = 1.5
+## Chefty's half-length and half-width over the ground (m), for run-overs and knock-overs.
+const CHEFTY_HALF_LENGTH: float = 3.0
+const CHEFTY_HALF_WIDTH: float = 1.15
+## Mailboxes and curbside bins (levels/town/town_dressing.gd "town_knockables")
+## go flying when Chefty's body passes within this much of them (m) faster than
+## CHEFTY_KNOCK_MIN_SPEED (m/s); each mailbox adds HEAT_MAILBOX. The flying one
+## keeps this share of Chefty's speed, goes up this fast (m/s), lies where it
+## lands, and the town stands it back up once nobody's within
+## CHEFTY_KNOCK_RESTORE_METERS for CHEFTY_KNOCK_RESTORE_SECONDS (s). Knocking the
+## same one again only heats things up after CHEFTY_KNOCK_RESTORE_SECONDS.
+const CHEFTY_KNOCK_PAD: float = 0.35
+const CHEFTY_KNOCK_MIN_SPEED: float = 2.0
+const CHEFTY_KNOCK_CARRY: float = 0.75
+const CHEFTY_KNOCK_UP: float = 4.0
+const CHEFTY_KNOCK_RESTORE_SECONDS: float = 45.0
+const CHEFTY_KNOCK_RESTORE_METERS: float = 70.0
+const HEAT_MAILBOX: float = 2.0
+## Leaf piles in a job yard: Chefty rolling faster than CHEFTY_PLOW_MIN_SPEED (m/s)
+## plows a stroke this wide (m) at this strength (a rake's is RAKE_STRENGTH) every
+## CHEFTY_PLOW_SECONDS (leaf_field.gd host_plow).
+const CHEFTY_PLOW_MIN_SPEED: float = 1.5
+const CHEFTY_PLOW_WIDTH: float = 2.2
+const CHEFTY_PLOW_STRENGTH: float = 140.0
+const CHEFTY_PLOW_SECONDS: float = 0.12
+## Parked on the job yard's lawn (inside the yard, off the drive's strip this wide
+## each side of x 0, m) for CHEFTY_LAWN_PARK_SECONDS: the homeowner yells and
+## their mood drops a step (npcs/homeowner.gd host_grumble).
+const CHEFTY_LAWN_PARK_SECONDS: float = 6.0
+const CHEFTY_DRIVE_HALF_WIDTH: float = 2.6
+## The horn within this far (m) of the job yard's middle: heat per second held,
+## and the homeowner's "Yes, I SEE you." at most once per this long (s).
+const CHEFTY_HORN_YARD_METERS: float = 34.0
+const CHEFTY_HORN_HEAT_PER_SECOND: float = 0.6
+const CHEFTY_HORN_LINE_COOLDOWN: float = 10.0
+## Soft things Chefty hits (props, a NICE BOY): pushed with this share of
+## Chefty's speed and this much up (m/s), host only (net_prop.gd host_vehicle_push).
+const CHEFTY_PUSH_SHARE: float = 0.8
+const CHEFTY_PUSH_UP: float = 2.0
+## A dent's looks: how far the front bumper droops at each dent count (rad), and
+## the hubcap that rolls off at the second dent: how fast it rolls (m/s) and how
+## long it stays before it's gone (s).
+const CHEFTY_DENT_BUMPER_DROOP: Array[float] = [0.0, 0.22, 0.38, 0.55]
+const CHEFTY_HUBCAP_SPEED: float = 5.5
+const CHEFTY_HUBCAP_SECONDS: float = 9.0
+## A crash's jolt on every peer (one that doesn't barrel-roll): the drawn body
+## pitches back end up about its front bumper (CHEFTY_JOLT_PIVOT, Chefty's space;
+## the tailgate's for a hit backing up) by up to CHEFTY_JOLT_PITCH rad at a
+## CHEFTY_TUMBLE_SPEED hit, then rocks back and settles, a swing at
+## CHEFTY_JOLT_RATE rad/s damped by CHEFTY_JOLT_DAMP per s, over CHEFTY_JOLT_SECONDS.
+const CHEFTY_JOLT_SECONDS: float = 0.9
+const CHEFTY_JOLT_PITCH: float = 0.16
+const CHEFTY_JOLT_RATE: float = 13.0
+const CHEFTY_JOLT_DAMP: float = 5.5
+const CHEFTY_JOLT_PIVOT := Vector3(0.0, 0.35, -2.95)
+## The view shakes for whoever rides along, or stands within CHEFTY_SHAKE_NEAR (m):
+## up to CHEFTY_SHAKE_METERS_MAX (m, the camera's own offsets) at a
+## CHEFTY_TUMBLE_SPEED hit, fading out over CHEFTY_SHAKE_SECONDS (s).
+const CHEFTY_SHAKE_SECONDS: float = 0.6
+const CHEFTY_SHAKE_METERS_MAX: float = 0.14
+const CHEFTY_SHAKE_NEAR: float = 14.0
+## Standing in Chefty's bed your first-person eye sits this much higher (m), so
+## you look out over the cab-over's roof instead of into the back of it.
+const CHEFTY_BED_EYE_LIFT: float = 0.75
+## It eases on and off this fast (m/s): about a third of a second each way.
+const CHEFTY_BED_EYE_EASE: float = 2.2
+## Thrown (a toss, a crash or a bail out of Chefty): the first this many seconds
+## count as lifting off even on the ground; after that, touching down is landing,
+## and that's when you go flat with stars (player.gd _step_stunned).
+const THROWN_LIFTOFF_SECONDS: float = 0.15
+## A throw's clock starts at this (s); it ends on the ground once under 1.2 s are
+## left (player.gd).
+const THROWN_SECONDS: float = 1.5
+## Host: speed lost into something (m/s) below this in a tick is a scrape, not
+## contact, and doesn't start adding up a crash.
+const CHEFTY_CONTACT_SPEED: float = 0.3
+## Host: a rider who just left Chefty flying (thrown out of the bed in a crash, or
+## a bail) can't be Chefty'd by it for this long (s): the host's copy of them still
+## stands on their seat, inside its footprint, until their flight comes back.
+## (Played with a crew: the front bed row was bonked sideways off its own truck
+## instead of sailing over the cab.)
+const CHEFTY_EJECT_SPARE_SECONDS: float = 1.5
+## Run-overs only look this far above or below Chefty's chassis (m); anyone whose
+## feet are higher than CHEFTY_RUNOVER_ON_TOP_Y over it, within its length, is
+## standing on it (the bed, the hood), not in its way. Who's Chefty'd is also
+## pushed this fast (m/s) out to the side they stood on.
+const CHEFTY_RUNOVER_TALL: float = 2.5
+const CHEFTY_RUNOVER_ON_TOP_Y: float = 0.8
+const CHEFTY_RUNOVER_ASIDE: float = 2.0
+## Mailboxes and bins further than this from Chefty along x or z (m) aren't
+## checked against its footprint at all (a cheap first cut).
+const CHEFTY_NEAR_BOX: float = 5.0
+## A knocked mailbox or bin also flies out this fast (m/s) to the side it was
+## on, and weighs this much (kg; it only falls and tumbles).
+const CHEFTY_KNOCK_SIDE: float = 1.5
+const CHEFTY_KNOCK_MASS_MAILBOX: float = 6.0
+const CHEFTY_KNOCK_MASS_BIN: float = 9.0
+## The rolling hubcap keeps this share of Chefty's speed and hops up this fast (m/s).
+const CHEFTY_HUBCAP_CARRY: float = 0.3
+const CHEFTY_HUBCAP_UP: float = 0.8
+## A crash's camera shake: the side-to-side wobble's two rates (x, z: rad/s,
+## multiplied) and the up-and-down one (y), uneven so it never reads as a loop.
+const CHEFTY_SHAKE_RATES := Vector3(53.0, 41.0, 17.0)
+## A vehicle chassis this far (m) under the ground it should stand on is sunk, and
+## is stood back up on it, found by a ray from this far over its wheels (m)
+## (net/components/vehicle_sim.gd; a crash's shove out of a car can sink it).
+const VEHICLE_SUNK_MARGIN: float = 0.3
+const VEHICLE_SUNK_LOOK_UP: float = 2.2
+## A homeowner's yell about Chefty (npcs/homeowner.gd host_grumble) stays over
+## their head this long (s).
+const HOMEOWNER_YELL_SECONDS: float = 4.5
 
 # ---- R2c hide
 # The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a

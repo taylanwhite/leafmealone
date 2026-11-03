@@ -87,6 +87,9 @@ const IDS: PackedStringArray = [
 	"hat_crown", "hat_cone", "hat_propeller", "hat_viking", "hat_trucker",
 	"shirt", "paint_swatch",
 	"decal_stripes", "decal_googly", "decal_flames", "decal_leaves", "decal_rust",
+
+	# Chefty's gear and Marty's Body Shop (128, flat; driving C3).
+	"gear_chefty_net", "service_repair",
 	# Keycaps (64 tall; 128 wide for the long keys) and mouse glyphs: every key a
 	# player can rebind to (critic C5), so a rebound prompt still has its cap.
 	"key_a", "key_b", "key_c", "key_d", "key_e", "key_f", "key_g", "key_h", "key_i",
@@ -202,6 +205,11 @@ static func for_shop_item(item_id: StringName) -> String:
 			return "supply_" + str(entry.get("supply", id))
 		"snack":
 			return "snack_" + id
+		# Chefty's gear and Marty's Body Shop (driving C3; critic.md icon ids).
+		"truck_gear":
+			return "gear_" + id
+		"service":
+			return "service_repair"
 		"cosmetic", "truck_cosmetic":
 			match str(entry.get("slot", "")):
 				"hat":

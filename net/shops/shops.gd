@@ -278,12 +278,22 @@ func truck_look() -> Dictionary:
 	}
 
 
+## How many dents Chefty has (what Marty's Body Shop charges for), 0 with no
+## drivable Chefty. Every peer has it (chefty_drive.gd's crash and dent RPCs).
+func chefty_dents() -> int:
+	var chefty := get_tree().get_first_node_in_group("chefty") if is_inside_tree() else null
+	return int(chefty.call("dents")) if chefty != null and chefty.has_method("dents") else 0
+
+
 ## Whether this player (or the crew, for truck paint) already owns an item.
 func owns(peer_id: int, item: String) -> bool:
 	var entry := Catalog.item(item)
 	var kind := str(entry.get("kind", ""))
 	if kind == "truck_cosmetic":
 		return item == DEFAULT_PAINT or crew_owned.has(item)
+	# Chefty's gear is the crew's, like its paint (driving chunk C3).
+	if kind == "truck_gear":
+		return crew_owned.has(item)
 	if entry.has("tool") and entry.has("tier"):
 		# Owning one as good counts: nobody buys a used blower over their Mk II.
 		return Campaign.tool_tier(peer_id, str(entry["tool"])) >= int(entry["tier"])
@@ -729,6 +739,13 @@ func _check_buy(peer_id: int, shop: String, item: String, qty: int) -> String:
 		return "locked"
 	if owns(peer_id, item):
 		return "owned"
+	# Marty's Body Shop fixes every dent at once, priced per dent (driving chunk C3).
+	if kind == "service":
+		var dents := chefty_dents()
+		if dents <= 0:
+			return "no_dents"
+		if qty != dents:
+			return "unknown"
 	var needs: Array = entry.get("needs", [])
 	if not needs.is_empty() and not needs.any(func(need: Variant) -> bool: return owns(peer_id, str(need))):
 		return "needs"
@@ -763,6 +780,13 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 				crew_owned.append(item)
 			truck[str(entry.get("slot", "paint"))] = item
 			truck_changed.emit()
+		"truck_gear":
+			if not crew_owned.has(item):
+				crew_owned.append(item)
+		"service":
+			var chefty := get_tree().get_first_node_in_group("chefty")
+			if chefty != null and chefty.has_method("host_repair"):
+				chefty.call("host_repair")
 		"consumable":
 			var per := float(Constants.SUPPLY_PER_ITEM.get(item, 0))
 			_set_supply(str(entry.get("supply", "")), supply(str(entry.get("supply", ""))) + per * float(qty))

@@ -343,6 +343,34 @@ func host_hand_rake(origin: Vector3, direction: Vector3, skill: float, actor: in
 	return moved
 
 
+## Host: Chefty (driving chunk C3) rolling through the yard: its bumper shoves
+## whatever it meets, the windrow rule at strength (a rake's is RAKE_STRENGTH) and
+## width (m), with no reach check. A pile it plows smears out ahead of the bumper:
+## an hour of raking, undone. direction is a world direction; the stroke rule
+## works in the grid's own frame (_local_xz and _step_of), so the yard's rotation
+## never matters. Returns the density that moved.
+func host_plow(origin: Vector3, direction: Vector3, width: float, strength: float) -> int:
+	if not Net.is_host() or not _inside_grid(origin):
+		return 0
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	if flat.length() < 0.001:
+		return 0
+	# The grid's own axes: a world heading turned into the yard's frame.
+	var local_dir := global_basis.inverse() * flat.normalized()
+	local_dir = Vector3(local_dir.x, 0.0, local_dir.z).normalized()
+	# The bumper drags the whole way it rolled since the last plow.
+	var drag := _stroke_drag(PLOW_ACTOR, origin, local_dir)
+	var moved := _stroke_cells(origin, local_dir, width, strength, Constants.RAKE_STROKE_CELLS, drag)
+	if moved > 0:
+		_emit_stroke("plow", 0, origin, flat.normalized(), width, Constants.RAKE_STROKE_CELLS, moved)
+		_turn_out(origin, width + Constants.PILE_HIDE_RADIUS)
+	return moved
+
+
+## The stroke-drag key host_plow keeps its last stroke under (no peer or hand uses it).
+const PLOW_ACTOR: int = -77
+
+
 ## Host: a hired hand bags the pile here and carries it off (no bag prop: the
 ## hand takes it straight to Chefty). Returns the units bagged, 0 if too thin.
 func host_hand_collect(origin: Vector3, actor: int = 0) -> int:

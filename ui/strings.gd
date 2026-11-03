@@ -637,6 +637,20 @@ const HOMEOWNER_LINES: Dictionary = {
 		"Same time next week? Don't answer that.",
 		"Go on, before I check the gutters.",
 	],
+	# ---- driving C3: Chefty parked on their lawn, and the horn in their yard.
+	"lawn_park": [
+		"Is that a TRUCK on my LAWN?",
+		"The driveway is RIGHT THERE. It's the gray part.",
+		"That grass was seeded by hand. MY hand.",
+		"You're parked on the azaleas. I can hear them.",
+		"The HOA is going to photograph that. They have a drone.",
+		"Off. The. Grass. I'm docking you for the tire marks.",
+	],
+	"horn": [
+		"Yes, I SEE you.",
+		"I'm RIGHT HERE. I've been right here.",
+		"The whole street knows you're here now. Thanks.",
+	],
 }
 
 const LINES: Array[Dictionary] = [
@@ -875,6 +889,16 @@ const SHOP_UI: Dictionary = {
 	"item_blurb_decal_leaves": "Chefty, covered in the thing you get paid to remove.",
 	"item_decal_rust": "Rust bucket",
 	"item_blurb_decal_rust": "Painted-on rust. Cheapest decal in town. Rusty's proudest work.",
+	# Chefty's gear and Marty's Body Shop (driving chunk C3).
+	"item_chefty_net": "The Chefty Net",
+	"item_blurb_chefty_net": "A cargo net over the bed. Half as many bags end up in the street. Marty swears by it. Marty has never used it.",
+	"item_chefty_repair": "Marty's Body Shop",
+	"item_blurb_chefty_repair": "Marty's nephew and a rubber mallet. Every dent out, every letter back.",
+	# A repair card: its price for all the dents, and Chefty without any.
+	"shop_repair_price": "$%d for %d dents",
+	"shop_repair_price_one": "$%d for the dent",
+	"shop_repair_none": "Not a scratch on her.",
+	"shop_repair_buy": "Fix her up",
 	# Rusty's oddities.
 	"item_hat_cone": "Traffic cone hat",
 	"item_blurb_hat_cone": "Found it. Do not ask where. Do not return it there.",
@@ -966,6 +990,7 @@ const SHOP_UI: Dictionary = {
 	"shop_result_full": "No room for more",
 	"shop_result_season": "Not this season",
 	"shop_result_unknown": "They don't sell that here",
+	"shop_result_no_dents": "Not a scratch on her",
 	# A refused Pay a crewmate (yourself, someone who left, an odd amount).
 	"shop_result_give_invalid": "Payment didn't go through. The app just spins.",
 	# Clock faces for opening hours (net/shops/shops.gd hour_text, opens_text).
@@ -1946,6 +1971,8 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/error_host": [1, 1],
 	"UI/error_join": [1, 1],
 	"UI/ride_chefty_label": [3, 1],
+	"SHOP_UI/shop_repair_price": [2, 1],
+	"SHOP_UI/shop_repair_price_one": [1, 1],
 	"UI/drive_hud_speed": [1, 1],
 	"UI/drive_hud_bed": [3, 1],
 	"UI/drive_hud_driver": [1, 1],

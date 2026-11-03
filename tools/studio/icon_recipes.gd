@@ -239,6 +239,11 @@ const RECIPES: Dictionary = {
 	"decal_flames": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_flames", "yaw": 180.0},
 	"decal_leaves": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_leaves", "yaw": 180.0},
 	"decal_rust": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_rust", "yaw": 180.0},
+
+	# ---- Chefty's gear and Marty's Body Shop (128, flat; driving C3): the truck tab's
+	# cards (gear_<catalog id>, and service_repair for the body shop).
+	"gear_chefty_net": {"kind": "flat", "px": 128, "draw": "draw_chefty_net"},
+	"service_repair": {"kind": "flat", "px": 128, "draw": "draw_body_repair"},
 	# ---- keycaps (64 tall; "wide" ones 128 wide) and mouse glyphs: every key a
 	# player can rebind to (critic C5)
 	"key_a": {"kind": "key", "px": 64, "draw": "draw_key", "label": "A"},
@@ -1845,6 +1850,52 @@ static func draw_crash(canvas: CanvasItem, size: float, _recipe: Dictionary) -> 
 	_text(canvas, size, Vector2(0.72, 0.3), "z", 0.22, WHITE, 0.0, 0.18)
 	_text(canvas, size, Vector2(0.84, 0.14), "z", 0.15, WHITE, 0.0, 0.18)
 
+
+## The Chefty Net: two stuffed leaf bags with an orange cargo net strapped over
+## them, hooked down at both ends.
+static func draw_chefty_net(canvas: CanvasItem, size: float, _recipe: Dictionary) -> void:
+	for bag: Array in [[Vector2(0.33, 0.6), -0.12], [Vector2(0.65, 0.58), 0.1]]:
+		var at: Vector2 = bag[0]
+		var angle: float = bag[1]
+		var sack := _union(_rrect_pts(Rect2(-0.18, -0.2, 0.36, 0.42), 0.12), _ellipse_pts(Vector2(0.0, -0.22), 0.06, 0.05))
+		_inked(canvas, _xf(sack, size, at, 1.0, angle), KRAFT, size)
+		_line(canvas, size, at + Vector2(-0.05, -0.17).rotated(angle), at + Vector2(0.05, -0.17).rotated(angle), 0.03, KRAFT.darkened(0.35))
+	var net := Color(1.0, 0.55, 0.12)
+	var center := Vector2(0.49, 0.8)
+	var radii := Vector2(0.41, 0.47)
+	# The mesh: diagonals both ways, only where they lie inside the dome.
+	for way: float in [1.0, -1.0]:
+		for step: int in range(-5, 6):
+			var inside := PackedVector2Array()
+			for sample: int in 41:
+				var along := -0.7 + float(sample) * 0.035
+				var point := center + Vector2(float(step) * 0.15 + along * 0.7071 * way, -0.24 - along * 0.7071)
+				var rel := (point - center) / radii
+				if rel.length() <= 1.0 and point.y <= center.y:
+					inside.append(point)
+			if inside.size() >= 2:
+				_stroke(canvas, size, inside, 0.017, net)
+	_stroke(canvas, size, _dome_pts(center, radii.x, radii.y, 24), 0.03, net)
+	_line(canvas, size, Vector2(0.06, 0.8), Vector2(0.92, 0.8), 0.045, net.darkened(0.25))
+	for x: float in [0.09, 0.89]:
+		_arc(canvas, size, Vector2(x, 0.86), 0.04, PI, TAU + 0.6, 0.03, Color(0.8, 0.82, 0.85))
+
+
+## Marty's Body Shop: a dented red Chefty panel, a wrench across it, and a twinkle
+## where the dent used to be.
+static func draw_body_repair(canvas: CanvasItem, size: float, _recipe: Dictionary) -> void:
+	var panel := PackedVector2Array([Vector2(0.12, 0.3), Vector2(0.82, 0.24), Vector2(0.86, 0.78), Vector2(0.55, 0.8), Vector2(0.47, 0.7), Vector2(0.4, 0.82), Vector2(0.14, 0.84)])
+	_inked(canvas, _xf(panel, size), CHEFTY_RED, size)
+	_line(canvas, size, Vector2(0.2, 0.42), Vector2(0.76, 0.37), 0.025, CHEFTY_RED.lightened(0.35))
+	_line(canvas, size, Vector2(0.47, 0.7), Vector2(0.44, 0.6), 0.02, CHEFTY_RED.darkened(0.4))
+	var steel := Color(0.78, 0.8, 0.84)
+	var at := Vector2(0.5, 0.5)
+	var angle := -0.75
+	var handle := _rrect_pts(Rect2(-0.04, -0.06, 0.08, 0.42), 0.04)
+	var head := _union(_ellipse_pts(Vector2(0.0, -0.18), 0.12, 0.12), _rrect_pts(Rect2(-0.045, -0.15, 0.09, 0.2), 0.02))
+	_inked(canvas, _xf(_union(head, handle), size, at, 1.0, angle), steel, size)
+	_fill(canvas, _xf(_rect_pts(Rect2(-0.035, -0.32, 0.07, 0.12)), size, at, 1.0, angle), CHEFTY_RED)
+	_sparkle(canvas, size, Vector2(0.78, 0.2), 0.09, GOLD)
 
 # ---- keycaps and mouse glyphs
 
