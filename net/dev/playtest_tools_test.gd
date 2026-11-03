@@ -102,9 +102,12 @@ func _run() -> void:
 	reached["store"] = _check(out, _zone() == "STORE", "zone %s" % _zone(), problems)
 
 	out = await _scenarios.run("van_ride")
-	var van := get_tree().get_first_node_in_group("world").get_node_or_null("Rides/Van")
-	var seated := van != null and int(van.call("seat_of", me)) >= 0
-	reached["van_ride"] = _check(out, _zone() == "TRANSIT" and seated, "zone %s, in a van seat %s" % [_zone(), seated], problems)
+	# The Courtesy Shuttle (nice_boys:4): buckled in at the yard's curb, about to leave.
+	var seated := bool(_scenarios.call("_reached_van_ride"))
+	reached["van_ride"] = _check(out, _zone() == "LOT" and seated, "zone %s, in a van seat %s" % [_zone(), seated], problems)
+	for moment: String in ["van_seated", "van_straggler", "dropoff"]:
+		out = await _scenarios.run(moment)
+		reached[moment] = _check(out, bool(_scenarios.call("_reached_" + moment)), "reached %s" % moment, problems)
 
 	out = await _scenarios.run("border_return")
 	reached["border_return"] = _check(out, _zone() == "BORDER", "zone %s, %s" % [_zone(), str(out.get("status", ""))], problems)

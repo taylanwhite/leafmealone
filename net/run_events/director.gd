@@ -74,8 +74,12 @@ func crew_arrival_point() -> Vector3:
 	return lot.position + CREW_ARRIVAL_OFFSET
 
 
-## Where the NICE BOYS' van parks at the lot, and where its ride starts (world space).
+## Where the NICE BOYS' van parks at the lot (world space): the Shuttle's clear
+## curb (nice_boys:4) when there is one.
 func van_park_point() -> Vector3:
+	var shuttle := get_node_or_null("Shuttle")
+	if shuttle != null and shuttle.has_method("park_point"):
+		return shuttle.call("park_point")
 	var lot := get_parent().get_node("LotZone") as Node3D
 	return lot.global_position + VAN_PARK_OFFSET
 
@@ -115,6 +119,9 @@ func release_peer(peer_id: int) -> void:
 
 
 func van_occupied() -> int:
+	var shuttle := get_node_or_null("Shuttle")
+	if shuttle != null and shuttle.has_method("boarded_riders"):
+		return (shuttle.call("boarded_riders") as Array).size()
 	var van := get_parent().get_node_or_null("Rides/Van")
 	if van == null:
 		return 0
@@ -272,18 +279,6 @@ func _dismiss_crew() -> void:
 		_set_phase(Phase.QUIET, "")
 
 
-func _build_van() -> void:
-	var rides := get_parent().get_node("Rides")
-	var van := rides.get_node_or_null("Van")
-	if van == null:
-		van = _RideScript.new()
-		van.name = "Van"
-		rides.add_child(van)
-	var border := get_parent().get_node("BorderZone") as Node3D
-	# From where the van pulled up and parked (van_arrival.gd).
-	van.call("setup_as_van", van_park_point(), border.global_position)
-
-
 func _release_held(peer_id: int) -> void:
 	for node: Node in get_tree().get_nodes_in_group("props"):
 		if int(node.get("held_by")) == peer_id and node.has_method("force_release"):
@@ -327,7 +322,7 @@ func _rpc_cohort(cohort_id: int, roster: Array, hazard_seed: int, _started_at: f
 		_cohort.append(int(entry))
 	_cohort_id = cohort_id
 	_hazard_seed = hazard_seed
-	_build_van()
+	# The Shuttle (nice_boys:4) seats the cohort in its van; there's no ride to build.
 
 
 @rpc("authority", "call_local", "reliable")

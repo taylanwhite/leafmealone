@@ -10,7 +10,6 @@ const LOT_PARK := Vector3(1007.0, 0.0, 24.6)
 ## Chefty's bed, in its own space: bags that land in here are loaded.
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const _Vehicles = preload("res://props/vehicles.gd")
-const _NiceVan = preload("res://props/nice_van.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Strings = preload("res://ui/strings.gd")
 
@@ -25,7 +24,6 @@ var _path: Path3D
 var _body: Node3D
 var _seats: Node3D
 var _label: Label3D
-var _vehicle_name: String = "Chefty"
 var _vehicle_color: Color = Color(0.75, 0.22, 0.15)
 ## Chefty drives its one road both ways: true while it runs lot to store.
 var _reverse: bool = false
@@ -35,7 +33,7 @@ var _parked_along: float = 0.0
 
 func _ready() -> void:
 	_build()
-	# Chefty and the van both carry riders, which player.gd seats every frame.
+	# Chefty's riders, which player.gd seats every frame.
 	add_to_group("rides")
 	if name == "Chefty":
 		add_to_group("chefty")
@@ -55,10 +53,9 @@ func _physics_process(_delta: float) -> void:
 		return
 	var duration := maxf(_duration, 0.1)
 	var along := clampf((Net.server_time() - _start_time) / duration, 0.0, 1.0)
-	# The van pulls away from the curb and slows at the end instead of popping to
-	# speed (props/nice_van.gd); Chefty's legacy ride keeps its even pace.
-	var shown := _NiceVan.depart_progress(along, duration, _path.curve.get_baked_length()) if is_in_group("vans") else along
-	_place(1.0 - shown if _reverse else shown)
+	# Chefty's legacy ride keeps its even pace. (The NICE BOYS' van is
+	# net/run_events/shuttle.gd now, nice_boys:4.)
+	_place(1.0 - along if _reverse else along)
 	if Net.is_host() and along >= 1.0:
 		_arrive()
 
@@ -145,31 +142,6 @@ func bag_value() -> int:
 func clear_bags() -> void:
 	if Net.is_host():
 		_rpc_bags.rpc(0, 0)
-
-
-## Called on every peer before the van departs. Chefty builds itself in _ready.
-func setup_as_van(from_point: Vector3, to_point: Vector3) -> void:
-	add_to_group("vans")
-	_vehicle_name = _Strings.UI["van_label"]
-	_vehicle_color = _Vehicles.VAN_PAINT
-	if _body != null:
-		var truck := _body.get_node_or_null("TruckLook")
-		if truck != null:
-			truck.free()
-		_Vehicles.build_van(_body, _vehicle_color)
-		if _label != null:
-			_label.position.y = 3.9
-	# The road out starts where the van pulled up (net/run_events/van_arrival.gd),
-	# facing the same way, so the two read as one van.
-	_path.curve = _NiceVan.departure_curve(from_point, to_point)
-	while _seats != null and _seats.get_child_count() < Constants.MAX_PLAYERS:
-		var seat := Marker3D.new()
-		seat.name = "Seat%d" % _seats.get_child_count()
-		var index := _seats.get_child_count()
-		seat.position = Vector3(-0.5 + float(index % 2), 1.0, -1.2 + float(index / 2))
-		_seats.add_child(seat)
-	_place(0.0)
-	_refresh_label()
 
 
 func seat_count() -> int:
@@ -277,18 +249,11 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
 		# It pulls away with the body, so riders hear it and the curb hears it go.
-		sfx.call("play_on", "van" if is_in_group("vans") else "truck", _body if _body != null else self)
+		sfx.call("play_on", "truck", _body if _body != null else self)
 
 
 func _refresh_label() -> void:
 	if _label == null:
-		return
-	if is_in_group("vans"):
-		var lines: PackedStringArray = PackedStringArray([_Strings.UI["van_label"]])
-		for peer_id: Variant in _riders:
-			var shown := Net.player_name(int(peer_id))
-			lines.append(shown if shown != "" else str(_Strings.UI["ride_rider_unnamed"]) % int(peer_id))
-		_label.text = "\n".join(lines)
 		return
 	var full: String = _Strings.UI["ride_chefty_full"] if _bags >= Constants.TRUCK_BAG_CAPACITY else ""
 	_label.text = _Strings.UI["ride_chefty_label"] % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value, full]
@@ -324,8 +289,10 @@ func _rpc_arrived() -> void:
 	if _body != null:
 		_body.reset_physics_interpolation()
 	_riders.clear()
+	# Only this ride's riders get off: anyone seated elsewhere (the Shuttle, the
+	# drivable Chefty) stays put.
 	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.has_method("clear_riding"):
+		if node.has_method("clear_riding") and node.get("_ride") == self:
 			node.call("clear_riding")
 	_refresh_label()
 

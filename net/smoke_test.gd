@@ -97,10 +97,11 @@ func _client_process() -> void:
 			_next_clock_probe = _elapsed() + 0.5
 			_rpc_clock_probe.rpc_id(1, Time.get_ticks_usec() / 1000000.0)
 	if not _reported_van:
-		var van := get_tree().root.find_child("Van", true, false)
-		if van != null and int(van.call("occupied_count")) >= 1:
+		# The Courtesy Shuttle (nice_boys:4) has someone in a seat.
+		var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+		if shuttle != null and (shuttle.call("boarded_riders") as Array).size() >= 1:
 			_reported_van = true
-			_rpc_status.rpc_id(1, "van_match", 0.0)
+			_rpc_status.rpc_id(1, "van_match", float((shuttle.call("boarded_riders") as Array).size()))
 	if _watching_prop:
 		var gnome := get_tree().root.find_child("Gnome", true, false) as Node3D
 		if gnome != null and gnome.global_position.distance_to(_prop_at) < 1.0:
@@ -260,10 +261,12 @@ func _rpc_status(stage: String, client_time: float) -> void:
 		if director == null:
 			_finish(false, "director missing")
 			return
+		# Seats taken in the shuttle on both peers == the cohort the host boarded.
 		var cohort := int(director.call("cohort_size"))
-		var seats := int(director.call("van_occupied"))
-		if cohort < 1 or cohort != seats:
-			_finish(false, "van seats %d do not match cohort %d" % [seats, cohort])
+		var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+		var seats := (shuttle.call("boarded_riders") as Array).size() if shuttle != null else 0
+		if cohort < 1 or cohort != seats or int(client_time) != seats:
+			_finish(false, "van seats %d (client %d) do not match cohort %d" % [seats, int(client_time), cohort])
 			return
 		_leaf_phase = "hazard"
 		_rpc_hazard_probe.rpc_id(_client_id, int(director.call("hazard_seed")), 10.0)

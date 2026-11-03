@@ -2077,3 +2077,23 @@ const ICON_UI: Dictionary = {
 	"board_rating_lead": "Crew rating:",
 	"board_rating_jobs": "(%d jobs)",
 }
+
+# ---- niceboys:4 the Courtesy Shuttle
+# What the shuttle's driver says (net/run_events/shuttle.gd): the dispatcher on the
+# cab radio during the ride (a caption, the rider's own ears) and his wave at the
+# drop curb. Flavor only; nothing here tells anyone what to do.
+const VAN_LINES: Dictionary = {
+	"ride_radio": [
+		"Dispatch to Shuttle Two: the snack drawer is down to the sad pretzels. Over.",
+		"All units, the Annex coffee machine is decaf again. Stay strong.",
+		"Shuttle Two, your smiles-per-mile are trending low this quarter. Over.",
+		"Reminder: courtesy waves are mandatory at every stop sign. Every one.",
+		"Dispatch: whoever took the good clipboard, it has your name on it. Literally.",
+	],
+	"drop_wave": [
+		"Have a NICE day!",
+		"Mind the step! And the lawn. And the noise.",
+		"Same time tomorrow? Kidding! Mostly!",
+		"Drive safe! Well. Rake safe.",
+	],
+}

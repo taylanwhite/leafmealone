@@ -539,7 +539,16 @@ func _poll_changes() -> void:
 	if crossing != null:
 		_changed("border", str(crossing.call("status_line")), func(value: String) -> void: _event("border", {"status": value}))
 	for ride: Node in get_tree().get_nodes_in_group("rides"):
+		if ride.is_in_group("nice_shuttle"):
+			continue
 		_changed("ride:" + str(ride.name), str(ride.call("is_riding")), func(value: String) -> void: _event("ride", {"ride": str(ride.name), "riding": value == "true"}))
+	# The Courtesy Shuttle (nice_boys:4): each trip's leg, and who sits in a van.
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null:
+		for trip_id: Variant in shuttle.call("trip_ids"):
+			var trip := int(trip_id)
+			_changed("van_leg:%d" % trip, str(shuttle.call("leg_name", trip)), func(value: String) -> void: _event("van_leg", {"trip": trip, "leg": value}))
+		_changed("van_seated", str(shuttle.call("seated_riders")), func(value: String) -> void: _event("van_seated", {"riders": value}))
 	_changed("crew", str(get_tree().get_nodes_in_group("crew").size()), func(value: String) -> void: _event("crew", {"count": int(value)}))
 	var me := _player(Net.local_peer_id())
 	if me != null:
@@ -573,6 +582,12 @@ func _watch_motion(delta: float) -> void:
 		var body := ride.get_node_or_null("Body") as Node3D
 		if body != null:
 			watched.append(["vehicle", str(ride.name), body])
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null:
+		for trip_id: Variant in shuttle.call("trip_ids"):
+			var holder := shuttle.get_node_or_null("Trip%d" % int(trip_id)) as Node3D
+			if holder != null and holder.visible:
+				watched.append(["vehicle", "van %d" % int(trip_id), holder])
 	var seen: Dictionary = {}
 	for item: Array in watched:
 		var node := item[2] as Node3D

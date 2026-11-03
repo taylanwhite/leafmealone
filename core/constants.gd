@@ -1696,3 +1696,104 @@ const BEACON_NOTICE_HEIGHT: float = 10.0
 const BEACON_NOTICE_FALL := Vector2(3.0, 5.0)
 ## When the crew arrives the beacon folds away over this long (s) instead of vanishing.
 const BEACON_DISMISS_SECONDS: float = 0.6
+
+# ---- niceboys:4 the Courtesy Shuttle
+# One van per trip from pull-up to drop-off (net/run_events/shuttle.gd, props/nice_van.gd,
+# props/van_gestures.gd; docs/GAME.md "The Courtesy Shuttle, door to door").
+## The sliding door's slide, a rider's step up into (or down out of) a seat, the buckle.
+const VAN_DOOR_SLIDE: float = 0.6
+const VAN_STEP_SECONDS: float = 0.6
+const VAN_BUCKLE_SECONDS: float = 0.5
+## The back doors' swing, for a straggler (s).
+const VAN_BACK_DOOR_SWING: float = 0.5
+## Pulling out with riders: up to a lawful cruise (m/s) at this (m/s^2), after
+## cast:5's pull from the curb (VAN_PULL_SECONDS at VAN_PULL_ACCEL).
+const VAN_CRUISE: float = 12.0
+const VAN_CRUISE_ACCEL: float = 3.0
+## Nothing anyone can see ever moves faster than this (m/s); the arrival cruises
+## just under it and brakes at VAN_BRAKE_DECEL (m/s^2) to the curb.
+const VAN_MAX_SCREEN_SPEED: float = 14.0
+const VAN_ARRIVE_SPEED: float = 13.5
+const VAN_BRAKE_DECEL: float = 4.5
+## Every leg of a trip is scheduled this far ahead (s), so a 150 ms client never
+## sees one start late and rewind.
+const VAN_PLAN_LEAD: float = 0.3
+## Riders: a pothole and the air freshener this long into the drive (s), the
+## freshener close-up for VAN_RIDE_MONTAGE (s), then the iris (VAN_IRIS_SECONDS).
+const VAN_RIDE_IRIS_AT: float = 5.0
+const VAN_RIDE_MONTAGE: float = 1.8
+const VAN_IRIS_SECONDS: float = 0.35
+## A van this far from someone (m) is out of their sight whatever's between; routes
+## start and end at least this far from everyone on the yard.
+const VAN_HIDE_METERS: float = 90.0
+## A route end nobody's looked away from in this long (s) is left anyway: the van
+## stays drawn there for whoever still sees it (each peer hides its own copy).
+const VAN_HIDDEN_CAP: float = 8.0
+## Where it parks: a box this big (m, x y z in the van's space) must be clear,
+## sliding along the curb up to VAN_PARK_SLIDE_MAX (m) to find one.
+const VAN_PARK_CLEARANCE := Vector3(2.4, 2.9, 6.2)
+const VAN_PARK_SLIDE_MAX: float = 12.0
+## The legacy and town job street in the yard's space: the far curb the van parks
+## on and the lane it drives in (z), the lane change between them (m), and the
+## spacing of a route's ground-checked points (m).
+const VAN_CURB_Z: float = 28.6
+const VAN_LANE_Z: float = 27.4
+const VAN_MERGE_METERS: float = 14.0
+const VAN_ROUTE_STEP: float = 2.0
+## Freeing a rider: hold interact this long (s) on the door within VAN_DOOR_REACH (m)
+## of its step, while the driver isn't checking his mirror and no NICE BOY who can
+## see you is within VAN_GUARD_RADIUS (m). Each one costs HEAT_UNBUCKLE heat.
+const VAN_UNBUCKLE_HOLD: float = 1.5
+const VAN_DOOR_REACH: float = 1.8
+const VAN_GUARD_RADIUS: float = 5.0
+const HEAT_UNBUCKLE: float = 5.0
+## The driver checks the door-side mirror every so often (s, from..to, seeded per
+## trip) for this long (s), the mirror glinting VAN_GLINT_LEAD (s) before.
+const VAN_MIRROR_EVERY := Vector2(5.0, 7.0)
+const VAN_MIRROR_SECONDS: float = 1.5
+const VAN_GLINT_LEAD: float = 0.3
+## A rider's knock on the glass: heard this far (m); the face press lasts this long (s).
+const VAN_KNOCK_HEAR: float = 15.0
+const VAN_KNOCK_SECONDS: float = 0.6
+## A straggler: the van creeps on at this (m/s) with its back doors open, for at
+## most VAN_CREEP_MAX (s), and they hop onto the bumper over VAN_HOP_SECONDS (s).
+const VAN_CREEP_SPEED: float = 1.5
+const VAN_CREEP_MAX: float = 6.0
+const VAN_HOP_SECONDS: float = 0.7
+## The crew climb out one by one, this far apart (s), once the door is open.
+const CREW_UNLOAD_STAGGER: float = 0.5
+## Leaving: the door shuts, the blinker ticks this long (s), then it pulls out.
+const VAN_BLINKER_SECONDS: float = 1.2
+## At Annex B: it rolls up to the curb over this long (s); at the drop curb back home
+## the iris opens at least RETURN_PULL_UP (s) before it stops. The return shuttle
+## waits RETURN_WAIT (s) after its last rider sits; riders get DROP_IMMUNITY (s).
+const ANNEX_ROLL_IN_SECONDS: float = 2.5
+const RETURN_WAIT: float = 6.0
+const RETURN_PULL_UP: float = 3.0
+const DROP_IMMUNITY: float = 6.0
+## Without the Annex set (nice_boys:5) the van pulls up here, BorderZone space.
+const VAN_ANNEX_CURB := Vector3(-4.0, 0.0, 24.0)
+## Home after the job's done: the Homie Depot curb (StoreZone space), facing -z.
+const SHUTTLE_STORE_STOP := Vector3(23.8, 0.0, 6.0)
+## Caught with no raid going on (dev and test captures): walked to the door at
+## this pace (m/s), and the van leaves this long (s) after the last one sits.
+const VAN_WALK_IN_SPEED: float = 3.2
+const VAN_FALLBACK_HOLD: float = 2.0
+## How it feels to ride: a pothole's kick, the front wheels' steer (most radians,
+## how fast they follow), the steering wheel's ratio to them, and the air
+## freshener's swing (push per m/s^2, spring, damping).
+const VAN_BUMP_KICK: float = 0.9
+const VAN_STEER_MAX: float = 0.55
+const VAN_STEER_RATE: float = 8.0
+const VAN_STEERING_RATIO: float = 6.0
+const VAN_FRESHENER_PUSH: float = 0.08
+const VAN_FRESHENER_STIFFNESS: float = 30.0
+const VAN_FRESHENER_DAMPING: float = 2.5## Something standing in the street (a tree, a parked car): the route swerves round
+## it, the slice of road checked being this big (m, across, up, along), never
+## farther than this off the curb line (m, toward the far curb, toward the near
+## one), eased in and out over this many meters either side.
+const VAN_ROUTE_CLEARANCE := Vector3(3.0, 2.5, 2.2)
+const VAN_SWERVE_RANGE := Vector2(1.6, 4.8)
+const VAN_SWERVE_EASE: float = 10.0## A tree's crown, from above, reaches this share of its height from the trunk
+## (evergreens, broadleaves): the van parks and drives clear of it.
+const VAN_TREE_SPREAD := Vector2(0.3, 0.2)
