@@ -45,8 +45,13 @@ const FP_FLIGHT_SHARE_LIMIT: float = 0.2
 ## A bag's drawn look moving farther than this in one 60 Hz frame is a jump (m).
 ## A longer frame (a loaded machine: one took 0.14 s, and a bag flying at 6 m/s
 ## covered 0.8 m in it) may move it proportionally farther, so the check is a
-## speed: the step over the frame's own time, never less than JUMP_FRAME_S.
-## A teleport (meters in one frame) still fails at any frame length.
+## speed: the step over the frame's own time, never less than JUMP_FRAME_S and
+## never more than the physics time Godot steps in one frame (_jump_frame_cap: a
+## physics-driven bag can't travel farther than that however long the frame).
+## So a 60 Hz frame is held to 0.6 m and no frame lets a bag move more than
+## 36 m/s over that cap (about 5 m at 60 Hz and 8 steps); a pop shorter than
+## that inside one long frame is beyond this check (POP_LIMIT_M and the path
+## cover the hand-offs where pops happen).
 const JUMP_LIMIT_M: float = 0.6
 const JUMP_FRAME_S: float = 1.0 / 60.0
 ## How far off its stack spot a bag may be drawn when the load's bag replaces it (m).
@@ -225,6 +230,12 @@ func _hold_drop(hold: float) -> bool:
 	return arc_caught
 
 
+## The most physics time one frame can step (s): Godot's per-frame step cap, plus
+## one tick for the drawn look's interpolation catching up.
+func _jump_frame_cap() -> float:
+	return float(Engine.max_physics_steps_per_frame + 1) / float(Engine.physics_ticks_per_second)
+
+
 ## Follows a thrown bag: its biggest jump between frames, whether it went (the
 ## bed took it) or is still there, and if so whether it lies on the ground.
 func _watch(bag: Node3D, seconds: float) -> Dictionary:
@@ -251,7 +262,7 @@ func _watch(bag: Node3D, seconds: float) -> Dictionary:
 		var moved := now.distance_to(last)
 		# As far as it went at that speed in one 60 Hz frame (see JUMP_LIMIT_M).
 		var frame := get_process_delta_time()
-		var step := moved * JUMP_FRAME_S / maxf(frame, JUMP_FRAME_S)
+		var step := moved * JUMP_FRAME_S / clampf(frame, JUMP_FRAME_S, _jump_frame_cap())
 		if bool(bag.call("is_settling")):
 			var body := (truck.call("bed_transform") as Transform3D).affine_inverse() * ((bag.get_node("Visual") as Node3D).global_transform * rest)
 			body.basis = body.basis.orthonormalized()
