@@ -116,6 +116,10 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 			get_tree().get_first_node_in_group("world").add_child(_beacon)
 			# The flare goes up where the van will really park.
 			_beacon.global_position = director.call("van_park_point")
+			# Just ahead of its nose, not under its body (R2c van).
+			var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+			if shuttle != null and shuttle.has_method("flare_point"):
+				_beacon.global_position = shuttle.call("flare_point")
 		2:
 			_raid_cohort_id = _cohort_id_of(director)
 			_clear_beacon()

@@ -454,6 +454,11 @@ func _through(peer_id: int, by_closing: bool) -> void:
 
 ## Host: send the finished riders home, all together (ANNEX_FINISH_AS_GROUP) once
 ## nobody is still inside, else each as they come out.
+##
+## R2c van: with the Shuttle, each rider is seated in the ride home as soon as
+## their moment on the forecourt is over (straight away when let out at closing
+## time), and the van waits for the rest of the cohort with them aboard: nobody
+## stands about on the pavement or in its aisle (28 s in the e2e audit).
 func _maybe_return() -> void:
 	var waiting: Array[int] = []
 	var inside := 0
@@ -462,28 +467,35 @@ func _maybe_return() -> void:
 		var stage := stage_of(peer_id)
 		if stage == STAGE_THROUGH and not _returning.has(peer_id):
 			# The forecourt is theirs for a moment first: the receipt prints, is
-			# held up and pocketed before the shuttle home takes them (R2b).
-			if now < float((_stages.get(peer_id, {}) as Dictionary).get("out_at", 0.0)) + Constants.ANNEX_FORECOURT_BEAT:
+			# held up and pocketed before the shuttle home takes them (R2b). Let
+			# out at closing time there is no forecourt: the door swings shut over
+			# the lobby and opens on the seat (R2c van).
+			var entry: Dictionary = _stages.get(peer_id, {})
+			if not bool(entry.get("closing", false)) and now < float(entry.get("out_at", 0.0)) + Constants.ANNEX_FORECOURT_BEAT:
 				inside += 1
 				continue
 			waiting.append(peer_id)
 		elif stage == STAGE_INSIDE or stage == STAGE_WALK:
 			inside += 1
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null and shuttle.has_method("host_start_return"):
+		var more := Constants.ANNEX_FINISH_AS_GROUP and inside > 0
+		if not waiting.is_empty():
+			var peers: Array = []
+			for id: int in waiting:
+				peers.append(id)
+				_returning[id] = INF
+			shuttle.call("host_start_return", peers, _drop_target(), more)
+		elif not more and not _returning.is_empty() and shuttle.has_method("host_release_return"):
+			# The last of them left some other way (a disconnect): no more to wait for.
+			shuttle.call("host_release_return")
+		return
 	if waiting.is_empty() or (Constants.ANNEX_FINISH_AS_GROUP and inside > 0):
 		return
 	var leave_at := Net.server_time() + Constants.ANNEX_RETURN_WAIT
 	for peer_id: int in waiting:
 		_returning[peer_id] = leave_at
-	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
-	if shuttle != null and shuttle.has_method("host_start_return"):
-		var peers: Array = []
-		for id: int in waiting:
-			peers.append(id)
-		shuttle.call("host_start_return", peers, _drop_target())
-		for id: int in waiting:
-			_returning[id] = INF
-	else:
-		_pending.append({"at": leave_at, "do": "send_home", "peers": waiting.duplicate()})
+	_pending.append({"at": leave_at, "do": "send_home", "peers": waiting.duplicate()})
 
 
 ## Where riders go back to: the yard if one is waiting, else Homie Depot.
@@ -624,7 +636,11 @@ func _do(item: Dictionary) -> void:
 			var peer_id := int(item["peer"])
 			_forcing.erase(peer_id)
 			if stage_of(peer_id) == STAGE_INSIDE and _active and Net.peer_ids().has(peer_id):
-				Net.move_player_to_zone(peer_id, Net.Zone.BORDER, &"Forecourt")
+				var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+				if shuttle == null or not shuttle.has_method("host_start_return"):
+					Net.move_player_to_zone(peer_id, Net.Zone.BORDER, &"Forecourt")
+				# With the Shuttle they stay where they stand behind the shut door until
+				# its seat takes them (_maybe_return, at once for a closing-time out).
 				_through(peer_id, true)
 		"visitor_out":
 			var peer_id := int(item["peer"])
@@ -842,7 +858,17 @@ func _force_out(peer_id: int) -> void:
 		return
 	var now := Net.server_time()
 	_forcing[peer_id] = true
-	_rpc_door_iris.rpc_id(peer_id, now)
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null and shuttle.has_method("host_start_return"):
+		# R2c van: one iris. The door swings shut over the lobby and stays shut;
+		# behind it they're seated in the ride home, and it opens on the seat (the
+		# shuttle opens it). Before, it opened on the forecourt, both riders on one
+		# spot, and a second iris took them to the van.
+		# Sent a beat ahead, so a client's swish isn't skipped as late (it shuts by
+		# now + VAN_PLAN_LEAD + ANNEX_IRIS_CLOSE, before the seat takes them).
+		_rpc_closing_iris.rpc_id(peer_id, now + Constants.VAN_PLAN_LEAD)
+	else:
+		_rpc_door_iris.rpc_id(peer_id, now)
 	_pending.append({"at": now + Constants.ANNEX_DOOR_IRIS_WAIT, "do": "force_out", "peer": peer_id})
 
 
@@ -1472,9 +1498,24 @@ func _rpc_through(peer_id: int, at: float, seconds: float, by_closing: bool, lin
 	var entry: Dictionary = _stages.get(peer_id, {})
 	entry["stage"] = STAGE_THROUGH
 	entry["out_at"] = at
+	entry["closing"] = by_closing
 	_stages[peer_id] = entry
 	rider_through_turnstile.emit(peer_id)
 	if peer_id != Net.local_peer_id():
+		return
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if by_closing and shuttle != null and shuttle.has_method("host_start_return"):
+		# Let out at closing time you're seated behind the shut door (R2c van): the
+		# slip prints in your hands in the seat once it has opened.
+		# The clipboard goes once the door has swung shut over it.
+		_later(at + Constants.ANNEX_DOOR_IRIS_WAIT, _hide_form)
+		at += Constants.VAN_CLOSING_RECEIPT_AFTER
+		_later(at, func() -> void: _show_receipt(lines, total, at))
+		var kind_late := "closing"
+		var slip_late := Constants.RECEIPT_LINE_SECONDS * float(lines.size() + 11) + Constants.ANNEX_RECEIPT_SECONDS + Constants.ANNEX_RECEIPT_POCKET
+		if ResourceLoader.exists(RECEIPT_SCRIPT):
+			slip_late = float(load(RECEIPT_SCRIPT).call("duration", lines, Constants.ANNEX_RECEIPT_SECONDS))
+		_later(at + slip_late, func() -> void: _quip(kind_late, []))
 		return
 	# Out into daylight: the stinger (chunk 5's cue_hooks plays it when it listens).
 	if rider_through_turnstile.get_connections().is_empty():
@@ -1561,6 +1602,20 @@ func _rpc_door_iris(at: float) -> void:
 		iris.call("close", at, Constants.ANNEX_IRIS_CLOSE, &"door")
 		if iris.has_method("open"):
 			iris.call("open", at + Constants.ANNEX_IRIS_OPEN_AT)
+
+
+## To one player let out at closing time (R2c van): the door swings shut over the
+## lobby and stays shut; the Shuttle seats them behind it and opens it on the seat
+## (shuttle.gd _local_rider_beats), one iris from the lobby to the ride home.
+@rpc("authority", "call_local", "reliable")
+func _rpc_closing_iris(at: float) -> void:
+	var iris := get_tree().get_first_node_in_group("iris")
+	if iris != null and iris.has_method("close"):
+		iris.call("close", at, Constants.ANNEX_IRIS_CLOSE, &"door")
+		# Never left shut: if no seat takes them (the van full, gone), it opens anyway.
+		# The seat's own iris boarding carries the shut over and cancels this.
+		if iris.has_method("open"):
+			iris.call("open", at + Constants.VAN_CLOSING_IRIS_CAP)
 
 
 func _on_player_joined(peer_id: int) -> void:

@@ -27,6 +27,10 @@ extends Camera3D
 ##     (max_speed m/s, default STAGE_CAM_MAX_SPEED; STAGE_CAM_MAX_TURN rad/s).
 ##   collide (bool, optional; R2b, with a pivot): keep the eye clear of the world
 ##     and the vehicles (player/stage_sweep.gd), pulling in toward the pivot.
+##   ride (Node3D, optional; R2c van): the moving frame the shot lives in (a van).
+##     A blend into it is worked out in that frame, so it rides along: blended in
+##     world space, the old view stayed where the van was when the blend began and
+##     the eye trailed out through the van's back wall at 12 m/s.
 ## Blends ease in and out (smoothstep) from wherever the outgoing camera was
 ## really drawn to the new shot, which follows its anchor while it blends: no
 ## blend starts at full speed (R2b: the cubic ease-out's first frame was a
@@ -82,6 +86,9 @@ var _has_last: bool = false
 ## (the swing is paced along it).
 var _last_arc := Vector3.INF
 var _hidden_bodies: Array[Node3D] = []
+## The blend's start held in the top shot's ride frame (R2c van), when it has one.
+var _ride: Node3D
+var _from_in_ride := Transform3D()
 
 
 static func reset_log() -> void:
@@ -204,6 +211,11 @@ func _start_blend(from: Transform3D, from_fov: float, seconds: float) -> void:
 	_last_arc = from.origin
 	_blend_seconds = Constants.STAGE_BLEND_DEFAULT if seconds < 0.0 else seconds
 	_blend_t = 0.0 if _blend_seconds > 0.0 else 1.0
+	_ride = null
+	var ride: Variant = (_shots[_top] as Dictionary).get("ride") if _shots.has(_top) else null
+	if ride is Node3D and is_instance_valid(ride) and (ride as Node3D).is_inside_tree():
+		_ride = ride
+		_from_in_ride = _ride.get_global_transform_interpolated().affine_inverse() * from
 	if _blend_seconds <= 0.0:
 		log["cuts"] = int(log["cuts"]) + 1
 		_last_origin = Vector3.INF
@@ -284,6 +296,9 @@ func _update(delta: float) -> void:
 			return
 		target = base.get_global_transform_interpolated()
 		target_fov = base.fov
+	if _ride != null and is_instance_valid(_ride) and _ride.is_inside_tree() and _blend_t < 1.0:
+		# The old view rides the van with the new one (R2c van).
+		_from = _ride.get_global_transform_interpolated() * _from_in_ride
 	var was_t := _blend_t
 	if _blend_t < 1.0 and _blend_seconds > 0.0:
 		_blend_t = minf(1.0, _blend_t + delta / _blend_seconds)

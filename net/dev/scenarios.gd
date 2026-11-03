@@ -1085,6 +1085,11 @@ func _annex() -> Dictionary:
 	var started: Dictionary = await _annex_start([Net.local_peer_id()])
 	if started.has("error"):
 		return started
+	return await _annex_after_start()
+
+
+## A visit already begun: a step back from your first box's window.
+func _annex_after_start() -> Dictionary:
 	var annex := _annex_node()
 	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
 	var window := str(preload("res://net/annex/form_state.gd").next_window(form))
@@ -1250,7 +1255,18 @@ func _reached_annex_visit() -> bool:
 
 ## Closing time in 10 s: the clock races, the lights flicker.
 func _annex_closing() -> Dictionary:
-	var started: Dictionary = await _annex()
+	# With a friend (tools\play.ps1 -Friend) they're inside too, so closing time lets
+	# two out at once (R2c van: both used to land on one spot of the forecourt).
+	var friend := _friend_id()
+	if friend != 0:
+		var both: Dictionary = await _annex_start([Net.local_peer_id(), friend])
+		if both.has("error"):
+			return both
+	var started: Dictionary = {}
+	if friend == 0:
+		started = await _annex()
+	else:
+		started = await _annex_after_start()
 	if started.has("error"):
 		return started
 	var annex := _annex_node()
@@ -1276,6 +1292,10 @@ func _annex_start(riders: Array) -> Dictionary:
 		await _ticks(2)
 	director.set("_hazard_seed", ANNEX_SEED)
 	annex.call("begin", ANNEX_TRIP, riders, Net.server_time())
+	# The ride home waits up the curb, as it does once a real visit is under way.
+	var van := _van()
+	if van != null and van.has_method("dev_return_van"):
+		van.call("dev_return_van")
 	var first := int(riders[0])
 	var inside: Variant = await _wait_for(func() -> Variant:
 		return true if str(annex.call("stage_of", first)) == "inside" else null)

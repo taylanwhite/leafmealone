@@ -92,9 +92,11 @@ const DOOR_PANEL_LENGTH: float = 1.7
 const DOOR_WINDOW_Y := Vector2(1.86, 2.62)
 ## The water cooler's middle on the floor (x, z): the cabin's front-left corner.
 const COOLER_AT := Vector2(-0.86, 0.12)
-## The riders' cab shot: the eye, and what it looks at (the daisy, a touch low).
-const FRESHENER_CAM := Vector3(0.05, 2.66, -0.4)
-const FRESHENER_LOOK := Vector3(0.0, 2.42, -2.3)
+## The riders' cab shot: the eye, and what it looks at (the daisy and the road).
+## R2c van: up under the ceiling and back a little, looking nearly level, so the
+## headrests and whoever rides shotgun sit low in the frame instead of filling it.
+const FRESHENER_CAM := Vector3(0.05, 2.78, -0.2)
+const FRESHENER_LOOK := Vector3(0.0, 2.58, -2.6)
 ## The engine's sound comes from here, under the hood.
 const ENGINE_AT := Vector3(0.0, 1.0, -2.6)
 ## The back doors' hinges (x) and how far they swing open (radians).
@@ -193,6 +195,19 @@ static func build(parent: Node3D, paint: Color = PAINT) -> Node3D:
 		[Vector3(0.0, 1.95, 3.0), Vector3(2.3, 2.0, 0.16)],
 		[Vector3(0.0, 3.0, 0.5), Vector3(2.4, 0.2, 5.2)],
 	])
+	# The open side, kept shut to anyone walking (R2c van: through Annex B's
+	# turnstile you walked straight into its aisle and stood there). Riders and
+	# the crew get in and out on staged anchors, which go through it.
+	var doorway := AnimatableBody3D.new()
+	doorway.name = "Doorway"
+	doorway.sync_to_physics = false
+	var gap := CollisionShape3D.new()
+	var gap_box := BoxShape3D.new()
+	gap_box.size = Vector3(0.12, 2.6, 4.8)
+	gap.shape = gap_box
+	gap.position = Vector3(1.16, 1.6, 0.55)
+	doorway.add_child(gap)
+	look.add_child(doorway)
 	var motion := Motion.new()
 	motion.name = "Motion"
 	motion.setup(look, lights)

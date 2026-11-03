@@ -72,6 +72,8 @@ const CREW_SEATED: int = 0
 const CREW_HOP_IN: int = 1
 const CREW_HOP_OUT: int = 2
 const CREW_REAR: int = 3
+## A straggler sprinting after the creeping van, then hopping onto its bumper (R2c van).
+const CREW_RUN: int = 4
 ## Stage-cam shot priorities (C2).
 const SHOT_SEAT: StringName = &"van_seat"
 const SHOT_FRESHENER: StringName = &"freshener"
@@ -190,6 +192,21 @@ func park_point() -> Vector3:
 	if not Net.is_host():
 		return _default_curb().origin
 	return _host_park().origin
+
+
+## Where the Courtesy Flare goes up: in the road just ahead of where the raid van
+## will stop, so it pulls up to it (R2c van: its cones stood round the park point
+## itself, under the van's body).
+func flare_point() -> Vector3:
+	var trip := _trip(_raid_trip)
+	if trip != null and trip.info.has("park"):
+		var park: Transform3D = trip.info["park"]
+		return park.origin - park.basis.z.normalized() * Constants.VAN_FLARE_AHEAD
+	# The plan isn't here yet: the director's park point, and a raid van always
+	# parks along the yard's street.
+	var director := get_parent()
+	var at: Vector3 = director.call("van_park_point") if director != null and director.has_method("van_park_point") else park_point()
+	return at + _NiceVan.STREET_DIR * Constants.VAN_FLARE_AHEAD
 
 
 ## The ground outside the raid van's door, where escorts bring people (C12).
@@ -364,17 +381,34 @@ func _last_drive_leg(trip: Trip, now: float) -> Dictionary:
 ## Annex forecourt; they climb in, it waits RETURN_WAIT after the last one sits,
 ## and drops them at to = {zone, marker} (LOT or TOWN: the yard's curb; STORE: the
 ## Homie Depot stop).
-func host_start_return(peers: Array, to: Dictionary) -> void:
-	if not Net.is_host() or peers.is_empty():
+##
+## R2c van: the Annex seats each rider as their moment on the forecourt ends (or
+## straight from behind closing time's door), so nobody stands about on the
+## pavement or in the van's aisle waiting for a friend; hold says more of the
+## cohort is still to come, and the van waits for them (OQ-027) until a call
+## without it (or host_release_return) says that was everyone.
+func host_start_return(peers: Array, to: Dictionary, hold: bool = false) -> void:
+	if not Net.is_host():
 		return
-	var trip := _return_trip(true)
+	var trip := _return_trip(not peers.is_empty())
 	if trip == null:
 		return
 	trip.info["drop"] = to.duplicate()
+	trip.info["hold"] = hold
 	_rpc_info.rpc(trip.id, trip.info)
 	for peer_id: Variant in peers:
 		_host_board(trip.id, int(peer_id), BOARD_IRIS)
 		_stage(int(peer_id), STAGE_RETURNING)
+
+
+## Host, from the Annex: the cohort is all aboard (or the rest left), the return
+## van stops waiting.
+func host_release_return() -> void:
+	var trip := _return_trip(false)
+	if not Net.is_host() or trip == null or not bool(trip.info.get("hold", false)):
+		return
+	trip.info["hold"] = false
+	_rpc_info.rpc(trip.id, trip.info)
 
 
 ## The trips' state for a late joiner (C6: the director's _rpc_state carries it).
@@ -606,6 +640,24 @@ func dev_dropoff(peers: Array) -> int:
 	_send_plan(trip)
 	for peer_id: Variant in peers:
 		_host_board(trip.id, int(peer_id), BOARD_NOW)
+	return trip.id
+
+
+## The ride home already parked up Annex B's curb, its door open, as it is once a
+## visit's under way (the Annex scenarios start a visit without a ride there).
+func dev_return_van() -> int:
+	if not Net.is_host():
+		return 0
+	var existing := _return_trip(false)
+	if existing != null:
+		return existing.id
+	var trip := _new_trip("return")
+	trip.info["zone"] = Net.Zone.BORDER
+	var now := Net.server_time()
+	trip.legs = [{"k": Leg.ANNEX_PARKED, "t": now, "x": _annex_curb("ForecourtCurb")}]
+	trip.annex_called = true
+	_send_plan(trip)
+	_host_door(trip, "side", true, now - Constants.VAN_DOOR_SLIDE)
 	return trip.id
 
 
@@ -856,47 +908,91 @@ func _host_trip(trip: Trip, now: float) -> void:
 		Leg.LEAVE:
 			if _leg_done(trip, now):
 				_host_end_trip(trip)
-	# The return van waits RETURN_WAIT after its last rider sits, then goes.
-	if str(trip.info.get("purpose", "")) == "return" and kind == Leg.ANNEX_PARKED and not trip.depart_planned and not trip.seats.is_empty():
+	# The return van goes once its last rider sits (RETURN_WAIT later when the
+	# cohort doesn't ride home together), never while the Annex says more are coming.
+	if str(trip.info.get("purpose", "")) == "return" and kind == Leg.ANNEX_PARKED and not trip.depart_planned and not trip.seats.is_empty() and not bool(trip.info.get("hold", false)):
 		var all_in := true
 		for peer_id: Variant in trip.seats.keys():
 			if not _seat_settled(trip, int(peer_id), now):
 				all_in = false
-		if all_in and trip.last_seat_done > 0.0 and now >= trip.last_seat_done + Constants.RETURN_WAIT:
+		var wait := Constants.VAN_RETURN_GO if Constants.ANNEX_FINISH_AS_GROUP else Constants.RETURN_WAIT
+		if all_in and trip.last_seat_done > 0.0 and now >= trip.last_seat_done + wait:
 			trip.depart_planned = true
 			_plan_departure(trip, now + Constants.VAN_PLAN_LEAD, Leg.RETURN_DEPART)
 
 
 func _host_creep(trip: Trip, leg: Dictionary, now: float) -> void:
-	var pose := _pose(trip, now)
-	var step := pose * _local_marker(trip, "RearStep").origin
-	var out := 0
-	for index: Variant in trip.crew.keys():
-		var entry: Dictionary = trip.crew[index]
-		if int(entry["mode"]) != CREW_HOP_OUT or now < float(entry["at"]) + _crew_hop_out_seconds(entry):
-			continue
-		var crew := _crew_node(int(index))
-		if crew == null:
-			continue
-		out += 1
-		var flat := Vector2(crew.global_position.x - step.x, crew.global_position.z - step.z).length()
-		if flat <= Constants.VAN_DOOR_REACH + 0.4:
-			host_crew_board(crew)
-	var hopping := false
-	for index: Variant in trip.crew.keys():
-		var entry: Dictionary = trip.crew[index]
-		if int(entry["mode"]) == CREW_REAR and now < float(entry["at"]) + Constants.VAN_HOP_SECONDS:
-			hopping = true
 	if trip.creep_started < 0.0:
 		trip.creep_started = float(leg["t"])
 	if bool(trip.info.get("creep_done", false)):
 		return
-	if not hopping and (out == 0 or now - trip.creep_started >= Constants.VAN_CREEP_MAX):
+	# Anyone who landed on the lawn since the plan (a hop out the recall cut short)
+	# gets his sprint too.
+	_host_send_stragglers(trip, now + Constants.VAN_PLAN_LEAD)
+	var hopping := false
+	for index: Variant in trip.crew.keys():
+		var entry: Dictionary = trip.crew[index]
+		var mode := int(entry["mode"])
+		if mode == CREW_REAR and now < float(entry["at"]) + Constants.VAN_HOP_SECONDS:
+			hopping = true
+		elif mode == CREW_RUN and now < float(entry["at"]) + _straggler_run_seconds(trip, entry) + Constants.VAN_HOP_SECONDS:
+			hopping = true
+	if not hopping or now - trip.creep_started >= Constants.VAN_CREEP_MAX:
 		trip.info["creep_done"] = true
-		# Everyone's on (or the straggler's on his own): doors shut, off it goes.
+		# Everyone's on the bumper: off it goes (the back doors shut as the last one
+		# reached them, _host_send_stragglers).
 		var at := now + Constants.VAN_PLAN_LEAD
-		_host_door(trip, "back", false, at)
+		if _door_open(trip, "back", at):
+			_host_door(trip, "back", false, at)
 		_plan_route_from(trip, at, Leg.DEPART, Constants.VAN_CREEP_SPEED)
+
+
+## Host: every NICE BOY standing on the lawn (out of the van, not already running
+## for it) sprints after the creeping van from where he stands at server time at,
+## hops onto the bumper, and the back doors swing shut just as the last of them
+## reaches it (_crew_local's CREW_RUN).
+func _host_send_stragglers(trip: Trip, at: float) -> void:
+	var last := -1.0
+	for index: Variant in trip.crew.keys():
+		var entry: Dictionary = trip.crew[index]
+		if int(entry["mode"]) == CREW_RUN:
+			last = maxf(last, float(entry["at"]) + _straggler_run_seconds(trip, entry))
+			continue
+		if int(entry["mode"]) != CREW_HOP_OUT or at < float(entry["at"]) + _crew_hop_out_seconds(entry):
+			continue
+		var crew := _crew_node(int(index))
+		if crew == null:
+			continue
+		var run := {"seat": -1, "at": at, "mode": CREW_RUN, "from": crew.global_position}
+		last = maxf(last, at + _straggler_run_seconds(trip, run))
+		_rpc_crew_seat.rpc(trip.id, int(index), -1, at, CREW_RUN, crew.global_position)
+		stats["stragglers"] = int(stats["stragglers"]) + 1
+		trip.info["doors_for"] = -1.0
+	if last > 0.0 and not is_equal_approx(float(trip.info.get("doors_for", -1.0)), last):
+		trip.info["doors_for"] = last
+		_host_door(trip, "back", false, maxf(last - Constants.VAN_BACK_DOOR_SWING, Net.server_time() + Constants.VAN_PLAN_LEAD))
+
+
+## How long a straggler's sprint lasts: from where he stood to just behind the
+## bumper of a van creeping away from him (every peer works it out the same).
+func _straggler_run_seconds(trip: Trip, entry: Dictionary) -> float:
+	var at := float(entry["at"])
+	var behind := _pose(trip, at) * _straggler_behind(trip).origin
+	var gap := _flat((entry["from"] as Vector3) - behind)
+	var closing := maxf(Constants.VAN_STRAGGLER_RUN_SPEED - Constants.VAN_CREEP_SPEED, 1.0)
+	# Never at the bumper before the back doors have swung open and shut again
+	# (they swing through where he'd stand).
+	var least := Constants.VAN_STRAGGLER_RUN_MIN
+	for event: Variant in trip.doors.get("back", []):
+		if bool((event as Array)[0]) and float((event as Array)[1]) <= at + Constants.VAN_STRAGGLER_RUN_MAX:
+			least = maxf(least, float((event as Array)[1]) + Constants.VAN_BACK_DOOR_SWING * 2.0 + 0.1 - at)
+	return clampf(gap / closing, least, maxf(least, Constants.VAN_STRAGGLER_RUN_MAX))
+
+
+## On the road just behind the bumper, facing the van, where his hop starts.
+func _straggler_behind(trip: Trip) -> Transform3D:
+	var rear := _local_marker(trip, "RearStep")
+	return Transform3D(rear.basis, Vector3(rear.origin.x, 0.0, rear.origin.z + Constants.VAN_STRAGGLER_BEHIND))
 
 
 ## Behind every rider's closed iris, the van out of the yard's sight: the riders
@@ -912,13 +1008,23 @@ func _host_move_riders(trip: Trip, now: float) -> void:
 	var at := now + Constants.VAN_PLAN_LEAD
 	# The drive out (and its stop at the route's end) gives way to the next stop.
 	_cut_legs(trip, at)
+	# From out of sight when anyone there could watch it come (it never pops in);
+	# when nobody could, it starts its pull-up as the riders' iris opens, so they
+	# aren't left in the dark for a drive nobody sees (R2c van: 4 s shut coming home,
+	# and at Annex B it popped in at full size 10 m from the curb).
+	var watched := _anyone_watching(zone, _riding_peers(trip))
 	if returning:
 		var curb := _drop_curb(zone)
-		var arrive := _arrival_legs(curb, at, -1.0, Leg.DROP_ARRIVE, Leg.DROP_PARKED, _avoid_points(trip))
+		var arrive_at := -1.0 if watched else at + Constants.RETURN_PULL_UP
+		var arrive := _arrival_legs(curb, at, arrive_at, Leg.DROP_ARRIVE, Leg.DROP_PARKED, _avoid_points(trip))
 		trip.legs.append_array(arrive)
 	else:
 		var curb := _annex_curb("AnnexCurb")
-		trip.legs.append_array(_roll_in_legs(curb, at))
+		if watched:
+			trip.legs.append_array(_arrival_legs(curb, at, -1.0, Leg.ANNEX_ARRIVE, Leg.ANNEX_PARKED, []))
+		else:
+			trip.legs.append_array(_roll_in_legs(curb, at))
+	stats["last_arrival_watched"] = watched
 	trip.info["zone"] = zone
 	_send_plan(trip)
 
@@ -1003,9 +1109,84 @@ func _host_drop(trip: Trip, leg: Dictionary, now: float) -> void:
 func _exit_point(trip: Trip, pose: Transform3D, order: int) -> Vector3:
 	var along: Array = Constants.VAN_EXIT_ALONG
 	var local := _local_marker(trip, "DoorStep").origin + Vector3(Constants.VAN_EXIT_OUT, 0.0, float(along[order % along.size()]))
+	# Clear of lamp posts and street furniture: slid along the curb (inside the
+	# doorway's span) until nothing stands within VAN_EXIT_CLEAR (R2c van).
+	var lamps := _street_lamps()
+	stats["exit_lamps"] = lamps.size()
+	var step := 0.3
+	for index: int in int(Constants.VAN_EXIT_SLIDE_MAX / step) * 2 + 1:
+		var slide := step * float((index + 1) / 2) * (1.0 if index % 2 == 1 else -1.0)
+		var z := float(local.z) + slide
+		if z < Constants.VAN_DOORWAY_Z.x or z > Constants.VAN_DOORWAY_Z.y:
+			continue
+		var at := pose * Vector3(local.x, 0.0, z)
+		at.y = _ground_y(at, pose.origin.y + 0.2)
+		if _exit_clear(trip, at, lamps):
+			if index > 0:
+				stats["exit_slides"] = int(stats.get("exit_slides", 0)) + 1
+			return at
 	var at := pose * local
 	at.y = _ground_y(at, pose.origin.y + 0.2)
 	return at
+
+
+## Nothing standing within VAN_EXIT_CLEAR of a step-down spot: no collider (a
+## mailbox, a hydrant, a fence post), no street lamp (they have none), no trunk.
+func _exit_clear(trip: Trip, at: Vector3, lamps: PackedVector3Array) -> bool:
+	for lamp: Vector3 in lamps:
+		if Vector2(lamp.x - at.x, lamp.z - at.z).length() < Constants.VAN_EXIT_CLEAR:
+			return false
+	for entry: Array in _trees:
+		if Vector2((entry[0] as Vector3).x - at.x, (entry[0] as Vector3).z - at.z).length() < Constants.VAN_EXIT_CLEAR:
+			return false
+	var space := get_world_3d().direct_space_state if is_inside_tree() else null
+	if space == null:
+		return true
+	var shape := CylinderShape3D.new()
+	shape.radius = Constants.VAN_EXIT_CLEAR
+	shape.height = 1.6
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, 0.3 + 0.8, 0.0))
+	query.collision_mask = 0xFFFF & ~Constants.PAD_WALL_LAYER
+	query.collide_with_areas = false
+	for hit: Dictionary in space.intersect_shape(query, 8):
+		var collider := hit.get("collider") as Node
+		if collider == null or collider is CharacterBody3D or collider.is_in_group("players") or _is_own_van(collider):
+			continue
+		return false
+	return true
+
+
+## Every street lamp around the yard and the town, in world space (the street
+## builder leaves them as a "lamps" meta on each block's root; they have no
+## collider for the physics to find).
+func _street_lamps() -> PackedVector3Array:
+	var out := PackedVector3Array()
+	var world := _world()
+	if world == null:
+		return out
+	for zone_name: String in ["LotZone", "TownZone", "StoreZone"]:
+		var zone := world.get_node_or_null(zone_name) as Node3D
+		if zone == null:
+			continue
+		for node: Node in zone.find_children("*", "Node3D", true, false):
+			if str(node.name).begins_with("StreetLamp"):
+				# levels/dressing/neighborhood.gd's lamps (Homie Depot's lot).
+				out.append((node as Node3D).global_position)
+				continue
+			# The street's own root keeps them in its parent's space, and that parent
+			# (the block) carries the same list: read it there, once.
+			if not node.has_meta("lamps") or (node.get_parent() != null and node.get_parent().has_meta("lamps")):
+				continue
+			var lamps: Variant = node.get_meta("lamps")
+			var frame := (node as Node3D).global_transform
+			if str(node.name).begins_with("Street") and node.get_parent() is Node3D:
+				frame = (node.get_parent() as Node3D).global_transform
+			if lamps is PackedVector3Array:
+				for lamp: Vector3 in lamps:
+					out.append(frame * lamp)
+	return out
 
 
 func _host_end_trip(trip: Trip) -> void:
@@ -1085,7 +1266,10 @@ func _return_trip(create: bool) -> Trip:
 			return trip
 	var trip := _new_trip("return")
 	trip.info["zone"] = Net.Zone.BORDER
-	trip.legs = _roll_in_legs(curb, Net.server_time() + Constants.VAN_PLAN_LEAD, 60.0)
+	# Down Annex B's long street from deep in the haze, while the riders are
+	# inside (R2c van: from 60 m down a straight, open street it appeared in
+	# plain view by the forecourt).
+	trip.legs = _arrival_legs(curb, Net.server_time() + Constants.VAN_PLAN_LEAD, -1.0, Leg.ANNEX_ARRIVE, Leg.ANNEX_PARKED, [], Constants.VAN_ANNEX_RETURN_FROM)
 	_send_plan(trip)
 	return trip
 
@@ -1094,7 +1278,7 @@ func _return_trip(create: bool) -> Trip:
 ## lane from out of sight at VAN_ARRIVE_SPEED, merging to the curb, braking at
 ## VAN_BRAKE_DECEL. arrive_at fixes when it stops (the raid's warning), or -1 for
 ## as soon as it can. Then a standing leg there.
-func _arrival_legs(curb: Transform3D, start: float, arrive_at: float, moving: int, parked: int, avoid: Array) -> Array:
+func _arrival_legs(curb: Transform3D, start: float, arrive_at: float, moving: int, parked: int, avoid: Array, far: float = Constants.VAN_HIDE_METERS) -> Array:
 	var v := Constants.VAN_ARRIVE_SPEED
 	var a := Constants.VAN_BRAKE_DECEL
 	var length := v * v / (2.0 * a) + 4.0
@@ -1108,7 +1292,7 @@ func _arrival_legs(curb: Transform3D, start: float, arrive_at: float, moving: in
 			v = minf(v, Constants.VAN_MAX_SCREEN_SPEED)
 			a = v / span
 	else:
-		length = maxf(length, Constants.VAN_HIDE_METERS)
+		length = maxf(length, far)
 	# Always the same way down the street: its open side has to face the yard (or
 	# the store), so it can't come in from the other end without a U-turn.
 	var points := _street_points(curb, -length, 0.0, true)
@@ -1171,6 +1355,10 @@ func _plan_departure(trip: Trip, at: float, kind: int) -> void:
 		var to_creep := Constants.VAN_CREEP_SPEED / Constants.VAN_PULL_ACCEL
 		trip.legs.append({"k": Leg.CREEP, "t": pull, "p": points, "v0": 0.0, "segs": PackedFloat32Array([to_creep, Constants.VAN_PULL_ACCEL])})
 		_send_plan(trip)
+		# Every NICE BOY still out sprints after it now, on a timeline every peer
+		# draws the same (R2c van: left to his own feet, the straggler reached the
+		# back as it pulled away and was left waving in the road).
+		_host_send_stragglers(trip, at)
 		return
 	_plan_route_from(trip, pull, kind, 0.0)
 
@@ -1383,6 +1571,22 @@ func _watcher_points(avoid: Array) -> Array:
 		if zone == Net.Zone.LOT or zone == Net.Zone.TOWN or zone == Net.Zone.STORE:
 			out.append((node as Node3D).global_position)
 	return out
+
+
+## Host: whether anyone but these riders could be watching a van turn up in zone:
+## a player in it (the yard and the town count as one street), off any van. A dev
+## watcher (the playtest observer) doesn't count: its camera follows a rider, and
+## cuts with them when they change zone.
+func _anyone_watching(zone: int, riders: Array) -> bool:
+	var riding := boarded_riders()
+	for peer_id: int in Net.peer_ids():
+		if riders.has(peer_id) or riding.has(peer_id) or Net.is_watcher(peer_id):
+			continue
+		var theirs := Net.player_zone(peer_id)
+		var street := [Net.Zone.LOT, Net.Zone.TOWN]
+		if theirs == zone or (street.has(theirs) and street.has(zone)):
+			return true
+	return false
 
 
 func _avoid_points(trip: Trip) -> Array:
@@ -1653,7 +1857,14 @@ func _annex_curb(marker_name: String) -> Transform3D:
 		# door step there, not on the marker's facing (R2 integration: it rolled in
 		# nose-first through the Annex's front windows and parked across the sidewalk).
 		var along := Basis.looking_at(_NiceVan.STREET_DIR, Vector3.UP)
-		return Transform3D(along, marker.global_position - along.x * Constants.VAN_ANNEX_DOOR_TO_CURB)
+		var at := marker.global_position - along.x * Constants.VAN_ANNEX_DOOR_TO_CURB
+		if marker_name == "ForecourtCurb" and marker.name == "ForecourtCurb":
+			# The ride home waits up the curb, clear of the turnstile's way out, so
+			# the receipt beat plays on open pavement and nobody walks into its open
+			# side (R2c van: parked square in front of the turnstile, the forecourt
+			# beat was filmed from inside the van).
+			at -= _NiceVan.STREET_DIR * Constants.VAN_RETURN_CURB_SHIFT
+		return Transform3D(along, at)
 	var border := world.get_node_or_null("BorderZone") as Node3D if world != null else null
 	var origin := (border.global_position if border != null else Vector3(0.0, 0.0, 1000.0)) + Constants.VAN_ANNEX_CURB
 	return Transform3D(Basis.looking_at(_NiceVan.STREET_DIR, Vector3.UP), origin)
@@ -1777,10 +1988,17 @@ func _host_unbuckle(rescuer: int, target: int, start: bool) -> void:
 			return
 	_holds.erase(rescuer)
 	var pose := _pose(trip, now)
-	# Down beside the door, on the side away from whoever let them out.
+	# Down beside whoever let them out, shoulder to shoulder and facing the yard
+	# (the seat faces out the open side), never face to face with them (R2c van:
+	# landed past the step, the freed friend stood nose to nose with the rescuer).
 	var step_local := _local_marker(trip, "DoorStep").origin
 	var rescuer_local := pose.affine_inverse() * _player(rescuer).global_position
-	var exit := pose * (step_local + Vector3(0.3, 0.0, -1.0 if rescuer_local.z > step_local.z else 1.0))
+	var side := -1.0 if rescuer_local.z > step_local.z else 1.0
+	var beside := Vector3(maxf(rescuer_local.x, step_local.x + Constants.VAN_EXIT_OUT), 0.0, rescuer_local.z + side * Constants.VAN_UNBUCKLE_BESIDE)
+	# Still in front of the open side, so the step down goes through the doorway.
+	beside.z = clampf(beside.z, Constants.VAN_DOORWAY_Z.x, Constants.VAN_DOORWAY_Z.y)
+	var exit := pose * beside
+	exit.y = _ground_y(exit, pose.origin.y + 0.2)
 	var at := now + Constants.VAN_PLAN_LEAD * 0.5
 	_rpc_unseat.rpc(trip.id, target, exit, at)
 	stats["unbuckles"] = int(stats["unbuckles"]) + 1
@@ -2235,12 +2453,13 @@ func _free_trip(trip: Trip) -> void:
 
 
 func _set_solid(trip: Trip, solid: bool) -> void:
-	var body := trip.look.get_node_or_null("Solid") as CollisionObject3D
-	if body == null:
-		return
 	var layers: Vector2i = trip.info.get("_solid_layers", Vector2i(1, 1))
-	body.collision_layer = layers.x if solid else 0
-	body.collision_mask = layers.y if solid else 0
+	for part: String in ["Solid", "Doorway"]:
+		var body := trip.look.get_node_or_null(part) as CollisionObject3D
+		if body == null:
+			continue
+		body.collision_layer = layers.x if solid else 0
+		body.collision_mask = layers.y if solid else 0
 
 
 func _doors_and_lights(trip: Trip, now: float) -> void:
@@ -2275,6 +2494,10 @@ func _sounds(trip: Trip, leg: Dictionary, now: float) -> void:
 					_sound_once(trip, honk_key, "van_honk", now, now)
 				_sound_once(trip, honk_key, "van_honk", now, t + maxf(cruise - Constants.VAN_HONK_BEFORE_BRAKE, 0.0))
 				_sound_once(trip, "brake%d" % index, "skid", now, t + cruise, Constants.VAN_BRAKE_DB)
+				# And the last squeal as it settles at the curb, close and loud, the
+				# nose dipping (R2c van: the one at 20 m out had no onset in the mix).
+				var stop_at := t + _segs_seconds(segs)
+				_sound_once(trip, "settle%d" % index, "skid", now, stop_at - Constants.VAN_BRAKE_SETTLE_BEFORE, Constants.VAN_BRAKE_SETTLE_DB)
 			Leg.DEPART, Leg.RETURN_DEPART, Leg.LEAVE:
 				# The putt-putt alone: the slide already slammed, and a van that
 				# never stopped (a drive-on) has no door to bonk.
@@ -2509,7 +2732,10 @@ func _place_riders(trip: Trip, now: float) -> void:
 			var first := not trip.staged_pose.has(peer)
 			trip.staged_pose[peer] = pose
 			if player.has_method("set_staged"):
-				player.call("set_staged", anchor, Transform3D.IDENTITY, 0.2 if first else 0.0, pose)
+				# Seated behind an iris (the ride home from Annex B) the body is put in its
+				# seat at once: eased, it slid 20 m out of the lobby through the walls.
+				var ease_in := 0.2 if first and int(entry["mode"]) != BOARD_IRIS else 0.0
+				player.call("set_staged", anchor, Transform3D.IDENTITY, ease_in, pose)
 			if first and peer == Net.local_peer_id():
 				_seat_camera(trip, peer, true)
 		var body := player.get_node_or_null("Visual/CartoonBody")
@@ -2577,7 +2803,7 @@ func _seat_camera(trip: Trip, peer_id: int, on: bool, blend: float = 0.35) -> vo
 		var blend_in := 0.0 if int(entry.get("mode", BOARD_STEP)) == BOARD_IRIS else Constants.VAN_STEP_SECONDS
 		player.call("stage_push", SHOT_SEAT, {"anchor": cam, "offset": Transform3D.IDENTITY, "blend_in": blend_in,
 			"blend_out": 0.35, "yaw_clamp": Vector2(-deg_to_rad(Constants.VAN_SEAT_LOOK_YAW), deg_to_rad(Constants.VAN_SEAT_LOOK_YAW)), "pitch_clamp": Constants.VAN_SEAT_LOOK_PITCH,
-			"orbit": false, "spring": false, "fov": 0.0, "lag": 0.0, "priority": 30, "hide_self": true})
+			"orbit": false, "spring": false, "fov": 0.0, "lag": 0.0, "priority": 30, "hide_self": true, "ride": trip.look})
 	else:
 		player.call("stage_pop", SHOT_FRESHENER, 0.0)
 		player.call("stage_pop", SHOT_SEAT, blend)
@@ -2622,7 +2848,7 @@ func _local_rider_beats(now: float) -> void:
 				if player != null and player.has_method("stage_push"):
 					player.call("stage_push", SHOT_FRESHENER, {"anchor": _NiceVan.marker(trip.look, "FreshenerCam"), "offset": Transform3D.IDENTITY,
 						"blend_in": Constants.VAN_FRESHENER_BLEND, "blend_out": 0.0, "yaw_clamp": Vector2.ZERO, "pitch_clamp": Vector2.ZERO, "orbit": false,
-						"spring": false, "fov": Constants.VAN_FRESHENER_FOV, "lag": 0.0, "priority": 60, "hide_self": true})
+						"spring": false, "fov": Constants.VAN_FRESHENER_FOV, "lag": 0.0, "priority": 60, "hide_self": true, "ride": trip.look})
 				_radio_on(true)
 				var lines: Array = _Strings.VAN_LINES.get("ride_radio", [])
 				var stack := get_tree().get_first_node_in_group("caption_stack")
@@ -2645,6 +2871,9 @@ func _local_rider_beats(now: float) -> void:
 		# Home: the last RETURN_PULL_UP of the street, not the whole approach.
 		if kind == Leg.DROP_ARRIVE and leg_now.has("segs"):
 			there = now >= float(leg_now["t"]) + maxf(_segs_seconds(leg_now["segs"]) - Constants.RETURN_PULL_UP, 0.0)
+		elif kind == Leg.ANNEX_ARRIVE and leg_now.has("segs"):
+			# A long way in (someone at Annex B could have watched it come): only the end.
+			there = now >= float(leg_now["t"]) + maxf(_segs_seconds(leg_now["segs"]) - Constants.VAN_ANNEX_PULL_UP, 0.0)
 		var zone_ok := Net.player_zone(me) == int(trip.info.get("zone", Net.player_zone(me)))
 		var open_key := "open%d" % int(leg_now.get("t", 0.0) * 100.0)
 		if there and zone_ok and trip.my_beats.has("iris%d" % _last_drive_index(trip)) and not trip.my_beats.has(open_key):
@@ -2758,6 +2987,24 @@ func _crew_local(trip: Trip, index: int, now: float) -> Array:
 			if n < 1.0:
 				return [_arc(aisle, seat, n, 0.05), false, false]
 			return [seat, true, false]
+		CREW_RUN:
+			var rear := _local_marker(trip, "RearStep")
+			var behind := _straggler_behind(trip)
+			var run := _straggler_run_seconds(trip, entry)
+			if tau < run:
+				# The sprint, in the van's space: from where he stood (falling back as
+				# the van creeps on) to just behind the bumper, easing off at the end.
+				var from := _pose(trip, now).affine_inverse() * (entry["from"] as Vector3)
+				var u := clampf(tau / run, 0.0, 1.0)
+				var at := from.lerp(behind.origin, u * u * (3.0 - 2.0 * u))
+				var dir := behind.origin - from
+				dir.y = 0.0
+				var facing := Basis.looking_at(dir.normalized(), Vector3.UP) if dir.length() > 0.05 else behind.basis
+				return [Transform3D(facing, at), false, false]
+			var k := (tau - run) / Constants.VAN_HOP_SECONDS
+			if k < 1.0:
+				return [_arc(behind, rear, k, 0.45), false, false]
+			return [rear, false, false]
 		_:
 			var rear := _local_marker(trip, "RearStep")
 			var from := Transform3D(rear.basis, entry["from"] as Vector3)
@@ -2779,18 +3026,22 @@ func _place_crew(trip: Trip, now: float) -> void:
 		var done := bool(placed[2])
 		var sitting := bool(placed[1])
 		var state: String = "done" if done else ("sit" if sitting else "stand")
+		var seat_mode := int((trip.crew[index] as Dictionary)["mode"])
+		if seat_mode == CREW_RUN and now < float((trip.crew[index] as Dictionary)["at"]) + _straggler_run_seconds(trip, trip.crew[index] as Dictionary):
+			state = "run"
 		var was := str(trip.crew_staged.get(i, ""))
 		if state != was:
 			trip.crew_staged[i] = state
 			_sync_crew_mode(crew, trip.crew[index] as Dictionary, state)
 			if done:
 				_unstage_crew(trip, i)
-			else:
-				_stage_crew(crew, anchor, sitting, was == "")
-				if was == "sit" and state == "stand" and int((trip.crew[index] as Dictionary)["mode"]) == CREW_HOP_OUT:
-					_VanGestures.play(crew.get_node_or_null("Visual/CartoonBody"), "step_up")
-				if int((trip.crew[index] as Dictionary)["mode"]) == CREW_REAR and was != "stand":
-					_VanGestures.play(crew.get_node_or_null("Visual/CartoonBody"), "straggler_hop")
+			elif was != "run":
+				# From the lawn (a straggler), or a first sight: eased onto the anchor.
+				_stage_crew(crew, anchor, sitting, was == "" or was == "done")
+			if was == "sit" and state == "stand" and seat_mode == CREW_HOP_OUT:
+				_VanGestures.play(crew.get_node_or_null("Visual/CartoonBody"), "step_up")
+			if (seat_mode == CREW_REAR or seat_mode == CREW_RUN) and state == "stand" and was != "stand":
+				_VanGestures.play(crew.get_node_or_null("Visual/CartoonBody"), "straggler_hop")
 		if not done and Net.is_host() and not crew.has_method("set_staged"):
 			# The fallback, host side: the body itself sits where the anchor is (the
 			# synchronizer sends it on), its brain off while it rides.
@@ -2816,6 +3067,9 @@ func _sync_crew_mode(crew: Node, entry: Dictionary, state: String) -> void:
 	var want := -1
 	if state == "sit":
 		want = _CrewMember.Mode.SEATED
+	elif state == "run":
+		# Sprinting after the van: the recall's elbow-pumping gait (crew_member.gd).
+		want = _CrewMember.Mode.RECALL
 	elif state == "stand":
 		want = _CrewMember.Mode.HOP_OUT if seat_mode == CREW_HOP_OUT else _CrewMember.Mode.HOP_IN
 	elif state == "done" and seat_mode == CREW_HOP_OUT:
@@ -2836,6 +3090,10 @@ func _sync_crew_mode(crew: Node, entry: Dictionary, state: String) -> void:
 
 func _stage_crew(crew: Node, anchor: Node3D, sitting: bool, first: bool) -> void:
 	if crew.has_method("set_staged"):
+		# A scenario's straggler walk (_dev_straggle_tick) holds his physics off;
+		# staging runs there (crew_member.gd _physics_process), so it's back on.
+		if Net.is_host() and not crew.is_physics_processing():
+			crew.set_physics_process(true)
 		crew.call("set_staged", anchor, Transform3D.IDENTITY, 0.25 if first else 0.0, &"sit_buckled" if sitting else &"stand")
 		return
 	var body := crew.get_node_or_null("Visual/CartoonBody")

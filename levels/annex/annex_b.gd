@@ -272,7 +272,9 @@ func _ground(shell: RefCounted, furniture: RefCounted) -> void:
 	add_child(street)
 	street.position = Vector3(0.0, 0.0, (SIDEWALK_END + STREET_END) * 0.5)
 	var road := _HouseKit.new()
-	road.call("box", Vector3(half * 2.0 + 60.0, 0.04, STREET_END - SIDEWALK_END), Vector3(0.0, -0.02, 0.0), ASPHALT, "road", Basis.IDENTITY, {"params": _Surfaces.road_params("double_yellow_edges", (STREET_END - SIDEWALK_END) * 0.5 - 0.3, 3.0)})
+	# Out into the haze both ways (R2c van): the Courtesy Shuttle comes down it from
+	# Constants.VAN_ANNEX_RETURN_FROM off and drives away along it.
+	road.call("box", Vector3(half * 2.0 + Constants.VAN_ANNEX_STREET_EXTRA, 0.04, STREET_END - SIDEWALK_END), Vector3(0.0, -0.02, 0.0), ASPHALT, "road", Basis.IDENTITY, {"params": _Surfaces.road_params("double_yellow_edges", (STREET_END - SIDEWALK_END) * 0.5 - 0.3, 3.0)})
 	road.call("commit", street, "Road")
 
 

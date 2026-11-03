@@ -64,6 +64,12 @@ static func show_for(player: Node3D, lines: PackedStringArray, total_line: Strin
 	slip.add_to_group("caption_blockers")
 	slip.build(lines, total_line, at, seconds)
 	var camera := player.get_node_or_null("Visual/Head/FirstPerson") as Node3D
+	# Seated in the shuttle home (let out at closing time, R2c van), your view is the
+	# stage camera's: the slip is held up in front of that one instead.
+	var stage := player.get_node_or_null("CameraRig/StageCam") as Camera3D
+	if stage != null and stage.current and player.is_multiplayer_authority():
+		camera = stage
+		first_person = true
 	if first_person and camera != null:
 		camera.add_child(slip)
 		# Its middle at the hold point: the whole strip, top to bottom, in view.
