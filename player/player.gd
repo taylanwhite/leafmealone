@@ -1388,6 +1388,12 @@ func _process(_delta: float) -> void:
 		var wheel := _Seated.wheel_grips(self)
 		if not wheel.is_empty():
 			body_now.call("set_hold", wheel[0], wheel[1])
+		elif has_meta(&"body_hands") and anim_state != AnimState.KNOCKED and carried_by == 0:
+			# Hands on something that isn't held as a prop, as everyone else sees
+			# them (R2c annex: a window's stamp out of its hatch): world points
+			# {"right", "left"}, either one left out to leave that arm be.
+			var hands: Dictionary = get_meta(&"body_hands")
+			body_now.call("set_hold", hands.get("right", Vector3.INF), hands.get("left", Vector3.INF))
 		elif held != null and anim_state != AnimState.KNOCKED and carried_by == 0:
 			var grips := _PropLooks.grip_points(held, self)
 			body_now.call("set_hold", grips[0], grips[1])

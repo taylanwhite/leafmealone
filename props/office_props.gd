@@ -650,6 +650,10 @@ class ServiceWindow extends Prop:
 	func borrowed() -> bool:
 		return _borrow_to.is_valid() or OfficeProps.now() - _return_at < Constants.ANNEX_BORROW_RETURN
 
+	## In someone's hand right now (not on its way home).
+	func in_hand() -> bool:
+		return _borrow_to.is_valid()
+
 	## Where the stamp's knob is (a hand holding it goes here).
 	func stamp_knob() -> Vector3:
 		return _stamp.global_position + _stamp.global_basis.y * 0.135
@@ -678,7 +682,7 @@ class ServiceWindow extends Prop:
 			return pad
 		var since := t - _borrow_at
 		if _borrow_quick:
-			return pad.lerp(carry, OfficeProps.ease_out(since / 0.22))
+			return pad.lerp(carry, OfficeProps.ease_out(since / Constants.ANNEX_BORROW_QUICK))
 		var reach := Constants.ANNEX_BORROW_REACH
 		var slide := Constants.ANNEX_BORROW_SLIDE
 		# Under the glass, out over the lobby side of the ledge.
@@ -792,13 +796,13 @@ class ServiceWindow extends Prop:
 			_stamp.global_position = _borrowed_at(t) + Vector3.UP * slam_up
 			_stamp.rotation.z = 0.0
 			moving = true
-			if _stamp_state == &"stamp_down" and since > _stamp_first + float(_stamp_volley - 1) * _stamp_gap + 0.3:
+			if _stamp_state == &"stamp_down" and since > _stamp_first + float(_stamp_volley - 1) * _stamp_gap + Constants.ANNEX_BORROW_LET_GO:
 				give_back(t)
 		elif t - _return_at < Constants.ANNEX_BORROW_RETURN:
 			# Put back on its pad over the sill.
 			var k := OfficeProps.ease_out((t - _return_at) / Constants.ANNEX_BORROW_RETURN)
 			var pad := global_transform * (STAMP_SPOT + Vector3(0.0, 0.026, 0.0))
-			_stamp.global_position = _return_from.lerp(pad, k) + Vector3.UP * 0.08 * sin(k * PI)
+			_stamp.global_position = _return_from.lerp(pad, k) + Vector3.UP * Constants.ANNEX_BORROW_RETURN_ARC * sin(k * PI)
 			moving = true
 		elif _stamp_top_material != null and (_stamp.get_node("Mesh") as MeshInstance3D).material_override == _stamp_top_material:
 			_stamp_on_top(false)

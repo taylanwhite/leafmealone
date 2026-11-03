@@ -236,10 +236,11 @@ class Slip extends Node3D:
 				holder.remove_meta(&"fp_hands")
 			holder = null
 			return
-		var bottom := -_length - 0.012
-		var hands := {"right": _strip.global_transform * Vector3(WIDTH * 0.42, bottom, 0.0)}
+		var bottom := -_length - Constants.RECEIPT_GRIP_UNDER
+		var spread := WIDTH * Constants.RECEIPT_GRIP_SPREAD
+		var hands := {"right": _strip.global_transform * Vector3(spread, bottom, 0.0)}
 		if not pocketing:
-			hands["left"] = _strip.global_transform * Vector3(-WIDTH * 0.42, bottom, 0.0)
+			hands["left"] = _strip.global_transform * Vector3(-spread, bottom, 0.0)
 		holder.set_meta(&"fp_hands", hands)
 
 	func _exit_tree() -> void:

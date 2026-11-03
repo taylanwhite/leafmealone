@@ -146,9 +146,20 @@ func _run() -> void:
 	_stand(client, _spot(annex, "Windows/%s/StampPad" % window))
 	await get_tree().create_timer(0.5).timeout
 	annex.call("dev_client", client, "self_stamp", [window, true])
-	var heisted := await _until(func() -> bool: return int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped, 3.0)
+	# R2c annex review: seen from here, the client's hands are on the stamp while
+	# it's out of the hatch (player.gd body_hands), and off it once it's home.
+	var hands_seen := [false]
+	await _until(func() -> bool:
+		var them := _player(client)
+		if them != null and them.has_meta(&"body_hands"):
+			hands_seen[0] = true
+		return int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped and hands_seen[0], 3.5)
+	var heisted := int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped
 	annex.call("dev_client", client, "self_stamp", [window, false])
 	_check("4 a self-stamp at window %s while he looks away stamps the box" % window, away and heisted, "found a moment %s, stamped %d" % [away, int((annex.call("form_of", client) as Dictionary)["stamped"])])
+	await get_tree().create_timer(Constants.ANNEX_BORROW_LET_GO + Constants.ANNEX_BORROW_RETURN + 0.6).timeout
+	var let_go := _player(client) != null and not _player(client).has_meta(&"body_hands")
+	_check("4 everyone else sees their hand on the stamp while it's out, and let go after", hands_seen[0] and let_go, "hands seen %s, let go %s" % [hands_seen[0], let_go])
 	form = annex.call("form_of", client)
 	window = _Form.next_window(form)
 	var boxes := (form["boxes"] as PackedStringArray).size()
@@ -240,7 +251,8 @@ func _run() -> void:
 	await _until(func() -> bool: return int(annex.call("big_stamp_holder")) == client, 3.0)
 	var before := int((annex.call("form_of", client) as Dictionary)["stamped"])
 	var spotted_before := int(_AnnexScript.stats["spotted"])
-	_retime_head(annex, _Schedule.S.DESK, 6.0)
+	# Long enough a desk time to see him walk back, sit and approve after (review).
+	_retime_head(annex, _Schedule.S.DESK, 10.0)
 	var desk := _spot(annex, "HeadDesk/DeskSpot")
 	var out_dir := (desk - _spot(annex, "HeadDesk")).normalized()
 	_stand(client, desk + out_dir * 2.5, 0.0)
@@ -248,6 +260,31 @@ func _run() -> void:
 	var returned := await _until(func() -> bool: return int(annex.call("big_stamp_holder")) == 0, Constants.ANNEX_SPOTTED_WALK + 2.0)
 	var after: Dictionary = annex.call("form_of", client)
 	_check("7 spotted off its pad, the big stamp goes back and the holder loses one box", spotted and returned and int(after["stamped"]) == before - 1 and not bool(after["approved"]), "spotted %s, back %s, stamped %d -> %d" % [spotted, returned, before, int(after["stamped"])])
+	# R2c annex review: the moment he's back in DESK from taking it, a full form
+	# waits at the desk; he walks back to his chair (ANNEX_HEAD_SETTLE) before he
+	# reads it (the spotted override dropped him into DESK with its old start, and
+	# he approved on his way back from the holder).
+	var full: Dictionary = annex.call("form_of", client)
+	full["stamped"] = (full["boxes"] as PackedStringArray).size()
+	full["approved"] = false
+	annex.call("dev_set_form", client, full)
+	# When his walk to the holder ended (Annex time); the approval he starts must
+	# come ANNEX_HEAD_SETTLE after it. (dev_retime keeps earlier tests' overrides,
+	# so only an approval that starts after it counts.)
+	var spotted_until := -1.0
+	for entry: Variant in annex.get("_overrides"):
+		if str((entry as Dictionary).get("kind", "")) == "spotted":
+			spotted_until = maxf(spotted_until, float((entry as Dictionary)["until"]))
+	_stand(client, desk)
+	var approve_at := [-1.0]
+	await _until(func() -> bool:
+		var head: Dictionary = annex.call("window_now", "head")
+		if int(head["state"]) == _Schedule.S.APPROVE and float(head["since"]) > spotted_until:
+			approve_at[0] = float(head["since"])
+		return approve_at[0] > 0.0, Constants.ANNEX_HEAD_SETTLE + 6.0)
+	var approved_after := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary)["approved"]), 6.0)
+	var settled_for := float(approve_at[0]) - spotted_until
+	_check("7 straight back from taking his stamp, he sits down before he approves", spotted_until > 0.0 and approve_at[0] > 0.0 and settled_for >= Constants.ANNEX_HEAD_SETTLE - 0.05 and approved_after, "walk back ended at %.2f, approval began %.2f s after it (>= %.1f), approved %s" % [spotted_until, settled_for, Constants.ANNEX_HEAD_SETTLE, approved_after])
 	# 8. Co-signing.
 	_reset_form(annex, client, 0)
 	var rescues_before := float(Campaign.job_stats(host).get("rescues", 0.0))

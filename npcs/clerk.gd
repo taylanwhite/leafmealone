@@ -83,6 +83,10 @@ var _rng := RandomNumberGenerator.new()
 ## The eased head turn, and the sidestep round a person in the way (R2b).
 var _face_turn: float = 0.0
 var _avoid := Vector3.ZERO
+## The wide solid ball at head height (off while at his seat or desk).
+var _head_shape: CollisionShape3D
+## Walking round someone: the side he steps to (1 or -1), 0 when nobody's near.
+var _side: int = 0
 ## R2c annex: where the body stands before any stand-off (the route's point, or
 ## where he stopped); position is this plus _avoid.
 var _base := Vector3.ZERO
@@ -148,6 +152,15 @@ func _dress(index: int) -> void:
 	shape.shape = capsule
 	shape.position = Vector3(0.0, Constants.CLERK_SOLID_HEIGHT * 0.5, 0.0)
 	solid.add_child(shape)
+	# And wider at the head (review: walking into him, his face still filled the
+	# view from 0.4 m): a camera stops CLERK_SOLID_HEAD_RADIUS off his face.
+	# Off at a seat or desk (a visitor at the Head NICE BOY's desk stands closer).
+	_head_shape = CollisionShape3D.new()
+	var head_ball := SphereShape3D.new()
+	head_ball.radius = Constants.CLERK_SOLID_HEAD_RADIUS
+	_head_shape.shape = head_ball
+	_head_shape.position = Vector3(0.0, Constants.CLERK_SOLID_HEAD_Y, 0.0)
+	solid.add_child(_head_shape)
 	add_child(solid)
 	# Pose after the body animates each tick (it resets the arms every tick).
 	process_physics_priority = 10
@@ -363,6 +376,16 @@ func _stand_off(delta: float) -> void:
 	var parent := get_parent() as Node3D
 	if _sit < 0.5 and is_inside_tree() and parent != null:
 		var me := parent.to_global(_base)
+		# Round people, never through them (review: walking into the Greeter, or
+		# him walking into you, the push flipped sides as you crossed his line and
+		# he jumped half a metre through you). Walking, he steps aside, square to
+		# his way, to the side he started on; standing, he keeps to the side he's
+		# already stepped to.
+		var last := _route[_route.size() - 1] if not _route.is_empty() else _base
+		var walking := not _route.is_empty() and Vector2(_base.x - last.x, _base.z - last.z).length() > 0.05
+		var lateral := parent.global_basis * Vector3(cos(_yaw), 0.0, -sin(_yaw))
+		var held_side := parent.global_basis * _avoid
+		var near := false
 		for node: Node in get_tree().get_nodes_in_group("players"):
 			var person := node as Node3D
 			if person == null or not person.is_visible_in_tree():
@@ -370,8 +393,22 @@ func _stand_off(delta: float) -> void:
 			var away := me - person.global_position
 			away.y = 0.0
 			var d := away.length()
-			if d < Constants.CLERK_STAND_OFF and d > 0.01:
-				push += away / d * (Constants.CLERK_STAND_OFF - d)
+			if d >= Constants.CLERK_STAND_OFF:
+				continue
+			near = true
+			var amount := Constants.CLERK_STAND_OFF - d
+			if walking:
+				if _side == 0:
+					_side = 1 if lateral.dot(away) >= 0.0 else -1
+				push += lateral * float(_side) * amount
+				continue
+			var dir := away / d if d > 0.01 else (held_side.normalized() if held_side.length() > 0.01 else lateral)
+			if held_side.length() > 0.1 and dir.dot(held_side) < 0.0:
+				var keep := held_side.normalized()
+				dir -= keep * 2.0 * dir.dot(keep)
+			push += dir * amount
+		if not near:
+			_side = 0
 		for node: Node in get_tree().get_nodes_in_group("annex_staff"):
 			var other := node as Node3D
 			if other == self or other == null or float(other.get("_sit")) >= 0.5 or not other.is_visible_in_tree():
@@ -386,6 +423,10 @@ func _stand_off(delta: float) -> void:
 		push = parent.global_basis.inverse() * push
 	_avoid = _avoid.lerp(Vector3(push.x, 0.0, push.z), 1.0 - exp(-delta * Constants.CLERK_STAND_OFF_EASE))
 	position = _base + _avoid
+	if _head_shape != null:
+		var off := not (role == "greeter" or role == "janitor" or _base.distance_to(_home_pos) > 0.6)
+		if _head_shape.disabled != off:
+			_head_shape.set_deferred(&"disabled", off)
 
 
 # ---------------------------------------------------------------- moving

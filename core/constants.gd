@@ -3638,6 +3638,8 @@ const ANNEX_JAM_RETURN_WALK: float = 8.0
 ## The Head NICE BOY is back in his chair this long (s) after his desk time
 ## starts: the host waits for it before he reads a form (he walks back from the
 ## copier or the cooler first; the desk approval never starts at an empty chair).
+## Counted from the later of his desk time's start and the end of his last walk
+## off to take the big stamp back (SPOTTED): never on his way back from a holder.
 const ANNEX_HEAD_SETTLE: float = 3.0
 ## At the approval he stands and steps this far (m) to his desk's edge, so both
 ## hands reach the big stamp on its pad; the pad sits on his side of the desk.
@@ -3667,3 +3669,44 @@ const ANNEX_BORROW_RETURN: float = 0.45
 ## How far your first-person arm may stretch (x its length) for a stamp across
 ## the counter.
 const ANNEX_BORROW_STRETCH: float = 2.4
+## Someone else's self-stamp, seen from outside: the stamp shoots out of the hatch
+## to them in this long (s), and comes down on this point in front of their chest
+## (m, in the player's own space, -Z ahead: a little to their left), over their
+## left hand held out flat this far under it (m), as if on the form in it; their
+## right hand is on its knob while it's out.
+const ANNEX_BORROW_QUICK: float = 0.22
+const ANNEX_BORROW_CARRY := Vector3(-0.18, 1.0, -0.42)
+const ANNEX_BORROW_PALM_DROP: float = 0.04
+## A hand on a stamp's knob holds it this high over the knob's center (m).
+const ANNEX_KNOB_GRIP: float = 0.03
+## The slam's last stamp lets go this long (s) after it lands, then flies home,
+## arcing this high (m) over the sill on the way.
+const ANNEX_BORROW_LET_GO: float = 0.3
+const ANNEX_BORROW_RETURN_ARC: float = 0.08
+## Your own stamp comes down on your form here (m, in the form's space): a touch
+## right, down and toward you of its middle.
+const ANNEX_FORM_SLAM_SPOT := Vector3(0.03, -0.02, -0.04)
+## The Copier Jam: the clerk waits this far (m) to the copier's side, not where the
+## Head NICE BOY stands at it.
+const ANNEX_JAM_SPOT_SIDE: float = 0.7
+## The big stamp in your hands: one hand this far (m) to each side of its block,
+## gripping this high over its center.
+const ANNEX_BIG_GRIP_SPREAD: float = 0.15
+const ANNEX_BIG_GRIP_UP: float = 0.05
+## Keycaps (the [E] over a thing): a desk bell's sits this far over the bell's
+## marker (m), just over its plunger; the big stamp's this much higher (m) than
+## R2B_HUD_STAMP_PROMPT_LIFT over its pad, over the stamp's knob.
+const ANNEX_BELL_KEYCAP_LIFT: float = 0.06
+const ANNEX_BIG_KEYCAP_EXTRA: float = 0.25
+## The receipt in your hands (props/receipt_slip.gd): held at its bottom corners,
+## this share of its half width out from the middle and this far (m) under its end.
+const RECEIPT_GRIP_SPREAD: float = 0.42
+const RECEIPT_GRIP_UNDER: float = 0.012
+## A staff body's head is solid this wide (m) at head height, wider than the
+## capsule (R2c annex review: walking into a NICE BOY, his face still filled the
+## view from 0.4 m), so a camera stops this far off a face.
+const CLERK_SOLID_HEAD_RADIUS: float = 0.62
+const CLERK_SOLID_HEAD_Y: float = 1.5
+## The Greeter holds Form 27-B out from at least this far (m) from the rider (body
+## centers): out past arm's length, not in their face.
+const ANNEX_GREETER_OFFER_GAP: float = 1.15
