@@ -59,6 +59,7 @@ mkdir -p "$OUT/shots"
 LATE_AT=$((SECONDS_TO_RUN / 3))
 END_AT=$((SECONDS_TO_RUN + 5))
 PIDS=()
+NAMES=()
 
 launch() {
 	local index="$1" role="$2" start_at="$3" name
@@ -84,6 +85,7 @@ launch() {
 		--measure="$OUT/$name.json" --run-seconds="$run_for" \
 		${extra[@]+"${extra[@]}"} > "$OUT/$name.log" 2>&1 &
 	PIDS+=($!)
+	NAMES+=("$name")
 }
 
 echo "soak: $PLAYERS players, ${SECONDS_TO_RUN}s, ${LAG_MS}ms, ${LOSS_PERCENT}% loss -> $OUT"
@@ -100,8 +102,13 @@ for ((index = 1; index < PLAYERS; index++)); do
 	elapsed=$((elapsed + 1))
 done
 
-for pid in "${PIDS[@]}"; do
-	wait "$pid" || true
+# Each peer's exit status, for soak_report.py: a crash on the way out fails the soak
+# too. Bash's own "Segmentation fault" line can't say which peer it was.
+: > "$OUT/exit_codes.txt"
+for index in "${!PIDS[@]}"; do
+	status=0
+	wait "${PIDS[$index]}" || status=$?
+	echo "${NAMES[$index]} $status" >> "$OUT/exit_codes.txt"
 done
 
 "$PYTHON" "$ROOT/tools/soak_report.py" "$OUT" "$PLAYERS" "$LAG_MS" "$LOSS_PERCENT" "$EVENT_AT"

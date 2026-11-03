@@ -24,6 +24,8 @@ const MAX_QUEUE_SECONDS: float = 0.4
 const GENERATOR_SECONDS: float = 0.5
 ## A speaker counts as speaking until this long after their last packet.
 const SPEAKING_HOLD_SECONDS: float = 0.3
+## Most runs of lost packets stats["gap_log"] keeps.
+const GAP_LOG_MAX: int = 2000
 
 const _ToneScript = preload("res://net/dev/voice_tone.gd")
 
@@ -48,7 +50,7 @@ func _ready() -> void:
 	stats = {
 		"sent_packets": 0, "sent_bytes": 0, "received_packets": 0, "lost_packets": 0,
 		"decode_failures": 0, "underruns": 0, "dropped_seconds": 0.0, "speaking_changes": 0,
-		"heard_from": {},
+		"heard_from": {}, "gap_log": [],
 	}
 	if bool(Net.dev_options().get("voice_test")):
 		_tone = _ToneScript.new(SAMPLE_RATE)
@@ -64,7 +66,9 @@ func _exit_tree() -> void:
 
 
 ## A generator still playing when its player is freed keeps its playback alive
-## past quit. Stopping it first lets both go. audio/sfx.gd does the same.
+## past quit. Stopping it first lets both go. audio/sfx.gd does the same. The
+## generator itself lives on in its playback's meta until the mix lets go of it
+## (attach_output).
 static func _release_output(player: Variant) -> void:
 	if is_instance_valid(player) and player is AudioStreamPlayer3D:
 		(player as AudioStreamPlayer3D).stop()
@@ -117,8 +121,15 @@ func attach_output(peer_id: int, player: AudioStreamPlayer3D) -> void:
 	player.bus = preload("res://audio/buses.gd").VOICE
 	player.stream = generator
 	player.play()
+	var playback := player.get_stream_playback()
+	# The playback reads its generator through a plain pointer on the audio thread,
+	# and stays in the mix for a fade after stop(): if the generator went with the
+	# player's stream (a speaker leaving, a respawn, quitting), that fade read freed
+	# memory and crashed the process now and then (the soak's "Segmentation fault",
+	# 0xC0000005 in audio_stream_generator.cpp). The playback keeps it alive instead.
+	playback.set_meta(&"generator", generator)
 	speaker["player"] = player
-	speaker["playback"] = player.get_stream_playback()
+	speaker["playback"] = playback
 	speaker["started"] = false
 
 
@@ -198,7 +209,13 @@ func _rpc_voice(codec: int, seq: int, sent_at: float, data: PackedByteArray) -> 
 	var last_seq := int(speaker["seq"])
 	if last_seq > 0 and seq > last_seq + 1:
 		stats["lost_packets"] = int(stats["lost_packets"]) + seq - last_seq - 1
+		# When they were sent (between the packets either side, in host time) and by
+		# whom, for tools/soak_report.py to set against stalls.
+		var gaps: Array = stats["gap_log"]
+		if gaps.size() < GAP_LOG_MAX:
+			gaps.append([float(speaker["sent_at"]), sent_at, sender, seq - last_seq - 1])
 	speaker["seq"] = seq
+	speaker["sent_at"] = sent_at
 	stats["received_packets"] = int(stats["received_packets"]) + 1
 	var heard: Dictionary = stats["heard_from"]
 	heard[sender] = int(heard.get(sender, 0)) + 1
@@ -299,7 +316,7 @@ func _speaker(peer_id: int) -> Dictionary:
 	if not _speakers.has(peer_id):
 		_speakers[peer_id] = {
 			"queue": PackedVector2Array(), "player": null, "playback": null,
-			"started": false, "skips": 0, "seq": 0, "last_packet": -INF, "speaking": false,
+			"started": false, "skips": 0, "seq": 0, "sent_at": 0.0, "last_packet": -INF, "speaking": false,
 		}
 	return _speakers[peer_id]
 

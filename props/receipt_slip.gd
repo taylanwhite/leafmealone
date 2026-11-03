@@ -55,6 +55,11 @@ static func show_for(player: Node3D, lines: PackedStringArray, total_line: Strin
 		hand.add_child(slip)
 		slip.position = Vector3(0.0, -0.58, -0.06)
 		slip.rotation = Vector3(-1.1, 0.0, 0.0)
+	# Posed for this moment before its first frame is drawn, and only now that it is in
+	# the tree: a slip shown late (after a stall, or a receipt that crossed a laggy
+	# link) chatters on its very first pose, and the printer's sound is placed at the
+	# slip's global position, which a node outside the tree doesn't have.
+	slip.call("_process", 0.0)
 	return slip
 
 
@@ -111,7 +116,6 @@ class Slip extends Node3D:
 		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_strip.add_child(view)
 		set_process(true)
-		_process(0.0)
 
 	func set_on_top(on: bool) -> void:
 		_material.no_depth_test = on

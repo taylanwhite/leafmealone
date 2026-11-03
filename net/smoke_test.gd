@@ -4,7 +4,16 @@ extends Node
 ## Covers connection, handshake, player replication, the world mode arriving with
 ## the world, a zone change without a teleport, and a host-ordered zone move.
 
-const TIMEOUT_SECONDS: float = 30.0
+## The test fails as hung when it makes no progress for a while, not when the
+## machine is slow: the client's launch and join (a whole second Godot starting and
+## building the world: 8.6 s alone, 15.5 s next to 24 busy processes) may take up
+## to JOIN_TIMEOUT_SECONDS, each later step STAGE_TIMEOUT_SECONDS (the longest is
+## Chefty's ride, 8 s of game time), and the whole run TIMEOUT_SECONDS. One 30 s
+## limit for everything timed out 12 runs in 12 on a loaded machine
+## (docs/DECISIONS.md, 2026-11-03 "The bot soaks' flakes").
+const TIMEOUT_SECONDS: float = 150.0
+const JOIN_TIMEOUT_SECONDS: float = 60.0
+const STAGE_TIMEOUT_SECONDS: float = 30.0
 ## How far a zone change without a teleport may move the player (they stand still).
 const QUIET_ZONE_MAX_METERS: float = 0.5
 ## Where the client steps from its spawn slot before that check, so a wrong
@@ -31,6 +40,10 @@ var _prop_at: Vector3 = Vector3.ZERO
 var _next_clock_probe: float = 0.0
 var _reported_van: bool = false
 var _quiet_from: Vector3 = Vector3.ZERO
+## Each host stage reached and when (seconds since _ready), printed on the way out,
+## and when the last one was reached.
+var _stages: PackedStringArray = []
+var _progress_at: float = 0.0
 
 
 func _ready() -> void:
@@ -40,8 +53,10 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _elapsed() > TIMEOUT_SECONDS:
-		_finish(false, "timed out")
+	var stuck_for := _elapsed() - _progress_at
+	var allowed := JOIN_TIMEOUT_SECONDS if _stages.is_empty() else STAGE_TIMEOUT_SECONDS
+	if _elapsed() > TIMEOUT_SECONDS or (Net.is_smoke_host() and stuck_for > allowed):
+		_finish(false, "timed out %.0f s in, %.0f s after the last step (steps: %s)" % [_elapsed(), stuck_for, ", ".join(_stages)])
 		return
 	if Net.is_smoke_host():
 		_host_leaf_step()
@@ -212,6 +227,7 @@ func _rpc_status(stage: String, client_time: float) -> void:
 	if not Net.is_smoke_host():
 		return
 	_client_id = multiplayer.get_remote_sender_id()
+	_note_stage(stage)
 	if stage == "players_visible" and not _saw_players:
 		_saw_players = true
 		if _player_count() < 2:
@@ -283,6 +299,7 @@ func _host_ride_step() -> void:
 			_finish(false, "director missing")
 			return
 		_leaf_phase = "capture"
+		_note_stage("ride over")
 		director.call("force_capture", 1)
 
 
@@ -301,6 +318,11 @@ func _find_player(peer_id: int) -> Node3D:
 	return null
 
 
+func _note_stage(stage: String) -> void:
+	_stages.append("%s %.1f s" % [stage, _elapsed()])
+	_progress_at = _elapsed()
+
+
 func _elapsed() -> float:
 	return float(Time.get_ticks_msec() - _started_msec) / 1000.0
 
@@ -312,7 +334,7 @@ func _finish(ok: bool, reason: String) -> void:
 		if kill_error != OK:
 			push_warning("[Smoke] could not kill client pid %d: %s" % [_child_pid, error_string(kill_error)])
 	if ok:
-		print("[Smoke] passed")
+		print("[Smoke] passed (%s)" % ", ".join(_stages))
 		get_tree().quit(0)
 	else:
 		push_error("[Smoke] failed: %s" % reason)

@@ -6,6 +6,18 @@ Writes summary.json in the run dir. Exit code 0 pass, 1 fail, 2 inconclusive.
 
 The hitch rate decides pass or fail. The max gap column is for reading only: a
 bot pinned against a fence also stops sending new positions and shows up there.
+
+Hitches and lost voice packets are judged on the network's share only. Every peer
+logs its stalls (frames over 50 ms, loading included) in host time, each hitch with
+when it ended, and each run of lost voice packets with the send times either side
+(net/dev/probe.gd). One that lines up with a stall on its way (for a hitch the
+mover, the host relaying, or the receiver; for voice the peer it was due at or the
+host relaying it) is the machine's, not the network's: a peer that isn't reading
+lets its socket's receive buffer overflow, and a peer that isn't running sends no
+updates. Those are counted and printed apart (+stall, v loss), and a peer that spent
+over half its run stalled is inconclusive. A peer that exits non-zero fails, even
+after writing its report. docs/DECISIONS.md, 2026-11-03 "The bot soaks' flakes",
+has the measurements.
 """
 import json
 import pathlib
@@ -13,7 +25,20 @@ import sys
 
 # A remote player may hitch on at most this share of position updates.
 MAX_HITCH_RATE = 0.02
-# Long frames per peer per minute above which hitches can't be blamed on the network.
+# A stall this long or longer on the way can explain a hitch (an update gap over
+# NetSmoother's 100 ms delay needs only a 50 ms frame on top of the 33 ms sync).
+HITCH_STALL_SECONDS = 0.05
+# A stall this long or longer can explain lost voice packets: a socket's receive
+# buffer outlasted every shorter one measured (0 of 273 lost to 400 ms stalls at
+# 150 KB/s, more than the soak's busiest peer receives; DECISIONS.md).
+VOICE_STALL_SECONDS = 0.25
+# Slack around a stall for frame timing, in seconds.
+STALL_SLACK_SECONDS = 0.1
+# A peer whose checks had more than this share of its session excused by stalls
+# can't be judged: inconclusive, like a peer with too many long frames.
+MAX_EXCUSED_SHARE = 0.5
+# Long frames per peer per minute above which the round trip, voice latency and
+# playback, and run-event cue checks can't be blamed on the network.
 BUSY_LONG_FRAMES_PER_MINUTE = 20
 # ENet's throttle should stay full. 32 is ENetPacketPeer.PACKET_THROTTLE_SCALE.
 FULL_THROTTLE = 32
@@ -55,6 +80,16 @@ def main() -> int:
     for name in expected:
         if name not in reports:
             failures.append(f"{name}: no report (crashed, never joined, or never finished)")
+    # tools/soak.sh writes each Godot's exit status. A crash after the report was
+    # written (on the way out) still fails: players quit too. 139 is bash's SIGSEGV,
+    # what an access violation (0xC0000005) looks like through Git Bash.
+    exit_path = run_dir / "exit_codes.txt"
+    if exit_path.exists():
+        for line in exit_path.read_text().split("\n"):
+            parts = line.split()
+            if len(parts) == 2 and parts[1] != "0":
+                when = "while quitting, after its report" if parts[0] in reports else "before its report"
+                failures.append(f"{parts[0]}: exited with status {parts[1]} {when}")
 
     for name in expected:
         log_path = run_dir / f"{name}.log"
@@ -75,11 +110,63 @@ def main() -> int:
 
     host_busy = "Host" in reports and long_frames_per_minute(reports["Host"]) > BUSY_LONG_FRAMES_PER_MINUTE
 
+    # Peer id -> name, and each peer's stalls in host time.
+    names = {int(report["peer_id"]): name for name, report in reports.items()}
+    stalls = {name: report.get("stalls", []) for name, report in reports.items()}
+    one_way = lag_ms / 2000.0
+
+    def stalled(name: str, start: float, end: float, shortest: float) -> bool:
+        """True if the peer had a stall at least `shortest` long overlapping [start, end]."""
+        return any(s_end - s_start >= shortest and s_start < end and s_end > start
+                   for s_start, s_end in stalls.get(name, []))
+
+    def voice_gap_stalled(receiver: str, sent_from: float, sent_to: float, sender: str) -> bool:
+        # The lost packets left the sender between sent_from and sent_to (host time).
+        # They were due at the host one hop later and at a client two hops later
+        # (one, from the host). If the peer they were due at wasn't reading for a
+        # while then, its socket's buffer overflowed.
+        relayed = receiver != "Host" and sender != "Host"
+        hops = 2 if relayed else 1
+        due_from = sent_from + hops * one_way - STALL_SLACK_SECONDS
+        due_to = sent_to + hops * one_way + STALL_SLACK_SECONDS
+        if stalled(receiver, due_from, due_to, VOICE_STALL_SECONDS):
+            return True
+        return relayed and stalled("Host", due_from - one_way, due_to - one_way, VOICE_STALL_SECONDS)
+
+    def hitch_stalled(receiver: str, at: float, gap: float, mover: str) -> bool:
+        # The receiver's own long frame, or no updates from a mover (or the host
+        # relaying them) that wasn't running a hop or two before.
+        if stalled(receiver, at - gap, at, HITCH_STALL_SECONDS):
+            return True
+        early = at - gap - 2 * one_way - STALL_SLACK_SECONDS
+        return any(stalled(peer, early, at, HITCH_STALL_SECONDS) for peer in {mover, "Host"} if peer != receiver)
+
+    def excused_share(name: str, shortest: float) -> float:
+        """Share of this peer's session that it or the host spent in stalls of `shortest` or more."""
+        report = reports[name]
+        since = float(report.get("session_started_at", -1.0))
+        session = float(report["session_seconds"])
+        if since < 0:
+            return 0.0
+        windows = sorted((start, end) for peer in {name, "Host"} for start, end in stalls.get(peer, [])
+                         if end - start >= shortest)
+        covered, reach = 0.0, since
+        for start, end in windows:
+            start = max(start, reach)
+            if end > start:
+                covered += end - start
+                reach = end
+        return covered / max(session, 1.0)
+
     for name, report in reports.items():
         minutes = max(report["session_seconds"], 1.0) / 60.0
         smoother = report["smoother"]
         samples = max(int(smoother["samples"]), 1)
-        hitch_rate = int(smoother["hitches"]) / samples
+        hitch_log = smoother.get("hitch_log", [])
+        stall_hitches = sum(1 for at, gap, mover in hitch_log
+                            if hitch_stalled(name, at, gap, names.get(int(mover), "?")))
+        hitch_rate = (int(smoother["hitches"]) - stall_hitches) / samples
+        report["_stall_hitches"] = stall_hitches
         long_per_minute = report["long_frames"] / minutes
         rows.append((name, report, hitch_rate, long_per_minute))
         if report["state"] != "IN_SESSION":
@@ -106,8 +193,23 @@ def main() -> int:
                 failures.append(f"{name}: {voice['decode_failures']} voice packets failed to decode")
             # Voice from another client crosses two lossy hops through the host.
             loss_limit = 2.5 * loss_percent / 100.0 + VOICE_LOSS_SLACK
-            if voice["loss_rate"] > loss_limit:
-                failures.append(f"{name}: lost {voice['loss_rate']:.1%} of voice packets (limit {loss_limit:.1%})")
+            # Runs of packets lost while this peer or the host wasn't reading are the
+            # machine's (the soak's late joiner loses one while it loads the yard).
+            stall_lost = sum(int(missing) for sent_from, sent_to, sender, missing in voice.get("gap_log", [])
+                             if voice_gap_stalled(name, sent_from, sent_to, names.get(int(sender), "?")))
+            lost = int(voice["lost_packets"])
+            net_lost = lost - stall_lost
+            net_rate = net_lost / max(int(voice["received_packets"]) + net_lost, 1)
+            voice["net_loss_rate"] = net_rate
+            voice["stall_lost"] = stall_lost
+            if net_rate > loss_limit:
+                message = (f"{name}: lost {net_rate:.1%} of voice packets to the network (limit {loss_limit:.1%}; "
+                           f"{lost} lost, {stall_lost} of them while it or the host stalled)")
+                share = excused_share(name, VOICE_STALL_SECONDS)
+                if share > MAX_EXCUSED_SHARE:
+                    busy.append(f"{message}, but it or the host stalled for {share:.0%} of the run")
+                else:
+                    failures.append(message)
             # The Dummy driver used by headless runs doesn't play in real time,
             # so playback gaps only mean something with a real driver (-a).
             if report.get("audio_driver", "Dummy") != "Dummy":
@@ -133,24 +235,32 @@ def main() -> int:
                 message = f"{name}: a run event cue showed {late:.0f} ms late (limit {late_limit:.0f} ms)"
                 (busy if long_per_minute > BUSY_LONG_FRAMES_PER_MINUTE or host_busy else failures).append(message)
         if hitch_rate > MAX_HITCH_RATE:
-            message = f"{name}: remote players hitched on {hitch_rate:.1%} of updates (limit {MAX_HITCH_RATE:.0%})"
-            if long_per_minute > BUSY_LONG_FRAMES_PER_MINUTE:
-                busy.append(f"{message}, but this peer had {long_per_minute:.0f} long frames a minute")
+            message = (f"{name}: remote players hitched on {hitch_rate:.1%} of updates over the network "
+                       f"(limit {MAX_HITCH_RATE:.0%}; {report['_stall_hitches']} more came with a stall)")
+            share = excused_share(name, HITCH_STALL_SECONDS)
+            if share > MAX_EXCUSED_SHARE:
+                busy.append(f"{message}, but it or the host stalled for {share:.0%} of the run")
             else:
                 failures.append(message)
 
     print()
-    print(f"{'peer':<6} {'rtt ms':>7} {'KB/s in':>8} {'KB/s out':>9} {'hitch':>6} {'max gap':>8} {'snaps':>5} "
-          f"{'long/min':>8} {'fps':>4} {'voice ms':>8} {'v loss':>6} {'heard':>5}")
+    # hitch and v net are the network's share, which the checks judge; +stall and
+    # v loss add what came with a stall, and stall s is time in frames over 50 ms.
+    print(f"{'peer':<6} {'rtt ms':>7} {'KB/s in':>8} {'KB/s out':>9} {'hitch':>6} {'+stall':>6} {'max gap':>8} {'snaps':>5} "
+          f"{'long/min':>8} {'stall s':>7} {'fps':>4} {'voice ms':>8} {'v net':>6} {'v loss':>6} {'heard':>5}")
     for name, report, hitch_rate, long_per_minute in sorted(rows, key=lambda row: (not row[1]["is_host"], row[0])):
         rtt = report["rtt_ms_median"]
         voice = report.get("voice") or {}
-        voice_cells = (f"{voice['latency_ms_median']:>8.0f} {voice['loss_rate']:>6.1%} {voice['heard_from']:>5}"
-                       if voice else f"{'-':>8} {'-':>6} {'-':>5}")
+        voice_cells = (f"{voice['latency_ms_median']:>8.0f} {voice.get('net_loss_rate', voice['loss_rate']):>6.1%} "
+                       f"{voice['loss_rate']:>6.1%} {voice['heard_from']:>5}"
+                       if voice else f"{'-':>8} {'-':>6} {'-':>6} {'-':>5}")
+        since = float(report.get("session_started_at", -1.0))
+        stall_seconds = sum(end - start for start, end in stalls.get(name, []) if since >= 0 and end > since)
+        stall_hitch_rate = report["_stall_hitches"] / max(int(report["smoother"]["samples"]), 1)
         print(f"{name:<6} {rtt if rtt >= 0 else 0:>7.0f} {report['bytes_in_per_second'] / 1024:>8.1f} "
-              f"{report['bytes_out_per_second'] / 1024:>9.1f} {hitch_rate:>6.1%} "
+              f"{report['bytes_out_per_second'] / 1024:>9.1f} {hitch_rate:>6.1%} {stall_hitch_rate:>6.1%} "
               f"{report['smoother']['max_gap_ms']:>6.0f}ms {report['smoother']['snaps']:>5} "
-              f"{long_per_minute:>8.0f} {report['fps_median']:>4.0f} {voice_cells}")
+              f"{long_per_minute:>8.0f} {stall_seconds:>7.1f} {report['fps_median']:>4.0f} {voice_cells}")
     print()
 
     annex_line = ""

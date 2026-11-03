@@ -11,8 +11,16 @@ const _HideSpotScript = preload("res://net/components/hide_spot.gd")
 ## A frame longer than this stalls sending, so hitches can come from a busy
 ## machine rather than the network. The report counts them so the two can be told apart.
 const LONG_FRAME_SECONDS: float = 0.05
+## Most stalls (frames over LONG_FRAME_SECONDS) the report lists.
+const STALL_LOG_MAX: int = 4000
 
 var _long_frames: int = 0
+## Every frame longer than LONG_FRAME_SECONDS since launch, loading included, as
+## [start, end] in local seconds (Time.get_ticks_usec). The report gives them in
+## host time, so tools/soak_report.py can tell a packet lost while this peer (or the
+## host relaying it) wasn't reading from one the network lost.
+var _stalls: Array = []
+var _last_frame_at: float = -1.0
 var _throttle_opened: bool = false
 ## Lowest ENet throttle seen toward any peer after the first second. 32 is full.
 var _throttle_min: int = -1
@@ -132,6 +140,11 @@ func _process(delta: float) -> void:
 	_measure_judder()
 	if _session_msec >= 0 and delta > LONG_FRAME_SECONDS:
 		_long_frames += 1
+	# By the wall clock rather than delta, which the engine may smooth.
+	var now := local_seconds()
+	if _last_frame_at >= 0.0 and now - _last_frame_at > LONG_FRAME_SECONDS and _stalls.size() < STALL_LOG_MAX:
+		_stalls.append([_last_frame_at, now])
+	_last_frame_at = now
 	if _session_msec < 0 and Net.current_state() == Net.State.IN_SESSION:
 		_session_msec = Time.get_ticks_msec()
 	_wait += delta
@@ -149,6 +162,34 @@ func _process(delta: float) -> void:
 		_rtt_ms.append(Net.clock_rtt_seconds() * 1000.0)
 
 
+## The clock the stall and hitch logs are kept on, in seconds.
+static func local_seconds() -> float:
+	return float(Time.get_ticks_usec()) / 1000000.0
+
+
+## Local seconds (local_seconds) to host time (Net.server_time), with this peer's
+## clock estimate as it stands now, the best one it had. -INF before a client has
+## its first clock sample, when there is nothing to convert with.
+func _to_host_time() -> float:
+	if not Net.is_host() and not Net.has_clock_sample():
+		return -INF
+	return Net.server_time() - local_seconds()
+
+
+## A log's entries with their first `times` fields (local seconds) moved to host
+## time, to the millisecond.
+func _in_host_time(entries: Array, offset: float, times: int = 2) -> Array:
+	var out: Array = []
+	if offset == -INF:
+		return out
+	for entry: Array in entries:
+		var moved := entry.duplicate()
+		for index: int in times:
+			moved[index] = snappedf(float(entry[index]) + offset, 0.001)
+		out.append(moved)
+	return out
+
+
 func write_report() -> void:
 	var path := str(Net.dev_options().get("measure_path"))
 	var session_seconds := 0.0
@@ -157,6 +198,9 @@ func write_report() -> void:
 	var totals := Net.bandwidth_totals()
 	var link := multiplayer.multiplayer_peer
 	var dropped := int(link.get("packets_dropped")) if link != null and "packets_dropped" in link else 0
+	var host_offset := _to_host_time()
+	var smoother: Dictionary = _SmootherScript.stats.duplicate()
+	smoother["hitch_log"] = _in_host_time(_SmootherScript.hitch_log, host_offset, 1)
 	var report := {
 		"peer_id": Net.local_peer_id(),
 		"name": Net.player_name(Net.local_peer_id()),
@@ -175,8 +219,12 @@ func write_report() -> void:
 		"bytes_in_per_second": float(totals.x) / session_seconds if session_seconds > 0.0 else 0.0,
 		"bytes_out_per_second": float(totals.y) / session_seconds if session_seconds > 0.0 else 0.0,
 		"packets_dropped": dropped,
-		"smoother": _SmootherScript.stats.duplicate(),
+		"smoother": smoother,
 		"voice": _voice_report(),
+		# Frames over LONG_FRAME_SECONDS since launch, as [start, end] in host time,
+		# and when this peer's session started, in host time (-1 if unknown).
+		"stalls": _in_host_time(_stalls, host_offset),
+		"session_started_at": snappedf(float(_session_msec) / 1000.0 + host_offset, 0.001) if _session_msec >= 0 and host_offset != -INF else -1.0,
 		"run_cues": _RunCuesScript.log.duplicate(),
 		"stage_cam": preload("res://player/stage_cam.gd").log.duplicate(),
 		"stage_body": preload("res://player/stage_body.gd").log.duplicate(),
@@ -551,6 +599,9 @@ func _voice_report() -> Dictionary:
 		"speaking_changes": stats["speaking_changes"],
 		"latency_ms_median": _percentile(latency, 0.5),
 		"latency_ms_p95": _percentile(latency, 0.95),
+		# Each run of lost packets as [sent after, sent before, sender, how many], the
+		# times the senders' own (host time).
+		"gap_log": (stats["gap_log"] as Array).duplicate(),
 	}
 
 
