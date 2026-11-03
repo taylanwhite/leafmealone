@@ -1415,6 +1415,114 @@ const CHEFTY_HAND_DROP_HEIGHT: float = 1.0
 const HIRE_BOARD_SECONDS: float = 12.0
 
 
+# ---- nice boys: hiding (R2 chunk 3)
+# net/components/hide_spot.gd, props/hide_spot.gd, player/hide_view.gd and the
+# pile half of player/player.gd (docs/GAME.md "Hiding", gap-specs/nice_boys.json).
+# TODO(balance): none of these are in the workbook yet; tuned by feel from recordings.
+
+## How many fit in each kind of spot (a shed holds two, a bin or a hedge one).
+const HIDE_SHED_CAPACITY: int = 2
+const HIDE_CAPACITY: int = 1
+## Getting in: the dive, vault or step, from where you stood to inside (s). The
+## body follows the curve on your own screen at once; the host confirms.
+const HIDE_ENTER_SECONDS: float = 0.55
+## Getting out: the burst from inside to the clear side you faced (s).
+const HIDE_EXIT_SECONDS: float = 0.45
+## A refused dive (full, too far): you bounce off the outside and land back here (s).
+const HIDE_BONK_SECONDS: float = 0.45
+## How long an owner waits for the host's word on a dive before treating it as refused (s).
+const HIDE_CONFIRM_TIMEOUT: float = 1.5
+## How far out a player standing just past the box still counts, in meters past
+## its edge (HIDE_REACH, measured from the box's nearest point now).
+const HIDE_REACH_EDGE: float = 1.1
+## Inside, the eye turns this far either way from the spot's facing (radians, 75 degrees).
+const HIDE_YAW_CLAMP: float = 1.309
+## ...and looks this far down and up (radians).
+const HIDE_PITCH_CLAMP: Vector2 = Vector2(-0.55, 0.35)
+## Peeking (hold secondary): the eye rises this far (m) and the view widens by this many degrees.
+const HIDE_PEEK_RISE: float = 0.16
+const HIDE_PEEK_FOV: float = 8.0
+## The peek eases in and out over this long (s).
+const HIDE_PEEK_EASE: float = 0.22
+## Third person orbits the spot this far out (m), at this height over its top.
+const HIDE_ORBIT: float = 4.5
+const HIDE_ORBIT_RISE: float = 1.2
+## How fast the view moves into the hide shot and back out (s).
+const HIDE_CAM_BLEND: float = 0.3
+## While hidden the world is muffled through this low-pass (Hz); NICE BOYS this
+## close stay clear (their steps and barks are what you listen for).
+const HIDE_MUFFLE_HZ: float = 950.0
+const HIDE_CLEAR_CREW_METERS: float = 12.0
+## The hider's voice chat, heard by everyone, through this low-pass (Hz).
+const HIDE_VOICE_MUFFLE_HZ: float = 700.0
+## Tells: turning faster than this (rad/s) inside a hedge or pile shakes it.
+const HIDE_TREMBLE_TURN_RATE: float = 2.2
+## A shake lasts this long (s) and the hedge squash-wobbles this much.
+const HIDE_TREMBLE_SECONDS: float = 0.5
+const HIDE_TREMBLE_AMOUNT: float = 0.06
+## An occupied hedge or pile lets a leaf drop every this many seconds (min, max).
+const HIDE_LEAF_DROP_EVERY: Vector2 = Vector2(6.0, 10.0)
+## After you climb out, a leaf rides on your head for this long (s).
+const HIDE_LEAF_HAT_SECONDS: float = 4.0
+## The occupied pile stands this much taller and darker than a plain one.
+const HIDE_PILE_MOUND_SCALE: Vector3 = Vector3(1.25, 1.35, 1.25)
+const HIDE_PILE_MOUND_DARKEN: float = 0.22
+## Climbing out picks the clear side nearest where you look: each side's spot is
+## this far out from the box edge (m), checked with a capsule this size.
+const HIDE_EXIT_GAP: float = 0.55
+const HIDE_EXIT_RADIUS: float = 0.34
+const HIDE_EXIT_HEIGHT: float = 1.7
+## An inspection: a NICE BOY pokes the spot for this long (s), from this far out (m).
+const HIDE_INSPECT_SECONDS: float = 2.0
+const HIDE_INSPECT_STAND: float = 1.2
+## A spot just inspected isn't picked again for this long (s).
+const HIDE_INSPECT_COOLDOWN: float = 20.0
+## A searching NICE BOY inspects at most this many spots per search, and only
+## ones scoring at least this (inspect_score: suspicion + HIDE_INSPECT_BASE -
+## meters / HIDE_INSPECT_METERS_PER_POINT).
+const HIDE_INSPECT_PER_SEARCH: int = 2
+const HIDE_INSPECT_MIN_SCORE: float = 0.05
+const HIDE_INSPECT_BASE: float = 0.15
+const HIDE_INSPECT_METERS_PER_POINT: float = 40.0
+## A poke never resolved (the NICE BOY bonked, stunned or sent home) frees the
+## spot for another look this long after it should have ended (s).
+const HIDE_INSPECT_STALE_SLACK: float = 3.0
+## The host accepts a dive this much farther out than HIDE_REACH_EDGE (m): the
+## asker's position reaches it a little late.
+const HIDE_REACH_SLACK: float = 0.6
+## Settling in after a dive turns the body round once; no tell or rustle counts
+## for this long after getting in (s).
+const HIDE_SETTLE_SECONDS: float = 1.2
+## Found: the hider is set down this far short of the NICE BOY (m).
+const HIDE_PULL_STANDOFF: float = 0.9
+## The NICE BOY's shrug after a near miss and his "Upsy-daisy!" lift (s).
+const HIDE_SHRUG_SECONDS: float = 1.2
+const HIDE_UPSY_DAISY_SECONDS: float = 0.9
+## Suspicion at or over this when the poke ends: found.
+const HIDE_FOUND_AT: float = 0.6
+## Found: he lifts you out toward him over this long (s), then the gotcha.
+const HIDE_PULL_SECONDS: float = 0.5
+## Courtesy Notice stickers a spot shows at most (one per near miss, all day).
+const HIDE_NOTICE_MAX: int = 5
+
+## Suspicion (0..1 per spot, host only). What raises it: being seen going in;
+## peeking or rustling where a NICE BOY could see it (inside SUSPICION_CONE_METERS),
+## per second; having just been used; being near where someone was last seen.
+const SUSPICION_SEEN_ENTERING: float = 0.8
+const SUSPICION_PEEK_PER_S: float = 0.22
+const SUSPICION_RUSTLE: float = 0.18
+const SUSPICION_RECENT_USE: float = 0.2
+const SUSPICION_RECENT_SECONDS: float = 30.0
+const SUSPICION_NEAR_LAST_SEEN: float = 0.25
+const SUSPICION_NEAR_METERS: float = 6.0
+const SUSPICION_CONE_METERS: float = 15.0
+## A NICE BOY's view cone for the fallback check (degrees either side of facing),
+## used only while the crew has no sees_point() of its own (chunk 2 adds one).
+const SUSPICION_CONE_HALF_DEG: float = 55.0
+## Suspicion fades by this much a second.
+const SUSPICION_DECAY_PER_S: float = 0.02
+
+
 # ---- audio
 # audio/ (docs/DECISIONS.md, "Audio: buses, a sound bank, positional sounds").
 

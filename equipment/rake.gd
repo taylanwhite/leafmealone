@@ -56,6 +56,11 @@ func _physics_process(delta: float) -> void:
 		_set_spray(player, "")
 		_swing(player, delta, false)
 		return
+	# R2:3 hidden in a spot or a pile, the hands are tucked in: secondary peeks.
+	if bool(player.call("is_hidden")):
+		_set_spray(player, "")
+		_swing(player, delta, false)
+		return
 	_set_spray(player, held_kind if Input.is_action_pressed("primary") else "")
 	var up_high := bool(player.call("is_up_high"))
 	# The rake swings on a 0.6 s rhythm, two strokes a swing (rake_stroke.gd).

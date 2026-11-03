@@ -141,6 +141,18 @@ jobs:
           "$GODOT" --headless --path . -- --host --port=7798 --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=4242 --water-test --measure="$PWD/build/soak/ci-water/host.json" --run-seconds=50 | grep "WaterTest" || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-water/host.json'))['water_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Hide test (live peek camera, dives, tells, suspicion, inspection, the pile, the muffle)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-hide
+          "$GODOT" --headless --path . -- --host --port=7828 --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --hide-test --hide-test --measure="$PWD/build/soak/ci-hide/host.json" --run-seconds=120 > build/soak/ci-hide/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7828 --name=Target --no-steam --hide-test --measure="$PWD/build/soak/ci-hide/target.json" --run-seconds=115 > build/soak/ci-hide/target.log 2>&1
+          wait
+          grep "HideTest" build/soak/ci-hide/host.log build/soak/ci-hide/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-hide/host.json')); t=json.load(open('build/soak/ci-hide/target.json')); sys.exit(0 if h['hide_test'].get('ok') and t['hide_test'].get('ok') else 1)"
+
       - name: Mower test (mulch, flung litter, cut hose, burst bag, gnome, feet, the bill)
         if: matrix.part == 'features'
         run: |

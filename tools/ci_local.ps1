@@ -85,6 +85,18 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=4242 --water-test'; Seconds = 50
 		Check = { param($h, $c) [bool]$h.water_test.ok }
 	}
+	# Hiding (R2 chunk 3, net/dev/hide_test.gd): both peers run the test. The client dives
+	# into the hedge, bin, shed and a pile and its view stays live (StageCam's hide shot
+	# turns with the look); nothing moves over 0.5 m a tick; the exit is clear and on the
+	# faced side; the shed holds two; peeking replicates and raises suspicion only in a
+	# NICE BOY's cone; a near miss stickers the spot; a seen dive is found and caught;
+	# bagging the pile turns you out; the muffle comes and goes.
+	hide = @{
+		Port = 7828
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --hide-test'; Seconds = 120; Client = 115
+		Extra = '--hide-test'
+		Check = { param($h, $c) [bool]$h.hide_test.ok -and $c -ne $null -and [bool]$c.hide_test.ok }
+	}
 	mower = @{
 		Port = 7799
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --mower-test'; Seconds = 55; Client = 50

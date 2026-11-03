@@ -102,8 +102,12 @@ func _during_run_event(player: Node3D) -> bool:
 		var spot := _nearest_free_spot(player)
 		if spot != null:
 			Input.action_press(&"sprint")
-			_face(player, spot.global_position)
-			if spot.global_position.distance_to(player.global_position) <= Constants.HIDE_REACH * 0.9 and _elapsed >= _next_interact:
+			# A shed is only got into from before its door: head for the doorstep.
+			var goal := spot.global_position
+			if str(spot.get("spot_kind")) == "shed":
+				goal = spot.call("entry_point", 0, 0)
+			_face(player, goal)
+			if goal.distance_to(player.global_position) <= Constants.HIDE_REACH * 0.9 and _elapsed >= _next_interact:
 				_next_interact = _elapsed + 1.0
 				_press_interact()
 			return true
@@ -222,6 +226,8 @@ func _r2_crew_tick(_delta: float) -> bool:
 		_r2_rescue_roll[key] = false
 		return true
 	return false
+
+
 # ---- R2:4
 ## The van's holds this bot has decided about: trip id -> whether it goes for the door.
 var _van_plan: Dictionary = {}
@@ -259,4 +265,45 @@ func _r2_van_tick(delta: float) -> bool:
 		_van_try_at = _elapsed
 		var riders: Array = shuttle.call("seated_riders")
 		shuttle.call("start_unbuckle", trip, int(riders[0]), true)
+	return true
+
+
+# ---- R2:3 hiding: hiders peek now and then, and bolt on a telegraph half the time.
+## When the next peek starts and the one running ends (bot seconds), and whether
+## this bot already decided about the poke going on now.
+var _r2_next_peek: float = -1.0
+var _r2_peek_until: float = -1.0
+var _r2_poke_seen: bool = false
+
+
+## Called by the R2 dispatcher (chunk 2) each tick: true while it is steering.
+func _r2_hide_tick(_delta: float) -> bool:
+	var player := _own_player()
+	if player == null or not bool(player.call("is_hidden")):
+		_r2_next_peek = -1.0
+		_r2_poke_seen = false
+		if _r2_peek_until >= 0.0:
+			_r2_peek_until = -1.0
+			Input.action_release(&"secondary")
+		return false
+	if _r2_next_peek < 0.0:
+		_r2_next_peek = _elapsed + _rng.randf_range(4.0, 9.0)
+	if _r2_peek_until >= 0.0 and _elapsed >= _r2_peek_until:
+		_r2_peek_until = -1.0
+		Input.action_release(&"secondary")
+		_r2_next_peek = _elapsed + _rng.randf_range(5.0, 11.0)
+	elif _r2_peek_until < 0.0 and _elapsed >= _r2_next_peek:
+		_r2_peek_until = _elapsed + _rng.randf_range(0.8, 2.0)
+		Input.action_press(&"secondary")
+	# A NICE BOY poking our spot (every peer sees the poke): bolt, or hold still.
+	var spot: Node = player.call("hidden_spot")
+	var poked := spot != null and float(spot.get("_poking")) > 0.0
+	if poked and not _r2_poke_seen:
+		_r2_poke_seen = true
+		if _rng.randf() < 0.5:
+			Input.action_release(&"secondary")
+			_r2_peek_until = -1.0
+			_press_interact()
+	elif not poked:
+		_r2_poke_seen = false
 	return true

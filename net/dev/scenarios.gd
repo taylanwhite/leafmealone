@@ -10,13 +10,14 @@ extends Node
 ## one reaches its state.
 ##
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, spotted, lunge,
-## dodge, gotcha, cite_rescue, escort, hide, border_return, van_ride, van_seated,
-## van_unbuckle, van_straggler, dropoff, store, drive (that one needs --town-map),
-## toss, toss_full, toss_close.
+## dodge, gotcha, cite_rescue, escort, hide, hide_bin, hide_shed, pile, peek,
+## inspect_near, inspect_found, border_return, van_ride, van_seated, van_unbuckle,
+## van_straggler, dropoff, store, drive (that one needs --town-map), toss,
+## toss_full, toss_close.
 
 const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "store", "drive", "toss", "toss_full", "toss_close"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "store", "drive", "toss", "toss_full", "toss_close"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -35,6 +36,10 @@ const CAUGHT_LUNGE_METERS: float = 4.0
 const SPOTTED_METERS: float = 12.0
 ## dodge: the wind-up starts this long after the scenario.
 const DODGE_LEAD_SECONDS: float = 1.0
+## inspect_near, inspect_found: how long until the NICE BOY pokes the hedge.
+const INSPECT_LEAD_SECONDS: float = 2.2
+## caught: how far in front of the head NICE BOY you stand.
+const CAUGHT_GAP_METERS: float = 5.0
 ## raid_arrive: where you watch the arrival from, meters from the arrival point.
 const WATCH_ARRIVAL_METERS: float = 11.0
 ## rake_fresh, rake_pile: an untouched strip of leaves this long, and the rake
@@ -122,6 +127,18 @@ func run(scenario: String) -> Dictionary:
 			out = await _escort()
 		"hide":
 			out = await _hide()
+		"hide_bin":
+			out = await _hide_bin()
+		"hide_shed":
+			out = await _hide_shed()
+		"pile":
+			out = await _pile()
+		"peek":
+			out = await _peek()
+		"inspect_near":
+			out = await _inspect_near()
+		"inspect_found":
+			out = await _inspect_found()
 		"border_return":
 			out = await _border_return()
 		"van_ride":
@@ -456,8 +473,7 @@ func _crew_out(lead: float) -> Dictionary:
 	return {}
 
 
-## Where to stand: meters in front of the van's door, toward the yard.
-## The first of a fan of headings around "toward the yard" from which he can see
+## Where to stand: meters in front of the van's door, toward the yard; the first of a fan of headings around "toward the yard" from which he can see
 ## you: the Courtesy Shuttle parks on the clearest curb near the noise, which can
 ## put Chefty, a tree or a fence straight between the door and the yard
 ## (R2 integration: a caught take spent 18 s staring at Chefty's side).
@@ -527,27 +543,224 @@ func _other_player() -> Node3D:
 			return node as Node3D
 	return null
 
-## A hiding spot right in front of you, the warning counting down.
+
+## The hedge right in front of you, the warning counting down (R2 chunk 3).
 func _hide() -> Dictionary:
+	return await _hide_at("hedge", "hide")
+
+
+## The same with the wheelie bin.
+func _hide_bin() -> Dictionary:
+	return await _hide_at("bin", "hide_bin")
+
+
+## The same at the shed's door.
+func _hide_shed() -> Dictionary:
+	return await _hide_at("shed", "hide_shed")
+
+
+## Stand just outside a spot of this kind, facing it, with the warning running.
+func _hide_at(kind: String, moment: String) -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
 	var director := _director()
-	var arrival: Vector3 = director.call("crew_arrival_point")
-	var spot: Node3D = null
-	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
-		var candidate := node as Node3D
-		if int(candidate.get("occupant")) != 0:
-			continue
-		if spot == null or candidate.global_position.distance_to(arrival) > spot.global_position.distance_to(arrival):
-			spot = candidate
+	var spot := _spot_of_kind(kind)
 	if spot == null:
-		return {"error": "this yard has no free hiding spot"}
-	var stand: Vector3 = spot.call("exit_position")
-	_place(stand, _yaw_toward(stand, spot.global_position), -0.2)
+		return {"error": "this yard has no free %s" % kind}
+	var side := _open_side(spot)
+	var stand: Vector3 = spot.call("entry_point", side, 0)
+	_place(stand, _yaw_toward(stand, spot.global_position), -0.25)
 	_warn_with(director, HIDE_LEAD_SECONDS)
 	await _ticks(2)
-	return {"note": "facing %s; tap interact to get in, they arrive in %.1f s" % [str(spot.get("label")), HIDE_LEAD_SECONDS], "phase": _phase(), "spot": _v(spot.global_position)}
+	return {"moment": moment, "note": "facing the %s; tap interact to get in (hold secondary inside to peek), they arrive in %.1f s" % [kind, HIDE_LEAD_SECONDS], "phase": _phase(), "spot": _v(spot.global_position)}
+
+
+func _reached_hide() -> bool:
+	return _phase() == "WARNING" and _me().call("_nearest_free_spot") != null
+
+
+func _reached_hide_bin() -> bool:
+	return _reached_hide()
+
+
+func _reached_hide_shed() -> bool:
+	return _reached_hide()
+
+
+## Standing on a raked pile, the warning counting down: interact dives in.
+func _pile() -> Dictionary:
+	var raked: Dictionary = await _rake_pile()
+	if raked.has("error"):
+		return raked
+	var pile := Vector3(raked["pile"][0], 0.1, raked["pile"][2])
+	var me := _me()
+	var held: Node = me.call("_held_prop")
+	if held != null:
+		held.call("request_drop")
+		await _ticks(3)
+	_place(pile, -PI * 0.5, -0.3)
+	_warn_with(_director(), HIDE_LEAD_SECONDS + 1.0)
+	await _ticks(4)
+	return {"moment": "pile", "note": "on a raked pile; tap interact to dive in, they arrive in %.1f s" % (HIDE_LEAD_SECONDS + 1.0), "phase": _phase(), "pile": _v(pile)}
+
+
+func _reached_pile() -> bool:
+	return bool(_me().call("_on_pile"))
+
+
+## Already in the hedge, the chase on, a NICE BOY strolling past 9 m out:
+## hold secondary to peek (he's facing the other way, so it's safe for now).
+func _peek() -> Dictionary:
+	var hidden: Dictionary = await _hidden_in_hedge(false)
+	if hidden.has("error"):
+		return hidden
+	return {"moment": "peek", "note": "hidden in the hedge; hold secondary to peek, look around with the mouse", "phase": _phase()}
+
+
+func _reached_peek() -> bool:
+	return bool(_me().call("is_hidden")) and _phase() == "CHASE"
+
+
+## Hidden in the hedge unseen; a NICE BOY turns, points, walks over and pokes
+## it in about 2 s. Stay still: a near miss and a sticker.
+func _inspect_near() -> Dictionary:
+	var hidden: Dictionary = await _hidden_in_hedge(false)
+	if hidden.has("error"):
+		return hidden
+	_inspect_soon(hidden["spot"] as Node3D, INSPECT_LEAD_SECONDS)
+	return {"moment": "inspect_near", "note": "hidden unseen; he pokes the hedge in %.1f s" % INSPECT_LEAD_SECONDS, "phase": _phase()}
+
+
+func _reached_inspect_near() -> bool:
+	return _reached_peek()
+
+
+## He watched you dive into the hedge; he walks over and pokes in about 2 s:
+## found, lifted out, caught.
+func _inspect_found() -> Dictionary:
+	var hidden: Dictionary = await _hidden_in_hedge(true)
+	if hidden.has("error"):
+		return hidden
+	_inspect_soon(hidden["spot"] as Node3D, INSPECT_LEAD_SECONDS)
+	return {"moment": "inspect_found", "note": "he saw you go in; he pokes the hedge in %.1f s" % INSPECT_LEAD_SECONDS, "phase": _phase(), "suspicion": snappedf(float((hidden["spot"] as Node3D).call("suspicion")), 0.01)}
+
+
+func _reached_inspect_found() -> bool:
+	return _reached_peek()
+
+
+## The chase on, the crew held where this scenario puts them (no crew brain
+## before R2 chunk 2 merges), and you inside the hedge: seen going in or not.
+func _hidden_in_hedge(seen: bool) -> Dictionary:
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	var spot := _spot_of_kind("hedge")
+	if spot == null:
+		return {"error": "this yard has no free hedge"}
+	var director := _director()
+	var me_id := Net.local_peer_id()
+	var safe: Dictionary = director.get("_safe_until")
+	safe[me_id] = Net.server_time() + 3.0
+	director.call("_begin_chase")
+	await _ticks(4)
+	var crew := _crew()
+	if crew == null:
+		return {"error": "no NICE BOY spawned"}
+	for each: Node in get_tree().get_nodes_in_group("crew"):
+		each.set_physics_process(false)
+	var side := _open_side(spot)
+	var out: Vector3 = spot.call("side_direction", side)
+	var along := Vector3(-out.z, 0.0, out.x)
+	# Off to the side, 9 m out: facing the hedge if he's to see you go in, else strolling across.
+	var watch_at := spot.global_position + out * 7.0 + along * 4.0
+	crew.global_position = Vector3(watch_at.x, crew.global_position.y, watch_at.z)
+	var look := (spot.global_position - watch_at) if seen else along
+	crew.rotation.y = atan2(look.x, look.z)
+	for index: int in range(1, get_tree().get_nodes_in_group("crew").size()):
+		var other := get_tree().get_nodes_in_group("crew")[index] as Node3D
+		other.global_position = spot.global_position - out * 25.0 + along * float(index) * 3.0
+	var stand: Vector3 = spot.call("entry_point", side, 0)
+	_place(stand, _yaw_toward(stand, spot.global_position), -0.2)
+	await _ticks(3)
+	_dive_into(spot)
+	var inside: Variant = await _wait_for(func() -> Variant: return true if bool(spot.call("is_inside", me_id)) else null)
+	if inside == null:
+		return {"error": "couldn't get into the hedge"}
+	await get_tree().create_timer(Constants.HIDE_ENTER_SECONDS + 0.4).timeout
+	return {"spot": spot, "crew": crew}
+
+
+## The local player dives in the way interact does.
+func _dive_into(spot: Node3D) -> void:
+	var me := _me()
+	me.call("_hide_view").call("predict_enter", spot)
+	spot.call("request_enter")
+
+
+## A NICE BOY's inspection, the way the crew brain (R2 chunk 2) runs one: a
+## look and a point, a walk to the spot's inspect point, the poke, the verdict.
+## Without the R2 Encounter a found hider goes straight to the director.
+func _inspect_soon(spot: Node3D, lead: float) -> void:
+	var crew := _crew()
+	if crew == null:
+		return
+	var body := crew.get_node_or_null("Visual/CartoonBody")
+	get_tree().create_timer(maxf(0.1, lead - 1.6)).timeout.connect(func() -> void:
+		if not is_instance_valid(crew):
+			return
+		var to := spot.global_position - crew.global_position
+		crew.rotation.y = atan2(to.x, to.z)
+		if body != null:
+			body.call("gesture", "point")
+		# The R2 crew (chunk 2) barks its own line; before it, the point says it.
+		if crew.has_method("bark"):
+			crew.call("bark", "inspect"))
+	get_tree().create_timer(lead - 1.0).timeout.connect(func() -> void:
+		if is_instance_valid(crew):
+			_walk(crew, spot.call("inspect_point"), 0.9))
+	get_tree().create_timer(lead).timeout.connect(func() -> void:
+		if not is_instance_valid(crew):
+			return
+		var face := spot.global_position - crew.global_position
+		crew.rotation.y = atan2(face.x, face.z)
+		spot.call("host_inspect_begin", crew)
+		get_tree().create_timer(Constants.HIDE_INSPECT_SECONDS).timeout.connect(func() -> void:
+			if is_instance_valid(crew) and is_instance_valid(spot):
+				print("[Scenario] inspection: %s" % spot.call("host_inspect_resolve", crew))))
+
+
+## Walk a held-still NICE BOY to a point over seconds (the host's body replicates).
+func _walk(crew: Node3D, to: Vector3, seconds: float) -> void:
+	var from := crew.global_position
+	var target := Vector3(to.x, from.y, to.z)
+	var flat := target - from
+	crew.rotation.y = atan2(flat.x, flat.z)
+	var tween := crew.create_tween()
+	tween.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+	tween.tween_property(crew, "global_position", target, seconds).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _spot_of_kind(kind: String) -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
+		if str(node.get("spot_kind")) == kind and bool(node.call("has_room")):
+			return node as Node3D
+	return null
+
+
+## The side of a spot with a clear view out to 8 m (not facing the house or a fence).
+func _open_side(spot: Node3D) -> int:
+	if str(spot.get("spot_kind")) == "shed":
+		return 0
+	var space := spot.get_world_3d().direct_space_state
+	for side: int in [0, 2, 1, 3]:
+		var out: Vector3 = spot.call("side_direction", side)
+		var query := PhysicsRayQueryParameters3D.create(spot.call("top_point"), spot.global_position + out * 8.0 + Vector3(0.0, 1.4, 0.0), 1)
+		query.exclude = spot.call("_own_rids")
+		if space.intersect_ray(query).is_empty() and bool(spot.call("_exit_clear", side, 0)):
+			return side
+	return 0
 
 
 ## Buckled into the NICE BOYS' van at the yard's curb, and it pulls out in
@@ -754,6 +967,11 @@ func reset() -> void:
 			spot.call("request_exit")
 		if bool(me.get("in_pile")):
 			me.call("set_pile", false)
+		# Let a climb-out finish, or it carries on after the next placement.
+		var view := me.get_node_or_null("HideView")
+		if view != null:
+			await _wait_for(func() -> Variant: return true if not bool(view.call("is_moving")) else null)
+		me.set("peeking", false)
 	for vehicle: Node in get_tree().get_nodes_in_group("vehicles"):
 		if vehicle.has_method("seat_of") and int(vehicle.call("seat_of", me_id)) >= 0 and vehicle.has_method("request_exit"):
 			vehicle.call("request_exit")

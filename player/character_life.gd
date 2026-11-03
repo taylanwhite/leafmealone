@@ -208,7 +208,11 @@ func _others() -> Array[Node3D]:
 	return found
 
 
-## Hidden players keep their node visible and hide only their Visual.
+## Whether someone is on show to glance at or wave to: a hidden player's body
+## isn't drawn (player.is_body_drawn), though their Visual stays in the tree
+## for their camera (R2 chunk 3).
 func _shown(other: Node3D) -> bool:
+	if other.has_method("is_body_drawn"):
+		return bool(other.call("is_body_drawn")) and other.is_visible_in_tree()
 	var visual := other.get_node_or_null("Visual") as Node3D
 	return visual.is_visible_in_tree() if visual != null else other.is_visible_in_tree()
