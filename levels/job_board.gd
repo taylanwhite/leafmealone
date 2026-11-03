@@ -354,7 +354,10 @@ func _refresh_cards() -> void:
 			continue
 		var offer: Dictionary = offers[index]
 		var lines := PackedStringArray()
-		var size_and_work := "%s · %s · %s" % [_Strings.UI["board_size_%d" % int(offer.get("size", 1))], _Strings.UI["board_tasks"] % ((offer["tasks"] as PackedStringArray).size()), _Strings.UI["board_pay_short"] % task_pay(offer)]
+		var task_count := (offer["tasks"] as PackedStringArray).size()
+		# "1 job", "3 jobs" (NB-13).
+		var jobs_text: String = _Strings.UI["board_tasks_one"] if task_count == 1 else _Strings.UI["board_tasks"] % task_count
+		var size_and_work := "%s · %s · %s" % [_Strings.UI["board_size_%d" % int(offer.get("size", 1))], jobs_text, _Strings.UI["board_pay_short"] % task_pay(offer)]
 		if offer.has("client"):
 			# A town client: who, where, and the work, short enough to fit the card.
 			lines.append(str(offer["client"]).get_slice(" ", 0))
@@ -363,7 +366,7 @@ func _refresh_cards() -> void:
 		else:
 			lines.append(_Strings.UI["board_house"] % int(offer["house"]))
 			lines.append(_Strings.UI["board_size_%d" % int(offer.get("size", 1))])
-			lines.append(_Strings.UI["board_tasks"] % ((offer["tasks"] as PackedStringArray).size()))
+			lines.append(jobs_text)
 			lines.append(_Strings.UI["board_pay_short"] % task_pay(offer))
 		if index == chosen:
 			lines.append(_Strings.UI["board_picked"])

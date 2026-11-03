@@ -341,6 +341,16 @@ $Tests = [ordered]@{
 		Extra = '--sim-lag=150 --hud-test'
 		Check = { param($h, $c) [bool]$h.hud_test.ok -and $c -ne $null -and [bool]$c.hud_test.ok }
 	}
+	# The windows and the words hung in the world (p1-ui, net/dev/ui_test.gd): the job
+	# board and payout card sized to content, centered and inside the screen, no
+	# payday card for a watcher, keycap-and-verb prompts, Marty's text pinned, no
+	# "Bought:" toast, the counter framing Marty, and signs that face you and fade
+	# over the HUD, at the edge, behind a nearer one and under a stage camera.
+	ui = @{
+		Port = 7833
+		Host = '--host --name=Tester --no-steam --ui-test'; Seconds = 60; Client = 55
+		Check = { param($h, $c) [bool]$h.ui_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

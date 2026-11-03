@@ -204,11 +204,13 @@ static func hands_view(item: Node) -> Dictionary:
 	var name := item_label(item)
 	var kg := roundi(float(item.call("weight_kg"))) if item.has_method("weight_kg") else 0
 	var line := ""
+	var title := str(_Strings.UI["hotbar_weight"]) % [name, kg]
 	match kind:
 		"wheelbarrow":
 			line = str(_Strings.UI["hotbar_barrow"]) % [int(item.get("stored_bags")), Campaign.wheelbarrow_capacity(), int(item.get("stored_value"))]
 		"leaf_bag":
-			line = str(_Strings.UI["hotbar_bag"]) % int(item.get("value"))
+			# p1-ui (NB-10): one line, "Leaf bag · 7 kg · $9", not the bag named twice.
+			title = str(_Strings.UI["hotbar_bag_title"]) % [name, kg, int(item.get("value"))]
 		_:
 			if _ToolTiers.is_gas_tool(kind):
 				line = str(_Strings.UI["hotbar_gas"]) % roundi(float(item.get("fuel")))
@@ -221,7 +223,7 @@ static func hands_view(item: Node) -> Dictionary:
 		"name": name,
 		"icon": icon_for(kind),
 		"abbr": str(_Strings.UI.get("hotbar_abbr_" + kind, kind.left(4).to_upper())),
-		"title": str(_Strings.UI["hotbar_weight"]) % [name, kg],
+		"title": title,
 		"line": _Strings.keyed(line),
 		"hint": "",
 	}
@@ -378,6 +380,21 @@ func _shake() -> Vector2:
 static func slots_half_width() -> float:
 	var slots := float(Constants.HOTBAR_SLOTS)
 	return (Constants.HOTBAR_SLOT_PX * slots * Constants.HOTBAR_SELECT_SCALE + Constants.HOTBAR_SLOT_GAP * (slots - 1.0)) * 0.5
+
+
+## Where the bar (and the hands card, while it's up) is on screen now, for words
+## hung in the world to keep off (ui/overheads.gd, p1-ui). Nothing while the bar
+## is down.
+func screen_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	if not is_visible_in_tree() or modulate.a < 0.05 or not bool(last_model.get("shown", false)):
+		return out
+	var half := slots_half_width()
+	out.append(Rect2(global_position + Vector2(size.x * 0.5 - half, size.y - _bar_top()), Vector2(half * 2.0, _bar_top())))
+	if _card > 0.01 and not (last_model.get("hands", {}) as Dictionary).is_empty():
+		var card := _card_rect()
+		out.append(Rect2(global_position + card.position, card.size))
+	return out
 
 
 ## The bar's top (px above the bottom edge) with the selected slot raised and grown.
@@ -574,8 +591,10 @@ func _draw_card(font: Font, hands: Dictionary) -> void:
 		draw_string(font, Vector2(icon_rect.position.x, baseline), str(hands["abbr"]), HORIZONTAL_ALIGNMENT_CENTER, icon_rect.size.x, CHIP_FONT, Color(Color.WHITE, alpha))
 	var text_left := rect.position.x + CARD_ICON + 20.0
 	var text_width := rect.end.x - text_left - 10.0
-	draw_string(font, Vector2(text_left, rect.position.y + 8.0 + CARD_TITLE_FONT), str(hands["title"]), HORIZONTAL_ALIGNMENT_LEFT, text_width, CARD_TITLE_FONT, Color(NAME_COLOR, alpha))
 	var line := str(hands.get("line", ""))
+	# A card with only its title (a leaf bag) has it in the middle, beside the icon.
+	var title_y := rect.position.y + 8.0 + CARD_TITLE_FONT if line != "" else rect.position.y + (rect.size.y + CARD_TITLE_FONT * 0.7) * 0.5
+	draw_string(font, Vector2(text_left, title_y), str(hands["title"]), HORIZONTAL_ALIGNMENT_LEFT, text_width, CARD_TITLE_FONT, Color(NAME_COLOR, alpha))
 	if line != "":
 		var line_size := CARD_LINE_FONT
 		while line_size > CARD_MIN_FONT and font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, line_size).x > text_width:

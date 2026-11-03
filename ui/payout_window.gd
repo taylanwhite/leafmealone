@@ -7,6 +7,8 @@ extends PanelContainer
 const _Strings = preload("res://ui/strings.gd")
 const _Icons = preload("res://ui/icons.gd")
 const _Look = preload("res://ui/catalog_look.gd")
+const _WindowFit = preload("res://ui/window_fit.gd")
+const REMOTE_PLAY := "res://net/dev/remote_play.gd"
 ## A bill's reason (Campaign settlement "bills") -> its icon: the mowed hose, the
 ## mowed gnome, and a band-aid for medical (never a red cross; docs/GAME.md, "Icons").
 const BILL_ICONS: Dictionary = {"hose": "tool_hose", "gnome": "item_gnome", "medical": "medical"}
@@ -50,7 +52,11 @@ func _ready() -> void:
 
 
 func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
+	# NB-06: out of the column at once. Rows only queued for freeing still counted
+	# toward the card's size, so the second job's card was both receipts tall and
+	# ran off the top and bottom of the screen.
 	for child: Node in _rows.get_children():
+		_rows.remove_child(child)
 		child.queue_free()
 	if settlement.has("bags_value"):
 		_line(_Strings.UI["receipt_bags"], "$%d" % int(settlement["bags_value"]), INK, 18, "item_leaf_bag")
@@ -79,13 +85,31 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 	_rows.add_child(HSeparator.new())
 	_rows.add_child(_Icons.row("split", _text(_Strings.UI["receipt_split"], 16, INK.lightened(0.3)), 20))
 	for row: Dictionary in results:
+		# A dev watcher (the playtest observer) isn't crew: no "$0" line for it.
+		if is_spectator(int(row.get("peer_id", 0))):
+			continue
 		_line(str(row["name"]), "$%d" % int(row["credits"]), INK)
 	visible = true
-	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
-	grow_horizontal = Control.GROW_DIRECTION_BOTH
-	grow_vertical = Control.GROW_DIRECTION_BOTH
+	# Exactly as tall as this receipt, centered, inside the screen (ui/window_fit.gd).
+	_WindowFit.watch(self)
+	_WindowFit.fit(self, true)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_print()
+
+
+## Whether a peer is a dev spectator (the playtest observer, net/dev/remote_play.gd)
+## rather than crew: the host marks it a watcher, the observer knows it's one, and
+## a teammate's window knows it by name. It gets no payday card and no split line.
+static func is_spectator(peer_id: int) -> bool:
+	if peer_id <= 0:
+		return false
+	if Net.is_watcher(peer_id):
+		return true
+	if peer_id == Net.local_peer_id():
+		return bool(Net.dev_options().get("observer"))
+	# Looked up when asked (no preload: the dev tools load half the game).
+	var observer_name := str((load(REMOTE_PLAY) as Script).get_script_constant_map().get("OBSERVER_NAME", ""))
+	return observer_name != "" and Net.player_name(peer_id) == observer_name
 
 
 ## The receipt prints (audio:5): a beat after the cash is snatched (the same

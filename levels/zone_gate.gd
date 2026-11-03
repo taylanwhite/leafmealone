@@ -17,6 +17,9 @@ func _ready() -> void:
 	var sign := get_node_or_null("Label") as Label3D
 	if sign != null:
 		sign.text = str(_Strings.UI.get("gate_sign_%s" % destination_zone, ""))
+		# p1-ui: a world sign (ui/overheads.gd): faces you, capped in size, off the
+		# HUD and the screen's edges, gone during a stage shot.
+		sign.add_to_group("overhead_signs")
 	body_entered.connect(_on_body_entered)
 	body_exited.connect(_on_body_exited)
 	collision_layer = 0

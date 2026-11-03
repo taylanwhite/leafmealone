@@ -1672,10 +1672,10 @@ func interaction_hint() -> Dictionary:
 	if carried_by != 0:
 		return {}
 	if carrying != 0:
-		return {"text": _Strings.UI["prompt_put_down_player"] % Net.player_name(carrying), "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}
+		return {"text": _Strings.UI["prompt_put_down_player"], "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}
 	var grabbable := _grabbable_player()
 	if grabbable != null:
-		return {"text": _Strings.UI["prompt_grab_player"] % Net.player_name(grabbable.name.to_int()), "at": grabbable.global_position + Vector3(0.0, 2.0, 0.0), "source": grabbable}
+		return {"text": _Strings.UI["prompt_grab_player"], "at": grabbable.global_position + Vector3(0.0, 2.0, 0.0), "source": grabbable}
 	var spot := _nearest_free_spot()
 	if spot != null:
 		return {"text": _Strings.UI["prompt_hide"], "at": spot.call("prompt_point", global_position) as Vector3, "source": spot}

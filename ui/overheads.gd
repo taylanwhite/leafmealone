@@ -18,6 +18,15 @@ extends Node
 ##
 ## Tags fade through GeometryInstance3D.transparency, so this never fights the
 ## alpha their owners set (crew_member._fade_tag, the talking tint).
+##
+## p1-ui ("Words hung in the world", docs/GAME.md): the world's signs (SIGNS:
+## Chefty's name and load, a gate pad's words) are tags too, in the same
+## nearest-first line (Patrice's name in front of Chefty's load shows, the load
+## steps aside), always facing you (billboard: never mirrored from behind) and
+## never taller than P1_SIGN_LINE_MAX of the view. And every tag and sign fades
+## out while its words would touch a screen edge (never cut off) or a HUD panel
+## (never printed over the cash rows, the job panel, the clock, the bar), and
+## while a stage shot or the van's cabin camera has the view.
 
 const _QuipPlayer = preload("res://ui/quip_player.gd")
 const _HudMode = preload("res://ui/hud_mode.gd")
@@ -31,6 +40,15 @@ const SPEAKERS := "overhead_speakers"
 const VIEW_BLOCKERS := "overhead_view_blockers"
 ## Where a body's head is over its feet (m): walls are checked against it.
 const HEAD_HEIGHT: float = 1.55
+## p1-ui: Label3Ds hung in the world that aren't anyone's name (Chefty's,
+## ride.gd and chefty_drive.gd; the gate pads', levels/zone_gate.gd) join this.
+const SIGNS := "overhead_signs"
+## p1-ui: the UIRoot pieces words in the world keep off (besides the hotbar's own
+## rects, ui/hotbar_hud.gd screen_rects).
+const HUD_PIECES: Array[String] = ["HudRows", "TaskList", "DayHud", "HeatMeter", "JobGoal", "DriveHud"]
+## p1-ui: the cameras that are a moment, not your eyes (player/stage_cam.gd's
+## StageCam, props/nice_van.gd's CabinCam rig): no tags or signs while one draws.
+const STAGE_CAMERAS: Array[StringName] = [&"StageCam", &"CabinCam"]
 
 ## What each tag's fade is now (Label3D instance id -> 0..1 shown).
 var _shown: Dictionary = {}
@@ -42,6 +60,11 @@ var _nudge: Dictionary = {}
 var _clear_since: Dictionary = {}
 ## Last frame's screen rects, for tests and the recorder: [{kind, rect, alpha}].
 var last_rects: Array[Dictionary] = []
+## p1-ui: the HUD panels' screen rects tags and signs kept off last frame (tests).
+var last_hud: Array[Rect2] = []
+## p1-ui: how many frames running each tag has been heading off the screen or onto
+## the HUD (instance id -> frames).
+var _heading_off: Dictionary = {}
 ## R2c: the camera drawn last frame and where it was (bubbles go across a cut).
 var _last_camera: int = 0
 var _last_view: Transform3D = Transform3D.IDENTITY
@@ -98,7 +121,7 @@ func _process(delta: float) -> void:
 		# nearer (two heads side by side in a two-shot swapped "nearer" every few
 		# frames, and the two tags cross-faded over each other).
 		var rank := depth - (Constants.R2C_HUD_TAG_KEEP_M if float(_shown.get(tag.get_instance_id(), 0.0)) > 0.5 else 0.0)
-		tags.append({"tag": tag, "owner": entry["owner"], "hide": bool(entry["hide"]), "depth": depth, "rank": rank})
+		tags.append({"tag": tag, "owner": entry["owner"], "hide": bool(entry["hide"]), "depth": depth, "rank": rank, "sign": bool(entry.get("sign", false))})
 	tags.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["rank"]) < float(b["rank"]))
 	var kept: Array[Rect2] = []
 	var kept_vel: Array[Vector2] = []
@@ -111,18 +134,27 @@ func _process(delta: float) -> void:
 	# camera swings back to you (hud_mode overlays_held), nor while you're hidden
 	# (you look out through leaves; a name over them would give away where he
 	# stands, text doing the world's job).
-	var staged := _HudMode.overlays_held(get_tree(), Net.local_peer_id()) or _me_hidden()
+	# p1-ui: nor while a stage shot or the van's cabin camera has the view.
+	var staged := _HudMode.overlays_held(get_tree(), Net.local_peer_id()) or _me_hidden() or stage_camera(camera)
+	var hud := hud_rects()
+	last_hud = hud
 	for entry: Dictionary in tags:
 		var tag := entry["tag"] as Label3D
+		var sign := bool(entry["sign"])
+		if sign:
+			setup_sign(tag)
 		setup_tag(tag)
 		var id := tag.get_instance_id()
 		seen[id] = true
 		var want := 1.0
 		var rect := Rect2()
 		# A player's tag fades out as you come close (R2c): up close you know who it is.
+		# A sign's own fade (ui/near_label.gd: Chefty's up close) counts the same way.
 		var near := 1.0
 		if entry["owner"] != null and (entry["owner"] as Node).is_in_group("players"):
 			near = smoothstep(Constants.R2C_HUD_TAG_NEAR_GONE_M, Constants.R2C_HUD_TAG_NEAR_FULL_M, float(entry["depth"]))
+		elif "own_alpha" in tag:
+			near = float(tag.get("own_alpha"))
 		# R2c: drawn means drawn: a tag whose owner's Visual is hidden (a ghosted
 		# observer) is neither shown nor in anyone's way.
 		var drawn := tag.is_visible_in_tree()
@@ -133,11 +165,26 @@ func _process(delta: float) -> void:
 		elif not in_front(camera, tag.global_position):
 			want = 0.0
 		else:
-			# A readable size whatever the lens or the distance (R2c).
-			fit_size(tag, camera, view, Constants.R2C_HUD_TAG_LINE_MIN, Constants.R2C_HUD_TAG_LINE_MAX)
+			# A readable size whatever the lens or the distance (R2c). A sign is only
+			# capped (it may shrink with distance like the thing it hangs on); one that
+			# sizes itself (ui/near_label.gd) is left to it.
+			if not sign:
+				fit_size(tag, camera, view, Constants.R2C_HUD_TAG_LINE_MIN, Constants.R2C_HUD_TAG_LINE_MAX)
+			elif not ("own_alpha" in tag):
+				fit_size(tag, camera, view, 0.0, Constants.P1_SIGN_LINE_MAX)
 			rect = screen_rect(tag, camera, view)
 			vel = _screen_velocity(id, rect, delta, cut)
-			if _blocked(tag, entry["owner"] as Node, camera):
+			# p1-ui: off the HUD and inside the screen, now and where it's heading (the
+			# fade has to be done before it gets there, or a fast turn cut it in half).
+			# Heading there for P1_LABEL_AHEAD_FRAMES frames running, so one jerk of the
+			# view doesn't blink it.
+			var ahead := Rect2(rect.position + vel * Constants.R2B_HUD_TAG_FADE, rect.size)
+			var heading := 0 if clear_of_hud(ahead, view, hud) else int(_heading_off.get(id, 0)) + 1
+			_heading_off[id] = heading
+			var off_hud := clear_of_hud(rect, view, hud) and heading < Constants.P1_LABEL_AHEAD_FRAMES
+			# Already over a panel or across an edge: gone at once (never drawn cut off).
+			touching = not clear_of_hud(rect, view, hud, 0.0)
+			if _blocked(tag, entry["owner"] as Node, camera) or not off_hud:
 				want = 0.0
 			else:
 				# R2c: with room to spare, so a tag closing on another has faded
@@ -167,19 +214,24 @@ func _process(delta: float) -> void:
 		if touching:
 			shown = 0.0
 		_shown[id] = shown
-		tag.transparency = 1.0 - shown * near
+		if "screen_alpha" in tag:
+			# A sign that fades itself up close (ui/near_label.gd) takes this on top.
+			tag.set("screen_alpha", shown)
+		else:
+			tag.transparency = 1.0 - shown * near
 		# R2c: a tag still fading out holds its place too, so a farther one never
 		# fades in through it (two tags printed over each other).
 		if drawn and tag.modulate.a > 0.05 and rect.size != Vector2.ZERO and shown * near > 0.05:
 			kept.append(rect)
 			kept_vel.append(vel)
-			last_rects.append({"kind": "tag", "rect": rect, "alpha": shown * near * tag.modulate.a, "text": tag.text})
+			last_rects.append({"kind": "sign" if sign else "tag", "rect": rect, "alpha": shown * near * tag.modulate.a, "text": tag.text})
 	for id: Variant in _shown.keys():
 		if not seen.has(id):
 			_shown.erase(id)
 			_clear_since.erase(id)
 			_tag_px.erase(id)
 			_tag_vel.erase(id)
+			_heading_off.erase(id)
 
 
 ## R2c: how a tag moves on screen (px/s, smoothed), from its rect's centre last
@@ -274,12 +326,78 @@ func _tags() -> Array[Dictionary]:
 			if label == null:
 				continue
 			out.append({"tag": label, "owner": node, "hide": in_van(node)})
-	# R2c: the homeowner's name too (it hung over the catch's two-shot).
-	for node: Node in get_tree().get_nodes_in_group("homeowner"):
-		var tag := node.get("_tag") as Label3D if "_tag" in node else null
-		if tag != null and is_instance_valid(tag):
-			out.append({"tag": tag, "owner": node, "hide": false})
+	# R2c: the homeowner's name too (it hung over the catch's two-shot); p1-ui: and
+	# the shopkeepers' ("Marty" cut in half at the screen's edge).
+	for group: String in ["homeowner", "shopkeepers"]:
+		for node: Node in get_tree().get_nodes_in_group(group):
+			var tag := node.get("_tag") as Label3D if "_tag" in node else null
+			if tag != null and is_instance_valid(tag):
+				out.append({"tag": tag, "owner": node, "hide": false})
+	# p1-ui: the world's signs, in the same line (no owner: walls are checked
+	# against the sign itself).
+	for node: Node in get_tree().get_nodes_in_group(SIGNS):
+		var sign := node as Label3D
+		if sign != null and sign.is_inside_tree():
+			out.append({"tag": sign, "owner": null, "hide": false, "sign": true})
 	return out
+
+
+## p1-ui: a sign hung in the world always faces the camera (from behind it read
+## mirrored: "Back to Homie Depot" through the catch's swing, nb9).
+static func setup_sign(sign: Label3D) -> void:
+	if sign.has_meta("p1_sign"):
+		return
+	sign.set_meta("p1_sign", true)
+	sign.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+
+
+## p1-ui: whether a camera is a moment's rather than your eyes (a stage shot, the
+## van's cabin camera rig): no tags or signs over it.
+static func stage_camera(camera: Camera3D) -> bool:
+	# The camera itself or the rig it hangs in, a few levels up at most.
+	var node: Node = camera
+	for _level: int in 4:
+		if node == null:
+			break
+		if STAGE_CAMERAS.has(node.name):
+			return true
+		node = node.get_parent()
+	return false
+
+
+## p1-ui: where the HUD is on screen now (the cash and cleanup rows, the job
+## panel, the clock and rank, heat, the goal line, the dash, the bar and the
+## hands card), each as drawn; a piece eased out (the cinematic HUD) isn't there.
+func hud_rects() -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	var ui := get_parent()
+	if ui == null:
+		return out
+	for piece: String in HUD_PIECES:
+		var node := ui.get_node_or_null(piece) as Control
+		if node == null or not node.is_visible_in_tree() or node.modulate.a * node.self_modulate.a < 0.05:
+			continue
+		var rect := node.get_global_rect()
+		if rect.size.x > 1.0 and rect.size.y > 1.0:
+			out.append(rect)
+	var hotbar := ui.get_node_or_null("HotbarHud")
+	if hotbar != null and hotbar.has_method("screen_rects"):
+		out.append_array(hotbar.call("screen_rects") as Array[Rect2])
+	return out
+
+
+## p1-ui: whether a tag's words sit inside the screen, P1_LABEL_EDGE_PX in from
+## every edge, and P1_LABEL_HUD_GAP_PX clear of every HUD panel.
+static func clear_of_hud(rect: Rect2, view: Vector2, hud: Array[Rect2], scale := 1.0) -> bool:
+	if rect.size == Vector2.ZERO:
+		return true
+	var edge := Constants.P1_LABEL_EDGE_PX * scale
+	if not Rect2(Vector2.ONE * edge, view - Vector2.ONE * edge * 2.0).encloses(rect):
+		return false
+	for panel: Rect2 in hud:
+		if rect.grow(Constants.P1_LABEL_HUD_GAP_PX * scale).intersects(panel):
+			return false
+	return true
 
 
 ## Everyone whose Visual/Bark is a bubble: the NICE BOYS, and anything else that

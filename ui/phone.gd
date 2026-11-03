@@ -256,6 +256,10 @@ func show_app(app: String) -> void:
 		(_tabs[key] as Button).button_pressed = key == app
 	_dirty = true
 	_rebuild()
+	# An app opens at its top (NB-11: the Map opened mid-scroll), after the list's
+	# new rows have their sizes.
+	_scroll.scroll_vertical = 0
+	_scroll.set_deferred("scroll_vertical", 0)
 
 
 func _process(_delta: float) -> void:
@@ -346,6 +350,13 @@ func _texts(town: Node) -> void:
 		return
 	var texts: Array = (town.get("texts") as Array).duplicate()
 	texts.reverse()
+	# NB-11: Marty's welcome stays on top all of its first day (it came first, so
+	# newest-first put it under the clients' texts, below the fold).
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var today := int(clock.get("day")) if clock != null else 1
+	var pinned := texts.filter(func(entry: Variant) -> bool: return str((entry as Dictionary).get("kind", "")) == "intro" and int((entry as Dictionary).get("day", 0)) == today)
+	if not pinned.is_empty():
+		texts = pinned + texts.filter(func(entry: Variant) -> bool: return not pinned.has(entry))
 	var requests: Array = town.get("requests")
 	var board := get_tree().get_first_node_in_group("job_board")
 	var picked := int((board.call("current") as Dictionary).get("house_id", -1)) if board != null else -1
@@ -391,10 +402,32 @@ func _texts(town: Node) -> void:
 				take.focus_mode = Control.FOCUS_NONE
 				take.text = _Strings.UI["phone_take_job"]
 				take.size_flags_horizontal = Control.SIZE_SHRINK_END
+				# NB-11: the catalog look's live orange, not a grey that reads disabled.
+				_paint_take(take)
 				take.set_meta(&"ui_sound", &"phone_take")
 				take.pressed.connect(func() -> void: _take(house_id))
 				column.add_child(take)
 		_list.add_child(bubble)
+
+
+## A text's Take it button in the catalog look: white on orange, lighter under
+## the pointer, darker pressed.
+func _paint_take(button: Button) -> void:
+	button.add_theme_font_size_override("font_size", 15)
+	for state: String in ["normal", "hover", "pressed", "focus"]:
+		var fill := ORANGE
+		if state == "hover":
+			fill = ORANGE.lightened(0.12)
+		elif state == "pressed":
+			fill = ORANGE.darkened(0.12)
+		var box := _box(fill, 10, ORANGE.darkened(0.25), 0, 0)
+		box.content_margin_left = 14
+		box.content_margin_right = 14
+		box.content_margin_top = 4
+		box.content_margin_bottom = 4
+		button.add_theme_stylebox_override(state, box)
+	for color: String in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		button.add_theme_color_override(color, Color.WHITE)
 
 
 func _take(house_id: int) -> void:
@@ -472,7 +505,7 @@ func _map(town: Node) -> void:
 		var color := INK
 		var opens_at := _Ranks.tier_of("hood:" + hood_id)
 		if open and known > 0:
-			line = _Strings.UI["phone_hood_open"] % [str(hood["name"]), known]
+			line = _Strings.UI["phone_hood_open_one"] % str(hood["name"]) if known == 1 else _Strings.UI["phone_hood_open"] % [str(hood["name"]), known]
 		elif open:
 			line = _Strings.UI["phone_hood_waiting"] % str(hood["name"])
 			color = SOFT

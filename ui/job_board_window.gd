@@ -46,10 +46,8 @@ func open() -> void:
 	var board := _board()
 	if board != null and not board.is_connected("offers_changed", _refresh_if_open):
 		board.connect("offers_changed", _refresh_if_open)
+	# Sized to its cards, centered and inside the screen (super.open, ui/window_fit.gd).
 	super.open()
-	# Shrunk back to what this many cards need, still centered.
-	reset_size()
-	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 
 
 func _board() -> Node:
@@ -122,7 +120,10 @@ func _offer_card(offer: Dictionary, index: int, picked: bool, locked: bool) -> C
 ## The crew rating as star icons (ui/job_board_window.gd): the lead, the stars,
 ## then the count; no reviews yet keeps the old one-line text.
 func _show_rating(rating: float, count: int) -> void:
+	# Out of the row at once (like the cards), so the old row never counts toward
+	# the window's size.
 	for child: Node in _rating.get_children():
+		_rating.remove_child(child)
 		child.queue_free()
 	var color := ORANGE.darkened(0.15)
 	if count <= 0:
@@ -130,4 +131,9 @@ func _show_rating(rating: float, count: int) -> void:
 		return
 	_rating.add_child(_text(_Strings.ICON_UI["board_rating_lead"], 18, color))
 	_rating.add_child(_BoardLook.stars(rating))
-	_rating.add_child(_text(_Strings.ICON_UI["board_rating_jobs"] % count, 18, color))
+	_rating.add_child(_text(rating_count_text(count), 18, color))
+
+
+## "(1 job)", "(3 jobs)" (NB-13).
+static func rating_count_text(count: int) -> String:
+	return str(_Strings.ICON_UI["board_rating_job_one"]) if count == 1 else str(_Strings.ICON_UI["board_rating_jobs"]) % count

@@ -18,10 +18,11 @@ extends PanelContainer
 ##             Snak-o-Matic keeping your money (you watch it stick on the coil)
 ## A closed shop shows its shutter (CLOSED, Opens 7 AM) instead of the cards.
 ## Every button asks the host (Shops.request_buy); the answer comes back as
-## Shops.result, shown as a toast ("Sold out", "Not enough cash", "Bought: ..."),
-## and a confirmed buy emits `bought` so the shop's keeper reacts
-## (ui/ui_root.gd). The register's ka-ching is audio/cue_hooks.gd's, on the same
-## result; button clicks only click.
+## Shops.result: a refusal is a toast ("Sold out", "Not enough cash"); a sale is
+## no words at all (p1-ui), only the register's ka-ching (audio/cue_hooks.gd, on
+## the same result) and `bought`, so the shop's keeper reacts (ui/ui_root.gd).
+## Button clicks only click. The keeper's line shows here, under the title, and
+## not over his head as well while this window is up (npcs/store_clerk.gd).
 
 signal bought(item_id: StringName)
 
@@ -29,6 +30,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
 const _Icons = preload("res://ui/icons.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _WindowFit = preload("res://ui/window_fit.gd")
 const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
 const ORANGE := Color(0.93, 0.47, 0.13)
@@ -201,11 +203,10 @@ func open() -> void:
 		_build_tabs()
 	_refresh()
 	visible = true
-	# Centered by anchors, growing both ways from the middle of the screen, so its
-	# size can settle after the cards are built without knocking it off screen.
-	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
-	grow_horizontal = Control.GROW_DIRECTION_BOTH
-	grow_vertical = Control.GROW_DIRECTION_BOTH
+	# p1-ui: exactly as big as what's in it, in the middle of the screen and inside
+	# it, every time it opens and whenever its content changes (ui/window_fit.gd).
+	_WindowFit.watch(self)
+	_WindowFit.fit(self, true)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _scroll != null:
 		_scroll_to_focus.call_deferred()
@@ -600,6 +601,10 @@ func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 		if str(Catalog.item(item_id).get("kind", "")) == "snack":
 			close_window()
 			return
+		# NB-10: no "Bought: Lawn bags". The register's ka-ching (audio/cue_hooks.gd),
+		# the cash going down and the card's stock say it.
+		_refresh()
+		return
 	elif code == "eaten":
 		# The Snak-o-Matic kept the money: out of the way, so you watch it stick on
 		# its coil and hear the trombone (props/vending_machine.gd). The machine

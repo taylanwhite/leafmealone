@@ -85,14 +85,16 @@ const UI: Dictionary = {
 	"hud_heat": "Heat",
 	"heat_warn_0": "Curtains are twitching.",
 	"heat_warn_1": "Somebody's on the phone.",
-	"prompt_grab_player": "Grab %s",
-	"prompt_put_down_player": "Put %s down",
+	# p1-ui: the teammate is right there; the prompt names no one (nb11).
+	"prompt_grab_player": "Grab",
+	"prompt_put_down_player": "Put down",
 	"board_title": "JOBS",
 	"board_house": "No. %d",
 	"board_size_0": "Small yard",
 	"board_size_1": "Yard",
 	"board_size_2": "Big yard",
 	"board_tasks": "%d jobs",
+	"board_tasks_one": "1 job",
 	"board_pay": "$%d + leaves",
 	"board_pay_short": "$%d+",
 	"board_picked": "NEXT UP",
@@ -196,7 +198,7 @@ const UI: Dictionary = {
 	"board_client_line": "%s, %s",
 	"board_none": "Nobody's asked for a job yet. The leaves are biding their time.",
 	"receipt_bonus": "Night shift and rank bonus",
-	"receipt_xp": "Crew XP (banked when you sleep)",
+	"receipt_xp": "Crew XP",
 	"summary_title": "Day %d is over",
 	"summary_jobs": "Jobs done: %d",
 	"summary_cash": "Cash earned: $%d",
@@ -207,6 +209,7 @@ const UI: Dictionary = {
 	"summary_unlock": "  Unlocked: %s",
 	"summary_requests": "%d clients texted for tomorrow",
 	"summary_missed": "%d jobs went to somebody else",
+	"summary_missed_one": "A job went to somebody else",
 	"summary_opened": "New neighborhood: %s",
 	"summary_close": "Rise and shine",
 	"shop_needs_rank": "Rank: %s",
@@ -226,6 +229,7 @@ const UI: Dictionary = {
 	"phone_last_today": "today",
 	"phone_last_days": "%d days ago",
 	"phone_hood_open": "%s  (%d clients)",
+	"phone_hood_open_one": "%s  (1 client)",
 	"phone_hood_locked": "%s  (opens at %s)",
 	"phone_hood_waiting": "%s  (open, waiting for a referral)",
 	"phone_next_unlock": "Next: %s at %s",
@@ -406,7 +410,8 @@ const UI: Dictionary = {
 	"hotbar_stack": "×%d",
 	"hotbar_weight": "%s · %d kg",
 	"hotbar_barrow": "%d/%d bags · $%d",
-	"hotbar_bag": "Leaf bag · $%d",
+	# p1-ui: the bag on one line, its title (NB-10): "Leaf bag · 7 kg · $9".
+	"hotbar_bag_title": "%s · %d kg · $%d",
 	"hotbar_paint": "%d%% paint",
 	"hotbar_gas": "%d%% gas",
 	"hotbar_hooked": "hooked up",
@@ -1019,7 +1024,8 @@ const SHOP_UI: Dictionary = {
 	"shop_opens_day_after": "the day after tomorrow, %s",
 	# Prompts, hints, and goals.
 	"prompt_shop_closed": "Closed. Opens %s",
-	"prompt_look_at": "Look at %s",
+	# p1-ui: a keycap and a verb; the thing on the shelf or the rack is in front of you.
+	"prompt_look_at": "Look",
 	"prompt_refuel": "Fill it up (%d%%)",
 	# E at Chefty's tailgate with junk in the bed (shops chunk 5, gap-specs critic C22).
 	# A keycap and a verb (x1:text): the junk is right there in the bed.
@@ -2501,6 +2507,7 @@ const ICON_UI: Dictionary = {
 	# The job board's crew rating, around its five star icons.
 	"board_rating_lead": "Crew rating:",
 	"board_rating_jobs": "(%d jobs)",
+	"board_rating_job_one": "(1 job)",
 }
 
 # ---- bags: throw into Chefty

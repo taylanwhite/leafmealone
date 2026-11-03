@@ -5045,3 +5045,24 @@ const TOWN_STREET_PROP_CHUNK: float = 256.0
 ## the queue's last turn, the frame is already a long one (the job yard arriving
 ## on a joiner) and the queue sits it out (never two frames running).
 const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
+
+# ---- p1-ui (windows and world labels, docs/GAME.md "Windows sit in the middle of
+# the screen" and "Words hung in the world"). Presentation only.
+## A window (ui/window_fit.gd) keeps at least this far (px) inside every screen
+## edge; bigger than that, it's drawn smaller.
+const UI_WINDOW_MARGIN_PX: float = 24.0
+## A world sign (Chefty's name and load, a gate pad's words; ui/overheads.gd
+## SIGNS) is never taller than this share of the view's height per line.
+const P1_SIGN_LINE_MAX: float = 0.034
+## A tag or sign fades out once its words come within this many px of a screen
+## edge (it never shows cut off), or of a HUD panel (it never prints over one).
+const P1_LABEL_EDGE_PX: float = 12.0
+const P1_LABEL_HUD_GAP_PX: float = 8.0
+## ... or where it's heading (its screen speed times the fade) for this many
+## frames running (one jerk of the view mustn't blink it).
+const P1_LABEL_AHEAD_FRAMES: int = 2
+## At a shop counter (npcs/store_clerk.gd frame_for): your view eases round onto
+## the keeper's face over this long (s) when his window opens, looking at most
+## this far (rad) up or down from level.
+const P1_COUNTER_FRAME_SECONDS: float = 0.45
+const P1_COUNTER_PITCH_MAX: float = 0.12
