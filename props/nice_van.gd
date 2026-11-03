@@ -88,6 +88,15 @@ const DOOR_PANEL_X: Array[float] = [1.265, 1.235, 1.205]
 const DOOR_PANEL_CLOSED_Z: Array[float] = [-1.0, 0.6, 2.15]
 const DOOR_PANEL_OPEN_Z: float = 2.2
 const DOOR_PANEL_LENGTH: float = 1.7
+## Each panel's window, sill to head (y).
+const DOOR_WINDOW_Y := Vector2(1.86, 2.62)
+## The water cooler's middle on the floor (x, z): the cabin's front-left corner.
+const COOLER_AT := Vector2(-0.86, 0.12)
+## The riders' cab shot: the eye, and what it looks at (the daisy, a touch low).
+const FRESHENER_CAM := Vector3(0.05, 2.66, -0.4)
+const FRESHENER_LOOK := Vector3(0.0, 2.42, -2.3)
+## The engine's sound comes from here, under the hood.
+const ENGINE_AT := Vector3(0.0, 1.0, -2.6)
 ## The back doors' hinges (x) and how far they swing open (radians).
 const BACK_HINGE_X: float = 1.05
 const BACK_DOOR_OPEN: float = 1.9
@@ -222,7 +231,7 @@ static func _moving_parts(shell: Node3D, meshes: Dictionary, glass_material: Mat
 	var front := side.get_node("Panel0") as Node3D
 	var handle := _LowPoly.box(front, Vector3(0.02, 0.035, 0.12), Vector3(0.026, 1.86, -DOOR_PANEL_LENGTH * 0.5 + 0.12), CHROME)
 	handle.name = "Handle"
-	_letter(_LowPoly.text_sign(front, str(_Strings.UI["van_side"]), Vector3(0.018, 2.0, 0.19), 30, LETTERING, PI * 0.5))
+	_letter(_LowPoly.text_sign(front, str(_Strings.UI["van_side"]), Vector3(0.018, (1.52 + DOOR_WINDOW_Y.x) * 0.5, 0.19), 30, LETTERING, PI * 0.5))
 	side.setup(DOOR_PANEL_OPEN_Z, DOOR_PANEL_CLOSED_Z)
 	var back := BackDoors.new()
 	back.name = "BackDoors"
@@ -294,10 +303,12 @@ static func _markers(look: Node3D, shell: Node3D) -> void:
 	_marker(crew, "Seat1", Transform3D(Basis.IDENTITY, Vector3(-0.05, 1.01, 2.56)))
 	_marker(crew, "Seat2", Transform3D(Basis.IDENTITY, Vector3(0.55, 1.01, 2.56)))
 	_marker(shell, "DriverSeat", Transform3D(Basis.IDENTITY, Vector3(-0.5, 1.0, -1.92)))
-	# Close on the daisy, the windshield and the road behind it.
-	# From over the passenger seat, so the driver's head stays out of the shot.
-	var at := Vector3(0.32, 2.74, -1.6)
-	_marker(shell, "FreshenerCam", Transform3D(Basis.looking_at(Vector3(0.0, 2.56, -2.05) - at, Vector3.UP), at))
+	# The cab from just behind the front seats, between the headrests: the driver
+	# at the wheel on the left, the daisy swinging in the middle, the road ahead
+	# through the windshield (R2b van: from over the passenger seat it sat inside
+	# the head of whoever rode shotgun).
+	var at := FRESHENER_CAM
+	_marker(shell, "FreshenerCam", Transform3D(Basis.looking_at(FRESHENER_LOOK - at, Vector3.UP), at))
 	_marker(look, "DoorStep", Transform3D(facing_side.rotated(Vector3.UP, PI), Vector3(1.75, 0.0, 0.3)))
 	_marker(look, "RearStep", Transform3D(Basis.IDENTITY, Vector3(0.0, 0.87, 3.24)))
 
@@ -526,11 +537,18 @@ static func _door_panel_mesh(paint: Color) -> ArrayMesh:
 	var kit := _MeshKit.new()
 	var length := DOOR_PANEL_LENGTH
 	var t := 0.03
+	# A tall window (R2b van: a seated rider's whole ride is the view through these,
+	# and a slot at eye height showed a strip of street over a cream wall).
+	var sill := DOOR_WINDOW_Y.x
+	var head := DOOR_WINDOW_Y.y
 	kit.box(Vector3(0.0, 1.27, 0.0), Vector3(t, 0.5, length), BAND)
-	kit.box(Vector3(0.0, 1.835, 0.0), Vector3(t, 0.63, length), paint)
+	kit.box(Vector3(0.0, (1.52 + sill) * 0.5, 0.0), Vector3(t, sill - 1.52, length), paint)
 	for side: float in [-1.0, 1.0]:
-		kit.box(Vector3(0.0, 2.385, side * (length * 0.5 - 0.1)), Vector3(t, 0.47, 0.2), paint)
-	kit.box(Vector3(0.0, 2.74, 0.0), Vector3(t, 0.24, length), paint)
+		kit.box(Vector3(0.0, (sill + head) * 0.5, side * (length * 0.5 - 0.1)), Vector3(t, head - sill, 0.2), paint)
+	kit.box(Vector3(0.0, (head + 2.86) * 0.5, 0.0), Vector3(t, 2.86 - head, length), paint)
+	# Rubber round the window.
+	for y: float in [sill, head]:
+		kit.box(Vector3(t * 0.5 + 0.003, y, 0.0), Vector3(0.006, 0.025, length - 0.4), RUBBER)
 	kit.box(Vector3(t * 0.5 + 0.003, 1.535, 0.0), Vector3(0.006, 0.03, length - 0.02), BAND_DEEP)
 	# Rubber round its edges, so three stacked panels read as three.
 	for side: float in [-1.0, 1.0]:
@@ -540,7 +558,7 @@ static func _door_panel_mesh(paint: Color) -> ArrayMesh:
 
 static func _door_panel_glass_mesh() -> ArrayMesh:
 	var kit := _MeshKit.new()
-	kit.box(Vector3(0.0, 2.385, 0.0), Vector3(0.022, 0.47, DOOR_PANEL_LENGTH - 0.4), Color.WHITE)
+	kit.box(Vector3(0.0, (DOOR_WINDOW_Y.x + DOOR_WINDOW_Y.y) * 0.5, 0.0), Vector3(0.022, DOOR_WINDOW_Y.y - DOOR_WINDOW_Y.x, DOOR_PANEL_LENGTH - 0.4), Color.WHITE)
 	return kit.commit()
 
 
@@ -614,6 +632,8 @@ static func _cab_inside(kit: _MeshKit) -> void:
 		kit.tube(PackedVector3Array([Vector3(0.0, 1.6, z), Vector3(0.0, 1.62, z)]), PackedFloat32Array([0.05, 0.05]), Color(0.12, 0.12, 0.13), 8, {"jitter": 0.0})
 	# The mirror; the daisy air freshener swings from it (Shell/Freshener).
 	kit.box(Vector3(0.0, 2.76, -2.04), Vector3(0.3, 0.07, 0.03), RUBBER)
+	# Its glass, facing the cab, so from behind it reads as a mirror, not a black bar.
+	kit.box(Vector3(0.0, 2.76, -2.024), Vector3(0.27, 0.05, 0.004), Color(0.72, 0.8, 0.86))
 
 
 ## The back, seen through the open side: a bench along the left wall and one across
@@ -626,11 +646,7 @@ static func _cabin_inside(kit: _MeshKit) -> void:
 	kit.box(Vector3(0.22, 1.45, 2.62), Vector3(1.66, 0.12, 0.42), VINYL)
 	kit.box(Vector3(0.22, 1.22, 2.62), Vector3(1.6, 0.38, 0.36), RUBBER)
 	kit.box(Vector3(0.22, 1.86, 2.88), Vector3(1.66, 0.62, 0.08), VINYL.darkened(0.08))
-	# The water cooler: a white stand, a blue jug, a red and a blue tap.
-	kit.box(Vector3(0.72, 1.46, 1.35), Vector3(0.34, 0.9, 0.34), Color(0.95, 0.95, 0.96))
-	kit.rbox(Vector3(0.72, 2.13, 1.35), Vector3(0.15, 0.22, 0.15), Color(0.45, 0.7, 0.95), 3.0, {"detail": 2})
-	kit.box(Vector3(0.62, 1.78, 1.35), Vector3(0.03, 0.04, 0.04), Color(0.85, 0.2, 0.2))
-	kit.box(Vector3(0.62, 1.78, 1.25), Vector3(0.03, 0.04, 0.04), Color(0.2, 0.4, 0.9))
+	_cooler(kit)
 	# Grab rails along both sides of the ceiling, with lavender loops.
 	for x: float in [-0.92, 0.92]:
 		kit.tube(PackedVector3Array([Vector3(x, 2.79, -1.7), Vector3(x, 2.79, 2.7)]), PackedFloat32Array([0.018, 0.018]), CHROME, 6, {"jitter": 0.0})
@@ -642,6 +658,25 @@ static func _cabin_inside(kit: _MeshKit) -> void:
 	kit.box(Vector3(-1.04, 2.42, 0.9), Vector3(0.02, 0.44, 0.36), Color(0.97, 0.97, 0.95))
 	kit.box(Vector3(-1.032, 2.42, 0.9), Vector3(0.01, 0.36, 0.28), BAND)
 	_NiceSeal.add(kit, Vector3(-1.026, 2.45, 0.9), 0.1, Vector3.RIGHT)
+
+
+## The water cooler, in the front corner against the left wall where the riders'
+## bench starts (R2b van: it stood mid-cabin, a white block with a blue jug dead
+## center in every rider's view): a stand with a recessed drip panel, two taps and
+## a tray, an upside-down jug on top, and a paper-cup tube on the wall.
+static func _cooler(kit: _MeshKit) -> void:
+	var x := COOLER_AT.x
+	var z := COOLER_AT.y
+	var body := Color(0.9, 0.89, 0.86)
+	kit.rbox(Vector3(x, 1.4, z), Vector3(0.15, 0.39, 0.15), body, 3.0, {"detail": 1})
+	kit.box(Vector3(x + 0.152, 1.56, z), Vector3(0.01, 0.24, 0.2), body.darkened(0.25))
+	kit.box(Vector3(x + 0.165, 1.46, z), Vector3(0.05, 0.02, 0.2), RUBBER)
+	kit.box(Vector3(x + 0.165, 1.63, z - 0.05), Vector3(0.03, 0.035, 0.035), Color(0.85, 0.2, 0.2))
+	kit.box(Vector3(x + 0.165, 1.63, z + 0.05), Vector3(0.03, 0.035, 0.035), Color(0.2, 0.4, 0.9))
+	kit.tube(PackedVector3Array([Vector3(x, 1.79, z), Vector3(x, 1.85, z), Vector3(x, 1.93, z), Vector3(x, 2.17, z), Vector3(x, 2.22, z)]),
+		PackedFloat32Array([0.035, 0.035, 0.12, 0.12, 0.09]), Color(0.55, 0.78, 0.95), 10, {"jitter": 0.0, "cap": true, "cap_start": true})
+	kit.tube(PackedVector3Array([Vector3(-1.02, 1.86, z + 0.3), Vector3(-1.02, 2.14, z + 0.3)]), PackedFloat32Array([0.035, 0.035]), Color(0.97, 0.97, 0.95), 8, {"jitter": 0.0, "cap": true, "cap_start": true})
+	kit.tube(PackedVector3Array([Vector3(-1.02, 2.1, z + 0.3), Vector3(-1.02, 2.14, z + 0.3)]), PackedFloat32Array([0.038, 0.038]), BAND, 8, {"jitter": 0.0, "cap": true})
 
 
 ## Every fixed window as one see-through mesh: the windshield, both cab doors and

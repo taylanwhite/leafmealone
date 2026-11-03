@@ -29,6 +29,11 @@ extends Node
 ##   border    the client (in the cohort) is handed to Annex B at its curb: a
 ##             second on, off the seat, in the BORDER zone, at the Annex set
 ##   dropoff   the return shuttle puts the rider on the curb, released, immune
+##   road, road_out (R2b van) every route point near the yard keeps the van's
+##             body between the street's curbs, pulling up and driving away
+##   doors     (R2b van) nobody steps down before the side door is open
+##   dropoff_curb (R2b van) the rider lands on the sidewalk, the van parked square
+##             to the curb, then it pulls away
 ##   driveon   called off while still pulling up, it drives on: no step backwards,
 ##             no jump
 ##   rides     no Rides/Van node; another ride arriving leaves Chefty's riders alone
@@ -43,6 +48,11 @@ const STEP_WAIT_SECONDS: float = 30.0
 const POSE_TOLERANCE: float = 0.05
 const SEAT_TOLERANCE: float = 0.05
 const STEP_MAX_METERS: float = 1.0
+## road: the van's middle stays this far (m) inside the street's curbs (its half
+## width), checked along this much of the yard's street either way (m, lot x).
+const ROAD_HALF_WIDTH: float = 1.15
+const ROAD_CHECK_X: float = 125.0
+const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 
 static var result: Dictionary = {}
 
@@ -182,6 +192,9 @@ func _step_raid(shuttle: Node) -> void:
 		crew.set("_stun_left", 1000.0)
 	var ground_ok := _routes_on_ground(shuttle, trip)
 	_check("raid", trip > 0 and parked != null and crew_seated >= 1 and ground_ok, "trip %d parked %s with %d NICE BOYS seated at the call; routes on ground %s" % [trip, parked != null, crew_seated, ground_ok])
+	# R2b van: it pulled up over the lawn and the sidewalk round a pine in the road.
+	var off_road := _off_road(shuttle, trip)
+	_check("road", off_road == "", "the pull-up stays on the carriageway, never on a sidewalk or lawn%s" % ("" if off_road == "" else ": " + off_road))
 	_steps["trip"] = trip
 
 
@@ -319,7 +332,13 @@ func _step_ride(shuttle: Node) -> void:
 		var at := float((entry as Dictionary)["at"])
 		iris_ok = iris_ok and _iris_closed_by(shuttle, trip, at)
 	var poses: Dictionary = await _compare_poses(shuttle, trip)
+	var off_road := _off_road(shuttle, trip)
+	_check("road_out", off_road == "", "the creep and the drive away stay on the carriageway%s" % ("" if off_road == "" else ": " + off_road))
 	await _check_border(shuttle)
+	# R2b van: at Annex B the rider stepped out through the shut door, which only
+	# opened 2.5 s later (a later shut overwrote the open).
+	var door_stats: Dictionary = shuttle.get("stats")
+	_check("doors", int(door_stats.get("unseats", 0)) >= 1 and int(door_stats.get("unseats_shut_door", 0)) == 0, "%d riders stepped down, %d of them before the side door was open" % [int(door_stats.get("unseats", 0)), int(door_stats.get("unseats_shut_door", 0))])
 	var gone: Variant = await _wait_for(func() -> Variant:
 		return true if not (shuttle.call("trip_ids") as Array).has(trip) else null, 45.0)
 	var reply: Dictionary = await _ask("ride", {})
@@ -330,7 +349,7 @@ func _step_ride(shuttle: Node) -> void:
 	var step := float(reply.get("max_step_m", 99.0))
 	var crew_err := float(reply.get("crew_err_max", 99.0))
 	_check("poses", bool(poses.get("ok", false)), "host and client poses within %.2f m on %d samples over legs %s (worst %.4f m)" % [POSE_TOLERANCE, int(poses.get("samples", 0)), poses.get("legs", []), float(poses.get("worst", 99.0))])
-	_check("ride", moved != null and iris_ok and client_iris_ok and gone != null and speed <= Constants.VAN_MAX_SCREEN_SPEED + 0.5 and step <= STEP_MAX_METERS and crew_err <= SEAT_TOLERANCE, "zone move %s after the iris %s (client iris %s), freed after it left %s, client on-screen speed %.1f m/s, step %.2f m, crew off their seats %.3f m over %d samples" % [moved != null, iris_ok, "pending (no iris headless)" if iris_pending else str(client_iris_ok), gone != null, speed, step, crew_err, int(reply.get("crew_samples", 0))])
+	_check("ride", moved != null and iris_ok and client_iris_ok and gone != null and speed <= Constants.VAN_MAX_SCREEN_SPEED + 0.5 and step <= STEP_MAX_METERS and crew_err <= SEAT_TOLERANCE, "zone move %s after the iris %s (client iris %s), freed after it left %s, client on-screen speed %.1f m/s (%s), step %.2f m (%s), crew off their seats %.3f m over %d samples" % [moved != null, iris_ok, "pending (no iris headless)" if iris_pending else str(client_iris_ok), gone != null, speed, str(reply.get("speed_where", "")), step, str(reply.get("step_where", "")), crew_err, int(reply.get("crew_samples", 0))])
 
 
 ## The hand-off at Annex B's curb (R2 chunk 6 replaced Border Return): the Annex
@@ -382,6 +401,14 @@ func _step_dropoff(shuttle: Node) -> void:
 		stage = str(int(encounter.call("stage_of", _client)) == 10)
 	var where := body.global_position - pose.origin if body != null else Vector3.INF
 	_check("dropoff", parked != null and out != null and on_curb and safe and dropped, "parked %s, out %s, on the curb %s (%s from the van), immune %s, dropped %s, stage FREE %s" % [parked != null, out != null, on_curb, where, safe, dropped, stage])
+	# R2b van: the rider stood in the street, and the van never left the curb.
+	var lot := get_tree().get_first_node_in_group("world").get_node("LotZone") as Node3D
+	var feet := lot.to_local(body.global_position) if body != null else Vector3.INF
+	var square := absf(pose.basis.z.normalized().dot(lot.global_basis.x.normalized()))
+	var left: Variant = await _wait_for(func() -> Variant:
+		return true if str(shuttle.call("leg_name", trip)) == "leave" or not (shuttle.call("trip_ids") as Array).has(trip) else null, 15.0)
+	var off_road := _off_road(shuttle, trip)
+	_check("dropoff_curb", feet.z < _Neighborhood.STREET.x and feet.z > _Neighborhood.SIDEWALK_NEAR.x - 0.5 and square > 0.99 and left != null and off_road == "", "stepped down onto the sidewalk at lot z %.2f (street from %.1f), parked square to the curb %s, then pulled away %s, on the road %s" % [feet.z, _Neighborhood.STREET.x, square > 0.99, left != null, "yes" if off_road == "" else off_road])
 
 
 ## Called off while it's still pulling up: it drives on from where it is at the
@@ -442,6 +469,22 @@ func _step_rides() -> void:
 
 
 # ---------------------------------------------------------------- helpers
+
+
+## "" when every route point of a trip near the yard keeps the van's whole body on
+## the yard street's carriageway (lot space), else the first one that doesn't.
+func _off_road(shuttle: Node, trip: int) -> String:
+	var lot := get_tree().get_first_node_in_group("world").get_node("LotZone") as Node3D
+	var low := _Neighborhood.STREET.x + ROAD_HALF_WIDTH
+	var high := _Neighborhood.STREET.y - ROAD_HALF_WIDTH
+	for route: Variant in shuttle.call("trip_routes", trip):
+		for point: Vector3 in route as PackedVector3Array:
+			var local := lot.to_local(point)
+			if absf(local.x) > ROAD_CHECK_X:
+				continue
+			if local.z < low - 0.02 or local.z > high + 0.02:
+				return "lot (%.1f, %.2f), the street's middle allows %.2f..%.2f" % [local.x, local.z, low, high]
+	return ""
 
 
 func _routes_on_ground(shuttle: Node, trip: int) -> bool:
@@ -529,7 +572,7 @@ func _rpc_ask(what: String, args: Dictionary) -> void:
 			out = {"poses": poses}
 		"ride":
 			var stats: Dictionary = shuttle.get("stats")
-			out = {"max_speed_on_screen": float(stats.get("max_speed_on_screen", 0.0)), "max_step_m": float(stats.get("max_step_m", 0.0)),
+			out = {"max_speed_on_screen": float(stats.get("max_speed_on_screen", 0.0)), "max_step_m": float(stats.get("max_step_m", 0.0)), "speed_where": str(stats.get("max_speed_where", "")), "step_where": str(stats.get("max_step_where", "")),
 				"crew_err_max": _crew_err_max, "crew_samples": _crew_samples, "zone_iris": _zone_iris}
 		"border":
 			var me := _me()

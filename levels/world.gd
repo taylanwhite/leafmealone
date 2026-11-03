@@ -204,8 +204,12 @@ func _dress_town() -> void:
 
 
 func _dress_legacy() -> void:
-	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0])
-	_Surroundings.dress($LotZone, GRASS, 22, false, [PI * 0.75])
+	# No scenery tree in either street or on its sidewalks (R2b van: two pines stood
+	# in the lot street's far lane, and the Courtesy Shuttle swerved onto the lawn).
+	var near := _Neighborhood.SIDEWALK_NEAR.x - Constants.VAN_STREET_TREE_MARGIN
+	var across := _Neighborhood.SIDEWALK_FAR.y - _Neighborhood.SIDEWALK_NEAR.x + Constants.VAN_STREET_TREE_MARGIN * 2.0
+	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0], "grass", [Rect2(near, -400.0, across, 800.0)] as Array[Rect2])
+	_Surroundings.dress($LotZone, GRASS, 22, false, [PI * 0.75], "grass", [Rect2(-400.0, near, 800.0, across)] as Array[Rect2])
 	# The lot's street, neighbors, street life and grass come with each job yard:
 	# its block is built in the yard's neighborhood style (levels/lots/lot_generator.gd,
 	# levels/town/block_builder.gd).

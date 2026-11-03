@@ -491,6 +491,18 @@ func _phase_c() -> void:
 		# different kind and line, through the host's _rpc_bark; the client's
 		# crew_cast "bark" fields must match the host's (CI's Same check).
 		var kinds: Array[String] = ["arrive", "chase", "escort", "wave", "recall"]
+		# Not while one is still climbing out: the head NICE BOY says his own hello
+		# as he lands on the curb, over the test's bark (R2b van).
+		var hop_wait := 0.0
+		while hop_wait < 4.0:
+			var hopping := false
+			for member: Node in get_tree().get_nodes_in_group("crew"):
+				hopping = hopping or int(member.get("mode")) == _CrewMember.Mode.HOP_OUT
+			if not hopping:
+				break
+			await get_tree().create_timer(0.1).timeout
+			hop_wait += 0.1
+		await get_tree().create_timer(0.2).timeout
 		var sent := 0
 		for member: Node in get_tree().get_nodes_in_group("crew"):
 			var kind := kinds[sent % kinds.size()]

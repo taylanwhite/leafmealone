@@ -9,7 +9,8 @@ extends CanvasLayer
 ##
 ##   iris.close(at, seconds := IRIS_CLOSE, shape := &"seal")   # &"seal", &"door", &"fade"
 ##   iris.open(at, seconds := IRIS_OPEN)
-##   iris.is_closed() / closed_since()
+##   iris.is_closed() / closed_since() / amount_at(t) / shape()
+##   iris.close_count()   # a later close takes the shut over (don't open it then)
 ##
 ## It stays shut at least Constants.IRIS_HOLD_MIN, so a quick open never
 ## flickers. Above the HUD, below the pause buttons and Settings (it drops under
@@ -94,6 +95,9 @@ var _open_at: float = INF
 var _open_seconds: float = 0.35
 var _swished_close: bool = true
 var _swished_open: bool = true
+## Counts every close, so whoever closed it can tell whether someone else has
+## closed it since (and the shut is theirs now to open).
+var _closes: int = 0
 
 ## For the probe and stage_test: every close and open this process played.
 static var log: Array[Dictionary] = []
@@ -126,10 +130,26 @@ func close(at: float, seconds: float = Constants.IRIS_CLOSE, shape: StringName =
 	var now := Net.server_time()
 	var shown := amount_at(now)
 	_close_seconds = maxf(0.01, seconds)
-	_close_at = at - shown * _close_seconds if shown > 0.0 and at <= now else at
+	var carrying := shown > 0.0 and at <= now
+	_close_at = at - shown * _close_seconds if carrying else at
 	_open_at = INF
-	_swished_close = false
+	# Carrying on a close already under way: its swish already played (or is about
+	# to), so it doesn't swish a second time.
+	if not carrying:
+		_swished_close = false
+	_closes += 1
 	log.append({"op": "close", "at": at, "seconds": seconds, "shape": String(_shape)})
+
+
+## How many closes have been asked for: a caller that closed it opens it again
+## only while this still reads what it read right after its own close.
+func close_count() -> int:
+	return _closes
+
+
+## The shape it's closing (or shut) in.
+func shape() -> StringName:
+	return _shape
 
 
 ## Start opening at server time `at` (never sooner than IRIS_HOLD_MIN after it shut).
