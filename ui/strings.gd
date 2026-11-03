@@ -59,8 +59,7 @@ const UI: Dictionary = {
 	"lobby_not_ready": "not ready",
 	"error_host": "Could not host: %s",
 	"error_join": "Could not join: %s",
-	"ride_chefty_label": "Chefty\n%d/%d bags  $%d%s",
-	"ride_chefty_full": " full",
+	"ride_chefty_label": "Chefty\n%d/%d bags  $%d",
 	# A rider in the van with no name yet, by peer id.
 	"ride_rider_unnamed": "Player %d",
 	"phone_no_favorite": "no favorite job",
@@ -133,7 +132,6 @@ const UI: Dictionary = {
 	"shop_barrow_blurb": "Holds %d bags instead of %d.",
 	"homeowner_name": "The Homeowner",
 	"prompt_talk": "Talk to the homeowner",
-	"prompt_toss_truck": "Toss into Chefty",
 	"prompt_dump_truck": "Dump into Chefty",
 	"prompt_take_cash": "Take the cash ($%d)",
 	"cash_amount": "$%d",
@@ -198,7 +196,7 @@ const UI: Dictionary = {
 	"goal_board": "Board Chefty to head to the job",
 	"goal_grab_rake": "Grab the rake",
 	"goal_rake": "Rake leaves into one big pile, then {key:secondary} to bag it",
-	"goal_carry_held": "Carry the bag to Chefty and press {key:interact}",
+	"goal_carry_held": "Into Chefty with it",
 	"goal_carry_loose": "Carry the bags to Chefty (%d lying around)",
 	"goal_talk": "Talk to the homeowner to get paid ($%d in Chefty)",
 	"goal_rake_or_talk": "Grab the rake for more, or talk to the homeowner to get paid ($%d in Chefty)",
@@ -1775,7 +1773,7 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/border_lanes": [1, 1],
 	"UI/error_host": [1, 1],
 	"UI/error_join": [1, 1],
-	"UI/ride_chefty_label": [4, 1],
+	"UI/ride_chefty_label": [3, 1],
 	"UI/drive_hud_speed": [1, 1],
 	"UI/drive_hud_bed": [3, 1],
 	"UI/drive_hud_driver": [1, 1],
@@ -2077,3 +2075,34 @@ const ICON_UI: Dictionary = {
 	"board_rating_lead": "Crew rating:",
 	"board_rating_jobs": "(%d jobs)",
 }
+
+# ---- bags: throw into Chefty
+# Tossing leaf bags into Chefty's bed (net/components/net_prop.gd; docs/GAME.md
+# "Tossing bags into Chefty"). There is no prompt, refusal or "full" notice on
+# purpose (Taylan: don't hold the player's hand): the arc, the thump, the pile
+# and a bag bouncing off it say all of that. Only the crew's reaction is words.
+
+const TOSS_UI: Dictionary = {
+	# The crew's reaction to a long toss: who said it, and the line.
+	"quip_said": "%s: %s",
+}
+
+## A crewmate's reaction, now and then, when someone sinks a bag into Chefty
+## from far off.
+const TOSS_QUIPS: Array[String] = [
+	"Nothing but bed!",
+	"From DOWNTOWN!",
+	"Chefty felt that one.",
+	"Do it again, I wasn't filming.",
+	"That's going in the company newsletter. We don't have a newsletter.",
+	"Somebody give that person a raise. Nobody here can give raises.",
+	"Three points! Leaves don't get points! Still!",
+]
+
+## The same, when nobody else is on the crew to see it.
+const TOSS_BRAGS: Array[String] = [
+	"Nothing but bed. Nobody saw. Classic.",
+	"And the crowd goes... it's just me. Fine.",
+	"Chefty, you saw that. Back me up.",
+	"Putting that one on the resume.",
+]

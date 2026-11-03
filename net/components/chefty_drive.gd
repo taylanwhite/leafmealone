@@ -45,6 +45,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _Sfx = preload("res://audio/sfx.gd")
 const _SoundBank = preload("res://audio/sound_bank.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _BedLoad = preload("res://props/truck_bed_load.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
@@ -164,6 +165,8 @@ var _own_skid: bool = false
 var _skid_left: float = 0.0
 var _horn_player: AudioStreamPlayer3D
 var _horn_held: float = 0.0
+## The bags drawn in the bed (props/truck_bed_load.gd).
+var _bed_load: Node3D
 
 
 func _ready() -> void:
@@ -230,6 +233,8 @@ func _build() -> void:
 	label.position = Vector3(0.0, 3.4, 0.0)
 	_body.add_child(label)
 	_label = label
+	_bed_load = _BedLoad.new()
+	_body.add_child(_bed_load)
 	# The chauffeur's quip, over the cab while it lasts.
 	var quip := Label3D.new()
 	quip.name = "Quip"
@@ -411,6 +416,21 @@ func in_bed(point: Vector3) -> bool:
 	if _body == null:
 		return false
 	return BED.has_point(_body.global_transform.affine_inverse() * point)
+
+
+## The bed's space in the world (BED and the load's spots are in it).
+func bed_transform() -> Transform3D:
+	return body_transform()
+
+
+## Where the bag in load spot index sits, in the world (props/truck_bed_load.gd).
+func bed_slot(index: int) -> Transform3D:
+	return bed_transform() * _BedLoad.slot(index)
+
+
+## The bags drawn in the bed.
+func bed_load() -> Node3D:
+	return _bed_load
 
 
 ## Dollars' worth of this job's bags. What the homeowner pays for.
@@ -1543,8 +1563,9 @@ func _play_on(id: String) -> void:
 func _refresh_label() -> void:
 	if _label == null:
 		return
-	var full := _Strings.UI["ride_chefty_full"] if bag_count() >= Constants.TRUCK_BAG_CAPACITY else ""
-	_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY, _job_value, full]
+	_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY, _job_value]
+	if _bed_load != null:
+		_bed_load.call("set_count", bag_count())
 
 
 # ---------------------------------------------------------------- RPCs
@@ -1631,7 +1652,9 @@ func _rpc_horn(on: bool) -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_bags(job_bags: int, job_value: int, spent_bags: int) -> void:
-	if job_value > _job_value and _body != null:
+	if job_value > _job_value and _bed_load != null:
+		_bed_load.call("on_value_added", job_value - _job_value)
+	elif job_value > _job_value and _body != null:
 		_MoneyPopup.pop(get_tree(), _body.global_position + Vector3(0.0, 3.0, 0.0), job_value - _job_value)
 	_job_bags = job_bags
 	_job_value = job_value
@@ -1685,6 +1708,8 @@ func _rpc_state(seated: PackedInt32Array, _driver_id: int, job_bags: int, job_va
 	_job_bags = job_bags
 	_job_value = job_value
 	_spent_bags = spent_bags
+	if _bed_load != null:
+		_bed_load.call("sync_count", job_bags + spent_bags)
 	_dents = dents
 	_horn = horn
 	_trip = trip

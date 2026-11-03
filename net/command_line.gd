@@ -140,6 +140,10 @@ var port_given: bool = false
 ## Every user argument that isn't a player flag, unknown ones included (docs/DECISIONS.md,
 ## "Dev sessions never touch the real save"). Any of them makes this a dev session.
 var dev_flags: PackedStringArray = []
+## --toss-test: tossing leaf bags into Chefty's bed with G (net/dev/toss_test.gd).
+## --toss-survey: the same, but a table of throws from 2, 4 and 6 m instead.
+var toss_test: bool = false
+var toss_survey: bool = false
 
 ## The only flags a player launches with. Everything else is a dev, test or automation
 ## flag, so a new flag is a dev flag until it is added here. --town-map is a player flag
@@ -186,7 +190,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test or toss_test or toss_survey
 
 
 func read() -> void:
@@ -355,5 +359,9 @@ func parse(arguments: PackedStringArray) -> void:
 			leaf_motion_headless = true
 		elif argument == "--rake-stroke-test":
 			rake_stroke_test = true
+		elif argument == "--toss-test":
+			toss_test = true
+		elif argument == "--toss-survey":
+			toss_survey = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

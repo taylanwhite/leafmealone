@@ -78,6 +78,8 @@ func _ready() -> void:
 	var meter := preload("res://ui/throw_meter.gd").new()
 	meter.name = "ThrowMeter"
 	add_child(meter)
+	# Where a wound-up leaf bag will land (a 3D node; it draws in the world).
+	add_child(preload("res://ui/toss_arc.gd").new())
 	# The pockets along the bottom (ui/hotbar_hud.gd); the rake's hint lives in its
 	# hint line now (critic C6). It hides itself with any window (any_window_open).
 	var hotbar := preload("res://ui/hotbar_hud.gd").new()

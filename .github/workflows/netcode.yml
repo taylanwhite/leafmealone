@@ -410,6 +410,22 @@ jobs:
           grep "PlaytestToolsTest" build/soak/ci-playtest/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-playtest/host.json'))['playtest_tools_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
 
+      # Tossing leaf bags into Chefty's bed (net/dev/toss_test.gd): the host and a client
+      # 150 ms away each toss from 3 m and 6 m, counted once each; a miss stays on the
+      # ground; a wheelbarrow still unloads; a full Chefty bats one back out.
+      - name: Toss test (bags into Chefty's bed)
+        if: matrix.part == 'features'
+        timeout-minutes: 3
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-toss
+          "$GODOT" --headless --path . -- --host --port=7824 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --toss-test --toss-test --sim-lag=150 --measure="$PWD/build/soak/ci-toss/host.json" --run-seconds=110 > build/soak/ci-toss/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7824 --name=Target --no-steam --toss-test --sim-lag=150 --measure="$PWD/build/soak/ci-toss/target.json" --run-seconds=105 > build/soak/ci-toss/target.log 2>&1
+          wait
+          grep "TossTest" build/soak/ci-toss/host.log build/soak/ci-toss/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-toss/host.json')); t=json.load(open('build/soak/ci-toss/target.json')); sys.exit(0 if h['toss_test'].get('ok') and t['toss_test'].get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

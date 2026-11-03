@@ -10,11 +10,12 @@ extends Node
 ## one reaches its state.
 ##
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, hide,
-## border_return, van_ride, store, drive (that one needs --town-map).
+## border_return, van_ride, store, drive (that one needs --town-map), toss,
+## toss_full, toss_close.
 
 const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "hide", "border_return", "van_ride", "store", "drive"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "hide", "border_return", "van_ride", "store", "drive", "toss", "toss_full", "toss_close"]
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
@@ -32,6 +33,14 @@ const STRIP_MIN_DENSITY: int = 36
 const PILE_STAND_METERS: float = 2.4
 ## Looking a little down at the ground, in radians.
 const RAKE_PITCH: float = -0.42
+## toss: how far from the middle of Chefty's bed you stand, looking a touch up,
+## and what the bag in your hands is worth.
+const TOSS_STAND_METERS: float = 4.0
+## toss_close: right by the side wall, where a toss hops in over the rail and E
+## heaves it in.
+const TOSS_CLOSE_METERS: float = 2.0
+const TOSS_PITCH: float = 0.12
+const TOSS_BAG_VALUE: int = 14
 ## Waits for a state, in seconds, before a scenario gives up.
 const SETTLE_SECONDS: float = 15.0
 
@@ -96,6 +105,12 @@ func run(scenario: String) -> Dictionary:
 			out = await _store()
 		"drive":
 			out = await _drive()
+		"toss":
+			out = await _toss()
+		"toss_full":
+			out = await _toss(true)
+		"toss_close":
+			out = await _toss(false, TOSS_CLOSE_METERS)
 	out["scenario"] = scenario
 	if not out.has("ok"):
 		out["ok"] = not out.has("error")
@@ -150,6 +165,46 @@ func _rake_pile() -> Dictionary:
 	_place(pile - Vector3(PILE_STAND_METERS, 0.0, 0.0), -PI * 0.5, RAKE_PITCH)
 	await _ticks(3)
 	return {"note": "a raked pile %.1f m ahead; hold primary to rake into it, secondary to bag it" % PILE_STAND_METERS, "pile": _v(pile), "pile_units": most, "is_pile": bool(field.call("is_pile_at", pile))}
+
+
+## A full leaf bag in your hands, TOSS_STAND_METERS from the middle of Chefty's
+## bed on the yard's side, facing it (bags:throw; hold drop to wind up a toss).
+## toss_full: Chefty's bed is already full, so the toss bounces off the pile.
+## toss_close: TOSS_CLOSE_METERS off, beside the side wall.
+func _toss(full: bool = false, meters: float = TOSS_STAND_METERS) -> Dictionary:
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	var truck := get_tree().get_first_node_in_group("chefty") as Node3D
+	if truck == null or not truck.has_method("bed_transform"):
+		return {"error": "no Chefty here"}
+	if full:
+		truck.call("accept_bags", Constants.TRUCK_BAG_CAPACITY - int(truck.call("bag_count")), 0)
+	var bed: Transform3D = truck.call("bed_transform")
+	var middle := bed * Vector3(0.0, 0.0, 0.72)
+	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	var side := Vector3(bed.basis.x.x, 0.0, bed.basis.x.z).normalized()
+	if (middle + side).distance_to(lot.global_position) > (middle - side).distance_to(lot.global_position):
+		side = -side
+	var at := middle + side * meters
+	at.y = bed.origin.y + 0.1
+	var yaw := _yaw_toward(at, middle)
+	_place(at, yaw, TOSS_PITCH)
+	await _ticks(3)
+	_world().call("_spawn_bag", _me().global_position + Vector3(-sin(yaw), 0.0, -cos(yaw)) * 0.8, 0)
+	await _ticks(3)
+	var bag: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == "leaf_bag" and bool(node.call("is_loose")) and not node.is_queued_for_deletion() and (node as Node3D).global_position.distance_to(_me().global_position) < 2.0:
+			bag = node as Node3D
+	if bag == null:
+		return {"error": "no bag to hand you"}
+	bag.set("value", TOSS_BAG_VALUE)
+	var held: String = await _hold("leaf_bag")
+	_place(at, yaw, TOSS_PITCH)
+	if held != "leaf_bag":
+		return {"error": "couldn't get the bag (holding '%s')" % held}
+	return {"note": "a bag in hand %.0f m from Chefty's bed, facing it; hold drop to wind up, let go to toss" % meters, "bed": _v(middle)}
 
 
 ## The NICE BOYS have been called: the warning starts now.

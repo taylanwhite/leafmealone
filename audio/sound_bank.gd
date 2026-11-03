@@ -118,6 +118,8 @@ const SOUNDS: Dictionary = {
 	"pocket": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.4, "db": 0.0},
 	"draw": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
 	"jangle": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": -4.0},
+	# ---- bags: throw into Chefty: a bag landing in the bed (props/truck_bed_load.gd).
+	"bed_thump": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": 0.0},
 }
 
 

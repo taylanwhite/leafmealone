@@ -692,6 +692,24 @@ SOUNDS = {
 }
 
 
+# ---- bags: throw into Chefty (props/truck_bed_load.gd)
+def bed_thump() -> list[float]:
+    """A stuffed leaf bag landing in Chefty's bed: a soft heavy pomf, the leaves
+    inside crunching down a beat after, and a faint hollow knock from the truck."""
+    rng = random.Random(512)
+    out = silence(0.55)
+    mix_into(out, blip(0.32, 150.0, 58.0, 9.0), 0.0, 1.0)
+    mix_into(out, envelope(lowpass(noise(rng, 0.12), 500.0), 0.004, 0.09), 0.0, 1.2)
+    for index in range(7):
+        grain = envelope(bandpass(noise(rng, 0.03), rng.uniform(2200.0, 4200.0), 2.0), 0.002, 0.02)
+        mix_into(out, grain, 0.02 + index * 0.018 + rng.uniform(0.0, 0.01), 0.35 - index * 0.03)
+    mix_into(out, decay(tone(0.2, 235.0, "triangle"), 26.0), 0.005, 0.22)
+    return out
+
+
+SOUNDS["bed_thump"] = (bed_thump, 0, 0.8)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

@@ -207,6 +207,7 @@ func write_report() -> void:
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
 		"playtest_tools_test": preload("res://net/dev/playtest_tools_test.gd").result.duplicate(true),
+		"toss_test": preload("res://net/dev/toss_test.gd").result.duplicate(true),
 		"drive": _drive(),
 		"rake_net_test": _test_result_by_path("res://net/dev/rake_net_test.gd"),
 		"leaf_motion_test": _test_result_by_path("res://net/dev/leaf_motion_test.gd"),

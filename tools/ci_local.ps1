@@ -251,6 +251,15 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test'; Seconds = 90
 		Check = { param($h, $c) [bool]$h.playtest_tools_test.ok }
 	}
+	# Tossing leaf bags into Chefty's bed (bags:throw): the host and a client 150 ms away each
+	# toss from 3 m and 6 m and each bag counts once; a miss stays on the ground; a wheelbarrow
+	# still unloads; a full Chefty bats one back out. Extra gives the client its half.
+	toss = @{
+		Port = 7824
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --toss-test'; Seconds = 110; Client = 105
+		Extra = '--toss-test --sim-lag=150'
+		Check = { param($h, $c) [bool]$h.toss_test.ok -and $c -ne $null -and [bool]$c.toss_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

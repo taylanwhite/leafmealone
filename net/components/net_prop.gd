@@ -5,6 +5,9 @@ const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _WaterSources = preload("res://net/work/water_sources.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _BedToss = preload("res://net/components/bed_toss.gd")
+const _BedLoad = preload("res://props/truck_bed_load.gd")
+const _Strings = preload("res://ui/strings.gd")
 
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
@@ -89,6 +92,55 @@ var _runaway_last := Vector3.INF
 var _thrown_at: float = 0.0
 ## Everyone this throw already hit, so one throw bonks each person once.
 var _bonked: Array[Node] = []
+## A leaf bag Chefty's bed caught, on its way into its spot in the load (every
+## peer, from _rpc_bed_catch). Each peer glides its own look there in the bed's
+## space (the host moves the body, a client its drawn look, from wherever it was
+## drawn), so it never jumps: the spot, the glide (bed_toss.gd settle_plan(),
+## over the rail when it has to go over), how far along, whether it has landed,
+## and the crew's reaction to show when it does ([speaker peer, line], or []).
+var _settling: bool = false
+var _settle_slot: int = -1
+var _settle_plan: Dictionary = {}
+var _settle_seconds: float = 0.3
+var _settle_age: float = 0.0
+var _settle_landed: bool = false
+var _settle_amount: int = 0
+var _settle_quip: Array = []
+## How far from its spot this peer last drew it (m), read by props/truck_bed_load.gd
+## when the load's bag takes its place: anything but about 0 would be a pop.
+var settle_gap_m: float = INF
+## Client: where this bag's look was last drawn and how fast it was going, so a
+## catch glides on from there.
+var _seen_at := Vector3.INF
+var _seen_vel := Vector3.ZERO
+## Client: its own toss, drawn flying at once instead of a round trip later
+## (_predict_toss): where the body would be, how fast, how it tumbles, the
+## ground it lands on, how long it has flown, whether it came down, and how long
+## it has waited there for the host's bag to catch up.
+var _predicting: bool = false
+var _pred_pos := Vector3.ZERO
+var _pred_vel := Vector3.ZERO
+var _pred_basis := Basis.IDENTITY
+var _pred_spin := Vector3.ZERO
+var _pred_ground: float = 0.0
+var _pred_age: float = 0.0
+var _pred_done: bool = false
+var _pred_wait: float = 0.0
+## Client: easing the look from where it drew it onto the host's bag.
+var _blend_from := Transform3D.IDENTITY
+var _blend_left: float = 0.0
+## Client: its own toss went into the bed as it drew it, so it started gliding
+## into the load before the host said so; how long it has waited for the word.
+var _provisional: bool = false
+var _provisional_age: float = 0.0
+## Host: where this throw's thrower stood, and when a full bed last batted it out.
+var _toss_feet := Vector3.INF
+var _refused_at: float = -100.0
+## Host: the thrower a tossed bag passes through on its way out, and for how long.
+var _cleared_from: Node = null
+var _cleared_left: float = 0.0
+## Host: when a long toss last got the crew's reaction.
+static var _long_quip_at: float = -100.0
 
 const GRAB_REACH: float = 2.4
 const PUSH_REACH: float = 1.1
@@ -132,10 +184,65 @@ func _physics_process(_delta: float) -> void:
 		RakeMotion.unpublish(get_node_or_null("Visual/Look/Pose") as Node3D)
 	if Net.is_host():
 		_host_step()
-	elif held_by == Net.local_peer_id():
+	elif kind == "leaf_bag":
+		_client_bag_step(get_physics_process_delta_time())
+	elif held_by == Net.local_peer_id() and not _settling:
 		var player := _player(held_by)
 		if player != null:
 			%Visual.global_position = _hold_position(player)
+
+
+## A client draws a leaf bag itself whenever waiting on the host would show:
+## in its own hands (where the host hangs it, without the round trip), flying
+## from its hands the moment it lets go (_predict_toss), gliding into Chefty's
+## load, and easing back onto the host's bag after a flight that missed.
+## Otherwise NetSmoother draws it, and this keeps track of how it moves so a
+## catch can carry on from there.
+func _client_bag_step(delta: float) -> void:
+	var visual := %Visual as Node3D
+	# While this peer draws it, the look stands on its own: the body under it jumps
+	# with every snapshot, and would carry a child along with it.
+	var own := is_riding_visual()
+	if visual.top_level != own:
+		var drawn := visual.global_transform
+		visual.top_level = own
+		visual.global_transform = drawn
+	if _settling:
+		_step_settle(delta)
+		if _provisional:
+			_provisional_age += delta
+			if _provisional_age > Constants.BAG_TOSS_PROVISIONAL_SECONDS:
+				_abort_provisional()
+	elif _predicting:
+		_step_predict(delta)
+	elif _blend_left > 0.0:
+		_blend_left = maxf(_blend_left - delta, 0.0)
+		var share := smoothstep(0.0, 1.0, 1.0 - _blend_left / Constants.BAG_TOSS_BLEND_SECONDS)
+		visual.global_transform = _blend_from.interpolate_with(global_transform * _visual_rest(), share)
+	elif held_by == Net.local_peer_id():
+		var player := _player(held_by)
+		if player != null:
+			# Hung the way the host hangs it (_host_step): its body at the hands, upright.
+			visual.global_transform = Transform3D(Basis(Vector3.UP, player.global_rotation.y), _hold_position(player)) * _visual_rest()
+	var at := visual.global_position
+	if _seen_at.is_finite() and delta > 0.0:
+		_seen_vel = _seen_vel.lerp((at - _seen_at) / delta, 0.5)
+	_seen_at = at
+
+
+## A leaf bag in the air, as this peer sees it: no price tag, and nobody's
+## offered to pick it up (player.gd _best_pickup).
+func is_flying() -> bool:
+	if kind != "leaf_bag":
+		return false
+	if multiplayer.multiplayer_peer == null or Net.is_host():
+		return linear_velocity.length() > Constants.BAG_TOSS_LABEL_HIDE_SPEED
+	return _predicting or _blend_left > 0.0 or _seen_vel.length() > Constants.BAG_TOSS_LABEL_HIDE_SPEED
+
+
+## Where the look sits on the body (the box's middle, VISUAL_HEIGHT up).
+func _visual_rest() -> Transform3D:
+	return Transform3D(Basis.IDENTITY, Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0))
 
 
 ## Every peer: the look follows its holder's hands (props/prop_looks.gd).
@@ -153,10 +260,25 @@ func _pose_look() -> void:
 		_PropLooks.pose_held(self, _player(held_by) if held_by != 0 else null)
 
 
-## Lying free in the world: nobody holds it or has it in a pocket. Any check that
-## means "free to pick up, mow over, load" uses this.
+## Lying free in the world: nobody holds it or has it in a pocket, and it isn't
+## a bag settling into Chefty's load. Any check that means "free to pick up, mow
+## over, load" uses this.
 func is_loose() -> bool:
-	return held_by == 0 and pocketed_by == 0
+	return held_by == 0 and pocketed_by == 0 and not _settling
+
+
+## A leaf bag Chefty's bed caught, on its way into the load (every peer).
+func is_settling() -> bool:
+	return _settling
+
+
+## NetSmoother asks: a client places a leaf bag's look itself while it's in its
+## own hands, flying from them, settling into the load or easing back onto the
+## host's bag (_client_bag_step), so the smoother leaves it alone then.
+func is_riding_visual() -> bool:
+	if kind != "leaf_bag" or multiplayer.multiplayer_peer == null or Net.is_host():
+		return false
+	return _settling or _predicting or _blend_left > 0.0 or held_by == Net.local_peer_id()
 
 
 ## Host (net/components/hotbar.gd): into this peer's pocket. It keeps its slot;
@@ -670,14 +792,118 @@ func request_drop() -> void:
 
 
 ## power is how hard: Constants.THROW_POWER_MIN to THROW_POWER_MAX, 1 for a normal throw.
-func request_throw(direction: Vector3, power: float = 1.0) -> void:
+## from is where the thrower stood as they let go (their own peer knows best; the
+## host checks it, Constants.THROW_FROM_TOLERANCE), or INF for wherever the host has them.
+## A leaf bag says instead where it left the thrower's hands as they saw it, so
+## the flight the host gives it is the one they drew (_predict_toss).
+func request_throw(direction: Vector3, power: float = 1.0, from: Vector3 = Vector3.INF) -> void:
+	if kind == "leaf_bag" and held_by == Net.local_peer_id() and _player(held_by) != null:
+		from = _hold_position(_player(held_by))
 	if Net.is_host():
-		_handle_release(Net.local_peer_id(), direction, power)
+		_handle_release(Net.local_peer_id(), direction, power, from)
 	else:
-		_rpc_request_throw.rpc_id(1, direction, power)
+		_rpc_request_throw.rpc_id(1, direction, power, from)
+		if kind == "leaf_bag" and held_by == Net.local_peer_id():
+			_predict_toss(direction, power)
+
+
+## Client: its own leaf bag leaves its hands now, not a round trip from now. It
+## flies the flight the host will give it (the same math, aim help and all,
+## net/components/bed_toss.gd) until the bed takes it, it comes down, or the
+## host's bag catches up.
+func _predict_toss(direction: Vector3, power: float) -> void:
+	var player := _player(Net.local_peer_id())
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	if player == null or flat.length() < 0.1:
+		return
+	var truck := get_tree().get_first_node_in_group("chefty")
+	_pred_pos = _hold_position(player)
+	_pred_ground = player.global_position.y
+	_pred_vel = _BedToss.assist(truck, _pred_pos, _BedToss.launch_velocity(kind, weight_kg(), flat, power), _pred_ground)
+	_pred_basis = Basis(Vector3.UP, player.global_rotation.y)
+	# End over end, as the host spins it (_release), at its middling rate.
+	_pred_spin = Vector3(_pred_vel.z, 0.0, -_pred_vel.x).normalized() * (Constants.BAG_TOSS_SPIN_MIN + Constants.BAG_TOSS_SPIN_MAX) * 0.5
+	_pred_age = 0.0
+	_pred_done = false
+	_pred_wait = 0.0
+	_blend_left = 0.0
+	_predicting = true
+	# Right by the bed: it hops in over the side, as the host will have it (_release).
+	if _BedToss.close_toss(truck, _pred_pos, _pred_vel, _pred_ground) and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY:
+		_predicting = false
+		var slot := int(truck.call("bag_count"))
+		var seconds := _settle_seconds_for(truck, Transform3D(_pred_basis, _pred_pos), slot)
+		_begin_settle(truck, slot, seconds, value, [], Transform3D(_pred_basis, _pred_pos), _pred_vel)
+		_provisional = true
+		_provisional_age = 0.0
+
+
+## Client, each tick of its own toss's flight.
+func _step_predict(delta: float) -> void:
+	_pred_age += delta
+	# The host never took the throw (it was out of its hands already): back to it.
+	if held_by == Net.local_peer_id() and _pred_age > Constants.BAG_TOSS_PROVISIONAL_SECONDS:
+		_predicting = false
+		return
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if not _pred_done:
+		var next := _BedToss.step(_pred_pos, _pred_vel, delta)
+		_pred_pos = next[0]
+		_pred_vel = next[1]
+		_pred_basis = (Basis(_pred_spin.normalized(), _pred_spin.length() * delta) * _pred_basis).orthonormalized() if _pred_spin.length() > 0.01 else _pred_basis
+		var body := Transform3D(_pred_basis, _pred_pos)
+		var bottom := body * Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0) - Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0)
+		if truck != null and truck.has_method("bed_transform") and _BedToss.catches(truck, bottom, _pred_vel) and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY:
+			# In, as far as this peer can tell: start into the load now; the host's
+			# word follows a round trip later (_rpc_bed_catch).
+			(%Visual as Node3D).global_transform = body * _visual_rest()
+			_predicting = false
+			var slot := int(truck.call("bag_count"))
+			var seconds := _settle_seconds_for(truck, body, slot)
+			_begin_settle(truck, slot, seconds, value, [], body, _pred_vel)
+			_provisional = true
+			_provisional_age = 0.0
+			return
+		var on_heap := truck != null and int(truck.call("bag_count")) >= Constants.TRUCK_BAG_CAPACITY and _BedLoad.in_pile((truck.call("bed_transform") as Transform3D).affine_inverse() * bottom, int(truck.call("bag_count")))
+		if on_heap or (truck != null and _BedToss.hits_hull(truck, _pred_pos)) or (_pred_vel.y < 0.0 and _pred_pos.y <= _pred_ground):
+			# A full heap, the truck's side or the ground: wait there for the host's bag.
+			_pred_done = true
+	else:
+		# Down (or off the truck): wait for the host's bag to get here, then ease onto it.
+		_pred_wait += delta
+		if global_position.distance_to(_pred_pos) < Constants.BAG_TOSS_CATCH_UP_M or _pred_wait > Constants.BAG_TOSS_CATCH_UP_SECONDS:
+			_predicting = false
+			_blend_from = (%Visual as Node3D).global_transform
+			_blend_left = Constants.BAG_TOSS_BLEND_SECONDS
+			return
+	(%Visual as Node3D).global_transform = Transform3D(_pred_basis, _pred_pos) * _visual_rest()
+
+
+## Client: it glided in on this peer's say-so and the host never caught it: let
+## its spot go and ease back onto the host's bag.
+func _abort_provisional() -> void:
+	_settling = false
+	_provisional = false
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var load_node := truck.call("bed_load") as Node if truck != null and truck.has_method("bed_load") else null
+	if load_node != null:
+		load_node.call("unhold_slot", _settle_slot, self)
+	_blend_from = (%Visual as Node3D).global_transform
+	_blend_left = Constants.BAG_TOSS_BLEND_SECONDS
+	_refresh_label()
 
 
 func _host_step() -> void:
+	if _cleared_left > 0.0:
+		_cleared_left -= get_physics_process_delta_time()
+		if _cleared_left <= 0.0 or held_by != 0 or pocketed_by != 0:
+			_cleared_left = 0.0
+			if is_instance_valid(_cleared_from):
+				remove_collision_exception_with(_cleared_from)
+			_cleared_from = null
+	if _settling:
+		_step_settle(get_physics_process_delta_time())
+		return
 	_step_fuel(get_physics_process_delta_time())
 	if kind != "lawn_mower":
 		_step_spray(get_physics_process_delta_time())
@@ -785,10 +1011,10 @@ func _handle_grab(peer_id: int) -> void:
 		held_by = peer_id
 
 
-func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0) -> void:
+func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0, from: Vector3 = Vector3.INF) -> void:
 	if held_by != peer_id:
 		return
-	_release(peer_id, direction, power)
+	_release(peer_id, direction, power, from)
 	# What's next in hand: the next sign of a stack, or the selected pocket item
 	# again once a big thing is set down.
 	var hotbar := _hotbar()
@@ -796,17 +1022,41 @@ func _handle_release(peer_id: int, direction: Vector3, power: float = 1.0) -> vo
 		hotbar.call("host_settle", peer_id)
 
 
-func _release(peer_id: int, direction: Vector3, power: float) -> void:
+func _release(peer_id: int, direction: Vector3, power: float, from: Vector3 = Vector3.INF) -> void:
 	var player := _player(peer_id)
+	var held_now := held_by == peer_id
 	held_by = 0
 	# Out of its slot: the slot stays selected, and empty.
 	pocket_slot = -1
+	_toss_feet = Vector3.INF
 	if player != null:
 		var forward := -player.global_transform.basis.z
 		forward.y = 0.0
 		if forward.length() > 0.001:
 			forward = forward.normalized()
-		global_position = player.global_position + Vector3(0.0, 0.4, 0.0) + forward * 1.3
+		# A throw leaves the way it was thrown, from where the thrower stood as
+		# they let go (their own peer's word, if it's close to where the host has them).
+		var flat_throw := Vector3(direction.x, 0.0, direction.z)
+		if flat_throw.length() >= 0.1:
+			forward = flat_throw.normalized()
+		var feet := player.global_position
+		if kind == "leaf_bag" and held_now:
+			# A bag leaves from where it hangs in your hands as you saw it (your
+			# own peer's word, if it's close to where the host hangs it), so it
+			# doesn't hop as it goes and flies the arc you saw; it can't bump into
+			# you on the way out.
+			var hands := global_position
+			var at := from if from.is_finite() and from.distance_to(hands) <= Constants.THROW_FROM_TOLERANCE else hands
+			feet += at - hands
+			global_position = at
+			add_collision_exception_with(player)
+			_cleared_from = player
+			_cleared_left = Constants.BAG_TOSS_CLEAR_SECONDS
+		else:
+			if from.is_finite() and from.distance_to(feet) <= Constants.THROW_FROM_TOLERANCE:
+				feet = from
+			global_position = _BedToss.release_point(kind, feet, forward)
+		_toss_feet = feet
 		# Let go of a running mower and it drives off on its own (docs/FUN.md).
 		if kind == "lawn_mower" and spraying:
 			_runaway_left = Constants.MOWER_RUNAWAY_SECONDS
@@ -815,19 +1065,43 @@ func _release(peer_id: int, direction: Vector3, power: float) -> void:
 			_runaway_last = Vector3.INF
 			_rpc_mower_fx.rpc("runaway", global_position)
 	_set_solid(true)
+	_refused_at = -100.0
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.length() < 0.1:
+		# A leaf bag set down from the hands plops out in front of you, clear of
+		# your legs by the time it can bump them.
+		if kind == "leaf_bag" and held_now and player != null:
+			var ahead := -player.global_transform.basis.z
+			ahead.y = 0.0
+			linear_velocity = ahead.normalized() * Constants.BAG_SET_DOWN_PUSH + Vector3.UP * Constants.BAG_SET_DOWN_LIFT
 		return
-	# Every throw is the same shove, so the weight decides how far it goes.
-	var strength := clampf(power, Constants.THROW_POWER_MIN, Constants.THROW_POWER_MAX)
-	var speed := clampf(Constants.THROW_IMPULSE / weight_kg(), Constants.THROW_SPEED_MIN, Constants.THROW_SPEED_MAX) * strength
-	linear_velocity = flat.normalized() * speed + Vector3.UP * (1.5 + speed * 0.3)
-	angular_velocity = Vector3(randf_range(-4.0, 4.0), randf_range(-4.0, 4.0), randf_range(-4.0, 4.0)) * (6.0 / weight_kg())
+	# Every throw is the same shove, so the weight decides how far it goes; a leaf
+	# bag is a two-handed lob instead (net/components/bed_toss.gd).
+	var velocity_now := _BedToss.launch_velocity(kind, weight_kg(), flat, power)
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var hop_in := false
+	if kind == "leaf_bag":
+		# Aimed near Chefty's bed: the light aim help bends a near miss in.
+		var ground := _toss_feet.y if _toss_feet.is_finite() else global_position.y - Constants.BAG_TOSS_RELEASE_HEIGHT
+		var helped := _BedToss.assist(truck, global_position, velocity_now, ground)
+		if not helped.is_equal_approx(velocity_now):
+			_BedToss.stats["assisted"] = int(_BedToss.stats["assisted"]) + 1
+		velocity_now = helped
+		# Right by the bed, it couldn't arc over the rail: heaved in over the side.
+		hop_in = _BedToss.close_toss(truck, global_position, velocity_now, ground) and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY
+		# It tumbles over forward, end over end, the way a heaved sack does.
+		angular_velocity = Vector3(velocity_now.z, 0.0, -velocity_now.x).normalized() * randf_range(Constants.BAG_TOSS_SPIN_MIN, Constants.BAG_TOSS_SPIN_MAX) + Vector3(0.0, randf_range(-1.0, 1.0), 0.0)
+	else:
+		angular_velocity = Vector3(randf_range(-4.0, 4.0), randf_range(-4.0, 4.0), randf_range(-4.0, 4.0)) * (6.0 / weight_kg())
+	linear_velocity = velocity_now
 	_airborne = true
 	_thrower = peer_id
 	_thrown_at = Net.server_time()
 	_bonked.clear()
 	_rpc_throw_fx.rpc()
+	if hop_in:
+		_BedToss.stats["hopped"] = int(_BedToss.stats.get("hopped", 0)) + 1
+		_bed_catch(truck)
 
 
 ## Host only. A flying item that reaches a person bonks them: everyone sees and
@@ -1053,8 +1327,18 @@ func _load_truck(peer_id: int) -> void:
 		return
 	var truck := get_tree().get_first_node_in_group("chefty")
 	if kind == "leaf_bag":
-		if int(truck.call("accept_bags", 1, value)) > 0:
-			queue_free()
+		# Heaved over the side from your hands: a little hop into its spot. A full
+		# Chefty has no spot, and the bag stays in your hands.
+		if int(truck.call("bag_count")) >= Constants.TRUCK_BAG_CAPACITY:
+			return
+		held_by = 0
+		pocket_slot = -1
+		_toss_feet = Vector3.INF
+		var hotbar := _hotbar()
+		if hotbar != null:
+			hotbar.call("host_settle", peer_id)
+		linear_velocity = Vector3.UP * Constants.BED_HAND_IN_LIFT
+		_bed_catch(truck)
 	elif kind == "wheelbarrow" and stored_bags > 0:
 		var taken := int(truck.call("accept_bags", stored_bags, stored_value))
 		if taken > 0:
@@ -1072,11 +1356,18 @@ func _rpc_request_load_truck() -> void:
 func _try_load_bag() -> void:
 	if kind != "leaf_bag" or not is_loose():
 		return
-	# Tossed into Chefty's bed: it's loaded.
+	# Tossed into Chefty's bed, or dropping into it from over it: caught
+	# (net/components/bed_toss.gd catches()), or batted back out of a full one.
 	var truck := get_tree().get_first_node_in_group("chefty")
-	if truck != null and bool(truck.call("in_bed", global_position)):
-		if int(truck.call("accept_bags", 1, value)) > 0:
-			queue_free()
+	if truck != null and truck.has_method("bed_transform"):
+		var count := int(truck.call("bag_count"))
+		if count >= Constants.TRUCK_BAG_CAPACITY:
+			# Full: it bounces off the heap where it meets a drawn bag, not before.
+			if _BedLoad.in_pile((truck.call("bed_transform") as Transform3D).affine_inverse() * _bottom(), count):
+				_bed_refuse(truck)
+				return
+		elif _BedToss.catches(truck, _bottom(), linear_velocity):
+			_bed_catch(truck)
 			return
 	var closest: Node = null
 	var closest_distance := Constants.BAG_LOAD_RADIUS
@@ -1090,6 +1381,206 @@ func _try_load_bag() -> void:
 	if closest == null or not bool(closest.call("receive_bag", value)):
 		return
 	queue_free()
+
+
+## The middle of the bag's bottom face however it has tumbled (its box is
+## VISUAL_HEIGHT tall each way from its middle).
+func _bottom() -> Vector3:
+	return global_transform * Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0) - Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0)
+
+
+## Host: Chefty's bed caught this bag (a toss, or E from beside it). It's loaded
+## now, counted once, here; every peer then glides it into its spot in the load
+## (_rpc_bed_catch) and it goes, with the load's own bag showing in its place.
+func _bed_catch(truck: Node) -> void:
+	var slot := int(truck.call("bag_count"))
+	var seconds := _settle_seconds_for(truck, global_transform, slot)
+	var stats: Dictionary = _BedToss.stats
+	stats["caught"] = int(stats["caught"]) + 1
+	var reaction := [0, -1]
+	if _toss_feet.is_finite():
+		# How far you stood from the bed's middle, the way a player sizes up a toss.
+		var middle: Vector3 = (truck.call("bed_transform") as Transform3D) * _BedToss.BED_MIDDLE
+		var toss_m := Vector2(middle.x - _toss_feet.x, middle.z - _toss_feet.z).length()
+		stats["longest_m"] = maxf(float(stats["longest_m"]), snappedf(toss_m, 0.01))
+		if toss_m >= Constants.BED_LONG_TOSS_METERS:
+			stats["long"] = int(stats["long"]) + 1
+			var now := Net.server_time()
+			if now - _long_quip_at >= Constants.BED_LONG_TOSS_QUIP_SECONDS and randf() < Constants.BED_LONG_TOSS_QUIP_CHANCE:
+				_long_quip_at = now
+				reaction = _long_toss_reaction()
+	# Before the count goes up, so every peer holds the spot for this bag first.
+	_rpc_bed_catch.rpc(slot, seconds, value, int(reaction[0]), int(reaction[1]))
+	truck.call("accept_bags", 1, value)
+
+
+## How long a bag whose body is at `body` (world) takes into load spot slot
+## (bed_toss.gd settle_seconds()).
+func _settle_seconds_for(truck: Node, body: Transform3D, slot: int) -> float:
+	var bed: Transform3D = truck.call("bed_transform")
+	return _BedToss.settle_seconds(bed.affine_inverse() * body, _BedLoad.slot(slot))
+
+
+## Who reacts to a long toss and with what (Strings.TOSS_QUIPS, then TOSS_BRAGS
+## counted on after it): a crewmate who was there to see it (in the thrower's
+## zone, within Constants.BED_LONG_TOSS_WITNESS_METERS), else the thrower.
+func _long_toss_reaction() -> Array:
+	var others: Array[int] = []
+	var zone := Net.player_zone(_thrower)
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var peer := node.name.to_int()
+		if peer == _thrower or peer <= 0 or Net.player_zone(peer) != zone:
+			continue
+		if (node as Node3D).global_position.distance_to(global_position) <= Constants.BED_LONG_TOSS_WITNESS_METERS:
+			others.append(peer)
+	if not others.is_empty():
+		return [others[randi() % others.size()], randi() % _Strings.TOSS_QUIPS.size()]
+	return [_thrower, _Strings.TOSS_QUIPS.size() + randi() % _Strings.TOSS_BRAGS.size()]
+
+
+## Host: a full Chefty bats the bag back out the way it came, off the pile, at
+## most every BED_REFUSE_EVERY_SECONDS.
+func _bed_refuse(truck: Node) -> void:
+	var now := Net.server_time()
+	if now - _refused_at < Constants.BED_REFUSE_EVERY_SECONDS:
+		return
+	_refused_at = now
+	var bed: Transform3D = truck.call("bed_transform")
+	var middle := bed * _BedToss.BED_MIDDLE
+	var away := (_toss_feet - middle) if _toss_feet.is_finite() else -linear_velocity
+	away.y = 0.0
+	if away.length() < 0.1:
+		away = Vector3(global_position.x - middle.x, 0.0, global_position.z - middle.z)
+	if away.length() < 0.1:
+		away = bed.basis.x
+	away = away.normalized()
+	linear_velocity = away * Constants.BED_REFUSE_PUSH + Vector3.UP * Constants.BED_REFUSE_LIFT
+	angular_velocity = Vector3(-away.z, 0.0, away.x) * randf_range(Constants.BED_REFUSE_SPIN_MIN, Constants.BED_REFUSE_SPIN_MAX)
+	_airborne = true
+	_BedToss.stats["refused"] = int(_BedToss.stats["refused"]) + 1
+	_rpc_bed_refuse.rpc(global_position)
+
+
+## Every peer: the bed caught this bag for load spot slot. Hold the spot, and
+## glide from wherever this peer draws the bag (moving as it was) into it over
+## seconds. amount is its dollars, popped when it lands; speaker and line are a
+## crew reaction to show then (line -1 for none).
+@rpc("authority", "call_local", "reliable")
+func _rpc_bed_catch(slot: int, seconds: float, amount: int, speaker: int, line: int) -> void:
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if truck == null or not truck.has_method("bed_transform"):
+		return
+	_BedToss.stats["catch_seen"] = int(_BedToss.stats["catch_seen"]) + 1
+	var quip: Array = [speaker, line] if line >= 0 else []
+	if _settling and _provisional and slot == _settle_slot:
+		# This client's own toss, already gliding in on its say-so: carry on.
+		_provisional = false
+		_settle_amount = amount
+		_settle_quip = quip
+		if _settle_landed:
+			_say_reaction()
+		return
+	if _settling and _provisional:
+		# Its own guess took a spot someone else's bag got first.
+		_abort_provisional()
+	var drawn := global_transform
+	var moving := linear_velocity
+	if not Net.is_host():
+		# What this peer sees: the look as drawn, not the newest snapshot.
+		drawn = (%Visual as Node3D).global_transform * _visual_rest().affine_inverse()
+		moving = _seen_vel
+		# Barely moving: heaved in from someone's hands (E by the bed), as the host has it.
+		if moving.length() < Constants.BED_HEAVE_SPEED:
+			moving = Vector3.UP * Constants.BED_HAND_IN_LIFT
+	_predicting = false
+	_blend_left = 0.0
+	_provisional = false
+	_begin_settle(truck, slot, seconds, amount, quip, drawn, moving)
+	if Net.is_host():
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
+		_airborne = false
+		_set_solid(false)
+
+
+## Every peer: start gliding from drawn (moving at moving) into load spot slot
+## over seconds, and hold that spot in the load for this bag.
+func _begin_settle(truck: Node, slot: int, seconds: float, amount: int, quip: Array, drawn: Transform3D, moving: Vector3) -> void:
+	_settling = true
+	_settle_slot = slot
+	_settle_seconds = maxf(seconds, 0.05)
+	_settle_age = 0.0
+	_settle_landed = false
+	_settle_amount = amount
+	_settle_quip = quip
+	var bed: Transform3D = truck.call("bed_transform")
+	_settle_plan = _BedToss.settle_plan(bed.affine_inverse() * drawn, bed.basis.inverse() * moving, _BedLoad.slot(slot), _settle_seconds)
+	_refresh_label()
+	var load_node := truck.call("bed_load") as Node
+	if load_node != null:
+		load_node.call("hold_slot", slot, self, amount)
+
+
+## Every peer, each frame (the host on physics ticks): the glide into the spot,
+## in the bed's space, so it rides along if Chefty moves. It lands moving down,
+## sits a moment, and the host lets it go; the load's bag shows the same frame.
+func _step_settle(delta: float) -> void:
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if truck == null or not truck.has_method("bed_transform"):
+		if Net.is_host():
+			queue_free()
+		return
+	_settle_age += delta
+	var t := clampf(_settle_age / _settle_seconds, 0.0, 1.0)
+	var spot := _BedLoad.slot(_settle_slot)
+	var bed: Transform3D = truck.call("bed_transform")
+	var world := bed * _BedToss.settle_at(_settle_plan, _settle_age)
+	settle_gap_m = world.origin.distance_to(bed * spot.origin)
+	if Net.is_host():
+		global_transform = world
+	else:
+		(%Visual as Node3D).global_transform = world * Transform3D(Basis.IDENTITY, Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0))
+	if t >= 1.0 and not _settle_landed:
+		_settle_landed = true
+		_land(truck, world)
+	if Net.is_host() and _settle_age >= _settle_seconds + Constants.BED_SETTLE_HOLD_SECONDS and not is_queued_for_deletion():
+		queue_free()
+
+
+## Every peer: it hit the pile. A thump, a puff of leaves, its dollars, a squash,
+## and the crew's reaction if the host picked one.
+func _land(truck: Node, where: Transform3D) -> void:
+	_BedToss.stats["land_seen"] = int(_BedToss.stats["land_seen"]) + 1
+	var load_node := truck.call("bed_load") as Node
+	if load_node != null:
+		load_node.call("land_fx", where.origin, _settle_amount)
+	_BedLoad.squash(%Visual.get_node_or_null("Look") as Node3D)
+	_say_reaction()
+
+
+## The crew's reaction the host picked for this toss, if any, as a caption.
+func _say_reaction() -> void:
+	if _settle_quip.size() != 2:
+		return
+	var speaker := int(_settle_quip[0])
+	var line := int(_settle_quip[1])
+	_settle_quip = []
+	var text := _Strings.TOSS_QUIPS[line] if line < _Strings.TOSS_QUIPS.size() else _Strings.TOSS_BRAGS[(line - _Strings.TOSS_QUIPS.size()) % _Strings.TOSS_BRAGS.size()]
+	_BedToss.stats["reactions_seen"] = int(_BedToss.stats.get("reactions_seen", 0)) + 1
+	var quips := get_tree().root.find_child("Quips", true, false)
+	if quips != null:
+		quips.call("show_caption", _Strings.TOSS_UI["quip_said"] % [Net.player_name(speaker), text])
+
+
+## Every peer: a full Chefty batted a bag back out. The pile gives and springs
+## back, with a floomp and a few leaves.
+@rpc("authority", "call_local", "reliable")
+func _rpc_bed_refuse(at: Vector3) -> void:
+	_BedToss.stats["full_seen"] = int(_BedToss.stats["full_seen"]) + 1
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var load_node := truck.call("bed_load") as Node if truck != null and truck.has_method("bed_load") else null
+	if load_node != null:
+		load_node.call("refuse_fx", at)
 
 
 ## Host only. Returns true when the bag fits. bag_value is that bag's dollars.
@@ -1151,14 +1642,16 @@ func _refresh_label() -> void:
 	# wheelbarrow keeps a floating count.
 	_PropLooks.dress(self, kind, color)
 	# Bags show what they're worth, so a fat bag from a big pile reads as a prize.
-	%Label.visible = kind == "wheelbarrow" or (kind == "leaf_bag" and value > 0)
+	# Not while it flies or settles into Chefty's load: the price would pop up in
+	# your face as it leaves your hands, and the load pops its own.
+	%Label.visible = kind == "wheelbarrow" or (kind == "leaf_bag" and value > 0 and not _settling and not is_flying())
 	# Not on the thing in your own hands: it would sit in the middle of your view.
 	if held_by != 0 and held_by == Net.local_peer_id() or pocketed_by != 0:
 		%Label.visible = false
 	if kind == "wheelbarrow":
 		var capacity := Campaign.wheelbarrow_capacity()
-		var full := " full" if stored_bags >= capacity else ""
-		%Label.text = "%d/%d%s  $%d" % [stored_bags, capacity, full, stored_value]
+		# A count at its cap already says it's full.
+		%Label.text = "%d/%d  $%d" % [stored_bags, capacity, stored_value]
 		_PropLooks.show_bags(self, stored_bags)
 	elif kind == "leaf_bag":
 		%Label.text = "$%d" % value
@@ -1221,9 +1714,9 @@ func _rpc_request_drop() -> void:
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _rpc_request_throw(direction: Vector3, power: float) -> void:
+func _rpc_request_throw(direction: Vector3, power: float, from: Vector3) -> void:
 	if Net.is_host():
-		_handle_release(multiplayer.get_remote_sender_id(), direction, power)
+		_handle_release(multiplayer.get_remote_sender_id(), direction, power, from)
 
 
 @rpc("any_peer", "call_remote", "reliable")
