@@ -186,10 +186,27 @@ func is_waiting() -> bool:
 
 
 ## True from the moment a NICE BOY finds this player in a spot or a pile until
-## they're out: his hands are on them, so E and walking don't climb out.
+## they're out: his hands are on them, so E and walking don't climb out. Only
+## the one he found (not a shed's other occupant), and only for as long as the
+## find plays out: an old find in a spot never holds whoever dives in next.
 func is_found() -> bool:
-	var view := _inspection()
-	return float(view.get("found_at", -1000.0)) > -999.0 and float(view["found_at"]) >= float(view.get("poke_at", -1000.0)) - 0.01 and (_spot != null or bool(player.get("in_pile")))
+	if _spot == null and not bool(player.get("in_pile")):
+		return false
+	return _find_on_me(_inspection()) > -999.0
+
+
+## The server time a NICE BOY found this player in view (an _inspection()), or
+## -1000 when the find there is on someone else, over, or not a find at all.
+func _find_on_me(view: Dictionary) -> float:
+	var found_at := float(view.get("found_at", -1000.0))
+	if found_at < -999.0 or found_at < float(view.get("poke_at", -1000.0)) - 0.01:
+		return -1000.0
+	var peer := int(view.get("found_peer", 0))
+	if peer != 0 and player != null and peer != player.name.to_int():
+		return -1000.0
+	if Net.server_time() - found_at > _HideSpotLook.found_hold_seconds():
+		return -1000.0
+	return found_at
 
 
 # ---------------------------------------------------------------- owner: in and out
@@ -510,6 +527,11 @@ func on_unhidden(exit_to: Vector3, pulled: bool) -> void:
 ## From player.set_pile on every peer. fresh false: they were already in when
 ## this peer first saw them (a late join), so nothing replays; the mound is just there.
 func on_pile(hidden: bool, fresh: bool = true) -> void:
+	if hidden:
+		# A new dive: whatever a NICE BOY found or missed in your last pile is over.
+		_pile_poke_at = -1000.0
+		_pile_found_at = -1000.0
+		_pile_miss_at = -1000.0
 	if hidden and not fresh:
 		_pile_used_at = Net.server_time() - Constants.SUSPICION_RECENT_SECONDS
 		_in_at = _pile_used_at
@@ -664,7 +686,14 @@ func _step_aim(delta: float, hidden: bool) -> void:
 	var want := 0.0
 	_aim_point = Vector3.INF
 	if crew != null and (hidden or _move == Move.PULL):
-		var weights := _HideSpotLook.peer_weights(Net.server_time(), float(view["poke_at"]), float(view["found_at"]), float(view["miss_at"]))
+		var found_at := float(view["found_at"])
+		var miss_at := float(view["miss_at"])
+		if found_at > -999.0 and _find_on_me(view) < -999.0:
+			# He found someone else in here (a shed's other place): to you it's
+			# him turning away with them, and your look is your own again.
+			miss_at = maxf(miss_at, found_at)
+			found_at = -1000.0
+		var weights := _HideSpotLook.peer_weights(Net.server_time(), float(view["poke_at"]), found_at, miss_at)
 		if not weights.is_empty():
 			want = maxf(float(weights["lean"]), float(weights["grab"]))
 			_aim_point = _face_of(crew)
@@ -681,12 +710,12 @@ func _step_aim(delta: float, hidden: bool) -> void:
 			if back != Vector2.ZERO and turn.x != 0.0 and turn.y != 0.0:
 				cam.call("add_look", Vector2(back.x / turn.x, back.y / turn.y))
 	_shake = maxf(0.0, _shake - delta * 40.0)
-	# The shed's three knocks (props/hide_spot.gd _poke: 0.25 s, then every 0.3 s).
+	# The shed's three knocks (props/hide_spot.gd _poke).
 	if _spot != null and str(_spot.get("spot_kind")) == "shed" and crew != null:
 		var since := Net.server_time() - float(view["poke_at"])
 		var knocks := 0
 		for knock: int in 3:
-			if since >= 0.25 + 0.3 * float(knock) and since < Constants.HIDE_INSPECT_SECONDS:
+			if since >= Constants.HIDE_POKE_SHED_KNOCKS.x + Constants.HIDE_POKE_SHED_KNOCKS.y * float(knock) and since < Constants.HIDE_INSPECT_SECONDS:
 				knocks = knock + 1
 		if knocks > _knocks_heard:
 			_shake = 7.0
@@ -716,7 +745,12 @@ func _part_now() -> float:
 	var poke_at := float(view["poke_at"])
 	var found_at := float(view["found_at"])
 	if found_at > -999.0 and found_at >= poke_at - 0.01:
-		return _HideSpotLook._smooth((now - found_at) / (Constants.HIDE_FOUND_REVEAL * 0.55))
+		# Yanked open around his face; the lid or door drops shut again once
+		# whoever he found is out (props/hide_spot.gd _found), so a shed's other
+		# occupant sees it close, and an old find is just a shut spot.
+		var since_found := now - found_at
+		var shut := Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS + Constants.HIDE_FOUND_SHUT_DELAY
+		return _HideSpotLook._smooth(since_found / (Constants.HIDE_FOUND_REVEAL * 0.55)) * (1.0 - _HideSpotLook._smooth((since_found - shut) / Constants.HIDE_PEER_OUT_SECONDS))
 	var miss_at := float(view["miss_at"])
 	if poke_at < -999.0 or (miss_at > -999.0 and miss_at >= poke_at - 0.01) or now - poke_at > Constants.HIDE_INSPECT_SECONDS:
 		return 0.0
@@ -725,16 +759,16 @@ func _part_now() -> float:
 	match kind:
 		"bin":
 			# He lifts the lid a crack and holds it (props/hide_spot.gd LID_POKE).
-			return 0.22 * _HideSpotLook._smooth((since - 0.3) / 0.3)
+			return Constants.HIDE_POKE_BIN_PART * _HideSpotLook._smooth((since - Constants.HIDE_POKE_BIN_CRACK_AT) / 0.3)
 		"pile":
-			return 0.12 * absf(sin(since * 5.0)) * _HideSpotLook._smooth(since / 0.3)
+			return Constants.HIDE_POKE_PILE_PART * absf(sin(since * 5.0)) * _HideSpotLook._smooth(since / 0.3)
 		"hedge":
-			# His two pushes into the hedge (0.2 s and 0.9 s), each held a moment.
+			# His two pushes into the hedge, each held a moment.
 			var open := 0.0
-			for push: float in [0.2, 0.9]:
+			for push: float in Constants.HIDE_POKE_HEDGE_PUSHES:
 				var x := since - push
 				if x > 0.0:
-					open = maxf(open, 0.28 * (_HideSpotLook._smooth(x / 0.12) - _HideSpotLook._smooth((x - 0.45) / 0.3)))
+					open = maxf(open, Constants.HIDE_POKE_HEDGE_PART * (_HideSpotLook._smooth(x / 0.12) - _HideSpotLook._smooth((x - 0.45) / 0.3)))
 			return open
 	return 0.0
 
@@ -1412,8 +1446,9 @@ func _present_mound() -> void:
 		var size := lerpf(Constants.HIDE_PILE_MOUND_FROM, 1.0, grow)
 		# Scooped open around his hands when he finds you.
 		var scoop := 0.0
-		if _pile_found_at > -999.0 and _pile_found_at >= _pile_poke_at - 0.01:
-			scoop = _HideSpotLook._smooth((Net.server_time() - _pile_found_at) / (Constants.HIDE_FOUND_REVEAL * 0.6))
+		var since_found := Net.server_time() - _pile_found_at
+		if _pile_found_at > -999.0 and _pile_found_at >= _pile_poke_at - 0.01 and since_found <= _HideSpotLook.found_hold_seconds():
+			scoop = _HideSpotLook._smooth(since_found / (Constants.HIDE_FOUND_REVEAL * 0.6))
 		_mound.scale = Vector3(size * (1.0 + 0.25 * scoop), size * (1.0 - 0.45 * scoop), size * (1.0 + 0.25 * scoop))
 		var breathe := 1.0 + sin(Time.get_ticks_msec() / 1000.0 * 2.4) * 0.03
 		if _mound.get_child_count() > 0:

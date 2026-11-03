@@ -73,6 +73,8 @@ var _peering_crew: Node3D
 var _poke_at: float = -1000.0
 var _found_at: float = -1000.0
 var _miss_at: float = -1000.0
+## ...and who he found (0: nobody, or not known), so only they are held by it.
+var _found_peer: int = 0
 ## Each occupant's turn speed, smoothed (rad/s), for the shiver.
 var _shiver_speed: Dictionary = {}
 
@@ -171,7 +173,7 @@ func _mesh_node(key: String, builder: Callable) -> MeshInstance3D:
 ## roof with overhangs, a window on the right side, a dark doorway behind the door.
 func _build_shed_shell(kit: RefCounted) -> void:
 	var half := size * 0.5
-	var wall_h := size.y * 0.72
+	var wall_h := size.y * Constants.HIDE_SHED_WALL_SHARE
 	var rise := size.y - wall_h
 	var plank := color
 	var seam := color.darkened(0.28)
@@ -226,8 +228,7 @@ func _build_shed_shell(kit: RefCounted) -> void:
 ## The shed door, drawn from its hinge side: boards, a Z brace, a handle, and
 ## three knot holes at eye height (what a hider looks through).
 func _build_shed_door(kit: RefCounted) -> void:
-	var wall_h := size.y * 0.72
-	var door_h := wall_h - 0.26
+	var door_h := shed_door_height(size.y)
 	var plank := color.darkened(0.12)
 	kit.call("box", Vector3(0.0, door_h * 0.5, 0.0), Vector3(0.84, door_h, 0.05), plank)
 	for x: float in [-0.28, 0.0, 0.28]:
@@ -239,7 +240,7 @@ func _build_shed_door(kit: RefCounted) -> void:
 	kit.call("box", Vector3(0.3, door_h * 0.48, -0.06), Vector3(0.04, 0.12, 0.04), STEEL)
 	# At the hider's eye (net/components/hide_spot.gd _eye_height): a hand under the door's top.
 	for index: int in 3:
-		kit.call("box", Vector3(-0.25 + 0.25 * float(index), door_h - 0.22, -0.028), Vector3(0.035, 0.03, 0.012), Color(0.05, 0.04, 0.03))
+		kit.call("box", Vector3(-0.25 + 0.25 * float(index), shed_knot_height(size.y), -0.028), Vector3(0.035, 0.03, 0.012), Color(0.05, 0.04, 0.03))
 
 
 ## The wheelie bin's tub: a slightly tapered box, a rim, molded pockets, the
@@ -377,6 +378,7 @@ func set_state(state: StringName, at: float, args: Dictionary = {}) -> void:
 				_peering_crew = crew
 			_poke_at = at
 			_found_at = -1000.0
+			_found_peer = 0
 			_miss_at = -1000.0
 			_poke(crew, late)
 		&"near_miss":
@@ -388,6 +390,7 @@ func set_state(state: StringName, at: float, args: Dictionary = {}) -> void:
 				_later(Constants.HIDE_PEER_OUT_SECONDS * 0.6, func() -> void:
 					crew_gesture(_peering_crew, "shrug_notice", "scratch"))
 		&"found":
+			_found_peer = int(args.get("peer", 0))
 			_found(args.get("crew") as Node3D, at, late, stale)
 
 
@@ -400,7 +403,7 @@ func _found(crew: Node3D, at: float, late: float, stale: bool) -> void:
 	if crew != null:
 		_peering_crew = crew
 	_found_at = at
-	var shut_after := maxf(0.0, Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS + 0.35 - late)
+	var shut_after := maxf(0.0, Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS + Constants.HIDE_FOUND_SHUT_DELAY - late)
 	var gap := inspect_point().lerp(top_point(), 0.5)
 	match spot_kind:
 		"shed":
@@ -410,7 +413,7 @@ func _found(crew: Node3D, at: float, late: float, stale: bool) -> void:
 			_hinge_to(LID_OPEN, stale, 11.0)
 			_later(shut_after, func() -> void:
 				_hinge_to(0.0, false, 12.0)
-				_later(0.14, func() -> void: _sound("bin_clang", top_point(), -6.0)))
+				_later(Constants.HIDE_FOUND_CLANG_DELAY, func() -> void: _sound("bin_clang", top_point(), Constants.HIDE_FOUND_CLANG_DB)))
 		_:
 			_wobble = 1.6
 			_wobble_time = 0.0
@@ -424,14 +427,17 @@ func _found(crew: Node3D, at: float, late: float, stale: bool) -> void:
 	if stale:
 		return
 	_sound(_open_sound(), gap)
+	var grabbed := _found_peer if _found_peer != 0 and is_inside(_found_peer) else occupant
+	var grab_at := peek_transform(maxi(side_of(grabbed), 0), maxi(slot_of(grabbed), 0)).origin
 	_later(maxf(0.0, Constants.HIDE_FOUND_REVEAL - Constants.HIDE_FOUND_GRAB_LEAD - late), func() -> void:
-		_sound("hide_grab", peek_transform(maxi(side_of(occupant), 0), 0).origin))
+		_sound("hide_grab", grab_at))
 
 
 ## Every peer (R2b hide): the inspection the hider's own view reads.
-## {crew, poke_at, found_at, miss_at} in server time; crew null when nobody's looking.
+## {crew, poke_at, found_at, miss_at, found_peer} in server time; crew null when
+## nobody's looking; found_peer is who the find is on (0: not known).
 func inspect_view() -> Dictionary:
-	return {"crew": _peering_crew if is_instance_valid(_peering_crew) else null, "poke_at": _poke_at, "found_at": _found_at, "miss_at": _miss_at}
+	return {"crew": _peering_crew if is_instance_valid(_peering_crew) else null, "poke_at": _poke_at, "found_at": _found_at, "miss_at": _miss_at, "found_peer": _found_peer}
 
 
 ## The NICE BOY looking in, every frame on every peer: he bends to the gap while he
@@ -628,19 +634,19 @@ func _poke(crew: Node3D, late: float) -> void:
 	_poke_kind = StringName(spot_kind)
 	match spot_kind:
 		"bin":
-			_later(0.3, func() -> void:
+			_later(Constants.HIDE_POKE_BIN_CRACK_AT, func() -> void:
 				if _poking > 0.0:
 					_hinge_to(LID_POKE, false, 5.0)
 					_sound("bin_lid", top_point(), -4.0))
 		"shed":
 			for knock: int in 3:
-				_later(0.25 + 0.3 * float(knock), func() -> void:
+				_later(Constants.HIDE_POKE_SHED_KNOCKS.x + Constants.HIDE_POKE_SHED_KNOCKS.y * float(knock), func() -> void:
 					if _poking > 0.0:
 						_wobble = 0.5
 						_sound("hide_bonk", inspect_point() + Vector3(0.0, 1.2, 0.0), -6.0))
 		_:
-			for push: int in 2:
-				_later(0.2 + 0.7 * float(push), func() -> void:
+			for push: float in Constants.HIDE_POKE_HEDGE_PUSHES:
+				_later(push, func() -> void:
 					if _poking > 0.0:
 						_wobble = 1.2
 						_wobble_time = 0.0
@@ -666,9 +672,27 @@ func _open_sound() -> String:
 
 func _on_entered(peer_id: int, side: int, at: float) -> void:
 	_entered_ms[peer_id] = Time.get_ticks_msec()
+	_forget_old_find()
 	if int(_predicted.get(peer_id, 0)) > Time.get_ticks_msec():
 		return
 	set_state(&"enter", at, {"side": side})
+
+
+## A find that's over (its reveal, pull and settle are long done) is old news:
+## whoever dives in next starts clean (R2b hide). One still playing is kept.
+func _forget_old_find() -> void:
+	if _found_at < -999.0 or Net.server_time() - _found_at <= found_hold_seconds():
+		return
+	_poke_at = -1000.0
+	_found_at = -1000.0
+	_miss_at = -1000.0
+	_found_peer = 0
+
+
+## How long a find holds the one it's on (s): reveal, pull, settle, and slack
+## for the pull to arrive.
+static func found_hold_seconds() -> float:
+	return Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS + Constants.HIDE_FOUND_SETTLE + Constants.HIDE_FOUND_HOLD_SLACK
 
 
 func _on_exited(peer_id: int, side: int, at: float) -> void:
@@ -688,12 +712,12 @@ func predict_enter(peer_id: int, side: int) -> void:
 	set_state(&"enter", Net.server_time(), {"side": side})
 
 
-func _on_inspect(crew: Node3D, phase: StringName, at: float) -> void:
+func _on_inspect(crew: Node3D, phase: StringName, at: float, peer_id: int = 0) -> void:
 	match phase:
 		&"begin":
 			set_state(&"inspect", at, {"crew": crew})
 		&"found":
-			set_state(&"found", at, {"crew": crew})
+			set_state(&"found", at, {"crew": crew, "peer": peer_id})
 		&"cancel":
 			# He was stopped mid-poke: the lid drops, he straightens, nothing else.
 			_poking = 0.0

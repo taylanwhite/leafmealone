@@ -32,7 +32,10 @@ extends Node
 ##    R2b hide adds: hidden in a chase, the music holds its "hide" section; a
 ##    slow look arriving in network steps raises no rustle, a hard turn does; a
 ##    found hider stays inside through the reveal, then lands on the ground off
-##    the spot and the gotcha stands them there; his lines name the spot.
+##    the spot and the gotcha stands them there; his lines name the spot. A find
+##    holds only the one found, only while it plays: a shed mate's find doesn't
+##    hold the other (step 2), an old pile find doesn't scoop the next mound
+##    (step 4), and the host dives into the hedge just emptied and gets out (5).
 
 const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _HideView = preload("res://player/hide_view.gd")
@@ -165,10 +168,17 @@ func _shed_step(shed: Node3D, mate: int) -> void:
 	var report: Dictionary = await _report("in")
 	var both := bool(shed.call("is_inside", me.name.to_int())) and bool(shed.call("is_inside", mate))
 	_check("shed holds two", both and bool(report.get("ok", false)), "occupants %s; client: %s" % [shed.call("occupants"), report])
+	# R2b hide: a find on the other occupant (played here on the host's copy only)
+	# doesn't hold the host: it isn't found, and E still takes it out.
+	shed.call("_on_inspect", null, &"found", Net.server_time(), mate)
+	await _seconds(0.2)
+	var host_view := me.get_node_or_null("HideView")
+	var held_by_mates_find := host_view != null and bool(host_view.call("is_found"))
 	# The first one out leaves their place free; the one still in keeps theirs.
 	var client_slot := int(shed.call("slot_of", mate))
 	me.call("_toggle_hiding")
 	await _seconds(1.0)
+	_check("a shed mate's find doesn't hold the other", not held_by_mates_find and not bool(shed.call("is_inside", me.name.to_int())), "host found %s, host still inside %s" % [held_by_mates_find, shed.call("is_inside", me.name.to_int())])
 	var kept := int(shed.call("slot_of", mate)) == client_slot and int(shed.call("free_slot")) == 1 - client_slot
 	_check("shed places stay put", kept, "client place %d then %d, free %d" % [client_slot, int(shed.call("slot_of", mate)), int(shed.call("free_slot"))])
 	_reports.erase("out")
@@ -223,15 +233,23 @@ func _pile_step(mate: int) -> void:
 	var client := _player(mate)
 	client.call("send_teleport", Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(pile.x, 0.1, pile.z)))
 	await _seconds(0.8)
+	var view := client.get_node_or_null("HideView")
+	# R2b hide: as if a NICE BOY found them in an earlier pile (the host's copy).
+	if view != null:
+		view.set("_pile_poke_at", Net.server_time() - 30.0)
+		view.set("_pile_found_at", Net.server_time() - 29.0)
 	_reports.erase("pile")
 	_rpc_cue.rpc_id(mate, "pile", {})
 	var report: Dictionary = await _report("pile")
 	var hidden := bool(client.get("in_pile"))
 	await _seconds(0.4)
-	var view := client.get_node_or_null("HideView")
-	var mound := view != null and view.get("_mound") != null
+	var mound_node := view.get("_mound") as Node3D if view != null else null
+	var mound := mound_node != null
 	var drawn := _drawn_parts(client)
 	_check("pile in", hidden and bool(report.get("ok", false)) and mound and not bool(drawn["body"]) and bool(drawn["visual_in_tree"]), "in_pile %s, mound %s, drawn %s; client: %s" % [hidden, mound, drawn, report])
+	# ...and that old find doesn't leave this pile's mound squashed open.
+	var round_mound := mound_node != null and absf(mound_node.scale.y - mound_node.scale.x) < 0.02
+	_check("an old find doesn't scoop a new mound", round_mound, "mound scale %s" % [mound_node.scale if mound_node != null else Vector3.ZERO])
 	# Bag it from beside it: whoever's inside is turned out.
 	var me := _me()
 	_drop_held(me)
@@ -407,6 +425,22 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 		var victim: Vector3 = (entry.get("args", {}) as Dictionary).get("victim", Vector3.INF)
 		var grounded := victim.is_finite() and absf(victim.y - hedge.global_position.y) < 0.2 and float(hedge.call("reach_distance", victim)) > 0.15
 		_check("the gotcha is on the ground beside the spot", grounded, "victim %s, spot %s" % [victim, hedge.global_position])
+	# R2b hide: the hedge he just emptied doesn't hold the next one in: the host
+	# dives in from the far side, isn't found, the inside isn't drawn pulled
+	# open, and E takes it out again.
+	var far := (side + 2) % 4
+	_place(me, hedge, far)
+	await _seconds(0.6)
+	me.call("_toggle_hiding")
+	await _seconds(Constants.HIDE_ENTER_SECONDS + 0.5)
+	var host_view := me.get_node_or_null("HideView")
+	var redove := bool(hedge.call("is_inside", me.name.to_int()))
+	var still_found := host_view != null and bool(host_view.call("is_found"))
+	var parted := float(host_view.call("_part_now")) if host_view != null else -1.0
+	me.call("_toggle_hiding")
+	await _seconds(Constants.HIDE_EXIT_SECONDS + 0.5)
+	var left := not bool(hedge.call("is_inside", me.name.to_int()))
+	_check("an emptied spot lets the next one out", redove and not still_found and parted < 0.01 and left, "in %s, found %s, parted %.2f, out again %s" % [redove, still_found, parted, left])
 	# R2b hide: his line names what he pokes.
 	var lines_ok := true
 	for kind: String in ["hedge", "bin", "shed", "pile"]:

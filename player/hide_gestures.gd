@@ -18,7 +18,7 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const SECONDS: Dictionary = {
 	"hedge_dive": Constants.HIDE_ENTER_SECONDS, "bin_vault": Constants.HIDE_ENTER_SECONDS,
 	"shed_step": Constants.HIDE_ENTER_SECONDS, "pile_cannonball": Constants.HIDE_ENTER_SECONDS,
-	"burst_out": Constants.HIDE_EXIT_SECONDS + 0.4, "upsy_daisy_victim": Constants.HIDE_PULL_SECONDS + 0.15,
+	"burst_out": Constants.HIDE_EXIT_SECONDS + Constants.HIDE_EXIT_GESTURE_TAIL, "upsy_daisy_victim": Constants.HIDE_PULL_SECONDS + Constants.HIDE_PULL_GESTURE_TAIL,
 	"inspect_poke": Constants.HIDE_INSPECT_SECONDS, "lid_peer": Constants.HIDE_INSPECT_SECONDS,
 	"shed_knock": Constants.HIDE_INSPECT_SECONDS, "pile_pat": Constants.HIDE_INSPECT_SECONDS,
 	"shrug_notice": Constants.HIDE_SHRUG_SECONDS, "upsy_daisy": Constants.HIDE_UPSY_DAISY_SECONDS,

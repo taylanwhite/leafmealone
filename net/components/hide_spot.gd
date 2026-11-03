@@ -186,7 +186,7 @@ func entry_point(side: int, slot: int = 0) -> Vector3:
 	if spot_kind == "shed":
 		# Both of a shed's places step out on the latch side of the doorway, clear of
 		# the door standing open on its hinge side (R2b hide).
-		offset = Vector3(-direction.z, 0.0, direction.x) * (0.1 + 0.45 * float(slot % 2))
+		offset = Vector3(-direction.z, 0.0, direction.x) * (Constants.HIDE_SHED_EXIT_ALONG + Constants.HIDE_SHED_EXIT_SLOT_STEP * float(slot % 2))
 	var local := direction * (extent + Constants.HIDE_EXIT_GAP + Constants.HIDE_EXIT_RADIUS) + offset
 	return global_transform * Vector3(local.x, 0.05, local.z)
 
@@ -277,11 +277,21 @@ func _eye_height() -> float:
 		"shed":
 			# At the knot holes, a hand under the top of the door (props/hide_spot.gd
 			# draws them there): any higher looks into the lintel.
-			return box_size.y * 0.72 - 0.26 - 0.22
+			return shed_knot_height(box_size.y)
 		"bin":
 			return box_size.y - 0.12
 		_:
 			return box_size.y - 0.2
+
+
+## A shed this tall: its door's height (m), and the knot holes in it (m, the
+## hider's eye) a hand under the door's top. Shared with props/hide_spot.gd's model.
+static func shed_door_height(height: float) -> float:
+	return height * Constants.HIDE_SHED_WALL_SHARE - Constants.HIDE_SHED_DOOR_HEADROOM
+
+
+static func shed_knot_height(height: float) -> float:
+	return shed_door_height(height) - Constants.HIDE_SHED_KNOT_DROP
 
 
 func _slot_offset(side: int, slot: int) -> Vector3:
@@ -480,7 +490,7 @@ func host_inspect_begin(crew: Node) -> void:
 	_inspector = crew
 	_inspect_began = Net.server_time()
 	stats["inspected"] = int(stats["inspected"]) + 1
-	_rpc_inspect.rpc(_crew_index(crew), Net.server_time(), &"begin")
+	_rpc_inspect.rpc(_crew_index(crew), Net.server_time(), &"begin", 0)
 
 
 ## Host: the poke stopped short (he was bonked, stunned or sent home): no
@@ -492,7 +502,7 @@ func host_inspect_cancel(crew: Node) -> void:
 		return
 	var who: Node = _inspector if is_instance_valid(_inspector) else null
 	_inspector = null
-	_rpc_inspect.rpc(_crew_index(who), Net.server_time(), &"cancel")
+	_rpc_inspect.rpc(_crew_index(who), Net.server_time(), &"cancel", 0)
 
 
 ## Host: the poke is over. {outcome: &"found" | &"near_miss", peer}. Found lifts
@@ -511,12 +521,12 @@ func host_inspect_resolve(crew: Node) -> Dictionary:
 			break
 	if target != 0 and total >= Constants.HIDE_FOUND_AT:
 		stats["found"] = int(stats["found"]) + 1
-		_rpc_inspect.rpc(_crew_index(crew), Net.server_time(), &"found")
+		_rpc_inspect.rpc(_crew_index(crew), Net.server_time(), &"found", target)
 		_pull(target, crew)
 		_suspicion = 0.0
 		return {"outcome": &"found", "peer": target}
 	stats["near_misses"] = int(stats["near_misses"]) + 1
-	_rpc_inspect.rpc(_crew_index(crew), Net.server_time(), &"near_miss")
+	_rpc_inspect.rpc(_crew_index(crew), Net.server_time(), &"near_miss", 0)
 	_rpc_notice.rpc(mini(notices + 1, Constants.HIDE_NOTICE_MAX))
 	# He looked and saw nothing: it looks a little less suspicious now.
 	_suspicion *= 0.5
@@ -573,7 +583,7 @@ func found_landing(peer_id: int, crew: Node3D) -> Vector3:
 	var options: Array[Vector3] = []
 	if spot_kind == "shed":
 		# The door swings out on its left hinge (-X): land on the latch side.
-		options = [out + Vector3(Constants.HIDE_FOUND_LAND_ALONG * 0.75, 0.0, 0.0)]
+		options = [out + Vector3(Constants.HIDE_FOUND_LAND_ALONG * Constants.HIDE_FOUND_LAND_ALONG_SHED, 0.0, 0.0)]
 	else:
 		var first := 1.0
 		if crew != null:
@@ -815,10 +825,12 @@ func _forget(index: int) -> void:
 		_slots.remove_at(index)
 
 
-## A NICE BOY's poke: phase &"begin", &"near_miss", &"found" or &"cancel", from server time at.
+## A NICE BOY's poke: phase &"begin", &"near_miss", &"found" or &"cancel", from
+## server time at. peer_id: who he found (found only; 0 otherwise), so a second
+## occupant of a shed isn't caught by someone else's find.
 @rpc("authority", "call_local", "reliable")
-func _rpc_inspect(crew_index: int, at: float, phase: StringName) -> void:
-	_on_inspect(_crew_by_index(crew_index), phase, at)
+func _rpc_inspect(crew_index: int, at: float, phase: StringName, peer_id: int) -> void:
+	_on_inspect(_crew_by_index(crew_index), phase, at, peer_id)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -864,7 +876,7 @@ func _on_exited(_peer_id: int, _side: int, _at: float) -> void:
 	pass
 
 
-func _on_inspect(_crew: Node3D, _phase: StringName, _at: float) -> void:
+func _on_inspect(_crew: Node3D, _phase: StringName, _at: float, _peer_id: int = 0) -> void:
 	pass
 
 

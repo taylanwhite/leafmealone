@@ -3039,3 +3039,43 @@ const HIDE_SHED_EYE_SIDE: float = 0.22
 const HIDE_PILE_MOUND_FROM: float = 0.3
 const HIDE_PILE_MOUND_GROW: float = 0.3
 const HIDE_PILE_SINK: float = 0.9
+## A find holds you (no climb-out, no peek) only for its reveal, pull and settle
+## plus this slack (s, for the pull to arrive over a slow link); after that the
+## spot's find is old news and whoever dives in next is free to leave.
+const HIDE_FOUND_HOLD_SLACK: float = 0.5
+## After a find the lid or door drops shut this long (s) after you're out; a bin's
+## clang follows the drop by this long (s), this loud (dB).
+const HIDE_FOUND_SHUT_DELAY: float = 0.35
+const HIDE_FOUND_CLANG_DELAY: float = 0.14
+const HIDE_FOUND_CLANG_DB: float = -6.0
+## Host: a shed's door swings out on its hinge side, so its two climb-out places
+## step this far toward the latch side (m): base, plus this per second place.
+const HIDE_SHED_EXIT_ALONG: float = 0.1
+const HIDE_SHED_EXIT_SLOT_STEP: float = 0.45
+## Host: pulled out of a shed, you land off the latch side, this share of
+## HIDE_FOUND_LAND_ALONG along from the door's middle.
+const HIDE_FOUND_LAND_ALONG_SHED: float = 0.75
+## Host: the gotcha trusts a found hider's landing (meta hide_pulled_to) for this
+## long (s) after they're down; older than that and it stands them where they are.
+const HIDE_PULLED_TO_TRUST: float = 2.0
+## The shed's shape, shared by its model and the hider's eye (host: the eye is the
+## peek anchor): walls are this share of its height, the door stops this far (m)
+## under the wall top, and the knot holes (the eye) are this far (m) under the door's top.
+const HIDE_SHED_WALL_SHARE: float = 0.72
+const HIDE_SHED_DOOR_HEADROOM: float = 0.26
+const HIDE_SHED_KNOT_DROP: float = 0.22
+## A NICE BOY's poke, shared by the spot (props/hide_spot.gd _poke) and the
+## hider's view of it (player/hide_view.gd): a hedge's two pushes (s in), each
+## parting it this much (0..1) for a beat; a bin lid lifted a crack at this time
+## (s), this far open; a shed's three knocks, the first at x (s), then every y (s);
+## a pile's pats part it this much.
+const HIDE_POKE_HEDGE_PUSHES: Array[float] = [0.2, 0.9]
+const HIDE_POKE_HEDGE_PART: float = 0.28
+const HIDE_POKE_BIN_CRACK_AT: float = 0.3
+const HIDE_POKE_BIN_PART: float = 0.22
+const HIDE_POKE_SHED_KNOCKS: Vector2 = Vector2(0.25, 0.3)
+const HIDE_POKE_PILE_PART: float = 0.12
+## Gestures outlast their moves by this long (s) so the landing reads: a
+## climb-out, and being pulled out.
+const HIDE_EXIT_GESTURE_TAIL: float = 0.4
+const HIDE_PULL_GESTURE_TAIL: float = 0.15

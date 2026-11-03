@@ -194,7 +194,7 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 	# peer's copy of their lift shows yet (R2b hide; net/components/hide_spot.gd _pull).
 	if player.has_meta(&"hide_pulled_to"):
 		var pulled: Variant = player.get_meta(&"hide_pulled_to")
-		if pulled is Array and (pulled as Array).size() == 2 and now <= float(pulled[1]) + 2.0:
+		if pulled is Array and (pulled as Array).size() == 2 and now <= float(pulled[1]) + Constants.HIDE_PULLED_TO_TRUST:
 			victim = pulled[0]
 		player.remove_meta(&"hide_pulled_to")
 	if crew == null:
