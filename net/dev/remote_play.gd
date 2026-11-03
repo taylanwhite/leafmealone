@@ -39,12 +39,18 @@ extends Node
 ## what's in the pockets: the selected slot (-1 bare hands), each slot's kind
 ## ("" empty) and the big thing in both arms ("" none).
 ## With --observer (a client, tools/play.ps1 -Observer) this peer parks its own
-## player at the store, out of the raid, and follows the host by default.
+## player at the store, out of the raid, and follows the host by default. The
+## host's remote play keeps the observer in the host's zone wherever the host goes
+## (_shadow_observers), so it watches the moment as someone there would.
 
 const _RecorderScript = preload("res://net/dev/recorder.gd")
 const _ScenariosScript = preload("res://net/dev/scenarios.gd")
 ## The observer's default view of the host: distance, height, yaw (degrees).
 const OBSERVER_VIEW := [5.5, 2.4, 35.0]
+## The name tools/play.ps1 gives the observer (--name=Observer); the host knows it by it.
+const OBSERVER_NAME: String = "Observer"
+## The observer is safe from the NICE BOYS until this server time (s): for good.
+const OBSERVER_SAFE_UNTIL: float = 1.0e9
 ## How far in front of whatever blocks it the spectator camera stops, in meters.
 const SPECTATOR_CLEARANCE: float = 0.3
 ## How long the first command waits for the world and the player.
@@ -92,6 +98,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_update_spectator()
 	_park_observer()
+	_shadow_observers()
 	_poll -= delta
 	if _busy or _poll > 0.0:
 		return
@@ -410,6 +417,8 @@ func _follow_target() -> Node3D:
 ## --observer: a client that watches. Its own player goes to the store (out of
 ## the raid, which only takes people on the yard) and it follows the host.
 func _park_observer() -> void:
+	if bool(Net.dev_options().get("observer")) and not Net.is_host():
+		_ghost(_player_node(Net.local_peer_id()))
 	if _observer_parked or not bool(Net.dev_options().get("observer")) or Net.is_host():
 		return
 	if Net.current_state() != Net.State.IN_SESSION or _player_node(Net.local_peer_id()) == null or _player_node(1) == null:
@@ -419,6 +428,48 @@ func _park_observer() -> void:
 	_follow = {"who": "host", "distance": OBSERVER_VIEW[0], "height": OBSERVER_VIEW[1], "yaw": OBSERVER_VIEW[2], "mode": "body"}
 	_spectate_on()
 	print("[RemotePlay] observer: parked at the store, following the host")
+
+
+## Host: an observer goes where the host goes. When the host changes zones the
+## observer is sent after them the way the game sends anyone (a host-ordered
+## teleport into the zone), so its HUD, cues, music, ambience and the quips the
+## yard plays are the ones a player there gets, and the recorder's zone line says
+## so. Its body is a ghost: drawn by nobody and solid to nobody on the host and on
+## the observer (_ghost), so it never turns up in a shot or in anyone's way, and
+## it is never someone the NICE BOYS can take (the director's own safe list), so
+## watching changes nothing it films. Riding (TRANSIT) or crossing (BORDER) the
+## host leaves it at the store, as before: the van and Border Return have rosters
+## of their own. Not in the connected town, where zones follow where people stand.
+func _shadow_observers() -> void:
+	if not Net.is_host() or Net.current_state() != Net.State.IN_SESSION:
+		return
+	var world := get_tree().get_first_node_in_group("world")
+	if world != null and world.has_method("is_town_map") and bool(world.call("is_town_map")):
+		return
+	var target := Net.Zone.LOT if Net.player_zone(1) == Net.Zone.LOT else Net.Zone.STORE
+	var director := get_tree().get_first_node_in_group("run_director")
+	for peer_id: int in Net.peer_ids():
+		if peer_id == 1 or Net.player_name(peer_id) != OBSERVER_NAME:
+			continue
+		if director != null:
+			var safe: Dictionary = director.get("_safe_until")
+			safe[peer_id] = OBSERVER_SAFE_UNTIL
+		_ghost(_player_node(peer_id))
+		if Net.player_zone(peer_id) != target:
+			Net.move_player_to_zone(peer_id, target)
+
+
+## An observer's own body, here: not drawn (its name tag goes with it) and not
+## solid. Every frame, since the player's own code may show it again.
+static func _ghost(body: Node3D) -> void:
+	if body == null:
+		return
+	var visual := body.get_node_or_null("Visual") as Node3D
+	if visual != null and visual.visible:
+		visual.visible = false
+	var shape := body.get_node_or_null("Collision") as CollisionShape3D
+	if shape != null and not shape.disabled and not body.is_multiplayer_authority():
+		shape.disabled = true
 
 
 ## A step argument as a word. cmd.json is read with JSON.parse_string, which
