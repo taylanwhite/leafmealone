@@ -25,7 +25,11 @@ extends Node
 ##                star, bonus, xp and split icons, and fits
 ##   summary      the day summary shows an icon on every line, the rank badge on a
 ##                RANK UP, the unlock's and season's icons, and fits
-## The checks of the UI that shows the icons (shop, phone, hud, prompt),
+##   phone        every dock tile has its app icon, the crew app the rank badge,
+##                the map one pin per neighborhood, every text bubble an avatar
+##   hud          the day HUD's rank badge, the cash row, a task row's badge and
+##                the heat meter's siren
+## The checks of the UI that shows the icons (prompt),
 ## of the prompt string's tokens and of the shop catalog's icons are written here
 ## too, but they belong to later chunks. Until a check's chunk lands it is in
 ## PENDING: it still runs, and its findings go in result["pending"], but it can't
@@ -47,8 +51,6 @@ const APP_ICON_PATH := "res://assets/icons/app_icon.png"
 
 ## Check -> the chunk that turns it on (and deletes its line here).
 const PENDING: Dictionary = {
-	"phone": "icons:E",
-	"hud": "icons:E",
 	"prompt": "icons:F",
 	"catalog": "icons:catalog",
 }

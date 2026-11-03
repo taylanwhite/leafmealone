@@ -225,7 +225,7 @@ const UI: Dictionary = {
 	"hud_quiet_hours": "Quiet hours: +%d%% pay, noise draws more heat",
 	"hud_closed": "2 AM. Go to bed, the crew camp is by the side wall",
 	"hud_rank": "%s",
-	"hud_unread": "%d new texts  {key:phone}",
+	"hud_unread": "{icon:unread} %d new texts  {key:phone}",
 	"hud_xp": "%d / %d XP  (+%d tonight)",
 	"goal_no_jobs": "No jobs right now. Check your phone {key:phone}, or sleep it off at the crew camp",
 	"goal_sleep": "It's 2 AM. Sleep at the crew camp by the side wall",
