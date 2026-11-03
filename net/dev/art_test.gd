@@ -43,7 +43,9 @@ extends Node
 ##   Constants.STORE_LAYOUT, so none lands on a shop's or driving's; the lobby's
 ##   floor (STORE_LOBBY_POINT) open, and a box as wide as four players abreast
 ##   (STORE_CREW_WIDTH) swept from the lot through the doors down the lobby
-##   without touching a thing; a ShelfSlot marker per tool, the lobby's stock
+##   without touching a thing a player's body collides with (STORE_PLAYER_MASK),
+##   while Chefty's chassis nosing in from the lot (STORE_CHASSIS_FROM, on its own
+##   mask) is stopped before it reaches the doors; a ShelfSlot marker per tool, the lobby's stock
 ##   standing every tool in one, each slot's front open and inside the shop's
 ##   "lobby"; the sliding doors there.
 
@@ -90,6 +92,12 @@ const STORE_LOBBY_POINT := Vector3(-16.0, 0.5, -2.0)
 const STORE_CREW_WIDTH: float = 4.4
 const STORE_SWEEP_FROM := Vector3(-6.0, 1.0, -2.0)
 const STORE_SWEEP_TO := Vector3(-16.8, 1.0, -2.0)
+## What a player's body collides with (player/player.tscn collision_mask).
+const STORE_PLAYER_MASK: int = 5
+## Where Chefty's chassis starts nosing at the doors from, and the farthest in
+## (x) its front may get: a little past the entrance's face is already the glass.
+const STORE_CHASSIS_FROM := Vector3(-2.0, 0.0, -2.0)
+const STORE_CHASSIS_LIMIT_X: float = -9.9
 
 static var result: Dictionary = {}
 
@@ -639,6 +647,7 @@ func _store(world: Node) -> Array[String]:
 	crew.size = Vector3(0.4, 1.6, STORE_CREW_WIDTH)
 	var sweep := PhysicsShapeQueryParameters3D.new()
 	sweep.shape = crew
+	sweep.collision_mask = STORE_PLAYER_MASK
 	sweep.collide_with_areas = false
 	var steps := int(ceil(STORE_SWEEP_FROM.distance_to(STORE_SWEEP_TO) / 0.3))
 	for step: int in steps + 1:
@@ -649,6 +658,27 @@ func _store(world: Node) -> Array[String]:
 			var hit := hits[0]["collider"] as Node
 			out.append("A14 four abreast walking in bump %s at x %.1f" % [hit.get_path() if hit != null else "?", at.x])
 			break
+	# ...and Chefty, driven nose first at the doors, stops outside them.
+	var chassis := BoxShape3D.new()
+	chassis.size = Constants.CHEFTY_CHASSIS_SIZE
+	var drive := PhysicsShapeQueryParameters3D.new()
+	drive.shape = chassis
+	drive.collision_mask = 1 | Constants.VEHICLE_LAYER
+	drive.collide_with_areas = false
+	var start := STORE_CHASSIS_FROM + Vector3(0.0, Constants.CHEFTY_CHASSIS_CENTER.y, 0.0)
+	var half_length := Constants.CHEFTY_CHASSIS_SIZE.z * 0.5
+	drive.transform = zone.global_transform * Transform3D(Basis(Vector3.UP, PI * 0.5), start)
+	drive.motion = zone.global_transform.basis * Vector3(STORE_SWEEP_TO.x - start.x, 0.0, 0.0)
+	var safe := 1.0
+	if space.intersect_shape(drive, 1).is_empty():
+		var moved := space.cast_motion(drive)
+		safe = float(moved[0]) if not moved.is_empty() else 1.0
+	else:
+		out.append("A14 Chefty's chassis at %s already overlaps something" % start)
+	var nose := start.x + (STORE_SWEEP_TO.x - start.x) * safe - half_length
+	if nose < STORE_CHASSIS_LIMIT_X:
+		out.append("A14 Chefty drives into the lobby (its nose reaches x %.1f)" % nose)
+	print("[ArtTest] A14 Chefty nosing at the doors stops with its nose at x %.2f (the doors are at %.2f)" % [nose, STORE_CHASSIS_LIMIT_X])
 	# The endcaps: a ShelfSlot per tool, the lobby stock standing each tool in one,
 	# each slot's front open and in the shop's lobby (where Shops sells).
 	var markers := get_tree().get_nodes_in_group("shop_shelf_slot")

@@ -44,6 +44,11 @@ const TRANSOM_TOP: float = 4.4
 ## The bollards stand before the two sidelights, at this x.
 const BOLLARD_X: float = -8.6
 const BOLLARDS_Z: Array[float] = [-6.4, -5.2, 1.2, 2.4]
+## The vehicle stop across the doorway: its middle this far out from the
+## entrance's face (m), and its depth; far enough out that Chefty's bumper stops
+## short of the glass.
+const VEHICLE_STOP_OUT: float = 0.6
+const VEHICLE_STOP_DEPTH: float = 0.8
 ## The pallets in the garden yard (Constants.STORE_LAYOUT "garden_yard"): kind,
 ## where, and the yaw.
 const GARDEN_PALLETS: Array = [
@@ -215,6 +220,22 @@ static func _entrance(root: Node3D) -> void:
 		batch.add("bollard", Transform3D(Basis.IDENTITY, at))
 		_post_collider(root, at, 0.14, 1.0)
 	batch.commit()
+	# Chefty doesn't drive into the lobby: a stop across the doorway on the vehicle
+	# layer only, so the crew walks through four abreast and the truck's nose meets
+	# the doors (docs/DECISIONS.md "Homie Depot's lobby").
+	var stop := StaticBody3D.new()
+	stop.name = "VehicleStop"
+	stop.collision_layer = Constants.VEHICLE_LAYER
+	stop.collision_mask = 0
+	root.add_child(stop)
+	var band := Constants.ART_DOOR_VEHICLE_STOP_Y
+	stop.position = Vector3(face + VEHICLE_STOP_OUT, (band.x + band.y) * 0.5, door_z)
+	var stop_shape := CollisionShape3D.new()
+	var stop_box := BoxShape3D.new()
+	stop_box.size = Vector3(VEHICLE_STOP_DEPTH, band.y - band.x, Constants.ART_DOOR_WIDTH + 0.2)
+	stop_shape.shape = stop_box
+	stop.add_child(stop_shape)
+	stop.add_to_group("store_art_solid")
 
 
 static func _glass(pane: Node3D) -> void:
@@ -376,7 +397,7 @@ static func _lot_extras(root: Node3D) -> void:
 	root.add_child(corral_root)
 	corral_root.position = corral["at"]
 	corral_root.rotation.y = float(corral["yaw"])
-	_carts(corral_root, Vector3.ZERO)
+	_carts(corral_root, Vector3.ZERO, true)
 	var stock: Node3D = _SeasonStock.new()
 	stock.name = "SeasonStock"
 	stock.set("area", layout["seasonal_display"]["rect"])
@@ -466,8 +487,10 @@ static func _box_collider(parent: Node3D, name: String, center: Vector3, size: V
 
 
 ## A cart corral by the parking lot: round rails on posts and a row of carts
-## parked in it, handles toward the open end (+Z). One mesh a corral.
-static func _carts(root: Node3D, at: Vector3) -> void:
+## parked in it, handles toward the open end (+Z). One mesh a corral. art_piece:
+## its rails join store_art_solid (a corral art added in its own reservation;
+## the west one is the store's own, docs/DECISIONS.md).
+static func _carts(root: Node3D, at: Vector3, art_piece: bool = false) -> void:
 	var kit := _MeshKit.new()
 	var rail := Color(0.85, 0.85, 0.82)
 	for side: float in [-1.0, 1.0]:
@@ -494,6 +517,8 @@ static func _carts(root: Node3D, at: Vector3) -> void:
 		shape.shape = box
 		shape.position = piece[0]
 		body.add_child(shape)
+	if art_piece:
+		body.add_to_group("store_art_solid")
 
 
 ## How many carts a corral holds, and how far apart they park (m; a cart is 0.9 long).

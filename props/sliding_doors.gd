@@ -3,7 +3,9 @@ extends Node3D
 ## Authority: local, cosmetic. Homie Depot's automatic sliding doors (art chunk
 ## 8): two glass leaves that part when anyone in group "players" comes within
 ## Constants.ART_DOOR_OPEN_DISTANCE of them, from either side, and close again
-## once everyone has been clear for ART_DOOR_HOLD_SECONDS. Each peer runs its own
+## once everyone has been clear for ART_DOOR_HOLD_SECONDS (while anyone further
+## out, within ART_DOOR_WATCH_MARGIN more, is still walking at them, open doors
+## stay open). Each peer runs its own
 ## from the bodies it already sees, so nothing goes over the network; the doors
 ## have no collider (they are always open by the time anyone reaches them).
 ##
@@ -68,13 +70,16 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
-	var near := _anyone_near()
+	var sensed := _sense(delta)
+	var near := sensed == _NEAR
 	if near:
 		_clear_for = 0.0
 		_sensed_for += delta
 	else:
 		_sensed_for = 0.0
-		_clear_for += delta
+		# Someone still walking up holds open doors open: a crew strung out across
+		# the lot never sees them shut and part again in its face.
+		_clear_for = 0.0 if sensed == _COMING and _target > 0.5 else _clear_for + delta
 	var wanted := _target
 	if near and _sensed_for >= Constants.ART_DOOR_SENSE_SECONDS:
 		wanted = 1.0
@@ -109,27 +114,61 @@ func _place_leaves() -> void:
 		leaf.position = Vector3(-0.04 * side, 0.0, closed + side * travel * amount)
 
 
-func _anyone_near() -> bool:
+## What the sensor sees: nobody, someone walking up from further out, or someone
+## close enough to open for.
+const _CLEAR := 0
+const _COMING := 1
+const _NEAR := 2
+
+
+## Each player's last spot (in the doors' space) and smoothed velocity, by
+## instance id. Velocity is taken from how they moved, not body.velocity, which a
+## remote player's copy doesn't carry.
+var _tracks: Dictionary = {}
+
+
+func _sense(delta: float) -> int:
 	if not is_inside_tree():
-		return false
+		return _CLEAR
 	var reach := Constants.ART_DOOR_OPEN_DISTANCE
+	var watch := reach + Constants.ART_DOOR_WATCH_MARGIN
+	var out := _CLEAR
+	var seen := {}
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var body := node as Node3D
 		if body == null or not body.is_visible_in_tree():
 			continue
 		var local := to_local(body.global_position)
+		var id := body.get_instance_id()
+		var velocity := Vector3.ZERO
+		if _tracks.has(id) and delta > 0.0:
+			var track: Array = _tracks[id]
+			var moved: Vector3 = (local - (track[0] as Vector3)) / delta
+			# A teleport (a zone move, a respawn) isn't anyone walking.
+			if moved.length() > Constants.ART_DOOR_TRACK_MAX_SPEED:
+				moved = Vector3.ZERO
+			velocity = (track[1] as Vector3).lerp(moved, clampf(delta * Constants.ART_DOOR_TRACK_RATE, 0.0, 1.0))
+		seen[id] = [local, velocity]
+		if absf(local.y) >= 3.0:
+			continue
 		# Measured to the doorway itself (a slot as wide as the opening), not its middle,
 		# so someone walking in at the edge of the crowd counts as soon as the middle one.
-		var along := maxf(absf(local.z) - opening_width * 0.5, 0.0)
+		var to_door := Vector2(-local.x, clampf(local.z, -opening_width * 0.5, opening_width * 0.5) - local.z)
+		var distance := to_door.length()
+		# How fast they're closing on the doorway, from any angle.
+		var closing := 0.0
+		if distance > 0.01:
+			closing = maxf(Vector2(velocity.x, velocity.z).dot(to_door / distance), 0.0)
 		# Someone running at the doors is seen a little sooner (the sensor's lead),
 		# so a sprint never reaches half-open glass.
-		var lead := 0.0
-		if body is CharacterBody3D:
-			var heading := global_transform.basis.inverse() * (body as CharacterBody3D).velocity
-			lead = maxf(-signf(local.x) * heading.x, 0.0) * Constants.ART_DOOR_LEAD_SECONDS
-		if Vector2(local.x, along).length() <= reach + lead and absf(local.y) < 3.0:
-			return true
-	return false
+		if distance <= reach + closing * Constants.ART_DOOR_LEAD_SECONDS:
+			out = _NEAR
+		# Further out, someone who'd be in range within ART_DOOR_HOLD_AHEAD_SECONDS at
+		# the pace they're coming is coming.
+		elif distance <= minf(watch, reach + closing * Constants.ART_DOOR_HOLD_AHEAD_SECONDS) and closing >= Constants.ART_DOOR_APPROACH_SPEED:
+			out = maxi(out, _COMING)
+	_tracks = seen
+	return out
 
 
 func _hiss(opening: bool) -> void:

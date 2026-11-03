@@ -2658,6 +2658,21 @@ const ART_DOOR_OPEN_SKEW: float = 0.7
 const ART_DOOR_HOLD_SECONDS: float = 1.1
 const ART_DOOR_LEAD_SECONDS: float = 0.35
 const ART_DOOR_CLOSE_DB: float = -5.0
+## Open doors stay open while anyone up to this much further out than
+## ART_DOOR_OPEN_DISTANCE (m) is closing on the doorway at this speed or more
+## (m/s) and would be in range within this many seconds at that pace, so
+## stragglers never see them shut and part again in their face.
+const ART_DOOR_WATCH_MARGIN: float = 9.0
+const ART_DOOR_APPROACH_SPEED: float = 1.0
+const ART_DOOR_HOLD_AHEAD_SECONDS: float = 2.0
+## The sensor tracks each player's velocity from how they moved, smoothed at this
+## rate (1/s); a jump faster than this (m/s) is a teleport, not a walk.
+const ART_DOOR_TRACK_RATE: float = 10.0
+const ART_DOOR_TRACK_MAX_SPEED: float = 14.0
+## The vehicle-only stop just outside the doors (store_dressing.gd): Chefty's
+## chassis (Constants.VEHICLE_LAYER) meets it, people never do. Its bottom and
+## top (m); the chassis rides 0.45 to 1.95 m.
+const ART_DOOR_VEHICLE_STOP_Y := Vector2(0.35, 1.15)
 ## The doorway: its width (four abreast fit through) and height (m).
 const ART_DOOR_WIDTH: float = 5.0
 const ART_DOOR_HEIGHT: float = 3.0

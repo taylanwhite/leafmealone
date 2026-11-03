@@ -33,7 +33,9 @@ extends Node
 ## saved and laid back out, bed and lot (junk_left). Shops chunk 6 adds the
 ## Snak-o-Matic at 10 PM (vending), Lunch Money at noon with every snack's
 ## effect and look (snack), and the client's own machine buy through the RPC
-## (client_snack). Later shop chunks add steps (looks, deliveries). Each step
+## (client_snack). Art chunk 8 adds Homie Depot's walk-in lobby: a buy from its
+## tool endcaps passes the reach check, and one just out on the lot doesn't
+## (lobby). Later shop chunks add steps (looks, deliveries). Each step
 ## prints a [ShopTest] line.
 
 const _Shops = preload("res://net/shops/shops.gd")
@@ -183,6 +185,10 @@ func _run() -> void:
 	await _stand_local(far_spot)
 	var far := str(shops.call("request_buy", "homie_depot", "lawn_bags", 1))
 	_step("far", clear and far == "far" and Campaign.credits(me) == cash, "code %s" % far)
+
+	# lobby (art chunk 8): Homie Depot sells from its walk-in lobby's tool endcaps
+	# too, and only from inside: just out on the lot past the doors is still far.
+	_step("lobby", await _check_lobby(shops, me))
 
 	# stock: the day's twelve rolls, then sold out.
 	await _stand_at("homie_depot")
@@ -1236,6 +1242,36 @@ func _check_yard_junk() -> void:
 		node.queue_free()
 	_step("yard_junk", pieces.size() == want and acres.size() == acres_want and acres_want >= acres_range.x and placed_ok and apart,
 		"this yard (hood %s): %d pieces (the seed says %d, range %s); Dandelion Acres seed %d: %d (want %d, range %s), on the lawn band %s, apart %s" % [str(hood_was), pieces.size(), want, str(range_of), YARD_JUNK_SEED, acres.size(), acres_want, str(acres_range), placed_ok, apart])
+
+
+## lobby: the host stands at the stock leaf blower's endcap in Homie Depot's lobby
+## (props/shelf_stock.gd, group lobby_stock) and asks for one: Shops lets the
+## reach check pass (it already owns one, so "owned", not "far"); then, LOBBY_OUTSIDE
+## past the lobby's grown rect on the lot, the same ask is "far". No cash moves.
+const LOBBY_TOOL: String = "leaf_blower"
+const LOBBY_OUTSIDE: float = 1.5
+
+
+func _check_lobby(shops: Node, me: int) -> bool:
+	var stock := get_tree().get_first_node_in_group("lobby_stock")
+	var zone := get_tree().get_first_node_in_group("world").get_node_or_null("StoreZone") as Node3D
+	if stock == null or zone == null:
+		print("[ShopTest] lobby: no lobby stock (%s) or StoreZone (%s)" % [stock, zone])
+		return false
+	var slot := int(stock.call("slot_of", LOBBY_TOOL))
+	if slot < 0:
+		print("[ShopTest] lobby: the endcaps have no %s" % LOBBY_TOOL)
+		return false
+	var front := zone.to_local(stock.call("slot_front", slot) as Vector3)
+	var cash := Campaign.credits(me)
+	await _stand_local(Vector3(front.x, 0.0, front.z))
+	var inside := str(shops.call("request_buy", "homie_depot", LOBBY_TOOL, 1))
+	var lobby: Rect2 = Constants.SHOP_SITES["homie_depot"]["lobby"]
+	var outside := Vector3(lobby.end.x + Constants.SHOP_REACH_SLACK + LOBBY_OUTSIDE, 0.0, lobby.get_center().y)
+	await _stand_local(outside)
+	var out := str(shops.call("request_buy", "homie_depot", LOBBY_TOOL, 1))
+	print("[ShopTest] lobby: at the %s endcap %s: %s; on the lot at %s: %s" % [LOBBY_TOOL, front, inside, outside, out])
+	return inside == "owned" and out == "far" and Campaign.credits(me) == cash
 
 
 ## The host stands at a shop's counter, on the customer's side.
