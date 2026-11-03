@@ -48,15 +48,22 @@ const BORDER_RETURN_IMMUNITY_SECONDS: float = 4.0
 
 ## The rake and the homeowner, from Taylan on 2026-10-19 (docs/GAME.md, developer notes).
 ## TODO(balance): none of these are in the workbook yet.
-## One rake per job. Holding it, a stroke moves this much density over this width.
+## One rake per job. Holding it, a stroke pushes at most this much density (times
+## RAKE_FIELD_LOAD per 0.5 m lane) across this width: the ground the starter's
+## 0.95 m head (RAKE_HEAD_WIDTHS[0]) covers, drifting RAKE_HEAD_DRIFT to either
+## side swing to swing. A better rake's wider head is wider on the field by the
+## same ratio (leaf_field.gd _stroke_params). rakefeel:field narrowed it from the
+## 3.2 m disc that erased a wedge (OQ-R1c).
 const RAKE_STRENGTH: float = 72.0
-const RAKE_WIDTH: float = 3.2
-## A rake stroke every this many seconds while the button is held, each one
-## shoving the leaves this many cells (0.5 m each) forward.
+const RAKE_WIDTH: float = 1.2
+## A rake stroke every this many seconds while the button is held. RAKE_STROKE_CELLS
+## (0.5 m each) is the stroke's reach in the old units: the blower throws its
+## leaves (its cells - this) cells beyond the tines (rakefeel:field).
 const RAKE_STROKE_SECONDS: float = 0.3
 const RAKE_STROKE_CELLS: int = 3
-## Raking with bare hands: goofy and barely useful.
-const HAND_RAKE_STRENGTH: float = 9.0
+## Raking with bare hands: goofy and barely useful (a strength of 0.8 pushes about
+## 10 units a lane a stroke under the windrow rule; the rake pushes up to 864).
+const HAND_RAKE_STRENGTH: float = 0.8
 const HAND_RAKE_WIDTH: float = 1.0
 ## Bagging takes the leaves within this radius, so raking them into a pile first fills a bag.
 const BAG_RADIUS: float = 1.6
@@ -1800,8 +1807,13 @@ const LEAF_MOTION_FAR_SHARE: float = 0.35
 const LEAF_MOTION_MS: float = 2.0
 ## How long a stroke event stays a hint for the changes it explains (s).
 const LEAF_HINT_SECONDS: float = 0.4
-## Leftover losses and gains pair up within this distance (m).
-const LEAF_FLOW_MAX_DIST: float = 4.5
+## Leftover losses and gains pair up within this distance (m). At least the
+## windrow's longest carry (rakefeel:field): a dragged stroke takes leaves from
+## RAKE_FIELD_BACK + RAKE_FIELD_DRAG_MAX behind its point to its berm, up to
+## RAKE_FIELD_BERM_REACH cells past RAKE_FIELD_BITE_FRONT[1], about 6.1 m along
+## an axis and 5.9 m along a diagonal (the berm's reach is in metres; a drag needs
+## a walk of at most RAKE_FIELD_DRAG_MAX since the last stroke).
+const LEAF_FLOW_MAX_DIST: float = 6.5
 ## A batch bigger than this (cells) or an unhinted one bigger than this (flakes) is morphed.
 const LEAF_FLOW_MAX_CELLS: int = 600
 const LEAF_RESYNC_ANIMATE_MAX: int = 300
@@ -2969,3 +2981,54 @@ const CHEFTY_LABEL_MIN_SCALE: float = 0.2
 ## The toss arc's dots leave out anything closer to your eyes than this (m):
 ## a hop over Chefty's side climbs right past your face.
 const TOSS_ARC_NEAR_M: float = 1.1
+
+# ---- rakefeel: the windrow (R1b field rules, net/leaf_field/leaf_field.gd _stroke_cells)
+## A stroke gathers the leaves its tine line passes over, along lanes parallel to
+## the stroke, and drops them in a berm just ahead of the tines; the next stroke
+## picks the berm up and pushes it on, so it grows into a pile (docs/GAME.md
+## "Raking: the windrow"). Metres along the stroke from its origin, which is
+## equipment/rake.gd REACH (1.5 m) ahead of the raker; the head runs
+## RAKE_HEAD_NEAR..RAKE_HEAD_FAR (1.25..1.95 m) out, so the plant line is 0.25 m
+## behind the origin and the drive ends 0.45 m past it.
+const RAKE_FIELD_BACK: float = 0.25
+## Where each bite's tine line has got to: the plant bite (0) carries leaves to
+## just past 0.1 m, the mid-drive bite (1) to just past 0.45 m. Every stroke that
+## isn't a rake's own bite (hands, the blower, hired hands) is a whole drive.
+const RAKE_FIELD_BITE_FRONT: Array[float] = [0.1, 0.45]
+## The head is dragged over the ground between strokes: a stroke also sweeps the
+## ground its tine line crossed since the same raker's last stroke, up to this far
+## (5 m/s walking puts 2.1 m between one swing's last bite and the next's first).
+## Farther than this since the last stroke, the raker walked or ran on with the head
+## up (a pause, a walk to the next lane, a sprint at 8 m/s: 3.4 m), and there's no drag.
+const RAKE_FIELD_DRAG_MAX: float = 2.4
+## No drag either if the raker side-stepped more than this, walked back, or turned
+## (the head came up).
+const RAKE_FIELD_DRAG_SIDESTEP: float = 0.6
+## Grip: full across the stroke's width (the rake's head), fading to nothing this
+## far past each end, so a raked lane has soft edges instead of a cut.
+const RAKE_FIELD_EDGE: float = 0.5
+## A heap (density over a fresh lawn's) is pushed with the edge's grip times this,
+## at most whole: whole over the inner half of the edge, so the head's own berm
+## leaves no trail, fading to nothing at its end, so a pile 1 m off your line keeps
+## most of itself (rake_field_rules.gd "width beside a heap").
+const RAKE_FIELD_HEAP_GRIP: float = 2.0
+## What the tines leave behind in a cell they cross: this share of it, at most
+## RAKE_FIELD_RESIDUE_MAX, so one full-grip pass leaves a fresh lawn clean (<= 8).
+const RAKE_FIELD_RESIDUE_SHARE: float = 0.1
+const RAKE_FIELD_RESIDUE_MAX: int = 3
+## How much one stroke can push along each 0.5 m of the head: strength x this.
+## A berm heavier than that slips under the tines in part (diminishing returns),
+## so one run can't haul a whole yard.
+const RAKE_FIELD_LOAD: float = 12.0
+## The berm: shares of a lane's load in the cells just ahead of the tine line.
+const RAKE_FIELD_BERM: Array[float] = [0.6, 0.3, 0.1]
+## A full cell (255) passes the rest on to the next, at most this many cells
+## ahead along an axis (as far in metres along a diagonal: 4 cells); whatever
+## still doesn't fit stays under the tines.
+const RAKE_FIELD_BERM_REACH: int = 6
+## A hired hand walks its berm along this far after each stroke (npcs/crew_hand.gd;
+## 0.18 before the windrow, when a 3.2 m stroke covered more ground standing still).
+## A pile is HIRE_STROKES_PER_PILE strokes, so about 5.5 m of lane: as many leaves
+## a bag as a hand bagged before (tools/rake_pace.gd: 4,550 units, 0.4.7 4,430-4,550;
+## 4,213-4,231 since the soft edge keeps part of a heap, and 0.45-0.65 all bag less).
+const HIRE_STEP_AFTER_STROKE: float = 0.55

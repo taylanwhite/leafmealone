@@ -124,6 +124,8 @@ func _grab_rake(out: Dictionary) -> bool:
 ## are about as thick as a fresh lot's (not under the house, not heaped under a tree).
 var _strip := Vector3.ZERO
 var _fresh := Vector3.ZERO
+## The pile's lanes, across the strip (m): three head-wide runs into one spot.
+const LANES: Array[float] = [-1.1, 0.0, 1.1]
 
 
 func _pick_spots(field: Node, lot: Vector3) -> void:
@@ -134,18 +136,19 @@ func _pick_spots(field: Node, lot: Vector3) -> void:
 	for z: float in [-4.0, -8.0, 0.0, 4.0, -12.0, 8.0, -15.0, 12.0]:
 		for x: float in [-15.0, -9.0, 5.0, 9.0, -3.0]:
 			var ok := true
-			for step: int in 13:
-				var density := int(field.call("sample_world", lot + Vector3(x + float(step) * 0.5, 0.2, z)))
-				if density < normal * 0.6 or density > normal * 1.6:
-					ok = false
-					break
+			for lane: float in LANES:
+				for step: int in 13:
+					var density := int(field.call("sample_world", lot + Vector3(x + float(step) * 0.5, 0.2, z + lane)))
+					if density < normal * 0.6 or density > normal * 1.6:
+						ok = false
+						break
 			if ok and not found_strip:
 				_strip = lot + Vector3(x, 0.2, z)
 				found_strip = true
 	for z: float in [6.0, 10.0, -10.0, 2.0, -14.0, 14.0]:
 		for x: float in [-14.0, 14.0, 8.0, -8.0]:
 			var spot := lot + Vector3(x, 0.2, z)
-			if absf(spot.z - _strip.z) < 3.0:
+			if absf(spot.z - _strip.z) < 5.0:
 				continue
 			var even := true
 			for corner: Vector3 in [Vector3.ZERO, Vector3(1.5, 0, 0), Vector3(-1.5, 0, 0), Vector3(0, 0, 1.5), Vector3(0, 0, -1.5)]:
@@ -161,12 +164,15 @@ func _rake_pile(out: Dictionary) -> void:
 	var field := _field()
 	var lot := _lot_origin()
 	_pick_spots(field, lot)
-	# Rake a 6 m strip toward the pile spot, a stroke every half meter.
-	for index: int in 12:
-		var at := _strip + Vector3(float(index) * 0.5, 0.0, 0.0)
-		_move_player_to(at - Vector3(1.5, 0.0, 0.0))
-		_face(Vector3(1.0, 0.0, 0.0))
-		field.call("request_rake", at, Vector3(1.0, 0.0, 0.0), Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH)
+	# Rake three 6 m lanes side by side toward the pile spot, a stroke every half
+	# meter: a stroke is as wide as the rake's head (rakefeel:field), so a pile
+	# takes a few runs, as it would for a player.
+	for lane: float in LANES:
+		for index: int in 12:
+			var at := _strip + Vector3(float(index) * 0.5, 0.0, lane)
+			_move_player_to(at - Vector3(1.5, 0.0, 0.0))
+			_face(Vector3(1.0, 0.0, 0.0))
+			field.call("request_rake", at, Vector3(1.0, 0.0, 0.0), Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH)
 	await _ticks(2)
 	_note("raked a pile")
 	out["raked"] = true
@@ -189,7 +195,7 @@ func _bag_and_compare(out: Dictionary) -> bool:
 	out["bag_values"] = values
 	# A thin spot (already raked away) refuses to bag.
 	_move_player_to(_strip + Vector3(-0.5, -0.2, 0.0))
-	field.call("request_collect", _strip + Vector3(1.0, 0.0, 0.0), Constants.BAG_RADIUS)
+	field.call("request_collect", _strip + Vector3(1.6, 0.0, 0.0), Constants.BAG_RADIUS)
 	out["thin_spot_bags"] = _bags().size() - before.size() - values.size()
 	_note("bag values %s (pile first, fresh leaves second), thin spot made %d bags" % [values, out["thin_spot_bags"]])
 	if values.size() != 2 or int(values[0]) <= int(values[1]) or int(out["thin_spot_bags"]) != 0:

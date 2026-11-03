@@ -9,8 +9,8 @@ extends Node3D
 ## - _rpc_chunk_batch: one send tick's changed chunks in one reliable RPC, numbered.
 ## - the raking client's prediction ledger: its unconfirmed strokes replayed over
 ##   the host's bytes after every batch, so a late confirmation never snaps back.
-## The density rules themselves (_apply_rake, _stroke_cells, _apply_collect,
-## host_scatter's maths) are 0.4.5's, held there by net/dev/leaf_golden.gd.
+## The density rules themselves (_stroke_cells, the windrow since rakefeel:field;
+## _apply_collect and host_scatter's maths, 0.4.5's) are held by net/dev/leaf_golden.gd.
 ## OQ-004: cleaned_fraction() counts leaf units removed by collect, not leaves merely raked into a pile.
 
 signal chunk_changed(chunk_index: int)
@@ -71,6 +71,9 @@ var scratch: bool = false
 var _send_tick: int = 0
 # Host: each running mower's mulch since the last batch, {key: {moved, at, radius}}.
 var _mulch: Dictionary = {}
+# Each raker's last stroke, {actor: [grid-local xz, 8-way step]}, for the drag
+# (_stroke_drag): the host's for everyone (hired hands too), a client's for itself.
+var _last_strokes: Dictionary = {}
 
 # Client prediction ledger. _confirmed is the host's bytes as the batches left
 # them; _pending this peer's strokes the host hasn't confirmed yet, in request
@@ -208,6 +211,7 @@ func shape_initial(multiplier: Callable) -> void:
 	_pending.clear()
 	_unpredicted.clear()
 	_mulch.clear()
+	_last_strokes.clear()
 	_reset_view(true)
 
 
@@ -250,11 +254,14 @@ func request_rake(origin: Vector3, direction: Vector3, width: float, strength: f
 		return _handle_rake(me, origin, direction, width, strength, 0, bite, tempo)
 	var seq := _next_seq()
 	var moved := 0
+	# Every request this peer sends counts for the drag, as the host counts every one it gets.
+	var drag := _stroke_drag(me, origin, direction)
 	if _player_in_reach(me, origin):
 		# The host's own numbers for this tool, so the confirmation matches.
 		var params := _stroke_params(me, width, strength)
-		moved = _stroke_cells(origin, direction, float(params["width"]), float(params["strength"]), int(params["cells"]))
-		_push_pending(seq, "rake", [origin, direction, float(params["width"]), float(params["strength"]), int(params["cells"])])
+		var rule_bite := bite if str(params["kind"]) == "rake" else -1
+		moved = _stroke_cells(origin, direction, float(params["width"]), float(params["strength"]), int(params["cells"]), drag, rule_bite)
+		_push_pending(seq, "rake", [origin, direction, float(params["width"]), float(params["strength"]), int(params["cells"]), drag, rule_bite])
 		_emit_stroke(str(params["kind"]), me, origin, direction, float(params["width"]), int(params["cells"]), moved, seq, bite, tempo)
 	else:
 		_unpredicted[seq] = Time.get_ticks_msec()
@@ -321,7 +328,9 @@ func _take_bag(supply_id: String) -> bool:
 func host_hand_rake(origin: Vector3, direction: Vector3, skill: float, actor: int = 0) -> int:
 	if not Net.is_host() or not _inside_grid(origin):
 		return 0
-	var moved := _stroke_cells(origin, direction, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH * clampf(skill, 0.3, 1.0), Constants.RAKE_STROKE_CELLS)
+	# A hand's swing bites once: a whole drive, dragged since its last one.
+	var drag := _stroke_drag(actor if actor != 0 else -1, origin, direction)
+	var moved := _stroke_cells(origin, direction, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH * clampf(skill, 0.3, 1.0), Constants.RAKE_STROKE_CELLS, drag)
 	# Every stroke is told, an empty one too: the hand's swing and scrape still happen.
 	_emit_stroke("crew_rake", actor, origin, direction, Constants.RAKE_WIDTH, Constants.RAKE_STROKE_CELLS, moved)
 	if moved > 0:
@@ -434,6 +443,10 @@ func _stroke_params(peer_id: int, width: float, strength: float) -> Dictionary:
 	var max_strength := Constants.RAKE_STRENGTH if has_rake else Constants.HAND_RAKE_STRENGTH
 	var max_width := Constants.RAKE_WIDTH if has_rake else Constants.HAND_RAKE_WIDTH
 	var cells := Constants.RAKE_STROKE_CELLS if has_rake else 1
+	# The field strokes as wide as the head you see: a better rake's head is wider.
+	var head := rake_head_scale(peer_id) if has_rake else 1.0
+	max_width *= head
+	width = minf(width, Constants.RAKE_WIDTH) * head if has_rake else width
 	# A leaf blower shoves leaves much farther than any rake; a better one harder
 	# and wider, the Mk III farther still (core/tool_tiers.gd). An empty one is a
 	# very loud-looking pair of bare hands.
@@ -458,7 +471,23 @@ func _stroke_params(peer_id: int, width: float, strength: float) -> Dictionary:
 	}
 
 
+## How much wider than the starter's this peer's rake head is
+## (Constants.RAKE_HEAD_WIDTHS: the Tune-Up's, The Leafinator's), from their
+## unlocks, which every peer has (props/prop_looks.gd rake_tier draws the same head).
+static func rake_head_scale(peer_id: int) -> float:
+	var widths := Constants.RAKE_HEAD_WIDTHS
+	var tier := 0
+	if Campaign.peer_has_unlock(peer_id, &"rake_tier_2"):
+		tier = 2
+	elif Campaign.peer_has_unlock(peer_id, &"rake_tier_1"):
+		tier = 1
+	tier = clampi(tier, 0, widths.size() - 1)
+	return widths[tier] / widths[0]
+
+
 func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: float, strength: float, seq: int = 0, bite: int = 0, tempo: float = 0.0) -> int:
+	# Every request counts for the drag, refused ones too (the client counts every one it sends).
+	var drag := _stroke_drag(peer_id, origin, direction)
 	if not _player_in_reach(peer_id, origin):
 		_send_snapshot(peer_id, false, seq)
 		return 0
@@ -466,7 +495,9 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 	var blower: Node = params["blower"]
 	if blower != null:
 		blower.call("mark_spraying")
-	var moved := _stroke_cells(origin, direction, float(params["width"]), float(params["strength"]), int(params["cells"]))
+	# Only a rake's own bites are part-drives; hands and the blower always push a whole one.
+	var rule_bite := bite if str(params["kind"]) == "rake" else -1
+	var moved := _stroke_cells(origin, direction, float(params["width"]), float(params["strength"]), int(params["cells"]), drag, rule_bite)
 	# Every accepted stroke is told, an empty one too (a swing and a scrape on bare grass).
 	_emit_stroke(str(params["kind"]), peer_id, origin, direction, float(params["width"]), int(params["cells"]), moved, seq, bite, tempo)
 	if moved <= 0:
@@ -506,38 +537,6 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float, seq: int = 0)
 	return removed
 
 
-func _apply_rake(origin: Vector3, direction: Vector3, width: float, strength: float) -> int:
-	var flat := Vector3(direction.x, 0.0, direction.z)
-	if flat.length() < 0.001:
-		return 0
-	flat = flat.normalized()
-	var step := Vector2i(int(round(flat.x)), int(round(flat.z)))
-	if step == Vector2i.ZERO:
-		step = Vector2i(0, 1)
-	var center := _cell_at(origin)
-	var radius_cells := int(ceil((width * 0.5) / cell_size)) + 1
-	var moved := 0
-	var take := int(clamp(strength, 1.0, 255.0))
-	for dz: int in range(-radius_cells, radius_cells + 1):
-		for dx: int in range(-radius_cells, radius_cells + 1):
-			var source := Vector2i(center.x + dx, center.y + dz)
-			if _cell_center(source.x, source.y).distance_to(Vector2(_local_xz(origin).x, _local_xz(origin).y)) > width * 0.5:
-				continue
-			var amount := mini(density_at_cell(source.x, source.y), take)
-			if amount <= 0:
-				continue
-			var dest := source + step
-			if density_at_cell(dest.x, dest.y) >= 255:
-				continue
-			var room := 255 - density_at_cell(dest.x, dest.y)
-			var shifted := mini(amount, room)
-			_add_density(source.x, source.y, -shifted)
-			if dest.x >= 0 and dest.y >= 0 and dest.x < grid_width and dest.y < grid_depth:
-				_add_density(dest.x, dest.y, shifted)
-			moved += shifted
-	return moved
-
-
 func _apply_collect(origin: Vector3, radius: float, count_removed: bool) -> int:
 	var center := _cell_at(origin)
 	var radius_cells := int(ceil(radius / cell_size)) + 1
@@ -573,18 +572,178 @@ func dollars_for(units: int) -> int:
 	return maxi(1, int(round(float(units) / lot_density * whole_lot * bonus)))
 
 
-## One rake stroke: the leaves are shoved several cells forward, building a pile
-## ahead of the rake. Bare hands only manage one cell.
-func _stroke(origin: Vector3, direction: Vector3, width: float, strength: float, with_rake: bool) -> int:
-	return _stroke_cells(origin, direction, width, strength, Constants.RAKE_STROKE_CELLS if with_rake else 1)
-
-
-func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: float, cells: int) -> int:
-	var flat := Vector3(direction.x, 0.0, direction.z).normalized()
+## One stroke, the windrow rule (rakefeel:field; docs/GAME.md "Raking: the
+## windrow"). The stroke runs along its 8-way grid step; every cell is on one lane
+## parallel to it. In each lane, the cells the tine line crossed (from RAKE_FIELD_BACK
+## + drag behind the origin up to this bite's front, across width plus a soft
+## RAKE_FIELD_EDGE) give up what they hold but a residue, front first, until the
+## head holds strength x RAKE_FIELD_LOAD per 0.5 m of lane (a full head glides over
+## the rest), and the lane's load lands in a berm of RAKE_FIELD_BERM shares in the cells just
+## ahead of the tines (cells - RAKE_STROKE_CELLS further for the blower's throw); a
+## full cell passes the rest on. Lanes never share a cell and each is read before
+## it is written, so the rule is the same in every direction and in any order.
+## drag: how far the head was dragged since this raker's last stroke
+## (_stroke_drag). bite: 0 the plant, 1 mid-drive (RAKE_FIELD_BITE_FRONT); -1 a
+## whole drive. Returns the density that moved (leaves pushed off the grid count).
+func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: float, cells: int, drag: float = 0.0, bite: int = -1) -> int:
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	if flat.length() < 0.001:
+		return 0
+	flat = flat.normalized()
+	var step := _step_of(flat)
+	var lane_dir := Vector2(step).normalized()
+	var side := Vector2(-lane_dir.y, lane_dir.x)
+	var fronts := Constants.RAKE_FIELD_BITE_FRONT
+	var front := fronts[clampi(bite, 0, fronts.size() - 1)] if bite >= 0 else fronts[fronts.size() - 1]
+	var back := Constants.RAKE_FIELD_BACK + clampf(drag, 0.0, Constants.RAKE_FIELD_DRAG_MAX)
+	var half := width * 0.5
+	var edge := Constants.RAKE_FIELD_EDGE
+	var reach_side := half + edge
+	# One lane every cell along an axis, every half diagonal along a diagonal: the
+	# load is per metre of head either way.
+	var lane_share := 0.70710678 if step.x != 0 and step.y != 0 else 1.0
+	var cap := maxi(1, int(strength * Constants.RAKE_FIELD_LOAD * lane_share))
+	var throw_cells := maxi(0, int(round(float(cells - Constants.RAKE_STROKE_CELLS) / Vector2(step).length())))
+	# The berm passes on as far in metres every way (6 cells along an axis, 4 along a
+	# diagonal), so no carry outruns LEAF_FLOW_MAX_DIST on a diagonal.
+	var berm_reach := maxi(Constants.RAKE_FIELD_BERM.size(), int(round(float(Constants.RAKE_FIELD_BERM_REACH) / Vector2(step).length())))
+	var here := _local_xz(origin)
+	# The cells the tine line crossed, by lane.
+	var corners: Array[Vector2] = [here - lane_dir * back - side * reach_side, here - lane_dir * back + side * reach_side,
+		here + lane_dir * front - side * reach_side, here + lane_dir * front + side * reach_side]
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for corner: Vector2 in corners:
+		lo = Vector2(minf(lo.x, corner.x), minf(lo.y, corner.y))
+		hi = Vector2(maxf(hi.x, corner.x), maxf(hi.y, corner.y))
+	var cell_lo := Vector2i(int(floor((lo.x - grid_origin.x) / cell_size)), int(floor((lo.y - grid_origin.z) / cell_size)))
+	var cell_hi := Vector2i(int(floor((hi.x - grid_origin.x) / cell_size)), int(floor((hi.y - grid_origin.z) / cell_size)))
+	var lanes: Dictionary = {}
+	for z: int in range(maxi(cell_lo.y, 0), mini(cell_hi.y, grid_depth - 1) + 1):
+		for x: int in range(maxi(cell_lo.x, 0), mini(cell_hi.x, grid_width - 1) + 1):
+			var rel := _cell_center(x, z) - here
+			var along := rel.dot(lane_dir)
+			if along < -back or along > front:
+				continue
+			var across := absf(rel.dot(side))
+			if across > reach_side:
+				continue
+			var grip := 1.0 if across <= half else (reach_side - across) / edge
+			var held := int(_density[x + z * grid_width])
+			# The ends of the head catch only part of the lawn's litter. A heap they
+			# push whole over the inner part of the edge (so the head's own berm never
+			# leaves a trail) and less and less past it, so a pile beside your lane
+			# mostly stays where it is.
+			var litter := mini(held, INITIAL_DENSITY)
+			var heap_grip := minf(1.0, grip * Constants.RAKE_FIELD_HEAP_GRIP)
+			var offer := int(float(litter - _residue(litter)) * grip) + int(float(held - litter) * heap_grip)
+			var key := step.x * z - step.y * x
+			if not lanes.has(key):
+				lanes[key] = []
+			(lanes[key] as Array).append([x, z, step.x * x + step.y * z, offer])
 	var moved := 0
-	for step: int in cells:
-		moved += _apply_rake(origin + flat * cell_size * float(step), direction, width, strength)
+	var keys: Array = lanes.keys()
+	keys.sort()
+	for key: Variant in keys:
+		moved += _push_lane(lanes[key], step, cap, throw_cells, berm_reach)
 	return moved
+
+
+## One lane of a stroke: [x, z, position along the step, offer] for each crossed cell.
+func _push_lane(crossed: Array, step: Vector2i, cap: int, throw_cells: int, berm_reach: int) -> int:
+	var gathered := 0
+	var front_cell := Vector2i(-1, -1)
+	var front_at := -INF
+	for entry: Array in crossed:
+		gathered += int(entry[3])
+		if float(entry[2]) > front_at:
+			front_at = float(entry[2])
+			front_cell = Vector2i(int(entry[0]), int(entry[1]))
+	if gathered <= 0:
+		return 0
+	# The head fills from the front: the berm it's already pushing first, then the
+	# litter behind, until it holds cap. A full head glides over the rest, so a
+	# windrow stops growing (diminishing returns) instead of one run hauling a lane.
+	var order := range(crossed.size())
+	order.sort_custom(func(a: int, b: int) -> bool: return float(crossed[a][2]) > float(crossed[b][2]))
+	var takes: Array[int] = []
+	takes.resize(crossed.size())
+	var load := 0
+	for index: int in order:
+		var take := mini(int(crossed[index][3]), cap - load)
+		takes[index] = take
+		load += take
+	if load <= 0:
+		return 0
+	# The berm, just ahead of the tine line.
+	var shares := Constants.RAKE_FIELD_BERM
+	var parts: Array[int] = []
+	var placed := 0
+	for share: float in shares:
+		var part := int(float(load) * share)
+		parts.append(part)
+		placed += part
+	parts[0] += load - placed
+	var carry := 0
+	var landed := 0
+	for index: int in berm_reach:
+		var want := carry + (parts[index] if index < parts.size() else 0)
+		if want <= 0:
+			break
+		var cell := front_cell + step * (1 + throw_cells + index)
+		var put := want
+		if cell.x >= 0 and cell.y >= 0 and cell.x < grid_width and cell.y < grid_depth:
+			put = mini(want, 255 - int(_density[cell.x + cell.y * grid_width]))
+			if put > 0:
+				_add_density(cell.x, cell.y, put)
+		# Off the grid the leaves leave the lot, as they always have.
+		landed += put
+		carry = want - put
+	# What didn't fit ahead stays at the tine line: the frontmost crossed cells keep it.
+	var kept := carry
+	for index: int in order:
+		var take := takes[index]
+		var back_in := mini(kept, take)
+		kept -= back_in
+		if take - back_in > 0:
+			_add_density(int(crossed[index][0]), int(crossed[index][1]), -(take - back_in))
+	return landed
+
+
+## What the tines leave in a cell they cross.
+static func _residue(held: int) -> int:
+	return mini(int(float(held) * Constants.RAKE_FIELD_RESIDUE_SHARE), Constants.RAKE_FIELD_RESIDUE_MAX)
+
+
+## A direction's 8-way grid step (stroke_event's step_of: +Z when flat).
+static func _step_of(flat: Vector3) -> Vector2i:
+	var step := Vector2i(int(round(flat.x)), int(round(flat.z)))
+	return step if step != Vector2i.ZERO else Vector2i(0, 1)
+
+
+## How far this raker's head was dragged over the ground since their last stroke,
+## along this one, and remember this one. Both the host (for every request it gets)
+## and the raking client (for every request it sends, predicted or not) call it in
+## the same order with the same origins, so their drags agree. 0 for a first
+## stroke, a turn, a step back, a side-step past RAKE_FIELD_DRAG_SIDESTEP, or more
+## than RAKE_FIELD_DRAG_MAX forward (the raker walked or ran on with the head up:
+## a pause to bag, or a sprint, never sweeps ground the head didn't touch).
+func _stroke_drag(actor: int, origin: Vector3, direction: Vector3) -> float:
+	var flat := Vector3(direction.x, 0.0, direction.z)
+	var here := _local_xz(origin)
+	var step := _step_of(flat.normalized()) if flat.length() > 0.001 else Vector2i.ZERO
+	var last: Variant = _last_strokes.get(actor)
+	_last_strokes[actor] = [here, step]
+	if last == null or step == Vector2i.ZERO or (last as Array)[1] != step:
+		return 0.0
+	var lane_dir := Vector2(step).normalized()
+	var moved := here - ((last as Array)[0] as Vector2)
+	if absf(moved.dot(Vector2(-lane_dir.y, lane_dir.x))) > Constants.RAKE_FIELD_DRAG_SIDESTEP:
+		return 0.0
+	var along := moved.dot(lane_dir)
+	if along > Constants.RAKE_FIELD_DRAG_MAX:
+		return 0.0
+	return maxf(along, 0.0)
 
 
 ## Host: a running mower shreds the leaves under it. They're gone, but nobody
@@ -929,7 +1088,7 @@ func _replay_pending() -> void:
 	for op: Dictionary in _pending:
 		var args: Array = op["args"]
 		if str(op["op"]) == "rake":
-			_stroke_cells(args[0], args[1], float(args[2]), float(args[3]), int(args[4]))
+			_stroke_cells(args[0], args[1], float(args[2]), float(args[3]), int(args[4]), float(args[5]), int(args[6]))
 		else:
 			_apply_collect(args[0], float(args[1]), false)
 	_replaying = false

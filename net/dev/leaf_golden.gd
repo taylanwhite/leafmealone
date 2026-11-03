@@ -8,27 +8,31 @@ extends RefCounted
 ## them into a pile, bare-hand strokes, blower strokes at tiers 1-3, hired-hand
 ## strokes at skill 0.3/0.7/1.0, bagging, a burst bag's scatter and the mower's
 ## mulch. Every op's result, the field's hash, leaf_units() and cleaned_fraction()
-## must equal RECORDED, which was recorded from the unmodified 0.4.5 field before
-## raking:1 touched leaf_field.gd. raking:1 only layers events, batches and a
-## prediction ledger on top, so this holds it to "no density rule changed".
-## Anything that changes a rule on purpose (R1-F's double-buffered _apply_rake,
-## driving:C3's plow if it ever routes through _apply_rake) regenerates RECORDED:
-## empty RECORDED and run --rake-net-test; the host prints the new literal.
+## must equal RECORDED. raking:1 recorded it from the unmodified 0.4.5 field;
+## rakefeel:field (R1b) changed the stroke rule on purpose (the windrow: a stroke as
+## wide as the head, a berm just ahead of the tines, the drag between strokes, no
+## direction bias) and re-recorded it, adding ops 41-50 for the drag, the two bites,
+## a wide tier head and a hired hand's full head. Anything that changes a rule on
+## purpose (driving:C3's plow if it ever routes through _stroke_cells) regenerates
+## RECORDED: empty RECORDED and run --rake-net-test; the host prints the new literal.
 ## Only arithmetic (no sin/exp) shapes the field, so CI's Linux run and a
 ## Windows run get the same bytes.
 
 const _FieldScript: Script = preload("res://net/leaf_field/leaf_field.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 
-## Recorded from 0.4.5 (build 0.4.5, commit 238ce5e, unmodified leaf_field.gd).
+## Recorded by rakefeel:field (R1b) from the windrow rule; ops 37-38 and the hash
+## again after the review fixes (a heap past the head's end mostly stays put; the
+## berm passes on as far in metres along a diagonal as along an axis, so op 37's
+## diagonal into the burst bag's full heap now leaves it under the tines).
 const RECORDED: Dictionary = {
-	"hash": "5b21b60cb93b0d23a71d0b98ef65979b3c4e464e8b881eee77e3a1d9bbb61f3f",
-	"leaf_units": 5133.041667,
-	"cleaned": 0.08327964,
-	"moved": [5042, 6404, 5341, 3935, 3659, 3854, 5666, 4011, 4952, 1757, 1555, 1757,
-		1965, 2090, 2249, 2412, 36, 36, 36, 3955, 4737, 10540, 2016, 3144, 2528, 3976, 2845, 1770, 3233, 3024, 441, 10751,
-		5733, 147, 74, 0, 247, 216, 2590, 1685],
-	"params": "[[3.2, 72.0, 3], [1.0, 9.0, 1], [2.4, 45.0, 6], [2.76, 60.75, 6], [3.12, 81.0, 9], [3.2, 21.6, 3], [3.2, 50.4, 3], [3.2, 72.0, 3]]",
+	"hash": "fcaaca7bace9bf1c3482f24abc1590a51f4025f3421afa715636ec32331e01f5",
+	"leaf_units": 5199.291667,
+	"cleaned": 0.04300902,
+	"moved": [220, 186, 221, 148, 230, 159, 363, 159, 217, 247, 342, 423, 507, 591, 669, 755, 36, 36, 30, 383, 177, 166,
+		230, 266, 364, 229, 265, 361, 2110, 2303, 441, 10751, 5733, 147, 74, 0, 0, 722, 114, 216, 114, 344, 371, 702,
+		625, 1074, 210, 215, 558, 741],
+	"params": "[[1.2, 72.0, 3], [1.0, 0.8, 1], [2.4, 45.0, 6], [2.76, 60.75, 6], [3.12, 81.0, 9], [1.2, 21.6, 3], [1.2, 50.4, 3], [1.2, 72.0, 3], [1.70526315789474, 131.22, 3]]",
 }
 
 ## Runs the golden ops under parent (the host's test node) and frees everything
@@ -110,7 +114,7 @@ static func _ops(field: Node3D) -> Dictionary:
 		var crew := [Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH * clampf(skill, 0.3, 1.0), Constants.RAKE_STROKE_CELLS]
 		params.append(crew)
 		moved.append(_stroke(field, Vector3(12.0 - 0.5 * float(index), 0.0, 10.0), Vector3.LEFT, crew))
-	# 26-28: toward -Z, the slow way through the in-place cascade.
+	# 26-28: toward -Z (0.4.5's in-place cascade carried leaves half as far this way).
 	for index: int in 3:
 		moved.append(_stroke(field, Vector3(5.0, 0.0, 14.0 - 0.5 * float(index)), Vector3.FORWARD, rake))
 	# 29-31: bagging: the lane's pile, a contractor bag's wider scoop, a thin spot.
@@ -131,6 +135,25 @@ static func _ops(field: Node3D) -> Dictionary:
 	# 39-40: off both X edges of the grid.
 	moved.append(_stroke(field, Vector3(19.2, 0.0, 0.0), Vector3.RIGHT, rake))
 	moved.append(_stroke(field, Vector3(-19.5, 0.0, 5.0), Vector3.LEFT, rake))
+	# 41-46: a walked run toward -X, the swing's two bites, dragged between strokes
+	# (_stroke_drag: 0.45 m between a swing's bites, 1.05 m to the next swing's plant).
+	var walk := Vector3(16.0, 0.0, 16.0)
+	for index: int in 6:
+		var at := _at(field, walk)
+		var drag := float(field.call("_stroke_drag", 1, at, Vector3.LEFT))
+		moved.append(_stroke(field, walk, Vector3.LEFT, rake, drag, index % 2))
+		walk += Vector3.LEFT * (0.45 if index % 2 == 0 else 1.05)
+	# 47: The Leafinator's wider head.
+	var wide := [Constants.RAKE_WIDTH * Constants.RAKE_HEAD_WIDTHS[2] / Constants.RAKE_HEAD_WIDTHS[0], Constants.RAKE_STRENGTH * Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER * Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER, Constants.RAKE_STROKE_CELLS]
+	params.append(wide)
+	moved.append(_stroke(field, Vector3(0.0, 0.0, 17.0), Vector3(1, 0, -1), wide))
+	# 48-50: a weak hired hand walking a run toward +Z until its head is full.
+	var hand_at := Vector3(-16.0, 0.0, -18.0)
+	var weak := [Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH * 0.3, Constants.RAKE_STROKE_CELLS]
+	for index: int in 3:
+		var drag := float(field.call("_stroke_drag", 1001, _at(field, hand_at), Vector3.BACK))
+		moved.append(_stroke(field, hand_at, Vector3.BACK, weak, drag))
+		hand_at += Vector3.BACK * 1.4
 	var density: PackedByteArray = field.get("_density")
 	var hashing := HashingContext.new()
 	hashing.start(HashingContext.HASH_SHA256)
@@ -144,8 +167,8 @@ static func _ops(field: Node3D) -> Dictionary:
 	}
 
 
-static func _stroke(field: Node3D, local: Vector3, dir: Vector3, params: Array) -> int:
-	return int(field.call("_stroke_cells", _at(field, local), dir.normalized(), float(params[0]), float(params[1]), int(params[2])))
+static func _stroke(field: Node3D, local: Vector3, dir: Vector3, params: Array, drag: float = 0.0, bite: int = -1) -> int:
+	return int(field.call("_stroke_cells", _at(field, local), dir.normalized(), float(params[0]), float(params[1]), int(params[2]), drag, bite))
 
 
 static func _at(field: Node3D, local: Vector3) -> Vector3:

@@ -81,7 +81,7 @@ static func unpack(bytes: PackedByteArray) -> Dictionary:
 	}
 
 
-## The leaf field's 8-way step for a direction: the same rounding _apply_rake uses.
+## The leaf field's 8-way step for a direction: the same rounding _stroke_cells uses.
 static func step_of(direction: Vector3) -> Vector2i:
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	if flat.length() < 0.001:
