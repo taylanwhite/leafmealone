@@ -13,10 +13,13 @@ extends Node
 ##   phone     Marty's day-1 text is the first one up; Take it is orange (NB-11)
 ##   shop      a sale shows no toast; the keeper's line isn't over his head while
 ##             his window shows it (NB-10)
-##   counter   opening his window eases your view round onto Marty (NB-M1)
+##   counter   opening his window eases your view round onto Marty (NB-M1); a sign
+##             behind him isn't printed on his face, one beside him shows
 ##   signs     a world sign faces you, shows in open sky, fades over the HUD, at the
 ##             screen's edge, behind a nearer one and under a stage camera (nb9,
-##             NB-09, lagduo-10)
+##             NB-09, lagduo-10); over the clock and the heat bar it fades for the
+##             panel alone (well inside the edges), and the heat bar and the dash,
+##             whose own size is zero, count as panels
 ## Each step prints a [UiTest] line.
 
 const _WindowFit = preload("res://ui/window_fit.gd")
@@ -255,6 +258,17 @@ func _check_counter() -> void:
 	var framed := absf(at.x - view.x * 0.5) < view.x * 0.08 and absf(at.y - view.y * 0.5) < view.y * 0.2
 	var pitch := float(me.get("head_pitch"))
 	_step("counter", framed and absf(pitch) <= Constants.P1_COUNTER_PITCH_MAX + 0.01, "Marty's face at %s on a %s screen, pitch %.2f" % [at, view, pitch])
+	# A sign behind him isn't printed on his face ("To the lot" was); beside him it shows.
+	var sign := _sign("To the lot")
+	var away := (face - camera.global_position).normalized()
+	sign.global_position = face + away * 3.0
+	await get_tree().create_timer(SETTLE).timeout
+	var behind_gone := sign.transparency > GONE_OVER
+	sign.global_position = face + away * 3.0 + camera.global_transform.basis.x * 1.6 + Vector3.UP * 0.8
+	await get_tree().create_timer(SETTLE + 0.4).timeout
+	var beside_shown := sign.transparency < SHOWN_UNDER
+	_step("sign_behind", behind_gone and beside_shown, "behind Marty gone %s; beside him shown %s (%.2f)" % [behind_gone, beside_shown, sign.transparency])
+	sign.queue_free()
 	me.set("head_pitch", 0.0)
 
 
@@ -282,13 +296,9 @@ func _check_signs() -> void:
 	await get_tree().create_timer(SETTLE).timeout
 	var open_sky := far.transparency < SHOWN_UNDER and far.billboard == BaseMaterial3D.BILLBOARD_ENABLED
 	_step("sign_shows", open_sky, "in open sky: transparency %.2f, billboard %d" % [far.transparency, far.billboard])
-	# Over the cash rows, top left.
-	var overheads := _ui().get_node("Overheads")
-	var hud: Array[Rect2] = overheads.get("last_hud")
-	var rows := _ui().get_node("HudRows") as Control
-	far.global_position = camera.project_position(rows.get_global_rect().get_center(), 7.0)
-	await get_tree().create_timer(SETTLE).timeout
-	_step("sign_hud", far.transparency > GONE_OVER and not hud.is_empty(), "over the cash rows %s: transparency %.2f (%d HUD rects)" % [rows.get_global_rect(), far.transparency, hud.size()])
+	far.visible = false
+	await _check_sign_hud(camera, view)
+	far.visible = true
 	# Half off the right edge.
 	far.global_position = camera.project_position(Vector2(view.x - 6.0, view.y * 0.5), 7.0)
 	await get_tree().create_timer(SETTLE).timeout
@@ -318,6 +328,49 @@ func _check_signs() -> void:
 	far.queue_free()
 	near.queue_free()
 	me.set("head_pitch", 0.0)
+
+
+## Over each HUD panel, well inside the screen's edges, a short sign fades for the
+## panel's sake alone. The heat meter and Chefty's dash place their children by
+## hand (their own size is zero), so they're checked to count at all.
+func _check_sign_hud(camera: Camera3D, view: Vector2) -> void:
+	var ui := _ui()
+	var counted: Array[String] = []
+	for piece: String in ["HeatMeter", "DriveHud"]:
+		var node := ui.get_node_or_null(piece) as Control
+		if node != null and _Overheads.drawn_rect(node).size.x > 1.0 and _Overheads.drawn_rect(node).size.y > 1.0:
+			counted.append(piece)
+	_step("hud_pieces", counted.size() == 2, "drawn rects found for %s (heat %s, dash %s)" % [counted, _Overheads.drawn_rect(ui.get_node("HeatMeter")), _Overheads.drawn_rect(ui.get_node("DriveHud"))])
+	var panels: Dictionary = {}
+	for piece: String in ["DayHud", "HeatMeter"]:
+		var node := ui.get_node_or_null(piece) as Control
+		if node != null and node.is_visible_in_tree():
+			panels[piece] = _Overheads.drawn_rect(node)
+	var hotbar := ui.get_node_or_null("HotbarHud")
+	if hotbar != null:
+		var bars: Array[Rect2] = hotbar.call("screen_rects")
+		if not bars.is_empty():
+			panels["HotbarHud"] = bars[0]
+	var small := _sign("Lot B")
+	var details: Array[String] = []
+	var ok := panels.has("HeatMeter") and panels.has("DayHud")
+	for piece: String in panels:
+		var panel := panels[piece] as Rect2
+		# Away from the panel first, so its fade starts from shown.
+		small.global_position = camera.project_position(view * 0.5, 7.0)
+		await get_tree().create_timer(SETTLE).timeout
+		var shown_before := small.transparency < SHOWN_UNDER
+		small.global_position = camera.project_position(panel.get_center(), 7.0)
+		await _frames(2)
+		var rect := _Overheads.screen_rect(small, camera, view)
+		# Inside the edges: only the panel can be what hides it.
+		var inside := _Overheads.clear_of_hud(rect, view, [], 1.0)
+		await get_tree().create_timer(SETTLE).timeout
+		var gone := small.transparency > GONE_OVER
+		ok = ok and shown_before and inside and gone
+		details.append("%s %s: sign %s inside the edges %s, shown before %s, transparency %.2f" % [piece, panel, rect, inside, shown_before, small.transparency])
+	small.queue_free()
+	_step("sign_hud", ok, "; ".join(details))
 
 
 func _sign(text: String) -> Label3D:

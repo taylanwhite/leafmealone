@@ -5054,6 +5054,11 @@ const UI_WINDOW_MARGIN_PX: float = 24.0
 ## A world sign (Chefty's name and load, a gate pad's words; ui/overheads.gd
 ## SIGNS) is never taller than this share of the view's height per line.
 const P1_SIGN_LINE_MAX: float = 0.034
+## A sign behind someone (a player, a keeper, a NICE BOY, a homeowner) steps aside
+## when the line to it passes this close (m) to their body, from knee to crown:
+## "To the lot" printed on Marty's face.
+const P1_SIGN_BODY_RADIUS_M: float = 0.45
+const P1_SIGN_BODY_SPAN_M := Vector2(0.5, 1.9)
 ## A tag or sign fades out once its words come within this many px of a screen
 ## edge (it never shows cut off), or of a HUD panel (it never prints over one).
 const P1_LABEL_EDGE_PX: float = 12.0
@@ -5061,6 +5066,10 @@ const P1_LABEL_HUD_GAP_PX: float = 8.0
 ## ... or where it's heading (its screen speed times the fade) for this many
 ## frames running (one jerk of the view mustn't blink it).
 const P1_LABEL_AHEAD_FRAMES: int = 2
+## ... and over the last this many px before that margin it is already fading, by
+## where it is, so one creeping up on a panel or an edge is gone as it arrives
+## (it went 1.0 to gone in one frame over the heat bar).
+const P1_LABEL_FADE_PX: float = 24.0
 ## At a shop counter (npcs/store_clerk.gd frame_for): your view eases round onto
 ## the keeper's face over this long (s) when his window opens, looking at most
 ## this far (rad) up or down from level.

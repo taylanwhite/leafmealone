@@ -160,6 +160,7 @@ func _process(delta: float) -> void:
 		var drawn := tag.is_visible_in_tree()
 		var touching := false
 		var vel := Vector2.ZERO
+		var cap := 1.0
 		if bool(entry["hide"]) or not drawn or staged or near <= 0.0:
 			want = 0.0
 		elif not in_front(camera, tag.global_position):
@@ -182,6 +183,15 @@ func _process(delta: float) -> void:
 			var heading := 0 if clear_of_hud(ahead, view, hud) else int(_heading_off.get(id, 0)) + 1
 			_heading_off[id] = heading
 			var off_hud := clear_of_hud(rect, view, hud) and heading < Constants.P1_LABEL_AHEAD_FRAMES
+			# A turn that speeds up gets there sooner than the fade: what's left of
+			# it is at most the share of the fade's time still to go before it
+			# touches, so it reaches nothing exactly as it arrives (it went 0.63 to
+			# gone in one frame on a quick turn).
+			# And one creeping up on it is fading by where it is, over the last
+			# P1_LABEL_FADE_PX.
+			cap = room_share(rect, view, hud)
+			if heading >= Constants.P1_LABEL_AHEAD_FRAMES and cap > 0.0:
+				cap = minf(cap, time_left_share(rect, vel * Constants.R2B_HUD_TAG_FADE, view, hud))
 			# Already over a panel or across an edge: gone at once (never drawn cut off).
 			touching = not clear_of_hud(rect, view, hud, 0.0)
 			if _blocked(tag, entry["owner"] as Node, camera) or not off_hud:
@@ -208,7 +218,7 @@ func _process(delta: float) -> void:
 				_clear_since[id] = now
 			if float(_shown.get(id, 0.0)) < 0.5 and now - int(_clear_since[id]) < int(Constants.R2C_HUD_TAG_DWELL * 1000.0):
 				want = 0.0
-		var shown := move_toward(float(_shown.get(id, want)), want, delta / Constants.R2B_HUD_TAG_FADE)
+		var shown := minf(move_toward(float(_shown.get(id, want)), want, delta / Constants.R2B_HUD_TAG_FADE), cap)
 		# Last resort (a cut, a head that jumped): letters never print on letters,
 		# even if the fade isn't done.
 		if touching:
@@ -377,13 +387,66 @@ func hud_rects() -> Array[Rect2]:
 		var node := ui.get_node_or_null(piece) as Control
 		if node == null or not node.is_visible_in_tree() or node.modulate.a * node.self_modulate.a < 0.05:
 			continue
-		var rect := node.get_global_rect()
+		var rect := drawn_rect(node)
 		if rect.size.x > 1.0 and rect.size.y > 1.0:
 			out.append(rect)
 	var hotbar := ui.get_node_or_null("HotbarHud")
 	if hotbar != null and hotbar.has_method("screen_rects"):
 		out.append_array(hotbar.call("screen_rects") as Array[Rect2])
 	return out
+
+
+## p1-ui: where a HUD piece is drawn. A plain Control whose children are placed by
+## hand (the heat meter, Chefty's dash) keeps its own size at zero, so its rect is
+## the union of its shown children's.
+static func drawn_rect(node: Control) -> Rect2:
+	var rect := node.get_global_rect()
+	if rect.size.x > 1.0 and rect.size.y > 1.0:
+		return rect
+	var union := Rect2()
+	for child: Node in node.get_children():
+		var part := child as Control
+		if part == null or not part.visible or part.size.x <= 0.0 or part.size.y <= 0.0:
+			continue
+		var child_rect := part.get_global_rect()
+		union = child_rect if union.size == Vector2.ZERO else union.merge(child_rect)
+	return union
+
+
+## p1-ui: how much room a tag's words have before the edge or HUD margin, as a
+## share of P1_LABEL_FADE_PX (1 with that much or more, 0 at the margin).
+static func room_share(rect: Rect2, view: Vector2, hud: Array[Rect2]) -> float:
+	var fade := Constants.P1_LABEL_FADE_PX
+	if clear_of_hud(rect.grow(fade), view, hud):
+		return 1.0
+	if not clear_of_hud(rect, view, hud):
+		return 0.0
+	var low := 0.0
+	var high := fade
+	for _step: int in 6:
+		var mid := (low + high) * 0.5
+		if clear_of_hud(rect.grow(mid), view, hud):
+			low = mid
+		else:
+			high = mid
+	return low / fade
+
+
+## p1-ui: how far along `ahead` (a screen offset: where the words will be one
+## fade's time from now) they can go and still be clear of the edges and the HUD,
+## 0 to 1.
+static func time_left_share(rect: Rect2, ahead: Vector2, view: Vector2, hud: Array[Rect2]) -> float:
+	var low := 0.0
+	var high := 1.0
+	if clear_of_hud(Rect2(rect.position + ahead, rect.size), view, hud):
+		return 1.0
+	for _step: int in 8:
+		var mid := (low + high) * 0.5
+		if clear_of_hud(Rect2(rect.position + ahead * mid, rect.size), view, hud):
+			low = mid
+		else:
+			high = mid
+	return low
 
 
 ## p1-ui: whether a tag's words sit inside the screen, P1_LABEL_EDGE_PX in from
@@ -445,7 +508,29 @@ func _blocked(tag: Label3D, owner: Node, camera: Camera3D) -> bool:
 		return true
 	if through_hide_spot(get_tree(), camera.global_position, target):
 		return true
+	# p1-ui: a sign (no owner) behind someone isn't printed on them.
+	if owner == null and through_body(get_tree(), camera.global_position, target):
+		return true
 	return through_moving_van(get_tree(), camera.global_position, target)
+
+
+## p1-ui: whether the line passes through someone's body (another player, a keeper,
+## a NICE BOY, a hired hand, a homeowner), from knee to crown: few of them have a
+## layer-1 collider the ray would meet.
+func through_body(tree: SceneTree, from: Vector3, to: Vector3) -> bool:
+	var me := str(Net.local_peer_id())
+	for group: String in ["players", "nice_crew", "crew_hands", "homeowner", "shopkeepers"]:
+		for node: Node in tree.get_nodes_in_group(group):
+			var body := node as Node3D
+			if body == null or (group == "players" and node.name == me) or not body.is_visible_in_tree():
+				continue
+			var visual := body.get_node_or_null("Visual") as Node3D
+			var feet := visual.global_position if visual != null else body.global_position
+			var points := Geometry3D.get_closest_points_between_segments(from, to, feet + Vector3.UP * Constants.P1_SIGN_BODY_SPAN_M.x, feet + Vector3.UP * Constants.P1_SIGN_BODY_SPAN_M.y)
+			# Only someone between you and the sign, not past it.
+			if points[0].distance_to(points[1]) < Constants.P1_SIGN_BODY_RADIUS_M and points[0].distance_to(to) > Constants.P1_SIGN_BODY_RADIUS_M:
+				return true
+	return false
 
 
 ## R2c: whether the line passes through a hiding spot's box (a hedge, a bin, a

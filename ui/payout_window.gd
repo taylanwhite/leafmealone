@@ -99,7 +99,8 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 
 ## Whether a peer is a dev spectator (the playtest observer, net/dev/remote_play.gd)
 ## rather than crew: the host marks it a watcher, the observer knows it's one, and
-## a teammate's window knows it by name. It gets no payday card and no split line.
+## in a dev session a teammate's window knows it by name (watchers aren't
+## replicated). It gets no payday card and no split line.
 static func is_spectator(peer_id: int) -> bool:
 	if peer_id <= 0:
 		return false
@@ -107,6 +108,10 @@ static func is_spectator(peer_id: int) -> bool:
 		return true
 	if peer_id == Net.local_peer_id():
 		return bool(Net.dev_options().get("observer"))
+	# By name only in a dev session (the playtest tools): in a player's session a
+	# teammate who calls himself "Observer" is crew like anyone.
+	if not bool(Net.dev_options().call("is_dev_session")):
+		return false
 	# Looked up when asked (no preload: the dev tools load half the game).
 	var observer_name := str((load(REMOTE_PLAY) as Script).get_script_constant_map().get("OBSERVER_NAME", ""))
 	return observer_name != "" and Net.player_name(peer_id) == observer_name
