@@ -602,6 +602,9 @@ func _rpc_dev_reset() -> void:
 	_raid_trip = 0
 	_handled.clear()
 	_radio_on(false)
+	# Dev: a scenario reset (net/dev/scenarios.gd), so each window drops the last
+	# moment's lines and shots too (remote_play.gd on_scenario_reset).
+	get_tree().call_group("scenario_listeners", "on_scenario_reset")
 
 
 var _dev_stragglers: Dictionary = {}

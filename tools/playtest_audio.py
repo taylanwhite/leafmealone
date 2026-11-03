@@ -2,8 +2,8 @@
 """Draw a playtest recording's sound on the same time axis as its frames, so an
 agent can see whether a sound lines up with the motion (docs/PLAYTEST.md).
 
-Reads <rec dir>/events.json, audio.wav and filmstrip.png written by
-net/dev/recorder.gd, and writes:
+Reads <rec dir>/events.json, audio.wav (32-bit float since R2b; 16-bit PCM
+before) and filmstrip.png written by net/dev/recorder.gd, and writes:
   audio.png  the filmstrip (thumbnails at their game time), the waveform (peak
              and RMS), 8 octave bands, every sound the game asked for (yellow,
              with its id), the other events (cyan) and the flags (red: pops,
@@ -18,6 +18,7 @@ stamp maps the audio onto game time.
 Stdlib only; reuses tools/audio_check.py's WAV reader, FFT bands and PNG canvas.
 Usage: python tools/playtest_audio.py build/play/rec_rake
 """
+import array
 import json
 import math
 import pathlib
@@ -90,6 +91,36 @@ def read_png(path: pathlib.Path):
         rows.append(bytes(line) if bpp == 3 else bytes(v for k, v in enumerate(line) if k % 4 != 3))
         prev = line
     return width, height, rows
+
+
+def read_wav(path: pathlib.Path):
+    """(channels as float lists, rate) for the recorder's 32-bit float WAV (format
+    3, R2b tools) or a 16-bit PCM one (older recordings)."""
+    data = path.read_bytes()
+    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise ValueError("%s: not a WAV file" % path.name)
+    pos, fmt, body = 12, None, b""
+    while pos + 8 <= len(data):
+        kind, size = data[pos:pos + 4], struct.unpack("<I", data[pos + 4:pos + 8])[0]
+        chunk = data[pos + 8:pos + 8 + size]
+        if kind == b"fmt ":
+            fmt = struct.unpack("<HHIIHH", chunk[:16])
+        elif kind == b"data":
+            body = chunk
+        pos += 8 + size + (size & 1)
+    if fmt is None:
+        raise ValueError("%s: no fmt chunk" % path.name)
+    tag, channels, rate, _byte_rate, _align, bits = fmt
+    if tag == 3 and bits == 32:
+        values = array.array("f")
+        values.frombytes(body[:len(body) - len(body) % 4])
+    elif tag == 1 and bits == 16:
+        values = array.array("h")
+        values.frombytes(body[:len(body) - len(body) % 2])
+        values = [v / 32768.0 for v in values]
+    else:
+        raise ValueError("%s: format %d, %d bits (expected float32 or 16-bit PCM)" % (path.name, tag, bits))
+    return [list(values[c::channels]) for c in range(channels)], rate
 
 
 def wall_of(frames: list, t: float) -> float:
@@ -171,7 +202,7 @@ def main() -> int:
     wav = rec / "audio.wav"
     mono, rate = [], 44100
     if wav.exists():
-        chans, rate, _clipped = ac.read(wav)
+        chans, rate = read_wav(wav)
         mono = ac.mono_of(chans)
 
     film_h = film_rows[1] if film_rows else 0

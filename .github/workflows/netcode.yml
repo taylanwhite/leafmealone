@@ -446,14 +446,18 @@ jobs:
       # The playtest tools (docs/PLAYTEST.md): every scenario jump reaches its moment through
       # the real game code, and the recorder writes evenly spaced frames (a fixed step:
       # the engine's --fixed-fps and the game's --fixed-step), a contact sheet and an events
-      # log that saw the raid arrive. Headless, so the frames are stand-ins.
+      # log that saw the raid arrive. Headless, so the frames are stand-ins. The client is the
+      # friend the two-player moments need (cite_rescue, van_unbuckle, annex_visit).
       - name: Playtest tools (scenario jumps, recorder spacing)
         if: matrix.part == 'features'
-        timeout-minutes: 3
+        timeout-minutes: 4
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-playtest
-          "$GODOT" --headless --path . --fixed-fps 30 -- --host --port=7820 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test --measure="$PWD/build/soak/ci-playtest/host.json" --run-seconds=150 > build/soak/ci-playtest/host.log 2>&1
+          "$GODOT" --headless --path . --fixed-fps 30 -- --host --port=7820 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test --measure="$PWD/build/soak/ci-playtest/host.json" --run-seconds=170 > build/soak/ci-playtest/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . --fixed-fps 30 -- --join=127.0.0.1 --port=7820 --name=Target --no-steam --fixed-step=30 --measure="$PWD/build/soak/ci-playtest/target.json" --run-seconds=165 > build/soak/ci-playtest/target.log 2>&1
+          wait
           grep "PlaytestToolsTest" build/soak/ci-playtest/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-playtest/host.json'))['playtest_tools_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
 

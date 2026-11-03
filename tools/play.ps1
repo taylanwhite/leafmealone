@@ -13,6 +13,9 @@
   tools\play.ps1 -Instance observer 'follow host 5 2 160'   # the observer's camera
   tools\play.ps1 -Instance observer 'record 4 30 caught_3p'
   tools\play.ps1 -Stop                             # closes the windows this worktree started
+  tools\play.ps1 -Start -Friend -Observer -Scenario cite_rescue   # + a friend who plays
+  tools\play.ps1 -Instance friend 'record_start 30 cited_2p'       # the friend's own view
+  tools\play.ps1 -Script build\annex_visit.txt     # a whole sequence, no round trips
 
 .NOTES
   Each call sends one command to one instance (-Instance main, the default, or
@@ -24,7 +27,16 @@
   --fixed-step, -Fps 30 by default; 0 turns it off): every frame is exactly 1/Fps s
   of game time, held to real time, so recordings are evenly spaced even while other
   agents load the machine. Each worktree gets its own port (-Port) and its own folders
-  (build\play, build\play-observer), and -Stop only closes the windows it started.
+  (build\play, build\play-observer, build\play-friend), and -Stop only closes the windows
+  it started. A new -Start moves the last session's shot_*.png into shots-<time>\.
+
+  -Script <file> runs a whole sequence in the game with no round trips, so the time
+  spent thinking between calls never eats game time (pace can be measured): one step
+  per line (or several joined with ;), # comments, blank lines ignored; a line that
+  starts with "observer:" or "friend:" (any instance name and a colon) goes to that
+  instance instead. Every instance's steps are sent at once and run side by side;
+  this waits for all of them. Use the in-game until / mark / goto / face steps
+  (net/dev/remote_play.gd) to react without coming back here.
 #>
 param(
 	[string]$Steps = '[]',
@@ -33,6 +45,11 @@ param(
 	# With -Start: also launch a second window that joins as a client, parks at the store and
 	# follows the host (net/dev/remote_play.gd --observer). Address it with -Instance observer.
 	[switch]$Observer,
+	# With -Start: also launch a client that plays ("Friend"): a second player on the host's
+	# yard for cite_rescue, van_unbuckle and annex_visit. Address it with -Instance friend.
+	[switch]$Friend,
+	# A file of steps to run in the game in one go (see .NOTES).
+	[string]$Script = '',
 	[string]$Instance = 'main',
 	# With -Start: jump to this moment once the world is up (net/dev/scenarios.gd). Adds the
 	# flags the moment needs (a job yard, or the connected town for drive) unless -Extra has them.
@@ -90,7 +107,7 @@ function Stop-Instance([string]$name) {
 
 if ($Stop) {
 	$s = Read-Session
-	$names = @('main', 'observer')
+	$names = @('main', 'observer', 'friend')
 	if ($PSBoundParameters.ContainsKey('Instance')) { $names = @($Instance) }
 	elseif ($s -and $s.pids) { $names = @($s.pids.PSObject.Properties.Name) }
 	foreach ($n in $names) { Stop-Instance $n }
@@ -168,7 +185,14 @@ function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position) {
 	Stop-Instance $name
 	$dir = Get-InstanceDir $name
 	New-Item -ItemType Directory -Force $dir | Out-Null
-	# Old mail and screenshots go; recordings (rec_*) stay until removed by hand.
+	# The last session's screenshots move to shots-<time>\ (a new session numbers its
+	# own from 1 again); old mail goes; recordings (rec_*) stay until removed by hand.
+	$shots = @(Get-ChildItem $dir -File -Filter 'shot_*.png' -ErrorAction SilentlyContinue)
+	if ($shots.Count -gt 0) {
+		$keep = Join-Path $dir ('shots-' + $shots[0].LastWriteTime.ToString('yyyyMMdd-HHmmss'))
+		New-Item -ItemType Directory -Force $keep | Out-Null
+		$shots | Move-Item -Destination $keep -Force
+	}
 	Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'session.json' } | Remove-Item -Force
 	$engine = @('--path', "`"$Root`"", '--resolution', $Resolution, '--position', $position)
 	if ($Fps -gt 0) { $engine += @('--fixed-fps', "$Fps") }
@@ -194,9 +218,10 @@ if ($Start) {
 	if ($s -and $s.pids) { foreach ($prop in $s.pids.PSObject.Properties) { $pids[$prop.Name] = $prop.Value } }
 	$mainAlive = $false
 	if ($pids.Contains('main')) { $mainAlive = [bool](Get-Process -Id $pids['main'] -ErrorAction SilentlyContinue) }
-	if ($s -and $Observer -and $mainAlive -and -not $PSBoundParameters.ContainsKey('Port')) { $Port = [int]$s.port }
+	$addingOnly = ($Observer -or $Friend) -and $mainAlive
+	if ($s -and $addingOnly -and -not $PSBoundParameters.ContainsKey('Port')) { $Port = [int]$s.port }
 	$started = @()
-	if (-not ($Observer -and $mainAlive)) {
+	if (-not $addingOnly) {
 		$hostArgs = @('--host', '--no-steam', '--name=Claude', "--port=$Port")
 		if ($Scenario -ne '') {
 			$hostArgs += "--scenario=$Scenario"
@@ -223,8 +248,78 @@ if ($Start) {
 		$r = Send-Command 'observer' '[["wait",1.0]]'
 		if ($r) { $r | ConvertTo-Json -Depth 6 -Compress }
 	}
+	if ($Friend) {
+		# A plain client that plays: no --observer, so it isn't parked, ghosted or kept
+		# safe; the scenarios that need a friend put it on the yard themselves.
+		$friendArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', '--name=Friend')
+		if ($Extra -ne '' -and $Extra -match '--sim-') { $friendArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--sim-' }) }
+		$pids['friend'] = Start-Instance 'friend' $friendArgs '340,380'
+		$started += 'friend'
+		Save-Session $pids $Port $Fps
+		$r = Send-Command 'friend' '[["wait",1.0]]'
+		if ($r) { $r | ConvertTo-Json -Depth 6 -Compress }
+	}
 	"started $($started -join ' and ') on port $Port (fixed step: $(if ($Fps -gt 0) { "$Fps fps" } else { 'off' }))"
-	if ($Steps -eq '[]') { exit 0 }
+	if ($Steps -eq '[]' -and $Script -eq '') { exit 0 }
+}
+
+## -Script: each instance's lines, in order ("observer: ..." lines to the observer).
+function Read-Script([string]$path) {
+	$byInstance = [ordered]@{}
+	foreach ($raw in (Get-Content $path)) {
+		$line = $raw.Trim()
+		if ($line -eq '' -or $line.StartsWith('#')) { continue }
+		$target = $Instance
+		$m = [regex]::Match($line, '^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$')
+		if ($m.Success -and (Test-Path (Get-InstanceDir $m.Groups[1].Value))) {
+			$target = $m.Groups[1].Value
+			$line = $m.Groups[2].Value
+		}
+		if (-not $byInstance.Contains($target)) { $byInstance[$target] = @() }
+		$byInstance[$target] += $line
+	}
+	return $byInstance
+}
+
+if ($Script -ne '') {
+	if (-not (Test-Path $Script)) { throw "no script at $Script" }
+	if (-not $PSBoundParameters.ContainsKey('TimeoutSeconds')) { $TimeoutSeconds = 1800 }
+	$plan = Read-Script $Script
+	# Every instance gets its whole list at once; they run side by side in the game.
+	$sent = [ordered]@{}
+	foreach ($name in $plan.Keys) {
+		$dir = Get-InstanceDir $name
+		$cmdPath = Join-Path $dir 'cmd.json'
+		$last = 0
+		if (Test-Path $cmdPath) {
+			$m = [regex]::Match((Get-Content $cmdPath -Raw), '"id":\s*(\d+)')
+			if ($m.Success) { $last = [int]$m.Groups[1].Value }
+		}
+		$id = $last + 1
+		$json = Convert-Steps (($plan[$name]) -join '; ')
+		[IO.File]::WriteAllText($cmdPath, '{"id": ' + $id + ', "steps": ' + $json + '}')
+		$sent[$name] = $id
+	}
+	$deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+	$results = [ordered]@{}
+	while ($results.Count -lt $sent.Count -and (Get-Date) -lt $deadline) {
+		Start-Sleep -Milliseconds 250
+		foreach ($name in $sent.Keys) {
+			if ($results.Contains($name)) { continue }
+			$resultPath = Join-Path (Get-InstanceDir $name) 'result.json'
+			if (-not (Test-Path $resultPath)) { continue }
+			try { $r = Get-Content $resultPath -Raw | ConvertFrom-Json } catch { continue }
+			if ([int]$r.id -eq $sent[$name]) { $results[$name] = $r }
+		}
+	}
+	$failed = $false
+	foreach ($name in $sent.Keys) {
+		if (-not $results.Contains($name)) { Write-Host "timed out waiting for $name"; $failed = $true; continue }
+		Complete-Recordings $results[$name]
+		"[$name] " + ($results[$name] | ConvertTo-Json -Depth 6 -Compress)
+	}
+	if ($failed) { exit 1 }
+	exit 0
 }
 
 $json = Convert-Steps $Steps

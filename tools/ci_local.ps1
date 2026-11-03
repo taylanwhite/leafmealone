@@ -289,7 +289,12 @@ $Tests = [ordered]@{
 	playtest_tools = @{
 		Port = 7820
 		Engine = '--fixed-fps 30'
-		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test'; Seconds = 150
+		# The client is the friend the two-player moments need (cite_rescue, van_unbuckle,
+		# annex_visit: R2b tools), and the resets after them must let it go.
+		# Both on the fixed step: a client without the game's --fixed-step runs flat out
+		# under --fixed-fps and its --run-seconds ceiling ends it early.
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --playtest-tools-test'; Seconds = 170; Client = 165
+		Extra = '--fixed-step=30'
 		Check = { param($h, $c) [bool]$h.playtest_tools_test.ok }
 	}
 	# Tossing leaf bags into Chefty's bed (bags:throw): the host and a client 150 ms away each
