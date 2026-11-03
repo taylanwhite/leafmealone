@@ -204,6 +204,7 @@ func _run_host() -> void:
 	await _staged_step()
 	await _freed_step()
 	await _camera_step()
+	await _pivot_step()
 	await _lock_step()
 	await _gesture_step()
 	await _iris_step()
@@ -394,6 +395,64 @@ func _camera_step() -> void:
 	var stats: Dictionary = _StageCam.log.duplicate()
 	var ok := placed and problems.is_empty() and _null_frames == 0 and _wrong_current == 0 and int(stats["null_frames"]) == 0 and _frames > 100
 	_step("camera", ok, "StageCam under CameraRig %s; %d frames, %d with no camera, %d with not exactly one of ours current; log %s; %s" % [placed, _frames, _null_frames, _wrong_current, JSON.stringify(stats), problems])
+
+
+## R2b: a shot about someone (a pivot) swings round them instead of through them,
+## never moves faster than STAGE_CAM_MAX_SPEED, and keeps its eye on this side
+## of a wall put between the pivot and where the shot wants to be.
+func _pivot_step() -> void:
+	var me := _me()
+	var cam := me.call("stage_cam") as Camera3D
+	if cam == null:
+		_step("pivot", false, "no StageCam")
+		return
+	var ahead := -me.global_basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized()
+	var side := ahead.cross(Vector3.UP).normalized()
+	var pivot := me.global_position + ahead * 3.0 + Vector3.UP * 1.4
+	var wanted := pivot + side * 3.0
+	var eye := _marker(wanted)
+	eye.global_transform = Transform3D(Basis.looking_at(pivot - wanted, Vector3.UP), wanted)
+	var wall := StaticBody3D.new()
+	wall.collision_layer = 1
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(4.0, 3.0, 0.3)
+	shape.shape = box
+	wall.add_child(shape)
+	add_child(wall)
+	wall.global_transform = Transform3D(Basis.looking_at(side, Vector3.UP), pivot + side * 1.6)
+	await get_tree().physics_frame
+	var nearest := INF
+	var fastest := 0.0
+	var speed_over := 0
+	var last := cam.global_position
+	me.call("stage_push", &"t_pivot", {"anchor": eye, "blend_in": 0.5, "priority": 10, "pivot": pivot, "collide": true})
+	var until := Time.get_ticks_msec() + 1500
+	var last_delta := 0.0
+	while Time.get_ticks_msec() < until:
+		await get_tree().process_frame
+		var now := cam.global_position
+		var step := now.distance_to(last)
+		# This node reads the camera before it moves each frame (StageCam runs late),
+		# so a step can belong to the frame before: allow the longer of the two.
+		var delta := maxf(maxf(get_process_delta_time(), last_delta), 0.001)
+		last_delta = get_process_delta_time()
+		fastest = maxf(fastest, step / delta)
+		if step > Constants.STAGE_CAM_MAX_SPEED * delta + 0.02:
+			speed_over += 1
+		nearest = minf(nearest, now.distance_to(pivot))
+		last = now
+	var settled := cam.global_position.distance_to(pivot)
+	me.call("stage_pop", &"t_pivot", 0.0)
+	wall.queue_free()
+	eye.queue_free()
+	await get_tree().process_frame
+	# The first-person eye starts about 3 m from the pivot; a straight blend to the
+	# side would cut the corner to about 2.1 m, a swing round keeps its distance.
+	var ok := nearest > 1.0 and speed_over == 0 and settled < 1.6 - Constants.STAGE_CAM_RADIUS + 0.05
+	_step("pivot", ok, "closest to the pivot %.2f m (> 1.0), fastest %.1f m/s (%d frames over %.1f), settled %.2f m from it behind a wall at 1.45 m" % [nearest, fastest, speed_over, Constants.STAGE_CAM_MAX_SPEED, settled])
 
 
 ## A control lock holds movement and the held keys; its allowances pass.

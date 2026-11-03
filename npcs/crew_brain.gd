@@ -69,6 +69,10 @@ func tick(crew: Node3D, _delta: float) -> Dictionary:
 	var director := tree.get_first_node_in_group("run_director")
 	var encounter := tree.get_first_node_in_group("nice_encounter")
 	var mode := int(crew.get("mode"))
+	# Just down from the van: the visor, a look left and right (R2b; the spot is
+	# its own beat after the landing, not on the landing frame).
+	if (mode == NOISE or mode == PATROL) and now - float(crew.get("landed_at")) < Constants.CREW_LAND_LOOK_SECONDS:
+		return _stand(crew, Vector3.INF)
 	var seen := _sense(crew, director)
 	if not seen.is_empty():
 		crew.set("last_contact_at", now)

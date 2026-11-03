@@ -21,8 +21,18 @@ extends Camera3D
 ##   lag (float): seconds of position smoothing (0 = rigid).
 ##   priority (int).
 ##   hide_self (bool, optional): skip your own head and body (an eye inside your head).
-## Blends ease out (cubic) from wherever the outgoing camera was really drawn to
-## the new shot, which follows its anchor while it blends. This camera becomes
+##   pivot (Vector3 or Node3D, optional; R2b): who the shot is about. A blend into
+##     it swings round the pivot (pulling back first, then round), never straight
+##     through someone's head, and the eye's moves are clamped relative to it
+##     (max_speed m/s, default STAGE_CAM_MAX_SPEED; STAGE_CAM_MAX_TURN rad/s).
+##   collide (bool, optional; R2b, with a pivot): keep the eye clear of the world
+##     and the vehicles (player/stage_sweep.gd), pulling in toward the pivot.
+## Blends ease in and out (smoothstep) from wherever the outgoing camera was
+## really drawn to the new shot, which follows its anchor while it blends: no
+## blend starts at full speed (R2b: the cubic ease-out's first frame was a
+## 0.7 m jump that read as a cut). Someone else's body within
+## STAGE_CAM_BODY_CLEAR of the eye isn't drawn while this camera has the view.
+## This camera becomes
 ## current in the same call that takes current from the old one, and popping the
 ## last shot blends back to whichever of FirstPerson / OverShoulder the camera
 ## toggle picks, handing current back in the frame the blend ends: there is
@@ -33,6 +43,7 @@ extends Camera3D
 ## whose visibility toggles, and physics interpolation never smears a cut.
 
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+const _Sweep = preload("res://player/stage_sweep.gd")
 ## Presentation: an eye closer than this to your own head doesn't draw your own
 ## head and body (the head is about 0.27 m across, the shoulders 0.5 m).
 const HEAD_CLEAR_METERS: float = 0.6
@@ -60,6 +71,14 @@ var _yaw: float = 0.0
 var _pitch: float = 0.0
 var _smoothed := Vector3.INF
 var _last_origin := Vector3.INF
+## R2b: how far from the pivot the eye may be (the collision sweep's answer,
+## eased back out), the last drawn pose and pivot (for the clamp), and the
+## bodies hidden because the eye is inside them.
+var _clear_dist: float = INF
+var _last_drawn := Transform3D()
+var _last_pivot := Vector3.INF
+var _has_last: bool = false
+var _hidden_bodies: Array[Node3D] = []
 
 
 static func reset_log() -> void:
@@ -161,6 +180,7 @@ func _retop(blend_seconds: float) -> void:
 		_yaw = 0.0
 		_pitch = 0.0
 		_smoothed = Vector3.INF
+		_clear_dist = INF
 	_top = next
 	_returning = false
 	_start_blend(outgoing, outgoing_fov, blend_seconds)
@@ -182,6 +202,7 @@ func _start_blend(from: Transform3D, from_fov: float, seconds: float) -> void:
 	if _blend_seconds <= 0.0:
 		log["cuts"] = int(log["cuts"]) + 1
 		_last_origin = Vector3.INF
+		_has_last = false
 		reset_physics_interpolation()
 
 
@@ -231,6 +252,7 @@ func _process(delta: float) -> void:
 		_shots.erase(_top)
 		_retop(Constants.STAGE_BLEND_DEFAULT)
 	if _top == &"" and not _returning:
+		_show_bodies()
 		return
 	_update(delta)
 
@@ -238,11 +260,18 @@ func _process(delta: float) -> void:
 func _update(delta: float) -> void:
 	var target := Transform3D()
 	var target_fov := Settings.fov()
+	var pivot := Vector3.INF
+	var max_speed := 0.0
 	if _top != &"":
 		var shot: Dictionary = _shots[_top]
 		target = _shot_transform(shot, delta)
 		if float(shot.get("fov", 0.0)) > 0.0:
 			target_fov = float(shot["fov"])
+		pivot = _pivot_of(shot)
+		if pivot.is_finite():
+			max_speed = float(shot.get("max_speed", Constants.STAGE_CAM_MAX_SPEED))
+			if bool(shot.get("collide", false)):
+				target.origin = _keep_clear(pivot, target.origin, delta)
 	else:
 		var base := base_camera()
 		if base == null:
@@ -252,9 +281,17 @@ func _update(delta: float) -> void:
 		target_fov = base.fov
 	if _blend_t < 1.0 and _blend_seconds > 0.0:
 		_blend_t = minf(1.0, _blend_t + delta / _blend_seconds)
-	var eased := 1.0 - pow(1.0 - _blend_t, 3.0)
-	var drawn := _from.interpolate_with(target, eased) if eased < 1.0 else target
+	# Ease in and out: no blend leaves at full speed.
+	var eased := smoothstep(0.0, 1.0, _blend_t)
+	var drawn := target
+	if eased < 1.0:
+		drawn = _arc(_from, target, pivot, _blend_t) if pivot.is_finite() else _from.interpolate_with(target, eased)
 	drawn.basis = drawn.basis.orthonormalized()
+	if max_speed > 0.0 and delta > 0.0:
+		drawn = _clamped(drawn, pivot, max_speed, delta)
+	_last_drawn = drawn
+	_last_pivot = pivot
+	_has_last = true
 	global_transform = drawn
 	_apply_mask()
 	fov = lerpf(_from_fov, target_fov, eased)
@@ -263,8 +300,92 @@ func _update(delta: float) -> void:
 		_finish_return()
 
 
+## The shot's pivot in world space, or INF without one.
+func _pivot_of(shot: Dictionary) -> Vector3:
+	var pivot: Variant = shot.get("pivot")
+	if pivot is Node3D and is_instance_valid(pivot) and (pivot as Node3D).is_inside_tree():
+		return (pivot as Node3D).get_global_transform_interpolated().origin
+	if pivot is Vector3:
+		return pivot
+	return Vector3.INF
+
+
+## A blend about a pivot: round it, not through it. The eye's distance from the
+## pivot eases a little ahead of its angle (it pulls back, then swings round), and
+## it looks from where the old view looked to where the new one does, so the
+## first frame is exactly the old view and the last exactly the new one.
+func _arc(a: Transform3D, b: Transform3D, pivot: Vector3, u: float) -> Transform3D:
+	var ra := a.origin - pivot
+	var rb := b.origin - pivot
+	var flat_a := Vector2(ra.x, ra.z).length()
+	var flat_b := Vector2(rb.x, rb.z).length()
+	var angle_b := atan2(rb.x, rb.z)
+	var angle_a := atan2(ra.x, ra.z) if flat_a > 0.05 else angle_b
+	var swing := smoothstep(0.0, 1.0, u)
+	var pull := smoothstep(0.0, 1.0, minf(1.0, u * 1.5))
+	var angle := angle_a + wrapf(angle_b - angle_a, -PI, PI) * swing
+	var flat := lerpf(flat_a, flat_b, pull)
+	# A little lift on the way (it rises over a shoulder rather than sliding past
+	# the back of a head).
+	var lift := 0.3 * sin(PI * swing) if flat_a < flat_b else 0.0
+	var eye := pivot + Vector3(sin(angle) * flat, lerpf(ra.y, rb.y, swing) + lift, cos(angle) * flat)
+	var look_a := a.origin - a.basis.z.normalized() * maxf(0.5, ra.length())
+	var look_b := b.origin - b.basis.z.normalized() * maxf(0.5, rb.length())
+	var look := look_a.lerp(look_b, swing) - eye
+	if look.length() < 0.01 or absf(look.normalized().dot(Vector3.UP)) > 0.999:
+		var fallback := a.interpolate_with(b, swing)
+		fallback.origin = eye
+		return fallback
+	return Transform3D(Basis.looking_at(look, Vector3.UP), eye)
+
+
+## Keep the eye clear of the world and the vehicles: a sphere swept from the
+## pivot; in at once when something's in the way, back out at a walk.
+func _keep_clear(pivot: Vector3, eye: Vector3, delta: float) -> Vector3:
+	var full := pivot.distance_to(eye)
+	if full < 0.01:
+		return eye
+	var exclude := _Sweep.passable(get_tree())
+	var allowed := full * _Sweep.reach(get_world_3d(), pivot, eye, Constants.STAGE_CAM_RADIUS, exclude)
+	if allowed < _clear_dist or not is_finite(_clear_dist):
+		_clear_dist = allowed
+	else:
+		_clear_dist = minf(allowed, _clear_dist + Constants.STAGE_CAM_RELEASE_SPEED * maxf(delta, 0.0))
+	return pivot + (eye - pivot) / full * minf(full, _clear_dist)
+
+
+## No faster than max_speed relative to the pivot (it may ride a walking pair),
+## and no faster a turn than STAGE_CAM_MAX_TURN, unless the iris covers it.
+func _clamped(drawn: Transform3D, pivot: Vector3, max_speed: float, delta: float) -> Transform3D:
+	if not _has_last or _iris_closed():
+		return drawn
+	var carried := Vector3.ZERO
+	if pivot.is_finite() and _last_pivot.is_finite():
+		carried = pivot - _last_pivot
+	var start := _last_drawn.origin + carried
+	var step := drawn.origin - start
+	var most := max_speed * delta
+	var out := drawn
+	if step.length() > most:
+		out.origin = start + step.normalized() * most
+	var from_q := _last_drawn.basis.orthonormalized().get_rotation_quaternion()
+	var to_q := drawn.basis.orthonormalized().get_rotation_quaternion()
+	var angle := from_q.angle_to(to_q)
+	var turn := Constants.STAGE_CAM_MAX_TURN * delta
+	if angle > turn:
+		out.basis = Basis(from_q.slerp(to_q, turn / angle))
+	return out
+
+
+func _iris_closed() -> bool:
+	var iris := get_tree().get_first_node_in_group("iris")
+	return iris != null and bool(iris.call("is_closed"))
+
+
 func _finish_return() -> void:
 	_returning = false
+	_has_last = false
+	_show_bodies()
 	var base := base_camera()
 	if not _rig_active():
 		# Something else has the view (the crossing camera): leave it there.
@@ -342,3 +463,42 @@ func _apply_mask() -> void:
 	if head != null and global_position.distance_to(head.get_global_transform_interpolated().origin) < HEAD_CLEAR_METERS:
 		hide = true
 	cull_mask = (0xFFFFF & ~head_bit) if hide else 0xFFFFF
+	_hide_near_bodies()
+
+
+## R2b: anyone else's body (a teammate, a NICE BOY) with the eye inside or right
+## against it isn't drawn while this camera has the view: a blend past his head
+## never fills the screen with the inside of a face.
+func _hide_near_bodies() -> void:
+	if not current:
+		_show_bodies()
+		return
+	var eye := global_position
+	var near: Array[Node3D] = []
+	for group: StringName in [&"players", &"nice_crew"]:
+		for node: Node in get_tree().get_nodes_in_group(group):
+			if node == player or not (node is Node3D):
+				continue
+			var body := node.get_node_or_null("Visual/CartoonBody") as Node3D
+			if body == null:
+				continue
+			var feet := body.global_position
+			# The closest point on his middle line, from the hips to the top of the head.
+			var low := feet + Vector3.UP * 0.6
+			var high := feet + Vector3.UP * 1.95
+			var along := clampf((eye - low).dot(high - low) / (high - low).length_squared(), 0.0, 1.0)
+			if eye.distance_to(low.lerp(high, along)) < Constants.STAGE_CAM_BODY_CLEAR:
+				near.append(body)
+	for body: Node3D in _hidden_bodies:
+		if is_instance_valid(body) and not near.has(body):
+			body.visible = true
+	for body: Node3D in near:
+		body.visible = false
+	_hidden_bodies = near
+
+
+func _show_bodies() -> void:
+	for body: Node3D in _hidden_bodies:
+		if is_instance_valid(body):
+			body.visible = true
+	_hidden_bodies.clear()
