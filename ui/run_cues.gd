@@ -26,13 +26,19 @@ const CLEAR_TINT := Color(0.35, 0.85, 0.45)
 ## The edge vignette's strongest pulse (presentation): a tint at the edges of
 ## your eyes, not a red screen.
 const VIGNETTE_PEAK: float = 0.12
+## R2b: only the rim of the screen (a rounded rectangle from inner out to the
+## edge, the corners deepest); the middle of the view is never tinted, so the
+## CHASE flash is a pulse at the edges, not a pink screen.
 const VIGNETTE_SHADER := """
 shader_type canvas_item;
 uniform vec4 tint : source_color = vec4(1.0);
 uniform float strength = 0.0;
+uniform float inner = 0.7;
 void fragment() {
-	float edge = smoothstep(0.35, 0.8, length(UV - vec2(0.5)) * 1.45);
-	COLOR = vec4(tint.rgb, edge * strength);
+	vec2 q = abs(UV - vec2(0.5)) * 2.0;
+	float d = pow(pow(q.x, 4.0) + pow(q.y, 4.0), 0.25);
+	float edge = smoothstep(inner, 1.12, d);
+	COLOR = vec4(tint.rgb, edge * edge * strength);
 }
 """
 
@@ -63,6 +69,7 @@ func _ready() -> void:
 	_material = ShaderMaterial.new()
 	_material.shader = shader
 	_vignette.material = _material
+	_material.set_shader_parameter("inner", Constants.R2B_HUD_VIGNETTE_INNER)
 	add_child(_vignette)
 
 
@@ -169,6 +176,11 @@ func _show_caption(text: String) -> void:
 
 
 func _set_strength(value: float) -> void:
+	# R2b: once the moment has you (caught, held, in the van) the chase pulse is
+	# over for you; it eases out with the yard HUD.
+	var ui := get_parent()
+	if ui != null and ui.has_method("yard_hud_alpha"):
+		value *= float(ui.call("yard_hud_alpha"))
 	_material.set_shader_parameter("strength", clampf(value, 0.0, 1.0))
 	_vignette.visible = value > 0.001
 

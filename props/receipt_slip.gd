@@ -41,6 +41,8 @@ static func show(lines: PackedStringArray, total_line: String, at: float, second
 static func show_for(player: Node3D, lines: PackedStringArray, total_line: String, at: float, seconds: float = 4.0, first_person: bool = true) -> Node3D:
 	var slip := Slip.new()
 	slip.name = "ReceiptSlip"
+	# R2b: the caption stack's lines wait while you read it (ui/caption_stack.gd).
+	slip.add_to_group("caption_blockers")
 	slip.build(lines, total_line, at, seconds)
 	var camera := player.get_node_or_null("Visual/Head/FirstPerson") as Node3D
 	if first_person and camera != null:

@@ -40,6 +40,7 @@ const _NiceSeal = preload("res://props/nice_seal.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Brain = preload("res://npcs/crew_brain.gd")
 const _Gestures = preload("res://npcs/crew_gestures.gd")
+const _Overheads = preload("res://ui/overheads.gd")
 ## The NICE BOYS' khaki shorts.
 const KHAKI := Color(0.8, 0.7, 0.52)
 
@@ -430,7 +431,7 @@ func bark(kind: String, force: bool = false, index: int = -1) -> void:
 	_rpc_bark.rpc(kind, clampi(pick, 0, pool.size() - 1))
 
 
-## Every peer: the line over his head, its subtitle (captions on, within earshot),
+## Every peer: his line (over his head, or a subtitle when that won't read: R2b),
 ## his megaphone voice and the kind's gesture.
 @rpc("authority", "call_local", "reliable")
 func _rpc_bark(kind: String, index: int) -> void:
@@ -449,10 +450,11 @@ func show_bark(kind: String, index: int) -> void:
 	bark_log.append({"crew": str(name), "kind": kind, "index": index})
 	if bark_log.size() > 64:
 		bark_log.pop_front()
+	# R2b: shown once, the same frame as the sound: a bubble over him or a
+	# subtitle, never both (ui/overheads.gd present).
 	var label := get_node_or_null("Visual/Bark") as Label3D
-	if label != null:
-		label.text = text
-		label.visible = true
+	var how := _Overheads.present(self, label, text, Constants.CREW_BARK_SECONDS) if is_inside_tree() else &""
+	if label != null and how == &"bubble":
 		_bark_left = Constants.CREW_BARK_SECONDS
 	var body := get_node_or_null("Visual/CartoonBody")
 	if body != null:
@@ -460,19 +462,6 @@ func show_bark(kind: String, index: int) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
 		sfx.call("play_on", "bark", self)
-	_subtitle(text)
-
-
-## The caption stack's subtitle line (chunk 1, group "caption_stack"; it honors the
-## Settings captions toggle and scale itself), for a local player within earshot.
-func _subtitle(text: String) -> void:
-	var stack := get_tree().get_first_node_in_group("caption_stack")
-	if stack == null or not stack.has_method("push"):
-		return
-	var camera := get_viewport().get_camera_3d()
-	if camera == null or camera.global_position.distance_to(global_position) > Constants.CREW_BARK_HEAR_METERS:
-		return
-	stack.call("push", &"subtitle", text, Constants.CREW_BARK_SECONDS)
 
 
 # ---------------------------------------------------------------- the host's tick

@@ -7,6 +7,7 @@ extends Node
 ## the player is standing in (job posts, zone gates, the store clerk).
 
 const _Strings = preload("res://ui/strings.gd")
+const _HudMode = preload("res://ui/hud_mode.gd")
 ## Screen size of the prompt text, independent of distance.
 const PIXEL_SIZE: float = 0.0016
 
@@ -43,12 +44,29 @@ static func text_for(hint: Dictionary) -> String:
 
 
 func _current_hint() -> Dictionary:
-	for node: Node in get_tree().get_nodes_in_group("players"):
+	return current_hint(get_tree())
+
+
+## What the prompt shows now ({} for nothing). R2b: while the moment has you
+## (ui/hud_mode.gd: held, caught, escorted, in the van) there is no prompt at
+## all; in Annex B only the Annex's own (a window's stamp, a bell).
+static func current_hint(tree: SceneTree) -> Dictionary:
+	var why := _HudMode.reason(tree, Net.local_peer_id())
+	if why == &"annex":
+		for source: Node in tree.get_nodes_in_group("annex"):
+			if source.is_in_group("prompt_sources"):
+				var hint: Dictionary = source.call("prompt")
+				if not hint.is_empty():
+					return hint
+		return {}
+	if why != &"":
+		return {}
+	for node: Node in tree.get_nodes_in_group("players"):
 		if node.name == str(Net.local_peer_id()) and node.has_method("interaction_hint"):
 			var hint: Dictionary = node.call("interaction_hint")
 			if not hint.is_empty():
 				return hint
-	for source: Node in get_tree().get_nodes_in_group("prompt_sources"):
+	for source: Node in tree.get_nodes_in_group("prompt_sources"):
 		var hint: Dictionary = source.call("prompt")
 		if not hint.is_empty():
 			return hint
