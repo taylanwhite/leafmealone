@@ -542,10 +542,12 @@ func _seen_by_crew(point: Vector3, peer_id: int) -> bool:
 		var body := crew as Node3D
 		if body == null or body.global_position.distance_to(point) > Constants.SUSPICION_CONE_METERS:
 			continue
-		if crew.has_method("sees_point"):
-			if bool(crew.call("sees_point", point)):
-				return true
-			continue
+		if crew.has_method("sees_point") and bool(crew.call("sees_point", point)):
+			return true
+		# Chunk 2's sees_point counts the spot itself as in the way of its own top
+		# (the line ends on its surface), so a peek in plain view never raised
+		# suspicion: the cone and a line that ignores the spot decide that (R2
+		# integration).
 		if not _facing(body, point):
 			continue
 		# A player going in is seen past everything, the spot too; the spot's own

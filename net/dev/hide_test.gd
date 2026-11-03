@@ -251,12 +251,25 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 	var safe: Dictionary = director.get("_safe_until")
 	safe[me.name.to_int()] = Net.server_time() + 120.0
 	safe[mate] = Net.server_time() + 2.0
+	# R2: the call makes the crew, seated in the Courtesy Shuttle; the test takes
+	# them off it (placed by hand below) and holds the raid's clocks still, so the
+	# chase can't give up and send the crew home mid-step.
+	if int(director.call("phase")) == 0:
+		director.call("force_event")
 	director.call("_begin_chase")
 	await _seconds(0.5)
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null and shuttle.has_method("dev_reset"):
+		shuttle.call("dev_reset")
+	director.set_process(false)
 	var crew := _crew()
 	if crew == null:
+		director.set_process(true)
 		_check("a NICE BOY", false, "none spawned")
 		return
+	for each: Node in get_tree().get_nodes_in_group("crew"):
+		if each.has_method("host_set_mode"):
+			each.call("host_set_mode", 0)
 	for each: Node in get_tree().get_nodes_in_group("crew"):
 		# Held still and placed by hand: this test is the spots', not the crew's.
 		each.set_physics_process(false)
@@ -344,10 +357,14 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 	_reports.erase("pulled")
 	_rpc_cue.rpc_id(mate, "watch_pull", {"crew": crew.global_position})
 	var found: Dictionary = hedge.call("host_inspect_resolve", crew)
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	# What the crew brain does with a found hider (npcs/crew_brain.gd): the gotcha
+	# from the spot, no lunge (R2 integration: the brain is held still here).
+	if encounter != null and encounter.has_method("host_windup") and StringName(found.get("outcome", &"")) == &"found":
+		encounter.call("host_windup", crew, int(found.get("peer", 0)), true)
 	var pull_report: Dictionary = await _report("pulled")
 	var caught := false
 	var waited := 0.0
-	var encounter := get_tree().get_first_node_in_group("nice_encounter")
 	while waited < 2.0 and not caught:
 		await get_tree().physics_frame
 		waited += get_physics_process_delta_time()
@@ -356,6 +373,7 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 			caught = int(encounter.call("stage_of", mate)) != 0
 		else:
 			caught = bool(director.call("is_captured", mate))
+	director.set_process(true)
 	_check("a watched dive is found and caught", seen >= Constants.HIDE_FOUND_AT and found["outcome"] == &"found" and int(found["peer"]) == mate and caught and bool(pull_report.get("ok", false)), "suspicion %.2f, outcome %s, caught %s; client: %s" % [seen, found["outcome"], caught, pull_report])
 
 

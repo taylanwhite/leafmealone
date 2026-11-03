@@ -182,7 +182,7 @@ func _run() -> void:
 	await _wait(func() -> bool: return not _report.is_empty(), 4.0)
 	var client_windup: Dictionary = _report.get("windup", {})
 	var lead := float(client_windup.get("at", 0.0)) - float(client_windup.get("seen", 0.0))
-	_step("3 the wind-up reached the client %.2f s before contact (>= 0.25)" % lead, lead >= 0.25)
+	_step("3 the wind-up reached the client %.2f s before contact (>= 0.25; the host sent it %.2f s before)" % [lead, float(host_windup.get("at", 0.0)) - float(host_windup.get("seen", 0.0))], lead >= 0.25)
 	_step("3 contact_at is the same on both (%.3f vs %.3f)" % [float(host_windup.get("at", -1.0)), float(client_windup.get("at", -2.0))], absf(float(host_windup.get("at", -1.0)) - float(client_windup.get("at", -2.0))) < 0.001)
 	var caught_lag := float(_report.get("caught_seen", 99.0)) - float(host_catch.get("at", 0.0))
 	_step("3 GOTCHA on the client (stage %d) and is_captured %.2f s after contact (<= 0.3)" % [int(_report.get("stage", 0)), caught_lag], int(_report.get("stage", 0)) >= _Encounter.Stage.GOTCHA and caught_lag <= 0.3)
