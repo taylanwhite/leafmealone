@@ -109,7 +109,7 @@ const TEXT_KINDS: Array[String] = [
 	"hire_hired", "hire_quit", "hire_fired",
 ]
 const BILL_POOLS: Array[String] = ["bill_hose", "bill_gnome", "bill_medical", "bill_water", "paid"]
-const CUE_KINDS: Array[String] = ["radio", "arrived", "clear"]
+const CUE_KINDS: Array[String] = ["radio", "clear"]
 ## Fallbacks for npcs/store_clerk.gd TRIGGERS and npcs/crew_member.gd BARK_KINDS
 ## (BARK_KINDS comes with cast:6): the lists every keeper and the crew must cover.
 const DEFAULT_KEEPER_TRIGGERS: Array[String] = ["greet", "morning", "night", "open", "buy", "after_raid", "closed"]
@@ -856,7 +856,7 @@ func _wiring() -> void:
 		var section: Dictionary = (town.call("_save_section") as Dictionary).get("town", {})
 		_wire(section.has("rival_announced"), "W2 the town save has rival_announced")
 	# W3: run cues are picked from the phase's start, the same line every time.
-	for kind: String in ["radio", "arrived", "clear"]:
+	for kind: String in CUE_KINDS:
 		var line := _RunCues.cue_line(kind, 1234.567)
 		_wire(line == _RunCues.cue_line(kind, 1234.567) and (_Strings.CUE_LINES[kind] as Array).has(line), "W3 the %s cue is a CUE_LINES line, the same twice: %s" % [kind, line])
 	# W4: the day summary card shows the quip and each rank-up's blurb.

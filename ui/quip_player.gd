@@ -116,7 +116,8 @@ func _watch_cleanup() -> void:
 
 func _watch_throwback() -> void:
 	var crossing := get_tree().get_first_node_in_group("border_return")
-	var thrown := crossing != null and bool(crossing.call("is_thrown_back"))
+	# Border Return goes away in R2 chunk 6; until then its throwback still quips.
+	var thrown := crossing != null and crossing.has_method("is_thrown_back") and bool(crossing.call("is_thrown_back"))
 	if thrown and not _throw_latched:
 		_try("border_fail")
 	_throw_latched = thrown
@@ -130,13 +131,72 @@ func _watch_director() -> void:
 		_director = director
 		if not director.phase_changed.is_connected(_on_phase):
 			director.phase_changed.connect(_on_phase)
+		# R2 chunk 2's director says who was caught the moment it happens.
+		if director.has_signal("peer_caught") and not director.is_connected("peer_caught", on_peer_caught):
+			director.connect("peer_caught", on_peer_caught)
+	if director.has_signal("peer_caught"):
+		return
+	# Before that: whoever is new in the cohort.
 	var roster: Array = director.call("cohort_roster")
 	if roster.size() > _last_roster:
 		for peer_id: Variant in roster:
-			if int(peer_id) != Net.local_peer_id():
-				_try("teammate_captured")
-				break
+			if not _known_caught.has(int(peer_id)):
+				on_peer_caught(int(peer_id))
+	_known_caught.clear()
+	for peer_id: Variant in roster:
+		_known_caught[int(peer_id)] = true
 	_last_roster = roster.size()
+
+
+var _known_caught: Dictionary = {}
+
+
+## A crewmate was caught: "They took Pat." with their real name, but only for a
+## player who didn't see it (too far, or no line of sight from this camera to
+## them), and never for the one caught.
+func on_peer_caught(peer_id: int) -> void:
+	var me := Net.local_peer_id()
+	if peer_id == me or peer_id <= 0:
+		return
+	if saw_catch(get_tree(), peer_id):
+		return
+	var shown := Net.player_name(peer_id)
+	if shown == "":
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - float(_last_at.get("Q-006", -1000.0)) < Constants.QUIP_COOLDOWN_SECONDS:
+		return
+	_last_at["Q-006"] = now
+	_played["Q-006"] = int(_played.get("Q-006", 0)) + 1
+	var line: String = _Strings.pick_seeded(_Strings.TEAMMATE_CAPTURED, int(Net.server_time() * 10.0) + peer_id)
+	stack_caption(&"teammate", line % [shown, shown], 2)
+
+
+## Whether this peer saw peer_id get caught: within TEAMMATE_SEEN_METERS of them
+## and nothing solid between this camera and their chest.
+static func saw_catch(tree: SceneTree, peer_id: int) -> bool:
+	var me: Node3D = null
+	var them: Node3D = null
+	for node: Node in tree.get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			me = node as Node3D
+		elif node.name == str(peer_id):
+			them = node as Node3D
+	if me == null or them == null:
+		return false
+	var camera := tree.root.get_viewport().get_camera_3d()
+	var eye := camera.global_position if camera != null else me.global_position + Vector3.UP * 1.6
+	var chest := them.global_position + Vector3.UP * 1.2
+	if eye.distance_to(chest) > Constants.TEAMMATE_SEEN_METERS:
+		return false
+	var space := them.get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(eye, chest, 1)
+	var exclude: Array[RID] = []
+	for node: Node3D in [me, them]:
+		if node is CollisionObject3D:
+			exclude.append((node as CollisionObject3D).get_rid())
+	query.exclude = exclude
+	return space.intersect_ray(query).is_empty()
 
 
 ## Reads the director's phase, not its status text: the text is writing and can
@@ -146,13 +206,24 @@ func _on_phase(_status: String) -> void:
 	if _director == null:
 		return
 	var phase := int(_director.call("phase"))
+	# Raid quips share the caption stack with the radio, so they never overlap it.
 	if phase == _Director.Phase.WARNING:
-		_try("run_warning")
+		_try("run_warning", true)
 	elif phase == _Director.Phase.CHASE:
-		_try("crew_arrival")
+		_try("crew_arrival", true)
 
 
-func _try(trigger: String) -> void:
+## A line on the caption stack (ui/caption_stack.gd) with its babble.
+func stack_caption(kind: StringName, line: String, priority: int = 0) -> void:
+	var stack := get_tree().get_first_node_in_group("caption_stack")
+	if stack != null:
+		stack.call("push", kind, _Strings.keyed(line), Constants.QUIP_CAPTION_SECONDS, priority)
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "babble")
+
+
+func _try(trigger: String, on_stack: bool = false) -> void:
 	for row: Dictionary in _Strings.LINES:
 		if str(row["trigger"]) != trigger:
 			continue
@@ -165,7 +236,10 @@ func _try(trigger: String) -> void:
 			return
 		_played[id] = played + 1
 		_last_at[id] = now
-		show_caption(str(row["line"]))
+		if on_stack:
+			stack_caption(&"quip", str(row["line"]))
+		else:
+			show_caption(str(row["line"]))
 		return
 
 

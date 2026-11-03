@@ -2,6 +2,8 @@ extends Node3D
 
 ## Authority: local presentation. The player script does not read which camera is active.
 ## OQ-001: first person and over-the-shoulder stay swappable until the camera is decided.
+## R2: CameraRig/StageCam (player/stage_cam.gd) takes the view for staged shots;
+## while it has it, the toggle only changes which camera it hands back to.
 
 @export var first_person: bool = true
 
@@ -34,9 +36,28 @@ func toggle() -> void:
 	_apply()
 
 
+## The camera this rig shows when no stage shot has the view: FirstPerson or
+## OverShoulder, by the toggle.
+func current_base_camera() -> Camera3D:
+	return (%FirstPerson if first_person else %OverShoulder) as Camera3D
+
+
+func _stage_live() -> bool:
+	var stage := get_node_or_null("StageCam")
+	return stage != null and bool(stage.call("is_live"))
+
+
 func _apply() -> void:
-	%FirstPerson.current = _active and first_person
-	%OverShoulder.current = _active and not first_person
+	# A stage shot keeps the view; it hands back to the base camera when it ends.
+	if not _stage_live():
+		# Current is handed over in one call, never through a frame with none.
+		var want := current_base_camera()
+		var other := (%OverShoulder if first_person else %FirstPerson) as Camera3D
+		if _active:
+			want.make_current()
+		else:
+			want.current = false
+			other.current = false
 	# Field of view is this machine's setting (core/settings.gd), for both views.
 	%FirstPerson.fov = Settings.fov()
 	%OverShoulder.fov = Settings.fov()
