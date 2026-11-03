@@ -32,7 +32,8 @@ const LOAD_RAKERS: int = 4
 const LOAD_HANDS: int = 2
 const LOAD_SECONDS: float = 20.0
 const QUIET_SECONDS: float = 2.0
-const ALLOWED_LOG: Array[String] = ["launch", "land", "kick_take", "kick_return", "morph_in", "morph_out"]
+## "snap" is the real view's one entry per hard reset (raking:2), which the hard reset step makes.
+const ALLOWED_LOG: Array[String] = ["launch", "land", "kick_take", "kick_return", "morph_in", "morph_out", "snap"]
 
 var _started: bool = false
 var _field: Node3D
@@ -82,6 +83,13 @@ func _process(_delta: float) -> void:
 		else:
 			_setup()
 		return
+	if Net.is_host() and not bool(result.get("done", false)):
+		# No NICE BOYS raid mid-test: one that catches the host carries its camera
+		# off the yard, and every later batch is out of motion range (LOD-skipped),
+		# so the load steps would pass with nothing flying (seen at the R1 merge).
+		var director := get_tree().get_first_node_in_group("run_director")
+		if director != null and "_next_roll" in director:
+			director.set("_next_roll", Net.server_time() + 60.0)
 	if _motion == null or _view == null or not is_instance_valid(_view):
 		return
 	_frame += 1
@@ -389,11 +397,11 @@ func _judge_log() -> void:
 
 ## Units on the view + still to land - still to launch == the field target, per cell.
 func _check_conservation() -> void:
-	var view_stats: Dictionary = _view.call("stats") if _stub else {}
-	if _stub:
-		# Morphs are the view's own unclaimed easing; skip frames with any running.
-		if int(view_stats.get("fading", 0)) > 0:
-			return
+	# Morphs are the view's own unclaimed easing; skip frames with any running (the
+	# stub calls them "fading", the real view "morphing").
+	var view_stats: Dictionary = _view.call("stats")
+	if int(view_stats.get("fading" if _stub else "morphing", 0)) > 0:
+		return
 	var ledger: Dictionary = _motion.call("ledger")
 	var grid := Vector2i(int(_field.get("grid_width")), int(_field.get("grid_depth")))
 	_conservation_samples += 1
@@ -704,7 +712,7 @@ func _hard_check_run(lot: Node3D) -> void:
 	# every chunk at once (a new field, before raking:1).
 	for peer: int in Net.peer_ids():
 		if peer != Net.local_peer_id():
-			_field.call("_send_snapshot", peer)
+			_field.call("_send_snapshot", peer, true)
 	if _field.has_signal("field_reset"):
 		_field.emit_signal("field_reset", true)
 	var changed_signal := "leaves_changed" if _field.has_signal("leaves_changed") else "chunk_changed"
@@ -767,7 +775,7 @@ func _load_check(lot: Node3D, limit: int, seconds: float, key: String) -> void:
 			if int(_view.call("displayed_units", Vector2i(x, z))) != int(_field.call("density_at_cell", x, z)):
 				wrong += 1
 	_note(key, "%d strokes in %.0f s: movers peak %d of %d, pops %d, max step %.3f m, sim %.2f ms avg %.2f ms p99, perf scale %.2f, pool overflow morphed %d units, conservation breaks %d, %d cells off after, view rebuild peak %.2f ms (wall %.1f s)" % [strokes, seconds, peak, pool, int(stats["pops"]) - pops_before, float(stats["max_step"]), float(stats["sim_ms_avg"]), float(stats["sim_ms_p99"]), float(stats["perf_scale"]), int(stats["morph_units"]), bad, wrong, float((_view.call("stats") as Dictionary).get("rebuild_ms_peak", 0.0)), float(Time.get_ticks_msec() - started) / 1000.0])
-	_checks[key] = peak <= pool and int(stats["pops"]) == pops_before and float(stats["max_step"]) <= Constants.LEAF_MAX_STEP + 0.001 and float(stats["sim_ms_avg"]) < 8.0 and bad == 0 and wrong == 0
+	_checks[key] = peak > 0 and peak <= pool and int(stats["pops"]) == pops_before and float(stats["max_step"]) <= Constants.LEAF_MAX_STEP + 0.001 and float(stats["sim_ms_avg"]) < 8.0 and bad == 0 and wrong == 0
 
 
 ## Waits until nothing moves (and a little longer), at most a few seconds.

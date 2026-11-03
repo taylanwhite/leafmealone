@@ -338,8 +338,12 @@ func stats() -> Dictionary:
 				heroes += (view as MultiMeshInstance3D).multimesh.instance_count
 				draws += 1
 	if not _gpu:
+		# What the GPU path would draw: a kicked (hidden) slot is the mover's to draw.
 		for c: int in _displayed.size():
-			heroes += hero_count(_displayed[c])
+			var count := hero_count(_displayed[c])
+			for k: int in count:
+				if (_hidden[c] & (1 << k)) == 0:
+					heroes += 1
 	return {
 		"hero_instances": heroes,
 		"hero_draws": draws,
@@ -810,10 +814,17 @@ func _step_morph(dt: float) -> void:
 		var step := int(_morph_acc[c])
 		if step <= 0:
 			continue
-		_morph_acc[c] -= float(step)
 		step = mini(step, absi(diff))
+		var value := _displayed[c] + (step if diff > 0 else -step)
+		var heroes := absi(hero_count(value) - hero_count(_displayed[c]))
+		if heroes > 0 and _fades.size() + heroes > Constants.LEAF_FADE_MAX:
+			# Every fade is busy (a big resync): this cell waits for one to finish
+			# rather than pop a leaf in or out (the "instant" case). It keeps its
+			# accumulated step, so it catches up once there is room.
+			continue
+		_morph_acc[c] -= float(step)
 		_morph_units += step
-		_set_displayed(c, _displayed[c] + (step if diff > 0 else -step), CAUSE_MORPH)
+		_set_displayed(c, value, CAUSE_MORPH)
 
 
 func _fade_slot(c: int, k: int, direction: int) -> void:

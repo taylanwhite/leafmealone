@@ -840,6 +840,28 @@ func _flush_mulch() -> void:
 	_mulch.clear()
 
 
+## Host, local presentation only: the mulch applied since the last send tick that
+## _flush_mulch has not told yet, as the stroke events it will become (contract C1
+## keys, local). The leaves are already gone from this peer's field (leaves_changed
+## fired in the frame they went), so the leaf motion layer reads these to fly them
+## into the deck now instead of fading them while it waits for the event. Clients
+## get the event ahead of the batch and never need this. Empty off the host.
+func pending_mulch() -> Array:
+	var out: Array = []
+	if not Net.is_host():
+		return out
+	for key: Variant in _mulch.keys():
+		var acc: Dictionary = _mulch[key]
+		if int(acc["moved"]) <= 0:
+			continue
+		out.append({
+			"kind": "mulch", "actor": 0, "seq": 0, "bite": 0, "at": acc["at"], "dir": Vector3.BACK,
+			"step": Vector2i(0, 1), "width": float(acc["radius"]) * 2.0, "cells": 0,
+			"moved": int(acc["moved"]), "tempo": 0.0, "t": Net.server_time(), "ack_tick": -1, "local": true,
+		})
+	return out
+
+
 ## Which mower is mulching here (the lawn mower prop at this spot), so two mowers
 ## keep their own tallies.
 func _mower_key(at: Vector3) -> int:

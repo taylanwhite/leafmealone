@@ -146,6 +146,22 @@ func _on_targets_changed(changes: PackedInt32Array, hard: bool) -> void:
 		_counts["hard_resets"] = int(_counts["hard_resets"]) + 1
 		return
 	_prune_hints()
+	# On the host a mower's mulch is told at the next send tick, after its leaves
+	# already went (leaf_field.gd _flush_mulch): explain this batch with the mulch
+	# not told yet, for this solve only (the real event explains nothing new later).
+	var told := _hints.size()
+	if _field.has_method("pending_mulch"):
+		for ev: Dictionary in _field.call("pending_mulch"):
+			var hint := ev.duplicate()
+			hint["_until"] = _clock
+			hint["_got"] = _clock
+			_hints.append(hint)
+	_explain(changes)
+	if _hints.size() > told:
+		_hints.resize(told)
+
+
+func _explain(changes: PackedInt32Array) -> void:
 	var cells := changes.size() / 3
 	if cells == 0:
 		return
