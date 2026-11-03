@@ -152,15 +152,33 @@ func _rake_pile() -> Dictionary:
 	return {"note": "a raked pile %.1f m ahead; hold primary to rake into it, secondary to bag it" % PILE_STAND_METERS, "pile": _v(pile), "pile_units": most, "is_pile": bool(field.call("is_pile_at", pile))}
 
 
-## The NICE BOYS have been called: the warning starts now.
+## The NICE BOYS have been called: the warning starts now. You're on the yard
+## facing the curb where the flare goes up and the van pulls up (R2: no
+## countdown, no arrival line; the van says it).
 func _raid_warn() -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
 	var director := _director()
+	var park: Vector3 = director.call("van_park_point")
+	var lot := _lot_zone()
+	var toward := Vector3(park.x - lot.global_position.x, 0.0, park.z - lot.global_position.z).normalized()
+	var stand := park - toward * WATCH_ARRIVAL_METERS
+	_place(Vector3(stand.x, lot.global_position.y + 0.1, stand.z), _yaw_toward(stand, park), -0.05)
 	director.call("force_event")
 	await _ticks(2)
-	return {"note": "warning now; they arrive in %.0f s" % Constants.RUN_WARNING_SECONDS, "phase": _phase(), "arrives_in": snappedf(float(director.call("arrival_time")) - Net.server_time(), 0.01)}
+	return {"moment": "raid_warn", "note": "warning now, facing the curb: the flare is up where the van parks, and it pulls up in %.0f s" % Constants.RUN_WARNING_SECONDS, "phase": _phase(), "arrives_in": snappedf(float(director.call("arrival_time")) - Net.server_time(), 0.01), "park": _v(park)}
+
+
+## For the playtest tools test: the warning is on and you're facing the curb.
+func _reached_raid_warn() -> bool:
+	var me := _me()
+	if me == null or int(_director().call("phase")) != 1:
+		return false
+	var park: Vector3 = _director().call("van_park_point")
+	var facing := -(me as Node3D).global_basis.z
+	var to_park := Vector3(park.x - me.global_position.x, 0.0, park.z - me.global_position.z).normalized()
+	return facing.dot(to_park) > 0.8
 
 
 ## The warning is nearly over: they arrive in ARRIVE_LEAD_SECONDS, and you're

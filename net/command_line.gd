@@ -64,6 +64,8 @@ var town_test: bool = false
 var layout_test: bool = false
 var hire_test: bool = false
 var rival_test: bool = false
+## --stage-test: R2's stage camera, staged bodies, locks, captions and iris (net/dev/stage_test.gd).
+var stage_test: bool = false
 ## --cast-test: the string table audit and the cast (net/dev/cast_test.gd).
 var cast_test: bool = false
 ## --remote-play=<dir>: an agent plays by hand through <dir>/cmd.json (net/dev/remote_play.gd).
@@ -144,7 +146,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or stage_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test
 
 
 func read() -> void:
@@ -251,6 +253,8 @@ func read() -> void:
 			hire_test = true
 		elif argument == "--rival-test":
 			rival_test = true
+		elif argument == "--stage-test":
+			stage_test = true
 		elif argument == "--cast-test":
 			cast_test = true
 		elif argument.begins_with("--remote-play="):

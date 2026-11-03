@@ -98,8 +98,8 @@
     "source": "guess, by neighborhood index, on top of job_overhead_minutes: the legacy map rides are fixed (already in the overhead); the drivable town's are guesses until TownMap lands (critic.md, driving). Constants.TOWN_MAP_DEFAULT picks the row."
   },
   "raid": {
-    "value": {"chase_minutes": 1.2, "capture_chance": 0.4, "border_return_minutes": 1.6},
-    "source": "guess: work lost to the warning and chase (Constants.RUN_WARNING_SECONDS + up to RUN_CHASE_SECONDS), each player's chance of being caught, and a caught player's time away (Border Return, BORDER_CROSSING_SECONDS plus the van)."
+    "value": {"chase_minutes": 1.2, "capture_chance": 0.4, "transport_minutes": 0.55, "annex_minutes": 1.3},
+    "source": "guess: work lost to the warning and chase (Constants.RUN_WARNING_SECONDS + up to RUN_CHASE_SECONDS), each player's chance of being caught, and a caught player's time away: the gotcha, escort, van hold and ride (transport_minutes) and Form 27-B at Satellite Annex B (annex_minutes; R2 chunk 6 refines it from its soak)."
   },
   "water": {
     "value": {"spigot_share": 0.35, "hose_spray_seconds": 50},

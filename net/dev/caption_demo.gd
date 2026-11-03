@@ -41,6 +41,12 @@ func _process(delta: float) -> void:
 	var clerk := get_tree().get_first_node_in_group("store_clerk")
 	if clerk != null:
 		clerk.call("say_line", "greet")
+	# R2: the raid's lines on the caption stack (ui/caption_stack.gd), a full stack of three.
+	var stack := get_tree().get_first_node_in_group("caption_stack")
+	if stack != null and (stack.call("shown_lines") as Array).is_empty():
+		stack.call("push", &"radio", _line(_Strings.CUE_LINES["radio"]), REPEAT_SECONDS * 2.0, 1)
+		stack.call("push", &"quip", "The lawn has requested additional documentation.", REPEAT_SECONDS * 2.0)
+		stack.call("push", &"teammate", str(_Strings.TEAMMATE_CAPTURED[0]) % ["Pat", "Pat"], REPEAT_SECONDS * 2.0, 2)
 
 
 func _line(lines: Array) -> String:

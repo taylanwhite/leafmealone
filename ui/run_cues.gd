@@ -88,7 +88,7 @@ func _process(delta: float) -> void:
 			_warning_frame(float(director.call("arrival_time")))
 		2, 3:
 			_material.set_shader_parameter("tint", CHASE_TINT)
-			_set_strength(VIGNETTE_PEAK * (0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.006)) + _flash * 0.3)
+			_set_strength(VIGNETTE_PEAK * (0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.006)) + _flash * 0.18)
 		_:
 			_set_strength(_flash * 0.3)
 

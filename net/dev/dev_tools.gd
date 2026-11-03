@@ -74,6 +74,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/playtest_tools_test.gd").new(), "PlaytestToolsTest")
 	if bool(options.get("rival_test")):
 		_add(preload("res://net/dev/rival_test.gd").new(), "RivalTest")
+	if bool(options.get("stage_test")):
+		_add(preload("res://net/dev/stage_test.gd").new(), "StageTest")
 	if bool(options.get("hire_test")):
 		_add(preload("res://net/dev/hire_test.gd").new(), "HireTest")
 	if bool(options.get("layout_test")):
