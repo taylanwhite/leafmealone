@@ -198,7 +198,7 @@ uniform float wet = 0.0;
 // neighbour up to stray_reach away at stray_weight: stragglers.
 uniform float edge_warp = 0.22;
 uniform float stray_edge = 0.07;
-uniform float stray_reach = 0.55;
+uniform float stray_reach = 0.27;
 uniform float stray_weight = 0.45;
 
 varying vec3 world_pos;
@@ -317,21 +317,31 @@ void fragment() {
 	float detail = 1.0 - smoothstep(0.35, 0.9, footprint);
 	ivec2 size = textureSize(leaf_cover_map, 0);
 	vec2 cell_m = 1.0 / (leaf_rect.zw * vec2(size));
-	// Is the litter around here all one density (deep in the leaves, or the
-	// middle of a raked strip)? Then every leaf reads the same and the edge
-	// work below is skipped. Two cells each way: every leaf that can cover this
-	// pixel reads inside them, so a leaf's pixels all decide alike.
+	// Is the litter around here exactly one density (deep in the leaves, the
+	// middle of a raked strip, bare lawn)? Two cells each way: every read a leaf
+	// that can cover this pixel makes (its middle is within two tiles, plus the
+	// wobble and the straggler reach, both clamped below, plus the blend's one
+	// cell) lands inside them. So where they are all equal, each of those reads
+	// would return exactly lo, and skipping them changes nothing: a leaf decides
+	// the same at every one of its pixels, whichever branch each pixel takes.
+	// Stops reading at the first two cells that differ (an edge).
+	float read_reach = cell_m.x - 2.0 * tile - 0.005;
+	float warp = min(edge_warp, read_reach);
+	float stray_far = min(stray_reach, read_reach);
 	ivec2 here_cell = ivec2(floor((xz - leaf_rect.xy) * leaf_rect.zw * vec2(size)));
-	float lo = 1e9;
-	float hi = -1.0;
-	for (int cj = -2; cj <= 2; cj++) {
+	float lo = leaf_cell_cover(here_cell).r * 255.0;
+	float hi = lo;
+	for (int cj = -2; cj <= 2 && hi - lo < 0.5; cj++) {
 		for (int ci = -2; ci <= 2; ci++) {
 			float v = leaf_cell_cover(here_cell + ivec2(ci, cj)).r * 255.0;
 			lo = min(lo, v);
 			hi = max(hi, v);
+			if (hi - lo >= 0.5) {
+				break;
+			}
 		}
 	}
-	bool even = hi - lo < 4.0;
+	bool even = hi - lo < 0.5;
 	// No leaves near: bare lawn. Up close the skin's edge is made of whole
 	// leaves (each lives or not by the density under its middle, read off a
 	// wobble, a straggler now and then), so it is as ragged as they are; far off
@@ -363,9 +373,9 @@ void fragment() {
 					// it, so no leaf is ever cut in two).
 					vec2 at = centre * tile;
 					vec2 wobble = vec2(sin(at.x * 2.3 + sin(at.y * 1.7) * 1.4), sin(at.y * 2.1 + sin(at.x * 1.9) * 1.2));
-					here = leaf_cover(at + wobble * edge_warp).r * 255.0;
+					here = leaf_cover(at + wobble * warp).r * 255.0;
 					if (r.z < stray_edge) {
-						vec2 off = (fract(r.xy * vec2(7.31, 5.17)) * 2.0 - 1.0) * stray_reach;
+						vec2 off = (fract(r.xy * vec2(7.31, 5.17)) * 2.0 - 1.0) * stray_far;
 						here = max(here, stray_weight * leaf_cover(at + off).r * 255.0);
 					}
 				}

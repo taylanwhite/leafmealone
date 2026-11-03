@@ -157,7 +157,7 @@ func _run_host() -> void:
 	ok = ok and bool(grips["ok"])
 	report["grips"] = grips
 	var legs := _judge_legs()
-	print("[RakeStrokeTest] the body works: feet planted %.2f of the way, knees bent up to %.0f deg in the drive, lean %.2f rad: %s" % [legs["stance"], rad_to_deg(legs["knee"]), legs["lean"], legs["ok"]])
+	print("[RakeStrokeTest] the body works: feet in the stance %.2f of the way, knees bent up to %.0f deg in the drive, lean %.2f rad; creeping, a planted foot slid at most %.4f m/tick (limit %.3f, body %.3f), steps %s: %s" % [legs["stance"], rad_to_deg(legs["knee"]), legs["lean"], legs["slide"], FOOT_SLIDE_MAX, WALK_PER_TICK, legs["steps"], legs["ok"]])
 	ok = ok and bool(legs["ok"])
 	report["legs"] = legs
 	# 3. A tap: one swing, one stroke.
@@ -260,6 +260,9 @@ func _host_sample(me: Node3D, rake: Node3D) -> Dictionary:
 		if body.has_method("stance"):
 			out["stance"] = float(body.call("stance"))
 			out["knee"] = maxf(float(body.call("knee_bend", 0)), float(body.call("knee_bend", 1)))
+		if body.has_method("foot_planted"):
+			out["feet"] = [body.call("foot_position", 0), body.call("foot_position", 1)]
+			out["planted"] = [body.call("foot_planted", 0), body.call("foot_planted", 1)]
 	return out
 
 
@@ -299,11 +302,20 @@ func _judge_head(me: Node3D) -> Dictionary:
 
 
 ## rakefeel:look: the stance plants, the knees bend into the drive (more than
-## 20 degrees), and the back leans into it.
+## 20 degrees), and the back leans into it. The host creeps forward through the
+## hold, so the feet must step rather than skate: a planted foot moves at most
+## FOOT_SLIDE_MAX a tick across the ground (the body moves WALK_PER_TICK), and
+## each foot takes at least one step.
+const FOOT_SLIDE_MAX: float = 0.003
+
+
 func _judge_legs() -> Dictionary:
 	var stance := 0.0
 	var knee := 0.0
 	var lean := 0.0
+	var slide := 0.0
+	var steps: Array[int] = [0, 0]
+	var last: Dictionary = {}
 	for sample: Dictionary in _samples:
 		if not sample.has("stance"):
 			continue
@@ -312,8 +324,19 @@ func _judge_legs() -> Dictionary:
 		if phase >= float(Constants.RAKE_SWING_PHASES["plant"]) and phase <= float(Constants.RAKE_SWING_PHASES["drive_end"]):
 			knee = maxf(knee, float(sample["knee"]))
 			lean = minf(lean, (sample["work"] as Vector3).x)
-	var ok := stance >= 0.99 and knee >= deg_to_rad(20.0) and lean <= -0.4
-	return {"ok": ok, "stance": stance, "knee": knee, "lean": lean}
+		if sample.has("feet") and last.has("feet") and int(sample["tick"]) == int(last["tick"]) + 1:
+			for index: int in 2:
+				var now_planted := bool(sample["planted"][index])
+				var was_planted := bool(last["planted"][index])
+				if now_planted and was_planted:
+					var a: Vector3 = last["feet"][index]
+					var b: Vector3 = sample["feet"][index]
+					slide = maxf(slide, Vector2(b.x - a.x, b.z - a.z).length())
+				elif was_planted and not now_planted and float(sample["stance"]) >= 1.0:
+					steps[index] += 1
+		last = sample
+	var ok := stance >= 0.99 and knee >= deg_to_rad(20.0) and lean <= -0.4 and slide <= FOOT_SLIDE_MAX and steps[0] >= 1 and steps[1] >= 1
+	return {"ok": ok, "stance": stance, "knee": knee, "lean": lean, "slide": slide, "steps": steps}
 
 
 func _judge_grips() -> Dictionary:

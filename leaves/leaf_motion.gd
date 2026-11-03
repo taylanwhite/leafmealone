@@ -438,15 +438,21 @@ func _prune_hints() -> void:
 	_hints = kept
 
 
-## The pool is full: the oldest airborne leaves land quickly to make room.
+## The pool is full: the oldest airborne leaves land quickly to make room,
+## leaves riding the windrow first (they let go of the tines and fly).
 func _rush_oldest(count: int) -> void:
 	var flying: Array = []
 	var ages := _movers.age
 	var states := _movers.state
 	for i: int in _movers.alive:
-		if states[i] == LeafMovers.FLY or states[i] == LeafMovers.SLIDE:
+		if states[i] == LeafMovers.FLY or states[i] == LeafMovers.SLIDE or states[i] == LeafMovers.RIDE:
 			flying.append(i)
-	flying.sort_custom(func(a: int, b: int) -> bool: return ages[a] > ages[b])
+	flying.sort_custom(func(a: int, b: int) -> bool:
+		var ride_a := states[a] == LeafMovers.RIDE
+		var ride_b := states[b] == LeafMovers.RIDE
+		if ride_a != ride_b:
+			return ride_a
+		return ages[a] > ages[b])
 	for index: int in mini(count, flying.size()):
 		_movers.rush(int(flying[index]))
 
@@ -456,7 +462,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var started := Time.get_ticks_usec()
 	_clock += delta
-	_read_heads(delta)
+	_read_heads()
 	if Constants.LEAF_WORLD_RAYS_PER_TICK > 0:
 		_movers.space = get_world_3d().direct_space_state
 		_movers.rays_per_tick = Constants.LEAF_WORLD_RAYS_PER_TICK
@@ -474,8 +480,7 @@ func _physics_process(delta: float) -> void:
 
 
 ## The posed rakes this frame (contract C4), and when each one finished its drive.
-func _read_heads(delta: float = 0.0) -> void:
-	var last := _heads.duplicate()
+func _read_heads() -> void:
 	_heads.clear()
 	for node: Node in get_tree().get_nodes_in_group("rake_heads"):
 		if not node.has_meta("actor") or not node.has_meta("head_a"):
@@ -495,15 +500,13 @@ func _read_heads(delta: float = 0.0) -> void:
 		if _heads.has(who) and bool((_heads[who] as Dictionary)["down"]) and not down:
 			continue
 		# How fast the head moves (the windrow it shoves carries on with it).
-		var vel := Vector3.ZERO
-		if last.has(who) and delta > 0.0:
-			var before: Dictionary = last[who]
-			var moved := mid - (before["mid"] as Vector3)
-			# Rakes are posed per frame, this runs per tick: a tick with no new pose
-			# keeps the speed it had.
-			vel = before.get("vel", Vector3.ZERO) if moved.length() < 0.00001 else moved / delta
-			if vel.length() > 20.0:
-				vel = Vector3.ZERO
+		# Rakes are posed per frame and this runs per tick, so take the speed the
+		# pose measured over real time (C4 head_vel); a pose gone stale (nobody has
+		# drawn it lately) or a jump (a teleport) counts as still.
+		var vel: Vector3 = node.get_meta("head_vel", Vector3.ZERO)
+		var posed_usec := int(node.get_meta("head_usec", 0))
+		if posed_usec <= 0 or Time.get_ticks_usec() - posed_usec > int(Constants.RAKE_HEAD_VEL_STALE * 1000000.0) or vel.length() > Constants.RAKE_HEAD_VEL_JUMP:
+			vel = Vector3.ZERO
 		_heads[who] = {"mid": mid, "fwd": fwd, "right": right, "half": float(node.get_meta("half_width", a.distance_to(b) * 0.5)), "down": down, "vel": vel}
 		if bool(_was_down.get(who, false)) and not down:
 			_fars[who] = {"mid": mid, "fwd": fwd, "t": _clock}

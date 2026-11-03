@@ -160,7 +160,7 @@ static func _air(u: float, side: float, load: float) -> Dictionary:
 	out["lean_share"] = lerpf(1.0, READY_LEAN, smoothstep(0.0, 1.0, g)) - Constants.RAKE_SETTLE_OVERSHOOT * sin(PI * g) * g
 	out["lunge_share"] = 1.0 - smoothstep(0.0, 1.0, clampf(g * 1.25, 0.0, 1.0))
 	var heavy := minf(clampf(load, 0.0, 1.5), 1.0)
-	out["crouch"] = lerpf(Constants.RAKE_CROUCH_DRIVE + Constants.RAKE_LOAD_CROUCH * heavy, Constants.RAKE_CROUCH_PLANT, smoothstep(0.0, 1.0, clampf(g * 1.15, 0.0, 1.0)))
+	out["crouch"] = lerpf(Constants.RAKE_CROUCH_DRIVE + Constants.RAKE_LOAD_CROUCH * heavy, Constants.RAKE_CROUCH_PLANT, smoothstep(0.0, 1.0, clampf(g * Constants.RAKE_CROUCH_RISE, 0.0, 1.0)))
 	return out
 
 

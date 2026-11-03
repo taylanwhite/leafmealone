@@ -350,7 +350,7 @@ func split(i: int, rest: int, clock: float) -> int:
 	start[other] = start[i]
 	drawn_at[other] = pos[i]
 	ride_u[other] = ride_u[i]
-	ride_d[other] = ride_d[i] + 0.03
+	ride_d[other] = ride_d[i] + Constants.RAKE_RIDE_SPLIT_DEPTH
 	ride_h[other] = ride_h[i]
 	ride_end[other] = ride_end[i]
 	ride_off[other] = ride_off[i]
@@ -577,11 +577,11 @@ func _begin_ride(i: int) -> bool:
 		return false
 	var right: Vector3 = head["right"]
 	var half := float(head["half"])
-	ride_u[i] = clampf((pos[i] - mid).dot(right), -half, half) * _rng.randf_range(0.75, 1.0)
+	ride_u[i] = clampf((pos[i] - mid).dot(right), -half, half) * _rng.randf_range(Constants.RAKE_RIDE_SPREAD, 1.0)
 	ride_d[i] = _rng.randf_range(Constants.RAKE_RIDE_DEPTH.x, Constants.RAKE_RIDE_DEPTH.y)
 	ride_h[i] = _rng.randf() * Constants.RAKE_RIDE_STACK
 	spill[i] = 1 if _rng.randf() < Constants.RAKE_RIDE_SPILL else 0
-	ride_end[i] = _rng.randf_range(0.05, 0.16) if spill[i] == 1 else Constants.RAKE_RIDE_MAX
+	ride_end[i] = _rng.randf_range(Constants.RAKE_RIDE_SPILL_SECONDS.x, Constants.RAKE_RIDE_SPILL_SECONDS.y) if spill[i] == 1 else Constants.RAKE_RIDE_MAX
 	ride_off[i] = pos[i] - _ride_point(i, head)
 	state[i] = RIDE
 	spin[i] = Vector3(_rng.randf_range(-3.0, 3.0), _rng.randf_range(-2.0, 2.0), _rng.randf_range(-3.0, 3.0))
@@ -612,7 +612,7 @@ func _ride(i: int, dt: float) -> void:
 		return
 	var point := _ride_point(i, head)
 	var fwd: Vector3 = head["fwd"]
-	if (aim[i] - point).dot(fwd) < 0.06:
+	if (aim[i] - point).dot(fwd) < Constants.RAKE_RIDE_DROP_MARGIN:
 		# Its own spot in the windrow: dropped off the tines there.
 		_end_ride(i)
 		return
@@ -630,10 +630,10 @@ func _ride(i: int, dt: float) -> void:
 	var head_vel: Vector3 = head.get("vel", Vector3.ZERO)
 	vel[i] = (p - pos[i]) / maxf(dt, 0.0001)
 	# Rolled over and over by the shove, flipping its pale side up now and then.
-	var roll := Vector2(head_vel.x, head_vel.z).length() / 0.07
+	var roll := Vector2(head_vel.x, head_vel.z).length() / Constants.RAKE_RIDE_ROLL_RADIUS
 	var r := rot[i] + spin[i] * dt
 	r.x += roll * dt
-	r.z += sin(phase[i] + a * 9.0) * 0.6 * dt
+	r.z += sin(phase[i] + a * Constants.RAKE_RIDE_WOBBLE.x) * Constants.RAKE_RIDE_WOBBLE.y * dt
 	rot[i] = r
 	pos[i] = p
 	if scale[i] < size[i]:
@@ -649,18 +649,18 @@ func _end_ride(i: int) -> void:
 	var head: Dictionary = _heads_now.get(actor[i], {})
 	var head_vel: Vector3 = head.get("vel", Vector3.ZERO) if not head.is_empty() else Vector3.ZERO
 	head_vel.y = 0.0
-	if head_vel.length() > 9.0:
-		head_vel = head_vel.normalized() * 9.0
+	if head_vel.length() > Constants.RAKE_RIDE_HEAD_SPEED_MAX:
+		head_vel = head_vel.normalized() * Constants.RAKE_RIDE_HEAD_SPEED_MAX
 	state[i] = FLY
 	age[i] = 0.0
 	_aim_launch(i, false)
 	var carry := Constants.RAKE_RIDE_CARRY
 	var aimed := vel[i]
-	vel[i] = Vector3(lerpf(aimed.x, head_vel.x, carry * 0.5), aimed.y * 0.5, lerpf(aimed.z, head_vel.z, carry * 0.5))
+	vel[i] = Vector3(lerpf(aimed.x, head_vel.x, carry), aimed.y * Constants.RAKE_RIDE_CARRY_UP, lerpf(aimed.z, head_vel.z, carry))
 	if spill[i] == 1:
-		vel[i].y = _rng.randf_range(1.3, 2.1)
+		vel[i].y = _rng.randf_range(Constants.RAKE_RIDE_SPILL_HOP.x, Constants.RAKE_RIDE_SPILL_HOP.y)
 	else:
-		vel[i].y = minf(vel[i].y, _rng.randf_range(0.3, 0.8))
+		vel[i].y = minf(vel[i].y, _rng.randf_range(Constants.RAKE_RIDE_SETTLE_HOP.x, Constants.RAKE_RIDE_SETTLE_HOP.y))
 
 
 ## The airborne kicks holding slots that taking units off this cell empties,

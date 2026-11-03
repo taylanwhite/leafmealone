@@ -143,6 +143,13 @@ var _stance: float = 0.0
 var _lean_last: float = 0.0
 var _head_lag: float = 0.0
 var _in_air: bool = false
+## The stance's feet on the ground (world x, z; INF until planted), each foot's
+## step (0 to 1 while it steps, -1 planted) and where the step left from, and the
+## body's velocity across the ground (m/s) for where a step lands.
+var _foot_spot: Array[Vector2] = [Vector2.INF, Vector2.INF]
+var _foot_from: Array[Vector2] = [Vector2.ZERO, Vector2.ZERO]
+var _foot_step: Array[float] = [-1.0, -1.0]
+var _ground_vel := Vector2.ZERO
 const WORK_SMOOTH_SECONDS: float = 0.015
 ## The head's height over the hips' pivot, which the lean swings it round.
 const WORK_NECK: float = 0.72
@@ -317,6 +324,18 @@ func knee_bend(index: int) -> float:
 	return absf(_shins[index].rotation.x)
 
 
+## Where leg index's shoe is (world space), and whether that foot is planted in
+## the work stance right now (not stepping). For tests.
+func foot_position(index: int) -> Vector3:
+	if index < 0 or index >= _shoes.size():
+		return global_position
+	return _shoes[index].global_position
+
+
+func foot_planted(index: int) -> bool:
+	return _stance >= 1.0 and index >= 0 and index < 2 and _foot_step[index] < 0.0 and _foot_spot[index].is_finite()
+
+
 func _apply_work(delta: float) -> void:
 	var follow := 1.0 - exp(-delta / WORK_SMOOTH_SECONDS)
 	_work = _work.lerp(_work_target, follow)
@@ -329,6 +348,8 @@ func _apply_work(delta: float) -> void:
 		_crouch = 0.0
 		_head_lag = 0.0
 		_lean_last = 0.0
+		_foot_spot = [Vector2.INF, Vector2.INF]
+		_foot_step = [-1.0, -1.0]
 		_hips.rotation.y = 0.0
 		_hips.position.z = 0.0
 		return
@@ -341,14 +362,16 @@ func _apply_work(delta: float) -> void:
 		# Planted: the hips sink and lunge, the feet stay put, the knees bend.
 		var s := smoothstep(0.0, 1.0, _stance)
 		_hips.position.y -= _crouch * s
-		var feet: Array[Vector2] = [Constants.RAKE_STANCE_FRONT, Constants.RAKE_STANCE_BACK]
+		var feet := _stance_feet(delta)
 		for index: int in 2:
-			var foot := Vector3(feet[index].x, SHOE_Y, feet[index].y)
-			var angles := _leg_reach(index, foot)
+			var angles := _leg_reach(index, feet[index])
 			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, angles.x, s)
 			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, angles.y, s)
 			# Feet flat on the ground, whatever the leg does.
 			_shoes[index].rotation.x = lerpf(0.0, -(angles.x + angles.y), s)
+	else:
+		_foot_spot = [Vector2.INF, Vector2.INF]
+		_foot_step = [-1.0, -1.0]
 	# Eyes on the tines.
 	_face.rotation.x -= absf(_work.x) * Constants.WORK_FACE_TILT
 	# The head lags the back a beat: it tips up as the shove throws the torso
@@ -356,9 +379,64 @@ func _apply_work(delta: float) -> void:
 	if delta > 0.0:
 		var lean_rate := (_work.x - _lean_last) / delta
 		_lean_last = _work.x
-		var want := clampf(-lean_rate * Constants.RAKE_HEAD_LAG, -0.2, 0.2)
-		_head_lag = lerpf(_head_lag, want, 1.0 - exp(-delta / 0.06))
+		var want := clampf(-lean_rate * Constants.RAKE_HEAD_LAG, -Constants.RAKE_HEAD_LAG_MAX, Constants.RAKE_HEAD_LAG_MAX)
+		_head_lag = lerpf(_head_lag, want, 1.0 - exp(-delta / Constants.RAKE_HEAD_LAG_SECONDS))
 		_face.rotation.x += _head_lag
+
+
+## The stance's two feet this tick, in body space. Each stays where it was put
+## on the ground while the body shuffles over it (no skating); the one the body
+## has carried furthest from its spot in the stance steps when it passes
+## RAKE_STEP_DRIFT, one foot at a time, landing a little ahead of the motion.
+func _stance_feet(delta: float) -> Array[Vector3]:
+	var stance: Array[Vector2] = [Constants.RAKE_STANCE_FRONT, Constants.RAKE_STANCE_BACK]
+	var homes: Array[Vector2] = []
+	for index: int in 2:
+		var home := global_transform * Vector3(stance[index].x, 0.0, stance[index].y)
+		homes.append(Vector2(home.x, home.z))
+		if not _foot_spot[index].is_finite() or _foot_spot[index].distance_to(homes[index]) > Constants.RAKE_STEP_LOST:
+			_foot_spot[index] = homes[index]
+			_foot_step[index] = -1.0
+	if _foot_step[0] < 0.0 and _foot_step[1] < 0.0:
+		var worst := 0 if _foot_spot[0].distance_to(homes[0]) >= _foot_spot[1].distance_to(homes[1]) else 1
+		# Shuffling steps wait for the hips to come back out of the lunge, so the
+		# back foot is free to step up in the next one.
+		var go := _foot_spot[worst].distance_to(homes[worst]) > Constants.RAKE_STEP_DRIFT and absf(_work.z) < Constants.RAKE_STEP_LUNGE_MAX
+		# A foot the leg can no longer reach (the lunge carried the hips past a
+		# trailing foot) steps up now instead of dragging.
+		for index: int in 2:
+			if _foot_overreach(index) > Constants.RAKE_STEP_STRETCH:
+				worst = index
+				go = true
+				break
+		if go:
+			_foot_step[worst] = 0.0
+			_foot_from[worst] = _foot_spot[worst]
+	var out: Array[Vector3] = []
+	for index: int in 2:
+		var lift := 0.0
+		if _foot_step[index] >= 0.0:
+			_foot_step[index] = minf(1.0, _foot_step[index] + delta / maxf(Constants.RAKE_STEP_SECONDS, 0.001))
+			var land := homes[index] + _ground_vel * Constants.RAKE_STEP_LEAD
+			_foot_spot[index] = _foot_from[index].lerp(land, smoothstep(0.0, 1.0, _foot_step[index]))
+			lift = sin(PI * _foot_step[index]) * Constants.RAKE_STEP_LIFT
+			if _foot_step[index] >= 1.0:
+				_foot_step[index] = -1.0
+		out.append(_foot_local(index) + Vector3(0.0, lift, 0.0))
+	return out
+
+
+## Leg index's planted spot in body space, at shoe height.
+func _foot_local(index: int) -> Vector3:
+	var local := to_local(Vector3(_foot_spot[index].x, global_position.y, _foot_spot[index].y))
+	return Vector3(local.x, SHOE_Y, local.z)
+
+
+## How far (m) leg index's planted spot is beyond what the leg reaches from the
+## hip where it is now (negative: in reach).
+func _foot_overreach(index: int) -> float:
+	var d := _foot_local(index) - _hips.transform * _legs[index].position
+	return Vector2(d.z, d.y).length() - (Constants.BODY_THIGH + Constants.BODY_SHIN)
 
 
 ## Thigh and shin angles (rotation.x of the leg and its knee) that put leg
@@ -538,6 +616,8 @@ func _physics_process(delta: float) -> void:
 		if moved / delta < 20.0:
 			_speed = lerpf(_speed, moved / delta, clampf(delta * 10.0, 0.0, 1.0))
 			_phase += moved * STRIDE
+			var vel := Vector2(now.x - _last_position.x, now.z - _last_position.z) / delta
+			_ground_vel = _ground_vel.lerp(vel, clampf(delta * 10.0, 0.0, 1.0))
 	_last_position = now
 	var state := int(get_parent().get_parent().get("anim_state")) if get_parent() != null and get_parent().get_parent() != null and "anim_state" in get_parent().get_parent() else 0
 	var in_air := state == STATE_AIR
@@ -574,8 +654,8 @@ func _physics_process(delta: float) -> void:
 		_shoes[index].rotation.x = 0.0
 	if foot_hurt >= 2:
 		# Hopping: the footless leg tucked up behind, a bounce on every hop.
-		_legs[0].rotation.x = 0.5
-		_shins[0].rotation.x = -1.4
+		_legs[0].rotation.x = Constants.BODY_HOP_THIGH
+		_shins[0].rotation.x = Constants.BODY_HOP_SHIN
 		_legs[1].rotation.x = swing * 0.3
 	elif _limping:
 		# The hurt leg stays stiff and swings out; the hips lurch onto the good one.
@@ -612,7 +692,7 @@ func _physics_process(delta: float) -> void:
 			_shoes[index].rotation.x = -(squat.x + squat.y)
 		if in_air:
 			_legs[index].rotation.x = 0.5 if index == 0 else -0.25
-			_shins[index].rotation.x = -0.75 if index == 0 else -0.35
+			_shins[index].rotation.x = Constants.BODY_JUMP_SHINS.x if index == 0 else Constants.BODY_JUMP_SHINS.y
 		if _sit_pose == 1:
 			_legs[index].rotation.x = SIT_LEGS
 	for index: int in _arms.size():
@@ -656,7 +736,7 @@ func _apply_fall(delta: float) -> void:
 		for index: int in _legs.size():
 			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, -0.3 + 0.15 * float(index), fallen)
 			_legs[index].rotation.z = lerpf(0.0, (-0.3 if index == 0 else 0.3), fallen)
-			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, -0.25, fallen)
+			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, Constants.BODY_FALLEN_SHIN, fallen)
 			_shoes[index].rotation.x = lerpf(_shoes[index].rotation.x, 0.0, fallen)
 		for index: int in _arms.size():
 			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, (-1.6 if index == 0 else 1.6) + 0.2 * sin(_time * 9.0 + index), fallen)

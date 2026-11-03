@@ -389,7 +389,7 @@ const HIRE_SPEED: float = 3.2
 ## Seasons (core/seasons.gd): days in each, autumn first.
 const SEASON_DAYS: int = 7
 
-## The rival, TurfMastersâ„¢ (net/town/town.gd), once the rank brings them to town:
+## The rival, TurfMasters™ (net/town/town.gd), once the rank brings them to town:
 ## the chance each morning they poach a client below this relationship, the chance
 ## a great job wins one back, signs in a yard (at most), and XP per sign pulled.
 const RIVAL_POACH_CHANCE: float = 0.35
@@ -447,7 +447,7 @@ const TOWN_RELATIONSHIP_MISSED: float = 3.0
 ## TOWN_REFERRAL_AT.
 const TOWN_LEAD_REFERRAL_SHARE: float = 0.75
 ## XP for meeting a client by referral (or Marty's lead), and for winning one
-## back from TurfMastersâ„¢.
+## back from TurfMasters™.
 const XP_REFERRAL: int = 25
 const XP_WON_BACK: int = 25
 
@@ -826,7 +826,7 @@ const HOMEOWNER_PERSONALITY_LINE_CHANCE: float = 0.65
 ## When the crew owes the homeowner only for water, how often they mention it
 ## (Strings.HOMEOWNER_LINES.bill_water).
 const HOMEOWNER_WATER_LINE_CHANCE: float = 0.5
-## How often TurfMastersâ„¢ text a taunt after poaching a client, and a complaint
+## How often TurfMasters™ text a taunt after poaching a client, and a complaint
 ## when one of their signs is pulled (net/town/town.gd).
 const RIVAL_TAUNT_CHANCE: float = 0.5
 const RIVAL_SIGN_TEXT_CHANCE: float = 0.35
@@ -1682,14 +1682,33 @@ const RAKE_CROUCH_IDLE: float = 0.04
 const RAKE_CROUCH_PLANT: float = 0.06
 const RAKE_CROUCH_DRIVE: float = 0.12
 const RAKE_LOAD_CROUCH: float = 0.04
+## The hips rise out of the drive's crouch this many times faster than the
+## return runs (they are back up a little before the head resets).
+const RAKE_CROUCH_RISE: float = 1.15
 ## The work stance (body space x, z; -Z ahead, m): the left foot a half step
-## forward, the right one back, planted while the rake works and the body stands
-## (slower than RAKE_STANCE_SPEED m/s); stepping into it or out takes
-## RAKE_STANCE_SECONDS. The knees take up the hips' sink and lunge.
+## forward, the right one back, while the rake works and the body stands or
+## shuffles (slower than RAKE_STANCE_SPEED m/s; faster, the walk cycle takes
+## over); stepping into it or out takes RAKE_STANCE_SECONDS. The knees take up
+## the hips' sink and lunge.
 const RAKE_STANCE_FRONT := Vector2(-0.13, -0.26)
-const RAKE_STANCE_BACK := Vector2(0.13, 0.14)
-const RAKE_STANCE_SECONDS: float = 0.18
-const RAKE_STANCE_SPEED: float = 0.9
+const RAKE_STANCE_BACK := Vector2(0.13, 0.09)
+const RAKE_STANCE_SECONDS: float = 0.25
+const RAKE_STANCE_SPEED: float = 0.75
+## In the stance each foot stays put on the ground (world space) until the body
+## has carried its spot more than RAKE_STEP_DRIFT (m) away; then it steps, one
+## foot at a time, over RAKE_STEP_SECONDS, lifting RAKE_STEP_LIFT (m), landing
+## RAKE_STEP_LEAD seconds of the body's motion ahead. A foot the leg comes
+## within -RAKE_STEP_STRETCH (m) of not reaching (the lunge carried the hips past
+## it) steps up at once, before it can drag; otherwise a foot steps only while the hips are within
+## RAKE_STEP_LUNGE_MAX (m) of upright. A foot further off than RAKE_STEP_LOST (a
+## teleport, a ride) is put back without a step.
+const RAKE_STEP_STRETCH: float = -0.008
+const RAKE_STEP_LUNGE_MAX: float = 0.08
+const RAKE_STEP_DRIFT: float = 0.14
+const RAKE_STEP_SECONDS: float = 0.17
+const RAKE_STEP_LIFT: float = 0.07
+const RAKE_STEP_LEAD: float = 0.12
+const RAKE_STEP_LOST: float = 0.6
 ## Leg bones (m): hip to knee, knee to the middle of the shoe; and how far the
 ## knee flexes as a walking leg swings through (rad at a full stride).
 const BODY_THIGH: float = 0.36
@@ -1711,6 +1730,16 @@ const RAKE_LUNGE_DRIVE: float = 0.28
 ## velocity (s), and the torso overshoots its return by this share.
 const RAKE_HEAD_LAG: float = 0.05
 const RAKE_SETTLE_OVERSHOOT: float = 0.18
+## The head's lag is at most this (rad) and follows over this long (s).
+const RAKE_HEAD_LAG_MAX: float = 0.2
+const RAKE_HEAD_LAG_SECONDS: float = 0.06
+## The knees out of work (player/cartoon_body.gd, rad, negative bends): the
+## footless leg tucked up behind while hopping, the front and back shins tucked
+## in a jump, and the shins of a body on the ground.
+const BODY_HOP_THIGH: float = 0.5
+const BODY_HOP_SHIN: float = -1.4
+const BODY_JUMP_SHINS := Vector2(-0.75, -0.35)
+const BODY_FALLEN_SHIN: float = -0.25
 ## Third person: the upper hand's spot is this far from the shoulders' middle
 ## (body space, x right, y up, -z ahead) with the head close in, and at full stretch.
 const RAKE_GRIP_NEAR := Vector3(-0.2, -0.12, -0.3)
@@ -1730,7 +1759,8 @@ const RAKE_FP_LOOK_SECONDS: float = 0.35
 ## them while they drive, bunched up to RAKE_RIDE_DEPTH ahead and stacked up to
 ## RAKE_RIDE_STACK high (more as more ride), rolling; a share spill over the top
 ## early. Released at the end of the drive (or once its own cell is behind the
-## tines), it carries on with RAKE_RIDE_CARRY of the head's speed.
+## tines), it carries on with RAKE_RIDE_CARRY of the head's speed (the rest its
+## own aimed flight; RAKE_RIDE_CARRY_UP of that flight's climb).
 const RAKE_RIDE_DEPTH := Vector2(0.04, 0.3)
 const RAKE_RIDE_STACK: float = 0.2
 const RAKE_RIDE_FULL: int = 60
@@ -1741,15 +1771,40 @@ const RAKE_RIDE_STIFF: float = 26.0
 const RAKE_RIDE_SLIDE: float = 3.0
 ## Leaves already behind the tines when their stroke lands go over this long (s).
 const RAKE_SWEEP_STAGGER: float = 0.15
-const RAKE_RIDE_CARRY: float = 0.55
+const RAKE_RIDE_CARRY: float = 0.275
+const RAKE_RIDE_CARRY_UP: float = 0.5
 const RAKE_RIDE_MAX: float = 0.7
+## A rider keeps at least this share of its sideways offset across the head; a
+## spilling one rides this long (s) before hopping over the top at
+## RAKE_RIDE_SPILL_HOP (m/s up), the rest leave at most RAKE_RIDE_SETTLE_HOP up.
+## It drops off once its own landing spot is within RAKE_RIDE_DROP_MARGIN (m)
+## ahead of it; a rider split in two puts its twin RAKE_RIDE_SPLIT_DEPTH deeper.
+const RAKE_RIDE_SPREAD: float = 0.75
+const RAKE_RIDE_SPILL_SECONDS := Vector2(0.05, 0.16)
+const RAKE_RIDE_SPILL_HOP := Vector2(1.3, 2.1)
+const RAKE_RIDE_SETTLE_HOP := Vector2(0.3, 0.8)
+const RAKE_RIDE_DROP_MARGIN: float = 0.06
+const RAKE_RIDE_SPLIT_DEPTH: float = 0.03
+## Riders roll like a leaf this round (m) under the head's speed, rock side to
+## side (rad/s, rad a second), and take at most RAKE_RIDE_HEAD_SPEED_MAX m/s of
+## the head's speed with them.
+const RAKE_RIDE_ROLL_RADIUS: float = 0.07
+const RAKE_RIDE_WOBBLE := Vector2(9.0, 0.6)
+const RAKE_RIDE_HEAD_SPEED_MAX: float = 9.0
+## The head's speed (C4 head_vel, leaves/leaf_motion.gd) counts as zero once its
+## pose is older than this (s), or when it is faster than RAKE_HEAD_VEL_JUMP m/s
+## (a teleport, not a shove).
+const RAKE_HEAD_VEL_STALE: float = 0.1
+const RAKE_HEAD_VEL_JUMP: float = 20.0
 ## Leaves' edges on the lawn (leaves/leaf_shaders.gd litter): each skin leaf reads
 ## the density this far (m) off its middle, by a slow noise, so a raked edge is
 ## ragged, not a cell staircase; and a straggler share of skin leaves read their
-## neighbours up to RAKE_STRAY_REACH away at RAKE_STRAY_WEIGHT.
+## neighbours up to LEAF_STRAY_REACH away (each way) at LEAF_STRAY_WEIGHT. The
+## shader clamps both reaches to a cell (0.5 m) less two LEAF_TILEs, so every
+## read stays inside the 5x5 cells it checks and no leaf is ever cut in two.
 const LEAF_EDGE_WARP: float = 0.22
 const LEAF_STRAY_SHARE_EDGE: float = 0.07
-const LEAF_STRAY_REACH: float = 0.55
+const LEAF_STRAY_REACH: float = 0.27
 const LEAF_STRAY_WEIGHT: float = 0.45
 
 # ---- hotbar hud
@@ -1820,7 +1875,9 @@ const LEAF_SFX_DEFAULT_TEMPO: float = RAKE_STROKE_SECONDS * 2.0
 ## drive), and the flick this fraction of a swing after the mid-drive bite.
 const LEAF_SFX_PLANT_BACK: float = 0.5
 const LEAF_SFX_FLICK_AHEAD: float = 0.75
-const LEAF_SFX_FLICK_PHASE: float = 0.2
+## (rakefeel:look: RAKE_SWING_PHASES drive_end minus the mid-drive bite, 0.74 -
+## 0.5, so the fwip lands on the wrist flick.)
+const LEAF_SFX_FLICK_PHASE: float = 0.24
 ## Leaves landing: at least this many in one place to be heard, at most this many
 ## settle sounds a second, a whump at most once per this long per 2 m area (s),
 ## and the least a landing must be to whump.
