@@ -20,7 +20,8 @@ extends Node
 ## with lunch money in your pocket; shops chunk 6), snack_crash (the Turbo Juice
 ## crash hits you now), snack_queasy (the machine's sandwich lands queasy),
 ## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can),
-## two_caught and two_caught_far (both need a second player).
+## two_caught and two_caught_far (both need a second player), skate (on the Gutter
+## Shredder in Homie Depot's lot, lined up on Marty's ramp in the connected town).
 ## border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
@@ -29,7 +30,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_turnstile", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_turnstile", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far", "skate"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -242,6 +243,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _store()
 		"drive":
 			out = await _drive()
+		"skate":
+			out = await _skate()
 		"toss":
 			out = await _toss()
 		"toss_full":
@@ -1595,6 +1598,39 @@ func _drive() -> Dictionary:
 	return {"note": "driving: move_forward/back throttle, move_left/right steer, interact gets out", "zone": _zone()}
 
 
+## On the Gutter Shredder (driving G1) in Homie Depot's lot, the board yours. In
+## the connected town you're lined up on Marty's ramp, 5 m out; in the legacy
+## world, in the middle of the store's lot.
+func _skate() -> Dictionary:
+	var out: Dictionary = await _store()
+	if out.has("error"):
+		return out
+	var me := _me()
+	Campaign.grant_unlock(Net.local_peer_id(), "skateboard")
+	await _ticks(2)
+	var world := _world()
+	var store := world.get_node("StoreZone") as Node3D
+	if bool(world.call("is_town_map")):
+		var ramp: Dictionary = Constants.STORE_LAYOUT["marty_ramp"]
+		var at := store.global_transform * ((ramp["at"] as Vector3) + Vector3(-6.3, 0.05, 0.0))
+		_place(at, -PI * 0.5, -0.1)
+	else:
+		_place(store.global_transform * Vector3(1.0, 0.05, 6.0), PI, -0.1)
+	# Feet on the ground first (a teleport leaves you "in the air" until the next step).
+	await _wait_for(func() -> Variant: return true if str(me.call("skate").call("why_not")) == "" else null)
+	if not bool(me.get("on_board")):
+		me.call("skate").call("toggle")
+	await _ticks(2)
+	if not bool(me.get("on_board")):
+		return {"error": "couldn't get on the board: %s" % me.call("skate").call("why_not")}
+	return {"note": "on the board: move_forward pushes, move_left/right carve, jump ollies, primary/secondary flip, crouch grabs, board steps off", "zone": _zone()}
+
+
+func _reached_skate() -> bool:
+	var me := _me()
+	return me != null and bool(me.get("on_board"))
+
+
 # ---------------------------------------------------------------- reset
 
 
@@ -1618,6 +1654,8 @@ func reset(keep_friends: bool = false) -> void:
 			spot.call("request_exit")
 		if bool(me.get("in_pile")):
 			me.call("set_pile", false)
+		if bool(me.get("on_board")) and me.call("skate") != null:
+			me.call("skate").call("dismount", false)
 		# Let a climb-out finish, or it carries on after the next placement.
 		var view := me.get_node_or_null("HideView")
 		if view != null:

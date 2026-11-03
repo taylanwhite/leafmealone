@@ -184,6 +184,23 @@ func _build(root: Node3D) -> void:
 			root.add_child(truck)
 			truck.rotation.y = PI * 0.8
 			preload("res://props/vehicles.gd").build_truck(truck, Color(0.75, 0.22, 0.15))
+		"skateboard":
+			# The Gutter Shredder (driving G1, props/gear_models.gd): the board on the
+			# ground, and one flipped over to show the nephew's paint job underneath.
+			var gear := preload("res://props/gear_models.gd")
+			var board: Node3D = gear.build_skateboard()
+			root.add_child(board)
+			board.rotation.y = 0.6
+			var flipped: Node3D = gear.build_skateboard()
+			root.add_child(flipped)
+			flipped.position = Vector3(0.45, 0.13, 0.25)
+			flipped.rotation = Vector3(0.0, 0.3, PI)
+			root.set_meta("views", [
+				{"from": Vector3(0.9, 0.7, 1.1), "at": Vector3(0.1, 0.06, 0.0), "fov": 40.0},
+				{"from": Vector3(-1.2, 0.18, 0.1), "at": Vector3(0.0, 0.08, 0.0), "fov": 35.0},
+				{"from": Vector3(0.2, 1.6, 0.3), "at": Vector3(0.2, 0.0, 0.1), "fov": 45.0},
+				{"from": Vector3(0.35, 0.25, 0.45), "at": Vector3(0.0, 0.05, -0.2), "fov": 35.0},
+			])
 		"chefty_cab":
 			# The drivable Chefty's open cab (driving C1): a driver with hands on the
 			# wheel and a passenger sitting, a rider standing in the bed; for head

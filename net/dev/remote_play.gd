@@ -1236,6 +1236,17 @@ func _state() -> Dictionary:
 		out["holding"] = str(held.get("kind")) if held != null else ""
 		if player.has_method("is_hidden") and bool(player.call("is_hidden")):
 			out["hidden"] = true
+		# The Gutter Shredder (driving G1): on the board, how fast, what the board is
+		# doing, and the trick line up on screen ("until skate.on true" waits for it).
+		if bool(player.get("on_board")) or bool(player.get("wipeout")):
+			var popup := get_tree().get_first_node_in_group("trick_popup")
+			var body := player as CharacterBody3D
+			out["skate"] = {
+				"on": bool(player.get("on_board")), "trick": int(player.get("skate_trick")),
+				"wipeout": bool(player.get("wipeout")), "air": int(player.get("anim_state")) == 7,
+				"speed": snappedf(Vector2(body.velocity.x, body.velocity.z).length(), 0.1),
+				"line": str(popup.call("showing")) if popup != null else "",
+			}
 		var hotbar := preload("res://net/components/hotbar.gd")
 		var kinds: Array = []
 		for slot: Array in hotbar.slots_of(get_tree(), me):

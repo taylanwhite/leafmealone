@@ -196,6 +196,8 @@ static func for_shop_item(item_id: StringName) -> String:
 			return "supply_" + str(entry.get("supply", id))
 		"snack":
 			return "snack_" + id
+		"gear":
+			return "gear_" + id
 		"cosmetic", "truck_cosmetic":
 			match str(entry.get("slot", "")):
 				"hat":

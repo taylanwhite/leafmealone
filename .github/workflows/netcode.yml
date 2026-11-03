@@ -415,6 +415,18 @@ jobs:
           grep "DriveTest" build/soak/ci-drive/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-drive/host.json')); t=json.load(open('build/soak/ci-drive/target.json')); sys.exit(0 if h['drive_test'].get('ok') and t['drive'].get('prediction_error_max_m', 99) < 1.5 and t['drive'].get('prediction_error_mean_m', 99) < 0.25 and t['drive'].get('prediction_samples', 0) > 100 and h['drive'].get('riders') == t['drive'].get('riders') and t['vehicle_view'].get('max_gap_ms', 9999) < 400 and h.get('ride_frames', 0) > 0 and h.get('ride_wobble_m', 1) < 0.05 and t.get('ride_frames', 0) > 0 and t.get('ride_wobble_m', 1) < 0.05 and t.get('zone') == 'TOWN' and t['drive'].get('trips_seen', 0) >= 3 and 'start,stop' in ','.join(t['drive'].get('chauffeur_seen') or []) and h['drive'].get('cosmetic') == t['drive'].get('cosmetic') and 'Big Sal' in json.dumps(h['drive'].get('cosmetic')) else 1)"
 
+      - name: Skate test (the Gutter Shredder bought and ridden, pushes, an ollie, a kickflip, wipeouts on a bad landing, a wall and a lawn)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-skate
+          "$GODOT" --headless --path . -- --host --port=7817 --name=Tester --no-steam --town-map --start-hour=10 --skate-test --measure="$PWD/build/soak/ci-skate/host.json" --run-seconds=60 > build/soak/ci-skate/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7817 --name=Target --no-steam --measure="$PWD/build/soak/ci-skate/target.json" --run-seconds=55 > build/soak/ci-skate/target.log 2>&1
+          wait
+          grep "SkateTest" build/soak/ci-skate/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-skate/host.json')); t=json.load(open('build/soak/ci-skate/target.json')); s=t.get('skate_seen',{}).get('1',{}); sys.exit(0 if h['skate_test'].get('ok') and s.get('mounted') and s.get('wipeout') and s.get('max_trick',0) >= 2 else 1)"
+
       - name: Shuttle test (the NICE BOYS' Courtesy Shuttle over 150 ms of lag, one van per trip, seats, unbuckling, a straggler, the ride and the drop-off)
         if: matrix.part == 'features'
         run: |

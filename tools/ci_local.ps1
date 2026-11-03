@@ -262,6 +262,14 @@ $Tests = [ordered]@{
 		Extra = '--sim-lag=120'
 		Check = { param($h, $c) [bool]$h.drive_test.ok -and $c -ne $null -and ([double]$c.drive.prediction_error_max_m -lt 1.5) -and ([double]$c.drive.prediction_error_mean_m -lt 0.25) -and ([int]$c.drive.prediction_samples -gt 100) -and (Same $h.drive.riders $c.drive.riders) -and ([double]$c.vehicle_view.max_gap_ms -lt 400) -and ([int]$h.ride_frames -gt 0) -and ([double]$h.ride_wobble_m -lt 0.05) -and ([int]$c.ride_frames -gt 0) -and ([double]$c.ride_wobble_m -lt 0.05) -and ($c.zone -eq 'TOWN') -and ([int]$c.drive.trips_seen -ge 3) -and ((@($c.drive.chauffeur_seen) -join ',') -match 'start,stop') -and (Same $h.drive.cosmetic $c.drive.cosmetic) -and (($h.drive.cosmetic | ConvertTo-Json -Compress) -match 'Big Sal') }
 	}
+	# The Gutter Shredder (driving:G1): the host buys the board and rides it through
+	# pushes, an ollie, a kickflip, a sideways landing, a wall and a lawn, and can't
+	# hop on holding a toilet; the client saw the host ride, flip and wipe out.
+	skate = @{
+		Port = 7817
+		Host = '--host --name=Tester --no-steam --town-map --start-hour=10 --skate-test'; Seconds = 60; Client = 55
+		Check = { param($h, $c) [bool]$h.skate_test.ok -and $c -ne $null -and [bool]$c.skate_seen.'1'.mounted -and [bool]$c.skate_seen.'1'.wipeout -and ([int]$c.skate_seen.'1'.max_trick -ge 2) }
+	}
 	# The Courtesy Shuttle (nice_boys:4) over 150 ms: the park point clears a tree and a
 	# prop, the raid van pulls up with the crew seated (on their anchors on the client),
 	# host and client agree on its pose on every leg, a boarded client sits, an unbuckle

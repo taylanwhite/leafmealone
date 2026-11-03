@@ -680,6 +680,9 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 			var at := used_today.find(str(entry.get("tool", "")))
 			if at >= 0:
 				used_today[at] = ""
+		"gear":
+			# Yours: the skateboard rides home in your wallet, not as a job tool.
+			Campaign.grant_unlock(peer_id, item)
 		"cosmetic":
 			Campaign.grant_unlock(peer_id, item)
 			# Bought means worn: you walk out in the new hat.
