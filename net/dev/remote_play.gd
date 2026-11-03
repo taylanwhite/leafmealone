@@ -54,6 +54,9 @@ extends Node
 ##                                 the nearest loose thing of a kind ("rake",
 ##                                 "leaf_bag"); by name it stops at arm's length
 ##                                 (GOTO_NAMED_STOP), not inside the thing.
+##   ["call_raid"]                 (host) the NICE BOYS are called now through the
+##                                 run director's own warning, nothing reset or
+##                                 placed: a raid in a crew session (tools:crew)
 ## The result's "crew" lists everyone else (not the observer) as this window knows
 ## them: zone, position and what they hold, so a script can wait on a teammate.
 ## A "look" bigger than LOOK_EASE_ABOVE pixels is eased over several frames (a
@@ -317,6 +320,15 @@ func _run(id: int, steps: Array) -> void:
 						await _face(truck.call("body_position") if truck.has_method("body_position") else truck.global_position)
 					if went != "":
 						errors.append(went)
+			"call_raid":
+				# tools:crew: the NICE BOYS called now, the way the heat calls them
+				# (the director's warning, then the van), with nothing reset or
+				# placed: for a crew session. Host only; QUIET only.
+				var director := get_tree().get_first_node_in_group("run_director")
+				if not Net.is_host() or director == null or int(director.call("phase")) != 0:
+					errors.append("call_raid: host only, with no raid on")
+				else:
+					director.call("force_event")
 			"click":
 				await _click(Vector2(float(step[1]), float(step[2])))
 			"wait":

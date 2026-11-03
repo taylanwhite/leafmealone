@@ -681,7 +681,7 @@ func _rpc_hello(build_version: String, display_name: String) -> void:
 		return
 	var resolved := display_name if display_name != "" else _Strings.UI["player_unnamed"] % sender
 	# The dev session's spare slot (host()) is the observer's alone.
-	if resolved != OBSERVER_NAME and _players_counted() >= Constants.MAX_PLAYERS:
+	if resolved != OBSERVER_NAME and player_count() >= Constants.MAX_PLAYERS:
 		_rpc_rejected.rpc_id(sender, _Strings.UI["end_crew_full"])
 		multiplayer.multiplayer_peer.disconnect_peer(sender)
 		return
@@ -694,8 +694,12 @@ func _rpc_hello(build_version: String, display_name: String) -> void:
 
 
 ## Players in the session, the playtest observer left out (a dev session lets it
-## in on top of Constants.MAX_PLAYERS).
-func _players_counted() -> int:
+## in on top of Constants.MAX_PLAYERS). Every peer knows the names, so every peer
+## counts the same: the cots' tally (props/cot.gd) and the host's bedtime agree.
+## Outside a dev session everyone counts, whatever they're called.
+func player_count() -> int:
+	if not _args.is_dev_session():
+		return peer_ids().size()
 	var count := 0
 	for peer_id: int in peer_ids():
 		if player_name(peer_id) != OBSERVER_NAME:

@@ -337,10 +337,7 @@ func _rpc_day(number: int, started_at: float, summary: Dictionary) -> void:
 
 
 ## Everyone who has to be in bed for the day to end: a watcher (the playtest
-## observer, tools/play.ps1 -Observer) never lies down (tools:crew).
+## observer, tools/play.ps1 -Observer) never lies down (tools:crew). The same
+## count the cots show (props/cot.gd).
 func _crew_count() -> int:
-	var count := 0
-	for peer_id: int in Net.peer_ids():
-		if not Net.is_watcher(peer_id):
-			count += 1
-	return count
+	return Net.player_count()

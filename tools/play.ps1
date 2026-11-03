@@ -87,6 +87,12 @@ $MaxPlayers = 4
 $m = [regex]::Match((Get-Content (Join-Path $Root 'core\constants.gd') -Raw), 'const MAX_PLAYERS: int = (\d+)')
 if ($m.Success) { $MaxPlayers = [int]$m.Groups[1].Value }
 $SessionFile = Join-Path $MainDir 'session.json'
+# Recordings are thousands of PNGs under build\: Godot must never import them (a fresh
+# worktree has no build\.gdignore until the music tools run, and its --import then spent
+# minutes on every frame of every take).
+$BuildDir = Join-Path $Root 'build'
+New-Item -ItemType Directory -Force $BuildDir | Out-Null
+if (-not (Test-Path (Join-Path $BuildDir '.gdignore'))) { [IO.File]::WriteAllText((Join-Path $BuildDir '.gdignore'), '') }
 
 function Get-InstanceDir([string]$name) {
 	if ($name -eq 'main') { return $MainDir }

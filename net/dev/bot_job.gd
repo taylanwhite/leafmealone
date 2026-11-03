@@ -212,7 +212,7 @@ func _find_work(player: Node3D, tree: SceneTree) -> bool:
 		Input.action_release(&"primary")
 		if _flat_distance(player.global_position, target.global_position) <= GRAB_FROM_METERS:
 			wants_walk = false
-			_press_e(player, func() -> void: target.call("request_grab"))
+			_press_e(player, func() -> void: target.call("request_grab"), target)
 		else:
 			_face(player, _steer(player, target.global_position))
 		return true
@@ -406,7 +406,7 @@ func _face(player: Node3D, point: Vector3) -> void:
 ## a hiding spot or a pile it can't turn away from, so it does the thing itself
 ## (tools:crew: a bot pressing E for the rake at the host's feet carried the
 ## host off instead, and one by the hedge spent a raid-free morning diving in).
-func _press_e(player: Node3D, meant: Callable) -> void:
+func _press_e(player: Node3D, meant: Callable, target: Node = null) -> void:
 	if not share_rake:
 		_tap(&"interact")
 		return
@@ -417,7 +417,10 @@ func _press_e(player: Node3D, meant: Callable) -> void:
 		return
 	var dives := player.has_method("_nearest_free_spot") and player.call("_nearest_free_spot") != null
 	dives = dives or (player.has_method("_on_pile") and bool(player.call("_on_pile")))
-	if not dives:
+	# E picks up whatever's best in reach (player.gd _best_pickup): by the tool row
+	# that was the gas can beside the rake, picked up and dropped again and again.
+	var other: bool = target != null and player.has_method("_best_pickup") and player.call("_best_pickup") != target
+	if not dives and not other:
 		_tap(&"interact")
 		return
 	if _press_wait > 0.0 or _release_next != &"":

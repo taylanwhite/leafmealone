@@ -593,7 +593,12 @@ func _handle_purchase(peer_id: int, item_id: StringName) -> void:
 
 
 func _split_pool(pool: float) -> Array[Dictionary]:
-	var peers := Net.peer_ids()
+	# Only the crew is paid: a dev session's observer (a watcher) took a floor
+	# share of the job before (tools:crew, "Observer $3" on the payday card).
+	var peers: Array[int] = []
+	for peer_id: int in Net.peer_ids():
+		if not Net.is_watcher(peer_id):
+			peers.append(peer_id)
 	var leaves: Dictionary = {}
 	var rescues: Dictionary = {}
 	var objectives: Dictionary = {}
