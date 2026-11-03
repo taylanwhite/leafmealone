@@ -464,7 +464,6 @@ The NICE BOYS encounter (gap-specs/nice_boys.json). Host-authoritative; every co
 | --- | --- | --- | --- |
 | RunDirector | `_rpc_phase(phase, started_at, status)` | host -> all | QUIET 0, WARNING 1, CHASE 2, DEPARTING 3 |
 | RunDirector | `_rpc_request_state()` / `_rpc_state(state)` | client -> host -> that client | late join: phase, cohort, Encounter / Shuttle / Annex snapshots |
-| RunDirector | `_rpc_legacy_ride(riders, seed)` | host -> all | until chunk 4: the old ride's van for the riders |
 | RunDirector | `_rpc_drop_rider(peer)` | host -> all | kept |
 | Encounter | `_rpc_windup(grab_id, crew, peer, from, dir, contact_at, from_spot, travel)` | host -> all | the wind-up and lunge, played from these args everywhere |
 | Encounter | `_rpc_whiff(grab_id, peer_id, crew_index, at)` | host -> all | missed or spoiled (carries who, so the host's own call and a late joiner find them) |

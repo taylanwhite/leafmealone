@@ -882,13 +882,24 @@ func _host_at_annex(trip: Trip, now: float) -> void:
 	riders_at_annex.emit(trip.id, riders)
 	var annex := get_tree().get_first_node_in_group("annex")
 	if annex != null and annex.has_method("begin"):
-		annex.call("begin", trip.id, riders, door_at + Constants.VAN_DOOR_SLIDE)
-		# The Annex walks them off (its own staging); this van's seats are done.
-		_rpc_release_riders.rpc(trip.id, door_at + Constants.VAN_DOOR_SLIDE, true)
+		# Each rider unbuckles and steps down onto the curb, a beat apart, as at the
+		# drop-off; the Annex's walk-in starts once the last one is down (R2
+		# integration: handing them over in their seats slid them out through the
+		# van's side in first person, the seat camera cutting straight to the eyes).
+		var order := 0
+		var pose := _pose(trip, door_at)
+		var last_down := door_at + Constants.VAN_DOOR_SLIDE
+		for peer_id: int in riders:
+			var at := door_at + Constants.VAN_DOOR_SLIDE + float(order) * Constants.VAN_DROP_STAGGER
+			var exit := pose * (_local_marker(trip, "DoorStep").origin + Vector3(0.0, 0.0, -0.9 + float(order) * Constants.VAN_DROP_SPACING))
+			_rpc_unseat.rpc(trip.id, peer_id, exit, at)
+			last_down = at + Constants.VAN_BUCKLE_SECONDS * 0.6 + Constants.VAN_STEP_SECONDS
+			order += 1
+		annex.call("begin", trip.id, riders, last_down)
 		var forecourt := _annex_curb("ForecourtCurb")
 		var curb := _annex_curb("AnnexCurb")
 		if forecourt.origin.distance_to(curb.origin) > 3.0:
-			_plan_leave(trip, door_at + Constants.VAN_DOOR_SLIDE + Constants.VAN_ANNEX_HANDOFF_LEAVE)
+			_plan_leave(trip, last_down + Constants.VAN_ANNEX_HANDOFF_LEAVE)
 			_return_trip(true)
 		return
 	# The legacy crossing teleports them to its lanes: out of the seats first, and
@@ -1498,7 +1509,12 @@ func _annex_curb(marker_name: String) -> Transform3D:
 	if marker == null and marker_name == "ForecourtCurb":
 		marker = world.get_node_or_null("BorderZone/AnnexSet/AnnexCurb") as Node3D if world != null else null
 	if marker != null:
-		return marker.global_transform
+		# The marker is where a rider stands on the sidewalk (chunk 5's faces the
+		# street, the grey box's the doors): the van parks along the street with its
+		# door step there, not on the marker's facing (R2 integration: it rolled in
+		# nose-first through the Annex's front windows and parked across the sidewalk).
+		var along := Basis.looking_at(_NiceVan.STREET_DIR, Vector3.UP)
+		return Transform3D(along, marker.global_position - along.x * Constants.VAN_ANNEX_DOOR_TO_CURB)
 	var border := world.get_node_or_null("BorderZone") as Node3D if world != null else null
 	var origin := (border.global_position if border != null else Vector3(0.0, 0.0, 1000.0)) + Constants.VAN_ANNEX_CURB
 	return Transform3D(Basis.looking_at(_NiceVan.STREET_DIR, Vector3.UP), origin)

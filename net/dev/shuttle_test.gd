@@ -344,6 +344,9 @@ func _check_border(shuttle: Node) -> void:
 		return
 	var begun: Variant = await _wait_for(func() -> Variant:
 		return true if (annex.call("roster") as Array).has(_client) else null, 45.0)
+	# They step down out of the van first, then the Annex walks them in.
+	await _wait_for(func() -> Variant:
+		return true if (shuttle.call("seat_info", _client) as Dictionary).is_empty() else null, 8.0)
 	await get_tree().create_timer(1.0).timeout
 	var reply: Dictionary = await _ask("border", {})
 	var local: Vector3 = reply.get("local", Vector3.INF)

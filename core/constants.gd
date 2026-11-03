@@ -2887,8 +2887,8 @@ const VAN_ROUTE_SEARCH_STEP: float = 10.0
 const VAN_RADIO_DB: float = -6.0
 
 # ---- nice boys: integration (R2 merge)
-# Where chunks 2 (the catch) and 4 (the Courtesy Shuttle) meet (docs/DECISIONS.md,
-# "R2 integration").
+# Where R2's chunks meet: the catch (2), the Courtesy Shuttle (4) and Annex B
+# (5, 6) (docs/DECISIONS.md, "R2 integration").
 ## A NICE BOY's name tag fades out over this long (s) while he barks, and back
 ## after: the bark line sits where the tag does.
 const CREW_TAG_HUSH_SECONDS: float = 0.15
@@ -2896,3 +2896,6 @@ const CREW_TAG_HUSH_SECONDS: float = 0.15
 ## behind where it is: a whole VAN_ROUTE_STEP, so its heading turns smoothly between
 ## route points (net/run_events/shuttle.gd _route_pose).
 const VAN_HEADING_LOOK: float = 2.0
+## The Courtesy Shuttle parks at Annex B with its door step on the curb marker: the
+## van's middle this far (m) from it, into the street (props/nice_van.gd DoorStep).
+const VAN_ANNEX_DOOR_TO_CURB: float = 1.75

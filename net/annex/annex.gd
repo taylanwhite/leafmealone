@@ -1566,6 +1566,15 @@ func _walk_path() -> Array:
 		var at := _set_point(marker)
 		if at != Vector3.INF:
 			out.append(Vector3(at.x, at.y, at.z))
+	# Riders walk up to 2 m behind the anchor (_start_walk); started on the curb
+	# marker, the last of them stood inside the Courtesy Shuttle's side, parked
+	# right there. The line starts as far up the walk as the deepest of them, so
+	# nobody is placed further out than the curb (R2 integration).
+	if out.size() >= 2:
+		var deepest := 0.9 + float(floori(maxi(_roster.size() - 1, 0) / 2.0)) * 1.1
+		var first: Vector3 = out[0]
+		var second: Vector3 = out[1]
+		out[0] = first + (second - first).normalized() * minf(deepest, first.distance_to(second) * 0.8)
 	return out
 
 
