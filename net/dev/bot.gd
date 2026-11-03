@@ -96,8 +96,12 @@ func _during_run_event(player: Node3D) -> bool:
 		var spot := _nearest_free_spot(player)
 		if spot != null:
 			Input.action_press(&"sprint")
-			_face(player, spot.global_position)
-			if spot.global_position.distance_to(player.global_position) <= Constants.HIDE_REACH * 0.9 and _elapsed >= _next_interact:
+			# A shed is only got into from before its door: head for the doorstep.
+			var goal := spot.global_position
+			if str(spot.get("spot_kind")) == "shed":
+				goal = spot.call("entry_point", 0, 0)
+			_face(player, goal)
+			if goal.distance_to(player.global_position) <= Constants.HIDE_REACH * 0.9 and _elapsed >= _next_interact:
 				_next_interact = _elapsed + 1.0
 				_press_interact()
 			return true

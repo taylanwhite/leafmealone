@@ -483,6 +483,9 @@ func _on_entered(peer_id: int, side: int, at: float) -> void:
 func _on_exited(peer_id: int, side: int, at: float) -> void:
 	_peek_shown.erase(peer_id)
 	_glint.visible = false
+	# A peek left open (they dropped out mid-peek) shuts; a found's open lid stays.
+	if (_hinge_target == DOOR_PEEK or _hinge_target == LID_PEEK) and not _peek_shown.values().has(true):
+		_hinge_to(0.0)
 	if side >= 0:
 		set_state(&"exit", at, {"side": side})
 
@@ -500,6 +503,10 @@ func _on_inspect(crew: Node3D, phase: StringName, at: float) -> void:
 			set_state(&"inspect", at, {"crew": crew})
 		&"found":
 			set_state(&"found", at, {"crew": crew})
+		&"cancel":
+			# He was stopped mid-poke: the lid drops, nothing else.
+			_poking = 0.0
+			_hinge_to(0.0)
 		_:
 			set_state(&"near_miss", at, {"crew": crew})
 
@@ -585,7 +592,7 @@ func _watch_occupants(delta: float) -> void:
 			continue
 		var yaw := float(body.get("body_yaw"))
 		# Settling in after the dive turns the body round once: that's no tell.
-		if Time.get_ticks_msec() - int(_entered_ms.get(peer_id, 0)) < 1200:
+		if Time.get_ticks_msec() - int(_entered_ms.get(peer_id, 0)) < int(Constants.HIDE_SETTLE_SECONDS * 1000.0):
 			_yaw_seen[peer_id] = yaw
 			continue
 		if _yaw_seen.has(peer_id) and delta > 0.0:

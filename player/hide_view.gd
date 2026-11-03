@@ -39,6 +39,11 @@ const VOICE_MUFFLED := &"VoiceMuffled"
 const SHOT_PEEK := &"hide_peek"
 const SHOT_ORBIT := &"hide_orbit"
 const SHOT_PRIORITY: int = 20
+## Closer than this to a shed's doorstep (m), the step goes straight in.
+const SHED_DOORSTEP_SNAP: float = 0.25
+## The pile's eye: this high over the body and this far ahead (m).
+const PILE_EYE_HEIGHT: float = 0.42
+const PILE_EYE_AHEAD: float = 0.3
 
 var player: CharacterBody3D
 
@@ -50,6 +55,8 @@ var _to := Vector3.ZERO
 var _peak: float = 0.0
 ## Where the dive in front of the camera turned around (refusals bounce from here).
 var _start := Vector3.ZERO
+## A shed step from off to one side goes by the doorstep first (INF: straight).
+var _via := Vector3.INF
 ## Owner: the spot a dive is waiting on the host for, and since when (msec).
 var _waiting: Node3D
 var _waiting_since: int = 0
@@ -87,6 +94,7 @@ var _pile_suspicion: float = 0.0
 var _pile_used_at: float = -1000.0
 var _pile_inspected_at: float = -1000.0
 var _pile_inspector: Node
+var _pile_inspect_began: float = -1.0
 var _pile_last_seen := Vector3.INF
 var _pile_rustle_cool: float = 0.0
 
@@ -118,7 +126,7 @@ func predict_enter(spot: Node3D) -> void:
 	if not is_owner_view() or is_moving() or spot == null:
 		return
 	var side := int(spot.call("side_toward", player.global_position))
-	var slot := (spot.call("occupants") as Array).size()
+	var slot := int(spot.call("free_slot")) if spot.has_method("free_slot") else 0
 	_waiting = spot
 	_waiting_since = Time.get_ticks_msec()
 	if spot.has_method("predict_enter"):
@@ -162,10 +170,22 @@ func _begin_dive(spot: Node3D, side: int, slot: int) -> void:
 	_to = spot.call("inside_point", side, slot)
 	var kind := str(spot.get("spot_kind"))
 	var top: float = (spot.get("box_size") as Vector3).y
+	var via := Vector3.INF
 	match kind:
 		"shed":
 			_peak = 0.0
 			_gesture("shed_step", "shuffle")
+			# From off to one side of the door: across to the doorway first (no
+			# farther out than you already are, never backing off), then in.
+			var doorstep: Vector3 = spot.call("entry_point", side, slot)
+			var out: Vector3 = spot.call("side_direction", side)
+			var inside: Vector3 = _to
+			var step_out := (doorstep - inside).dot(out)
+			var depth := clampf((_from - inside).dot(out), step_out - Constants.HIDE_EXIT_GAP, step_out)
+			var doorway := inside + out * depth
+			doorway.y = _from.y
+			if Vector2(doorway.x - _from.x, doorway.z - _from.z).length() > SHED_DOORSTEP_SNAP:
+				via = doorway
 		"bin":
 			# Hands on the rim, knees tucked over it: the feet needn't clear the top.
 			_peak = top * 0.78 - _from.y + spot.global_position.y
@@ -173,8 +193,9 @@ func _begin_dive(spot: Node3D, side: int, slot: int) -> void:
 		_:
 			_peak = top * 0.7 - _from.y + spot.global_position.y
 			_gesture("hedge_dive", "startle")
-	_face_toward(_to)
+	_face_toward(_to if not via.is_finite() else via)
 	_start_move(Move.DIVE, Constants.HIDE_ENTER_SECONDS)
+	_via = via
 	player.call("say_to_all", "vo_hup")
 	_push_spot_shot(spot, side, slot, Constants.HIDE_ENTER_SECONDS)
 
@@ -247,12 +268,14 @@ func _retarget(to: Vector3) -> void:
 	_peak *= share
 	_move_t = 0.0
 	_move_length = left
+	_via = Vector3.INF
 
 
 func _start_move(kind: Move, seconds: float) -> void:
 	_move = kind
 	_move_t = 0.0
 	_move_length = maxf(seconds, 0.05)
+	_via = Vector3.INF
 
 
 func _physics_process(delta: float) -> void:
@@ -284,6 +307,18 @@ func _step_owner(delta: float) -> void:
 	# A hop is ballistic: steady across, up and down on the arc. A walk eases.
 	var across := t * (1.12 - 0.12 * t) if _peak > 0.0 else eased
 	var at := _from.lerp(_to, across)
+	if _via.is_finite():
+		# Two legs at one pace: to the doorstep, then through the door.
+		var first := _from.distance_to(_via)
+		var split := first / maxf(first + _via.distance_to(_to), 0.001)
+		if across < split:
+			at = _from.lerp(_via, across / maxf(split, 0.001))
+		else:
+			at = _via.lerp(_to, (across - split) / maxf(1.0 - split, 0.001))
+		# Turning to the door on the way to the step, not snapping round on it.
+		if across > split * 0.5:
+			var door := atan2(-(_to.x - _via.x), -(_to.z - _via.z))
+			player.set("body_yaw", lerp_angle(float(player.get("body_yaw")), door, clampf(delta * 14.0, 0.0, 1.0)))
 	# The arc: up over the top and down again (a bonk bounces lower).
 	if _peak > 0.0:
 		var lift := 4.0 * t * (1.0 - t)
@@ -353,15 +388,24 @@ func on_unhidden(exit_to: Vector3, pulled: bool) -> void:
 		_pop_shot(0.2)
 
 
-## From player.set_pile on every peer.
-func on_pile(hidden: bool) -> void:
-	if hidden:
+## From player.set_pile on every peer. fresh false: they were already in when
+## this peer first saw them (a late join), so nothing replays; the mound is just there.
+func on_pile(hidden: bool, fresh: bool = true) -> void:
+	if hidden and not fresh:
+		_pile_used_at = Net.server_time() - Constants.SUSPICION_RECENT_SECONDS
+		_in_at = _pile_used_at
+		_pile_since_ms = Time.get_ticks_msec() - int(Constants.HIDE_ENTER_SECONDS * 1000.0)
+		_last_yaw = INF
+		if not is_owner_view():
+			_place_pile_anchor(-player.global_basis.z)
+	elif hidden:
 		_waiting_pile = false
 		_pile_used_at = Net.server_time()
 		_in_at = Net.server_time()
 		_pile_since_ms = Time.get_ticks_msec()
 		if not is_owner_view():
 			_gesture("pile_cannonball", "startle")
+			_place_pile_anchor(-player.global_basis.z)
 		_last_yaw = INF
 		# The owner's own cannonball lands a moment from now: the whump goes there.
 		var landing := 0.0
@@ -423,6 +467,9 @@ func present(delta: float) -> void:
 	_present_mound()
 	_present_hat(delta)
 	if not is_owner_view():
+		# The eye rides along to where the cannonball lands, still facing the dive.
+		if _pile_anchor != null and bool(player.get("in_pile")):
+			_place_pile_anchor(-_pile_anchor.global_basis.z)
 		return
 	var hidden := _spot != null or bool(player.get("in_pile"))
 	_step_peek(delta, hidden)
@@ -526,15 +573,8 @@ func _push_spot_shot(spot: Node3D, side: int, slot: int, blend: float) -> void:
 func _push_pile_shot() -> void:
 	if not is_owner_view() or not player.has_method("stage_push"):
 		return
-	if _pile_anchor == null:
-		_pile_anchor = Marker3D.new()
-		_pile_anchor.name = "PileEye"
-		player.get_parent().add_child(_pile_anchor)
-	if _shot == &"":
-		var ahead := -player.global_basis.z
-		ahead.y = 0.0
-		var eye := player.global_position + Vector3(0.0, 0.42, 0.0) + ahead.normalized() * 0.3
-		_pile_anchor.global_transform = Transform3D(Basis.looking_at(ahead.normalized(), Vector3.UP), eye)
+	if _shot == &"" or _pile_anchor == null:
+		_place_pile_anchor(-player.global_basis.z)
 	var first_person := _first_person()
 	var id := SHOT_PEEK if first_person else SHOT_ORBIT
 	if _shot != &"" and _shot != id:
@@ -557,6 +597,21 @@ func _push_pile_shot() -> void:
 		"priority": SHOT_PRIORITY,
 	}
 	player.call("stage_push", id, shot)
+
+
+## The pile's eye, just over the leaves and facing ahead (flat). Made on every
+## peer, so the host's crew brain has a peek_anchor for anyone's pile.
+func _place_pile_anchor(ahead: Vector3) -> void:
+	if _pile_anchor == null:
+		_pile_anchor = Marker3D.new()
+		_pile_anchor.name = "PileEye"
+		player.get_parent().add_child(_pile_anchor)
+	ahead.y = 0.0
+	if ahead.length() < 0.01:
+		ahead = Vector3.FORWARD
+	ahead = ahead.normalized()
+	var eye := player.global_position + Vector3(0.0, PILE_EYE_HEIGHT, 0.0) + ahead * PILE_EYE_AHEAD
+	_pile_anchor.global_transform = Transform3D(Basis.looking_at(ahead, Vector3.UP), eye)
 
 
 func _pop_shot(blend: float) -> void:
@@ -828,7 +883,7 @@ func _track_turn(delta: float) -> void:
 		return
 	_pile_suspicion = maxf(0.0, _pile_suspicion - Constants.SUSPICION_DECAY_PER_S * delta)
 	_pile_rustle_cool = maxf(0.0, _pile_rustle_cool - delta)
-	if Net.server_time() - _in_at < 1.0:
+	if Net.server_time() - _in_at < Constants.HIDE_SETTLE_SECONDS:
 		return
 	var watched := _crew_sees(player.global_position + Vector3(0.0, 0.5, 0.0))
 	if not watched:
@@ -855,10 +910,13 @@ func pile_suspicion() -> float:
 
 
 func pile_inspect_score(from: Vector3, last_seen: Vector3) -> float:
+	# A poke nobody resolved (he was bonked or sent home) stops holding the pile.
+	if _pile_inspector != null and (not is_instance_valid(_pile_inspector) or Net.server_time() - _pile_inspect_began > Constants.HIDE_INSPECT_SECONDS + Constants.HIDE_INSPECT_STALE_SLACK):
+		_pile_inspector = null
 	if not bool(player.get("in_pile")) or _pile_inspector != null or Net.server_time() - _pile_inspected_at < Constants.HIDE_INSPECT_COOLDOWN:
 		return -1.0
 	_pile_last_seen = last_seen
-	return pile_suspicion() + _near_bonus(last_seen) + 0.15 - from.distance_to(player.global_position) / 40.0
+	return pile_suspicion() + _near_bonus(last_seen) + Constants.HIDE_INSPECT_BASE - from.distance_to(player.global_position) / Constants.HIDE_INSPECT_METERS_PER_POINT
 
 
 func pile_inspect_point() -> Vector3:
@@ -869,6 +927,13 @@ func pile_inspect_point() -> Vector3:
 
 func pile_inspect_begin(crew: Node) -> void:
 	_pile_inspector = crew
+	_pile_inspect_began = Net.server_time()
+
+
+## Host: the pats stopped short; the pile can be looked at again.
+func pile_inspect_cancel(crew: Node) -> void:
+	if crew == null or not is_instance_valid(_pile_inspector) or crew == _pile_inspector:
+		_pile_inspector = null
 
 
 ## Host: {outcome, peer} for the pile the player is in.

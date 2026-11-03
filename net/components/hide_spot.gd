@@ -28,6 +28,10 @@ signal occupants_changed(peers: Array)
 const SIDES: Array[Vector3] = [Vector3(0.0, 0.0, -1.0), Vector3(1.0, 0.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(-1.0, 0.0, 0.0)]
 ## What the exit sweep collides with: the world and props (the player's own mask).
 const EXIT_MASK: int = 5
+## Layout of the spots' insides (m): how far in from a side the body rests, and
+## how far apart a shed's two places sit.
+const INSIDE_DEPTH: float = 0.4
+const PLACE_OFFSET: float = 0.45
 
 ## Totals for this process, read by net/dev/probe.gd and the soak report. Host only.
 static var stats: Dictionary = {"entered": 0, "refused": 0, "pulled_out": 0, "inspected": 0, "near_misses": 0, "found": 0}
@@ -42,9 +46,11 @@ var occupant: int = 0
 ## Courtesy Notice stickers slapped on this spot today (every peer).
 var notices: int = 0
 
-## Peers inside, in arrival order, and the side each came in by (every peer).
+## Peers inside, in arrival order, the side each came in by and the place each
+## has (a shed's two; a newcomer gets the lowest free one) (every peer).
 var _occupants: Array[int] = []
 var _sides: Array[int] = []
+var _slots: Array[int] = []
 ## Host only.
 var _suspicion: float = 0.0
 var _last_used_at: float = -1000.0
@@ -69,6 +75,7 @@ func _exit_tree() -> void:
 	var inside := _occupants.duplicate()
 	_occupants.clear()
 	_sides.clear()
+	_slots.clear()
 	occupant = 0
 	for peer_id: int in inside:
 		var body := _player(peer_id)
@@ -102,9 +109,19 @@ func side_of(peer_id: int) -> int:
 	return _sides[index] if index >= 0 and index < _sides.size() else -1
 
 
-## Which of the spot's places peer has (a shed has two), or 0.
+## Which of the spot's places peer has (a shed has two), or 0. It stays theirs
+## while others come and go.
 func slot_of(peer_id: int) -> int:
-	return maxi(0, _occupants.find(peer_id))
+	var index := _occupants.find(peer_id)
+	return _slots[index] if index >= 0 and index < _slots.size() else 0
+
+
+## The place the next one in would get: the lowest one nobody has.
+func free_slot() -> int:
+	for slot: int in maxi(capacity, 1):
+		if not _slots.has(slot):
+			return slot
+	return 0
 
 
 # ---------------------------------------------------------------- geometry
@@ -123,6 +140,17 @@ func reach_distance(at: Vector3) -> float:
 func side_toward(at: Vector3) -> int:
 	if spot_kind == "shed":
 		return 0
+	return _face_before(at)
+
+
+## Whether someone here can get in: a shed only from before its door, so nobody
+## steps in through a wall.
+func can_enter_from(at: Vector3) -> bool:
+	return spot_kind != "shed" or _face_before(at) == 0
+
+
+## The face of the box this point stands before.
+func _face_before(at: Vector3) -> int:
 	var local := global_transform.affine_inverse() * at
 	var half := box_size * 0.5
 	var best := 0
@@ -157,7 +185,7 @@ func inside_point(side: int, slot: int = 0) -> Vector3:
 	var direction: Vector3 = SIDES[clampi(side, 0, 3)]
 	var half := box_size * 0.5
 	var extent := absf(direction.x) * half.x + absf(direction.z) * half.z
-	var local := direction * maxf(0.0, extent - 0.4) + _slot_offset(side, slot)
+	var local := direction * maxf(0.0, extent - INSIDE_DEPTH) + _slot_offset(side, slot)
 	return global_transform * Vector3(local.x, 0.02, local.z)
 
 
@@ -219,7 +247,7 @@ func _slot_offset(side: int, slot: int) -> Vector3:
 		return Vector3.ZERO
 	var direction: Vector3 = SIDES[clampi(side, 0, 3)]
 	var along := Vector3(-direction.z, 0.0, direction.x)
-	return along * (0.45 if slot % 2 == 1 else -0.45)
+	return along * (PLACE_OFFSET if slot % 2 == 1 else -PLACE_OFFSET)
 
 
 # ---------------------------------------------------------------- requests
@@ -255,9 +283,11 @@ func _handle_enter(peer_id: int) -> void:
 	stats["entered"] = int(stats["entered"]) + 1
 	var peers := _occupants.duplicate()
 	var sides := _sides.duplicate()
+	var slots := _slots.duplicate()
 	peers.append(peer_id)
 	sides.append(side)
-	_rpc_set_occupants.rpc(peers, sides, Net.server_time())
+	slots.append(free_slot())
+	_rpc_set_occupants.rpc(peers, sides, slots, Net.server_time())
 
 
 ## Why peer can't get in now, or "".
@@ -268,8 +298,12 @@ func _refusal(peer_id: int, body: Node3D) -> String:
 		return "inside"
 	if not has_room():
 		return "full"
-	if reach_distance(body.global_position) > Constants.HIDE_REACH_EDGE + 0.6:
+	if reach_distance(body.global_position) > Constants.HIDE_REACH_EDGE + Constants.HIDE_REACH_SLACK:
 		return "far"
+	# A shed's door: the asker checked can_enter_from; the host, a moment behind,
+	# only turns away someone round the back half.
+	if spot_kind == "shed" and (global_transform.affine_inverse() * body.global_position).z > 0.0:
+		return "door"
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and bool(director.call("is_captured", peer_id)):
 		return "caught"
@@ -354,13 +388,24 @@ func suspicion() -> float:
 
 
 ## Host: whether it's worth a look from `from`, given where someone was last
-## seen (Vector3.INF if nowhere): suspicion + 0.15 - meters / 40, plus a little
-## near the last sighting. Below 0 means skip (just inspected, or being poked).
+## seen (Vector3.INF if nowhere): suspicion + HIDE_INSPECT_BASE - meters /
+## HIDE_INSPECT_METERS_PER_POINT, plus a little near the last sighting. Below 0
+## means skip (just inspected, or being poked).
 func inspect_score(from: Vector3, last_seen: Vector3) -> float:
+	_drop_stale_inspector()
 	if Net.server_time() - _inspected_at < Constants.HIDE_INSPECT_COOLDOWN or _inspector != null:
 		return -1.0
 	_last_seen_hint = last_seen
-	return suspicion() + _near_bonus(last_seen) + 0.15 - from.distance_to(global_position) / 40.0
+	return suspicion() + _near_bonus(last_seen) + Constants.HIDE_INSPECT_BASE - from.distance_to(global_position) / Constants.HIDE_INSPECT_METERS_PER_POINT
+
+
+## A poke nobody resolved (the NICE BOY was bonked, stunned or sent home) stops
+## holding the spot once it's well overdue or he's gone.
+func _drop_stale_inspector() -> void:
+	if _inspector == null:
+		return
+	if not is_instance_valid(_inspector) or Net.server_time() - _inspect_began > Constants.HIDE_INSPECT_SECONDS + Constants.HIDE_INSPECT_STALE_SLACK:
+		_inspector = null
 
 
 ## Host only, for older callers: whether it looks bad enough to be opened.
@@ -383,6 +428,18 @@ func host_inspect_begin(crew: Node) -> void:
 	_inspect_began = Net.server_time()
 	stats["inspected"] = int(stats["inspected"]) + 1
 	_rpc_inspect.rpc(_crew_index(crew), Net.server_time(), &"begin")
+
+
+## Host: the poke stopped short (he was bonked, stunned or sent home): no
+## outcome, no sticker; the spot can be looked at again.
+func host_inspect_cancel(crew: Node) -> void:
+	if not Net.is_host() or _inspector == null:
+		return
+	if crew != null and is_instance_valid(_inspector) and crew != _inspector:
+		return
+	var who: Node = _inspector if is_instance_valid(_inspector) else null
+	_inspector = null
+	_rpc_inspect.rpc(_crew_index(who), Net.server_time(), &"cancel")
 
 
 ## Host: the poke is over. {outcome: &"found" | &"near_miss", peer}. Found lifts
@@ -431,7 +488,7 @@ func _pull(peer_id: int, crew: Node) -> void:
 		var crew_at := (crew as Node3D).global_position
 		var away := crew_at - global_position
 		away.y = 0.0
-		toward = crew_at - away.normalized() * 0.9 if away.length() > 0.1 else crew_at
+		toward = crew_at - away.normalized() * Constants.HIDE_PULL_STANDOFF if away.length() > 0.1 else crew_at
 		toward.y = global_position.y + 0.05
 	_rpc_pull.rpc(peer_id, toward, Net.server_time())
 	# Without the R2 Encounter there's no gotcha to hand them to: the director takes them.
@@ -458,7 +515,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var watched := _seen_by_crew(top_point(), 0)
 	# Settling in after the dive turns the body round once: that's no rustle.
-	var settling := Net.server_time() - _last_used_at < 1.2
+	var settling := Net.server_time() - _last_used_at < Constants.HIDE_SETTLE_SECONDS
 	for peer_id: int in _occupants:
 		var body := _player(peer_id)
 		if body == null:
@@ -582,21 +639,25 @@ func _rpc_refuse(reason: String) -> void:
 	_on_refused(reason)
 
 
-## Who is inside and by which side, from the host's server time at.
+## Who is inside, by which side and in which place, from the host's server time at.
 @rpc("authority", "call_local", "reliable")
-func _rpc_set_occupants(peers: Array, entry_sides: Array, at: float) -> void:
+func _rpc_set_occupants(peers: Array, entry_sides: Array, slots: Array, at: float) -> void:
 	var before := _occupants.duplicate()
 	_occupants.clear()
 	_sides.clear()
+	_slots.clear()
 	for index: int in peers.size():
 		_occupants.append(int(peers[index]))
 		_sides.append(int(entry_sides[index]) if index < entry_sides.size() else 0)
+		_slots.append(int(slots[index]) if index < slots.size() else index)
 	occupant = _occupants[0] if not _occupants.is_empty() else 0
 	for peer_id: int in before:
 		if not _occupants.has(peer_id):
 			var leaving := _player(peer_id)
 			if leaving != null and leaving.has_method("set_hidden_in"):
 				leaving.call("set_hidden_in", null)
+			# Gone without climbing out (a disconnect): the look lets go of them too.
+			_on_exited(peer_id, -1, at)
 	for peer_id: int in _occupants:
 		if not before.has(peer_id):
 			var entering := _player(peer_id)
@@ -613,10 +674,8 @@ func _rpc_exit_side(peer_id: int, side: int, at: float) -> void:
 	var index := _occupants.find(peer_id)
 	if index < 0:
 		return
-	var slot := index
-	_occupants.remove_at(index)
-	if index < _sides.size():
-		_sides.remove_at(index)
+	var slot := slot_of(peer_id)
+	_forget(index)
 	occupant = _occupants[0] if not _occupants.is_empty() else 0
 	var body := _player(peer_id)
 	if body != null and body.has_method("set_hidden_in"):
@@ -632,9 +691,7 @@ func _rpc_pull(peer_id: int, to: Vector3, at: float) -> void:
 	var index := _occupants.find(peer_id)
 	if index < 0:
 		return
-	_occupants.remove_at(index)
-	if index < _sides.size():
-		_sides.remove_at(index)
+	_forget(index)
 	occupant = _occupants[0] if not _occupants.is_empty() else 0
 	var body := _player(peer_id)
 	if body != null and body.has_method("set_hidden_in"):
@@ -644,7 +701,15 @@ func _rpc_pull(peer_id: int, to: Vector3, at: float) -> void:
 	occupants_changed.emit(occupants())
 
 
-## A NICE BOY's poke: phase &"begin", &"near_miss" or &"found", from server time at.
+func _forget(index: int) -> void:
+	_occupants.remove_at(index)
+	if index < _sides.size():
+		_sides.remove_at(index)
+	if index < _slots.size():
+		_slots.remove_at(index)
+
+
+## A NICE BOY's poke: phase &"begin", &"near_miss", &"found" or &"cancel", from server time at.
 @rpc("authority", "call_local", "reliable")
 func _rpc_inspect(crew_index: int, at: float, phase: StringName) -> void:
 	_on_inspect(_crew_by_index(crew_index), phase, at)
@@ -664,7 +729,7 @@ func _rpc_request_state() -> void:
 	var asker := multiplayer.get_remote_sender_id()
 	if not _occupants.is_empty():
 		# Old news by now: at is long past, so they're simply inside.
-		_rpc_set_occupants.rpc_id(asker, _occupants, _sides, Net.server_time() - 10.0)
+		_rpc_set_occupants.rpc_id(asker, _occupants, _sides, _slots, Net.server_time() - 10.0)
 	if notices > 0:
 		_rpc_notice.rpc_id(asker, notices)
 
@@ -674,10 +739,12 @@ func _on_player_left(peer_id: int) -> void:
 		return
 	var peers := _occupants.duplicate()
 	var sides := _sides.duplicate()
+	var slots := _slots.duplicate()
 	var index := peers.find(peer_id)
 	peers.remove_at(index)
 	sides.remove_at(index)
-	_rpc_set_occupants.rpc(peers, sides, Net.server_time())
+	slots.remove_at(index)
+	_rpc_set_occupants.rpc(peers, sides, slots, Net.server_time())
 
 
 # ---------------------------------------------------------------- the look's hooks

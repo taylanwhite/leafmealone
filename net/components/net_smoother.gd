@@ -9,6 +9,10 @@ extends Node
 const MAX_EXTRAPOLATION_SECONDS: float = 0.1
 ## Horizontal speed above which a gap in updates counts as a hitch, in m/s.
 const MOVING_SPEED: float = 0.5
+## Unchanged this long counts as stopped (s): past a sync interval (0.033 s) with
+## room for jitter, and inside delay_seconds so the visual never extrapolates
+## past a stop.
+const STOP_AFTER_SECONDS: float = 0.07
 
 ## Totals across every smoother in this process, read by net/dev/probe.gd.
 ## A hitch is a gap between updates longer than delay_seconds while the body was
@@ -26,6 +30,11 @@ static var stats: Dictionary = {"samples": 0, "hitches": 0, "max_gap_ms": 0.0, "
 var _visual: Node3D
 var _samples: Array[Dictionary] = []
 var _last_recorded := Vector3(INF, INF, INF)
+## When the replicated origin last changed (an update arrived) and how fast it
+## was going then, and whether the one stop copy after it is in.
+var _last_change_at: float = 0.0
+var _last_change_speed: float = 0.0
+var _stop_recorded: bool = false
 
 
 func _ready() -> void:
@@ -49,24 +58,37 @@ func _physics_process(_delta: float) -> void:
 	if body == null:
 		return
 	var origin := body.global_position
-	if origin.distance_squared_to(_last_recorded) < 0.0000001 and not _samples.is_empty():
-		# Stopped: one more sample where it stopped, so the visual doesn't stay
-		# extrapolated past the stop (a dive into a hedge left it 0.5 m underground).
-		if _samples.size() >= 2 and ((_samples[_samples.size() - 2]["xform"] as Transform3D).origin).distance_squared_to(origin) < 0.0000001:
-			return
-	_last_recorded = origin
 	var now := _now()
-	if not _samples.is_empty():
-		var previous: Dictionary = _samples[_samples.size() - 1]
-		var gap := now - float(previous["at"])
-		if float(previous.get("speed", 0.0)) > MOVING_SPEED:
-			stats["max_gap_ms"] = maxf(float(stats["max_gap_ms"]), gap * 1000.0)
-			if gap > delay_seconds:
-				stats["hitches"] = int(stats["hitches"]) + 1
+	if origin.distance_squared_to(_last_recorded) < 0.0000001 and not _samples.is_empty():
+		# Unchanged. Updates arrive at the sync interval, slower than physics, so
+		# most of these are just the gap between two updates: record nothing.
+		# Unchanged for longer than an update gap means it stopped: one copy where
+		# it stopped, so the visual doesn't stay extrapolated past the stop (a dive
+		# into a hedge left it 0.5 m underground).
+		if _stop_recorded or now - _last_change_at < STOP_AFTER_SECONDS:
+			return
+		_stop_recorded = true
+		_samples.append({"at": now, "xform": body.global_transform, "speed": 0.0})
+		_trim(now)
+		return
+	# Gaps are measured between updates, not to a stop copy.
+	if not _samples.is_empty() and _last_change_speed > MOVING_SPEED:
+		var gap := now - _last_change_at
+		stats["max_gap_ms"] = maxf(float(stats["max_gap_ms"]), gap * 1000.0)
+		if gap > delay_seconds:
+			stats["hitches"] = int(stats["hitches"]) + 1
 	stats["samples"] = int(stats["samples"]) + 1
 	var velocity: Vector3 = body.get("velocity") if "velocity" in body else Vector3.ZERO
-	_samples.append({"at": now, "xform": body.global_transform, "speed": Vector2(velocity.x, velocity.z).length()})
-	var cutoff := _now() - delay_seconds - 1.0
+	_last_recorded = origin
+	_last_change_at = now
+	_last_change_speed = Vector2(velocity.x, velocity.z).length()
+	_stop_recorded = false
+	_samples.append({"at": now, "xform": body.global_transform, "speed": _last_change_speed})
+	_trim(now)
+
+
+func _trim(now: float) -> void:
+	var cutoff := now - delay_seconds - 1.0
 	while _samples.size() > 2 and float(_samples[0]["at"]) < cutoff:
 		_samples.remove_at(0)
 
@@ -85,6 +107,9 @@ func _process(_delta: float) -> void:
 		_samples.clear()
 		_samples.append({"at": _now(), "xform": rendered, "speed": 0.0})
 		_last_recorded = rendered.origin
+		_last_change_at = _now()
+		_last_change_speed = 0.0
+		_stop_recorded = true
 	_visual.global_transform = rendered * _rest
 
 

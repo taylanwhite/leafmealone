@@ -14,7 +14,8 @@ extends Node
 ##    It peeks: peeking replicates. It looks hard left and comes out: the exit
 ##    is where the host said, clear of geometry, on the side it faced (unless
 ##    that side was blocked), along a path; the muffle is gone.
-## 2. shed: the host and the client both get in: it holds two.
+## 2. shed: the host and the client both get in: it holds two. The host leaves
+##    first and the client keeps its place; only the door side lets anyone in.
 ## 3. bin: the host is in; the client's dive is refused and bonks it back
 ##    where it started, not hidden. Then the client vaults in itself (a live
 ##    view under the lid) and back out.
@@ -25,7 +26,8 @@ extends Node
 ##    client hides unseen; peeking with a NICE BOY behind it raises no
 ##    suspicion, in front of it does; an inspection of an unseen still hider is
 ##    a near miss with a sticker (on both peers); an immune hider is never
-##    found; a dive he watches is found, lifted out, and caught (with the R2
+##    found; a poke cut short frees the spot with no outcome; a dive he watches
+##    is found, lifted out, and caught (with the R2
 ##    Encounter: GOTCHA; without it: the director's cohort).
 
 const _HideSpot = preload("res://net/components/hide_spot.gd")
@@ -158,12 +160,20 @@ func _shed_step(shed: Node3D, mate: int) -> void:
 	var report: Dictionary = await _report("in")
 	var both := bool(shed.call("is_inside", me.name.to_int())) and bool(shed.call("is_inside", mate))
 	_check("shed holds two", both and bool(report.get("ok", false)), "occupants %s; client: %s" % [shed.call("occupants"), report])
+	# The first one out leaves their place free; the one still in keeps theirs.
+	var client_slot := int(shed.call("slot_of", mate))
+	me.call("_toggle_hiding")
+	await _seconds(1.0)
+	var kept := int(shed.call("slot_of", mate)) == client_slot and int(shed.call("free_slot")) == 1 - client_slot
+	_check("shed places stay put", kept, "client place %d then %d, free %d" % [client_slot, int(shed.call("slot_of", mate)), int(shed.call("free_slot"))])
 	_reports.erase("out")
 	_rpc_cue.rpc_id(mate, "exit", {"look": 0.0})
 	await _report("out")
-	me.call("_toggle_hiding")
-	await _seconds(1.0)
+	await _seconds(0.6)
 	_check("shed empty again", (shed.call("occupants") as Array).is_empty(), "occupants %s" % [shed.call("occupants")])
+	# Only from before the door: never in through the back or a side wall.
+	var door_only := bool(shed.call("can_enter_from", shed.call("entry_point", 0, 0))) and not bool(shed.call("can_enter_from", shed.call("entry_point", 1, 0))) and not bool(shed.call("can_enter_from", shed.call("entry_point", 2, 0)))
+	_check("shed by its door only", door_only, "front/side/back: %s %s %s" % [shed.call("can_enter_from", shed.call("entry_point", 0, 0)), shed.call("can_enter_from", shed.call("entry_point", 1, 0)), shed.call("can_enter_from", shed.call("entry_point", 2, 0))])
 
 
 ## 3. A full bin: the client bonks off.
@@ -307,6 +317,14 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 	_check("an immune hider isn't found", immune["outcome"] == &"near_miss" and bool(hedge.call("is_inside", mate)), "outcome %s" % immune["outcome"])
 	safe.erase(mate)
 	hedge.set("_suspicion", 0.0)
+	# A poke cut short (he's bonked mid-poke) frees the spot: no outcome, no sticker.
+	hedge.set("_inspected_at", -1000.0)
+	var notices_now := int(hedge.get("notices"))
+	hedge.call("host_inspect_begin", crew)
+	var held := float(hedge.call("inspect_score", crew.global_position, Vector3.INF)) < 0.0
+	hedge.call("host_inspect_cancel", crew)
+	var freed := float(hedge.call("inspect_score", crew.global_position, Vector3.INF)) >= 0.0
+	_check("a cut-short poke frees the spot", held and freed and int(hedge.get("notices")) == notices_now and bool(hedge.call("is_inside", mate)), "held %s, freed %s, notices %d -> %d" % [held, freed, notices_now, int(hedge.get("notices"))])
 	# Out, then back in while he watches: found, lifted out toward him, caught.
 	_reports.erase("out")
 	_rpc_cue.rpc_id(mate, "exit", {"look": 0.0})

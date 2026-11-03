@@ -1193,6 +1193,10 @@ func _rpc_pile_popped() -> void:
 
 ## Every peer, from in_pile replicating: the dive's leaves and sound where others see it.
 var _pile_seen_in: bool = false
+## When this body appeared on this peer (msec). A pile seen within
+## PILE_STALE_AFTER_SPAWN_MS of it came with the spawn: old news.
+var _spawned_ms: int = Time.get_ticks_msec()
+const PILE_STALE_AFTER_SPAWN_MS: int = 1000
 
 
 func _watch_pile() -> void:
@@ -1200,7 +1204,9 @@ func _watch_pile() -> void:
 		return
 	_pile_seen_in = in_pile
 	if in_pile:
-		_hide_view().call("on_pile", true)
+		# Already in when this peer first saw them (a late join): no replayed dive.
+		var fresh := Time.get_ticks_msec() - _spawned_ms > PILE_STALE_AFTER_SPAWN_MS
+		_hide_view().call("on_pile", true, fresh)
 
 
 # ---------------------------------------------------------------- the pile, inspected
@@ -1224,7 +1230,16 @@ func occupants() -> Array:
 
 
 func peek_anchor() -> Node3D:
+	if not in_pile:
+		return null
 	return _hide_view().get("_pile_anchor") as Node3D
+
+
+## The pats stopped short (he was bonked, stunned or sent home): no outcome,
+## and the pile can be looked at again.
+func host_inspect_cancel(crew: Node) -> void:
+	if Net.is_host():
+		_hide_view().call("pile_inspect_cancel", crew)
 
 
 ## A NICE BOY pats the pile: everyone sees the telegraph and the pats.
@@ -1248,7 +1263,7 @@ func host_inspect_resolve(crew: Node) -> Dictionary:
 			var crew_at := (crew as Node3D).global_position
 			var away := crew_at - global_position
 			away.y = 0.0
-			toward = crew_at - away.normalized() * 0.9 if away.length() > 0.1 else crew_at
+			toward = crew_at - away.normalized() * Constants.HIDE_PULL_STANDOFF if away.length() > 0.1 else crew_at
 			toward.y = global_position.y
 		_rpc_pile_pulled.rpc(toward)
 		if get_tree().get_first_node_in_group("nice_encounter") == null:
@@ -1274,9 +1289,10 @@ func _rpc_pile_inspect(crew_index: int, at: float, phase: StringName) -> void:
 	if multiplayer.get_remote_sender_id() != 1 and multiplayer.get_remote_sender_id() != 0:
 		return
 	var crew: Node3D = null
-	for node: Node in get_tree().get_nodes_in_group("crew"):
-		if _crew_number(node) == crew_index:
-			crew = node as Node3D
+	for group: String in ["nice_crew", "crew"]:
+		for node: Node in get_tree().get_nodes_in_group(group):
+			if _crew_number(node) == crew_index:
+				crew = node as Node3D
 	var where := global_position + Vector3(0.0, 0.4, 0.0)
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	match phase:
@@ -1532,14 +1548,17 @@ func interaction_hint() -> Dictionary:
 	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
 
 
-## The nearest hiding spot with room, measured to its edge (a long hedge is as
-## easy to get into at its end), or null.
+## The nearest hiding spot with room that can be got into from here, measured
+## to its edge (a long hedge is as easy to get into at its end), or null.
 func _nearest_free_spot() -> Node3D:
 	var closest: Node3D = null
 	var closest_distance := Constants.HIDE_REACH_EDGE
 	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
 		var spot := node as Node3D
 		if spot == null or not bool(spot.call("has_room")):
+			continue
+		# A shed only from before its door.
+		if spot.has_method("can_enter_from") and not bool(spot.call("can_enter_from", global_position)):
 			continue
 		var distance := float(spot.call("reach_distance", global_position))
 		if distance <= closest_distance:
@@ -1623,8 +1642,11 @@ func _apply_look() -> void:
 			var angles: Vector2 = cam.call("look_angles")
 			body_yaw = facing + angles.x
 			head_pitch = angles.y
-		elif stage_top() == &"hide_orbit":
-			body_yaw = facing
+		elif cam != null and stage_top() == &"hide_orbit":
+			# Swinging the orbit round turns the hider too (within the peek's
+			# clamp), so a hard turn still shakes the hedge.
+			var orbit: Vector2 = cam.call("look_angles")
+			body_yaw = facing + clampf(orbit.x, -Constants.HIDE_YAW_CLAMP, Constants.HIDE_YAW_CLAMP)
 		else:
 			body_yaw = facing + clampf(angle_difference(facing, body_yaw), -Constants.HIDE_YAW_CLAMP, Constants.HIDE_YAW_CLAMP)
 			head_pitch = clampf(head_pitch, Constants.HIDE_PITCH_CLAMP.x, Constants.HIDE_PITCH_CLAMP.y)

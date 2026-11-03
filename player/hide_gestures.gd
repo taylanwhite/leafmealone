@@ -14,12 +14,14 @@ extends RefCounted
 
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 
-## Seconds each one lasts.
+## Seconds each one lasts: the length of the move or poke it plays over.
 const SECONDS: Dictionary = {
-	"hedge_dive": 0.55, "bin_vault": 0.55, "shed_step": 0.55, "pile_cannonball": 0.55,
-	"burst_out": 0.45, "upsy_daisy_victim": 0.5,
-	"inspect_poke": 2.0, "lid_peer": 2.0, "shed_knock": 2.0, "pile_pat": 2.0,
-	"shrug_notice": 1.2, "upsy_daisy": 0.9,
+	"hedge_dive": Constants.HIDE_ENTER_SECONDS, "bin_vault": Constants.HIDE_ENTER_SECONDS,
+	"shed_step": Constants.HIDE_ENTER_SECONDS, "pile_cannonball": Constants.HIDE_ENTER_SECONDS,
+	"burst_out": Constants.HIDE_EXIT_SECONDS, "upsy_daisy_victim": Constants.HIDE_PULL_SECONDS,
+	"inspect_poke": Constants.HIDE_INSPECT_SECONDS, "lid_peer": Constants.HIDE_INSPECT_SECONDS,
+	"shed_knock": Constants.HIDE_INSPECT_SECONDS, "pile_pat": Constants.HIDE_INSPECT_SECONDS,
+	"shrug_notice": Constants.HIDE_SHRUG_SECONDS, "upsy_daisy": Constants.HIDE_UPSY_DAISY_SECONDS,
 }
 
 static var _done: bool = false

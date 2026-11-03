@@ -1278,9 +1278,26 @@ const HIDE_INSPECT_STAND: float = 1.2
 ## A spot just inspected isn't picked again for this long (s).
 const HIDE_INSPECT_COOLDOWN: float = 20.0
 ## A searching NICE BOY inspects at most this many spots per search, and only
-## ones scoring at least this (inspect_score: suspicion + 0.15 - meters / 40).
+## ones scoring at least this (inspect_score: suspicion + HIDE_INSPECT_BASE -
+## meters / HIDE_INSPECT_METERS_PER_POINT).
 const HIDE_INSPECT_PER_SEARCH: int = 2
 const HIDE_INSPECT_MIN_SCORE: float = 0.05
+const HIDE_INSPECT_BASE: float = 0.15
+const HIDE_INSPECT_METERS_PER_POINT: float = 40.0
+## A poke never resolved (the NICE BOY bonked, stunned or sent home) frees the
+## spot for another look this long after it should have ended (s).
+const HIDE_INSPECT_STALE_SLACK: float = 3.0
+## The host accepts a dive this much farther out than HIDE_REACH_EDGE (m): the
+## asker's position reaches it a little late.
+const HIDE_REACH_SLACK: float = 0.6
+## Settling in after a dive turns the body round once; no tell or rustle counts
+## for this long after getting in (s).
+const HIDE_SETTLE_SECONDS: float = 1.2
+## Found: the hider is set down this far short of the NICE BOY (m).
+const HIDE_PULL_STANDOFF: float = 0.9
+## The NICE BOY's shrug after a near miss and his "Upsy-daisy!" lift (s).
+const HIDE_SHRUG_SECONDS: float = 1.2
+const HIDE_UPSY_DAISY_SECONDS: float = 0.9
 ## Suspicion at or over this when the poke ends: found.
 const HIDE_FOUND_AT: float = 0.6
 ## Found: he lifts you out toward him over this long (s), then the gotcha.
