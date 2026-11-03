@@ -465,15 +465,20 @@ func _test_result_by_path(path: String) -> Dictionary:
 	return (script.get("result") as Dictionary).duplicate(true)
 
 
-## The leaf view's stats (raking:2, group leaf_view) merged with the leaf motion's
-## (raking:3, group leaf_motion); {} for whichever doesn't exist.
+## The leaf view's and the leaf motion layer's counters (raking R1), {} when absent.
 func _leaf_view() -> Dictionary:
-	var merged := {}
-	for group: String in ["leaf_view", "leaf_motion"]:
-		var node := get_tree().get_first_node_in_group(group)
-		if node != null and node.has_method("stats"):
-			merged.merge(node.call("stats") as Dictionary, true)
-	return merged
+	var out: Dictionary = {}
+	var view := get_tree().get_first_node_in_group("leaf_view")
+	if view != null and view.has_method("stats"):
+		out.merge(view.call("stats"))
+	var motion := get_tree().get_first_node_in_group("leaf_motion")
+	if motion != null and motion.has_method("stats"):
+		var stats: Dictionary = motion.call("stats")
+		out.merge(stats)
+		# Both define morph_units and merge keeps the view's: the motion layer's
+		# (units it could not fly because the pool was full) under its own name.
+		out["motion_morph_units"] = stats.get("morph_units", 0)
+	return out
 
 
 ## The leaf field's event, batch and prediction-ledger counters (raking:1).

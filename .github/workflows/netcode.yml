@@ -189,6 +189,18 @@ jobs:
           grep "GagTest" build/soak/ci-gag/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-gag/host.json')); t=json.load(open('build/soak/ci-gag/target.json')); sys.exit(0 if h['gag_test'].get('ok') and abs(h['heat'] - t['heat']) < 1.5 else 1)"
 
+      - name: Leaf motion test (conservation, no teleports, no duplicates, quiescence, caps)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-leaf_motion
+          "$GODOT" --headless --path . -- --host --port=7822 --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --sim-lag=120 --leaf-motion-headless --leaf-motion-test --measure="$PWD/build/soak/ci-leaf_motion/host.json" --run-seconds=100 > build/soak/ci-leaf_motion/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7822 --name=Target --no-steam --sim-lag=120 --leaf-motion-headless --leaf-motion-test --measure="$PWD/build/soak/ci-leaf_motion/target.json" --run-seconds=95 > build/soak/ci-leaf_motion/target.log 2>&1
+          wait
+          grep "LeafMotionTest" build/soak/ci-leaf_motion/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-leaf_motion/host.json')); sys.exit(0 if h['leaf_motion_test'].get('ok') else 1)"
+
       - name: Brawl test (wind-up punch, whack, grab, carry, set down, throw a player)
         if: matrix.part == 'features'
         run: |
