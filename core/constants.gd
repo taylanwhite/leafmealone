@@ -3618,12 +3618,19 @@ const HOTBAR_DRAW_RISE: float = 0.1
 ## this far from its spot in hand, in the body's frame (x right, y up, +z back):
 ## down at the right hip, out of the bottom of the view.
 const HOTBAR_FP_DRAW_FROM := Vector3(0.16, -0.6, 0.12)
-## (Not the rake: its head is on the leaves well ahead, so even through your own
-## eyes it travels between your back and the leaves the way everyone sees it, but
-## bowed this much wider (m) and this much lower, round your right side, so it
-## never sweeps across your face on the way past the camera.)
+## (Not the rake: its head is on the leaves well ahead. Drawn through your own
+## eyes, it comes off your back the way everyone sees it, but bowed this much
+## wider (m) and this much lower, round your right side, so it never sweeps across
+## your face on the way past the camera.)
 const HOTBAR_FP_RAKE_ARC: float = 0.5
 const HOTBAR_FP_RAKE_DROP: float = 0.3
+## Put away through your own eyes, the rake keeps its angle and slides this far
+## (body frame: x right, y up, +z back, m) off the leaves, out past the right edge
+## of the view, before it cuts onto your back.
+const HOTBAR_FP_RAKE_STOW_TO := Vector3(1.5, 0.25, 1.0)
+## A stack worn fanned (the signs down your back): when one leaves, the rest ease
+## over to their new places at this rate (per second; about 0.17 s to settle).
+const HOTBAR_FAN_SETTLE: float = 18.0
 ## A drawn rake's head comes off the back this much higher (m) than the swing
 ## puts it, and plants on the leaves as the draw ends (RakeMotion's draw_dip); a
 ## stowed one lifts this much off the leaves on its way over the shoulder.

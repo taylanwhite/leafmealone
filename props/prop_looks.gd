@@ -336,8 +336,9 @@ static func posed_node(prop: Node3D) -> Node3D:
 ## first-person camera skips (it would sit in their face); every other camera sees
 ## it. Hidden with the body: in a hiding spot or a pile, asleep, sitting in a
 ## seat, or not drawn at all (player.is_body_drawn). Going in, it travels from the
-## hands to its spot (_blend_put); through your own eyes it drops out of the
-## bottom of the view instead of swinging through your head.
+## hands to its spot (_blend_put); through your own eyes it leaves the view (out
+## of the bottom, or the rake out past the right edge) instead of swinging
+## through your head.
 static func pose_stowed(prop: Node3D, holder: Node3D, own: bool) -> void:
 	var look := prop.get_node_or_null("Visual/Look") as Node3D
 	var node := posed_node(prop)
@@ -379,10 +380,13 @@ static func pose_stowed(prop: Node3D, holder: Node3D, own: bool) -> void:
 			from = node.global_transform
 			rake_from = from
 			_set_blend_from(prop, from, holder)
-		if fp and not live_rake:
-			# Through your own eyes: down and out of the view toward the hip. (The
-			# rake goes over your right shoulder as everyone sees it, outside the camera.)
-			target = Transform3D(from.basis, from.origin + holder_frame(holder).basis * Constants.HOTBAR_FP_DRAW_FROM)
+		if fp:
+			# Through your own eyes: out of the view, then a cut onto your back (below).
+			# A small tool drops toward the hip; the rake keeps its angle and lifts off
+			# the leaves out past the right edge (its way to your back as everyone sees
+			# it would swing the handle up through the middle of the view).
+			var away := Constants.HOTBAR_FP_RAKE_STOW_TO if live_rake else Constants.HOTBAR_FP_DRAW_FROM
+			target = Transform3D(from.basis, from.origin + holder_frame(holder).basis * away)
 	var hid := _own_layers(look, own and not (fp and going))
 	var put := _blend_put(prop, node, target, holder)
 	if hid and fp:
@@ -419,12 +423,28 @@ static func stowed_transform(prop: Node3D, holder: Node3D) -> Transform3D:
 	var euler: Vector3 = entry["euler"]
 	if entry.has("fan"):
 		var place := stack_place(prop)
-		var offset := float(place.x) - float(place.y - 1) * 0.5
-		euler.z += float(entry["fan"]) * offset
-		at.x += float(entry["spread"]) * offset
+		var fan := _fan_shown(prop, Vector2(float(place.x) - float(place.y - 1) * 0.5, float(place.x)))
+		euler.z += float(entry["fan"]) * fan.x
+		at.x += float(entry["spread"]) * fan.x
 		# Each one a little further out, so the fan doesn't z-fight.
-		at.z += 0.012 * float(place.x)
+		at.z += 0.012 * fan.y
 	return frame * Transform3D(Basis.from_euler(euler).scaled(Vector3.ONE * float(entry["scale"])), at)
+
+
+## A stacked thing's place in its fan as shown, (offset from the middle, index):
+## eased toward where the stack puts it now (HOTBAR_FAN_SETTLE), so the rest
+## shuffle over when one is drawn or thrown instead of snapping. Straight there
+## when it wasn't worn a moment ago (it glides in on its own).
+static func _fan_shown(prop: Node3D, aim: Vector2) -> Vector2:
+	var now := Time.get_ticks_msec()
+	var last := int(prop.get_meta("fan_msec", -100000))
+	prop.set_meta("fan_msec", now)
+	var shown := aim
+	if now - last <= 250 and prop.has_meta("fan_shown"):
+		var was: Vector2 = prop.get_meta("fan_shown")
+		shown = was.lerp(aim, 1.0 - exp(-float(now - last) / 1000.0 * Constants.HOTBAR_FAN_SETTLE))
+	prop.set_meta("fan_shown", shown)
+	return shown
 
 
 ## A pocketed prop's place in its stack and the stack's size, as (index, count):
@@ -568,9 +588,11 @@ static func _blend_put(prop: Node3D, node: Node3D, target: Transform3D, holder: 
 			var arc := Constants.HOTBAR_DRAW_ARC
 			var rise := Constants.HOTBAR_DRAW_RISE
 			if str(prop.get("kind")) == "rake" and holder.is_multiplayer_authority() and _first_person(holder):
-				# Your own rake round your right side low and wide, never across your face.
-				arc = Constants.HOTBAR_FP_RAKE_ARC
-				rise = -Constants.HOTBAR_FP_RAKE_DROP
+				# Your own rake: drawn round your right side low and wide, never across
+				# your face; put away straight out past the right edge (pose_stowed's
+				# target), no bow to pull it back into view.
+				arc = 0.0 if going else Constants.HOTBAR_FP_RAKE_ARC
+				rise = 0.0 if going else -Constants.HOTBAR_FP_RAKE_DROP
 			if out.length() > 0.01:
 				put.origin += out.normalized() * arc * bow
 			put.origin += Vector3.UP * rise * bow

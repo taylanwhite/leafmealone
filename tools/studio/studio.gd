@@ -524,7 +524,7 @@ class StudioProp extends Node3D:
 ## --kinds=gnome,trash picks which; with one kind the views close in on it.
 ## --stowed=1: bodies wearing their pockets instead (prop_looks.gd STOWED,
 ## pose_stowed; hotbar chunk D), seen from behind, the side and the front;
-## --walk=1 catches them mid-stride.
+## --walk=1 walks them and holds them at full stride.
 func _holds(root: Node3D) -> void:
 	if str(_options.get("stowed", "0")) == "1":
 		_stowed(root)
@@ -657,13 +657,24 @@ func _stowed(root: Node3D) -> void:
 			holders.append(holder)
 			props.append(prop)
 	var walking := str(_options.get("walk", "0")) == "1"
-	for _step: int in 40:
-		for holder: Node3D in root.get_children().filter(func(node: Node) -> bool: return node.name.begins_with("Wearer")):
+	var wearers: Array = root.get_children().filter(func(node: Node) -> bool: return node.name.begins_with("Wearer"))
+	for step: int in 120:
+		for holder: Node3D in wearers:
 			if walking:
 				holder.position.z -= 4.0 / 60.0
 			holder.get_node("Visual/CartoonBody").call("_physics_process", 1.0 / 60.0)
 		for index: int in props.size():
 			looks.pose_stowed(props[index], holders[index], false)
+		if step < 40:
+			continue
+		# Walking: stop at full stride (legs furthest apart) and hold it there, or
+		# the engine's own ticks would see them standing still and settle them idle.
+		var body: Node = (wearers[0] as Node3D).get_node("Visual/CartoonBody")
+		if not walking or absf(sin(float(body.get("_phase")))) > 0.97:
+			break
+	if walking:
+		for holder: Node3D in wearers:
+			holder.get_node("Visual/CartoonBody").set_physics_process(false)
 	var views: Array = []
 	var middle: Vector3 = holders[0].global_position.lerp(holders[holders.size() - 1].global_position, 0.5)
 	for view: Array in [[Vector3(1.4, 1.7, 3.0), 45.0], [Vector3(-3.4, 1.4, 0.4), 40.0], [Vector3(0.6, 1.5, -3.2), 45.0], [Vector3(1.6, 1.3, 1.5), 32.0]]:
