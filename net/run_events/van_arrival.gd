@@ -74,8 +74,11 @@ func _physics_process(_delta: float) -> void:
 			if now >= start:
 				_arrive(director, start, now)
 		CHASE:
-			# The chase starts when the van parks (a client that joined mid-chase
-			# finds it parked).
+			# The chase starts when the van parks, so a peer that saw the phase go
+			# to CHASE without the warning's end (a hitch, a slow clock) finds it
+			# parked. A client that joins mid-raid sees no van at all: the
+			# director's phase only reaches peers at its transitions (no late-join
+			# sync), so it is QUIET for them until the next one.
 			_arrive(director, float(director.call("phase_started_at")) - Constants.VAN_ARRIVE_SECONDS, now)
 		_:
 			if _show == Show.ARRIVING or _show == Show.PARKED:
@@ -83,11 +86,14 @@ func _physics_process(_delta: float) -> void:
 				# speed it had, on down the street.
 				_leave_from = _holder.global_transform
 				var motion := _look.get_node_or_null("Motion")
-				_leave_speed = maxf(0.0, float(motion.get("speed"))) if motion != null and _show == Show.ARRIVING else 0.0
+				var was_driving := _show == Show.ARRIVING
+				_leave_speed = maxf(0.0, float(motion.get("speed"))) if motion != null and was_driving else 0.0
 				_show = Show.LEAVING
 				_leave_start = now
 				_set_solid(false)
-				_sound("van", "leave", now, _leave_start)
+				# Parked, the door bonk then the putt-putt fits; still rolling, it
+				# just honks and keeps going.
+				_sound("van_honk" if was_driving else "van", "leave", now, _leave_start)
 			if _show == Show.LEAVING:
 				_leave(now)
 
@@ -96,16 +102,24 @@ func _physics_process(_delta: float) -> void:
 func _arrive(director: Node, start: float, now: float) -> void:
 	if _show == Show.LEAVING:
 		_clear()
+	# The first placement after _make always snaps: the reused holder still stands
+	# where the last van left it (or at the origin), and interpolating from there
+	# would streak it across the screen for a frame. That covers entering mid-way
+	# too (a hitch at the start, the chase seen without the warning's end, a
+	# server clock estimate that jumps).
+	var fresh := false
 	if _show == Show.NONE:
 		_make(director)
 		_arrive_start = start
 		_played.clear()
 		_show = Show.ARRIVING
 		_set_solid(false)
+		fresh = true
 	var t := now - _arrive_start
 	var along := _NiceVan.arrive_progress(t)
-	_place(_NiceVan.pose(_curve, along), _show == Show.ARRIVING and t <= 0.05)
-	_sound("van", "honk", now, _arrive_start)
+	_place(_NiceVan.pose(_curve, along), fresh)
+	# Honk only: the full "van" one-shot opens with a door bonk, wrong at 15 m/s.
+	_sound("van_honk", "honk", now, _arrive_start)
 	_sound("skid", "brake", now, _arrive_start + _NiceVan.brake_time(), -8.0)
 	if t >= Constants.VAN_ARRIVE_SECONDS and _show == Show.ARRIVING:
 		_show = Show.PARKED
@@ -179,7 +193,8 @@ func _set_solid(solid: bool) -> void:
 
 
 ## Plays a sound on the van once, when its moment (server time at) comes, unless
-## that moment is long past (a client that joined late hears nothing stale).
+## that moment is long past (a peer that got there late, after a hitch or a phase
+## change it saw late, hears nothing stale).
 func _sound(id: String, key: String, now: float, at: float, db: float = 0.0) -> void:
 	if _played.has(key) or now < at:
 		return

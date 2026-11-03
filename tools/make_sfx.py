@@ -303,6 +303,14 @@ def van() -> list[float]:
     return out
 
 
+def van_honk() -> list[float]:
+    """The crew van's horn alone, for the pull-up (net/run_events/van_arrival.gd):
+    the same low honk-honk as van(), with no door bonk, played while it drives."""
+    out = silence(0.5)
+    mix_into(out, horn([233.0, 196.0], 0.16, 0.05), 0.0, 0.6)
+    return out
+
+
 def truck_horn() -> list[float]:
     """Chefty's horn (the drivable one): a short 'bwah' and a long 'BWAAH', a
     nasal, slightly flat two-tone like a delivery truck that's seen things."""
@@ -610,6 +618,7 @@ SOUNDS = {
     "bag": (bag, 2, 0.7),
     "truck": (truck, 0, 0.75),
     "van": (van, 0, 0.8),
+    "van_honk": (van_honk, 0, 0.7),
     "warning": (warning, 0, 0.75),
     "radio": (radio, 0, 0.65),
     "arrive": (arrive, 0, 0.85),
