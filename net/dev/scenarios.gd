@@ -1306,7 +1306,11 @@ func _stand_by(spot: Vector3, look_at: Vector3, back: float) -> void:
 		return
 	var away := Vector3(spot.x - look_at.x, 0.0, spot.z - look_at.z).normalized() if look_at != Vector3.INF else Vector3.BACK
 	var at := spot + away * back
-	_place(Vector3(at.x, spot.y + 0.1, at.z), _yaw_toward(at, spot - away * 2.0), -0.12)
+	# On the lobby floor, not at the spot's height: a stamp pad or the desk's
+	# velvet pad stood the player on the counter or the desk (R2b).
+	var floor_y := _annex_point("Threshold").y
+	var y := (floor_y if is_finite(floor_y) and floor_y != INF else spot.y) + 0.1
+	_place(Vector3(at.x, y, at.z), _yaw_toward(at, spot - away * 2.0), -0.12)
 
 
 ## Stand on the floor at `at` (a floor-level point), facing `target` and looking

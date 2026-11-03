@@ -1162,7 +1162,7 @@ func _forms(root: Node3D) -> void:
 		root.add_child(form)
 		form.position = Vector3(float(index % 3) * 0.3 - 0.3, 1.25 - float(index / 3) * 0.36, 0.0)
 		if int(entry[3]) >= 0:
-			form.call("set_carbons_from", int(entry[3]))
+			form.call("set_carbon_boxes", range(int(entry[3]), (entry[0] as PackedStringArray).size()))
 		form.call("set_progress", int(entry[1]), entry[0], bool(entry[2]), now - 2.0)
 		if index == 5:
 			form.call("glow", true)

@@ -101,6 +101,14 @@ func _run() -> void:
 	_stand(client, _spot(annex, "Windows/%s/Counter" % window))
 	var served := await _until(func() -> bool: return int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped, 8.0)
 	_check("3 standing on window %s's counter gets the box stamped" % window, served, "stamped %d" % int((annex.call("form_of", client) as Dictionary)["stamped"]))
+	# R2b review: still on his spot watching the hand-back, the clerk who just
+	# served you doesn't turn round and call it the wrong window.
+	var after_serve := int(_AnnexScript.stats["wrong_windows"])
+	await get_tree().create_timer(Constants.ANNEX_SERVE_SECONDS + 2.0).timeout
+	_check("3 staying on window %s's counter after the serve is not a wrong window" % window, int(_AnnexScript.stats["wrong_windows"]) == after_serve, "wrong windows %d -> %d" % [after_serve, int(_AnnexScript.stats["wrong_windows"])])
+	# Off his spot: the next walk-up is a new visit (the wrong one may be him).
+	_stand(client, _spot(annex, "Threshold"))
+	await get_tree().create_timer(0.6).timeout
 	form = annex.call("form_of", client)
 	window = _Form.next_window(form)
 	var wrong := _other_window(window)
@@ -111,6 +119,10 @@ func _run() -> void:
 	var shook := await _until(func() -> bool: return int(_AnnexScript.stats["wrong_windows"]) > wrongs, 4.0)
 	await get_tree().create_timer(1.0).timeout
 	_check("3 window %s (the wrong one) shakes his head and stamps nothing" % wrong, shook and int((annex.call("form_of", client) as Dictionary)["stamped"]) == stamped, "wrong windows %d, stamped %d" % [int(_AnnexScript.stats["wrong_windows"]), int((annex.call("form_of", client) as Dictionary)["stamped"])])
+	# R2b: once per visit to his counter, not on a loop while you stand there.
+	var shakes := int(_AnnexScript.stats["wrong_windows"])
+	await get_tree().create_timer(Constants.ANNEX_WRONG_WINDOW * 2.5).timeout
+	_check("3 still standing at the wrong window, he shakes his head only once", int(_AnnexScript.stats["wrong_windows"]) == shakes, "wrong windows %d -> %d" % [shakes, int(_AnnexScript.stats["wrong_windows"])])
 	_stand(client, _spot(annex, "Threshold"))
 	await get_tree().create_timer(0.6).timeout
 	# 4. Heists.
@@ -237,12 +249,13 @@ func _run() -> void:
 	done_form["stamped"] = (done_form["boxes"] as PackedStringArray).size()
 	done_form["approved"] = true
 	annex.call("dev_set_form", client, done_form)
-	_stand(client, _spot(annex, "OutgoingTray"), 0.6)
+	# In front of the tray, on the lobby side (it stands against the front wall).
+	_stand(client, _spot(annex, "OutgoingTray"), -0.6)
 	var dropped := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary).get("dropped", false)), 4.0)
 	var through_before := int(_AnnexScript.stats["through"])
 	_stand(client, _spot(annex, "Forecourt"), 0.0)
 	var through := await _until(func() -> bool: return int(_AnnexScript.stats["through"]) > through_before, 3.0)
-	var home := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_RETURN_WAIT + 4.0)
+	var home := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_FORECOURT_BEAT + Constants.ANNEX_RETURN_WAIT + 4.0)
 	_check("9 an approved form goes in the tray, the turnstile lets the rider through, and they go home", dropped and through and home, "dropped %s, through %s, zone %s" % [dropped, through, Net.Zone.keys()[Net.player_zone(client)]])
 	var stats := {"hid": 1, "window_d": 1, "carbon": 1}
 	var receipt_a := _Receipt.lines(9, stats, 81.0, 0.0)
@@ -257,7 +270,7 @@ func _run() -> void:
 	annex.call("dev_retime", Constants.ANNEX_CAP_SECONDS - 1.5)
 	var after_hours := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary).get("after_hours", false)), 4.0)
 	var closed_out := await _until(func() -> bool: return int(_AnnexScript.stats["closing_outs"]) > outs_before, Constants.ANNEX_CLOSING_OUT + 4.0)
-	var gone := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_RETURN_WAIT + 4.0)
+	var gone := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_FORECOURT_BEAT + Constants.ANNEX_RETURN_WAIT + 4.0)
 	_check("10 closing time approves everyone AFTER HOURS and gets them out", after_hours and closed_out and gone, "after hours %s, let out %s, zone %s" % [after_hours, closed_out, Net.Zone.keys()[Net.player_zone(client)]])
 	await _until(func() -> bool: return not bool(annex.call("is_active")), 4.0)
 	await _clear_return_vans(client)
@@ -275,14 +288,18 @@ func _run() -> void:
 	await get_tree().create_timer(Constants.ANNEX_RETURN_WAIT + 0.5).timeout
 	var held := Net.player_zone(client) == Net.Zone.BORDER
 	annex.call("_on_player_left", host)
-	var released := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_RETURN_WAIT + 4.0)
+	var released := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_FORECOURT_BEAT + Constants.ANNEX_RETURN_WAIT + 4.0)
 	var group_ended := await _until(func() -> bool: return not bool(annex.call("is_active")), 4.0)
 	_check("10 a finisher waiting for the group goes home when the last one inside drops", waiting and held and released and group_ended, "through %s, waited %s, home %s, ended %s" % [waiting, held, released, group_ended])
 	Net.move_player_to_zone(host, Net.Zone.STORE)
 	await get_tree().create_timer(0.4).timeout
 	# 11. A solo rider by the bot's rules.
-	var slowest := _solo_pace()
+	var pace := _solo_pace()
+	var slowest := float(pace["slowest"])
 	_check("11 a solo rider by the bot's rules finishes in under 120 s", slowest < 120.0, "slowest %.1f s" % slowest)
+	# R2b: the visit has a pace, not just a ceiling (gap-specs nice_boys: 40-75 s solo).
+	var mean := float(pace["mean"])
+	_check("11 a solo visit takes %.0f-%.0f s on average" % [Constants.ANNEX_PACE_TARGET.x, Constants.ANNEX_PACE_TARGET.y], mean >= Constants.ANNEX_PACE_TARGET.x and mean <= Constants.ANNEX_PACE_TARGET.y, "mean %.1f s (fastest %.1f)" % [mean, float(pace["fastest"])])
 	# 12. The save section, a late joiner, the looks, a disconnect.
 	var saved: Dictionary = Campaign.call("_save_data")
 	var section: Dictionary = saved.get("annex", {})
@@ -372,13 +389,19 @@ func _never_wait() -> Array[String]:
 ## A solo rider by the bot's rules (net/dev/bot.gd _r2_annex_tick), played on
 ## the schedule alone: walk to the next box's window; get served when he's open,
 ## stamp it yourself when he's looking away, else wait; then the desk, then the
-## tray. The slowest of 40 seeds, in seconds from the walk-in.
-func _solo_pace() -> float:
+## tray. The slowest, fastest and mean of 40 seeds, in seconds from the walk-in,
+## over the three heats a catch can come at (a box more each).
+func _solo_pace() -> Dictionary:
 	var slowest := 0.0
+	var fastest := INF
+	var total := 0.0
 	for index: int in 40:
 		var seed_value := 5000 + index * 104729
-		var boxes := _Form.boxes_for(seed_value, 0, 50.0, Constants.ANNEX_SERVING_WINDOWS)
-		var t := Constants.ANNEX_GREETER_WALK
+		var heat: float = [20.0, 50.0, 80.0][index % 3]
+		var boxes := _Form.boxes_for(seed_value, 0, heat, Constants.ANNEX_SERVING_WINDOWS)
+		# The walk-in and the hand-over, then across the lobby to the first window
+		# (about 8 m), between windows about 3 s.
+		var t := Constants.ANNEX_GREETER_WALK + Constants.ANNEX_FORM_HANDOFF_AT + Constants.ANNEX_FORM_RISE + 2.0
 		for window: String in boxes:
 			t += 3.0
 			var done := false
@@ -395,10 +418,13 @@ func _solo_pace() -> float:
 		t += 4.0
 		while int(_Schedule.head_state(seed_value, t)["state"]) != _Schedule.S.DESK and t < Constants.ANNEX_CAP_SECONDS:
 			t += 0.25
-		t += Constants.ANNEX_HEAD_WINDUP + Constants.ANNEX_HEAD_SLAM + 4.0
+		t += Constants.ANNEX_HEAD_READ + OfficeProps.BigStamp.slam_lands_after() + 4.0
 		slowest = maxf(slowest, t)
-	print("[AnnexTest] a solo rider by the bot's rules: slowest of 40 seeds %.1f s" % slowest)
-	return slowest
+		fastest = minf(fastest, t)
+		total += t
+	var mean := total / 40.0
+	print("[AnnexTest] a solo rider by the bot's rules: slowest of 40 seeds %.1f s, fastest %.1f, mean %.1f" % [slowest, fastest, mean])
+	return {"slowest": slowest, "fastest": fastest, "mean": mean}
 
 
 # ---------------------------------------------------------------- helpers

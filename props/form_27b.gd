@@ -48,15 +48,19 @@ class Paper extends Control:
 	var looks: Dictionary = {}
 	var stamped: int = 0
 	var approved: bool = false
-	var carbon_from: int = 999
-	var stamp_at: float = -1000.0
-	var stamp_box: int = -1
+	## Box index -> true for the carbon copies (dashed, "complimentary").
+	var carbon_boxes: Dictionary = {}
+	## Box index -> server time its ink lands (R2b: the ink waits for the stamp
+	## that makes it, so it shows on the KA-CHUNK's frame, never before).
+	var ink_at: Dictionary = {}
 	var smudge_at: float = -1000.0
 	var smudge_box: int = -1
 	var approved_at: float = -1000.0
 	var fast: bool = false
 	var visits: int = 0
 	var after_hours: bool = false
+	## Closing's rush inks the boxes from here on with AFTER HOURS seals.
+	var rush_from: int = 999
 
 	func _draw() -> void:
 		var size_px := size
@@ -93,51 +97,53 @@ class Paper extends Control:
 			for hole: int in 5:
 				var center := Vector2(size_px.x * (0.3 + 0.1 * float(hole)), size_px.y * 0.955)
 				draw_circle(center, size_px.x * 0.025, LINE if hole < (visits - 1) % 5 + 1 else Color(0.85, 0.85, 0.85))
-		if approved:
+		if approved and t >= approved_at:
 			_draw_approved(t)
 
 	func _draw_box(index: int, box: Rect2, t: float) -> void:
 		var id := boxes[index]
 		var look: Dictionary = looks.get(id, {})
-		var color: Color = look.get("color", Color(0.5, 0.5, 0.55))
-		var carbon := index >= carbon_from
-		# A carbon copy is a dashed outline in carbon blue; a box, solid in its color.
-		var outline := Color(0.25, 0.3, 0.6) if carbon else color
+		var icon_id := str(look.get("icon", ""))
+		var color: Color = look.get("color", _Props.icon_color(icon_id))
+		var carbon := carbon_boxes.has(index)
+		# The window's badge, the very picture on its plaque (R2b); a carbon copy's
+		# is ringed with a dashed carbon-blue line and marked "complimentary".
+		var square := Rect2(box.get_center() - Vector2.ONE * minf(box.size.x, box.size.y) * 0.5, Vector2.ONE * minf(box.size.x, box.size.y))
+		var badge: Texture2D = _Props.badge_texture(icon_id, color) if _Props.pictogram_texture(icon_id) != null else null
+		var face := square.grow(-square.size.x * (0.12 if carbon else 0.04))
+		if badge != null:
+			draw_texture_rect(badge, face, false)
+		else:
+			draw_rect(face, color)
 		if carbon:
-			var steps := 10
+			var outline := Color(0.25, 0.3, 0.6)
+			var steps := 12
+			var ring := square.grow(-2.0)
 			for side: int in 4:
-				var a: Vector2 = [box.position, box.position + Vector2(box.size.x, 0.0), box.end, box.position + Vector2(0.0, box.size.y)][side]
-				var b: Vector2 = [box.position + Vector2(box.size.x, 0.0), box.end, box.position + Vector2(0.0, box.size.y), box.position][side]
+				var a: Vector2 = [ring.position, ring.position + Vector2(ring.size.x, 0.0), ring.end, ring.position + Vector2(0.0, ring.size.y)][side]
+				var b: Vector2 = [ring.position + Vector2(ring.size.x, 0.0), ring.end, ring.position + Vector2(0.0, ring.size.y), ring.position][side]
 				for step: int in steps:
 					if step % 2 == 0:
-						draw_line(a.lerp(b, float(step) / float(steps)), a.lerp(b, float(step + 1) / float(steps)), outline, 2.0)
-		else:
-			draw_rect(Rect2(box.position, box.size), Color(color.r, color.g, color.b, 0.16))
-			draw_rect(box, outline, false, 3.0)
-		var icon := Form.flat_icon(str(look.get("icon", "")))
-		var inset := box.grow(-box.size.x * 0.07)
-		if icon != null:
-			draw_texture_rect(icon, inset, false, Color(1, 1, 1, 0.9))
-		else:
-			draw_circle(box.get_center(), box.size.x * 0.25, color)
-		if carbon:
-			draw_string(ThemeDB.fallback_font, Vector2(box.position.x, box.end.y - box.size.y * 0.05), _Strings.ANNEX_SIGNS["form_carbon"], HORIZONTAL_ALIGNMENT_CENTER, box.size.x, int(box.size.x * 0.13), Color(0.25, 0.3, 0.6))
-		# The ink: stamped boxes get the purple seal; the newest one punches in.
-		var inked := index < stamped
+						draw_line(a.lerp(b, float(step) / float(steps)), a.lerp(b, float(step + 1) / float(steps)), outline, 2.5)
+			draw_string(ThemeDB.fallback_font, Vector2(square.position.x, square.end.y + square.size.y * 0.1), _Strings.ANNEX_SIGNS["form_carbon"], HORIZONTAL_ALIGNMENT_CENTER, square.size.x, int(square.size.x * 0.13), outline)
+		# The ink: a stamped box gets the purple seal from the moment its stamp
+		# lands (ink_at), punching in; a lost one smudges off red.
+		var lands := float(ink_at.get(index, -1000.0))
+		var inked := (index < stamped or (approved and after_hours and index >= rush_from)) and t >= lands
 		var smudging := index == smudge_box and t - smudge_at < Constants.FORM_SMUDGE_SECONDS
 		if inked or smudging:
 			var scale := 1.0
-			var alpha := 0.85
-			if index == stamp_box and t - stamp_at < Constants.FORM_STAMP_SECONDS:
-				var k := clampf((t - stamp_at) / Constants.FORM_STAMP_SECONDS, 0.0, 1.0)
-				scale = lerpf(1.6, 1.0, k)
-				alpha = lerpf(0.2, 0.85, k)
+			var alpha := 0.88
+			if inked and t - lands < Constants.FORM_STAMP_SECONDS:
+				var k := clampf((t - lands) / Constants.FORM_STAMP_SECONDS, 0.0, 1.0)
+				scale = lerpf(1.5, 1.0, k)
+				alpha = lerpf(0.5, 0.88, k)
 			if smudging:
 				var k := clampf((t - smudge_at) / Constants.FORM_SMUDGE_SECONDS, 0.0, 1.0)
 				alpha = 0.85 * (1.0 - k)
 				# Rubbed off sideways: the seal drags out into a red streak.
-				draw_rect(Rect2(box.get_center() - Vector2(box.size.x * 0.4, box.size.y * 0.08), Vector2(box.size.x * 0.8 * k, box.size.y * 0.16)), Color(SMUDGE.r, SMUDGE.g, SMUDGE.b, 0.6 * (1.0 - k * 0.5)))
-			_draw_seal(box.get_center(), box.size.x * 0.36 * scale, Color(INK.r, INK.g, INK.b, alpha), after_hours)
+				draw_rect(Rect2(square.get_center() - Vector2(square.size.x * 0.4, square.size.y * 0.08), Vector2(square.size.x * 0.8 * k, square.size.y * 0.16)), Color(SMUDGE.r, SMUDGE.g, SMUDGE.b, 0.6 * (1.0 - k * 0.5)))
+			_draw_seal(square.get_center(), square.size.x * 0.4 * scale, Color(INK.r, INK.g, INK.b, alpha), after_hours and index >= rush_from)
 
 	## The Daisy Seal stamp: a ring with petals and a check through it.
 	func _draw_seal(center: Vector2, radius: float, color: Color, hours: bool) -> void:
@@ -157,11 +163,19 @@ class Paper extends Control:
 		var center := Vector2(size_px.x * 0.5, size_px.y * 0.52)
 		draw_set_transform(center, -0.35, Vector2(scale, scale))
 		var plate := Rect2(Vector2(-size_px.x * 0.42, -size_px.y * 0.1), Vector2(size_px.x * 0.84, size_px.y * 0.2))
-		var color := Color(APPROVED.r, APPROVED.g, APPROVED.b, lerpf(0.0, 0.9, k))
+		# Let out at closing it says AFTER HOURS, in the clerks' purple, not APPROVED (R2b).
+		var ink := INK.darkened(0.15) if after_hours else APPROVED
+		# Slammed, not faded in: there on the frame it lands (R2b).
+		var color := Color(ink.r, ink.g, ink.b, lerpf(0.7, 0.92, k))
+		# A paper-white field under the words, so they read over the seals.
+		draw_rect(plate, Color(PAPER.r, PAPER.g, PAPER.b, lerpf(0.6, 0.88, k)))
 		draw_rect(plate, color, false, 5.0)
-		var lines := _Strings.ANNEX_SIGNS["form_approved"].split("\n")
+		var lines := (_Strings.ANNEX_SIGNS["after_hours"] if after_hours else _Strings.ANNEX_SIGNS["form_approved"]).split("\n")
+		# One line sits in the middle of the plate, two stack.
+		var first := 0.66 if lines.size() == 1 else 0.45
+		var font_size := int(plate.size.y * (0.46 if lines.size() == 1 else 0.38))
 		for index: int in lines.size():
-			draw_string(ThemeDB.fallback_font, Vector2(plate.position.x, plate.position.y + plate.size.y * (0.45 + 0.42 * float(index))), lines[index], HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, int(plate.size.y * 0.38), color)
+			draw_string(ThemeDB.fallback_font, Vector2(plate.position.x, plate.position.y + plate.size.y * (first + 0.42 * float(index))), lines[index], HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, font_size, color)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -176,6 +190,10 @@ class Form extends Node3D:
 	var _glow: bool = false
 	var _animating_until: float = -1000.0
 	var _first_person: bool = false
+	var _rest_position := Vector3.ZERO
+	var _rest_rotation := Vector3.ZERO
+	var _rise_at: float = -1000.0
+	var _rising: bool = false
 
 	static func clock() -> float:
 		return _Props.now()
@@ -236,28 +254,44 @@ class Form extends Node3D:
 		set_process(false)
 
 	## stamped boxes of boxes are inked; boxes may have grown (carbons, a redirect).
-	## Losing a stamp smudges it off; gaining one punches it in at at.
-	func set_progress(stamped: int, boxes: PackedStringArray, approved: bool, at: float) -> void:
+	## Losing a stamp smudges it off at `at`; each box gained inks at `at`, the
+	## next ones gap apart (Window D's volley). Approval lands at `at` too, or, let
+	## out AFTER HOURS, after closing's rush has inked every box still empty, gap apart.
+	func set_progress(stamped: int, boxes: PackedStringArray, approved: bool, at: float, gap: float = 0.0, after_hours: bool = false) -> void:
 		var before := paper.stamped
-		var had := paper.boxes.size()
-		if boxes.size() > had and had > 0 and paper.carbon_from > had:
-			paper.carbon_from = had
 		paper.boxes = boxes
+		var last := at
 		if stamped > before:
-			paper.stamp_box = stamped - 1
-			paper.stamp_at = at
+			for index: int in range(before, stamped):
+				paper.ink_at[index] = at + float(index - before) * gap
+				last = maxf(last, float(paper.ink_at[index]))
 		elif stamped < before:
 			paper.smudge_box = before - 1
 			paper.smudge_at = at
 		paper.stamped = clampi(stamped, 0, boxes.size())
+		paper.after_hours = after_hours
 		if approved and not paper.approved:
-			paper.approved_at = at
+			if after_hours:
+				paper.rush_from = paper.stamped
+				for index: int in range(paper.stamped, boxes.size()):
+					paper.ink_at[index] = at + float(index - paper.stamped) * gap
+					last = maxf(last, float(paper.ink_at[index]))
+				paper.approved_at = last + (Constants.ANNEX_CLOSING_RUSH_GAP * 1.5 if boxes.size() > paper.stamped else 0.0)
+			else:
+				paper.approved_at = maxf(at, last)
+			last = paper.approved_at
 		paper.approved = approved
-		_animate_for(at + maxf(Constants.FORM_SMUDGE_SECONDS, Constants.FORM_STAMP_SECONDS) + 0.1)
+		_animate_for(last + maxf(Constants.FORM_SMUDGE_SECONDS, Constants.FORM_STAMP_SECONDS) + 0.1)
 
-	## Which boxes are carbon copies (from index on), when the caller knows.
-	func set_carbons_from(index: int) -> void:
-		paper.carbon_from = index
+	## When the AFTER HOURS (or APPROVED) slam lands on this clipboard, server time.
+	func approved_at() -> float:
+		return paper.approved_at
+
+	## Which boxes are carbon copies (their indices).
+	func set_carbon_boxes(indices: Array) -> void:
+		paper.carbon_boxes.clear()
+		for entry: Variant in indices:
+			paper.carbon_boxes[int(entry)] = true
 		_redraw()
 
 	## Closing time's stamps say AFTER HOURS in the seal.
@@ -288,12 +322,37 @@ class Form extends Node3D:
 		if _viewport.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
 			_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 
+	## Handed over (R2b): from `at` it comes up into the hand from below over
+	## ANNEX_FORM_RISE seconds, tipping toward you as it arrives; before `at` it's
+	## not in your hand yet.
+	func rise(at: float) -> void:
+		_rise_at = at
+		_rising = true
+		set_process(true)
+		_place_rise(clock())
+
+	func _place_rise(t: float) -> void:
+		if not _rising:
+			return
+		var k := clampf((t - _rise_at) / Constants.ANNEX_FORM_RISE, 0.0, 1.0)
+		var e := 1.0 - pow(1.0 - k, 3.0)
+		# A little overshoot settling, like a hand catching it.
+		var settle := sin(clampf((t - _rise_at - Constants.ANNEX_FORM_RISE) / 0.25, 0.0, 1.0) * PI) * 0.012
+		visible = t >= _rise_at
+		position = _rest_position + Vector3(0.04 * (1.0 - e), -Constants.ANNEX_FORM_RISE_DROP * (1.0 - e) + settle, 0.0)
+		rotation = _rest_rotation + Vector3(-0.6 * (1.0 - e), 0.0, 0.25 * (1.0 - e))
+		if k >= 1.0 and t - _rise_at > Constants.ANNEX_FORM_RISE + 0.25:
+			_rising = false
+			position = _rest_position
+			rotation = _rest_rotation
+
 	func _process(_delta: float) -> void:
 		var t := clock()
 		paper.queue_redraw()
+		_place_rise(t)
 		# An approved form glows warm, breathing, until it goes in the tray.
-		_paper_material.emission_energy_multiplier = (0.35 + 0.25 * sin(t * 4.0)) if _glow else 0.0
-		if t > _animating_until and not _glow:
+		_paper_material.emission_energy_multiplier = (0.35 + 0.25 * sin(t * 4.0)) if _glow and t >= paper.approved_at else 0.0
+		if t > _animating_until and not _glow and not _rising:
 			_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 			set_process(false)
 
@@ -309,6 +368,8 @@ class Form extends Node3D:
 		_reparent(camera)
 		position = Constants.FORM_FIRST_PERSON_OFFSET
 		rotation = Constants.FORM_FIRST_PERSON_TILT
+		_rest_position = position
+		_rest_rotation = rotation
 		_first_person = true
 		_on_top(true)
 
@@ -324,6 +385,8 @@ class Form extends Node3D:
 		_reparent(shoulder if shoulder != null else body)
 		position = Vector3(0.0, -Constants.FORM_HAND_DROP, -0.08) if shoulder != null else Vector3(-0.3, 0.75, -0.08)
 		rotation = Vector3(-1.2, 0.0, 0.0)
+		_rest_position = position
+		_rest_rotation = rotation
 		_first_person = false
 		_on_top(false)
 

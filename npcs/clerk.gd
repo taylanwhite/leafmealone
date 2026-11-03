@@ -80,6 +80,9 @@ var _zs: Node3D
 var _next_snore: float = 0.0
 var _pending_bark: Dictionary = {}
 var _rng := RandomNumberGenerator.new()
+## The eased head turn, and the sidestep round a person in the way (R2b).
+var _face_turn: float = 0.0
+var _avoid := Vector3.ZERO
 ## Tools only (the studio's lineups): hold the pose this many seconds into the
 ## state instead of following the clock. Negative follows the clock.
 var hold_t: float = -1.0
@@ -156,6 +159,10 @@ func play(next: StringName, at: float, play_args: Dictionary = {}) -> void:
 			_walk_path("JanitorPath", false)
 		&"take_stamp_back":
 			_walk(_target(args.get("to", null)), _home_yaw)
+		&"greeter_offer":
+			# A step aside to hand the clipboard over face to face (R2b).
+			if args.has("to"):
+				_walk(_target(args["to"]), args.get("face", null))
 	if args.has("bark"):
 		_pending_bark = {"kind": str(args["bark"]), "at": at}
 	if next == &"asleep":
@@ -268,8 +275,40 @@ func _physics_process(delta: float) -> void:
 		if _Props.now() - state_at <= 1.0:
 			bark(kind)
 	_locomote(t, delta)
+	_stand_off(delta)
 	_seat(delta)
 	_pose(t, delta)
+	# The head turns ease, whatever the state asked for (R2b: a one-frame snap
+	# sideways between a stamp and the next state).
+	var want := float(body.get("face_turn"))
+	_face_turn = want if hold_t >= 0.0 else lerpf(_face_turn, want, 1.0 - exp(-delta * Constants.CLERK_FACE_EASE))
+	body.set("face_turn", _face_turn)
+
+
+## Staff step round people (R2b): walking (or mopping) within CLERK_STAND_OFF of
+## a player, a staff body eases sideways out of their way, and back onto its
+## line once past. Cosmetic: the host never reads these bodies.
+func _stand_off(delta: float) -> void:
+	var push := Vector3.ZERO
+	if not _route.is_empty() and not _route_done() and is_inside_tree():
+		var parent := get_parent() as Node3D
+		var me := parent.to_global(position) if parent != null else position
+		for node: Node in get_tree().get_nodes_in_group("players"):
+			var person := node as Node3D
+			if person == null or not person.is_visible_in_tree():
+				continue
+			var away := me - person.global_position
+			away.y = 0.0
+			var d := away.length()
+			if d < Constants.CLERK_STAND_OFF and d > 0.01:
+				push += away / d * (Constants.CLERK_STAND_OFF - d)
+		if parent != null:
+			push = parent.global_basis.inverse() * push
+	_avoid = _avoid.lerp(push, 1.0 - exp(-delta * Constants.CLERK_STAND_OFF_EASE))
+	# _locomote sets the position afresh every tick while there's a route, so
+	# this never adds up; standing still, nothing moves him.
+	if not _route.is_empty():
+		position += Vector3(_avoid.x, 0.0, _avoid.z)
 
 
 # ---------------------------------------------------------------- moving
@@ -582,23 +621,47 @@ func _pose(t: float, _delta: float) -> void:
 			if t > 1.0 and t < 1.05 and not body.call("is_gesturing"):
 				body.call("gesture", "scribble")
 		&"volley", &"closing_rush":
-			var gap := Constants.CLERK_VOLLEY_GAP * (0.7 if state == &"closing_rush" else 1.0)
-			var beat := fmod(t, gap) / gap
-			var up := 1.0 - absf(beat * 2.0 - 1.0)
-			_aim(0, _ahead(0.25, 0.95 + up * 0.35, 0.45), 1.0)
-			_aim(1, _ahead(-0.05, 0.88, 0.5), 0.8)
-			body.set("mood", "raised")
+			# His hand rides the window's stamp through every slam (R2b: he sat
+			# still while the box changed); the body pumps with it, the free hand
+			# feeds the form.
+			var stamp := _window_node("Stamp")
+			var rise := 0.0
+			if stamp != null:
+				rise = clampf((stamp.position.y - (_Props.STAMP_SPOT.y + 0.026)) / 0.24, -0.1, 1.5)
+				_aim(0, stamp.global_position + Vector3.UP * 0.14, clampf(t / 0.15, 0.0, 1.0))
+			else:
+				var beat := fmod(t, Constants.CLERK_VOLLEY_GAP) / Constants.CLERK_VOLLEY_GAP
+				rise = 1.0 - absf(beat * 2.0 - 1.0)
+				_aim(0, _ahead(0.25, 0.95 + rise * 0.35, 0.45), 1.0)
+			_aim(1, _ahead(-0.08, 0.9, 0.5), 0.8)
+			torso.rotation.x += 0.12 * rise - 0.05
+			(body.get("_hips") as Node3D).position.y += 0.03 * rise
+			body.set("mood", "raised" if state == &"volley" else "worried")
 			if state == &"closing_rush" and t > 2.4:
 				body.set("face_turn", sin(t * 5.0) * 0.4)
 		&"head_windup_slam":
-			var stamp := annex_set.get_node_or_null("HeadDesk/BigStamp") as Node3D if annex_set != null else null
-			var held := stamp.global_position + Vector3.UP * 0.32 if stamp != null else _ahead(0.0, 1.9, 0.4)
-			_aim(0, held + global_basis * Vector3(-0.05, 0.0, 0.0), 1.0)
-			_aim(1, held + global_basis * Vector3(0.05, 0.0, 0.0), 1.0)
-			face.rotation.x += 0.2
-			if t > Constants.ANNEX_BIG_STAMP_LIFT_SECONDS and t < Constants.ANNEX_BIG_STAMP_LIFT_SECONDS + Constants.ANNEX_BIG_STAMP_HESITATE:
-				body.set("mood", "angry")
-				body.set("face_turn", 0.12 * sin(t * 18.0))
+			# First he reads it (args.read seconds, R2b): the form held up, a squint.
+			var read := float(args.get("read", 0.0))
+			if t < read:
+				torso.rotation.x -= 0.2 * fade
+				face.rotation.x -= 0.15 * fade
+				body.set("squinting", t > 0.25)
+				_aim(0, _ahead(0.1, 1.15, 0.42), fade)
+				_aim(1, _ahead(-0.1, 1.15, 0.42), fade)
+				_show_prop("paper", true)
+				if t > read * 0.6:
+					body.set("face_turn", 0.18 * sin(t * 6.0))
+			else:
+				var since_read := t - read
+				var stamp := annex_set.get_node_or_null("HeadDesk/BigStamp") as Node3D if annex_set != null else null
+				var held := stamp.global_position + Vector3.UP * 0.32 if stamp != null else _ahead(0.0, 1.9, 0.4)
+				var grab := clampf(since_read / 0.15, 0.0, 1.0)
+				_aim(0, held + global_basis * Vector3(-0.05, 0.0, 0.0), grab)
+				_aim(1, held + global_basis * Vector3(0.05, 0.0, 0.0), grab)
+				face.rotation.x += 0.2
+				if since_read > Constants.ANNEX_BIG_STAMP_LIFT_SECONDS and since_read < Constants.ANNEX_BIG_STAMP_LIFT_SECONDS + Constants.ANNEX_BIG_STAMP_HESITATE:
+					body.set("mood", "angry")
+					body.set("face_turn", 0.12 * sin(t * 18.0))
 		&"gasp_whistle":
 			if t < 0.4:
 				var gasp := sin(t / 0.4 * PI)
@@ -637,11 +700,16 @@ func _pose(t: float, _delta: float) -> void:
 			else:
 				_aim(0, _ahead(0.6, 1.2, 0.6), clampf((t - _route_length / Constants.CLERK_WALK_SPEED) / 0.3, 0.0, 1.0) * 0.8)
 		&"greeter_offer":
-			var reach := ease_reach(t, 0.0, 0.35, 1.6)
-			_aim(0, _ahead(0.12, 1.15, 0.3 + reach * 0.35), fade)
-			_aim(1, _ahead(-0.12, 1.15, 0.3 + reach * 0.35), fade)
-			_show_prop("form", t < 1.0)
+			# Holds the clipboard out as he arrives beside you; it leaves his hands
+			# on the frame it starts up into yours (Constants.ANNEX_FORM_HANDOFF_AT).
+			var handoff := Constants.ANNEX_FORM_HANDOFF_AT
+			var reach := ease_reach(t, maxf(handoff - 0.35, 0.0), 0.35, handoff + 0.5)
+			_aim(0, _ahead(0.12, 1.15, 0.3 + reach * 0.4), maxf(fade, reach))
+			_aim(1, _ahead(-0.12, 1.15, 0.3 + reach * 0.4), maxf(fade, reach))
+			_show_prop("form", t < handoff + 0.05)
 			body.set("mood", "raised")
+			if t > handoff + 0.1 and t < handoff + 0.6:
+				body.set("face_turn", 0.0)
 		&"greeter_punch_card":
 			var squeeze := clampf(sin(clampf((t - 0.3) / 0.25, 0.0, 1.0) * PI), 0.0, 1.0)
 			_aim(0, _ahead(0.05, 1.2, 0.35 - squeeze * 0.04), fade)

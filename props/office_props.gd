@@ -47,7 +47,7 @@ const INK := Color(0.42, 0.22, 0.62)
 const VELVET := Color(0.62, 0.12, 0.2)
 const LAMP_WARM := Color(1.0, 0.82, 0.42)
 const LAMP_OFF := Color(0.28, 0.27, 0.26)
-const GLASS_TINT := Color(0.75, 0.88, 0.92, 0.18)
+const GLASS_TINT := Color(0.75, 0.88, 0.92, 0.07)
 const BLIND := Color(0.9, 0.88, 0.8)
 
 ## The window's frame, in its own space: the glass is the plane z = 0, the lobby
@@ -58,6 +58,11 @@ const GLASS_BOTTOM: float = 1.2
 const GLASS_TOP: float = 2.25
 const HATCH_HALF: float = 0.32
 const STAMP_SPOT := Vector3(0.24, COUNTER_Y, -0.16)
+## A window's footprints: the first pair this far out from the glass (m), the
+## rest FOOT_STEP apart, each print this big.
+const FOOT_Z: float = 0.85
+const FOOT_STEP: float = 0.75
+const FOOT_SIZE := Vector3(0.11, 0.006, 0.26)
 
 
 # ---------------------------------------------------------------- time and sound
@@ -111,9 +116,11 @@ static func glass_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = GLASS_TINT
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.metallic = 0.2
-	material.roughness = 0.05
-	material.metallic_specular = 0.9
+	# Clear, not milky (R2b): the sky's reflection washed the clerks behind it
+	# out to a haze, so it keeps only a faint sheen.
+	material.metallic = 0.0
+	material.roughness = 0.12
+	material.metallic_specular = 0.3
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return material
 
@@ -211,6 +218,62 @@ static func pictogram_texture(icon_id: String) -> Texture2D:
 	if icon_id != "" and ResourceLoader.exists(path):
 		return load(path) as Texture2D
 	return null
+
+
+## The color a pictogram always wears in the Annex (Constants.ANNEX_ICON_COLORS).
+static func icon_color(icon_id: String) -> Color:
+	return Constants.ANNEX_ICON_COLORS.get(icon_id, Color(0.6, 0.6, 0.65))
+
+
+static var _badges: Dictionary = {}
+
+
+## The room's one sign for a window (R2b): a board in the color, a white disc,
+## the pictogram on it. The plaque, the form's box and the floor sticker all draw
+## this same picture, so a box on the clipboard matches its window from the door.
+## Drawn once per pair on the CPU (no SubViewport: it is there the frame it's asked for).
+static func badge_texture(icon_id: String, color: Color) -> Texture2D:
+	var key := "%s|%s" % [icon_id, color.to_html()]
+	if _badges.has(key):
+		return _badges[key]
+	var px := Constants.ANNEX_BADGE_PX
+	var image := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	var half := float(px) * 0.5
+	var corner := float(px) * 0.18
+	var rim := float(px) * 0.045
+	var disc := float(px) * 0.36
+	var rim_color := color.darkened(0.4)
+	for y: int in px:
+		for x: int in px:
+			var p := Vector2(float(x) + 0.5, float(y) + 0.5)
+			# Distance outside the rounded square (negative inside).
+			var q := (p - Vector2(half, half)).abs() - Vector2(half - corner, half - corner)
+			var outside := Vector2(maxf(q.x, 0.0), maxf(q.y, 0.0)).length() + minf(maxf(q.x, q.y), 0.0) - corner
+			if outside > 0.0:
+				image.set_pixel(x, y, Color(0, 0, 0, 0))
+				continue
+			var shade := rim_color if outside > -rim else color
+			var d := p.distance_to(Vector2(half, half))
+			if d < disc:
+				shade = Color(0.99, 0.98, 0.95)
+			elif d < disc + rim * 0.6:
+				shade = color.darkened(0.25)
+			image.set_pixel(x, y, shade)
+	var icon := pictogram_texture(icon_id)
+	if icon != null:
+		var art := icon.get_image()
+		if art != null:
+			art = art.duplicate() as Image
+			if art.is_compressed():
+				art.decompress()
+			art.convert(Image.FORMAT_RGBA8)
+			var size := int(disc * 1.9)
+			art.resize(size, size, Image.INTERPOLATE_LANCZOS)
+			image.blend_rect(art, Rect2i(0, 0, size, size), Vector2i(int(half) - size / 2, int(half) - size / 2))
+	image.generate_mipmaps()
+	var texture := ImageTexture.create_from_image(image)
+	_badges[key] = texture
+	return texture
 
 
 static func ease_out(t: float) -> float:
@@ -327,6 +390,15 @@ class ServiceWindow extends Prop:
 	var _stamp_state: StringName = &""
 	var _stamp_at: float = -1000.0
 	var _stamp_volley: int = 1
+	var _stamp_gap: float = Constants.CLERK_VOLLEY_GAP
+	var _stamp_lift: float = 0.24
+	var _stamp_first: float = Constants.ANNEX_STAMP_HIT
+	var _stamp_from: float = 0.0
+	var _stamp_rise_now: float = 0.0
+	var _flutter_from: float = -1000.0
+	var _scraps: Array[MeshInstance3D] = []
+	var _scrap_material: StandardMaterial3D
+	const FLUTTER_COUNT: int = 5
 	var _stamp: Node3D
 	var _plaque: Sprite3D
 	var _plaque_board: MeshInstance3D
@@ -351,8 +423,11 @@ class ServiceWindow extends Prop:
 		kit.box(Vector3(0.0, GLASS_BOTTOM - 0.015, 0.0), Vector3(GLASS_WIDTH, 0.03, 0.06), STEEL)
 		for side: float in [-1.0, 1.0]:
 			kit.box(Vector3(side * (HATCH_HALF + 0.5) * 0.5 + side * 0.17, (COUNTER_Y + GLASS_BOTTOM) * 0.5, 0.0), Vector3(GLASS_WIDTH * 0.5 - HATCH_HALF, GLASS_BOTTOM - COUNTER_Y, 0.02), STEEL.lightened(0.2))
-		# The plaque's board in the window's color, and the lamp's housing beside it.
-		kit.box(Vector3(0.0, 2.68, 0.02), Vector3(0.62, 0.62, 0.04), color)
+		# The plaque's frame (the run's badge, OfficeProps.badge_texture, hangs in it:
+		# the same picture as the box on the form), and the lamp's housing beside it.
+		# Window D, which has no pictogram, keeps a plain board.
+		if id == "D":
+			kit.box(Vector3(0.0, 2.68, 0.02), Vector3(0.62, 0.62, 0.04), color)
 		kit.box(Vector3(0.0, 2.68, 0.0), Vector3(0.7, 0.7, 0.02), TRIM)
 		kit.box(Vector3(0.58, 2.8, 0.01), Vector3(0.36, 0.36, 0.03), DARK)
 		# The lamp's dead bulb, baked: the lit one covers it while the window serves
@@ -368,10 +443,12 @@ class ServiceWindow extends Prop:
 			kit.box(Vector3(x, 0.36, -0.62), Vector3(0.05, 0.72, 0.55), WOOD.darkened(0.2))
 		kit.box(Vector3(-0.35, 0.82, -0.66), Vector3(0.36, 0.12, 0.28), DARK)
 		kit.box(Vector3(-0.35, 0.9, -0.72), Vector3(0.32, 0.06, 0.06), DARK.lightened(0.1))
-		kit.cone(Vector3(0.45, 0.765, -0.55), 0.04, 0.09, color.lightened(0.3), 8)
+		# The mug and the stool stay neutral: only the badge, the line and the
+		# footprints wear the window's color (R2b), so nothing else hints at it.
+		kit.cone(Vector3(0.45, 0.765, -0.55), 0.04, 0.09, PAPER, 8)
 		kit.cone(Vector3(0.0, 0.0, -1.05), 0.2, 0.04, DARK, 8)
 		kit.box(Vector3(0.0, 0.25, -1.05), Vector3(0.04, 0.46, 0.04), STEEL)
-		kit.cone(Vector3(0.0, 0.47, -1.05), 0.2, 0.05, color.darkened(0.25), 10)
+		kit.cone(Vector3(0.0, 0.47, -1.05), 0.2, 0.05, DARK.lightened(0.15), 10)
 		kit.box(Vector3(0.62, 0.62, -1.62), Vector3(0.5, 1.24, 0.55), STEEL.darkened(0.15))
 		for drawer: int in 3:
 			kit.box(Vector3(0.62, 0.25 + float(drawer) * 0.38, -1.34), Vector3(0.42, 0.3, 0.02), STEEL)
@@ -379,12 +456,12 @@ class ServiceWindow extends Prop:
 		# The stamp's ink pad on the sill, right behind the hatch.
 		kit.box(STAMP_SPOT + Vector3(0.0, 0.012, 0.0), Vector3(0.16, 0.024, 0.11), DARK)
 		kit.box(STAMP_SPOT + Vector3(0.0, 0.026, 0.0), Vector3(0.13, 0.005, 0.08), INK)
-		# Footprints: where to stand, and the line behind it.
-		for spot: int in 4:
-			var z := 0.85 + float(spot) * 0.75
-			for side: float in [-1.0, 1.0]:
-				var foot := Vector3(side * 0.12, 0.013, z)
-				kit.box(foot, Vector3(0.11, 0.006, 0.26), color.lightened(0.15) if spot == 0 else color.darkened(0.05), Basis(Vector3.UP, side * -0.12))
+		# Footprints: where to stand, and the line behind it. A-C's are painted by
+		# their floor line (FloorLine, in the run's color); D's stay grey here.
+		if id == "D":
+			for spot: int in 4:
+				for side: float in [-1.0, 1.0]:
+					kit.box(Vector3(side * 0.12, 0.013, FOOT_Z + float(spot) * FOOT_STEP), FOOT_SIZE, color.darkened(0.05), Basis(Vector3.UP, side * -0.12))
 		OfficeProps._view(self, kit, "Look", {}, true)
 		var glass := MeshInstance3D.new()
 		glass.name = "Glass"
@@ -430,9 +507,10 @@ class ServiceWindow extends Prop:
 		_plaque = Sprite3D.new()
 		_plaque.name = "Plaque"
 		_plaque.pixel_size = 0.5 / 256.0
-		_plaque.position = Vector3(0.0, 2.68, 0.05)
+		_plaque.position = Vector3(0.0, 2.68, 0.03)
 		_plaque.shaded = false
 		_plaque.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+		_plaque.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		_plaque.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_plaque)
 		# The clock sign: a folded card on the ledge, flat until shown.
@@ -509,14 +587,18 @@ class ServiceWindow extends Prop:
 		var webs := OfficeProps._view(self, web, "Cobweb", {"roughness": 0.6}, true)
 		webs.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	## The run's pictogram and color: {icon, color}.
+	## The run's pictogram and color: {icon, color}. The plaque is the room's
+	## badge for it (OfficeProps.badge_texture), the picture the form's box shows.
 	func apply_look(window_look: Dictionary) -> void:
 		look = window_look
-		var texture := OfficeProps.pictogram_texture(str(window_look.get("icon", "")))
+		var icon := str(window_look.get("icon", ""))
+		var texture: Texture2D = null
+		if OfficeProps.pictogram_texture(icon) != null:
+			texture = OfficeProps.badge_texture(icon, window_look.get("color", OfficeProps.icon_color(icon)))
 		_plaque.texture = texture
 		_plaque.visible = texture != null
 		if texture != null:
-			_plaque.pixel_size = 0.52 / float(maxi(texture.get_width(), 1))
+			_plaque.pixel_size = 0.66 / float(maxi(texture.get_width(), 1))
 
 	func _set_lamp(on: bool) -> void:
 		lamp_on = on
@@ -525,8 +607,11 @@ class ServiceWindow extends Prop:
 	func _begin(next: StringName, at: float, args: Dictionary) -> void:
 		match next:
 			&"lamp_on":
+				# The bing is the lamp coming on, once: a window that stays lit
+				# through a serve or a head shake stays quiet (R2b).
+				if not lamp_on:
+					cue("office_ding", at)
 				_set_lamp(true)
-				cue("office_ding", at)
 			&"lamp_off":
 				_set_lamp(false)
 			&"blind_up", &"blind_down":
@@ -546,20 +631,32 @@ class ServiceWindow extends Prop:
 				_sign_up = false
 				_sign_from = at
 			&"stamp_lifted":
+				_stamp_from = _stamp_rise_now
+				_stamp_state = next
+				_stamp_at = at
+			&"stamp_rest":
+				# Put back down without a sound (a hold let go before it counted).
+				_stamp_from = _stamp_rise_now
 				_stamp_state = next
 				_stamp_at = at
 			&"stamp_down":
-				# Lift, then slam; a volley slams again and again.
+				# Lift, then slam, the KA-CHUNK on the frame it hits the pad
+				# (at + ANNEX_STAMP_HIT); a volley slams again every args.gap, the
+				# first lift args.lift high (a wind-up), paper flying off each hit.
 				var slams := maxi(1, int(args.get("volley", 1)))
 				_stamp_state = next
 				_stamp_at = at
 				_stamp_volley = slams
+				_stamp_gap = float(args.get("gap", Constants.CLERK_VOLLEY_GAP))
+				_stamp_lift = float(args.get("lift", 0.24))
+				_stamp_first = maxf(float(args.get("first", Constants.ANNEX_STAMP_HIT)), Constants.ANNEX_STAMP_SLAM_SECONDS + 0.05)
+				_stamp_from = _stamp_rise_now if _stamp_rise_now > 0.01 else 0.0
 				for index: int in slams:
-					var hit := at + Constants.ANNEX_STAMP_LIFT_SECONDS + Constants.ANNEX_STAMP_SLAM_SECONDS + float(index) * Constants.CLERK_VOLLEY_GAP
-					cue("stamp_kachunk", hit, global_position + global_basis * STAMP_SPOT)
+					cue("stamp_kachunk", at + _stamp_first + float(index) * _stamp_gap, global_position + global_basis * STAMP_SPOT)
+				_flutter_from = at + _stamp_first if slams > 1 else -1000.0
 			&"bell":
 				cue("desk_bell", at, global_position + global_basis * Vector3(-0.58, COUNTER_Y + 0.06, 0.24))
-		_busy_until = maxf(_busy_until, at + 2.0)
+		_busy_until = maxf(_busy_until, at + 2.0 + (float(_stamp_volley) * _stamp_gap if next == &"stamp_down" else 0.0))
 
 	func _animate(t: float) -> bool:
 		var moving := false
@@ -583,28 +680,94 @@ class ServiceWindow extends Prop:
 		var rise := 0.0
 		var since := t - _stamp_at
 		if _stamp_state == &"stamp_lifted":
-			rise = OfficeProps.ease_out(since / Constants.ANNEX_STAMP_LIFT_SECONDS) * 0.24
+			rise = lerpf(_stamp_from, 0.24, OfficeProps.ease_out(since / Constants.ANNEX_STAMP_LIFT_SECONDS))
 			moving = moving or since < Constants.ANNEX_STAMP_LIFT_SECONDS
+		elif _stamp_state == &"stamp_rest":
+			rise = lerpf(_stamp_from, 0.0, OfficeProps.ease_out(since / 0.18))
+			moving = moving or since < 0.18
 		elif _stamp_state == &"stamp_down":
-			var slams := _stamp_volley
-			var cycle := Constants.ANNEX_STAMP_LIFT_SECONDS + Constants.ANNEX_STAMP_SLAM_SECONDS
-			var local := since
-			if slams > 1:
-				local = fmod(maxf(since, 0.0), Constants.CLERK_VOLLEY_GAP) / Constants.CLERK_VOLLEY_GAP * cycle if since < float(slams) * Constants.CLERK_VOLLEY_GAP else cycle + 1.0
-			if local < Constants.ANNEX_STAMP_LIFT_SECONDS:
-				rise = OfficeProps.ease_out(local / Constants.ANNEX_STAMP_LIFT_SECONDS) * 0.24
-			elif local < cycle:
-				rise = (1.0 - OfficeProps.ease_in((local - Constants.ANNEX_STAMP_LIFT_SECONDS) / Constants.ANNEX_STAMP_SLAM_SECONDS)) * 0.24
-			else:
-				# The squash on contact, settling.
-				var after := local - cycle
-				rise = -0.006 * exp(-after * 18.0) * cos(after * 40.0)
-			moving = moving or since < float(slams) * Constants.CLERK_VOLLEY_GAP + cycle + 0.3
+			rise = _slam_rise(since)
+			moving = moving or since < _stamp_first + float(_stamp_volley) * _stamp_gap + 0.4
+		_stamp_rise_now = rise
 		_stamp.position = STAMP_SPOT + Vector3(0.0, 0.026 + rise, 0.0)
 		# Behind closed blinds the stamp is out of sight.
 		_stamp.visible = _blinds.drop < 0.97
 		_stamp.rotation.z = -rise * 0.6
+		moving = _flutter(t) or moving
 		return moving
+
+	## How high the stamp is `since` into a stamp_down: up (from where it was) and
+	## down onto the pad by _stamp_first, then for a volley up and down again
+	## every _stamp_gap, a squash settling after the last.
+	func _slam_rise(since: float) -> float:
+		var slam := Constants.ANNEX_STAMP_SLAM_SECONDS
+		if since < 0.0:
+			return _stamp_from
+		if since < _stamp_first:
+			var up_for := _stamp_first - slam
+			if since < up_for:
+				return lerpf(_stamp_from, _stamp_lift, OfficeProps.ease_out(since / maxf(up_for, 0.01)))
+			return (1.0 - OfficeProps.ease_in((since - up_for) / slam)) * _stamp_lift
+		var after := since - _stamp_first
+		var index := floori(after / _stamp_gap)
+		if index >= _stamp_volley - 1:
+			# The squash on contact, settling.
+			var settle := after - float(_stamp_volley - 1) * _stamp_gap
+			return -0.006 * exp(-settle * 18.0) * cos(settle * 40.0)
+		var local := after - float(index) * _stamp_gap
+		var rise_for := maxf(_stamp_gap - slam, 0.01)
+		var height := 0.15
+		if local < rise_for:
+			return OfficeProps.ease_out(local / rise_for) * height
+		return (1.0 - OfficeProps.ease_in((local - rise_for) / slam)) * height
+
+	## A volley's paper: a scrap shoots out of the hatch on each slam and flutters
+	## down to the lobby floor. A pure function of time, like everything here.
+	func _flutter(t: float) -> bool:
+		var any := false
+		if _flutter_from < -999.0 and _scraps.is_empty():
+			return false
+		for index: int in FLUTTER_COUNT:
+			var scrap := _scrap(index)
+			var launch := _flutter_from + float(index) * _stamp_gap
+			var age := t - launch
+			if _flutter_from < -999.0 or index >= _stamp_volley or age < 0.0 or age > 1.1:
+				scrap.visible = false
+				if _flutter_from > -999.0 and index < _stamp_volley and age < 0.0:
+					any = true
+				continue
+			any = true
+			scrap.visible = true
+			var side := (float(index % 3) - 1.0) * 0.55 + 0.15 * sin(float(index) * 2.3)
+			var velocity := Vector3(side, 1.7 + 0.25 * float(index % 2), 1.3)
+			var drag := 1.0 - exp(-age * 2.2)
+			var drift := velocity * drag / 2.2 + Vector3(0.0, -1.6 * age * age, 0.0)
+			# Out of the hatch, under the glass, and down onto the lobby floor.
+			var at := Vector3(STAMP_SPOT.x, COUNTER_Y + 0.1, 0.12) + drift
+			at.y = maxf(at.y, 0.02)
+			scrap.position = at
+			scrap.rotation = Vector3(age * 7.0 + float(index), age * 5.0 * (1.0 if index % 2 == 0 else -1.0), sin(age * 9.0) * 0.6)
+		return any
+
+	func _scrap(index: int) -> MeshInstance3D:
+		while _scraps.size() <= index:
+			var scrap := MeshInstance3D.new()
+			scrap.name = "Scrap%d" % _scraps.size()
+			var quad := QuadMesh.new()
+			quad.size = Vector2(0.09, 0.12)
+			scrap.mesh = quad
+			if _scrap_material == null:
+				_scrap_material = StandardMaterial3D.new()
+				_scrap_material.albedo_color = PAPER
+				_scrap_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+				_scrap_material.roughness = 0.9
+			scrap.material_override = _scrap_material
+			scrap.set_meta("keep_material", true)
+			scrap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			scrap.visible = false
+			add_child(scrap)
+			_scraps.append(scrap)
+		return _scraps[index]
 
 	func _clock_sign_card() -> Node3D:
 		return get_node_or_null("BackAt") as Node3D
@@ -615,10 +778,30 @@ class ServiceWindow extends Prop:
 class FloorLine extends Prop:
 	var _material: StandardMaterial3D
 	var color: Color
+	var _sticker: Sprite3D
 
-	func build(points: PackedVector3Array, line_color: Color) -> void:
+	## feet: the window's footprints (left/right print centers, floor space), in
+	## the line's paint; the badge sticker sits at the line's start (R2b).
+	func build(points: PackedVector3Array, line_color: Color, feet: PackedVector3Array = PackedVector3Array()) -> void:
 		color = line_color
 		var kit := _MeshKit.new()
+		for index: int in feet.size():
+			var side := -1.0 if index % 2 == 0 else 1.0
+			kit.box(Vector3(feet[index].x, 0.016, feet[index].z), FOOT_SIZE, Color.WHITE, Basis(Vector3.UP, side * -0.12))
+		if points.size() > 1:
+			# The sticker: the window's badge, flat on the floor where the line begins,
+			# turned so it reads the right way up walking along the line.
+			_sticker = Sprite3D.new()
+			_sticker.name = "Sticker"
+			_sticker.shaded = true
+			_sticker.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+			_sticker.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+			_sticker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var along := points[1] - points[0]
+			_sticker.position = Vector3(points[0].x, 0.028, points[0].z) + Vector3(along.x, 0.0, along.z).normalized() * 0.32
+			_sticker.rotation = Vector3(-PI * 0.5, atan2(-along.x, -along.z), 0.0)
+			_sticker.visible = false
+			add_child(_sticker)
 		for index: int in points.size() - 1:
 			var a := points[index]
 			var b := points[index + 1]
@@ -643,6 +826,17 @@ class FloorLine extends Prop:
 		color = line_color
 		_material.albedo_color = line_color
 		_material.emission = line_color
+
+	## The run's {icon, color}: the paint and the sticker.
+	func apply_look(window_look: Dictionary) -> void:
+		var icon := str(window_look.get("icon", ""))
+		recolor(window_look.get("color", OfficeProps.icon_color(icon)))
+		if _sticker != null:
+			var texture: Texture2D = OfficeProps.badge_texture(icon, color) if OfficeProps.pictogram_texture(icon) != null else null
+			_sticker.texture = texture
+			_sticker.visible = texture != null
+			if texture != null:
+				_sticker.pixel_size = 0.5 / float(maxi(texture.get_width(), 1))
 
 	func _animate(t: float) -> bool:
 		var since := t - state_at
@@ -681,13 +875,20 @@ class BigStamp extends Prop:
 			set_state(&"on_pad", OfficeProps.now())
 
 	## How long after a slam's `at` the stamp hits the form (the KA-CHUNK): R2
-	## chunk 6 lines the form's APPROVED, NICELY up with it.
-	static func slam_lands_after() -> float:
-		return Constants.ANNEX_BIG_STAMP_LIFT_SECONDS + Constants.ANNEX_BIG_STAMP_HESITATE + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS
+	## chunk 6 lines the form's APPROVED, NICELY up with it. A player's slam
+	## hesitates only ANNEX_BIG_STAMP_HOLDER_HESITATE (the drama is his).
+	static func slam_lands_after(hesitate: float = Constants.ANNEX_BIG_STAMP_HESITATE) -> float:
+		return Constants.ANNEX_BIG_STAMP_LIFT_SECONDS + hesitate + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS
+
+	## Where a holder carries it: low and right, two-handed (holder space).
+	const HELD := Vector3(0.3, 1.0, -0.5)
+
+	func _hesitate() -> float:
+		return float(state_args.get("hesitate", Constants.ANNEX_BIG_STAMP_HESITATE))
 
 	func _begin(next: StringName, at: float, args: Dictionary) -> void:
 		if next == &"slam":
-			var hit := at + slam_lands_after()
+			var hit := at + slam_lands_after(float(args.get("hesitate", Constants.ANNEX_BIG_STAMP_HESITATE)))
 			cue("stamp_kachunk", hit)
 			if bool(args.get("toot", true)):
 				cue("party_toot", hit + 0.08)
@@ -697,25 +898,40 @@ class BigStamp extends Prop:
 	func _process(delta: float) -> void:
 		super._process(delta)
 		if holder != null and is_instance_valid(holder) and state != &"slam":
-			var target := holder.global_transform * Vector3(0.0, 1.05, -0.42)
-			global_position = global_position.lerp(target, clampf(delta * 6.0, 0.0, 1.0))
+			var target := holder.global_transform * HELD
+			global_position = global_position.lerp(target, clampf(delta * 10.0, 0.0, 1.0))
 			global_rotation.y = holder.global_rotation.y
 			set_process(true)
 
 	func _animate(t: float) -> bool:
 		var since := t - state_at
 		if state == &"slam":
-			var base: Vector3 = state_args.get("on", _rest) if state_args.get("on", null) is Vector3 else _rest
-			var up := 0.0
+			# On the pad (the Head NICE BOY's) or in the holder's hands: raised high,
+			# a held breath, slammed down where it was.
+			var held := holder != null and is_instance_valid(holder)
 			var lift := Constants.ANNEX_BIG_STAMP_LIFT_SECONDS
+			# Held, it swings in from low right to the middle as it goes up, and
+			# comes down there, in front of you (not up out of your view).
+			var swing := OfficeProps.ease_out(since / lift)
+			var base: Vector3 = holder.global_transform * Vector3(lerpf(HELD.x, 0.03, swing), HELD.y - 0.05 * swing, HELD.z) if held else (get_parent() as Node3D).to_global(_rest)
+			var raise := Constants.ANNEX_BIG_STAMP_RAISE * (0.6 if held else 1.0)
+			var up := 0.0
+			var hesitate := _hesitate()
 			if since < lift:
 				up = OfficeProps.ease_out(since / lift)
-			elif since < lift + Constants.ANNEX_BIG_STAMP_HESITATE:
+			elif since < lift + hesitate:
 				up = 1.0 + 0.03 * sin((since - lift) * 30.0)
 			else:
-				up = 1.0 - OfficeProps.ease_in((since - lift - Constants.ANNEX_BIG_STAMP_HESITATE) / Constants.ANNEX_BIG_STAMP_SLAM_SECONDS)
-			global_position = get_parent().to_global(base) + Vector3(0.0, maxf(up, 0.0) * Constants.ANNEX_BIG_STAMP_RAISE, 0.0) if get_parent() is Node3D else position
-			return since < slam_lands_after() + 0.4
+				up = 1.0 - OfficeProps.ease_in((since - lift - hesitate) / Constants.ANNEX_BIG_STAMP_SLAM_SECONDS)
+			global_position = base + Vector3(0.0, maxf(up, 0.0) * raise, 0.0)
+			if held:
+				global_rotation.y = holder.global_rotation.y
+			var still := since < slam_lands_after(hesitate) + 0.4
+			if not still and held:
+				# Back to carrying it.
+				state = &"held"
+				return true
+			return still
 		if holder == null and state != &"held":
 			position = position.lerp(_rest, 0.35)
 			return position.distance_to(_rest) > 0.002
@@ -871,6 +1087,8 @@ class OutgoingTray extends Prop:
 		OfficeProps._view(_paper, paper, "Mesh")
 		_paper.visible = false
 		OfficeProps._marker(self, "Spot", Vector3(0.0, 0.0, 0.7), PI)
+		# Solid: nobody stands inside it (R2b).
+		OfficeProps._solid(self, "Body", Vector3(0.44, 1.05, 0.34), Vector3(0.0, 0.525, 0.0))
 
 	func _begin(next: StringName, at: float, _args: Dictionary) -> void:
 		if next == &"receive":
@@ -928,21 +1146,59 @@ class Turnstile extends Prop:
 		_turned = spin
 		_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, spin)
 
+	## Who's pushing through, how far (0..1), whether this push has clacked (R2b:
+	## the arms turn with the body, one ratchet clack per push, never on a timer).
+	var _push_progress: float = 0.0
+	var _push_clacked: bool = false
+	var _push_done: bool = false
+	## Whose push turns the arms (player node names); empty means anyone's. Only
+	## the players it was unlocked for: someone it wasn't for stops at the bar.
+	var _who: Array = []
+	## Server time it locks again (INF: until told, as at closing).
+	var _open_until: float = -1000.0
+
+	## Whether this prop dropped its own bar (an open for anyone).
+	var _unsealed: bool = false
+
+	## open args: {seconds} (a span, then it locks again; none: until "closed"),
+	## {who} (the player node names it turns for). Opened for named players, the
+	## bar's collider is not the prop's: annex.gd lets only its own local player
+	## through (_step_turnstile), so no one else walks through on their own peer.
+	## Opened for anyone (no who), it drops the bar itself.
 	func _begin(next: StringName, at: float, args: Dictionary) -> void:
 		match next:
 			&"open":
+				# Unlocked: the arms wait for a push, and turn with it.
 				_turn_from = _turned
-				cue("turnstile_clack", at)
-				cue("turnstile_clack", at + Constants.ANNEX_TURNSTILE_TURN_SECONDS * 0.5)
-				_set_solid(false)
 				var seconds := float(args.get("seconds", 0.0))
-				if seconds > 0.0:
-					_busy_until = at + seconds
+				var until := at + seconds if seconds > 0.0 else INF
+				var who: Array = args.get("who", [])
+				if who.is_empty() and not _unsealed:
+					_unsealed = true
+					_set_solid(false)
+				var still_open := at < _open_until
+				if still_open and _who.is_empty():
+					pass
+				elif still_open and not who.is_empty():
+					for name_id: Variant in who:
+						if not _who.has(name_id):
+							_who.append(name_id)
+				else:
+					_who = who.duplicate()
+				_open_until = maxf(until, _open_until if still_open else -1000.0)
+				_busy_until = maxf(_busy_until, at + (seconds if seconds > 0.0 else Constants.ANNEX_TURNSTILE_OPEN + 1.0))
 			&"bounce":
 				_turn_from = _turned
 				cue("turnstile_clunk", at)
 			&"closed":
-				_set_solid(true)
+				_open_until = -1000.0
+				_who = []
+				_push_progress = 0.0
+				_push_clacked = false
+				_push_done = false
+				if _unsealed:
+					_unsealed = false
+					_set_solid(true)
 
 	func _set_solid(on: bool) -> void:
 		var shape := _body.get_child(0) as CollisionShape3D
@@ -952,25 +1208,61 @@ class Turnstile extends Prop:
 		var since := t - state_at
 		match state:
 			&"open":
-				var k := clampf(since / Constants.ANNEX_TURNSTILE_TURN_SECONDS, 0.0, 1.0)
-				# A clacking turn: two ratchet steps, not a smooth spin.
-				var steps := floorf(k * 2.0) * 0.5 + OfficeProps.ease_out(fmod(k * 2.0, 1.0)) * 0.5
-				if k >= 1.0:
-					steps = 1.0
-				var basis_spin: float = _turn_from + steps * TAU / 3.0
-				_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, basis_spin)
-				if k >= 1.0:
+				var push := _pushing()
+				if _push_done:
+					# Through: the next push starts once they're clear of the arms.
+					_push_done = push > 0.0
+					push = 0.0
+				if push > _push_progress or push <= 0.0:
+					_push_progress = push
+				else:
+					# Backing off lets the arms ease back (a turnstile won't turn backwards past its pawl).
+					_push_progress = move_toward(_push_progress, push, 0.05)
+				if _push_progress >= 0.5 and not _push_clacked:
+					_push_clacked = true
+					OfficeProps._play_sfx(self, "turnstile_clack", global_position + Vector3(0.0, 0.9, 0.0))
+				var spin := _turn_from + OfficeProps.ease_out(_push_progress) * TAU / 3.0
+				_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, spin)
+				if _push_progress >= 0.999:
+					# Through: the arms rest a third further round, ready for the next.
 					_turned = fmod(_turn_from + TAU / 3.0, TAU)
-				var seconds := float(state_args.get("seconds", 0.0))
-				if seconds > 0.0 and since >= seconds:
-					set_state(&"closed", state_at + seconds)
+					_turn_from = _turned
+					_push_progress = 0.0
+					_push_clacked = false
+					_push_done = true
+				if t >= _open_until and _push_progress <= 0.0:
+					set_state(&"closed", minf(t, _open_until))
 					return false
-				return k < 1.0 or seconds > 0.0
+				return true
 			&"bounce":
 				var k := clampf(since / Constants.ANNEX_TURNSTILE_BOUNCE_SECONDS, 0.0, 1.0)
 				_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, _turn_from + sin(k * PI * 3.0) * 0.12 * (1.0 - k))
+				if k >= 1.0 and t < _open_until:
+					# Someone bounced while it was unlocked for another: still theirs to push.
+					state = &"open"
+					return true
 				return k < 1.0
+		_spin(_turned)
 		return false
+
+	## How far through the passage the nearest person in it is, 0 (before the
+	## bar) to 1 (past it); 0 when nobody's in it. Lobby side is -Z.
+	func _pushing() -> float:
+		if not is_inside_tree():
+			return 0.0
+		var best := 0.0
+		var half := absf(_arms.position.x) + 0.35
+		for node: Node in get_tree().get_nodes_in_group("players"):
+			var person := node as Node3D
+			if person == null or not person.is_visible_in_tree():
+				continue
+			if not _who.is_empty() and not _who.has(str(person.name)):
+				continue
+			var local := global_transform.affine_inverse() * person.global_position
+			if absf(local.x) > half or local.z < Constants.ANNEX_TURNSTILE_PUSH.x - 0.2 or local.z > Constants.ANNEX_TURNSTILE_PUSH.y + 0.2:
+				continue
+			best = maxf(best, inverse_lerp(Constants.ANNEX_TURNSTILE_PUSH.x, Constants.ANNEX_TURNSTILE_PUSH.y, local.z))
+		return clampf(best, 0.0, 1.0)
 
 
 ## A row of fluorescent panels in the drop ceiling, and its warm fill light.
@@ -1005,6 +1297,8 @@ class LightRow extends Prop:
 			light.omni_attenuation = 1.2
 			light.position = Vector3(side * width, -0.7, 0.0)
 			light.shadow_enabled = false
+			# Fill light, not spotlights: no blown-out glints on the tiles (R2b).
+			light.light_specular = 0.08
 			light.add_to_group("lamps")
 			add_child(light)
 			_lights.append(light)
@@ -1205,9 +1499,9 @@ static func service_window(id: String, look: Dictionary) -> Node3D:
 	return window
 
 
-static func floor_line(points: PackedVector3Array, color: Color) -> Node3D:
+static func floor_line(points: PackedVector3Array, color: Color, feet: PackedVector3Array = PackedVector3Array()) -> Node3D:
 	var line := FloorLine.new()
-	line.build(points, color)
+	line.build(points, color, feet)
 	return line
 
 
