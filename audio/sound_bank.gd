@@ -77,6 +77,8 @@ const SOUNDS: Dictionary = {
 	"dog": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 2.0, "db": -4.0},
 	"car_pass": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 5.0, "db": 0.0},
 	"wind_loop": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 10.0, "db": 0.0},
+	# ---- R2:1 the stage (tools/sfx_r2_stage.py): the iris closing or opening (ui/iris.gd).
+	"iris_swish": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": -3.0},
 	# The old 8-bar tune (until the soundtrack replaces it).
 	"music_loop": {"variants": 0, "bus": &"Music", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 30.0, "db": 0.0},
 	# Tool loops (audio/tool_sound.gd).
