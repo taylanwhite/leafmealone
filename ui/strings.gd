@@ -2366,7 +2366,9 @@ const ANNEX_QUIPS: Dictionary = {
 	"first_visit": [
 		"Triplicate. Of course it's triplicate.",
 		"Somewhere, a filing cabinet is smiling.",
-		"Form 27-B. Request To Be Nice. Nicely.",
+		# R2c annex: was "Form 27-B. Request To Be Nice. Nicely.", the heading
+		# printed on the paper in your hand at that moment.
+		"The pen is chained to the desk. For your safety.",
 	],
 	# Out in under ANNEX_FAST_SECONDS.
 	"fast": [

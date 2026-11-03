@@ -1307,6 +1307,33 @@ func _annex(root: Node3D, plan: bool) -> void:
 			built.get_node("Windows/%s" % id).call("set_state", &"clock_sign", -1000.0)
 		built.get_node("Windows/C").call("set_state", &"blind_down", -1000.0)
 		built.get_node("Windows/C").call("set_state", &"lamp_off", -1000.0)
+	# --head_t=<s>: the Head NICE BOY that far into approving a form (R2c annex),
+	# seen from the desk's visitor spot, from the side, and from above.
+	if _options.has("head_t"):
+		var held := float(_options["head_t"])
+		var now := float(Time.get_ticks_msec()) / 1000.0
+		# A direct call: the audio test's source scan reads call("play", "...") as a sound id.
+		var head: Variant = built.get_node("Staff/HeadNiceBoy")
+		head.play(&"head_windup_slam", now - held, {"read": Constants.ANNEX_HEAD_READ})
+		head.set("hold_t", held)
+		var raise := now - held + Constants.ANNEX_HEAD_READ
+		built.get_node("HeadDesk/BigStamp").call("set_state", &"slam", raise, {"puppet": true})
+		root.set_meta("views", [
+			{"from": Vector3(5.9, 1.6, -2.2), "at": Vector3(7.6, 1.2, -2.3), "fov": 70.0},
+			{"from": Vector3(7.4, 1.5, 0.2), "at": Vector3(7.6, 1.2, -2.3), "fov": 55.0},
+			{"from": Vector3(6.2, 2.2, -4.0), "at": Vector3(7.6, 1.1, -2.2), "fov": 55.0},
+			{"from": Vector3(4.6, 1.7, -0.6), "at": Vector3(7.6, 1.3, -2.3), "fov": 50.0},
+		])
+		return
+	# --view=line: the clerks from where you stand in their lines (R2c annex).
+	if str(_options.get("view", "")) == "line":
+		root.set_meta("views", [
+			{"from": Vector3(-7.0, 1.6, -2.9), "at": Vector3(-7.0, 1.3, -5.4), "fov": 70.0},
+			{"from": Vector3(-3.6, 1.6, -3.5), "at": Vector3(-3.6, 1.2, -5.4), "fov": 70.0},
+			{"from": Vector3(-1.8, 1.65, 1.4), "at": Vector3(-1.8, 1.4, -4.4), "fov": 70.0},
+			{"from": Vector3(-0.2, 1.6, -2.0), "at": Vector3(-0.2, 1.3, -5.4), "fov": 70.0},
+		])
+		return
 	if plan:
 		(built.get_node("LightRows") as Node3D).visible = false
 		root.set_meta("views", [
