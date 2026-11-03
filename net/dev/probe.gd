@@ -201,6 +201,7 @@ func write_report() -> void:
 		"town_site": _town_site(),
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
+		"rake_stroke_test": _guarded_result("res://net/dev/rake_stroke_test.gd"),
 		"drive": _drive(),
 		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
 		"heat": _heat(),
@@ -423,6 +424,15 @@ func _lot_work() -> Dictionary:
 		"truck_bags": int(chefty.call("bag_count")) if chefty != null else 0,
 		"truck_value": int(chefty.call("bag_value")) if chefty != null else 0,
 	}
+
+
+## A test's static result by path, loaded only if it exists (not preloaded, so a
+## test that isn't built yet is no parse error): {done, ok: false, why} when absent.
+func _guarded_result(path: String) -> Dictionary:
+	if not ResourceLoader.exists(path):
+		return {"done": true, "ok": false, "why": "not built"}
+	var script: Variant = load(path)
+	return (script.result as Dictionary).duplicate(true)
 
 
 ## Leaf flakes drawn by every leaf renderer on this peer, and where the first one sits.
