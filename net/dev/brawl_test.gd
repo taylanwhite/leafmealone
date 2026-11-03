@@ -8,6 +8,17 @@ extends Node
 
 static var result: Dictionary = {}
 
+## How long _place waits to see the target where it was sent. Its own peer moves
+## it and streams it back; a client still building the block on a loaded machine
+## (2 s quiet, much longer beside 40 other Godots) took more than 3 s, and every
+## punch then hit the spot it hadn't left yet.
+const PLACE_WAIT_SECONDS: float = 10.0
+## On the spot (m); near it, for a target pushed off it by the host's body (m),
+## and how long it must have stood still there to count as arrived (s).
+const PLACE_ON_SPOT_M: float = 0.3
+const PLACE_NEAR_SPOT_M: float = 0.7
+const PLACE_REST_SECONDS: float = 0.3
+
 var _started: bool = false
 
 
@@ -38,8 +49,9 @@ func _run() -> void:
 	await _place(stand, stand + Vector3(1.2, 0.0, 0.0), target)
 	var from := target.global_position
 	brawl.call("request_punch", "medium")
+	var in_front: Node3D = brawl.call("person_in_front", me, Constants.PUNCH_REACH, Net.local_peer_id())
 	var moved: float = await _moved(target, from, 1.2)
-	print("[BrawlTest] medium punch: they were shoved %.2f m" % moved)
+	print("[BrawlTest] medium punch: they were shoved %.2f m (in front: %s, %.2f m away)" % [moved, in_front.name if in_front != null else "nobody", me.global_position.distance_to(from)])
 	ok = ok and moved > 0.4
 	# Nobody in front: a whiff, nothing happens to them.
 	await _place(stand, stand + Vector3(-3.0, 0.0, 0.0), target)
@@ -104,12 +116,28 @@ func _place(stand: Vector3, there: Vector3, target: Node3D) -> void:
 	await _ticks(8)
 	# The teleport runs on their machine and comes back in their state stream; on a
 	# loaded machine that takes longer than 8 ticks, and a punch thrown before the
-	# host sees them arrive hits the spot they left.
+	# host sees them arrive hits the spot they left. They have arrived once they're
+	# on the spot, or once they've come to rest near it: at the 1.0 m grab spots
+	# the two bodies push apart and they settle half a metre short for good.
 	var waited := 0.0
-	while waited < 3.0 and Vector2(target.global_position.x - there.x, target.global_position.z - there.z).length() > 0.3:
+	var still := 0.0
+	var last := target.global_position
+	while waited < PLACE_WAIT_SECONDS:
+		var off := _flat_off(target.global_position, there)
+		if off <= PLACE_ON_SPOT_M or (off <= PLACE_NEAR_SPOT_M and still >= PLACE_REST_SECONDS):
+			break
 		await get_tree().physics_frame
 		waited += get_physics_process_delta_time()
+		still = still + get_physics_process_delta_time() if target.global_position.distance_to(last) < 0.005 else 0.0
+		last = target.global_position
+	var off_end := _flat_off(target.global_position, there)
+	if off_end > PLACE_NEAR_SPOT_M or (off_end > PLACE_ON_SPOT_M and still < PLACE_REST_SECONDS):
+		print("[BrawlTest] (they never got there: %.2f m off after %.1f s, at %s)" % [off_end, waited, target.global_position])
 	await _ticks(4)
+
+
+func _flat_off(at: Vector3, there: Vector3) -> float:
+	return Vector2(at.x - there.x, at.z - there.z).length()
 
 
 func _moved(target: Node3D, from: Vector3, seconds: float) -> float:

@@ -240,14 +240,26 @@ static func flight(pos: Vector3, vel: Vector3, ground_y: float, truck: Node = nu
 		points.append(end)
 	return {"points": points, "end": end, "end_vel": bed.basis * v, "caught": caught, "hull": hull, "seconds": t}
 
+## True when a throw goes in for sure: at this speed, and a touch softer and
+## harder (Constants.TOSS_SURE_SHARE). The arc preview turns gold on it, and the
+## aim help aims for it: a flight that goes in only by a hair (its bottom over
+## the rail by a millimetre at a single tick) is one a real bag misses, since
+## Jolt steps it in its own float precision, and it bounces off the rail.
+static func sure_catch(truck: Node, pos: Vector3, vel: Vector3, ground_y: float) -> bool:
+	return bool(flight(pos, vel, ground_y, truck)["caught"]) \
+		and bool(flight(pos, vel * (1.0 - Constants.TOSS_SURE_SHARE), ground_y, truck)["caught"]) \
+		and bool(flight(pos, vel * (1.0 + Constants.TOSS_SURE_SHARE), ground_y, truck)["caught"])
+
+
 ## Light, fair aim help for a leaf bag tossed at Chefty (docs/GAME.md): a throw
-## the bed would catch anyway is left alone; a near miss (aimed within
-## BED_ASSIST_WINDOW times Constants.BED_ASSIST_MAX_YAW of the bed's middle) is
-## given the smallest nudge that puts it in: turned toward the middle by at most
-## BED_ASSIST_MAX_YAW and thrown up to BED_ASSIST_MAX_SPEED_SHARE softer or
-## harder (a harder lob also goes higher, so a toss that would clip the rail
-## clears it). Help that can't put it in changes nothing. Only the launch
-## changes, so the flight stays one smooth arc. Returns the velocity to throw with.
+## sure to go in (sure_catch) is left alone; a near miss (aimed within
+## BED_ASSIST_WINDOW times Constants.BED_ASSIST_MAX_YAW of the bed's middle), or
+## one that would only scrape in, is given the smallest nudge that puts it in for
+## sure: turned toward the middle by at most BED_ASSIST_MAX_YAW and thrown up to
+## BED_ASSIST_MAX_SPEED_SHARE softer or harder (a harder lob also goes higher, so
+## a toss that would clip the rail clears it). Help that can't make it sure
+## changes nothing. Only the launch changes, so the flight stays one smooth arc.
+## Returns the velocity to throw with.
 static func assist(truck: Node, pos: Vector3, vel: Vector3, ground_y: float) -> Vector3:
 	if truck == null or not truck.has_method("bed_transform"):
 		return vel
@@ -255,7 +267,7 @@ static func assist(truck: Node, pos: Vector3, vel: Vector3, ground_y: float) -> 
 	var along := flat.length()
 	if along < 0.1:
 		return vel
-	if bool(flight(pos, vel, ground_y, truck)["caught"]):
+	if sure_catch(truck, pos, vel, ground_y):
 		return vel
 	var target: Vector3 = bed_of(truck) * BED_MIDDLE
 	var to_target := Vector3(target.x - pos.x, 0.0, target.z - pos.z)
@@ -278,7 +290,7 @@ static func assist(truck: Node, pos: Vector3, vel: Vector3, ground_y: float) -> 
 			var speed := along * (1.0 + Constants.BED_ASSIST_MAX_SPEED_SHARE * float(speed_step) / 4.0)
 			var heading := flat.normalized().rotated(Vector3.UP, yaw_cap * float(turn_step) / 2.0)
 			var tried := heading * speed + Vector3.UP * (lift_for(speed) + extra_lift)
-			if bool(flight(pos, tried, ground_y, truck)["caught"]):
+			if sure_catch(truck, pos, tried, ground_y):
 				best = tried
 				best_cost = cost
 	return best

@@ -199,7 +199,8 @@ func _pile_check() -> bool:
 	print("[GagTest] dived into the pile: hidden %s" % hidden)
 	# R2:3 nobody watched the dive: a NICE BOY's poke would be a near miss.
 	var calm := float(me.call("suspicion")) < Constants.HIDE_FOUND_AT
-	print("[GagTest] an unwatched pile isn't suspicious: %s (%.2f)" % [calm, float(me.call("suspicion"))])
+	var watchers := get_tree().get_nodes_in_group("crew").size()
+	print("[GagTest] an unwatched pile isn't suspicious: %s (%.2f; %d NICE BOYS about, seen %s)" % [calm, float(me.call("suspicion")), watchers, me.get_meta("pile_seen", false)])
 	return hidden and calm
 
 
