@@ -202,6 +202,7 @@ func write_report() -> void:
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
 		"playtest_tools_test": preload("res://net/dev/playtest_tools_test.gd").result.duplicate(true),
+		"toss_test": preload("res://net/dev/toss_test.gd").result.duplicate(true),
 		"drive": _drive(),
 		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
 		"heat": _heat(),

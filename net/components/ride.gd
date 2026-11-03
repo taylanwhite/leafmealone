@@ -12,8 +12,11 @@ const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const _Vehicles = preload("res://props/vehicles.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _BedLoad = preload("res://props/truck_bed_load.gd")
 
 var _riding: bool = false
+## The bags drawn in the bed (props/truck_bed_load.gd), Chefty only.
+var _bed_load: Node3D
 var _start_time: float = 0.0
 var _duration: float = RIDE_DURATION_SECONDS
 var _destination: int = 0
@@ -132,6 +135,21 @@ func in_bed(point: Vector3) -> bool:
 	return BED.has_point(_body.global_transform.affine_inverse() * point)
 
 
+## The bed's space in the world (BED and the load's spots are in it).
+func bed_transform() -> Transform3D:
+	return _body.global_transform if _body != null else global_transform
+
+
+## Where the bag in load spot index sits, in the world (props/truck_bed_load.gd).
+func bed_slot(index: int) -> Transform3D:
+	return bed_transform() * _BedLoad.slot(index)
+
+
+## The bags drawn in the bed, or null (the van).
+func bed_load() -> Node3D:
+	return _bed_load
+
+
 ## Dollars' worth of bags loaded this job. What the homeowner pays for.
 func bag_value() -> int:
 	return _bag_value
@@ -238,6 +256,9 @@ func _build() -> void:
 	label.position = Vector3(0.0, 3.4, 0.0)
 	_body.add_child(label)
 	_label = label
+	if name == "Chefty":
+		_bed_load = _BedLoad.new()
+		_body.add_child(_bed_load)
 	var seats := Node3D.new()
 	seats.name = "Seats"
 	_body.add_child(seats)
@@ -290,6 +311,8 @@ func _refresh_label() -> void:
 		return
 	var full: String = _Strings.UI["ride_chefty_full"] if _bags >= Constants.TRUCK_BAG_CAPACITY else ""
 	_label.text = _Strings.UI["ride_chefty_label"] % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value, full]
+	if _bed_load != null:
+		_bed_load.call("set_count", _bags)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -304,6 +327,8 @@ func _rpc_parked(along: float, count: int, value: int) -> void:
 	_parked_along = along
 	_bags = count
 	_bag_value = value
+	if _bed_load != null:
+		_bed_load.call("sync_count", count)
 	if not _riding:
 		_place(along)
 		if _body != null:
@@ -330,7 +355,9 @@ func _rpc_arrived() -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_bags(count: int, value: int) -> void:
-	if value > _bag_value and _body != null:
+	if value > _bag_value and _bed_load != null:
+		_bed_load.call("on_value_added", value - _bag_value)
+	elif value > _bag_value and _body != null:
 		_MoneyPopup.pop(get_tree(), _body.global_position + Vector3(0.0, 3.0, 0.0), value - _bag_value)
 	_bags = count
 	_bag_value = value

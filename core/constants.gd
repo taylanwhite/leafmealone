@@ -1396,3 +1396,83 @@ const ART_YARD_ROOF_SPOT_GAP: float = 0.9
 ## clear in front of every house, so where a hood's door puts the beds never
 ## changes where a tree, a hiding spot or litter lands.
 const ART_YARD_BED_STRIP: float = 1.5
+
+# ---- bags: throw into Chefty
+# Tossing leaf bags into Chefty's bed with G (net/components/bed_toss.gd,
+# net_prop.gd, props/truck_bed_load.gd, ui/toss_arc.gd; docs/GAME.md "Tossing
+# bags into Chefty"). Bed heights are in the bed's own space (its floor's top at
+# 1.05, the rails at 1.65). No words anywhere: the arc, the thump and the pile say it.
+## A leaf bag is lobbed two-handed, not flung, from where it hangs in your hands
+## (when nobody holds it, its bottom from this high, this far in front of you, m);
+## it passes through you for this long (s) on its way out.
+const BAG_TOSS_RELEASE_HEIGHT: float = 0.85
+const BAG_TOSS_RELEASE_FORWARD: float = 0.55
+const BAG_TOSS_CLEAR_SECONDS: float = 0.35
+## Set down (a tap of G), it plops out of your hands this fast forward and up (m/s).
+const BAG_SET_DOWN_PUSH: float = 1.6
+const BAG_SET_DOWN_LIFT: float = 1.0
+## A client draws its own toss flying at once (net_prop.gd _predict_toss). If it
+## drew it going in and the host hasn't said so this long after (s), it lets go
+## of the guess; easing back onto the host's bag takes this long (s).
+const BAG_TOSS_PROVISIONAL_SECONDS: float = 0.8
+const BAG_TOSS_BLEND_SECONDS: float = 0.2
+## A bag's price tag hides while it moves faster than this (m/s): thrown, not lying.
+const BAG_TOSS_LABEL_HIDE_SPEED: float = 1.5
+## Its speed along the ground at no wind-up and at a full one (m/s); a full
+## (LEAF_BAG_MAX_KG) bag goes this share as fast as an empty one.
+const BAG_TOSS_SPEED_MIN: float = 1.6
+const BAG_TOSS_SPEED_MAX: float = 7.5
+const BAG_TOSS_HEAVY_SHARE: float = 0.72
+## Its speed upward: this much, plus this share of its speed along the ground,
+## so a soft toss is a high lob and a full wind-up carries about 10 m. From the
+## bed's middle: 2 m goes in at any wind-up (a hop over the side), 3 m from a
+## tap to about 1.0 s, 4 m from 0.4 s, 6 m from 0.7 s up (toss survey, 2026-11-02).
+const BAG_TOSS_LIFT: float = 3.9
+const BAG_TOSS_LIFT_PER_SPEED: float = 0.33
+## A client says where it stood when it let go (for a leaf bag, where the bag
+## left its hands); the host believes it within this far of where it has them
+## (m), so a throw at 150 ms leaves from where the thrower saw it leave.
+const THROW_FROM_TOLERANCE: float = 2.0
+## The catch (bed_toss.gd catches()): the bed's box, and on the way down
+## everything over the open bed up to this high; plus this far past the side
+## walls and the tailgate (a tumbling bag's side meets the wall about there),
+## there only with the bag's bottom at least this high, on its way down or
+## heading in over the rail. Lower than that it bonks the wall.
+const BED_CATCH_TOP_Y: float = 3.9
+const BED_CATCH_SIDE_MARGIN: float = 0.6
+const BED_CATCH_RAIL_Y: float = 1.4
+## A bag tossed with its middle this close past a side wall or the tailgate (m)
+## can't arc over the rail from there, so it hops in over it instead.
+const BED_CLOSE_REACH: float = 0.8
+## Aim help for a near miss (bed_toss.gd assist()): the smallest nudge that puts
+## it in, turned by at most this much (rad) toward the bed's middle and thrown
+## at most this share softer or harder. A throw aimed more than
+## BED_ASSIST_WINDOW times the turn away is left alone.
+const BED_ASSIST_MAX_YAW: float = 0.14
+const BED_ASSIST_MAX_SPEED_SHARE: float = 0.15
+const BED_ASSIST_WINDOW: float = 2.0
+## A caught bag glides into its spot in the load in this long (s): this much
+## per meter it has to go, within these bounds. It lands moving down this fast
+## (m/s), and sits there this long before it is part of the stack.
+const BED_SETTLE_SECONDS_PER_M: float = 0.25
+const BED_SETTLE_MIN_SECONDS: float = 0.22
+const BED_SETTLE_MAX_SECONDS: float = 0.65
+const BED_SETTLE_LAND_SPEED: float = 2.5
+const BED_SETTLE_HOLD_SECONDS: float = 0.35
+## Walking up and pressing E: the bag leaves your hands this fast upward (m/s)
+## on its little hop into the bed.
+const BED_HAND_IN_LIFT: float = 3.2
+## A full Chefty bats a bag back out: this fast back the way it came and this
+## fast up (m/s), at most this often (s) for one bag.
+const BED_REFUSE_PUSH: float = 3.2
+const BED_REFUSE_LIFT: float = 4.0
+const BED_REFUSE_EVERY_SECONDS: float = 0.8
+## A toss from at least this far (m) that goes in gets a crew reaction now and
+## then: this share of the time, at most once in this long (s).
+const BED_LONG_TOSS_METERS: float = 5.0
+const BED_LONG_TOSS_QUIP_CHANCE: float = 0.4
+const BED_LONG_TOSS_QUIP_SECONDS: float = 20.0
+## The arc preview while winding up (ui/toss_arc.gd): a dot this often along
+## the flight (s), and the longest flight it draws (s).
+const TOSS_ARC_STEP_SECONDS: float = 0.06
+const TOSS_ARC_MAX_SECONDS: float = 2.5

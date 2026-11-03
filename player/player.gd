@@ -1343,7 +1343,9 @@ func _step_wind_up(delta: float) -> void:
 		return
 	var share := clampf(seconds / Constants.THROW_CHARGE_SECONDS, 0.0, 1.0)
 	var power := lerpf(Constants.THROW_POWER_MIN, Constants.THROW_POWER_MAX, share)
-	held.call("request_throw", -global_transform.basis.z, power)
+	# From where you stand as you let go: at 150 ms the host has you a step back,
+	# and a toss at Chefty's bed must leave from your feet (Constants.THROW_FROM_TOLERANCE).
+	held.call("request_throw", -global_transform.basis.z, power, global_position)
 	say_to_all("vo_heave" if share > 0.7 else "vo_hup")
 	if body != null and not bool(body.call("is_gesturing")):
 		body.call("gesture", "startle")

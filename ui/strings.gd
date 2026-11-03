@@ -2048,3 +2048,34 @@ const ICON_UI: Dictionary = {
 	"board_rating_lead": "Crew rating:",
 	"board_rating_jobs": "(%d jobs)",
 }
+
+# ---- bags: throw into Chefty
+# Tossing leaf bags into Chefty's bed (net/components/net_prop.gd; docs/GAME.md
+# "Tossing bags into Chefty"). There is no prompt, refusal or "full" notice on
+# purpose (Taylan: don't hold the player's hand): the arc, the thump, the pile
+# and a bag bouncing off it say all of that. Only the crew's reaction is words.
+
+const TOSS_UI: Dictionary = {
+	# The crew's reaction to a long toss: who said it, and the line.
+	"quip_said": "%s: %s",
+}
+
+## A crewmate's reaction, now and then, when someone sinks a bag into Chefty
+## from far off.
+const TOSS_QUIPS: Array[String] = [
+	"Nothing but bed!",
+	"From DOWNTOWN!",
+	"Chefty felt that one.",
+	"Do it again, I wasn't filming.",
+	"That's going in the company newsletter. We don't have a newsletter.",
+	"Somebody give that person a raise. Nobody here can give raises.",
+	"Three points! Leaves don't get points! Still!",
+]
+
+## The same, when nobody else is on the crew to see it.
+const TOSS_BRAGS: Array[String] = [
+	"Nothing but bed. Nobody saw. Classic.",
+	"And the crowd goes... it's just me. Fine.",
+	"Chefty, you saw that. Back me up.",
+	"Putting that one on the resume.",
+]
