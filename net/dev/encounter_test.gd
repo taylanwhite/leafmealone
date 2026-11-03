@@ -22,6 +22,11 @@ extends Node
 ##   7. a can landing near a NICE BOY without hitting him: INVESTIGATE
 ##   8. barks: the client saw the same kinds and lines, in order; the name tag and
 ##      the bark line keep a fixed, clamped size on the client
+## (The turn check in 2 is sampled from outside the steering, every tick, on the
+## host's bodies; the client's drawn turn is reported as a note.)
+##  8b. a sidestep out of a wind-up: the verdict is a whiff, WHIFF on both peers,
+##      and the grace refuses the next grab; 8c. a stun mid wind-up spoils it
+##      (no sprawl, no catch)
 ##   9. a raid with nobody caught: heat drops to HEAT_AFTER_EVADED, XP_ESCAPE to the
 ##      spotted, never-caught player
 ##  10. the client disconnects mid-escort: the NICE BOY goes back to the chase and the
@@ -47,15 +52,24 @@ var _ok: bool = true
 var _client: int = 0
 var _report: Dictionary = {}
 ## Client side: what it sampled.
-var _sampled: Dictionary = {"seat_max": 0.0, "seat_samples": 0, "hops": 0, "anchor_max": 0.0, "anchor_samples": 0}
+var _sampled: Dictionary = {"seat_max": 0.0, "seat_samples": 0, "hops": 0, "anchor_max": 0.0, "anchor_samples": 0, "whiff_seen": false, "yaw_max": 0.0}
 var _client_caught_at: float = -1.0
 var _wriggling: bool = false
 var _wriggle_down: bool = false
 var _client_carried_seen: int = -1
+## Every peer: each NICE BOY's yaw last physics tick (instance id -> rad), the
+## largest one-tick turn seen on his own feet, and ticks to skip after the test
+## teleports one (_put_crew).
+var _yaw_prev: Dictionary = {}
+var _yaw_max: float = 0.0
+var _yaw_where: String = ""
+var _yaw_skip: int = 0
 
 
 func _ready() -> void:
 	result = {}
+	# After every NICE BOY's own tick, so each sample is that tick's pose.
+	process_physics_priority = 100
 
 
 func _process(_delta: float) -> void:
@@ -69,9 +83,43 @@ func _process(_delta: float) -> void:
 
 
 func _physics_process(_delta: float) -> void:
-	if multiplayer.multiplayer_peer == null or Net.is_host():
+	if multiplayer.multiplayer_peer == null:
 		return
-	_client_sample()
+	_sample_yaw()
+	if not Net.is_host():
+		_client_sample()
+
+
+## Measured from outside the steering: how far each NICE BOY's drawn yaw moved in
+## one tick while he was on his own feet (no hop, lunge or stand placement), the
+## hand-backs from those included. The host's body is the drawn one; a client
+## draws Visual (the network's pose, smoothed).
+func _sample_yaw() -> void:
+	var skip := _yaw_skip > 0
+	_yaw_skip = maxi(0, _yaw_skip - 1)
+	var alive: Dictionary = {}
+	for member: Node in get_tree().get_nodes_in_group("nice_crew"):
+		if member.is_queued_for_deletion():
+			continue
+		var drawn := member as Node3D if Net.is_host() else member.get_node_or_null("Visual") as Node3D
+		if drawn == null:
+			continue
+		var id := member.get_instance_id()
+		var yaw := drawn.global_rotation.y
+		var at := drawn.global_position
+		if _yaw_prev.has(id) and not skip and not bool(member.call("is_riding_visual")):
+			var last: Array = _yaw_prev[id]
+			# The test's own teleports (_put_crew) reach a client a lag later, as a jump.
+			if at.distance_to(last[1]) < 1.0:
+				var turn := absf(wrapf(yaw - float(last[0]), -PI, PI))
+				if turn > _yaw_max:
+					_yaw_max = turn
+					_yaw_where = "%s mode %d at %.2f" % [member.name, int(member.get("mode")), Net.server_time()]
+		_yaw_prev[id] = [yaw, at]
+		alive[id] = true
+	for id: Variant in _yaw_prev.keys():
+		if not alive.has(id):
+			_yaw_prev.erase(id)
 
 
 # ---------------------------------------------------------------- the host
@@ -156,7 +204,12 @@ func _run() -> void:
 	var freed: bool = await _bean(holder, _client)
 	var safe_left := float((director.get("_safe_until") as Dictionary).get(_client, 0.0)) - Net.server_time()
 	_step("4 a can on %s during the cite frees the client (free %s, immunity %.1f s)" % [holder.name if holder != null else "nobody", freed, safe_left], freed and safe_left > Constants.RESCUE_IMMUNITY - 1.0)
-	_step("4 the rescue counts (+%d rescue, +%d XP)" % [int(_tally("rescues") - rescues_before), _xp("rescue") - xp_before], _tally("rescues") - rescues_before >= 1.0 or Campaign.has_method("add_rescue"))
+	var rescue_text := "4 the rescue counts (+%d rescue, +%d XP, want +%d)" % [int(_tally("rescues") - rescues_before), _xp("rescue") - xp_before, Constants.XP_RESCUE]
+	if Campaign.has_method("add_rescue"):
+		# Chunk 6 counts it its own way: its tally is the check to make strict here.
+		_note("pending chunk 6's Campaign.add_rescue tally: " + rescue_text)
+	else:
+		_step(rescue_text, _tally("rescues") - rescues_before >= 1.0 and _xp("rescue") - xp_before >= Constants.XP_RESCUE)
 	# 5. Caught again: the cite, then the escort.
 	await get_tree().create_timer(Constants.RESCUE_IMMUNITY + 0.3).timeout
 	var catcher := _nearest_crew(client_body.global_position)
@@ -240,6 +293,11 @@ func _run() -> void:
 	var tail: Array = client_barks.slice(maxi(0, client_barks.size() - host_barks.size()))
 	_step("8 the client saw the same last %d barks (kinds and lines) as the host" % host_barks.size(), host_barks.size() > 0 and JSON.stringify(host_barks) == JSON.stringify(tail))
 	_step("8 on the client the name tags and bark lines keep a fixed, clamped size", bool(_report.get("tags_ok", false)))
+	# 8b. A sidestep during the wind-up: the verdict is a whiff, he sprawls, and the
+	# target has a moment's grace. The host's own player dodges (its position is the
+	# host's at once; a client's sidestep reaches the host a lag later, which the
+	# wind-up's lead already pays for).
+	await _dodge_steps(director, encounter)
 	# 9. A raid nobody's caught in.
 	director.call("dev_reset")
 	await get_tree().create_timer(1.0).timeout
@@ -251,7 +309,12 @@ func _run() -> void:
 	director.call("host_begin_departure")
 	var quiet: bool = await _wait(func() -> bool: return int(director.call("phase")) == 0, Constants.CREW_RECALL_MAX * 2.0 + 4.0)
 	heat.call("sync_now")
-	_step("9 nobody caught: the heat settles at %.0f (want %.0f), XP_ESCAPE +%d" % [float(heat.get("heat")), Constants.HEAT_AFTER_EVADED, _xp("escape") - escape_before], quiet and absf(float(heat.get("heat")) - Constants.HEAT_AFTER_EVADED) < 1.5 and (_xp("escape") - escape_before >= Constants.XP_ESCAPE or Campaign.has_method("award_escape")))
+	_step("9 nobody caught: the heat settles at %.0f (want %.0f)" % [float(heat.get("heat")), Constants.HEAT_AFTER_EVADED], quiet and absf(float(heat.get("heat")) - Constants.HEAT_AFTER_EVADED) < 1.5)
+	var escape_text := "9 the spotted, never-caught host gets XP_ESCAPE (+%d, want +%d)" % [_xp("escape") - escape_before, Constants.XP_ESCAPE]
+	if Campaign.has_method("award_escape"):
+		_note("pending chunk 6's Campaign.award_escape tally: " + escape_text)
+	else:
+		_step(escape_text, _xp("escape") - escape_before >= Constants.XP_ESCAPE)
 	var freed_crew: bool = await _wait(func() -> bool: return _crew_all().is_empty(), Constants.VAN_LEAVE_SECONDS + 4.0)
 	_step("9 the crew left with the van (freed once it's gone)", freed_crew)
 	# 10. Disconnect mid-escort.
@@ -277,10 +340,73 @@ func _run() -> void:
 		return not Net.peer_ids().has(_client) and int(encounter.call("stage_of", _client)) == 0 and walker != null and is_instance_valid(walker) and bool(walker.call("in_brain_mode")), 6.0)
 	_step("10 the client left mid-escort: %s is back on the chase, the stage gone" % (walker.name if walker != null else "nobody"), back)
 	_note("late join mid-escort: needs a second client (not in ci_local); apply_snapshot covers it")
-	var turn := float(_Crew.stats["max_turn_step"])
 	var most := Constants.CREW_TURN_RATE * get_physics_process_delta_time() + 0.01
-	_step("2 the largest turn in one tick was %.3f rad (at most %.3f)" % [turn, most], turn <= most)
+	_step("2 on the host the largest one-tick turn of a NICE BOY on his feet was %.3f rad (at most %.3f; %s)" % [_yaw_max, most, _yaw_where], _yaw_max <= most)
+	# The client draws the network's pose through the smoother, a frame at a time:
+	# a frame can carry two ticks of turning, and a lost update bunches a little
+	# more, but never a swing (a turn on the spot used to arrive all at once when
+	# he walked off).
+	var client_turn := float(_report.get("yaw_max", 9.0))
+	_step("2 on the client the largest one-tick turn drawn was %.3f rad (at most %.3f; %s)" % [client_turn, most * 3.0, str(_report.get("yaw_where", ""))], client_turn <= most * 3.0)
 	_finish()
+
+
+## 8b and 8c: a sidestep whiffs (WHIFF on both peers, grace refuses the next grab);
+## a stun cancels a wind-up (no sprawl). The host's player is grabbable only
+## between each wind-up and its verdict.
+func _dodge_steps(director: Node, encounter: Node) -> void:
+	var me := Net.local_peer_id()
+	var body := _own()
+	_safe(_client, 60.0)
+	var lunger := _nearest_crew(body.global_position)
+	if lunger == null:
+		_step("8b a NICE BOY to dodge", false)
+		return
+	await _wait(func() -> bool: return bool(lunger.call("in_brain_mode")) and not bool(lunger.call("is_stunned")), 6.0)
+	var here := body.global_position
+	_put_crew(lunger, here + Vector3(0.0, 0.0, -1.6), here)
+	await _ticks(2)
+	var whiffs := int(_Encounter.stats["whiffs"])
+	var safe: Dictionary = director.get("_safe_until")
+	safe.erase(me)
+	var wound := bool(encounter.call("host_windup", lunger, me, false))
+	# Straight out of the lunge's path, sideways.
+	_move_to(here + Vector3(2.5, 0.0, 0.0), 0.0)
+	var whiffed: bool = await _wait(func() -> bool: return int(_Encounter.stats["whiffs"]) > whiffs or int(encounter.call("stage_of", me)) >= _Encounter.Stage.GOTCHA, 2.0)
+	await _ticks(2)
+	var sprawled := int(lunger.get("mode")) == _Crew.Mode.WHIFF
+	var caught := bool(director.call("is_captured", me))
+	# Let go of on the host too: no stage left, and he's off the lunge's placement.
+	var let_go := int(encounter.call("stage_of", me)) == _Encounter.Stage.NONE and not bool(lunger.call("is_riding_visual"))
+	# Still in the grace: the next grab is refused.
+	var refused := not bool(encounter.call("host_windup", lunger, me, false))
+	_safe(me, HOST_SAFE_SECONDS)
+	_step("8b a sidestep out of the lunge whiffs (wound up %s, whiff %s, caught %s, WHIFF %s, let go %s)" % [wound, whiffed, caught, sprawled, let_go], wound and whiffed and not caught and sprawled and let_go)
+	_step("8b the whiff's grace refuses the next grab", refused)
+	await get_tree().create_timer(0.5).timeout
+	_report = {}
+	_rpc_ask_report.rpc_id(_client)
+	await _wait(func() -> bool: return not _report.is_empty(), 4.0)
+	_step("8b the client saw the whiff on the host's player and the sprawl (%s, %s)" % [(_report.get("whiff_peers", []) as Array).has(me), bool(_report.get("whiff_seen", false))], (_report.get("whiff_peers", []) as Array).has(me) and bool(_report.get("whiff_seen", false)))
+	# 8c. A stun mid wind-up: spoiled, no sprawl, no catch.
+	await get_tree().create_timer(Constants.CREW_WHIFF_GRACE + 0.2).timeout
+	await _wait(func() -> bool: return bool(lunger.call("in_brain_mode")) and not bool(lunger.call("is_stunned")), 4.0)
+	here = body.global_position
+	_put_crew(lunger, here + Vector3(0.0, 0.0, -1.6), here)
+	await _ticks(2)
+	whiffs = int(_Encounter.stats["whiffs"])
+	safe.erase(me)
+	wound = bool(encounter.call("host_windup", lunger, me, false))
+	await _ticks(3)
+	lunger.set("_stun_left", 1.0)
+	var spoiled: bool = await _wait(func() -> bool: return int(_Encounter.stats["whiffs"]) > whiffs or int(encounter.call("stage_of", me)) >= _Encounter.Stage.GOTCHA, 2.0)
+	await _ticks(2)
+	caught = bool(director.call("is_captured", me))
+	sprawled = int(lunger.get("mode")) == _Crew.Mode.WHIFF
+	let_go = int(encounter.call("stage_of", me)) == _Encounter.Stage.NONE and not bool(lunger.call("is_riding_visual"))
+	_safe(me, HOST_SAFE_SECONDS)
+	_step("8c a stun cancels a wind-up (wound up %s, spoiled %s, caught %s, sprawled %s, let go %s)" % [wound, spoiled, caught, sprawled, let_go], wound and spoiled and not caught and not sprawled and let_go)
+	lunger.set("_stun_left", 0.0)
 
 
 ## Throw the trash can at whoever holds this peer, from point blank; true once freed.
@@ -322,6 +448,8 @@ func _client_sample() -> void:
 	elif not bool(director.call("is_captured", me)):
 		_client_caught_at = -1.0 if _client_caught_at < 0.0 else _client_caught_at
 	for member: Node in get_tree().get_nodes_in_group("nice_crew"):
+		if int(member.get("mode")) == _Crew.Mode.WHIFF:
+			_sampled["whiff_seen"] = true
 		if int(member.get("mode")) == _Crew.Mode.SEATED and int(director.call("phase")) == 1:
 			var look: Node3D = member.call("van_anchor")
 			if look != null and (member.get_node("Visual") as Node3D).visible:
@@ -350,7 +478,10 @@ func _rpc_ask_report() -> void:
 	var encounter := _encounter()
 	var windup: Dictionary = {}
 	var caught_seen := 99.0
+	var whiff_peers: Array = []
 	for entry: Dictionary in _Encounter.log:
+		if str(entry["event"]) == "whiff":
+			whiff_peers.append(int(entry["peer"]))
 		if int(entry["peer"]) == me and str(entry["event"]) == "windup":
 			windup = entry
 		if int(entry["peer"]) == me and str(entry["event"]) == "catch":
@@ -370,6 +501,7 @@ func _rpc_ask_report() -> void:
 		"carried_by": int(player.get("carried_by")) if player != null else -1,
 		"barks": _Crew.bark_log.slice(maxi(0, _Crew.bark_log.size() - 12)),
 		"tags_ok": tags_ok,
+		"whiff_peers": whiff_peers, "whiff_seen": _sampled["whiff_seen"], "yaw_max": _yaw_max, "yaw_where": _yaw_where,
 	})
 
 
@@ -476,6 +608,8 @@ func _nearest_crew(at: Vector3) -> Node3D:
 
 
 func _put_crew(crew: Node3D, at: Vector3, facing: Vector3) -> void:
+	# The test's own teleport isn't a turn (and the client sees it a lag later).
+	_yaw_skip = maxi(_yaw_skip, 30)
 	crew.global_position = at
 	var look := facing - at
 	crew.rotation.y = atan2(look.x, look.z)

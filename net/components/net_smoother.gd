@@ -26,6 +26,7 @@ static var stats: Dictionary = {"samples": 0, "hitches": 0, "max_gap_ms": 0.0, "
 var _visual: Node3D
 var _samples: Array[Dictionary] = []
 var _last_recorded := Vector3(INF, INF, INF)
+var _last_basis := Basis.IDENTITY
 
 
 func _ready() -> void:
@@ -49,9 +50,14 @@ func _physics_process(_delta: float) -> void:
 	if body == null:
 		return
 	var origin := body.global_position
-	if origin.distance_squared_to(_last_recorded) < 0.0000001 and not _samples.is_empty():
+	# A snapshot counts if it moved or turned: a NICE BOY turning on the spot (a
+	# spot, a stand) would otherwise keep his old facing until he walked off, then
+	# swing round in a frame.
+	var basis := body.global_basis
+	if origin.distance_squared_to(_last_recorded) < 0.0000001 and basis.is_equal_approx(_last_basis) and not _samples.is_empty():
 		return
 	_last_recorded = origin
+	_last_basis = basis
 	var now := _now()
 	if not _samples.is_empty():
 		var previous: Dictionary = _samples[_samples.size() - 1]

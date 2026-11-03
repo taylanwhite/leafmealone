@@ -33,9 +33,6 @@ const VAN_PARK_OFFSET := Vector3(-6.0, 0.0, 28.6)
 const SHUTTLE_PATH := "res://net/run_events/shuttle.gd"
 const VAN_ARRIVAL_PATH := "res://net/run_events/van_arrival.gd"
 
-## How far the van may roll with seated crew before they are let go (m), so nobody
-## sees them vanish: it is out of sight by then.
-const VAN_GONE_METERS: float = 90.0
 
 signal phase_changed(status: String)
 signal peer_caught(peer_id: int)
@@ -348,7 +345,7 @@ func _begin_chase() -> void:
 	# Shuttle does its own, after its door slides open).
 	if _shuttle() != null and _shuttle().has_method("host_spawn_crew"):
 		return
-	var start := Net.server_time() + 0.3
+	var start := Net.server_time() + Constants.CREW_HOP_FIRST_DELAY
 	for crew: Node in _crew_list():
 		var index := int(crew.call("crew_index"))
 		_hops.append({"crew": crew, "at": start + float(index - 1) * Constants.CREW_HOP_GAP})
@@ -429,7 +426,7 @@ func _step_departing() -> void:
 		if mode != _Crew.Mode.RECALL:
 			continue
 		var at := (crew as Node3D).global_position
-		if Vector2(at.x - door.x, at.z - door.z).length() <= 1.0:
+		if Vector2(at.x - door.x, at.z - door.z).length() <= Constants.CREW_BOARD_REACH:
 			crew.call("host_walk", Vector3.INF, 0.0)
 			var shuttle := _shuttle()
 			if shuttle != null and shuttle.has_method("host_crew_board"):
@@ -438,7 +435,7 @@ func _step_departing() -> void:
 				crew.call("host_set_mode", _Crew.Mode.HOP_IN)
 		else:
 			crew.call("host_walk", door, Constants.CREW_SPEED_RECALL)
-	var limit := Constants.CREW_RECALL_MAX * (1.0 if _shuttle() != null else 2.0)
+	var limit := Constants.CREW_RECALL_MAX * (1.0 if _shuttle() != null else Constants.CREW_RECALL_FALLBACK_SCALE)
 	if (aboard or now - _depart_started >= limit) and not _escorting():
 		_depart()
 
@@ -502,7 +499,7 @@ func _free_gone_crew() -> void:
 			gone = bool(shuttle.call("is_gone"))
 		else:
 			var look: Node3D = crew.call("van_anchor")
-			gone = look == null or look.global_position.distance_to(park) > VAN_GONE_METERS
+			gone = look == null or look.global_position.distance_to(park) > Constants.VAN_GONE_METERS
 		if gone:
 			crew.queue_free()
 

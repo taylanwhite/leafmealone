@@ -25,14 +25,7 @@ const CHASE: int = 3
 const INVESTIGATE: int = 4
 const SEARCH: int = 5
 const INSPECT: int = 6
-## Out of sight this long (s), a chased player counts as lost.
-const LOST_AFTER: float = 0.8
-## Close enough to a waypoint to pick the next one (m).
-const WAYPOINT_REACHED: float = 1.5
-## Patrol points stay this far inside the lot's edge (m).
-const PATROL_HALF_EXTENT: float = 16.0
-## Each NICE BOY's patrol sector, by index: the front yard, the left, the right.
-const SECTORS: Array[Vector3] = [Vector3(0.0, 0.0, 9.0), Vector3(-10.0, 0.0, -2.0), Vector3(10.0, 0.0, -2.0)]
+
 
 var _rng: RandomNumberGenerator
 var _target: int = 0
@@ -43,6 +36,8 @@ var _repick_at: float = 0.0
 var _search_until: float = 0.0
 var _spot_until: float = 0.0
 var _investigate_until: float = -1.0
+## The mode_at of the investigation _investigate_until belongs to.
+var _investigate_for: float = -1.0
 ## The inspection under way: {"node", "point", "phase": "walk" | "poke", "until"}.
 var _inspect: Dictionary = {}
 var _inspected: Array = []
@@ -95,7 +90,7 @@ func tick(crew: Node3D, _delta: float) -> Dictionary:
 				crew.call("bark", "chase")
 			return _stand(crew, _last_seen)
 		CHASE:
-			if seen.is_empty() and now - _last_seen_at > LOST_AFTER:
+			if seen.is_empty() and now - _last_seen_at > Constants.CREW_LOST_AFTER:
 				crew.call("host_set_mode", SEARCH, _target, _last_seen)
 				crew.call("bark", "lost")
 				_search_until = now + Constants.CREW_SEARCH_SECONDS
@@ -123,20 +118,26 @@ func tick(crew: Node3D, _delta: float) -> Dictionary:
 				crew.call("host_set_mode", PATROL)
 				_waypoint = Vector3.INF
 				return _stand(crew, Vector3.INF)
-			if _waypoint == Vector3.INF or _flat(crew, _waypoint) <= WAYPOINT_REACHED:
+			if _waypoint == Vector3.INF or _flat(crew, _waypoint) <= Constants.CREW_WAYPOINT_REACHED:
 				_waypoint = _last_seen + _random_flat(Constants.CREW_SEARCH_RADIUS) if _last_seen.is_finite() else crew.global_position + _random_flat(Constants.CREW_SEARCH_RADIUS)
-				if _rng.randf() < 0.3:
+				if _rng.randf() < Constants.CREW_SEARCH_BARK_CHANCE:
 					crew.call("bark", "search")
 			return {"goal": _waypoint, "speed": Constants.CREW_SPEED_SEARCH, "face": Vector3.INF}
 		INVESTIGATE:
 			var at: Vector3 = crew.get("mode_arg")
+			# A fresh investigation (each starts a new mode_at: a re-target mid-way,
+			# or one after another was cut short by a sighting) walks over again.
+			var started := float(crew.get("mode_at"))
+			if started != _investigate_for:
+				_investigate_for = started
+				_investigate_until = -1.0
 			if _flat(crew, at) > 1.1 and _investigate_until < 0.0:
 				return {"goal": at, "speed": Constants.CREW_SPEED_SEARCH, "face": at}
 			if _investigate_until < 0.0:
 				_investigate_until = now + Constants.CREW_INVESTIGATE_SECONDS
 			if now >= _investigate_until:
 				_investigate_until = -1.0
-				crew.call("host_set_mode", SEARCH if _last_seen.is_finite() and now - _last_seen_at < 20.0 else PATROL, _target, _last_seen)
+				crew.call("host_set_mode", SEARCH if _last_seen.is_finite() and now - _last_seen_at < Constants.CREW_SEARCH_MEMORY else PATROL, _target, _last_seen)
 				_search_until = now + Constants.CREW_SEARCH_SECONDS * 0.5
 			return _stand(crew, at)
 	# PATROL and NOISE.
@@ -150,7 +151,7 @@ func tick(crew: Node3D, _delta: float) -> Dictionary:
 		return {"goal": heard, "speed": Constants.CREW_SPEED_SEARCH, "face": Vector3.INF}
 	if mode != PATROL:
 		crew.call("host_set_mode", PATROL)
-	if _waypoint == Vector3.INF or _flat(crew, _waypoint) <= WAYPOINT_REACHED or now >= _repick_at:
+	if _waypoint == Vector3.INF or _flat(crew, _waypoint) <= Constants.CREW_WAYPOINT_REACHED or now >= _repick_at:
 		_waypoint = _patrol_point(crew, director)
 		_repick_at = now + Constants.CREW_PATROL_REPICK
 	return {"goal": _waypoint, "speed": Constants.CREW_SPEED_PATROL, "face": Vector3.INF}
@@ -179,7 +180,7 @@ func _sense(crew: Node3D, director: Node) -> Dictionary:
 		var sight := bool(crew.call("can_see_peer", peer_id))
 		if not sight and not bool(crew.call("hears_tool", peer_id)):
 			continue
-		var distance := crew.global_position.distance_to(body.global_position) - (0.0 if sight else 5.0)
+		var distance := crew.global_position.distance_to(body.global_position) - (0.0 if sight else Constants.CREW_HEARD_PENALTY)
 		if distance < best_distance:
 			best_distance = distance
 			best = {"peer": peer_id, "body": body, "sight": sight}
@@ -208,7 +209,7 @@ func _crew_tree(crew: Node) -> SceneTree:
 ## his own side of the yard; with nobody to go on, a point in his sector.
 func _patrol_point(crew: Node3D, director: Node) -> Vector3:
 	var lot := _lot_center(crew)
-	var sector: Vector3 = SECTORS[posmod(int(crew.call("crew_index")) - 1, SECTORS.size())]
+	var sector: Vector3 = Constants.CREW_PATROL_SECTORS[posmod(int(crew.call("crew_index")) - 1, Constants.CREW_PATROL_SECTORS.size())]
 	var candidates: Array[Vector3] = []
 	var heat := crew.get_tree().get_first_node_in_group("heat")
 	for node: Node in crew.get_tree().get_nodes_in_group("players"):
@@ -225,9 +226,9 @@ func _patrol_point(crew: Node3D, director: Node) -> Vector3:
 		lean.y = 0.0
 		var bias := lean.normalized() * Constants.CREW_PATROL_RADIUS * 0.5 if lean.length() > 0.1 else Vector3.ZERO
 		return near + bias + _random_flat(Constants.CREW_PATROL_RADIUS * 0.6)
-	var point := lot + sector + _random_flat(6.0)
-	point.x = clampf(point.x, lot.x - PATROL_HALF_EXTENT, lot.x + PATROL_HALF_EXTENT)
-	point.z = clampf(point.z, lot.z - PATROL_HALF_EXTENT, lot.z + PATROL_HALF_EXTENT)
+	var point := lot + sector + _random_flat(Constants.CREW_PATROL_SECTOR_SPREAD)
+	point.x = clampf(point.x, lot.x - Constants.CREW_PATROL_HALF_EXTENT, lot.x + Constants.CREW_PATROL_HALF_EXTENT)
+	point.z = clampf(point.z, lot.z - Constants.CREW_PATROL_HALF_EXTENT, lot.z + Constants.CREW_PATROL_HALF_EXTENT)
 	return point
 
 

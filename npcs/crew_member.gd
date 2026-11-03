@@ -44,7 +44,7 @@ const _Gestures = preload("res://npcs/crew_gestures.gd")
 const KHAKI := Color(0.8, 0.7, 0.52)
 
 ## Totals for this process, read by net/dev/probe.gd and the encounter test.
-static var stats: Dictionary = {"barks": 0, "max_turn_step": 0.0, "spots": 0, "hops": 0, "investigations": 0}
+static var stats: Dictionary = {"barks": 0, "spots": 0, "hops": 0, "investigations": 0}
 ## The last barks every peer showed: [{crew, kind, index}], for the encounter test.
 static var bark_log: Array[Dictionary] = []
 
@@ -578,7 +578,6 @@ func _turn_toward(dir: Vector3, delta: float) -> void:
 	var most := Constants.CREW_TURN_RATE * delta
 	var turned := clampf(step, -most, most)
 	rotation.y = wrapf(rotation.y + turned, -PI, PI)
-	stats["max_turn_step"] = maxf(float(stats["max_turn_step"]), absf(turned))
 
 
 # ---------------------------------------------------------------- placement (every peer)

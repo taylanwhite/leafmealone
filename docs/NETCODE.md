@@ -462,7 +462,7 @@ The NICE BOYS encounter (gap-specs/nice_boys.json). Host-authoritative; every co
 | RunDirector | `_rpc_legacy_ride(riders, seed)` | host -> all | until chunk 4: the old ride's van for the riders |
 | RunDirector | `_rpc_drop_rider(peer)` | host -> all | kept |
 | Encounter | `_rpc_windup(grab_id, crew, peer, from, dir, contact_at, from_spot, travel)` | host -> all | the wind-up and lunge, played from these args everywhere |
-| Encounter | `_rpc_whiff(grab_id, at)` | host -> all | missed or spoiled |
+| Encounter | `_rpc_whiff(grab_id, peer_id, crew_index, at)` | host -> all | missed or spoiled (carries who, so the host's own call and a late joiner find them) |
 | Encounter | `_rpc_catch(grab_id, crew, peer, at, victim, crew_at)` | host -> all | caught: cohort, hold anchors, the gotcha timeline |
 | Encounter | `_rpc_request_wriggle()` | owner -> host | at most `CATCH_WRIGGLE_RATE`/s |
 | Encounter | `_rpc_cite_end(peer, end_at)` | host -> all | the cite runs longer |

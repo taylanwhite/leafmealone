@@ -8,7 +8,7 @@ extends Node3D
 ##     the street's far lane (props/nice_van.gd arrival_curve), honks, brakes with
 ##     its nose dipping and its brake lights on, and stops at the curb as the crew
 ##     arrives, with a door slam
-##   - it stays parked through the chase, dome pulsing
+##   - it stays parked through the chase and the recall (DEPARTING), dome pulsing
 ##   - if someone is caught, the ride (net/components/ride.gd, Rides/Van) starts
 ##     from exactly where and how it is parked, and this one steps aside
 ##   - if the crew gives up, it pulls away down the street and is gone
@@ -20,6 +20,7 @@ const _Strings = preload("res://ui/strings.gd")
 const QUIET: int = 0
 const WARNING: int = 1
 const CHASE: int = 2
+const DEPARTING: int = 3
 
 enum Show { NONE, ARRIVING, PARKED, LEAVING }
 
@@ -73,12 +74,11 @@ func _physics_process(_delta: float) -> void:
 			var start := float(director.call("arrival_time")) - Constants.VAN_ARRIVE_SECONDS
 			if now >= start:
 				_arrive(director, start, now)
-		CHASE:
+		CHASE, DEPARTING:
 			# The chase starts when the van parks, so a peer that saw the phase go
 			# to CHASE without the warning's end (a hitch, a slow clock) finds it
-			# parked. A client that joins mid-raid sees no van at all: the
-			# director's phase only reaches peers at its transitions (no late-join
-			# sync), so it is QUIET for them until the next one.
+			# parked. It stays parked while the crew walks back and climbs in
+			# (DEPARTING): the van leaves at QUIET, with whoever is aboard.
 			_arrive(director, float(director.call("phase_started_at")) - Constants.VAN_ARRIVE_SECONDS, now)
 		_:
 			if _show == Show.ARRIVING or _show == Show.PARKED:
