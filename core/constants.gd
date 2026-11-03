@@ -389,7 +389,7 @@ const HIRE_SPEED: float = 3.2
 ## Seasons (core/seasons.gd): days in each, autumn first.
 const SEASON_DAYS: int = 7
 
-## The rival, TurfMastersÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (net/town/town.gd), once the rank brings them to town:
+## The rival, TurfMasters™ (net/town/town.gd), once the rank brings them to town:
 ## the chance each morning they poach a client below this relationship, the chance
 ## a great job wins one back, signs in a yard (at most), and XP per sign pulled.
 const RIVAL_POACH_CHANCE: float = 0.35
@@ -429,7 +429,7 @@ const TOWN_RELATIONSHIP_MISSED: float = 3.0
 ## TOWN_REFERRAL_AT.
 const TOWN_LEAD_REFERRAL_SHARE: float = 0.75
 ## XP for meeting a client by referral (or Marty's lead), and for winning one
-## back from TurfMastersÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢.
+## back from TurfMasters™.
 const XP_REFERRAL: int = 25
 const XP_WON_BACK: int = 25
 
@@ -674,7 +674,7 @@ const HOMEOWNER_PERSONALITY_LINE_CHANCE: float = 0.65
 ## When the crew owes the homeowner only for water, how often they mention it
 ## (Strings.HOMEOWNER_LINES.bill_water).
 const HOMEOWNER_WATER_LINE_CHANCE: float = 0.5
-## How often TurfMastersÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ text a taunt after poaching a client, and a complaint
+## How often TurfMasters™ text a taunt after poaching a client, and a complaint
 ## when one of their signs is pulled (net/town/town.gd).
 const RIVAL_TAUNT_CHANCE: float = 0.5
 const RIVAL_SIGN_TEXT_CHANCE: float = 0.35
@@ -1273,6 +1273,47 @@ const RAKE_ACTOR_HAND_BASE: int = 1000
 ## standing still after a swing nobody followed up (s).
 const RAKE_PLANT_BLEND: float = 0.06
 const RAKE_REMOTE_IDLE_BLEND: float = 0.15
+## The swing's feel (equipment/rake_stroke.gd sample): the share of the full lean
+## kept between drives, and while just holding the rake; the share of the drift and
+## twist already in by the plant; the share of RAKE_HEAD_YAW_MAX the head turns.
+const RAKE_READY_LEAN: float = 0.5
+const RAKE_IDLE_LEAN: float = 0.25
+const RAKE_PLANT_DRIFT_SHARE: float = 0.3
+const RAKE_YAW_SHARE: float = 0.6
+## The tines' bounce at the plant (rad) over this first share of the drive.
+const RAKE_PLANT_BOUNCE: float = 0.06
+const RAKE_PLANT_BOUNCE_SPAN: float = 0.15
+## The body leads the head into the drive: its lean and lunge run this many times
+## faster than the head's travel.
+const RAKE_BODY_LEAD: float = 1.4
+## A full load bends the back this much more (rad of lean per load).
+const RAKE_LOAD_LEAN: float = 0.05
+## The camera nod at the plant: down within this many seconds, back up by the second.
+const RAKE_CAM_DIP_IN: float = 0.06
+const RAKE_CAM_DIP_OUT: float = 0.31
+## The flick lasts this many times the drive_end-to-flick_end span, and lets a full
+## load's tines spring forward by this (rad).
+const RAKE_FLICK_STRETCH: float = 1.6
+const RAKE_FLICK_FLEX: float = -0.05
+## The body in the work pose (player/cartoon_body.gd set_work_pose): the hips turn
+## this share of the twist the other way, the shoulders this share of it with; the
+## front foot steps out this share of the lunge; the face tilts down this share of
+## the lean.
+const WORK_HIP_COUNTER: float = 0.1
+const WORK_TWIST_SHARE: float = 1.1
+const WORK_FRONT_STEP: float = 0.6
+const WORK_FACE_TILT: float = 0.6
+## How far a hand can be from its shoulder before the lower hand slides up the
+## handle (props/rake_motion.gd, m).
+const RAKE_HAND_REACH: float = 0.58
+## Your rake's grips in first person, nudged in head space so the mitts sit on the
+## handle rather than inside it (player/first_person_arms.gd, m).
+const RAKE_FP_GRIP_OFFSET: Vector3 = Vector3(0.0, 0.025, 0.0)
+## How fast a hired hand turns to face the way it rakes (rad/s).
+const HIRE_TURN_SPEED: float = 7.0
+## Before raking:1 the field doesn't say how much a stroke moved: the leaves under
+## the head times this stand in for it (equipment/rake.gd, look only).
+const RAKE_LOAD_GUESS: float = 1.5
 
 # ---- hotbar hud
 # The bar along the bottom of the screen (ui/hotbar_hud.gd; docs/GAME.md "the

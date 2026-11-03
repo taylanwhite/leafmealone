@@ -25,10 +25,10 @@ enum Mode { IDLE, SWING, TAIL, SETTLE }
 ## Sample keys that blend as numbers (down is a bool, blended as 0/1).
 const KEYS: Array[String] = ["head_forward", "head_lateral", "head_yaw", "head_lift", "toe_down", "tine_flex", "lean", "twist", "hip", "cam_pitch", "cam_roll", "fov_kick"]
 
-## Share of the full lean the body keeps between drives, ready for the next.
-const READY_LEAN: float = 0.5
-## Share of it while just holding the rake (a slight stoop over the tines).
-const IDLE_LEAN: float = 0.25
+## Share of the full lean the body keeps between drives, ready for the next, and
+## while just holding the rake (a slight stoop over the tines).
+const READY_LEAN: float = Constants.RAKE_READY_LEAN
+const IDLE_LEAN: float = Constants.RAKE_IDLE_LEAN
 
 static var _actors: Dictionary = {}
 
@@ -89,8 +89,8 @@ static func sample(phase: float, load: float = 0.0, side: float = 1.0, fresh: bo
 			out = _air(phase + 1.0, side, load)
 			lean_share = float(out["lean_share"])
 			lunge_share = float(out["lunge_share"])
-		out["head_lateral"] = Constants.RAKE_HEAD_BASE_X + side * Constants.RAKE_HEAD_DRIFT * 0.3 * smoothstep(0.0, 1.0, t)
-		out["twist"] = _twist(side) * 0.3 * smoothstep(0.0, 1.0, t)
+		out["head_lateral"] = Constants.RAKE_HEAD_BASE_X + side * Constants.RAKE_HEAD_DRIFT * Constants.RAKE_PLANT_DRIFT_SHARE * smoothstep(0.0, 1.0, t)
+		out["twist"] = _twist(side) * Constants.RAKE_PLANT_DRIFT_SHARE * smoothstep(0.0, 1.0, t)
 		out["head_yaw"] = 0.0
 		out["down"] = false
 	elif phase <= drive_end:
@@ -98,13 +98,13 @@ static func sample(phase: float, load: float = 0.0, side: float = 1.0, fresh: bo
 		var e := smoothstep(0.0, 1.0, t)
 		out["head_forward"] = lerpf(Constants.RAKE_HEAD_NEAR, Constants.RAKE_HEAD_FAR, e)
 		out["head_lift"] = 0.0
-		out["head_lateral"] = Constants.RAKE_HEAD_BASE_X + side * Constants.RAKE_HEAD_DRIFT * lerpf(0.3, 1.0, e)
-		out["head_yaw"] = side * Constants.RAKE_HEAD_YAW_MAX * 0.6 * e
-		out["twist"] = _twist(side) * lerpf(0.3, 1.0, e)
+		out["head_lateral"] = Constants.RAKE_HEAD_BASE_X + side * Constants.RAKE_HEAD_DRIFT * lerpf(Constants.RAKE_PLANT_DRIFT_SHARE, 1.0, e)
+		out["head_yaw"] = side * Constants.RAKE_HEAD_YAW_MAX * Constants.RAKE_YAW_SHARE * e
+		out["twist"] = _twist(side) * lerpf(Constants.RAKE_PLANT_DRIFT_SHARE, 1.0, e)
 		# The tines bend back under the leaves, most mid-drive, and a little bounce at the plant.
-		out["tine_flex"] = Constants.RAKE_TINE_FLEX * clampf(load, 0.0, 1.5) * sin(PI * t) + 0.06 * sin(PI * clampf(t / 0.15, 0.0, 1.0))
+		out["tine_flex"] = Constants.RAKE_TINE_FLEX * clampf(load, 0.0, 1.5) * sin(PI * t) + Constants.RAKE_PLANT_BOUNCE * sin(PI * clampf(t / Constants.RAKE_PLANT_BOUNCE_SPAN, 0.0, 1.0))
 		# The body leads the head: the shove starts in the legs and the back.
-		var body := smoothstep(0.0, 1.0, clampf(t * 1.4, 0.0, 1.0))
+		var body := smoothstep(0.0, 1.0, clampf(t * Constants.RAKE_BODY_LEAD, 0.0, 1.0))
 		lean_share = lerpf(READY_LEAN, 1.0, body)
 		lunge_share = body
 		out["down"] = true
@@ -117,7 +117,7 @@ static func sample(phase: float, load: float = 0.0, side: float = 1.0, fresh: bo
 		out["down"] = false
 	out.erase("lean_share")
 	out.erase("lunge_share")
-	out["lean"] = (Constants.RAKE_LEAN_X - 0.05 * clampf(load, 0.0, 1.5)) * lean_share
+	out["lean"] = (Constants.RAKE_LEAN_X - Constants.RAKE_LOAD_LEAN * clampf(load, 0.0, 1.5)) * lean_share
 	# Hips back while the tines come down (the wind-up), then the lunge into the drive.
 	var settle := fposmod(phase, 1.0) if phase < 1.0 + plant else phase - 1.0
 	var wind_up := sin(PI * clampf(settle / plant, 0.0, 1.0)) if settle < plant else 0.0
@@ -125,7 +125,7 @@ static func sample(phase: float, load: float = 0.0, side: float = 1.0, fresh: bo
 	# The nod: down fast at the plant, back slowly.
 	var since := (phase - plant) * cycle_seconds(0)
 	if since >= 0.0:
-		var dip := smoothstep(0.0, 0.06, since) * (1.0 - smoothstep(0.06, 0.31, since))
+		var dip := smoothstep(0.0, Constants.RAKE_CAM_DIP_IN, since) * (1.0 - smoothstep(Constants.RAKE_CAM_DIP_IN, Constants.RAKE_CAM_DIP_OUT, since))
 		out["cam_pitch"] = -Constants.RAKE_CAM_DIP_DEG * dip
 	return out
 
@@ -139,16 +139,16 @@ static func _air(u: float, side: float, load: float) -> Dictionary:
 	var out := idle()
 	var span := 1.0 + plant - drive_end
 	var g := clampf((u - drive_end - 0.02) / (span - 0.02), 0.0, 1.0)
-	var flick := sin(PI * clampf((u - drive_end) / ((flick_end - drive_end) * 1.6), 0.0, 1.0))
+	var flick := sin(PI * clampf((u - drive_end) / ((flick_end - drive_end) * Constants.RAKE_FLICK_STRETCH), 0.0, 1.0))
 	out["head_forward"] = lerpf(Constants.RAKE_HEAD_FAR, Constants.RAKE_HEAD_NEAR, smoothstep(0.0, 1.0, g)) + Constants.RAKE_HEAD_FOLLOW * flick
 	out["head_lift"] = Constants.RAKE_HEAD_LIFT * sin(PI * g) + Constants.RAKE_HEAD_FLICK * flick
 	var back := 1.0 - smoothstep(0.0, 1.0, clampf((u - drive_end) / (1.0 - drive_end), 0.0, 1.0))
 	out["head_lateral"] = Constants.RAKE_HEAD_BASE_X + side * Constants.RAKE_HEAD_DRIFT * back
-	out["head_yaw"] = side * Constants.RAKE_HEAD_YAW_MAX * 0.6 * back
+	out["head_yaw"] = side * Constants.RAKE_HEAD_YAW_MAX * Constants.RAKE_YAW_SHARE * back
 	out["twist"] = _twist(side) * back
 	# The wrist flicks the tines up and a few leaves off them.
 	out["toe_down"] = Constants.RAKE_HEAD_TOE_DOWN - Constants.RAKE_TINE_FLICK * flick
-	out["tine_flex"] = -0.05 * clampf(load, 0.0, 1.5) * flick
+	out["tine_flex"] = Constants.RAKE_FLICK_FLEX * clampf(load, 0.0, 1.5) * flick
 	out["lean_share"] = lerpf(1.0, READY_LEAN, smoothstep(0.0, 1.0, g))
 	out["lunge_share"] = 1.0 - smoothstep(0.0, 1.0, clampf(g * 1.25, 0.0, 1.0))
 	return out

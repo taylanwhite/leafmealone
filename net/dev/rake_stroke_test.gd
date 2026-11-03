@@ -7,7 +7,8 @@ extends Node
 ##
 ## Host: holding the button 3 s makes 10 field strokes at the swing's bite times
 ## (0.12, 0.30, 0.72, 0.90 s ...); a tap makes one; letting go mid-swing finishes
-## it; dropping the rake before the plant cancels it. All through the hold the
+## it; dropping the rake before the plant cancels it, and dropping it mid-drive
+## leaves no lowered head behind in "rake_heads". All through the hold the
 ## tines ride the ground (within 0.03 m at the bites and through the drive), the
 ## head never jumps more than 0.15 m a tick, stays ahead (0.8-2.3 m), within 0.25 m
 ## of center and 15 degrees of straight; both hands are on the handle 0.35-0.48 m
@@ -17,7 +18,8 @@ extends Node
 ## Client: the host's rake really swings (the frozen-rake regression): it travels
 ## forward each swing, the swing starts on the stroke and stops after the last
 ## one, the host's body leans into the drive, and the head plants where the owner's
-## does. Each step prints a [RakeStrokeTest] line.
+## does. It knows the host's wallet from joining, and draws the host's rake with
+## the Tune-Up head once the host buys it. Each step prints a [RakeStrokeTest] line.
 
 static var result: Dictionary = {}
 
@@ -187,6 +189,24 @@ func _run_host() -> void:
 	var release_ok := top >= 0.95 and ended and _bites.size() == 1
 	print("[RakeStrokeTest] let go at 0.2 s: the swing ran to %.2f, then stopped %s, %d stroke(s): %s" % [top, ended, _bites.size(), release_ok])
 	ok = ok and release_ok
+	# 4b. Drop the rake mid-drive: its head stops counting for the leaves (contract
+	# C4: no node in rake_heads for this actor still says down mid-swing).
+	await _seconds(0.4)
+	await get_tree().physics_frame
+	Input.action_press(&"primary")
+	await _ticks(20)
+	var lowered_before := _lowered_heads(me.name.to_int())
+	rake.call("request_drop")
+	await _ticks(6)
+	Input.action_release(&"primary")
+	var lowered_after := _lowered_heads(me.name.to_int())
+	var stale_ok := lowered_before > 0 and lowered_after == 0
+	print("[RakeStrokeTest] dropped the rake mid-drive: %d lowered head(s) before, %d after: %s" % [lowered_before, lowered_after, stale_ok])
+	ok = ok and stale_ok
+	report["stale_heads"] = lowered_after
+	await _seconds(0.8)
+	await _grab(rake)
+	await _seconds(0.6)
 	# 5. Put the rake down before the tines plant: no stroke.
 	await _seconds(0.3)
 	_bites.clear()
@@ -199,6 +219,9 @@ func _run_host() -> void:
 	var cancel_ok := _bites.is_empty()
 	print("[RakeStrokeTest] dropped the rake before the plant: %d stroke(s): %s" % [_bites.size(), cancel_ok])
 	ok = ok and cancel_ok
+	# The host buys the Tune-Up: the client must draw its rake with the orange head
+	# (it knows the host's wallet from joining, net/campaign.gd _on_player_joined).
+	Campaign.grant_unlock(1, String(Campaign.RAKE_UPGRADE))
 	# 6. A hired hand: its own swing, pace, actor and glide.
 	var hand_ok: bool = await _hand_check(me, lot, report)
 	ok = ok and hand_ok
@@ -341,6 +364,9 @@ func _hand_check(me: Node3D, lot: Node3D, report: Dictionary) -> bool:
 			phase_ok = false
 	# Actor id in the events (raking:1), else the hand's own id.
 	var actor_ok := actor == Constants.RAKE_ACTOR_HAND_BASE + hand.name.to_int()
+	# Once the field has stroke events (raking:1), the hand's strokes must be among them.
+	if field.has_signal("stroke_event"):
+		actor_ok = actor_ok and not events.is_empty()
 	for ev: Dictionary in events:
 		actor_ok = actor_ok and int(ev.get("actor", 0)) == actor
 	# Glide and the rake's travel while raking.
@@ -386,6 +412,14 @@ func _run_client() -> void:
 	if host == null:
 		result = {"ok": false, "done": true, "error": "no host player"}
 		return
+	# Joining brings the wallets of everyone already here (the host's rake tier).
+	waited = 0.0
+	while not (Campaign.get("_peer_keys") as Dictionary).has(1) and waited < 5.0:
+		await _seconds(0.25)
+		waited += 0.25
+	var wallet_ok := (Campaign.get("_peer_keys") as Dictionary).has(1)
+	print("[RakeStrokeTest] client has the host's wallet on joining: %s" % wallet_ok)
+	ok = ok and wallet_ok
 	var rake_node := host.get_node("Rake")
 	var events: Array = []
 	rake_node.connect("remote_bite", func(bite: int) -> void: events.append([Engine.get_physics_frames(), bite]))
@@ -441,8 +475,8 @@ func _run_client() -> void:
 			return {"at": hand.global_position, "action": str(hand.get("action")), "head": pose.get_meta("head_at", Vector3.INF) if pose != null else Vector3.INF, "ahead": hand.global_basis.z, "visual": visual.global_basis.z, "vat": visual.global_position}
 		_recording = true
 		waited = 0.0
-		var before := (hand.get("stroke_log") as Array).size()
-		while waited < 20.0 and (hand.get("stroke_log") as Array).size() < before + 3:
+		var before := int(hand.get("stroke_count"))
+		while waited < 20.0 and int(hand.get("stroke_count")) < before + 3:
 			await _seconds(0.25)
 			waited += 0.25
 		_recording = false
@@ -460,7 +494,7 @@ func _run_client() -> void:
 			var along := (head - (sample["vat"] as Vector3)).dot(ahead)
 			near = minf(near, along)
 			far = maxf(far, along)
-		var strokes := (hand.get("stroke_log") as Array).size() - before
+		var strokes := int(hand.get("stroke_count")) - before
 		var hand_ok := strokes >= 3 and far - near >= MIN_TRAVEL and far - near <= Constants.RAKE_HEAD_FAR - Constants.RAKE_HEAD_NEAR + 0.4
 		hand_report = {"strokes": strokes, "travel": far - near, "ok": hand_ok}
 		print("[RakeStrokeTest] client saw the hired hand's rake: %d strokes, travels %.2f m: %s" % [strokes, far - near, hand_ok])
@@ -468,7 +502,20 @@ func _run_client() -> void:
 	else:
 		print("[RakeStrokeTest] client never saw a hired hand")
 		ok = false
-	result = {"ok": ok, "done": true, "remote": report, "hand": hand_report}
+	# The host bought the Tune-Up: its rake here has the Tune-Up head too.
+	var tier := -1
+	waited = 0.0
+	while waited < 8.0:
+		var pose := _prop("rake").get_node_or_null("Visual/Look/Pose") if _prop("rake") != null else null
+		tier = int(pose.get_meta("tier", -1)) if pose != null else -1
+		if tier == 1:
+			break
+		await _seconds(0.25)
+		waited += 0.25
+	var tier_ok := tier == 1
+	print("[RakeStrokeTest] client draws the host's Tune-Up rake: tier %d: %s" % [tier, tier_ok])
+	ok = ok and tier_ok
+	result = {"ok": ok, "done": true, "remote": report, "hand": hand_report, "tier": tier}
 	print("[RakeStrokeTest] client all ok: %s" % ok)
 	_rpc_finished.rpc_id(1)
 
@@ -594,6 +641,15 @@ func _move_to(at: Vector3, yaw: float) -> void:
 	var me := _own_player()
 	me.call("apply_network_teleport", Transform3D(Basis(Vector3.UP, yaw), at))
 	me.set("body_yaw", yaw)
+
+
+## How many published rake heads (contract C4) say this actor's tines are down mid-swing.
+func _lowered_heads(actor: int) -> int:
+	var count := 0
+	for node: Node in get_tree().get_nodes_in_group("rake_heads"):
+		if int(node.get_meta("actor", -1)) == actor and bool(node.get_meta("down", false)) and float(node.get_meta("phase", -1.0)) >= 0.0:
+			count += 1
+	return count
 
 
 func _seconds(count: float) -> void:

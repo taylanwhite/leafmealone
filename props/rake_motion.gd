@@ -16,7 +16,7 @@ const _YardModels = preload("res://props/yard_models.gd")
 ## Tines sit this far above the surface they ride (m), so they read on the leaves.
 const SURFACE_GAP: float = 0.02
 ## How far the hands can be from the shoulders before the lower hand slides up.
-const HAND_REACH: float = 0.58
+const HAND_REACH: float = Constants.RAKE_HAND_REACH
 ## The handle's top, from the head (yard_models.gd _rake: the grip ends at 1.62).
 const HANDLE_TOP: float = 1.6
 ## Where the upper hand rides, near and far (Constants.RAKE_HAND_NEAR/FAR); vars
@@ -155,6 +155,20 @@ static func pose_frame(pose_node: Node3D, frame: Transform3D, sample: Dictionary
 	pose_node.set_meta("grip_right", lower)
 	pose_node.set_meta("grip_left", upper)
 	pose_node.set_meta("grip", along)
+
+
+## A rake nobody is swinging any more (dropped, pocketed, or a hand's rake while
+## it hauls a bag): out of "rake_heads" and marked up and idle, so the leaf movers
+## never keep pushing with a head frozen where it was last drawn (contract C4: only
+## posed rakes publish a head). Cheap to call every tick.
+static func unpublish(pose_node: Node3D) -> void:
+	if pose_node == null or not pose_node.is_in_group("rake_heads"):
+		return
+	pose_node.remove_from_group("rake_heads")
+	pose_node.set_meta("phase", -1.0)
+	pose_node.set_meta("down", false)
+	pose_node.set_meta("head_vel", Vector3.ZERO)
+	pose_node.remove_meta("head_usec")
 
 
 ## The handle's frame: +Y up the handle toward the hands, -Z (the way the tines

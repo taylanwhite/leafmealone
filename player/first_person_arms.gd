@@ -33,7 +33,7 @@ const FOLLOW: float = 16.0
 ## A quick reach when you grab something, in seconds.
 const REACH_SECONDS: float = 0.4
 ## The rake's grips in first person, moved up and ahead (head space, m).
-const RAKE_FP_OFFSET := Vector3(0.0, 0.025, 0.0)
+const RAKE_FP_OFFSET := Constants.RAKE_FP_GRIP_OFFSET
 
 var _player: CharacterBody3D
 var _body: Node3D

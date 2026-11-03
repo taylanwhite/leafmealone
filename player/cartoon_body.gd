@@ -287,20 +287,20 @@ func _apply_work(delta: float) -> void:
 		return
 	_torso.rotation.x += _work.x
 	# The hips turn a little against the shoulders.
-	_hips.rotation.y = -0.1 * _work.y
-	_torso.rotation.y = _work.y * 1.1
+	_hips.rotation.y = -Constants.WORK_HIP_COUNTER * _work.y
+	_torso.rotation.y = _work.y * Constants.WORK_TWIST_SHARE
 	_hips.position.z = _work.z
 	if _work.z < 0.0 and _legs.size() == 2:
 		# A lunge: the hips go forward, the right foot stays put and the left one
 		# steps out ahead of them, and the hips sink a little between the two.
 		var lunge := -_work.z
 		var back := -asin(clampf(lunge / WORK_LEG, -0.9, 0.9))
-		var front := asin(clampf(0.6 * lunge / WORK_LEG, -0.9, 0.9))
+		var front := asin(clampf(Constants.WORK_FRONT_STEP * lunge / WORK_LEG, -0.9, 0.9))
 		_legs[1].rotation.x += back
 		_legs[0].rotation.x += front
 		_hips.position.y -= WORK_LEG * (1.0 - cos(back))
 	# Eyes on the tines.
-	_face.rotation.x -= absf(_work.x) * 0.6
+	_face.rotation.x -= absf(_work.x) * Constants.WORK_FACE_TILT
 
 
 ## The head follows the leaning torso (it isn't parented to it), unless it's your

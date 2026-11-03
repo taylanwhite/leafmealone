@@ -130,6 +130,7 @@ static func pose_rake(prop: Node3D, holder: Node3D, _raking: bool = false) -> vo
 		prop.set_meta("last_holder", holder.name.to_int())
 	RakeMotion.dress(pose, rake_tier(int(prop.get_meta("last_holder", 0))))
 	if holder == null:
+		RakeMotion.unpublish(pose)
 		if pose.top_level:
 			pose.top_level = false
 			pose.reset_physics_interpolation()

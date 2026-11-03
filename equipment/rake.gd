@@ -129,7 +129,7 @@ func _rake_bite(player: CharacterBody3D, bite: int) -> void:
 		moved = int(result) if typeof(result) == TYPE_INT else 0
 	else:
 		# Before raking:1 the field doesn't say: the leaves under the head will do.
-		moved = int(float(field.call("units_within_world", origin, Constants.RAKE_WIDTH * 0.5)) * 1.5)
+		moved = int(float(field.call("units_within_world", origin, Constants.RAKE_WIDTH * 0.5)) * Constants.RAKE_LOAD_GUESS)
 		field.call("request_rake", origin, forward, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH)
 	RakeStroke.set_load(actor, moved)
 	stroke_bite.emit(bite, moved)

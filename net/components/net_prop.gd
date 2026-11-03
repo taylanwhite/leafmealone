@@ -127,6 +127,9 @@ func _physics_process(_delta: float) -> void:
 	%Visual.visible = pocketed_by == 0
 	if pocketed_by == 0:
 		_pose_look()
+	elif kind == "rake":
+		# A stowed rake isn't raking: its head stops counting for the leaves.
+		RakeMotion.unpublish(get_node_or_null("Visual/Look/Pose") as Node3D)
 	if Net.is_host():
 		_host_step()
 	elif held_by == Net.local_peer_id():

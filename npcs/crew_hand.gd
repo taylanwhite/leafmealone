@@ -22,7 +22,7 @@ const GLIDE_FROM: float = 0.7
 ## this hand's rake reach within this (m).
 const STAND_IN_MATCH: float = 0.8
 ## How fast a hand turns to face the way it rakes (rad/s).
-const TURN_SPEED: float = 7.0
+const TURN_SPEED: float = Constants.HIRE_TURN_SPEED
 
 ## Replicated: the name over their head, how they look, what their arms are doing.
 var hand_name: String = ""
@@ -44,8 +44,11 @@ var _built: bool = false
 var _glide_left: float = 0.0
 var _events_field: Node
 var _rake_shown: bool = false
-## Every peer: this hand's strokes as this peer saw them ({phase, msec}), for tests.
+## Every peer: this hand's last STROKE_LOG_KEEP strokes as this peer saw them
+## ({phase, msec}), and how many it has seen in all, for tests.
 var stroke_log: Array = []
+var stroke_count: int = 0
+const STROKE_LOG_KEEP: int = 32
 
 ## Host: emitted on each of this hand's strokes (the bite), for tests.
 signal raked(origin: Vector3)
@@ -99,12 +102,21 @@ func _pose_rake() -> void:
 	var pose := get_node_or_null("Visual/HandRake/Pose") as Node3D
 	if visual == null or pose == null or action == "carry":
 		_rake_shown = false
+		RakeMotion.unpublish(pose)
 		return
 	RakeMotion.pose_frame(pose, hand_frame(visual), RakeStroke.display(actor()), actor(), 0.0, RakeMotion.shoulders_of(visual.get_node_or_null("CartoonBody")))
 	if not _rake_shown:
 		# Back in hand after hauling a bag: no streak from where it was last drawn.
 		pose.reset_physics_interpolation()
 		_rake_shown = true
+
+
+## Remembers a stroke for tests, keeping only the last STROKE_LOG_KEEP.
+func _log_stroke() -> void:
+	stroke_count += 1
+	stroke_log.append({"phase": RakeStroke.phase_of(actor()), "msec": Time.get_ticks_msec()})
+	if stroke_log.size() > STROKE_LOG_KEEP:
+		stroke_log.pop_front()
 
 
 ## A hand's body frame for posing (feet, -Z ahead): their Visual faces +Z.
@@ -141,7 +153,7 @@ func _hook_events() -> void:
 
 func _remote_stroke(ev: Dictionary) -> void:
 	RakeStroke.on_event(actor(), ev)
-	stroke_log.append({"phase": RakeStroke.phase_of(actor()), "msec": Time.get_ticks_msec()})
+	_log_stroke()
 
 
 func _dress_up() -> void:
@@ -307,7 +319,7 @@ func _rake(delta: float) -> void:
 			field.call("host_hand_rake", origin, _rake_dir, skill)
 		_strokes += 1
 		_glide_left = STEP_AFTER_PILE
-		stroke_log.append({"phase": RakeStroke.phase_of(actor()), "msec": Time.get_ticks_msec()})
+		_log_stroke()
 		raked.emit(origin)
 	# The step after the pile, glided over the swing's way back (never a jump).
 	var phase := RakeStroke.phase_of(actor())
