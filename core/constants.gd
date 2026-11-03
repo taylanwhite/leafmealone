@@ -4111,6 +4111,8 @@ const SKATE_RAMP_POP: float = 0.6
 ## In the air: spinning on move_left/move_right (rad/s); a kickflip or heelflip takes this long.
 const SKATE_SPIN_RATE: float = 7.5
 const SKATE_FLIP_SECONDS: float = 0.45
+## Landing with this little of a flip left (s), the feet catch the board: it lands clean.
+const SKATE_FLIP_CATCH_SECONDS: float = 0.12
 ## A landing is clean within this angle (rad) of the way you're rolling, forward or fakie.
 ## Slower than SKATE_LAND_ANY_SPEED, any landing is clean.
 const SKATE_LAND_ANGLE: float = 0.6

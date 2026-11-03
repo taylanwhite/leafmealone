@@ -54,6 +54,8 @@ const IDS: PackedStringArray = [
 	"item_rake", "item_leaf_bag", "item_wheelbarrow", "item_gnome", "item_trash",
 	"item_hydrant", "item_paint_bucket", "item_water_tank", "item_turf_sign",
 	"item_chefty", "item_van",
+	# Gear (256, 3D): yours to keep, gear_<catalog id> (driving G1).
+	"gear_skateboard",
 	# Upgrades: the base model with a "+" sticker.
 	"upgrade_rake_tier_1", "upgrade_rake_tier_2", "upgrade_wheelbarrow_tier_1",
 	# Task badges (256): a disc in the work family's color with a 3D vignette.
@@ -180,6 +182,7 @@ static func for_tool(tool_id: String) -> String:
 ##   cosmetic shirt         shirt            (tinted by the caller)
 ##   truck paint            paint_swatch     (tinted by the caller)
 ##   truck decal            decal_<x>        (the item id)
+##   gear                   gear_<id>        (the skateboard, driving G1)
 ## Anything else (an id the catalog doesn't know) is "", "no icon", not a guess.
 ## The supply, snack, hat, shirt, paint and decal art is the icons:catalog chunk's.
 static func for_shop_item(item_id: StringName) -> String:

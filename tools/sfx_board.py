@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """The Gutter Shredder's sounds (driving chunk G1, player/skate_view.gd), made the
 same way as everything in tools/make_sfx.py (its building blocks, fixed seeds, the
-same writer), into assets/audio/sfx/. Ids as gap-specs/critic.md C12 settled them:
+same writer), into assets/audio/sfx/. Ids as gap-specs/critic.md C12 settled them (driving's names):
 
   board_pop    the tail slapping the street on an ollie: a sharp wooden clack
   board_land   four wheels and a deck coming down: clack-thunk and a rattle
-  board_roll   (loop) urethane on asphalt: a soft rumble with the cracks ticking by
-  board_grind  (loop) a truck scraping a curb: a gritty metal hiss that rings
-  board_bail   the board leaving without you: a slide whistle down, clatter, a wheel spinning out
+  board_roll_loop   (loop) urethane on asphalt: a soft rumble with the cracks ticking by
+  board_grind_loop  (loop) a truck scraping a curb: a gritty metal hiss that rings
+  wipeout      the board leaving without you: a slide whistle down, clatter, a wheel spinning out
   trick_ding   a trick landed: a bright bell and a little brass 'ba-DAH'
 
 Usage: python3 tools/sfx_board.py              write them all
@@ -135,9 +135,9 @@ def trick_ding() -> list[float]:
 SOUNDS = {
     "board_pop": (board_pop, 0, 0.7),
     "board_land": (board_land, 0, 0.75),
-    "board_roll": (board_roll, 0, 0.5),
-    "board_grind": (board_grind, 0, 0.45),
-    "board_bail": (board_bail, 0, 0.7),
+    "board_roll_loop": (board_roll, 0, 0.5),
+    "board_grind_loop": (board_grind, 0, 0.45),
+    "wipeout": (board_bail, 0, 0.7),
     "trick_ding": (trick_ding, 0, 0.55),
 }
 

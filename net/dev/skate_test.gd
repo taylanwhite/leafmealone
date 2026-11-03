@@ -5,7 +5,8 @@ extends Node
 ## real paths, on the host's own player, its keys pressed through Skate.dev_input:
 ##   a. the board key does nothing without a board; with $100 granted, Homie
 ##      Depot sells the board ($60 off the wallet, the unlock on it).
-##   b. on County Road 9 the board key gets you on.
+##   b. on County Road 9 the board key gets you on, and board_state() (the
+##      contract audio/board_sound.gd reads) says so; in c its speed is yours.
 ##   c. 3 s of pushing: 7 m/s or more; 2 s coasting: slower, still over 4.
 ##   d. an ollie: 0.4 m up or more, down again, one ollie counted.
 ##   e. an ollie with a kickflip, landed: a line worth 200 or more.
@@ -73,7 +74,10 @@ func _run() -> void:
 	var surface := TownMap.surface_at(road)
 	var mounted := bool(skate.call("toggle")) and bool(me.get("on_board"))
 	await _ticks(3)
-	_verdict(mounted and surface == &"asphalt", "b. on the board on County Road 9 (%s)" % surface, problems)
+	# The contract audio/board_sound.gd reads (critic C13): {on_board, speed, on_ground, grinding}.
+	var state: Dictionary = skate.call("board_state")
+	var contract := bool(state.get("on_board")) and bool(state.get("on_ground")) and not bool(state.get("grinding")) and state.has("speed")
+	_verdict(mounted and surface == &"asphalt" and contract, "b. on the board on County Road 9 (%s), board_state %s" % [surface, state], problems)
 	if not mounted:
 		_finish(false, problems)
 		return
@@ -81,6 +85,9 @@ func _run() -> void:
 	skate.set("dev_input", {"push": true})
 	await _seconds(3.0)
 	var pushed := _speed(me)
+	var heard := float((skate.call("board_state") as Dictionary).get("speed", 0.0))
+	if absf(heard - pushed) > 0.05:
+		problems.append("c. board_state speed %.2f, rolling %.2f" % [heard, pushed])
 	skate.set("dev_input", {"push": false})
 	await _seconds(2.0)
 	var coasted := _speed(me)

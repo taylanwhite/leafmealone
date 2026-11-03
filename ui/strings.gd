@@ -748,7 +748,7 @@ const SHOP_UI: Dictionary = {
 	# ---- driving: the Gutter Shredder (driving chunk G1)
 	"shop_tab_gear": "Gear",
 	"item_skateboard": "The Gutter Shredder",
-	"item_blurb_skateboard": "\"My nephew's old board. Still smells like him.\" (Marty) {key:board} to ride.",
+	"item_blurb_skateboard": "My nephew's old board. Still smells like him. {key:board} to ride.",
 	"shop_hours": "Open %s to %s",
 	"shop_hours_always": "Open all hours. Watching.",
 	# Keepers.

@@ -9,8 +9,9 @@ const _UiStyle = preload("res://ui/ui_style.gd")
 const GOOD := Color(1.0, 0.86, 0.42)
 const BAD := Color(1.0, 0.42, 0.32)
 const FONT_SIZE: int = 34
-## Where it sits, as a share of the screen's height.
-const TOP_SHARE: float = 0.2
+## Where its top sits (px): below the FPS readout at the top center
+## and clear of the day HUD and rank badge on the right (gap-specs/critic.md: the trick popup at y 80).
+const TOP_Y: float = 80.0
 ## The pop: starts this much bigger and settles over POP_SECONDS; fades over the last FADE_SECONDS.
 const POP_SCALE: float = 1.45
 const POP_SECONDS: float = 0.18
@@ -69,4 +70,4 @@ func _place(grow: float) -> void:
 	var size_now := _label.get_combined_minimum_size()
 	_label.pivot_offset = size_now * 0.5
 	_label.scale = Vector2.ONE * grow
-	_label.position = Vector2(screen.x * 0.5 - size_now.x * 0.5, screen.y * TOP_SHARE - size_now.y * 0.5)
+	_label.position = Vector2(screen.x * 0.5 - size_now.x * 0.5, TOP_Y)

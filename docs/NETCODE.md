@@ -152,6 +152,7 @@ Session flow:
 | State | Authority | How it changes |
 | --- | --- | --- |
 | A player's position, look direction, animation state | That player's peer | Simulated locally, replicated with a MultiplayerSynchronizer |
+| Riding a skateboard (on_board, skate_trick, wipeout, skitch) | That player's peer | `player/skate.gd` simulates it in place of walking; the flags replicate on change with the player; a bump on someone goes to the host as a request (`brawl.request_skate_bonk`) |
 | Which zone a player is in | Host | `Net.move_player_to_zone()` |
 | Leaf field | Host | Clients send rake and collect requests; the host applies them and broadcasts chunk updates |
 | Shared physics bodies (leaf bags, props) | Host | Simulated only on the host; clients freeze them and display the replicated transform |

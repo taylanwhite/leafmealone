@@ -22,7 +22,8 @@ extends Node
 ## crash hits you now), snack_queasy (the machine's sandwich lands queasy),
 ## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can),
 ## two_caught and two_caught_far (both need a second player), skate (on the Gutter
-## Shredder in Homie Depot's lot, lined up on Marty's ramp in the connected town).
+## Shredder in Homie Depot's lot, lined up on Marty's ramp in the connected town),
+## skate_shop (at Homie Depot's counter with $100 each and no board yet).
 ## border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
@@ -31,7 +32,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far", "skate"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far", "skate", "skate_shop"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -256,6 +257,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _drive()
 		"skate":
 			out = await _skate()
+		"skate_shop":
+			out = await _skate_shop()
 		"toss":
 			out = await _toss()
 		"toss_full":
@@ -1752,6 +1755,44 @@ func _skate() -> Dictionary:
 	if not bool(me.get("on_board")):
 		return {"error": "couldn't get on the board: %s" % me.call("skate").call("why_not")}
 	return {"note": "on the board: move_forward pushes, move_left/right carve, jump ollies, primary/secondary flip, crouch grabs, board steps off", "zone": _zone()}
+
+
+## skate_shop: at Homie Depot's counter facing Marty, with SNACK_CASH in every
+## crewmate's wallet and no board yet: press E, the Gear tab, buy the Gutter
+## Shredder, and ride out of the store the way a player would.
+func _skate_shop() -> Dictionary:
+	var out: Dictionary = await _store()
+	if out.has("error"):
+		return out
+	for peer: int in Net.peer_ids():
+		if Campaign.credits(peer) < SNACK_CASH:
+			Campaign.pay(peer, SNACK_CASH - Campaign.credits(peer))
+		_take_back(peer, "skateboard")
+	var counter: Vector3 = (Constants.SHOP_SITES["homie_depot"] as Dictionary)["counter"]
+	var zone := _world().get_node("StoreZone") as Node3D
+	var stand := zone.to_global(counter + Vector3(0.0, 0.0, 1.4))
+	_stand_facing(Vector3(stand.x, zone.global_position.y, stand.z), zone.to_global(counter) + Vector3(0.0, 1.3, 0.0))
+	await _ticks(3)
+	return {"zone": _zone(), "cash": Campaign.credits(Net.local_peer_id())}
+
+
+## Dev only: take an unlock back off a wallet (a test save keeps what the last
+## take bought; Campaign has no revoke because nothing in the game takes things back).
+func _take_back(peer: int, unlock_id: String) -> void:
+	if not Campaign.peer_has_unlock(peer, StringName(unlock_id)):
+		return
+	var keys: Dictionary = Campaign.get("_peer_keys")
+	var bank: Dictionary = Campaign.get("_bank")
+	var record: Dictionary = bank.get(keys.get(peer, ""), {})
+	(record.get("unlocks", []) as Array).erase(unlock_id)
+	Campaign.call("_save")
+	Campaign.call("_send_wallet", peer)
+	Campaign.unlocks_changed.emit()
+
+
+func _reached_skate_shop() -> bool:
+	var me := Net.local_peer_id()
+	return Net.player_zone(me) == Net.Zone.STORE and Campaign.credits(me) >= SNACK_CASH and not Campaign.peer_has_unlock(me, &"skateboard")
 
 
 func _reached_skate() -> bool:

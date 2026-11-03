@@ -19,10 +19,12 @@ const _SoundBank = preload("res://audio/sound_bank.gd")
 const _Skate = preload("res://player/skate.gd")
 
 ## The stance (radians, meters): the hips turned side-on so the right leg leads,
-## the shoulders turned most of the way back toward the way you're going, legs
-## spread along the board, knees bent, arms out for balance.
+## the shoulders turned a little back toward the way you're going (still side-on:
+## the balance arms point fore and aft, not out like a T; 0.8 back read square
+## from behind in the 2026-11-03 recordings), legs spread along the board, knees
+## bent. The head keeps looking where you're going.
 const HIPS_YAW: float = 1.2
-const TORSO_YAW: float = -0.8
+const TORSO_YAW: float = -0.35
 const LEG_SPREAD: float = 0.3
 const THIGH: float = 0.38
 const ARM_OUT: float = 1.05
@@ -49,6 +51,17 @@ const DISMOUNT_TO := Vector3(0.34, 0.85, 0.1)
 ## The board after a bail: how much it bounces, and how fast it tumbles (rad/s).
 const FLY_BOUNCE: float = 0.35
 const FLY_SPIN := Vector3(9.0, 4.0, 13.0)
+## The loose board: the share of its speed it keeps off a wall, how fast it skids
+## to a stop on the ground (m/s per s), how fast it rocks down flat (1/s), how long
+## it lies there at most while you're down (s), and how long it takes to go in
+## your pocket once you're up (s).
+const FLY_WALL_KEEP: float = 0.4
+const FLY_SKID: float = 6.0
+const FLY_SETTLE_RATE: float = 9.0
+const FLY_REST_MAX: float = 6.0
+const POCKET_SECONDS: float = 0.3
+## A flip caught on landing finishes this many times faster.
+const FLIP_RUSH: float = 4.0
 ## The roll's sound under the board, and the sparks at its tail.
 const SPARK_COLOR := Color(1.0, 0.78, 0.3)
 const PUFF_COLOR := Color(0.85, 0.5, 0.18)
@@ -75,6 +88,9 @@ var _crouch: float = 0.0
 var _air_tuck: float = 0.0
 var _flip_t: float = -1.0
 var _flip_sign: float = 1.0
+var _flip_rush: bool = false
+## This air's tail clack has played.
+var _popped: bool = false
 var _push_t: float = -1.0
 var _pushes_seen: int = 0
 var _speed_window: Array[Vector2] = []
@@ -84,6 +100,8 @@ var _last_yaw: float = 0.0
 var _fly_t: float = -1.0
 var _fly_velocity := Vector3.ZERO
 var _fly_floor: float = 0.0
+## The loose board going in your pocket: seconds since it started, -1 not yet.
+var _pocket_t: float = -1.0
 var _grab_on: bool = false
 var _posed: bool = false
 var _time: float = 0.0
@@ -189,18 +207,25 @@ func _edges(on: bool, air: bool, trick: int, wipe: bool, _speed: float) -> void:
 		_play("board_pop", -6.0)
 	if wipe and not bool(_was["wipe"]):
 		_launch_board()
-		_play("board_bail")
+		_play("wipeout")
 	if on and air and not was_air:
 		_air_best = trick
-		# A pop (an ollie, out of a grind) clacks the tail; rolling off the ramp doesn't.
-		if float(_shown["vy"]) > 1.5 and trick == _Skate.TRICK_OLLIE:
-			_play("board_pop")
+		_popped = false
 	if on and air:
 		_air_best = maxi(_air_best, trick)
+		# A pop (an ollie, out of a grind) clacks the tail; rolling off the ramp doesn't.
+		# Once per air, on whichever comes second on someone else's peer: the air
+		# (anim_state, synced) or the ollie (skate_trick, sent on change).
+		var popping := trick == _Skate.TRICK_OLLIE or (not was_air and float(_shown["vy"]) > Constants.SKATE_OLLIE_SPEED * 0.85)
+		if not _popped and popping:
+			_popped = true
+			_play("board_pop")
 	if trick != was_trick and (trick == _Skate.TRICK_KICKFLIP or trick == _Skate.TRICK_HEELFLIP):
 		_flip_t = 0.0
 		_flip_sign = 1.0 if trick == _Skate.TRICK_KICKFLIP else -1.0
 	if on and not air and was_air:
+		# A flip the feet caught just before the ground: its last bit goes round fast.
+		_flip_rush = _flip_t >= 0.0
 		_play("board_land")
 		if _air_best >= _Skate.TRICK_KICKFLIP or trick == _Skate.TRICK_GRIND:
 			_play("trick_ding")
@@ -243,9 +268,10 @@ func _step_push(delta: float, on: bool, air: bool, speed: float) -> void:
 func _step_flip(delta: float) -> void:
 	if _flip_t < 0.0:
 		return
-	_flip_t += delta / Constants.SKATE_FLIP_SECONDS
+	_flip_t += delta / Constants.SKATE_FLIP_SECONDS * (FLIP_RUSH if _flip_rush else 1.0)
 	if _flip_t >= 1.0:
 		_flip_t = -1.0
+		_flip_rush = false
 
 
 func _step_lean(delta: float, rolling: bool) -> void:
@@ -303,7 +329,9 @@ func _board_lift(air: bool) -> float:
 
 
 ## A bail: the board leaves on its own, tumbling along the way you were going,
-## bounces, skids, and is gone.
+## bounces off the ground and anything solid, skids, and settles where it stops.
+## It lies there while you're down and goes in your pocket once you're up
+## (shrinks, with the hotbar's pocket sound), so it never just vanishes.
 func _launch_board() -> void:
 	if _root == null:
 		return
@@ -315,6 +343,7 @@ func _launch_board() -> void:
 	_fly_velocity = flat * Constants.SKATE_BOARD_FLY_SHARE + Vector3.UP * 2.6
 	_fly_floor = player.global_position.y
 	_fly_t = 0.0
+	_pocket_t = -1.0
 	_flip_t = -1.0
 
 
@@ -322,30 +351,68 @@ func _step_fly(delta: float) -> void:
 	if _fly_t < 0.0:
 		return
 	_fly_t += delta
-	_fly_velocity.y -= 9.8 * delta
-	var at := _root.global_position + _fly_velocity * delta
-	if at.y < _fly_floor and _fly_velocity.y < 0.0:
-		at.y = _fly_floor
-		if absf(_fly_velocity.y) > 1.2:
-			_play_at("board_land", at, -4.0)
-		_fly_velocity.y = -_fly_velocity.y * FLY_BOUNCE
-		_fly_velocity.x *= 0.6
-		_fly_velocity.z *= 0.6
-	_root.global_position = at
-	var spin := FLY_SPIN * clampf(1.0 - _fly_t / Constants.SKATE_BOARD_FLY_SECONDS, 0.0, 1.0)
-	_root.rotate_object_local(Vector3.RIGHT, spin.x * delta)
-	_root.rotate_object_local(Vector3.UP, spin.y * delta)
-	_root.rotate_object_local(Vector3.BACK, spin.z * delta)
-	if _fly_t >= Constants.SKATE_BOARD_FLY_SECONDS:
-		_end_fly()
-		_root.visible = false
-		_mount = 0.0
+	var at := _root.global_position
+	if _fly_t < Constants.SKATE_BOARD_FLY_SECONDS:
+		_fly_velocity.y -= 9.8 * delta
+		var to := at + _fly_velocity * delta
+		# Off a wall or a fence: back the way it came, slower, with a clack.
+		var hit := _root.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.08, to + Vector3.UP * 0.08, 1, [player.get_rid()]))
+		if not hit.is_empty() and (hit["normal"] as Vector3).y < 0.6:
+			var normal: Vector3 = hit["normal"]
+			_fly_velocity = _fly_velocity.bounce(Vector3(normal.x, 0.0, normal.z).normalized()) * FLY_WALL_KEEP
+			to = at
+			_play_at("board_land", at, -2.0)
+		if to.y < _fly_floor and _fly_velocity.y < 0.0:
+			to.y = _fly_floor
+			if absf(_fly_velocity.y) > 1.2:
+				_play_at("board_land", to, -4.0)
+			_fly_velocity.y = -_fly_velocity.y * FLY_BOUNCE
+			_fly_velocity.x *= 0.6
+			_fly_velocity.z *= 0.6
+		if to.y <= _fly_floor + 0.01:
+			# Skidding on its side or its wheels.
+			var skid := Vector2(_fly_velocity.x, _fly_velocity.z)
+			skid = skid.move_toward(Vector2.ZERO, FLY_SKID * delta)
+			_fly_velocity.x = skid.x
+			_fly_velocity.z = skid.y
+		_root.global_position = to
+		var spin := FLY_SPIN * clampf(1.0 - _fly_t / Constants.SKATE_BOARD_FLY_SECONDS, 0.0, 1.0)
+		_root.rotate_object_local(Vector3.RIGHT, spin.x * delta)
+		_root.rotate_object_local(Vector3.UP, spin.y * delta)
+		_root.rotate_object_local(Vector3.BACK, spin.z * delta)
+		return
+	# Settled: it rocks down flat, wheels up or wheels down, whichever it's nearer.
+	var size := _root.scale.x
+	var basis := _root.global_basis.orthonormalized()
+	var up := Vector3.UP if basis.y.y >= 0.0 else Vector3.DOWN
+	var along := basis.z - up * basis.z.dot(up)
+	if along.length() < 0.01:
+		along = basis.x.cross(up)
+	var flat_basis := Basis.looking_at(-along.normalized(), up)
+	var ease := 1.0 - exp(-delta * FLY_SETTLE_RATE)
+	_root.global_basis = basis.slerp(flat_basis, ease).scaled(Vector3.ONE * size)
+	# Lying on its grip tape, the deck is on the ground and the wheels in the air.
+	var rest_y := _fly_floor + (Constants.SKATE_DECK_HEIGHT if up == Vector3.DOWN else 0.0)
+	_root.global_position = Vector3(at.x, lerpf(at.y, rest_y, ease), at.z)
+	var down_long := _fly_t > Constants.SKATE_BOARD_FLY_SECONDS + FLY_REST_MAX
+	if _pocket_t < 0.0 and (not bool(_shown.get("wipe", false)) or down_long):
+		_pocket_t = 0.0
+		_play_at("pocket", _root.global_position, -6.0)
+	if _pocket_t >= 0.0:
+		_pocket_t += delta
+		var left := 1.0 - smoothstep(0.0, 1.0, _pocket_t / POCKET_SECONDS)
+		_root.scale = Vector3.ONE * maxf(left, 0.001)
+		if _pocket_t >= POCKET_SECONDS:
+			_end_fly()
+			_root.visible = false
+			_mount = 0.0
 
 
 func _end_fly() -> void:
 	if _fly_t < 0.0 and not _root.top_level:
 		return
 	_fly_t = -1.0
+	_pocket_t = -1.0
 	_root.top_level = false
 	_root.transform = Transform3D.IDENTITY
 
@@ -476,8 +543,8 @@ func _attach_sound() -> void:
 		if riding != null:
 			riding.add_child(_board_sound)
 		return
-	_roll = _loop("board_roll", "Roll")
-	_grind = _loop("board_grind", "Grind")
+	_roll = _loop("board_roll_loop", "Roll")
+	_grind = _loop("board_grind_loop", "Grind")
 
 
 func _loop(id: String, node_name: String) -> AudioStreamPlayer3D:

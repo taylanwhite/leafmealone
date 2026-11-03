@@ -54,6 +54,8 @@ var wipeouts: Dictionary = {}
 var last_line: Dictionary = {}
 var best_score: int = 0
 var last_air_height: float = 0.0
+## Owner: what the last wall bail hit (its node path and where), for tests and logs.
+var last_wall: String = ""
 ## Owner: pushes made (skate_view.gd plays the kick on the owner from it).
 var pushes: int = 0
 
@@ -419,9 +421,11 @@ func _land() -> void:
 	var flat := Vector2(player.velocity.x, player.velocity.z)
 	var speed := flat.length()
 	var forward := _forward()
-	if _flip_left > 0.0:
+	# Most of the way round, the feet catch it; any more left is a board landing on its edge.
+	if _flip_left > Constants.SKATE_FLIP_CATCH_SECONDS:
 		wipeout("landing")
 		return
+	_flip_left = 0.0
 	if speed > Constants.SKATE_LAND_ANY_SPEED:
 		var off := absf((flat / speed).angle_to(forward))
 		if off > Constants.SKATE_LAND_ANGLE and off < PI - Constants.SKATE_LAND_ANGLE:
@@ -613,6 +617,7 @@ func _walls(before: Vector3) -> bool:
 		var thing := hit.get_collider() as CollisionObject3D
 		if thing != null and thing.collision_layer == Constants.PAD_WALL_LAYER:
 			continue
+		last_wall = "%s @ %s" % [thing.get_path() if thing != null else NodePath("?"), hit.get_position()]
 		wipeout("wall")
 		return true
 	return false

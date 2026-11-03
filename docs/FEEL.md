@@ -52,7 +52,7 @@ For us:
 - Show the rake in your hands and make raking a physical motion with a satisfying swoosh and leaf spray. Bags, the wheelbarrow, and tools are things you hold, with a hotbar for what you carry.
 - Small world-space prompts ("E  Hide", "E  Talk", "E  Buy") instead of HUD instructions. The current four lines of instructions in the top-left corner go away.
 - Tools bought at the store should be objects you pick up and use, not only multipliers.
-- A movement toy (a skateboard, a leaf blower you can ride, whatever is funny) is a design idea for the workbook, not something to build unasked.
+- A movement toy (a skateboard, a leaf blower you can ride, whatever is funny) was a design idea for the workbook. Built (driving G1, 2026-11-03): the Gutter Shredder, Marty's nephew's skateboard, $60 at Homie Depot; push, carve, ollie, flip, grind and bail, bragging points only (docs/GAME.md, "The Gutter Shredder").
 
 ## How characters deal with shops
 
