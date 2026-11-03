@@ -20,10 +20,10 @@ static var result: Dictionary = {}
 
 const _Stub = preload("res://net/dev/leaf_view_stub.gd")
 ## The fake rake head's swing, shaped like raking:4's RakeStroke at its defaults
-## (RAKE_SWING_BITES, RAKE_HEAD_NEAR/FAR): 0.6 s, plant at 0.2, drive to 0.7.
+## (RAKE_SWING_BITES, RAKE_HEAD_NEAR/FAR): 0.6 s, plant at 0.2, drive to 0.74.
 const SWING_SECONDS: float = 0.6
 const BITES: Array[float] = [0.2, 0.5]
-const DRIVE := Vector2(0.2, 0.7)
+const DRIVE := Vector2(0.2, 0.74)
 const HEAD_NEAR: float = 0.85
 const HEAD_FAR: float = 2.25
 const HEAD_HALF: float = 0.475
@@ -169,6 +169,10 @@ func _run() -> void:
 	await _quiet()
 	_judge_direction("plus_x", Vector3(1.0, 0.0, 0.0))
 	_judge_contact()
+	# rakefeel:look: leaves the tines reach ride the windrow ahead of them.
+	var rode := int((_motion.call("stats") as Dictionary).get("rode", 0))
+	_note("windrow", "%d leaves rode the windrow ahead of the tines over three swings" % rode)
+	_checks["windrow"] = rode >= 10
 	var pile := _pile_near(strip + Vector3(4.5, 0.0, 0.0), Vector3(1.0, 0.0, 0.0))
 	# 2. Running through the pile and diving into it: the same flakes, no duplicates.
 	await _kick_check(pile)

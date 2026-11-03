@@ -18,6 +18,8 @@ const SLIDE: int = 2
 const PARK: int = 3
 const SINK: int = 4
 const FADE: int = 5
+## Riding in the windrow ahead of the tines while they drive (rakefeel:look).
+const RIDE: int = 6
 ## Mover kinds (how it moves; also for stats and traces).
 const K_RAKE: int = 0
 const K_HAND: int = 1
@@ -110,6 +112,22 @@ var home_last := PackedVector3Array()
 var waited := PackedFloat32Array()
 ## Highest point of each flight (traces only).
 var peak := PackedFloat32Array()
+## Riding the windrow (state RIDE): where on the berm ahead of the tines (across
+## the head, ahead of it, how high up the stack), how long it rides at most, the
+## offset it eases out of from where it was picked up, and whether it spills
+## over the top early.
+var ride_u := PackedFloat32Array()
+var ride_d := PackedFloat32Array()
+var ride_h := PackedFloat32Array()
+var ride_end := PackedFloat32Array()
+var ride_off := PackedVector3Array()
+var spill := PackedInt32Array()
+## The rake heads this tick (actor -> {mid, fwd, right, half, down, vel}) and
+## how many leaves ride each one's windrow.
+var _heads_now: Dictionary = {}
+var _riders: Dictionary = {}
+## Leaves that rode the windrow (stats).
+var rode: int = 0
 
 var _render_count := PackedInt32Array()
 var _render_owner: Array[PackedInt32Array] = []
@@ -191,6 +209,12 @@ func setup(pool_cap: int, leaf_view: Object, species_meshes: Array[MultiMesh], w
 	home_last.resize(cap)
 	waited.resize(cap)
 	peak.resize(cap)
+	ride_u.resize(cap)
+	ride_d.resize(cap)
+	ride_h.resize(cap)
+	ride_end.resize(cap)
+	ride_off.resize(cap)
+	spill.resize(cap)
 	_alive_at.resize(cap)
 	_free.resize(cap)
 	for index: int in cap:
@@ -325,6 +349,12 @@ func split(i: int, rest: int, clock: float) -> int:
 	waited[other] = waited[i]
 	start[other] = start[i]
 	drawn_at[other] = pos[i]
+	ride_u[other] = ride_u[i]
+	ride_d[other] = ride_d[i] + Constants.RAKE_RIDE_SPLIT_DEPTH
+	ride_h[other] = ride_h[i]
+	ride_end[other] = ride_end[i]
+	ride_off[other] = ride_off[i]
+	spill[other] = spill[i]
 	# Grows out of the leaf it split from instead of appearing beside it.
 	scale[other] = 0.0
 	units[i] -= rest
@@ -394,6 +424,8 @@ func to_sink(i: int, sink_kind: int, point: Vector3) -> void:
 
 ## Lands this mover soon (the pool is full): a stiffer spring and an early home.
 func rush(i: int) -> void:
+	if state[i] == RIDE:
+		_end_ride(i)
 	if state[i] == FLY or state[i] == SLIDE:
 		hurry[i] = 1
 		home_from[i] = minf(home_from[i], age[i])
@@ -524,7 +556,111 @@ func _start_flight(i: int, beside: bool) -> void:
 			spin[i] = Vector3(_rng.randf_range(-3.0, 3.0), _rng.randf_range(-2.0, 2.0), _rng.randf_range(-3.0, 3.0))
 		_:
 			state[i] = FLY
+			if not beside and (k == K_RAKE or k == K_CREW) and _begin_ride(i):
+				return
 			_aim_launch(i, beside)
+
+
+## A leaf the tines just reached while they drive rides ahead of them in the
+## windrow instead of flying off on its own: it bunches against the tines, the
+## berm stacking higher the more leaves ride it, rolls over and over, and is let
+## go at the end of the drive (or once its own landing spot is behind the tines,
+## or early, spilling over the top). False when there is no lowered head to ride
+## or its landing spot is already behind the tines.
+func _begin_ride(i: int) -> bool:
+	var head: Dictionary = _heads_now.get(actor[i], {})
+	if head.is_empty() or not bool(head["down"]):
+		return false
+	var fwd: Vector3 = head["fwd"]
+	var mid: Vector3 = head["mid"]
+	if (aim[i] - mid).dot(fwd) < Constants.RAKE_RIDE_DEPTH.y:
+		return false
+	var right: Vector3 = head["right"]
+	var half := float(head["half"])
+	ride_u[i] = clampf((pos[i] - mid).dot(right), -half, half) * _rng.randf_range(Constants.RAKE_RIDE_SPREAD, 1.0)
+	ride_d[i] = _rng.randf_range(Constants.RAKE_RIDE_DEPTH.x, Constants.RAKE_RIDE_DEPTH.y)
+	ride_h[i] = _rng.randf() * Constants.RAKE_RIDE_STACK
+	spill[i] = 1 if _rng.randf() < Constants.RAKE_RIDE_SPILL else 0
+	ride_end[i] = _rng.randf_range(Constants.RAKE_RIDE_SPILL_SECONDS.x, Constants.RAKE_RIDE_SPILL_SECONDS.y) if spill[i] == 1 else Constants.RAKE_RIDE_MAX
+	ride_off[i] = pos[i] - _ride_point(i, head)
+	state[i] = RIDE
+	spin[i] = Vector3(_rng.randf_range(-3.0, 3.0), _rng.randf_range(-2.0, 2.0), _rng.randf_range(-3.0, 3.0))
+	rode += 1
+	return true
+
+
+## Where on the berm ahead of the head a riding leaf sits now.
+func _ride_point(i: int, head: Dictionary) -> Vector3:
+	var fwd: Vector3 = head["fwd"]
+	var right: Vector3 = head["right"]
+	var at: Vector3 = (head["mid"] as Vector3) + fwd * ride_d[i] + right * ride_u[i]
+	var fill := clampf(float(_riders.get(actor[i], 0)) / float(Constants.RAKE_RIDE_FULL), 0.3, 1.0)
+	# Deeper in the berm (nearer the tines) sits higher: leaves pile against them.
+	var lean := 1.0 - (ride_d[i] - Constants.RAKE_RIDE_DEPTH.x) / maxf(Constants.RAKE_RIDE_DEPTH.y - Constants.RAKE_RIDE_DEPTH.x, 0.01)
+	at.y = float(view.call("surface_y", Vector2(at.x, at.z))) + LIE_LIFT + ride_h[i] * fill * (0.4 + 0.6 * lean)
+	return at
+
+
+## One tick of a riding leaf: locked to its spot on the berm (easing out of where
+## it was picked up), tumbling, until it is let go.
+func _ride(i: int, dt: float) -> void:
+	var a := age[i] + dt
+	age[i] = a
+	var head: Dictionary = _heads_now.get(actor[i], {})
+	if head.is_empty() or not bool(head["down"]) or a >= ride_end[i]:
+		_end_ride(i)
+		return
+	var point := _ride_point(i, head)
+	var fwd: Vector3 = head["fwd"]
+	if (aim[i] - point).dot(fwd) < Constants.RAKE_RIDE_DROP_MARGIN:
+		# Its own spot in the windrow: dropped off the tines there.
+		_end_ride(i)
+		return
+	# Closing on its spot: quickly when close, but a leaf the tines swept from
+	# farther back slides there along the lawn, never faster than RAKE_RIDE_SLIDE.
+	var off := ride_off[i]
+	var gap := off.length()
+	if gap > 0.0001:
+		var close := minf(gap * (1.0 - exp(-Constants.RAKE_RIDE_STIFF * dt)), Constants.RAKE_RIDE_SLIDE * dt)
+		ride_off[i] = off * ((gap - close) / gap)
+	var p := point + ride_off[i]
+	var step := p - pos[i]
+	if step.length() > Constants.LEAF_MAX_STEP:
+		p = pos[i] + step.normalized() * Constants.LEAF_MAX_STEP
+	var head_vel: Vector3 = head.get("vel", Vector3.ZERO)
+	vel[i] = (p - pos[i]) / maxf(dt, 0.0001)
+	# Rolled over and over by the shove, flipping its pale side up now and then.
+	var roll := Vector2(head_vel.x, head_vel.z).length() / Constants.RAKE_RIDE_ROLL_RADIUS
+	var r := rot[i] + spin[i] * dt
+	r.x += roll * dt
+	r.z += sin(phase[i] + a * Constants.RAKE_RIDE_WOBBLE.x) * Constants.RAKE_RIDE_WOBBLE.y * dt
+	rot[i] = r
+	pos[i] = p
+	if scale[i] < size[i]:
+		scale[i] = minf(size[i], scale[i] + size[i] * dt / Constants.LEAF_SKIN_IN_SECONDS)
+	else:
+		scale[i] = size[i]
+	_draw(i)
+
+
+## Lets a riding leaf go: it carries on with some of the head's speed and the
+## flight it would have had from here (a spill hops up over the top).
+func _end_ride(i: int) -> void:
+	var head: Dictionary = _heads_now.get(actor[i], {})
+	var head_vel: Vector3 = head.get("vel", Vector3.ZERO) if not head.is_empty() else Vector3.ZERO
+	head_vel.y = 0.0
+	if head_vel.length() > Constants.RAKE_RIDE_HEAD_SPEED_MAX:
+		head_vel = head_vel.normalized() * Constants.RAKE_RIDE_HEAD_SPEED_MAX
+	state[i] = FLY
+	age[i] = 0.0
+	_aim_launch(i, false)
+	var carry := Constants.RAKE_RIDE_CARRY
+	var aimed := vel[i]
+	vel[i] = Vector3(lerpf(aimed.x, head_vel.x, carry), aimed.y * Constants.RAKE_RIDE_CARRY_UP, lerpf(aimed.z, head_vel.z, carry))
+	if spill[i] == 1:
+		vel[i].y = _rng.randf_range(Constants.RAKE_RIDE_SPILL_HOP.x, Constants.RAKE_RIDE_SPILL_HOP.y)
+	else:
+		vel[i].y = minf(vel[i].y, _rng.randf_range(Constants.RAKE_RIDE_SETTLE_HOP.x, Constants.RAKE_RIDE_SETTLE_HOP.y))
 
 
 ## The airborne kicks holding slots that taking units off this cell empties,
@@ -610,7 +746,7 @@ func ledger() -> Dictionary:
 			continue
 		if state[i] == WAIT and src[i] >= 0 and kind[i] != K_SCATTER and kind[i] != K_DROP:
 			out[src[i]] = int(out.get(src[i], 0)) - units[i]
-		if dst[i] >= 0 and (state[i] == WAIT or state[i] == FLY or state[i] == SLIDE):
+		if dst[i] >= 0 and (state[i] == WAIT or state[i] == FLY or state[i] == SLIDE or state[i] == RIDE):
 			out[dst[i]] = int(out.get(dst[i], 0)) + units[i]
 	return out
 
@@ -619,6 +755,11 @@ func ledger() -> Dictionary:
 ## {mid, fwd, t} (where and when that actor's head reached the end of its drive).
 func step(dt: float, clock: float, heads: Dictionary, fars: Dictionary) -> void:
 	landings.clear()
+	_heads_now = heads
+	_riders.clear()
+	for i: int in alive:
+		if state[i] == RIDE:
+			_riders[actor[i]] = int(_riders.get(actor[i], 0)) + 1
 	var frame := Engine.get_physics_frames()
 	var omega := Constants.LEAF_SPRING
 	var ray_budget := rays_per_tick if space != null else 0
@@ -626,6 +767,10 @@ func step(dt: float, clock: float, heads: Dictionary, fars: Dictionary) -> void:
 	while index < alive.size():
 		var i := alive[index]
 		var s := state[i]
+		if s == RIDE:
+			_ride(i, dt)
+			index += 1
+			continue
 		if s == WAIT:
 			if _wait_done(i, clock, heads, fars):
 				waited[i] = clock - born[i]

@@ -156,7 +156,7 @@ func _process(_delta: float) -> void:
 	var held: Node = player.call("_held_prop") if player.has_method("_held_prop") else null
 	if held != null and str(held.get("kind")) == "rake":
 		var shown := RakeStroke.display(player.name.to_int())
-		body.call("set_work_pose", float(shown["lean"]), float(shown["twist"]), float(shown["hip"]))
+		body.call("set_work_pose", float(shown["lean"]), float(shown["twist"]), float(shown["hip"]), float(shown.get("crouch", 0.0)))
 	else:
 		body.call("set_work_pose", 0.0, 0.0, 0.0)
 

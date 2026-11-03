@@ -11,8 +11,10 @@ extends Node
 ## leaves no lowered head behind in "rake_heads". All through the hold the
 ## tines ride the ground (within 0.03 m at the bites and through the drive), the
 ## head never jumps more than 0.15 m a tick, stays ahead (0.8-2.3 m), within 0.25 m
-## of center and 15 degrees of straight; both hands are on the handle 0.35-0.48 m
-## apart and within reach. A hired hand swings its own rake at its own pace, its
+## of center and 15 degrees of straight; both hands are on the handle
+## RAKE_HAND_SPAN_MIN-RAKE_HAND_SPAN apart and within reach, and the body really
+## works (rakefeel:look): the feet plant in the stance, the knees bend, and the
+## lunge carries the head at least MIN_TRAVEL each swing. A hired hand swings its own rake at its own pace, its
 ## strokes at its bite and as actor RAKE_ACTOR_HAND_BASE + N, gliding (at most
 ## 0.03 m a tick) instead of jumping.
 ## Client: the host's rake really swings (the frozen-rake regression): it travels
@@ -27,10 +29,10 @@ const _PropLooks = preload("res://props/prop_looks.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 ## The client's look at the host's swing: this many swings, then this long idle.
 const SWINGS_TO_WATCH: int = 4
-## The head's forward travel each swing must be at least this (m). The handle and
-## a cartoon's arms allow RAKE_HEAD_NEAR to RAKE_HEAD_FAR (0.7 m) of the 0.9 m the
-## spec asked; this still catches a frozen or barely twitching rake.
-const MIN_TRAVEL: float = 0.6
+## The head's forward travel each swing must be at least this (m): the lunge
+## carries it RAKE_HEAD_NEAR to RAKE_HEAD_FAR (1.25 m; rakefeel:look), so this
+## catches a frozen or twitching rake, and a drag cut back to R1's 0.7 m.
+const MIN_TRAVEL: float = 1.1
 ## The host creeps forward this much a tick while it holds the button (0.48 m/s).
 const WALK_PER_TICK: float = 0.008
 
@@ -154,6 +156,10 @@ func _run_host() -> void:
 	print("[RakeStrokeTest] hands on the handle: %.2f-%.2f m apart, farthest from a shoulder %.2f m (reach %.2f): %s" % [grips["gap_min"], grips["gap_max"], grips["reach"], Constants.HOLD_GRIP_REACH, grips["ok"]])
 	ok = ok and bool(grips["ok"])
 	report["grips"] = grips
+	var legs := _judge_legs()
+	print("[RakeStrokeTest] the body works: feet in the stance %.2f of the way, knees bent up to %.0f deg in the drive, lean %.2f rad; creeping, a planted foot slid at most %.4f m/tick (limit %.3f, body %.3f), steps %s: %s" % [legs["stance"], rad_to_deg(legs["knee"]), legs["lean"], legs["slide"], FOOT_SLIDE_MAX, WALK_PER_TICK, legs["steps"], legs["ok"]])
+	ok = ok and bool(legs["ok"])
+	report["legs"] = legs
 	# 3. A tap: one swing, one stroke.
 	await _seconds(0.6)
 	_bites.clear()
@@ -251,6 +257,12 @@ func _host_sample(me: Node3D, rake: Node3D) -> Dictionary:
 	if body != null:
 		out["shoulders"] = [body.call("shoulder_position", 0), body.call("shoulder_position", 1)]
 		out["work"] = body.call("work_pose")
+		if body.has_method("stance"):
+			out["stance"] = float(body.call("stance"))
+			out["knee"] = maxf(float(body.call("knee_bend", 0)), float(body.call("knee_bend", 1)))
+		if body.has_method("foot_planted"):
+			out["feet"] = [body.call("foot_position", 0), body.call("foot_position", 1)]
+			out["planted"] = [body.call("foot_planted", 0), body.call("foot_planted", 1)]
 	return out
 
 
@@ -281,12 +293,50 @@ func _judge_head(me: Node3D) -> Dictionary:
 		lateral = maxf(lateral, absf(rel.dot(right)))
 		yaw = maxf(yaw, (sample["dir"] as Vector3).angle_to(forward))
 		var phase := float(sample["phase"])
-		var driving := phase >= 0.2 and phase <= 0.7
+		var driving := phase >= float(Constants.RAKE_SWING_PHASES["plant"]) and phase <= float(Constants.RAKE_SWING_PHASES["drive_end"])
 		if driving or bite_ticks.has(int(sample["tick"])):
 			var tip: Vector3 = sample["tip"]
 			off = maxf(off, absf(tip.y - RakeMotion.SURFACE_GAP - float(sample["ground"])))
 	var ok := step <= 0.15 and off <= 0.03 and near >= 0.8 and far <= 2.3 and lateral <= 0.25 + 0.001 and yaw <= deg_to_rad(15.0) + 0.001 and far - near >= MIN_TRAVEL
 	return {"ok": ok, "step": step, "off_ground": off, "near": near, "far": far, "lateral": lateral, "yaw": yaw}
+
+
+## rakefeel:look: the stance plants, the knees bend into the drive (more than
+## 20 degrees), and the back leans into it. The host creeps forward through the
+## hold, so the feet must step rather than skate: a planted foot moves at most
+## FOOT_SLIDE_MAX a tick across the ground (the body moves WALK_PER_TICK), and
+## each foot takes at least one step.
+const FOOT_SLIDE_MAX: float = 0.003
+
+
+func _judge_legs() -> Dictionary:
+	var stance := 0.0
+	var knee := 0.0
+	var lean := 0.0
+	var slide := 0.0
+	var steps: Array[int] = [0, 0]
+	var last: Dictionary = {}
+	for sample: Dictionary in _samples:
+		if not sample.has("stance"):
+			continue
+		stance = maxf(stance, float(sample["stance"]))
+		var phase := float(sample["phase"])
+		if phase >= float(Constants.RAKE_SWING_PHASES["plant"]) and phase <= float(Constants.RAKE_SWING_PHASES["drive_end"]):
+			knee = maxf(knee, float(sample["knee"]))
+			lean = minf(lean, (sample["work"] as Vector3).x)
+		if sample.has("feet") and last.has("feet") and int(sample["tick"]) == int(last["tick"]) + 1:
+			for index: int in 2:
+				var now_planted := bool(sample["planted"][index])
+				var was_planted := bool(last["planted"][index])
+				if now_planted and was_planted:
+					var a: Vector3 = last["feet"][index]
+					var b: Vector3 = sample["feet"][index]
+					slide = maxf(slide, Vector2(b.x - a.x, b.z - a.z).length())
+				elif was_planted and not now_planted and float(sample["stance"]) >= 1.0:
+					steps[index] += 1
+		last = sample
+	var ok := stance >= 0.99 and knee >= deg_to_rad(20.0) and lean <= -0.4 and slide <= FOOT_SLIDE_MAX and steps[0] >= 1 and steps[1] >= 1
+	return {"ok": ok, "stance": stance, "knee": knee, "lean": lean, "slide": slide, "steps": steps}
 
 
 func _judge_grips() -> Dictionary:

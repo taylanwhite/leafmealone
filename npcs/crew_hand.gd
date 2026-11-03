@@ -88,7 +88,7 @@ func _process(_delta: float) -> void:
 		var grips := RakeMotion.grips_of(pose)
 		body.call("set_hold", grips[0], grips[1])
 		var shown := RakeStroke.display(actor())
-		body.call("set_work_pose", float(shown["lean"]), float(shown["twist"]), float(shown["hip"]))
+		body.call("set_work_pose", float(shown["lean"]), float(shown["twist"]), float(shown["hip"]), float(shown.get("crouch", 0.0)))
 	else:
 		body.call("set_hold", Vector3.INF, Vector3.INF)
 		body.call("set_work_pose", 0.0, 0.0, 0.0)
