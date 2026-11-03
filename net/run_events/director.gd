@@ -499,7 +499,10 @@ func _step_quiet() -> void:
 		var all_in := true
 		for peer_id: Variant in boarded:
 			all_in = all_in and seated.has(peer_id)
-		if all_in:
+		# A scenario's van (dev_park_now) holds until the scenario says go, so its
+		# seat, rescue and straggler beats can be watched (R2b van).
+		var held := shuttle.has_method("dev_holding") and bool(shuttle.call("dev_holding"))
+		if all_in and not held:
 			# A no-op once this van's departure is planned.
 			shuttle.call("host_depart", Net.server_time())
 	if not shuttle.has_method("host_crew_board"):

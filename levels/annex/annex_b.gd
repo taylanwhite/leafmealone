@@ -723,7 +723,10 @@ func _markers() -> void:
 ## route from the back of the lobby to the doors.
 func _paths() -> void:
 	var d := Constants.ANNEX_SIZE.z * 0.5
-	_path("GreeterPath", [Vector3(ENTRANCE_X + 0.6, 0.0, SIDEWALK_END - 1.2), Vector3(ENTRANCE_X, 0.0, d + 2.0), Vector3(ENTRANCE_X, 0.0, d - 0.9)])
+	# R2b van: he used to walk out to the curb into the riders stepping down, then
+	# stop a step in front of their faces inside. Now he waves from his post by the
+	# doors and walks in ahead of them, to stand aside a few meters into the lobby.
+	_path("GreeterPath", [Vector3(ENTRANCE_X + 1.6, 0.0, d - 2.0), Vector3(ENTRANCE_X + 2.0, 0.0, d - 3.0)])
 	_path("JanitorPath", [Vector3(4.0, 0.0, -2.8), Vector3(-6.5, 0.0, -2.8), Vector3(-6.5, 0.0, -0.6), Vector3(4.0, 0.0, -0.6), Vector3(4.0, 0.0, 0.9), Vector3(-1.0, 0.0, 0.9), Vector3(ENTRANCE_X, 0.0, d - 1.0)])
 
 

@@ -2764,10 +2764,9 @@ const VAN_BRAKE_DECEL: float = 4.5
 ## Every leg of a trip is scheduled this far ahead (s), so a 150 ms client never
 ## sees one start late and rewind.
 const VAN_PLAN_LEAD: float = 0.3
-## Riders: a pothole and the air freshener this long into the drive (s), the
-## freshener close-up for VAN_RIDE_MONTAGE (s), then the iris (VAN_IRIS_SECONDS).
-const VAN_RIDE_IRIS_AT: float = 5.0
-const VAN_RIDE_MONTAGE: float = 1.8
+## Riders: the cab shot (VAN_RIDE_MONTAGE_AT) for VAN_RIDE_MONTAGE (s), then the
+## iris (VAN_IRIS_SECONDS).
+const VAN_RIDE_MONTAGE: float = 3.0
 const VAN_IRIS_SECONDS: float = 0.35
 ## A van this far from someone (m) is out of their sight whatever's between; routes
 ## start and end at least this far from everyone on the yard.
@@ -2779,11 +2778,13 @@ const VAN_HIDDEN_CAP: float = 8.0
 ## sliding along the curb up to VAN_PARK_SLIDE_MAX (m) to find one.
 const VAN_PARK_CLEARANCE := Vector3(2.4, 2.9, 6.2)
 const VAN_PARK_SLIDE_MAX: float = 12.0
-## The legacy and town job street in the yard's space: the far curb the van parks
-## on and the lane it drives in (z), the lane change between them (m), and the
-## spacing of a route's ground-checked points (m).
-const VAN_CURB_Z: float = 28.6
-const VAN_LANE_Z: float = 27.4
+## The legacy and town job street in the yard's space: where the van's middle is
+## when parked at the near curb, door to the sidewalk (z; the street is 22.6..31.4,
+## levels/dressing/neighborhood.gd), the near lane it drives in (z), the lane change
+## between them (m), and the spacing of a route's ground-checked points (m).
+## R2b van: it used to park in the far lane, so riders stepped down into the road.
+const VAN_CURB_Z: float = 24.05
+const VAN_LANE_Z: float = 24.85
 const VAN_MERGE_METERS: float = 14.0
 const VAN_ROUTE_STEP: float = 2.0
 ## Freeing a rider: hold interact this long (s) on the door within VAN_DOOR_REACH (m)
@@ -2815,12 +2816,13 @@ const VAN_BLINKER_SECONDS: float = 1.2
 ## waits RETURN_WAIT (s) after its last rider sits; riders get DROP_IMMUNITY (s).
 const ANNEX_ROLL_IN_SECONDS: float = 2.5
 const RETURN_WAIT: float = 6.0
-const RETURN_PULL_UP: float = 3.0
+const RETURN_PULL_UP: float = 5.0
 const DROP_IMMUNITY: float = 6.0
 ## Without the Annex set (nice_boys:5) the van pulls up here, BorderZone space.
 const VAN_ANNEX_CURB := Vector3(-4.0, 0.0, 24.0)
-## Home after the job's done: the Homie Depot curb (StoreZone space), facing -z.
-const SHUTTLE_STORE_STOP := Vector3(23.8, 0.0, 6.0)
+## Home after the job's done: the Homie Depot curb (StoreZone space), facing +z in
+## the cross street's near lane, door to the store's sidewalk.
+const SHUTTLE_STORE_STOP := Vector3(24.05, 0.0, 6.0)
 ## Caught with no raid going on (dev and test captures): walked to the door at
 ## this pace (m/s), and the van leaves this long (s) after the last one sits.
 const VAN_WALK_IN_SPEED: float = 3.2
@@ -2837,16 +2839,16 @@ const VAN_FRESHENER_STIFFNESS: float = 30.0
 const VAN_FRESHENER_DAMPING: float = 2.5
 ## Something standing in the street (a tree, a parked car): the route swerves round
 ## it, the slice of road checked being this big (m, across, up, along), never
-## farther than this off the curb line (m, toward the far sidewalk, toward the near
-## one: up a curb if it must), eased in and out over this many meters either side.
+## farther than this off the curb line (m, out into the oncoming lane, toward the
+## sidewalk: never up a curb), eased in and out over this many meters either side.
 const VAN_ROUTE_CLEARANCE := Vector3(3.0, 2.5, 2.2)
-const VAN_SWERVE_RANGE := Vector2(3.9, 7.1)
+const VAN_SWERVE_RANGE := Vector2(5.0, 0.1)
 const VAN_SWERVE_EASE: float = 10.0
 ## A tree's crown, from above, reaches this share of its height from the trunk
 ## (evergreens, broadleaves): the van parks and drives clear of it.
 const VAN_TREE_SPREAD := Vector2(0.3, 0.2)
-## The air freshener close-up's field of view (degrees), tight on the daisy.
-const VAN_FRESHENER_FOV: float = 38.0
+## The cab shot's field of view (degrees): the daisy, the driver and the road.
+const VAN_FRESHENER_FOV: float = 54.0
 ## On the legacy yard the van parks at least this far (m) inside the pad's ends, so
 ## its door and the curb its riders step onto are where people can walk.
 const VAN_PAD_INSET: float = 3.0
@@ -2899,6 +2901,61 @@ const VAN_HEADING_LOOK: float = 2.0
 ## The Courtesy Shuttle parks at Annex B with its door step on the curb marker: the
 ## van's middle this far (m) from it, into the street (props/nice_van.gd DoorStep).
 const VAN_ANNEX_DOOR_TO_CURB: float = 1.75
+
+# ---- R2b van
+# The Courtesy Shuttle finished (docs/GAME.md "The Courtesy Shuttle, door to door",
+# the R2b notes): the road only, seen coming, doors before feet, a window to look
+# out of, and a van that drives away out of sight instead of stopping in it.
+## No scenery tree stands within this (m) of the legacy streets' sidewalks.
+const VAN_STREET_TREE_MARGIN: float = 0.7
+## A door keeps this many of its timed opens and shuts (net/run_events/shuttle.gd).
+const VAN_DOOR_EVENTS_KEPT: int = 8
+## The sliding door's levels (dB): its roll, and the slam as it shuts, which lands
+## this long (s) before the slide's end, as the last panel meets the post.
+const VAN_DOOR_SLIDE_DB: float = 2.0
+const VAN_DOOR_SLAM_DB: float = 1.0
+const VAN_SLAM_EARLY: float = 0.06
+## Pulling up: the horn as you first see it coming, no sooner than this (s) into
+## its approach, and this long (s) before it brakes whatever; the brakes' squeal (dB).
+const VAN_HONK_EARLIEST: float = 1.0
+const VAN_HONK_BEFORE_BRAKE: float = 0.4
+## ... and in view within this (m), near enough to make it out and hear it.
+const VAN_HONK_NEAR: float = 50.0
+const VAN_BRAKE_DB: float = -10.0
+## The putt-putt (it opens on a clutch clunk) starts this long (s) before it moves.
+const VAN_PULL_SOUND_LEAD: float = 0.03
+## The ride: the cab shot starts this long (s) after it pulls out, the pothole this
+## long (s) into it, and the dolly from the seat to it takes this long (s).
+const VAN_RIDE_MONTAGE_AT: float = 4.5
+const VAN_BUMP_AFTER_MONTAGE: float = 1.4
+const VAN_FRESHENER_BLEND: float = 1.2
+## Stepping down: the seat camera hands to your own eyes over this long (s).
+const VAN_SEAT_POP_BLEND: float = 0.5
+## Boarding the ride home behind your iris: it shuts this much (s) before you're
+## seated, and opens this long (s) after.
+const VAN_BOARD_IRIS_MARGIN: float = 0.1
+const VAN_BOARD_IRIS_HOLD: float = 0.35
+## Riders step down this far (m) past the door step, out on the sidewalk, and this
+## far along the curb from it (m, each in turn), clear of the stacked door panels.
+const VAN_EXIT_OUT: float = 0.35
+const VAN_EXIT_ALONG: Array[float] = [-0.6, 0.15, -1.35, 0.9]
+## Leaving a curb: the blinker ticks this long (s) after the door is shut.
+const VAN_LEAVE_BLINK: float = 0.8
+## Driving away it never brakes: past the end of its planned road (VAN_HIDE_METERS
+## from everyone) a watcher's copy carries straight on at a cruise until it's this
+## far (m) from their camera, deep in the fog (levels/shared_look.gd FOG_END 260),
+## never stopping in the street.
+const VAN_VANISH_METERS: float = 200.0
+## Someone standing in the road: the route passes them, and it parks, this far (m)
+## clear of the van's sides.
+const VAN_PERSON_CLEARANCE: float = 0.5
+## The engine, heard coming down the street: its loop's reach (m), level from idle
+## to cruise (dB), the cut inside the cabin (dB), and pitch from idle to cruise.
+const VAN_ENGINE_UNIT_SIZE: float = 16.0
+const VAN_ENGINE_MAX_DISTANCE: float = 120.0
+const VAN_ENGINE_DB := Vector2(-12.0, 1.0)
+const VAN_ENGINE_RIDER_DB: float = -7.0
+const VAN_ENGINE_PITCH := Vector2(0.7, 1.45)
 
 # ---- toss: polish
 # Your own leaf bag through your own eyes (props/carry_view.gd, docs/GAME.md

@@ -26,6 +26,8 @@ def van_door_slide() -> list[float]:
     rollers ticking over the track's joins, and a padded latch clunk at the end."""
     rng = random.Random(4201)
     out = k.silence(0.75)
+    # R2b van: the handle's latch letting go first, so the slide starts on a click.
+    k.mix_into(out, k.decay(k.bandpass(k.noise(rng, 0.02), 1600.0, 3.0), 180.0), 0.0, 0.7)
     roll = k.lowpass(k.noise(rng, 0.55), 420.0)
     k.mix_into(out, k.envelope(roll, 0.05, 0.08), 0.0, 0.9)
     for index in range(5):
@@ -49,6 +51,8 @@ def blinker_tick() -> list[float]:
     """One tick of the turn signal's relay: a dry little tock."""
     rng = random.Random(4203)
     out = k.silence(0.08)
+    # R2b van: a sharper relay click on top, so each tick has an edge.
+    k.mix_into(out, k.decay(k.highpass(k.noise(rng, 0.008), 2500.0), 500.0), 0.0, 0.8)
     k.mix_into(out, k.decay(k.bandpass(k.noise(rng, 0.03), 1300.0, 4.0), 160.0), 0.0, 1.0)
     k.mix_into(out, k.decay(k.tone(0.03, 820.0, "sine"), 140.0), 0.0, 0.4)
     return out
@@ -92,7 +96,11 @@ def van_pull() -> list[float]:
     that never stopped and just drives on."""
     rng = random.Random(4207)
     out = k.silence(2.4)
-    k.mix_into(out, k.putt_putt(rng, 2.3, 4.5, 11.0, 65.0), 0.0, 1.0)
+    # R2b van: the putt-putt fades in over 0.2 s, so the pull had no attack (it
+    # measured 220-275 ms late). It opens on the clutch: a gear clunk and a rev.
+    k.mix_into(out, k.blip(0.2, 150.0, 60.0, 16.0), 0.0, 1.0)
+    k.mix_into(out, k.decay(k.lowpass(k.noise(rng, 0.25), 600.0), 14.0), 0.0, 0.9)
+    k.mix_into(out, k.putt_putt(rng, 2.3, 4.5, 11.0, 65.0), 0.04, 1.0)
     return out
 
 
@@ -119,7 +127,7 @@ def radio_babble() -> list[float]:
 SOUNDS = {
     "van_door_slide": (van_door_slide, 0.8),
     "seatbelt_click": (seatbelt_click, 0.6),
-    "blinker_tick": (blinker_tick, 0.45),
+    "blinker_tick": (blinker_tick, 0.65),
     "van_bump": (van_bump, 0.8),
     "window_knock": (window_knock, 0.8),
     "mirror_glint": (mirror_glint, 0.5),

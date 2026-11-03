@@ -30,7 +30,12 @@ const VAN_RIDE_LEAD_SECONDS: float = 2.0
 const DOOR_STAND_METERS: float = 1.2
 ## van_straggler: where you watch from, in the van's space: on the yard side, level
 ## with its back doors (the yard's pad walls keep you off the far sidewalk).
-const STRAGGLER_WATCH := Vector3(6.0, 0.0, 2.5)
+const STRAGGLER_WATCH := Vector3(3.6, 0.0, 9.0)
+## van_straggler: he's out of the van after this long (s), then stood here (van
+## space, out on the lawn) and kept from walking back on his own for this long (s).
+const STRAGGLER_LAND_SECONDS: float = 2.4
+const STRAGGLER_OUT := Vector3(7.0, 0.0, 3.0)
+const STRAGGLER_STUN_SECONDS: float = 30.0
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
@@ -48,6 +53,10 @@ const INSPECT_LEAD_SECONDS: float = 2.2
 const CAUGHT_GAP_METERS: float = 5.0
 ## raid_arrive: where you watch the arrival from, meters from the arrival point.
 const WATCH_ARRIVAL_METERS: float = 11.0
+## raid_warn: where you stand, and what you look at, from the park point (lot space):
+## the lawn behind the sidewalk, up the street the van comes down.
+const RAID_WARN_STAND := Vector3(-6.0, 0.0, -8.0)
+const RAID_WARN_LOOK := Vector3(18.0, 0.0, 1.5)
 ## rake_fresh, rake_pile: an untouched strip of leaves this long, and the rake
 ## strokes that push it into a pile.
 const STRIP_STEPS: int = 14
@@ -287,9 +296,10 @@ func _raid_warn() -> Dictionary:
 	var director := _director()
 	var park: Vector3 = director.call("van_park_point")
 	var lot := _lot_zone()
-	var toward := Vector3(park.x - lot.global_position.x, 0.0, park.z - lot.global_position.z).normalized()
-	var stand := park - toward * WATCH_ARRIVAL_METERS
-	_place(Vector3(stand.x, lot.global_position.y + 0.1, stand.z), _yaw_toward(stand, park), -0.05)
+	# On the front lawn looking up the street the van comes down, the curb it
+	# parks at in the same view (R2b van: facing the flare, it came from behind).
+	var stand := park + lot.global_basis * RAID_WARN_STAND
+	_place(Vector3(stand.x, lot.global_position.y + 0.1, stand.z), _yaw_toward(stand, park + lot.global_basis * RAID_WARN_LOOK), -0.05)
 	director.call("force_event")
 	await _ticks(2)
 	return {"moment": "raid_warn", "note": "warning now, facing the curb: the flare is up where the van parks, and it pulls up in %.0f s" % Constants.RUN_WARNING_SECONDS, "phase": _phase(), "arrives_in": snappedf(float(director.call("arrival_time")) - Net.server_time(), 0.01), "park": _v(park)}
@@ -301,9 +311,10 @@ func _reached_raid_warn() -> bool:
 	if me == null or int(_director().call("phase")) != 1:
 		return false
 	var park: Vector3 = _director().call("van_park_point")
+	var look := park + _lot_zone().global_basis * RAID_WARN_LOOK
 	var facing := -(me as Node3D).global_basis.z
-	var to_park := Vector3(park.x - me.global_position.x, 0.0, park.z - me.global_position.z).normalized()
-	return facing.dot(to_park) > 0.8
+	var to_look := Vector3(look.x - me.global_position.x, 0.0, look.z - me.global_position.z).normalized()
+	return facing.dot(to_look) > 0.9
 
 
 ## The warning is nearly over: the van has pulled up and its door opens in
@@ -890,9 +901,16 @@ func _van_straggler() -> Dictionary:
 	var van := _van()
 	var trip := int(van.call("dev_park_now", true))
 	await _ticks(3)
+	van.call("dev_straggle", 2)
 	van.call("dev_crew", 2, [2])
-	await get_tree().create_timer(3.0).timeout
+	await get_tree().create_timer(STRAGGLER_LAND_SECONDS).timeout
 	var pose: Transform3D = van.call("trip_pose", trip, Net.server_time())
+	# Out on the lawn, too far to climb back in before it goes (R2b van: landed at
+	# the door, he was recalled straight back in and the van never crept).
+	var straggler := _world().get_node_or_null("Npcs/Crew2") as Node3D
+	if straggler != null:
+		straggler.global_position = pose * STRAGGLER_OUT
+		straggler.set("_stun_left", STRAGGLER_STUN_SECONDS)
 	var stand := pose * STRAGGLER_WATCH
 	_place(Vector3(stand.x, pose.origin.y + 0.1, stand.z), _yaw_toward(stand, pose * Vector3(0.0, 0.0, 3.0)), -0.1)
 	van.call("dev_straggle", 2)

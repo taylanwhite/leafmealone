@@ -20,7 +20,10 @@ const CORRIDOR_HALF_ANGLE: float = 0.3
 
 
 ## clear_angles: directions (radians, atan2(z, x)) that rides drive out along, kept free of scenery.
-static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_houses: bool, clear_angles: Array[float] = [], ground_surface: String = "grass") -> void:
+## clear_rects: zone-space (x, z) rectangles no tree stands in: the street and its
+## sidewalks (R2b: the legacy lot's pines stood in the middle of the road, and the
+## Courtesy Shuttle swerved over the lawn to get round them).
+static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_houses: bool, clear_angles: Array[float] = [], ground_surface: String = "grass", clear_rects: Array[Rect2] = []) -> void:
 	var root := Node3D.new()
 	root.name = "Surroundings"
 	zone.add_child(root)
@@ -45,10 +48,15 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 		if _in_corridor(angle, clear_angles):
 			continue
 		var at := Vector3(cos(angle) * distance, -0.02, sin(angle) * distance)
-		if rng.randf() < 0.3:
-			_Trees.spawn(root, at, rng.randf_range(7.0, 11.0), "pine", "", index, false, rng.randf() * TAU)
-		else:
-			_Trees.spawn(root, at, rng.randf_range(5.5, 8.5), "broadleaf", CROWNS[rng.randi() % CROWNS.size()], index, false, rng.randf() * TAU)
+		# Every draw is made before a tree is skipped, so the trees that stay are
+		# the same ones they always were.
+		var pine := rng.randf() < 0.3
+		var height := rng.randf_range(7.0, 11.0) if pine else rng.randf_range(5.5, 8.5)
+		var crown := "" if pine else CROWNS[rng.randi() % CROWNS.size()]
+		var turn := rng.randf() * TAU
+		if _in_rects(at, clear_rects):
+			continue
+		_Trees.spawn(root, at, height, "pine" if pine else "broadleaf", crown, index, false, turn)
 	if not with_houses:
 		return
 	var walls: Array[Color] = [Color(0.85, 0.78, 0.62), Color(0.62, 0.72, 0.8), Color(0.82, 0.6, 0.5), Color(0.75, 0.8, 0.62)]
@@ -102,6 +110,13 @@ static func _cloud_mesh(variant: int) -> ArrayMesh:
 		kit.blob(Vector3(x, size * 0.35, rng.randf_range(-3.0, 3.0)), Vector3(size, size * 0.75, size * 0.85), Color(1.0, 0.99, 0.97), {"detail": 2, "lumps": 0.15, "flat": false, "jitter": 0.0, "seed": variant * 10 + index})
 	kit.grade(0, -2.0, 10.0, 0.84, 1.0)
 	return kit.commit()
+
+
+static func _in_rects(at: Vector3, rects: Array[Rect2]) -> bool:
+	for rect: Rect2 in rects:
+		if rect.has_point(Vector2(at.x, at.z)):
+			return true
+	return false
 
 
 static func _in_corridor(angle: float, clear_angles: Array[float]) -> bool:
