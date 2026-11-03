@@ -496,6 +496,19 @@ jobs:
           grep "AnnexTest" build/soak/ci-annex/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-annex/host.json')); t=json.load(open('build/soak/ci-annex/target.json')); print(h['annex_test'].get('error','')); sys.exit(0 if h['annex_test'].get('ok') and h['annex'].get('looks') == t['annex'].get('looks') else 1)"
 
+      # R2b hud: what's on screen while the NICE BOYS have you (net/dev/hud_test.gd).
+      - name: HUD test (the cinematic HUD mode, captions, bubbles and name tags over 150 ms of lag)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-hud
+          "$GODOT" --headless --path . -- --host --port=7834 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --hud-test --sim-lag=150 --hud-test --measure="$PWD/build/soak/ci-hud/host.json" --run-seconds=75 > build/soak/ci-hud/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7834 --name=Target --no-steam --sim-lag=150 --hud-test --measure="$PWD/build/soak/ci-hud/target.json" --run-seconds=70 > build/soak/ci-hud/target.log 2>&1
+          wait
+          grep "HudTest" build/soak/ci-hud/host.log build/soak/ci-hud/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-hud/host.json')); t=json.load(open('build/soak/ci-hud/target.json')); sys.exit(0 if h['hud_test'].get('ok') and t['hud_test'].get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

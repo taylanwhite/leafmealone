@@ -18,6 +18,7 @@ const MAX_WIDTH: float = 760.0
 const BAND_GAP: float = 16.0
 const BAND_MIN_WIDTH: float = 340.0
 const _Hotbar = preload("res://ui/hotbar_hud.gd")
+const _HudMode = preload("res://ui/hud_mode.gd")
 const BACKDROP_COLOR := Color(0.0, 0.0, 0.0, 0.55)
 const BACKDROP_RADIUS: int = 10
 const BACKDROP_MARGIN := Vector2(14.0, 8.0)
@@ -63,6 +64,11 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _label.visible and Time.get_ticks_msec() / 1000.0 > _hide_at:
 		_label.visible = false
+	# R2b: a corner quip already up when the moment takes you goes with the HUD.
+	if _label.visible and _HudMode.cinematic(get_tree(), Net.local_peer_id()):
+		_label.visible = false
+	if _label.visible:
+		_clear_heat()
 	_watch_director()
 	_watch_cleanup()
 
@@ -225,6 +231,12 @@ static func _max_session(id: String) -> int:
 
 
 func _try(trigger: String, on_stack: bool = false) -> void:
+	# R2b: no corner quip while the moment has you (held, in the van, at the
+	# Annex). The quip is dropped, on purpose: it was about that moment (a store
+	# arrival while you're still buckled in) and would be stale later. Its play
+	# count isn't spent, so the row can still play on a later trigger.
+	if not on_stack and _HudMode.cinematic(get_tree(), Net.local_peer_id()):
+		return
 	for row: Dictionary in _Strings.LINES:
 		if str(row["trigger"]) != trigger:
 			continue
@@ -273,7 +285,32 @@ func _on_settings_changed(section: StringName, _key: StringName, _value: Variant
 func _style_caption() -> void:
 	_label.add_theme_font_size_override("font_size", roundi(FONT_SIZE * Settings.caption_scale()))
 	apply_backdrop(_label)
+	_soft_plate(_label)
 	_fit_width()
+
+
+## R2b: the caption stack's soft plate behind the words when the dark backdrop is
+## off, so the corner line reads over bright leaves and sky too.
+static func _soft_plate(label: Label) -> void:
+	var plate := label.get_node_or_null("Plate") as Panel
+	if plate == null:
+		plate = Panel.new()
+		plate.name = "Plate"
+		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		plate.show_behind_parent = true
+		label.add_child(plate)
+		var box := StyleBoxFlat.new()
+		box.bg_color = Color(0.06, 0.05, 0.05, Constants.R2B_HUD_PLATE_ALPHA)
+		box.set_corner_radius_all(Constants.R2B_HUD_PLATE_FEATHER)
+		box.anti_aliasing_size = 6.0
+		plate.add_theme_stylebox_override("panel", box)
+	var pad := Constants.R2B_HUD_PLATE_PAD
+	plate.set_anchors_preset(Control.PRESET_FULL_RECT)
+	plate.offset_left = -pad.x
+	plate.offset_right = pad.x
+	plate.offset_top = -pad.y
+	plate.offset_bottom = pad.y
+	plate.visible = not bool(Settings.get_value("interface", "caption_backdrop"))
 
 
 ## Puts the dark rounded caption box behind a screen caption when the player's
@@ -293,6 +330,28 @@ static func apply_backdrop(label: Label) -> void:
 		label.remove_theme_stylebox_override("normal")
 
 
+## R2b: the corner caption keeps clear of the heat meter that shares its corner
+## (it used to run into it): beside it while the meter is up, back in the corner
+## after.
+func _clear_heat() -> void:
+	var left := CORNER_OFFSET.x
+	var heat := get_parent().get_node_or_null("HeatMeter") as Control if get_parent() != null else null
+	if heat != null and heat.is_visible_in_tree() and heat.modulate.a > 0.05:
+		var meter := Rect2()
+		for child: Node in heat.find_children("*", "Control", true, false):
+			var control := child as Control
+			if control.is_visible_in_tree() and control.size.x > 0.0 and control.size.y > 0.0:
+				meter = control.get_global_rect() if meter.size == Vector2.ZERO else meter.merge(control.get_global_rect())
+		var mine := _label.get_global_rect()
+		if meter.size != Vector2.ZERO and mine.position.y < meter.end.y and mine.end.y > meter.position.y:
+			left = maxf(left, meter.end.x + BAND_GAP)
+	if not is_equal_approx(_label.offset_left, left):
+		var width := _label.offset_right - _label.offset_left
+		_label.offset_left = left
+		_label.offset_right = left + width
+		_fit_width()
+
+
 ## As wide as the line, up to MAX_WIDTH and the room the screen has at this UI
 ## scale; longer lines wrap and the caption grows upward from its corner.
 func _fit_width() -> void:
@@ -302,10 +361,10 @@ func _fit_width() -> void:
 	var padding := box.get_minimum_size().x if box != null else 0.0
 	var natural := font.get_string_size(_label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + padding + 2.0
 	var view_width := _label.get_viewport_rect().size.x
-	var room := view_width - CORNER_OFFSET.x * 2.0
+	var room := view_width - _label.offset_left - CORNER_OFFSET.x
 	# Keep left of the hotbar's slot row (it sits in the same bottom band), but
 	# never narrower than BAND_MIN_WIDTH, so a big caption stays readable.
-	var left_of_bar := view_width * 0.5 - _Hotbar.slots_half_width() - BAND_GAP - CORNER_OFFSET.x
+	var left_of_bar := view_width * 0.5 - _Hotbar.slots_half_width() - BAND_GAP - _label.offset_left
 	room = minf(room, maxf(left_of_bar, BAND_MIN_WIDTH))
 	_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_label.offset_right = _label.offset_left + maxf(1.0, minf(natural, minf(MAX_WIDTH, room)))

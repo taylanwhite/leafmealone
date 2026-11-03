@@ -108,6 +108,11 @@ func _ready() -> void:
 	var captions := preload("res://ui/caption_stack.gd").new()
 	captions.name = "CaptionStack"
 	add_child(captions)
+	# R2b: the NICE BOYS' bubbles and everyone's name tags, kept on screen, apart
+	# and behind walls (ui/overheads.gd).
+	var overheads := preload("res://ui/overheads.gd").new()
+	overheads.name = "Overheads"
+	add_child(overheads)
 	var iris := preload("res://ui/iris.gd").new()
 	iris.name = "Iris"
 	add_child(iris)
@@ -270,13 +275,54 @@ func _voice_line() -> String:
 
 
 ## R2: the job goal line dims away while the NICE BOYS are on their way, on the
-## yard or leaving, and while you're caught: the raid is the goal now.
+## yard or leaving, and while you're caught: the raid is the goal now. R2b: the
+## whole yard HUD eases out with it while the moment has you (_cinematic_fade).
 func _dim_goal(delta: float) -> void:
+	_cinematic_fade(delta)
 	var goal := get_node_or_null("JobGoal") as Control
 	if goal == null:
 		return
 	var want := 0.0 if goal_hidden_by_raid(get_tree(), Net.local_peer_id()) else 1.0
-	goal.modulate.a = move_toward(goal.modulate.a, want, delta / Constants.STAGE_BLEND_DEFAULT)
+	_goal_alpha = move_toward(_goal_alpha, want, delta / Constants.STAGE_BLEND_DEFAULT)
+	goal.modulate.a = _goal_alpha * smoothstep(0.0, 1.0, _yard_alpha)
+
+
+# ---- R2b hud: the cinematic HUD mode (ui/hud_mode.gd, docs/GAME.md "What's on
+# screen during the encounter").
+const _HudMode = preload("res://ui/hud_mode.gd")
+## The yard HUD's pieces (UIRoot children) that ease out together. The caption
+## stack, the iris, the run cues and the windows are not among them.
+const YARD_HUD: Array[String] = ["HudRows", "TaskList", "HotbarHud", "HeatMeter", "DayHud", "ThrowMeter"]
+var _goal_alpha: float = 1.0
+var _yard_alpha: float = 1.0
+## How long this peer has been back in control (s); the HUD waits a beat.
+var _free_for: float = 0.0
+var _hud_reason: StringName = &""
+
+
+## How much of the yard HUD shows now (0 to 1), and why it's away (&"" when it isn't).
+func yard_hud_alpha() -> float:
+	return _yard_alpha
+
+
+func hud_reason() -> StringName:
+	return _hud_reason
+
+
+func _cinematic_fade(delta: float) -> void:
+	_hud_reason = _HudMode.reason(get_tree(), Net.local_peer_id())
+	if _hud_reason != &"":
+		_free_for = 0.0
+		_yard_alpha = move_toward(_yard_alpha, 0.0, delta / Constants.R2B_HUD_FADE_OUT)
+	else:
+		_free_for += delta
+		if _free_for >= Constants.R2B_HUD_RETURN_DELAY:
+			_yard_alpha = move_toward(_yard_alpha, 1.0, delta / Constants.R2B_HUD_FADE_IN)
+	var eased := smoothstep(0.0, 1.0, _yard_alpha)
+	for name_of: String in YARD_HUD:
+		var node := get_node_or_null(name_of) as CanvasItem
+		if node != null:
+			node.modulate.a = eased
 
 
 ## Whether the raid has the goal line hidden for this peer: the director in

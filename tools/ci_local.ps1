@@ -320,6 +320,17 @@ $Tests = [ordered]@{
 		Extra = '--sim-lag=150'
 		Check = { param($h, $c) [bool]$h.annex_test.ok -and $c -ne $null -and (Same $h.annex.looks $c.annex.looks) }
 	}
+	# What's on screen during the encounter (R2b hud, net/dev/hud_test.gd) over 150 ms
+	# of lag: the caught client's yard HUD eases out and back, no prompts while held,
+	# spoken lines land on time over quips, a bark shows once (bubble or subtitle),
+	# bubbles stay on screen, name tags hide behind walls, in the van and behind a
+	# nearer tag.
+	hud = @{
+		Port = 7834
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --hud-test'; Seconds = 75; Client = 70
+		Extra = '--sim-lag=150 --hud-test'
+		Check = { param($h, $c) [bool]$h.hud_test.ok -and $c -ne $null -and [bool]$c.hud_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

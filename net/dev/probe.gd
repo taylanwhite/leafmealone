@@ -181,6 +181,7 @@ func write_report() -> void:
 		"stage_cam": preload("res://player/stage_cam.gd").log.duplicate(),
 		"stage_body": preload("res://player/stage_body.gd").log.duplicate(),
 		"stage_test": preload("res://net/dev/stage_test.gd").result.duplicate(),
+		"hud_test": preload("res://net/dev/hud_test.gd").result.duplicate(),
 		"job_test": preload("res://net/dev/job_test.gd").result.duplicate(),
 		"bonk_test": preload("res://net/dev/bonk_test.gd").result.duplicate(),
 		"work_test": preload("res://net/dev/work_test.gd").result.duplicate(),

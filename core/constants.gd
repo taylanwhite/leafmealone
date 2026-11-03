@@ -3276,3 +3276,44 @@ const ESCORT_CAM_BLEND_IN: float = 1.1
 ## The escort anchor's interpolated pose is trusted within this far (m) of its
 ## real one; past it (a stale pose from before a teleport), the real one wins.
 const ESCORT_ANCHOR_TRUST_M: float = 1.0
+
+# ---- R2b hud
+# What's on screen during the encounter (docs/GAME.md, "What's on screen during
+# the encounter"): the cinematic HUD mode (ui/hud_mode.gd), the caption stack,
+# the NICE BOYS' bubbles and everyone's name tags (ui/overheads.gd).
+## The yard HUD eases out over R2B_HUD_FADE_OUT s when the moment takes you, and
+## back over R2B_HUD_FADE_IN s once you've been back in control for
+## R2B_HUD_RETURN_DELAY s (so a one-frame gap between two holds never flashes it).
+const R2B_HUD_FADE_OUT: float = 0.35
+const R2B_HUD_FADE_IN: float = 0.6
+const R2B_HUD_RETURN_DELAY: float = 0.6
+## In the cinematic mode the caption stack shows at most this many lines, its
+## bottom this far (px) above the screen's bottom, film-subtitle style.
+const R2B_HUD_CINEMATIC_LINES: int = 2
+const R2B_HUD_CINEMATIC_BOTTOM: float = 44.0
+## A spoken line (subtitle) is readable this fast (s) after its sound starts:
+## its slot opens and it fades in together.
+const R2B_HUD_SUBTITLE_ONSET: float = 0.06
+## The soft plate behind every caption line when the dark caption backdrop is
+## off: its darkness, padding round the words (px) and feathered edge (px).
+const R2B_HUD_PLATE_ALPHA: float = 0.4
+const R2B_HUD_PLATE_PAD := Vector2(16.0, 4.0)
+const R2B_HUD_PLATE_FEATHER: int = 12
+## A NICE BOY's bubble wraps at this many font pixels (a line, not a column),
+## stays this far (px) inside the screen's edges, glides back inside at this
+## rate (1/s), and is only used when his head is at least this far (m) from
+## the camera; closer (the two-shot) the line is a subtitle instead.
+const R2B_HUD_BUBBLE_WIDTH: float = 820.0
+const R2B_HUD_SAFE_MARGIN: float = 16.0
+const R2B_HUD_BUBBLE_GLIDE: float = 14.0
+const R2B_HUD_BUBBLE_MIN_M: float = 3.2
+## Name tags fade over this long (s) when something solid comes between you and
+## them, when they'd sit on another tag or a bubble, or when he sits in the van.
+const R2B_HUD_TAG_FADE: float = 0.18
+## Two tags this close on screen (px, between their rects) count as stacked.
+const R2B_HUD_TAG_GAP: float = 4.0
+## The Annex window's [E] sits this far (m) over its stamp's knob.
+const R2B_HUD_STAMP_PROMPT_LIFT: float = 0.2
+## The raid's edge vignette (ui/run_cues.gd) starts this far out (0 the middle,
+## 1 the screen's edge, a rounded rectangle), so the middle of the view is never tinted.
+const R2B_HUD_VIGNETTE_INNER: float = 0.7

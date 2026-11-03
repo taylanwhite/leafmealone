@@ -2207,6 +2207,10 @@ func _window_spot(window: String, spot: String) -> Vector3:
 
 
 func _stamp_point(window: String) -> Vector3:
+	# R2b: the [E] sits just over the window's stamp itself, not in mid-booth.
+	var knob := _set_node("Windows/%s/Stamp" % window) as Node3D
+	if knob != null:
+		return knob.global_position + Vector3(0.0, Constants.R2B_HUD_STAMP_PROMPT_LIFT, 0.0)
 	var pad := _window_spot(window, "StampPad")
 	var seat := _window_spot(window, "ClerkSeat")
 	if pad == Vector3.INF:

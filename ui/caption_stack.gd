@@ -48,6 +48,19 @@ const COLUMNS: Array = ["TaskList", "HeatMeter"]
 const COLUMN_BAND: float = 260.0
 ## How fast the whole stack glides to a new bottom (1/s).
 const STACK_GLIDE_RATE: float = 12.0
+## R2b: a spoken line beats everything else for a place on screen (it shows on
+## the frame its sound starts instead of queueing behind a quip), then a
+## teammate taken, then the radio, then quips. Added to the caller's priority.
+const KIND_RANK: Dictionary = {&"subtitle": 10, &"teammate": 2, &"radio": 1, &"quip": 0}
+## Kinds that belong to the yard: when the moment takes you (ui/hud_mode.gd)
+## they're cleared, and while a spoken line shows a quip waits under it.
+const YARD_KINDS: Array[StringName] = [&"radio", &"quip"]
+const _HudMode = preload("res://ui/hud_mode.gd")
+## The soft plate's color (its darkness is Constants.R2B_HUD_PLATE_ALPHA).
+const PLATE := Color(0.06, 0.05, 0.05)
+
+## Whether this peer was in the cinematic HUD mode last frame.
+var _cinematic: bool = false
 
 var _next_id: int = 1
 ## Every line pushed and not yet gone: {id, kind, text, left, priority, label, alpha, shown}.
@@ -83,6 +96,13 @@ func push(kind: StringName, text: String, seconds: float, priority: int = 0) -> 
 	label.text = text
 	label.modulate.a = 0.0
 	box.add_child(label)
+	# R2b: a soft feathered plate behind the words, so a line reads over bright
+	# leaves and sky (the dark caption backdrop replaces it when that's on).
+	var plate := Panel.new()
+	plate.name = "Plate"
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	plate.show_behind_parent = true
+	label.add_child(plate)
 	var entry := {"id": _next_id, "kind": kind, "text": text, "left": maxf(0.1, seconds), "priority": priority, "label": label, "box": box, "alpha": 0.0, "grow": 0.0, "shown": false}
 	_next_id += 1
 	_lines.append(entry)
@@ -136,7 +156,8 @@ func obstacle_rects(names: Array = OBSTACLES) -> Array[Rect2]:
 		return out
 	for name_of: String in names:
 		var node := ui.get_node_or_null(name_of) as Control
-		if node == null or not node.is_visible_in_tree():
+		# A piece the cinematic HUD mode has eased out isn't there to keep clear of.
+		if node == null or not node.is_visible_in_tree() or node.modulate.a < 0.05:
 			continue
 		var rect := _rect_of(node)
 		if rect.size.x > 0.0 and rect.size.y > 0.0:
@@ -145,6 +166,7 @@ func obstacle_rects(names: Array = OBSTACLES) -> Array[Rect2]:
 
 
 func _process(delta: float) -> void:
+	_watch_mode()
 	for entry: Dictionary in _lines:
 		# Waiting for room holds a line's time; a line the settings hide runs out unseen.
 		if bool(entry["shown"]) or not kind_shown(StringName(entry["kind"])):
@@ -152,17 +174,87 @@ func _process(delta: float) -> void:
 	_layout(delta)
 
 
+## R2b: entering the cinematic HUD mode clears the yard's radio and quips (the
+## catch is the moment now; they'd stack under his lines).
+func _watch_mode() -> void:
+	var now_cinematic := in_cinematic()
+	if now_cinematic and not _cinematic:
+		for entry: Dictionary in _lines:
+			if YARD_KINDS.has(StringName(entry["kind"])):
+				entry["left"] = 0.0
+	_cinematic = now_cinematic
+
+
+## Whether the stack is laid out for the cinematic HUD mode (ui/hud_mode.gd).
+func in_cinematic() -> bool:
+	return is_inside_tree() and _HudMode.cinematic(get_tree(), Net.local_peer_id())
+
+
+## Something on screen being read (a receipt): the visible members of the
+## "caption_blockers" group. The radio and quips wait for them; a spoken line
+## or a teammate taken can't wait (it would land seconds after its sound), so it
+## shows, clear of them (_blocker_rects).
+func _blockers() -> Array[Node]:
+	var out: Array[Node] = []
+	for node: Node in get_tree().get_nodes_in_group("caption_blockers"):
+		if node is Node3D and (node as Node3D).is_visible_in_tree() or node is CanvasItem and (node as CanvasItem).is_visible_in_tree():
+			out.append(node)
+	return out
+
+
+## Where the blockers are on screen: a 2D one's rect, a 3D one's meshes' boxes
+## through the camera (the slip fed up into your view, or in your hand).
+func _blocker_rects(view: Vector2) -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	var camera := get_viewport().get_camera_3d()
+	var screen := Rect2(Vector2.ZERO, view)
+	for node: Node in _blockers():
+		var rect := Rect2()
+		if node is Control:
+			rect = (node as Control).get_global_rect()
+		elif node is Node3D and camera != null:
+			var any := false
+			for child: Node in node.find_children("*", "VisualInstance3D", true, false):
+				var visual := child as VisualInstance3D
+				if not visual.is_visible_in_tree():
+					continue
+				var box := visual.global_transform * visual.get_aabb()
+				for corner: int in 8:
+					var point := box.get_endpoint(corner)
+					if camera.is_position_behind(point):
+						continue
+					var at := camera.unproject_position(point)
+					rect = Rect2(at, Vector2.ZERO) if not any else rect.expand(at)
+					any = true
+		rect = rect.intersection(screen)
+		if rect.size.x > 0.0 and rect.size.y > 0.0:
+			out.append(rect)
+	return out
+
+
 func _visible_entries() -> Array[Dictionary]:
 	var waiting: Array[Dictionary] = []
+	var blocked := not _blockers().is_empty()
+	var speaking := false
 	for entry: Dictionary in _lines:
+		if blocked and YARD_KINDS.has(StringName(entry["kind"])):
+			continue
 		if float(entry["left"]) > 0.0 and kind_shown(StringName(entry["kind"])):
 			waiting.append(entry)
-	# Highest priority first, then oldest; at most CAPTION_STACK_MAX.
+			speaking = speaking or StringName(entry["kind"]) == &"subtitle"
+	# A quip never sits under someone speaking: it waits its turn.
+	if speaking:
+		waiting = waiting.filter(func(entry: Dictionary) -> bool: return StringName(entry["kind"]) != &"quip")
+	# Highest priority first (a spoken line first of all), then oldest; at most
+	# CAPTION_STACK_MAX, or R2B_HUD_CINEMATIC_LINES while the moment has you.
 	waiting.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		if int(a["priority"]) != int(b["priority"]):
-			return int(a["priority"]) > int(b["priority"])
+		var rank_a := int(a["priority"]) + int(KIND_RANK.get(StringName(a["kind"]), 0))
+		var rank_b := int(b["priority"]) + int(KIND_RANK.get(StringName(b["kind"]), 0))
+		if rank_a != rank_b:
+			return rank_a > rank_b
 		return int(a["id"]) < int(b["id"]))
-	var chosen := waiting.slice(0, Constants.CAPTION_STACK_MAX)
+	var most := Constants.R2B_HUD_CINEMATIC_LINES if _cinematic else Constants.CAPTION_STACK_MAX
+	var chosen := waiting.slice(0, most)
 	# On screen, oldest on top and the newest at the bottom.
 	chosen.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
 	return chosen
@@ -182,10 +274,14 @@ func _layout(delta: float) -> void:
 		entry["shown"] = on
 		var alpha := float(entry["alpha"])
 		var grow := float(entry["grow"])
+		# A spoken line lands with its sound: its slot opens and it fades in at once.
+		var spoken := StringName(entry["kind"]) == &"subtitle"
+		var grow_in := Constants.R2B_HUD_SUBTITLE_ONSET if spoken else GROW_SECONDS
+		var fade_in := Constants.R2B_HUD_SUBTITLE_ONSET if spoken else FADE_IN
 		if delta > 0.0:
 			if on:
-				grow = move_toward(grow, 1.0, delta / GROW_SECONDS)
-				alpha = move_toward(alpha, 1.0, delta / FADE_IN)
+				grow = move_toward(grow, 1.0, delta / grow_in)
+				alpha = move_toward(alpha, 1.0, delta / fade_in)
 			else:
 				alpha = move_toward(alpha, 0.0, delta / FADE_OUT)
 				if alpha <= 0.0:
@@ -205,12 +301,15 @@ func _layout(delta: float) -> void:
 	var slots: Array[float] = []
 	var heights: Array[float] = []
 	var total := 0.0
+	var pad := plate_pad()
 	for entry: Dictionary in drawn:
 		var label := entry["label"] as Label
 		label.custom_minimum_size = Vector2(width, 0.0)
 		label.size = Vector2(width, 0.0)
-		var h := label.get_combined_minimum_size().y
+		var h := _text_height(label, width)
 		label.size = Vector2(width, h)
+		_fit_plate(label, width, h, pad)
+		h += pad.y * 2.0
 		var eased := smoothstep(0.0, 1.0, float(entry["grow"]))
 		heights.append(h)
 		slots.append(h * eased)
@@ -218,17 +317,22 @@ func _layout(delta: float) -> void:
 	total = maxf(0.0, total - LINE_GAP)
 	var bottom := _baseline(view)
 	var left := (view.x - width) * 0.5
-	# Up and over anything it would cover.
+	# Up and over anything it would cover (a receipt being read included).
+	var avoid := obstacle_rects()
+	if not drawn.is_empty():
+		avoid.append_array(_blocker_rects(view))
 	for _pass: int in 4:
 		var stack_rect := Rect2(left, bottom - total, width, total)
 		var moved := false
-		for rect: Rect2 in obstacle_rects():
+		for rect: Rect2 in avoid:
 			if stack_rect.intersects(rect):
 				bottom = rect.position.y - CLEARANCE
 				moved = true
 				stack_rect = Rect2(left, bottom - total, width, total)
 		if not moved:
 			break
+	# Never pushed off the top of the screen.
+	bottom = maxf(bottom, total + CLEARANCE)
 	# The whole stack glides when what it keeps clear of moves (a quip appears).
 	if _bottom == INF or not drawn.is_empty() and _bottom_idle:
 		_bottom = bottom
@@ -245,7 +349,7 @@ func _layout(delta: float) -> void:
 		box.size = Vector2(width, slots[index])
 		box.visible = slots[index] > 0.5
 		var label := entry["label"] as Label
-		label.position = Vector2.ZERO
+		label.position = Vector2(0.0, pad.y)
 		label.modulate.a = float(entry["alpha"])
 		y += slots[index] + LINE_GAP * smoothstep(0.0, 1.0, float(entry["grow"]))
 	for entry: Dictionary in _lines:
@@ -255,6 +359,10 @@ func _layout(delta: float) -> void:
 ## Where the stack's bottom sits: above the goal line when it's up, else above
 ## the hotbar's band.
 func _baseline(view: Vector2) -> float:
+	# R2b: with the yard HUD eased out, the lines sit low, film-subtitle style,
+	# under the faces of a two-shot.
+	if _cinematic:
+		return view.y - Constants.R2B_HUD_CINEMATIC_BOTTOM
 	var bottom := view.y - Constants.HOTBAR_GOAL_LINE_Y - CLEARANCE
 	var ui := get_parent()
 	var goal := ui.get_node_or_null("JobGoal") as Control if ui != null else null
@@ -304,6 +412,59 @@ func _style(entry: Dictionary) -> void:
 	label.add_theme_constant_override("shadow_offset_x", 2)
 	label.add_theme_constant_override("shadow_offset_y", 2)
 	_QuipPlayer.apply_backdrop(label)
+	_style_plate(label)
+
+
+## A line's height wrapped at width, from the font itself: on the frame a line is
+## pushed the Label hasn't laid its words out at the new width yet, and its own
+## minimum size (one word a row) would throw the whole stack up the screen for
+## a frame.
+func _text_height(label: Label, width: float) -> float:
+	var box := label.get_theme_stylebox("normal")
+	var margins := box.get_minimum_size() if box != null else Vector2.ZERO
+	var font := label.get_theme_font("font")
+	var font_size := label.get_theme_font_size("font_size")
+	var text := font.get_multiline_string_size(label.text, HORIZONTAL_ALIGNMENT_CENTER, maxf(1.0, width - margins.x), font_size)
+	var lines := maxi(1, roundi(text.y / font.get_height(font_size)))
+	var spacing := float(label.get_theme_constant("line_spacing")) * float(lines - 1)
+	return ceilf(text.y + spacing + margins.y)
+
+
+## The room the soft plate takes round a line (zero while the dark caption
+## backdrop is on: that box has its own margins).
+static func plate_pad() -> Vector2:
+	if bool(Settings.get_value("interface", "caption_backdrop")):
+		return Vector2.ZERO
+	return Constants.R2B_HUD_PLATE_PAD
+
+
+## The plate hugs the words (centered, as wide as the widest wrapped line),
+## not the stack's whole width.
+func _fit_plate(label: Label, width: float, height: float, pad: Vector2) -> void:
+	var plate := label.get_node_or_null("Plate") as Panel
+	if plate == null:
+		return
+	plate.visible = pad != Vector2.ZERO
+	if not plate.visible:
+		return
+	var font := label.get_theme_font("font")
+	var font_size := label.get_theme_font_size("font_size")
+	var natural := font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	var words := minf(natural, width)
+	var plate_width := minf(words + pad.x * 2.0, width)
+	plate.position = Vector2((width - plate_width) * 0.5, -pad.y)
+	plate.size = Vector2(plate_width, height + pad.y * 2.0)
+
+
+func _style_plate(label: Label) -> void:
+	var plate := label.get_node_or_null("Plate") as Panel
+	if plate == null:
+		return
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(PLATE, Constants.R2B_HUD_PLATE_ALPHA)
+	box.set_corner_radius_all(Constants.R2B_HUD_PLATE_FEATHER)
+	box.anti_aliasing_size = minf(float(Constants.R2B_HUD_PLATE_FEATHER) * 0.5, 6.0)
+	plate.add_theme_stylebox_override("panel", box)
 
 
 func _on_settings_changed(section: StringName, _key: StringName, _value: Variant) -> void:
