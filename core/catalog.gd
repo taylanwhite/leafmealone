@@ -12,6 +12,8 @@ extends RefCounted
 ##   shop, tab   where it's sold (SHOPS)
 ##   kind        tool | tier | upgrade | used_tool | consumable | snack | cosmetic | truck_cosmetic
 ##               | truck_gear (the crew's, on Chefty) | service (Marty's Body Shop: bought, not owned)
+
+##               | gear (yours to keep, never a job tool: the skateboard)
 ##   tool, tier  for tools: which tool, and 0 used / 1 stock / 2 Mk II / 3 Mk III
 ##   needs       ids; owning any one of them is required first
 ##   supply      the crew supply a consumable adds to (Constants.SUPPLY_PER_ITEM says how much)
@@ -34,10 +36,10 @@ const TIER_MK2: int = 2
 const TIER_MK3: int = 3
 
 ## Kinds a player owns once bought (they go in the player's unlock list).
-const OWNED_KINDS: Array[String] = ["tool", "tier", "upgrade", "used_tool", "cosmetic", "truck_cosmetic", "truck_gear"]
+const OWNED_KINDS: Array[String] = ["tool", "tier", "upgrade", "used_tool", "cosmetic", "truck_cosmetic", "truck_gear", "gear"]
 
 const SHOPS: Dictionary = {
-	"homie_depot": {"keeper": "marty", "tabs": ["tools", "upgrades", "supplies", "workwear", "truck"]},
+	"homie_depot": {"keeper": "marty", "tabs": ["tools", "upgrades", "supplies", "workwear", "truck", "gear"]},
 	"rustys": {"keeper": "rusty", "tabs": ["sell", "used", "oddities"], "gate": "feature:salvage"},
 	"lunch_money": {"keeper": "dot", "tabs": ["menu"], "gate": "feature:lunch_money"},
 	"snak_o_matic": {"keeper": "", "tabs": ["snacks"]},
@@ -114,6 +116,9 @@ const ITEMS: Dictionary = {
 	# (driving chunk C3). A repair is bought one per dent (net/shops/shops.gd).
 	"chefty_net": {"shop": "homie_depot", "tab": "truck", "kind": "truck_gear"},
 	"chefty_repair": {"shop": "homie_depot", "tab": "truck", "kind": "service"},
+
+	# ---- Homie Depot: gear (driving G1). Personal, bought once, never a job tool.
+	"skateboard": {"shop": "homie_depot", "tab": "gear", "kind": "gear", "model": "skateboard"},
 	# ---- Rusty's Salvage & Pawn: used tools (on sale once the tool is), and oddities.
 	"leaf_blower_used": {"shop": "rustys", "tab": "used", "kind": "used_tool", "tool": "leaf_blower", "tier": 0, "gate": "shop:leaf_blower", "model": "leaf_blower"},
 	"lawn_mower_used": {"shop": "rustys", "tab": "used", "kind": "used_tool", "tool": "lawn_mower", "tier": 0, "gate": "shop:lawn_mower", "model": "lawn_mower"},

@@ -57,7 +57,8 @@ func _physics_process(delta: float) -> void:
 		_swing(player, delta, false)
 		return
 	# R2:3 hidden in a spot or a pile, the hands are tucked in: secondary peeks.
-	if bool(player.call("is_hidden")):
+	# On the Gutter Shredder the clicks are flips (player/skate.gd).
+	if bool(player.call("is_hidden")) or bool(player.get("on_board")):
 		_set_spray(player, "")
 		_swing(player, delta, false)
 		return

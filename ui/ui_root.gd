@@ -103,6 +103,10 @@ func _ready() -> void:
 	var drive_hud := preload("res://ui/drive_hud.gd").new()
 	drive_hud.name = "DriveHud"
 	add_child(drive_hud)
+	# The Gutter Shredder's trick line (driving G1).
+	var trick_popup := preload("res://ui/trick_popup.gd").new()
+	trick_popup.name = "TrickPopup"
+	add_child(trick_popup)
 	# R2: every raid line goes through one stack (ui/caption_stack.gd), and cuts
 	# hide behind the iris (ui/iris.gd, its own layer over this one).
 	var captions := preload("res://ui/caption_stack.gd").new()

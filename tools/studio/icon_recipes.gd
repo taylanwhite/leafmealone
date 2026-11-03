@@ -119,6 +119,9 @@ const RECIPES: Dictionary = {
 	"item_turf_sign": {"kind": "model", "px": 256, "build": "build_turf_sign", "yaw": 15.0},
 	"item_chefty": {"kind": "model", "px": 256, "build": "build_chefty", "yaw": 145.0},
 	"item_van": {"kind": "model", "px": 256, "build": "build_van", "yaw": 145.0},
+	# ---- gear (256, 3D; driving G1): yours to keep. The Gutter Shredder rolled toward
+	# the camera and laid corner to corner, so the grip and the yellow wheels read at row size.
+	"gear_skateboard": {"kind": "model", "px": 256, "build": "build_skateboard", "yaw": 60.0, "tilt": Vector3(0.0, 0.0, 24.0), "roll": -24.0},
 	# ---- upgrades: the base model plus the "+" sticker
 	"upgrade_rake_tier_1": {"kind": "model", "px": 256, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0), "sticker": "plus"},
 	"upgrade_rake_tier_2": {"kind": "model", "px": 256, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0), "sticker": "plus", "sticker_color": GOLD},
@@ -410,6 +413,11 @@ static func build_chefty(root: Node3D, _recipe: Dictionary) -> void:
 
 static func build_van(root: Node3D, _recipe: Dictionary) -> void:
 	_Vehicles.build_van(root, VAN_GREY)
+
+
+## Marty's nephew's board (props/gear_models.gd), as you ride it.
+static func build_skateboard(root: Node3D, _recipe: Dictionary) -> void:
+	root.add_child(preload("res://props/gear_models.gd").build_skateboard())
 
 
 static func _add_mesh(root: Node3D, mesh: Mesh, at: Vector3, basis: Basis = Basis.IDENTITY, scale: float = 1.0) -> MeshInstance3D:

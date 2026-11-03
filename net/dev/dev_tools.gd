@@ -104,6 +104,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/icons_test.gd").new(), "IconsTest")
 	if bool(options.get("drive_test")):
 		_add(preload("res://net/dev/drive_test.gd").new(), "DriveTest")
+	if bool(options.get("skate_test")):
+		_add(preload("res://net/dev/skate_test.gd").new(), "SkateTest")
 	if bool(options.get("toss_test")) or bool(options.get("toss_survey")):
 		_add(preload("res://net/dev/toss_test.gd").new(), "TossTest")
 	if bool(options.get("balance_test")):

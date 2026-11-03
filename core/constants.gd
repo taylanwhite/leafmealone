@@ -680,6 +680,8 @@ const SHOP_REACH_SLACK: float = 1.5
 const SHOP_PRICES: Dictionary = {
 	# Upgrades. The first two match Balance.BASELINE_TIER_1_TOOL_COST.
 	"rake_tier_1": 120, "wheelbarrow_tier_1": 120, "rake_tier_2": 1200,
+	# Gear (driving G1): the Gutter Shredder, Marty's nephew's old board.
+	"skateboard": 60,
 	# Supplies.
 	"lawn_bags": 8, "big_bags": 14, "gas_can": 12, "fertilizer": 18, "grass_seed": 15, "rock_salt": 10,
 	# Food: Lunch Money, then the Snak-o-Matic.
@@ -1160,7 +1162,11 @@ const STORE_LAYOUT: Dictionary = {
 	"truck_pad": {"owner": "driving", "rect": Rect2(7.9, 4.4, 4.2, 7.2)},
 	# Chefty's way out to the road: nothing may stand here.
 	"chefty_exit": {"owner": "driving", "rect": Rect2(12.2, 4.4, 8.3, 7.4)},
-	"marty_ramp": {"owner": "driving", "rect": Rect2(12.4, 14.4, 3.6, 3.6), "at": Vector3(14.2, 0.0, 16.2), "yaw": 0.0},
+	# Marty's ramp (driving G1): in the open middle of the lot, rising toward +X, with
+	# about 5 m of run-up from the store's walk and 8 m of open lot to land in before
+	# Rusty's fence
+	# (it used to launch you into the corner tree island).
+	"marty_ramp": {"owner": "driving", "rect": Rect2(-4.2, -3.3, 3.6, 3.6), "at": Vector3(-2.4, 0.0, -1.5), "yaw": 0.0},
 	"depot_safe_sign": {"owner": "driving", "rect": Rect2(18.6, 12.4, 1.6, 1.4), "at": Vector3(19.4, 0.0, 13.1), "yaw": PI * 0.5},
 	"mulch_bin": {"owner": "driving", "rect": Rect2(4.9, 9.4, 2.6, 2.6), "at": Vector3(6.2, 0.0, 10.7), "yaw": 0.0},
 	"pylon": {"owner": "art", "rect": Rect2(18.0, -14.5, 2.0, 2.0), "at": Vector3(19.0, 0.0, -13.5), "yaw": PI * 0.5},
@@ -1801,7 +1807,7 @@ const SETTINGS_TICK_GAP_MS: int = 60
 ## How the Keys tab groups actions, in order. Any other non-ui_ action is listed
 ## under "other" automatically. A feature adding an action may add it to a group here.
 const KEYBIND_GROUPS: Array[Dictionary] = [
-	{"id": "moving", "actions": [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch"]},
+	{"id": "moving", "actions": [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch", &"board"]},
 	{"id": "working", "actions": [&"primary", &"secondary", &"interact", &"take", &"drop"]},
 	{"id": "pockets", "actions": [&"slot_1", &"slot_2", &"slot_3", &"slot_4", &"slot_5", &"slot_next", &"slot_prev"]},
 	{"id": "crew","actions": [&"phone", &"push_to_talk", &"honk", &"toggle_camera", &"toggle_music", &"pause"]},
@@ -4383,6 +4389,143 @@ const VEHICLE_SUNK_LOOK_UP: float = 2.2
 ## A homeowner's yell about Chefty (npcs/homeowner.gd host_grumble) stays over
 ## their head this long (s).
 const HOMEOWNER_YELL_SECONDS: float = 4.5
+
+# ---- driving: the Gutter Shredder (driving chunk G1; player/skate.gd, player/skate_view.gd,
+# docs/GAME.md "The Gutter Shredder"). First guesses, tuned by riding it. TODO(balance): not
+# in the workbook. Its price is SHOP_PRICES["skateboard"].
+## A kick-push adds this much speed (m/s), eased in over SKATE_PUSH_EASE seconds, at
+## most one every SKATE_PUSH_SECONDS while move_forward is held, never past
+## SKATE_MAX_PUSH_SPEED (rolling faster than that, a push does nothing).
+const SKATE_PUSH_SPEED: float = 2.4
+const SKATE_PUSH_SECONDS: float = 0.42
+const SKATE_PUSH_EASE: float = 0.16
+const SKATE_MAX_PUSH_SPEED: float = 9.0
+## Nothing rolls faster than this (off the ramp, a long tuck).
+const SKATE_TOP_SPEED: float = 13.0
+## Rolling with nothing pressed: speed lost per second on pavement (m/s per s);
+## tucked down (crouch held), only this share of it.
+const SKATE_COAST_DECEL: float = 0.45
+const SKATE_TUCK_DRAG_SHARE: float = 0.5
+## move_back: dragging a foot (m/s per s).
+const SKATE_BRAKE_DECEL: float = 5.0
+## Grass and water: their drag (m/s per s), and rolling onto them faster than this is a lawn bail.
+const SKATE_GRASS_DECEL: float = 7.0
+const SKATE_LAWN_BAIL_SPEED: float = 5.0
+## Carving on move_left/move_right: turn rate (rad/s) from SKATE_CARVE_FULL_AT m/s up;
+## slower below it, down to SKATE_CARVE_STILL_SHARE of it standing still (a kick turn).
+const SKATE_CARVE_RATE: float = 2.4
+const SKATE_CARVE_FULL_AT: float = 3.0
+const SKATE_CARVE_STILL_SHARE: float = 0.55
+## How fast the wheels drag the way you're rolling round to the way the board
+## points (rad/s), and how much of the speed a sideways slide scrubs off per second
+## (times the slide's sine).
+const SKATE_GRIP_RATE: float = 6.0
+const SKATE_SLIDE_SCRUB: float = 2.5
+## Ollie: the pop (m/s up). Leaving the ramp's lip going up, the board adds this
+## much more (m/s), so Marty's ramp throws you.
+const SKATE_OLLIE_SPEED: float = 4.6
+const SKATE_RAMP_POP: float = 0.6
+## In the air: spinning on move_left/move_right (rad/s); a kickflip or heelflip takes this long.
+const SKATE_SPIN_RATE: float = 7.5
+const SKATE_FLIP_SECONDS: float = 0.45
+## Landing with this little of a flip left (s), the feet catch the board: it lands clean.
+const SKATE_FLIP_CATCH_SECONDS: float = 0.12
+## A landing is clean within this angle (rad) of the way you're rolling, forward or fakie.
+## Slower than SKATE_LAND_ANY_SPEED, any landing is clean.
+const SKATE_LAND_ANGLE: float = 0.6
+const SKATE_LAND_ANY_SPEED: float = 1.5
+## Air shorter than this (s) is a bump, not a jump: nothing is scored.
+const SKATE_MIN_AIR_SECONDS: float = 0.15
+## Hitting a wall faster than this (m/s straight into it) is a bail.
+const SKATE_WALL_BAIL_SPEED: float = 3.5
+## A wipeout: down this long, thrown along the way you were going with this share
+## of the speed, and this much up (m/s).
+const SKATE_WIPEOUT_SECONDS: float = 2.2
+const SKATE_WIPEOUT_THROW_SHARE: float = 0.55
+const SKATE_WIPEOUT_THROW_UP: float = 2.4
+## The heaviest thing in hand you can ride with (kg): a rake yes, a trash can no.
+## Leaf bags ride whatever they weigh: a stuffed bag is floppy enough to hug.
+const SKATE_MAX_CARRY_KG: float = 4.0
+const SKATE_CARRY_ANY_WEIGHT: Array[String] = ["leaf_bag"]
+## Curb grinds: landing within this far (m) of a curb's line, the board within this
+## angle (rad) of it. Grinding loses this much speed per second, and below
+## SKATE_GRIND_MIN_SPEED you drop off. The curb's top (m), where the board rides
+## (levels/town/street_builder.gd's curb is 0.2 tall, centred on the ground).
+const SKATE_GRIND_SNAP: float = 0.6
+const SKATE_GRIND_ANGLE: float = 0.44
+const SKATE_GRIND_DECEL: float = 0.8
+const SKATE_GRIND_MIN_SPEED: float = 1.5
+const SKATE_CURB_TOP: float = 0.1
+## A clean landing this soon (s) after the last adds to the combo (x2, x3 ...).
+const SKATE_COMBO_WINDOW: float = 1.6
+## Points (bragging only): each trick in a line, spins per half turn, grinds per second.
+const SKATE_TRICK_POINTS: Dictionary = {"ollie": 100, "kickflip": 200, "heelflip": 200, "spin": 150, "grab": 150, "grind": 120}
+## Rolling into someone (a crewmate, a passer-by, a NICE BOY) faster than this
+## (m/s), this close (m): they get a light bonk and you go down.
+const SKATE_BONK_SPEED: float = 3.0
+const SKATE_BONK_RADIUS: float = 0.8
+## The host takes a skater's word for a bump within this much more distance (m), for lag.
+const SKATE_BONK_SLACK: float = 1.5
+## Rolling into a leaf pile faster than this (m/s) dives you into it.
+const SKATE_PILE_SPEED: float = 2.0
+## The board (props/gear_models.gd): how high its deck's top is (m), where the rider stands.
+const SKATE_DECK_HEIGHT: float = 0.12
+## Stepping off faster than this (m/s) leaves you running at it, with a stumble.
+const SKATE_STEP_OFF_SPEED: float = 8.0
+## Hopping on and stepping off (s): the board drops under you, or flicks up into your hand.
+const SKATE_MOUNT_SECONDS: float = 0.22
+## A bail: the board clatters off on its own for this long (s), this fast (share of your speed).
+const SKATE_BOARD_FLY_SECONDS: float = 1.2
+const SKATE_BOARD_FLY_SHARE: float = 0.8
+## The rolling sound (player/skate_view.gd, until audio/board_sound.gd exists): its
+## volume at a crawl and at SKATE_MAX_PUSH_SPEED (dB), its pitch over the same,
+## and how far it carries (m).
+const SKATE_ROLL_DB := Vector2(-20.0, -5.0)
+const SKATE_ROLL_PITCH := Vector2(0.75, 1.3)
+const SKATE_SOUND_MAX_DISTANCE: float = 40.0
+## The rider's lean into a carve (rad per rad/s of turning), at most SKATE_LEAN_MAX.
+const SKATE_LEAN_PER_TURN: float = 0.16
+const SKATE_LEAN_MAX: float = 0.45
+## The trick popup (ui/trick_popup.gd): how long a line stays up (s).
+const SKATE_POPUP_SECONDS: float = 1.8
+## Rolling off a lip while the wheels were climbing faster than this (m/s) leaves
+## you going up it; the climb remembered fades this fast (m/s per s).
+const SKATE_RAMP_CLIMB_MIN: float = 0.5
+const SKATE_RAMP_CLIMB_FADE: float = 20.0
+## Holding tuck in the air grabs the board once you've been up this long (s).
+const SKATE_GRAB_DELAY: float = 0.08
+## Turned this far in the air (rad), the board shows as a spin to everyone.
+const SKATE_SPIN_SHOW_RAD: float = 1.2
+## Grinds: a landing this near a curb's end (m) doesn't catch it; the grind ends
+## this near the far end (m); the board is held down on the curb at this (m/s);
+## a grind shorter than this (s) scores nothing.
+const SKATE_GRIND_END_MARGIN: float = 0.3
+const SKATE_GRIND_RUN_OUT: float = 0.1
+const SKATE_GRIND_HOLD_DOWN: float = -0.5
+const SKATE_GRIND_MIN_SECONDS: float = 0.15
+## Run into a NICE BOY or a passer-by this square on (the dot of your way and the
+## way to them), and it's a bump, not a scrape past.
+const SKATE_BONK_FACING: float = 0.3
+## A skate bonk lifts its target this much (m/s) on top of the light punch's shove.
+const SKATE_BONK_LIFT: float = 1.2
+## The loose board after a bail (player/skate_view.gd): it pops up this fast (m/s)
+## and falls at this (m/s^2); hitting the ground faster than SKATE_BOARD_CLACK_SPEED
+## (m/s) clacks, and each bounce keeps SKATE_BOARD_BOUNCE_KEEP of its slide.
+const SKATE_BOARD_FLY_UP: float = 2.6
+const SKATE_BOARD_FLY_GRAVITY: float = 9.8
+const SKATE_BOARD_CLACK_SPEED: float = 1.2
+const SKATE_BOARD_BOUNCE_KEEP: float = 0.6
+## It finds the ground under it each tick: a ray from this far above it (m) down
+## this far (m). Still above the ground when its tumble is over, it keeps falling
+## for up to SKATE_BOARD_FALL_MAX more seconds.
+const SKATE_BOARD_GROUND_ABOVE: float = 0.15
+const SKATE_BOARD_GROUND_BELOW: float = 30.0
+const SKATE_BOARD_FALL_MAX: float = 1.5
+## The rider's lean follows the carve at this rate (1/s).
+const SKATE_LEAN_RATE: float = 8.0
+## The grind's scrape (player/skate_view.gd): its volume at a crawl and at
+## SKATE_MAX_PUSH_SPEED (dB).
+const SKATE_GRIND_DB := Vector2(-8.0, 0.0)
 
 # ---- R2c hide
 # The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a

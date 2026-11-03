@@ -3,7 +3,7 @@ extends CharacterBody3D
 ## Authority: owning peer for movement, look, and the values replicated below.
 ## Remote peers display those values. NetSmoother only moves the visual on remotes.
 
-enum AnimState { IDLE, WALK, SPRINT, CROUCH, AIR, KNOCKED }
+enum AnimState { IDLE, WALK, SPRINT, CROUCH, AIR, KNOCKED, SKATE, SKATE_AIR }
 
 # TODO(balance): add movement speeds to the workbook.
 const WALK_SPEED: float = 5.0
@@ -28,6 +28,9 @@ const _Hotbar = preload("res://net/components/hotbar.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _Seated = preload("res://player/seated.gd")
 const _Hats = preload("res://player/hats.gd")
+
+const _Skate = preload("res://player/skate.gd")
+const _SkateView = preload("res://player/skate_view.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -61,6 +64,13 @@ const HUP_CHANCE: float = 0.6
 @export var thrown: bool = false
 @export var winding: bool = false
 @export var equipment_id: String = ""
+## The Gutter Shredder (player/skate.gd, driving chunk G1): riding the board, what
+## the board is doing (skate.gd's TRICK_* values), down after a bail, and hanging
+## on behind Chefty (driving G2). Replicated; the owner sets them.
+@export var on_board: bool = false
+@export var skate_trick: int = 0
+@export var wipeout: bool = false
+@export var skitch: bool = false
 
 var _look := Vector2.ZERO
 var _ride: Node3D
@@ -151,12 +161,32 @@ func _ready() -> void:
 		add_child(pockets_node)
 	_dress_up()
 	_build_stage()
+	_build_skate()
 	_apply_presentation()
 
 
 ## The hotbar's player side (player/pockets.gd): the selected slot and what's in them.
 func pockets() -> Node:
 	return get_node_or_null("Pockets")
+
+
+## The Gutter Shredder (driving G1): the riding (player/skate.gd, owner) and how it
+## looks and sounds (player/skate_view.gd, every peer).
+func skate() -> Node:
+	return get_node_or_null("Skate")
+
+
+func _build_skate() -> void:
+	if get_node_or_null("Skate") == null:
+		var riding := _Skate.new()
+		riding.name = "Skate"
+		riding.player = self
+		add_child(riding)
+	if get_node_or_null("SkateView") == null:
+		var view := _SkateView.new()
+		view.name = "SkateView"
+		view.player = self
+		add_child(view)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -170,6 +200,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 	# In a drivable vehicle's seat, E, F and the camera key are the seat's.
 	if _Seated.handle_input(self, event):
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("board") and bool(skate().call("toggle")):
+		get_viewport().set_input_as_handled()
+	# On the board, jump and the clicks are tricks, never a punch or a swing.
+	elif on_board and (event.is_action_pressed("jump") or event.is_action_pressed("primary") or event.is_action_pressed("secondary")):
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_camera"):
 		%CameraRig.toggle()
@@ -264,6 +299,8 @@ func _physics_process(delta: float) -> void:
 		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
 			var seat: Transform3D = _ride.call("seat_transform", _seat_index)
 			global_position = seat.origin
+		elif on_board:
+			skate().call("step", delta)
 		elif not _step_hydrant(delta):
 			_simulate(delta)
 		_track_fall(delta)
@@ -505,7 +542,7 @@ func _stage_hold(delta: float) -> bool:
 
 
 ## The actions a control lock holds back unless the lock allows them.
-const _STAGE_HELD_ACTIONS: Array[StringName] = [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch", &"interact", &"primary", &"secondary", &"drop", &"take", &"honk", &"slot_1", &"slot_2", &"slot_3", &"slot_4", &"slot_5", &"slot_next", &"slot_prev"]
+const _STAGE_HELD_ACTIONS: Array[StringName] = [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch", &"interact", &"primary", &"secondary", &"drop", &"take", &"honk", &"board", &"slot_1", &"slot_2", &"slot_3", &"slot_4", &"slot_5", &"slot_next", &"slot_prev"]
 
 
 ## Before anyone else's input handling: a stage shot takes the mouse look, and a
@@ -1025,7 +1062,7 @@ func _on_pile() -> bool:
 func _step_punch(delta: float) -> void:
 	_punch_cool = maxf(0.0, _punch_cool - delta)
 	_swing_left = maxf(0.0, _swing_left - delta)
-	var can := _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not in_vehicle() and not is_up_high() and not is_sleeping()
+	var can := not on_board and _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not in_vehicle() and not is_up_high() and not is_sleeping()
 	var pressing := can and _punch_cool <= 0.0 and Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	# Empty hands on leaves rake by hand (equipment/rake.gd). A wind-up only
 	# starts there when someone is in front to hit; once started it keeps going.
@@ -1976,6 +2013,10 @@ func _apply_bonk(push: Vector3, tier: String) -> void:
 	say("vo_oof" if tier != "light" else "vo_eh")
 	if not is_multiplayer_authority() or _hidden_spot != null or _on_seat:
 		return
+	# Any bonk on a board is a wipeout (player/skate.gd).
+	if on_board:
+		skate().call("wipeout", "bonk", push)
+		return
 	_stun_left = float(Constants.BONK_STUN_SECONDS.get(tier, 0.5))
 	_knocked = tier == "heavy"
 	velocity = push
@@ -2003,13 +2044,16 @@ func _step_stunned(delta: float) -> void:
 ## A thrown prop can spike velocity. Cap it, and put the player back if they leave the pad.
 func _stay_on_the_pad() -> void:
 	var flat := Vector2(velocity.x, velocity.z)
-	# Turbo Juice runs you a little past a sprint, and no further.
+	# Turbo Juice runs you a little past a sprint, and no further. A board rolls
+	# faster and pops higher (player/skate.gd keeps its own caps).
 	var cap := SPRINT_SPEED * maxf(snack_buff("speed"), 1.0)
+	if on_board:
+		cap = Constants.SKATE_TOP_SPEED
 	if flat.length() > cap:
 		flat = flat.normalized() * cap
 		velocity.x = flat.x
 		velocity.z = flat.y
-	if velocity.y > JUMP_VELOCITY:
+	if velocity.y > JUMP_VELOCITY and not on_board:
 		velocity.y = JUMP_VELOCITY
 	var world := get_tree().get_first_node_in_group("world") as Node3D
 	if world == null:

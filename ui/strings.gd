@@ -492,6 +492,20 @@ const UI: Dictionary = {
 	## see from here. %s is the address, %d meters away, and an arrow pointing the
 	## way. Nothing says what to do there (docs/GAME.md "Writing for players").
 	"goal_drive_to": "%s · %d m %s",
+	# ---- driving: the Gutter Shredder (driving chunk G1; player/skate.gd, ui/trick_popup.gd)
+	"action_board": "Skateboard",
+	## A trick line: names joined by trick_join, then trick_combo when it's a combo, then
+	## the score ("KICKFLIP + 360 ×2 = 800").
+	"trick_ollie": "OLLIE",
+	"trick_kickflip": "KICKFLIP",
+	"trick_heelflip": "HEELFLIP",
+	"trick_grab": "LEAF GRAB",
+	"trick_grind": "CURB GRIND",
+	## A spin, by its degrees ("360").
+	"trick_spin": "%d",
+	"trick_join": " + ",
+	"trick_combo": " ×%d",
+	"trick_score": " = %d",
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -748,6 +762,10 @@ const SHOP_UI: Dictionary = {
 	"shop_tab_oddities": "Oddities",
 	"shop_tab_menu": "Menu",
 	"shop_tab_snacks": "Snacks",
+	# ---- driving: the Gutter Shredder (driving chunk G1)
+	"shop_tab_gear": "Gear",
+	"item_skateboard": "The Gutter Shredder",
+	"item_blurb_skateboard": "My nephew's old board. Still smells like him. {key:board} to ride.",
 	"shop_hours": "Open %s to %s",
 	"shop_hours_always": "Open all hours. Watching.",
 	# Keepers.
@@ -1982,6 +2000,10 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/drive_hud_chauffeur": [1, 1],
 	"CHAUFFEUR_QUIPS": [2, 3],
 	"TOW_TEXTS": [1, 3],
+	"WIPEOUT_QUIPS": [0, 3],
+	"UI/trick_spin": [1, 1],
+	"UI/trick_combo": [1, 1],
+	"UI/trick_score": [1, 1],
 	"UI/site_beacon": [1, 1],
 	"UI/site_address": [2, 1],
 	"UI/goal_drive_to": [3, 1],
@@ -2173,6 +2195,17 @@ const TOW_TEXTS: Array[String] = [
 	"Found Chefty out in town with its door open and a squirrel at the wheel. Towed it home. $%d.",
 	"Your truck spent the night out. I don't ask where. I just tow. $%d.",
 	"Towed Chefty back to the lot. My tow truck would like you to know it's tired. $%d.",
+]
+
+## A bail on the Gutter Shredder (player/skate.gd): the trick popup's line instead
+## of a score, picked at random. Flavor, not advice.
+const WIPEOUT_QUIPS: Array[String] = [
+	"Gravity 1, You 0",
+	"The pavement sends its regards",
+	"Marty's nephew did that too",
+	"Style points: pending review",
+	"That's a 4 from the HOA judge",
+	"Board's fine. Thanks for asking.",
 ]
 
 # ---- art

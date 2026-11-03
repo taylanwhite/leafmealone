@@ -49,6 +49,16 @@ func request_release_player(mode: String, direction: Vector3 = Vector3.ZERO, pow
 		_rpc_request_release.rpc_id(1, mode, direction, power)
 
 
+## A skateboarder rolled into someone (player/skate.gd): they get a light bonk
+## along push (the skater's velocity), and a NICE BOY or a passer-by adds heat
+## like a punch. The skater goes down on their own peer.
+func request_skate_bonk(target_path: NodePath, push: Vector3) -> void:
+	if Net.is_host():
+		_handle_skate_bonk(Net.local_peer_id(), target_path, push)
+	else:
+		_rpc_request_skate_bonk.rpc_id(1, target_path, push)
+
+
 ## The one being carried wriggled enough to get loose.
 func request_break_free() -> void:
 	if Net.is_host():
@@ -84,6 +94,24 @@ func _handle_punch(peer_id: int, tier: String, whack: bool) -> void:
 	_rpc_hit.rpc(puncher.get_path(), target.get_path(), push, tier, sound)
 	_heat_for(target, tier)
 	# A punch on a NICE BOY who has hold of a friend lets them go (R2 chunk 2).
+	if target.has_method("host_bonked_by"):
+		target.call("host_bonked_by", peer_id)
+
+
+func _handle_skate_bonk(peer_id: int, target_path: NodePath, push: Vector3) -> void:
+	var skater := _player(peer_id)
+	var target := get_node_or_null(target_path) as Node3D
+	if skater == null or target == null or target == skater or not target.has_method("on_bonked"):
+		return
+	if not target.is_in_group("players") and not target.is_in_group("bonkable"):
+		return
+	if skater.global_position.distance_to(target.global_position) > Constants.SKATE_BONK_RADIUS + Constants.SKATE_BONK_SLACK:
+		return
+	var flat := Vector3(push.x, 0.0, push.z).limit_length(Constants.SKATE_TOP_SPEED)
+	var lift := Vector3.UP * Constants.SKATE_BONK_LIFT
+	var shove := flat.normalized() * float(Constants.PUNCH_PUSH.get("light", 3.0)) + lift if flat.length() > 0.01 else lift
+	_rpc_hit.rpc(NodePath(), target.get_path(), shove, "light", "bonk")
+	_heat_for(target, "light")
 	if target.has_method("host_bonked_by"):
 		target.call("host_bonked_by", peer_id)
 
@@ -319,6 +347,12 @@ func _rpc_hit(puncher_path: NodePath, target_path: NodePath, push: Vector3, tier
 func _rpc_request_punch(tier: String) -> void:
 	if Net.is_host():
 		_handle_punch(multiplayer.get_remote_sender_id(), tier, false)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_skate_bonk(target_path: NodePath, push: Vector3) -> void:
+	if Net.is_host():
+		_handle_skate_bonk(multiplayer.get_remote_sender_id(), target_path, push)
 
 
 @rpc("any_peer", "call_remote", "reliable")

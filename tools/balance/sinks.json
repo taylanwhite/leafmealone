@@ -47,6 +47,7 @@
     {"id": "hat_crown", "kind": "cosmetic", "price": "const:Constants.SHOP_PRICES.hat_crown", "gate": "unlock:shop:hat_crown", "per_player": true, "effect": {}, "want": "cosmetic", "status": "planned"},
     {"id": "shirt_hivis", "kind": "cosmetic", "price": "const:Constants.SHOP_PRICES.shirt_hivis", "gate": "unlock:shop:shirt_hivis", "per_player": true, "effect": {}, "want": "cosmetic", "status": "planned"},
     {"id": "shirt_dye", "kind": "cosmetic", "price": "const:Constants.SHOP_PRICES.shirt_1", "gate": "unlock:shop:shirt_1", "per_player": true, "effect": {}, "want": "cosmetic", "status": "planned", "note": "one shirt dye stands in for shirt_0..7 (same price)"},
+    {"id": "skateboard", "kind": "cosmetic", "price": "const:Constants.SHOP_PRICES.skateboard", "gate": "unlock:shop:skateboard", "per_player": true, "effect": {}, "want": "cosmetic", "status": "planned", "note": "the Gutter Shredder (driving G1): a toy, no money or XP from it"},
 
     {"id": "paint_mint", "kind": "truck", "price": "const:Constants.SHOP_PRICES.paint_mint", "gate": "unlock:feature:truck_paint", "per_player": false, "effect": {}, "want": "cosmetic", "status": "planned"},
     {"id": "paint_sunset", "kind": "truck", "price": "const:Constants.SHOP_PRICES.paint_sunset", "gate": "unlock:feature:truck_paint", "per_player": false, "effect": {}, "want": "cosmetic", "status": "planned"},
