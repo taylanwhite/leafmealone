@@ -55,7 +55,8 @@ if ($Jobs -le 0) {
 
 # One entry per CI step. Port is the test's fixed port (docs/DECISIONS.md, "CI ports"; the
 # same port goes in the netcode.yml step). Host and Client are the args after `--`; Extra
-# (optional) is appended to both, for network conditions such as '--sim-lag=120'. Seconds
+# (optional) is appended to both, for network conditions such as '--sim-lag=120'; Engine
+# (optional) goes before `--` on both, for engine flags such as '--fixed-fps 30'. Seconds
 # and Client are ceilings for a hung test; a test that finishes quits right away. Check gets
 # the host report, the client report (or $null) and returns $true on pass.
 $Tests = [ordered]@{
@@ -198,6 +199,16 @@ $Tests = [ordered]@{
 		Port = 7819
 		Host = '--host --name=Tester --no-steam --balance-test'; Seconds = 20
 		Check = { param($h, $c) [bool]$h.balance_test.ok }
+	}
+	# The playtest tools (docs/PLAYTEST.md): every scenario jump reaches its moment, and the
+	# recorder writes evenly spaced frames, a contact sheet and an events log that saw the
+	# raid arrive. Engine args go before `--`: a fixed step, which the game's --fixed-step
+	# names. Headless, so the recorder draws stand-in frames (the pictures need a window).
+	playtest_tools = @{
+		Port = 7820
+		Engine = '--fixed-fps 30'
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test'; Seconds = 90
+		Check = { param($h, $c) [bool]$h.playtest_tools_test.ok }
 	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
@@ -353,7 +364,7 @@ function Start-Test($item) {
 	$t = $Tests[$name]
 	$item.HostJson = Join-Path $dir 'host.json'
 	$item.ClientJson = Join-Path $dir 'target.json'
-	$item.HostProc = Start-Godot "--headless --path . -- $($t.Host) $($t.Extra) --port=$port --measure=`"$($item.HostJson)`" --run-seconds=$($t.Seconds)" (Join-Path $dir 'host.log')
+	$item.HostProc = Start-Godot "--headless --path . $($t.Engine) -- $($t.Host) $($t.Extra) --port=$port --measure=`"$($item.HostJson)`" --run-seconds=$($t.Seconds)" (Join-Path $dir 'host.log')
 	# The client joins 3 s later, like CI; Step-Tests starts it.
 	if ($t.Client) { $item.ClientAt = $item.Started + 3 }
 }
@@ -369,7 +380,7 @@ function Step-Test($item) {
 	}
 	if ($item.ClientAt -and -not $item.ClientProc -and $Clock.Elapsed.TotalSeconds -ge $item.ClientAt) {
 		$t = $Tests[$item.Name]
-		$item.ClientProc = Start-Godot "--headless --path . -- --join=127.0.0.1 --port=$($item.Port) --name=Target --no-steam $($t.Extra) --measure=`"$($item.ClientJson)`" --run-seconds=$($t.Client)" (Join-Path $item.Dir 'target.log')
+		$item.ClientProc = Start-Godot "--headless --path . $($t.Engine) -- --join=127.0.0.1 --port=$($item.Port) --name=Target --no-steam $($t.Extra) --measure=`"$($item.ClientJson)`" --run-seconds=$($t.Client)" (Join-Path $item.Dir 'target.log')
 	}
 	if (-not $item.HostProc.HasExited) { return $false }
 	if ($item.ClientAt -and -not $item.ClientProc) { return $false }

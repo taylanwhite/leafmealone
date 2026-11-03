@@ -62,8 +62,16 @@ func _ready() -> void:
 		_add(preload("res://net/dev/day_test.gd").new(), "DayTest")
 	if bool(options.get("town_test")):
 		_add(preload("res://net/dev/town_test.gd").new(), "TownTest")
+	if int(options.get("fixed_step")) > 0:
+		_add(preload("res://net/dev/pacer.gd").new(), "Pacer")
+	# Playtesting (docs/PLAYTEST.md): scenario jumps, before remote play so its
+	# first command can wait for a --scenario to finish.
+	if str(options.get("remote_play")) != "" or str(options.get("scenario")) != "" or bool(options.get("playtest_tools_test")):
+		_add(preload("res://net/dev/scenarios.gd").new(), "Scenarios")
 	if str(options.get("remote_play")) != "":
 		_add(preload("res://net/dev/remote_play.gd").new(), "RemotePlay")
+	if bool(options.get("playtest_tools_test")):
+		_add(preload("res://net/dev/playtest_tools_test.gd").new(), "PlaytestToolsTest")
 	if bool(options.get("rival_test")):
 		_add(preload("res://net/dev/rival_test.gd").new(), "RivalTest")
 	if bool(options.get("hire_test")):
