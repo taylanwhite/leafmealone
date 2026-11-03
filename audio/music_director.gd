@@ -5,9 +5,9 @@ extends Node
 ## the local player is and what's happening (docs/GAME.md "the soundtrack"):
 ## the theme in the menu, the work tracks on the yard by day and Golden Hour
 ## from 5 PM, Aisle Seven at Homie Depot, Quiet Hours anywhere after 9 PM, Hot
-## Yard on a hot yard, a hard cut for a raid's warning and chase, Clean Getaway
-## for an escape (the border today), and nothing while you sleep or read the
-## day's summary. Every peer
+## Yard on a hot yard, a hard cut for a raid's warning and chase, Please Hold
+## (lobby muzak) at Satellite Annex B and Clean Getaway when it turns urgent,
+## and nothing while you sleep or read the day's summary. Every peer
 ## decides for itself from state it already has (no RPCs; docs/DECISIONS.md
 ## "Audio: a local music director").
 ##
@@ -16,6 +16,13 @@ extends Node
 ##   MusicSchedule               which track a mood plays, loops and rests
 ##   stinger(id)                 a short cue over the music, which ducks under it
 ##   push_mood / pop_mood        another feature overrides the mood (driving's road)
+##   duck / request_section / set_ambience / slowdown   the NICE BOYS' hooks (R2):
+##                               a gotcha's duck, the chase's "hide!" section while
+##                               hidden, the van cab's muffle, closing time's
+##                               dying record
+## Tracks that share a sync name (annex_hold, escape_run) switch on a bar line
+## and pick up at the same bar, so the Annex's muzak turns into the escape cue
+## mid-phrase instead of crossfading.
 ## Calm changes wait MUSIC_MOOD_HOLD_SECONDS (a teleport doesn't flap the music)
 ## and crossfade over MUSIC_FADE_SECONDS; urgent moods switch at once over
 ## MUSIC_FADE_URGENT_SECONDS. The phone and the pause menu muffle the Music bus.
@@ -42,6 +49,10 @@ const PHASE_CHASE: int = 2
 static var mood_log: Array[String] = []
 ## The stingers fired on this peer, oldest first (logged even when nothing plays).
 static var stinger_log: Array[String] = []
+## The R2 hooks' calls on this peer, oldest first (for --audio-test and the
+## probe): "duck", "section hide on", "ambience van_cab on", "slowdown",
+## "sync annex_hold>escape_run".
+static var hook_log: Array[String] = []
 
 var _schedule: _Schedule = _Schedule.new()
 var _mood: String = ""
@@ -62,6 +73,19 @@ var _stinger_queue: Array[String] = []
 var _stinger_db: float = 0.0
 var _duck_db: float = 0.0
 var _muffled: bool = false
+## duck(): how deep (dB) and until when (msec); _hook_duck_now is where it is.
+var _hook_duck_db: float = 0.0
+var _hook_duck_until: int = 0
+var _hook_duck_now: float = 0.0
+## request_section(): the sections asked for (section -> true).
+var _sections: Dictionary = {}
+## set_ambience(): the beds asked for (name -> true).
+var _ambience: Dictionary = {}
+## slowdown(): when it began (msec) and how long it takes; -1 when not slowing.
+var _slow_from: int = -1
+var _slow_seconds: float = 0.0
+## A bar-line switch waiting to happen: {id, at (msec), seek (seconds)}.
+var _sync_pending: Dictionary = {}
 
 
 func _ready() -> void:
@@ -108,6 +132,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_fade(delta)
+	_sync_switch()
+	_hold_section()
 	_tick += delta
 	if _tick < Constants.MUSIC_TICK_SECONDS:
 		return
@@ -184,6 +210,67 @@ func pop_mood(source: StringName) -> void:
 	_pushed.erase(String(source))
 
 
+# ---------------------------------------------------------------- the R2 hooks
+# The NICE BOYS' encounter (gap-specs nice_boys C15). Callers guard with has_method.
+
+## The music dips db (negative) for seconds and comes back, as it does under a
+## stinger: the gotcha's slap, a hold of silence.
+func duck(db: float, seconds: float) -> void:
+	_hook_duck_db = minf(db, 0.0)
+	_hook_duck_until = Time.get_ticks_msec() + int(seconds * 1000.0)
+	_hook("duck %.0f %.2f" % [db, seconds])
+
+
+## Hold the playing track in one of its sections while on (audio/music_tracks.gd
+## SECTIONS: the chase's "hide!" while the local player is hidden). It jumps in
+## at the next bar line and loops there; let go, it plays on out of it.
+func request_section(section: StringName, on: bool) -> void:
+	if on:
+		_sections[String(section)] = true
+	else:
+		_sections.erase(String(section))
+	_hook("section %s %s" % [section, "on" if on else "off"])
+
+
+## A bed of sound for where the local player is: &"van_cab" muffles the music
+## behind the van's walls (Constants.MUSIC_CAB_CUTOFF_HZ) and asks the world's
+## ambience for the cab's own sound when it has it.
+func set_ambience(bed: StringName, on: bool) -> void:
+	if on:
+		_ambience[String(bed)] = true
+	else:
+		_ambience.erase(String(bed))
+	_hook("ambience %s %s" % [bed, "on" if on else "off"])
+	var ambience := get_tree().get_first_node_in_group("ambience")
+	if ambience != null and ambience.has_method("set_bed"):
+		ambience.call("set_bed", bed, on)
+	_update_muffle()
+
+
+## Closing time's dying record: the music sinks in pitch over seconds and stops.
+## The next track to play plays at its own speed again.
+func slowdown(seconds: float) -> void:
+	_slow_from = Time.get_ticks_msec()
+	_slow_seconds = maxf(seconds, 0.1)
+	_hook("slowdown %.2f" % seconds)
+
+
+func ambience_on(bed: StringName) -> bool:
+	return _ambience.has(String(bed))
+
+
+func section_requested(section: StringName) -> bool:
+	return _sections.has(String(section))
+
+
+func _hook(entry: String) -> void:
+	hook_log.append(entry)
+	if hook_log.size() > LOG_SIZE:
+		hook_log.pop_front()
+	if _dry:
+		print("[Music] %s" % entry)
+
+
 # ---------------------------------------------------------------- the rules
 
 ## The mood for this state, in priority order. state keys: net_state (Net.State),
@@ -197,9 +284,10 @@ static func pick_mood(state: Dictionary, current: StringName) -> StringName:
 	var hour := float(state.get("hour", Constants.DAY_START_HOUR))
 	var heat := float(state.get("heat", 0.0))
 	var phase := int(state.get("phase", 0))
-	# Border Return is an escape (the escape mood; "crossing" is its old name).
+	# Satellite Annex B (R2): the lobby muzak, and the escape cue ("crossing" is
+	# its old name) while the Annex is urgent (closing time, the big stamp spotted).
 	if zone == Net.Zone.BORDER:
-		return &"escape"
+		return &"escape" if bool(state.get("annex_urgent", false)) else &"annex_hold"
 	if zone == Net.Zone.LOT and phase == PHASE_CHASE:
 		return &"chase"
 	if zone == Net.Zone.LOT and phase == PHASE_WARNING:
@@ -231,6 +319,7 @@ func gather_state() -> Dictionary:
 		"phase": 0,
 		"sleeping": false,
 		"summary_open": false,
+		"annex_urgent": false,
 	}
 	if Net.current_state() != Net.State.IN_SESSION:
 		return state
@@ -248,6 +337,9 @@ func gather_state() -> Dictionary:
 		state["phase"] = int(director.call("phase"))
 	var summary := get_tree().get_first_node_in_group("day_summary") as CanvasItem
 	state["summary_open"] = summary != null and summary.visible
+	var annex := get_tree().get_first_node_in_group("annex")
+	if annex != null and annex.has_method("urgent"):
+		state["annex_urgent"] = bool(annex.call("urgent"))
 	return state
 
 
@@ -296,10 +388,16 @@ func _set_mood(mood_id: String) -> void:
 func _apply(step: Dictionary) -> void:
 	match str(step["action"]):
 		"play":
+			var before := _track
 			_track = str(step["track"])
 			if _dry:
 				print("[Music] play %s" % _track)
-			_play(_track, float(step["fade"]))
+			# The muzak and the escape cue are one tune: change on the bar line.
+			if before != "" and _Tracks.sync_of(before, _track) != "":
+				_hook("sync %s>%s" % [before, _track])
+				_play_synced(_track, float(step["fade"]))
+			else:
+				_play(_track, float(step["fade"]))
 		"rest", "stop":
 			_track = ""
 			_fade_out(float(step["fade"]))
@@ -326,14 +424,61 @@ func _on_setting_changed(section: StringName, key: StringName, value: Variant) -
 
 # ---------------------------------------------------------------- playing
 
-## Crossfade to id on the back deck over fade seconds.
-func _play(id: String, fade: float) -> void:
+## Switch to id at the playing track's next bar line, at the same place in the
+## song (both share the sync name, so bar n of one is bar n of the other).
+## With nothing playing it is an ordinary start.
+func _play_synced(id: String, fade: float) -> void:
+	_sync_pending = {}
+	if _dry or not _music_on:
+		return
+	var front: Dictionary = _decks[_front]
+	var player: AudioStreamPlayer = front["player"]
+	if not player.playing or float(front["target"]) <= 0.0:
+		_play(id, fade)
+		return
+	var position := player.get_playback_position() + AudioServer.get_time_since_last_mix()
+	var cut := _Tracks.bar_switch(id, position)
+	if cut.is_empty():
+		_play(id, fade)
+		return
+	_sync_pending = {"id": id, "at": Time.get_ticks_msec() + int(float(cut["wait"]) * 1000.0), "seek": float(cut["seek"])}
+
+
+func _sync_switch() -> void:
+	if _sync_pending.is_empty() or Time.get_ticks_msec() < int(_sync_pending["at"]):
+		return
+	var pending := _sync_pending
+	_sync_pending = {}
+	if str(pending["id"]) == _track:
+		_play(str(pending["id"]), Constants.MUSIC_BAR_SWITCH_FADE, float(pending["seek"]))
+
+
+## While a section is asked for and the track has it: in at the next bar line,
+## round and round inside it. Let go, the song plays on out of it.
+func _hold_section() -> void:
+	if _dry or _sections.is_empty() or _track == "" or _decks.is_empty():
+		return
+	var player: AudioStreamPlayer = _decks[_front]["player"]
+	if not player.playing:
+		return
+	for section: String in _sections:
+		if _Tracks.section_seconds(_track, section).is_empty():
+			continue
+		var seek := _Tracks.section_seek(_track, section, player.get_playback_position())
+		if seek >= 0.0:
+			player.seek(seek)
+		return
+
+
+## Crossfade to id on the back deck over fade seconds, from `from` seconds in.
+func _play(id: String, fade: float, from: float = 0.0) -> void:
 	if _dry or not _music_on:
 		return
 	var stream := _stream(id)
 	if stream == null:
 		_fade_out(fade)
 		return
+	_slow_from = -1
 	var rate := 1.0 / maxf(fade, 0.01)
 	var old: Dictionary = _decks[_front]
 	old["target"] = 0.0
@@ -348,7 +493,8 @@ func _play(id: String, fade: float) -> void:
 	deck["rate"] = rate
 	deck["db"] = float(_Tracks.track(id).get("db", 0.0))
 	player.volume_db = SILENT_DB
-	player.play()
+	player.pitch_scale = 1.0
+	player.play(maxf(from, 0.0))
 
 
 func _fade_out(fade: float) -> void:
@@ -366,8 +512,20 @@ func _fade(delta: float) -> void:
 	var duck_target := Constants.MUSIC_STINGER_DUCK_DB if ducking else 0.0
 	var duck_step := absf(Constants.MUSIC_STINGER_DUCK_DB) / maxf(Constants.MUSIC_DUCK_FADE_SECONDS, 0.01) * delta
 	_duck_db = move_toward(_duck_db, duck_target, duck_step)
+	# duck(): the same ramp, its own depth.
+	var hook_target := _hook_duck_db if Time.get_ticks_msec() < _hook_duck_until else 0.0
+	_hook_duck_now = move_toward(_hook_duck_now, hook_target, absf(minf(_hook_duck_db, -1.0)) / maxf(Constants.MUSIC_DUCK_FADE_SECONDS, 0.01) * delta)
+	# slowdown(): the pitch sinks, slowly at first, and the last of it fades out.
+	var pitch := 1.0
+	var slow_fade := 0.0
+	if _slow_from >= 0:
+		var k := clampf(float(Time.get_ticks_msec() - _slow_from) / 1000.0 / _slow_seconds, 0.0, 1.0)
+		pitch = lerpf(1.0, Constants.MUSIC_SLOWDOWN_PITCH, k * k)
+		slow_fade = linear_to_db(maxf(1.0 - smoothstep(0.7, 1.0, k), 0.0001))
 	for deck: Dictionary in _decks:
 		var player: AudioStreamPlayer = deck["player"]
+		if _slow_from >= 0:
+			player.pitch_scale = pitch
 		var gain := move_toward(float(deck["gain"]), float(deck["target"]), float(deck["rate"]) * delta)
 		deck["gain"] = gain
 		if gain <= 0.0 and float(deck["target"]) <= 0.0:
@@ -376,7 +534,7 @@ func _fade(delta: float) -> void:
 				player.stream = null
 			continue
 		var amplitude := sin(gain * PI * 0.5)
-		player.volume_db = maxf(Constants.MUSIC_TRACK_DB + float(deck["db"]) + _duck_db + linear_to_db(maxf(amplitude, 0.0001)), SILENT_DB)
+		player.volume_db = maxf(Constants.MUSIC_TRACK_DB + float(deck["db"]) + _duck_db + _hook_duck_now + slow_fade + linear_to_db(maxf(amplitude, 0.0001)), SILENT_DB)
 
 
 func _next_stinger() -> void:
@@ -420,6 +578,14 @@ func _stream(id: String) -> AudioStream:
 ## the pause buttons are up.
 func _update_muffle() -> void:
 	var want := _wants_muffle()
+	var cab := _ambience.has("van_cab")
+	if not _dry:
+		# Behind the van's walls the music is muffled less than from another room.
+		var bus := AudioServer.get_bus_index(_Buses.MUSIC)
+		var slot := _Buses._muffle_slot(bus)
+		if slot >= 0:
+			var filter := AudioServer.get_bus_effect(bus, slot) as AudioEffectLowPassFilter
+			filter.cutoff_hz = Constants.MUSIC_CAB_CUTOFF_HZ if cab and not _wants_room_muffle() else Constants.MUSIC_MUFFLE_CUTOFF_HZ
 	if want == _muffled:
 		return
 	_muffled = want
@@ -428,6 +594,10 @@ func _update_muffle() -> void:
 
 
 func _wants_muffle() -> bool:
+	return _ambience.has("van_cab") or _wants_room_muffle()
+
+
+func _wants_room_muffle() -> bool:
 	if Net.current_state() != Net.State.IN_SESSION:
 		return false
 	var phone := get_tree().get_first_node_in_group("phone") as CanvasItem

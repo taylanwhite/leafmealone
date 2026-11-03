@@ -207,6 +207,21 @@ func _build(root: Node3D) -> void:
 			# One rake swing frozen at its phases (raking chunk 4).
 			if ResourceLoader.exists("res://tools/studio/rake_stroke_subject.gd"):
 				load("res://tools/studio/rake_stroke_subject.gd").build(root, _options)
+		"annex", "annex_plan":
+			# Satellite Annex B (R2 chunk 5): the street front, the lobby from the
+			# doors, the windows up close, the desk corner; annex_plan from above
+			# with the roof off. --seed=N picks the windows' looks.
+			_annex(root, _subject == "annex_plan")
+		"clerk":
+			# The staff's states (npcs/clerk.gd) in four rows; --page=1 the second set;
+			# --state=<name> --times=0.1,0.4,0.8,1.4 one state at four moments.
+			if _options.has("state"):
+				_clerk_moments(root, str(_options["state"]), str(_options.get("times", "0.1,0.4,0.8,1.4")), str(_options.get("role", "clerk")))
+			else:
+				_clerks(root, int(_options.get("page", "0")))
+		"form27b":
+			# Form 27-B (props/form_27b.gd): 2, 3 and 4 boxes, stamped, a carbon, approved.
+			_forms(root)
 		"holds":
 			_holds(root)
 		"gestures":
@@ -1036,3 +1051,147 @@ func _bounds(root: Node3D) -> AABB:
 		total = box if first else total.merge(box)
 		first = false
 	return total if not first else AABB(Vector3(-1, 0, -1), Vector3(2, 2, 2))
+
+
+# ---- R2:5 Satellite Annex B, its staff and Form 27-B
+
+func _annex(root: Node3D, plan: bool) -> void:
+	var annex := load("res://levels/annex/annex_b.gd") as GDScript
+	annex.set("cutaway", plan)
+	var built: Node3D = annex.call("build", root, _seed if _options.has("seed") else Constants.ANNEX_SET_SEED)
+	annex.set("cutaway", false)
+	# The run's doors stand open (the Annex opens them when someone arrives).
+	built.get_node("Entrance").call("set_state", &"open", -1000.0)
+	# --windows=break: A and B on a break (lamp off, clock sign up), C closed (blinds down, lamp off).
+	if str(_options.get("windows", "")) == "break":
+		for id: String in ["A", "B"]:
+			built.get_node("Windows/%s" % id).call("set_state", &"lamp_off", -1000.0)
+			built.get_node("Windows/%s" % id).call("set_state", &"clock_sign", -1000.0)
+		built.get_node("Windows/C").call("set_state", &"blind_down", -1000.0)
+		built.get_node("Windows/C").call("set_state", &"lamp_off", -1000.0)
+	if plan:
+		(built.get_node("LightRows") as Node3D).visible = false
+		root.set_meta("views", [
+			{"from": Vector3(0.0, 26.0, 9.0), "at": Vector3(0.0, 0.0, 1.5), "fov": 50.0},
+			{"from": Vector3(-6.0, 9.0, 8.0), "at": Vector3(-2.5, 0.5, -2.0), "fov": 55.0},
+			{"from": Vector3(8.0, 9.0, 6.0), "at": Vector3(5.0, 0.5, -1.0), "fov": 55.0},
+			{"from": Vector3(0.0, 12.0, -1.0), "at": Vector3(0.0, 0.0, -4.4), "fov": 60.0},
+		])
+		return
+	root.set_meta("views", [
+		{"from": Vector3(7.0, 2.4, 22.0), "at": Vector3(-1.0, 2.0, 6.5), "fov": 55.0},
+		{"from": Vector3(-4.0, 1.65, 5.4), "at": Vector3(-1.6, 1.3, -4.4), "fov": 72.0},
+		{"from": Vector3(-2.2, 1.6, -0.9), "at": Vector3(-2.2, 1.5, -4.4), "fov": 70.0},
+		{"from": Vector3(7.4, 1.8, -3.7), "at": Vector3(1.0, 1.0, 5.0), "fov": 75.0},
+	])
+
+
+## A lineup of the staff's states, each held a moment in, on stools where they sit.
+func _clerks(root: Node3D, page: int) -> void:
+	var clerk_script := load("res://npcs/clerk.gd") as GDScript
+	var pages: Array = [
+		[["counter_idle", 2.0], ["wave_up", 0.6], ["take_form", 0.5], ["stamp", 0.2],
+			["head_shake_point", 0.3], ["head_shake_point", 1.4], ["phone", 1.0], ["telegraph_stretch", 0.4],
+			["peer_form", 1.0], ["asleep", 1.0], ["wake", 0.2], ["lunch_bite", 0.3],
+			["lunch_turned", 1.0], ["lean_toward", 1.0], ["turn_to_cabinet", 1.0], ["volley", 0.1]],
+		[["on_break", 1.5], ["notice", 0.3], ["add_carbon", 0.5], ["gasp_whistle", 0.2],
+			["gasp_whistle", 0.8], ["walk_hand_out", 0.5], ["take_stamp_back", 0.3], ["head_windup_slam", 0.5],
+			["greeter_lead", 0.5], ["greeter_offer", 0.6], ["greeter_punch_card", 0.45], ["janitor_mop", 0.6],
+			["closing_rush", 0.3], ["idle", 1.0], ["hurry_back", 0.5], ["twitch_turn_back", 0.2]],
+	]
+	var lineup: Array = pages[clampi(page, 0, pages.size() - 1)]
+	var views: Array = []
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	for index: int in lineup.size():
+		var entry: Array = lineup[index]
+		var state := StringName(entry[0])
+		var row := index / 4
+		var column := index % 4
+		var at := Vector3(float(column) * 1.6 - 2.4, 0.0, float(row) * -6.0)
+		var role := "clerk"
+		if str(entry[0]).begins_with("greeter"):
+			role = "greeter"
+		elif str(entry[0]).begins_with("janitor"):
+			role = "janitor"
+		elif str(entry[0]) in ["head_windup_slam", "gasp_whistle", "walk_hand_out", "take_stamp_back"]:
+			role = "head"
+		var clerk: Node3D = clerk_script.call("make", "Clerk%d" % index, role, 2 + index)
+		root.add_child(clerk)
+		clerk.call("set_home", at, 0.0)
+		var args := {}
+		if state == &"head_shake_point":
+			args["to"] = root.to_global(at + Vector3(-2.0, 1.4, 1.5))
+		elif state == &"lean_toward":
+			args["dir"] = Vector3(-1.0, 0.0, 0.0)
+		elif state == &"notice":
+			args["at"] = root.to_global(at + Vector3(0.5, 1.5, 2.0))
+		elif state == &"on_break":
+			args["to"] = root.to_global(at)
+		clerk.call("play", state, now - float(entry[1]), args)
+		clerk.set("hold_t", float(entry[1]))
+		if (clerk_script.get("SEATED") as Array).has(state) and role != "greeter" and role != "janitor":
+			_LowPoly.box(root, Vector3(0.4, 0.46, 0.4), at + Vector3(0.0, 0.23, 0.0), Color(0.3, 0.3, 0.34))
+			_LowPoly.box(root, Vector3(1.0, 0.05, 0.5), at + Vector3(0.0, 0.76, 0.5), Color(0.6, 0.45, 0.3))
+		_label(root, "%s %.1f" % [entry[0], entry[1]], at + Vector3(0.0, 2.25, 0.0), 0.004)
+	for row: int in 4:
+		views.append({"from": Vector3(0.0, 1.7, float(row) * -6.0 + 5.2), "at": Vector3(0.0, 1.0, float(row) * -6.0), "fov": 55.0})
+	root.set_meta("views", views)
+
+
+## Form 27-B on an easel: two, three and four boxes, part stamped, a carbon, approved.
+func _forms(root: Node3D) -> void:
+	var form_script := load("res://props/form_27b.gd") as GDScript
+	var annex := load("res://levels/annex/annex_b.gd") as GDScript
+	var looks_list: Array = annex.call("looks_for", _seed)
+	var looks := {"A": looks_list[0], "B": looks_list[1], "C": looks_list[2]}
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	var forms: Array = [
+		[PackedStringArray(["A", "B"]), 0, false, -1],
+		[PackedStringArray(["B", "C", "A"]), 1, false, -1],
+		[PackedStringArray(["C", "A", "B", "A"]), 2, false, -1],
+		[PackedStringArray(["A", "B", "C", "B"]), 4, false, 3],
+		[PackedStringArray(["B", "A", "C"]), 3, true, -1],
+		[PackedStringArray(["A", "C"]), 2, true, -1],
+	]
+	for index: int in forms.size():
+		var entry: Array = forms[index]
+		var form: Node3D = form_script.call("make", entry[0], looks)
+		root.add_child(form)
+		form.position = Vector3(float(index % 3) * 0.3 - 0.3, 1.25 - float(index / 3) * 0.36, 0.0)
+		if int(entry[3]) >= 0:
+			form.call("set_carbons_from", int(entry[3]))
+		form.call("set_progress", int(entry[1]), entry[0], bool(entry[2]), now - 2.0)
+		if index == 5:
+			form.call("glow", true)
+			form.call("fast_pass", true)
+			form.call("punch_card", 3)
+	_LowPoly.box(root, Vector3(1.0, 0.8, 0.02), Vector3(0.0, 1.07, -0.03), Color(0.3, 0.26, 0.24))
+	root.set_meta("views", [
+		{"from": Vector3(0.0, 1.07, 1.25), "at": Vector3(0.0, 1.07, 0.0), "fov": 40.0},
+		{"from": Vector3(-0.3, 1.25, 0.45), "at": Vector3(-0.3, 1.25, 0.0), "fov": 40.0},
+		{"from": Vector3(0.3, 1.25, 0.45), "at": Vector3(0.3, 1.25, 0.0), "fov": 40.0},
+		{"from": Vector3(0.15, 0.89, 0.6), "at": Vector3(0.15, 0.89, 0.0), "fov": 40.0},
+	])
+
+## One staff state at four moments side by side, each with its own camera.
+func _clerk_moments(root: Node3D, state: String, times: String, role: String) -> void:
+	var clerk_script := load("res://npcs/clerk.gd") as GDScript
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	var moments := times.split(",")
+	var views: Array = []
+	for index: int in mini(moments.size(), 4):
+		var at := Vector3(float(index) * 3.0 - 4.5, 0.0, 0.0)
+		var clerk: Node3D = clerk_script.call("make", "ClerkA", role, 3)
+		root.add_child(clerk)
+		clerk.call("set_home", at, 0.0)
+		var args := {"to": root.to_global(at + Vector3(-2.0, 1.4, 1.2)), "dir": Vector3(-1.0, 0.0, 0.2), "at": root.to_global(at + Vector3(0.6, 1.5, 2.0)), "from": root.to_global(at + Vector3(0.0, 0.0, 1.0))}
+		if state in ["walk_to", "on_break", "walk_hand_out"]:
+			args["to"] = root.to_global(at)
+		clerk.call("play", StringName(state), now - moments[index].to_float(), args)
+		clerk.set("hold_t", moments[index].to_float())
+		if (clerk_script.get("SEATED") as Array).has(StringName(state)) and role in ["clerk", "head"]:
+			_LowPoly.box(root, Vector3(0.4, 0.46, 0.4), at + Vector3(0.0, 0.23, 0.0), Color(0.3, 0.3, 0.34))
+			_LowPoly.box(root, Vector3(1.2, 0.05, 0.55), at + Vector3(0.0, 0.76, 0.55), Color(0.6, 0.45, 0.3))
+		_label(root, "%s %s" % [state, moments[index]], at + Vector3(0.0, 2.3, 0.0), 0.003)
+		views.append({"from": at + Vector3(1.0, 1.6, 2.9), "at": at + Vector3(0.0, 1.05, 0.0), "fov": 45.0})
+	root.set_meta("views", views)

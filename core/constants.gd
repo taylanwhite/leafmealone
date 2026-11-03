@@ -1602,6 +1602,106 @@ const CUE_TASK_POLL_SECONDS: float = 0.5
 ## A task counts as done at this many percent (the task list turns it green).
 const TASK_DONE_PERCENT: int = 95
 
+# ---- nice boys: Annex set and sound (R2 chunk 5)
+# Satellite Annex B (levels/annex/annex_b.gd, props/office_props.gd, npcs/clerk.gd,
+# props/form_27b.gd, props/receipt_slip.gd; docs/GAME.md "Satellite Annex B").
+# Everything here is local and cosmetic; what happens there is chunk 6's.
+## The interior, in meters: 18 wide (x), 3.2 to the ceiling, 13 deep (z).
+const ANNEX_SIZE: Vector3 = Vector3(18.0, 3.2, 13.0)
+## The seed the world builds the set with (its default window looks; a run
+## dresses its own over them). Form 27-B, so 27.
+const ANNEX_SET_SEED: int = 27
+## Budgets for the whole set (the staff's bodies are characters, budgeted with
+## the cast): triangles and draw calls (one per visible mesh surface, label and sprite).
+const ANNEX_MAX_TRIS: int = 60000
+const ANNEX_MAX_DRAWS: int = 60
+## Ceiling light rows, back to front; at closing they clunk off this far apart (seconds).
+const ANNEX_LIGHT_ROWS: int = 4
+const ANNEX_LIGHT_ROW_GAP: float = 0.3
+## Each row's warm fill light: energy and reach (m). Rows cast shadows only at the
+## top Settings shadow level.
+const ANNEX_LAMP_ENERGY: float = 0.75
+const ANNEX_LAMP_RANGE: float = 9.0
+## A window's own lamp (lit = serving) and how fast props move, in seconds: the
+## blinds, the hatch, a window stamp's lift and slam (the KA-CHUNK lands at the
+## end of the slam), the entrance doors, the side door, the turnstile's turn.
+const ANNEX_WINDOW_LAMP_ENERGY: float = 2.4
+const ANNEX_BLIND_SECONDS: float = 0.55
+const ANNEX_HATCH_SECONDS: float = 0.3
+const ANNEX_STAMP_LIFT_SECONDS: float = 0.22
+const ANNEX_STAMP_SLAM_SECONDS: float = 0.09
+const ANNEX_DOOR_SECONDS: float = 0.7
+const ANNEX_TURNSTILE_TURN_SECONDS: float = 0.8
+const ANNEX_TURNSTILE_BOUNCE_SECONDS: float = 0.35
+## A floor line's pulse (it brightens and fades twice), and the bell's wobble.
+const ANNEX_PULSE_SECONDS: float = 1.2
+const ANNEX_BELL_WOBBLE_SECONDS: float = 0.5
+## The big APPROVED, NICELY stamp: raised this high (m) and held for the
+## hesitation before the slam, its slam time, and how high a holder carries it.
+const ANNEX_BIG_STAMP_RAISE: float = 0.55
+const ANNEX_BIG_STAMP_HESITATE: float = 0.6
+const ANNEX_BIG_STAMP_SLAM_SECONDS: float = 0.12
+## How long the big stamp takes to rise off its pad before the hesitation (s).
+## The KA-CHUNK lands LIFT + HESITATE + SLAM after the slam starts
+## (OfficeProps.BigStamp.slam_lands_after()).
+const ANNEX_BIG_STAMP_LIFT_SECONDS: float = 0.25
+## Past this far from the camera (m) the set stops drawing and its staff stop
+## moving; a peer with no camera (a headless host, a bot) never runs the staff.
+const ANNEX_CULL_DISTANCE: float = 160.0
+## The staff (npcs/clerk.gd): walking pace and the hurry back (m/s), how fast they
+## turn (radians a second), the head shake's rate, how loud and how often the asleep
+## clerk snores (seconds between snores), and how far apart the closing volley's stamps fall.
+const CLERK_WALK_SPEED: float = 1.6
+const CLERK_HURRY_SPEED: float = 3.0
+const CLERK_TURN_RATE: float = 6.0
+const CLERK_SHAKE_HZ: float = 3.2
+const CLERK_SNORE_EVERY: float = 2.6
+const CLERK_VOLLEY_GAP: float = 0.22
+## A clerk's bark caption (the caption stack's subtitle line), in seconds.
+const CLERK_BARK_SECONDS: float = 2.2
+## A clerk hands his arms over to a body gesture (the scribble) and takes them
+## back over this long (s).
+const CLERK_GESTURE_BLEND: float = 0.2
+## The clipboard (props/form_27b.gd): its paper texture's width in pixels (the
+## height is FORM_ASPECT times that), where it sits in a first-person view
+## (camera space, m) and its tilt (radians), and how long a smudge takes to wipe a box off.
+const FORM_TEXTURE_PX: int = 256
+const FORM_ASPECT: float = 1.32
+const FORM_FIRST_PERSON_OFFSET: Vector3 = Vector3(-0.2, -0.17, -0.42)
+const FORM_FIRST_PERSON_TILT: Vector3 = Vector3(0.55, 0.32, 0.12)
+const FORM_SMUDGE_SECONDS: float = 0.8
+## Held in a body's left hand (Form.attach_hand): this far down the arm from
+## the shoulder pivot (m), where the hand is.
+const FORM_HAND_DROP: float = 0.56
+## A stamp landing on the form: the ink's punch-in (seconds).
+const FORM_STAMP_SECONDS: float = 0.18
+## The receipt slip (props/receipt_slip.gd): seconds per printed line, where it
+## sits in a first-person view (camera space, m).
+const RECEIPT_LINE_SECONDS: float = 0.22
+const RECEIPT_FIRST_PERSON_OFFSET: Vector3 = Vector3(0.06, -0.06, -0.34)
+## The lobby muzak's mood priority (audio/music_tracks.gd MOODS "annex_hold"; the
+## escape cue it switches to is 80). The switch waits for the next bar line of
+## the muzak (both tracks are the same tempo and form), then cuts in at the same bar.
+const ANNEX_HOLD_PRIORITY: int = 70
+## The longest the director waits for that bar line before switching anyway (s).
+const MUSIC_BAR_SWITCH_MAX_WAIT: float = 1.8
+## A cut at a bar line crossfades this fast (s).
+const MUSIC_BAR_SWITCH_FADE: float = 0.06
+## Closing time's dying record (MusicDirector.slowdown): the pitch it sinks to.
+const MUSIC_SLOWDOWN_PITCH: float = 0.45
+## A rider's cab (MusicDirector.set_ambience &"van_cab"): the music through the van's walls.
+const MUSIC_CAB_CUTOFF_HZ: float = 1200.0
+## The office bed (audio/ambience.gd in the Annex): the typewriters' loop (dB), a
+## distant phone and the water cooler's glug, seconds apart as a random range.
+const AMBIENCE_OFFICE_DB: float = -16.0
+const AMBIENCE_OFFICE_PHONE_GAP: Vector2 = Vector2(14.0, 32.0)
+const AMBIENCE_OFFICE_GLUG_GAP: Vector2 = Vector2(20.0, 30.0)
+## How fast the office bed fades in and out at the Annex's door (dB a second).
+const AMBIENCE_OFFICE_FADE_DB_PER_SECOND: float = 120.0
+## Busted plays this long after the hand lands when CATCH_BARK_AT (the catch's
+## bark, R2 chunk 2) isn't in this build yet (s).
+const CUE_BUSTED_AFTER_FALLBACK: float = 0.95
+
 # ---- settings
 ## Player settings (core/settings.gd, user://settings.cfg; docs/DECISIONS.md
 ## "Player settings"). Local to each machine, never replicated.

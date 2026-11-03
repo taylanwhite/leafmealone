@@ -13,6 +13,10 @@ const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 
 
 var _wind: AudioStreamPlayer
+## Satellite Annex B's office through the wall (R2 chunk 5): typewriters, and a
+## bed set_bed() asks for (the van's cab: its radio, when it has one).
+var _office: AudioStreamPlayer
+var _beds: Dictionary = {}
 var _waits: Dictionary = {}
 var _car: AudioStreamPlayer3D
 var _car_t: float = -1.0
@@ -21,15 +25,19 @@ var _car_to := Vector3.ZERO
 
 
 func _ready() -> void:
+	add_to_group("ambience")
 	# Nobody hears a headless run (tests, bots), so don't play anything there.
 	if Net.is_automated() or DisplayServer.get_name() == "headless":
 		set_process(false)
 		return
 	_wind = _loop_player("wind_loop", Constants.AMBIENCE_WIND_DB)
+	_office = _loop_player("typewriter_bed", -80.0)
 	_waits = {
 		"bird": _between(Constants.AMBIENCE_FIRST_BIRD),
 		"dog": _between(Constants.AMBIENCE_DOG_GAP),
 		"car": _between(Constants.AMBIENCE_FIRST_CAR),
+		"office_phone": _between(Constants.AMBIENCE_OFFICE_PHONE_GAP),
+		"cooler": _between(Constants.AMBIENCE_OFFICE_GLUG_GAP),
 	}
 	_car = AudioStreamPlayer3D.new()
 	_car.stream = load(_Bank.files("car_pass")[0])
@@ -87,11 +95,51 @@ func _process(delta: float) -> void:
 		_waits["car"] = _between(Constants.AMBIENCE_CAR_GAP)
 		if in_hood and _car_t < 0.0:
 			_start_car(me.global_position)
+	_annex_office(zone, delta)
 	if _car_t >= 0.0:
 		_car_t += delta / Constants.AMBIENCE_CAR_SECONDS
 		_car.global_position = _car_from.lerp(_car_to, clampf(_car_t, 0.0, 1.0))
 		if _car_t >= 1.0:
 			_car_t = -1.0
+
+
+## Satellite Annex B (the BORDER zone): typewriters through the wall, a phone
+## ringing in the back office now and then, the water cooler's glug.
+func _annex_office(zone: int, delta: float) -> void:
+	var inside := zone == Net.Zone.BORDER
+	_office.volume_db = move_toward(_office.volume_db, Constants.AMBIENCE_OFFICE_DB if inside else -80.0, Constants.AMBIENCE_OFFICE_FADE_DB_PER_SECOND * delta)
+	if float(_waits["office_phone"]) <= 0.0:
+		_waits["office_phone"] = _between(Constants.AMBIENCE_OFFICE_PHONE_GAP)
+		if inside:
+			_one_shot("office_phone", _annex_point("Windows/B", Vector3(0.0, 1.4, -1.6)), 0.0)
+	if float(_waits["cooler"]) <= 0.0:
+		_waits["cooler"] = _between(Constants.AMBIENCE_OFFICE_GLUG_GAP)
+		if inside:
+			_one_shot("glug", _annex_point("Cooler", Vector3(0.0, 1.0, 0.0)), -6.0)
+
+
+## A point near one of the Annex's nodes (set-dressing, so it may not be there).
+func _annex_point(path: String, offset: Vector3) -> Vector3:
+	var world := get_tree().get_first_node_in_group("world")
+	var node := world.get_node_or_null("BorderZone/AnnexSet/%s" % path) as Node3D if world != null else null
+	if node == null:
+		var me := _local_player()
+		return me.global_position + offset if me != null else offset
+	return node.global_transform * offset
+
+
+## A bed of sound the music director asks for (MusicDirector.set_ambience):
+## &"van_cab" plays the cab's radio when the van chunk has registered it.
+func set_bed(bed: StringName, on: bool) -> void:
+	var id := "radio_babble" if bed == &"van_cab" else String(bed)
+	if on and not _beds.has(bed) and _Bank.has(id) and _wind != null:
+		_beds[bed] = _loop_player(id, -10.0)
+	elif not on and _beds.has(bed):
+		var player: AudioStreamPlayer = _beds[bed]
+		_beds.erase(bed)
+		player.stop()
+		player.stream = null
+		player.queue_free()
 
 
 ## A car drives along the far lane of the lot's street, past the yard. In the

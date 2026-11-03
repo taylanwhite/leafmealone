@@ -5,7 +5,7 @@ extends RefCounted
 ## director (audio/music_director.gd) and its schedule (audio/music_schedule.gd)
 ## read it; --audio-test checks it.
 ##
-## TRACKS: id -> {file, bpm, bars, intro_bars, loop, stinger, title_key, db}
+## TRACKS: id -> {file, bpm, bars, intro_bars, loop, stinger, title_key, db, sync?}
 ##   file        the .ogg tools/make_music.py and tools/encode_ogg.py made
 ##   bpm         the exact tempo make_music.py rendered ("bpm_exact" in its
 ##               sidecar): it nudges a song's tempo so the loop and its intro are
@@ -14,6 +14,9 @@ extends RefCounted
 ##   intro_bars  bars before the loop start (a loop goes back to A, not the top)
 ##   title_key   its title, ui/strings.gd MUSIC_TITLES
 ##   db          volume trim on top of Constants.MUSIC_TRACK_DB
+##   sync        tracks with the same sync name share tempo and bars: a switch
+##               between them waits for the next bar line and picks up at the
+##               same place (annex_hold and escape_run)
 ## Only tracks that exist are listed. The calm moods' music came in audio chunk
 ## 4a (it retired the old 8-bar stand-in loop); the tension tracks and the rest
 ## of the stingers in 4b (all but st_lost_em).
@@ -45,7 +48,12 @@ const TRACKS: Dictionary = {
 	"nice_boys_incoming": {"file": "res://assets/audio/music/nice_boys_incoming.ogg", "bpm": 128.0, "bars": 8, "intro_bars": 0, "loop": true, "stinger": false, "title_key": "track_nice_boys_incoming", "db": 0.0},
 	"nice_boys_chase": {"file": "res://assets/audio/music/nice_boys_chase.ogg", "bpm": 151.89873417721518, "bars": 64, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_nice_boys_chase", "db": 0.0},
 	# The escape/end-sequence cue: Border Return's lanes today, the Field Office escape later.
-	"escape_run": {"file": "res://assets/audio/music/escape_run.ogg", "bpm": 144.14414414414415, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_escape_run", "db": 0.0},
+	"escape_run": {"file": "res://assets/audio/music/escape_run.ogg", "bpm": 144.14414414414415, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_escape_run", "db": 0.0, "sync": "getaway"},
+	# ---- R2:5 Satellite Annex B's lobby muzak (tools/music_tension.py annex_hold):
+	# Clean Getaway for vibraphone and brushes, the same tempo, form and bars, so
+	# the switch between them waits for a bar line and lands on the same bar
+	# (MusicDirector, "sync").
+	"annex_hold": {"file": "res://assets/audio/music/annex_hold.ogg", "bpm": 144.14414414414415, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_annex_hold", "db": 0.0, "sync": "getaway"},
 	"st_rank_up": {"file": "res://assets/audio/music/st_rank_up.ogg", "bpm": 100.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_rank_up", "db": 0.0},
 	"st_season": {"file": "res://assets/audio/music/st_season.ogg", "bpm": 96.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_season", "db": 0.0},
 	"st_morning": {"file": "res://assets/audio/music/st_morning.ogg", "bpm": 110.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_morning", "db": 0.0},
@@ -67,6 +75,9 @@ const MOODS: Dictionary = {
 	# An escape or end sequence: Border Return's lanes today (pick_mood's BORDER),
 	# the NICE BOYS' Field Office escape later (push_mood or a pick_mood rule).
 	"escape": {"tracks": ["escape_run"], "rests": false, "urgent": true, "priority": 80},
+	# Satellite Annex B (pick_mood's BORDER): the lobby muzak, until the Annex
+	# turns urgent (closing time, the big stamp spotted) and it switches to escape.
+	"annex_hold": {"tracks": ["annex_hold"], "rests": false, "urgent": false, "priority": Constants.ANNEX_HOLD_PRIORITY},
 	# The old name for escape, still accepted everywhere a mood id is (MOOD_ALIASES).
 	"crossing": {"alias": "escape"},
 	"silence": {"tracks": [], "rests": false, "urgent": false, "priority": 55},
@@ -170,3 +181,79 @@ static func is_stinger(id: String) -> bool:
 
 static func title_key(id: String) -> String:
 	return str(track(id).get("title_key", ""))
+
+## Sections a playing track can be held in (MusicDirector.request_section):
+## track -> {section: [first bar, end bar)} in the track's own bars, intro
+## included. The chase's half-time "hide!" section for hidden players.
+const SECTIONS: Dictionary = {
+	"nice_boys_chase": {"hide": [28, 36]},
+}
+
+
+## Where a section of a track starts and ends, in seconds into its file's song
+## (without the encode lead), or [] when the track has no such section.
+static func section_seconds(id: String, section: String) -> Array:
+	var bars: Array = (SECTIONS.get(id, {}) as Dictionary).get(section, [])
+	if bars.size() < 2 or not TRACKS.has(id):
+		return []
+	var bar := bar_seconds(id)
+	return [float(bars[0]) * bar, float(bars[1]) * bar]
+
+
+## One 4/4 bar of a track, in seconds.
+static func bar_seconds(id: String) -> float:
+	return 4.0 * 60.0 / maxf(float(track(id).get("bpm", 120.0)), 1.0)
+
+
+## The silence an encode puts before a track's first beat (s; .ogg only).
+static func lead_seconds(id: String) -> float:
+	return Constants.MUSIC_ENCODE_LEAD_SECONDS if str(track(id).get("file", "")).ends_with(".ogg") else 0.0
+
+
+## A cut to id on the next bar line, from `position` seconds into the playing
+## file (the two tracks share tempo, form and encode lead): {"wait": seconds
+## until that bar line, "seek": where in id's file to start}, or {} when the bar
+## line is further off than Constants.MUSIC_BAR_SWITCH_MAX_WAIT. A bar line at
+## or past the song's end is the loop's start (plus however far past it is).
+static func bar_switch(id: String, position: float) -> Dictionary:
+	var bar := bar_seconds(id)
+	var lead := lead_seconds(id)
+	var into := position - lead
+	# A bar line less than a twentieth of a bar off is too close to make: the next.
+	var next := ceilf(into / bar + 0.05) * bar
+	var wait := next - into
+	if wait > Constants.MUSIC_BAR_SWITCH_MAX_WAIT:
+		return {}
+	var song := seconds(id)
+	if next >= song - 0.01:
+		next = loop_offset(id) - lead + (next - song)
+	return {"wait": wait, "seek": next + lead}
+
+
+## Where a track held in `section` jumps to from `position` seconds into its
+## file, or -1.0 to play on: from the section's end back to its start, and from
+## before it in on a bar line (`frame` is how late a check can be, s).
+static func section_seek(id: String, section: String, position: float, frame: float = 0.03) -> float:
+	var span := section_seconds(id, section)
+	if span.is_empty():
+		return -1.0
+	var lead := lead_seconds(id)
+	var start: float = float(span[0]) + lead
+	var end: float = float(span[1]) + lead
+	if position >= end - 0.005:
+		return start + maxf(position - end, 0.0)
+	if position < start:
+		var bar := bar_seconds(id)
+		var into_bar := fmod(position - lead, bar)
+		if into_bar < frame:
+			return start + into_bar
+		if bar - into_bar < 0.008:
+			return start
+	return -1.0
+
+
+## The sync name two tracks share, or "" when a switch between them is an
+## ordinary crossfade.
+static func sync_of(a: String, b: String) -> String:
+	var sync_a := str(track(a).get("sync", ""))
+	return sync_a if sync_a != "" and sync_a == str(track(b).get("sync", "")) and a != b else ""

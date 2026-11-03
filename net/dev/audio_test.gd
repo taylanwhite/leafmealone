@@ -147,6 +147,7 @@ func _run() -> void:
 	_check("raid", await _raid(music))
 	_check("day_end", await _day_end(music))
 	_check("escape", await _escape(music))
+	_check("annex_music", await _annex_music(music))
 	_SfxScript.unknown.erase(_bogus_id())
 	result["unknown_ids"] = _SfxScript.unknown.duplicate()
 	_check("no_unknown", _SfxScript.unknown.is_empty())
@@ -535,8 +536,9 @@ func _picker_table() -> bool:
 	var cases: Array = [
 		["lobby", _state(Net.State.LOBBY, -1, 8.0), &"", &"title"],
 		["offline", _state(Net.State.OFFLINE, -1, 8.0), &"store", &"title"],
-		["border at 23:00", _state(on, Net.Zone.BORDER, 23.0), &"chase", &"escape"],
-		["border while hot", _state(on, Net.Zone.BORDER, 10.0, 90.0), &"hot", &"escape"],
+		["the Annex at 23:00", _state(on, Net.Zone.BORDER, 23.0), &"chase", &"annex_hold"],
+		["the Annex while hot", _state(on, Net.Zone.BORDER, 10.0, 90.0), &"hot", &"annex_hold"],
+		["the Annex turns urgent", _state(on, Net.Zone.BORDER, 10.0).merged({"annex_urgent": true}, true), &"annex_hold", &"escape"],
 		["lot chase at 22:00", _state(on, lot, 22.0, 20.0, chase), &"night", &"chase"],
 		["lot warning", _state(on, lot, 10.0, 20.0, warning), &"work_morning", &"warning"],
 		["a raid beats the summary card", _state(on, lot, 10.0, 0.0, chase, false, true), &"silence", &"chase"],
@@ -801,6 +803,10 @@ func _escape(music: Node) -> bool:
 		return false
 	var me_id := Net.local_peer_id()
 	Net.move_player_to_zone(me_id, Net.Zone.BORDER)
+	# The BORDER zone is Satellite Annex B's lobby muzak now (R2 chunk 5); the
+	# escape cue is a push, as the Annex's stamp chase pushes it.
+	await _wait_mood(music, [&"annex_hold"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
+	music.call("push_mood", &"audio_test_escape", &"escape", _Tracks.priority("escape"))
 	var cut := await _wait_mood(music, [&"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_FADE_URGENT_SECONDS + 0.2)
 	var track := str(music.call("current_track"))
 	var plays := track == _Tracks.tracks_for("escape")[0]
@@ -829,6 +835,7 @@ func _escape(music: Node) -> bool:
 	crossing.call("_rpc_clear", me_id)
 	var made_it: bool = _Director.stinger_log.count("st_made_it") == made_before + 1 and _Director.stinger_log.back() == "st_made_it"
 	crossing.call("_rpc_end")
+	music.call("pop_mood", &"audio_test_escape")
 	Net.move_player_to_zone(me_id, Net.Zone.STORE)
 	var after := await _wait_mood(music, [&"store", &"night", &"silence"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
 	print("[AudioTest] escape: the border cuts to escape %s playing %s (%s), pistol %s, bonk riding on you %s, Made It Back %s, back to %s %s" % [cut, track, plays, go, bonk, made_it, music.call("current_mood"), after])
@@ -1078,3 +1085,116 @@ func _count_ids(ids: Array[String]) -> int:
 	for id: String in ids:
 		total += _SfxScript.log.count(id)
 	return total
+
+
+# ---- R2:5 Satellite Annex B's music (audio/music_tracks.gd annex_hold; the
+# music director's R2 hooks, gap-specs nice_boys C15).
+
+## A stand-in for R2 chunk 6's Annex node (group "annex"): only urgent().
+class UrgentStub extends Node:
+	var now_urgent: bool = false
+
+	func _ready() -> void:
+		add_to_group("annex")
+
+	func urgent() -> bool:
+		return now_urgent
+
+
+## The Annex plays its lobby muzak; when it turns urgent the music switches to
+## the escape cue on a bar line (the two share a sync name, tempo and bars); the
+## hooks answer: duck, the chase's hide section, the van cab's muffle, slowdown.
+func _annex_music(music: Node) -> bool:
+	var me_id := Net.local_peer_id()
+	var stub: UrgentStub = null
+	if get_tree().get_first_node_in_group("annex") == null:
+		stub = UrgentStub.new()
+		stub.name = "AudioTestAnnex"
+		add_child(stub)
+	var same: bool = _Tracks.sync_of("annex_hold", "escape_run") != "" and _Tracks.track("annex_hold")["bars"] == _Tracks.track("escape_run")["bars"] and _Tracks.track("annex_hold")["intro_bars"] == _Tracks.track("escape_run")["intro_bars"] and is_equal_approx(float(_Tracks.track("annex_hold")["bpm"]), float(_Tracks.track("escape_run")["bpm"]))
+	Net.move_player_to_zone(me_id, Net.Zone.BORDER)
+	var lobby := await _wait_mood(music, [&"annex_hold"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
+	var muzak := str(music.call("current_track")) == "annex_hold"
+	var synced := true
+	var urgent := true
+	if stub != null:
+		var syncs := _Director.hook_log.count("sync annex_hold>escape_run")
+		stub.now_urgent = true
+		urgent = await _wait_mood(music, [&"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_FADE_URGENT_SECONDS + 0.3)
+		synced = _Director.hook_log.count("sync annex_hold>escape_run") == syncs + 1
+	# The hooks.
+	var hooks_before := _Director.hook_log.size()
+	music.call("duck", -12.0, 0.4)
+	music.call("request_section", &"hide", true)
+	var section_on := bool(music.call("section_requested", &"hide"))
+	var hide_span := _Tracks.section_seconds("nice_boys_chase", "hide")
+	var bar := _Tracks.bar_seconds("nice_boys_chase")
+	var span_ok := hide_span.size() == 2 and is_equal_approx(float(hide_span[0]), 28.0 * bar) and is_equal_approx(float(hide_span[1]), 36.0 * bar)
+	music.call("request_section", &"hide", false)
+	music.call("set_ambience", &"van_cab", true)
+	var cab_muffled := bool(music.call("is_muffling"))
+	music.call("set_ambience", &"van_cab", false)
+	var cab_clear := not bool(music.call("ambience_on", &"van_cab"))
+	music.call("slowdown", 1.0)
+	var logged := _Director.hook_log.size() == hooks_before + 6
+	var math := _bar_math()
+	if stub != null:
+		stub.queue_free()
+	Net.move_player_to_zone(me_id, Net.Zone.STORE)
+	var after := await _wait_mood(music, [&"store", &"night", &"silence"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
+	print("[AudioTest] annex music: same tune %s, the Annex plays the muzak %s (%s), urgent cuts to escape %s on the bar %s; hooks: section %s %s, cab muffle %s cleared %s, logged %s; bar and section math %s; back %s" % [same, lobby, muzak, urgent, synced, section_on, span_ok, cab_muffled, cab_clear, logged, math, after])
+	return same and lobby and muzak and urgent and synced and section_on and span_ok and cab_muffled and cab_clear and logged and math and after
+
+
+## The director's bar-line cut and section hold, by the arithmetic it uses
+## (audio/music_tracks.gd bar_switch, section_seek), at a few playback
+## positions: mid-bar, just past a line, the last bar (the loop's wrap), and
+## the hide section's way in, its loop back and inside it. A dry run never seeks.
+func _bar_math() -> bool:
+	var problems := PackedStringArray()
+	var bar := _Tracks.bar_seconds("escape_run")
+	var lead := _Tracks.lead_seconds("escape_run")
+	var bars := int(_Tracks.track("escape_run")["bars"])
+	var intro := int(_Tracks.track("escape_run")["intro_bars"])
+	var cases := [
+		# [position into the file, wait expected, seek expected]
+		[lead + 10.5 * bar, 0.5 * bar, lead + 11.0 * bar],
+		[lead + 10.0 * bar + 0.01, bar - 0.01, lead + 11.0 * bar],
+		[lead + (float(bars) - 0.5) * bar, 0.5 * bar, lead + float(intro) * bar],
+	]
+	for entry: Array in cases:
+		var cut := _Tracks.bar_switch("escape_run", float(entry[0]))
+		if cut.is_empty() or absf(float(cut["wait"]) - float(entry[1])) > 0.002 or absf(float(cut["seek"]) - float(entry[2])) > 0.002:
+			problems.append("bar_switch at %.3f gave %s, wanted wait %.3f seek %.3f" % [float(entry[0]), str(cut), float(entry[1]), float(entry[2])])
+	# Every cut lands on a bar line of the new file and after the old one's.
+	for step: int in 40:
+		var position := lead + float(step) * bar * 0.37
+		var cut := _Tracks.bar_switch("escape_run", position)
+		if cut.is_empty():
+			continue
+		var on_line := fmod(float(cut["seek"]) - lead + 0.0001, bar) < 0.001
+		if not on_line or float(cut["wait"]) <= 0.0:
+			problems.append("bar_switch at %.3f is off the bar line: %s" % [position, str(cut)])
+			break
+	var span := _Tracks.section_seconds("nice_boys_chase", "hide")
+	if span.size() == 2:
+		var chase_bar := _Tracks.bar_seconds("nice_boys_chase")
+		var chase_lead := _Tracks.lead_seconds("nice_boys_chase")
+		var start := float(span[0]) + chase_lead
+		var end := float(span[1]) + chase_lead
+		var holds := [
+			# [position, seek expected (-1 plays on)]
+			[chase_lead + 20.0 * chase_bar + 0.01, start + 0.01],
+			[chase_lead + 20.5 * chase_bar, -1.0],
+			[end + 0.01, start + 0.01],
+			[start + 2.0 * chase_bar, -1.0],
+		]
+		for entry: Array in holds:
+			var seek := _Tracks.section_seek("nice_boys_chase", "hide", float(entry[0]))
+			if absf(seek - float(entry[1])) > 0.002:
+				problems.append("section_seek at %.3f gave %.3f, wanted %.3f" % [float(entry[0]), seek, float(entry[1])])
+	else:
+		problems.append("the chase has no hide section")
+	for problem: String in problems:
+		print("[AudioTest] annex music FAIL  %s" % problem)
+	return problems.is_empty()

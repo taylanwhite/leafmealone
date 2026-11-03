@@ -142,6 +142,29 @@ const SOUNDS: Dictionary = {
 	"washer_loop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 4.0, "db": 0.0},
 	"trimmer_loop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 4.0, "db": 0.0},
 	"roller_loop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 4.0, "db": 0.0},
+	# ---- R2:5 Satellite Annex B (tools/sfx_r2_annex.py): the props' own sounds
+	# (props/office_props.gd, each on the frame its motion lands), the staff's
+	# (npcs/clerk.gd), the receipt's printer, and the office's bed through the
+	# wall (audio/ambience.gd).
+	"stamp_kachunk": {"variants": 3, "bus": &"Sfx", "gap_ms": 60, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"stamp_smudge": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": -2.0},
+	"desk_bell": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.0, "db": 0.0},
+	"office_ding": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -3.0},
+	"blinds_rattle": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"shutter_roll": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": 0.0},
+	"turnstile_clack": {"variants": 0, "bus": &"Sfx", "gap_ms": 90, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"turnstile_clunk": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": 0.0},
+	"door_chime": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.6, "db": -2.0},
+	"pen_squeak": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": -2.0},
+	"receipt_print": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -2.0},
+	"punch_card": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"copier_beep": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": -4.0},
+	"clerk_snore": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.5, "db": -3.0},
+	"party_toot": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"closing_bell": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.0, "db": 0.0},
+	"lights_off_clunk": {"variants": 0, "bus": &"Sfx", "gap_ms": 120, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"office_phone": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.0, "db": -4.0},
+	"typewriter_bed": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 10.0, "db": 0.0},
 	# ---- driving: the drivable Chefty (net/components/chefty_drive.gd). The ids are
 	# the ones the integration review settled (gap-specs/critic.md C12); audio chunk 7
 	# may retune their recipes and drive the engine through audio/vehicle_sound.gd.
