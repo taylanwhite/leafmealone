@@ -181,8 +181,6 @@ func _ready() -> void:
 	_recorder.name = "Recorder"
 	_recorder.state_source = _state
 	add_child(_recorder)
-	# The host's scenario reset reaches every peer (the Courtesy Shuttle's dev reset).
-	add_to_group("scenario_listeners")
 	# After everything that moves, so a followed player is where they're drawn.
 	process_priority = 1000
 	print("[RemotePlay] reading %s (last id %d)" % [_dir.path_join("cmd.json"), _last_id])
@@ -192,12 +190,6 @@ func _ready() -> void:
 	if ready != null:
 		ready.store_string(JSON.stringify({"pid": OS.get_process_id(), "last_id": _last_id}))
 		ready.close()
-
-
-## A scenario reset on the host (net/dev/scenarios.gd): this screen's leftovers
-## from the last moment go at once.
-func on_scenario_reset() -> void:
-	_ScenariosScript.clear_leftovers(get_tree())
 
 
 ## Remote play's windows stall now and then (a town block's first build took 5 s
@@ -1260,7 +1252,7 @@ func _state() -> Dictionary:
 		out["heat"] = snappedf(float(heat.get("heat")), 0.1)
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and int(director.call("phase")) != 0:
-		out["raid"] = ["QUIET", "WARNING", "CHASE"][clampi(int(director.call("phase")), 0, 2)]
+		out["raid"] = ["QUIET", "WARNING", "CHASE", "DEPARTING"][clampi(int(director.call("phase")), 0, 3)]
 		out["raid_status"] = str(director.call("status_line"))
 	var annex := get_tree().get_first_node_in_group("annex")
 	if annex != null and bool(annex.call("is_active")):

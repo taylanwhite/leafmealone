@@ -145,7 +145,11 @@ function Convert-Steps([string]$text) {
 ## Sends one command to an instance and returns its result object (or $null on a timeout).
 function Send-Command([string]$name, [string]$stepsJson) {
 	$dir = Get-InstanceDir $name
-	if (-not (Test-Path $dir)) { throw "no $name instance (start one with tools\play.ps1 -Start$(if ($name -ne 'main') { ' -Observer' }))" }
+	if (-not (Test-Path $dir)) {
+		$switch = ''
+		if ($name -eq 'observer') { $switch = ' -Observer' } elseif ($name -eq 'friend') { $switch = ' -Friend' }
+		throw "no $name instance (start one with tools\play.ps1 -Start$switch)"
+	}
 	$cmdPath = Join-Path $dir 'cmd.json'
 	$resultPath = Join-Path $dir 'result.json'
 	$last = 0
@@ -221,10 +225,15 @@ if ($Start) {
 	$addingOnly = ($Observer -or $Friend) -and $mainAlive
 	if ($s -and $addingOnly -and -not $PSBoundParameters.ContainsKey('Port')) { $Port = [int]$s.port }
 	$started = @()
+	# With -Friend, the scenario waits until the friend has joined: a --scenario at launch
+	# runs before the friend window exists, and cite_rescue, van_unbuckle and annex_visit
+	# would refuse for want of one. The host gets the moment's world flags at launch and
+	# the scenario itself as a command once everyone is in.
+	$scenarioLater = $Friend -and $Scenario -ne ''
 	if (-not $addingOnly) {
 		$hostArgs = @('--host', '--no-steam', '--name=Claude', "--port=$Port")
 		if ($Scenario -ne '') {
-			$hostArgs += "--scenario=$Scenario"
+			if (-not $scenarioLater) { $hostArgs += "--scenario=$Scenario" }
 			$wantsTown = $Scenario -eq 'drive'
 			if ($wantsTown -and $Extra -notmatch '--town-map') { $hostArgs += '--town-map' }
 			if ($wantsTown -and $Extra -notmatch '--job-seed') { $hostArgs += '--job-seed=777' }
@@ -257,6 +266,11 @@ if ($Start) {
 		$started += 'friend'
 		Save-Session $pids $Port $Fps
 		$r = Send-Command 'friend' '[["wait",1.0]]'
+		if ($r) { $r | ConvertTo-Json -Depth 6 -Compress }
+	}
+	if ($scenarioLater) {
+		$r = Send-Command 'main' (Convert-Steps "scenario $Scenario")
+		Complete-Recordings $r
 		if ($r) { $r | ConvertTo-Json -Depth 6 -Compress }
 	}
 	"started $($started -join ' and ') on port $Port (fixed step: $(if ($Fps -gt 0) { "$Fps fps" } else { 'off' }))"

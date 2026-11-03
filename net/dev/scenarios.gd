@@ -99,11 +99,20 @@ var _annex_window: String = ""
 
 
 func _ready() -> void:
+	# The host's scenario reset reaches every peer (the Courtesy Shuttle's dev reset),
+	# on every peer that runs this node: remote play's windows and the playtest_tools
+	# test's client (R2b tools review: CI's client now clears its own screen too).
+	add_to_group("scenario_listeners")
 	var wanted := str(Net.dev_options().get("scenario"))
 	if wanted == "":
 		start_done = true
 		return
 	_run_at_start(wanted)
+
+
+## A scenario reset on the host: this screen's leftovers from the last moment go at once.
+func on_scenario_reset() -> void:
+	clear_leftovers(get_tree())
 
 
 func _run_at_start(wanted: String) -> void:

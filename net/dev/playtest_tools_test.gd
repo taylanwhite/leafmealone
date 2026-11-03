@@ -26,16 +26,41 @@ const STOP_MAX_MS: float = 50.0
 const RESCUE_SHIELD_METERS: float = 0.45
 ## lunge: the wind-up must start this soon after the scenario returns.
 const LUNGE_WINDUP_WITHIN: float = 1.2
+## How long the two-player section waits for CI's client (the friend) to join.
+const FRIEND_WAIT_SECONDS: float = 30.0
+## The client: at least this many of the host's resets must reach it, each
+## leaving its caption stack empty (the three two-player moments and their resets).
+const CLIENT_MIN_RESETS: int = 3
 
 static var result: Dictionary = {}
 
 var _scenarios: _ScenariosScript
+## Client side: resets seen, and the most caption lines left right after one.
+var _resets: int = 0
+var _lines_after_reset: int = 0
 
 
 func _ready() -> void:
 	if not Net.is_host():
+		# CI's client runs this node too (Extra): the host's reset must clear this
+		# screen as well. Scenarios (added first, so called first) clears; this checks.
+		add_to_group("scenario_listeners")
+		_report_client()
 		return
 	_run()
+
+
+## Client: called right after the Scenarios node's own on_scenario_reset (tree order).
+func on_scenario_reset() -> void:
+	_resets += 1
+	_lines_after_reset = maxi(_lines_after_reset, _caption_lines())
+	_report_client()
+
+
+func _report_client() -> void:
+	result = {"ok": _resets >= CLIENT_MIN_RESETS and _lines_after_reset == 0, "resets": _resets, "lines_after_reset": _lines_after_reset}
+	if not bool(result["ok"]):
+		result["error"] = "client: %d resets reached it (at least %d), %d caption lines left after one" % [_resets, CLIENT_MIN_RESETS, _lines_after_reset]
 
 
 func _run() -> void:
@@ -134,6 +159,14 @@ func _run() -> void:
 	# Every other scenario (the Annex's, and each R2 chunk's) says itself whether it
 	# got there: scenarios.gd's _reached_<name>(). One that needs a second player
 	# (annex_visit) must say so instead of pretending.
+	# CI's client is the friend: wait for it, and report whether it came, so CI
+	# fails a run where it never did instead of passing on the refusals alone.
+	var friend_wait := 0.0
+	while int(_scenarios.call("_friend_id")) == 0 and friend_wait < FRIEND_WAIT_SECONDS:
+		await get_tree().create_timer(0.25).timeout
+		friend_wait += 0.25
+	var with_friend := int(_scenarios.call("_friend_id")) != 0
+	print("[PlaytestToolsTest] friend: %s (waited %.2f s)" % [with_friend, friend_wait])
 	for name: String in _ScenariosScript.NAMES:
 		if reached.has(name) or name in ["drive", "border_return"]:
 			continue
@@ -144,7 +177,7 @@ func _run() -> void:
 		# Moments with a friend in them (annex_visit, cite_rescue, van_unbuckle) must
 		# say they need one when there's nobody else (R2 integration: chunks 2 and 4
 		# added two more).
-		if name in TWO_PLAYER_SCENARIOS and Net.peer_ids().size() < 2:
+		if name in TWO_PLAYER_SCENARIOS and not with_friend:
 			var error := str(out.get("error", ""))
 			reached[name] = not bool(out.get("ok", true)) and error.contains("second player") and error.contains("-Friend")
 			print("[PlaytestToolsTest] %s alone: %s" % [name, out.get("error", "no error")])
@@ -198,7 +231,7 @@ func _run() -> void:
 
 	# Leave the session as it was: no raid, nobody in the crossing.
 	await _scenarios.reset()
-	_finish(problems.is_empty(), {"scenarios": reached, "recording": recording}, problems)
+	_finish(problems.is_empty(), {"scenarios": reached, "recording": recording, "friend": with_friend}, problems)
 
 
 ## Seconds until a NICE BOY winds up at you (the Encounter's WINDUP or a grab
