@@ -42,6 +42,17 @@ extends Node
 ##   driveon   called off while still pulling up, it drives on: no step backwards,
 ##             no jump
 ##   rides     no Rides/Van node; another ride arriving leaves Chefty's riders alone
+##   seats_apart, dolly_clear, step_clear, crew_clear, walk_in_order (p1-van) in
+##             the van's space: seats a shoulder apart in front of the doorway; the
+##             cab shot's dolly, every step in and out, and a NICE BOY climbing in
+##             and sitting down, kept off every other rider's eyes; Annex B's
+##             walk-in places in the order they stepped down
+##   restage   (p1-van) a seated rider let go by something else mid-ride is put
+##             straight back on the seat (the playtest's "two riders, one seat")
+##   exit_face (p1-van) a pole at arm's length in front of the step-down spot:
+##             you land turned away from it
+##   ghost     (p1-van) a watched van driving away past its road's end, out of
+##             view for a few frames, never steps backwards
 
 const _Trees = preload("res://props/trees.gd")
 const _RideScript: Script = preload("res://net/components/ride.gd")
@@ -64,6 +75,27 @@ const UNBUCKLE_LEVEL: float = 0.5
 const UNBUCKLE_APART := Vector2(0.6, 1.4)
 ## straggler_aboard (R2c van): how close to the bumper's step the straggler rides (m).
 const STRAGGLER_ON_BUMPER: float = 0.35
+## p1-van: seats this far apart (m) at least, each this wide either side of its
+## middle inside the open doorway; no head (a 0.27 m ball) nearer another rider's
+## eyes than HEAD_CLEAR (m); a NICE BOY climbing in passes them at CREW_PASS_CLEAR
+## and sits CREW_SIT_CLEAR off at least; a head's middle over the body's feet (m)
+## standing and sitting on a seat anchor (the floor); the test's rider id.
+const _NiceVan = preload("res://props/nice_van.gd")
+const SEATS_APART: float = 0.65
+const SEAT_HALF_WIDTH: float = 0.25
+const HEAD_CLEAR: float = 0.65
+const CREW_PASS_CLEAR: float = 1.0
+const CREW_SIT_CLEAR: float = 1.3
+const STANDING_HEAD: float = 1.55
+const SITTING_HEAD: float = 1.25
+const TEST_PEER: int = 99
+## exit_face: a pole this far (m) straight out in front of the step-down spot.
+const POLE_AHEAD: float = 1.0
+## ghost: watched this long (s) once its road ends, out of view over this window
+## (s from then), and no frame steps back more than this (m).
+const GHOST_WATCH_SECONDS: float = 2.5
+const GHOST_BLINK := Vector2(0.6, 0.85)
+const GHOST_BACK_MAX: float = 0.05
 
 static var result: Dictionary = {}
 
@@ -139,14 +171,18 @@ func _run() -> void:
 		_finish(false, "no Shuttle under the run director")
 		return
 	await _step_park(shuttle)
+	_step_geometry(shuttle)
 	await _step_raid(shuttle)
 	await _step_seats(shuttle)
+	await _step_restage(shuttle)
+	await _step_exit_face(shuttle)
 	await _step_unbuckle(shuttle)
 	await _step_rescue(shuttle)
 	await _step_straggler(shuttle)
 	await _step_ride(shuttle)
 	await _step_dropoff(shuttle)
 	await _step_driveon(shuttle)
+	await _step_ghost(shuttle)
 	_step_rides()
 	_finish(_problems.is_empty(), "")
 
@@ -504,6 +540,184 @@ func _step_rides() -> void:
 	world.get_node("Rides").remove_child(other)
 	other.queue_free()
 	_check("rides", no_van and kept, "no Rides/Van %s, Chefty's rider kept %s" % [no_van, kept])
+
+
+# ---------------------------------------------------------------- p1-van: a crew aboard
+
+
+## The seats, the cab shot's dolly, the step in and out and the crew's way in, worked
+## through the shuttle's own placement code in the van's space, against every other
+## seat's eyes (playtest nb1, nb2, r1, lagduo-11, missed-01).
+func _step_geometry(shuttle: Node) -> void:
+	var seats: Array[float] = _NiceVan.RIDER_SEAT_Z
+	var apart := INF
+	var inside := true
+	for a: int in seats.size():
+		inside = inside and seats[a] - SEAT_HALF_WIDTH >= _NiceVan.DOOR_OPENING_Z.x and seats[a] + SEAT_HALF_WIDTH <= _NiceVan.DOOR_OPENING_Z.y
+		for b: int in range(a + 1, seats.size()):
+			apart = minf(apart, absf(seats[a] - seats[b]))
+	_check("seats_apart", apart >= SEATS_APART and inside, "the riders' seats are %.2f m apart at least (want >= %.2f), all in front of the open doorway %s" % [apart, SEATS_APART, inside])
+	var lenses: Array[Transform3D] = []
+	for index: int in seats.size():
+		lenses.append(shuttle.call("_local_marker", null, "CabinCam/Seat%d" % index) as Transform3D)
+	# The cab shot: the blend into the moving dolly, frame by frame, from every seat.
+	var dolly_worst := INF
+	var dolly_where := ""
+	var dt := 1.0 / 60.0
+	for seat: int in seats.size():
+		var t := 0.0
+		while t <= Constants.VAN_FRESHENER_BLEND + dt:
+			var e := smoothstep(0.0, 1.0, clampf(t / Constants.VAN_DOLLY_BLEND_IN, 0.0, 1.0))
+			var u := smoothstep(0.0, 1.0, clampf(t / Constants.VAN_FRESHENER_BLEND, 0.0, 1.0))
+			var drawn := lenses[seat].interpolate_with(_NiceVan.dolly_pose(lenses[seat], u), e)
+			for other: int in seats.size():
+				if other == seat:
+					continue
+				var gap := drawn.origin.distance_to(_head_of(lenses[other]))
+				if gap < dolly_worst:
+					dolly_worst = gap
+					dolly_where = "seat %d at %.2f s, seat %d's head" % [seat, t, other]
+			t += dt
+	_check("dolly_clear", dolly_worst >= HEAD_CLEAR, "the seat-to-cab dolly passes the other riders' heads %.2f m off at the nearest (want >= %.2f; %s)" % [dolly_worst, HEAD_CLEAR, dolly_where])
+	# Stepping up from the door step and down to the sidewalk, from every seat.
+	var door_step: Transform3D = shuttle.call("_local_marker", null, "DoorStep")
+	var step_worst := INF
+	var step_where := ""
+	for seat: int in seats.size():
+		for leaving: bool in [false, true]:
+			var trip: RefCounted = _ShuttleScript.Trip.new()
+			trip.set("seats", {TEST_PEER: {"seat": seat, "at": 0.0, "mode": 0, "from": door_step.origin}})
+			var span := 3.0
+			if leaving:
+				var door: Transform3D = shuttle.call("_seat_door", trip, seat)
+				trip.set("unseats", {TEST_PEER: {"at": 0.0, "exit": door.origin + Vector3(Constants.VAN_EXIT_OUT, 0.0, 0.0), "yaw": NAN}})
+				span = Constants.VAN_BUCKLE_SECONDS + Constants.VAN_STEP_SECONDS
+			var tau := 0.0
+			while tau <= span:
+				var placed: Array = shuttle.call("_rider_local", trip, TEST_PEER, tau)
+				if not bool(placed[1]):
+					var head := (placed[0] as Transform3D).origin + Vector3(0.0, STANDING_HEAD, 0.0)
+					for other: int in seats.size():
+						if other == seat:
+							continue
+						var gap := head.distance_to(lenses[other].origin)
+						if gap < step_worst:
+							step_worst = gap
+							step_where = "seat %d %s at %.2f s, seat %d's eyes" % [seat, "stepping out" if leaving else "stepping in", tau, other]
+				tau += dt
+	_check("step_clear", step_worst >= HEAD_CLEAR, "stepping in and out, a rider's head passes the others' eyes %.2f m off at the nearest (want >= %.2f; %s)" % [step_worst, HEAD_CLEAR, step_where])
+	# The crew climbing in from the door step, and sat down: never at a rider's lens.
+	var crew_worst := INF
+	var crew_where := ""
+	var sat_worst := INF
+	for crew_seat: int in 3:
+		var trip: RefCounted = _ShuttleScript.Trip.new()
+		trip.set("crew", {1: {"seat": crew_seat, "at": 0.0, "mode": _ShuttleScript.CREW_HOP_IN, "from": door_step.origin + Vector3(0.6, 0.0, 0.0)}})
+		var tau := 0.0
+		while tau <= 4.0:
+			var placed: Array = shuttle.call("_crew_local", trip, 1, tau)
+			var sitting := bool(placed[1])
+			var head := (placed[0] as Transform3D).origin + Vector3(0.0, SITTING_HEAD if sitting else STANDING_HEAD, 0.0)
+			for lens: Transform3D in lenses:
+				var gap := head.distance_to(lens.origin)
+				if sitting:
+					sat_worst = minf(sat_worst, gap)
+				elif gap < crew_worst:
+					crew_worst = gap
+					crew_where = "crew seat %d at %.2f s" % [crew_seat, tau]
+			tau += dt
+	_check("crew_clear", crew_worst >= CREW_PASS_CLEAR and sat_worst >= CREW_SIT_CLEAR, "a NICE BOY climbing in passes the riders' eyes %.2f m off (want >= %.2f; %s), sits %.2f m from them (want >= %.2f)" % [crew_worst, CREW_PASS_CLEAR, crew_where, sat_worst, CREW_SIT_CLEAR])
+	# Annex B's walk-in lines them up in the order they stepped down along the van.
+	var two: Array = _ShuttleScript._walk_in_order([11, 22], {11: 0.1, 22: -1.3})
+	var four: Array = _ShuttleScript._walk_in_order([1, 2, 3, 4], {1: 0.8, 2: -1.3, 3: 0.1, 4: -0.6})
+	_check("walk_in_order", two == [22, 11] and four == [4, 3, 2, 1], "the walk-in's places follow where they stepped down: %s, %s" % [two, four])
+
+
+## A seated rider's head, from their eyes: the middle of a 0.27 m head behind them.
+static func _head_of(lens: Transform3D) -> Vector3:
+	return lens.origin + lens.basis.z.normalized() * 0.2
+
+
+## Somebody else lets a seated rider's body go mid-ride (the playtest's "two riders
+## share a seat": its network pose, behind the van, was the next seat): the shuttle
+## puts it straight back on its seat.
+func _step_restage(shuttle: Node) -> void:
+	var body := _player(_client)
+	var stage_body := body.get_node_or_null("StageBody") if body != null else null
+	if stage_body == null:
+		_check("restage", false, "no client body or StageBody")
+		return
+	var before := int((shuttle.get("stats") as Dictionary).get("restaged", 0))
+	var anchor: Object = stage_body.call("staged_anchor")
+	body.call("clear_staged")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var after := int((shuttle.get("stats") as Dictionary).get("restaged", 0))
+	var back: Object = stage_body.call("staged_anchor")
+	_check("restage", anchor != null and back == anchor and after == before + 1, "let go mid-ride, the rider is back on the seat's anchor %s (restaged %d)" % [back == anchor and anchor != null, after - before])
+
+
+## Stepping down with a lamp post at arm's length in front: you land facing away
+## from it (playtest nb3).
+func _step_exit_face(shuttle: Node) -> void:
+	var trip := int(_steps.get("trip", 0))
+	var pose: Transform3D = shuttle.call("trip_pose", trip, Net.server_time())
+	var exit: Vector3 = shuttle.call("_exit_point", shuttle.call("_trip", trip), pose, 2)
+	var out := pose.basis.x
+	out.y = 0.0
+	out = out.normalized()
+	var plain := float(shuttle.call("_exit_yaw", pose, exit))
+	var clear_spot := (shuttle.call("_things_near", exit, Constants.VAN_EXIT_FACE_CLEAR) as PackedVector3Array).is_empty()
+	var pole := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var cylinder := CylinderShape3D.new()
+	cylinder.radius = 0.1
+	cylinder.height = 3.0
+	shape.shape = cylinder
+	shape.position.y = 1.5
+	pole.add_child(shape)
+	get_tree().get_first_node_in_group("world").add_child(pole)
+	pole.global_position = exit + out * POLE_AHEAD
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var turned := float(shuttle.call("_exit_yaw", pose, exit))
+	pole.queue_free()
+	var facing := Vector3(-sin(turned), 0.0, -cos(turned))
+	var off := rad_to_deg(facing.angle_to(out))
+	var plain_off := rad_to_deg(Vector3(-sin(plain), 0.0, -cos(plain)).angle_to(out))
+	_check("exit_face", off >= Constants.VAN_EXIT_FACE_CONE - 0.5 and (plain_off <= 1.0 or not clear_spot), "nothing within reach %s: faces %.0f deg off straight out; a pole %.1f m ahead: turned %.0f deg away (want >= %.0f)" % [clear_spot, plain_off, POLE_AHEAD, off, Constants.VAN_EXIT_FACE_CONE])
+	await get_tree().physics_frame
+
+
+## A watcher keeps seeing the van drive away (playtest nb6): past the end of its
+## planned road, one frame where it's out of view no longer drops it back onto
+## the plan's stop, 20 m behind. The host watches its own van go (forced in view),
+## loses sight of it for a few frames, and never sees it step backwards.
+func _step_ghost(shuttle: Node) -> void:
+	var trip := int(shuttle.call("dev_park_now", true))
+	shuttle.set("dev_seen_override", 1)
+	await get_tree().create_timer(0.3).timeout
+	shuttle.call("host_depart", Net.server_time() + 0.3)
+	var hidden: Variant = await _wait_for(func() -> Variant:
+		return true if str(shuttle.call("leg_name", trip)) == "hidden" else null, 25.0)
+	var holder := shuttle.get_node_or_null("Trip%d" % trip) as Node3D
+	var worst_back := 0.0
+	var last := holder.global_transform if holder != null else Transform3D()
+	var blinked := false
+	var started := Net.server_time()
+	while holder != null and is_instance_valid(holder) and Net.server_time() - started < GHOST_WATCH_SECONDS:
+		var rel := Net.server_time() - started
+		shuttle.set("dev_seen_override", 0 if rel >= GHOST_BLINK.x and rel < GHOST_BLINK.y else 1)
+		blinked = blinked or (rel >= GHOST_BLINK.x and rel < GHOST_BLINK.y)
+		await get_tree().physics_frame
+		var now_x := holder.global_transform
+		worst_back = maxf(worst_back, -(now_x.origin - last.origin).dot(-last.basis.z))
+		last = now_x
+	var ghosting := bool((shuttle.get("_trips") as Dictionary).get(trip).get("ghosting")) if (shuttle.get("_trips") as Dictionary).has(trip) else false
+	shuttle.set("dev_seen_override", -1)
+	_check("ghost", hidden != null and blinked and worst_back <= GHOST_BACK_MAX and ghosting, "past its road's end the watched van drove on (%s) through a %.2f s blink, worst step back %.3f m (want <= %.2f)" % [ghosting, GHOST_BLINK.y - GHOST_BLINK.x, worst_back, GHOST_BACK_MAX])
+	shuttle.call("dev_reset")
+	await get_tree().physics_frame
 
 
 # ---------------------------------------------------------------- helpers
