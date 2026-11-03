@@ -63,22 +63,36 @@ var _held_last: bool = false
 var _source: FakeSource = null
 
 
-## A prompt source that always offers one, at the client's own feet: while held
-## the prompt must stay down anyway.
+## A prompt source that always offers one, just in front of the client's own
+## camera (so it is on screen while free): while held the prompt must stay down anyway.
 class FakeSource extends Node:
 	var at: Node3D
 
 	func prompt() -> Dictionary:
 		if at == null or not is_instance_valid(at):
 			return {}
-		return {"text": "Test", "at": at.global_position + Vector3(0.0, 1.0, -0.8)}
+		var camera := at.get_viewport().get_camera_3d()
+		if camera == null:
+			return {"text": "Test", "at": at.global_position + Vector3(0.0, 1.0, -0.8)}
+		return {"text": "Test", "at": camera.global_position - camera.global_basis.z * 2.5}
 
 
-## Whether the interaction prompt (ui/interaction_prompt.gd's Label3D) is drawn.
+## Whether the interaction prompt (ui/interaction_prompt.gd's screen-space pill)
+## is offering a hint: its current_text, not its fade, so a pill fading out where
+## it was doesn't count as a prompt while held.
 func _prompt_drawn() -> bool:
-	var world := get_tree().get_first_node_in_group("world")
-	var label := world.get_node_or_null("InteractionPrompt") as Label3D if world != null else null
-	return label != null and label.is_visible_in_tree() and label.text != ""
+	var ui := _ui()
+	var prompt := ui.get_node_or_null("InteractionPrompt") if ui != null else null
+	return prompt != null and str(prompt.get("current_text")) != ""
+
+
+## Whether the pill is really up on screen with words in it (faded in), for the
+## "shown while free" half: offered isn't enough if it's off screen or stuck at 0.
+func _prompt_shown() -> bool:
+	var ui := _ui()
+	var prompt := ui.get_node_or_null("InteractionPrompt") if ui != null else null
+	var pill := prompt.get_node_or_null("Pill") as Control if prompt != null else null
+	return _prompt_drawn() and pill != null and pill.is_visible_in_tree() and pill.modulate.a > 0.99
 
 
 func _process(_delta: float) -> void:
@@ -121,7 +135,7 @@ func _watch_client() -> void:
 				_prompt_frames += 1
 			if why != &"":
 				_reasons[why] = true
-		elif _prompt_drawn():
+		elif _prompt_shown():
 			# Before the catch lands the same source's prompt is up: the check can fail.
 			_prompt_free_frames += 1
 		_held_last = why != &"" and why != &"annex"

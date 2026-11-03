@@ -921,7 +921,7 @@ func _nearest_hand_task() -> Dictionary:
 	for task: String in ["pick_litter", "pull_weeds", "skim_pool"]:
 		var index := int(tasks.call("nearest_spot", task, global_position, float(Constants.TASK_REACH[task])))
 		if index >= 0:
-			return {"task": task, "at": (tasks.call("spot", index) as Dictionary)["at"]}
+			return {"task": task, "index": index, "at": (tasks.call("spot", index) as Dictionary)["at"]}
 	return {}
 
 
@@ -1505,7 +1505,7 @@ func interaction_hint() -> Dictionary:
 		return {}
 	var paint_held := _held_prop()
 	if paint_held != null and str(paint_held.get("kind")) == "paint_roller" and _nearest_bucket() != null:
-		return {"text": _Strings.UI["prompt_dip"], "at": _nearest_bucket().global_position + Vector3(0.0, 0.6, 0.0)}
+		return {"text": _Strings.UI["prompt_dip"], "at": _nearest_bucket().global_position + Vector3(0.0, 0.6, 0.0), "source": _nearest_bucket()}
 	var water_held := _held_prop()
 	if water_held != null and (str(water_held.get("kind")) == "hose" or str(water_held.get("kind")) == "pressure_washer"):
 		var source := _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH)
@@ -1513,38 +1513,38 @@ func interaction_hint() -> Dictionary:
 			var key := "prompt_refill"
 			if str(water_held.get("kind")) == "hose":
 				key = "prompt_unhook" if str(water_held.get("hose_source")) == str(source.get_meta("kind")) else "prompt_hook_" + str(source.get_meta("kind"))
-			return {"text": _Strings.UI[key], "at": source.global_position + Vector3(0.0, 0.9, 0.0)}
+			return {"text": _Strings.UI[key], "at": source.global_position + Vector3(0.0, 0.9, 0.0), "source": source}
 	# The gas can in hand by a gas tool that isn't full: fill it up (ahead of
 	# picking anything up, gap-specs critic C29).
 	var can_held := _held_prop()
 	if can_held != null and str(can_held.get("kind")) == "gas_can":
 		var thirsty := can_held.call("refuel_target") as Node3D
 		if thirsty != null:
-			return {"text": _Strings.SHOP_UI["prompt_refuel"] % int(float(thirsty.get("fuel"))), "at": thirsty.global_position + Vector3(0.0, 0.9, 0.0)}
+			return {"text": _Strings.SHOP_UI["prompt_refuel"] % int(float(thirsty.get("fuel"))), "at": thirsty.global_position + Vector3(0.0, 0.9, 0.0), "source": thirsty}
 	if _ladder != null:
 		return {"text": _Strings.UI["prompt_climb_down"], "at": global_position + Vector3(0.0, 2.2, 0.0) - global_basis.z * 0.6}
 	var ladder := _nearest_ladder()
 	if ladder != null and _held_prop() == null or (ladder != null and str(_held_prop().get("kind")) == "leaf_blower"):
-		return {"text": _Strings.UI["prompt_climb_up"], "at": ladder.global_position + Vector3(0.0, 1.8, 0.0)}
+		return {"text": _Strings.UI["prompt_climb_up"], "at": ladder.global_position + Vector3(0.0, 1.8, 0.0), "source": ladder}
 	var ladder_top := _nearest_ladder_top()
 	if ladder_top != null:
-		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0)}
+		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0), "source": ladder_top}
 	if carried_by != 0:
 		return {"text": _Strings.UI["hud_carried"], "at": global_position + Vector3(0.0, 1.9, 0.0)}
 	if carrying != 0:
 		return {"text": _Strings.UI["prompt_put_down_player"] % Net.player_name(carrying), "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}
 	var grabbable := _grabbable_player()
 	if grabbable != null:
-		return {"text": _Strings.UI["prompt_grab_player"] % Net.player_name(grabbable.name.to_int()), "at": grabbable.global_position + Vector3(0.0, 2.0, 0.0)}
+		return {"text": _Strings.UI["prompt_grab_player"] % Net.player_name(grabbable.name.to_int()), "at": grabbable.global_position + Vector3(0.0, 2.0, 0.0), "source": grabbable}
 	var spot := _nearest_free_spot()
 	if spot != null:
-		return {"text": _Strings.UI["prompt_hide"], "at": spot.global_position + Vector3(0.0, 2.2, 0.0)}
+		return {"text": _Strings.UI["prompt_hide"], "at": spot.call("prompt_point", global_position) as Vector3, "source": spot}
 	if _on_pile():
 		return {"text": _Strings.UI["prompt_pile_dive"], "at": global_position + Vector3(0.0, 0.5, 0.0) - global_basis.z * 0.8}
 	var hand := _nearest_hand_task()
 	if not hand.is_empty():
 		var key := {"pick_litter": "prompt_pick_litter", "pull_weeds": "prompt_pull_weed", "skim_pool": "prompt_skim_pool"}.get(str(hand["task"]), "prompt_pick_litter") as String
-		return {"text": _Strings.UI[key], "at": (hand["at"] as Vector3) + Vector3(0.0, 0.6, 0.0)}
+		return {"text": _Strings.UI[key], "at": (hand["at"] as Vector3) + Vector3(0.0, 0.6, 0.0), "source": "%s:%d" % [hand["task"], int(hand["index"])]}
 	var held := _held_prop()
 	if held != null and bool(held.call("near_truck")):
 		var held_kind := str(held.get("kind"))
@@ -1552,11 +1552,11 @@ func interaction_hint() -> Dictionary:
 		if held_kind == "leaf_bag":
 			return {}
 		if held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0:
-			return {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0)}
+			return {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0), "source": held}
 	if held != null and str(held.get("kind")) == "leaf_bag":
 		var barrow := _nearest_kind("wheelbarrow", 2.4) as Node3D
 		if barrow != null:
-			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0)}
+			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0), "source": barrow}
 	# Picking things up beats getting in: by the tailgate there are bags to load.
 	var closest := _best_pickup() if _hands_can_pick_up() else null
 	if closest == null:
@@ -1568,10 +1568,10 @@ func interaction_hint() -> Dictionary:
 	# A pocket item with every pocket full (and no stack of its kind to join): say so.
 	var closest_kind := str(closest.get("kind"))
 	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
-		return {"text": _Strings.UI["prompt_pockets_full"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "plain": true}
+		return {"text": _Strings.UI["prompt_pockets_full"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "plain": true, "source": closest}
 	var prop_label := str(closest.get("label"))
 	var text: String = _Strings.UI["prompt_pick_up"] % prop_label if prop_label != "" else _Strings.UI["prompt_pick_up_plain"]
-	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
+	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "source": closest}
 
 
 ## The nearest hiding spot with room that can be got into from here, measured

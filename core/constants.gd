@@ -2741,6 +2741,40 @@ const ICONS_HUD_FOLLOW_RATE: float = 12.0
 ## The day HUD's rank block fades out over this long when the phone comes out
 ## over it, and back in when it's put away.
 const ICONS_HUD_FADE_SECONDS: float = 0.15
+# The interaction prompt pill and the money popup's coin (ui/interaction_prompt.gd,
+# ui/money_popup.gd; icons chunk F).
+## The pill fades in over this long when something can be done, and out over
+## this long (where it was) when nothing can.
+const ICONS_PROMPT_FADE_IN: float = 0.12
+const ICONS_PROMPT_FADE_OUT: float = 0.1
+## It grows in from this scale as it fades in, overshooting a touch before it settles.
+const ICONS_PROMPT_APPEAR_SCALE: float = 0.82
+## New words while it's up bump it to 1 + this, settling at this rate (1/s).
+const ICONS_PROMPT_BUMP: float = 0.07
+const ICONS_PROMPT_BUMP_RATE: float = 14.0
+## When the thing it's over changes (its point moves more than this many meters
+## in one frame) it glides over to the new one at this rate (1/s), never jumps.
+const ICONS_PROMPT_RETARGET_M: float = 0.5
+const ICONS_PROMPT_GLIDE_RATE: float = 16.0
+## The pill keeps this many pixels inside the screen's edges.
+const ICONS_PROMPT_EDGE_PX: float = 12.0
+## ...and this many pixels clear of words over someone's head (a NICE BOY's
+## bubble, a keeper's caption or name), stepping up out of their way.
+const ICONS_PROMPT_AVOID_GAP_PX: float = 6.0
+## The "Hide" pill floats this far (m) over the top of a hiding spot, above the
+## part of it nearest you (this far in from its edges), and never higher than
+## this over the ground: a shed's door, not its roof (net/components/hide_spot.gd
+## prompt_point).
+const ICONS_PROMPT_HIDE_ABOVE: float = 0.12
+const ICONS_PROMPT_HIDE_INSET: float = 0.3
+const ICONS_PROMPT_HIDE_MAX_Y: float = 1.9
+## The "+$9" popup's coin: its height in the label's own pixels, the gap between
+## it and the text, how fast it spins (rad/s), and how thin it gets edge-on (a
+## coin has a rim; it never vanishes to a line).
+const ICONS_COIN_PX: float = 40.0
+const ICONS_COIN_GAP_PX: float = 8.0
+const ICONS_COIN_SPIN: float = 10.0
+const ICONS_COIN_EDGE_WIDTH: float = 0.14
 
 # ---- art: the job yard
 # The job yard in its neighborhood's style (levels/lots/lot_generator.gd; art chunk 6).
