@@ -184,6 +184,19 @@ func _build(root: Node3D) -> void:
 			root.add_child(truck)
 			truck.rotation.y = PI * 0.8
 			preload("res://props/vehicles.gd").build_truck(truck, Color(0.75, 0.22, 0.15))
+		"hats":
+			# Shops chunk 7: every hat on a head (player/hats.gd); --style=<id> one
+			# hat on one head from the front, three quarters, the side and above;
+			# --shirt=<0..7|hivis> dresses them too.
+			_hats(root)
+		"chefty_paints":
+			# Shops chunk 7: Chefty in each paint, each with a decal (--interior=1
+			# the drivable one's open cab); --decal=<id> one truck close up.
+			_chefty_paints(root)
+		"wardrobe":
+			# Shops chunk 7: Homie Depot's hat rack, mirror and shirt cubby, and the
+			# paint counter (levels/dressing/wardrobe.gd), stocked from the catalog.
+			_wardrobe(root)
 		"chefty_cab":
 			# The drivable Chefty's open cab (driving C1): a driver with hands on the
 			# wheel and a passenger sitting, a rider standing in the bed; for head
@@ -290,6 +303,95 @@ func _build(root: Node3D) -> void:
 			_PropCatalog.place(root, kind, Transform3D(Basis.IDENTITY, Vector3(0.0, lift, 0.0)), tint, {"season": _season, "lights": str(_options.get("lights", "classic"))})
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
+
+
+## Every hat on a head, in a row facing the camera (shops chunk 7), or one hat
+## from four sides (--style). Each body gets its own seed, so hair shows under them.
+func _hats(root: Node3D) -> void:
+	var hats := preload("res://player/hats.gd")
+	var styles: Array[String] = hats.STYLES.duplicate()
+	var one := str(_options.get("style", ""))
+	if one != "":
+		styles = [one]
+	var spacing := 0.78
+	for index: int in styles.size():
+		var body: Node3D = _CartoonBody.new()
+		body.call("dress_from_seed", 5 + index * 13)
+		body.set("hat_style", styles[index])
+		var shirt := str(_options.get("shirt", ""))
+		if shirt == "hivis":
+			body.set("vest", "hivis")
+		elif shirt != "":
+			body.set("shirt", Constants.SHIRT_DYES[clampi(int(shirt), 0, 7)])
+		root.add_child(body)
+		body.position = Vector3((float(index) - float(styles.size() - 1) * 0.5) * spacing, 0.0, 0.0)
+		body.rotation.y = PI
+		body.call("build")
+	if one != "":
+		root.set_meta("views", [
+			{"from": Vector3(0.0, 1.62, 1.5), "at": Vector3(0.0, 1.62, 0.0), "fov": 34.0},
+			{"from": Vector3(1.1, 1.75, 1.1), "at": Vector3(0.0, 1.66, 0.0), "fov": 34.0},
+			{"from": Vector3(1.6, 1.6, 0.0), "at": Vector3(0.0, 1.66, 0.0), "fov": 34.0},
+			{"from": Vector3(-0.8, 2.5, -1.0), "at": Vector3(0.0, 1.66, 0.0), "fov": 38.0},
+		])
+		return
+	var half := float(styles.size() - 1) * 0.5 * spacing
+	root.set_meta("views", [
+		{"from": Vector3(0.0, 1.9, 7.5), "at": Vector3(0.0, 1.4, 0.0), "fov": 42.0},
+		{"from": Vector3(-half + 1.2, 1.75, 2.6), "at": Vector3(-half + 1.2, 1.65, 0.0), "fov": 38.0},
+		{"from": Vector3(0.4, 1.75, 2.6), "at": Vector3(0.4, 1.65, 0.0), "fov": 38.0},
+		{"from": Vector3(half - 0.8, 1.75, 2.6), "at": Vector3(half - 0.8, 1.65, 0.0), "fov": 38.0},
+	])
+
+
+## Chefty in every paint, each with one of the decals (shops chunk 7), three
+## across and two deep; or one decal close up (--decal=<id>, --paint=<id>).
+func _chefty_paints(root: Node3D) -> void:
+	var vehicles := preload("res://props/vehicles.gd")
+	var interior := str(_options.get("interior", "0")) == "1"
+	var pairs: Array = [["paint_classic", ""], ["paint_mint", "decal_stripes"], ["paint_sunset", "decal_flames"], ["paint_pink", "decal_googly"], ["paint_black", "decal_leaves"], ["paint_gold", "decal_rust"]]
+	if _options.has("decal"):
+		pairs = [[str(_options.get("paint", "paint_classic")), str(_options["decal"])]]
+	for index: int in pairs.size():
+		var truck := Node3D.new()
+		root.add_child(truck)
+		truck.position = Vector3(float(index % 3) * 4.2 - 4.2, 0.0, float(index / 3) * 8.0 - 4.0) if pairs.size() > 1 else Vector3.ZERO
+		truck.rotation.y = PI * 0.78
+		vehicles.build_truck(truck, {"color": Constants.CHEFTY_PAINTS[pairs[index][0]], "decal": pairs[index][1], "interior": interior})
+	if pairs.size() == 1:
+		# The truck's nose points to (-0.64, 0, 0.77) (turned 0.78 of a half turn).
+		root.set_meta("views", [
+			{"from": Vector3(-5.6, 2.6, 3.4), "at": Vector3(-0.4, 1.2, 0.6), "fov": 40.0},
+			{"from": Vector3(-2.6, 1.7, 4.3), "at": Vector3(-1.9, 1.35, 2.26), "fov": 36.0},
+			{"from": Vector3(5.2, 2.2, 1.8), "at": Vector3(0.0, 1.2, 0.0), "fov": 40.0},
+			{"from": Vector3(3.8, 2.6, -4.6), "at": Vector3(0.6, 1.3, -0.6), "fov": 40.0},
+		])
+		return
+	root.set_meta("views", [
+		{"from": Vector3(-9.0, 9.0, -14.0), "at": Vector3(0.0, 1.0, 0.0), "fov": 45.0},
+		{"from": Vector3(-6.5, 2.6, -9.5), "at": Vector3(-1.0, 1.2, -4.0), "fov": 40.0},
+		{"from": Vector3(9.0, 2.8, -2.0), "at": Vector3(2.0, 1.2, 0.0), "fov": 42.0},
+		{"from": Vector3(-4.0, 2.6, 0.5), "at": Vector3(1.0, 1.3, 4.0), "fov": 42.0},
+	])
+
+
+## Homie Depot's workwear wall and paint counter (levels/dressing/wardrobe.gd),
+## moved to the studio's origin: the rack and cubby, a close look at the hats,
+## the mirror, and the counter.
+func _wardrobe(root: Node3D) -> void:
+	var wall := Node3D.new()
+	root.add_child(wall)
+	# The entrance block's face, so the rack has something to hang on.
+	_LowPoly.box(wall, Vector3(2.0, 3.0, 6.0), Vector3(Constants.WARDROBE_WALL_X - 1.0, 1.5, -4.8), Color(0.95, 0.5, 0.15))
+	preload("res://levels/dressing/wardrobe.gd").build(wall)
+	var rack := Vector3(Constants.WARDROBE_WALL_X, 1.2, Constants.HAT_RACK_Z)
+	var counter := Constants.PAINT_COUNTER_AT
+	root.set_meta("views", [
+		{"from": rack + Vector3(3.6, 0.5, 1.6), "at": rack + Vector3(0.0, 0.0, 1.4), "fov": 48.0},
+		{"from": rack + Vector3(1.6, 0.4, 0.0), "at": rack + Vector3(0.0, 0.2, 0.0), "fov": 44.0},
+		{"from": Vector3(Constants.WARDROBE_WALL_X + 2.2, 1.6, Constants.MIRROR_Z + 0.6), "at": Vector3(Constants.WARDROBE_WALL_X, 1.2, Constants.MIRROR_Z), "fov": 44.0},
+		{"from": counter + Vector3(0.6, 1.9, -2.4), "at": counter + Vector3(0.0, 1.1, 0.0), "fov": 46.0},
+	])
 
 
 ## Rusty's junk (props/shop_models.gd, shops chunk 5): every type in a row on

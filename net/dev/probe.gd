@@ -468,7 +468,25 @@ func _shops() -> Dictionary:
 		snack_names[player_name] = by_name[player_name]
 	var machine := get_tree().get_first_node_in_group("vending_machines")
 	var vending := "%d %d" % [int(machine.call("front_count")), (shops.get("vending_stuck") as Array).size()] if machine != null else ""
+	# Cosmetics (shops chunk 7): every player's body as this peer drew it (hat
+	# style, shirt color, vest), and Chefty's paint and decal as built here.
+	var bodies_by_name := {}
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var body := node.get_node_or_null("Visual/CartoonBody")
+		if body != null:
+			bodies_by_name[Net.player_name(node.name.to_int())] = "%s %s %s" % [str(body.get("hat_style")), (body.get("shirt") as Color).to_html(false), str(body.get("vest"))]
+	var body_names := bodies_by_name.keys()
+	body_names.sort()
+	var bodies := {}
+	for player_name: Variant in body_names:
+		bodies[player_name] = bodies_by_name[player_name]
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var paint := chefty.get_node_or_null("Paint") if chefty != null else null
+	var shown: Dictionary = paint.get("shown") if paint != null else {}
+	var chefty_look := "%s %s" % [(shown["color"] as Color).to_html(false), str(shown["decal"])] if not shown.is_empty() else ""
 	return {
+		"bodies": bodies,
+		"chefty_look": chefty_look,
 		"tools": sorted_tools,
 		"shelf_units": shelf_units,
 		"snacks": snack_names,

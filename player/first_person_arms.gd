@@ -51,6 +51,9 @@ const FP_SIP := Vector3(-0.03, 0.07, 0.1)
 ## sits (y, so it's in view), and how far the arm may stretch to get there.
 const FP_REACH := Vector3(0.06, -0.2, 0.5)
 const FP_REACH_STRETCH: float = 1.2
+## The render layer the arms are drawn on (the cartoon body's own head is
+## CartoonBody.HEAD_LAYER, 2). Every camera but the mirror's draws it.
+const ARMS_LAYER: int = 3
 
 var _player: CharacterBody3D
 var _body: Node3D
@@ -92,6 +95,7 @@ func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
 		shoulder.position = SHOULDERS[side]
 		add_child(shoulder)
 		var upper := _part(_upper_mesh(shirt))
+		upper.name = "Sleeve"
 		shoulder.add_child(upper)
 		var elbow := Node3D.new()
 		elbow.name = "Elbow"
@@ -116,9 +120,21 @@ func _snack_side() -> int:
 	return int(_body.get_meta("snack_side", 1)) if _body != null else 1
 
 
+## A new shirt (shops chunk 7, a dye bought or worn from the closet): the sleeves
+## you see in first person change with it.
+func recolor(shirt: Color) -> void:
+	for shoulder: Node3D in _shoulders:
+		var sleeve := shoulder.get_node_or_null("Sleeve") as MeshInstance3D
+		if sleeve != null:
+			sleeve.mesh = _upper_mesh(shirt)
+
+
 func _part(mesh: Mesh) -> MeshInstance3D:
 	var view := _Stylized.instance(mesh, {"roughness": 0.85, "specular": 0.15})
 	view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# On their own layer, which only cameras that want them draw (Homie Depot's
+	# mirror shows your body, not these; levels/dressing/wardrobe.gd).
+	view.layers = 1 << (ARMS_LAYER - 1)
 	return view
 
 

@@ -64,6 +64,7 @@ static func build_truck(parent: Node3D, opts: Variant = {}) -> Node3D:
 	if not _cache.has(key):
 		_cache[key] = _truck_mesh(color, interior)
 	look.add_child(_Stylized.instance(_cache[key], PAINT))
+	_decal(look, str(options.get("decal", "")), color, interior)
 	if interior:
 		_steering_wheel(look)
 	# Solid: you bump into it, and thrown bags land in the bed.
@@ -84,6 +85,149 @@ static func build_truck(parent: Node3D, opts: Variant = {}) -> Node3D:
 	_LowPoly.text_sign(look, "Chefty", Vector3(0.0, 1.32, 2.68), 56, TRIM)
 	_lights(look, -2.97, 1.12, 2.66)
 	return look
+
+
+## Chefty's decal (shops chunk 7, docs/GAME.md "Cosmetics"), its own node
+## "Decal" in the look: racing stripes, googly eyes on the nose (their pupils
+## are nodes, "GooglyEye0/Pupil" and "GooglyEye1/Pupil", that
+## net/components/chefty_paint.gd jiggles), flames licking back along the sides,
+## a leaf wrap, or Rusty's painted-on rust. Drawn for the paint under it (stripes
+## go dark on a light truck) and the cab it has (open or closed).
+static func _decal(look: Node3D, decal: String, color: Color, interior: bool) -> void:
+	if decal == "":
+		return
+	var key := "decal|%s|%s|%s" % [decal, color.to_html(), interior]
+	if not _cache.has(key):
+		_cache[key] = _decal_mesh(decal, color, interior)
+	var mesh := _cache[key] as ArrayMesh
+	if mesh != null:
+		var view := _Stylized.instance(mesh, PAINT)
+		view.name = "Decal"
+		look.add_child(view)
+	if decal == "decal_googly":
+		_googly_pupils(look)
+
+
+## Where the googly eyes sit on the nose (centers; their white discs face -Z).
+const GOOGLY_EYES: Array[Vector3] = [Vector3(-0.42, 1.42, -2.955), Vector3(0.42, 1.42, -2.955)]
+const GOOGLY_RADIUS: float = 0.19
+const GOOGLY_PUPIL: float = 0.085
+
+
+static func _decal_mesh(decal: String, color: Color, interior: bool) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(decal)
+	# The cab's sides stand at 1.12 (closed) or the door panels' 1.13 (open), the
+	# bed's walls at 1.15: anything painted on goes just outside them.
+	var cab_x := 1.135 if interior else 1.125
+	var bed_x := 1.157
+	match decal:
+		"decal_stripes":
+			var ink := GRILLE if color.get_luminance() > 0.55 else TRIM
+			var roof_y := 2.455 if interior else 2.445
+			for x: float in [-0.2, 0.2]:
+				kit.box(Vector3(x, roof_y, -2.0), Vector3(0.15, 0.012, 1.3), ink)
+				kit.box(Vector3(x, 1.366, -2.7), Vector3(0.15, 0.012, 0.38), ink)
+			for side: float in [-1.0, 1.0]:
+				# Two stripes down each side of the bed, front to tail, and on into the cab's door.
+				kit.box(Vector3(side * bed_x, 1.2, 0.72), Vector3(0.006, 0.07, 3.85), ink)
+				kit.box(Vector3(side * bed_x, 1.09, 0.72), Vector3(0.006, 0.03, 3.85), ink)
+				kit.box(Vector3(side * cab_x, 1.2, -2.0), Vector3(0.006, 0.07, 1.36), ink)
+				kit.box(Vector3(side * cab_x, 1.09, -2.0), Vector3(0.006, 0.03, 1.36), ink)
+		"decal_googly":
+			for eye: Vector3 in GOOGLY_EYES:
+				kit.blob(eye + Vector3(0.0, 0.0, 0.012), Vector3(GOOGLY_RADIUS + 0.014, GOOGLY_RADIUS + 0.014, 0.02), GRILLE, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+				kit.blob(eye, Vector3(GOOGLY_RADIUS, GOOGLY_RADIUS, 0.04), Color(0.98, 0.98, 0.96), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		"decal_flames":
+			for side: float in [-1.0, 1.0]:
+				# On the cab's side, under its window and the name, then down the bed's wall.
+				for index: int in 3:
+					_flame(kit, side, cab_x, -2.7 + float(index) * 0.36, 0.46, 1.03, 0.36 + 0.06 * float(index % 2), rng)
+				for index: int in 8:
+					_flame(kit, side, bed_x, -1.22 + float(index) * 0.44, 0.56, 1.0, 0.44 + 0.1 * float((index + 1) % 2), rng)
+		"decal_leaves":
+			var autumn: Array[Color] = [Color(0.93, 0.48, 0.12), Color(0.85, 0.22, 0.12), Color(0.96, 0.76, 0.2), Color(0.62, 0.3, 0.12)]
+			for side: float in [-1.0, 1.0]:
+				for index: int in 46:
+					var on_cab := index < 14
+					var x := side * ((cab_x if on_cab else bed_x) + 0.004)
+					var z := rng.randf_range(-2.65, -1.35) if on_cab else rng.randf_range(-1.15, 2.6)
+					var y := rng.randf_range(1.03, 1.45) if on_cab else rng.randf_range(1.02, 1.55)
+					kit.leaf_card(Vector3(x, y, z), Vector3(side, 0.0, 0.0), rng.randf_range(0.07, 0.12), autumn[rng.randi() % autumn.size()], 0.0, rng.randf_range(0.0, TAU))
+			for index: int in 16:
+				kit.leaf_card(Vector3(rng.randf_range(-0.95, 0.95), rng.randf_range(1.03, 1.55), 2.738), Vector3.BACK, rng.randf_range(0.07, 0.11), autumn[rng.randi() % autumn.size()], 0.0, rng.randf_range(0.0, TAU))
+		"decal_rust":
+			var rust := Color(0.5, 0.27, 0.12)
+			for side: float in [-1.0, 1.0]:
+				for index: int in 16:
+					var on_cab := index < 5
+					var x := side * ((cab_x if on_cab else bed_x) + 0.002)
+					var z := rng.randf_range(-2.6, -1.4) if on_cab else rng.randf_range(-1.1, 2.55)
+					var y := rng.randf_range(1.04, 1.4) if on_cab else rng.randf_range(1.03, 1.5)
+					var size := Vector2(rng.randf_range(0.05, 0.14), rng.randf_range(0.05, 0.16))
+					kit.blob(Vector3(x, y, z), Vector3(0.008, size.x, size.y), rust.darkened(rng.randf_range(0.0, 0.3)), {"detail": 1, "lumps": 0.35, "lump_scale": 3.0, "flat": true, "jitter": 0.1, "shade": false, "seed": index})
+					kit.blob(Vector3(x + side * 0.004, y, z), Vector3(0.006, size.x * 0.45, size.y * 0.45), rust.darkened(0.45), {"detail": 1, "lumps": 0.3, "flat": true, "jitter": 0.0, "shade": false, "seed": index + 50})
+			for index: int in 6:
+				kit.blob(Vector3(rng.randf_range(-0.9, 0.9), rng.randf_range(1.05, 1.5), 2.742), Vector3(rng.randf_range(0.05, 0.12), rng.randf_range(0.05, 0.1), 0.008), rust, {"detail": 1, "lumps": 0.35, "flat": true, "jitter": 0.1, "shade": false, "seed": index + 90})
+	return kit.commit()
+
+
+## One flame tongue on a side (x = side * at_x, facing out): a base along z
+## from z0, width wide, at height base_y, licking back and up to a tip tall
+## above it, with a yellow tongue inside the orange one.
+static func _flame(kit: RefCounted, side: float, at_x: float, z0: float, wide: float, base_y: float, tall: float, rng: RandomNumberGenerator) -> void:
+	var lean := rng.randf_range(0.35, 0.55)
+	for layer: int in 2:
+		var shrink := 1.0 if layer == 0 else 0.55
+		var color := Color(0.98, 0.4, 0.08) if layer == 0 else Color(1.0, 0.85, 0.2)
+		var x := side * (at_x + 0.002 + 0.002 * float(layer))
+		var front := Vector2(z0 + wide * (1.0 - shrink) * 0.3, base_y)
+		var back := Vector2(z0 + wide * (1.0 - (1.0 - shrink) * 0.3), base_y)
+		var tip := Vector2(z0 + wide * 0.5 + lean * tall * shrink + 0.05, base_y + tall * shrink)
+		# Both edges curve: the front edge bows forward, the back edge sweeps in.
+		var steps := 5
+		var left: Array[Vector2] = []
+		var right: Array[Vector2] = []
+		for step: int in steps + 1:
+			var t := float(step) / float(steps)
+			var bow_front := front.lerp(tip, t) + Vector2(-0.06 * sin(t * PI) * shrink, 0.0)
+			var bow_back := back.lerp(tip, t) + Vector2(0.05 * sin(t * PI) * shrink, -0.03 * sin(t * PI))
+			left.append(bow_front)
+			right.append(bow_back)
+		var normal := Vector3(side, 0.0, 0.0)
+		for step: int in steps:
+			var a := Vector3(x, left[step].y, left[step].x)
+			var b := Vector3(x, left[step + 1].y, left[step + 1].x)
+			var c := Vector3(x, right[step + 1].y, right[step + 1].x)
+			var d := Vector3(x, right[step].y, right[step].x)
+			for tri: Array in [[a, b, c], [a, c, d]]:
+				var p0: Vector3 = tri[0]
+				var p1: Vector3 = tri[1]
+				var p2: Vector3 = tri[2]
+				# Clockwise as seen from outside the truck's side.
+				if ((p2 - p0).cross(p1 - p0)).dot(normal) < 0.0:
+					kit.call("triangle", p0, p2, p1, normal, color)
+				else:
+					kit.call("triangle", p0, p1, p2, normal, color)
+
+
+## The googly eyes' pupils: a node per eye at its center, with the pupil in it
+## ("GooglyEye0/Pupil"), resting low in the eye.
+static func _googly_pupils(look: Node3D) -> void:
+	if not _cache.has("googly_pupil"):
+		var kit := _MeshKit.new()
+		kit.blob(Vector3.ZERO, Vector3(GOOGLY_PUPIL, GOOGLY_PUPIL, 0.02), Color(0.06, 0.05, 0.06), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		_cache["googly_pupil"] = kit.commit()
+	for index: int in GOOGLY_EYES.size():
+		var eye := Node3D.new()
+		eye.name = "GooglyEye%d" % index
+		eye.position = GOOGLY_EYES[index] + Vector3(0.0, 0.0, -0.045)
+		look.add_child(eye)
+		var pupil := _Stylized.instance(_cache["googly_pupil"], {"roughness": 0.3, "specular": 0.6})
+		pupil.name = "Pupil"
+		pupil.position = Vector3(0.0, -(GOOGLY_RADIUS - GOOGLY_PUPIL) * 0.9, 0.0)
+		eye.add_child(pupil)
 
 
 ## The NICE BOYS' van, the Courtesy Shuttle (props/nice_van.gd): a "VanLook" with

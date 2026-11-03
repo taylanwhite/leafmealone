@@ -816,6 +816,40 @@ SOUNDS["vo_yawn"] = (vo_yawn, 0, 0.65)
 SOUNDS["vo_burp"] = (vo_burp, 0, 0.7)
 
 
+# ---- shops chunk 7: cosmetics (player/cartoon_body.gd, net/components/chefty_paint.gd)
+def hat_on() -> list[float]:
+    """A new hat landing on a head: a soft cloth fwump (felt pushing air), a
+    little pop of the crown settling, and a tiny tap of the brim."""
+    rng = random.Random(1400)
+    out = silence(0.36)
+    fwump = lowpass(noise(rng, 0.14), 520.0)
+    mix_into(out, envelope(fwump, 0.008, 0.11), 0.0, 1.0)
+    mix_into(out, decay(tone(0.12, glide(180.0, 110.0, 0.09), "sine"), 30.0), 0.0, 0.7)
+    pop = decay(blip(0.05, 900.0, 520.0, 60.0), 50.0)
+    mix_into(out, pop, 0.03, 0.35)
+    mix_into(out, decay(bandpass(noise(rng, 0.02), 2600.0, 2.5), 120.0), 0.06, 0.18)
+    return out
+
+
+def spray_can() -> list[float]:
+    """Chefty's new paint: a rattle can shaken (the ball clacking three times),
+    then a long airy hiss that swells and trails off."""
+    rng = random.Random(1410)
+    out = silence(1.35)
+    for index in range(3):
+        clack = decay(bandpass(noise(rng, 0.03), 3200.0 + index * 150.0, 4.0), 110.0)
+        mix_into(out, clack, index * 0.085, 0.75)
+        mix_into(out, decay(tone(0.04, 2100.0 + index * 90.0, "triangle"), 140.0), index * 0.085, 0.25)
+    seconds = 0.95
+    hiss = highpass(bandpass(noise(rng, seconds), lambda t: 5200.0 - 900.0 * (t / seconds), 0.9), 2500.0)
+    mix_into(out, envelope(hiss, 0.06, 0.4), 0.3, 0.9)
+    return out
+
+
+SOUNDS["hat_on"] = (hat_on, 0, 0.7)
+SOUNDS["spray_can"] = (spray_can, 0, 0.6)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

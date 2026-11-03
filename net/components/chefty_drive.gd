@@ -48,6 +48,7 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
+const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
@@ -75,6 +76,8 @@ var _view: Node
 var _state: Dictionary = {}
 var _params: Dictionary = {}
 var _dents: int = 0
+## The crew's paint and decal on the look now (shops chunk 7, apply_paint).
+var _paint: Dictionary = {"color": COLOR, "decal": ""}
 var _tick: int = 0
 ## Host: the driver's queued inputs [{seq, throttle, steer, flags}], the one
 ## held while none arrive, when the last one came, and the last seq used.
@@ -279,7 +282,26 @@ func _build() -> void:
 	_view.name = "View"
 	_view.set("vehicle", self)
 	add_child(_view)
+	# The crew's paint job and decal (shops chunk 7).
+	var paint := _CheftyPaint.new()
+	paint.vehicle = self
+	add_child(paint)
 	_attach_sound()
+
+
+## Chefty's paint and decal (shops chunk 7; chefty_paint.gd calls it only while
+## it stands still, gap-specs critic C22): TruckLook is built again with them
+## (the seats, the bed's load and the chassis stay), its Solid kept out of the
+## chassis' way and the sim's.
+func apply_paint(color: Color, decal: String) -> void:
+	_paint = {"color": color, "decal": decal}
+	if _body == null:
+		return
+	_look = _Vehicles.build_truck(_body, {"color": color, "decal": decal, "dents": _dents, "interior": true})
+	var solid := _look.get_node_or_null("Solid") as PhysicsBody3D
+	if solid != null and _chassis != null:
+		_chassis.add_collision_exception_with(solid)
+	_refresh_params()
 
 
 ## The sim's numbers: Chefty's, less its dents, plus the tune-up perk.

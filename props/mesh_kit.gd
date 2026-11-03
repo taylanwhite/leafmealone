@@ -135,7 +135,8 @@ func wheel(center: Vector3, radius: float, width: float, tire: Color, hub: Color
 ## A tube through points, radius tapering through radii (one per point), with
 ## sides around. Smooth-shaded, capped at the end. Options:
 ##   seed, sway_from / sway_to (alpha at the first and last point), jitter,
-##   cap (bool, default true), flare (extra radius at the very base, 0-1)
+##   cap (bool, default true), flare (extra radius at the very base, 0-1),
+##   wobble (how far ring points stray from round, default 0.06 of the radius)
 func tube(points: PackedVector3Array, radii: PackedFloat32Array, color: Color, sides: int = 7, options: Dictionary = {}) -> void:
 	if points.size() < 2:
 		return
@@ -143,6 +144,9 @@ func tube(points: PackedVector3Array, radii: PackedFloat32Array, color: Color, s
 	var sway_to := float(options.get("sway_to", 0.0))
 	var jitter := float(options.get("jitter", 0.04))
 	var flare := float(options.get("flare", 0.0))
+	# How far each ring point strays from round (share of the radius): 0 for a
+	# clean manufactured edge, like a hat's band over another (player/hats.gd).
+	var wobble_amount := float(options.get("wobble", 0.06))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(options.get("seed", 0))
 	var rings: Array[PackedVector3Array] = []
@@ -169,7 +173,7 @@ func tube(points: PackedVector3Array, radii: PackedFloat32Array, color: Color, s
 		for step: int in sides:
 			var angle := TAU * float(step) / float(sides)
 			var outward := side * cos(angle) + other * sin(angle)
-			var wobble := 1.0 + rng.randf_range(-0.06, 0.06)
+			var wobble := 1.0 + rng.randf_range(-wobble_amount, wobble_amount)
 			if index == 0 and flare > 0.0:
 				# Root flare: lumpy, wider at the very bottom.
 				wobble += flare * (0.6 + 0.4 * absf(sin(angle * 2.5 + float(rng.randi() % 7))))

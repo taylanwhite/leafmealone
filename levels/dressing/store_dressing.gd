@@ -48,6 +48,9 @@ static func dress(zone: Node3D) -> void:
 	zone.add_child(root)
 	_BuildQueue.later(root, func() -> void: _building(root), "store building")
 	_BuildQueue.later(root, func() -> void: _garden_center(root), "store garden")
+	# Workwear on the entrance's wall, with a mirror, and Chefty's paint counter
+	# (shops chunk 7, levels/dressing/wardrobe.gd).
+	_BuildQueue.later(root, func() -> void: preload("res://levels/dressing/wardrobe.gd").build(root), "store wardrobe")
 	_parking(root)
 	_BuildQueue.later(root, func() -> void: _checkout(root, zone), "store checkout")
 	_BuildQueue.later(root, func() -> void: _loading_bay(root, zone), "store bay")

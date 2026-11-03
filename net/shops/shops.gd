@@ -21,9 +21,12 @@ extends Node
 ## host's, and each player's last snack (snacks) rides in the snapshot so every
 ## peer plays the hand-over and the eating (player/snack_eater.gd).
 ##
-## Later shop chunks add selling junk (request_sell, appraise), deliveries
-## (request_order), the closet and Chefty paint (request_equip,
-## request_apply_truck) on top of this node.
+## Cosmetics (shops chunk 7): a bought hat or shirt is worn at once, the closet
+## and the shop's Wear swap them (request_equip), and Chefty's paint and decal
+## are the crew's (request_apply_truck). Every peer draws the looks and the truck
+## from the snapshot: player.gd rebuilds a body on looks_changed, and
+## net/components/chefty_paint.gd repaints Chefty on truck_changed once it stands
+## still. Deliveries (request_order) are shops chunk 8.
 
 signal changed
 signal looks_changed(peer_id: int)
@@ -31,7 +34,9 @@ signal truck_changed
 ## Local: the host's answer to this peer's request ("ok", "closed", "far",
 ## "locked", "sold_out", "owned", "needs", "short", "eaten", "season",
 ## "unknown", and "give_invalid" for a refused Pay a crewmate, whose item is
-## "give"; ui/strings.gd SHOP_UI shop_result_<code>). amount is the dollars
+## "give"; "worn" and "applied" for a hat or shirt put on and a paint or decal
+## put on Chefty, "not_owned" when it isn't yours to put on;
+## ui/strings.gd SHOP_UI shop_result_<code>). amount is the dollars
 ## taken. The one confirmed-purchase hook for sound and keeper chatter.
 signal result(code: String, item_id: String, amount: int)
 
@@ -297,6 +302,27 @@ func request_buy(shop: String, item: String, qty: int = 1) -> String:
 	return ""
 
 
+## The local player puts on a hat or shirt they own (slot "hat" or "shirt"), or
+## takes it off back to their own (item ""): the shop window's Wear and the
+## phone's Closet (shops chunk 7). Anywhere, any time. The host answers "worn",
+## "not_owned" or "unknown"; the result signal brings it on a client.
+func request_equip(slot: String, item: String) -> String:
+	if Net.is_host():
+		return host_equip(Net.local_peer_id(), slot, item)
+	_rpc_request_equip.rpc_id(1, slot, item)
+	return ""
+
+
+## The local player puts a paint or decal the crew owns on Chefty (item ""
+## peels the decal off). Chefty takes it the next time it stands still
+## (net/components/chefty_paint.gd). Answers "applied", "not_owned" or "unknown".
+func request_apply_truck(item: String) -> String:
+	if Net.is_host():
+		return host_apply_truck(Net.local_peer_id(), item)
+	_rpc_request_apply_truck.rpc_id(1, item)
+	return ""
+
+
 ## The local player hands a crewmate cash (the phone's "Pay a crewmate";
 ## amount is one of Constants.PAY_CREWMATE_STEPS). Returns the code on the host.
 func request_give(to_peer: int, amount: int) -> String:
@@ -328,6 +354,46 @@ func host_buy(peer_id: int, shop: String, item: String, qty: int) -> String:
 			Campaign.save_now()
 			_broadcast()
 	_send_result(peer_id, code, item, amount)
+	return code
+
+
+## Host: a player puts on (or takes off) a hat or shirt. Returns the result code.
+func host_equip(peer_id: int, slot: String, item: String) -> String:
+	if not Net.is_host():
+		return ""
+	var code := "worn"
+	var entry := Catalog.item(item)
+	if slot != "hat" and slot != "shirt":
+		code = "unknown"
+	elif item != "" and (str(entry.get("kind", "")) != "cosmetic" or str(entry.get("slot", "")) != slot):
+		code = "unknown"
+	elif item != "" and not owns(peer_id, item):
+		code = "not_owned"
+	elif str(look_of(peer_id).get(slot, "")) != item:
+		_wear(peer_id, slot, item)
+		Campaign.save_now()
+		_broadcast()
+	_send_result(peer_id, code, item, 0)
+	return code
+
+
+## Host: Chefty gets a paint or decal the crew owns ("" peels the decal off).
+func host_apply_truck(peer_id: int, item: String) -> String:
+	if not Net.is_host():
+		return ""
+	var code := "applied"
+	var entry := Catalog.item(item)
+	var slot := str(entry.get("slot", "decal" if item == "" else ""))
+	if item != "" and str(entry.get("kind", "")) != "truck_cosmetic":
+		code = "unknown"
+	elif item != "" and not owns(peer_id, item):
+		code = "not_owned"
+	elif str(truck.get(slot, "")) != item:
+		truck[slot] = item
+		truck_changed.emit()
+		Campaign.save_now()
+		_broadcast()
+	_send_result(peer_id, code, item, 0)
 	return code
 
 
@@ -616,6 +682,12 @@ func _near_site(peer_id: int, shop: String) -> bool:
 	if site.has("counter"):
 		var counter: Vector3 = site["counter"]
 		if spot.distance_to(Vector2(counter.x, counter.z)) <= reach:
+			return true
+	# More places you can buy at: Homie Depot's hat rack, shirt cubby and paint
+	# counter (shops chunk 7).
+	for at: Variant in site.get("spots", []):
+		var point: Vector3 = at
+		if spot.distance_to(Vector2(point.x, point.z)) <= reach:
 			return true
 	if site.has("area"):
 		var area: Rect2 = site["area"]
@@ -989,6 +1061,18 @@ func _rpc_request_buy(shop: String, item: String, qty: int) -> void:
 func _rpc_request_sell(prop_path: NodePath, haggle: bool) -> void:
 	if Net.is_host():
 		host_sell(multiplayer.get_remote_sender_id(), prop_path, haggle)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_equip(slot: String, item: String) -> void:
+	if Net.is_host():
+		host_equip(multiplayer.get_remote_sender_id(), slot, item)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_apply_truck(item: String) -> void:
+	if Net.is_host():
+		host_apply_truck(multiplayer.get_remote_sender_id(), item)
 
 
 @rpc("any_peer", "call_remote", "reliable")

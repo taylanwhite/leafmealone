@@ -638,6 +638,9 @@ const SHOP_SITES: Dictionary = {
 	"homie_depot": {
 		"zone": "StoreZone", "counter": Vector3(0.0, 0.0, -8.0), "keeper": Vector3(0.0, 0.0, -9.3),
 		"yaw": 0.0, "area": Rect2(8.5, -16.5, 9.0, 7.0),
+		# Where the hat rack, the shirt cubby and the paint counter's customers stand
+		# (shops chunk 7, levels/dressing/wardrobe.gd): you buy there like at the counter.
+		"spots": [Vector3(-9.0, 0.0, -6.15), Vector3(-9.0, 0.0, -3.35), Vector3(10.0, 0.0, 1.7)],
 	},
 	"rustys": {
 		"zone": "StoreZone", "counter": Vector3(15.2, 0.0, -4.5), "keeper": Vector3(16.4, 0.0, -4.5),
@@ -1135,6 +1138,10 @@ const STORE_LAYOUT: Dictionary = {
 	"lunch_money": {"owner": "shops", "rect": Rect2(0.6, 13.5, 6.4, 4.5)},
 	# Last session's unsold junk, back in a grid by the TruckPad (Constants.JUNK_LEFT_*).
 	"junk_drop": {"owner": "shops", "rect": Rect2(3.9, 4.6, 3.8, 4.6)},
+	# Workwear on the entrance's south wall, and Chefty's paint by the loading bay
+	# (shops chunk 7, levels/dressing/wardrobe.gd; WARDROBE_*, PAINT_COUNTER_AT).
+	"wardrobe": {"owner": "shops", "rect": Rect2(-10.0, -7.0, 1.1, 4.3)},
+	"paint_counter": {"owner": "shops", "rect": Rect2(8.6, 2.1, 2.8, 1.2)},
 	"spawns": {"owner": "store", "rect": Rect2(-1.5, 4.5, 5.0, 3.0)},
 	"cart_corral": {"owner": "store", "rect": Rect2(-8.4, 7.6, 1.8, 4.8)},
 	# Three parked cars, a lamp and a tree island.
@@ -4067,3 +4074,66 @@ const ESCORT_CAM_BIAS_RATE: float = 0.9
 ## The escort's follow eye wants this much room (m) round it: closer to the van's
 ## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
 const ESCORT_CAM_ROOM: float = 1.2
+
+# ---- shops: cosmetics (shops chunk 7; docs/GAME.md "Cosmetics", player/hats.gd,
+# levels/dressing/wardrobe.gd, net/components/chefty_paint.gd)
+## Shirt dyes, in Catalog's shirt_0..shirt_7 order (ui/strings.gd names them):
+## red, orange, yellow, green, teal, blue, purple, gray.
+const SHIRT_DYES: Array[Color] = [
+	Color(0.84, 0.18, 0.16), Color(0.96, 0.52, 0.14), Color(0.97, 0.82, 0.22), Color(0.3, 0.66, 0.3),
+	Color(0.16, 0.66, 0.66), Color(0.22, 0.45, 0.85), Color(0.55, 0.32, 0.75), Color(0.55, 0.56, 0.58),
+]
+## Where Homie Depot shows its workwear, in StoreZone space, against the
+## entrance block's south wall (its face is at x WARDROBE_WALL_X): the hat rack,
+## the mirror, and the shirt cubby, each centered on its z. The paint counter
+## stands by Chefty's loading bay, its customers on its -z side, looking over it
+## at the truck. All four are in STORE_LAYOUT ("wardrobe", "paint_counter").
+const WARDROBE_WALL_X: float = -10.0
+const HAT_RACK_Z: float = -6.15
+const MIRROR_Z: float = -4.6
+const SHIRT_CUBBY_Z: float = -3.35
+const PAINT_COUNTER_AT := Vector3(10.0, 0.0, 2.75)
+## The mirror's glass (m: width, height), how high its bottom edge is, and its
+## picture (pixels; the reflection is drawn only while a camera is within
+## MIRROR_RANGE m of it and in front). Wearing something new within
+## MIRROR_CLOSE_RANGE m of it puts the shop window away, so you see it go on.
+const MIRROR_SIZE := Vector2(0.95, 1.75)
+const MIRROR_BOTTOM: float = 0.3
+const MIRROR_PIXELS := Vector2i(300, 552)
+const MIRROR_RANGE: float = 7.0
+const MIRROR_CLOSE_RANGE: float = 4.0
+## A new hat goes on (player/cartoon_body.gd rebuild): the old one flies off up
+## and back over HAT_FLY_SECONDS; the new one waits HAT_DROP_DELAY, drops from
+## HAT_DROP_HEIGHT (m) over HAT_DROP_SECONDS, lands squashed to HAT_SQUASH and
+## springs back over HAT_SETTLE_SECONDS. A new shirt puffs the torso by
+## SHIRT_PUFF over SHIRT_PUFF_SECONDS. The hands come up for both (the
+## dress_up gestures, HAT_ON_SECONDS and SHIRT_TUG_SECONDS long).
+const HAT_FLY_SECONDS: float = 0.34
+const HAT_DROP_DELAY: float = 0.08
+const HAT_DROP_HEIGHT: float = 0.34
+const HAT_DROP_SECONDS: float = 0.2
+const HAT_SQUASH := Vector3(1.16, 0.74, 1.16)
+const HAT_SETTLE_SECONDS: float = 0.26
+const SHIRT_PUFF: float = 0.12
+const SHIRT_PUFF_SECONDS: float = 0.36
+const HAT_ON_SECONDS: float = 0.8
+const SHIRT_TUG_SECONDS: float = 0.7
+## A look that lands within this long of a body being dressed (a late joiner's
+## first snapshot) goes straight on, without the show.
+const DRESS_ANIMATE_AFTER_SECONDS: float = 2.0
+## The propeller beanie's blades (rad/s): idling, plus this much per m/s you run.
+const PROPELLER_IDLE_SPIN: float = 1.2
+const PROPELLER_SPIN_PER_SPEED: float = 6.5
+## Chefty's new paint or decal (chefty_paint.gd): only while it stands still. A
+## cloud of REPAINT_PUFFS puffs in the new color bursts round it and clears over
+## REPAINT_SECONDS; the look swaps REPAINT_SWAP_AT s in, inside the cloud.
+const REPAINT_PUFFS: int = 28
+const REPAINT_SECONDS: float = 1.3
+const REPAINT_SWAP_AT: float = 0.32
+## Googly eyes on Chefty's nose: each pupil is a spring (stiffness, damping) the
+## truck's acceleration shoves (GOOGLY_SHOVE, m per m/s^2), inside GOOGLY_RANGE m
+## of the eye's middle (the pupil's edge stays on the white).
+const GOOGLY_STIFFNESS: float = 90.0
+const GOOGLY_DAMPING: float = 4.5
+const GOOGLY_SHOVE: float = 0.012
+const GOOGLY_RANGE: float = 0.1

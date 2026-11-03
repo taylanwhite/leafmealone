@@ -9,8 +9,10 @@ extends PanelContainer
 ##   Tools     one card per tool with tier pips (●●○) and the next buy:
 ##             Buy $110, then Mk II $385, then Mk III $1100
 ##   Supplies  "%d left today", what the crew has, and x1 / x5 buttons
-##   Workwear, Oddities  Buy, or Wear once owned (the closet comes with shops chunk 7)
-##   Truck     Buy, or Put it on Chefty once the crew owns it
+##   Workwear, Oddities  Buy, then Wear or Take it off (the phone's Closet does the
+##             same); in front of the hat rack's mirror, a hat or shirt going on
+##             puts the window away so you watch it go on (shops chunk 7)
+##   Truck     Buy, or Put it on Chefty once the crew owns it; Peel it off a decal
 ##   Menu, Snacks  Buy; a snack the host confirms closes the window, so you see
 ##             it handed over and eaten (player/snack_eater.gd), and so does the
 ##             Snak-o-Matic keeping your money (you watch it stick on the coil)
@@ -453,14 +455,18 @@ func _actions(id: String, data: Dictionary, wallet: int, shops: Node, open: bool
 		var slot := str(entry.get("slot", "hat"))
 		var wearing := shops != null and str((shops.call("look_of", me) as Dictionary).get(slot, "")) == id
 		if wearing:
-			return [{"text": _Strings.SHOP_UI["shop_wearing"], "enabled": false, "do": "none"}]
+			return [{"text": _Strings.SHOP_UI["shop_wearing"], "enabled": false, "do": "none"},
+				{"text": _Strings.SHOP_UI["shop_take_off"], "enabled": true, "do": "unequip"}]
 		if shops.has_method("request_equip"):
 			return [{"text": _Strings.SHOP_UI["shop_wear"], "enabled": true, "do": "equip"}]
 		return [{"text": _Strings.UI["shop_owned"], "enabled": false, "do": "none"}]
 	if owned and kind == "truck_cosmetic":
 		var slot := str(entry.get("slot", "paint"))
 		if str((shops.get("truck") as Dictionary).get(slot, "")) == id:
-			return [{"text": _Strings.SHOP_UI["shop_applied"], "enabled": false, "do": "none"}]
+			var on_truck: Array[Dictionary] = [{"text": _Strings.SHOP_UI["shop_applied"], "enabled": false, "do": "none"}]
+			if slot == "decal":
+				on_truck.append({"text": _Strings.SHOP_UI["shop_peel_off"], "enabled": true, "do": "peel"})
+			return on_truck
 		if shops.has_method("request_apply_truck"):
 			return [{"text": _Strings.SHOP_UI["shop_apply"], "enabled": true, "do": "apply"}]
 		return [{"text": _Strings.SHOP_UI["shop_owned_crew"], "enabled": false, "do": "none"}]
@@ -530,8 +536,12 @@ func _press(what: String, id: String, qty: int) -> void:
 			shops.call("request_buy", shop_id, id, qty)
 		"equip":
 			shops.call("request_equip", str(Catalog.item(id).get("slot", "hat")), id)
+		"unequip":
+			shops.call("request_equip", str(Catalog.item(id).get("slot", "hat")), "")
 		"apply":
 			shops.call("request_apply_truck", id)
+		"peel":
+			shops.call("request_apply_truck", "")
 
 
 ## The host's answer to this player's request: a toast, the keeper's reaction
@@ -549,10 +559,21 @@ func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 			keeper.call("haggle_verdict", code)
 		_refresh()
 		return
+	# Put on or taken off, or onto Chefty (shops chunk 7): the body and the truck
+	# show it, so no toast. Next to the mirror the window gets out of the way
+	# so you watch it go on.
+	if code == "worn" or code == "applied":
+		_refresh()
+		if code == "worn" and _near_mirror():
+			close_window()
+		return
 	var line := str(_Strings.SHOP_UI.get("shop_result_" + code, code))
 	if code == "ok":
 		line = line % _Strings.shop_item_name(item_id)
 		bought.emit(StringName(item_id))
+		if str(Catalog.item(item_id).get("kind", "")) == "cosmetic" and _near_mirror():
+			close_window()
+			return
 		# A snack is eaten on the spot (player/snack_eater.gd): the window gets
 		# out of the way so you see it come up to your mouth.
 		if str(Catalog.item(item_id).get("kind", "")) == "snack":
@@ -698,7 +719,7 @@ func _tint(id: String, entry: Dictionary) -> Color:
 			var which: Variant = entry.get("shirt", 0)
 			if str(which) == "hivis":
 				return HIVIS
-			return _CartoonBody.SHIRTS[clampi(int(which), 0, _CartoonBody.SHIRTS.size() - 1)]
+			return Constants.SHIRT_DYES[clampi(int(which), 0, Constants.SHIRT_DYES.size() - 1)]
 		"paint":
 			return Constants.CHEFTY_PAINTS.get(id, KIND_COLORS["truck_cosmetic"])
 	if entry.has("tool"):
@@ -754,6 +775,23 @@ func _update_keeper_line() -> void:
 			_keeper_line.text = str(_Strings.SHOP_UI["shop_keeper_says"]) % [str(_Strings.SHOP_UI.get("keeper_" + str(keeper.get("keeper")), "")), line]
 			_keeper_line.visible = true
 		return
+
+
+## Whether the local player stands in front of a mirror (props/mirror.gd,
+## Homie Depot's by the hat rack), close enough to see a new hat go on.
+func _near_mirror() -> bool:
+	var me: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			me = node as Node3D
+	if me == null:
+		return false
+	for mirror: Node in get_tree().get_nodes_in_group("mirrors"):
+		var glass := mirror as Node3D
+		if glass != null and glass.global_position.distance_to(me.global_position + Vector3.UP * 1.0) <= Constants.MIRROR_CLOSE_RANGE \
+			and (me.global_position - glass.global_position).dot(glass.global_basis.z) > 0.0:
+			return true
+	return false
 
 
 func _is_open() -> bool:
