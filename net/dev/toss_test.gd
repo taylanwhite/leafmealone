@@ -19,6 +19,10 @@ extends Node
 ##          the rail, never through the wall (bed_toss.gd cut_depth)
 ##   H9.    the same for every start beside the truck into every kind of spot,
 ##          worked out (bed_toss.gd settle_plan): no glide cuts into the truck
+##   H10.   through the host's own eyes (props/carry_view.gd): the bag was drawn
+##          in its hands, every toss left them without a jump, and up by the eye
+##          line no thrown bag looked wider than Constants.FP_THROW_MAX_ANGLE
+##          (nothing thrown swallows the view)
 ## The client half (the same flag, CI's Extra) throws its two bags, watches its
 ## own drawn bag for jumps, and sees the catches, landings and the full bounce.
 ## --toss-survey prints a table of throws from 2, 4 and 6 m instead.
@@ -26,6 +30,11 @@ extends Node
 const _BedToss = preload("res://net/components/bed_toss.gd")
 const _TossArc = preload("res://ui/toss_arc.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
+const _CarryView = preload("res://props/carry_view.gd")
+## H10: the most a drawn bag may move in one tick through your own eyes (m),
+## and how much wider than the cap it may look (rad, rounding).
+const FP_STEP_LIMIT_M: float = 0.35
+const FP_ANGLE_SLACK: float = 0.02
 ## A bag's drawn look moving farther than this in one frame is a jump (m).
 const JUMP_LIMIT_M: float = 0.6
 ## How far off its stack spot a bag may be drawn when the load's bag replaces it (m).
@@ -90,7 +99,10 @@ func _run_host() -> void:
 	_check("H8 E from 3 m off the side heaves it over the rail: %s" % JSON.stringify(h8c), _caught_ok(h8c) and _over_rail(h8c))
 	var h7: Dictionary = await _toss_full()
 	_check("H7 a full Chefty bats it back out: %s" % JSON.stringify(h7), not bool(h7["counted"]) and bool(h7["refused"]) and bool(h7["still_there"]) and not bool(h7["in_bed"]))
+	var view: Dictionary = _CarryView.stats
+	_check("H10 your own bag through your own eyes: %s" % JSON.stringify(view), int(view["held_ticks"]) > 0 and int(view["throws"]) >= 5 and float(view["max_angle_high"]) > 0.0 and float(view["max_angle_high"]) <= Constants.FP_THROW_MAX_ANGLE + FP_ANGLE_SLACK and float(view["max_step_m"]) < FP_STEP_LIMIT_M)
 	result["stats"] = _BedToss.stats.duplicate()
+	result["view"] = view.duplicate()
 	result["checks"] = _checks
 	result["ok"] = _ok
 	result["done"] = true

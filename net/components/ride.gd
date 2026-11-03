@@ -14,6 +14,7 @@ const _NiceVan = preload("res://props/nice_van.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
+const _NearLabel = preload("res://ui/near_label.gd")
 
 var _riding: bool = false
 ## The bags drawn in the bed (props/truck_bed_load.gd), Chefty only.
@@ -249,7 +250,8 @@ func _build() -> void:
 	add_child(_body)
 	# The look lives in props/vehicles.gd. Riders sit where they can be seen.
 	_Vehicles.build_truck(_body, _vehicle_color)
-	var label := Label3D.new()
+	# Chefty's name and load shrink and fade up close (ui/near_label.gd).
+	var label: Label3D = _NearLabel.new() if name == "Chefty" else Label3D.new()
 	label.name = "Label"
 	label.text = "Chefty"
 	label.font_size = 72

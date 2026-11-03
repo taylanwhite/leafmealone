@@ -8,6 +8,7 @@ const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _BedToss = preload("res://net/components/bed_toss.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _CarryView = preload("res://props/carry_view.gd")
 
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
@@ -174,6 +175,10 @@ func _physics_process(_delta: float) -> void:
 	if Net.is_host() and ladder_top != Vector3.ZERO:
 		freeze = true
 	_refresh_label()
+	# Your own bag through your own eyes (props/carry_view.gd), from the first
+	# time this peer holds it.
+	if kind == "leaf_bag" and held_by != 0 and held_by == Net.local_peer_id() and get_node_or_null("CarryView") == null:
+		add_child(_CarryView.new())
 	# In someone's pocket: out of sight until the stowed looks (hotbar chunk D)
 	# pose it on their body.
 	%Visual.visible = pocketed_by == 0
@@ -228,6 +233,14 @@ func _client_bag_step(delta: float) -> void:
 	if _seen_at.is_finite() and delta > 0.0:
 		_seen_vel = _seen_vel.lerp((at - _seen_at) / delta, 0.5)
 	_seen_at = at
+
+
+## A leaf bag in this peer's own hands, as this peer draws it: held by this
+## peer and not already flying from them or gliding into the load on its own
+## say-so (a client's toss leaves its hands before the host hears of it). For
+## props/carry_view.gd and player/first_person_arms.gd.
+func fp_carried() -> bool:
+	return kind == "leaf_bag" and multiplayer.multiplayer_peer != null and held_by != 0 and held_by == Net.local_peer_id() and pocketed_by == 0 and not _predicting and not _settling
 
 
 ## A leaf bag in the air, as this peer sees it: no price tag, and nobody's

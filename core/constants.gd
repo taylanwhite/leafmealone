@@ -2128,3 +2128,65 @@ const BED_HEAVE_SPEED: float = 1.0
 ## the flight (s), and the longest flight it draws (s).
 const TOSS_ARC_STEP_SECONDS: float = 0.06
 const TOSS_ARC_MAX_SECONDS: float = 2.5
+
+# ---- toss: polish
+# Your own leaf bag through your own eyes (props/carry_view.gd, docs/GAME.md
+# "Tossing bags into Chefty"), and Chefty's floating label up close
+# (ui/near_label.gd). Presentation only: nobody else sees any of it, and the
+# host's flight (net/components/bed_toss.gd) is untouched.
+## Carried, the bag sits in the lower third of your view, both hands on its
+## rolled top: the middle of its rim this far from your eyes (view space: x
+## right, y up, -z ahead, m), its top tipped toward you this much (rad) so you
+## see into it. It follows the view's pitch this share, within these limits (rad).
+const FP_BAG_RIM := Vector3(0.0, -0.23, -0.6)
+const FP_BAG_TILT: float = 0.22
+const FP_BAG_PITCH_FOLLOW: float = 0.7
+const FP_BAG_PITCH_MIN: float = -0.7
+const FP_BAG_PITCH_MAX: float = 0.45
+## Picking one up, it eases from where the world has it into that spot this fast (s).
+const FP_BAG_ENTER_SECONDS: float = 0.15
+## The wind-up dips it: down and back toward you by this much (m) and its top
+## tipped further back (rad), all the way in this long (s), then it trembles as
+## your arms do (first_person_arms.gd), harder when you strain (m).
+const FP_BAG_WIND_PULL := Vector3(0.0, -0.06, 0.07)
+const FP_BAG_WIND_TILT: float = 0.2
+const FP_BAG_WIND_SECONDS: float = 0.35
+const FP_BAG_SHAKE: float = 0.006
+const FP_BAG_STRAIN_SHAKE: float = 0.02
+## Let go, it leaves your hands for the real flight over this long (s), and
+## while it's up near your eye line it never looks wider than this (rad, its
+## full width seen from your eyes): it shrinks the way something flung away
+## from you does, instead of passing through your face. The cap comes on over
+## the first seconds and is gone by the end (s, a flight that never landed); it
+## counts fully with the bag's middle this far below your eyes or higher (m),
+## and not at all this far below (a bag set down at your feet stays its size). A
+## bag gliding into the load is its own size again by this share of the glide,
+## before it lands.
+const FP_THROW_EASE_SECONDS: float = 0.16
+const FP_THROW_MAX_ANGLE: float = 0.36
+const FP_THROW_CAP_IN_SECONDS: float = 0.07
+const FP_THROW_CAP_HOLD_SECONDS: float = 1.0
+const FP_THROW_CAP_END_SECONDS: float = 1.4
+const FP_THROW_CAP_HIGH_M: float = 0.15
+const FP_THROW_CAP_LOW_M: float = 0.55
+const FP_THROW_SETTLE_DONE: float = 0.8
+## How far a bag reaches from its middle (m), for how big it looks.
+const FP_BAG_RADIUS: float = 0.42
+## Your arms follow through after a toss: up and out in front (the right hand
+## here in head space, m; the left mirrors it), this share of the way in, then
+## back down, over this long (s). Holding a bag out in the lower third, they
+## stretch to this times their length to keep both hands on it.
+const FP_ARMS_FOLLOW_SECONDS: float = 0.45
+const FP_ARMS_FOLLOW_REACH := Vector3(0.17, 0.02, -0.5)
+const FP_ARMS_FOLLOW_PEAK: float = 0.3
+const FP_BAG_ARM_STRETCH: float = 1.5
+## Chefty's floating name and load: it never stands taller on screen than this
+## share of the view's height per line, and fades out as you come within these
+## distances of it (m, gone at the first, whole at the second). Up close the
+## heap in the bed and the floating dollars say what it would.
+const CHEFTY_LABEL_MAX_SCREEN: float = 0.034
+const CHEFTY_LABEL_GONE_M: float = 3.0
+const CHEFTY_LABEL_FULL_M: float = 4.3
+## The toss arc's dots leave out anything closer to your eyes than this (m):
+## a hop over Chefty's side climbs right past your face.
+const TOSS_ARC_NEAR_M: float = 1.1

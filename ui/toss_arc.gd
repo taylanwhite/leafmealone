@@ -125,9 +125,15 @@ func _process(delta: float) -> void:
 	var points: PackedVector3Array = path["points"]
 	var shown := 0
 	var multi := _dots.multimesh
+	# Nothing right in front of your eyes either: a hop over the side climbs past
+	# your face, and dots there are big blurry blobs, not an arc.
+	var camera := get_viewport().get_camera_3d()
+	var eye := camera.global_position if camera != null else Vector3.INF
 	for index: int in points.size():
 		var age := (float(index) + 1.0 - _slide) * step
 		if age < SKIP_NEAR_SECONDS or shown >= MAX_DOTS:
+			continue
+		if eye.is_finite() and eye.distance_to(points[index] + CENTER_UP) < Constants.TOSS_ARC_NEAR_M:
 			continue
 		# Smaller toward the end, so the arc reads as going away from you.
 		var shrink := lerpf(1.0, 0.6, float(index) / maxf(float(points.size()), 1.0))
@@ -138,6 +144,11 @@ func _process(delta: float) -> void:
 	if warm:
 		# On the spot in the pile it will land in (props/truck_bed_load.gd).
 		end = (truck.call("bed_slot", int(truck.call("bag_count"))) as Transform3D).origin
+	# Chefty's rails (1.65 m up in the bed's space) are at your eye line (about
+	# 1.6 m), so the spot in the bed is behind its wall from anywhere on foot:
+	# going in, the ring shows through the wall, so you still see where it'll land.
+	if _ring_material.no_depth_test != warm:
+		_ring_material.no_depth_test = warm
 	_ring.global_position = end + Vector3(0.0, 0.03, 0.0)
 	var pulse := 1.0 + 0.08 * sin(Time.get_ticks_msec() / 1000.0 * TAU * 1.5)
 	_ring.scale = Vector3(pulse, 0.25, pulse)
