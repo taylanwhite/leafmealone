@@ -15,6 +15,12 @@ var kind: String = ""
 var peek: float = 0.0
 ## How fast the view is turning (rad/s), for the leaves' sway and the pile's shedding.
 var turn_rate: float = 0.0
+## 0 to 1: how far a NICE BOY has pulled it open (R2b hide): his hands parting the
+## hedge, the lid flung up, the door yanked aside, the pile scooped away. A poke
+## opens it a little and lets it fall back; a find opens it all the way.
+var part: float = 0.0
+## A knock on the shed door: the boards jolt by this much (px), fading.
+var shake: float = 0.0
 
 var _time: float = 0.0
 var _leaves: Array[Dictionary] = []
@@ -71,17 +77,18 @@ func _build() -> void:
 	var greens: Array[Color] = [Color(0.12, 0.27, 0.11), Color(0.17, 0.35, 0.14), Color(0.1, 0.22, 0.1), Color(0.24, 0.4, 0.16)]
 	var autumn: Array[Color] = [Color(0.72, 0.36, 0.1), Color(0.8, 0.58, 0.16), Color(0.6, 0.2, 0.1), Color(0.5, 0.3, 0.12)]
 	var colors := greens if kind == "hedge" else autumn
-	var count := 70 if kind == "hedge" else 60
+	var count := 70 if kind == "hedge" else 46
 	for index: int in count:
-		# Around the edge: u along it (0..1), which edge, and how far in.
+		# Around the edge: u along it (0..1), which edge, and how far in. A pile's
+		# leaves crowd the bottom edge and stay out of the middle of the view.
 		var edge := _rng.randi() % 4
 		if kind == "pile":
-			edge = 2 if _rng.randf() < 0.65 else _rng.randi() % 4
+			edge = 2 if _rng.randf() < 0.6 else _rng.randi() % 4
 		_leaves.append({
 			"edge": edge,
 			"u": _rng.randf(),
-			"in": _rng.randf_range(-0.02, 0.16 if kind == "hedge" else 0.2),
-			"r": _rng.randf_range(42.0, 96.0) if kind == "hedge" else _rng.randf_range(50.0, 120.0),
+			"in": _rng.randf_range(-0.02, 0.16 if kind == "hedge" else 0.1),
+			"r": _rng.randf_range(42.0, 96.0) if kind == "hedge" else _rng.randf_range(34.0, 78.0),
 			"a": _rng.randf() * TAU,
 			"c": colors[_rng.randi() % colors.size()].lightened(_rng.randf_range(-0.1, 0.12)),
 			"phase": _rng.randf() * TAU,
@@ -96,7 +103,7 @@ func _draw() -> void:
 			var shade := Color(0.04, 0.1, 0.04) if kind == "hedge" else Color(0.12, 0.06, 0.02)
 			for ring: int in 7:
 				var band := 16.0
-				var inset := float(ring) * band - peek * 30.0
+				var inset := float(ring) * band - peek * 30.0 - part * 140.0
 				var tint := Color(shade.r, shade.g, shade.b, 0.11 - 0.014 * float(ring))
 				draw_rect(Rect2(0.0, 0.0, size.x, maxf(0.0, inset + band)), tint)
 				draw_rect(Rect2(0.0, size.y - maxf(0.0, inset + band), size.x, maxf(0.0, inset + band)), tint)
@@ -115,10 +122,11 @@ func _draw() -> void:
 			_draw_shed()
 
 
-## Where an edge leaf sits now: pushed out past the edge as the peek opens up.
+## Where an edge leaf sits now: pushed out past the edge as the peek opens up,
+## and swept off the screen when a NICE BOY pulls it apart.
 func _leaf_pos(leaf: Dictionary) -> Vector2:
 	var u := float(leaf["u"])
-	var inward := float(leaf["in"]) - peek * 0.12
+	var inward := float(leaf["in"]) - peek * 0.12 - part * (0.32 + 0.2 * float(leaf["phase"]) / TAU)
 	var sway := sin(_time * 2.1 + float(leaf["phase"])) * 6.0 + turn_rate * 8.0
 	match int(leaf["edge"]):
 		0:
@@ -145,8 +153,10 @@ func _draw_leaf(at: Vector2, radius: float, angle: float, leaf_color: Color) -> 
 ## Under the lid: its dark underside over the top, the rim along the bottom,
 ## and a bright slit of yard between. Peeking lifts the lid.
 func _draw_bin() -> void:
-	var lid_bottom := size.y * lerpf(0.36, 0.2, peek)
-	var rim_top := size.y * 0.7
+	# Peeking lifts the lid a little; a NICE BOY lifting it from outside flings it
+	# up and off the top of the view (and the rim drops a touch as you're hauled).
+	var lid_bottom := size.y * lerpf(lerpf(0.36, 0.2, peek), -0.05, part)
+	var rim_top := size.y * lerpf(0.7, 0.86, part)
 	var lid := Color(0.06, 0.08, 0.08)
 	draw_rect(Rect2(0.0, 0.0, size.x, lid_bottom), lid)
 	# The lid's front lip catches a little light.
@@ -162,6 +172,9 @@ func _draw_bin() -> void:
 ## holes in the middle board at eye height; the door opens a crack to the right
 ## when you peek.
 func _draw_shed() -> void:
+	# A knock jolts the boards; yanked open, the whole door swings off to the left.
+	var jolt := Vector2(sin(_time * 70.0), cos(_time * 53.0)) * shake
+	draw_set_transform(Vector2(-size.x * 1.05 * part * part, 0.0) + jolt, 0.0, Vector2.ONE)
 	var board := Color(0.13, 0.09, 0.06)
 	var hole_center := size * Vector2(0.5, 0.5)
 	var hole := Vector2(size.x * 0.34, size.y * 0.26) * (1.0 + peek * 0.25)
@@ -197,6 +210,7 @@ func _draw_shed() -> void:
 		var t := float(step) / 32.0 * TAU
 		ring.append(hole_center + Vector2(cos(t) * hole.x, -sin(t) * hole.y) * _rim(t))
 	draw_polyline(ring, board.lightened(0.18), 10.0, true)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## The knot hole's ragged rim: a little bigger here, a little smaller there.

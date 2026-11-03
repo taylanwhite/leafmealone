@@ -258,7 +258,8 @@ func _step_inspect(crew: Node3D, encounter: Node, now: float) -> Dictionary:
 		var point: Vector3 = best.call("inspect_point") if best.has_method("inspect_point") else (best as Node3D).global_position
 		_inspect = {"node": best, "point": point, "phase": "walk", "until": 0.0}
 		crew.call("host_set_mode", INSPECT, 0, point)
-		crew.call("bark", "inspect", true)
+		# The line names what he's about to poke (R2b hide).
+		crew.call("bark", str(best.call("inspect_bark")) if best.has_method("inspect_bark") else "inspect", true)
 	var node: Node = _inspect["node"]
 	if not is_instance_valid(node):
 		_inspect = {}
@@ -280,7 +281,7 @@ func _step_inspect(crew: Node3D, encounter: Node, now: float) -> Dictionary:
 	if StringName(outcome.get("outcome", &"")) == &"found" and encounter != null:
 		encounter.call("host_windup", crew, int(outcome.get("peer", 0)), true)
 	else:
-		crew.call("bark", "near_miss", true)
+		crew.call("bark", str(node.call("near_miss_bark")) if node.has_method("near_miss_bark") else "near_miss", true)
 	return _stand(crew, point)
 
 

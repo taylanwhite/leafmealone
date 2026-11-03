@@ -141,7 +141,10 @@ func _run_event(speed: float) -> void:
 			body.set("mood", "angry")
 		_:
 			body.set("mood", "worried" if phase != 0 and on_lot else "neutral")
-	if phase != _last_phase and role == "player" and on_lot:
+	# Mid-dive, hidden or climbing out, the hiding gesture keeps the body (R2b hide:
+	# a CHASE startle landing on a climb-out froze it in a T).
+	var hiding := role == "player" and ((root.has_method("is_hidden") and bool(root.call("is_hidden"))) or str(body.call("current_gesture")) in ["hedge_dive", "bin_vault", "shed_step", "pile_cannonball", "burst_out", "upsy_daisy_victim"])
+	if phase != _last_phase and role == "player" and on_lot and not hiding:
 		if phase == 1:
 			body.call("gesture", "look_around")
 		elif phase == 2:

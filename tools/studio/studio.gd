@@ -103,6 +103,9 @@ func _build(root: Node3D) -> void:
 			var leaves_path := "res://tools/studio/leaves_subject.gd"
 			if ResourceLoader.exists(leaves_path):
 				load(leaves_path).call("build", root, _options)
+		"hide":
+			# Hiding (R2b hide): --part=poses|shell (tools/studio/hide_subject.gd).
+			load("res://tools/studio/hide_subject.gd").call("build", root, _options)
 		"trees":
 			var crowns := ["orange", "red", "yellow", "turning", "rust"]
 			for index: int in crowns.size():

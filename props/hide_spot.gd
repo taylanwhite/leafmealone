@@ -27,7 +27,9 @@ const HEDGE_LEAF_COLORS: Array[Color] = [Color(0.24, 0.48, 0.22), Color(0.3, 0.5
 const STEEL := Color(0.6, 0.62, 0.64)
 const PAPER := Color(0.97, 0.96, 0.92)
 ## How far the shed door and the bin lid swing, fully open and when peeking (radians).
-const DOOR_OPEN: float = 1.35
+## Open, the door stands nearly flat to the wall, clear of anyone stepping through
+## (R2b hide: at 1.35 its edge brushed the eye of a hider at the hinge-side hole).
+const DOOR_OPEN: float = 1.52
 const DOOR_PEEK: float = 0.14
 const LID_OPEN: float = 1.9
 const LID_PEEK: float = 0.2
@@ -65,6 +67,14 @@ var _poking: float = 0.0
 var _poke_kind: StringName = &""
 ## When each occupant got in (local msec), so settling in isn't read as a tremble.
 var _entered_ms: Dictionary = {}
+## Every peer (R2b hide): the NICE BOY looking in now, and the server times his
+## poke began, he found someone, or he gave up (a near miss or a cut-short poke).
+var _peering_crew: Node3D
+var _poke_at: float = -1000.0
+var _found_at: float = -1000.0
+var _miss_at: float = -1000.0
+## Each occupant's turn speed, smoothed (rad/s), for the shiver.
+var _shiver_speed: Dictionary = {}
 
 
 func _ready() -> void:
@@ -72,6 +82,8 @@ func _ready() -> void:
 	box_size = size
 	capacity = Constants.HIDE_SHED_CAPACITY if spot_kind == "shed" else Constants.HIDE_CAPACITY
 	super()
+	# After every body and pose has ticked (_physics_process: the peer pose).
+	process_physics_priority = 150
 	# The NICE BOYS poke and shrug with gestures from player/hide_gestures.gd.
 	preload("res://player/hide_gestures.gd").register()
 	_rng.seed = hash(str(get_path())) if is_inside_tree() else 7
@@ -225,8 +237,9 @@ func _build_shed_door(kit: RefCounted) -> void:
 	var brace_len := Vector2(0.7, door_h - 0.5).length()
 	kit.call("box", Vector3(0.0, door_h * 0.5, -0.04), Vector3(0.08, brace_len, 0.02), plank.lightened(0.05), Basis(Vector3.BACK, atan2(0.7, door_h - 0.5)))
 	kit.call("box", Vector3(0.3, door_h * 0.48, -0.06), Vector3(0.04, 0.12, 0.04), STEEL)
+	# At the hider's eye (net/components/hide_spot.gd _eye_height): a hand under the door's top.
 	for index: int in 3:
-		kit.call("box", Vector3(-0.25 + 0.25 * float(index), 1.5, -0.028), Vector3(0.035, 0.03, 0.012), Color(0.05, 0.04, 0.03))
+		kit.call("box", Vector3(-0.25 + 0.25 * float(index), door_h - 0.22, -0.028), Vector3(0.035, 0.03, 0.012), Color(0.05, 0.04, 0.03))
 
 
 ## The wheelie bin's tub: a slightly tapered box, a rim, molded pockets, the
@@ -359,26 +372,198 @@ func set_state(state: StringName, at: float, args: Dictionary = {}) -> void:
 		&"tremble":
 			_tremble(not stale)
 		&"inspect":
-			_poke(args.get("crew") as Node3D, late)
+			var crew := args.get("crew") as Node3D
+			if crew != null:
+				_peering_crew = crew
+			_poke_at = at
+			_found_at = -1000.0
+			_miss_at = -1000.0
+			_poke(crew, late)
 		&"near_miss":
 			_poking = 0.0
+			_miss_at = at
 			_hinge_to(0.0)
-			if not stale:
-				_sound("notice_slap", inspect_point() + Vector3(0.0, size.y * 0.6, 0.0))
+			# He straightens, shrugs, and slaps a Courtesy Notice on it (_on_notices).
+			if not stale and _peering_crew != null:
+				_later(Constants.HIDE_PEER_OUT_SECONDS * 0.6, func() -> void:
+					crew_gesture(_peering_crew, "shrug_notice", "scratch"))
 		&"found":
-			_poking = 0.0
-			match spot_kind:
-				"shed":
-					_hinge_to(DOOR_OPEN, false, 9.0)
-					_later(0.9, func() -> void: _hinge_to(0.0))
-				"bin":
-					_hinge_to(LID_OPEN, false, 10.0)
-					_later(0.9, func() -> void: _hinge_to(0.0))
-				_:
-					_wobble = 1.6
-					_burst(top_point(), 14, HEDGE_LEAF_COLORS, 3.2)
-			if not stale:
-				_sound(_open_sound(), top_point())
+			_found(args.get("crew") as Node3D, at, late, stale)
+
+
+## Found (R2b hide): the spot comes open around his face (the hedge parted, the
+## lid flung up, the door yanked open), his hands close on you with a grab
+## HIDE_FOUND_REVEAL - HIDE_FOUND_GRAB_LEAD in, and the host pulls you out at
+## HIDE_FOUND_REVEAL; the lid or door drops shut once you're on your feet.
+func _found(crew: Node3D, at: float, late: float, stale: bool) -> void:
+	_poking = 0.0
+	if crew != null:
+		_peering_crew = crew
+	_found_at = at
+	var shut_after := maxf(0.0, Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS + 0.35 - late)
+	var gap := inspect_point().lerp(top_point(), 0.5)
+	match spot_kind:
+		"shed":
+			_hinge_to(DOOR_OPEN, stale, 9.0)
+			_later(shut_after, func() -> void: _hinge_to(0.0, false, 4.0))
+		"bin":
+			_hinge_to(LID_OPEN, stale, 11.0)
+			_later(shut_after, func() -> void:
+				_hinge_to(0.0, false, 12.0)
+				_later(0.14, func() -> void: _sound("bin_clang", top_point(), -6.0)))
+		_:
+			_wobble = 1.6
+			_wobble_time = 0.0
+			_burst(gap, 14, HEDGE_LEAF_COLORS, 3.2)
+			# Out through the side he parted: another puff as you come through it.
+			_later(maxf(0.0, Constants.HIDE_FOUND_REVEAL - late), func() -> void:
+				_wobble = 1.3
+				_wobble_time = 0.0
+				_burst(gap, 12, HEDGE_LEAF_COLORS, 2.6)
+				_sound("hedge_rustle", gap, -2.0))
+	if stale:
+		return
+	_sound(_open_sound(), gap)
+	_later(maxf(0.0, Constants.HIDE_FOUND_REVEAL - Constants.HIDE_FOUND_GRAB_LEAD - late), func() -> void:
+		_sound("hide_grab", peek_transform(maxi(side_of(occupant), 0), 0).origin))
+
+
+## Every peer (R2b hide): the inspection the hider's own view reads.
+## {crew, poke_at, found_at, miss_at} in server time; crew null when nobody's looking.
+func inspect_view() -> Dictionary:
+	return {"crew": _peering_crew if is_instance_valid(_peering_crew) else null, "poke_at": _poke_at, "found_at": _found_at, "miss_at": _miss_at}
+
+
+## The NICE BOY looking in, every frame on every peer: he bends to the gap while he
+## pokes, eases back out after a near miss, and on a find grabs and hauls you out
+## (peer_pose). Runs after the body's own walk and poses (render frame), so it wins.
+func _pose_peering_crew() -> void:
+	if _peering_crew == null:
+		return
+	if not is_instance_valid(_peering_crew):
+		_peering_crew = null
+		return
+	var weights := peer_weights(Net.server_time(), _poke_at, _found_at, _miss_at)
+	if weights.is_empty():
+		_peering_crew = null
+		return
+	var body := _peering_crew.get_node_or_null("Visual/CartoonBody") as Node3D
+	if body != null:
+		peer_pose(body, spot_kind, float(weights["lean"]), float(weights["grab"]), float(weights["haul"]), Net.server_time() - _poke_at)
+
+
+## How far into peering, grabbing and hauling a NICE BOY is at server time now,
+## from when the poke began and when it ended in a find or a miss (-1000: not
+## yet). {lean, grab, haul, on} 0..1, or {} once it's all over. Shared with the pile.
+static func peer_weights(now: float, poke_at: float, found_at: float, miss_at: float) -> Dictionary:
+	var lean := 0.0
+	var grab := 0.0
+	var haul := 0.0
+	var on := 0.0
+	if found_at > -999.0 and found_at >= poke_at - 0.01:
+		var t := now - found_at
+		var reveal := Constants.HIDE_FOUND_REVEAL
+		var grab_at := reveal - Constants.HIDE_FOUND_GRAB_LEAD
+		var done := reveal + Constants.HIDE_PULL_SECONDS + Constants.HIDE_FOUND_SETTLE
+		lean = 1.0
+		grab = _smooth(t / maxf(grab_at, 0.05))
+		haul = _smooth((t - reveal) / Constants.HIDE_PULL_SECONDS)
+		# Let go over a beat once you're on your feet: the gotcha's own pose takes him.
+		on = 1.0 - _smooth((t - done) / 0.2)
+	elif miss_at > -999.0 and miss_at >= poke_at - 0.01:
+		var t := now - miss_at
+		lean = 1.0 - _smooth(t / Constants.HIDE_PEER_OUT_SECONDS)
+		on = lean
+	elif poke_at > -999.0:
+		var t := now - poke_at
+		if t > Constants.HIDE_INSPECT_SECONDS + Constants.HIDE_INSPECT_STALE_SLACK:
+			return {}
+		lean = _smooth(t / Constants.HIDE_PEER_IN_SECONDS)
+		on = lean
+	if on <= 0.0 and now > maxf(poke_at, maxf(found_at, miss_at)) + 0.1:
+		return {}
+	return {"lean": lean * on, "grab": grab * on, "haul": haul, "on": on}
+
+
+static func _smooth(t: float) -> float:
+	var x := clampf(t, 0.0, 1.0)
+	return x * x * (3.0 - 2.0 * x)
+
+
+## Poses a NICE BOY's body peering into a spot of this kind (lean 0..1), his hands
+## shooting in to grab (grab 0..1) and hauling you up and out (haul 0..1). The head
+## isn't parented to the torso (player/cartoon_body.gd), so it's carried along the
+## bend here, kept upright with the eyes on the gap. Absolute values, eased from
+## whatever the body did this tick, so a frozen body (a hit-stop) never drifts.
+static func peer_pose(body: Node3D, kind: String, lean: float, grab: float, haul: float, t: float) -> void:
+	if body == null or not body.has_method("pose_part"):
+		return
+	var hips := body.call("pose_part", "hips") as Node3D
+	var torso := body.call("pose_part", "torso") as Node3D
+	var head := body.call("pose_part", "head") as Node3D
+	var face := body.call("pose_part", "face") as Node3D
+	var right := body.call("pose_part", "arm_r") as Node3D
+	var left := body.call("pose_part", "arm_l") as Node3D
+	var leg_l := body.call("pose_part", "leg_l") as Node3D
+	var leg_r := body.call("pose_part", "leg_r") as Node3D
+	if hips == null or torso == null or right == null or left == null:
+		return
+	var w := clampf(maxf(lean, maxf(grab, haul)), 0.0, 1.0)
+	if w <= 0.0:
+		return
+	var pose: Vector3 = Constants.HIDE_PEER_POSE.get(kind, Constants.HIDE_PEER_POSE["hedge"])
+	# Hauling, he straightens and leans back on his heels.
+	var bend := lean * (1.0 - haul)
+	# Grabbing, he lunges his shoulders in after his hands.
+	var tilt := lerpf((pose.x - 0.08 * grab) * bend, 0.12, haul)
+	var squat := pose.y * bend
+	var hips_y := 0.82 - squat
+	hips.position.y = lerpf(hips.position.y, hips_y, w)
+	torso.rotation.x = lerpf(torso.rotation.x, tilt, w)
+	if leg_l != null and leg_r != null:
+		# A braced split stance: one foot forward, one back.
+		leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.42 * bend + 0.25 * haul, w)
+		leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.3 * bend - 0.2 * haul, w)
+	var neck := 0.78
+	if "_head_base_y" in body:
+		neck = float(body.get("_head_base_y")) - 0.82
+	if head != null and head.get_parent() == body:
+		var carried := Vector3(0.0, hips_y + neck * cos(tilt), neck * sin(tilt))
+		head.position = head.position.lerp(carried, w)
+	if face != null:
+		# Eyes on the gap (a bent body's head would look at the ground), scanning
+		# side to side while he peers, dead still once he has you.
+		face.rotation.x = lerpf(face.rotation.x, pose.z * bend, w)
+		face.rotation.y = lerpf(face.rotation.y, 0.28 * sin(t * 3.1) * lean * (1.0 - grab), w)
+	# Arms: what each kind's poke does with them, then the grab and the haul over it.
+	var r := Vector2(0.9, 0.3)
+	var l := Vector2(0.9, -0.3)
+	match kind:
+		"bin":
+			r = Vector2(2.2, 0.35)
+			l = Vector2(0.7, -0.25)
+		"shed":
+			r = Vector2(1.0 + 0.25 * absf(sin(t * 9.0)) * (1.0 - grab), 0.18)
+			l = Vector2(0.6, -0.25)
+		"pile":
+			r = Vector2(0.75 + 0.25 * absf(sin(t * 11.0)), 0.25)
+			l = Vector2(0.75 + 0.25 * absf(sin(t * 11.0 + 1.6)), -0.25)
+		_:
+			# Both hands in the hedge, holding it apart.
+			r = Vector2(1.0, 0.62)
+			l = Vector2(1.0, -0.62)
+	# Both hands straight out at you (a hanging arm turns with the leaning torso,
+	# so level with the ground is a quarter turn plus the lean), a shoulder apart.
+	var grabbed_r := Vector2(PI * 0.5 - tilt + 0.08, 0.2)
+	var grabbed_l := Vector2(PI * 0.5 - tilt + 0.08, -0.2)
+	r = r.lerp(grabbed_r, grab)
+	l = l.lerp(grabbed_l, grab)
+	r = r.lerp(Vector2(2.0, 0.12), haul)
+	l = l.lerp(Vector2(2.0, -0.12), haul)
+	right.rotation.x = lerpf(right.rotation.x, r.x, w)
+	right.rotation.z = lerpf(right.rotation.z, r.y, w)
+	left.rotation.x = lerpf(left.rotation.x, l.x, w)
+	left.rotation.z = lerpf(left.rotation.z, l.y, w)
 
 
 ## The dive in or the burst out: the door or lid opens and shuts around it, the
@@ -415,19 +600,25 @@ func _show_peek(on: bool, side: int, slot: int) -> void:
 	if on:
 		var eye := peek_transform(side, slot)
 		_glint.global_position = eye.origin - eye.basis.z * 0.03
-		_sound("bin_lid" if spot_kind == "bin" else "peek_rustle", eye.origin, -6.0)
+		_sound({"bin": "bin_lid", "shed": "shed_creak"}.get(spot_kind, "peek_rustle"), eye.origin, -6.0)
 
 
-## A hider turned too fast: the hedge shivers, and maybe a leaf comes loose.
-func _tremble(audible: bool) -> void:
+## A hider turned too fast: the hedge shivers, and maybe a leaf comes loose. The
+## harder the turn, the bigger the shiver and the louder the rustle, never the
+## same pitch twice.
+func _tremble(audible: bool, speed: float = Constants.HIDE_TREMBLE_TURN_RATE) -> void:
 	if spot_kind != "hedge":
 		return
-	_wobble = maxf(_wobble, Constants.HIDE_TREMBLE_AMOUNT / 0.08)
+	var over := maxf(0.0, speed - Constants.HIDE_TREMBLE_TURN_RATE)
+	_wobble = maxf(_wobble, Constants.HIDE_TREMBLE_AMOUNT / 0.08 * (1.0 + minf(over * 0.25, 0.8)))
 	_wobble_time = 0.0
 	if _rng.randf() < 0.5:
 		_drop_leaf()
 	if audible:
-		_sound("hedge_rustle", top_point(), -8.0)
+		var db := -10.0 + minf(over * Constants.HIDE_TREMBLE_DB_PER_RATE, Constants.HIDE_TREMBLE_DB_CAP)
+		var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
+		if sfx != null:
+			sfx.call("play_at", "hedge_rustle", top_point(), db, true, 0, _rng.randf_range(0.88, 1.14))
 
 
 ## A NICE BOY pokes: parts the hedge, lifts the lid a crack (his face in the
@@ -504,14 +695,17 @@ func _on_inspect(crew: Node3D, phase: StringName, at: float) -> void:
 		&"found":
 			set_state(&"found", at, {"crew": crew})
 		&"cancel":
-			# He was stopped mid-poke: the lid drops, nothing else.
+			# He was stopped mid-poke: the lid drops, he straightens, nothing else.
 			_poking = 0.0
+			_miss_at = at
 			_hinge_to(0.0)
 		_:
 			set_state(&"near_miss", at, {"crew": crew})
 
 
-## Stickers: one more slapped on, popping into place; a late joiner just sees them.
+## Stickers: one more slapped on from his hand (R2b hide: it flies the last
+## stretch from his palm and lands with the slap, squashing flat); a late joiner
+## just sees them.
 func _on_notices(before: int, count: int) -> void:
 	for child: Node in _notices_node.get_children():
 		child.queue_free()
@@ -519,9 +713,29 @@ func _on_notices(before: int, count: int) -> void:
 		var sticker := _sticker(index)
 		_notices_node.add_child(sticker)
 		if index >= before and before >= 0 and is_inside_tree():
-			sticker.scale = Vector3.ONE * 1.6
+			var rest := sticker.position
+			var from := rest + Vector3(0.0, 0.25, -0.5)
+			var hand := _hand_of(_peering_crew)
+			if hand.is_finite():
+				from = _notices_node.to_local(hand)
+			sticker.position = from
+			sticker.scale = Vector3.ONE * 0.7
+			var flight := 0.14
 			var tween := create_tween()
-			tween.tween_property(sticker, "scale", Vector3.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tween.tween_property(sticker, "position", rest, flight).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+			tween.parallel().tween_property(sticker, "scale", Vector3.ONE, flight)
+			tween.tween_property(sticker, "scale", Vector3(1.25, 1.25, 0.4), 0.04)
+			tween.tween_property(sticker, "scale", Vector3.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			_later(flight, func() -> void: _sound("notice_slap", global_transform * rest))
+
+
+## A NICE BOY's right hand in the world, or INF.
+static func _hand_of(crew: Node3D) -> Vector3:
+	if crew == null or not is_instance_valid(crew):
+		return Vector3.INF
+	var body := crew.get_node_or_null("Visual/CartoonBody")
+	var hand := body.call("pose_part", "prop_hand") as Node3D if body != null and body.has_method("pose_part") else null
+	return hand.global_position if hand != null else crew.global_position + Vector3(0.0, 1.1, 0.0)
 
 
 ## A Courtesy Notice: a paper slip with the Daisy Seal and a few lines of
@@ -569,9 +783,17 @@ func _process(delta: float) -> void:
 			_look.rotation.z = 0.0
 	if _poking > 0.0:
 		_poking = maxf(0.0, _poking - delta)
-		if _poking <= 0.0 and spot_kind == "bin":
+		if _poking <= 0.0 and spot_kind == "bin" and _found_at < _poke_at:
 			_hinge_to(0.0)
 	_watch_occupants(delta)
+
+
+## The NICE BOY's peer pose goes on in the physics tick, after his body and its
+## poses have run (process_physics_priority, set in _ready): with physics
+## interpolation on, only what a tick leaves behind is ever drawn.
+func _physics_process(delta: float) -> void:
+	super(delta)
+	_pose_peering_crew()
 
 
 ## Tells from what every peer already has: an occupant turning fast shakes the
@@ -594,13 +816,18 @@ func _watch_occupants(delta: float) -> void:
 		# Settling in after the dive turns the body round once: that's no tell.
 		if Time.get_ticks_msec() - int(_entered_ms.get(peer_id, 0)) < int(Constants.HIDE_SETTLE_SECONDS * 1000.0):
 			_yaw_seen[peer_id] = yaw
+			_shiver_speed[peer_id] = 0.0
 			continue
 		if _yaw_seen.has(peer_id) and delta > 0.0:
+			# Smoothed, so a look that arrives in steps (the network's, a stepped
+			# mouse) reads as the speed it really turns at, not a string of jerks.
 			var rate := absf(angle_difference(float(_yaw_seen[peer_id]), yaw)) / delta
+			var speed := lerpf(float(_shiver_speed.get(peer_id, 0.0)), rate, 1.0 - exp(-delta / Constants.HIDE_TREMBLE_SMOOTH))
+			_shiver_speed[peer_id] = speed
 			_tremble_cool[peer_id] = maxf(0.0, float(_tremble_cool.get(peer_id, 0.0)) - delta)
-			if rate > Constants.HIDE_TREMBLE_TURN_RATE and float(_tremble_cool[peer_id]) <= 0.0:
-				_tremble_cool[peer_id] = Constants.HIDE_TREMBLE_SECONDS
-				set_state(&"tremble", Net.server_time())
+			if speed > Constants.HIDE_TREMBLE_TURN_RATE and float(_tremble_cool[peer_id]) <= 0.0:
+				_tremble_cool[peer_id] = _rng.randf_range(Constants.HIDE_TREMBLE_COOL.x, Constants.HIDE_TREMBLE_COOL.y)
+				_tremble(true, speed)
 		_yaw_seen[peer_id] = yaw
 		var peeking := bool(body.get("peeking"))
 		if bool(_peek_shown.get(peer_id, false)) != peeking:
@@ -685,8 +912,13 @@ static func _leaf_mesh(leaf_color: Color, leaf_size: float) -> MeshInstance3D:
 
 func _sound(id: String, at: Vector3, db: float = 0.0) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
-	if sfx != null:
-		sfx.call("play_at", id, at, db)
+	if sfx == null:
+		return
+	# Your own spot, around your own ears: over the chase music, through the muffle.
+	var me := Net.local_peer_id()
+	if is_inside(me) or int(_predicted.get(me, 0)) > Time.get_ticks_msec():
+		db += Constants.HIDE_OWN_SOUND_DB
+	sfx.call("play_at", id, at, db)
 
 
 func _later(seconds: float, what: Callable) -> void:

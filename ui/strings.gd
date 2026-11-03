@@ -1673,6 +1673,49 @@ const CREW_BARKS: Dictionary = {
 		"Clear! Ish!",
 		"Empty. Suspiciously empty.",
 	],
+	# R2b hide: a NICE BOY names the spot he's about to poke, and what he found
+	# (nothing) after a near miss: one pool per kind (net/components/hide_spot.gd
+	# inspect_bark, player.gd for the pile).
+	"inspect_hedge": [
+		"That hedge just breathed.",
+		"Hedges don't usually have elbows.",
+		"This shrub is out of compliance with shrub code.",
+	],
+	"inspect_bin": [
+		"Is this bin... humming?",
+		"Pickup is Thursday. Who's in the bin?",
+		"This bin has a pulse. That's a violation.",
+	],
+	"inspect_shed": [
+		"Mmhm. A shed. Sheds are where people go.",
+		"Knock knock. It's the NICE BOYS. Nicely.",
+		"Sheds require a permit. Occupied sheds, two.",
+	],
+	"inspect_pile": [
+		"This pile looks suspiciously fluffy.",
+		"Piles don't usually have shoes.",
+		"Leaf piles are not a valid hiding place, per section 4.",
+	],
+	"near_miss_hedge": [
+		"Huh. Just leaves.",
+		"Clear! Ish!",
+		"Nobody in the shrub. Notice goes on the shrub.",
+	],
+	"near_miss_bin": [
+		"Just trash. Very organized trash.",
+		"Empty. Suspiciously empty.",
+		"Nobody. I'm leaving a notice on the lid anyway.",
+	],
+	"near_miss_shed": [
+		"Just rakes. So many rakes.",
+		"Empty. Suspiciously empty.",
+		"Nobody home. Notice goes on the door.",
+	],
+	"near_miss_pile": [
+		"Huh. Just leaves.",
+		"Clear! Ish!",
+		"Fluffy, but empty. Noted.",
+	],
 	"cite_wriggle": [
 		"Stop wiggling, I'm doing cursive!",
 		"Now I have to start over!",

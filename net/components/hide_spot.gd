@@ -60,6 +60,12 @@ var _inspect_began: float = -1.0
 var _last_seen_hint := Vector3.INF
 var _rustle_cool: Dictionary = {}
 var _last_yaw: Dictionary = {}
+## Host: each occupant's smoothed turn speed (rad/s), and who is being pulled
+## out right now (peer -> true) so a climb-out can't race the reveal (R2b hide).
+var _turn_speed: Dictionary = {}
+var _pulling: Dictionary = {}
+## Every peer: a bin's yard-facing side, once known (-1 not yet).
+var _yard_side: int = -1
 
 
 func _ready() -> void:
@@ -176,7 +182,12 @@ func entry_point(side: int, slot: int = 0) -> Vector3:
 	var direction: Vector3 = SIDES[clampi(side, 0, 3)]
 	var half := box_size * 0.5
 	var extent := absf(direction.x) * half.x + absf(direction.z) * half.z
-	var local := direction * (extent + Constants.HIDE_EXIT_GAP + Constants.HIDE_EXIT_RADIUS) + _slot_offset(side, slot)
+	var offset := _slot_offset(side, slot)
+	if spot_kind == "shed":
+		# Both of a shed's places step out on the latch side of the doorway, clear of
+		# the door standing open on its hinge side (R2b hide).
+		offset = Vector3(-direction.z, 0.0, direction.x) * (0.1 + 0.45 * float(slot % 2))
+	var local := direction * (extent + Constants.HIDE_EXIT_GAP + Constants.HIDE_EXIT_RADIUS) + offset
 	return global_transform * Vector3(local.x, 0.05, local.z)
 
 
@@ -190,17 +201,46 @@ func inside_point(side: int, slot: int = 0) -> Vector3:
 
 
 ## The eye while hidden: on the face of the side the hider came in by (just
-## outside it, so no wall is ever in front of the lens), looking out. A shed's
-## two knot holes sit apart. Its -Z is the facing the view turns around.
+## outside it, so no wall is ever in front of the lens), looking out. A bin's
+## slit faces the yard whichever side you vaulted in from; a shed's eye is just
+## inside the door at its knot holes, one each for its two places (R2b hide).
+## Its -Z is the facing the view turns around.
 func peek_transform(side: int, slot: int = 0) -> Transform3D:
+	side = eye_side(side)
 	var direction: Vector3 = SIDES[clampi(side, 0, 3)]
 	var half := box_size * 0.5
 	var extent := absf(direction.x) * half.x + absf(direction.z) * half.z
 	var eye_y := _eye_height()
 	var local := direction * (extent + 0.03) + _slot_offset(side, slot) + Vector3(0.0, eye_y, 0.0)
+	if spot_kind == "shed":
+		var across := _slot_offset(side, slot).normalized() * Constants.HIDE_SHED_EYE_SIDE if capacity > 1 else Vector3.ZERO
+		local = direction * (extent - Constants.HIDE_SHED_EYE_IN) + across + Vector3(0.0, eye_y, 0.0)
 	var facing := global_basis * direction
 	var basis := Basis.looking_at(Vector3(facing.x, 0.0, facing.z).normalized(), Vector3.UP)
 	return Transform3D(basis, global_transform * local)
+
+
+## The side a hider in by `side` looks out of: a bin's slit faces the yard (the
+## side most toward the job lot's middle, the same on every peer); every other
+## spot looks out the way you came in.
+func eye_side(side: int) -> int:
+	if spot_kind != "bin":
+		return side
+	if _yard_side < 0:
+		var lot := get_tree().get_first_node_in_group("job_lot") as Node3D if is_inside_tree() else null
+		if lot == null:
+			return side
+		var toward := lot.global_position - global_position
+		toward.y = 0.0
+		if toward.length() < 0.1:
+			return side
+		var best := -INF
+		for each: int in SIDES.size():
+			var score := side_direction(each).dot(toward.normalized())
+			if score > best:
+				best = score
+				_yard_side = each
+	return _yard_side
 
 
 ## The spot's own peek anchor for that side and slot: a Node3D at
@@ -220,7 +260,7 @@ func peek_anchor(side: int = -1, slot: int = 0) -> Node3D:
 ## Where a NICE BOY stands to poke this spot: before its front, or before the
 ## side the first hider came in by.
 func inspect_point() -> Vector3:
-	var side := _sides[0] if not _sides.is_empty() else 0
+	var side := eye_side(_sides[0] if not _sides.is_empty() else 0)
 	var direction: Vector3 = SIDES[clampi(side, 0, 3)]
 	var half := box_size * 0.5
 	var extent := absf(direction.x) * half.x + absf(direction.z) * half.z
@@ -235,7 +275,9 @@ func top_point() -> Vector3:
 func _eye_height() -> float:
 	match spot_kind:
 		"shed":
-			return 1.5
+			# At the knot holes, a hand under the top of the door (props/hide_spot.gd
+			# draws them there): any higher looks into the lintel.
+			return box_size.y * 0.72 - 0.26 - 0.22
 		"bin":
 			return box_size.y - 0.12
 		_:
@@ -326,7 +368,8 @@ func _on_refused(reason: String) -> void:
 
 
 func _handle_exit(peer_id: int, side_hint: int) -> void:
-	if not _occupants.has(peer_id):
+	# Found: his hands are already on you.
+	if not _occupants.has(peer_id) or _pulling.has(peer_id):
 		return
 	var side := host_exit_side(peer_id, side_hint)
 	_rpc_exit_side.rpc(peer_id, side, Net.server_time())
@@ -408,6 +451,16 @@ func _drop_stale_inspector() -> void:
 		_inspector = null
 
 
+## The bark kinds a NICE BOY uses on this spot (ui/strings.gd CREW_BARKS): his
+## line as he walks over to it and after a near miss name what it is (R2b hide).
+func inspect_bark() -> String:
+	return "inspect_" + spot_kind
+
+
+func near_miss_bark() -> String:
+	return "near_miss_" + spot_kind
+
+
 ## Host only, for older callers: whether it looks bad enough to be opened.
 func was_seen_entering() -> bool:
 	return not _occupants.is_empty() and suspicion() >= Constants.HIDE_FOUND_AT
@@ -480,24 +533,71 @@ func pull_out() -> int:
 	return 0
 
 
-## The hider comes out toward the NICE BOY (every peer sees the lift).
+## The hider comes out toward the NICE BOY (every peer sees the lift). The spot
+## comes open around his face first (_rpc_inspect found, HIDE_FOUND_REVEAL), then
+## they're pulled out onto their feet beside him, never left on top of the spot;
+## the landing rides on the player as meta "hide_pulled_to" ([where, server time
+## they're down]) so the gotcha stands them there (net/run_events/encounter.gd).
 func _pull(peer_id: int, crew: Node) -> void:
 	stats["pulled_out"] = int(stats["pulled_out"]) + 1
-	var toward := inspect_point()
-	if crew is Node3D:
-		var crew_at := (crew as Node3D).global_position
-		var away := crew_at - global_position
-		away.y = 0.0
-		toward = crew_at - away.normalized() * Constants.HIDE_PULL_STANDOFF if away.length() > 0.1 else crew_at
-		toward.y = global_position.y + 0.05
-	_rpc_pull.rpc(peer_id, toward, Net.server_time())
+	var landing := found_landing(peer_id, crew as Node3D)
+	_pulling[peer_id] = true
+	var body := _player(peer_id)
+	if body != null:
+		body.set_meta(&"hide_pulled_to", [landing, Net.server_time() + Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS])
+	get_tree().create_timer(Constants.HIDE_FOUND_REVEAL).timeout.connect(func() -> void:
+		if not is_instance_valid(self) or not is_inside_tree():
+			return
+		_pulling.erase(peer_id)
+		if _occupants.has(peer_id):
+			_rpc_pull.rpc(peer_id, landing, Net.server_time()))
 	# Without the R2 Encounter there's no gotcha to hand them to: the director takes them.
 	if get_tree().get_first_node_in_group("nice_encounter") == null:
 		var director := get_tree().get_first_node_in_group("run_director")
 		if director != null:
-			get_tree().create_timer(Constants.HIDE_PULL_SECONDS).timeout.connect(func() -> void:
+			get_tree().create_timer(Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS).timeout.connect(func() -> void:
 				if is_instance_valid(director):
 					director.call("note_capture", peer_id))
+
+
+## Where a found hider is set down: on the ground just out from the face he
+## looked in at, a step to one side of him (whichever side has room), so the two
+## of them stand apart for the gotcha. A shed's is off the hinge side of its door.
+func found_landing(peer_id: int, crew: Node3D) -> Vector3:
+	var side := eye_side(maxi(side_of(peer_id), 0))
+	var direction: Vector3 = SIDES[side]
+	var half := box_size * 0.5
+	var extent := absf(direction.x) * half.x + absf(direction.z) * half.z
+	var along := Vector3(-direction.z, 0.0, direction.x)
+	var out := direction * (extent + Constants.HIDE_FOUND_LAND_OUT)
+	var options: Array[Vector3] = []
+	if spot_kind == "shed":
+		# The door swings out on its left hinge (-X): land on the latch side.
+		options = [out + Vector3(Constants.HIDE_FOUND_LAND_ALONG * 0.75, 0.0, 0.0)]
+	else:
+		var first := 1.0
+		if crew != null:
+			var local_crew := global_transform.affine_inverse() * crew.global_position
+			first = -1.0 if (local_crew - out).dot(along) > 0.0 else 1.0
+		options = [out + along * first * Constants.HIDE_FOUND_LAND_ALONG, out - along * first * Constants.HIDE_FOUND_LAND_ALONG, out]
+	for local: Vector3 in options:
+		var at := global_transform * Vector3(local.x, 0.05, local.z)
+		if not is_inside_tree() or _room_at(at):
+			return at
+	return global_transform * Vector3(options[0].x, 0.05, options[0].z)
+
+
+## Room for a standing body at `at`, ignoring the spot itself and the players.
+func _room_at(at: Vector3) -> bool:
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = Constants.HIDE_EXIT_RADIUS * 0.85
+	capsule.height = Constants.HIDE_EXIT_HEIGHT
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = capsule
+	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, Constants.HIDE_EXIT_HEIGHT * 0.5 + 0.08, 0.0))
+	query.collision_mask = EXIT_MASK
+	query.exclude = _own_rids()
+	return get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
 
 
 func _can_capture(peer_id: int) -> bool:
@@ -521,7 +621,11 @@ func _physics_process(delta: float) -> void:
 		if body == null:
 			continue
 		var yaw := float(body.get("body_yaw"))
-		var rate := absf(angle_difference(float(_last_yaw.get(peer_id, yaw)), yaw)) / maxf(delta, 0.001)
+		var step := absf(angle_difference(float(_last_yaw.get(peer_id, yaw)), yaw)) / maxf(delta, 0.001)
+		# Smoothed like the shiver everyone sees (props/hide_spot.gd): a client's
+		# yaw arrives in network steps, which aren't a jerk of the head.
+		var rate := lerpf(float(_turn_speed.get(peer_id, 0.0)), step, 1.0 - exp(-delta / Constants.HIDE_TREMBLE_SMOOTH))
+		_turn_speed[peer_id] = rate if not settling else 0.0
 		_last_yaw[peer_id] = yaw
 		_rustle_cool[peer_id] = maxf(0.0, float(_rustle_cool.get(peer_id, 0.0)) - delta)
 		if not watched or settling:

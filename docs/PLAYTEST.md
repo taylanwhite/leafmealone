@@ -117,6 +117,19 @@ What to check, beyond the general list:
 - **The poke:** the NICE BOY turns and points, walks to the spot, pokes (hedge parted twice, lid lifted, three knocks, pile pats) with a sound on each; near miss: the shrug, `notice_slap`, a sticker that stays; found: the lift toward him, then the catch. His arm should never pass through your camera (stand-off `HIDE_INSPECT_STAND` 1.2 m).
 - Recorded for 0.4.6 + R2:1 at 30 fps (host 1P, observer 3P, and a `--sim-lag=150` pair): hedge, bin, shed, pile, inspect_near, inspect_found; no camera flags on the hider; the remaining `pop`s were scenario placement and the old crew AI (R2 chunk 2's), and the NICE BOY name tag filling the screen up close is chunk 2's clamp.
 
+### R2b hide (2026-11-03): the poke, the find, the inside
+
+What to check, beyond R2:3 (docs/GAME.md "being found is the punchline"):
+- [ ] **The poke from inside** (`inspect_near`, `inspect_found`): within 0.4 s of the first rustle his face is in the gap at your eye height, scanning; your view turns to it without a rustle; the leaves part a little on each push (the lid lifts, the boards jolt). His line names the spot.
+- [ ] **Near miss:** he leans back out over about 0.35 s, shrugs, and the sticker flies from his hand and lands with `notice_slap` on its landing frame.
+- [ ] **Found:** the spot opens and his hands come at the camera; `hide_grab` about 0.43 s after the find; you stay in the spot until 0.55 s; the pull keeps his face in view, the eye never rises more than about 0.4 m over standing height, and no `cam_snap`; the body lands on the ground (events.json `state.position` y back to the ground) off the spot, beside him, before `gotcha_grab`; the observer sees him bent into the spot, the hider hauled out kicking, both on the ground in the two-shot.
+- [ ] **Turning inside** a hedge or bin shows the inside (leaves, tub walls), never the spot's own flat outside or a stray quad; the shed's knot hole shows the yard, not the lintel or the door.
+- [ ] **Dive turn:** the per-frame yaw in events.json rises and falls (no full-speed first frame).
+- [ ] **Sound:** audio.png's 4k and 8k rows stay dark from the landing until the burst-out, through rustles and fast looks; `bin_lid` and `bin_clang` have onsets when you dive in after the warning's first second (the warning's own opening burst masks anything under it); `shed_creak` on a shed peek.
+- [ ] **Tells:** slow, smooth turning gives no `hedge_rustle`; a hard turn gives one, and they never tick at a fixed spacing.
+- [ ] **Climb-out (3P):** arms straight up through the hop, flopping down on landing; no T. The pile's mound grows as the body sinks, never full size in one frame.
+- Recorded 2026-11-03 at 30 fps (`build\play\rec_found_1p`, `rec_hide_1p`, `rec_bin_2_1p`, `rec_shed_1p`, `rec_pile_1p`, `rec_near_1p`, `rec_peek_1p`, observer copies, and `rec_lag_found` / `rec_lag_hide` under `--sim-lag=150 --sim-loss=2`). Tool notes: a scenario run after `inspect_found` can leave you caught (control-locked) or under a closed iris; restart the session (`-Stop`, `-Start`) between a catch and the next take. `follow host` puts the observer's camera inside the hider's hedge or body; a fixed `cam` beside the spot reads better (`cam 997.9 1.5 -19.3 994.95 1.0 -18.7` on seed 777's hedge).
+
 ### R2:5 Satellite Annex B: the set, the staff, the clipboard and the muzak
 
 Studio: `--subject=annex` (street front, the lobby from the doors, the windows, the desk corner), `--subject=annex_plan` (roof off), `--subject=clerk --state=<name> --times=a,b,c,d` (one state at four moments; `--role=head|greeter|janitor`), `--subject=form27b`. In the game, R2 chunk 6's `annex` scenarios.

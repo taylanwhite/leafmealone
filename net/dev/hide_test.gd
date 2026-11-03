@@ -29,9 +29,14 @@ extends Node
 ##    found; a poke cut short frees the spot with no outcome; a dive he watches
 ##    is found, lifted out, and caught (with the R2
 ##    Encounter: GOTCHA; without it: the director's cohort).
+##    R2b hide adds: hidden in a chase, the music holds its "hide" section; a
+##    slow look arriving in network steps raises no rustle, a hard turn does; a
+##    found hider stays inside through the reveal, then lands on the ground off
+##    the spot and the gotcha stands them there; his lines name the spot.
 
 const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _HideView = preload("res://player/hide_view.gd")
+const _Strings = preload("res://ui/strings.gd")
 const CLIENT_WAIT_SECONDS: float = 30.0
 const STEP_WAIT_SECONDS: float = 6.0
 ## The host waits a little longer for a report than the client waits for anything.
@@ -294,10 +299,30 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 	await _seconds(0.5)
 	_reports.erase("in")
 	_rpc_cue.rpc_id(mate, "enter", {})
-	await _report("in")
+	var chase_in: Dictionary = await _report("in")
+	# R2b hide: hidden during a chase, the music holds its "hide" section.
+	if bool(chase_in.get("has_music", false)):
+		_check("the chase music holds its hide section", bool(chase_in.get("music_hide", false)), "client: %s" % chase_in)
 	await _seconds(1.4)
 	var calm := float(hedge.call("suspicion"))
 	_check("unseen dive is not suspicious", calm < Constants.HIDE_FOUND_AT, "suspicion %.2f" % calm)
+	# R2b hide: the shiver comes from how fast you really turn. A slow look that
+	# reaches the host in network steps raises nothing; a hard turn does, once.
+	_park(crew, hedge.global_position + front * 8.0, -front)
+	await _seconds(Constants.HIDE_SETTLE_SECONDS)
+	hedge.set("_suspicion", 0.0)
+	_reports.erase("turn")
+	_rpc_cue.rpc_id(mate, "turn", {"rate": Constants.HIDE_TREMBLE_TURN_RATE * 0.6, "seconds": 1.5})
+	await _report("turn")
+	var after_slow := float(hedge.call("suspicion")) - Constants.SUSPICION_RECENT_USE
+	_reports.erase("turn")
+	_rpc_cue.rpc_id(mate, "turn", {"rate": Constants.HIDE_TREMBLE_TURN_RATE * 3.0, "seconds": 0.5})
+	await _report("turn")
+	var after_fast := float(hedge.call("suspicion")) - Constants.SUSPICION_RECENT_USE
+	_check("a slow look doesn't rustle, a hard turn does", after_slow < Constants.SUSPICION_RUSTLE * 0.5 and after_fast >= after_slow + Constants.SUSPICION_RUSTLE * 0.5, "after the slow look %.2f, after the hard turn %.2f" % [after_slow, after_fast])
+	hedge.set("_suspicion", 0.0)
+	_park(crew, behind, -front)
+	await _seconds(0.3)
 	_reports.erase("peek")
 	_rpc_cue.rpc_id(mate, "peek", {"seconds": 1.5})
 	await _report("peek")
@@ -375,6 +400,18 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 			caught = bool(director.call("is_captured", mate))
 	director.set_process(true)
 	_check("a watched dive is found and caught", seen >= Constants.HIDE_FOUND_AT and found["outcome"] == &"found" and int(found["peer"]) == mate and caught and bool(pull_report.get("ok", false)), "suspicion %.2f, outcome %s, caught %s; client: %s" % [seen, found["outcome"], caught, pull_report])
+	# R2b hide: the gotcha stands them where the pull set them down (the ground),
+	# whatever the host's copy of their lift showed at contact.
+	if encounter != null and encounter.get("_stages") is Dictionary:
+		var entry: Dictionary = (encounter.get("_stages") as Dictionary).get(mate, {})
+		var victim: Vector3 = (entry.get("args", {}) as Dictionary).get("victim", Vector3.INF)
+		var grounded := victim.is_finite() and absf(victim.y - hedge.global_position.y) < 0.2 and float(hedge.call("reach_distance", victim)) > 0.15
+		_check("the gotcha is on the ground beside the spot", grounded, "victim %s, spot %s" % [victim, hedge.global_position])
+	# R2b hide: his line names what he pokes.
+	var lines_ok := true
+	for kind: String in ["hedge", "bin", "shed", "pile"]:
+		lines_ok = lines_ok and (_Strings.CREW_BARKS.get("inspect_" + kind, []) as Array).size() > 0 and (_Strings.CREW_BARKS.get("near_miss_" + kind, []) as Array).size() > 0
+	_check("inspect lines by kind", lines_ok and str(hedge.call("inspect_bark")) == "inspect_hedge" and str(_spot("bin").call("near_miss_bark")) == "near_miss_bin" and str(_me().call("inspect_bark")) == "inspect_pile", "hedge %s" % hedge.call("inspect_bark"))
 
 
 # ---------------------------------------------------------------- client
@@ -398,6 +435,33 @@ func _rpc_cue(step: String, args: Dictionary) -> void:
 			_rpc_report.rpc_id(1, "notices", {"notices": int(spot.get("notices")) if spot != null else -1})
 		"watch_pull":
 			_client_watch_pull(args.get("crew", Vector3.ZERO))
+		"turn":
+			_client_turn(float(args.get("rate", 1.0)), float(args.get("seconds", 1.0)))
+
+
+## Turn the hidden view at `rate` rad/s for `seconds`, in a lump every third
+## tick (the way a look reaches other peers), back and forth inside the clamp.
+func _client_turn(rate: float, seconds: float) -> void:
+	var me := _me()
+	var cam := me.call("stage_cam") as Camera3D
+	var turn := Settings.look_scale()
+	var direction := 1.0
+	var elapsed := 0.0
+	var tick := 0
+	while elapsed < seconds and cam != null:
+		await get_tree().physics_frame
+		var delta := get_physics_process_delta_time()
+		elapsed += delta
+		tick += 1
+		if tick % 3 != 0:
+			continue
+		var yaw := float((cam.call("look_angles") as Vector2).x)
+		if absf(yaw) > Constants.HIDE_YAW_CLAMP * 0.8 and signf(yaw) == direction:
+			direction = -direction
+		# add_look turns by -relative.x * turn.x.
+		cam.call("add_look", Vector2(-direction * rate * delta * 3.0 / maxf(turn.x, 0.0001), 0.0))
+	await _seconds(0.3)
+	_send("turn", {"ok": true})
 
 
 func _client_enter() -> void:
@@ -503,13 +567,21 @@ func _client_pile() -> void:
 func _client_watch_pull(crew_at: Vector3) -> void:
 	var me := _me()
 	var start := me.global_position
+	var spot := _HideSpot.spot_of(get_tree(), Net.local_peer_id())
 	_start_tracking()
+	# R2b hide: the spot comes open around his face first; you're still inside for the reveal.
+	await _seconds(Constants.HIDE_FOUND_REVEAL * 0.6)
+	var held_for_reveal := _HideSpot.spot_of(get_tree(), Net.local_peer_id()) != null
 	await _wait_for(func() -> Variant: return true if _HideSpot.spot_of(get_tree(), Net.local_peer_id()) == null else null)
 	await _seconds(Constants.HIDE_PULL_SECONDS + 0.2)
 	_tracking = false
 	var closer := Vector2(me.global_position.x - crew_at.x, me.global_position.z - crew_at.z).length() < Vector2(start.x - crew_at.x, start.z - crew_at.z).length()
-	var report := {"hidden": _HideSpot.spot_of(get_tree(), Net.local_peer_id()) != null, "toward_him": closer, "max_step": snappedf(_max_step, 0.01)}
-	report["ok"] = not bool(report["hidden"]) and closer and _max_step <= MAX_STEP
+	var report := {"hidden": _HideSpot.spot_of(get_tree(), Net.local_peer_id()) != null, "toward_him": closer, "max_step": snappedf(_max_step, 0.01), "held_for_reveal": held_for_reveal}
+	# On the ground beside the spot, never on top of it.
+	if spot != null:
+		report["above_ground"] = snappedf(me.global_position.y - spot.global_position.y, 0.01)
+		report["off_box"] = snappedf(float(spot.call("reach_distance", me.global_position)), 0.01)
+	report["ok"] = not bool(report["hidden"]) and closer and _max_step <= MAX_STEP and held_for_reveal and absf(float(report.get("above_ground", 0.0))) < 0.25 and float(report.get("off_box", 1.0)) > 0.15
 	_send("pulled", report)
 	result = {"ok": _problems.is_empty(), "done": true, "problems": _problems}
 
@@ -530,6 +602,7 @@ func _view_report() -> Dictionary:
 	var after := get_viewport().get_camera_3d()
 	var turned := rad_to_deg((-before.z).angle_to(-after.global_basis.z)) if after != null else 0.0
 	var drawn := _drawn_parts(me)
+	var music := get_tree().get_first_node_in_group("music_director")
 	return {
 		"camera": str(current.name) if current != null else "none",
 		"shot": top,
@@ -540,6 +613,8 @@ func _view_report() -> Dictionary:
 		"body": drawn["body"],
 		"head": drawn["head"],
 		"muffled": _HideView.world_muffled(),
+		"has_music": music != null and music.has_method("section_requested"),
+		"music_hide": music != null and music.has_method("section_requested") and bool(music.call("section_requested", &"hide")),
 	}
 
 

@@ -157,6 +157,42 @@ def notice_slap() -> list[float]:
     return out
 
 
+def shed_creak(variant: int) -> list[float]:
+    """Peeking out of the shed (R2b hide): the door eased open a crack. A short,
+    careful rusty creak that bends up in pitch, no clack."""
+    rng = random.Random(1700 + variant)
+    out = silence(0.38)
+    base_hz = 230.0 + 30.0 * variant
+    creak_pitch = lambda t: base_hz + 90.0 * min(1.0, t / 0.25) + 25.0 * math.sin(TAU * 6.0 * t)
+    creak = tone(0.3, creak_pitch, "saw", (19.0 + 4.0 * variant, 0.1))
+    creak = bandpass(creak, lambda t: 1300.0 + 400.0 * math.sin(TAU * 1.7 * t), 3.0)
+    mix_into(out, envelope(creak, 0.006, 0.1), 0.0, 0.8)
+    mix_into(out, decay(bandpass(noise(rng, 0.03), 2400.0, 2.0), 90.0), 0.0, 0.25)
+    return out
+
+
+def hide_grab() -> list[float]:
+    """Found (R2b hide): two big hands close on your collar inside the hedge, the
+    bin or the shed. A sharp cloth snatch (a bright fabric crunch with a hard
+    attack), a soft thump of knuckles on shoulders, and a short rising squeak:
+    the cartoon 'gotcha' grip, heard over the parting leaves."""
+    rng = random.Random(1650)
+    out = silence(0.42)
+    # The snatch: a crisp burst of cloth, bright at the front, dying fast.
+    snatch = bandpass(noise(rng, 0.12), lambda t: 3200.0 - 1600.0 * min(1.0, t / 0.1), 1.1)
+    mix_into(out, decay(snatch, 34.0), 0.0, 1.0)
+    # Knuckles on shoulders: a low, round thump right on the attack.
+    mix_into(out, blip(0.16, 150.0, 80.0, 22.0), 0.0, 0.9)
+    mix_into(out, decay(lowpass(noise(rng, 0.05), 700.0), 60.0), 0.004, 0.6)
+    # The fabric bunching up in his fists.
+    rub = bandpass(noise(rng, 0.18), lambda t: 1800.0 + 700.0 * math.sin(TAU * 17.0 * t), 2.0)
+    mix_into(out, envelope(rub, 0.01, 0.1), 0.05, 0.35)
+    # A little rising squeak of surprise from the shirt (or you).
+    squeak = tone(0.12, glide(620.0, 980.0, 0.12), "triangle", (28.0, 0.04))
+    mix_into(out, envelope(squeak, 0.01, 0.05), 0.07, 0.22)
+    return out
+
+
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
     "hedge_rustle": (hedge_rustle, 3, 0.55),
@@ -168,6 +204,8 @@ SOUNDS = {
     "pile_pop": (pile_pop, 0, 0.65),
     "hide_bonk": (hide_bonk, 0, 0.7),
     "notice_slap": (notice_slap, 0, 0.6),
+    "hide_grab": (hide_grab, 0, 0.75),
+    "shed_creak": (shed_creak, 2, 0.45),
 }
 
 
