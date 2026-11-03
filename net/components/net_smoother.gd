@@ -50,7 +50,10 @@ func _physics_process(_delta: float) -> void:
 		return
 	var origin := body.global_position
 	if origin.distance_squared_to(_last_recorded) < 0.0000001 and not _samples.is_empty():
-		return
+		# Stopped: one more sample where it stopped, so the visual doesn't stay
+		# extrapolated past the stop (a dive into a hedge left it 0.5 m underground).
+		if _samples.size() >= 2 and ((_samples[_samples.size() - 2]["xform"] as Transform3D).origin).distance_squared_to(origin) < 0.0000001:
+			return
 	_last_recorded = origin
 	var now := _now()
 	if not _samples.is_empty():

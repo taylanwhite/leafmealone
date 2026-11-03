@@ -197,7 +197,10 @@ func _pile_check() -> bool:
 	if not hidden:
 		print("[GagTest] (dive refused: standing at %s, pile at %s, pile there %s, in_pile %s, held %s)" % [me.global_position, pile, bool(field.call("is_pile_at", me.global_position)), bool(me.get("in_pile")), _held_kind()])
 	print("[GagTest] dived into the pile: hidden %s" % hidden)
-	return hidden
+	# R2:3 nobody watched the dive: a NICE BOY's poke would be a near miss.
+	var calm := float(me.call("suspicion")) < Constants.HIDE_FOUND_AT
+	print("[GagTest] an unwatched pile isn't suspicious: %s (%.2f)" % [calm, float(me.call("suspicion"))])
+	return hidden and calm
 
 
 ## Walk up to a NICE BOY and bean them with the trash can. Three tries: on a

@@ -347,6 +347,8 @@ func host_hand_collect(origin: Vector3, actor: int = 0) -> int:
 	if not _take_bag(supply_id):
 		return 0
 	var removed := _apply_collect(origin, radius, false)
+	# R2:3 a hand bagging the pile someone's hiding in turns them out.
+	_turn_out(origin, radius + Constants.PILE_HIDE_RADIUS)
 	_removed_units += float(removed) * _unit_scale
 	if removed > 0:
 		_emit_stroke("crew_bag", actor, origin, Vector3.ZERO, radius * 2.0, 0, removed)
@@ -499,6 +501,8 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float, seq: int = 0)
 	var removed := _apply_collect(origin, scoop, true)
 	if removed <= 0:
 		return 0
+	# R2:3 bagging the pile someone's hiding in turns them out.
+	_turn_out(origin, scoop + Constants.PILE_HIDE_RADIUS)
 	Campaign.record_stat(peer_id, &"leaves_cleared", float(removed) * _unit_scale)
 	_emit_stroke("bag", peer_id, origin, Vector3.ZERO, scoop * 2.0, 0, removed, seq)
 	return removed

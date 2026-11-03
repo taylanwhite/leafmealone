@@ -165,3 +165,43 @@ func _own_player() -> Node:
 		if node.name == own_name:
 			return node
 	return null
+
+# ---- R2:3 hiding: hiders peek now and then, and bolt on a telegraph half the time.
+## When the next peek starts and the one running ends (bot seconds), and whether
+## this bot already decided about the poke going on now.
+var _r2_next_peek: float = -1.0
+var _r2_peek_until: float = -1.0
+var _r2_poke_seen: bool = false
+
+
+## Called by the R2 dispatcher (chunk 2) each tick: true while it is steering.
+func _r2_hide_tick(_delta: float) -> bool:
+	var player := _own_player()
+	if player == null or not bool(player.call("is_hidden")):
+		_r2_next_peek = -1.0
+		_r2_poke_seen = false
+		if _r2_peek_until >= 0.0:
+			_r2_peek_until = -1.0
+			Input.action_release(&"secondary")
+		return false
+	if _r2_next_peek < 0.0:
+		_r2_next_peek = _elapsed + _rng.randf_range(4.0, 9.0)
+	if _r2_peek_until >= 0.0 and _elapsed >= _r2_peek_until:
+		_r2_peek_until = -1.0
+		Input.action_release(&"secondary")
+		_r2_next_peek = _elapsed + _rng.randf_range(5.0, 11.0)
+	elif _r2_peek_until < 0.0 and _elapsed >= _r2_next_peek:
+		_r2_peek_until = _elapsed + _rng.randf_range(0.8, 2.0)
+		Input.action_press(&"secondary")
+	# A NICE BOY poking our spot (every peer sees the poke): bolt, or hold still.
+	var spot: Node = player.call("hidden_spot")
+	var poked := spot != null and float(spot.get("_poking")) > 0.0
+	if poked and not _r2_poke_seen:
+		_r2_poke_seen = true
+		if _rng.randf() < 0.5:
+			Input.action_release(&"secondary")
+			_r2_peek_until = -1.0
+			_press_interact()
+	elif not poked:
+		_r2_poke_seen = false
+	return true

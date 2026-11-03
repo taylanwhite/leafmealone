@@ -291,7 +291,8 @@ func _bindings(defaults: Dictionary) -> bool:
 	var hide_text := str(_Strings.UI["prompt_hide"])
 	var prompt := _Prompt.text_for({"text": hide_text})
 	var take_prompt := _Prompt.text_for({"text": hide_text, "key": "take"})
-	var hidden := str(_Strings.UI["hud_hidden"])
+	# A plain line with a key in it (hud_hidden, which this used, went with R2 chunk 3).
+	var hidden := "Hold {key:interact}"
 	var plain := _Prompt.text_for({"text": hidden, "plain": true})
 	if prompt != "[R]  " + hide_text or take_prompt != "[F]  " + hide_text or plain != hidden.replace("{key:interact}", "[R]") or plain == hidden:
 		ok = _fail("bindings", "prompts read '%s', '%s', '%s'" % [prompt, take_prompt, plain])

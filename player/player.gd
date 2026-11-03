@@ -45,6 +45,9 @@ const HUP_CHANCE: float = 0.6
 ## Dived into a pile of leaves (docs/FUN.md): hidden from the NICE BOYS unless
 ## one watched you go in. Replicated; the host decides (leaf_field.gd).
 @export var in_pile: bool = false
+## Peeking out of a hiding spot or a pile (hold secondary while hidden): the
+## lid lifts, the door cracks, eyes glint in the hedge. Replicated; the owner sets it.
+@export var peeking: bool = false
 ## Wearing something: 1 paint, 2 water. Replicated; the host decides (job_tasks.gd).
 @export var coat: int = 0
 ## Brawling (net/components/brawl.gd): who this player carries, who carries
@@ -97,7 +100,6 @@ var _swing_left: float = 0.0
 var _struggle: int = 0
 var _thrown_left: float = 0.0
 var _coat_shown: int = 0
-var _mound: Node3D
 var _next_strain: float = 0.0
 ## A notice over your head (flash_hint) and when it goes (ticks msec).
 var _notice_text: String = ""
@@ -227,7 +229,7 @@ func _physics_process(delta: float) -> void:
 			_apply_look()
 		if seated_in_vehicle:
 			_Seated.step(self, delta)
-		elif _hidden_spot != null or in_pile:
+		elif _hidden_spot != null or in_pile or _hide_moving():
 			velocity = Vector3.ZERO
 		elif _step_sleep():
 			pass
@@ -542,25 +544,87 @@ func _step_sleep() -> bool:
 	return true
 
 
-## Called on every peer by the host's hide spot. Null means this player came out.
-func set_hidden_in(spot: Node3D) -> void:
-	var leaving := _hidden_spot
+## Called on every peer by the host's hide spot (net/components/hide_spot.gd):
+## in spot by side from server time at, or out (spot null) toward exit_to, lifted
+## out by a NICE BOY if pulled. Nothing here teleports or hides $Visual: the body
+## dives, climbs and is lifted along a curve (player/hide_view.gd), and only the
+## drawn body stops being drawn (set_body_drawn), so the camera stays live.
+func set_hidden_in(spot: Node3D, side: int = -1, at: float = -1.0, exit_to: Vector3 = Vector3.INF, pulled: bool = false) -> void:
+	var view := _hide_view()
 	_hidden_spot = spot
-	$Visual.visible = spot == null
-	%Collision.disabled = spot != null
-	if not is_multiplayer_authority():
-		return
-	velocity = Vector3.ZERO
 	if spot != null:
-		_stow_hands()
-		global_position = spot.global_position + Vector3(0.0, 0.1, 0.0)
-	elif leaving != null and leaving.has_method("exit_position"):
-		global_position = leaving.call("exit_position")
-	reset_physics_interpolation()
+		%Collision.disabled = true
+		if is_multiplayer_authority():
+			_stow_hands()
+			velocity = Vector3.ZERO
+		view.call("on_hidden", spot, side if side >= 0 else int(spot.call("side_of", name.to_int())), at if at >= 0.0 else Net.server_time())
+		return
+	if is_multiplayer_authority() and not exit_to.is_finite() and not bool(view.call("is_moving")):
+		%Collision.disabled = false
+	view.call("on_unhidden", exit_to, pulled)
+	if not is_multiplayer_authority():
+		%Collision.disabled = false
 
 
 func is_hidden() -> bool:
 	return _hidden_spot != null or in_pile
+
+
+## The hiding spot this player is in (every peer), or null.
+func hidden_spot() -> Node3D:
+	return _hidden_spot
+
+
+## Owner, from player/hide_view.gd: a climb-out, lift or bonk has landed.
+func on_hide_move_done() -> void:
+	if _hidden_spot == null:
+		%Collision.disabled = false
+	velocity = Vector3.ZERO
+	_fall_peak = global_position.y
+
+
+## Owner, from the hide spot: the host said no. The dive bonks off.
+func on_hide_refused(spot: Node3D, _reason: String) -> void:
+	_hide_view().call("on_refused", spot)
+
+
+func _hide_moving() -> bool:
+	var view := get_node_or_null("HideView")
+	return view != null and bool(view.call("is_moving"))
+
+
+## The hiding presentation (player/hide_view.gd), made on first use.
+func _hide_view() -> Node:
+	var view := get_node_or_null("HideView")
+	if view == null:
+		view = load("res://player/hide_view.gd").new()
+		view.name = "HideView"
+		view.set("player", self)
+		add_child(view)
+	return view
+
+
+## Whether this player's body is drawn: not while hidden in a spot or a pile
+## (every peer). The camera, Visual and Head stay in the tree either way.
+func is_body_drawn() -> bool:
+	return _body_drawn
+
+
+## Draw or stop drawing the body, head, nameplate and first-person arms (hands
+## are stowed on the way in, so nothing is held). Never $Visual itself: the
+## first-person camera lives under it.
+func set_body_drawn(on: bool) -> void:
+	if on == _body_drawn:
+		return
+	_body_drawn = on
+	for path: String in ["Visual/CartoonBody", "Visual/Head/CartoonHead", "Visual/Head/Arms", "Visual/Head/HatLeaf"]:
+		var part := get_node_or_null(path) as Node3D
+		if part != null:
+			part.visible = on
+	%Nameplate.visible = on and not is_multiplayer_authority()
+
+
+var _body_drawn: bool = true
 
 
 ## Hanging on to a hydrant-fed hose with the water on: the spray shoves you back
@@ -756,7 +820,7 @@ func _track_fall(delta: float) -> void:
 		_limp_left -= delta
 		if _limp_left <= 0.0:
 			limping = false
-	if _ladder != null or _on_seat or _hidden_spot != null:
+	if _ladder != null or _on_seat or _hidden_spot != null or _hide_moving():
 		_airborne = false
 		_fall_peak = global_position.y
 		return
@@ -869,20 +933,27 @@ func _load_truck() -> bool:
 	return true
 
 
-## E inside a hiding spot comes out. E next to a free one asks the host to get in.
+## E inside a hiding spot bursts out toward where you look. E next to one with
+## room dives in at once (player/hide_view.gd) and asks the host. Mid-dive or
+## mid-climb, E does nothing else.
 func _toggle_hiding() -> bool:
+	var view := _hide_view()
+	if bool(view.call("is_moving")) or bool(view.call("is_waiting")):
+		return true
 	if _hidden_spot != null:
-		_hidden_spot.call("request_exit")
+		view.call("request_exit")
 		return true
 	if in_pile:
 		set_pile(false)
 		return true
 	var closest := _nearest_free_spot()
 	if closest != null:
+		view.call("predict_enter", closest)
 		closest.call("request_enter")
 		return true
 	# No spot, but a big enough pile underfoot: dive in.
 	if _on_pile():
+		view.call("predict_pile_dive")
 		get_tree().get_first_node_in_group("leaf_field").call("request_pile_hide")
 		return true
 	return false
@@ -1095,6 +1166,7 @@ func _rpc_pile(hidden: bool) -> void:
 
 
 ## The owner sets its own flag (the host decided, or this player climbs out).
+## Out, you pop up out of the leaves (player/hide_view.gd), the leaves burst.
 func set_pile(hidden: bool) -> void:
 	if hidden == in_pile:
 		return
@@ -1102,11 +1174,135 @@ func set_pile(hidden: bool) -> void:
 	if hidden:
 		_stow_hands()
 		velocity = Vector3.ZERO
-		say_to_all("vo_heave")
+		_hide_view().call("on_pile", true)
 	else:
 		say_to_all("vo_yelp")
-		velocity = Vector3.UP * 3.0
-	reset_physics_interpolation()
+		_hide_view().call("on_pile", false)
+		_hide_view().call("pile_pop")
+		_rpc_pile_popped.rpc()
+
+
+## Every other peer: this player just popped out of their pile (the burst and
+## the sound play where they see them; the owner played its own).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_pile_popped() -> void:
+	var view := _hide_view()
+	view.call("on_pile", false)
+	view.call("pile_pop")
+
+
+## Every peer, from in_pile replicating: the dive's leaves and sound where others see it.
+var _pile_seen_in: bool = false
+
+
+func _watch_pile() -> void:
+	if is_multiplayer_authority() or in_pile == _pile_seen_in:
+		return
+	_pile_seen_in = in_pile
+	if in_pile:
+		_hide_view().call("on_pile", true)
+
+
+# ---------------------------------------------------------------- the pile, inspected
+# The crew brain (R2 chunk 2) treats a player in a pile like a hide spot
+# (net/components/hide_spot.gd has the same methods). Host only.
+
+func suspicion() -> float:
+	return float(_hide_view().call("pile_suspicion"))
+
+
+func inspect_score(from: Vector3, last_seen: Vector3) -> float:
+	return float(_hide_view().call("pile_inspect_score", from, last_seen))
+
+
+func inspect_point() -> Vector3:
+	return _hide_view().call("pile_inspect_point")
+
+
+func occupants() -> Array:
+	return [name.to_int()] if in_pile else []
+
+
+func peek_anchor() -> Node3D:
+	return _hide_view().get("_pile_anchor") as Node3D
+
+
+## A NICE BOY pats the pile: everyone sees the telegraph and the pats.
+func host_inspect_begin(crew: Node) -> void:
+	if not Net.is_host() or not in_pile:
+		return
+	_hide_view().call("pile_inspect_begin", crew)
+	_rpc_pile_inspect.rpc(_crew_number(crew), Net.server_time(), &"begin")
+
+
+## {outcome: &"found" | &"near_miss", peer}. Found turns you out toward him
+## into the gotcha (without the R2 Encounter the director takes you at once).
+func host_inspect_resolve(crew: Node) -> Dictionary:
+	if not Net.is_host():
+		return {"outcome": &"near_miss", "peer": 0}
+	var result: Dictionary = _hide_view().call("pile_inspect_resolve")
+	_rpc_pile_inspect.rpc(_crew_number(crew), Net.server_time(), result["outcome"])
+	if result["outcome"] == &"found":
+		var toward := global_position
+		if crew is Node3D:
+			var crew_at := (crew as Node3D).global_position
+			var away := crew_at - global_position
+			away.y = 0.0
+			toward = crew_at - away.normalized() * 0.9 if away.length() > 0.1 else crew_at
+			toward.y = global_position.y
+		_rpc_pile_pulled.rpc(toward)
+		if get_tree().get_first_node_in_group("nice_encounter") == null:
+			var director := get_tree().get_first_node_in_group("run_director")
+			if director != null:
+				var peer_id := name.to_int()
+				get_tree().create_timer(Constants.HIDE_PULL_SECONDS).timeout.connect(func() -> void:
+					if is_instance_valid(director):
+						director.call("note_capture", peer_id))
+	return result
+
+
+func _crew_number(crew: Node) -> int:
+	if crew == null:
+		return 0
+	return int(crew.call("crew_index")) if crew.has_method("crew_index") else str(crew.name).trim_prefix("Crew").to_int()
+
+
+## Every peer: a NICE BOY's pats on this player's pile (phase &"begin",
+## &"near_miss" or &"found"), from server time at.
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_pile_inspect(crew_index: int, at: float, phase: StringName) -> void:
+	if multiplayer.get_remote_sender_id() != 1 and multiplayer.get_remote_sender_id() != 0:
+		return
+	var crew: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("crew"):
+		if _crew_number(node) == crew_index:
+			crew = node as Node3D
+	var where := global_position + Vector3(0.0, 0.4, 0.0)
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	match phase:
+		&"begin":
+			load("res://props/hide_spot.gd").crew_gesture(crew, "pile_pat", "scribble")
+			if sfx != null and maxf(0.0, Net.server_time() - at) < 0.5:
+				for pat: int in 3:
+					get_tree().create_timer(0.3 + 0.45 * float(pat)).timeout.connect(func() -> void:
+						if is_instance_valid(sfx):
+							sfx.call("play_at", "peek_rustle", where, -2.0))
+		&"near_miss":
+			load("res://props/hide_spot.gd").crew_gesture(crew, "shrug_notice", "scratch")
+		_:
+			load("res://props/hide_spot.gd").crew_gesture(crew, "upsy_daisy", "point")
+
+
+## The owner: found in the pile, lifted out toward the NICE BOY.
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_pile_pulled(toward: Vector3) -> void:
+	if multiplayer.get_remote_sender_id() != 1 and multiplayer.get_remote_sender_id() != 0:
+		return
+	if is_multiplayer_authority():
+		in_pile = false
+		_hide_view().call("on_pile", false)
+		_hide_view().call("pile_pop", toward)
+		_rpc_pile_popped.rpc()
 
 
 ## From the host (net/work/job_tasks.gd): paint (1) or water (2) landed on you.
@@ -1134,18 +1330,14 @@ func set_coat(kind: int) -> void:
 func _process(_delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
-	$Visual.visible = _hidden_spot == null and not in_pile
-	if in_pile and _mound == null:
-		_mound = load("res://props/stylized.gd").instance(load("res://levels/lots/task_looks.gd")._mesh("roof_leaves"), {"roughness": 0.9, "double_sided": true})
-		_mound.name = "Mound"
-		_mound.scale = Vector3(2.4, 3.2, 2.4)
-		_mound.position = Vector3(0.0, 0.02, 0.0)
-		add_child(_mound)
-	elif not in_pile and _mound != null:
-		_mound.queue_free()
-		_mound = null
-	if _mound != null:
-		_mound.scale.y = 3.2 + sin(Time.get_ticks_msec() / 1000.0 * 2.5) * 0.15
+	# Hidden, only the drawn body goes; Visual (and the camera under it) stays
+	# (R2 chunk 3: hiding $Visual froze the first-person view). The mound, the
+	# tells, the shot and the muffle are player/hide_view.gd's.
+	_watch_pile()
+	if _hidden_spot != null or in_pile or has_node("HideView"):
+		var view := _hide_view()
+		set_body_drawn(bool(view.call("body_should_draw")))
+		view.call("present", _delta)
 	var body_now := get_node_or_null("Visual/CartoonBody")
 	# Everyone sees this player's hands on what they hold (the grips their own
 	# first-person arms use too), except when they're flat on their back.
@@ -1267,8 +1459,9 @@ func interaction_hint() -> Dictionary:
 	# A fresh notice (out of bags, out of gas) beats every other prompt for a moment.
 	if _notice_text != "" and Time.get_ticks_msec() < _notice_until:
 		return {"text": _notice_text, "at": global_position + Vector3(0.0, 2.2, 0.0), "plain": true}
-	if _hidden_spot != null:
-		return {"text": _Strings.UI["prompt_unhide"], "at": _hidden_spot.global_position + Vector3(0.0, 2.2, 0.0)}
+	# Hidden, or on the way in or out: E gets you out, which you already know.
+	if _hidden_spot != null or in_pile or _hide_moving():
+		return {}
 	var paint_held := _held_prop()
 	if paint_held != null and str(paint_held.get("kind")) == "paint_roller" and _nearest_bucket() != null:
 		return {"text": _Strings.UI["prompt_dip"], "at": _nearest_bucket().global_position + Vector3(0.0, 0.6, 0.0)}
@@ -1295,8 +1488,6 @@ func interaction_hint() -> Dictionary:
 	var ladder_top := _nearest_ladder_top()
 	if ladder_top != null:
 		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0)}
-	if in_pile:
-		return {"text": _Strings.UI["prompt_pile_out"], "at": global_position + Vector3(0.0, 1.2, 0.0)}
 	if carried_by != 0:
 		return {"text": _Strings.UI["hud_carried"], "at": global_position + Vector3(0.0, 1.9, 0.0)}
 	if carrying != 0:
@@ -1341,14 +1532,16 @@ func interaction_hint() -> Dictionary:
 	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
 
 
+## The nearest hiding spot with room, measured to its edge (a long hedge is as
+## easy to get into at its end), or null.
 func _nearest_free_spot() -> Node3D:
 	var closest: Node3D = null
-	var closest_distance := Constants.HIDE_REACH
+	var closest_distance := Constants.HIDE_REACH_EDGE
 	for node: Node in get_tree().get_nodes_in_group("hide_spots"):
 		var spot := node as Node3D
-		if spot == null or int(spot.get("occupant")) != 0:
+		if spot == null or not bool(spot.call("has_room")):
 			continue
-		var distance := spot.global_position.distance_to(global_position)
+		var distance := float(spot.call("reach_distance", global_position))
 		if distance <= closest_distance:
 			closest = spot
 			closest_distance = distance
@@ -1420,6 +1613,21 @@ func _apply_look() -> void:
 	body_yaw -= _look.x * turn.x
 	head_pitch = clampf(head_pitch - _look.y * turn.y, -PITCH_LIMIT, PITCH_LIMIT)
 	_look = Vector2.ZERO
+	# Hidden: the look turns round the spot's facing, within its clamps, so the
+	# replicated yaw (the hedge's tremble, the pile's rustle) is the real look.
+	# The peek shot (StageCam) takes the mouse; the body turns with it.
+	if (_hidden_spot != null or in_pile) and not _hide_moving():
+		var facing := float(_hide_view().call("facing_yaw"))
+		var cam := stage_cam()
+		if cam != null and stage_top() == &"hide_peek":
+			var angles: Vector2 = cam.call("look_angles")
+			body_yaw = facing + angles.x
+			head_pitch = angles.y
+		elif stage_top() == &"hide_orbit":
+			body_yaw = facing
+		else:
+			body_yaw = facing + clampf(angle_difference(facing, body_yaw), -Constants.HIDE_YAW_CLAMP, Constants.HIDE_YAW_CLAMP)
+			head_pitch = clampf(head_pitch, Constants.HIDE_PITCH_CLAMP.x, Constants.HIDE_PITCH_CLAMP.y)
 
 
 func _simulate(delta: float) -> void:

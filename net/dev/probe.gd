@@ -222,6 +222,7 @@ func write_report() -> void:
 		"lot_art": _lot_art(),
 		"job_progress": _job_progress(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),
+		"hide_test": preload("res://net/dev/hide_test.gd").result.duplicate(),
 		"zones": _zones,
 		"host_zones": _host_zones,
 		"audio_driver": AudioServer.get_driver_name(),

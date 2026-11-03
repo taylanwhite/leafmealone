@@ -33,6 +33,10 @@ func _physics_process(delta: float) -> void:
 	if ui != null and ui.visible and bool(ui.call("any_window_open")):
 		_set_spray(player, "")
 		return
+	# R2:3 hidden in a spot or a pile, the hands are tucked in: secondary peeks.
+	if bool(player.call("is_hidden")):
+		_set_spray(player, "")
+		return
 	var held: Node = player.call("_held_prop")
 	var has_rake := held != null and str(held.get("kind")) == "rake"
 	var held_kind := str(held.get("kind")) if held != null else ""
