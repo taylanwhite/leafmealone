@@ -1278,7 +1278,7 @@ func host_inspect_resolve(crew: Node) -> Dictionary:
 			var crew_at := (crew as Node3D).global_position
 			var away := crew_at - global_position
 			away.y = 0.0
-			toward = crew_at - away.normalized() * Constants.HIDE_PULL_STANDOFF if away.length() > 0.1 else crew_at
+			toward = crew_at - away.normalized() * Constants.HIDE_PILE_PULL_STANDOFF if away.length() > 0.1 else crew_at
 			toward.y = global_position.y
 		# The leaves part around his face first, then out you come (R2b hide); the
 		# gotcha stands you where you land (encounter.gd reads the meta).

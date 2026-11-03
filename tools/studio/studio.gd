@@ -206,6 +206,15 @@ func _build(root: Node3D) -> void:
 				{"from": Vector3(0.45, 1.85, 1.45), "at": Vector3(0.0, 1.62, 0.0), "fov": 38.0},
 				{"from": Vector3(1.1, 2.6, 1.3), "at": Vector3(0.0, 1.4, 0.0), "fov": 40.0},
 			])
+			if str(_options.get("views", "")) == "hider":
+				# Looking up at him from a hider's eye: in a hedge, in a pile, and the
+				# side and front he's seen from (his hat, R2c hide fixes).
+				root.set_meta("views", [
+					{"from": Vector3(-0.35, 1.05, 0.8), "at": Vector3(0.0, 1.62, 0.0), "fov": 60.0},
+					{"from": Vector3(-0.3, 0.45, 1.1), "at": Vector3(0.0, 1.55, 0.0), "fov": 60.0},
+					{"from": Vector3(-1.3, 1.5, 0.9), "at": Vector3(0.0, 1.65, 0.0), "fov": 35.0},
+					{"from": Vector3(-0.6, 1.6, 1.6), "at": Vector3(0.0, 1.65, 0.0), "fov": 35.0},
+				])
 		"rake_stroke":
 			# One rake swing frozen at its phases (raking chunk 4).
 			if ResourceLoader.exists("res://tools/studio/rake_stroke_subject.gd"):

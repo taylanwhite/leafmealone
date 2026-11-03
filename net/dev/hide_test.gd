@@ -40,6 +40,7 @@ extends Node
 const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _HideView = preload("res://player/hide_view.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _Buses = preload("res://audio/buses.gd")
 const CLIENT_WAIT_SECONDS: float = 30.0
 const STEP_WAIT_SECONDS: float = 6.0
 ## The host waits a little longer for a report than the client waits for anything.
@@ -250,6 +251,25 @@ func _pile_step(mate: int) -> void:
 	# ...and that old find doesn't leave this pile's mound squashed open.
 	var round_mound := mound_node != null and absf(mound_node.scale.y - mound_node.scale.x) < 0.02
 	_check("an old find doesn't scoop a new mound", round_mound, "mound scale %s" % [mound_node.scale if mound_node != null else Vector3.ZERO])
+	# R2c hide fixes: the eye he reaches for is in the mound's face over the body,
+	# and he stands an arm and a bend out from it, not over bare leaves 2 m off.
+	var anchor := view.get("_pile_anchor") as Node3D if view != null else null
+	var eye_out := Vector2(anchor.global_position.x - client.global_position.x, anchor.global_position.z - client.global_position.z).length() if anchor != null else INF
+	var poke: Vector3 = client.call("inspect_point")
+	var poke_out := Vector2(poke.x - client.global_position.x, poke.z - client.global_position.z).length()
+	_check("the pile's eye is in its mound", eye_out <= Constants.HIDE_PILE_FACE_MAX + 0.05 and poke_out <= Constants.HIDE_PILE_FACE_MAX + Constants.HIDE_PILE_STAND + 0.05, "eye %.2f m out, he stands %.2f m out" % [eye_out, poke_out])
+	# A hider's own sounds skip the muffle on SfxClear, which follows the effects fader.
+	var sfx_bus := AudioServer.get_bus_index(_Buses.SFX)
+	var clear_bus := AudioServer.get_bus_index(_Buses.SFX_CLEAR)
+	var follows := false
+	if sfx_bus >= 0 and clear_bus >= 0:
+		var was := AudioServer.get_bus_volume_db(sfx_bus)
+		AudioServer.set_bus_volume_db(sfx_bus, was - 7.0)
+		_Buses.sync_followers()
+		follows = is_equal_approx(AudioServer.get_bus_volume_db(clear_bus), was - 7.0) and AudioServer.get_bus_send(clear_bus) == _Buses.MASTER and AudioServer.get_bus_effect_count(clear_bus) == 0
+		AudioServer.set_bus_volume_db(sfx_bus, was)
+		_Buses.sync_followers()
+	_check("a hider's own sounds follow the effects volume", follows, "SfxClear %d, Sfx %d" % [clear_bus, sfx_bus])
 	# Bag it from beside it: whoever's inside is turned out.
 	var me := _me()
 	_drop_held(me)

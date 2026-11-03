@@ -108,6 +108,8 @@ var _mound_since_ms: int = 0
 ## looks from (m, at the heap's face; 0 before it's placed).
 var _mound_lift: float = 0.0
 var _eye_lift: float = 0.0
+## ...and how high over the lawn it is (m; over the heap's skin, R2c hide fixes).
+var _eye_rise: float = 0.0
 var _pile_anchor: Marker3D
 var _hat_leaf: Node3D
 var _hat_left: float = 0.0
@@ -148,6 +150,7 @@ var _pulled_from: Node3D
 ## Every peer (R2c hide): how far the body is sunk into a hedge or bin now (m),
 ## and what was last put on its CartoonBody; how far the head rides the torso.
 var _dive_drop: float = 0.0
+var _dive_sink: float = 0.0
 var _dropped: float = 0.0
 var _carry: float = 0.0
 ## Every peer but the owner: where the body was when the host said it dove in
@@ -214,6 +217,7 @@ const CARRY_GESTURES: Array[String] = ["hedge_dive", "bin_vault", "shed_step", "
 ## a hedge or a bin as it dives in or climbs (or is hauled) out.
 func _pose_remote_dive(delta: float) -> void:
 	_dive_drop = 0.0
+	_dive_sink = 0.0
 	_remote_progress = -1.0
 	var body := player.get_node_or_null("Visual/CartoonBody") as Node3D
 	var visual := player.get_node_or_null("Visual") as Node3D
@@ -223,6 +227,7 @@ func _pose_remote_dive(delta: float) -> void:
 		var spot := _spot if _spot != null else (_dive_spot if _move == Move.DIVE else _exit_spot)
 		if spot == null or not is_instance_valid(spot):
 			return
+		_dive_sink = _sink_of(spot)
 		var t := clampf(_move_t / maxf(_move_length, 0.01), 0.0, 1.0)
 		match _move:
 			Move.DIVE:
@@ -236,12 +241,14 @@ func _pose_remote_dive(delta: float) -> void:
 		# Out of a spot: low inside it, rising as the body comes clear.
 		var out_span := maxf(0.3, Vector2(_remote_out_to.x - _remote_out_from.x, _remote_out_to.z - _remote_out_from.z).length())
 		var gone := Vector2(visual.global_position.x - _remote_out_from.x, visual.global_position.z - _remote_out_from.z).length() / out_span
-		_dive_drop = _sink_of(_remote_out_spot) * (1.0 - _HideSpotLook._smooth(gone / 0.6))
+		_dive_sink = _sink_of(_remote_out_spot)
+		_dive_drop = _dive_sink * (1.0 - _HideSpotLook._smooth(gone / 0.6))
 		if gone >= 1.0 or Time.get_ticks_msec() > _remote_out_until:
 			_remote_out_spot = null
 		return
 	if _spot == null or not is_instance_valid(_spot):
 		return
+	_dive_sink = _sink_of(_spot)
 	if not _remote_dive_from.is_finite() or Time.get_ticks_msec() >= _hide_by_ms:
 		# In: crouched down inside, out of sight.
 		_remote_dive_from = Vector3.INF
@@ -283,14 +290,25 @@ static func _flat_distance(a: Vector3, b: Vector3) -> float:
 
 
 ## The body's sink into a pile, a hedge or a bin, on its CartoonBody (every peer).
+## Sunk into a hedge or a bin, the legs hang straight down inside it, whatever the
+## dive's tuck or the climb-out's kick is doing (R2c hide fixes: kicking 0.6 m
+## down, the shoes stuck out of the hedge's foot under the cap on its crown).
 func _apply_drop() -> void:
 	var drop := Constants.HIDE_PILE_SINK * _sunk * _sunk + _dive_drop
 	if drop <= 0.0 and _dropped <= 0.0:
 		return
 	_dropped = drop
 	var body := player.get_node_or_null("Visual/CartoonBody") as Node3D
-	if body != null:
-		body.position.y = -drop
+	if body == null:
+		return
+	body.position.y = -drop
+	if _dive_sink <= 0.0 or _dive_drop <= 0.0 or not body.has_method("pose_part"):
+		return
+	var held := clampf(_dive_drop / _dive_sink / Constants.HIDE_LEGS_HANG_FROM, 0.0, 1.0)
+	for side: String in ["leg_l", "leg_r"]:
+		var leg := body.call("pose_part", side) as Node3D
+		if leg != null:
+			leg.rotation = leg.rotation.lerp(Vector3.ZERO, held)
 
 
 ## The head rides the body through the hide moves (every peer, and your own
@@ -387,7 +405,8 @@ func predict_pile_dive() -> void:
 	_start = _from
 	var ahead := -player.global_basis.z
 	ahead.y = 0.0
-	_to = _from + ahead.normalized() * 0.25
+	ahead = ahead.normalized() if ahead.length() > 0.01 else Vector3.FORWARD
+	_to = _pile_landing(_from, ahead)
 	_peak = 0.75
 	_start_move(Move.PILE_DIVE, Constants.HIDE_ENTER_SECONDS)
 	_gesture("pile_cannonball", "startle")
@@ -395,6 +414,34 @@ func predict_pile_dive() -> void:
 	_duck_music()
 	_place_pile_anchor(ahead)
 	_push_pile_shot(Constants.HIDE_ENTER_SECONDS)
+
+
+## Where the cannonball lands (R2c hide fixes): a short hop in, or farther into a
+## deep heap, so its face (where the eye looks out, and the NICE BOY reaches in)
+## is HIDE_PILE_FACE ahead of the body and inside the mound over it. Never
+## through a wall or a fence.
+func _pile_landing(from: Vector3, ahead: Vector3) -> Vector3:
+	var hop := from + ahead * 0.25
+	var face := _face_out(hop, ahead, PILE_EYE_AHEAD, PILE_EYE_AHEAD + Constants.HIDE_PILE_DIVE_REACH)
+	var carry := clampf(face - PILE_EYE_AHEAD, 0.0, Constants.HIDE_PILE_DIVE_REACH)
+	if carry > 0.0 and player.is_inside_tree():
+		var lift := Vector3(0.0, 0.5, 0.0)
+		# The world's walls and fences (layer 1), not whatever's in your hands.
+		var ray := PhysicsRayQueryParameters3D.create(from + lift, hop + ahead * (carry + 0.35) + lift, 1)
+		ray.exclude = [player.get_rid()]
+		var hit := player.get_world_3d().direct_space_state.intersect_ray(ray)
+		if not hit.is_empty():
+			carry = clampf(Vector2(hit["position"].x - hop.x, hit["position"].z - hop.z).length() - 0.35, 0.0, carry)
+	return hop + ahead * carry
+
+
+## How far out from base along ahead (m, from `start`, at most `limit`) the raked
+## heap first stands no taller than the pile's eye.
+func _face_out(base: Vector3, ahead: Vector3, start: float, limit: float) -> float:
+	var out := start
+	while out < limit and _heap_above_ground(base + ahead * out) > PILE_EYE_HEIGHT - Constants.HIDE_PILE_EYE_UNDER:
+		out += 0.1
+	return minf(out, limit)
 
 
 ## E inside: burst out toward the side the view faces (the host decides).
@@ -502,6 +549,7 @@ func _bonk(spot: Node3D) -> void:
 ## Pile: the host turned you out (a rake, a mower, a bag) or you climbed out.
 func pile_pop(pulled_to: Vector3 = Vector3.INF) -> void:
 	_waiting_pile = false
+	_pulled_from = null
 	_burst_pile(player.global_position)
 	_play_at("pile_pop", player.global_position)
 	_hat_leaf_on()
@@ -833,6 +881,7 @@ func present(delta: float) -> void:
 	_keep_shot()
 	_step_aim(delta, hidden)
 	_step_eye(delta)
+	_present_lens_clear()
 	_present_inside(hidden, delta)
 	_present_frame(hidden, delta)
 	# The dive's own rustle lands crisp; the world goes muffled once you're in.
@@ -1154,7 +1203,15 @@ func _step_eye(delta: float) -> void:
 				_eye.global_transform = target
 				_eye_mode = Eye.HELD
 			else:
-				_eye.global_transform = _blend_view(_eye_from, target, t, true)
+				var view := _blend_view(_eye_from, target, t, true)
+				if _pile_eye():
+					# Over the heap's skin all the way down to its face, never under it
+					# (from under the skin the lawn beneath the heap showed as a band).
+					# ...and never back up over a crest it's already under: it only goes down.
+					var over := _heap_top(view.origin) + Constants.HIDE_PILE_EYE_OVER
+					var held := minf(maxf(view.origin.y, over), _eye.global_position.y)
+					view.origin.y = lerpf(maxf(held, view.origin.y), view.origin.y, _HideSpotLook._smooth((t - 0.85) / 0.15))
+				_eye.global_transform = view
 		Eye.HELD:
 			if _shot != SHOT_PEEK:
 				_eye_mode = Eye.NONE
@@ -1255,12 +1312,17 @@ func _place_pile_anchor(ahead: Vector3) -> void:
 	# At the heap's face: out along the dive until the raked leaves there are no
 	# taller than the eye (R2c hide: inside a big raked heap the eye sat among its
 	# own leaf cards, a hand across at the lens), eased as the heap settles.
+	# No farther out than the mound over the body reaches (HIDE_PILE_FACE_MAX):
+	# the cannonball already carried the body in to where the face is near.
 	var base := Vector3(at.x, player.global_position.y, at.z)
-	var out := PILE_EYE_AHEAD
-	while out < Constants.HIDE_PILE_FACE_MAX and _heap_above_ground(base + ahead * out) > PILE_EYE_HEIGHT - Constants.HIDE_PILE_EYE_UNDER:
-		out += 0.1
+	var out := _face_out(base, ahead, PILE_EYE_AHEAD, Constants.HIDE_PILE_FACE_MAX)
 	_eye_lift = lerpf(_eye_lift, out, 0.1) if bool(player.get("in_pile")) and _pile_anchor.is_inside_tree() and _eye_lift > 0.0 else out
-	var eye := base + Vector3(0.0, PILE_EYE_HEIGHT, 0.0) + ahead * _eye_lift
+	# A heap deeper than the mound reaches still has its skin over that point: the
+	# eye rides up to just over it, peering out across the top of the leaves
+	# (from under the skin the lawn beneath the heap showed as a flat green band).
+	var rise := maxf(PILE_EYE_HEIGHT, _heap_above_ground(base + ahead * _eye_lift) + Constants.HIDE_PILE_EYE_OVER)
+	_eye_rise = lerpf(_eye_rise, rise, 0.1) if bool(player.get("in_pile")) and _pile_anchor.is_inside_tree() and _eye_rise > 0.0 else rise
+	var eye := base + Vector3(0.0, _eye_rise, 0.0) + ahead * _eye_lift
 	_pile_anchor.global_transform = Transform3D(Basis.looking_at(ahead, Vector3.UP), eye)
 
 
@@ -1376,7 +1438,9 @@ func _present_inside(hidden: bool, delta: float) -> void:
 		if _shell != null:
 			_shell.queue_free()
 		_shell_kind = kind
-		_shell_open = 0.0
+		# A pile's leaves close in from the edges of the view as you sink, not in
+		# one frame (R2c hide fixes); a hedge's or bin's outside is already gone.
+		_shell_open = 1.0 if kind == "pile" else 0.0
 		_shell = make_shell(kind)
 		if _shell != null:
 			_shell.top_level = true
@@ -1385,12 +1449,19 @@ func _present_inside(hidden: bool, delta: float) -> void:
 	if _shell == null:
 		return
 	if inside:
-		_shell_open = 0.0
-		var base: Transform3D = _pile_anchor.global_transform if pile and _pile_anchor != null else spot.call("peek_transform", _side if _spot != null else _dive_side, _slot if _spot != null else _dive_slot)
-		# The shell rises with the peeking eye, so peeking parts it instead of
-		# lifting the eye into its top leaves.
-		var p := _peek * _peek * (3.0 - 2.0 * _peek)
-		base.origin.y += Constants.HIDE_PEEK_RISE * (1.5 if pile else 1.0) * p
+		_shell_open = move_toward(_shell_open, 0.0, delta / maxf(Constants.HIDE_PILE_SHELL_RISE_SECONDS, 0.01)) if kind == "pile" else 0.0
+		var base: Transform3D
+		if pile and _eye != null:
+			# A pile's leaves close round the lens itself, wherever it is on its way
+			# down (R2c hide fixes: set at the end of the move, the eye still above it
+			# saw the shell's outside as huge dark cards), facing the way it looks.
+			base = Transform3D(Basis(Vector3.UP, _yaw_of(_eye.global_basis)) * Basis(Vector3.RIGHT, _pitch_of(_eye.global_basis)), _eye.global_position)
+		else:
+			base = _pile_anchor.global_transform if pile and _pile_anchor != null else spot.call("peek_transform", _side if _spot != null else _dive_side, _slot if _spot != null else _dive_slot)
+			# The shell rises with the peeking eye, so peeking parts it instead of
+			# lifting the eye into its top leaves.
+			var p := _peek * _peek * (3.0 - 2.0 * _peek)
+			base.origin.y += Constants.HIDE_PEEK_RISE * (1.5 if pile else 1.0) * p
 		_shell_at = base
 		# Your own peek's eye glints sit on your lens; others see them, you don't.
 		var glint := spot.get_node_or_null("EyeGlint") as Node3D if spot != null else null
@@ -1408,6 +1479,12 @@ func _present_inside(hidden: bool, delta: float) -> void:
 	# Peeking parts the whole tangle a little (the wider peek view would otherwise
 	# show more of its edge: the eye rose into leaves, R2c hide).
 	var peek := _peek * _peek * (3.0 - 2.0 * _peek)
+	if inside and _shell_kind == "pile" and _shell_open > 0.0:
+		# A pile's leaves rise round you from below as you sink in (R2c hide fixes:
+		# they came in one frame, or swept in as huge stretched shards); they're
+		# swept open like a hedge's on the way out.
+		_shell.global_position.y -= Constants.HIDE_PILE_SHELL_RISE * _HideSpotLook._smooth(_shell_open)
+		open = _found_tear()
 	var spread := 1.0 + Constants.HIDE_SHELL_OPEN_SPREAD * _HideSpotLook._smooth(open) + Constants.HIDE_PEEK_SPREAD * peek
 	_shell.scale = Vector3(spread, spread, 1.0)
 	# His hands part the leaves at its mouth; peeking parts them more.
@@ -1635,12 +1712,13 @@ static func world_muffled() -> bool:
 
 
 ## The bus a sound at `at` should use so a hider still hears the NICE BOYS clearly
-## (Constants.HIDE_CLEAR_CREW_METERS): the Chatter bus skips the muffle.
+## (Constants.HIDE_CLEAR_CREW_METERS): SfxClear skips the muffle and keeps the
+## effects volume (audio/buses.gd).
 static func clear_bus_for(tree: SceneTree, at: Vector3) -> StringName:
 	for node: Node in tree.get_nodes_in_group("players"):
 		var body := node as Node3D
 		if body != null and body.is_multiplayer_authority() and bool(body.call("is_hidden")) and body.global_position.distance_to(at) <= Constants.HIDE_CLEAR_CREW_METERS:
-			return _Buses.CHATTER
+			return _Buses.SFX_CLEAR
 	return _Buses.SFX
 
 
@@ -1698,8 +1776,16 @@ func _present_mound() -> void:
 		_mound.scale = Vector3.ONE * Constants.HIDE_PILE_MOUND_FROM
 		_mound_lift = _heap_above_ground(player.global_position) - Constants.HIDE_PILE_MOUND_SEAT
 	elif not show and _mound != null:
-		_mound.queue_free()
+		# Flattened as they burst out of it, not gone in a frame (R2c hide fixes).
+		var old := _mound
 		_mound = null
+		# It stays where it was while the body leaves.
+		if player.get_parent() != null:
+			old.reparent(player.get_parent())
+		var tween := old.create_tween().set_parallel()
+		tween.tween_property(old, "scale", Vector3(old.scale.x * 0.8, 0.02, old.scale.z * 0.8), Constants.HIDE_PILE_MOUND_FLATTEN).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		tween.tween_property(old, "position:y", old.position.y - 0.15, Constants.HIDE_PILE_MOUND_FLATTEN)
+		tween.chain().tween_callback(old.queue_free)
 	# The body sinks into the leaves between the landing and being gone.
 	var sink := clampf((landing - 0.55) / 0.3, 0.0, 1.0) if in_pile else 0.0
 	if not in_pile:
@@ -1772,8 +1858,46 @@ func _heap_above_ground(at: Vector3) -> float:
 	return maxf(0.0, float(view.call("surface_y", Vector2(at.x, at.z))) - player.global_position.y)
 
 
+## The leaf heap's skin over a point (world y; -INF with no leaf view).
+func _heap_top(at: Vector3) -> float:
+	var view := get_tree().get_first_node_in_group("leaf_view") if is_inside_tree() else null
+	if view == null or not view.has_method("surface_y"):
+		return -INF
+	return float(view.call("surface_y", Vector2(at.x, at.z)))
+
+
+## The leaves a pile throws up; on your own screen in first person they keep off
+## your lens (R2c hide fixes: one hung across the view as the eye went in).
 func _burst_pile(at: Vector3) -> void:
-	_HideSpotLook.burst(player.get_parent(), at, 16, _HideSpotLook.LEAF_COLORS, 3.0, _rng)
+	var lens := Vector3.INF
+	if is_owner_view() and _first_person():
+		lens = _pile_anchor.global_position if _pile_anchor != null and bool(player.get("in_pile")) else _drawn_view().origin
+	_HideSpotLook.burst(player.get_parent(), at, 16, _HideSpotLook.LEAF_COLORS, 3.0, _rng, lens, Constants.HIDE_PILE_BURST_CLEAR)
+
+
+## Owner, first person: whether the eye is on its way into, in, or out of a pile.
+func _pile_eye() -> bool:
+	return _spot == null and _dive_spot == null and _pile_anchor != null and (bool(player.get("in_pile")) or _waiting_pile or _move == Move.PILE_DIVE or _move == Move.PILE_POP)
+
+
+## Owner, first person, in or around a pile: the heap's own leaf cards fold away
+## near the lens (leaves/leaf_shaders.gd leaf_clear), so none hangs across the
+## view on the way in, inside, or climbing out. Off everywhere else.
+var _lens_clear_until_ms: int = 0
+var _lens_clear_on: bool = false
+
+
+func _present_lens_clear() -> void:
+	var now := Time.get_ticks_msec()
+	if _first_person() and (_pile_eye() or (_move == Move.PULL and _pulled_from == null and _spot == null)):
+		_lens_clear_until_ms = now + 600
+	if now < _lens_clear_until_ms and _first_person():
+		var eye := _drawn_view().origin
+		RenderingServer.global_shader_parameter_set("leaf_clear", Vector4(eye.x, eye.y, eye.z, Constants.HIDE_PILE_LENS_CLEAR))
+		_lens_clear_on = true
+	elif _lens_clear_on:
+		RenderingServer.global_shader_parameter_set("leaf_clear", Vector4.ZERO)
+		_lens_clear_on = false
 
 
 ## A NICE BOY bent over this player's pile (every peer): props/hide_spot.gd's
@@ -1792,7 +1916,13 @@ func _pose_pile_inspector() -> void:
 		return
 	if body != null:
 		var eye := _pile_anchor.global_transform if _pile_anchor != null else Transform3D(player.global_basis, player.global_position + Vector3(0.0, PILE_EYE_HEIGHT, 0.0))
-		var grips := _HideSpotLook.grip_points(eye, player if _pile_found_at > -999.0 else null, float(weights["haul"]))
+		# His hands go into the mound's face at the hider's eye, not a gap's width
+		# out in front of it (R2c hide fixes: they closed on air short of the leaves).
+		var out := -eye.basis.z
+		out.y = 0.0
+		var in_mound := eye
+		in_mound.origin -= out.normalized() * Constants.HIDE_GRIP_OUT if out.length() > 0.01 else Vector3.ZERO
+		var grips := _HideSpotLook.grip_points(in_mound, player if _pile_found_at > -999.0 else null, float(weights["haul"]))
 		_HideSpotLook.peer_pose(body, "pile", float(weights["lean"]), float(weights["grab"]), float(weights["haul"]), Net.server_time() - _pile_poke_at, grips, eye.origin)
 
 
@@ -1883,7 +2013,7 @@ func pile_inspect_score(from: Vector3, last_seen: Vector3) -> float:
 func pile_inspect_point() -> Vector3:
 	var ahead := -_pile_anchor.global_basis.z if _pile_anchor != null else -player.global_basis.z
 	ahead.y = 0.0
-	return player.global_position + ahead.normalized() * (maxf(_eye_lift, Constants.HIDE_PILE_FACE) + Constants.HIDE_INSPECT_REACH + Constants.HIDE_PILE_BEND_REACH)
+	return player.global_position + ahead.normalized() * (maxf(_eye_lift, Constants.HIDE_PILE_FACE) + Constants.HIDE_PILE_STAND)
 
 
 func pile_inspect_begin(crew: Node) -> void:
@@ -1984,3 +2114,5 @@ func _exit_tree() -> void:
 		_show_outside(_inside_of, true)
 	if _pile_anchor != null and is_instance_valid(_pile_anchor):
 		_pile_anchor.queue_free()
+	if _lens_clear_on:
+		RenderingServer.global_shader_parameter_set("leaf_clear", Vector4.ZERO)

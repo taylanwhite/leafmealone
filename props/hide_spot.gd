@@ -1010,7 +1010,7 @@ func _burst(at: Vector3, count: int, colors: Array[Color], speed: float) -> void
 
 ## A puff of leaves from at under parent, cosmetic: each flies on its own arc,
 ## spins, lands and shrinks away. Shared with the pile dive (player/hide_view.gd).
-static func burst(parent: Node, at: Vector3, count: int, colors: Array[Color], speed: float, rng: RandomNumberGenerator) -> void:
+static func burst(parent: Node, at: Vector3, count: int, colors: Array[Color], speed: float, rng: RandomNumberGenerator, lens := Vector3.INF, lens_clear := 0.0) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
 	for index: int in count:
@@ -1030,6 +1030,10 @@ static func burst(parent: Node, at: Vector3, count: int, colors: Array[Color], s
 			var drag := 1.0 - 0.45 * t
 			var p := at + Vector3(velocity.x * seconds * drag, velocity.y * seconds - 4.5 * seconds * seconds, velocity.z * seconds * drag)
 			p.y = maxf(p.y, floor_y)
+			# Kept off a first-person lens (R2c hide fixes: the pile's).
+			if lens.is_finite() and p.distance_to(lens) < lens_clear:
+				var away := p - lens
+				p = lens + (away.normalized() if away.length() > 0.001 else Vector3.UP) * lens_clear
 			leaf.global_position = p
 			leaf.rotation = spin * seconds
 			leaf.scale = Vector3.ONE * clampf((1.0 - t) * 2.5, 0.01, 1.0), 0.0, 1.0, life)

@@ -585,7 +585,7 @@ func found_landing(peer_id: int, crew: Node3D) -> Vector3:
 	var options: Array[Vector3] = []
 	if spot_kind == "shed":
 		# The door swings out on its left hinge (-X): land on the latch side.
-		options = [out + Vector3(Constants.HIDE_FOUND_LAND_SIDE * Constants.HIDE_FOUND_LAND_ALONG_SHED, 0.0, 0.0)]
+		options = [out + Vector3(Constants.HIDE_FOUND_LAND_SHED, 0.0, 0.0)]
 	else:
 		var first := 1.0
 		if crew != null:

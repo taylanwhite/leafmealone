@@ -1254,14 +1254,14 @@ func _visor_mesh() -> ArrayMesh:
 		var at := Vector3(cos(angle) * 0.1, 0.3 + 0.02 * float(tuft % 2), sin(angle) * 0.1 + 0.02)
 		kit.blob(at, Vector3(0.085, 0.075, 0.085), hair, {"detail": 1, "lumps": 0.35, "lump_scale": 3.5, "outward": true, "flat": false, "jitter": 0.0, "seed": tuft})
 	kit.blob(Vector3(0.0, 0.33, 0.02), Vector3(0.08, 0.07, 0.08), hair, {"detail": 1, "lumps": 0.35, "lump_scale": 3.5, "outward": true, "flat": false, "jitter": 0.0, "seed": 9})
-	kit.tube(PackedVector3Array([Vector3(0, 0.2, 0), Vector3(0, 0.285, 0)]), PackedFloat32Array([0.232, 0.2]), hat_color, 12, {"jitter": 0.0, "cap": false})
-	# The brim: rooted inside the band and drooping a little at its lip, out only a
-	# hand past the forehead (R2c hide: a flat plate out to 0.45 m read, from a hider
-	# looking up at him, as a disc floating over his head).
-	kit.blob(Vector3(0.0, 0.206, -0.245), Vector3(0.19, 0.02, 0.07), hat_color.darkened(0.08), _SMOOTH)
-	kit.blob(Vector3(0.0, 0.184, -0.3), Vector3(0.158, 0.015, 0.055), hat_color.darkened(0.12), _SMOOTH)
-	# The classic green under the brim, seen from below.
-	kit.blob(Vector3(0.0, 0.176, -0.275), Vector3(0.15, 0.008, 0.06), Color(0.2, 0.38, 0.27), _SMOOTH)
+	# The band hugs the head low on the brow, tapering with the dome so its top edge
+	# sits on the hair, not standing off it (R2c hide fixes: from below, a band
+	# 5 cm proud of the scalp showed as a ring floating over his head).
+	kit.tube(PackedVector3Array([Vector3(0, 0.165, 0), Vector3(0, 0.25, 0)]), PackedFloat32Array([0.234, 0.206]), hat_color, 12, {"jitter": 0.0, "cap": false})
+	# The brim: one curved piece rooted in the band, out only a hand past the
+	# forehead and no wider than the head, its green underside a shade under it.
+	kit.blob(Vector3(0.0, 0.19, -0.255), Vector3(0.17, 0.02, 0.085), hat_color.darkened(0.1), _SMOOTH)
+	kit.blob(Vector3(0.0, 0.178, -0.255), Vector3(0.158, 0.009, 0.078), Color(0.16, 0.3, 0.21), _SMOOTH)
 	return kit.commit()
 
 
