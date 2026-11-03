@@ -600,6 +600,9 @@ func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: 
 	var lane_share := 0.70710678 if step.x != 0 and step.y != 0 else 1.0
 	var cap := maxi(1, int(strength * Constants.RAKE_FIELD_LOAD * lane_share))
 	var throw_cells := maxi(0, int(round(float(cells - Constants.RAKE_STROKE_CELLS) / Vector2(step).length())))
+	# The berm passes on as far in metres every way (6 cells along an axis, 4 along a
+	# diagonal), so no carry outruns LEAF_FLOW_MAX_DIST on a diagonal.
+	var berm_reach := maxi(Constants.RAKE_FIELD_BERM.size(), int(round(float(Constants.RAKE_FIELD_BERM_REACH) / Vector2(step).length())))
 	var here := _local_xz(origin)
 	# The cells the tine line crossed, by lane.
 	var corners: Array[Vector2] = [here - lane_dir * back - side * reach_side, here - lane_dir * back + side * reach_side,
@@ -623,10 +626,13 @@ func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: 
 				continue
 			var grip := 1.0 if across <= half else (reach_side - across) / edge
 			var held := int(_density[x + z * grid_width])
-			# The ends of the head catch only part of the lawn's litter, but they push
-			# the whole of any heap in front of them, so a berm never leaves a trail.
+			# The ends of the head catch only part of the lawn's litter. A heap they
+			# push whole over the inner part of the edge (so the head's own berm never
+			# leaves a trail) and less and less past it, so a pile beside your lane
+			# mostly stays where it is.
 			var litter := mini(held, INITIAL_DENSITY)
-			var offer := int(float(litter - _residue(litter)) * grip) + held - litter
+			var heap_grip := minf(1.0, grip * Constants.RAKE_FIELD_HEAP_GRIP)
+			var offer := int(float(litter - _residue(litter)) * grip) + int(float(held - litter) * heap_grip)
 			var key := step.x * z - step.y * x
 			if not lanes.has(key):
 				lanes[key] = []
@@ -635,12 +641,12 @@ func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: 
 	var keys: Array = lanes.keys()
 	keys.sort()
 	for key: Variant in keys:
-		moved += _push_lane(lanes[key], step, cap, throw_cells)
+		moved += _push_lane(lanes[key], step, cap, throw_cells, berm_reach)
 	return moved
 
 
 ## One lane of a stroke: [x, z, position along the step, offer] for each crossed cell.
-func _push_lane(crossed: Array, step: Vector2i, cap: int, throw_cells: int) -> int:
+func _push_lane(crossed: Array, step: Vector2i, cap: int, throw_cells: int, berm_reach: int) -> int:
 	var gathered := 0
 	var front_cell := Vector2i(-1, -1)
 	var front_at := -INF
@@ -676,7 +682,7 @@ func _push_lane(crossed: Array, step: Vector2i, cap: int, throw_cells: int) -> i
 	parts[0] += load - placed
 	var carry := 0
 	var landed := 0
-	for index: int in Constants.RAKE_FIELD_BERM_REACH:
+	for index: int in berm_reach:
 		var want := carry + (parts[index] if index < parts.size() else 0)
 		if want <= 0:
 			break
@@ -715,7 +721,9 @@ static func _step_of(flat: Vector3) -> Vector2i:
 ## along this one, and remember this one. Both the host (for every request it gets)
 ## and the raking client (for every request it sends, predicted or not) call it in
 ## the same order with the same origins, so their drags agree. 0 for a first
-## stroke, a turn, a step back or a side-step past RAKE_FIELD_DRAG_SIDESTEP.
+## stroke, a turn, a step back, a side-step past RAKE_FIELD_DRAG_SIDESTEP, or more
+## than RAKE_FIELD_DRAG_MAX forward (the raker walked or ran on with the head up:
+## a pause to bag, or a sprint, never sweeps ground the head didn't touch).
 func _stroke_drag(actor: int, origin: Vector3, direction: Vector3) -> float:
 	var flat := Vector3(direction.x, 0.0, direction.z)
 	var here := _local_xz(origin)
@@ -728,7 +736,10 @@ func _stroke_drag(actor: int, origin: Vector3, direction: Vector3) -> float:
 	var moved := here - ((last as Array)[0] as Vector2)
 	if absf(moved.dot(Vector2(-lane_dir.y, lane_dir.x))) > Constants.RAKE_FIELD_DRAG_SIDESTEP:
 		return 0.0
-	return clampf(moved.dot(lane_dir), 0.0, Constants.RAKE_FIELD_DRAG_MAX)
+	var along := moved.dot(lane_dir)
+	if along > Constants.RAKE_FIELD_DRAG_MAX:
+		return 0.0
+	return maxf(along, 0.0)
 
 
 ## Host: a running mower shreds the leaves under it. They're gone, but nobody

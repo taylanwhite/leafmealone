@@ -21,13 +21,16 @@ extends RefCounted
 const _FieldScript: Script = preload("res://net/leaf_field/leaf_field.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 
-## Recorded by rakefeel:field (R1b) from the windrow rule.
+## Recorded by rakefeel:field (R1b) from the windrow rule; ops 37-38 and the hash
+## again after the review fixes (a heap past the head's end mostly stays put; the
+## berm passes on as far in metres along a diagonal as along an axis, so op 37's
+## diagonal into the burst bag's full heap now leaves it under the tines).
 const RECORDED: Dictionary = {
-	"hash": "0c18c8bcdd19e7220700ab8fa2084febb4a2077b156f57fdabb7ce64599e6d35",
+	"hash": "fcaaca7bace9bf1c3482f24abc1590a51f4025f3421afa715636ec32331e01f5",
 	"leaf_units": 5199.291667,
-	"cleaned": 0.04333119,
+	"cleaned": 0.04300902,
 	"moved": [220, 186, 221, 148, 230, 159, 363, 159, 217, 247, 342, 423, 507, 591, 669, 755, 36, 36, 30, 383, 177, 166,
-		230, 266, 364, 229, 265, 361, 2110, 2303, 441, 10751, 5733, 147, 74, 0, 1171, 1563, 114, 216, 114, 344, 371, 702,
+		230, 266, 364, 229, 265, 361, 2110, 2303, 441, 10751, 5733, 147, 74, 0, 0, 722, 114, 216, 114, 344, 371, 702,
 		625, 1074, 210, 215, 558, 741],
 	"params": "[[1.2, 72.0, 3], [1.0, 0.8, 1], [2.4, 45.0, 6], [2.76, 60.75, 6], [3.12, 81.0, 9], [1.2, 21.6, 3], [1.2, 50.4, 3], [1.2, 72.0, 3], [1.70526315789474, 131.22, 3]]",
 }

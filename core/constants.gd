@@ -1368,7 +1368,9 @@ const LEAF_HINT_SECONDS: float = 0.4
 ## Leftover losses and gains pair up within this distance (m). At least the
 ## windrow's longest carry (rakefeel:field): a dragged stroke takes leaves from
 ## RAKE_FIELD_BACK + RAKE_FIELD_DRAG_MAX behind its point to its berm, up to
-## RAKE_FIELD_BERM_REACH cells past RAKE_FIELD_BITE_FRONT[1], about 6.1 m.
+## RAKE_FIELD_BERM_REACH cells past RAKE_FIELD_BITE_FRONT[1], about 6.1 m along
+## an axis and 5.9 m along a diagonal (the berm's reach is in metres; a drag needs
+## a walk of at most RAKE_FIELD_DRAG_MAX since the last stroke).
 const LEAF_FLOW_MAX_DIST: float = 6.5
 ## A batch bigger than this (cells) or an unhinted one bigger than this (flakes) is morphed.
 const LEAF_FLOW_MAX_CELLS: int = 600
@@ -2049,14 +2051,21 @@ const RAKE_FIELD_BACK: float = 0.25
 const RAKE_FIELD_BITE_FRONT: Array[float] = [0.1, 0.45]
 ## The head is dragged over the ground between strokes: a stroke also sweeps the
 ## ground its tine line crossed since the same raker's last stroke, up to this far
-## (5 m/s walking puts 2.1 m between one swing's last bite and the next's first)...
+## (5 m/s walking puts 2.1 m between one swing's last bite and the next's first).
+## Farther than this since the last stroke, the raker walked or ran on with the head
+## up (a pause, a walk to the next lane, a sprint at 8 m/s: 3.4 m), and there's no drag.
 const RAKE_FIELD_DRAG_MAX: float = 2.4
-## ...unless the raker side-stepped more than this, walked back, or turned (the
-## head came up).
+## No drag either if the raker side-stepped more than this, walked back, or turned
+## (the head came up).
 const RAKE_FIELD_DRAG_SIDESTEP: float = 0.6
 ## Grip: full across the stroke's width (the rake's head), fading to nothing this
 ## far past each end, so a raked lane has soft edges instead of a cut.
 const RAKE_FIELD_EDGE: float = 0.5
+## A heap (density over a fresh lawn's) is pushed with the edge's grip times this,
+## at most whole: whole over the inner half of the edge, so the head's own berm
+## leaves no trail, fading to nothing at its end, so a pile 1 m off your line keeps
+## most of itself (rake_field_rules.gd "width beside a heap").
+const RAKE_FIELD_HEAP_GRIP: float = 2.0
 ## What the tines leave behind in a cell they cross: this share of it, at most
 ## RAKE_FIELD_RESIDUE_MAX, so one full-grip pass leaves a fresh lawn clean (<= 8).
 const RAKE_FIELD_RESIDUE_SHARE: float = 0.1
@@ -2068,10 +2077,12 @@ const RAKE_FIELD_LOAD: float = 12.0
 ## The berm: shares of a lane's load in the cells just ahead of the tine line.
 const RAKE_FIELD_BERM: Array[float] = [0.6, 0.3, 0.1]
 ## A full cell (255) passes the rest on to the next, at most this many cells
-## ahead; whatever still doesn't fit stays under the tines.
+## ahead along an axis (as far in metres along a diagonal: 4 cells); whatever
+## still doesn't fit stays under the tines.
 const RAKE_FIELD_BERM_REACH: int = 6
 ## A hired hand walks its berm along this far after each stroke (npcs/crew_hand.gd;
 ## 0.18 before the windrow, when a 3.2 m stroke covered more ground standing still).
 ## A pile is HIRE_STROKES_PER_PILE strokes, so about 5.5 m of lane: as many leaves
-## a bag as a hand bagged before (tools/rake_pace.gd: 4,550 units, 0.4.7 4,430-4,550).
+## a bag as a hand bagged before (tools/rake_pace.gd: 4,550 units, 0.4.7 4,430-4,550;
+## 4,213-4,231 since the soft edge keeps part of a heap, and 0.45-0.65 all bag less).
 const HIRE_STEP_AFTER_STROKE: float = 0.55

@@ -7,7 +7,8 @@ extends RefCounted
 ## - symmetry: one stroke each of the 8 ways moves the same and carries as far
 ##   (0.4.5's in-place cascade carried leaves twice as far toward +X/+Z as back);
 ## - width: a stroke touches nothing farther from its line than half the head plus
-##   RAKE_FIELD_EDGE (and half a cell), and clears the head's own width;
+##   RAKE_FIELD_EDGE (and half a cell), and clears the head's own width; a heap
+##   1 m off the line keeps most of itself (the soft edge only nudges it);
 ## - windrow: a run walked down a fresh lawn at the swing's rhythm leaves the lane
 ##   behind clean and pushes a berm that grows every metre and rides just ahead
 ##   of the tines, holding nearly all of what the run crossed;
@@ -15,12 +16,15 @@ extends RefCounted
 ##   (is_pile_at), and one stroke can't haul a lane (at most cap per lane);
 ## - a full head: a 16 m run's berm stops growing (diminishing returns);
 ## - bare hands barely move anything next to the rake;
-## - the drag: forward only, none after a turn, a side-step or a step back.
+## - the drag: forward only, none after a turn, a side-step, a step back or a walk
+##   on farther than a swing's travel.
 ## Returns {ok, why, numbers}.
 
 const _FieldScript: Script = preload("res://net/leaf_field/leaf_field.gd")
 const REACH: float = 1.5
 const LAWN: int = 60
+## A heap beside the lane (the width check).
+const HEAP: int = 200
 
 
 static func run(parent: Node) -> Dictionary:
@@ -126,6 +130,38 @@ static func _width(branch: Node3D, problems: Array[String], numbers: Dictionary)
 	if float(cleared_rows.size()) * 0.5 < Constants.RAKE_WIDTH * 0.9:
 		problems.append("width: a %.2f m head cleared only %d rows" % [Constants.RAKE_WIDTH, cleared_rows.size()])
 	field.free()
+	# Beside a heap: a strip of HEAP 1 m off the line (past the tines, in the soft
+	# edge) keeps most of itself, and the head's own row next to it still clears.
+	var beside := _field(branch)
+	var bytes: PackedByteArray = beside.get("_density")
+	var strip_z := -1
+	for z: int in 80:
+		if absf(_cell_center(beside, 0, z).y - (here.y + 1.0)) < 0.01:
+			strip_z = z
+	var line_z := -1
+	for z: int in 80:
+		if absf(_cell_center(beside, 0, z).y - here.y) < 0.01:
+			line_z = z
+	for x: int in 80:
+		bytes[x + strip_z * 80] = HEAP
+	beside.set("_density", bytes)
+	beside.call("_stroke_cells", _at(beside, Vector3(here.x, 0.0, here.y)), Vector3.RIGHT, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH, Constants.RAKE_STROKE_CELLS, Constants.RAKE_FIELD_DRAG_MAX, -1)
+	var kept := 1.0
+	var line_dirty := 0
+	for x: int in 80:
+		var c := _cell_center(beside, x, strip_z)
+		var along := c.x - here.x
+		if along < -Constants.RAKE_FIELD_BACK - Constants.RAKE_FIELD_DRAG_MAX or along > Constants.RAKE_FIELD_BITE_FRONT[1]:
+			continue
+		kept = minf(kept, float(int(beside.call("density_at_cell", x, strip_z))) / float(HEAP))
+		if int(beside.call("density_at_cell", x, line_z)) > int(beside.get("CLEAN_DENSITY")):
+			line_dirty += 1
+	numbers["width_heap_kept_1m"] = snappedf(kept, 0.01)
+	if kept < 0.5:
+		problems.append("width: a heap 1 m off a %.2f m head's line kept only %.0f%% of itself" % [Constants.RAKE_WIDTH, kept * 100.0])
+	if line_dirty > 0:
+		problems.append("width: beside a heap, %d cells under the head's line stayed dirty" % line_dirty)
+	beside.free()
 
 
 ## The raker's swing in time: bites at RAKE_SWING_BITES of each swing, walking at
@@ -283,15 +319,17 @@ static func _drag(branch: Node3D, problems: Array[String], numbers: Dictionary) 
 	var got: Array[float] = []
 	got.append(float(field.call("_stroke_drag", 9, _at(field, Vector3(0.0, 0.0, 0.0)), Vector3.RIGHT)))
 	got.append(float(field.call("_stroke_drag", 9, _at(field, Vector3(1.0, 0.0, 0.0)), Vector3.RIGHT)))
+	# Walked on 9 m with the head up (to bag, to the next lane): no drag at all.
 	got.append(float(field.call("_stroke_drag", 9, _at(field, Vector3(10.0, 0.0, 0.0)), Vector3.RIGHT)))
+	got.append(float(field.call("_stroke_drag", 9, _at(field, Vector3(10.0 + Constants.RAKE_FIELD_DRAG_MAX, 0.0, 0.0)), Vector3.RIGHT)))
 	got.append(float(field.call("_stroke_drag", 9, _at(field, Vector3(9.0, 0.0, 0.0)), Vector3.RIGHT)))
 	got.append(float(field.call("_stroke_drag", 9, _at(field, Vector3(9.5, 0.0, 2.0)), Vector3.RIGHT)))
 	got.append(float(field.call("_stroke_drag", 9, _at(field, Vector3(10.0, 0.0, 2.0)), Vector3.FORWARD)))
 	got.append(float(field.call("_stroke_drag", 10, _at(field, Vector3(10.5, 0.0, 2.0)), Vector3.RIGHT)))
-	var want: Array[float] = [0.0, 1.0, Constants.RAKE_FIELD_DRAG_MAX, 0.0, 0.0, 0.0, 0.0]
+	var want: Array[float] = [0.0, 1.0, 0.0, Constants.RAKE_FIELD_DRAG_MAX, 0.0, 0.0, 0.0, 0.0]
 	numbers["drag"] = got
 	for index: int in want.size():
 		if absf(got[index] - want[index]) > 0.001:
-			problems.append("drag: step %d gave %.2f m, want %.2f (first, forward, capped, back, side-step, turn, another raker)" % [index + 1, got[index], want[index]])
+			problems.append("drag: step %d gave %.2f m, want %.2f (first, forward, walked on, a whole swing's travel, back, side-step, turn, another raker)" % [index + 1, got[index], want[index]])
 			break
 	field.free()
