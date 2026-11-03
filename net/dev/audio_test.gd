@@ -33,6 +33,9 @@ extends Node
 ##   raid           the warning cuts in at once, then the chase, then back after
 ##   day_end        sleeping: Clock Out then Promoted!, silence under the card, Rise
 ##                  and Rake when it closes, and one buzz for the night's texts
+##   escape         (chunk 4b) the border cuts to the escape music, the crossing's
+##                  start, throw-back and finish play their pistol, boing and
+##                  "Made It Back"; "crossing" is still a mood (escape's alias)
 ## The Target client checks itself through its probe "audio" report: its stingers
 ## must include Clock Out and Promoted! (ci_local and netcode.yml).
 ## Each step prints an [AudioTest] line.
@@ -64,7 +67,7 @@ const MOOD_SLACK_SECONDS: float = 1.0
 ## The moods allowed to have no tracks yet (silence never has any). Every other
 ## mood fails the moods check without one; audio chunks 4a and 4b take each mood
 ## out of this list as they give it its track, so the check tightens with them.
-const MOODS_WAITING: Array[String] = ["hot", "warning", "chase", "crossing", "road"]
+const MOODS_WAITING: Array[String] = ["road"]
 ## How long the host waits for the Target client before going on alone.
 const CLIENT_WAIT_SECONDS: float = 10.0
 
@@ -142,6 +145,7 @@ func _run() -> void:
 	_check("hot", await _hot(music))
 	_check("raid", await _raid(music))
 	_check("day_end", await _day_end(music))
+	_check("escape", await _escape(music))
 	_SfxScript.unknown.erase(_bogus_id())
 	result["unknown_ids"] = _SfxScript.unknown.duplicate()
 	_check("no_unknown", _SfxScript.unknown.is_empty())
@@ -488,6 +492,17 @@ func _moods() -> bool:
 	for id: String in _Tracks.STINGER_IDS:
 		if _Strings.track_title("track_" + id) == "":
 			bad.append("stinger %s has no title" % id)
+	# An alias names a real mood and answers exactly as it does ("crossing" is escape's old name).
+	for mood_id: String in _Tracks.MOODS:
+		var target := _Tracks.canonical(mood_id)
+		if target == mood_id:
+			continue
+		if not _Tracks.has_mood(target) or _Tracks.is_alias(target):
+			bad.append("alias %s names %s, not a mood" % [mood_id, target])
+		elif _Tracks.tracks_for(mood_id) != _Tracks.tracks_for(target) or _Tracks.priority(mood_id) != _Tracks.priority(target) or _Tracks.is_urgent(mood_id) != _Tracks.is_urgent(target):
+			bad.append("alias %s doesn't answer like %s" % [mood_id, target])
+	if _Tracks.canonical("crossing") != "escape":
+		bad.append("crossing is not escape's alias")
 	print("[AudioTest] %d moods, %d tracks; waiting for a track of their own %s; problems %s" % [_Tracks.MOODS.size(), _Tracks.TRACKS.size(), waiting, bad])
 	return ok and bad.is_empty()
 
@@ -516,7 +531,8 @@ func _picker_table() -> bool:
 	var cases: Array = [
 		["lobby", _state(Net.State.LOBBY, -1, 8.0), &"", &"title"],
 		["offline", _state(Net.State.OFFLINE, -1, 8.0), &"store", &"title"],
-		["border at 23:00", _state(on, Net.Zone.BORDER, 23.0), &"chase", &"crossing"],
+		["border at 23:00", _state(on, Net.Zone.BORDER, 23.0), &"chase", &"escape"],
+		["border while hot", _state(on, Net.Zone.BORDER, 10.0, 90.0), &"hot", &"escape"],
 		["lot chase at 22:00", _state(on, lot, 22.0, 20.0, chase), &"night", &"chase"],
 		["lot warning", _state(on, lot, 10.0, 20.0, warning), &"work_morning", &"warning"],
 		["a raid beats the summary card", _state(on, lot, 10.0, 0.0, chase, false, true), &"silence", &"chase"],
@@ -582,19 +598,23 @@ func _schedule_sim() -> bool:
 	var plain: Array = []
 	_simulate(no_rests, &"work_morning", SIM_SECONDS, 0.0, plain)
 	var never_rests := plain.size() >= 1 and plain.all(func(event: Array) -> bool: return event[1] != "rest")
-	# A raid: the chase cuts in with the short fade and never rests; hot keeps the work track going.
+	# A raid: the chase cuts in with the short fade and never rests; a hot yard
+	# crossfades to Hot Yard (calm, the long fade) before it.
 	var raid := _Schedule.new(7)
 	var raid_events: Array = []
 	var t := _simulate(raid, &"work_morning", 10.0, 0.0, raid_events)
 	var hot_from := raid_events.size()
 	t = _simulate(raid, &"hot", 10.0, t, raid_events)
-	var hot_keeps := raid_events.size() == hot_from and raid.current_track() == work[0]
+	var hot_events := raid_events.slice(hot_from)
+	var hot_track := _Tracks.tracks_for("hot")
+	var hot_keeps: bool = not hot_track.is_empty() and hot_events.size() == 1 and hot_events[0][1] == "play" \
+		and hot_events[0][2] == hot_track[0] and is_equal_approx(float(hot_events[0][3]), Constants.MUSIC_FADE_SECONDS)
 	var chase_from := raid_events.size()
 	_simulate(raid, &"chase", 300.0, t, raid_events)
 	var chase_events := raid_events.slice(chase_from)
 	var urgent := chase_events.size() >= 1 and is_equal_approx(float(chase_events[0][3]), Constants.MUSIC_FADE_URGENT_SECONDS) \
 		and chase_events.all(func(event: Array) -> bool: return event[1] != "rest")
-	print("[AudioTest] rests off never rests %s; hot keeps the work track %s; the chase %s" % [never_rests, hot_keeps, chase_events])
+	print("[AudioTest] rests off never rests %s; a hot yard crossfades to %s %s; the chase %s" % [never_rests, hot_track, hot_keeps, chase_events])
 	return first_play and rested and rest_ok and next_ok and never_rests and hot_keeps and urgent
 
 
@@ -607,8 +627,12 @@ func _push_mood(music: Node) -> bool:
 	var not_title := str(music.call("_with_pushes", "title")) == "title"
 	music.call("pop_mood", &"audio_test")
 	var popped := str(music.call("_with_pushes", "store")) == "store"
-	print("[AudioTest] a pushed road mood beats the store %s, not a chase %s, not the menu %s, and pops %s" % [over_store, under_chase, not_title, popped])
-	return over_store and under_chase and not_title and popped
+	# An escape sequence can push the old name; the director plays the mood it stands for.
+	music.call("push_mood", &"audio_test", &"crossing", _Tracks.priority("escape"))
+	var alias_pushed := str(music.call("_with_pushes", "chase")) == "escape"
+	music.call("pop_mood", &"audio_test")
+	print("[AudioTest] a pushed road mood beats the store %s, not a chase %s, not the menu %s, and pops %s; a pushed crossing plays escape over a chase %s" % [over_store, under_chase, not_title, popped, alias_pushed])
+	return over_store and under_chase and not_title and popped and alias_pushed
 
 
 ## Waits up to seconds for the director's mood to be one of moods.
@@ -757,6 +781,53 @@ func _day_end(music: Node) -> bool:
 	var buzz_ok := buzzes == (1 if texts.size() > 0 else 0)
 	print("[AudioTest] bedtime: stingers %s, card up %s, silence %s; %d texts overnight, held %s, then %d buzz; morning stinger %s" % [fired, card, silent, texts.size(), held, buzzes, morning])
 	return day_end and card and silent and held and morning and buzz_ok
+
+
+## An escape sequence (Border Return today; audio chunk 4b): the border cuts to
+## the escape music at once (urgent), the start fires the starting pistol, a
+## throw-back's boing rides on you through the flight, and finishing plays "Made It Back". The
+## crossing's own RPC handlers run here as plain calls, so nothing goes over the
+## network, and _rpc_end puts the crossing back as it was.
+func _escape(music: Node) -> bool:
+	var crossing := get_tree().get_first_node_in_group("border_return")
+	var me := _me()
+	if crossing == null or me == null:
+		print("[AudioTest] no Border Return or no player")
+		return false
+	var me_id := Net.local_peer_id()
+	Net.move_player_to_zone(me_id, Net.Zone.BORDER)
+	var cut := await _wait_mood(music, [&"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_FADE_URGENT_SECONDS + 0.2)
+	var track := str(music.call("current_track"))
+	var plays := track == _Tracks.tracks_for("escape")[0]
+	await get_tree().physics_frame
+	var go_before := _SfxScript.log.count("crossing_go")
+	var bonk_before := _SfxScript.log.count("crossing_bonk")
+	var made_before := _Director.stinger_log.count("st_made_it")
+	_SfxScript.placed.clear()
+	var roster: Array[int] = [me_id]
+	var finished: Array[int] = []
+	crossing.set("_roster", roster)
+	crossing.set("_finished", finished)
+	crossing.call("_rpc_go", Net.server_time())
+	var go := _SfxScript.log.count("crossing_go") == go_before + 1
+	var where := me.global_position
+	crossing.call("_rpc_throwback", where)
+	# The bonk rides on the flying body (play_on), so its landing pomf lands under you.
+	var entry := _placed("crossing_bonk")
+	var on_me: bool = not entry.is_empty() and entry["kind"] == "on" and entry["node"] == str(me.get_path())
+	var bonk := _SfxScript.log.count("crossing_bonk") == bonk_before + 1 and on_me
+	# Let the throw-back land before leaving, or it drags the body back to the border.
+	var flying := 0.0
+	while bool(me.call("is_throwing_back")) and flying < Constants.BORDER_THROWBACK_SECONDS + 1.0:
+		await get_tree().physics_frame
+		flying += get_physics_process_delta_time()
+	crossing.call("_rpc_clear", me_id)
+	var made_it: bool = _Director.stinger_log.count("st_made_it") == made_before + 1 and _Director.stinger_log.back() == "st_made_it"
+	crossing.call("_rpc_end")
+	Net.move_player_to_zone(me_id, Net.Zone.STORE)
+	var after := await _wait_mood(music, [&"store", &"night", &"silence"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
+	print("[AudioTest] escape: the border cuts to escape %s playing %s (%s), pistol %s, bonk riding on you %s, Made It Back %s, back to %s %s" % [cut, track, plays, go, bonk, made_it, music.call("current_mood"), after])
+	return cut and plays and go and bonk and made_it and after
 
 
 ## The host stands at a shop's counter, on the customer's side (as --shop-test does).

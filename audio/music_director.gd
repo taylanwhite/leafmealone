@@ -5,8 +5,9 @@ extends Node
 ## the local player is and what's happening (docs/GAME.md "the soundtrack"):
 ## the theme in the menu, the work tracks on the yard by day and Golden Hour
 ## from 5 PM, Aisle Seven at Homie Depot, Quiet Hours anywhere after 9 PM, Hot
-## Yard on a hot yard, a hard cut for a raid's warning and chase, Lane Change at
-## the border, and nothing while you sleep or read the day's summary. Every peer
+## Yard on a hot yard, a hard cut for a raid's warning and chase, Clean Getaway
+## for an escape (the border today), and nothing while you sleep or read the
+## day's summary. Every peer
 ## decides for itself from state it already has (no RPCs; docs/DECISIONS.md
 ## "Audio: a local music director").
 ##
@@ -168,13 +169,15 @@ func stinger(id: StringName) -> void:
 
 
 ## Another feature takes over the mood while it lasts: the drivable truck pushes
-## &"road" at 50 while someone drives. The highest push wins over the picked mood
-## when its priority is at least that mood's (MusicTracks MOODS priority).
+## &"road" at 50 while someone drives, and an escape sequence can push &"escape"
+## at 80. The highest push wins over the picked mood when its priority is at
+## least that mood's (MusicTracks MOODS priority). An alias ("crossing") pushes
+## the mood it names.
 func push_mood(source: StringName, mood_id: StringName, priority: int) -> void:
 	if not _Tracks.has_mood(String(mood_id)):
 		push_warning("[Music] '%s' is not a mood (audio/music_tracks.gd MOODS)" % mood_id)
 		return
-	_pushed[String(source)] = {"mood": String(mood_id), "priority": priority}
+	_pushed[String(source)] = {"mood": _Tracks.canonical(String(mood_id)), "priority": priority}
 
 
 func pop_mood(source: StringName) -> void:
@@ -194,8 +197,9 @@ static func pick_mood(state: Dictionary, current: StringName) -> StringName:
 	var hour := float(state.get("hour", Constants.DAY_START_HOUR))
 	var heat := float(state.get("heat", 0.0))
 	var phase := int(state.get("phase", 0))
+	# Border Return is an escape (the escape mood; "crossing" is its old name).
 	if zone == Net.Zone.BORDER:
-		return &"crossing"
+		return &"escape"
 	if zone == Net.Zone.LOT and phase == PHASE_CHASE:
 		return &"chase"
 	if zone == Net.Zone.LOT and phase == PHASE_WARNING:
