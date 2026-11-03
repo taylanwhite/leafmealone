@@ -139,12 +139,12 @@ func _exit_tree() -> void:
 		save_now()
 
 
-## The file this run reads and writes. Any run with dev tools, --run-seconds or
-## the smoke test uses its own test file, so tests start from defaults.
+## The file this run reads and writes. Any dev, test or automation session
+## (net/command_line.gd is_dev_session(), the same rule as the campaign save)
+## uses its own test file, so tests start from defaults.
 func path() -> String:
 	var options := Net.dev_options()
-	var testing := float(options.get("run_seconds")) > 0.0 or Net.is_automated() or bool(options.call("wants_dev_tools"))
-	if testing:
+	if bool(options.call("is_dev_session")):
 		return TEST_PATH % int(options.get("port"))
 	return REAL_PATH
 

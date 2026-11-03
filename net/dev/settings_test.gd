@@ -4,6 +4,14 @@ extends Node
 ## autoload (core/settings.gd; gap-specs/settings.json chunk 1, adjusted by
 ## gap-specs/critic.md C2, C4 and C15):
 ##   path         this run uses settings_test_<port>.cfg, never the player's file
+##   save_path    (save:guard) this dev run's campaign save is campaign_test_<port>.json;
+##                a player's flags (--host --join= --name= --port= --no-steam
+##                --town-map) keep the real save and every other flag, unknown ones
+##                included, makes a dev session; a dev session may never write the
+##                real save, its .tmp or its .bak
+##   real_save    (save:guard, at the end) after a save_now() that lands in the test
+##                save, the player's real campaign.json, its .bak and settings.cfg
+##                have the same modified time and bytes as when the test began
 ##   buses        Master, Music, Sfx, Ambience, UI, Chatter and Voice exist and send right
 ##   defaults     preset high, 0.003 rad/px look, FOV 75 on both cameras, UI scale 1,
 ##                and the world's sun and ambient occlusion as shared_look.gd sets them
@@ -51,6 +59,28 @@ const _Prompt = preload("res://ui/interaction_prompt.gd")
 const _Homeowner = preload("res://npcs/homeowner.gd")
 const _QuipPlayer = preload("res://ui/quip_player.gd")
 const _RunCues = preload("res://ui/run_cues.gd")
+const _CommandLine = preload("res://net/command_line.gd")
+const _Campaign = preload("res://net/campaign.gd")
+## Flags a player launches with: a session with only these keeps the real save.
+const PLAYER_ARG_SETS: Array = [
+	[],
+	["--host", "--name=Taylan", "--no-steam"],
+	["--join=192.168.1.20", "--port=7777", "--name=Deb", "--no-steam"],
+	["--host", "--no-steam", "--town-map"],
+]
+## Each makes a dev session, alone or next to the player's flags (W6: driving:D's
+## windowed runs wrote the real save with these).
+const DEV_ARGS: Array[String] = [
+	"--start-zone=lot", "--lot=2", "--job-seed=777", "--all-tasks", "--all-tools", "--rank=22",
+	"--open-phone=map", "--screenshot=build/x", "--tour", "--bot", "--remote-play=build/play",
+	"--scenario=caught", "--observer", "--fixed-step=30", "--smoke-test", "--smoke-client",
+	"--run-seconds=30", "--measure=x.json", "--mute-audio", "--sim-lag=100", "--sim-loss=2",
+	"--voice-test", "--hood=lakeside", "--yard-size=1", "--heat=40", "--start-hour=8",
+	"--clock-scale=0.02", "--start-day=7", "--legacy-map", "--warp-rides", "--walk-straight",
+	"--bot-stay", "--open-shop", "--open-board", "--open-settings=keys", "--end-day-at=20",
+	"--ride-at=5", "--run-event-at=10", "--fill-pockets", "--drive-test", "--settings-test",
+	"--playtest-tools-test", "--frobnicate",
+]
 ## Hard-coded key names a player-facing string may not carry (settings:4, check
 ## 16): "left click", "(Tab)", "Hold G", "E to ...", "A and D", "[E]". Keys are
 ## {key:<action>} tokens, so they follow rebinding.
@@ -97,8 +127,10 @@ func _run() -> void:
 	await get_tree().create_timer(0.5).timeout
 	var me := _me()
 	var defaults := _snapshot_bindings()
+	var real_before := _real_files()
 	_wipe()
 	_check("path", _path())
+	_check("save_path", _save_path())
 	_check("buses", _buses())
 	_check("defaults", _defaults(me))
 	_check("volumes", _volumes())
@@ -115,6 +147,7 @@ func _run() -> void:
 	_check("strings", await _strings())
 	_check("captions", await _captions())
 	_wipe()
+	_check("real_save", _real_save(real_before))
 	_finish()
 
 
@@ -149,6 +182,58 @@ func _path() -> bool:
 	var want := "settings_test_%d.cfg" % int(Net.dev_options().get("port"))
 	if not Settings.path().ends_with(want):
 		return _fail("path", "%s does not end with %s" % [Settings.path(), want])
+	return true
+
+
+func _save_path() -> bool:
+	var want := _Campaign.TEST_SAVE_PATH % int(Net.dev_options().get("port"))
+	if Campaign.save_path() != want:
+		return _fail("save_path", "this run saves to %s, not %s" % [Campaign.save_path(), want])
+	if not bool(Net.dev_options().call("is_dev_session")):
+		return _fail("save_path", "a --settings-test run is not a dev session")
+	if _Campaign.resolve_save_path(false, true, 7777) != _Campaign.SAVE_PATH:
+		return _fail("save_path", "a player's session does not get the real save")
+	if _Campaign.resolve_save_path(true, false, 7777) != _Campaign.DEV_SAVE_PATH:
+		return _fail("save_path", "a dev session without --port does not get campaign_dev.json")
+	for args: Array in PLAYER_ARG_SETS:
+		var line := _CommandLine.new()
+		line.parse(PackedStringArray(args))
+		if not line.dev_flags.is_empty():
+			return _fail("save_path", "player flags %s count as dev flags %s" % [args, line.dev_flags])
+	for flag: String in DEV_ARGS:
+		for base: Array in PLAYER_ARG_SETS:
+			var line := _CommandLine.new()
+			line.parse(PackedStringArray(base + [flag]))
+			if not line.dev_flags.has(flag):
+				return _fail("save_path", "%s next to %s is not a dev flag" % [flag, base])
+	var real := _Campaign.SAVE_PATH
+	for path: String in [real, real + ".tmp", real + ".bak", ProjectSettings.globalize_path(real)]:
+		if not _Campaign.write_forbidden(path, true):
+			return _fail("save_path", "a dev session may write %s" % path)
+	if _Campaign.write_forbidden(want, true) or _Campaign.write_forbidden(_Campaign.DEV_SAVE_PATH, true):
+		return _fail("save_path", "a dev session may not write its own test save")
+	if _Campaign.write_forbidden(real, false):
+		return _fail("save_path", "a player's session may not write the real save")
+	return true
+
+
+## The player's real files: whether each exists, and its modified time and MD5.
+func _real_files() -> Dictionary:
+	var files := {}
+	for path: String in [_Campaign.SAVE_PATH, _Campaign.SAVE_PATH + ".bak", Settings.REAL_PATH]:
+		var exists := FileAccess.file_exists(path)
+		files[path] = [exists, FileAccess.get_modified_time(path) if exists else 0, FileAccess.get_md5(path) if exists else ""]
+	return files
+
+
+func _real_save(before: Dictionary) -> bool:
+	Campaign.save_now()
+	if not FileAccess.file_exists(Campaign.save_path()):
+		return _fail("real_save", "save_now() wrote nothing to %s" % Campaign.save_path())
+	var after := _real_files()
+	for path: String in before:
+		if str(before[path]) != str(after[path]):
+			return _fail("real_save", "%s changed during a dev run: %s -> %s" % [path, before[path], after[path]])
 	return true
 
 

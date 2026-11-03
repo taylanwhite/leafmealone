@@ -15,11 +15,14 @@ signal rank_changed
 
 const _Ranks = preload("res://core/ranks.gd")
 const _Economy = preload("res://core/economy.gd")
+## The player's real save. Only a player's session (no dev, test or automation
+## flag; net/command_line.gd is_dev_session()) ever reads or writes it.
 const SAVE_PATH := "user://saves/campaign.json"
-## Timed test runs (--run-seconds, the smoke test) keep their own save, so they
-## never touch the real crew's cash, progress, or rating. One per port, so
-## tests can run side by side (tools/ci_local.ps1).
+## Dev sessions keep their own save, so they never touch the real crew's cash,
+## progress, or rating: one per port, so tests can run side by side
+## (tools/ci_local.ps1), and DEV_SAVE_PATH when no --port was given.
 const TEST_SAVE_PATH := "user://saves/campaign_test_%d.json"
+const DEV_SAVE_PATH := "user://saves/campaign_dev.json"
 const SAVE_VERSION := 1
 const RAKE_UPGRADE := &"rake_tier_1"
 const WHEELBARROW_UPGRADE := &"wheelbarrow_tier_1"
@@ -599,6 +602,8 @@ func _save() -> void:
 			push_error("[Campaign] could not create saves folder: %s" % error_string(make_error))
 			return
 	var path := _save_path()
+	if _refuse_write(path):
+		return
 	var temp_path := path + ".tmp"
 	var file := FileAccess.open(temp_path, FileAccess.WRITE)
 	if file == null:
@@ -659,13 +664,42 @@ func save_section(key: String) -> Dictionary:
 	return section as Dictionary if typeof(section) == TYPE_DICTIONARY else {}
 
 
+## The save this run reads and writes. Any dev, test or automation session (any
+## flag but --host, --join=, --name=, --port=, --no-steam and --town-map, or a
+## headless or scripted engine run) gets a test save; only a player's session,
+## debug build or not, gets the real one.
+func save_path() -> String:
+	var options := Net.dev_options()
+	return resolve_save_path(bool(options.call("is_dev_session")), bool(options.get("port_given")), int(options.get("port")))
+
+
 func _save_path() -> String:
-	# Remote play and scenario jumps (docs/PLAYTEST.md) grant tools, start raids
-	# and get people caught: never on the real crew's save.
-	var playtesting := str(Net.dev_options().get("remote_play")) != "" or str(Net.dev_options().get("scenario")) != ""
-	if float(Net.dev_options().get("run_seconds")) > 0.0 or Net.is_automated() or playtesting:
-		return TEST_SAVE_PATH % int(Net.dev_options().get("port"))
-	return SAVE_PATH
+	return save_path()
+
+
+static func resolve_save_path(dev_session: bool, port_given: bool, port: int) -> String:
+	if not dev_session:
+		return SAVE_PATH
+	return TEST_SAVE_PATH % port if port_given else DEV_SAVE_PATH
+
+
+## True when a write to this path must not happen: a dev session aimed at the
+## real save (or its .tmp or .bak).
+static func write_forbidden(path: String, dev_session: bool) -> bool:
+	if not dev_session:
+		return false
+	var real := ProjectSettings.globalize_path(SAVE_PATH).simplify_path().to_lower()
+	return ProjectSettings.globalize_path(path).simplify_path().to_lower().begins_with(real)
+
+
+## The loud guard: a dev session that ever resolves the real save refuses to write it.
+func _refuse_write(path: String) -> bool:
+	var options := Net.dev_options()
+	if not write_forbidden(path, bool(options.call("is_dev_session"))):
+		return false
+	push_error("[Campaign] REFUSED to write the player's real save (%s) from a dev session (%s). Dev and test runs use %s." % [
+		path, ", ".join(options.call("dev_session_reasons")), resolve_save_path(true, bool(options.get("port_given")), int(options.get("port")))])
+	return true
 
 
 func _load() -> void:

@@ -125,6 +125,49 @@ var fixed_step: int = 0
 ## --art-test: every neighborhood's look in the running game: styles, signatures,
 ## budgets, layout, determinism, seasons and words (net/dev/art_test.gd).
 var art_test: bool = false
+## True when --port= was on the command line (dev sessions then use campaign_test_<port>.json).
+var port_given: bool = false
+## Every user argument that isn't a player flag, unknown ones included (docs/DECISIONS.md,
+## "Dev sessions never touch the real save"). Any of them makes this a dev session.
+var dev_flags: PackedStringArray = []
+
+## The only flags a player launches with. Everything else is a dev, test or automation
+## flag, so a new flag is a dev flag until it is added here. --town-map is a player flag
+## only on its own: with any other flag the session is a dev one anyway.
+const PLAYER_FLAGS: Array[String] = ["--host", "--no-steam", "--town-map"]
+const PLAYER_FLAG_PREFIXES: Array[String] = ["--join=", "--name=", "--port="]
+## Engine arguments (before --) that only automation uses.
+const ENGINE_DEV_FLAGS: Array[String] = ["--headless", "--fixed-fps", "--write-movie", "--quit", "--quit-after", "--script", "--check-only", "--import", "--doctool"]
+
+
+## True when this run is a dev, test or automation session: any non-player user flag,
+## a headless display, or an automation-only engine flag. Such a session never reads
+## or writes the player's real save or settings (net/campaign.gd save_path()).
+func is_dev_session() -> bool:
+	return not dev_session_reasons().is_empty()
+
+
+## Why this is a dev session (empty for a player's session), for the save guard's error.
+func dev_session_reasons() -> PackedStringArray:
+	var reasons := dev_flags.duplicate()
+	if DisplayServer.get_name() == "headless":
+		reasons.append("headless")
+	if Engine.get_write_movie_path() != "":
+		reasons.append("--write-movie")
+	for argument: String in OS.get_cmdline_args():
+		var flag := argument.get_slice("=", 0)
+		if ENGINE_DEV_FLAGS.has(flag) and not reasons.has(flag):
+			reasons.append(flag)
+	return reasons
+
+
+static func is_player_flag(argument: String) -> bool:
+	if PLAYER_FLAGS.has(argument):
+		return true
+	for prefix: String in PLAYER_FLAG_PREFIXES:
+		if argument.begins_with(prefix):
+			return true
+	return false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -138,13 +181,21 @@ func wants_dev_tools() -> bool:
 
 
 func read() -> void:
-	for argument: String in OS.get_cmdline_user_args():
+	parse(OS.get_cmdline_user_args())
+
+
+## Reads these user arguments (read() passes the real ones; the settings test passes its own).
+func parse(arguments: PackedStringArray) -> void:
+	for argument: String in arguments:
+		if not is_player_flag(argument):
+			dev_flags.append(argument)
 		if argument == "--host":
 			host = true
 		elif argument.begins_with("--join="):
 			join_address = argument.trim_prefix("--join=")
 		elif argument.begins_with("--port="):
 			port = int(argument.trim_prefix("--port="))
+			port_given = true
 		elif argument.begins_with("--name="):
 			player_name = argument.trim_prefix("--name=")
 		elif argument.begins_with("--start-zone="):
