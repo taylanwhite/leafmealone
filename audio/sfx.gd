@@ -130,11 +130,12 @@ func play_clear(id: String, at: Vector3, db := 0.0) -> void:
 
 ## A one-shot that rides along with node, like a truck pulling away.
 ## wobble false keeps the pitch exact, for a sound timed to an animation.
-func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:
+## source (a peer id, say) keeps one sender's throttle from swallowing another's.
+func play_on(id: String, node: Node3D, db := 0.0, wobble := true, source := 0) -> void:
 	if node == null or not node.is_inside_tree():
 		play(id, db)
 		return
-	if not _accept(id):
+	if not _accept(id, source):
 		return
 	_note_placed(id, "on", node.global_position, str(node.get_path()), db)
 	if _silent():
@@ -145,6 +146,13 @@ func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:
 	node.add_child(player)
 	player.play()
 	_start_now(player)
+
+
+## A loop a caller plays on its own player (a punch wind-up's whir) starting at
+## at: logged like a play_at, so the log, tests and the playtest recorder see it.
+func note_loop(id: String, at: Vector3) -> void:
+	if _accept(id):
+		_note_placed(id, "at", at, "")
 
 
 ## A sound set to loop forever, for engines, sprays, wind, and music. The files

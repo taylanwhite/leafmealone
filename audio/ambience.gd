@@ -1,9 +1,13 @@
 extends Node
 
 ## Local presentation. The neighborhood's background sound around the local
-## player: a breeze through the trees, birds now and then, a dog a few yards
-## over, and a car going by on the lot's street. Nothing here is shared. Its
-## players sit on the Ambience bus (audio/buses.gd), and its tuning is
+## player: a breeze through the trees, birds now and then by day, a dog a few
+## yards over, a car going by on the lot's street, a neighbor mowing a few yards
+## over (by day), and at night (from AMBIENCE_NIGHT_FROM_HOUR) crickets fading
+## in and an owl now and then. At Homie Depot: its hum through the sliding doors,
+## the PA's ding-dong while it's open, a shopping cart rattling across the lot
+## (audio chunk 6; docs/GAME.md "Foley"). Nothing here is shared. Its players
+## sit on the Ambience bus (audio/buses.gd), and its tuning is
 ## Constants.AMBIENCE_*. The music, and M, are the music director's
 ## (audio/music_director.gd, under UIRoot/Audio).
 
@@ -18,6 +22,9 @@ var _wind: AudioStreamPlayer
 var _office: AudioStreamPlayer
 var _beds: Dictionary = {}
 var _waits: Dictionary = {}
+## Night's crickets (2D, faded by the hour) and Homie Depot's hum at its doors.
+var _crickets: AudioStreamPlayer
+var _hum: AudioStreamPlayer3D
 var _car: AudioStreamPlayer3D
 var _car_t: float = -1.0
 var _car_from := Vector3.ZERO
@@ -32,12 +39,18 @@ func _ready() -> void:
 		return
 	_wind = _loop_player("wind_loop", Constants.AMBIENCE_WIND_DB)
 	_office = _loop_player("typewriter_bed", -80.0)
+	_crickets = _loop_player("crickets_loop", -80.0)
+	_hum = _store_hum()
 	_waits = {
 		"bird": _between(Constants.AMBIENCE_FIRST_BIRD),
 		"dog": _between(Constants.AMBIENCE_DOG_GAP),
 		"car": _between(Constants.AMBIENCE_FIRST_CAR),
 		"office_phone": _between(Constants.AMBIENCE_OFFICE_PHONE_GAP),
 		"cooler": _between(Constants.AMBIENCE_OFFICE_GLUG_GAP),
+		"owl": _between(Constants.AMBIENCE_OWL_GAP),
+		"pa_chime": _between(Constants.AMBIENCE_PA_FIRST),
+		"cart_rattle": _between(Constants.AMBIENCE_CART_GAP),
+		"distant_mower": _between(Constants.AMBIENCE_MOWER_GAP),
 	}
 	_car = AudioStreamPlayer3D.new()
 	_car.stream = load(_Bank.files("car_pass")[0])
@@ -80,13 +93,19 @@ func _process(delta: float) -> void:
 	var in_hood := zone == Net.Zone.LOT or (zone == Net.Zone.TOWN and _hood_index(me.global_position) >= 0)
 	var outdoors := zone == Net.Zone.LOT or zone == Net.Zone.STORE or zone == Net.Zone.TOWN
 	_wind.volume_db = Constants.AMBIENCE_WIND_DB + (0.0 if outdoors else Constants.AMBIENCE_WIND_AWAY_DB)
+	var hour := _hour()
+	var store_open := _store_open()
+	# Crickets come up with the evening, outdoors; a blink to the Annex drops them.
+	var crickets := crickets_db(hour) if outdoors else -80.0
+	_crickets.volume_db = move_toward(_crickets.volume_db, crickets, Constants.AMBIENCE_CRICKETS_FADE_DB_PER_SECOND * delta)
 	for key: String in _waits:
 		_waits[key] = float(_waits[key]) - delta
 	if float(_waits["bird"]) <= 0.0:
 		_waits["bird"] = _between(Constants.AMBIENCE_BIRD_GAP)
-		if zone != Net.Zone.TRANSIT:
+		if zone != Net.Zone.TRANSIT and not is_night(hour):
 			var up := Vector3(0.0, _between(Constants.AMBIENCE_BIRD_HEIGHT), 0.0)
 			_one_shot("bird", me.global_position + _around(Constants.AMBIENCE_BIRD_RANGE) + up, 0.0)
+	_neighborhood(me, zone, hour, store_open, in_hood)
 	if float(_waits["dog"]) <= 0.0:
 		_waits["dog"] = _between(Constants.AMBIENCE_DOG_GAP)
 		if in_hood:
@@ -116,6 +135,100 @@ func _annex_office(zone: int, delta: float) -> void:
 		_waits["cooler"] = _between(Constants.AMBIENCE_OFFICE_GLUG_GAP)
 		if inside:
 			_one_shot("glug", _annex_point("Cooler", Vector3(0.0, 1.0, 0.0)), -6.0)
+
+
+## The one-shots that come and go with where you are and the hour (wants()):
+## an owl, the store's PA and its carts, a neighbor's mower.
+func _neighborhood(me: Node3D, zone: int, hour: float, store_open: bool, in_hood: bool) -> void:
+	for id: String in ["owl", "pa_chime", "cart_rattle", "distant_mower"]:
+		if float(_waits[id]) > 0.0:
+			continue
+		_waits[id] = _between({"owl": Constants.AMBIENCE_OWL_GAP, "pa_chime": Constants.AMBIENCE_PA_GAP,
+				"cart_rattle": Constants.AMBIENCE_CART_GAP, "distant_mower": Constants.AMBIENCE_MOWER_GAP}[id])
+		if not wants(id, zone, hour, store_open, in_hood):
+			continue
+		match id:
+			"owl":
+				var up := Vector3(0.0, _between(Constants.AMBIENCE_OWL_HEIGHT), 0.0)
+				_sfx_at(id, me.global_position + _around(Constants.AMBIENCE_OWL_RANGE) + up, 0.0)
+			"pa_chime":
+				_sfx_at(id, _store_point(Constants.AMBIENCE_STORE_DOORS), 0.0)
+			"cart_rattle":
+				_sfx_at(id, me.global_position + _around(Constants.AMBIENCE_CART_RANGE), 0.0)
+			"distant_mower":
+				_sfx_at(id, me.global_position + _around(Constants.AMBIENCE_MOWER_RANGE), Constants.AMBIENCE_MOWER_DB)
+
+
+## Whether the neighborhood plays id now (pure, for --audio-test): an owl at
+## night wherever there are trees, the PA while Homie Depot is open and you're
+## there, carts on its lot by day, a neighbor's mower by day where there are houses.
+static func wants(id: String, zone: int, hour: float, store_open: bool, in_hood: bool) -> bool:
+	match id:
+		"owl":
+			return is_night(hour) and (in_hood or zone == Net.Zone.STORE)
+		"pa_chime":
+			return zone == Net.Zone.STORE and store_open
+		"cart_rattle":
+			return zone == Net.Zone.STORE and not is_night(hour)
+		"distant_mower":
+			return in_hood and hour < Constants.AMBIENCE_MOWER_UNTIL_HOUR
+		"bird":
+			return zone != Net.Zone.TRANSIT and not is_night(hour)
+	return false
+
+
+static func is_night(hour: float) -> bool:
+	return hour >= Constants.AMBIENCE_NIGHT_FROM_HOUR
+
+
+## The crickets' level at this hour: silent by day, fading up over
+## AMBIENCE_NIGHT_FADE_HOURS from AMBIENCE_NIGHT_FROM_HOUR to AMBIENCE_CRICKETS_DB.
+static func crickets_db(hour: float) -> float:
+	var share := clampf((hour - Constants.AMBIENCE_NIGHT_FROM_HOUR) / Constants.AMBIENCE_NIGHT_FADE_HOURS, 0.0, 1.0)
+	return -80.0 if share <= 0.0 else maxf(-80.0, Constants.AMBIENCE_CRICKETS_DB + linear_to_db(share))
+
+
+func _hour() -> float:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	return float(clock.call("hour")) if clock != null else Constants.DAY_START_HOUR
+
+
+func _store_open() -> bool:
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops != null and shops.has_method("is_open"):
+		return bool(shops.call("is_open", "homie_depot"))
+	var hours: Vector2 = Constants.SHOP_HOURS.get("homie_depot", Vector2(Constants.DAY_START_HOUR, Constants.QUIET_HOURS_START))
+	var hour := _hour()
+	return hour >= hours.x and hour < hours.y
+
+
+## A point in the store's space (StoreZone), in the world.
+func _store_point(local: Vector3) -> Vector3:
+	var world := get_tree().get_first_node_in_group("world")
+	var store := world.get_node_or_null("StoreZone") as Node3D if world != null else null
+	return store.to_global(local) if store != null else local
+
+
+## Homie Depot humming behind its sliding doors: a positional loop, always on,
+## heard only near the doors.
+func _store_hum() -> AudioStreamPlayer3D:
+	var player := AudioStreamPlayer3D.new()
+	player.stream = _Sfx.looped("store_hum_loop")
+	player.bus = _Bank.bus("store_hum_loop")
+	player.volume_db = Constants.AMBIENCE_STORE_HUM_DB + _Bank.db("store_hum_loop")
+	player.unit_size = Constants.AMBIENCE_STORE_HUM_UNIT_SIZE
+	player.max_distance = Constants.AMBIENCE_STORE_HUM_MAX_DISTANCE
+	add_child(player)
+	player.global_position = _store_point(Constants.AMBIENCE_STORE_DOORS)
+	player.play()
+	return player
+
+
+## A neighborhood one-shot through Sfx (logged; the bank sets its reach).
+func _sfx_at(id: String, at: Vector3, db: float) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play_at", id, at, db)
 
 
 ## A point near one of the Annex's nodes (set-dressing, so it may not be there).

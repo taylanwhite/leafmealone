@@ -4107,6 +4107,100 @@ const RECEIPT_FEED_FADE_SHARE: float = 0.25
 ## plus this long (s) (audio/cue_hooks.gd).
 const CUE_BUZZ_AFTER_STINGERS: float = 0.25
 
+# ---- audio:6 foley, task work, ambience and the horn (audio/player_foley.gd,
+# audio/prop_foley.gd, levels/lots/task_looks.gd TASK_SOUNDS, audio/ambience.gd,
+# tools/sfx_foley.py; docs/GAME.md "Foley: what the crew sounds like").
+## Footsteps come off each drawn body's stride (CartoonBody's walk cycle): one
+## where each foot comes down. Never two closer than this (s) from one body, so
+## a sprint's quick feet sound every other step instead of a drum roll.
+const FOLEY_STEP_MIN_SECONDS: float = 0.22
+## The bank's own throttle on one body's footsteps (ms), under that.
+const FOLEY_STEP_GAP_MS: int = 200
+## Footstep trims (dB): every step, a teammate's on top of that (four crews' feet
+## stay under the work), crouched (sneaking is quiet) and sprinting. At +4 your
+## own steps in leaves peaked at -8 dBFS over music at -28 (rec_yardwalk_1p): a
+## drum over everything. At 0 they peak near -12, under the rake and the horn.
+const FOLEY_STEP_DB: float = 0.0
+## The pavement step (a thin heel click) peaked 6 dB under a step in leaves on the
+## store's lot (rec_walk_store_1p), and still 8 dB under at +4 on the yard's
+## sidewalk (rec_crew_litter_1p): this evens it out.
+const FOLEY_STEP_HARD_DB: float = 9.0
+const FOLEY_STEP_OTHER_DB: float = -4.0
+const FOLEY_STEP_CROUCH_DB: float = -9.0
+const FOLEY_STEP_SPRINT_DB: float = 1.5
+## Footsteps are close sounds: full volume inside this (m), gone past this.
+const FOLEY_STEP_UNIT_SIZE: float = 2.5
+const FOLEY_STEP_MAX_DISTANCE: float = 24.0
+## How much a far footstep's distance low-pass takes off (dB; Godot's default is
+## -24): a teammate's steps across the yard go soft, not muddy.
+const FOLEY_STEP_MUFFLE_DB: float = -8.0
+## A body whose stride moves slower than this (m/s) is shuffling, not stepping.
+const FOLEY_STEP_MIN_SPEED: float = 1.0
+## A landing thumps when the body came down faster than this (m/s).
+const LAND_THUMP_SPEED: float = 6.0
+## ...after at least this long in the air (s): a hop off a curb never thumps. A
+## thrown body (it flies knocked flat) thumps the tick its fall, once faster than
+## FOLEY_THROWN_FALLING (m/s), drops under FOLEY_THROWN_LANDED.
+const FOLEY_LAND_MIN_AIR_SECONDS: float = 0.15
+const FOLEY_THROWN_FALLING: float = 1.5
+const FOLEY_THROWN_LANDED: float = 0.3
+## A knocked-over ladder (audio/prop_foley.gd) crashes when its tumble turns less
+## than this (rad) over FOLEY_LADDER_WINDOW (s), no sooner than the first of
+## FOLEY_LADDER_FALL_SECONDS after it was knocked and no later than the second.
+const FOLEY_LADDER_SETTLE_RAD: float = 0.06
+const FOLEY_LADDER_WINDOW: float = 0.1
+const FOLEY_LADDER_FALL_SECONDS: Vector2 = Vector2(0.25, 1.1)
+## The punch wind-up's windmill whir: its level (dB) and how fast it fades in
+## and out (dB per second).
+const FOLEY_WINDUP_DB: float = -3.0
+const FOLEY_LOOP_FADE_DB_PER_SECOND: float = 120.0
+## The horn on Chefty's ride to and from a job (H): at most once per this (s).
+const HORN_COOLDOWN_SECONDS: float = 0.6
+## Task work heard at the spot (task_looks.gd TASK_SOUNDS): a held tool's sound
+## (the shears, the squeegee, the pool net, the goop) at most once per this
+## many ms from one 2 m patch; a hand task (litter, weeds) is one per press,
+## and the roof's 'rake' is a whole stroke.
+const TASK_SFX_GAP_MS: Dictionary = {
+	"snip": 260, "rake": 450, "squeegee": 480, "gutter_gloop": 380, "splash_small": 420,
+	"litter_crinkle": 160, "weed_pluck": 160,
+}
+## The patch (m, square) that TASK_SFX_GAP_MS counts per, and how many patches
+## task_looks.gd remembers before it forgets the ones whose gap has run out.
+const TASK_SFX_PATCH_METERS: float = 2.0
+const TASK_SFX_PATCH_MEMORY: int = 64
+## Night (audio/ambience.gd): from this hour the birds stop and the crickets
+## fade in over AMBIENCE_NIGHT_FADE_HOURS; they sit this loud (dB).
+const AMBIENCE_NIGHT_FROM_HOUR: float = 19.5
+const AMBIENCE_NIGHT_FADE_HOURS: float = 0.5
+## At -15 the chirps sat 10 dB under the night's breeze, which itself sat at
+## -39 dBFS (rec_night_1p): no night at all. At -7 they're the top of the bed.
+const AMBIENCE_CRICKETS_DB: float = -7.0
+## How fast the crickets follow you in and out of doors (dB per second).
+const AMBIENCE_CRICKETS_FADE_DB_PER_SECOND: float = 30.0
+## An owl a few yards over at night: seconds between, how far (m) and how high.
+const AMBIENCE_OWL_GAP: Vector2 = Vector2(25.0, 60.0)
+const AMBIENCE_OWL_RANGE: Vector2 = Vector2(25.0, 45.0)
+const AMBIENCE_OWL_HEIGHT: Vector2 = Vector2(5.0, 10.0)
+## Homie Depot's hum through its sliding doors (StoreZone space), how loud (dB),
+## and its reach: full inside this (m), gone past that.
+const AMBIENCE_STORE_DOORS: Vector3 = Vector3(-10.0, 2.0, -2.0)
+const AMBIENCE_STORE_HUM_DB: float = -6.0
+const AMBIENCE_STORE_HUM_UNIT_SIZE: float = 3.0
+const AMBIENCE_STORE_HUM_MAX_DISTANCE: float = 28.0
+## The store PA's ding-dong (while Homie Depot is open), heard from its doors.
+const AMBIENCE_PA_GAP: Vector2 = Vector2(40.0, 90.0)
+const AMBIENCE_PA_FIRST: Vector2 = Vector2(12.0, 30.0)
+## A shopping cart rattling somewhere across the store's lot, and how far off (m).
+const AMBIENCE_CART_GAP: Vector2 = Vector2(20.0, 50.0)
+const AMBIENCE_CART_RANGE: Vector2 = Vector2(10.0, 22.0)
+## A neighbor mowing a few yards over, by day only (until this hour), how far
+## off (m) and how loud (dB); heard to AMBIENCE_FAR_MAX_DISTANCE.
+const AMBIENCE_MOWER_GAP: Vector2 = Vector2(35.0, 90.0)
+const AMBIENCE_MOWER_UNTIL_HOUR: float = 19.0
+const AMBIENCE_MOWER_RANGE: Vector2 = Vector2(45.0, 70.0)
+const AMBIENCE_MOWER_DB: float = -3.0
+const AMBIENCE_FAR_MAX_DISTANCE: float = 130.0
+
 # ---- R2c hide
 # The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a
 # physical grab, heads riding the body's hide moves, the insides of a pile and a

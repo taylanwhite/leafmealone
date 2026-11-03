@@ -152,6 +152,10 @@ func _run() -> void:
 	_check("register", await _register())
 	_check("ride_truck", await _ride(music))
 	_check("positional", await _positional())
+	# Audio chunk 6: footsteps, the body, props, task work, ambience, the horn.
+	var foley: Dictionary = await preload("res://net/dev/foley_check.gd").run(self)
+	for key: String in foley:
+		_check("foley_" + key, bool(foley[key]))
 	_check("leaf_audio", await _leaf_audio(sfx))
 	_check("hot", await _hot(music))
 	_check("raid", await _raid(music))

@@ -21,6 +21,7 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 const _FirstPersonArms = preload("res://player/first_person_arms.gd")
 const _SnackEater = preload("res://player/snack_eater.gd")
+const _PlayerFoley = preload("res://audio/player_foley.gd")
 const _PropLooks = preload("res://props/prop_looks.gd")
 const _Pockets = preload("res://player/pockets.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
@@ -73,8 +74,8 @@ var _dress_waited: bool = false
 ## World/Shops, looked up once (snack_buff).
 var _shops_node: Node
 var _step_wait: float = 0.0
-## Footsteps taken, for the pockets' jangle on every other one.
-var _step_count: int = 0
+## When H may honk again on Chefty's ride (game seconds).
+var _honk_ready_at: float = 0.0
 ## Bonked by a thrown item: no control for this long. Knocked flat if the item was heavy.
 var _stun_left: float = 0.0
 var _knocked: bool = false
@@ -167,6 +168,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_camera"):
 		%CameraRig.toggle()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("honk") and _honk():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _water_hookup():
 		get_viewport().set_input_as_handled()
@@ -1878,6 +1881,20 @@ func _rpc_say(sound_name: String) -> void:
 	say(sound_name)
 
 
+## H on Chefty's ride to or from a job (the legacy path ride, net/components/
+## ride.gd): Chefty's meep-meep, heard by everyone where the truck is. A seat in
+## the drivable Chefty honks through its own controls (player/seated.gd).
+func _honk() -> bool:
+	if _ride == null or not is_instance_valid(_ride) or not _ride.is_in_group("chefty"):
+		return false
+	# Game time (physics ticks), so a slowed run holds the cooldown as a player feels it.
+	var now := float(Engine.get_physics_frames()) / float(Engine.physics_ticks_per_second)
+	if now >= _honk_ready_at:
+		_honk_ready_at = now + Constants.HORN_COOLDOWN_SECONDS
+		say_to_all("truck_horn")
+	return true
+
+
 ## Heavy things slow you down while you carry them (Constants.CARRY_SLOWDOWN_PER_KG).
 func carry_speed_scale() -> float:
 	# Something set on this player from outside (the Annex's big stamp, R2 chunk 6).
@@ -2020,30 +2037,10 @@ func _steps(delta: float) -> void:
 	if _step_wait > 0.0:
 		return
 	_step_wait = 0.42 if not limping else 0.55
+	# The footsteps themselves (and a full set of pockets jangling) are every
+	# peer's, off the drawn stride (audio/player_foley.gd); a limp grumbles.
 	if limping and randf() < 0.25:
 		say("vo_eh" if randf() < 0.5 else "vo_oof")
-	var sfx := get_tree().get_first_node_in_group("sfx")
-	if sfx != null:
-		sfx.call("play", _step_sound())
-		# A full set of pockets jangles (hotbar chunk D): every other step.
-		_step_count += 1
-		var pocket := pockets()
-		if pocket != null and _step_count % Constants.HOTBAR_JANGLE_EVERY == 0 and int(pocket.call("pocketed_count")) >= Constants.HOTBAR_JANGLE_AT:
-			sfx.call("play", "jangle", Constants.HOTBAR_JANGLE_DB)
-
-
-## What the ground underfoot sounds like: a crunch in leaves, a swish on the
-## lawn, a scuff on pavement and porches.
-func _step_sound() -> String:
-	if global_position.y > 0.6:
-		return "step_hard"
-	var field := get_tree().get_first_node_in_group("leaf_field")
-	if field != null and Net.player_zone(name.to_int()) == Net.Zone.LOT and int(field.call("sample_world", global_position)) >= Constants.STEP_LEAVES_DENSITY:
-		return "step_leaves"
-	var tasks := get_tree().get_first_node_in_group("job_tasks")
-	if tasks != null and Net.player_zone(name.to_int()) == Net.Zone.LOT and bool(tasks.call("is_lawn", global_position)):
-		return "step_grass"
-	return "step_hard"
 
 
 func _update_anim(crouching: bool, direction: Vector3) -> void:
@@ -2111,6 +2108,12 @@ func _dress_up() -> void:
 	eater.player = self
 	eater.body = body
 	body.add_child(eater)
+	# What this body sounds like (its footsteps, splats, thumps), on every peer.
+	var foley := _PlayerFoley.new()
+	foley.name = "Foley"
+	foley.player = self
+	foley.body = body
+	body.add_child(foley)
 	%BodyMesh.visible = false
 	var old_head := %Head.get_node_or_null("HeadMesh") as Node3D
 	if old_head != null:
@@ -2134,10 +2137,20 @@ func _dress_up() -> void:
 
 ## A silly character noise (docs/ART.md, "Audio") from this player's head, in
 ## their own voice. Cosmetic and local: each peer plays it for itself.
+## A sound that isn't a voice (audio/sound_bank.gd says, like Chefty's horn) plays
+## from the head through Sfx instead, riding along with it, with no mouth moving.
 func say(sound_name: String) -> void:
+	var bank := preload("res://audio/sound_bank.gd")
+	if bank.has(sound_name) and not bank.is_voice(sound_name):
+		var sfx := get_tree().get_first_node_in_group("sfx")
+		if sfx != null:
+			sfx.call("play_on", sound_name, %Head, 0.0, true, name.to_int())
+		return
 	if Net.is_automated():
 		return
-	var stream := load("res://assets/audio/sfx/%s.wav" % sound_name) as AudioStream
+	var paths := bank.files(sound_name)
+	var path := paths[randi_range(0, paths.size() - 1)]
+	var stream := load(path) as AudioStream if ResourceLoader.exists(path) else null
 	if stream == null:
 		return
 	var mouth := get_node_or_null("Visual/Head/Mouth") as AudioStreamPlayer3D

@@ -208,7 +208,7 @@ $Tests = [ordered]@{
 	# Port from the integration review's table (gap-specs/critic.md): 7811. The client
 	# rides along and must hear the day end with a rank-up (its own music director).
 	audio = @{
-		Host = '--host --name=Tester --no-steam --start-hour=8 --audio-test'; Seconds = 70; Client = 65; Port = 7811
+		Host = '--host --name=Tester --no-steam --start-hour=8 --audio-test'; Seconds = 85; Client = 80; Port = 7811
 		Check = { param($h, $c) [bool]$h.audio_test.ok -and $c -ne $null -and (@($c.audio.stingers) -contains 'st_day_end') -and (@($c.audio.stingers) -contains 'st_rank_up') }
 	}
 	settings = @{
