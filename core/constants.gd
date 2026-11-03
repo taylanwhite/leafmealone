@@ -2509,3 +2509,14 @@ const VAN_ROUTE_SEARCH_MAX: float = 200.0
 const VAN_ROUTE_SEARCH_STEP: float = 10.0
 ## The cab radio during the ride, under the bank's own level (dB).
 const VAN_RADIO_DB: float = -6.0
+
+# ---- nice boys: integration (R2 merge)
+# Where chunks 2 (the catch) and 4 (the Courtesy Shuttle) meet (docs/DECISIONS.md,
+# "R2 integration").
+## A NICE BOY's name tag fades out over this long (s) while he barks, and back
+## after: the bark line sits where the tag does.
+const CREW_TAG_HUSH_SECONDS: float = 0.15
+## The Courtesy Shuttle faces along its route looking this far (m) ahead of and
+## behind where it is: a whole VAN_ROUTE_STEP, so its heading turns smoothly between
+## route points (net/run_events/shuttle.gd _route_pose).
+const VAN_HEADING_LOOK: float = 2.0

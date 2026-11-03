@@ -42,6 +42,8 @@ const _Crew = preload("res://npcs/crew_member.gd")
 ## No grabbing the host's player, ever (it's the one throwing things).
 const HOST_SAFE_SECONDS: float = 100000.0
 const CLIENT_WAIT_SECONDS: float = 20.0
+## Step 9: how long the Courtesy Shuttle may take to drive out of the yard's sight.
+const VAN_GONE_SECONDS: float = 40.0
 ## Steps that need another R2 chunk skip with a note while its API is missing.
 var PENDING_STAGE: bool = false
 var PENDING_SHUTTLE: bool = false
@@ -315,8 +317,20 @@ func _run() -> void:
 		_note("pending chunk 6's Campaign.award_escape tally: " + escape_text)
 	else:
 		_step(escape_text, _xp("escape") - escape_before >= Constants.XP_ESCAPE)
-	var freed_crew: bool = await _wait(func() -> bool: return _crew_all().is_empty(), Constants.VAN_LEAVE_SECONDS + 4.0)
-	_step("9 the crew left with the van (freed once it's gone)", freed_crew)
+	# The Courtesy Shuttle drives its whole route out of the yard's sight before it
+	# counts as gone (R2 integration: VAN_GONE_SECONDS); the crew must ride it all
+	# the way (seated, never freed in view) and be freed once it's gone.
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	var freed_early := false
+	var freed_crew: bool = await _wait(func() -> bool:
+		if _crew_all().is_empty():
+			return true
+		if shuttle != null and not bool(shuttle.call("is_gone")):
+			for member: Node in _crew_all():
+				if int(member.get("mode")) != _Crew.Mode.SEATED and int(member.get("mode")) != _Crew.Mode.HOP_IN:
+					freed_early = true
+		return false, Constants.VAN_LEAVE_SECONDS + 4.0 if shuttle == null else VAN_GONE_SECONDS)
+	_step("9 the crew left with the van, seated all the way (freed once it's gone)", freed_crew and not freed_early)
 	# 10. Disconnect mid-escort.
 	director.call("force_event")
 	await _wait(func() -> bool:

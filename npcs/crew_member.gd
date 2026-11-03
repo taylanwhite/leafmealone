@@ -84,6 +84,8 @@ var _rng := RandomNumberGenerator.new()
 var last_bark: String = ""
 ## The last hop this peer showed (a client may hold its end pose a moment).
 var _last_hop: int = -1
+## Every peer: how much of the name tag shows next to a bark line (1 = all of it).
+var _tag_hush: float = 1.0
 
 
 func _ready() -> void:
@@ -299,6 +301,19 @@ func is_staged() -> bool:
 	return _placed.get("kind", "") == "staged"
 
 
+## Staged on someone else's anchor (the Courtesy Shuttle's seat, rise, aisle and
+## hop): that anchor already moves him, so the fallback van's own hop path and hop
+## clock stay out of it (R2 integration).
+func _staged_externally() -> bool:
+	return is_staged() and _staged_anchor != null and is_instance_valid(_staged_anchor)
+
+
+## The Courtesy Shuttle (nice_boys:4) is here to seat the crew; the fallback van's
+## seats, hop gesture and hop thump are only for a world without one.
+func _shuttle_seats() -> bool:
+	return is_inside_tree() and get_tree().get_first_node_in_group("nice_shuttle") != null
+
+
 ## Every peer, from net/run_events/encounter.gd's wind-up RPC: from where, which
 ## way, and when the hand lands. He winds up there and lunges along dir.
 func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float = Constants.CREW_LUNGE_DISTANCE) -> void:
@@ -505,6 +520,9 @@ func _step_hop_and_seat() -> void:
 	var kind := str(_placed.get("kind", ""))
 	if kind != "staged" or (mode != Mode.HOP_OUT and mode != Mode.HOP_IN):
 		return
+	# The Shuttle times its own hops and sets the mode when he lands or sits.
+	if _staged_externally():
+		return
 	if Net.server_time() - mode_at < Constants.CREW_HOP_SECONDS:
 		return
 	if mode == Mode.HOP_OUT:
@@ -523,7 +541,10 @@ func _step_hop_and_seat() -> void:
 ## so a client lets go when the host does).
 func _auto_stage() -> void:
 	var seated := mode == Mode.SEATED or mode == Mode.HOP_OUT or mode == Mode.HOP_IN
-	if seated and _placed.is_empty():
+	# With the Shuttle, it stages him on its own anchors on every peer (a client
+	# whose mode lands first draws the network's pose for that moment; staging him
+	# on the fallback seat would snap him back into the van after a hop).
+	if seated and _placed.is_empty() and not _shuttle_seats():
 		# Climbing in starts from wherever he stands at the door.
 		set_staged(null, fallback_seat(crew_index()), Constants.CREW_HOP_SECONDS * 0.4 if mode == Mode.HOP_IN else 0.0, &"sit_buckled")
 	elif not seated and is_staged() and _staged_anchor == null:
@@ -646,6 +667,8 @@ func _blend_in(want: Transform3D, seconds: float, now: float) -> Transform3D:
 ## Seated, hopping out, hopping in: the path between the seat and the curb, a pure
 ## function of mode_at and the van's pose.
 func _staged_motion(seat: Transform3D, now: float) -> Transform3D:
+	if _staged_externally():
+		return seat
 	var hop := mode
 	if mode == Mode.HOP_OUT or mode == Mode.HOP_IN:
 		_last_hop = mode
@@ -737,10 +760,16 @@ func _show_mode(body: Node, poser: Node) -> void:
 		return
 	match mode:
 		Mode.SEATED:
-			poser.call("hold", "driver_wheel" if crew_index() == 1 else "sit_bench")
+			# The Shuttle has its own driver; the head NICE BOY rides shotgun there.
+			poser.call("hold", "driver_wheel" if crew_index() == 1 and not _shuttle_seats() else "sit_bench")
 		Mode.HOP_OUT, Mode.HOP_IN:
-			poser.call("hold", "hop_out" if mode == Mode.HOP_OUT else "hop_in", Constants.CREW_HOP_SECONDS, late)
 			stats["hops"] = int(stats["hops"]) + 1
+			if _shuttle_seats():
+				# The Shuttle walks him down the aisle and off the sill (its anchors, its
+				# step_up gesture, its hop_land on the landing frame).
+				poser.call("hold", "")
+				return
+			poser.call("hold", "hop_out" if mode == Mode.HOP_OUT else "hop_in", Constants.CREW_HOP_SECONDS, late)
 			if sfx != null and fresh and mode == Mode.HOP_OUT:
 				get_tree().create_timer(maxf(0.0, Constants.CREW_HOP_SECONDS * 0.95 - late)).timeout.connect(func() -> void:
 					if is_inside_tree():
@@ -803,7 +832,10 @@ func _fade_tag() -> void:
 	if tag == null or camera == null:
 		return
 	var distance := camera.global_position.distance_to(tag.global_position)
-	var alpha := clampf((distance - Constants.CREW_TAG_FADE_NEAR) / 0.8, 0.0, 1.0) * clampf((Constants.CREW_TAG_FADE_FAR - distance) / 4.0, 0.0, 1.0)
+	# The tag steps aside (a quick fade) while he's saying something: the bark line
+	# sits where the tag does, and the two printed over each other.
+	_tag_hush = move_toward(_tag_hush, 0.0 if _bark_left > 0.0 else 1.0, get_process_delta_time() / Constants.CREW_TAG_HUSH_SECONDS)
+	var alpha := clampf((distance - Constants.CREW_TAG_FADE_NEAR) / 0.8, 0.0, 1.0) * clampf((Constants.CREW_TAG_FADE_FAR - distance) / 4.0, 0.0, 1.0) * _tag_hush
 	tag.modulate.a = alpha
 	tag.outline_modulate.a = alpha
 	tag.visible = alpha > 0.01

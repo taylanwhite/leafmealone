@@ -457,13 +457,39 @@ func _crew_out(lead: float) -> Dictionary:
 
 
 ## Where to stand: meters in front of the van's door, toward the yard.
+## The first of a fan of headings around "toward the yard" from which he can see
+## you: the Courtesy Shuttle parks on the clearest curb near the noise, which can
+## put Chefty, a tree or a fence straight between the door and the yard
+## (R2 integration: a caught take spent 18 s staring at Chefty's side).
 func _in_front_of(crew: Node3D, meters: float) -> Vector3:
 	var lot := _lot_zone()
 	var door: Vector3 = _director().call("crew_arrival_point")
 	var toward := Vector3(lot.global_position.x - door.x, 0.0, lot.global_position.z - door.z).normalized()
 	var from := crew.global_position if _crew_on_feet(crew) else door
-	var at := from + toward * meters
-	return Vector3(at.x, lot.global_position.y + 0.1, at.z)
+	var ground := lot.global_position.y + 0.1
+	var first := Vector3.INF
+	for degrees: float in [0.0, 25.0, -25.0, 50.0, -50.0, 75.0, -75.0]:
+		var dir := toward.rotated(Vector3.UP, deg_to_rad(degrees))
+		var at := from + dir * meters
+		at.y = ground
+		if not first.is_finite():
+			first = at
+		if _clear_between(Vector3(from.x, ground + 1.2, from.z), at + Vector3.UP * 1.1, crew):
+			return at
+	return first
+
+
+## Nothing solid on the line between two points (bodies of people excepted).
+func _clear_between(a: Vector3, b: Vector3, skip: Node3D) -> bool:
+	var space := skip.get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(a, b)
+	var excluded: Array[RID] = []
+	for group: String in ["players", "nice_crew"]:
+		for node: Node in get_tree().get_nodes_in_group(group):
+			if node is CollisionObject3D:
+				excluded.append((node as CollisionObject3D).get_rid())
+	query.exclude = excluded
+	return space.intersect_ray(query).is_empty()
 
 
 func _crew_on_feet(crew: Node3D) -> bool:
@@ -835,10 +861,19 @@ func _yaw_toward(from: Vector3, to: Vector3) -> float:
 ## The warning, through the director's own phase message to every peer, started
 ## as if the call came in a while ago: the crew arrives in lead seconds.
 func _warn_with(director: Node, lead: float) -> void:
-	# The call itself makes the crew (seated in the van); then it's backdated.
-	if int(director.call("phase")) == 0:
-		director.call("_begin_warning")
+	# Backdated first, then the call makes the crew (seated in the van): the
+	# Courtesy Shuttle plans its van's arrival from the director's arrival time, so
+	# it pulls up in lead seconds too (made the other way round, it arrived a whole
+	# warning later and the crew got out long after the chase began).
+	var fresh := int(director.call("phase")) == 0
 	director.rpc("_rpc_phase", 1, Net.server_time() - (Constants.RUN_WARNING_SECONDS - lead), _Strings.UI["status_crew_coming"])
+	if fresh:
+		# What _begin_warning resets, without its own (un-backdated) phase message.
+		director.set("_raid_caught", 0)
+		director.set("_first_seat_at", -1.0)
+		(director.get("_spotted") as Dictionary).clear()
+		(director.get("_hops") as Array).clear()
+		director.call("_spawn_crew")
 
 
 func _wait_for(check: Callable) -> Variant:

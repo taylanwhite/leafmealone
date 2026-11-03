@@ -212,7 +212,13 @@ func host_spawn_crew(count: int) -> Array[Node]:
 			crew.name = crew_name
 			var seat := _local_marker(trip, "CrewSeats/Seat%d" % mini(index, 2))
 			(crew as Node3D).position = (pose * seat * _crew_turn()).origin
+			# Seated from the first frame, in the spawn state (nice_boys:2's modes).
+			if "mode" in crew:
+				crew.set("mode", _CrewMember.Mode.SEATED)
+				crew.set("mode_at", Net.server_time())
 			npcs.add_child(crew, true)
+		elif crew.has_method("host_set_mode"):
+			crew.call("host_set_mode", _CrewMember.Mode.SEATED)
 		out.append(crew)
 		_rpc_crew_seat.rpc(trip.id, index + 1, mini(index, 2), Net.server_time(), CREW_SEATED, Vector3.ZERO)
 	return out
@@ -238,9 +244,34 @@ func host_crew_board(crew: Node) -> void:
 		_rpc_crew_seat.rpc(trip.id, index, _free_crew_seat(trip, index), now, CREW_HOP_IN, local)
 
 
+## Host, from the R2 director's recall: a NICE BOY whose hop out hasn't started yet
+## stays in his seat (R2 integration).
+func host_cancel_hops() -> void:
+	var trip := _trip(_raid_trip)
+	if not Net.is_host() or trip == null:
+		return
+	var now := Net.server_time()
+	for index: Variant in trip.crew.keys():
+		var entry: Dictionary = trip.crew[index]
+		if int(entry["mode"]) == CREW_HOP_OUT and float(entry["at"]) > now + Constants.VAN_PLAN_LEAD * 0.5:
+			_rpc_crew_seat.rpc(trip.id, int(index), int(entry["seat"]), now, CREW_SEATED, Vector3.ZERO)
+
+
 ## Host: seats a caught player in the raid van (C12). They step up from where
 ## they stand. Returns the seat, or -1 (no van, or it's full).
 func host_board(peer_id: int) -> int:
+	var trip := _trip(_raid_trip)
+	# Already aboard a van (a capture made mid-ride): that seat stands.
+	var aboard := seat_info(peer_id)
+	if not aboard.is_empty() and not bool(aboard["leaving"]):
+		_stage(peer_id, STAGE_SEATED)
+		return int(aboard["seat"])
+	if Net.is_host() and (trip == null or trip.ended or trip.depart_planned):
+		# Caught with no raid van at the curb (a forced catch outside a raid: dev,
+		# tests, scenarios): one pulls up from out of sight and they walk in once
+		# it's parked (R2 integration).
+		trip = _ensure_raid_trip()
+		return _host_board(trip.id, peer_id, BOARD_WALK) if trip != null else -1
 	return _host_board(_raid_trip, peer_id, BOARD_STEP)
 
 
@@ -2434,6 +2465,7 @@ func _place_crew(trip: Trip, now: float) -> void:
 		var was := str(trip.crew_staged.get(i, ""))
 		if state != was:
 			trip.crew_staged[i] = state
+			_sync_crew_mode(crew, trip.crew[index] as Dictionary, state)
 			if done:
 				_unstage_crew(trip, i)
 			else:
@@ -2454,6 +2486,32 @@ func _place_crew(trip: Trip, now: float) -> void:
 				# nice_boys:2's landing thump when it's there.
 				var land_id := "hop_land" if _has_sound("hop_land") else "step_hard"
 				sfx.call("play_on", land_id, crew)
+
+
+## Host: a NICE BOY's replicated mode (nice_boys:2) follows his place in the van,
+## so the director's recall, the poses and every peer agree with what the van
+## shows: SEATED in a seat, HOP_OUT on his way out, NOISE (the brain's opener) on
+## the curb, HOP_IN climbing back in or onto the bumper (R2 integration).
+func _sync_crew_mode(crew: Node, entry: Dictionary, state: String) -> void:
+	if not Net.is_host() or crew == null or not crew.has_method("host_set_mode"):
+		return
+	var seat_mode := int(entry["mode"])
+	var want := -1
+	if state == "sit":
+		want = _CrewMember.Mode.SEATED
+	elif state == "stand":
+		want = _CrewMember.Mode.HOP_OUT if seat_mode == CREW_HOP_OUT else _CrewMember.Mode.HOP_IN
+	elif state == "done" and seat_mode == CREW_HOP_OUT:
+		# Landed after the recall was called: straight back to the van.
+		var director := get_parent()
+		var chasing := director != null and director.has_method("phase") and int(director.call("phase")) == PHASE_CHASE
+		want = _CrewMember.Mode.NOISE if chasing else _CrewMember.Mode.RECALL
+	if want < 0 or int(crew.get("mode")) == want:
+		return
+	crew.call("host_set_mode", want)
+	if want == _CrewMember.Mode.NOISE and int(crew.call("crew_index")) == 1 and crew.has_method("bark"):
+		# The head NICE BOY says hello once he's on the curb.
+		crew.call("bark", "arrive", true)
 
 
 func _stage_crew(crew: Node, anchor: Node3D, sitting: bool, first: bool) -> void:
@@ -2689,13 +2747,15 @@ static func _segs_seconds(segs: PackedFloat32Array) -> float:
 	return total
 
 
-## A pose s meters along a route: on its points, facing along it (looking a meter
-## either way, so a bend never snaps the heading).
+## A pose s meters along a route: on its points, facing along it (looking
+## VAN_HEADING_LOOK either way, a whole route step, so the heading turns all the
+## way between two points instead of snapping round at each one: a swerve past
+## Chefty swung the seat camera 30 degrees in a frame with a 1 m look).
 static func _route_pose(points: PackedVector3Array, s: float) -> Transform3D:
 	var length := _polyline_length(points)
 	var at := _point_at(points, clampf(s, 0.0, length))
-	var ahead := _point_at(points, clampf(s + 1.0, 0.0, length))
-	var behind := _point_at(points, clampf(s - 1.0, 0.0, length))
+	var ahead := _point_at(points, clampf(s + Constants.VAN_HEADING_LOOK, 0.0, length))
+	var behind := _point_at(points, clampf(s - Constants.VAN_HEADING_LOOK, 0.0, length))
 	var dir := ahead - behind
 	dir.y = 0.0
 	if dir.length() < 0.001:

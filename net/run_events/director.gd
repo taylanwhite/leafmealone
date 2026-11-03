@@ -297,9 +297,7 @@ func _process(delta: float) -> void:
 			_step_hops()
 			_step_departing()
 		Phase.QUIET:
-			# A forced catch outside a raid: no hold, the van goes.
-			if not _seated_riders().is_empty():
-				_depart()
+			_step_quiet()
 			_consider_roll()
 	_free_gone_crew()
 
@@ -421,6 +419,10 @@ func host_begin_departure() -> void:
 		return
 	_depart_started = Net.server_time()
 	_set_phase(Phase.DEPARTING, _status)
+	# Anyone still waiting for his turn at the door stays in his seat.
+	var shuttle := _shuttle()
+	if shuttle != null and shuttle.has_method("host_cancel_hops"):
+		shuttle.call("host_cancel_hops")
 	var first := true
 	for crew: Node in _crew_list():
 		if bool(crew.call("in_brain_mode")):
@@ -468,12 +470,50 @@ func _depart() -> void:
 	if shuttle != null and shuttle.has_method("host_depart"):
 		shuttle.call("host_depart", Net.server_time())
 	# A stray left on the lawn (the recall ran out) has to be somewhere: in the van.
+	# With the Shuttle he jogs after it (it creeps with its back doors open for him,
+	# _step_quiet walks him there); without it, he hops into the fallback van.
 	for crew: Node in _crew_list():
 		var mode := int(crew.get("mode"))
 		if mode != _Crew.Mode.SEATED and mode != _Crew.Mode.HOP_IN:
+			if shuttle != null and shuttle.has_method("host_crew_board"):
+				if bool(crew.call("in_brain_mode")) or mode == _Crew.Mode.DOOR:
+					crew.call("host_set_mode", _Crew.Mode.RECALL)
+				continue
 			crew.call("host_walk", Vector3.INF, 0.0)
 			crew.call("host_set_mode", _Crew.Mode.HOP_IN)
 	_end_raid()
+
+
+## Host, between raids: a forced catch outside a raid (dev, tests, scenarios) waits
+## for the Shuttle's van to pull up and everyone to sit down, then it goes; a NICE
+## BOY still out after a departure jogs to the van's back step and climbs on.
+func _step_quiet() -> void:
+	var shuttle := _shuttle()
+	if shuttle == null or not shuttle.has_method("host_depart"):
+		if not _seated_riders().is_empty():
+			_depart()
+		return
+	var boarded: Array = shuttle.call("boarded_riders")
+	if not boarded.is_empty():
+		var seated: Array = shuttle.call("seated_riders")
+		var all_in := true
+		for peer_id: Variant in boarded:
+			all_in = all_in and seated.has(peer_id)
+		if all_in:
+			# A no-op once this van's departure is planned.
+			shuttle.call("host_depart", Net.server_time())
+	if not shuttle.has_method("host_crew_board"):
+		return
+	var door: Vector3 = shuttle.call("door_step_point")
+	for crew: Node in _crew_list():
+		if int(crew.get("mode")) != _Crew.Mode.RECALL:
+			continue
+		var at := (crew as Node3D).global_position
+		if Vector2(at.x - door.x, at.z - door.z).length() <= Constants.CREW_BOARD_REACH:
+			crew.call("host_walk", Vector3.INF, 0.0)
+			shuttle.call("host_crew_board", crew)
+		else:
+			crew.call("host_walk", door, Constants.CREW_SPEED_RECALL)
 
 
 ## The raid is over: the heat settles, the escape XP, and QUIET (the van drives off).
