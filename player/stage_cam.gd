@@ -33,6 +33,9 @@ extends Camera3D
 ## whose visibility toggles, and physics interpolation never smears a cut.
 
 const _CartoonBody = preload("res://player/cartoon_body.gd")
+## Presentation: an eye closer than this to your own head doesn't draw your own
+## head and body (the head is about 0.27 m across, the shoulders 0.5 m).
+const HEAD_CLEAR_METERS: float = 0.6
 
 ## For net/dev/probe.gd and stage_test: pushes and pops, frames with no current
 ## 3D camera while a session runs, and the largest per-frame move of this camera
@@ -253,6 +256,7 @@ func _update(delta: float) -> void:
 	var drawn := _from.interpolate_with(target, eased) if eased < 1.0 else target
 	drawn.basis = drawn.basis.orthonormalized()
 	global_transform = drawn
+	_apply_mask()
 	fov = lerpf(_from_fov, target_fov, eased)
 	_note_step(drawn.origin)
 	if _returning and _blend_t >= 1.0:
@@ -319,10 +323,13 @@ func _note_step(origin: Vector3) -> void:
 
 
 ## Your own head and body are on HEAD_LAYER (player/cartoon_body.gd): a shot
-## from outside shows them, an eye inside your head (hide_self) skips them.
+## from outside shows them, an eye inside your head (hide_self) skips them, and
+## so does any eye still within HEAD_CLEAR_METERS of your head (a blend out of
+## first person starts inside it: it used to flash your own face for a frame).
 func _apply_mask() -> void:
 	var head_bit := 1 << (_CartoonBody.HEAD_LAYER - 1)
-	if _top != &"" and bool((_shots[_top] as Dictionary).get("hide_self", false)):
-		cull_mask = 0xFFFFF & ~head_bit
-	else:
-		cull_mask = 0xFFFFF
+	var hide := _top != &"" and bool((_shots[_top] as Dictionary).get("hide_self", false))
+	var head := player.get_node_or_null("Visual/Head") as Node3D if player != null else null
+	if head != null and global_position.distance_to(head.get_global_transform_interpolated().origin) < HEAD_CLEAR_METERS:
+		hide = true
+	cull_mask = (0xFFFFF & ~head_bit) if hide else 0xFFFFF

@@ -35,14 +35,25 @@ const LINE_GAP: float = 6.0
 const CLEARANCE: float = 10.0
 const MAX_WIDTH: float = 720.0
 const MIN_WIDTH: float = 260.0
-const FADE_IN: float = 0.18
+const FADE_IN: float = 0.22
 const FADE_OUT: float = 0.3
-## How fast a line glides to its new spot when the stack shifts (1/s).
-const GLIDE_RATE: float = 14.0
+## How long a line's slot takes to open (the lines above glide up) and to close.
+const GROW_SECONDS: float = 0.18
+## What the stack keeps clear of (UIRoot children): the job goal line, the job panel,
+## the heat meter and the bottom-left quip caption (ui/quip_player.gd) when it's up;
+## and the side columns its width keeps between.
+const OBSTACLES: Array = ["JobGoal", "TaskList", "HeatMeter", "Quips/Caption"]
+const COLUMNS: Array = ["TaskList", "HeatMeter"]
+## How tall a band beside the stack's bottom the columns are checked over, px.
+const COLUMN_BAND: float = 260.0
+## How fast the whole stack glides to a new bottom (1/s).
+const STACK_GLIDE_RATE: float = 12.0
 
 var _next_id: int = 1
 ## Every line pushed and not yet gone: {id, kind, text, left, priority, label, alpha, shown}.
 var _lines: Array[Dictionary] = []
+var _bottom: float = INF
+var _bottom_idle: bool = true
 
 
 func _ready() -> void:
@@ -59,15 +70,20 @@ func push(kind: StringName, text: String, seconds: float, priority: int = 0) -> 
 		return 0
 	if not KINDS.has(kind):
 		kind = &"quip"
+	# The slot: a clipping box the line is drawn in (it opens and closes, the line fades).
+	var box := Control.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.clip_contents = true
+	box.visible = false
+	add_child(box)
 	var label := Label.new()
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.text = text
 	label.modulate.a = 0.0
-	label.visible = false
-	add_child(label)
-	var entry := {"id": _next_id, "kind": kind, "text": text, "left": maxf(0.1, seconds), "priority": priority, "label": label, "alpha": 0.0, "shown": false, "placed": false}
+	box.add_child(label)
+	var entry := {"id": _next_id, "kind": kind, "text": text, "left": maxf(0.1, seconds), "priority": priority, "label": label, "box": box, "alpha": 0.0, "grow": 0.0, "shown": false}
 	_next_id += 1
 	_lines.append(entry)
 	_style(entry)
@@ -108,18 +124,18 @@ func line_label(id: int) -> Label:
 func line_rects() -> Array[Rect2]:
 	var out: Array[Rect2] = []
 	for entry: Dictionary in _visible_entries():
-		var label := entry["label"] as Label
-		out.append(Rect2(label.position, label.size))
+		var box := entry["box"] as Control
+		out.append(Rect2(box.position, box.size))
 	return out
 
 
 ## What the stack keeps clear of: the job goal line, the job panel and the heat meter.
-func obstacle_rects() -> Array[Rect2]:
+func obstacle_rects(names: Array = OBSTACLES) -> Array[Rect2]:
 	var out: Array[Rect2] = []
 	var ui := get_parent()
 	if ui == null:
 		return out
-	for name_of: String in ["JobGoal", "TaskList", "HeatMeter"]:
+	for name_of: String in names:
 		var node := ui.get_node_or_null(name_of) as Control
 		if node == null or not node.is_visible_in_tree():
 			continue
@@ -157,17 +173,50 @@ func _layout(delta: float) -> void:
 	var view := get_viewport_rect().size
 	var shown := _visible_entries()
 	var width := _line_width(view)
-	# Size each line, then stack them upward from the baseline.
+	# Each line opens a slot (grow 0 to 1) and fades in; leaving, it fades out and
+	# then its slot closes, so the lines above glide down instead of jumping. The
+	# slot clips its line, so a line never draws over its neighbour mid-move.
+	var drawn: Array[Dictionary] = []
+	var keep: Array[Dictionary] = []
+	for entry: Dictionary in _lines:
+		var on := shown.has(entry)
+		entry["shown"] = on
+		var alpha := float(entry["alpha"])
+		var grow := float(entry["grow"])
+		if delta > 0.0:
+			if on:
+				grow = move_toward(grow, 1.0, delta / GROW_SECONDS)
+				alpha = move_toward(alpha, 1.0, delta / FADE_IN)
+			else:
+				alpha = move_toward(alpha, 0.0, delta / FADE_OUT)
+				if alpha <= 0.0:
+					grow = move_toward(grow, 0.0, delta / GROW_SECONDS)
+		elif on and grow <= 0.0:
+			grow = 0.0
+		entry["alpha"] = alpha
+		entry["grow"] = grow
+		if float(entry["left"]) <= 0.0 and alpha <= 0.0 and grow <= 0.0:
+			(entry["box"] as Control).queue_free()
+			continue
+		keep.append(entry)
+		if grow > 0.0 or on:
+			drawn.append(entry)
+	_lines = keep
+	drawn.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
+	var slots: Array[float] = []
 	var heights: Array[float] = []
-	for entry: Dictionary in shown:
-		var label := entry["label"] as Label
-		label.size = Vector2(width, 0.0)
-		label.custom_minimum_size = Vector2(width, 0.0)
-		heights.append(label.get_combined_minimum_size().y)
 	var total := 0.0
-	for h: float in heights:
-		total += h
-	total += LINE_GAP * maxf(0.0, float(heights.size() - 1))
+	for entry: Dictionary in drawn:
+		var label := entry["label"] as Label
+		label.custom_minimum_size = Vector2(width, 0.0)
+		label.size = Vector2(width, 0.0)
+		var h := label.get_combined_minimum_size().y
+		label.size = Vector2(width, h)
+		var eased := smoothstep(0.0, 1.0, float(entry["grow"]))
+		heights.append(h)
+		slots.append(h * eased)
+		total += (h + LINE_GAP) * eased
+	total = maxf(0.0, total - LINE_GAP)
 	var bottom := _baseline(view)
 	var left := (view.x - width) * 0.5
 	# Up and over anything it would cover.
@@ -181,42 +230,28 @@ func _layout(delta: float) -> void:
 				stack_rect = Rect2(left, bottom - total, width, total)
 		if not moved:
 			break
-	var y := bottom - total
-	for index: int in shown.size():
-		var entry: Dictionary = shown[index]
+	# The whole stack glides when what it keeps clear of moves (a quip appears).
+	if _bottom == INF or not drawn.is_empty() and _bottom_idle:
+		_bottom = bottom
+	elif delta > 0.0:
+		_bottom = lerpf(_bottom, bottom, 1.0 - exp(-STACK_GLIDE_RATE * delta))
+		if absf(_bottom - bottom) < 0.5:
+			_bottom = bottom
+	_bottom_idle = drawn.is_empty()
+	var y := _bottom - total
+	for index: int in drawn.size():
+		var entry: Dictionary = drawn[index]
+		var box := entry["box"] as Control
+		box.position = Vector2(left, y)
+		box.size = Vector2(width, slots[index])
+		box.visible = slots[index] > 0.5
 		var label := entry["label"] as Label
-		var target := Vector2(left, y)
-		if not bool(entry["placed"]):
-			# A new line rises into place from a little below.
-			label.position = target + Vector2(0.0, 8.0)
-			entry["placed"] = true
-		elif delta > 0.0:
-			label.position = label.position.lerp(target, 1.0 - exp(-GLIDE_RATE * delta))
-			if label.position.distance_to(target) < 0.5:
-				label.position = target
-		# Never parked over the goal line, panel or meter, even mid-glide.
-		label.position.x = target.x
-		entry["shown"] = true
-		y += heights[index] + LINE_GAP
-	# Fades: in while shown, out once gone or waiting.
-	var keep: Array[Dictionary] = []
+		label.position = Vector2.ZERO
+		label.modulate.a = float(entry["alpha"])
+		y += slots[index] + LINE_GAP * smoothstep(0.0, 1.0, float(entry["grow"]))
 	for entry: Dictionary in _lines:
-		var label := entry["label"] as Label
-		var on := shown.has(entry)
-		if not on:
-			entry["shown"] = false
-		var alpha := float(entry["alpha"])
-		if delta > 0.0:
-			alpha = move_toward(alpha, 1.0 if on else 0.0, delta / (FADE_IN if on else FADE_OUT))
-		entry["alpha"] = alpha
-		label.modulate.a = alpha
-		label.visible = on or alpha > 0.0
-		if float(entry["left"]) <= 0.0 and alpha <= 0.0:
-			label.queue_free()
-		else:
-			keep.append(entry)
-	_lines = keep
-
+		if not drawn.has(entry):
+			(entry["box"] as Control).visible = false
 
 ## Where the stack's bottom sits: above the goal line when it's up, else above
 ## the hotbar's band.
@@ -232,10 +267,17 @@ func _baseline(view: Vector2) -> float:
 ## As wide as fits between the left-hand HUD columns (the job panel, the heat
 ## meter), mirrored, up to MAX_WIDTH.
 func _line_width(view: Vector2) -> float:
+	# Only the side columns: the goal line is centered, under the stack, not beside it.
 	var left_edge := 0.0
-	for rect: Rect2 in obstacle_rects():
-		if rect.position.x < view.x * 0.5:
+	var band_top := _baseline(view) - COLUMN_BAND
+	for rect: Rect2 in obstacle_rects(COLUMNS):
+		# Only what sits beside the stack's band (the job panel is high above it).
+		if rect.end.y < band_top:
+			continue
+		if rect.end.x <= view.x * 0.5:
 			left_edge = maxf(left_edge, rect.end.x)
+		elif rect.position.x >= view.x * 0.5:
+			left_edge = maxf(left_edge, view.x - rect.position.x)
 	var room := view.x - 2.0 * (left_edge + CLEARANCE)
 	return clampf(room, MIN_WIDTH, MAX_WIDTH)
 

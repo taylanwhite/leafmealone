@@ -49,6 +49,14 @@ void fragment() {
 		vec3 c = door.rgb * shade;
 		float lip = smoothstep(edge, edge + 0.012, UV.x) * (1.0 - smoothstep(edge + 0.012, edge + 0.02, UV.x));
 		c = mix(c, door.rgb * 0.45, lip);
+		// Two inset panels and a brass knob that ride in with the door's leading edge.
+		float dx = UV.x - edge;
+		vec2 q = vec2(dx * aspect.x, UV.y);
+		float panel_top = step(0.18, q.x) * step(q.x, 0.82) * step(0.1, q.y) * step(q.y, 0.44);
+		float panel_low = step(0.18, q.x) * step(q.x, 0.82) * step(0.56, q.y) * step(q.y, 0.9);
+		c = mix(c, c * 0.82, max(panel_top, panel_low));
+		float knob = 1.0 - smoothstep(0.022, 0.028, length(q - vec2(0.09, 0.52)));
+		c = mix(c, vec3(0.85, 0.68, 0.3), knob);
 		COLOR = vec4(c, inside);
 	} else {
 		// The hole: a scalloped rosette shrinking to nothing; the rest is the seal's lavender.
