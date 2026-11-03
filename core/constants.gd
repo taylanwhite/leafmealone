@@ -3604,3 +3604,56 @@ const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
 ## stepped by Jolt in its own float precision, missed that 29 times in 30 and
 ## bounced off the rail.
 const TOSS_SURE_SHARE: float = 0.04
+
+# ---- R2c hud
+# What's on screen, between the beats (docs/GAME.md "What's on screen, between
+# the beats"; ui/caption_stack.gd, ui/overheads.gd, ui/interaction_prompt.gd,
+# ui/quip_player.gd, ui/near_label.gd). Presentation only.
+## Words floating in the world keep a readable size on screen whatever the lens
+## (a 40 degree two-shot doubles a fixed-size label) and however close: one line
+## of a NICE BOY's bubble stands between these shares of the view's height,
+## a name tag between these, and a floating count (the wheelbarrow's, a bag's
+## price) at most this.
+const R2C_HUD_BUBBLE_LINE_MIN: float = 0.026
+const R2C_HUD_BUBBLE_LINE_MAX: float = 0.04
+const R2C_HUD_TAG_LINE_MIN: float = 0.017
+const R2C_HUD_TAG_LINE_MAX: float = 0.032
+const R2C_HUD_COUNT_LINE_MAX: float = 0.03
+## A player's name tag and a floating count fade out as you come close: fully
+## shown from FULL m, gone at GONE m (up close you know who it is, and the bag in
+## the barrow says the count).
+const R2C_HUD_TAG_NEAR_FULL_M: float = 2.6
+const R2C_HUD_TAG_NEAR_GONE_M: float = 1.6
+const R2C_HUD_COUNT_NEAR_FULL_M: float = 2.4
+const R2C_HUD_COUNT_NEAR_GONE_M: float = 1.3
+## Two bubbles keep this far apart on screen (px); a farther one steps up (or
+## down) out of a nearer one's way, gliding there.
+const R2C_HUD_BUBBLE_GAP: float = 6.0
+## Of two name tags that would sit on each other, the one already up keeps its
+## place until the other head is this much nearer (m).
+const R2C_HUD_TAG_KEEP_M: float = 0.8
+## A tag steps aside once it comes this close (px) to a nearer tag or a bubble,
+## so its fade is done before the two would touch.
+const R2C_HUD_TAG_CLEAR: float = 24.0
+## A tag that stepped aside comes back only after this long (s) in the clear.
+const R2C_HUD_TAG_DWELL: float = 0.3
+## Prompts and name tags come back this long (s) after the moment lets you go and
+## the camera is home, so nothing pops on during a swing back to your eyes: with
+## the yard HUD (R2B_HUD_RETURN_DELAY), so everything comes back together.
+const R2C_HUD_OVERLAY_DELAY: float = 0.6
+## The interact prompt fades in and out over this long (s).
+const R2C_HUD_PROMPT_FADE: float = 0.12
+## A spoken line older than this (s) when the moment takes you was about the chase,
+## not the catch: it goes with the yard's lines.
+const R2C_HUD_STALE_SPOKEN: float = 0.25
+## While you're hidden the job panel dims to this (0..1) over this long (s): the
+## leaves are the picture, the job is still yours.
+const R2C_HUD_HIDDEN_PANEL_ALPHA: float = 0.28
+const R2C_HUD_HIDDEN_PANEL_FADE: float = 0.3
+## A corner quip triggered while the moment has you waits for it to end, up to
+## this long (s); older, it's about something long gone and is dropped.
+const R2C_HUD_QUIP_WAIT_MAX: float = 20.0
+## The corner quip keeps this far (px) above the goal line when they'd share a band,
+## gliding there at this rate (1/s).
+const R2C_HUD_QUIP_GOAL_GAP: float = 8.0
+const R2C_HUD_QUIP_GLIDE: float = 12.0

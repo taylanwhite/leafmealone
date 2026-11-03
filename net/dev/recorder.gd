@@ -555,6 +555,7 @@ func _capture(image: Image) -> void:
 		"file": "frame_%03d.png" % n,
 		"camera": _camera_state(),
 		"hud": _hud_texts(),
+		"words": _words(),
 		"events": _frame_events.duplicate(),
 	}
 	if state_source.is_valid():
@@ -806,6 +807,38 @@ func _camera_state() -> Dictionary:
 		return {}
 	var xf := camera.get_global_transform_interpolated() if camera.is_physics_interpolated() else camera.global_transform
 	return {"name": _node_label(camera), "pos": _v(xf.origin), "fwd": _v(-xf.basis.z), "fov": snappedf(camera.fov, 0.1)}
+
+
+## R2c: the words on screen this exact frame, with how much of each shows
+## (`hud` rescans its labels every 15 frames, so a caption could look half a
+## second late there): the caption stack's lines [text, alpha, rect], the
+## bubbles and tags (ui/overheads.gd last_rects: [kind, text, alpha, rect]) and
+## the interact prompt [text, alpha]. Rects are x, y, w, h in screen px.
+func _words() -> Dictionary:
+	var out := {}
+	var stack := get_tree().get_first_node_in_group("caption_stack")
+	if stack != null and "_lines" in stack:
+		var lines: Array = []
+		for line: Dictionary in stack.get("_lines"):
+			var box := line.get("box") as Control
+			if box == null or not is_instance_valid(box) or not box.visible or float(line.get("alpha", 0.0)) <= 0.0:
+				continue
+			var r := Rect2(box.position, box.size)
+			lines.append([str(line.get("text", "")).left(HUD_TEXT_CHARS), snappedf(float(line["alpha"]), 0.01), [roundi(r.position.x), roundi(r.position.y), roundi(r.size.x), roundi(r.size.y)]])
+		out["captions"] = lines
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var heads := ui.get_node_or_null("Overheads") if ui != null else null
+	if heads != null and "last_rects" in heads:
+		var over: Array = []
+		for item: Dictionary in heads.get("last_rects"):
+			var r: Rect2 = item.get("rect", Rect2())
+			over.append([str(item.get("kind", "")), str(item.get("text", "")).left(HUD_TEXT_CHARS), snappedf(float(item.get("alpha", 0.0)), 0.01), [roundi(r.position.x), roundi(r.position.y), roundi(r.size.x), roundi(r.size.y)]])
+		out["overheads"] = over
+	var world := get_tree().get_first_node_in_group("world")
+	var prompt := world.get_node_or_null("InteractionPrompt") as Label3D if world != null else null
+	if prompt != null and prompt.visible:
+		out["prompt"] = [prompt.text, snappedf(1.0 - prompt.transparency, 0.01)]
+	return out
 
 
 ## Every visible line of 2D text (HUD, prompts, captions, windows).

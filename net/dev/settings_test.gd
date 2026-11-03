@@ -842,8 +842,14 @@ func _captions() -> bool:
 		if not cue.visible or cue.get_theme_font_size("font_size") != cue_big or not cue.has_theme_stylebox_override("normal"):
 			ok = _fail("captions", "cue caption large with backdrop: visible %s, size %d (want %d), backdrop %s" % [cue.visible, cue.get_theme_font_size("font_size"), cue_big, cue.has_theme_stylebox_override("normal")])
 	var screen := caption.get_viewport_rect()
-	# Anchored, not placed: its bottom edge is the corner offset above the screen's bottom.
-	if not screen.encloses(caption.get_global_rect()) or absf(caption.get_global_rect().end.y - (screen.end.y - _QuipPlayer.CORNER_OFFSET.y)) > 1.0:
+	# Anchored, not placed: its bottom edge is the corner offset above the screen's
+	# bottom, or (R2c) lifted clear above the goal line when the two would share a band.
+	var rest_y := screen.end.y - _QuipPlayer.CORNER_OFFSET.y
+	var goal := ui.get_node_or_null("JobGoal") as Control
+	var goal_up := goal != null and goal.is_visible_in_tree() and goal.modulate.a > 0.05 and goal.size.x > 0.0
+	var at_rest := absf(caption.get_global_rect().end.y - rest_y) <= 1.0
+	var lifted := goal_up and caption.get_global_rect().end.y < rest_y and not caption.get_global_rect().intersects(goal.get_global_rect())
+	if not screen.encloses(caption.get_global_rect()) or not (at_rest or lifted) or goal_up and caption.get_global_rect().intersects(goal.get_global_rect()):
 		ok = _fail("captions", "at UI scale %.2f the caption %s leaves the screen %s" % [Constants.UI_SCALE_RANGE.y, caption.get_global_rect(), screen])
 	var lobby := ui.get_node_or_null("Lobby") as Control
 	if lobby != null:

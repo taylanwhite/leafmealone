@@ -23,11 +23,22 @@ extends Node
 ##             and a long line wraps as a line (at most 3 rows), not a column.
 ##   tags      a name tag behind a wall fades out and comes back; two tags over
 ##             two heads show only the nearer; a NICE BOY sat in the van shows none.
+##   R2c (docs/GAME.md "What's on screen, between the beats"):
+##   grab      a friend the NICE BOYS have can't be grabbed (no "[E] Grab" for
+##             nothing); free, they can.
+##   apart     two bubbles at once don't touch; a narrow lens or a head a metre
+##             off never makes a bubble line or a tag bigger than its cap.
+##   stack_seams  spoken lines in a row: never more lines drawn than the stack
+##             holds (a leaving one counted), never one twice, the newest always
+##             on; a wrapped line is balanced.
+##   hedge     a hiding spot's leaves (no collider) hide a tag behind them.
+##   back      also: a corner quip triggered while held waits, and plays after.
 ## Each step prints a [HudTest] line. The client reports its half by RPC.
 
 const _HudMode = preload("res://ui/hud_mode.gd")
 const _Overheads = preload("res://ui/overheads.gd")
 const _Prompt = preload("res://ui/interaction_prompt.gd")
+const _TextFit = preload("res://ui/text_fit.gd")
 const CLIENT_WAIT_SECONDS: float = 30.0
 const CAUGHT_WAIT_SECONDS: float = 15.0
 const BACK_WAIT_SECONDS: float = 10.0
@@ -36,7 +47,7 @@ const REPORT_WAIT_SECONDS: float = 10.0
 const FADE_SLACK: float = 0.25
 const CLEAR_METERS: float = 16.0
 ## Every step a passing run reports.
-const STEPS: Array[String] = ["free_host", "free", "caught", "stack", "back", "once", "clamp", "tags"]
+const STEPS: Array[String] = ["free_host", "free", "caught", "stack", "back", "once", "clamp", "tags", "grab", "apart", "stack_seams", "hedge"]
 const LONG_LINE :="This yard was selected for a random friendliness check! Please remain delightful."
 
 static var result: Dictionary = {}
@@ -60,6 +71,10 @@ var _prompt_free_frames: int = 0
 ## Every HudMode reason seen while held.
 var _reasons: Dictionary = {}
 var _held_last: bool = false
+## When this hold began (s), INF while free.
+var _held_since: float = INF
+## R2c: a corner quip triggered while held was kept waiting.
+var _quip_waited: bool = false
 var _source: FakeSource = null
 
 
@@ -71,6 +86,10 @@ class FakeSource extends Node:
 	func prompt() -> Dictionary:
 		if at == null or not is_instance_valid(at):
 			return {}
+		# In front of the camera (R2c: a prompt whose spot is off screen isn't drawn).
+		var camera := at.get_viewport().get_camera_3d()
+		if camera != null:
+			return {"text": "Test", "at": camera.global_position - camera.global_basis.z * 1.5 - camera.global_basis.y * 0.3}
 		return {"text": "Test", "at": at.global_position + Vector3(0.0, 1.0, -0.8)}
 
 
@@ -78,7 +97,7 @@ class FakeSource extends Node:
 func _prompt_drawn() -> bool:
 	var world := get_tree().get_first_node_in_group("world")
 	var label := world.get_node_or_null("InteractionPrompt") as Label3D if world != null else null
-	return label != null and label.is_visible_in_tree() and label.text != ""
+	return label != null and label.is_visible_in_tree() and label.text != "" and label.transparency < 0.99
 
 
 func _process(_delta: float) -> void:
@@ -117,7 +136,14 @@ func _watch_client() -> void:
 				_pop_frames += 1
 			# The drawn prompt itself, with a source offering one the whole time
 			# (from the second held frame: the prompt may update after this node).
-			if why != &"" and why != &"annex" and _held_last and _prompt_drawn():
+			# R2c: the prompt fades out over R2C_HUD_PROMPT_FADE instead of
+			# vanishing in a frame, so it gets that long (and a frame) to be gone.
+			var holding := why != &"" and why != &"annex"
+			if holding and _held_since == INF:
+				_held_since = now
+			elif not holding:
+				_held_since = INF
+			if holding and _held_last and _prompt_drawn() and now - _held_since > Constants.R2C_HUD_PROMPT_FADE + 0.05:
 				_prompt_frames += 1
 			if why != &"":
 				_reasons[why] = true
@@ -256,6 +282,11 @@ func _stack_step() -> void:
 	stack.call("drop", radio)
 	stack.call("drop", spoken)
 	var receipt_ok := spoken_onset <= Constants.R2B_HUD_SUBTITLE_ONSET + 0.1 and blocked_kinds == ["subtitle"] and clear
+	# R2c: a corner quip triggered now waits for the moment to end (back step).
+	var quips := _ui().get_node_or_null("Quips") if _ui() != null else null
+	if quips != null:
+		quips.call("_try", "store_arrival")
+		_quip_waited = str(quips.call("waiting_trigger")) == "store_arrival"
 	var ok := onset <= Constants.R2B_HUD_SUBTITLE_ONSET + 0.1 and kinds.size() <= Constants.R2B_HUD_CINEMATIC_LINES and not kinds.has("quip") and kinds.count("subtitle") == 2 and low and plates and receipt_ok
 	_rpc_report.rpc_id(1, "stack", ok, "client: spoken line readable after %.3f s (want <= %.2f), shown %s (want two subtitles, no quip), low on the screen %s %s, plates %s; with a receipt up a spoken line after %.3f s, shown %s (want only the subtitle), clear of the receipt %s" % [onset, Constants.R2B_HUD_SUBTITLE_ONSET + 0.1, kinds, low, rects, plates, spoken_onset, blocked_kinds, clear])
 
@@ -267,8 +298,11 @@ func _wait_back() -> void:
 		waited += 0.1
 	var took := _back_at - _free_at
 	var want_max := Constants.R2B_HUD_RETURN_DELAY + Constants.R2B_HUD_FADE_IN + FADE_SLACK
-	var ok := _free_at != INF and _back_at != INF and took <= want_max and took >= Constants.R2B_HUD_RETURN_DELAY and _early_frames == 0 and _pop_frames == 0
-	_rpc_report.rpc_id(1, "back", ok, "client: free %s, HUD back after %.2f s (want %.2f to %.2f), %d early frames, %d popping frames" % [_free_at != INF, took, Constants.R2B_HUD_RETURN_DELAY, want_max, _early_frames, _pop_frames])
+	await get_tree().create_timer(0.3).timeout
+	var quips := _ui().get_node_or_null("Quips") if _ui() != null else null
+	var quip_played := quips != null and str(quips.call("waiting_trigger")) == ""
+	var ok := _free_at != INF and _back_at != INF and took <= want_max and took >= Constants.R2B_HUD_RETURN_DELAY and _early_frames == 0 and _pop_frames == 0 and _quip_waited and quip_played
+	_rpc_report.rpc_id(1, "back", ok, "client: free %s, HUD back after %.2f s (want %.2f to %.2f), %d early frames, %d popping frames; a quip triggered while held waited %s and went once the HUD was back %s" % [_free_at != INF, took, Constants.R2B_HUD_RETURN_DELAY, want_max, _early_frames, _pop_frames, _quip_waited, quip_played])
 	_phase = ""
 
 
@@ -303,8 +337,13 @@ func _run_host() -> void:
 	if director == null:
 		_finish("no run director")
 		return
+	var free_grab := bool(_mate().call("can_be_grabbed"))
 	director.call("force_capture", target)
 	await _await_report("caught", CAUGHT_WAIT_SECONDS + 4.0)
+	# R2c: no "[E] Grab" over a friend the NICE BOYS have: the host's grab check
+	# (brawl.gd) and the prompt ask the same question.
+	var held_grab := bool(_mate().call("can_be_grabbed"))
+	_step("grab", free_grab and not held_grab, "the friend can be grabbed while free %s, while caught %s (want true, false)" % [free_grab, held_grab])
 	await _await_report("stack")
 	# Let go: out of the van and the cohort, the raid over.
 	_rpc_client.rpc_id(target, "back")
@@ -369,6 +408,11 @@ class FakeCrew extends StaticBody3D:
 		bark.width = 320.0
 		bark.pixel_size = minf(Constants.CREW_BARK_PIXEL_SIZE, Constants.CREW_TAG_MAX_PX)
 		visual.add_child(bark)
+
+
+## A hedge's leaves: a box with no collider (R2c seams).
+class FakeHedge extends Node3D:
+	var box_size := Vector3(4.0, 2.2, 1.2)
 
 
 ## Turns the host to the longest clear view (no house or fence in the first
@@ -448,7 +492,8 @@ func _overhead_steps() -> void:
 	# solid stands between you and it.
 	near.global_position = eye + ahead * 12.0 + camera.global_basis.x * 0.5
 	near.global_position.y = ground
-	await get_tree().create_timer(0.5).timeout
+	# A tag comes back after R2C_HUD_TAG_DWELL in the clear, then fades in.
+	await get_tree().create_timer(0.8).timeout
 	var far_tag := far.get_node("Visual/Label") as Label3D
 	var near_tag := near.get_node("Visual/Label") as Label3D
 	var stacked := far_tag.transparency <= 0.05 and near_tag.transparency >= 0.95
@@ -464,7 +509,7 @@ func _overhead_steps() -> void:
 	await get_tree().create_timer(0.5).timeout
 	var behind_wall := far_tag.transparency >= 0.95
 	wall.queue_free()
-	await get_tree().create_timer(0.5).timeout
+	await get_tree().create_timer(0.8).timeout
 	var after_wall := far_tag.transparency <= 0.05
 	far.mode = FakeCrew.Mode.SEATED
 	await get_tree().create_timer(0.5).timeout
@@ -504,6 +549,109 @@ func _overhead_steps() -> void:
 		trip.queue_free()
 	_step("tags", stacked and behind_wall and after_wall and seated and behind_van, "two heads in a line show the nearer tag only %s (near %.2f, far %.2f transparent), behind a wall it fades %s and comes back %s, sat in the van it's down %s, behind a driving van it fades %s" % [stacked, far_tag.transparency, near_clear, behind_wall, after_wall, seated, behind_van])
 	far.queue_free()
+	await _seam_steps(camera, overheads, stack, eye, ahead, ground)
+
+
+## R2c (docs/GAME.md "What's on screen, between the beats"): the seams between
+## the beats. Two NICE BOYS talking at once get two bubbles that don't touch; a
+## two-shot's narrow lens or a head a metre away never makes a word huge; the
+## caption stack never shows more lines than it holds (a line on its way out
+## counted), never the same line twice, and the newest spoken line always gets on;
+## wrapped lines are balanced; a hiding spot's leaves hide a tag.
+func _seam_steps(camera: Camera3D, overheads: Node, stack: Node, eye: Vector3, ahead: Vector3, ground: float) -> void:
+	var view := get_viewport().get_visible_rect().size
+	var side := camera.global_basis.x
+	var left := _fake("NICE BOY LEFT", eye + ahead * 9.0 - side * 0.5, ground)
+	var right := _fake("NICE BOY RIGHT", eye + ahead * 9.5 + side * 0.5, ground)
+	await get_tree().create_timer(0.2).timeout
+	for crew: FakeCrew in [left, right]:
+		var said := crew.get_node("Visual/Bark") as Label3D
+		_Overheads.setup_bubble(said)
+		said.text = "We just want to talk! It's a short form!" if crew == left else "Eleven pages!"
+		said.visible = true
+	await get_tree().create_timer(0.6).timeout
+	var bubbles: Array[Rect2] = []
+	for entry: Dictionary in overheads.get("last_rects"):
+		if str(entry["kind"]) == "bubble":
+			bubbles.append(entry["rect"])
+	var apart := bubbles.size() == 2 and not bubbles[0].intersects(bubbles[1])
+	for crew: FakeCrew in [left, right]:
+		(crew.get_node("Visual/Bark") as Label3D).visible = false
+	# Sizes: a fixed-size bubble through a 30 degree lens, a player's tag a metre off.
+	var lens := Camera3D.new()
+	lens.fov = 30.0
+	add_child(lens)
+	lens.global_position = eye
+	var probe := Label3D.new()
+	probe.fixed_size = true
+	probe.font_size = 40
+	probe.pixel_size = Constants.CREW_BARK_PIXEL_SIZE
+	add_child(probe)
+	probe.global_position = eye + ahead * 3.0
+	_Overheads.fit_size(probe, lens, view, Constants.R2C_HUD_BUBBLE_LINE_MIN, Constants.R2C_HUD_BUBBLE_LINE_MAX)
+	var bubble_share := float(probe.font_size) * probe.pixel_size / (2.0 * tan(deg_to_rad(lens.fov) * 0.5))
+	var plate := Label3D.new()
+	plate.font_size = 48
+	add_child(plate)
+	plate.global_position = eye + ahead * 1.0
+	_Overheads.fit_size(plate, lens, view, Constants.R2C_HUD_TAG_LINE_MIN, Constants.R2C_HUD_TAG_LINE_MAX)
+	var tag_share := float(plate.font_size) * plate.pixel_size / (2.0 * 1.0 * tan(deg_to_rad(lens.fov) * 0.5))
+	lens.queue_free()
+	probe.queue_free()
+	plate.queue_free()
+	var sizes := bubble_share <= Constants.R2C_HUD_BUBBLE_LINE_MAX + 0.001 and tag_share <= Constants.R2C_HUD_TAG_LINE_MAX + 0.001
+	_step("apart", apart and sizes, "two bubbles at once: %s, apart %s; through a 30 degree lens a bubble line is %.3f of the view (want <= %.3f), a tag a metre off %.3f (want <= %.3f)" % [bubbles, apart, bubble_share, Constants.R2C_HUD_BUBBLE_LINE_MAX, tag_share, Constants.R2C_HUD_TAG_LINE_MAX])
+	# The caption stack: four spoken lines in a row, one said twice.
+	var most := int(stack.call("most_lines"))
+	var lines := ["Slow down! My lanyard's tangling!", "Hold STILL, please!", "Slow down! My lanyard's tangling!", "Ah-ah-AH!", "Gotcha! Have a NICE day!"]
+	var ids: Array[int] = []
+	var crowded := 0
+	var doubled := 0
+	for line: String in lines:
+		ids.append(int(stack.call("push", &"subtitle", line, 3.0)))
+		for frame: int in 4:
+			await get_tree().process_frame
+			var drawn: Array[String] = []
+			for entry: Dictionary in stack.get("_lines"):
+				var box := entry["box"] as Control
+				if box.visible and float(entry["alpha"]) > 0.0:
+					drawn.append(str(entry["text"]))
+			if drawn.size() > most:
+				crowded += 1
+			for text: String in drawn:
+				if drawn.count(text) > 1:
+					doubled += 1
+	var shown: Array = (stack.call("shown_lines") as Array).map(func(line: Dictionary) -> String: return str(line["text"]))
+	var newest_on := shown.has(lines[-1])
+	for id: int in ids:
+		stack.call("drop", id)
+	# Balanced: the narrowest width keeping the row count, and no narrower.
+	var font := ThemeDB.fallback_font
+	var long := "Reminder: courtesy waves are mandatory at every stop sign. Every one."
+	var wide := font.get_string_size(long, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x * 0.93
+	var even := _TextFit.balanced_width(font, long, 22, wide)
+	var rows_wide := _TextFit.rows(font, long, 22, wide)
+	var balanced := _TextFit.rows(font, long, 22, even) == rows_wide and even < wide * 0.8 and _TextFit.rows(font, long, 22, even - 8.0) > rows_wide
+	_step("stack_seams", crowded == 0 and doubled == 0 and newest_on and balanced, "at most %d lines drawn: %d crowded frames, %d doubled; the newest spoken line on %s (%s); %d rows at %.0f px balanced to %.0f px %s" % [most, crowded, doubled, newest_on, shown, rows_wide, wide, even, balanced])
+	# A hedge between you and him hides his tag (leaves have no layer-1 collider).
+	left.global_position = eye + ahead * 8.0
+	left.global_position.y = ground
+	right.queue_free()
+	await get_tree().create_timer(0.8).timeout
+	var tag := left.get_node("Visual/Label") as Label3D
+	var open := tag.transparency <= 0.05
+	# A hiding spot's box, as net/components/hide_spot.gd has it (no collider).
+	var hedge := FakeHedge.new()
+	hedge.name = "HudTestHedge"
+	hedge.add_to_group(_Overheads.VIEW_BLOCKERS)
+	add_child(hedge)
+	hedge.global_position = Vector3(eye.x, ground, eye.z) + ahead * 4.0
+	hedge.look_at(Vector3(eye.x, ground, eye.z), Vector3.UP)
+	await get_tree().create_timer(0.5).timeout
+	var leafed := tag.transparency >= 0.95
+	hedge.queue_free()
+	left.queue_free()
+	_step("hedge", open and leafed, "a tag in the open %s, behind a hedge's leaves %s (%.2f transparent)" % [open, leafed, tag.transparency])
 
 
 func _fake(tag_text: String, at: Vector3, ground: float) -> FakeCrew:

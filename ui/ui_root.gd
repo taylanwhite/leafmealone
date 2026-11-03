@@ -298,6 +298,9 @@ var _yard_alpha: float = 1.0
 ## How long this peer has been back in control (s); the HUD waits a beat.
 var _free_for: float = 0.0
 var _hud_reason: StringName = &""
+const _Overheads = preload("res://ui/overheads.gd")
+## The job panel's dim while you're hidden (1 shown, R2C_HUD_HIDDEN_PANEL_ALPHA hidden).
+var _panel_dim: float = 1.0
 
 
 ## How much of the yard HUD shows now (0 to 1), and why it's away (&"" when it isn't).
@@ -319,10 +322,15 @@ func _cinematic_fade(delta: float) -> void:
 		if _free_for >= Constants.R2B_HUD_RETURN_DELAY:
 			_yard_alpha = move_toward(_yard_alpha, 1.0, delta / Constants.R2B_HUD_FADE_IN)
 	var eased := smoothstep(0.0, 1.0, _yard_alpha)
+	# R2c: while you're hidden the job panel dims (the leaves are the picture and
+	# it sat over the peek), but stays: the job is still yours, and nothing pops
+	# when you climb out.
+	var hidden := _Overheads.local_hidden(get_tree()) if Net.current_state() == Net.State.IN_SESSION else false
+	_panel_dim = move_toward(_panel_dim, Constants.R2C_HUD_HIDDEN_PANEL_ALPHA if hidden else 1.0, delta * (1.0 - Constants.R2C_HUD_HIDDEN_PANEL_ALPHA) / Constants.R2C_HUD_HIDDEN_PANEL_FADE)
 	for name_of: String in YARD_HUD:
 		var node := get_node_or_null(name_of) as CanvasItem
 		if node != null:
-			node.modulate.a = eased
+			node.modulate.a = eased * (_panel_dim if name_of == "TaskList" else 1.0)
 
 
 ## Whether the raid has the goal line hidden for this peer: the director in
