@@ -45,6 +45,8 @@ const SETTLE_SECONDS: float = 15.0
 var start_done: bool = false
 ## Its result, for remote play's first report.
 var start_result: Dictionary = {}
+## The window the last annex_break / annex_heist set up, for its _reached_ check.
+var _annex_window: String = ""
 
 
 func _ready() -> void:
@@ -288,12 +290,28 @@ func _annex_break() -> Dictionary:
 	if at < 0.0:
 		return {"error": "no break coming at window %s" % window}
 	annex.call("dev_retime", at - 2.0)
+	_annex_window = window
 	await _ticks(3)
 	return {"moment": "annex_break", "note": "window %s's clerk telegraphs his break in 2 s" % window, "window": window}
 
 
+## His stretch is on now or within 3 s, and a break (or jam, or nap) follows it.
 func _reached_annex_break() -> bool:
-	return _reached_annex()
+	if not _reached_annex() or _annex_window == "":
+		return false
+	var annex := _annex_node()
+	var seed_value := int(annex.call("seed_value"))
+	var now: Dictionary = annex.call("window_now", _annex_window)
+	var telegraph := now
+	if int(now["state"]) != _Sched.S.TELEGRAPH:
+		var wait := float(now["until"]) - float(annex.call("elapsed"))
+		if wait <= 0.0 or wait > 3.0:
+			return false
+		telegraph = _Sched.window_state(seed_value, _annex_window, float(now["until"]) + 0.01)
+		if int(telegraph["state"]) != _Sched.S.TELEGRAPH:
+			return false
+	var after := int(_Sched.window_state(seed_value, _annex_window, float(telegraph["until"]) + 0.01)["state"])
+	return [_Sched.S.BREAK, _Sched.S.JAM, _Sched.S.ASLEEP].has(after)
 
 
 ## A heist: your next box's clerk is on the phone or away, and you're at his stamp.
@@ -307,13 +325,17 @@ func _annex_heist() -> Dictionary:
 	if at < 0.0:
 		return {"error": "window %s never looks away" % window}
 	annex.call("dev_retime", at + 0.3)
+	_annex_window = window
 	_stand_by(_annex_point("Windows/%s/StampPad" % window), _annex_point("Windows/%s/ClerkSeat" % window), 0.25)
 	await _ticks(3)
 	return {"moment": "annex_heist", "note": "window %s's clerk is looking away; hold interact on his stamp" % window, "window": window}
 
 
+## His clerk is looking away right now.
 func _reached_annex_heist() -> bool:
-	return _reached_annex()
+	if not _reached_annex() or _annex_window == "":
+		return false
+	return not bool((_annex_node().call("window_now", _annex_window) as Dictionary)["looking"])
 
 
 ## The Head NICE BOY just went to the copier: a full form, and his big stamp on its pad in front of you.
@@ -334,8 +356,12 @@ func _annex_bigstamp() -> Dictionary:
 	return {"moment": "annex_bigstamp", "note": "he's away; interact lifts his big stamp, primary stamps"}
 
 
+## He's away from his desk, and his big stamp is still on its pad.
 func _reached_annex_bigstamp() -> bool:
-	return _reached_annex()
+	if not _reached_annex():
+		return false
+	var annex := _annex_node()
+	return int((annex.call("window_now", "head") as Dictionary)["state"]) == _Sched.S.AWAY and int(annex.call("big_stamp_holder")) == 0
 
 
 ## Window D's blinds go up in 2 s; you're halfway across the room.
@@ -351,8 +377,13 @@ func _annex_window_d() -> Dictionary:
 	return {"moment": "annex_window_d", "note": "Window D opens in 2 s"}
 
 
+## Window D's blinds go up within 3 s.
 func _reached_annex_window_d() -> bool:
-	return _reached_annex()
+	if not _reached_annex():
+		return false
+	var annex := _annex_node()
+	var wait := _Sched.d_open_at(int(annex.call("seed_value"))) - float(annex.call("elapsed"))
+	return wait > 0.0 and wait <= 3.0
 
 
 ## A friend at the Annex (the second player is the rider), and you at the visitor

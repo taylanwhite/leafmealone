@@ -338,7 +338,12 @@ func get_spawn_transform(zone: Net.Zone, spawn_marker: StringName, peer_id: int)
 	# A marker the zone's set builds at runtime (the Annex's AnnexCurb, AnnexSide,
 	# Forecourt, Threshold), found under the zone itself.
 	if spawn_marker != &"" and points.get_parent() != null:
-		var built := points.get_parent().find_child(String(spawn_marker), true, false) as Node3D
+		# A client's zone move to the Annex lands before its begin, so the set
+		# may not be built here yet: build it now, or this falls back to Spawn0.
+		var annex := get_node_or_null("Annex")
+		if zone == Net.Zone.BORDER and annex != null and annex.has_method("ensure_set"):
+			annex.call("ensure_set")
+		var built :=points.get_parent().find_child(String(spawn_marker), true, false) as Node3D
 		if built != null:
 			return built.global_transform
 	var markers := points.get_children()

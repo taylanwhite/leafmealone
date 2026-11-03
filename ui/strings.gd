@@ -2185,11 +2185,12 @@ const ANNEX_QUIPS: Dictionary = {
 		"Approved, technically. Nobody checks after hours.",
 		"The janitor has seen things today.",
 	],
-	# A free player, once per Annex, the moment a teammate gets their form.
+	# A free player, once per rider, as each teammate is taken to Annex B (who was
+	# taken is the one thing they can't see; what to do about it is theirs to find).
 	"teammate_inside": [
-		"%s is in line at Annex B. Bring a pen.",
-		"%s has been handed Form 27-B. Friends may co-sign.",
-		"%s is at Annex B. Visiting hours: now.",
+		"%s is at Annex B. In triplicate.",
+		"%s has been handed a clipboard at Annex B.",
+		"%s is at Annex B, taking a number.",
 	],
 }
 ## The words on things in the room (the clipboard, the tray, the visitor door).

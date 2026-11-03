@@ -21,10 +21,12 @@ extends Node
 ##   8. co-signing fills the rider's next box and counts a rescue
 ##   9. the turnstile bounces an unapproved form and lets an approved one
 ##      through; the rider goes home, and the receipt is deterministic and $0.00
-##  10. closing time approves everyone AFTER HOURS and gets them out
+##  10. closing time approves everyone AFTER HOURS and gets them out; a finisher
+##      waiting for the group goes home when the last rider inside disconnects
 ##  11. a solo rider played by the schedule (the bot's rules) finishes in under 120 s
 ##  12. the annex save section reads back the same; a late joiner's snapshot
-##      matches; a disconnect ends the Annex; both peers dress the Annex's
+##      matches and doesn't walk riders who are inside back to the threshold;
+##      a disconnect ends the Annex; both peers dress the Annex's
 ##      players alike (0.4.5's host saw white outfits there)
 ## The grey-box set (net/annex/annex_greybox.gd) stands in for R2 chunk 5's set
 ## until it's built; the checks only use the C9 node names. Each step prints an
@@ -257,6 +259,25 @@ func _run() -> void:
 	var gone := await _until(func() -> bool: return Net.player_zone(client) != Net.Zone.BORDER, Constants.ANNEX_RETURN_WAIT + 4.0)
 	_check("10 closing time approves everyone AFTER HOURS and gets them out", after_hours and closed_out and gone, "after hours %s, let out %s, zone %s" % [after_hours, closed_out, Net.Zone.keys()[Net.player_zone(client)]])
 	await _until(func() -> bool: return not bool(annex.call("is_active")), 4.0)
+	# 10. Finishing as a group: the client is through and waits for the host,
+	# who drops while still inside; the client goes home anyway and the Annex ends.
+	annex.call("begin", 4, [client, host], Net.server_time())
+	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside" and str(annex.call("stage_of", host)) == "inside", Constants.ANNEX_GREETER_WALK + 3.0)
+	var group_form: Dictionary = annex.call("form_of", client)
+	group_form["stamped"] = (group_form["boxes"] as PackedStringArray).size()
+	group_form["approved"] = true
+	group_form["dropped"] = true
+	annex.call("dev_set_form", client, group_form)
+	_stand(client, _spot(annex, "Forecourt"), 0.0)
+	var waiting := await _until(func() -> bool: return str(annex.call("stage_of", client)) == "through", 3.0)
+	await get_tree().create_timer(Constants.ANNEX_RETURN_WAIT + 0.5).timeout
+	var held := Net.player_zone(client) == Net.Zone.BORDER
+	annex.call("_on_player_left", host)
+	var released := await _until(func() -> bool: return Net.player_zone(client) != Net.Zone.BORDER, Constants.ANNEX_RETURN_WAIT + 4.0)
+	var group_ended := await _until(func() -> bool: return not bool(annex.call("is_active")), 4.0)
+	_check("10 a finisher waiting for the group goes home when the last one inside drops", waiting and held and released and group_ended, "through %s, waited %s, home %s, ended %s" % [waiting, held, released, group_ended])
+	Net.move_player_to_zone(host, Net.Zone.STORE)
+	await get_tree().create_timer(0.4).timeout
 	# 11. A solo rider by the bot's rules.
 	var slowest := _solo_pace()
 	_check("11 a solo rider by the bot's rules finishes in under 120 s", slowest < 120.0, "slowest %.1f s" % slowest)
@@ -273,9 +294,16 @@ func _run() -> void:
 	copy.remove_from_group("annex")
 	copy.remove_from_group("prompt_sources")
 	copy.call("apply_snapshot", annex.call("snapshot"))
+	await get_tree().create_timer(Constants.ANNEX_WALK_STAGE_DELAY + 0.1).timeout
 	var snap_a: Dictionary = annex.call("snapshot")
 	var snap_b: Dictionary = copy.call("snapshot")
 	_check("12 a late joiner's snapshot rebuilds the same room", snap_a.get("roster") == snap_b.get("roster") and snap_a.get("seed") == snap_b.get("seed") and _same_form(snap_a["forms"].get(client, {}), snap_b["forms"].get(client, {})) and snap_a.get("stages") == snap_b.get("stages"), "%s vs %s" % [snap_a.get("roster"), snap_b.get("roster")])
+	# A rider already inside isn't walked in again (staged at the threshold) on the late joiner's copy.
+	var copy_walks := (copy.get("_walk_anchors") as Dictionary).size()
+	var restaged := bool(_player(client).call("is_staged"))
+	_check("12 a late joiner's copy leaves riders who are inside where they stand", copy_walks == 0 and not restaged, "walk anchors %d, client body staged %s" % [copy_walks, restaged])
+	if restaged:
+		_player(client).call("clear_staged")
 	copy.queue_free()
 	# The host comes to visit, so both peers dress two players at the Annex.
 	Net.move_player_to_zone(host, Net.Zone.BORDER, &"AnnexSide")

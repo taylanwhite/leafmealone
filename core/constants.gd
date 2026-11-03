@@ -1596,6 +1596,41 @@ const ANNEX_DESK_REACH: float = 1.6
 const ANNEX_TRAY_REACH: float = 1.3
 const ANNEX_SHEET_REACH: float = 1.3
 const ANNEX_DOOR_REACH: float = 2.0
+## The host's slack on those reaches, for a client's lag: a one-off ask
+## (ANNEX_REACH_SLACK), a hold kept going or the big stamp lifted or used
+## (ANNEX_HOLD_SLACK), the big stamp put back or a visitor door (ANNEX_LOOSE_SLACK).
+## So a counter ask is honoured to 1.25 m from the feet: the spec's 0.6 m capsule
+## edge is the local spot, the slack is for the 150 ms the ask spends travelling.
+const ANNEX_REACH_SLACK: float = 0.35
+const ANNEX_HOLD_SLACK: float = 0.4
+const ANNEX_LOOSE_SLACK: float = 0.6
+## The turnstile: walking within ANNEX_GATE_REACH of it asks it to turn (the host
+## allows ANNEX_REACH_SLACK more); a rider is through once ANNEX_TURNSTILE_PASS_DEPTH
+## past it on the forecourt side, within ANNEX_TURNSTILE_PASS_WIDTH of it; the bar
+## stays out of the opener's way ANNEX_TURNSTILE_PASS_SLACK past its turn.
+const ANNEX_GATE_REACH: float = 1.0
+const ANNEX_TURNSTILE_PASS_DEPTH: float = 0.45
+const ANNEX_TURNSTILE_PASS_WIDTH: float = 4.0
+const ANNEX_TURNSTILE_PASS_SLACK: float = 0.6
+## One tray ask per player per this long.
+const ANNEX_TRAY_ASK_GAP: float = 0.8
+## A clerk's notice of a hand on his stamp (the smile, the carbon slid in this far into it).
+const ANNEX_NOTICE_SECONDS: float = 1.4
+const ANNEX_NOTICE_CARBON_AT: float = 0.5
+## Window D's volley: how long it lasts, and when in it the form is full.
+const ANNEX_VOLLEY_SECONDS: float = 1.6
+const ANNEX_VOLLEY_STAMP_AT: float = 0.8
+## A serve's beats, seconds into ANNEX_SERVE_SECONDS: he takes the form, lifts
+## his stamp, stamps, hands it back; the stamp lands ANNEX_SERVE_STAMP_LEAD before the end.
+const ANNEX_SERVE_TAKE_AT: float = 0.4
+const ANNEX_SERVE_LIFT_AT: float = 1.0
+const ANNEX_SERVE_STAMP_AT: float = 1.2
+const ANNEX_SERVE_HAND_AT: float = 1.7
+const ANNEX_SERVE_STAMP_LEAD: float = 0.15
+## A visitor goes through the door this long into the door-swing iris.
+const ANNEX_DOOR_IRIS_WAIT: float = 0.4
+## The first light row goes off this long after closing.
+const ANNEX_LIGHTS_OFF_DELAY: float = 1.2
 ## A waiting client asks again this often.
 const ANNEX_RETRY_SECONDS: float = 0.5
 ## After closing, anyone still inside goes out this long later.
