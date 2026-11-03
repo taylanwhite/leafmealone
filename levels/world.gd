@@ -8,7 +8,6 @@ const _PlayerDirector: Script = preload("res://net/player_director.gd")
 const _Boarding: Script = preload("res://levels/boarding.gd")
 const _SharedLook: Script = preload("res://levels/shared_look.gd")
 const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
-const _BorderDressing = preload("res://levels/dressing/border_dressing.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Pedestrians = preload("res://npcs/pedestrians.gd")
@@ -21,7 +20,6 @@ const LOT_SWAP_SECONDS: float = 0.4
 const _Grass = preload("res://props/grass.gd")
 const _StreetLife = preload("res://levels/dressing/street_life.gd")
 const GRASS := Color(0.42, 0.52, 0.3)
-const SAND := Color(0.78, 0.68, 0.5)
 ## Gap between players who share a spawn marker, in meters.
 const SPAWN_SPACING: float = 1.4
 ## Spawn slots to check for a free one before giving up and sharing.
@@ -157,7 +155,7 @@ func _add_chefty() -> void:
 ## leaves the lot northwest and arrives at the border from the southeast.
 func _dress() -> void:
 	_StoreDressing.dress($StoreZone)
-	_BorderDressing.dress($BorderZone)
+	_dress_annex()
 	if town_map:
 		_dress_town()
 	else:
@@ -167,6 +165,21 @@ func _dress() -> void:
 	# them (Marty behind the counter among them). Local on every peer: nothing
 	# about them is shared.
 	preload("res://levels/dressing/shop_sites.gd").dress(self)
+
+
+## Satellite Annex B in the BORDER zone's slot (levels/annex/annex_b.gd, R2
+## chunk 5; docs/GAME.md "Satellite Annex B"): the same in both maps, always
+## loaded, with a neighborhood's lawns and trees round it, and the street out
+## front kept clear for the shuttle. Until R2 chunk 6 replaces Border Return,
+## its lanes still run on this pad, so the set stands but nothing in it is solid.
+func _dress_annex() -> void:
+	_Surroundings.dress($BorderZone, GRASS, 33, true, [0.15, 0.6, PI - 0.15, PI - 0.6])
+	var path := "res://levels/annex/annex_b.gd"
+	if not ResourceLoader.exists(path):
+		return
+	var annex_set: Node3D = load(path).call("build", $BorderZone, Constants.ANNEX_SET_SEED)
+	if get_node_or_null("BorderReturn") != null:
+		annex_set.call("set_solid", false)
 
 
 ## The connected town (net/town/town_map.gd, docs/GAME.md "Gutterford"): its
@@ -186,7 +199,6 @@ func _dress_town() -> void:
 		[Vector3(21.4, 0.1, -140.0), Vector3(21.4, 0.1, 140.0)],
 		[Vector3(32.6, 0.1, -140.0), Vector3(32.6, 0.1, 140.0)],
 	], 7, 11)
-	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
 
 
 func _dress_legacy() -> void:
@@ -208,7 +220,6 @@ func _dress_legacy() -> void:
 		[Vector3(21.4, 0.1, -140.0), Vector3(21.4, 0.1, 140.0)],
 		[Vector3(32.6, 0.1, -140.0), Vector3(32.6, 0.1, 140.0)],
 	], 7, 11)
-	_Surroundings.dress($BorderZone, SAND, 33, false, [-PI * 0.25], "dirt")
 	# The drive from Homie Depot to the town passes country, not a void.
 	preload("res://levels/dressing/countryside.gd").dress(self)
 

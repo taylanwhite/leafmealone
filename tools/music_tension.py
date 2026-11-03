@@ -442,6 +442,77 @@ def escape_run():
                   ["intro", "A", "B", "A2", "bridge", "out"], loop_from="A")
 
 
+def annex_hold():
+    """'Please Hold': Satellite Annex B's lobby muzak (R2 chunk 5). Clean Getaway
+    re-orchestrated for the waiting room: the same tune, chords, form and tempo
+    (so the music director's switch to the escape cue lands on a bar line and
+    picks up at the same bar), played on vibraphone over brushes, a walking
+    upright and electric piano, with a rubber stamp for the backbeat and the
+    office PA's ding-dong at the top. 40 bars (about 67 s)."""
+    drum, bass, comp, melody, arp, hits = m.drum, m.bass, m.comp, m.melody, m.arp, m.hits
+    a_chords = ["C", "Am", "F", "G", "C", "Am", "Dm7", "G7"]
+    b_chords = ["F", "G", "Em7", "Am", "Dm7", "G7", "C", "C7"]
+    # escape_run's lines, note for note.
+    lead_a = ("E5:2 G5:2 C6:2 G5:2 E5:2 G5:2 C6:4 | B5:2 A5:2 E5:2 C5:2 A4:4 r:4 | "
+              "F5:2 A5:2 C6:2 A5:2 F5:2 A5:2 C6:4 | D6:2 B5:2 G5:2 D5:2 B4:4 r:4 | "
+              "E5:1 F5:1 G5:2 E5:1 F5:1 G5:2 C6:2 B5:2 C6:4 | A5:2 G5:2 E5:2 G5:2 A5:4 C6:4 | "
+              "D6:2 C6:2 A5:2 F5:2 D5:2 F5:2 A5:4 | G5:2 F5:2 D5:2 B4:2 G4:4 r:4")
+    lead_b = ("C5:4 F5:4 A5:4 G5:2 F5:2 | D5:4 G5:4 B5:4 A5:2 G5:2 | E5:4 G5:4 B5:4 D6:4 | "
+              "C6:6 B5:2 A5:8 | F5:2 E5:2 F5:2 A5:2 D6:4 C6:4 | B5:2 A5:2 B5:2 D6:2 G6:8 | "
+              "E6:2 D6:2 C6:2 G5:2 E5:2 G5:2 C6:4 | Bb5:4 G5:4 E5:4 C5:4")
+    office = ("A5:1 r:1 A5:1 r:1 C6:2 A5:2 G5:4 E5:4 | F5:1 r:1 F5:1 r:1 A5:2 F5:2 E5:4 C5:4 | "
+              "E5:1 r:1 E5:1 r:1 G5:2 E5:2 D5:4 C5:4 | D5:2 G5:2 B5:2 D6:2 B5:4 r:4 | "
+              "A5:1 r:1 A5:1 r:1 C6:2 A5:2 G5:4 E5:4 | F5:1 r:1 F5:1 r:1 A5:2 F5:2 E5:4 C5:4 | "
+              "D5:1 r:1 F5:1 r:1 A5:2 C6:2 D6:4 F6:4 | G6:2 F6:2 D6:2 B5:2 G5:4 r:4")
+    run_up = ("C5:1 D5:1 E5:1 F5:1 G5:1 A5:1 B5:1 C6:1 A5:4 F5:4 | D5:1 E5:1 F5:1 G5:1 A5:1 B5:1 C6:1 D6:1 B5:4 G5:4 | "
+              "C6:2 A5:2 E5:2 A5:2 C6:2 A5:2 F5:4 | B4:2 D5:2 F5:2 G5:2 B5:2 D6:2 F6:2 G6:2")
+    walk = "R...3...5...p..."
+    swish = "x.x.x.x.x.x.x.x."
+    stamp_beat = "....x.......x..."
+
+    def lounge(lead, extra):
+        return [
+            melody("vibes", lead, gain=0.4, pan=0.15, verb=0.3),
+            comp("ep", "x-----..x-----..", center=62, gain=0.17, pan=-0.25, verb=0.25),
+            bass("upright", walk, gain=0.85),
+            drum("brush", swish, gain=0.12),
+            drum("rubber_stamp", stamp_beat, gain=0.3, pan=-0.1, verb=0.12),
+            drum("kick_seam", "x.......x.......", gain=0.2),
+        ] + extra
+
+    def pa_ding(bar):
+        # The office PA's ding-dong, a third down, over the turn of a section.
+        b = "%d:" % bar
+        return hits("chime", [(b + "8", "E5", 4, 0.85), (b + "12", "C5", 8, 0.8)], gain=0.34, pan=0.0, verb=0.35)
+
+    sections = {
+        "intro": m.Section(4, ["C", "C", "F", "G7"], [
+            hits("chime", [("0:0", "E5", 4, 0.85), ("0:4", "C5", 8, 0.8)], gain=0.36, pan=0.0, verb=0.35),
+            arp("vibes", "1.2.3.6.3.2.1.2.", low=60, gain=0.26, pan=0.1, verb=0.3, only=[1, 2, 3]),
+            bass("upright", walk, gain=0.75, only=[2, 3]),
+            drum("brush", swish, gain=0.1, only=[1, 2, 3]),
+            drum("rubber_stamp", ["................", "................", stamp_beat, "....x.......x.x."], gain=0.3, pan=-0.1, verb=0.12),
+        ]),
+        "A": m.Section(8, a_chords, lounge(lead_a, [pa_ding(7)])),
+        "B": m.Section(8, b_chords, lounge(lead_b, [
+            comp("organ", "x---------------", center=60, gain=0.08, pan=0.3, verb=0.3),
+        ])),
+        "A2": m.Section(8, a_chords, lounge(lead_a, [
+            melody("glock", lead_a, shift=12, gain=0.08, pan=-0.3, verb=0.35),
+            drum("type_bell", "..............x.", gain=0.16, pan=0.35, only=[7]),
+        ])),
+        "bridge": m.Section(8, ["Am", "F", "C", "G", "Am", "F", "Dm7", "G7"], lounge(office, [
+            drum("typewriter", "....x.......x...", gain=0.12, pan=0.3, verb=0.06),
+            drum("type_bell", "............x...", gain=0.18, pan=0.35, only=[7]),
+        ])),
+        "out": m.Section(4, ["F", "G", "Am F", "G7"], lounge(run_up, [
+            drum("brush", "....x...x...x.x.", gain=0.16, only=[3]),
+        ])),
+    }
+    return m.Song("annex_hold", "Please Hold", 144.0, "C major", 4405, sections,
+                  ["intro", "A", "B", "A2", "bridge", "out"], loop_from="A")
+
+
 # ---------------------------------------------------------------- the stingers
 
 def _stinger(song_id, title, bpm, key, seed, chord, parts, tail):
@@ -526,7 +597,7 @@ def st_made_it():
     ], 0.8)
 
 
-SONG_BUILDERS = (hot_yard, nice_boys_incoming, nice_boys_chase, escape_run,
+SONG_BUILDERS = (hot_yard, nice_boys_incoming, nice_boys_chase, escape_run, annex_hold,
                  st_rank_up, st_season, st_morning, st_new_client, st_job_paid, st_busted, st_made_it)
 
 

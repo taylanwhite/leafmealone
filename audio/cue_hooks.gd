@@ -16,7 +16,8 @@ extends Node
 ##   a payout (Campaign.payout_ready)     Paid
 ##   a task reaches done                  a ding, on the yard
 ##   quiet hours begin, the clock closes  two soft bongs, a yawn
-##   the NICE BOYS take you               Busted
+##   the NICE BOYS take you               Busted, at the catch's bark (R2)
+##   through the Annex's turnstile        Made It Back (R2)
 ## The game sounds (register, phone_buzz, ...) are ids audio chunk 5 synthesizes
 ## and registers in audio/sound_bank.gd. Until an id is there, its cue is only
 ## logged (cue_log), so tests can see it fire and nothing unregistered is played.
@@ -51,6 +52,9 @@ func _ready() -> void:
 	get_tree().node_added.connect(func(node: Node) -> void:
 		if node.name in ["DayClock", "Town", "Shops", "DaySummary"]:
 			_hook(node)
+		elif node.name in ["Encounter", "RunDirector", "Annex"]:
+			# Their groups are joined in _ready, a moment after they're added.
+			_hook_r2.call_deferred()
 	)
 	Campaign.payout_ready.connect(func(_results: Array[Dictionary]) -> void: _stinger(&"st_job_paid"))
 	Net.player_zone_changed.connect(_on_zone_changed)
@@ -77,6 +81,7 @@ func _connect(node: Node, signal_name: String, callable: Callable) -> void:
 
 func _process(delta: float) -> void:
 	_settle_texts()
+	_busted_due()
 	if Net.current_state() != Net.State.IN_SESSION:
 		return
 	_task_wait += delta
@@ -197,12 +202,70 @@ static func is_done(progress: float) -> bool:
 
 
 # ---------------------------------------------------------------- capture
+# R2 (gap-specs nice_boys C15): Busted plays at the catch's bark, CATCH_BARK_AT
+# after the hand lands (the Encounter's GOTCHA stage, or the director's
+# peer_caught when there is no Encounter); Made It Back as you push through
+# the Annex's turnstile. Each catch fires once, whichever tells first.
 
-func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
-	if peer_id != Net.local_peer_id() or zone != Net.Zone.TRANSIT:
-		return
+## The Encounter's Stage.GOTCHA (net/run_events/encounter.gd, not preloaded).
+const STAGE_GOTCHA: int = 2
+## The catch's bark comes this long after the hand lands, without the constant.
+const BUSTED_AFTER_DEFAULT: float = 0.95
+
+## msec when the local player's Busted plays, or 0.
+var _busted_at: int = 0
+## msec of the last Busted, so a second report of the same catch is ignored.
+var _busted_last: int = -100000
+
+
+func _on_zone_changed(_peer_id: int, _zone: Net.Zone) -> void:
+	_hook_r2()
+
+
+## Connects to the R2 nodes once they exist (they come with the world).
+func _hook_r2() -> void:
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	if encounter != null:
+		_connect(encounter, "stage_changed", _on_stage_changed)
 	var director := get_tree().get_first_node_in_group("run_director")
-	if director != null and bool(director.call("is_captured", peer_id)):
+	if director != null:
+		_connect(director, "peer_caught", _on_peer_caught)
+	var annex := get_tree().get_first_node_in_group("annex")
+	if annex != null:
+		_connect(annex, "rider_through_turnstile", _on_through_turnstile)
+
+
+func _on_stage_changed(peer: int, stage: int) -> void:
+	if peer == Net.local_peer_id() and stage == STAGE_GOTCHA:
+		_caught()
+
+
+func _on_peer_caught(peer: int) -> void:
+	if peer == Net.local_peer_id() and get_tree().get_first_node_in_group("nice_encounter") == null:
+		_caught()
+
+
+func _caught() -> void:
+	var now := Time.get_ticks_msec()
+	if now - _busted_last < 5000:
+		return
+	_busted_last = now
+	_busted_at = now + int(_busted_after() * 1000.0)
+
+
+static func _busted_after() -> float:
+	var constants: Dictionary = (Constants as Script).get_script_constant_map()
+	return float(constants.get("CATCH_BARK_AT", BUSTED_AFTER_DEFAULT))
+
+
+func _on_through_turnstile(peer: int) -> void:
+	if peer == Net.local_peer_id():
+		_stinger(&"st_made_it")
+
+
+func _busted_due() -> void:
+	if _busted_at > 0 and Time.get_ticks_msec() >= _busted_at:
+		_busted_at = 0
 		_stinger(&"st_busted")
 
 

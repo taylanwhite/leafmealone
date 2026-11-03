@@ -2061,6 +2061,8 @@ const MUSIC_TITLES: Dictionary = {
 	"track_st_busted": "Busted",
 	"track_st_made_it": "Made It Back",
 	"track_st_lost_em": "Lost 'Em",
+	# Satellite Annex B's lobby muzak (R2 chunk 5): Clean Getaway for vibraphone and brushes.
+	"track_annex_hold": "Please Hold",
 }
 
 
@@ -2076,4 +2078,56 @@ const ICON_UI: Dictionary = {
 	# The job board's crew rating, around its five star icons.
 	"board_rating_lead": "Crew rating:",
 	"board_rating_jobs": "(%d jobs)",
+}
+
+# ---- nice boys: Annex signs
+# Satellite Annex B (R2 chunk 5; docs/GAME.md "Satellite Annex B"). The set's
+# signs and the paperwork's printed words (levels/annex/annex_b.gd,
+# props/office_props.gd, props/form_27b.gd, props/receipt_slip.gd), and what the
+# staff say (npcs/clerk.gd bark()). Signs are flavor and labels, never
+# instructions: the floor lines, lamps, blinds and pictograms do the explaining.
+# The facade reuses TOWN_SIGNS' Field Office banner, sign and form.
+
+const ANNEX_SIGNS: Dictionary = {
+	"now_serving": "NOW SERVING",
+	"back_at": "BACK AT",
+	"back_soon": "BACK IN\n5 MINUTES",
+	"outgoing": "OUTGOING",
+	"staff_only": "STAFF\nONLY",
+	"head_desk": "HEAD NICE BOY",
+	"dispenser": "SORRY, OUT",
+	"cosign": "CO-SIGNERS\n(nicely)",
+	"welcome": "HOW CAN WE BE NICE TODAY?",
+	"poster_nice": "HAVE YOU BEEN\nNICE TODAY?",
+	"poster_forms": "FORMS ARE\nFRIENDS",
+	"poster_days": "THIS OFFICE HAS GONE\n0\nDAYS WITHOUT A FORM",
+	"punch_card": "FREQUENT VISITOR",
+	"after_hours": "AFTER HOURS",
+	# The clipboard (props/form_27b.gd).
+	"form_title": "Form 27-B",
+	"form_subtitle": "Request To Be Nice",
+	"form_triplicate": "in triplicate",
+	"form_approved": "APPROVED,\nNICELY",
+	"form_carbon": "complimentary",
+	"form_fast_pass": "FAST PASS",
+	# The till slip (props/receipt_slip.gd); its lines and total are chunk 6's.
+	"receipt_header": "NICE BOYS\nRegional Field Office\nSatellite Annex B",
+	"receipt_footer": "Please keep this receipt\nfor your receipts.",
+}
+
+## What the staff say, by kind (npcs/clerk.gd bark(kind)). Shown in the caption
+## stack as subtitles while their mouths flap; every pool has three or more.
+const CLERK_BARKS: Dictionary = {
+	"wave_up": ["Next nice person!", "Step on up, friend!", "Window's open! For now.", "I can help whoever's next. Nicely."],
+	"next": ["Next!", "Who's next? You're next.", "Next nice customer, please!"],
+	"wrong_window": ["Ooh. Not this window.", "That box belongs to another window, friend.", "Wrong pictogram! Happens to the best of us.", "I only stamp what I stamp."],
+	"one_moment": ["One moment!", "Just one teensy moment!", "Be right with you. Spiritually."],
+	"coming": ["Coming, coming!", "I'm back! Was I gone?", "Break's over. Sadly."],
+	"heist_caught": ["Ooh, a self-starter! Have a complimentary carbon.", "Initiative! That's another copy.", "We love enthusiasm. Here's more paperwork."],
+	"approved": ["APPROVED, NICELY!", "Congratulations, you've been very nice!", "Stamped, sealed and sincerely approved!"],
+	"spotted": ["Ah-ah-ah! That's the big stamp!", "Somebody's holding my stamp!", "Off the velvet, please! Gently!"],
+	"window_d": ["Window D is now open!", "Window D, for one brief shining moment!", "D is for Done!"],
+	"closing": ["We're closing! Everybody's approved!", "After hours! Stamps for everyone!", "Office closed! Have a NICE evening!"],
+	"greeter": ["Right this way!", "Welcome to Satellite Annex B!", "Watch your step, it's freshly nice."],
+	"bell_back": ["Did somebody ring?", "Ding received!", "Somebody rang? I'm here!"],
 }

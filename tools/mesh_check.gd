@@ -74,6 +74,7 @@ func _init() -> void:
 	# They need the scene tree running (global transforms), so wait one frame.
 	await process_frame
 	failed = not preload("res://tools/block_check.gd").run() or failed
+	failed = not await preload("res://tools/annex_check.gd").run() or failed
 	quit(1 if failed else 0)
 
 

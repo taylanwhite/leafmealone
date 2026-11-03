@@ -79,3 +79,16 @@ These takes were made by the first recorder, before two fixes from its review: t
 - Walking while hidden does nothing and says nothing (cam_frozen at frame 84); "Hiding. [E] to come out." is the only cue, plus an "Occupied" label over the hedge.
 - Coming out at 9.33 s (frame 281): another 1.4 m pop, and the view jumps at once to where you had turned (visual_jump 0.14).
 - From the observer (`build\play-observer\rec_hide_3p`): the hider vanishes in one frame with no animation, and the hidden player's body keeps turning as they look around inside the hedge.
+
+
+### R2:5 Satellite Annex B: the set, the staff, the clipboard and the muzak
+
+Studio: `--subject=annex` (street front, the lobby from the doors, the windows, the desk corner), `--subject=annex_plan` (roof off), `--subject=clerk --state=<name> --times=a,b,c,d` (one state at four moments; `--role=head|greeter|janitor`), `--subject=form27b`. In the game, R2 chunk 6's `annex` scenarios.
+- From the curb: the sign, the banner and the doors read at a glance; through the doors the windows' pictograms, lamps and NOW SERVING show before you're inside. Nothing tells you what to do.
+- Each window: the pictogram matches the box on your form (icon and color); the lamp is lit only while it serves; its floor line runs from the chairs to its footprints and pulses when a clerk points you there. Window D: blinds down, cobweb, the BACK AT clock; blinds rattle up with a ding.
+- The clerk's head shake and point read from the chairs (6 m): the whole head swings, then the arm points at the right window's plaque. A phone call is half turned away with one finger up; a break starts with a stretch and the lamp going out; lunch is a back turned between bites; asleep is a slumped head and Z's.
+- The stamp: the clerk's hand rides the window's stamp up and down and the KA-CHUNK lands on the frame it hits the pad (sync.json); the ink punches into your form's box at the same moment.
+- Nothing pops: clerks stand up and sit down over 0.35 s, walk through the staff door (never the counter wall), and the clipboard never leaves a clerk's hand.
+- Your clipboard at 1080p and 720p, lower left: the heading, every box's pictogram and every stamp readable; no counter, door or wall ever cuts it.
+- The receipt: fed up line by line with the printer's chatter, readable at 720p, gone after its seconds.
+- audio.png: Please Hold in the lobby; the switch to Clean Getaway lands on a bar line and keeps the bar; stamps, bell, blinds, turnstile, door chime at their motion frames; the typewriter bed only in the Annex.

@@ -1,0 +1,1198 @@
+class_name OfficeProps
+extends RefCounted
+
+## Authority: local, cosmetic. The furniture of Satellite Annex B (levels/annex/
+## annex_b.gd builds the room from these; docs/GAME.md "Satellite Annex B").
+## Every stateful prop is a Node3D with set_state(state, at, args := {}): it
+## starts showing that state at server time `at` (fast-forwarding when the call
+## comes late, skipping a sound that is more than LATE_SECONDS late), and plays
+## its own sound on the frame its motion lands, so the KA-CHUNK is the stamp
+## hitting the pad. Nothing here decides anything: net/annex/annex.gd (R2
+## chunk 6) is the host's, and it calls these on every peer.
+##
+## Builders (each returns the prop, already named):
+##   service_window(id, look)  a window in the counter wall: counter, glass, the
+##       serving lamp, venetian blinds, the clock sign, a desk bell, the window
+##       stamp on its pad, a filing cabinet, the clerk's stool, footprints, and
+##       its pictogram plaque (look {icon, color}); markers Counter, QueueSpots/
+##       Spot0..2, StampPad, Bell, ClerkSeat, Cabinet, BreakSpot0..2. States
+##       lamp_on, lamp_off, blind_up, blind_down, clock_sign, clock_sign_off,
+##       stamp_lifted, stamp_down (args.volley: that many slams), bell.
+##       Window D also has a cobweb and the cardboard BACK AT clock.
+##   floor_line(points, color) pulse; big_stamp() (on the desk annex_b.gd builds)
+##   (set_held(node|null), on_pad, held, slam); appliance("copier") idle, copying,
+##   jam; appliance("cooler") glug; appliance("coffee") brew; cosign_sheet() signing; outgoing_tray()
+##   receive (args.from); turnstile() open (args.seconds), bounce, closed;
+##   light_row(width) on, off, flicker; wall_clock() set_speed(x);
+##   now_serving() show_number(n); slide_door(name, width, pair) open, closed;
+##   staff_door(width, staff) (swings by itself when a staff body walks through).
+## Models are built in code (props/mesh_kit.gd, one draw call per moving part).
+## Every word on them comes from ui/strings.gd ANNEX_SIGNS.
+
+const _MeshKit = preload("res://props/mesh_kit.gd")
+const _Stylized = preload("res://props/stylized.gd")
+const _LowPoly = preload("res://props/low_poly.gd")
+const _Strings = preload("res://ui/strings.gd")
+const _NiceSeal = preload("res://props/nice_seal.gd")
+
+## A sound whose moment passed longer ago than this is skipped (the beat clock's rule).
+const LATE_SECONDS: float = 0.5
+const WOOD := Color(0.62, 0.47, 0.32)
+const LAMINATE := Color(0.86, 0.83, 0.76)
+const TRIM := Color(0.36, 0.33, 0.42)
+const STEEL := Color(0.62, 0.65, 0.7)
+const DARK := Color(0.16, 0.16, 0.19)
+const BEIGE := Color(0.83, 0.79, 0.68)
+const CARDBOARD := Color(0.72, 0.56, 0.36)
+const PAPER := Color(0.97, 0.96, 0.92)
+const INK := Color(0.42, 0.22, 0.62)
+const VELVET := Color(0.62, 0.12, 0.2)
+const LAMP_WARM := Color(1.0, 0.82, 0.42)
+const LAMP_OFF := Color(0.28, 0.27, 0.26)
+const GLASS_TINT := Color(0.75, 0.88, 0.92, 0.18)
+const BLIND := Color(0.9, 0.88, 0.8)
+
+## The window's frame, in its own space: the glass is the plane z = 0, the lobby
+## is +Z, the counter top is at COUNTER_Y, the hatch is the gap under the glass.
+const COUNTER_Y: float = 0.98
+const GLASS_WIDTH: float = 1.5
+const GLASS_BOTTOM: float = 1.2
+const GLASS_TOP: float = 2.25
+const HATCH_HALF: float = 0.32
+const STAMP_SPOT := Vector3(0.24, COUNTER_Y, -0.16)
+
+
+# ---------------------------------------------------------------- time and sound
+
+## Server time where there is a session (every peer agrees on it), else this
+## machine's clock (the studio, the headless checks).
+static func now() -> float:
+	var tree := Engine.get_main_loop() as SceneTree
+	var net := tree.root.get_node_or_null("Net") if tree != null else null
+	if net != null and net.has_method("server_time") and net.has_method("current_state") and int(net.call("current_state")) != 0:
+		return float(net.call("server_time"))
+	return float(Time.get_ticks_msec()) / 1000.0
+
+
+## One positional one-shot from the sfx group (audio/sfx.gd), if there is one.
+static func _play_sfx(node: Node, id: String, at: Vector3) -> void:
+	if node == null or not node.is_inside_tree():
+		return
+	var sfx := node.get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play_at", id, at)
+
+
+## An emissive material (lamps, the copier's light, the floor lines' glow).
+static func glow_material(color: Color, energy: float) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = color
+	material.emission_energy_multiplier = energy
+	return material
+
+
+## The service windows' and doors' see-through glass.
+static func glass_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = GLASS_TINT
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.metallic = 0.2
+	material.roughness = 0.05
+	material.metallic_specular = 0.9
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return material
+
+
+## A mesh of kit under parent. bake marks it static: levels/annex/annex_b.gd
+## merges every baked look into one mesh (one draw call for the whole room).
+static func _view(parent: Node3D, kit: RefCounted, name: String, options: Dictionary = {}, bake: bool = false) -> MeshInstance3D:
+	var mesh: ArrayMesh = kit.call("commit")
+	var view := _Stylized.instance(mesh, options)
+	view.name = name
+	if bake:
+		view.set_meta("bake", true)
+	parent.add_child(view)
+	return view
+
+
+static func _marker(parent: Node3D, name: String, at: Vector3, yaw: float = 0.0) -> Marker3D:
+	var marker := Marker3D.new()
+	marker.name = name
+	parent.add_child(marker)
+	marker.position = at
+	marker.rotation.y = yaw
+	return marker
+
+
+static func _solid(parent: Node3D, name: String, size: Vector3, at: Vector3) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.name = name
+	parent.add_child(body)
+	body.position = at
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	body.add_child(shape)
+	return body
+
+
+static func _label(parent: Node3D, text: String, at: Vector3, font_size: int, color: Color, pixel: float = 0.004) -> Label3D:
+	var label := Label3D.new()
+	label.text = text
+	label.font_size = font_size
+	label.pixel_size = pixel
+	label.outline_size = 0
+	label.modulate = color
+	label.position = at
+	label.double_sided = false
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(label)
+	return label
+
+
+## A stand-in pictogram: the window's icon from ui/icons.gd (the same picture
+## its box on Form 27-B shows), or a plain colored disc when there is no icon.
+static func pictogram_texture(icon_id: String) -> Texture2D:
+	var path := "res://assets/icons/%s.png" % icon_id
+	if icon_id != "" and ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	return null
+
+
+static func ease_out(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - (1.0 - t) * (1.0 - t)
+
+
+static func ease_in(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return t * t
+
+
+## The base of every stateful prop: the state, when it began, and the sounds
+## waiting for their moment.
+class Prop extends Node3D:
+	var state: StringName = &""
+	var state_at: float = -1000.0
+	var state_args: Dictionary = {}
+	## [{at, id, where}]: sounds that play when server time reaches at.
+	var _cues: Array[Dictionary] = []
+	var _busy_until: float = -1000.0
+
+	## Show `next` from server time `at` on. Calls that change nothing are ignored.
+	func set_state(next: StringName, at: float, args: Dictionary = {}) -> void:
+		state = next
+		state_at = at
+		state_args = args
+		_begin(next, at, args)
+		set_process(true)
+		_animate(OfficeProps.now())
+
+	func _begin(_next: StringName, _at: float, _args: Dictionary) -> void:
+		pass
+
+	## Pose for server time t; returns true while still moving.
+	func _animate(_t: float) -> bool:
+		return false
+
+	## A sound at server time at, from where (this prop's origin when INF).
+	func cue(id: String, at: float, where: Vector3 = Vector3.INF) -> void:
+		_cues.append({"at": at, "id": id, "where": where})
+		_busy_until = maxf(_busy_until, at)
+
+	func _ready() -> void:
+		# Only a prop with something to show keeps ticking (set_state wakes it).
+		set_process(state != &"" or not _cues.is_empty())
+
+	func _process(_delta: float) -> void:
+		var t := OfficeProps.now()
+		var moving := _animate(t)
+		var index := 0
+		while index < _cues.size():
+			var entry: Dictionary = _cues[index]
+			if t >= float(entry["at"]):
+				_cues.remove_at(index)
+				if t - float(entry["at"]) <= LATE_SECONDS:
+					var where: Vector3 = entry["where"]
+					OfficeProps._play_sfx(self, str(entry["id"]), global_position if not where.is_finite() else where)
+				continue
+			index += 1
+		if not moving and _cues.is_empty() and t > _busy_until:
+			set_process(false)
+
+
+## Venetian blinds: slats hanging from a head rail at the top; down covers the
+## glass, up stacks them under the rail (each slat squeezes toward it).
+class Blinds extends Node3D:
+	var drop: float = 1.0
+	var _slats: Node3D
+	var _width: float
+	var _height: float
+
+	func build(width: float, height: float) -> void:
+		_width = width
+		_height = height
+		var rail := _MeshKit.new()
+		rail.box(Vector3(0.0, 0.02, 0.0), Vector3(width + 0.06, 0.05, 0.05), TRIM)
+		OfficeProps._view(self, rail, "Rail", {}, true)
+		_slats = Node3D.new()
+		_slats.name = "Slats"
+		add_child(_slats)
+		var kit := _MeshKit.new()
+		var count := int(height / 0.075)
+		for index: int in count:
+			var y := -(float(index) + 0.5) * height / float(count)
+			kit.box(Vector3(0.0, y, 0.0), Vector3(width, 0.012, 0.045), BLIND, Basis(Vector3.RIGHT, 0.35))
+		kit.box(Vector3(0.0, -height - 0.01, 0.0), Vector3(width + 0.02, 0.025, 0.05), TRIM)
+		OfficeProps._view(_slats, kit, "Slat")
+		set_drop(1.0)
+
+	## 1 covers the glass, 0 is drawn up.
+	func set_drop(amount: float) -> void:
+		drop = clampf(amount, 0.0, 1.0)
+		_slats.scale = Vector3(1.0, maxf(0.04, drop), 1.0)
+		# Drawn up tight under the rail they're out of sight (and out of the draw calls).
+		_slats.visible = drop > 0.03
+
+
+## A service window: everything a caught player needs to read with no words.
+class ServiceWindow extends Prop:
+	var window_id: String = "A"
+	var look: Dictionary = {}
+	var lamp_on: bool = false
+	var blind_down: bool = false
+	var _lamp: MeshInstance3D
+	var _lamp_on_mat: StandardMaterial3D
+	var _lamp_off_mat: StandardMaterial3D
+	var _blinds: Blinds
+	var _blind_from: float = 0.0
+	var _blind_to: float = 0.0
+	var _stamp: Node3D
+	var _plaque: Sprite3D
+	var _plaque_board: MeshInstance3D
+	var _clock_sign: Node3D
+	var _sign_up: bool = false
+	var _sign_from: float = 0.0
+	var _ink: MeshInstance3D
+
+	func build(id: String, window_look: Dictionary) -> void:
+		window_id = id
+		name = id
+		var color: Color = window_look.get("color", Color(0.6, 0.6, 0.65))
+		var kit := _MeshKit.new()
+		# The counter runs through under the glass: the lobby's ledge in front, the
+		# clerk's sill behind, the hatch the gap between them and the glass.
+		kit.box(Vector3(0.0, COUNTER_Y - 0.025, 0.12), Vector3(GLASS_WIDTH + 0.5, 0.05, 0.6), LAMINATE)
+		kit.box(Vector3(0.0, COUNTER_Y - 0.055, 0.405), Vector3(GLASS_WIDTH + 0.52, 0.03, 0.03), TRIM)
+		# The glass's frame and the hatch's chrome lip.
+		for side: float in [-1.0, 1.0]:
+			kit.box(Vector3(side * (GLASS_WIDTH * 0.5 + 0.04), (GLASS_BOTTOM + GLASS_TOP) * 0.5 + 0.0, 0.0), Vector3(0.08, GLASS_TOP - COUNTER_Y + 0.02, 0.09), TRIM)
+		kit.box(Vector3(0.0, GLASS_TOP + 0.04, 0.0), Vector3(GLASS_WIDTH + 0.16, 0.08, 0.09), TRIM)
+		kit.box(Vector3(0.0, GLASS_BOTTOM - 0.015, 0.0), Vector3(GLASS_WIDTH, 0.03, 0.06), STEEL)
+		for side: float in [-1.0, 1.0]:
+			kit.box(Vector3(side * (HATCH_HALF + 0.5) * 0.5 + side * 0.17, (COUNTER_Y + GLASS_BOTTOM) * 0.5, 0.0), Vector3(GLASS_WIDTH * 0.5 - HATCH_HALF, GLASS_BOTTOM - COUNTER_Y, 0.02), STEEL.lightened(0.2))
+		# The plaque's board in the window's color, and the lamp's housing beside it.
+		kit.box(Vector3(0.0, 2.68, 0.02), Vector3(0.62, 0.62, 0.04), color)
+		kit.box(Vector3(0.0, 2.68, 0.0), Vector3(0.7, 0.7, 0.02), TRIM)
+		kit.box(Vector3(0.58, 2.8, 0.01), Vector3(0.36, 0.36, 0.03), DARK)
+		# The desk bell on the ledge: a chrome dome on a black base.
+		kit.cone(Vector3(-0.58, COUNTER_Y, 0.24), 0.07, 0.03, DARK, 10)
+		kit.blob(Vector3(-0.58, COUNTER_Y + 0.045, 0.24), Vector3(0.055, 0.04, 0.055), STEEL.lightened(0.25), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+		kit.box(Vector3(-0.58, COUNTER_Y + 0.095, 0.24), Vector3(0.012, 0.03, 0.012), STEEL)
+		# The clerk's side: a desk, a stool, a filing cabinet, a typewriter, a mug.
+		kit.box(Vector3(0.0, 0.74, -0.62), Vector3(1.5, 0.05, 0.6), WOOD)
+		for x: float in [-0.68, 0.68]:
+			kit.box(Vector3(x, 0.36, -0.62), Vector3(0.05, 0.72, 0.55), WOOD.darkened(0.2))
+		kit.box(Vector3(-0.35, 0.82, -0.66), Vector3(0.36, 0.12, 0.28), DARK)
+		kit.box(Vector3(-0.35, 0.9, -0.72), Vector3(0.32, 0.06, 0.06), DARK.lightened(0.1))
+		kit.cone(Vector3(0.45, 0.765, -0.55), 0.04, 0.09, color.lightened(0.3), 8)
+		kit.cone(Vector3(0.0, 0.0, -1.05), 0.2, 0.04, DARK, 8)
+		kit.box(Vector3(0.0, 0.25, -1.05), Vector3(0.04, 0.46, 0.04), STEEL)
+		kit.cone(Vector3(0.0, 0.47, -1.05), 0.2, 0.05, color.darkened(0.25), 10)
+		kit.box(Vector3(0.62, 0.62, -1.62), Vector3(0.5, 1.24, 0.55), STEEL.darkened(0.15))
+		for drawer: int in 3:
+			kit.box(Vector3(0.62, 0.25 + float(drawer) * 0.38, -1.34), Vector3(0.42, 0.3, 0.02), STEEL)
+			kit.box(Vector3(0.62, 0.33 + float(drawer) * 0.38, -1.325), Vector3(0.12, 0.025, 0.02), DARK)
+		# The stamp's ink pad on the sill, right behind the hatch.
+		kit.box(STAMP_SPOT + Vector3(0.0, 0.012, 0.0), Vector3(0.16, 0.024, 0.11), DARK)
+		kit.box(STAMP_SPOT + Vector3(0.0, 0.026, 0.0), Vector3(0.13, 0.005, 0.08), INK)
+		# Footprints: where to stand, and the line behind it.
+		for spot: int in 4:
+			var z := 0.85 + float(spot) * 0.75
+			for side: float in [-1.0, 1.0]:
+				var foot := Vector3(side * 0.12, 0.013, z)
+				kit.box(foot, Vector3(0.11, 0.006, 0.26), color.lightened(0.15) if spot == 0 else color.darkened(0.05), Basis(Vector3.UP, side * -0.12))
+		OfficeProps._view(self, kit, "Look", {}, true)
+		var glass := MeshInstance3D.new()
+		glass.name = "Glass"
+		var pane := QuadMesh.new()
+		pane.size = Vector2(GLASS_WIDTH, GLASS_TOP - GLASS_BOTTOM)
+		glass.mesh = pane
+		glass.material_override = OfficeProps.glass_material()
+		glass.set_meta("keep_material", true)
+		glass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		glass.position = Vector3(0.0, (GLASS_BOTTOM + GLASS_TOP) * 0.5, 0.0)
+		glass.set_meta("bake_glass", true)
+		add_child(glass)
+		# The serving lamp: lit warm while the window serves.
+		_lamp_on_mat = OfficeProps.glow_material(LAMP_WARM, Constants.ANNEX_WINDOW_LAMP_ENERGY)
+		_lamp_off_mat = StandardMaterial3D.new()
+		_lamp_off_mat.albedo_color = LAMP_OFF
+		_lamp_off_mat.roughness = 0.3
+		var bulb := _MeshKit.new()
+		bulb.blob(Vector3(0.58, 2.8, 0.05), Vector3(0.15, 0.1, 0.15), Color.WHITE, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		_lamp = MeshInstance3D.new()
+		_lamp.name = "Lamp"
+		_lamp.mesh = bulb.commit()
+		_lamp.set_meta("keep_material", true)
+		_lamp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_lamp)
+		# Blinds behind the glass, up by default.
+		_blinds = Blinds.new()
+		_blinds.name = "Blind"
+		add_child(_blinds)
+		_blinds.position = Vector3(0.0, GLASS_TOP - 0.02, -0.06)
+		_blinds.build(GLASS_WIDTH - 0.04, GLASS_TOP - GLASS_BOTTOM + 0.18)
+		_blinds.set_drop(0.0)
+		# The window's stamp: a wooden knob on a stem on a rubber block.
+		_stamp = Node3D.new()
+		_stamp.name = "Stamp"
+		add_child(_stamp)
+		_stamp.position = STAMP_SPOT + Vector3(0.0, 0.026, 0.0)
+		var stamp := _MeshKit.new()
+		stamp.box(Vector3(0.0, 0.02, 0.0), Vector3(0.1, 0.04, 0.07), DARK)
+		stamp.box(Vector3(0.0, 0.003, 0.0), Vector3(0.09, 0.006, 0.06), INK)
+		stamp.tube(PackedVector3Array([Vector3(0.0, 0.04, 0.0), Vector3(0.0, 0.11, 0.0)]), PackedFloat32Array([0.012, 0.012]), STEEL, 6, {"jitter": 0.0})
+		stamp.blob(Vector3(0.0, 0.135, 0.0), Vector3(0.04, 0.035, 0.04), WOOD, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+		OfficeProps._view(_stamp, stamp, "Mesh")
+		# The pictogram: the run's icon on the colored board.
+		_plaque = Sprite3D.new()
+		_plaque.name = "Plaque"
+		_plaque.pixel_size = 0.5 / 256.0
+		_plaque.position = Vector3(0.0, 2.68, 0.05)
+		_plaque.shaded = false
+		_plaque.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+		_plaque.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_plaque)
+		# The clock sign: a folded card on the ledge, flat until shown.
+		_clock_sign = Node3D.new()
+		_clock_sign.name = "ClockSign"
+		add_child(_clock_sign)
+		_clock_sign.position = Vector3(0.0, COUNTER_Y, 0.2)
+		var card := _MeshKit.new()
+		card.box(Vector3(0.0, 0.11, 0.0), Vector3(0.42, 0.22, 0.008), PAPER)
+		card.box(Vector3(0.0, 0.11, -0.006), Vector3(0.44, 0.24, 0.004), INK)
+		OfficeProps._view(_clock_sign, card, "Card")
+		OfficeProps._label(_clock_sign, _Strings.ANNEX_SIGNS["back_soon"], Vector3(0.0, 0.11, 0.006), 40, INK, 0.0022)
+		_clock_sign.visible = false
+		var counter := OfficeProps._marker(self, "Counter", Vector3(0.0, 0.0, 0.85))
+		counter.rotation.y = 0.0
+		var queue := Node3D.new()
+		queue.name = "QueueSpots"
+		add_child(queue)
+		for spot: int in 3:
+			OfficeProps._marker(queue, "Spot%d" % spot, Vector3(0.0, 0.0, 1.6 + float(spot) * 0.75))
+		OfficeProps._marker(self, "StampPad", STAMP_SPOT + Vector3(0.0, 0.05, 0.0))
+		OfficeProps._marker(self, "Bell", Vector3(-0.58, COUNTER_Y + 0.06, 0.24))
+		OfficeProps._marker(self, "ClerkSeat", Vector3(0.0, 0.0, -1.05), PI)
+		OfficeProps._marker(self, "Cabinet", Vector3(0.62, 0.0, -1.2), PI)
+		for spot: int in 3:
+			OfficeProps._marker(self, "BreakSpot%d" % spot, Vector3(0.0, 0.0, -1.05))
+		# The lobby can't climb the counter or walk through the glass.
+		OfficeProps._solid(self, "CounterBody", Vector3(GLASS_WIDTH + 0.5, COUNTER_Y, 0.6), Vector3(0.0, COUNTER_Y * 0.5, 0.12))
+		OfficeProps._solid(self, "GlassBody", Vector3(GLASS_WIDTH + 0.2, GLASS_TOP - COUNTER_Y + 0.1, 0.1), Vector3(0.0, (COUNTER_Y + GLASS_TOP) * 0.5 + 0.05, -0.02))
+		if id == "D":
+			_window_d(kit)
+		apply_look(window_look)
+		_set_lamp(false)
+
+	## Window D: a cobweb in the corner of the glass and the cardboard BACK AT clock
+	## propped against it, both gone while its blinds are up.
+	func _window_d(_kit: RefCounted) -> void:
+		# The cobweb in the glass's top corner, and the cardboard clock propped on
+		# the sill behind the glass, drawn in marker: BACK AT a quarter past never.
+		var web := _MeshKit.new()
+		var corner := Vector3(GLASS_WIDTH * 0.5 - 0.02, GLASS_TOP - 0.02, 0.012)
+		for strand: int in 5:
+			var angle := PI + PI * 0.5 * float(strand) / 4.0
+			var tip := corner + Vector3(cos(angle), sin(angle), 0.0) * 0.32
+			web.tube(PackedVector3Array([corner, tip]), PackedFloat32Array([0.002, 0.002]), PAPER, 3, {"jitter": 0.0})
+		for ring: int in 3:
+			var radius := 0.09 + float(ring) * 0.08
+			var points := PackedVector3Array()
+			for step: int in 5:
+				var angle := PI + PI * 0.5 * float(step) / 4.0
+				points.append(corner + Vector3(cos(angle), sin(angle), 0.0) * radius)
+			web.tube(points, PackedFloat32Array([0.0018]), PAPER, 3, {"jitter": 0.0})
+		var cardboard := Node3D.new()
+		cardboard.name = "BackAt"
+		add_child(cardboard)
+		cardboard.position = Vector3(-0.25, COUNTER_Y, -0.1)
+		cardboard.rotation.x = -0.12
+		var clock := _MeshKit.new()
+		clock.box(Vector3(0.0, 0.29, 0.0), Vector3(0.5, 0.58, 0.012), CARDBOARD)
+		clock.tube(PackedVector3Array([Vector3(0.0, 0.22, 0.006), Vector3(0.0, 0.22, 0.01)]), PackedFloat32Array([0.17, 0.17]), PAPER, 16, {"jitter": 0.0})
+		clock.box(Vector3(0.0, 0.27, 0.014), Vector3(0.016, 0.11, 0.004), DARK)
+		clock.box(Vector3(0.04, 0.22, 0.014), Vector3(0.09, 0.016, 0.004), DARK)
+		OfficeProps._view(cardboard, clock, "Clock")
+		OfficeProps._label(cardboard, _Strings.ANNEX_SIGNS["back_at"], Vector3(0.0, 0.5, 0.009), 44, DARK, 0.0022)
+		var webs := OfficeProps._view(self, web, "Cobweb", {"roughness": 0.6}, true)
+		webs.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	## The run's pictogram and color: {icon, color}.
+	func apply_look(window_look: Dictionary) -> void:
+		look = window_look
+		var texture := OfficeProps.pictogram_texture(str(window_look.get("icon", "")))
+		_plaque.texture = texture
+		_plaque.visible = texture != null
+		if texture != null:
+			_plaque.pixel_size = 0.52 / float(maxi(texture.get_width(), 1))
+
+	func _set_lamp(on: bool) -> void:
+		lamp_on = on
+		_lamp.material_override = _lamp_on_mat if on else _lamp_off_mat
+
+	func _begin(next: StringName, at: float, args: Dictionary) -> void:
+		match next:
+			&"lamp_on":
+				_set_lamp(true)
+				cue("office_ding", at)
+			&"lamp_off":
+				_set_lamp(false)
+			&"blind_up", &"blind_down":
+				_blind_from = _blinds.drop
+				_blind_to = 0.0 if next == &"blind_up" else 1.0
+				blind_down = next == &"blind_down"
+				cue("blinds_rattle", at)
+				if next == &"blind_up":
+					_set_lamp(true)
+			&"clock_sign":
+				_sign_up = true
+				_sign_from = at
+				_clock_sign.visible = true
+			&"clock_sign_off":
+				_sign_up = false
+				_sign_from = at
+			&"stamp_down":
+				# Lift, then slam; a volley slams again and again.
+				var slams := maxi(1, int(args.get("volley", 1)))
+				for index: int in slams:
+					var hit := at + Constants.ANNEX_STAMP_LIFT_SECONDS + Constants.ANNEX_STAMP_SLAM_SECONDS + float(index) * Constants.CLERK_VOLLEY_GAP
+					cue("stamp_kachunk", hit, global_position + global_basis * STAMP_SPOT)
+			&"bell":
+				cue("desk_bell", at, global_position + global_basis * Vector3(-0.58, COUNTER_Y + 0.06, 0.24))
+		_busy_until = maxf(_busy_until, at + 2.0)
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		var moving := false
+		# Blinds.
+		if state == &"blind_up" or state == &"blind_down":
+			var k := clampf(since / Constants.ANNEX_BLIND_SECONDS, 0.0, 1.0)
+			# A rattle on the way: they jerk, not glide.
+			var jerk := 0.04 * sin(k * 26.0) * (1.0 - k)
+			_blinds.set_drop(lerpf(_blind_from, _blind_to, OfficeProps.ease_out(k)) + jerk)
+			moving = k < 1.0
+			if _clock_sign_card() != null:
+				_clock_sign_card().visible = _blinds.drop > 0.5
+		# The clock sign flips up off the ledge (or folds back down).
+		var flip := clampf((t - _sign_from) / 0.25, 0.0, 1.0)
+		var up := OfficeProps.ease_out(flip) if _sign_up else 1.0 - OfficeProps.ease_out(flip)
+		_clock_sign.rotation.x = -(1.0 - up) * PI * 0.5
+		if not _sign_up and flip >= 1.0:
+			_clock_sign.visible = false
+		moving = moving or flip < 1.0
+		# The stamp: lifted in the clerk's hand, or lift-and-slam onto the pad.
+		var rise := 0.0
+		if state == &"stamp_lifted":
+			rise = OfficeProps.ease_out(since / Constants.ANNEX_STAMP_LIFT_SECONDS) * 0.24
+			moving = moving or since < Constants.ANNEX_STAMP_LIFT_SECONDS
+		elif state == &"stamp_down":
+			var slams := maxi(1, int(state_args.get("volley", 1)))
+			var cycle := Constants.ANNEX_STAMP_LIFT_SECONDS + Constants.ANNEX_STAMP_SLAM_SECONDS
+			var local := since
+			if slams > 1:
+				local = fmod(maxf(since, 0.0), Constants.CLERK_VOLLEY_GAP) / Constants.CLERK_VOLLEY_GAP * cycle if since < float(slams) * Constants.CLERK_VOLLEY_GAP else cycle + 1.0
+			if local < Constants.ANNEX_STAMP_LIFT_SECONDS:
+				rise = OfficeProps.ease_out(local / Constants.ANNEX_STAMP_LIFT_SECONDS) * 0.24
+			elif local < cycle:
+				rise = (1.0 - OfficeProps.ease_in((local - Constants.ANNEX_STAMP_LIFT_SECONDS) / Constants.ANNEX_STAMP_SLAM_SECONDS)) * 0.24
+			else:
+				# The squash on contact, settling.
+				var after := local - cycle
+				rise = -0.006 * exp(-after * 18.0) * cos(after * 40.0)
+			moving = moving or since < float(slams) * Constants.CLERK_VOLLEY_GAP + cycle + 0.3
+		_stamp.position = STAMP_SPOT + Vector3(0.0, 0.026 + rise, 0.0)
+		# Behind closed blinds the stamp is out of sight.
+		_stamp.visible = _blinds.drop < 0.97
+		_stamp.rotation.z = -rise * 0.6
+		return moving
+
+	func _clock_sign_card() -> Node3D:
+		return get_node_or_null("BackAt") as Node3D
+
+
+## A colored line on the floor along points (lobby floor space, y ignored): the
+## way from the chairs to its window. pulse brightens it twice.
+class FloorLine extends Prop:
+	var _material: StandardMaterial3D
+	var color: Color
+
+	func build(points: PackedVector3Array, line_color: Color) -> void:
+		color = line_color
+		var kit := _MeshKit.new()
+		for index: int in points.size() - 1:
+			var a := points[index]
+			var b := points[index + 1]
+			var along := Vector3(b.x - a.x, 0.0, b.z - a.z)
+			var length := along.length()
+			if length < 0.01:
+				continue
+			var mid := (a + b) * 0.5
+			var basis := Basis(Vector3.UP, atan2(along.x, along.z))
+			kit.box(Vector3(mid.x, 0.02, mid.z), Vector3(0.12, 0.006, length + 0.12), Color.WHITE, basis)
+		var view := MeshInstance3D.new()
+		view.name = "Line"
+		view.mesh = kit.commit()
+		_material = OfficeProps.glow_material(line_color, 0.0)
+		_material.roughness = 0.6
+		view.material_override = _material
+		view.set_meta("keep_material", true)
+		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(view)
+
+	func recolor(line_color: Color) -> void:
+		color = line_color
+		_material.albedo_color = line_color
+		_material.emission = line_color
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		if state != &"pulse" or since > Constants.ANNEX_PULSE_SECONDS:
+			_material.emission_energy_multiplier = 0.0
+			return false
+		var k := clampf(since / Constants.ANNEX_PULSE_SECONDS, 0.0, 1.0)
+		_material.emission_energy_multiplier = 1.6 * maxf(0.0, sin(k * PI * 2.0)) * (1.0 - k * 0.3)
+		return true
+
+
+## The big APPROVED, NICELY stamp on its velvet pad, the Head NICE BOY's.
+class BigStamp extends Prop:
+	var holder: Node3D = null
+	var _rest: Vector3
+
+	func build() -> void:
+		var kit := _MeshKit.new()
+		kit.box(Vector3(0.0, 0.05, 0.0), Vector3(0.3, 0.1, 0.2), DARK)
+		kit.box(Vector3(0.0, 0.004, 0.0), Vector3(0.28, 0.008, 0.18), VELVET.lightened(0.2))
+		kit.box(Vector3(0.0, 0.105, 0.0), Vector3(0.32, 0.012, 0.22), _NiceSeal.LAVENDER)
+		kit.tube(PackedVector3Array([Vector3(0.0, 0.1, 0.0), Vector3(0.0, 0.3, 0.0)]), PackedFloat32Array([0.026, 0.022]), Color(0.88, 0.7, 0.28), 8, {"jitter": 0.0})
+		kit.blob(Vector3(0.0, 0.35, 0.0), Vector3(0.09, 0.07, 0.09), WOOD, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+		OfficeProps._view(self, kit, "Mesh", {"roughness": 0.5, "specular": 0.3})
+		_rest = position
+
+	func set_rest(at: Vector3) -> void:
+		_rest = at
+		position = at
+
+	## Someone carries it (two-handed, at the chest), or null puts it back on its pad.
+	func set_held(by: Node3D) -> void:
+		holder = by
+		set_process(true)
+		if by == null:
+			set_state(&"on_pad", OfficeProps.now())
+
+	func _begin(next: StringName, at: float, args: Dictionary) -> void:
+		if next == &"slam":
+			var hit := at + Constants.ANNEX_BIG_STAMP_RAISE * 0.0 + 0.25 + Constants.ANNEX_BIG_STAMP_HESITATE + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS
+			cue("stamp_kachunk", hit)
+			if bool(args.get("toot", true)):
+				cue("party_toot", hit + 0.08)
+		elif next == &"on_pad":
+			holder = null
+
+	func _process(delta: float) -> void:
+		super._process(delta)
+		if holder != null and is_instance_valid(holder) and state != &"slam":
+			var target := holder.global_transform * Vector3(0.0, 1.05, -0.42)
+			global_position = global_position.lerp(target, clampf(delta * 6.0, 0.0, 1.0))
+			global_rotation.y = holder.global_rotation.y
+			set_process(true)
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		if state == &"slam":
+			var base: Vector3 = state_args.get("on", _rest) if state_args.get("on", null) is Vector3 else _rest
+			var up := 0.0
+			if since < 0.25:
+				up = OfficeProps.ease_out(since / 0.25)
+			elif since < 0.25 + Constants.ANNEX_BIG_STAMP_HESITATE:
+				up = 1.0 + 0.03 * sin((since - 0.25) * 30.0)
+			else:
+				up = 1.0 - OfficeProps.ease_in((since - 0.25 - Constants.ANNEX_BIG_STAMP_HESITATE) / Constants.ANNEX_BIG_STAMP_SLAM_SECONDS)
+			global_position = get_parent().to_global(base) + Vector3(0.0, maxf(up, 0.0) * Constants.ANNEX_BIG_STAMP_RAISE, 0.0) if get_parent() is Node3D else position
+			return since < 0.25 + Constants.ANNEX_BIG_STAMP_HESITATE + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS + 0.4
+		if holder == null and state != &"held":
+			position = position.lerp(_rest, 0.35)
+			return position.distance_to(_rest) > 0.002
+		return holder != null
+
+
+## Copier, cooler, coffee machine: a Spot marker in front where the staff stand,
+## and a light or bubble that shows what it's doing.
+class Appliance extends Prop:
+	var kind: String = "copier"
+	var _light: MeshInstance3D
+	var _light_on: StandardMaterial3D
+	var _light_off: StandardMaterial3D
+
+	func build(appliance: String) -> void:
+		kind = appliance
+		name = {"copier": "Copier", "cooler": "Cooler", "coffee": "CoffeeMachine"}[appliance]
+		var kit := _MeshKit.new()
+		var light_at := Vector3.ZERO
+		var light_color := Color(0.3, 1.0, 0.4)
+		match appliance:
+			"copier":
+				kit.box(Vector3(0.0, 0.45, 0.0), Vector3(1.0, 0.9, 0.65), BEIGE)
+				kit.box(Vector3(0.0, 0.95, 0.0), Vector3(0.95, 0.1, 0.6), BEIGE.darkened(0.12))
+				kit.box(Vector3(0.0, 1.01, 0.02), Vector3(0.8, 0.02, 0.5), DARK)
+				kit.box(Vector3(0.55, 0.62, 0.0), Vector3(0.12, 0.04, 0.4), PAPER)
+				kit.box(Vector3(0.3, 0.98, 0.31), Vector3(0.3, 0.05, 0.04), DARK.lightened(0.15))
+				for drawer: int in 2:
+					kit.box(Vector3(0.0, 0.2 + float(drawer) * 0.25, 0.33), Vector3(0.85, 0.2, 0.02), BEIGE.darkened(0.06))
+				light_at = Vector3(0.12, 0.985, 0.33)
+				light_color = Color(1.0, 0.25, 0.15)
+			"cooler":
+				kit.box(Vector3(0.0, 0.5, 0.0), Vector3(0.38, 1.0, 0.38), PAPER)
+				kit.blob(Vector3(0.0, 1.25, 0.0), Vector3(0.16, 0.24, 0.16), Color(0.55, 0.78, 0.95), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+				kit.box(Vector3(-0.08, 0.78, 0.2), Vector3(0.04, 0.05, 0.04), Color(0.3, 0.45, 0.95))
+				kit.box(Vector3(0.08, 0.78, 0.2), Vector3(0.04, 0.05, 0.04), Color(0.9, 0.25, 0.2))
+				kit.box(Vector3(0.24, 0.9, 0.0), Vector3(0.08, 0.2, 0.08), PAPER.darkened(0.08))
+				light_at = Vector3(0.0, 0.62, 0.195)
+				light_color = Color(0.4, 0.75, 1.0)
+			"coffee":
+				kit.box(Vector3(0.0, 0.45, 0.0), Vector3(0.6, 0.9, 0.45), WOOD.darkened(0.3))
+				kit.box(Vector3(0.0, 1.06, 0.0), Vector3(0.36, 0.32, 0.3), DARK)
+				kit.box(Vector3(0.0, 1.25, 0.0), Vector3(0.38, 0.06, 0.32), DARK.lightened(0.1))
+				kit.cone(Vector3(0.0, 0.92, 0.06), 0.08, 0.12, Color(0.25, 0.15, 0.08, 1.0), 10)
+				kit.cone(Vector3(-0.2, 0.9, 0.1), 0.035, 0.08, PAPER, 8)
+				kit.cone(Vector3(0.2, 0.9, 0.1), 0.035, 0.08, PAPER, 8)
+				light_at = Vector3(0.12, 1.12, 0.155)
+				light_color = Color(1.0, 0.55, 0.15)
+		OfficeProps._view(self, kit, "Look", {}, true)
+		_light_on = OfficeProps.glow_material(light_color, 2.0)
+		_light_off = StandardMaterial3D.new()
+		_light_off.albedo_color = light_color.darkened(0.7)
+		var bulb := _MeshKit.new()
+		bulb.box(light_at, Vector3(0.05, 0.03, 0.012), Color.WHITE)
+		_light = MeshInstance3D.new()
+		_light.name = "Light"
+		_light.mesh = bulb.commit()
+		_light.material_override = _light_off
+		_light.set_meta("keep_material", true)
+		_light.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_light)
+		OfficeProps._marker(self, "Spot", Vector3(0.0, 0.0, 0.75), PI)
+		var size := {"copier": Vector3(1.0, 1.05, 0.65), "cooler": Vector3(0.4, 1.4, 0.4), "coffee": Vector3(0.6, 1.3, 0.45)}[appliance] as Vector3
+		OfficeProps._solid(self, "Body", size, Vector3(0.0, size.y * 0.5, 0.0))
+
+	func _begin(next: StringName, at: float, args: Dictionary) -> void:
+		match next:
+			&"jam":
+				var beeps := int(args.get("beeps", 6))
+				for index: int in beeps:
+					cue("copier_beep", at + float(index) * 1.6)
+			&"glug":
+				cue("glug", at)
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		var lit := false
+		match state:
+			&"jam":
+				lit = fmod(maxf(since, 0.0), 0.8) < 0.4
+			&"copying", &"brew":
+				lit = true
+			&"glug":
+				lit = since < 1.2 and fmod(since, 0.3) < 0.15
+		_light.material_override = _light_on if lit else _light_off
+		return state == &"jam" or state == &"copying" or state == &"brew" or (state == &"glug" and since < 1.2)
+
+
+## The co-signer sheet: a clipboard on a chain on the lobby podium.
+class CoSignSheet extends Prop:
+	var _pen: Node3D
+
+	func build() -> void:
+		var kit := _MeshKit.new()
+		kit.box(Vector3(0.0, 0.01, 0.0), Vector3(0.26, 0.012, 0.34), WOOD.darkened(0.1))
+		kit.box(Vector3(0.0, 0.018, 0.01), Vector3(0.22, 0.004, 0.28), PAPER)
+		for line: int in 6:
+			kit.box(Vector3(-0.01, 0.021, -0.1 + float(line) * 0.045), Vector3(0.17, 0.002, 0.004), INK.lightened(0.3))
+		kit.box(Vector3(0.0, 0.025, -0.16), Vector3(0.1, 0.02, 0.03), STEEL)
+		var chain := PackedVector3Array()
+		for step: int in 6:
+			var k := float(step) / 5.0
+			chain.append(Vector3(0.13 + k * 0.12, 0.02 - sin(k * PI) * 0.04, 0.12 - k * 0.04))
+		kit.tube(chain, PackedFloat32Array([0.004]), STEEL, 4, {"jitter": 0.0})
+		OfficeProps._view(self, kit, "Look", {}, true)
+		_pen = Node3D.new()
+		_pen.name = "Pen"
+		add_child(_pen)
+		_pen.position = Vector3(0.06, 0.03, 0.05)
+		var pen := _MeshKit.new()
+		pen.tube(PackedVector3Array([Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.0, -0.13)]), PackedFloat32Array([0.006, 0.006]), Color(0.2, 0.35, 0.8), 6, {"jitter": 0.0})
+		OfficeProps._view(_pen, pen, "Mesh")
+		_pen.rotation = Vector3(0.0, 0.4, 0.0)
+
+	func _begin(next: StringName, at: float, _args: Dictionary) -> void:
+		if next == &"signing":
+			cue("pen_squeak", at)
+			cue("pen_squeak", at + 0.7)
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		if state != &"signing" or since > Constants.ANNEX_PULSE_SECONDS + 0.3:
+			_pen.position = Vector3(0.06, 0.03, 0.05)
+			_pen.rotation = Vector3(0.0, 0.4, 0.0)
+			return false
+		_pen.position = Vector3(0.02 + 0.05 * sin(since * 14.0), 0.035, -0.02 + 0.02 * sin(since * 9.0))
+		_pen.rotation = Vector3(0.5, 0.4 + 0.2 * sin(since * 14.0), 0.0)
+		return true
+
+
+## The OUTGOING tray: a wire tray on a stand; a finished form flies into it.
+class OutgoingTray extends Prop:
+	var _paper: Node3D
+
+	func build() -> void:
+		var kit := _MeshKit.new()
+		kit.box(Vector3(0.0, 0.45, 0.0), Vector3(0.05, 0.9, 0.05), STEEL)
+		kit.cone(Vector3(0.0, 0.0, 0.0), 0.22, 0.03, DARK, 10)
+		kit.box(Vector3(0.0, 0.92, 0.0), Vector3(0.42, 0.02, 0.32), STEEL.darkened(0.1))
+		for side: float in [-1.0, 1.0]:
+			kit.box(Vector3(side * 0.21, 0.97, 0.0), Vector3(0.015, 0.1, 0.32), STEEL)
+			kit.box(Vector3(0.0, 0.97, side * 0.16), Vector3(0.42, 0.1, 0.015), STEEL)
+		for sheet: int in 3:
+			kit.box(Vector3(0.01 * float(sheet), 0.94 + float(sheet) * 0.006, 0.0), Vector3(0.3, 0.004, 0.24), PAPER.darkened(0.03 * float(sheet)), Basis(Vector3.UP, 0.08 * float(sheet)))
+		kit.box(Vector3(0.0, 1.06, 0.165), Vector3(0.36, 0.08, 0.01), _NiceSeal.LAVENDER)
+		OfficeProps._view(self, kit, "Look", {}, true)
+		OfficeProps._label(self, _Strings.ANNEX_SIGNS["outgoing"], Vector3(0.0, 1.06, 0.172), 32, DARK, 0.0028)
+		_paper = Node3D.new()
+		_paper.name = "Flying"
+		add_child(_paper)
+		var paper := _MeshKit.new()
+		paper.box(Vector3.ZERO, Vector3(0.24, 0.004, 0.3), PAPER)
+		OfficeProps._view(_paper, paper, "Mesh")
+		_paper.visible = false
+		OfficeProps._marker(self, "Spot", Vector3(0.0, 0.0, 0.7), PI)
+
+	func _begin(next: StringName, at: float, _args: Dictionary) -> void:
+		if next == &"receive":
+			cue("whoosh", at)
+			cue("pen_squeak", at + 0.55)
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		if state != &"receive" or since > 0.6:
+			_paper.visible = false
+			return false
+		var from: Vector3 = state_args.get("from", global_position + global_basis * Vector3(0.0, 1.2, 0.8))
+		var to := global_position + global_basis * Vector3(0.0, 0.97, 0.0)
+		var k := OfficeProps.ease_out(since / 0.55)
+		_paper.visible = true
+		_paper.global_position = from.lerp(to, k) + Vector3(0.0, sin(k * PI) * 0.35, 0.0)
+		_paper.rotation = Vector3(sin(k * 9.0) * 0.4, k * 4.0, 0.0)
+		return true
+
+
+## A waist-high three-arm turnstile in the exit passage.
+class Turnstile extends Prop:
+	var _arms: Node3D
+	var _body: StaticBody3D
+	var _turn_from: float = 0.0
+	var _turned: float = 0.0
+
+	func build(passage: float) -> void:
+		var kit := _MeshKit.new()
+		kit.box(Vector3(-passage * 0.5 - 0.14, 0.5, 0.0), Vector3(0.28, 1.0, 0.7), STEEL.darkened(0.2))
+		kit.box(Vector3(-passage * 0.5 - 0.14, 1.01, 0.0), Vector3(0.3, 0.03, 0.72), DARK)
+		kit.box(Vector3(passage * 0.5 + 0.04, 0.5, 0.0), Vector3(0.08, 1.0, 0.7), STEEL.darkened(0.2))
+		kit.box(Vector3(-passage * 0.5 - 0.14, 0.86, 0.36), Vector3(0.1, 0.06, 0.01), Color(0.3, 1.0, 0.4))
+		OfficeProps._view(self, kit, "Posts", {}, true)
+		# The classic tripod: three arms 120 degrees apart round a hub on the post,
+		# its axle tilted so the top arm lies level across the passage.
+		_arms = Node3D.new()
+		_arms.name = "Arms"
+		add_child(_arms)
+		_arms.position = Vector3(-passage * 0.5, 0.86, 0.0)
+		var arms := _MeshKit.new()
+		arms.blob(Vector3.ZERO, Vector3(0.09, 0.09, 0.09), STEEL.lightened(0.2), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+		for index: int in 3:
+			var angle := TAU * float(index) / 3.0
+			var spoke := Vector3(cos(angle), 0.0, sin(angle)) * passage * 0.92
+			arms.tube(PackedVector3Array([Vector3.ZERO, spoke]), PackedFloat32Array([0.022, 0.02]), STEEL.lightened(0.25), 6, {"jitter": 0.0})
+		OfficeProps._view(_arms, arms, "Mesh", {"roughness": 0.3, "specular": 0.6})
+		_spin(0.0)
+		_body = OfficeProps._solid(self, "Body", Vector3(passage, 1.0, 0.15), Vector3(0.0, 0.5, 0.0))
+
+	## The arms turned by spin (radians) round the tilted axle.
+	func _spin(spin: float) -> void:
+		_turned = spin
+		_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, spin)
+
+	func _begin(next: StringName, at: float, args: Dictionary) -> void:
+		match next:
+			&"open":
+				_turn_from = _turned
+				cue("turnstile_clack", at)
+				cue("turnstile_clack", at + Constants.ANNEX_TURNSTILE_TURN_SECONDS * 0.5)
+				_set_solid(false)
+				var seconds := float(args.get("seconds", 0.0))
+				if seconds > 0.0:
+					_busy_until = at + seconds
+			&"bounce":
+				_turn_from = _turned
+				cue("turnstile_clunk", at)
+			&"closed":
+				_set_solid(true)
+
+	func _set_solid(on: bool) -> void:
+		var shape := _body.get_child(0) as CollisionShape3D
+		shape.set_deferred("disabled", not on)
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		match state:
+			&"open":
+				var k := clampf(since / Constants.ANNEX_TURNSTILE_TURN_SECONDS, 0.0, 1.0)
+				# A clacking turn: two ratchet steps, not a smooth spin.
+				var steps := floorf(k * 2.0) * 0.5 + OfficeProps.ease_out(fmod(k * 2.0, 1.0)) * 0.5
+				if k >= 1.0:
+					steps = 1.0
+				var basis_spin: float = _turn_from + steps * TAU / 3.0
+				_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, basis_spin)
+				if k >= 1.0:
+					_turned = fmod(_turn_from + TAU / 3.0, TAU)
+				var seconds := float(state_args.get("seconds", 0.0))
+				if seconds > 0.0 and since >= seconds:
+					set_state(&"closed", state_at + seconds)
+					return false
+				return k < 1.0 or seconds > 0.0
+			&"bounce":
+				var k := clampf(since / Constants.ANNEX_TURNSTILE_BOUNCE_SECONDS, 0.0, 1.0)
+				_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, _turn_from + sin(k * PI * 3.0) * 0.12 * (1.0 - k))
+				return k < 1.0
+		return false
+
+
+## A row of fluorescent panels in the drop ceiling, and its warm fill light.
+class LightRow extends Prop:
+	var lit: bool = true
+	var _panels: MeshInstance3D
+	var _on_mat: StandardMaterial3D
+	var _off_mat: StandardMaterial3D
+	var _lights: Array[OmniLight3D] = []
+
+	func build(width: float, panel_count: int) -> void:
+		var kit := _MeshKit.new()
+		for index: int in panel_count:
+			var x := -width * 0.5 + (float(index) + 0.5) * width / float(panel_count)
+			kit.box(Vector3(x, 0.0, 0.0), Vector3(1.1, 0.02, 0.5), Color.WHITE)
+		_panels = MeshInstance3D.new()
+		_panels.name = "Panels"
+		_panels.mesh = kit.commit()
+		_on_mat = OfficeProps.glow_material(Color(1.0, 0.97, 0.9), 0.9)
+		_off_mat = StandardMaterial3D.new()
+		_off_mat.albedo_color = Color(0.55, 0.55, 0.52)
+		_panels.material_override = _on_mat
+		_panels.set_meta("keep_material", true)
+		_panels.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_panels)
+		for side: float in [-0.25, 0.25]:
+			var light := OmniLight3D.new()
+			light.name = "Light%d" % _lights.size()
+			light.light_color = Color(1.0, 0.92, 0.8)
+			light.light_energy = Constants.ANNEX_LAMP_ENERGY
+			light.omni_range = Constants.ANNEX_LAMP_RANGE
+			light.omni_attenuation = 1.2
+			light.position = Vector3(side * width, -0.7, 0.0)
+			light.shadow_enabled = false
+			light.add_to_group("lamps")
+			add_child(light)
+			_lights.append(light)
+
+	func _begin(next: StringName, at: float, _args: Dictionary) -> void:
+		if next == &"off":
+			cue("lights_off_clunk", at)
+		elif next == &"on":
+			_set_lit(true, 1.0)
+
+	func _set_lit(on: bool, level: float) -> void:
+		lit = on
+		_panels.material_override = _on_mat if on else _off_mat
+		for light: OmniLight3D in _lights:
+			light.visible = on
+			light.light_energy = Constants.ANNEX_LAMP_ENERGY * level
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		match state:
+			&"off":
+				_set_lit(since < 0.0, 1.0)
+				return since < 0.0
+			&"flicker":
+				# A tired tube: mostly on, dropping out in uneven blinks.
+				var blink := sin(since * 23.0) + sin(since * 37.0 + 1.3) > 1.2
+				_set_lit(not blink, 0.8 if blink else 1.0)
+				return true
+		_set_lit(true, 1.0)
+		return false
+
+
+## A wall clock whose hands go set_speed times real time (closing time speeds it).
+class WallClock extends Node3D:
+	var speed: float = 1.0
+	var minutes: float = 16.0 * 60.0 + 25.0
+	var _minute: Node3D
+	var _hour: Node3D
+
+	func build() -> void:
+		# A school clock facing +Z: a black rim round a white face, twelve ticks.
+		var kit := _MeshKit.new()
+		kit.tube(PackedVector3Array([Vector3(0.0, 0.0, -0.03), Vector3(0.0, 0.0, 0.02)]), PackedFloat32Array([0.3, 0.3]), PAPER, 18, {"jitter": 0.0})
+		kit.tube(PackedVector3Array([Vector3(0.0, 0.0, -0.03), Vector3(0.0, 0.0, 0.035)]), PackedFloat32Array([0.32, 0.32]), DARK, 18, {"jitter": 0.0, "cap": false})
+		for tick: int in 12:
+			var angle := TAU * float(tick) / 12.0
+			kit.box(Vector3(sin(angle) * 0.25, cos(angle) * 0.25, 0.022), Vector3(0.015, 0.04, 0.004), DARK, Basis(Vector3.BACK, -angle))
+		OfficeProps._view(self, kit, "Face", {}, true)
+		_minute = _hand(0.22, 0.012)
+		_hour = _hand(0.14, 0.018)
+		set_process(true)
+
+	func _hand(length: float, width: float) -> Node3D:
+		var pivot := Node3D.new()
+		add_child(pivot)
+		pivot.position = Vector3(0.0, 0.0, 0.03)
+		var kit := _MeshKit.new()
+		kit.box(Vector3(0.0, length * 0.4, 0.0), Vector3(width, length, 0.006), DARK)
+		OfficeProps._view(pivot, kit, "Hand")
+		return pivot
+
+	func set_speed(times: float) -> void:
+		speed = times
+
+	func _process(delta: float) -> void:
+		minutes += delta * speed / 60.0
+		_minute.rotation.z = -TAU * fmod(minutes, 60.0) / 60.0
+		_hour.rotation.z = -TAU * fmod(minutes / 60.0, 12.0) / 12.0
+
+
+## The NOW SERVING board: a number, nothing else.
+class NowServing extends Node3D:
+	var number: int = 7
+	var _label3d: Label3D
+
+	func build() -> void:
+		var kit := _MeshKit.new()
+		kit.box(Vector3.ZERO, Vector3(1.25, 0.56, 0.06), DARK)
+		OfficeProps._view(self, kit, "Board", {}, true)
+		_label3d = OfficeProps._label(self, "", Vector3(0.0, 0.0, 0.035), 56, Color(1.0, 0.35, 0.2), 0.0032)
+		show_number(number)
+
+	func show_number(n: int) -> void:
+		number = n
+		_label3d.text = "%s\n%02d" % [_Strings.ANNEX_SIGNS["now_serving"], posmod(n, 100)]
+
+
+## A glass door (or a pair) that slides open sideways, with its collider.
+class SlideDoor extends Prop:
+	var _panels: Array[Node3D] = []
+	var _closed_x: Array[float] = []
+	var _width: float
+	var _bodies: Array[CollisionShape3D] = []
+	var _open_from: float = 0.0
+	var opened: float = 0.0
+
+	func build(width: float, pair: bool) -> void:
+		_width = width
+		var count := 2 if pair else 1
+		var glass := OfficeProps.glass_material()
+		for index: int in count:
+			var panel := Node3D.new()
+			panel.name = "Panel%d" % index
+			add_child(panel)
+			var x := (-width * 0.25 if index == 0 else width * 0.25) if pair else 0.0
+			panel.position.x = x
+			_closed_x.append(x)
+			var w := width * 0.5 if pair else width
+			var kit := _MeshKit.new()
+			kit.box(Vector3(0.0, 1.1, 0.0), Vector3(w, 0.06, 0.06), TRIM)
+			kit.box(Vector3(0.0, 0.03, 0.0), Vector3(w, 0.06, 0.06), TRIM)
+			kit.box(Vector3(-w * 0.5 + 0.03, 1.1, 0.0), Vector3(0.06, 2.2, 0.06), TRIM)
+			kit.box(Vector3(w * 0.5 - 0.03, 1.1, 0.0), Vector3(0.06, 2.2, 0.06), TRIM)
+			kit.box(Vector3(0.0, 2.17, 0.0), Vector3(w, 0.06, 0.06), TRIM)
+			kit.box(Vector3((w * 0.5 - 0.12) * (1.0 if index == 0 else -1.0), 1.05, 0.04), Vector3(0.03, 0.4, 0.03), STEEL)
+			OfficeProps._view(panel, kit, "Frame", {"roughness": 0.4})
+			var pane := MeshInstance3D.new()
+			pane.name = "Glass"
+			var quad := QuadMesh.new()
+			quad.size = Vector2(w - 0.1, 2.1)
+			pane.mesh = quad
+			pane.material_override = glass
+			pane.set_meta("keep_material", true)
+			pane.position = Vector3(0.0, 1.1, 0.0)
+			pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			panel.add_child(pane)
+			var body := OfficeProps._solid(panel, "Body", Vector3(w, 2.2, 0.08), Vector3(0.0, 1.1, 0.0))
+			_bodies.append(body.get_child(0) as CollisionShape3D)
+		state = &"closed"
+
+	func _begin(next: StringName, at: float, _args: Dictionary) -> void:
+		_open_from = opened
+		if next == &"open":
+			cue("door_chime", at)
+			for shape: CollisionShape3D in _bodies:
+				shape.set_deferred("disabled", true)
+		elif next == &"closed":
+			for shape: CollisionShape3D in _bodies:
+				shape.set_deferred("disabled", false)
+
+	func _animate(t: float) -> bool:
+		var since := t - state_at
+		var k := clampf(since / Constants.ANNEX_DOOR_SECONDS, 0.0, 1.0)
+		var target := 1.0 if state == &"open" else 0.0
+		opened = lerpf(_open_from, target, OfficeProps.ease_out(k))
+		for index: int in _panels_count():
+			var panel := get_child(index) as Node3D
+			var away := (-1.0 if index == 0 else 1.0) if _closed_x.size() > 1 else 1.0
+			var travel := _width * (0.48 if _closed_x.size() > 1 else 0.95)
+			panel.position.x = _closed_x[index] + away * travel * opened
+		return k < 1.0
+
+	func _panels_count() -> int:
+		return _closed_x.size()
+
+
+## A swinging half door (the staff gate): it swings open when a staff body walks
+## through it, and back with a little wobble. Its collider (door height) keeps the
+## lobby out of the back; the staff are cosmetic and walk through it.
+class StaffDoor extends Node3D:
+	var _leaf: Node3D
+	var _staff: Node3D
+	var _swing: float = 0.0
+	var _speed: float = 0.0
+
+	func build(width: float, staff: Node3D) -> void:
+		_staff = staff
+		_leaf = Node3D.new()
+		_leaf.name = "Leaf"
+		add_child(_leaf)
+		_leaf.position = Vector3(-width * 0.5, 0.0, 0.0)
+		var kit := _MeshKit.new()
+		kit.box(Vector3(width * 0.5, 0.65, 0.0), Vector3(width - 0.04, 0.9, 0.05), WOOD)
+		kit.box(Vector3(width * 0.5, 1.12, 0.0), Vector3(width, 0.06, 0.07), WOOD.darkened(0.2))
+		OfficeProps._view(_leaf, kit, "Mesh")
+		# Taller than the leaf: the lobby can't hop the half door into the back.
+		OfficeProps._solid(self, "Body", Vector3(width, 2.3, 0.08), Vector3(0.0, 1.15, 0.0))
+		set_process(true)
+
+	func _process(delta: float) -> void:
+		var want := 0.0
+		if _staff != null:
+			for body: Node in _staff.get_children():
+				var person := body as Node3D
+				if person != null and person.global_position.distance_to(global_position) < 0.9:
+					want = 1.4 * signf((global_transform.affine_inverse() * person.global_position).z + 0.001)
+		# A spring: it overshoots and swings back.
+		_speed += (want - _swing) * 40.0 * delta - _speed * 6.0 * delta
+		_swing += _speed * delta
+		_leaf.rotation.y = _swing
+
+
+# ---------------------------------------------------------------- builders
+
+static func service_window(id: String, look: Dictionary) -> Node3D:
+	var window := ServiceWindow.new()
+	window.build(id, look)
+	return window
+
+
+static func floor_line(points: PackedVector3Array, color: Color) -> Node3D:
+	var line := FloorLine.new()
+	line.build(points, color)
+	return line
+
+
+static func big_stamp() -> Node3D:
+	var stamp := BigStamp.new()
+	stamp.name = "BigStamp"
+	stamp.build()
+	return stamp
+
+
+static func appliance(kind: String) -> Node3D:
+	var made := Appliance.new()
+	made.build(kind)
+	return made
+
+
+static func cosign_sheet() -> Node3D:
+	var sheet := CoSignSheet.new()
+	sheet.name = "CoSignSheet"
+	sheet.build()
+	return sheet
+
+
+static func outgoing_tray() -> Node3D:
+	var tray := OutgoingTray.new()
+	tray.name = "OutgoingTray"
+	tray.build()
+	return tray
+
+
+static func turnstile(passage: float) -> Node3D:
+	var made := Turnstile.new()
+	made.name = "Turnstile"
+	made.build(passage)
+	return made
+
+
+static func light_row(index: int, width: float, panels: int) -> Node3D:
+	var row := LightRow.new()
+	row.name = "Row%d" % index
+	row.build(width, panels)
+	return row
+
+
+static func wall_clock() -> Node3D:
+	var clock := WallClock.new()
+	clock.name = "WallClock"
+	clock.build()
+	return clock
+
+
+static func now_serving() -> Node3D:
+	var board := NowServing.new()
+	board.name = "NowServing"
+	board.build()
+	return board
+
+
+static func slide_door(node_name: String, width: float, pair: bool) -> Node3D:
+	var door := SlideDoor.new()
+	door.name = node_name
+	door.build(width, pair)
+	return door
+
+
+static func staff_door(width: float, staff: Node3D) -> Node3D:
+	var door := StaffDoor.new()
+	door.name = "StaffDoor"
+	door.build(width, staff)
+	return door
