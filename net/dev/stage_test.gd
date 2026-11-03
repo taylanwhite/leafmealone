@@ -584,12 +584,17 @@ func _goal_step() -> void:
 		return
 	var me := Net.local_peer_id()
 	var dimmed: Array[String] = []
+	# The director's own tick would end a DEPARTING with no van or crew at once
+	# (R2:2), so it holds still while the test sets the phases by hand.
+	var was_processing := director.is_processing()
+	director.set_process(false)
 	for phase: int in [1, 2, 3]:
 		director.rpc("_rpc_phase", phase, Net.server_time(), "")
 		await get_tree().create_timer(0.5).timeout
 		if goal.modulate.a > 0.05 or not _UiRoot.goal_hidden_by_raid(get_tree(), me):
 			dimmed.append("phase %d alpha %.2f" % [phase, goal.modulate.a])
 	director.rpc("_rpc_phase", 0, Net.server_time(), "")
+	director.set_process(was_processing)
 	await get_tree().create_timer(0.6).timeout
 	var back := goal.modulate.a > 0.95 and not _UiRoot.goal_hidden_by_raid(get_tree(), me)
 	_step("goal", dimmed.is_empty() and back, "dimmed in WARNING, CHASE, DEPARTING %s, back after %s (alpha %.2f)" % [dimmed.is_empty() if dimmed.is_empty() else dimmed, back, goal.modulate.a])
