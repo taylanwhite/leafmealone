@@ -10,7 +10,15 @@ extends CanvasLayer
 @onready var _ended_reason: Label = %EndedReason
 @onready var _leave: Button = %LeaveButton
 
-var _cleanup: Label
+## Top-left: [cash] $340, [leaf] 42.0%, [Chefty] 4/50 (on a job), then _status
+## for the crew, crossing and voice lines (icons chunk E).
+var _hud_rows: VBoxContainer
+var _wallet_label: Label
+var _cleanup_label: Label
+var _chefty_row: Control
+var _chefty_label: Label
+var _status: Label
+var _task_list: Control
 var _lobby: VBoxContainer
 var _lobby_players: Label
 var _start_button: Button
@@ -26,8 +34,17 @@ var _settings_button: Button
 var _fps: Label
 
 const _Strings = preload("res://ui/strings.gd")
+const _Icons = preload("res://ui/icons.gd")
 ## The lobby column's width, in UI pixels (presentation).
 const LOBBY_WIDTH: float = 320.0
+## Where the HUD rows start, and the gap between them and the job list under them.
+const HUD_AT := Vector2(16, 16)
+const HUD_ROW_GAP: int = 4
+const TASK_LIST_GAP: float = 10.0
+## The job list never sits higher than this (its old spot, under three rows).
+const TASK_LIST_MIN_Y: float = 104.0
+## The icons on the pause stack's Call-the-NICE-BOYS and Voice buttons.
+const BUTTON_ICON_PX: int = 24
 
 
 func _ready() -> void:
@@ -35,12 +52,7 @@ func _ready() -> void:
 	_scene_text()
 	# The mixer buses exist in every run, so a player's .bus always resolves.
 	preload("res://audio/buses.gd").ensure()
-	_cleanup = Label.new()
-	_cleanup.position = Vector2(16, 16)
-	_cleanup.add_theme_color_override("font_shadow_color", Color.BLACK)
-	_cleanup.add_theme_constant_override("shadow_offset_x", 1)
-	_cleanup.add_theme_constant_override("shadow_offset_y", 1)
-	add_child(_cleanup)
+	_build_hud_rows()
 	if Net.is_automated():
 		hide()
 		return
@@ -74,6 +86,7 @@ func _ready() -> void:
 	var task_list := preload("res://ui/task_list.gd").new()
 	task_list.name = "TaskList"
 	add_child(task_list)
+	_task_list = task_list
 	# The spine (docs/SPINE.md): the clock and rank, the day's summary, the phone.
 	var day_hud := preload("res://ui/day_hud.gd").new()
 	day_hud.name = "DayHud"
@@ -110,6 +123,7 @@ func _ready() -> void:
 	_crew_button.offset_top = -112.0
 	_crew_button.offset_bottom = -72.0
 	_crew_button.pressed.connect(_on_call_crew_pressed)
+	_button_icon(_crew_button, "heat")
 	add_child(_crew_button)
 	_voice_panel = preload("res://ui/voice_panel.gd").new()
 	_voice_panel.name = "VoicePanel"
@@ -123,6 +137,7 @@ func _ready() -> void:
 	_voice_button.offset_top = -160.0
 	_voice_button.offset_bottom = -120.0
 	_voice_button.pressed.connect(func() -> void: _voice_panel.call("open"))
+	_button_icon(_voice_button, "voice")
 	add_child(_voice_button)
 	_build_settings()
 	Net.state_changed.connect(_on_state_changed)
@@ -130,8 +145,8 @@ func _ready() -> void:
 	_on_state_changed(Net.current_state())
 
 
-func _process(_delta: float) -> void:
-	if _cleanup == null:
+func _process(delta: float) -> void:
+	if _hud_rows == null:
 		return
 	if _fps != null:
 		_fps.visible = bool(Settings.get_value("interface", "show_fps"))
@@ -139,15 +154,16 @@ func _process(_delta: float) -> void:
 			_fps.text = _Strings.UI["fps_label"] % roundi(Engine.get_frames_per_second())
 	var fields := get_tree().get_nodes_in_group("leaf_field")
 	if fields.is_empty() or Net.current_state() != Net.State.IN_SESSION:
-		_cleanup.visible = false
+		_hud_rows.visible = false
 		return
-	_cleanup.visible = true
+	_hud_rows.visible = true
 	var fraction: float = fields[0].call("cleaned_fraction")
-	var truck_line := ""
+	_set_text(_wallet_label, str(_Strings.UI["hud_wallet_amount"]) % Campaign.credits(Net.local_peer_id()))
+	_set_text(_cleanup_label, str(_Strings.UI["hud_cleanup_amount"]) % (fraction * 100.0))
 	var chefty := get_tree().get_first_node_in_group("chefty")
+	_chefty_row.visible = chefty != null
 	if chefty != null:
-		var bags := str(_Strings.UI["hud_chefty_amount"]) % [int(chefty.call("bag_count")), Constants.TRUCK_BAG_CAPACITY]
-		truck_line = "\n" + str(_Strings.UI["hud_chefty_row"]) % bags
+		_set_text(_chefty_label, str(_Strings.UI["hud_chefty_amount"]) % [int(chefty.call("bag_count")), Constants.TRUCK_BAG_CAPACITY])
 	var crew_line := ""
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
@@ -160,10 +176,13 @@ func _process(_delta: float) -> void:
 		if crossing_status != "":
 			crew_line += "\n" + crossing_status
 	crew_line += _voice_line()
-	# What interact does is shown over the thing itself (ui/interaction_prompt.gd), so the HUD stays short.
-	var cleanup := str(_Strings.UI["hud_cleanup_row"]) % (str(_Strings.UI["hud_cleanup_amount"]) % (fraction * 100.0))
-	# The hiding, push-to-talk and crossing lines name keys with {key:} tokens.
-	_cleanup.text = _Strings.keyed((str(_Strings.UI["hud_wallet"]) % Campaign.credits(Net.local_peer_id())) + "\n" + cleanup + truck_line + crew_line)
+	# What interact does is shown over the thing itself (ui/interaction_prompt.gd), so
+	# the HUD stays short. The hiding, push-to-talk and crossing lines name keys with
+	# {key:} tokens; the status block is a Label, so they read as "[E]".
+	crew_line = _Icons.plain(crew_line.trim_prefix("\n"))
+	_status.visible = crew_line != ""
+	_set_text(_status, crew_line)
+	_follow_task_list(delta)
 	if _lobby != null and _lobby.visible:
 		var lines: PackedStringArray = PackedStringArray()
 		for peer_id: int in Net.peer_ids():
@@ -172,6 +191,65 @@ func _process(_delta: float) -> void:
 			lines.append("%s  %s%s" % [Net.player_name(peer_id), ready, talking])
 		_lobby_players.text = "\n".join(lines)
 		_start_button.visible = Net.is_host()
+
+
+## The top-left block: three icon rows and the status lines under them. Built in
+## automated runs too (hidden with the rest of the UI), so _hud_rows always exists.
+func _build_hud_rows() -> void:
+	_hud_rows = VBoxContainer.new()
+	_hud_rows.name = "HudRows"
+	_hud_rows.position = HUD_AT
+	_hud_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud_rows.add_theme_constant_override("separation", HUD_ROW_GAP)
+	add_child(_hud_rows)
+	_wallet_label = _hud_label()
+	_hud_rows.add_child(_Icons.row("cash", _wallet_label, _Icons.SIZE_HUD))
+	_cleanup_label = _hud_label()
+	_hud_rows.add_child(_Icons.row("cleanup", _cleanup_label, _Icons.SIZE_HUD))
+	_chefty_label = _hud_label()
+	# brand_chefty, not item_chefty: the side-on truck is a sliver at 22 px, the
+	# chef-hat grille reads.
+	_chefty_row = _Icons.row("brand_chefty", _chefty_label, _Icons.SIZE_HUD)
+	_chefty_row.visible = false
+	_hud_rows.add_child(_chefty_row)
+	_status = _hud_label()
+	_status.visible = false
+	_hud_rows.add_child(_status)
+
+
+func _hud_label() -> Label:
+	var label := Label.new()
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_color_override("font_shadow_color", Color.BLACK)
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+	return label
+
+
+## Sets a label's text only when it changed (no relayout every frame).
+func _set_text(label: Label, text: String) -> void:
+	if label.text != text:
+		label.text = text
+
+
+## The job list sits under the HUD rows, gliding down when a status line appears
+## (the NICE BOYS, hiding, talking) and back up when it goes, instead of hiding
+## under them or jumping.
+func _follow_task_list(delta: float) -> void:
+	if _task_list == null:
+		return
+	var target := maxf(TASK_LIST_MIN_Y, _hud_rows.position.y + _hud_rows.get_combined_minimum_size().y + TASK_LIST_GAP)
+	if not _task_list.visible:
+		_task_list.position.y = target
+		return
+	_task_list.position.y = lerpf(_task_list.position.y, target, 1.0 - exp(-Constants.ICONS_HUD_FOLLOW_RATE * delta))
+
+
+## A small icon on a pause-stack button, left of its words.
+func _button_icon(button: Button, id: String) -> void:
+	button.icon = _Icons.texture(id)
+	button.expand_icon = true
+	button.add_theme_constant_override("icon_max_width", BUTTON_ICON_PX)
 
 
 ## "Talking" while this player's voice is going out, or the push-to-talk hint,
@@ -378,6 +456,7 @@ func _build_lobby() -> void:
 	var voice := Button.new()
 	voice.text = _Strings.UI["voice_button"]
 	voice.pressed.connect(func() -> void: _voice_panel.call("open"))
+	_button_icon(voice, "voice")
 	_lobby.add_child(title)
 	_lobby.add_child(_lobby_players)
 	_lobby.add_child(ready)

@@ -1378,6 +1378,25 @@ const ICONS_HOVER_SECONDS: float = 0.12
 ## A confirmed buy squash-pops the item's icon: this much wider then taller, over this long.
 const ICONS_POP_STRETCH: float = 0.22
 const ICONS_POP_SECONDS: float = 0.3
+# The phone's and the HUD's icon motion (ui/phone.gd, ui/day_hud.gd, ui/task_list.gd,
+# ui/heat_meter.gd, ui/ui_root.gd; icons chunk E).
+## A tapped phone dock tile dips to this scale, then springs back with an overshoot.
+const ICONS_DOCK_PRESS_SCALE: float = 0.86
+const ICONS_DOCK_PRESS_SECONDS: float = 0.06
+const ICONS_DOCK_SETTLE_SECONDS: float = 0.24
+## Above this heat share the heat meter's siren rocks, up to this many radians,
+## at this many radians of phase per second (the same pulse as its bar). The
+## rock fades in over ICONS_SIREN_RAMP of share, so it never snaps on.
+const ICONS_SIREN_FROM: float = 0.8
+const ICONS_SIREN_RAMP: float = 0.06
+const ICONS_SIREN_ROCK_RAD: float = 0.14
+const ICONS_SIREN_SPEED: float = 8.0
+## How fast the job list glides to sit under the HUD rows when they grow or
+## shrink (1/s; an exponential approach, never a snap).
+const ICONS_HUD_FOLLOW_RATE: float = 12.0
+## The day HUD's rank block fades out over this long when the phone comes out
+## over it, and back in when it's put away.
+const ICONS_HUD_FADE_SECONDS: float = 0.15
 
 # ---- art: the job yard
 # The job yard in its neighborhood's style (levels/lots/lot_generator.gd; art chunk 6).

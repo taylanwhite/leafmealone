@@ -6,10 +6,16 @@ extends PanelContainer
 ## you), Map (the neighborhoods and what opens them), and Crew (the rank, XP,
 ## and perks). Everything it shows comes from net/town/town.gd, the day clock,
 ## and Campaign; taking a job asks the job board, like walking up to it.
+## Every app wears its icons (gap-specs/icons.json chunk E; docs/GAME.md, "Icons"):
+## app tiles in the dock, the app's tile in the header, an avatar on every text,
+## heart rows for clients, hood pins on the map, the crew's rank badge and a
+## badge-and-unlock ladder. A tapped tile bounces with ui_pop.
 
 const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
+const _Icons = preload("res://ui/icons.gd")
+const _Look = preload("res://ui/catalog_look.gd")
 const BEZEL := Color(0.1, 0.1, 0.12)
 const SCREEN := Color(0.96, 0.95, 0.92)
 const INK := Color(0.15, 0.15, 0.17)
@@ -19,9 +25,25 @@ const GREEN := Color(0.2, 0.6, 0.3)
 const BUBBLE := Color(0.88, 0.9, 0.95)
 const BUBBLE_JOB := Color(1.0, 0.92, 0.8)
 const APPS: Array[String] = ["texts", "clients", "map", "crew"]
+const HEART := Color(0.85, 0.25, 0.3)
+## How wide a line of words is on the screen; a text's words leave room for its avatar.
+const LINE_WIDTH: float = 300.0
+const TEXT_WIDTH: float = LINE_WIDTH - _Icons.SIZE_AVATAR - 8.0
+## Icon sizes inside the apps, in pixels of height.
+const HEADER_ICON_PX: float = 28.0
+const DOCK_TILE := Vector2(64, 64)
+const DOCK_FONT: int = 12
+const HEART_PX: float = 16.0
+const LIKES_PX: float = 18.0
+const PIN_PX: float = 28.0
+const LOCK_PX: float = 18.0
+const CREW_BADGE_PX: float = 72.0
+const STAT_PX: float = 18.0
+const LADDER_PX: float = 20.0
 
 var _app: String = "texts"
 var _header: Label
+var _header_icon: Control
 var _list: VBoxContainer
 var _scroll: ScrollContainer
 var _tabs: Dictionary = {}
@@ -43,8 +65,14 @@ func _ready() -> void:
 	column.add_theme_constant_override("separation", 8)
 	screen.add_child(column)
 	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
 	column.add_child(top)
+	# The open app's own tile, beside its name (swapped in _rebuild).
+	_header_icon = _Icons.rect(_Icons.for_app(_app), HEADER_ICON_PX)
+	_header_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(_header_icon)
 	_header = _text("", 22, INK)
+	_header.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(_header)
 	var close := Button.new()
@@ -66,12 +94,23 @@ func _ready() -> void:
 	dock.add_theme_constant_override("separation", 6)
 	column.add_child(dock)
 	for app: String in APPS:
+		# A home-screen tile: the app's icon over its name.
 		var button := Button.new()
 		button.text = _Strings.UI["phone_tab_" + app]
+		button.icon = _Icons.texture(_Icons.for_app(app))
+		button.expand_icon = true
+		button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		button.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		button.custom_minimum_size = DOCK_TILE
 		button.toggle_mode = true
 		button.focus_mode = Control.FOCUS_NONE
-		button.add_theme_font_size_override("font_size", 15)
-		button.pressed.connect(func() -> void: show_app(app))
+		button.add_theme_font_size_override("font_size", DOCK_FONT)
+		button.add_theme_constant_override("icon_max_width", _Icons.SIZE_DOCK)
+		button.pressed.connect(func() -> void:
+			_bounce(button)
+			_Look.sfx(self, "ui_pop")
+			show_app(app)
+		)
 		dock.add_child(button)
 		_tabs[app] = button
 	_hook_world.call_deferred()
@@ -171,6 +210,7 @@ func _rebuild() -> void:
 	for child: Node in _list.get_children():
 		child.queue_free()
 	_header.text = _Strings.UI["phone_tab_" + _app]
+	_swap_icon(_header_icon, _Icons.for_app(_app))
 	var town := get_tree().get_first_node_in_group("town")
 	match _app:
 		"texts":
@@ -206,13 +246,22 @@ func _texts(town: Node) -> void:
 			answered[int(message.get("house", -1))] = true
 		var bubble := PanelContainer.new()
 		bubble.add_theme_stylebox_override("panel", _box(BUBBLE_JOB if is_job else BUBBLE, 14, BUBBLE, 0, 10))
+		bubble.set_meta("text_bubble", true)
+		# Who it's from, as a face: Homie Depot's mark, a client card, TurfMasters...
+		var from_row := HBoxContainer.new()
+		from_row.add_theme_constant_override("separation", 8)
+		bubble.add_child(from_row)
+		var avatar := _Icons.rect(str(_Icons.TEXT_AVATARS.get(str(message.get("kind", "")), "app_texts")), _Icons.SIZE_AVATAR)
+		avatar.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		from_row.add_child(avatar)
 		var column := VBoxContainer.new()
-		bubble.add_child(column)
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		from_row.add_child(column)
 		var head := str(_Strings.UI["phone_text_head"]) % [str(message.get("from", "")), int(message.get("day", 1)), str(message.get("time", ""))]
 		column.add_child(_text(head, 13, SOFT))
 		var body := _text(str(message.get("text", "")), 16, INK)
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.custom_minimum_size.x = 300
+		body.custom_minimum_size.x = TEXT_WIDTH
 		column.add_child(body)
 		if is_job:
 			var house_id := int(message.get("house", -1))
@@ -257,9 +306,12 @@ func _clients(town: Node) -> void:
 			var owner: Dictionary = house["owner"]
 			var card := VBoxContainer.new()
 			card.add_child(_text(_Strings.UI["phone_client_line"] % [str(town.call("owner_name", house_id)), str(town.call("address", house_id))], 16, INK))
-			card.add_child(_text(_hearts(float(house.get("relationship", 0.0))), 15, Color(0.85, 0.25, 0.3)))
+			card.add_child(_heart_row(float(house.get("relationship", 0.0))))
 			if bool(house.get("poached", false)):
-				card.add_child(_text(_Strings.UI["phone_poached"], 14, Color(0.1, 0.5, 0.25)))
+				var poached := _text(_Strings.UI["phone_poached"], 14, Color(0.1, 0.5, 0.25))
+				poached.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				poached.custom_minimum_size.x = LINE_WIDTH - LIKES_PX - 6.0
+				card.add_child(_icon_line("brand_turfmasters", poached, LIKES_PX))
 			var last := int(house.get("last_day", -1))
 			var last_text: String = _Strings.UI["phone_last_never"]
 			if last == today:
@@ -271,13 +323,18 @@ func _clients(town: Node) -> void:
 			var detail := _Strings.UI["phone_client_detail"] % [_picky(float(owner.get("standards", 0.3))), likes_text if likes_text != "" else str(_Strings.UI["phone_no_favorite"]), int(house.get("jobs", 0)), last_text]
 			var detail_label := _text(detail, 13, SOFT)
 			detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			detail_label.custom_minimum_size.x = 300
-			card.add_child(detail_label)
+			if likes_text != "":
+				# Their favorite job's badge leads the line that names it.
+				detail_label.custom_minimum_size.x = LINE_WIDTH - LIKES_PX - 6.0
+				card.add_child(_icon_line(_Icons.for_task(likes), detail_label, LIKES_PX))
+			else:
+				detail_label.custom_minimum_size.x = LINE_WIDTH
+				card.add_child(detail_label)
 			var blurb := str(_Strings.PERSONALITY_BLURBS.get(str(owner.get("personality", "")), ""))
 			if blurb != "":
 				var blurb_label := _text(blurb, 13, SOFT)
 				blurb_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-				blurb_label.custom_minimum_size.x = 300
+				blurb_label.custom_minimum_size.x = LINE_WIDTH
 				card.add_child(blurb_label)
 			_list.add_child(card)
 
@@ -293,33 +350,48 @@ func _map(town: Node) -> void:
 		var open: bool = town != null and bool(town.call("is_hood_open", hood_id))
 		var line := ""
 		var color := INK
+		var opens_at := _Ranks.tier_of("hood:" + hood_id)
 		if open and known > 0:
 			line = _Strings.UI["phone_hood_open"] % [str(hood["name"]), known]
 		elif open:
 			line = _Strings.UI["phone_hood_waiting"] % str(hood["name"])
 			color = SOFT
 		else:
-			line = _Strings.UI["phone_hood_locked"] % [str(hood["name"]), _Ranks.title(_Ranks.tier_of("hood:" + hood_id))]
+			line = _Strings.UI["phone_hood_locked"] % [str(hood["name"]), _Ranks.title(opens_at)]
 			color = SOFT
-		_list.add_child(_text(line, 17, color))
+		var label := _text(line, 17, color)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var row := _Icons.row(_Icons.for_hood(hood_id), label, PIN_PX)
+		if not open:
+			# Faded pin, a lock, and the badge of the rank that opens it.
+			(row.get_child(0) as Control).modulate = Color(1.0, 1.0, 1.0, 0.55)
+			for icon: Control in [_Icons.rect("lock", LOCK_PX), _Icons.rect(_Icons.for_rank(opens_at), LADDER_PX)]:
+				icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				row.add_child(icon)
+		_list.add_child(row)
 		var blurb := _text(str(_Strings.HOOD_BLURBS.get(hood_id, "")), 13, SOFT)
 		blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		blurb.custom_minimum_size.x = 300
+		blurb.custom_minimum_size.x = LINE_WIDTH
 		_list.add_child(blurb)
 
 
 func _crew() -> void:
 	var tier := Campaign.crew_tier()
-	_list.add_child(_text(_Ranks.title(tier), 24, ORANGE))
+	# The crew's rank badge, big, beside its title.
+	var title := _text(_Ranks.title(tier), 24, ORANGE)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_list.add_child(_Icons.row(_Icons.for_rank(tier), title, CREW_BADGE_PX))
 	var need := _Ranks.xp_for_tier(tier)
 	var into := _Ranks.xp_into_tier(Campaign.crew_xp())
-	_list.add_child(_text(_Strings.UI["hud_xp"] % [into, need, Campaign.pending_xp()], 15, INK))
+	_list.add_child(_Icons.row("xp", _text(_Strings.UI["hud_xp"] % [into, need, Campaign.pending_xp()], 15, INK), STAT_PX))
 	var next := _Ranks.unlock_at(tier + 1)
 	if next != "":
 		var line := _text(_Strings.UI["phone_next_unlock"] % [_Strings.unlock_name(next), _Ranks.title(tier + 1)], 15, INK)
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		line.custom_minimum_size.x = 300
-		_list.add_child(line)
+		line.custom_minimum_size.x = LINE_WIDTH - STAT_PX - 6.0
+		_list.add_child(_icon_line(_Icons.for_unlock(next), line, STAT_PX))
 	var perks := PackedStringArray()
 	for unlock: String in _Ranks.unlocks_through(tier):
 		if unlock.begins_with("perk:"):
@@ -327,18 +399,24 @@ func _crew() -> void:
 	if not perks.is_empty():
 		var perk_label := _text(_Strings.UI["phone_perks"] % ", ".join(perks), 13, SOFT)
 		perk_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		perk_label.custom_minimum_size.x = 300
-		_list.add_child(perk_label)
+		perk_label.custom_minimum_size.x = LINE_WIDTH - STAT_PX - 6.0
+		_list.add_child(_icon_line("perk", perk_label, STAT_PX))
 	_hires()
 	_list.add_child(HSeparator.new())
-	# The ladder ahead: the next few tiers and what each brings.
+	# The ladder ahead: the next few tiers, each as its rank's badge, what it
+	# brings, and the words.
 	for ahead: int in range(tier + 1, tier + 6):
 		var unlock := _Ranks.unlock_at(ahead)
 		if unlock == "":
 			continue
-		var row := _text("%s: %s" % [_Ranks.title(ahead), _Strings.unlock_name(unlock)], 13, SOFT)
-		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		row.custom_minimum_size.x = 300
+		var words := _text("%s: %s" % [_Ranks.title(ahead), _Strings.unlock_name(unlock)], 13, SOFT)
+		words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.custom_minimum_size.x = LINE_WIDTH - LADDER_PX * 2.0 - 12.0
+		var row := _icon_line(_Icons.for_rank(ahead), words, LADDER_PX)
+		var brings := _Icons.rect(_Icons.for_unlock(unlock), LADDER_PX)
+		brings.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		row.add_child(brings)
+		row.move_child(brings, 1)
 		_list.add_child(row)
 
 
@@ -351,10 +429,13 @@ func _hires() -> void:
 	_list.add_child(HSeparator.new())
 	var slots := int(hires.call("slots"))
 	if slots <= 0:
-		_list.add_child(_text(_Strings.UI["phone_hires_locked"] % _Ranks.title(_Ranks.tier_of("feature:hiring")), 14, SOFT))
+		var locked := _text(_Strings.UI["phone_hires_locked"] % _Ranks.title(_Ranks.tier_of("feature:hiring")), 14, SOFT)
+		var row := _Icons.row("app_hires", locked, STAT_PX)
+		(row.get_child(0) as Control).modulate = Color(1.0, 1.0, 1.0, 0.55)
+		_list.add_child(row)
 		return
 	var hands: Array = hires.get("hands")
-	_list.add_child(_text(_Strings.UI["phone_hires_title"] % [hands.size(), slots], 17, INK))
+	_list.add_child(_Icons.row("app_hires", _text(_Strings.UI["phone_hires_title"] % [hands.size(), slots], 17, INK), HEADER_ICON_PX))
 	for entry: Variant in hands:
 		var hand := entry as Dictionary
 		var row := HBoxContainer.new()
@@ -379,9 +460,62 @@ func _hires() -> void:
 
 # ---------------------------------------------------------------- bits
 
+## The plain-text hearts, for logs and anything that can't show icons.
 func _hearts(relationship: float) -> String:
-	var full := int(round(relationship / 20.0))
+	var full := _heart_count(relationship)
 	return "♥".repeat(full) + "♡".repeat(5 - full)
+
+
+func _heart_count(relationship: float) -> int:
+	return clampi(int(round(relationship / 20.0)), 0, 5)
+
+
+## Five heart icons, filled to how the client feels about the crew (0 to 100).
+func _heart_row(relationship: float) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var full := _heart_count(relationship)
+	for index: int in 5:
+		row.add_child(_Icons.rect("heart" if index < full else "heart_empty", HEART_PX))
+	return row
+
+
+## An icon in front of a line that may wrap: the icon sits by its first line.
+func _icon_line(id: String, label: Label, px: float) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var icon := _Icons.rect(id, px)
+	icon.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(icon)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(label)
+	return row
+
+
+## Points an icon made by Icons.rect at another id (the header's app tile).
+func _swap_icon(icon: Control, id: String) -> void:
+	var view := icon as TextureRect
+	if view == null or str(icon.get_meta("icon", "")) == id:
+		return
+	var found := _Icons.texture(id)
+	if found == null:
+		return
+	view.texture = found
+	view.set_meta("icon", id)
+
+
+## A tapped dock tile dips and springs back, like a home-screen icon.
+func _bounce(tile: Control) -> void:
+	tile.pivot_offset = tile.size * 0.5
+	var running := tile.get_meta("bounce") as Tween if tile.has_meta("bounce") else null
+	if running != null and running.is_valid():
+		running.kill()
+	var tween := tile.create_tween()
+	tile.set_meta("bounce", tween)
+	tween.tween_property(tile, "scale", Vector2.ONE * Constants.ICONS_DOCK_PRESS_SCALE, Constants.ICONS_DOCK_PRESS_SECONDS).set_ease(Tween.EASE_OUT)
+	tween.tween_property(tile, "scale", Vector2.ONE, Constants.ICONS_DOCK_SETTLE_SECONDS).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _picky(standards: float) -> String:

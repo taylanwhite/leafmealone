@@ -189,7 +189,9 @@ static func stars(rating: float, px: float = STAR_PX) -> HBoxContainer:
 
 ## Hovering a card bounces its shelf icon up a little, with the UI tick.
 static func hover(card: Control, shelf_panel: Control) -> void:
-	var icon := shelf_panel.get_meta("shelf_icon", null) as Control
+	if not shelf_panel.has_meta("shelf_icon"):
+		return
+	var icon := shelf_panel.get_meta("shelf_icon") as Control
 	if icon == null:
 		return
 	card.mouse_entered.connect(func() -> void:
@@ -236,7 +238,8 @@ static func _tween_scale(icon: Control, to: Vector2, seconds: float) -> void:
 ## One tween per icon: a new one replaces the running one, so hovering on and off
 ## quickly never leaves two fighting over the scale.
 static func _fresh_tween(icon: Control) -> Tween:
-	var running := icon.get_meta("catalog_tween", null) as Tween
+	# has_meta first: get_meta's null default counts as "no default", and errors.
+	var running := icon.get_meta("catalog_tween") as Tween if icon.has_meta("catalog_tween") else null
 	if running != null and running.is_valid():
 		running.kill()
 	var tween := icon.create_tween()

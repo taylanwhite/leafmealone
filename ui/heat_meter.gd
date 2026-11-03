@@ -5,11 +5,16 @@ extends Control
 ## thing, with a nudge when it crosses the warning marks.
 
 const _Strings = preload("res://ui/strings.gd")
+const _Icons = preload("res://ui/icons.gd")
 const WIDTH: float = 170.0
 const HEIGHT: float = 12.0
 const CAPTION_SECONDS: float = 4.0
+## The siren in front of the title (icons chunk E), and where the bar starts under it.
+const SIREN_PX: float = 20.0
+const BAR_Y: float = 24.0
 
 var _fill: ColorRect
+var _siren: Control
 var _caption: Label
 var _caption_left: float = 0.0
 var _shown: float = 0.0
@@ -24,18 +29,20 @@ func _ready() -> void:
 	title.add_theme_color_override("font_shadow_color", Color.BLACK)
 	title.add_theme_constant_override("shadow_offset_x", 1)
 	title.add_theme_constant_override("shadow_offset_y", 1)
-	add_child(title)
+	var row := _Icons.row("heat", title, SIREN_PX)
+	add_child(row)
+	_siren = row.get_child(0) as Control
 	var back := ColorRect.new()
 	back.color = Color(0.0, 0.0, 0.0, 0.45)
-	back.position = Vector2(0, 20)
+	back.position = Vector2(0, BAR_Y)
 	back.size = Vector2(WIDTH, HEIGHT)
 	add_child(back)
 	_fill = ColorRect.new()
-	_fill.position = Vector2(1, 21)
+	_fill.position = Vector2(1, BAR_Y + 1.0)
 	_fill.size = Vector2(0, HEIGHT - 2)
 	add_child(_fill)
 	_caption = Label.new()
-	_caption.position = Vector2(0, 34)
+	_caption.position = Vector2(0, BAR_Y + HEIGHT + 2.0)
 	_caption.add_theme_font_size_override("font_size", 13)
 	_caption.add_theme_color_override("font_color", Color(1.0, 0.85, 0.6))
 	_caption.add_theme_color_override("font_shadow_color", Color.BLACK)
@@ -57,10 +64,16 @@ func _process(delta: float) -> void:
 	_fill.size.x = (WIDTH - 2.0) * _shown / 100.0
 	var share := _shown / 100.0
 	_fill.color = Color(0.3, 0.8, 0.3).lerp(Color(0.95, 0.75, 0.2), clampf(share * 2.0, 0.0, 1.0)).lerp(Color(0.9, 0.2, 0.15), clampf(share * 2.0 - 1.0, 0.0, 1.0))
-	if share > 0.8:
-		_fill.modulate.a = 0.7 + 0.3 * sin(Time.get_ticks_msec() / 1000.0 * 8.0)
+	var phase := Time.get_ticks_msec() / 1000.0 * Constants.ICONS_SIREN_SPEED
+	if share > Constants.ICONS_SIREN_FROM:
+		_fill.modulate.a = 0.7 + 0.3 * sin(phase)
 	else:
 		_fill.modulate.a = 1.0
+	# The siren rocks on its center in time with the bar's pulse, easing in past the
+	# mark and settling back as the heat drops, never snapping.
+	var rock := clampf((share - Constants.ICONS_SIREN_FROM) / Constants.ICONS_SIREN_RAMP, 0.0, 1.0)
+	_siren.pivot_offset = _siren.size * 0.5
+	_siren.rotation = sin(phase) * Constants.ICONS_SIREN_ROCK_RAD * rock
 	# A word when it crosses a warning mark on the way up.
 	var level := -1
 	for index: int in Constants.HEAT_WARN_AT.size():
