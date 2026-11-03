@@ -475,6 +475,102 @@ const RUN_PROGRESS_FRACTION: float = 0.1
 ## "# ---- shops" below: balance:A started it with the two upgrades and shops:1
 ## extended it. Catalog.price reads it, and Campaign.price_of delegates to that.
 
+# ---- raking: leaf look (R1 chunk 2)
+# The leaf view (leaves/leaf_renderer.gd; docs/ART.md "Leaves"): a heightfield
+# litter skin that mounds into piles, chunky curled hero leaves riding it, grass
+# pressed flat under it, colours from the tree overhead. Cosmetic and local: it
+# draws the host's density grid and never writes it.
+
+## Hero leaf length range in meters (each leaf is LeafMeshes' unit leaf scaled).
+const LEAF_SIZE := Vector2(0.17, 0.26)
+## How far a leaf's tips curl up, in unit-leaf lengths (times r squared).
+const LEAF_CURL: float = 0.06
+## Light through a leaf from behind (BACKLIGHT share of its albedo).
+const LEAF_TRANSLUCENCY: float = 0.45
+## Hero leaves per 0.5 m cell: LEAF_HERO_MAX * (density / 255) ^ LEAF_HERO_CURVE,
+## rounded up (at least one past the clean line). One on a fresh lawn (the skin
+## carries the carpet), two or three in a drift, seven on a raked pile. (One per
+## 22 units, the first plan, put about 20,000 on a medium yard: twice the
+## LEAF_MAX_HEROES_NEAR budget.)
+const LEAF_HERO_MAX: int = 7
+const LEAF_HERO_CURVE: float = 1.6
+## Hero leaves draw out to this far (the skin carries the look past it), fading
+## over the last LEAF_HERO_FADE meters.
+const LEAF_HERO_RANGE: float = 28.0
+const LEAF_HERO_FADE: float = 4.0
+## A hero leaf's lift above the skin: x for the bottom slot, plus y per slot up.
+const LEAF_HERO_LIFT := Vector2(0.004, 0.004)
+## How far each slot's leaf may sit from its cell's centre (the top ones nearer).
+const LEAF_HERO_SPREAD: float = 0.3
+## Where the litter lies, relative to the field's grid_origin (0.05 m above the
+## lot floor): a centimetre above the lawn, so it never fights the floor.
+const LEAF_GROUND_OFFSET: float = -0.04
+## Skin height for a cell's 3x3 [1 2 1]-blurred density b: LEAF_MOUND_BASE *
+## min(b, 60) / 60 + LEAF_MOUND_HEIGHT * pow(max(b - 60, 0) / 195, LEAF_MOUND_EXP).
+## A raked pile (255) stands about 0.77 m, a drift under a tree about a quarter.
+const LEAF_MOUND_BASE: float = 0.015
+const LEAF_MOUND_HEIGHT: float = 0.75
+const LEAF_MOUND_EXP: float = 1.35
+## The mound follows its density on a spring (rad/s, damping ratio): about a
+## 10% overshoot, the "puff" as leaves land on a pile.
+const LEAF_MOUND_SPRING_W: float = 18.0
+const LEAF_MOUND_SPRING_Z: float = 0.6
+## Below this density (plus up to 14 of edge noise) the skin is bare lawn.
+const LEAF_SKIN_CLEAN: int = 10
+## The skin's leaf tiles, in meters (each painted leaf is 1.2-1.9 tiles long).
+const LEAF_TILE: float = 0.11
+## The skin's leaves cover the lawn fully from this density up (sparser below).
+const LEAF_SKIN_FULL: int = 70
+## Grass under leaves presses flat between these densities (smoothstep), by up
+## to LEAF_GRASS_PRESS_MAX of its height; it springs back over LEAF_GRASS_SPRING
+## seconds when the leaves go and presses in LEAF_GRASS_SETTLE when they land.
+const LEAF_GRASS_PRESS := Vector2(8, 45)
+const LEAF_GRASS_PRESS_MAX: float = 0.85
+const LEAF_GRASS_SPRING: float = 0.4
+const LEAF_GRASS_SETTLE: float = 0.1
+## Changes no mover claims ease in over this long; each hero leaf the ease adds
+## or takes scales in or out over LEAF_FADE_SECONDS (at most LEAF_FADE_MAX at once).
+const LEAF_MORPH_SECONDS: float = 0.35
+const LEAF_FADE_SECONDS: float = 0.15
+const LEAF_FADE_MAX: int = 256
+## Hero buffer rebuild time per frame, in ms (chunks with launches or landings
+## this frame always rebuild; the rest queue).
+const LEAF_REBUILD_BUDGET_MS: float = 1.0
+## How far a tree's leaves reach (meters); past every tree a cell takes the
+## yard's mix. Shares of hero leaves that are another tree's colour (strays) and
+## that are dry and brown.
+const LEAF_SOURCE_REACH: float = 9.0
+const LEAF_SOURCE_SPREAD: float = 3.5
+const LEAF_STRAY_SHARE: float = 0.12
+const LEAF_DRY_SHARE: float = 0.15
+## Leaf colours by crown (props/trees.gd CROWNS): [centre, rim]. The rest are
+## what seasons turn fallen leaves into. No olive: it read as dead grass.
+const LEAF_PALETTES: Dictionary = {
+	"orange": [Color(0.96, 0.66, 0.20), Color(0.82, 0.30, 0.10)],
+	"red": [Color(0.90, 0.36, 0.15), Color(0.58, 0.11, 0.10)],
+	"yellow": [Color(0.96, 0.82, 0.30), Color(0.88, 0.56, 0.12)],
+	"rust": [Color(0.84, 0.48, 0.18), Color(0.52, 0.22, 0.10)],
+	"turning": [Color(0.80, 0.74, 0.26), Color(0.92, 0.52, 0.18)],
+	"last_year": [Color(0.64, 0.59, 0.51), Color(0.48, 0.43, 0.37)],
+	"green": [Color(0.42, 0.62, 0.24), Color(0.30, 0.48, 0.16)],
+	"deep_green": [Color(0.28, 0.48, 0.18), Color(0.18, 0.34, 0.12)],
+	"blossom_pink": [Color(0.99, 0.80, 0.86), Color(0.94, 0.60, 0.72)],
+	"blossom_white": [Color(0.99, 0.98, 0.94), Color(0.92, 0.90, 0.80)],
+}
+## Most triangles per leaf species (maple, oak, oval); tools/leaf_look_check.gd.
+const LEAF_MESH_MAX_TRIS: Array[int] = [46, 44, 34]
+## Leaf budgets on a medium yard: triangles drawn, draw calls, GPU time (ms).
+const LEAF_MAX_TRIS_VISIBLE: int = 450000
+const LEAF_MAX_DRAWS: int = 60
+const LEAF_GPU_MS: float = 1.0
+## Hero leaves draw one MultiMesh per species per block of this many chunks a
+## side (2: nine blocks on a lot), which keeps the leaf draw calls in LEAF_MAX_DRAWS.
+const LEAF_HERO_BLOCK_CHUNKS: int = 2
+## Hero leaves within LEAF_HERO_RANGE of one camera, at most (leafcheck).
+const LEAF_MAX_HEROES_NEAR: int = 9000
+## The leaf budgets are a medium yard's; a big yard (more trees, more leaves) may use this many times them.
+const LEAF_BIG_YARD_BUDGET: float = 1.5
+
 # ---- shops
 # The shops (docs/GAME.md, "Shops"). The catalog's ids and shapes are data in
 # core/catalog.gd; every number they need is here. First guesses, tuned by playing.

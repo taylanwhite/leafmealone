@@ -207,8 +207,8 @@ if (Test-Path $ExtraTests) { . $ExtraTests }
 # Steps that are not a host/client pair: smoke (port 7791), the guardrail and mesh
 # check scripts (no port), and balance-sim (Python only, no Godot: tools/balance_sim.py
 # --check, against the balance test's engine dump when there is one).
-$Scripts = @{ guardrail = 'res://tools/guardrail_check.gd'; meshcheck = 'res://tools/mesh_check.gd' }
-$AllNames = @('smoke', 'guardrail', 'meshcheck') + @($Tests.Keys) + @('balance-sim', 'soak', 'event-soak')
+$Scripts = @{ guardrail = 'res://tools/guardrail_check.gd'; meshcheck = 'res://tools/mesh_check.gd'; leafcheck = 'res://tools/leaf_look_check.gd' }
+$AllNames = @('smoke', 'guardrail', 'meshcheck', 'leafcheck') + @($Tests.Keys) + @('balance-sim', 'soak', 'event-soak')
 if ($List) { $AllNames; exit 0 }
 
 # Each test's base port: its Port key, else 7794 + its position (how ports were given
@@ -325,6 +325,7 @@ $Queue = New-Object System.Collections.Generic.List[object]
 if (Wants 'smoke') { $Queue.Add(@{ Name = 'smoke'; Port = 7791 + $PortOffset }) }
 if (Wants 'guardrail') { $Queue.Add(@{ Name = 'guardrail'; Port = 0 }) }
 if (Wants 'meshcheck') { $Queue.Add(@{ Name = 'meshcheck'; Port = 0 }) }
+if (Wants 'leafcheck') { $Queue.Add(@{ Name = 'leafcheck'; Port = 0 }) }
 foreach ($name in $Tests.Keys) {
 	if (Wants $name) { $Queue.Add(@{ Name = $name; Port = $BasePorts[$name] + $PortOffset }) }
 }
@@ -392,6 +393,10 @@ function Complete-Test($item) {
 		}
 		if ($name -eq 'meshcheck' -and -not $ok) {
 			Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[MeshCheck\].*FAIL|\[MeshCheck\]   ' -ErrorAction SilentlyContinue |
+				Select-Object -First 10 | ForEach-Object { $notes += $_.Line }
+		}
+		if ($name -eq 'leafcheck' -and -not $ok) {
+			Select-String -Path (Join-Path $item.Dir 'host.log') -Pattern '\[LeafCheck\] FAIL' -ErrorAction SilentlyContinue |
 				Select-Object -First 10 | ForEach-Object { $notes += $_.Line }
 		}
 	} else {

@@ -864,6 +864,16 @@ func _shape_leaves(lot: Node3D) -> void:
 	var base := _rng.randf_range(Constants.YARD_LEAF_BASE.x, Constants.YARD_LEAF_BASE.y) * float(Constants.YARD_LEAVES[_size])
 	# A yard done recently has had less time to fill back up.
 	var grown := clampf(mess, 0.0, 1.5)
+	# What falls where (leaves/leaf_renderer.gd colours each cell by the trees
+	# over it): the yard's own trees, in the field's space. Every peer, from the seed.
+	var sources: Array = []
+	for child: Node in get_children():
+		var tree := child as Node3D
+		if tree == null or not _trees.has(tree.position) or tree.get("crown") == null:
+			continue
+		var at: Vector3 = (field as Node3D).to_local(to_global(tree.position))
+		sources.append({"at": Vector2(at.x, at.z), "crown": str(tree.get("crown")), "kind": str(tree.get("kind")), "variant": int(tree.get("variant"))})
+	field.set_meta("leaf_sources", sources)
 	field.call("shape_initial", func(world: Vector3) -> float:
 		var local := lot.to_local(world)
 		if house.grow(-0.4).has_point(Vector2(local.x, local.z)):

@@ -84,6 +84,12 @@ jobs:
         run: |
           "$GODOT" --headless --path . --script res://tools/mesh_check.gd
 
+      - name: Leaf look check (species budgets, no stripes, palettes, heights, budgets)
+        if: matrix.part == 'features'
+        timeout-minutes: 3
+        run: |
+          "$GODOT" --headless --path . --script res://tools/leaf_look_check.gd
+
       - name: Job test (two whole jobs, rides included)
         if: matrix.part == 'features'
         run: |

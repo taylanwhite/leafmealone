@@ -8,6 +8,8 @@ extends RefCounted
 ## every peer grows the same lawn.
 
 const _Stylized = preload("res://props/stylized.gd")
+## Grass lies flat under leaves (raking:2).
+const _GrassPress = preload("res://leaves/grass_press.gd")
 const CHUNK: float = 14.0
 const BASE := Color(0.24, 0.38, 0.16)
 const TIP := Color(0.5, 0.66, 0.28)
@@ -60,7 +62,7 @@ static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: in
 	var area: Rect2 = options.get("area", Rect2(-half_size, -half_size, half_size * 2.0, half_size * 2.0))
 	var chunks_x := int(ceil(area.size.x / CHUNK))
 	var chunks_z := int(ceil(area.size.y / CHUNK))
-	var material := _Stylized.material({"wind": 0.06, "roughness": 1.0, "specular": 0.05, "translucency": 0.25, "double_sided": true})
+	var material := _GrassPress.material({"wind": 0.06, "roughness": 1.0, "specular": 0.05, "translucency": 0.25, "double_sided": true})
 	for chunk_x: int in chunks_x:
 		for chunk_z: int in chunks_z:
 			var corner := area.position + Vector2(float(chunk_x) * CHUNK, float(chunk_z) * CHUNK)
