@@ -90,6 +90,16 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --mower-test'; Seconds = 55; Client = 50
 		Check = { param($h, $c) [bool]$h.mower_test.ok }
 	}
+	# The leaf field's stroke events, atomic chunk batches and the client's prediction
+	# ledger over a 150 ms / 2% loss link (raking:1): the golden density rules first,
+	# then the client rakes a lane, blows, bags and gets refused; no snap-backs, every
+	# stroke once on each peer, and both end on the same bytes. Both peers run the node.
+	rake_net = @{
+		Port = 7821
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --rake-net-test'; Seconds = 75; Client = 70
+		Extra = '--sim-lag=150 --sim-loss=2 --rake-net-test'
+		Check = { param($h, $c) [bool]$h.rake_net_test.ok -and $c -ne $null -and [bool]$c.rake_net_test.ok }
+	}
 	board = @{
 		Port = 7800
 		Host = '--host --name=Tester --no-steam --board-test'; Seconds = 30; Client = 25

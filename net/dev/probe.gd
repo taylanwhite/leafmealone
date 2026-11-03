@@ -208,6 +208,11 @@ func write_report() -> void:
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
 		"playtest_tools_test": preload("res://net/dev/playtest_tools_test.gd").result.duplicate(true),
 		"drive": _drive(),
+		"rake_net_test": _test_result_by_path("res://net/dev/rake_net_test.gd"),
+		"leaf_motion_test": _test_result_by_path("res://net/dev/leaf_motion_test.gd"),
+		"rake_stroke_test": _test_result_by_path("res://net/dev/rake_stroke_test.gd"),
+		"leaf_view": _leaf_view(),
+		"leaf_ledger": _leaf_ledger(),
 		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
 		"heat": _heat(),
 		"board": _board(),
@@ -447,6 +452,36 @@ func _lot_work() -> Dictionary:
 		"truck_bags": int(chefty.call("bag_count")) if chefty != null else 0,
 		"truck_value": int(chefty.call("bag_value")) if chefty != null else 0,
 	}
+
+
+## An R1 raking test's result, loaded by path (each chunk adds its own file);
+## a test that isn't built yet reports so.
+func _test_result_by_path(path: String) -> Dictionary:
+	if not ResourceLoader.exists(path):
+		return {"done": true, "ok": false, "why": "not built"}
+	var script := load(path) as Script
+	if script == null:
+		return {"done": true, "ok": false, "why": "not built"}
+	return (script.get("result") as Dictionary).duplicate(true)
+
+
+## The leaf view's stats (raking:2, group leaf_view) merged with the leaf motion's
+## (raking:3, group leaf_motion); {} for whichever doesn't exist.
+func _leaf_view() -> Dictionary:
+	var merged := {}
+	for group: String in ["leaf_view", "leaf_motion"]:
+		var node := get_tree().get_first_node_in_group(group)
+		if node != null and node.has_method("stats"):
+			merged.merge(node.call("stats") as Dictionary, true)
+	return merged
+
+
+## The leaf field's event, batch and prediction-ledger counters (raking:1).
+func _leaf_ledger() -> Dictionary:
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	if field == null or not field.has_method("ledger_stats"):
+		return {}
+	return field.call("ledger_stats")
 
 
 ## Leaf flakes drawn by every leaf renderer on this peer, and where the first one sits.

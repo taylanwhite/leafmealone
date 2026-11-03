@@ -147,6 +147,18 @@ jobs:
           grep "MowerTest" build/soak/ci-mower/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-mower/host.json'))['mower_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Rake net test (stroke events, prediction ledger, no snap-back at 150 ms / 2% loss, golden density)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-rake-net
+          "$GODOT" --headless --path . -- --host --port=7821 --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --rake-net-test --sim-lag=150 --sim-loss=2 --rake-net-test --measure="$PWD/build/soak/ci-rake-net/host.json" --run-seconds=75 > build/soak/ci-rake-net/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7821 --name=Target --no-steam --sim-lag=150 --sim-loss=2 --rake-net-test --measure="$PWD/build/soak/ci-rake-net/target.json" --run-seconds=70 > build/soak/ci-rake-net/target.log 2>&1
+          wait
+          grep "RakeNetTest\|LeafGolden" build/soak/ci-rake-net/host.log build/soak/ci-rake-net/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-rake-net/host.json')); t=json.load(open('build/soak/ci-rake-net/target.json')); sys.exit(0 if h['rake_net_test'].get('ok') and t['rake_net_test'].get('ok') else 1)"
+
       - name: Job board test (offers, picking, the picked yard, new offers; client matches)
         if: matrix.part == 'features'
         run: |

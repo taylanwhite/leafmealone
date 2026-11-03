@@ -412,6 +412,24 @@ const PILE_SEARCH_NEAR: float = 1.0
 const PILE_SEARCH_FAR: float = 3.2
 
 
+# ---- raking: field events (R1 chunk 1)
+# The leaf field's stroke events, chunk batches and the raking client's prediction
+# ledger (net/leaf_field/leaf_field.gd, net/leaf_field/stroke_event.gd).
+## A running mower's mulch is told to everyone as one 'mulch' stroke event at most
+## this often (its leaves summed, at the last spot), not one per physics tick. The
+## events ride the leaf field's send tick (LeafField.SEND_INTERVAL, asserted >= this)
+## so each goes out just ahead of the batch carrying its leaves.
+const LEAF_EVENT_MULCH_SECONDS: float = 0.1
+## A stroke event's tempo (the rake swing's length in seconds) travels in steps of this.
+const LEAF_EVENT_TEMPO_STEP: float = 0.01
+## A predicted stroke the host never confirms is dropped (and the field recomposed) after this long.
+const LEAF_PREDICT_TIMEOUT: float = 2.0
+## At most this many unconfirmed predicted strokes are kept; the oldest goes first.
+const LEAF_PREDICT_MAX: int = 6
+## A send tick's chunk batch is deflated when its raw bytes are more than this.
+const LEAF_BATCH_COMPRESS_BYTES: int = 512
+
+
 # ---- balance
 # Economy numbers that used to sit inline in the gameplay scripts, moved here with
 # the same values (gap balance:A) so tools/balance_sim.py can read every one of
