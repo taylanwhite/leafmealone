@@ -95,7 +95,8 @@ func _handle_grab(peer_id: int, target_id: int) -> void:
 		return
 	if _held_by(peer_id) != null or int(grabber.get("carrying")) != 0 or int(grabber.get("carried_by")) != 0:
 		return
-	if bool(target.call("is_hidden")) or bool(target.call("is_sleeping")) or int(target.get("carried_by")) != 0 or int(target.get("carrying")) != 0 or bool(target.get("thrown")):
+	# The same question the grabber's prompt asked (player.gd can_be_grabbed, R2c).
+	if not bool(target.call("can_be_grabbed")):
 		return
 	if target.global_position.distance_to(grabber.global_position) > Constants.GRAB_PLAYER_REACH + 0.6:
 		return

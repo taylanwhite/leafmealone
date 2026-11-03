@@ -1142,6 +1142,12 @@ func _follow_target() -> Node3D:
 func _park_observer() -> void:
 	if bool(Net.dev_options().get("observer")) and not Net.is_host():
 		_ghost(_player_node(Net.local_peer_id()))
+	# R2c: the friend's window draws the observer as a ghost too (its takes had an
+	# "Observer" tag hanging in the yard, and "[E] Grab Observer").
+	if not Net.is_host() and Net.current_state() == Net.State.IN_SESSION:
+		for peer_id: int in Net.peer_ids():
+			if peer_id != Net.local_peer_id() and Net.player_name(peer_id) == OBSERVER_NAME:
+				_ghost(_player_node(peer_id))
 	if _observer_parked or not bool(Net.dev_options().get("observer")) or Net.is_host():
 		return
 	if Net.current_state() != Net.State.IN_SESSION or _player_node(Net.local_peer_id()) == null or _player_node(1) == null:

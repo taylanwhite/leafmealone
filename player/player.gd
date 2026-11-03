@@ -1104,7 +1104,7 @@ func _grabbable_player() -> Node3D:
 	var best_distance := Constants.GRAB_PLAYER_REACH
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
-		if other == null or other == self or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")) or bool(other.call("is_sleeping")):
+		if other == null or other == self or not other.has_method("can_be_grabbed") or not bool(other.call("can_be_grabbed")):
 			continue
 		var offset := other.global_position - global_position
 		var flat := Vector3(offset.x, 0.0, offset.z)
@@ -1113,6 +1113,31 @@ func _grabbable_player() -> Node3D:
 		best = other
 		best_distance = flat.length()
 	return best
+
+
+## R2c: whether a friend can pick this player up now. Not while hidden, asleep,
+## carried, carrying or flying; not while a NICE BOY has them (caught, cited,
+## walked to the van) or a moment stages them; not seated (the Courtesy Shuttle,
+## Chefty); not when their body isn't drawn (a watcher's ghost). The prompt
+## (interaction_hint) and the host (net/components/brawl.gd) ask the same
+## question of the same replicated state, so no "[E] Grab" shows for a grab that
+## does nothing.
+func can_be_grabbed() -> bool:
+	if is_hidden() or is_sleeping() or carried_by != 0 or carrying != 0 or thrown:
+		return false
+	if is_staged() or in_vehicle() or _on_seat:
+		return false
+	var visual := get_node_or_null("Visual") as Node3D
+	if visual != null and not visual.visible:
+		return false
+	var peer := name.to_int()
+	var director := get_tree().get_first_node_in_group("run_director") if is_inside_tree() else null
+	if director != null and director.has_method("is_captured") and bool(director.call("is_captured", peer)):
+		return false
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle") if is_inside_tree() else null
+	if shuttle != null and shuttle.has_method("seat_info") and not (shuttle.call("seat_info", peer) as Dictionary).is_empty():
+		return false
+	return true
 
 
 ## From the host: now carrying someone, carried by someone, or neither.

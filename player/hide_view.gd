@@ -351,6 +351,12 @@ func is_moving() -> bool:
 	return _move != Move.NONE
 
 
+## True while a NICE BOY is hauling this player out of a spot or a pile (the
+## owner's view): the moment has you then, not your own climb-out (ui/hud_mode.gd).
+func is_pulled() -> bool:
+	return _move == Move.PULL
+
+
 ## True while waiting on the host for a dive (E is ignored meanwhile).
 func is_waiting() -> bool:
 	return _waiting != null or _waiting_pile
