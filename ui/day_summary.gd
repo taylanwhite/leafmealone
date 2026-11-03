@@ -62,6 +62,7 @@ func _ready() -> void:
 	close.add_theme_stylebox_override("pressed", _box(ORANGE.darkened(0.12), 10, ORANGE.darkened(0.25), 0))
 	close.add_theme_color_override("font_color", Color.WHITE)
 	close.size_flags_horizontal = Control.SIZE_SHRINK_END
+	close.set_meta(&"ui_sound", &"back")
 	close.pressed.connect(close_window)
 	column.add_child(close)
 	_hook_clock.call_deferred()

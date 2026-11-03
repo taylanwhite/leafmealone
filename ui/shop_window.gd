@@ -154,6 +154,7 @@ func _ready() -> void:
 	_toast.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	footer.add_child(_toast)
 	var close := _button(_Strings.UI["shop_close"], INK)
+	close.set_meta(&"ui_sound", &"back")
 	close.pressed.connect(close_window)
 	footer.add_child(close)
 	Campaign.credits_changed.connect(func(_peer_id: int, _amount: int) -> void: _refresh_if_open())
@@ -171,6 +172,10 @@ func open_shop(shop: String = "homie_depot", on_tab: String = "", focus: String 
 	if on_tab == "" and focus != "":
 		on_tab = str(Catalog.item(focus).get("tab", ""))
 	tab = on_tab if tabs.has(on_tab) else str(tabs[0])
+	# A shop with someone behind the counter: the bells on its door (not the
+	# Snak-o-Matic, and not a window that's already up).
+	if not visible and str((Catalog.SHOPS[shop_id] as Dictionary).get("keeper", "")) != "":
+		_ui_sound("store_bell")
 	open()
 
 
@@ -225,6 +230,7 @@ func show_tab(next_tab: String) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if visible and event.is_action_pressed("pause"):
+		_ui_sound("ui_back")
 		close_window()
 		get_viewport().set_input_as_handled()
 
@@ -505,10 +511,9 @@ func _blocker(id: String, qty: int, wallet: int, shops: Node, open: bool, data: 
 
 
 func _press(what: String, id: String, qty: int) -> void:
+	# The press itself clicks (audio/ui_sounds.gd); the register rings only on the
+	# host's yes (audio/cue_hooks.gd, critic C11).
 	var shops := _shops()
-	var sfx := get_tree().get_first_node_in_group("sfx")
-	if sfx != null:
-		sfx.call("play", "ui_pop")
 	if shops == null:
 		# No Shops (a test scene): the old wallet path.
 		Campaign.request_purchase(StringName(id))
@@ -566,6 +571,13 @@ func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 		return
 	show_toast(line, code == "ok")
 	_refresh()
+
+
+## A sound for this player alone (the UI bus; audio/sfx.gd).
+func _ui_sound(id: String) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
+	if sfx != null:
+		sfx.call("play", id)
 
 
 func show_toast(line: String, good: bool) -> void:

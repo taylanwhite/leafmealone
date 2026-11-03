@@ -42,6 +42,7 @@ func _ready() -> void:
 	close.add_theme_stylebox_override("pressed", _box(ORANGE.darkened(0.12), 10, ORANGE.darkened(0.25), 0))
 	close.add_theme_color_override("font_color", Color.WHITE)
 	close.size_flags_horizontal = Control.SIZE_SHRINK_END
+	close.set_meta(&"ui_sound", &"back")
 	close.pressed.connect(close_window)
 	column.add_child(close)
 
@@ -77,6 +78,12 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 	_rows.add_child(_Icons.row("split", _text(_Strings.UI["receipt_split"], 16, INK.lightened(0.3)), 20))
 	for row: Dictionary in results:
 		_line(str(row["name"]), "$%d" % int(row["credits"]), INK)
+	# The receipt prints just after it comes up, so the cash's snatch (it's taken
+	# the same moment) reads first; the Paid stinger is the music director's.
+	get_tree().create_timer(Constants.RECEIPT_PRINT_DELAY).timeout.connect(func() -> void:
+		if visible:
+			_Look.sfx(self, "receipt")
+	)
 	visible = true
 	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 	grow_horizontal = Control.GROW_DIRECTION_BOTH

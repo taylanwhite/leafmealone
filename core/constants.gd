@@ -4067,3 +4067,27 @@ const ESCORT_CAM_BIAS_RATE: float = 0.9
 ## The escort's follow eye wants this much room (m) round it: closer to the van's
 ## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
 const ESCORT_CAM_ROOM: float = 1.2
+
+# ---- audio:5 (UI, store, phone and day sounds; audio/ui_sounds.gd, tools/sfx_ui.py)
+## A button's click, back or tab sound plays at most this often (ms): two quick
+## clicks on two buttons both sound, one press's echo doesn't.
+const UI_CLICK_GAP_MS: int = 50
+## The pointer crossing buttons ticks at most this often (ms), so a sweep over a
+## row of them is a few ticks, not a rattle.
+const UI_HOVER_GAP_MS: int = 60
+## A '+$' popping up pings a coin at most this often (ms): a bag-filling spree is
+## a few pings, not a slot machine.
+const COIN_GAP_MS: int = 90
+## Getting up off a cot creaks this much softer (dB) than lying down on it.
+const COT_CREAK_UP_DB: float = -5.0
+## A cot's creak carries this far (m): the camp, not the whole store lot.
+const COT_CREAK_MAX_DISTANCE: float = 25.0## The phone comes up out of the pocket from this far below (px) over this long (s),
+## landing with its chime (ui/phone.gd _slide_in).
+const PHONE_SLIDE_PX: float = 120.0
+const PHONE_SLIDE_SECONDS: float = 0.18
+## The payout card's printer starts this long (s) after the card shows: the cash
+## is snatched the same moment (npcs/homeowner.gd), and that sound goes first.
+const RECEIPT_PRINT_DELAY: float = 0.3
+## The morning's held phone buzz waits for Rise and Rake (and New Client) to finish,
+## plus this long (s) (audio/cue_hooks.gd).
+const CUE_BUZZ_AFTER_STINGERS: float = 0.25

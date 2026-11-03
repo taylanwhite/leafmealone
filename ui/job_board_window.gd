@@ -37,6 +37,7 @@ func _ready() -> void:
 	column.add_child(_board_cards)
 	var close := _button(_Strings.UI["board_close"], INK)
 	close.size_flags_horizontal = Control.SIZE_SHRINK_END
+	close.set_meta(&"ui_sound", &"back")
 	close.pressed.connect(close_window)
 	column.add_child(close)
 
@@ -101,6 +102,8 @@ func _offer_card(offer: Dictionary, index: int, picked: bool, locked: bool) -> C
 	var label: String = _Strings.UI["board_taken"] if picked else (_Strings.UI["board_locked"] if locked else _Strings.UI["board_take"])
 	var take := _button(label, ORANGE if not picked and not locked else INK.lightened(0.5))
 	take.disabled = picked or locked
+	# Picking a job pins it to the board (audio/ui_sounds.gd plays the meta's id).
+	take.set_meta(&"ui_sound", &"pin")
 	take.pressed.connect(func() -> void:
 		var board := _board()
 		if board != null:

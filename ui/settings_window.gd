@@ -69,6 +69,8 @@ var _focus_before: Control = null
 func _ready() -> void:
 	visible = false
 	add_to_group("settings_window")
+	# Its own pips, pops and stamps (_play_sfx), so audio/ui_sounds.gd stays out.
+	set_meta(&"ui_sound", &"none")
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	add_theme_stylebox_override("panel", _Style.box(_Style.PAPER, 18, _Style.ORANGE, 6, 18))
 	var column := VBoxContainer.new()

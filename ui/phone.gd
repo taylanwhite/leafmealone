@@ -50,6 +50,8 @@ var _tabs: Dictionary = {}
 var _dirty: bool = true
 ## How many of the town's texts the phone has shown.
 var _seen: int = 0
+## The slide up out of the pocket (_slide_in).
+var _slide: Tween
 
 
 func _ready() -> void:
@@ -79,6 +81,8 @@ func _ready() -> void:
 	close.text = _Strings.UI["phone_close_x"]
 	close.flat = true
 	close.focus_mode = Control.FOCUS_NONE
+	# Putting it away is its own sound (close_phone), not a click.
+	close.set_meta(&"ui_sound", &"none")
 	close.pressed.connect(close_phone)
 	top.add_child(close)
 	_scroll = ScrollContainer.new()
@@ -106,6 +110,7 @@ func _ready() -> void:
 		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_size_override("font_size", DOCK_FONT)
 		button.add_theme_constant_override("icon_max_width", _Icons.SIZE_DOCK)
+		button.set_meta(&"ui_sound", &"none")
 		button.pressed.connect(func() -> void:
 			_bounce(button)
 			_Look.sfx(self, "ui_pop")
@@ -172,6 +177,9 @@ func unread() -> int:
 
 
 func open_phone(app: String = "") -> void:
+	var coming_out := not visible
+	if coming_out:
+		_Look.sfx(self, "phone_open")
 	visible = true
 	var town := get_tree().get_first_node_in_group("town")
 	_seen = (town.get("texts") as Array).size() if town != null else 0
@@ -181,11 +189,28 @@ func open_phone(app: String = "") -> void:
 	offset_left = -40.0 - custom_minimum_size.x
 	offset_top = -custom_minimum_size.y * 0.5
 	offset_bottom = custom_minimum_size.y * 0.5
+	if coming_out:
+		_slide_in()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	show_app(app if app != "" else _app)
 
 
+## Out of the pocket: up from a little below and faded in, settling as its chime
+## lands (audio:5's phone_open), instead of popping into place.
+func _slide_in() -> void:
+	if _slide != null and _slide.is_valid():
+		_slide.kill()
+	var rest := position.y
+	position.y = rest + Constants.PHONE_SLIDE_PX
+	modulate.a = 0.0
+	_slide = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_slide.tween_property(self, "position:y", rest, Constants.PHONE_SLIDE_SECONDS)
+	_slide.tween_property(self, "modulate:a", 1.0, Constants.PHONE_SLIDE_SECONDS * 0.6)
+
+
 func close_phone() -> void:
+	if visible:
+		_Look.sfx(self, "phone_close")
 	visible = false
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	if ui != null:
@@ -276,6 +301,7 @@ func _texts(town: Node) -> void:
 				take.focus_mode = Control.FOCUS_NONE
 				take.text = _Strings.UI["phone_take_job"]
 				take.size_flags_horizontal = Control.SIZE_SHRINK_END
+				take.set_meta(&"ui_sound", &"phone_take")
 				take.pressed.connect(func() -> void: _take(house_id))
 				column.add_child(take)
 		_list.add_child(bubble)

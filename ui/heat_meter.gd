@@ -19,6 +19,8 @@ var _caption: Label
 var _caption_left: float = 0.0
 var _shown: float = 0.0
 var _warned: int = -1
+## Whether _warned has had a first reading (heat already high on joining doesn't whoop).
+var _read: bool = false
 
 
 func _ready() -> void:
@@ -83,7 +85,12 @@ func _process(delta: float) -> void:
 		_caption.text = _Strings.UI["heat_warn_%d" % level]
 		_caption.visible = true
 		_caption_left = CAPTION_SECONDS
+		# A little cartoon siren, this player's own (audio:5).
+		var sfx := get_tree().get_first_node_in_group("sfx") if _read else null
+		if sfx != null:
+			sfx.call("play", "heat_whoop")
 	_warned = level
+	_read = true
 	if _caption_left > 0.0:
 		_caption_left -= delta
 		if _caption_left <= 0.0:

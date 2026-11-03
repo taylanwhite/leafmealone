@@ -63,7 +63,13 @@ var _coin: MeshInstance3D
 
 ## Pop "+$amount" at a world position, under the world node so it lives with the scene.
 static func pop(tree: SceneTree, at: Vector3, amount: int) -> void:
-	if amount <= 0 or Net.is_automated():
+	if amount <= 0:
+		return
+	# A coin's ping where the money was made (audio:5), heard by whoever is near.
+	var sfx := tree.get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play_at", "coin", at)
+	if Net.is_automated():
 		return
 	var world := tree.get_first_node_in_group("world") as Node3D
 	if world == null:

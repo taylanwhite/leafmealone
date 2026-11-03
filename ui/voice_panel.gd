@@ -39,6 +39,7 @@ func _ready() -> void:
 	box.add_child(_rows)
 	var close := Button.new()
 	close.text = _Strings.UI["voice_close"]
+	close.set_meta(&"ui_sound", &"back")
 	close.pressed.connect(func() -> void: visible = false)
 	box.add_child(close)
 	Net.player_joined.connect(func(_peer_id: int) -> void: _rebuild_if_open())

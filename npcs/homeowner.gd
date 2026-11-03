@@ -372,8 +372,16 @@ func _offer(amount: int) -> void:
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_paid(_peer_id: int) -> void:
+func _rpc_paid(peer_id: int) -> void:
 	_phase = Phase.PAID
+	# The cash snatched out of their hand, the bills fluttering (audio:5): where it
+	# happens for anyone watching, and in the taker's own hands for the taker, who is
+	# on Chefty a frame later (a sound left at the curb would be out of earshot).
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null and peer_id == Net.local_peer_id():
+		sfx.call("play", "cash_grab")
+	elif sfx != null:
+		sfx.call("play_at", "cash_grab", _cash.global_position)
 	_MoneyPopup.pop(get_tree(), _cash.global_position + Vector3(0.0, 0.4, 0.0), _amount)
 	_cash.visible = false
 	_body.set("mood", "raised")

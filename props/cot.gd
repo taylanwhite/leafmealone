@@ -16,6 +16,11 @@ const PILLOW := Color(0.93, 0.9, 0.82)
 
 ## Which cot this is, 0 to 3: the n-th sleeper lies on the n-th cot.
 var index: int = 0
+## Whether someone was on it at the last look (-1 before the first), for its creak.
+var _occupied: int = -1
+## The clock's day at that look: the night ending empties every cot at once, under
+## the Clock Out card and its lullaby, and that isn't anybody getting up.
+var _day: int = -1
 
 
 func _ready() -> void:
@@ -60,6 +65,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	var clock := _clock()
+	_creak(clock)
 	if clock == null or _nearest_cot() != self:
 		return
 	# The host, lying down and holding E, puts everyone to bed.
@@ -67,6 +73,22 @@ func _process(delta: float) -> void:
 		clock.call("hold_force", delta)
 	elif Net.is_host():
 		clock.call("release_force")
+
+
+## The canvas and springs creak where the cot is when someone lies down on it, and
+## softer when they get up (not when the day's end clears them all; audio:5). From the clock's cots, which every peer has,
+## so the whole camp hears it.
+func _creak(clock: Node) -> void:
+	var on := 0
+	if clock != null and (clock.get("cots") as Dictionary).values().has(index):
+		on = 1
+	var day := int(clock.get("day")) if clock != null else -1
+	if _occupied >= 0 and on != _occupied and day == _day:
+		var sfx := get_tree().get_first_node_in_group("sfx")
+		if sfx != null:
+			sfx.call("play_at", "cot_creak", global_position + Vector3(0.0, 0.4, 0.0), 0.0 if on == 1 else Constants.COT_CREAK_UP_DB, true, index + 1)
+	_occupied = on
+	_day = day
 
 
 func _clock() -> Node:
