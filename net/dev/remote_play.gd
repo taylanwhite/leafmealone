@@ -48,6 +48,9 @@ extends Node
 ##   ["goto", x, z, timeout]       turn and walk there (move_forward) until within
 ##                                 half a meter; or ["goto", path] for a node under
 ##                                 World (e.g. BorderZone/AnnexSet/Windows/B/Counter)
+##   ["drive", x, z, timeout, top]  at Chefty's wheel: drive there along the roads
+##                                 (W/S and A/D as eased strengths, slowing for
+##                                 corners), up to top m/s (driving:E2)
 ## A "look" bigger than LOOK_EASE_ABOVE pixels is eased over several frames (a
 ## hand on a mouse), so the recorder's cam_snap flags mean the game, not the agent.
 ## Actions are the names in project.godot's input map (move_forward, interact,
@@ -123,6 +126,13 @@ const LOOK_EASE_ABOVE: float = 100.0
 const LOOK_PIXELS_PER_FRAME: float = 30.0
 ## goto: arrived within this (m); walks while facing within this (radians).
 const GOTO_ARRIVE_METERS: float = 0.5
+## The drive step (driving:E2): done within this far of the point and stopped; a
+## waypoint counts as passed this close; it steers for a point this far plus half
+## its speed (m/s as m) down the route; sharp corners at this speed (m/s).
+const DRIVE_ARRIVE_METERS: float = 5.0
+const DRIVE_WAYPOINT_METERS: float = 7.0
+const DRIVE_LOOK_METERS: float = 7.0
+const DRIVE_CORNER_SPEED: float = 7.0
 const GOTO_WALK_RADIANS: float = 0.5
 ## until, goto: the default timeout (s).
 const UNTIL_SECONDS: float = 15.0
@@ -295,6 +305,11 @@ func _run(id: int, steps: Array) -> void:
 					var went: String = await _goto(spot, float(step[timeout_at]) if step.size() > timeout_at else UNTIL_SECONDS)
 					if went != "":
 						errors.append(went)
+			"drive":
+				# drive x z [timeout] [top speed m/s]: at Chefty's wheel, along the roads (driving:E2).
+				var went_by_road: String = await _drive(Vector3(float(step[1]), 0.0, float(step[2])), float(step[3]) if step.size() > 3 else 90.0, float(step[4]) if step.size() > 4 else Constants.CHEFTY_TOP_SPEED)
+				if went_by_road != "":
+					errors.append(went_by_road)
 			"click":
 				await _click(Vector2(float(step[1]), float(step[2])))
 			"wait":
@@ -563,6 +578,81 @@ func _goto(to: Vector3, timeout: float) -> String:
 	if walking:
 		_action("move_forward", false)
 	return outcome
+
+
+## Drive Chefty to a point the way a player at the wheel would (driving:E2's
+## drive takes): W and S, A and D eased to a strength like a gamepad stick,
+## along TownMap.route's roads, slowing for corners and pulling up at the end.
+## Steers for a point a speed-dependent way down the route. "" when there.
+func _drive(to: Vector3, timeout: float, top: float) -> String:
+	var chefty := get_tree().get_first_node_in_group("chefty") as Node3D
+	if chefty == null or not chefty.has_method("body_transform"):
+		return "drive: no drivable Chefty"
+	if int(chefty.call("driver")) != Net.local_peer_id():
+		return "drive: not at Chefty's wheel"
+	var start: Vector3 = (chefty.call("body_transform") as Transform3D).origin
+	var route := TownMap.route(start, to)
+	route.insert(0, Vector3(start.x, 0.0, start.z))
+	route.append(Vector3(to.x, 0.0, to.z))
+	var index := 1
+	var waited := 0.0
+	var outcome := ""
+	while true:
+		var here: Vector3 = (chefty.call("body_transform") as Transform3D).origin
+		here.y = 0.0
+		var speed := float(chefty.call("speed"))
+		var left := Vector2(to.x - here.x, to.z - here.z).length()
+		if left < DRIVE_ARRIVE_METERS and speed < 1.0:
+			break
+		if waited > timeout:
+			outcome = "drive: still %.0f m away after %.0f s" % [left, timeout]
+			break
+		while index < route.size() - 1 and Vector2(route[index].x - here.x, route[index].z - here.z).length() < DRIVE_WAYPOINT_METERS:
+			index += 1
+		# The point to steer for: this far down the route from the next waypoint back.
+		var ahead := DRIVE_LOOK_METERS + speed * 0.5
+		var target := route[index]
+		var from := here
+		for next: int in range(index, route.size()):
+			var piece := Vector2(route[next].x - from.x, route[next].z - from.z).length()
+			target = route[next]
+			if piece >= ahead:
+				target = from + (route[next] - from).normalized() * ahead
+				break
+			ahead -= piece
+			from = route[next]
+		var heading := float(chefty.call("yaw"))
+		var want := atan2(-(target.x - here.x), -(target.z - here.z))
+		var error := wrapf(want - heading, -PI, PI)
+		var steer := clampf(-error * 2.2, -1.0, 1.0)
+		# Slow for a sharp corner coming up, and pull up at the end.
+		var want_speed := top
+		if index < route.size() - 1:
+			var into := (route[index] - here).normalized()
+			var out := (route[index + 1] - route[index]).normalized()
+			var corner := acos(clampf(into.dot(out), -1.0, 1.0))
+			var gap := Vector2(route[index].x - here.x, route[index].z - here.z).length()
+			if corner > 0.5:
+				want_speed = minf(want_speed, lerpf(DRIVE_CORNER_SPEED, top, clampf((gap - 8.0) / 45.0, 0.0, 1.0)))
+		want_speed = minf(want_speed, maxf(left - 2.0, 0.0) * 0.6)
+		var throttle := clampf((want_speed - speed) * 0.4, -1.0, 1.0)
+		_axis("move_forward", maxf(throttle, 0.0))
+		_axis("move_back", maxf(-throttle, 0.0))
+		_axis("move_right", maxf(steer, 0.0))
+		_axis("move_left", maxf(-steer, 0.0))
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+	for action_name: String in ["move_forward", "move_back", "move_left", "move_right"]:
+		_axis(action_name, 0.0)
+	return outcome
+
+
+func _axis(action_name: String, strength: float) -> void:
+	var event := InputEventAction.new()
+	event.action = action_name
+	event.pressed = strength > 0.01
+	event.strength = strength if event.pressed else 0.0
+	Input.parse_input_event(event)
 
 
 func _click(at: Vector2) -> void:

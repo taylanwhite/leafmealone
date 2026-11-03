@@ -14,6 +14,7 @@ extends Node3D
 ## shared by every tree); the turn itself then only swaps cached meshes.
 
 const _Trees = preload("res://props/trees.gd")
+const _ViewBlockers = preload("res://props/view_blockers.gd")
 
 var kind := "broadleaf"
 ## The crown the tree wears in autumn; seasons map it to what it wears now.
@@ -27,6 +28,36 @@ var _prewarm := -1
 ## The frame the shared prewarm budget is for, and what is left of it (usec).
 static var _budget_frame := -1
 static var _budget_left := 0
+
+
+func _enter_tree() -> void:
+	# Deferred: Trees.spawn places, turns and scales the root after add_child.
+	_add_crown.call_deferred()
+
+
+func _exit_tree() -> void:
+	_ViewBlockers.remove(self)
+
+
+## Driving chunk E2: this tree's crown, for cameras that must never sit inside
+## it (props/view_blockers.gd). An upright ellipsoid inside the near mesh's box,
+## from the share of its height where the kind's leaves start
+## (Constants.VIEW_CROWN_FROM) to its top, a little narrower than the box.
+func _add_crown() -> void:
+	if not is_inside_tree():
+		return
+	var look := get_node_or_null("Look") as MeshInstance3D
+	if look == null or look.mesh == null:
+		return
+	var box := look.mesh.get_aabb()
+	var from := box.position.y + box.size.y * float(Constants.VIEW_CROWN_FROM.get(kind, Constants.VIEW_CROWN_FROM["broadleaf"]))
+	var top := box.end.y
+	var middle := Vector3(box.get_center().x, (from + top) * 0.5, box.get_center().z)
+	var reach := global_transform.basis.get_scale().x
+	var radii := Vector3(box.size.x * 0.5 * Constants.VIEW_CROWN_WIDTH_SHARE, (top - from) * 0.5, box.size.z * 0.5 * Constants.VIEW_CROWN_WIDTH_SHARE) * reach
+	# The crown is round enough that its yaw doesn't matter: as wide both ways.
+	var flat := maxf(radii.x, radii.z)
+	_ViewBlockers.add(self, global_transform * middle, Vector3(flat, radii.y, flat))
 
 
 func _ready() -> void:

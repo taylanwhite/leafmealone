@@ -35,6 +35,10 @@ var _insert_at: int = -1
 ## How many "soon" steps wait at the front (they keep their own order).
 var _firsts: int = 0
 var _open: bool = true
+## The frame this queue was made in (the world's arrival on a joiner): no step
+## runs in it, so that frame never pays for a step on top of the world itself
+## (driving:E2's join frame).
+var _born_frame: int = -1
 
 
 func _ready() -> void:
@@ -43,6 +47,7 @@ func _ready() -> void:
 	# Before anything else in the frame: the steps' time is taken first, and the
 	# rest of the frame (players, physics, the network) still fits after.
 	process_priority = -100
+	_born_frame = Engine.get_process_frames()
 	stats = {"steps": 0, "frames": 0, "max_step_ms": 0.0, "max_step": "", "max_frame_ms": 0.0, "pending": 0, "flushed": 0}
 
 
@@ -137,7 +142,7 @@ func flush() -> void:
 
 
 func _process(_delta: float) -> void:
-	if is_idle():
+	if is_idle() or Engine.get_process_frames() == _born_frame:
 		return
 	var started := Time.get_ticks_usec()
 	var budget := int(Constants.BUILD_MS_PER_FRAME * 1000.0)

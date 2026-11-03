@@ -2143,6 +2143,14 @@ const TOWN_SIGNS: Dictionary = {
 	"main_street": "MAIN ST",
 	"county_road": "COUNTY RD 9",
 	"depot_road": "DEPOT RD",
+	# The outskirts (driving:E2, levels/town/outskirts.gd).
+	"water_tower": "GUTTERFORD",
+	"billboard_turf_title": "TURFMASTERS™",
+	"billboard_turf_line": "Your neighbors already switched.",
+	"billboard_depot_title": "HOMIE DEPOT",
+	"billboard_depot_line": "Everything for the yard except help.",
+	"depository_sign": "GUTTERFORD MUNICIPAL\nLEAF DEPOSITORY\nCapacity: Exceeded Since 1987",
+	"farm_sign": "FURROW FAMILY FARM\nHay · Pumpkins · Opinions",
 }
 
 ## A hired hand takes Chefty's wheel (net/components/chefty_drive.gd, the

@@ -4067,3 +4067,43 @@ const ESCORT_CAM_BIAS_RATE: float = 0.9
 ## The escort's follow eye wants this much room (m) round it: closer to the van's
 ## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
 const ESCORT_CAM_ROOM: float = 1.2
+
+# ---- driving:E2 (Chefty's chase camera never inside anything, the outskirts,
+# full houses up close; docs/GAME.md "Gutterford from the road", docs/DECISIONS.md
+# "driving:E2")
+## Tree crowns for cameras (props/view_blockers.gd): the grid's cell (m); where a
+## kind's leaves start, as a share of its height; how much of the near mesh's
+## width the crown ellipsoid takes (the box's corners are air).
+const VIEW_BLOCKER_CELL: float = 16.0
+const VIEW_CROWN_FROM: Dictionary = {"broadleaf": 0.4, "birch": 0.42, "willow": 0.2, "pine": 0.15, "cypress": 0.1}
+const VIEW_CROWN_WIDTH_SHARE: float = 0.85
+## Chefty's chase camera (player/vehicle_camera.gd): the boom's pivot over the
+## truck (m, above the cab roof, so a boom pulled all the way in is never inside
+## the truck); the swept sphere's radius and the clearance kept in front of a
+## blocker (m); pulling in: the share of the gap closed per second and a top
+## speed (m/s, so a pull-in is never a snap); easing back out (share per second);
+## and how far ahead it looks (m) when pulled all the way in.
+const CHEFTY_CAMERA_PIVOT_UP: float = 3.0
+const CHEFTY_CAMERA_RADIUS: float = 0.35
+const CHEFTY_CAMERA_CLEARANCE: float = 0.6
+const CHEFTY_CAMERA_PULL_RATE: float = 9.0
+const CHEFTY_CAMERA_PULL_SPEED: float = 16.0
+const CHEFTY_CAMERA_EASE_OUT: float = 1.6
+const CHEFTY_CAMERA_PULLED_LOOK_AHEAD: float = 8.0
+## A crown the lens is inside anyway fades (screen-door dissolve): grown by this
+## pad (m) to start before the lens touches leaves, this much dissolve per unit
+## of depth, at most this much, changing at this rate (per second).
+const CHEFTY_CAMERA_CROWN_PAD: float = 0.5
+const CHEFTY_CAMERA_CROWN_FADE_DEPTH: float = 2.5
+const CHEFTY_CAMERA_CROWN_FADE_MAX: float = 0.85
+const CHEFTY_CAMERA_CROWN_FADE_RATE: float = 4.0## The outskirts (levels/town/outskirts.gd): the power poles' spacing (m), the
+## trees along the back fences between neighborhoods (m apart), a field's
+## furrows (m apart), round bales per hay field, and the PropBatch chunk (m) for
+## the outskirts' fences and poles and the town streets' storm drains (bigger
+## than art's 32 m: a long fence line in a few draw calls).
+const OUTSKIRTS_POLE_SPACING: float = 38.0
+const OUTSKIRTS_BACK_ROW_SPACING: float = 24.0
+const OUTSKIRTS_FURROW_SPACING: float = 1.6
+const OUTSKIRTS_BALES_PER_FIELD: int = 14
+const OUTSKIRTS_PROP_CHUNK: float = 128.0
+const TOWN_STREET_PROP_CHUNK: float = 256.0

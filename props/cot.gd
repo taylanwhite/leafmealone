@@ -9,6 +9,7 @@ extends Node3D
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 const REACH: float = 1.6
 const FRAME := Color(0.35, 0.37, 0.33)
 const CANVAS := Color(0.42, 0.5, 0.34)
@@ -21,7 +22,8 @@ var index: int = 0
 func _ready() -> void:
 	add_to_group("cots")
 	add_to_group("prompt_sources")
-	_build()
+	# Only a look: a joiner builds it over the next frames (driving:E2's join frame).
+	_BuildQueue.later(self, _build, "cot")
 
 
 ## Where a sleeper's body goes, on top of the canvas.
