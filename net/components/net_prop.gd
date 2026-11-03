@@ -738,6 +738,8 @@ func _host_step() -> void:
 	_come_back_in()
 	if _airborne and linear_velocity.length() < 0.35:
 		_airborne = false
+		# Thrown and come to rest: a NICE BOY close by comes to have a look (R2 chunk 2).
+		get_tree().call_group("nice_crew", "on_prop_landed", global_position, _thrower)
 	_try_load_bag()
 	_try_unload_wheelbarrow()
 
@@ -747,6 +749,10 @@ func _handle_grab(peer_id: int) -> void:
 		return
 	var player := _player(peer_id)
 	if player == null or player.global_position.distance_to(global_position) > GRAB_REACH:
+		return
+	# Caught by the NICE BOYS: hands off everything (R2 chunk 2).
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and bool(director.call("is_captured", peer_id)):
 		return
 	var hotbar := _hotbar()
 	var slot := -1
@@ -870,6 +876,11 @@ func _check_bonks() -> void:
 		if heat != null:
 			if target.is_in_group("crew"):
 				heat.call("add", Constants.HEAT_CREW_BONK, "crew_bonk")
+				# R2 chunk 2: who did it (a bonk during the cite or the escort is a
+				# rescue), and the XP for beaning a NICE BOY.
+				if target.has_method("host_bonked_by"):
+					target.call("host_bonked_by", _thrower)
+				Campaign.add_xp(Constants.XP_CREW_BONK, "crew_bonk")
 			elif not target.is_in_group("players"):
 				heat.call("add", float(Constants.HEAT_PEDESTRIAN_BONK.get(weight_tier(), 4.0)), "pedestrian_bonk")
 		# It bounces off them.

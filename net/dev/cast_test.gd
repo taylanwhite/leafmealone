@@ -79,7 +79,7 @@ const _VanArrival = preload("res://net/run_events/van_arrival.gd")
 ## Steps 13-16: crew outfits and name tags on a networked crew (cast:4).
 const PHASE_C_CREW: bool = true
 ## Step 17: barks reach the client (cast:6).
-const PHASE_C_BARKS: bool = false
+const PHASE_C_BARKS: bool = true
 ## Step 13 waits this long for a client to join.
 const CLIENT_WAIT_SECONDS: float = 15.0
 ## After the crew arrives, this long for the spawn to reach the client.
@@ -418,9 +418,11 @@ func _phase_c() -> void:
 	director.call("force_event")
 	var coming := str(director.call("status_line"))
 	_look(coming == str(_Strings.UI["status_crew_coming"]), "Q1 the warning's status is UI status_crew_coming, not '%s'" % coming)
+	# R2 chunk 2: the crew is made at the call, seated in the van; they're "here"
+	# when the chase starts (the director's status is for logs, not the HUD).
 	waited = 0.0
 	var limit := Constants.RUN_WARNING_SECONDS + 4.0
-	while get_tree().get_nodes_in_group("crew").is_empty() and waited < limit:
+	while (get_tree().get_nodes_in_group("crew").is_empty() or int(director.call("phase")) != 2) and waited < limit:
 		await get_tree().process_frame
 		waited += get_process_delta_time()
 	var crew := get_tree().get_nodes_in_group("crew")
@@ -476,7 +478,23 @@ func _phase_c() -> void:
 		_look(capsule == null or not capsule.visible, "16 %s's placeholder capsule is hidden" % member.name)
 		cast[str(member.name)] = {"tag": label.text if label != null else "", "outfit": str(body.get("outfit")) if body != null else ""}
 	if PHASE_C_BARKS:
-		pass # Step 17 (barks reach the client) comes with cast:6.
+		# Step 17 (cast:6, absorbed by R2 chunk 2): one bark per NICE BOY, each a
+		# different kind and line, through the host's _rpc_bark; the client's
+		# crew_cast "bark" fields must match the host's (CI's Same check).
+		var kinds: Array[String] = ["arrive", "chase", "escort", "wave", "recall"]
+		var sent := 0
+		for member: Node in get_tree().get_nodes_in_group("crew"):
+			var kind := kinds[sent % kinds.size()]
+			member.call("bark", kind, true, 1)
+			sent += 1
+		await get_tree().create_timer(CREW_SETTLE_SECONDS).timeout
+		for member: Node in get_tree().get_nodes_in_group("crew"):
+			var shown := str(member.get("last_bark"))
+			_look(shown.ends_with(":1"), "17 %s showed its bark (%s)" % [member.name, shown])
+			var label := member.get_node_or_null("Visual/Bark") as Label3D
+			_look(label != null and label.fixed_size and label.pixel_size <= Constants.CREW_TAG_MAX_PX, "17 %s's bark line keeps a fixed, clamped size" % member.name)
+			cast[str(member.name)]["bark"] = shown
+		print("[CastTest] step 17: %d barks sent" % sent)
 	print("[CastTest] steps 13-16, the crew on a client: %s %s" % [_problems.size() == before, JSON.stringify(cast)])
 
 

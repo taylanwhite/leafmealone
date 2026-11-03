@@ -230,13 +230,25 @@ func _run() -> void:
 	if director == null:
 		_step("11b capture path: no run director", false)
 	else:
-		# The real capture path's drop (director.note_capture calls it); note_capture
-		# itself would start Border Return, which isn't this test's business.
+		# The real catch's drop (net/run_events/encounter.gd at the end of the cite):
+		# the itemized row, one by one, 0.6 m apart across the pair's facing, no toast.
+		# The catch itself would start the van ride, which isn't this test's business.
 		_notices.clear()
 		var caught := _Hotbar.items_of(get_tree(), _id())
-		director.call("_release_held", _id())
-		var confiscated := await _wait_for(func() -> bool: return _all_loose_on_pad(caught) and _notices.has("confiscated"), 60)
-		_step("11b caught with %d things: confiscated %s" % [caught.size(), confiscated], confiscated and caught.size() == 2)
+		var origin := (_me() as Node3D).global_position + Vector3(1.0, 0.0, 0.0)
+		get_tree().get_first_node_in_group("hotbar").call("host_empty_pockets", _id(), "itemized", origin, Vector3(0.0, 0.0, -1.0))
+		var itemized := await _wait_for(func() -> bool: return _all_loose_on_pad(caught), 90)
+		await _seconds(1.2)
+		var row_ok := caught.size() == 2
+		if row_ok:
+			var a := (caught[0] as Node3D).global_position
+			var b := (caught[1] as Node3D).global_position
+			var gap := Vector2(a.x - b.x, a.z - b.z).length()
+			# Across a -Z facing the row runs along x, 0.6 m apart, from the origin.
+			var line := absf(a.z - b.z)
+			row_ok = absf(gap - Constants.CATCH_ROW_SPACING) < 0.3 and line < 0.35
+			print("[HotbarTest] itemized row: %s and %s, %.2f m apart (%.2f off the line)" % [a, b, gap, line])
+		_step("11b caught with %d things: itemized in a row %s, no toast %s" % [caught.size(), itemized and row_ok, _notices.is_empty()], itemized and row_ok and _notices.is_empty())
 
 	# 12. A known set for the client to agree on: rake in hand (slot 1), blower in
 	# slot 2, two signs in slot 3.

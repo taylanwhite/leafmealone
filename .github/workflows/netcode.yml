@@ -201,6 +201,18 @@ jobs:
           grep "BrawlTest" build/soak/ci-brawl/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-brawl/host.json'))['brawl_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Encounter test (the NICE BOYS' catch, R2 chunk 2; 150 ms lag, 2% loss)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-encounter
+          "$GODOT" --headless --path . -- --host --port=7827 --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --encounter-test --sim-lag=150 --sim-loss=2 --measure="$PWD/build/soak/ci-encounter/host.json" --run-seconds=170 > build/soak/ci-encounter/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7827 --name=Target --no-steam --sim-lag=150 --sim-loss=2 --encounter-test --run-seconds=160 > build/soak/ci-encounter/target.log 2>&1
+          wait
+          grep "EncounterTest" build/soak/ci-encounter/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-encounter/host.json'))['encounter_test']; sys.exit(0 if r.get('ok') else 1)"
+
       - name: Day test (the clock, sleeping, XP banked at bedtime, rank-ups, quiet hours, 2 AM)
         if: matrix.part == 'features'
         run: |

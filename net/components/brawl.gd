@@ -83,6 +83,9 @@ func _handle_punch(peer_id: int, tier: String, whack: bool) -> void:
 	sound = "thud" if tier == "heavy" else "bonk"
 	_rpc_hit.rpc(puncher.get_path(), target.get_path(), push, tier, sound)
 	_heat_for(target, tier)
+	# A punch on a NICE BOY who has hold of a friend lets them go (R2 chunk 2).
+	if target.has_method("host_bonked_by"):
+		target.call("host_bonked_by", peer_id)
 
 
 func _handle_grab(peer_id: int, target_id: int) -> void:
@@ -169,6 +172,31 @@ func _physics_process(_delta: float) -> void:
 			var push := speed.normalized() * 5.0 + Vector3.UP * 2.5
 			_rpc_hit.rpc(flyer.get_path(), other.get_path(), push, "heavy", "thud")
 			_heat_for(other, "heavy")
+			if other.has_method("host_bonked_by"):
+				other.call("host_bonked_by", flyer.name.to_int())
+
+
+## Host (R2 chunk 2): this player is caught, so any carry they're in ends, whichever
+## end of it they're on, through the usual set-down, so the catch never fights a carry.
+func host_drop_carry(peer_id: int) -> void:
+	if not Net.is_host():
+		return
+	# Either end's flags may not have replicated yet (the carried one's are their
+	# own peer's), so look at both ends of every carry.
+	var ended := false
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var other := node.name.to_int()
+		var carrying := int(node.get("carrying"))
+		var carried_by := int(node.get("carried_by"))
+		if other == peer_id and (carrying != 0 or carried_by != 0):
+			_tell_carry(other, 0, 0)
+			_tell_carry(carrying if carrying != 0 else carried_by, 0, 0)
+			ended = true
+		elif carrying == peer_id or carried_by == peer_id:
+			_tell_carry(other, 0, 0)
+			ended = true
+	if ended:
+		_tell_carry(peer_id, 0, 0)
 
 
 # ---------------------------------------------------------------- helpers

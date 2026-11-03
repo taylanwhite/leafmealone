@@ -62,6 +62,20 @@ const SOUNDS: Dictionary = {
 	"ui_tick": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": -4.0},
 	"ui_pop": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": -2.0},
 	"ui_stamp": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	# ---- R2:2 the NICE BOYS' catch (tools/sfx_r2_crew.py): their barks (Chatter,
+	# critic C2), the pea whistle, the citation scribble, the gotcha slap, the
+	# lunge, the sticker, the torn page, the itemized pops, their footsteps and
+	# the hop down from the van (npcs/crew_member.gd, net/run_events/encounter.gd).
+	"bark": {"variants": 3, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"whistle": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": -2.0},
+	"scribble": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -3.0},
+	"gotcha_grab": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"lunge_whoosh": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"sticker_slap": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"paper_tear": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"itemize_pop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.ITEMIZE_POP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": -2.0},
+	"crew_step": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.CREW_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.4, "db": -3.0},
+	"hop_land": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
 	# Character noises.
 	"babble": {"variants": 5, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 1.5, "db": 0.0},
 	"vo_ah": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 1.0, "db": 0.0},

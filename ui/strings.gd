@@ -1645,11 +1645,11 @@ const CREW_BARKS: Dictionary = {
 		"Knock knock! On the pile!",
 		"We saw you go in there, friend!",
 	],
+	# R2 chunk 2: index 0 is the gotcha line, said at Constants.CATCH_BARK_AT on
+	# every catch (docs/GAME.md "The NICE BOYS encounter (R2)"); the rest are spares.
 	"caught": [
 		"Gotcha! Have a NICE day!",
 		"Thank you for your cooperation! Into the van!",
-		# Flagged for Taylan (2026-11-01): riffs on generic arrest language, names no agency.
-		"You have the right to remain pleasant!",
 		"Another happy customer!",
 		"Don't worry, the van has cupholders!",
 	],
@@ -1659,6 +1659,78 @@ const CREW_BARKS: Dictionary = {
 		"My visor! I'm writing this up!",
 		"Rude! Very, very rude!",
 		"Was that a GNOME?!",
+	],
+	# ---- nice boys: crew and the catch (R2 chunk 2; cast:6 absorbed). The winding
+	# up, the lunge's battle cry, the sprawl after a miss.
+	"lunge": [
+		"Ah-ah-ah!",
+		"Ah-ah-AH!",
+		"Hold STILL, please!",
+	],
+	"whiff": [
+		"I meant to do that.",
+		"That one's going in my self-evaluation.",
+		"The grass was slippery. I'm noting the grass.",
+		"Deep breaths. Deep, compliant breaths.",
+	],
+	"inspect": [
+		"This pile looks suspiciously fluffy.",
+		"That hedge just breathed.",
+		"Is this bin... humming?",
+		"Mmhm. A shed. Sheds are where people go.",
+	],
+	"near_miss": [
+		"Huh. Just leaves.",
+		"Nobody here. I'm leaving a notice anyway.",
+		"Clear! Ish!",
+		"Empty. Suspiciously empty.",
+	],
+	"cite_wriggle": [
+		"Stop wiggling, I'm doing cursive!",
+		"Now I have to start over!",
+		"Sir, you're smudging the carbon!",
+		"Hold still, this is the NICE part!",
+	],
+	"escort": [
+		"Right this way! Mind the lawn!",
+		"Arm in arm, like neighbors!",
+		"Doo doo doo, lovely day for it!",
+		"Step, step, nice and pleasant!",
+	],
+	"door": [
+		"After you!",
+		"Watch your step! There's a step.",
+		"Your chariot! It's a van.",
+	],
+	"buckle": [
+		"Click it or ticket! It's both, actually.",
+		"Snug as a bug! A compliant bug.",
+		"There we go. Fill this out if you get bored.",
+	],
+	"recall": [
+		"Wrap it up, boys! Wrap it up!",
+		"Back to the van! Shotgun's taken!",
+		"Paperwork's waiting, fellas!",
+	],
+	"ride": [
+		"Anybody want the radio? No? Good.",
+		"Next stop, Annex B! Then lunch!",
+		"Smooth roads. Smooth vibes.",
+	],
+	"wave": [
+		"Have a NICE day!",
+		"Buh-bye now!",
+		"See you soon! We always do!",
+	],
+	"capacity": [
+		"Van's full! Nobody else get caught, please!",
+		"We're at capacity! Behave until the next trip!",
+		"No more room! I'll put you on the wait list!",
+	],
+	"investigate": [
+		"What's this? Evidence? Evidence!",
+		"Somebody littered! Somebody's in trouble!",
+		"Oh, a clue. I love a clue.",
 	],
 }
 

@@ -22,6 +22,11 @@ var _selected: Dictionary = {}
 ## peer id -> where they last stood in the yard, sampled each physics tick on the
 ## host, so emptied pockets land on the yard, not wherever a teleport took them.
 var _last_lot_spot: Dictionary = {}
+## Host: the itemized rows still popping out ({peer, item, at, when, index}).
+var _row_queue: Array[Dictionary] = []
+## How many are still to pop (host), and the pops every peer played, for tests.
+var row_log_size: int = 0
+var itemized_log: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -275,12 +280,20 @@ func host_stow_hands(peer_id: int) -> void:
 
 
 ## Everything this peer carries pops out where they were on the yard, a little
-## apart, and they hear why: "confiscated" (the NICE BOYS), "left" (walked off
-## the job), "gone" (disconnected; nobody to tell).
-func host_empty_pockets(peer_id: int, reason: String) -> void:
+## apart, and they hear why: "confiscated", "left" (walked off the job), "gone"
+## (disconnected; nobody to tell). "itemized" is the NICE BOYS' catch (R2 chunk 2,
+## net/run_events/encounter.gd): the thing in hand, then each pocket in order, pops
+## out one every Constants.CATCH_ITEM_GAP s into a straight row CATCH_ROW_SPACING m
+## apart, across row_dir from row_origin, each with a rising tick. No toast: the row
+## on the lawn says it.
+func host_empty_pockets(peer_id: int, reason: String, row_origin: Vector3 = Vector3.INF, row_dir: Vector3 = Vector3.ZERO) -> void:
 	var items := items_of(get_tree(), peer_id)
 	_selected[peer_id] = -1
 	if items.is_empty():
+		return
+	if reason == "itemized":
+		_queue_row(peer_id, items, row_origin, row_dir)
+		_send_selected(peer_id, -1)
 		return
 	var player := _player(peer_id)
 	var center: Vector3 = _last_lot_spot.get(peer_id, (player as Node3D).global_position if player != null else (items[0] as Node3D).global_position)
@@ -297,6 +310,82 @@ func host_empty_pockets(peer_id: int, reason: String) -> void:
 		_send_notice(peer_id, reason)
 
 
+## The itemized row: what's in hand first, then the pockets by slot.
+func _queue_row(peer_id: int, items: Array[Node], origin: Vector3, facing: Vector3) -> void:
+	var player := _player(peer_id) as Node3D
+	if not origin.is_finite():
+		origin = player.global_position if player != null else (items[0] as Node3D).global_position
+	var flat := Vector3(facing.x, 0.0, facing.z)
+	if flat.length() < 0.01:
+		flat = -player.global_basis.z if player != null else Vector3.FORWARD
+	var across := flat.normalized().cross(Vector3.UP).normalized()
+	items.sort_custom(func(a: Node, b: Node) -> bool:
+		var a_held := int(a.get("held_by")) == peer_id
+		var b_held := int(b.get("held_by")) == peer_id
+		if a_held != b_held:
+			return a_held
+		if int(a.get("pocket_slot")) != int(b.get("pocket_slot")):
+			return int(a.get("pocket_slot")) < int(b.get("pocket_slot"))
+		return str(a.name) < str(b.name))
+	var start := Net.server_time()
+	for index: int in items.size():
+		var at := _on_pad(origin + across * Constants.CATCH_ROW_SPACING * float(index))
+		_row_queue.append({"peer": peer_id, "item": items[index], "at": at, "when": start + Constants.CATCH_ITEM_GAP * float(index), "index": index})
+
+
+## Host: pop the row's items whose turn has come.
+func _step_row() -> void:
+	var now := Net.server_time()
+	for entry: Dictionary in _row_queue.duplicate():
+		if now < float(entry["when"]):
+			continue
+		_row_queue.erase(entry)
+		var item := entry["item"] as Node
+		var peer_id := int(entry["peer"])
+		if not is_instance_valid(item) or (int(item.get("held_by")) != peer_id and int(item.get("pocketed_by")) != peer_id):
+			continue
+		var at: Vector3 = entry["at"]
+		# Out of their hands and pockets, in a little arc onto its spot in the row
+		# (never a teleport to it).
+		var player := _player(peer_id) as Node3D
+		var from := at + Vector3.UP * Constants.CONFISCATE_DROP_HEIGHT
+		var throw := Vector3.UP * Constants.CONFISCATE_POP
+		if player != null:
+			var toward := at - player.global_position
+			toward.y = 0.0
+			from = player.global_position + Vector3.UP * 1.1 + toward.normalized() * minf(0.45, toward.length())
+			var flight := Constants.CATCH_ITEM_FLIGHT
+			var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+			var span := at + Vector3.UP * 0.15 - from
+			throw = Vector3(span.x / flight, (span.y + 0.5 * gravity * flight * flight) / flight, span.z / flight)
+		item.call("host_unown", from, throw)
+		_rpc_itemized.rpc(from, int(entry["index"]))
+	row_log_size = _row_queue.size()
+
+
+## Every peer: one item out of the row, with a tick that rises item by item.
+@rpc("authority", "call_local", "reliable")
+func _rpc_itemized(at: Vector3, index: int) -> void:
+	itemized_log.append({"at": at, "index": index})
+	if itemized_log.size() > 32:
+		itemized_log.pop_front()
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx == null:
+		return
+	var world := get_tree().get_first_node_in_group("world") as Node3D
+	var marker := Node3D.new()
+	if world == null:
+		sfx.call("play", "itemize_pop")
+		return
+	world.add_child(marker)
+	marker.global_position = at
+	sfx.call("play_on", "itemize_pop", marker, 0.0, false)
+	for child: Node in marker.get_children():
+		if child is AudioStreamPlayer3D:
+			(child as AudioStreamPlayer3D).pitch_scale = 1.0 + 0.09 * float(index)
+	get_tree().create_timer(0.6).timeout.connect(marker.queue_free)
+
+
 ## Tell this peer no, and why ("full", "arms_full").
 func host_refuse(peer_id: int, reason: String) -> void:
 	if peer_id == Net.local_peer_id():
@@ -308,6 +397,8 @@ func host_refuse(peer_id: int, reason: String) -> void:
 func _physics_process(_delta: float) -> void:
 	if multiplayer.multiplayer_peer == null or not Net.is_host():
 		return
+	if not _row_queue.is_empty():
+		_step_row()
 	var tree := get_tree()
 	for node: Node in tree.get_nodes_in_group("players"):
 		var player := node as Node3D
