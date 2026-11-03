@@ -46,6 +46,9 @@ var _seen_started: float = -1.0
 var _seen_phase: int = 0
 var _flash: float = 0.0
 var _beacon: Node3D
+## The director's cohort_id when the NICE BOYS arrived (-1 before any raid):
+## it moves only when they take somebody, on every peer.
+var _raid_cohort_id: int = -1
 ## The caption stack line the radio is on (0 = none).
 var _caption_id: int = 0
 
@@ -107,6 +110,7 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 			# The flare goes up where the van will really park.
 			_beacon.global_position = director.call("van_park_point")
 		2:
+			_raid_cohort_id = _cohort_id_of(director)
 			_clear_beacon()
 			_play("arrive")
 			_flash = 1.0
@@ -114,7 +118,7 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 			pass
 		_:
 			_clear_beacon()
-			if (previous == 2 or previous == 3) and _nobody_taken(director):
+			if (previous == 2 or previous == 3) and _nobody_taken(director, _raid_cohort_id):
 				_play("clear")
 				_show_caption(cue_line("clear", started))
 				_material.set_shader_parameter("tint", CLEAR_TINT)
@@ -122,11 +126,19 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 
 
 ## Nobody caught in the raid that just ended (the director's own count when it
-## keeps one, R2 chunk 2; else whoever is in the cohort now).
-static func _nobody_taken(director: Node) -> bool:
+## keeps one, R2 chunk 2; else the cohort id hasn't moved since they arrived).
+## Not the cohort's size: a teammate still at the crossing from an earlier raid
+## is in it, and on clients nobody leaves it until they're seen home.
+static func _nobody_taken(director: Node, cohort_at_arrival: int) -> bool:
 	if director.has_method("last_raid_caught"):
 		return int(director.call("last_raid_caught")) == 0
-	return int(director.call("cohort_size")) == 0
+	if cohort_at_arrival < 0:
+		return false
+	return _cohort_id_of(director) == cohort_at_arrival
+
+
+static func _cohort_id_of(director: Node) -> int:
+	return int(director.call("cohort_id")) if director.has_method("cohort_id") else 0
 
 
 func _warning_frame(arrival: float) -> void:

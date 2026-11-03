@@ -35,12 +35,18 @@ var _batch_left: float = 0.0
 var _safe_until: Dictionary = {}
 var _next_roll: float = 0.0
 var _empty_lot_for: float = 0.0
+## Clients: cohort members seen riding off or at the crossing. The host's
+## release_peer() runs only on the host, so a client lets a member go when the
+## replicated zone brings them back from there.
+var _cohort_away: Dictionary = {}
 
 
 func _ready() -> void:
 	add_to_group("run_director")
 	if not Net.player_left.is_connected(_on_player_left):
 		Net.player_left.connect(_on_player_left)
+	if not Net.player_zone_changed.is_connected(_on_zone_changed):
+		Net.player_zone_changed.connect(_on_zone_changed)
 	# The van pulling up, on every peer, timed from the phases (cosmetic).
 	var arrival: Node = _VanArrival.new()
 	arrival.name = "VanArrival"
@@ -86,6 +92,12 @@ func cohort_size() -> int:
 
 func is_captured(peer_id: int) -> bool:
 	return _cohort.has(peer_id)
+
+
+## Goes up by one for every cohort the NICE BOYS take (on clients, when the
+## cohort's RPC lands). A raid that ends with it unchanged caught nobody.
+func cohort_id() -> int:
+	return _cohort_id
 
 
 func can_capture(peer_id: int) -> bool:
@@ -300,6 +312,18 @@ func _log(event_name: String, data: Dictionary) -> void:
 		telemetry.call("event", event_name, data)
 
 
+## Clients: a cohort member who rode off and is now back on the yard or at the
+## store is home (the host already let them go in release_peer).
+func _on_zone_changed(peer_id: int, zone: int) -> void:
+	if Net.is_host() or not _cohort.has(peer_id):
+		return
+	if zone == Net.Zone.TRANSIT or zone == Net.Zone.BORDER:
+		_cohort_away[peer_id] = true
+	elif _cohort_away.has(peer_id):
+		_cohort_away.erase(peer_id)
+		_cohort.erase(peer_id)
+
+
 func _on_player_left(peer_id: int) -> void:
 	if Net.is_host():
 		_rpc_drop_rider.rpc(peer_id)
@@ -323,6 +347,7 @@ func _rpc_phase(phase: int, started_at: float, status: String) -> void:
 @rpc("authority", "call_local", "reliable")
 func _rpc_cohort(cohort_id: int, roster: Array, hazard_seed: int, _started_at: float) -> void:
 	_cohort.clear()
+	_cohort_away.clear()
 	for entry: Variant in roster:
 		_cohort.append(int(entry))
 	_cohort_id = cohort_id

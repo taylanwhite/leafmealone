@@ -8,19 +8,29 @@ extends Node
 ##             both peers every tick after the blend, no tick over
 ##             STAGE_MAX_STEP_METERS, and released mid-move with no jump (the owner
 ##             stays put; the host's view eases back without a step over it).
+##             It starts once the client's clock has settled (a join stall
+##             snaps it by a second or more, and the anchor runs on that time).
+##   agree     the client's own body against the host's anchor at the same
+##             wall-clock moment (both run on this machine): within
+##             CROSS_TOLERANCE, so the peers really agree, not each with itself.
+##   freed     an anchor freed under a staged body (a van left) still releases
+##             it: standing pose, no collision exception, interpolation back.
 ##   camera    StageCam lives under CameraRig, not Visual; nested pushes, an orbit
 ##             with clamped look, a toggle while a shot is live, pops, a cut and an
 ##             anchor freed under a shot: exactly one current camera (and never
-##             none) on every frame for about 6 s.
+##             none) on every frame for about 6 s. Then the rig switched off
+##             under a live shot (the crossing camera): no push or pop takes
+##             the view back until it's switched on again.
 ##   lock      a control lock holds movement and the held keys, lets its
-##             allowances through, and movement comes back when it's lifted.
+##             allowances through, never eats a click meant for a window's
+##             button, and movement comes back when it's lifted.
 ##   gesture   register_gesture poses a body by name; an unknown name is a no-op;
 ##             set_anim_speed(0) freezes the body mid-gesture.
 ##   iris      closes and opens on the server times given, held shut IRIS_HOLD_MIN.
 ##   captions  4 lines at the normal and the largest caption size: 3 show, none
 ##             touches the goal line, the job panel or the heat meter or each
-##             other; captions off hides subtitles, quips and radio but not a
-##             teammate line.
+##             other; captions off hides every line (subtitles, quips, radio
+##             and teammate lines alike, critic.md C19).
 ##   goal      the goal line dims in WARNING, CHASE and DEPARTING and comes back.
 ## Each step prints a [StageTest] line. The client reports its half by RPC.
 
@@ -39,6 +49,20 @@ const STAGE_TOLERANCE: float = 0.05
 ## The host's view of the release: no frame may step more than this.
 const RELEASE_STEP_MAX: float = 0.12
 const RELEASE_WATCH_SECONDS: float = 0.8
+## Both peers run on this machine, so the system clock lines their samples up:
+## where the client put its own body at a wall-clock moment, against where the
+## host's clock says the anchor was at that same moment.
+const CROSS_TOLERANCE: float = 0.05
+## The client's clock estimate must hold this still (and this long) before the
+## stage starts, so the step measures the stage and not the join settling.
+const CLOCK_SETTLE_DRIFT: float = 0.01
+const CLOCK_SETTLE_SECONDS: float = 1.5
+const CLOCK_SETTLE_WAIT: float = 20.0
+## A ping slower than this (the join's loading stalls) can't be trusted yet: the
+## first good one after it moves the estimate by as much as the stall was long.
+const CLOCK_SETTLE_RTT: float = 0.6
+## Every second physics tick of the client's staged body goes in its report.
+const WALL_SAMPLE_EVERY: int = 2
 
 static var result: Dictionary = {}
 
@@ -66,9 +90,15 @@ var _anchor_hitches: int = 0
 ## The body's own steps over STAGE_MAX_STEP_METERS when its anchor didn't jump.
 var _pops: int = 0
 var _last_owner := Vector3.INF
-var _last_anchor_view := Vector3.INF
 var _anchor_seen_at: float = INF
 var _anchor_local_at: float = 0.0
+## Client: [system unix time, body position] on its physics ticks after the blend.
+var _wall_samples: Array = []
+var _wall_tick: int = 0
+## Client: watching its clock offset settle; host: told it has.
+var _clock_settled: bool = false
+var _offset_seen: float = INF
+var _offset_still_since: float = INF
 
 
 func _ready() -> void:
@@ -85,6 +115,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	_watch_cameras()
 	_measure_view()
+	_watch_clock()
 	if _started or get_tree().get_first_node_in_group("world") == null or _me() == null:
 		return
 	if get_tree().get_first_node_in_group("job_lot") == null:
@@ -100,11 +131,8 @@ func _move_anchor() -> void:
 	if _anchor_base == Vector3.INF:
 		return
 	var before := _anchor.global_position
-	var t := maxf(0.0, Net.server_time() - _anchor_at)
-	var angle := t * ANCHOR_RATE
-	var at := _anchor_base + Vector3(sin(angle) * ANCHOR_RADIUS, 0.0, (1.0 - cos(angle)) * ANCHOR_RADIUS)
-	var tangent := Vector3(cos(angle), 0.0, sin(angle))
-	_anchor.global_transform = Transform3D(Basis.looking_at(tangent, Vector3.UP), at)
+	_anchor.global_transform = _anchor_xform(Net.server_time())
+	var at := _anchor.global_position
 	# A hitch (a frame that took far longer than a tick) moves a time-driven anchor
 	# a long way at once; that's the anchor catching up, not the stage popping.
 	_anchor_jumped = before.distance_to(at) > Constants.STAGE_MAX_STEP_METERS * 0.5
@@ -117,8 +145,39 @@ func _move_anchor() -> void:
 	_anchor_local_at = local_now
 
 
+## The anchor at a server time (the same function on every peer).
+func _anchor_xform(server_t: float) -> Transform3D:
+	var t := maxf(0.0, server_t - _anchor_at)
+	var angle := t * ANCHOR_RATE
+	var at := _anchor_base + Vector3(sin(angle) * ANCHOR_RADIUS, 0.0, (1.0 - cos(angle)) * ANCHOR_RADIUS)
+	var tangent := Vector3(cos(angle), 0.0, sin(angle))
+	return Transform3D(Basis.looking_at(tangent, Vector3.UP), at)
+
+
 func _physics_process(_delta: float) -> void:
 	_measure_owner()
+
+
+## Client: tell the host once the clock estimate has stopped moving.
+func _watch_clock() -> void:
+	if Net.is_host() or _clock_settled or not _started:
+		return
+	var offset := Net.clock_offset_seconds()
+	var now := Time.get_ticks_msec() / 1000.0
+	if _offset_seen == INF or absf(offset - _offset_seen) > CLOCK_SETTLE_DRIFT or Net.clock_rtt_seconds() > CLOCK_SETTLE_RTT:
+		_offset_seen = offset
+		_offset_still_since = now
+		return
+	if now - _offset_still_since >= CLOCK_SETTLE_SECONDS:
+		_clock_settled = true
+		print("[StageTest] client: clock offset settled at %.3f s (last round trip %.0f ms)" % [offset, Net.clock_rtt_seconds() * 1000.0])
+		_rpc_settled.rpc_id(1)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_settled() -> void:
+	if Net.is_host():
+		_clock_settled = true
 
 
 # ---------------------------------------------------------------- host
@@ -131,9 +190,19 @@ func _run_host() -> void:
 	if _mate() == null:
 		_finish("the Target client never joined")
 		return
-	# Past the join's loading hitches, so the moving anchor isn't caught mid-stall.
+	# Past the join's loading hitches, so the moving anchor isn't caught mid-stall,
+	# and past the client's clock settling: its first good ping can snap its
+	# server time by a second or more, and the anchor is a function of that time.
 	await get_tree().create_timer(4.0).timeout
+	var settle_waited := 0.0
+	while not _clock_settled and settle_waited < CLOCK_SETTLE_WAIT:
+		await get_tree().create_timer(0.25).timeout
+		settle_waited += 0.25
+	if not _clock_settled:
+		_finish("the Target client's clock never settled")
+		return
 	await _staged_step()
+	await _freed_step()
 	await _camera_step()
 	await _lock_step()
 	await _gesture_step()
@@ -144,8 +213,31 @@ func _run_host() -> void:
 	while _report.is_empty() and waited_report < REPORT_WAIT_SECONDS:
 		await get_tree().create_timer(0.25).timeout
 		waited_report += 0.25
-	_step("client", bool(_report.get("ok", false)), "client report %s" % JSON.stringify(_report))
+	_cross_step()
+	var shown := _report.duplicate()
+	shown.erase("wall")
+	_step("client", bool(_report.get("ok", false)), "client report %s" % JSON.stringify(shown))
 	_finish("")
+
+
+## The two peers against each other: where the client put its own staged body at
+## a wall-clock moment, against where the host's anchor was at that moment.
+func _cross_step() -> void:
+	var samples: Array = _report.get("wall", [])
+	# This machine's system clock minus the host's server time (both read now).
+	var wall_minus_server := Time.get_unix_time_from_system() - Net.server_time()
+	var offset := Transform3D(Basis.IDENTITY, Vector3(0.6, 0.0, 0.0))
+	var err_max := 0.0
+	var err_sum := 0.0
+	for sample: Variant in samples:
+		var pair: Array = sample
+		var want := (_anchor_xform(float(pair[0]) - wall_minus_server) * offset).origin
+		var err := (pair[1] as Vector3).distance_to(want)
+		err_max = maxf(err_max, err)
+		err_sum += err
+	var mean := err_sum / float(samples.size()) if not samples.is_empty() else 0.0
+	var ok := samples.size() > 30 and err_max <= CROSS_TOLERANCE
+	_step("agree", ok, "the client's own staged body against the host's anchor at the same moment: worst %.3f m, mean %.3f m over %d samples (want <= %.2f)" % [err_max, mean, samples.size(), CROSS_TOLERANCE])
 
 
 ## The client's body on a moving anchor, staged by one reliable RPC on every peer.
@@ -159,7 +251,41 @@ func _staged_step() -> void:
 	await get_tree().create_timer(RELEASE_WATCH_SECONDS + 0.2).timeout
 	var stats: Dictionary = _StageBody.log.duplicate()
 	var ok := _err_samples > 30 and _err_max <= STAGE_TOLERANCE and _pops == 0 and _release_step_max <= RELEASE_STEP_MAX
-	_step("staged", ok, "the host draws the client's staged body within %.3f m of its anchor over %d frames (want <= %.2f), %d steps over %.2f m its anchor didn't make (StageBody log %s, anchor hitches %d), release: largest frame step %.3f m (want <= %.2f)" % [_err_max, _err_samples, STAGE_TOLERANCE, _pops, Constants.STAGE_MAX_STEP_METERS, JSON.stringify(stats), _anchor_hitches, _release_step_max, RELEASE_STEP_MAX])
+	_step("staged", ok, "the host draws the client's staged body within %.3f m of its anchor over %d frames (want <= %.2f), %d frame steps over %.2f m (StageBody log %s, anchor hitches %d), release: largest frame step %.3f m (want <= %.2f)" % [_err_max, _err_samples, STAGE_TOLERANCE, _pops, Constants.STAGE_MAX_STEP_METERS, JSON.stringify(stats), _anchor_hitches, _release_step_max, RELEASE_STEP_MAX])
+
+
+## An anchor freed under a staged body (a van left): the body still gets a full
+## release, on the owner and on a peer that only draws it. Local to the host (no
+## RPC): the host's own body, and its view of the client's.
+func _freed_step() -> void:
+	var problems: Array[String] = []
+	for body: Node3D in [_me(), _mate()]:
+		var who := "owner" if body.is_multiplayer_authority() else "view"
+		var exceptions_before := (body as PhysicsBody3D).get_collision_exceptions().size()
+		var carrier := AnimatableBody3D.new()
+		add_child(carrier)
+		carrier.global_position = body.global_position + Vector3(0.0, 0.0, 0.5)
+		var anchor := Node3D.new()
+		carrier.add_child(anchor)
+		body.call("set_staged", anchor, Transform3D.IDENTITY, 0.1, &"escorted")
+		await get_tree().create_timer(0.3).timeout
+		var excepted := (body as PhysicsBody3D).get_collision_exceptions().has(carrier)
+		carrier.queue_free()
+		await get_tree().create_timer(Constants.STAGE_RELEASE_BLEND + 0.2).timeout
+		var visual := body.get_node("Visual") as Node3D
+		if bool(body.call("is_staged")):
+			problems.append("%s still staged" % who)
+		if StringName(body.get("_stage_pose")) != &"stand":
+			problems.append("%s left in pose %s" % [who, body.get("_stage_pose")])
+		if not excepted:
+			problems.append("%s never excepted from its carrier" % who)
+		if (body as PhysicsBody3D).get_collision_exceptions().size() > exceptions_before:
+			problems.append("%s kept a collision exception" % who)
+		if visual.physics_interpolation_mode != Node.PHYSICS_INTERPOLATION_MODE_INHERIT:
+			problems.append("%s visual interpolation left %d" % [who, visual.physics_interpolation_mode])
+		# A late clear from the caller after that is harmless.
+		body.call("clear_staged")
+	_step("freed", problems.is_empty(), "an anchor freed under a staged body releases it fully on the owner and a viewer: %s" % [problems])
 
 
 ## StageCam: pushes, blends, an orbit, a toggle, pops, a cut and a freed anchor,
@@ -241,6 +367,28 @@ func _camera_step() -> void:
 		await get_tree().create_timer(0.05).timeout
 	await get_tree().create_timer(0.6).timeout
 	_watch_frames = false
+	# Something else takes the view under a live shot (the Border Return camera,
+	# player.set_crossing_view): the shot never takes it back, pushed or popped.
+	var other := Camera3D.new()
+	_marker(me.global_position).add_child(other)
+	me.call("stage_push", &"t_away", {"anchor": a, "blend_in": 0.2, "priority": 10})
+	await get_tree().create_timer(0.1).timeout
+	other.make_current()
+	rig.call("set_active", false)
+	await get_tree().process_frame
+	if cam.current or not other.current:
+		problems.append("an inactive rig's live shot kept the view")
+	me.call("stage_push", &"t_away2", {"anchor": b, "blend_in": 0.1, "priority": 20})
+	me.call("stage_pop", &"t_away2", 0.1)
+	me.call("stage_pop", &"t_away", 0.2)
+	await get_tree().create_timer(0.4).timeout
+	if not other.current or cam.current or StringName(me.call("stage_top")) != &"":
+		problems.append("a shot pushed or popped while the rig was off took the view from the other camera")
+	rig.call("set_active", true)
+	await get_tree().process_frame
+	if not (rig.call("current_base_camera") as Camera3D).current:
+		problems.append("the rig didn't take its view back when set active again")
+	other.get_parent().queue_free()
 	a.queue_free()
 	b.queue_free()
 	var stats: Dictionary = _StageCam.log.duplicate()
@@ -258,6 +406,9 @@ func _lock_step() -> void:
 	var held_moved := _flat(me.global_position - start)
 	var still_pressed := Input.is_action_pressed(&"move_forward")
 	var allows := bool(me.call("control_allows", "jump")) and bool(me.call("control_allows", "look")) and not bool(me.call("control_allows", "primary")) and not bool(me.call("control_allows", "interact"))
+	# A lock never eats a click meant for a window's button (left click is
+	# "primary", which nice_cite holds back): the mouse is free, so the GUI gets it.
+	var clicked := await _click_through_lock()
 	me.call("set_control_lock", &"van_seat", true)
 	var stacked := not bool(me.call("control_allows", "jump")) and not bool(me.call("control_allows", "primary")) and bool(me.call("control_allows", "look"))
 	me.call("set_control_lock", &"van_seat", false)
@@ -268,8 +419,36 @@ func _lock_step() -> void:
 	await get_tree().create_timer(0.4).timeout
 	Input.action_release(&"move_forward")
 	var free_moved := _flat(me.global_position - free_start)
-	var ok := held_moved < 0.05 and not still_pressed and allows and stacked and unlocked and free_moved > 0.3
-	_step("lock", ok, "locked: moved %.3f m with forward held (key released %s), allows jump+look not primary/interact %s, two locks allow only both's %s; unlocked moved %.2f m" % [held_moved, not still_pressed, allows, stacked, free_moved])
+	var ok := held_moved < 0.05 and not still_pressed and allows and clicked and stacked and unlocked and free_moved > 0.3
+	_step("lock", ok, "locked: moved %.3f m with forward held (key released %s), allows jump+look not primary/interact %s, a window button still takes a click %s, two locks allow only both's %s; unlocked moved %.2f m" % [held_moved, not still_pressed, allows, clicked, stacked, free_moved])
+
+
+## Under a lock with the mouse free (a window up), a left click reaches a button.
+func _click_through_lock() -> bool:
+	var mode_before := Input.mouse_mode
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var layer := CanvasLayer.new()
+	layer.layer = 128
+	add_child(layer)
+	var button := Button.new()
+	button.position = Vector2(20.0, 20.0)
+	button.size = Vector2(120.0, 40.0)
+	layer.add_child(button)
+	var hits: Array[int] = [0]
+	button.pressed.connect(func() -> void: hits[0] += 1)
+	await get_tree().process_frame
+	for down: bool in [true, false]:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = down
+		# In the viewport's own (canvas) coordinates: a headless window is tiny and scaled.
+		click.position = button.get_global_rect().get_center()
+		click.global_position = click.position
+		get_viewport().push_input(click, true)
+		await get_tree().process_frame
+	layer.queue_free()
+	Input.mouse_mode = mode_before
+	return hits[0] == 1
 
 
 ## register_gesture poses a body; an unknown name does nothing; anim speed 0 freezes it.
@@ -378,7 +557,7 @@ func _caption_step() -> void:
 		await get_tree().create_timer(0.5).timeout
 	if obstacles_seen < 2:
 		problems.append("only %d of the goal line, job panel and heat meter were on screen to keep clear of" % obstacles_seen)
-	# Captions off: spoken lines go, a teammate line stays.
+	# Captions off: every line goes, a teammate line too.
 	Settings.set_value("interface", "captions", false, false)
 	var off_ids: Array[int] = []
 	off_ids.append(int(stack.call("push", &"subtitle", "Upsy-daisy!", 3.0)))
@@ -387,8 +566,8 @@ func _caption_step() -> void:
 	off_ids.append(int(stack.call("push", &"teammate", "They took Target. Target had the good rake.", 3.0)))
 	await get_tree().process_frame
 	var off_kinds: Array = (stack.call("shown_lines") as Array).map(func(line: Dictionary) -> String: return str(line["kind"]))
-	if off_kinds != ["teammate"]:
-		problems.append("captions off shows %s, want only the teammate line" % [off_kinds])
+	if not off_kinds.is_empty():
+		problems.append("captions off shows %s, want none" % [off_kinds])
 	for id: int in off_ids:
 		stack.call("drop", id)
 	Settings.reset_section("interface")
@@ -435,6 +614,8 @@ func _rpc_stage(peer: int, base: Vector3, at: float) -> void:
 	_staged_since = Net.server_time()
 	_err_max = 0.0
 	_err_samples = 0
+	_wall_samples.clear()
+	_wall_tick = 0
 	body.call("set_staged", _anchor, Transform3D(Basis.IDENTITY, Vector3(0.6, 0.0, 0.0)), STAGE_BLEND, &"escorted")
 
 
@@ -461,13 +642,18 @@ func _measure_owner() -> void:
 	if body == null:
 		return
 	if bool(body.call("is_staged")):
-		if _last_owner != Vector3.INF and body.global_position.distance_to(_last_owner) > Constants.STAGE_MAX_STEP_METERS and not _anchor_jumped:
+		# Every step over the limit counts, a jump of the anchor's clock included:
+		# the player sees the pop whatever caused it.
+		if _last_owner != Vector3.INF and body.global_position.distance_to(_last_owner) > Constants.STAGE_MAX_STEP_METERS:
 			_pops += 1
 		_last_owner = body.global_position
 		if Net.server_time() - _staged_since > STAGE_BLEND + 0.05:
 			var want := (_anchor.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.6, 0.0, 0.0))).origin
 			_err_max = maxf(_err_max, body.global_position.distance_to(want))
 			_err_samples += 1
+			_wall_tick += 1
+			if _wall_tick % WALL_SAMPLE_EVERY == 0:
+				_wall_samples.append([Time.get_unix_time_from_system(), body.global_position])
 	elif _release_at != INF and Net.server_time() - _release_at < RELEASE_WATCH_SECONDS:
 		# Across the ground: the body settles onto the floor under gravity as it should.
 		_release_jump = maxf(_release_jump, _flat(body.global_position - _release_from))
@@ -481,11 +667,8 @@ func _measure_view() -> void:
 	if body == null:
 		return
 	var drawn := _drawn(body)
-	var anchor_now := _anchor.get_global_transform_interpolated().origin
-	var anchor_step := anchor_now.distance_to(_last_anchor_view) if _last_anchor_view != Vector3.INF else 0.0
-	_last_anchor_view = anchor_now
 	if bool(body.call("is_staged")):
-		if _last_drawn != Vector3.INF and drawn.distance_to(_last_drawn) > Constants.STAGE_MAX_STEP_METERS and anchor_step < Constants.STAGE_MAX_STEP_METERS * 0.5:
+		if _last_drawn != Vector3.INF and drawn.distance_to(_last_drawn) > Constants.STAGE_MAX_STEP_METERS:
 			_pops += 1
 		if Net.server_time() - _staged_since > STAGE_BLEND + 0.05:
 			var want := (_anchor.get_global_transform_interpolated() * Transform3D(Basis.IDENTITY, Vector3(0.6, 0.0, 0.0))).origin
@@ -502,9 +685,10 @@ func _client_report() -> void:
 	var stats: Dictionary = _StageBody.log.duplicate()
 	var cam_stats: Dictionary = _StageCam.log.duplicate()
 	var ok := _err_samples > 30 and _err_max <= STAGE_TOLERANCE and _pops == 0 and _release_jump <= 0.01 and int(cam_stats["null_frames"]) == 0
-	var report := {"ok": ok, "err_max": _err_max, "samples": _err_samples, "pops": _pops, "anchor_hitches": _anchor_hitches, "steps_over": stats["steps_over"], "max_step": stats["max_step_m"], "release_jump": _release_jump, "null_frames": cam_stats["null_frames"]}
-	print("[StageTest] client: my staged body within %.4f m of its anchor over %d ticks, %d steps over %.2f m its anchor didn't make (StageBody log: %d over, max %.3f; anchor hitches %d), released with a %.4f m slide, %d frames with no camera: %s" % [_err_max, _err_samples, _pops, Constants.STAGE_MAX_STEP_METERS, int(stats["steps_over"]), float(stats["max_step_m"]), _anchor_hitches, _release_jump, int(cam_stats["null_frames"]), ok])
+	var report := {"ok": ok, "err_max": _err_max, "samples": _err_samples, "pops": _pops, "anchor_hitches": _anchor_hitches, "steps_over": stats["steps_over"], "max_step": stats["max_step_m"], "release_jump": _release_jump, "null_frames": cam_stats["null_frames"], "wall": _wall_samples.duplicate()}
+	print("[StageTest] client: my staged body within %.4f m of its anchor over %d ticks, %d ticks stepping over %.2f m (StageBody log: %d over, max %.3f; anchor hitches %d), released with a %.4f m slide, %d frames with no camera: %s" % [_err_max, _err_samples, _pops, Constants.STAGE_MAX_STEP_METERS, int(stats["steps_over"]), float(stats["max_step_m"]), _anchor_hitches, _release_jump, int(cam_stats["null_frames"]), ok])
 	result = report.duplicate()
+	result.erase("wall")
 	result["done"] = true
 	_rpc_report.rpc_id(1, report)
 

@@ -154,6 +154,12 @@ func pockets() -> Node:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority():
 		return
+	# A control lock still holds its actions back when _input let them through
+	# to an open window that didn't want them.
+	if not _locks.is_empty():
+		for action: StringName in _STAGE_HELD_ACTIONS:
+			if event.is_action(action) and not control_allows(String(action)):
+				return
 	# In a drivable vehicle's seat, E, F and the camera key are the seat's.
 	if _Seated.handle_input(self, event):
 		get_viewport().set_input_as_handled()
@@ -499,6 +505,14 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	if _locks.is_empty():
+		return
+	# A window or the pause menu has the mouse: its buttons get every click and
+	# key (Node._input runs before the GUI). _stage_hold still releases anything
+	# held, so nothing leaks into the world.
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null and ui.has_method("any_window_open") and bool(ui.call("any_window_open")):
 		return
 	for action: StringName in _STAGE_HELD_ACTIONS:
 		if event.is_action(action) and not control_allows(String(action)):

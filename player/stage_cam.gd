@@ -164,7 +164,7 @@ func _retop(blend_seconds: float) -> void:
 	_top = next
 	_returning = false
 	_start_blend(outgoing, outgoing_fov, blend_seconds)
-	if not current:
+	if not current and _rig_active():
 		# make_current takes current from the old camera in the same call: never a
 		# frame with none.
 		make_current()
@@ -266,10 +266,19 @@ func _update(delta: float) -> void:
 func _finish_return() -> void:
 	_returning = false
 	var base := base_camera()
-	if base != null:
+	if not _rig_active():
+		# Something else has the view (the crossing camera): leave it there.
+		current = false
+	elif base != null:
 		# Current goes straight to the base camera in this one call.
 		base.make_current()
 	_last_origin = Vector3.INF
+
+
+## Whether the rig this hangs under has the view (CameraRig.set_active).
+func _rig_active() -> bool:
+	var rig := get_parent()
+	return rig == null or not rig.has_method("is_active") or bool(rig.call("is_active"))
 
 
 func _shot_transform(shot: Dictionary, delta: float) -> Transform3D:

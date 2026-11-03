@@ -163,6 +163,9 @@ func on_peer_caught(peer_id: int) -> void:
 	var shown := Net.player_name(peer_id)
 	if shown == "":
 		return
+	# The workbook row's session cap still holds (Q-006: once a session).
+	if int(_played.get("Q-006", 0)) >= _max_session("Q-006"):
+		return
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - float(_last_at.get("Q-006", -1000.0)) < Constants.QUIP_COOLDOWN_SECONDS:
 		return
@@ -221,6 +224,14 @@ func stack_caption(kind: StringName, line: String, priority: int = 0) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
 		sfx.call("play", "babble")
+
+
+## A LINES row's max_session by id (1 when the row is missing).
+static func _max_session(id: String) -> int:
+	for row: Dictionary in _Strings.LINES:
+		if str(row["id"]) == id:
+			return int(row["max_session"])
+	return 1
 
 
 func _try(trigger: String, on_stack: bool = false) -> void:

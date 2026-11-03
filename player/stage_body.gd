@@ -35,11 +35,15 @@ var _blend_t: float = 1.0
 var _from := Transform3D()
 var _last_origin := Vector3.INF
 var _excepted: PhysicsBody3D
+var _excepted_rid := RID()
 ## The last placement, so clear_staged can leave the body there.
 var _placed := Transform3D()
 ## Another peer's release ease (STAGE_RELEASE_BLEND): from where, how far.
 var _release_from := Transform3D()
 var _release_t: float = 1.0
+## Staged and not yet released. Separate from _anchor, which can be freed under
+## us (a van left) and must still get a proper release.
+var _active: bool = false
 
 
 static func reset_log() -> void:
@@ -55,6 +59,7 @@ func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringN
 	if player == null or anchor == null:
 		return
 	var was_staged := is_staged()
+	_active = true
 	_anchor = anchor
 	_offset = offset
 	_pose = pose if POSES.has(pose) else &"stand"
@@ -79,8 +84,16 @@ func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringN
 
 
 func clear_staged() -> void:
-	if _anchor == null:
+	if not _active:
 		return
+	_release()
+
+
+## Let go: the pose back to standing, the collision exception off, and on other
+## peers the ease back onto the network pose. Runs whether or not the anchor
+## still exists.
+func _release() -> void:
+	_active = false
 	_anchor = null
 	_set_exception(null)
 	if player == null:
@@ -134,10 +147,9 @@ func _target(frame: Transform3D) -> Transform3D:
 
 
 func _physics_process(delta: float) -> void:
-	if _anchor != null and not is_instance_valid(_anchor):
-		# The anchor was freed (a van left): stay where we were.
-		_anchor = null
-		clear_staged()
+	if _active and not is_instance_valid(_anchor):
+		# The anchor was freed (a van left): let go from where we were.
+		_release()
 		return
 	if not is_staged() or player == null:
 		return
@@ -150,6 +162,8 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if player == null or _is_owner():
 		return
+	if _active and not is_instance_valid(_anchor):
+		_release()
 	if is_staged():
 		_place_visual(_target(_anchor.get_global_transform_interpolated()))
 	elif _release_t < 1.0:
@@ -238,11 +252,17 @@ func _set_exception(anchor: Node3D) -> void:
 	if _excepted != null and is_instance_valid(_excepted):
 		player.remove_collision_exception_with(_excepted)
 		_excepted.remove_collision_exception_with(player)
+	elif _excepted_rid.is_valid():
+		# The carrier was freed (a van left): drop the exception by its RID, or
+		# the player keeps a dangling one.
+		PhysicsServer3D.body_remove_collision_exception(player.get_rid(), _excepted_rid)
 	_excepted = null
+	_excepted_rid = RID()
 	var node: Node = anchor
 	while node != null:
 		if node is PhysicsBody3D and node != player:
 			_excepted = node as PhysicsBody3D
+			_excepted_rid = _excepted.get_rid()
 			player.add_collision_exception_with(_excepted)
 			_excepted.add_collision_exception_with(player)
 			return

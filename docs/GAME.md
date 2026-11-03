@@ -31,7 +31,7 @@ These come from the workbook's Balance Lab and are mirrored in `core/balance.gd`
 - Base cleanup rate of 120 leaf units per minute per player, with tools multiplying throughput by 1.35 per tier. [BAL-07, BAL-12]
 - Contribution weights of 70% leaves cleared, 15% rescues, and 15% objectives or support. [BAL-20 to BAL-22]
 - Run events start at a 10% chance per lot, rising 5% per tier, capped at 65%, with a 12-minute cooldown. [BAL-14 to BAL-16, BAL-25] Since R2 (balance:E0) that chance really is per lot: the director's 20 s rolls each take 1 - (1 - p)^(20 s / 8 min), so a lot of RAID_LOT_MINUTES (8) adds up to it.
-- Border Return runs about 3 minutes. [BAL-17] R2: a catch costs about 0.55 min of transport and 1.3 min at the Annex (35 to 110 s, closing at 150 s); the balance model's 	ransport_minutes and nnex_minutes.
+- Border Return runs about 3 minutes. [BAL-17] R2: a catch costs about 0.55 min of transport and 1.3 min at the Annex (35 to 110 s, closing at 150 s); the balance model's `transport_minutes` and `annex_minutes`.
 - 45-minute play sessions. [BAL-04]
 
 The workbook's own Progression sheet flags lots 4 through 8 as longer than one 45-minute session, with lot 8 at roughly 100 minutes. Either the curve changes or saves have to capture a lot in progress. Treat that as unresolved.
@@ -287,6 +287,7 @@ Until these are decided, build the behavior so the answer can change without a r
   - **The stage** (R2 chunk 1, docs/DECISIONS.md): one stage camera (StageCam) for every view that isn't your own; bodies placed from anchors on every peer; every moment a beat at a server time; one caption stack for every raid line; a Daisy Seal iris over every cut.
   - **The guardrail for all of it:** nobody is held (the doors are open and the paperwork is the only thing between you and the street); the forms are about yards, noise, niceness and the NICE BOYS themselves, never names on files, photos, IDs, fingerprints or "where are you from"; nobody claims anybody (visitors co-sign a form); no hands-up pose anywhere; no custody words (detain, custody, booking, mugshot, jail, cells, bail and the like are in `net/dev/guardrail.gd` now); bureaucratic-slapstick music only.
   - **Raids are rarer** (balance:E0, pulled forward by R2): the workbook's per-lot raid chance (BAL-14) is now spread over a lot's 20 s rolls, so a quiet daytime job is raided about 10 to 25% of the time instead of 80 to 95%. Loud jobs still reach the certain raid at 95 heat (about four raids a job on average, docs/BALANCE.md); neighborhood escalation, that threshold and the retuned targets stay balance:E's.
+
 ## Rules for agents working on content
 
 - Agents may create canon (Taylan, 2026-11-01): names, lore, client characters, and dialogue. Record each one in this file's developer notes in the same commit, so the next agent uses it instead of inventing another. The store name Homie Depot, the Chefty truck logo, and the enforcement crew's name, the NICE BOYS, are Taylan's and stay.

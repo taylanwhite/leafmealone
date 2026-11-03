@@ -97,10 +97,9 @@ func drop(id: int) -> void:
 			entry["left"] = 0.0
 
 
-## Whether a kind shows with this player's Settings.
-static func kind_shown(kind: StringName) -> bool:
-	if kind == &"teammate":
-		return true
+## Whether a kind shows with this player's Settings: every kind follows captions
+## on/off (critic.md C19: all captions honor interface.captions).
+static func kind_shown(_kind: StringName) -> bool:
 	return _QuipPlayer.captions_on()
 
 

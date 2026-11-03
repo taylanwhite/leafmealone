@@ -30,6 +30,12 @@ func set_active(active: bool) -> void:
 	_apply()
 
 
+## Whether this rig has the view at all (off on other peers' players, and while
+## something else has it: the Border Return camera, set_crossing_view).
+func is_active() -> bool:
+	return _active
+
+
 ## Swap between the two cameras. Bound to toggle_camera by the player.
 func toggle() -> void:
 	first_person = not first_person
@@ -58,6 +64,14 @@ func _apply() -> void:
 		else:
 			want.current = false
 			other.current = false
+	else:
+		# The shot keeps playing, but only shows while the rig has the view: it
+		# never takes it back from whatever was given it (the crossing camera).
+		var stage := get_node("StageCam") as Camera3D
+		if _active and not stage.current:
+			stage.make_current()
+		elif not _active:
+			stage.current = false
 	# Field of view is this machine's setting (core/settings.gd), for both views.
 	%FirstPerson.fov = Settings.fov()
 	%OverShoulder.fov = Settings.fov()
