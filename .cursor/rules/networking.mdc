@@ -1,6 +1,6 @@
 ---
-description: Apply when writing or changing anything that runs in multiplayer, including RPCs, MultiplayerSpawner, MultiplayerSynchronizer, authority, zones, the shared clock, the leaf field, rides, the crew, captures, Border Return, Steam, lobbies, voice, saves, or any state that more than one player sees
-globs: net/**/*.gd, player/**/*.gd, equipment/**/*.gd, leaves/**/*.gd, props/**/*.gd, levels/**/*.gd, npcs/**/*.gd, border/**/*.gd
+description: Apply when writing or changing anything that runs in multiplayer, including RPCs, MultiplayerSpawner, MultiplayerSynchronizer, authority, zones, the shared clock, the leaf field, rides, the crew, captures, the Courtesy Shuttle and Satellite Annex B, Steam, lobbies, voice, saves, or any state that more than one player sees
+globs: net/**/*.gd, player/**/*.gd, equipment/**/*.gd, leaves/**/*.gd, props/**/*.gd, levels/**/*.gd, npcs/**/*.gd
 alwaysApply: false
 ---
 
@@ -27,7 +27,7 @@ Read `docs/NETCODE.md` before writing networked code. This checklist is the shor
 ## Zones, time, and determinism
 
 - The host decides which zone a player is in. Use `Net.player_zone()` and `Net.move_player_to_zone()`. Never infer a zone from a position.
-- Use `Net.server_time()` for anything timed across peers (ride progress, run event phases, Border Return hazards).
+- Use `Net.server_time()` for anything timed across peers (ride progress, run event phases, the Annex's window schedule).
 - Anything that must match on every peer without replication must be a pure function of a seed and `Net.server_time()`. Never accumulate it frame by frame, because Apple Silicon and x86 machines can drift apart.
 
 ## Spawning and sync

@@ -121,7 +121,12 @@ func _process(delta: float) -> void:
 func present(hint: Dictionary, camera: Camera3D, delta: float) -> void:
 	var want := 0.0
 	current_text = text_for(hint) if not hint.is_empty() else ""
-	if camera != null and not hint.is_empty() and _in_view(camera, hint["at"] as Vector3):
+	# R2c hud: a hint whose point is off screen (over the head of someone nose
+	# to nose with you, a stamp behind you) isn't drawn hanging at the edge, and
+	# none is printed over the job panel, the day and rank or the cash rows:
+	# text on text reads as neither (a friend's "Grab" over "Today's job").
+	if camera != null and not hint.is_empty() and _in_view(camera, hint["at"] as Vector3) \
+			and on_screen(get_viewport(), hint["at"] as Vector3, camera) and not _over_panels(camera, hint["at"] as Vector3):
 		want = 1.0
 		_show(hint, camera)
 	if want > _alpha:
@@ -305,6 +310,11 @@ static func current_hint(tree: SceneTree) -> Dictionary:
 		return {}
 	if why != &"":
 		return {}
+	# R2c: not while a stage camera swings you back, nor just after (nothing pops
+	# on mid-swing), and not through someone else's camera (a spectator's view:
+	# the prompt is about where your own body stands).
+	if _HudMode.overlays_held(tree, Net.local_peer_id()) or not own_view(tree):
+		return {}
 	for node: Node in tree.get_nodes_in_group("players"):
 		if node.name == str(Net.local_peer_id()) and node.has_method("interaction_hint"):
 			var hint: Dictionary = node.call("interaction_hint")
@@ -320,6 +330,60 @@ static func current_hint(tree: SceneTree) -> Dictionary:
 func _window_open() -> bool:
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	return ui != null and ui.has_method("any_window_open") and bool(ui.call("any_window_open"))
+
+
+## Whether a prompt at this point lands inside the screen (less a margin), in
+## front of the camera drawing now (or the one given).
+static func on_screen(viewport: Viewport, at: Vector3, through: Camera3D = null) -> bool:
+	var camera := through if through != null else viewport.get_camera_3d()
+	if camera == null:
+		return true
+	if not _Overheads.in_front(camera, at):
+		return false
+	var view := viewport.get_visible_rect().size
+	var px := camera.unproject_position(at)
+	var margin := Constants.R2C_HUD_PROMPT_EDGE
+	return px.x >= margin and px.y >= margin and px.x <= view.x - margin and px.y <= view.y - margin
+
+
+## The yard HUD's corner panels a prompt never prints over (UIRoot children).
+const PANELS: Array[String] = ["TaskList", "DayHud", "HudRows"]
+
+
+func _over_panels(camera: Camera3D, at: Vector3) -> bool:
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if camera == null or ui == null:
+		return false
+	var view := get_viewport().get_visible_rect().size
+	var size := _pill.get_combined_minimum_size()
+	var rect := Rect2(screen_point(camera, at) - size * 0.5, size)
+	for name_of: String in PANELS:
+		var panel := ui.get_node_or_null(name_of) as Control
+		if panel == null or not panel.is_visible_in_tree() or panel.modulate.a < 0.05:
+			continue
+		# What's drawn in it, piece by piece (a full-screen holder counts for nothing).
+		for child: Node in [panel] + panel.find_children("*", "Control", true, false):
+			var control := child as Control
+			if not control.is_visible_in_tree() or control.size.x <= 0.0 or control.size.y <= 0.0:
+				continue
+			var box := control.get_global_rect()
+			if box.size.x * box.size.y > view.x * view.y * Constants.R2C_HUD_PANEL_HOLDER_SHARE:
+				continue
+			if rect.intersects(box):
+				return true
+	return false
+
+
+## Whether the camera drawing now is this peer's own (first person, over the
+## shoulder or its stage camera), not a spectator's or anyone else's.
+static func own_view(tree: SceneTree) -> bool:
+	var camera := tree.root.get_viewport().get_camera_3d()
+	if camera == null:
+		return true
+	for node: Node in tree.get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			return node.is_ancestor_of(camera)
+	return true
 
 
 ## 0..1 -> 0..1 with a small overshoot past 1 before it settles (easeOutBack).

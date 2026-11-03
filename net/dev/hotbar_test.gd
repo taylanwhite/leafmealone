@@ -118,7 +118,8 @@ func _run() -> void:
 	var not_pulled := not bool(signs[0].get_meta("pulled", false))
 	_step("4 pockets full: refused %s, sign still loose %s, not pulled %s" % [refused_full, bool(signs[0].call("is_loose")), not_pulled], refused_full and bool(signs[0].call("is_loose")) and not_pulled)
 	var hud := _hud()
-	var shook := hud != null and float(hud.get("shake_left")) > 0.0 and str(hud.get("toast_text")) == _Strings.keyed(str(_Strings.UI["hotbar_full"]))
+	# x1:text: the shake is the whole message; no words.
+	var shook := hud != null and float(hud.get("shake_left")) > 0.0 and str(hud.get("toast_text")) == ""
 	_step("13b HUD: the refusal shook the bar and said '%s'" % (str(hud.get("toast_text")) if hud != null else "no HUD"), shook)
 
 	# 5. Keys: 1 draws the rake, the wheel steps to the blower, 2 again is bare hands.
@@ -129,10 +130,9 @@ func _run() -> void:
 	await _tap(&"slot_2")
 	var bare := _held_count() == 0 and _pocketed_count() == 5 and int(pockets.get("selected")) == -1
 	_step("5 key 1 -> rake %s, wheel -> blower %s, 2 again -> bare hands %s" % [key_one, wheel, bare], key_one and wheel and bare)
-	# The goal line points at the pocketed rake: "Press [1] for the rake".
+	# x1:text: the goal line doesn't point at the pocketed rake; the bar's slot shows it with its key.
 	var goal := str(preload("res://ui/job_goal.gd").goal(get_tree(), _id()))
-	var want_goal := str(_Strings.UI["goal_draw_rake"]) % _Strings.keyed("{key:slot_1}")
-	_step("13c goal line with the rake pocketed: '%s'" % goal, goal == want_goal)
+	_step("13c goal line with the rake pocketed is quiet: '%s'" % goal, goal == "")
 	await _check_stowed(rake)
 
 	# 6. Key 3, then tap G: the trimmer is set down in front, solid, out of its slot.
@@ -191,7 +191,7 @@ func _run() -> void:
 	await _tap(&"slot_1")
 	var no_switch := _refusals.has("arms_full") and _holds(gnome)
 	var said := str(_hud().get("toast_text")) if _hud() != null else ""
-	_step("13e HUD: hands card '%s' / '%s', switch refused with '%s'" % [card.get("title", ""), card.get("line", ""), said], card_ok and said == _Strings.keyed(str(_Strings.UI["hotbar_arms_full"])))
+	_step("13e HUD: hands card '%s' / '%s', switch refused without words ('%s')" % [card.get("title", ""), card.get("line", ""), said], card_ok and said == "")
 	await _hold_g(0.08)
 	await _ticks(6)
 	var sign_back := bool(gnome.call("is_loose")) and _in_hand() != null and str(_in_hand().get("kind")) == "turf_sign"
@@ -307,7 +307,8 @@ func _check_hud_bar() -> void:
 		icons = icons and str(view.get("icon", "")) != ""
 	var want := ["rake", "leaf_blower", "hedge_trimmer", "paint_roller", "hose"]
 	var bar_ok := bool(shown_model.get("shown", false)) and JSON.stringify(kinds) == JSON.stringify(want) and int(shown_model.get("selected", -9)) == 4
-	var hand_ok := str(shown_model.get("hand", "")) == "hose" and str(shown_model.get("hint", "")) == str(_Strings.UI["tool_blurb_hose"])
+	# x1:text: a tool in hand gets its name, no how-to line under it.
+	var hand_ok := str(shown_model.get("hand", "")) == "hose" and str(shown_model.get("hint", "")) == ""
 	var paint_ok := float((shown_model["slots"] as Array)[3].get("paint", -1.0)) >= 0.0
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var hides := ui != null
