@@ -673,12 +673,13 @@ func _spawn_junk(lot: Node3D, offer: Dictionary) -> void:
 			junk.rotation.y = rng.randf_range(-PI, PI)
 
 
-## A spot on the front lawn (the band the TurfMasters signs stand in), at least
-## JUNK_SPACING from everything already placed; INF after a few tries.
+## A spot on the front lawn (the band the TurfMasters signs stand in,
+## Constants.JUNK_LAWN_*), at least JUNK_SPACING from everything already
+## placed; INF after JUNK_LAWN_TRIES tries.
 func _junk_lawn_spot(lot: Node3D, rng: RandomNumberGenerator, taken: Array[Vector3]) -> Vector3:
-	for _attempt: int in 16:
+	for _attempt: int in Constants.JUNK_LAWN_TRIES:
 		var side := -1.0 if rng.randf() < 0.5 else 1.0
-		var at := lot.global_position + Vector3(side * rng.randf_range(3.0, 12.5), 0.02, rng.randf_range(8.5, 17.0))
+		var at := lot.global_position + Vector3(side * rng.randf_range(Constants.JUNK_LAWN_ACROSS.x, Constants.JUNK_LAWN_ACROSS.y), 0.02, rng.randf_range(Constants.JUNK_LAWN_ALONG.x, Constants.JUNK_LAWN_ALONG.y))
 		if taken.all(func(other: Vector3) -> bool: return Vector2(other.x - at.x, other.z - at.z).length() >= Constants.JUNK_SPACING):
 			return at
 	return Vector3.INF

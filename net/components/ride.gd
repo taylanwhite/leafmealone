@@ -175,6 +175,11 @@ func unload_junk() -> void:
 		_junk_bed.call("unload")
 
 
+## Whether E at the tailgate may unload the junk now: parked, not on the road.
+func junk_unload_allowed() -> bool:
+	return not _riding
+
+
 ## Host only: the job is paid, so the truck's load is emptied.
 func clear_bags() -> void:
 	if Net.is_host():

@@ -917,6 +917,9 @@ func _abort_provisional() -> void:
 func _host_step() -> void:
 	if _cleared_left > 0.0:
 		_cleared_left -= get_physics_process_delta_time()
+		# Junk lets go of the exception as soon as its box is clear of them.
+		if kind == "junk" and Constants.JUNK_CLEAR_MAX_SECONDS - _cleared_left >= Constants.JUNK_CLEAR_MIN_SECONDS and _clear_of(_cleared_from):
+			_cleared_left = 0.0
 		if _cleared_left <= 0.0 or held_by != 0 or pocketed_by != 0:
 			_cleared_left = 0.0
 			if is_instance_valid(_cleared_from):
@@ -1084,6 +1087,12 @@ func _release(peer_id: int, direction: Vector3, power: float, from: Vector3 = Ve
 			if from.is_finite() and from.distance_to(feet) <= Constants.THROW_FROM_TOLERANCE:
 				feet = from
 			global_position = _BedToss.release_point(kind, feet, forward)
+			# Junk's box is wide: it passes through whoever let go until it's clear of
+			# them (_host_step), so turning solid never shoves them back.
+			if kind == "junk":
+				add_collision_exception_with(player)
+				_cleared_from = player
+				_cleared_left = Constants.JUNK_CLEAR_MAX_SECONDS
 		_toss_feet = feet
 		# Let go of a running mower and it drives off on its own (docs/FUN.md).
 		if kind == "lawn_mower" and spraying:
@@ -1388,10 +1397,21 @@ func _load_truck(peer_id: int) -> void:
 			_cleared_from = player
 			_cleared_left = Constants.BAG_TOSS_CLEAR_SECONDS
 		var bed: Transform3D = truck.call("bed_transform")
+		var junk_bed := truck.get_node_or_null("Body/JunkBed")
+		if junk_bed != null:
+			junk_bed.call("let_through", self, _JunkBed.heave_rise_seconds(global_position, bed))
 		linear_velocity = _JunkBed.heave_velocity(global_position, bed)
-		angular_velocity = Vector3(randf_range(-1.0, 1.0), randf_range(-1.5, 1.5), randf_range(-1.0, 1.0))
+		var spin := Constants.JUNK_HEAVE_SPIN
+		angular_velocity = Vector3(randf_range(-spin.x, spin.x), randf_range(-spin.y, spin.y), randf_range(-spin.z, spin.z))
 		_airborne = true
 		_thrower = peer_id
+		# A fresh flight: it never bonks whoever heaved it (it leaves their hands
+		# inside their reach; a stale _thrown_at had it bean them on the spot,
+		# rec_heave2_1p frame 11).
+		_thrown_at = Net.server_time()
+		_bonked.clear()
+		if player != null:
+			_bonked.append(player)
 	elif kind == "wheelbarrow" and stored_bags > 0:
 		var taken := int(truck.call("accept_bags", stored_bags, stored_value))
 		if taken > 0:
@@ -1446,7 +1466,7 @@ func _try_load_junk() -> void:
 	# It hit something (falling fast one tick, stopped the next): everyone hears it land.
 	var falling := linear_velocity.y
 	var now_ms := Time.get_ticks_msec()
-	if _junk_last_fall < -Constants.JUNK_LAND_SPEED and falling > _junk_last_fall * 0.4 and now_ms - _junk_landed_ms > 250:
+	if _junk_last_fall < -Constants.JUNK_LAND_SPEED and falling > _junk_last_fall * Constants.JUNK_LAND_STOP_SHARE and now_ms - _junk_landed_ms > Constants.JUNK_LAND_DEBOUNCE_MS:
 		_junk_landed_ms = now_ms
 		_rpc_junk_land.rpc(global_position, weight_kg())
 	_junk_last_fall = falling
@@ -1488,6 +1508,26 @@ func display_name() -> String:
 	if kind == "junk":
 		return str(_Strings.SHOP_UI.get("junk_" + label, label))
 	return label
+
+
+## Junk: whether its box (however it has tumbled: its whole diagonal) is clear
+## of this player's capsule, with Constants.JUNK_CLEAR_MARGIN to spare.
+func _clear_of(player: Node) -> bool:
+	var body := player as CharacterBody3D
+	if body == null or not is_instance_valid(body):
+		return true
+	var collision := get_node_or_null("Collision") as CollisionShape3D
+	if collision == null:
+		return true
+	var shape := collision.shape as BoxShape3D
+	var reach := (shape.size.length() * 0.5 if shape != null else 0.5) + Constants.JUNK_CLEAR_MARGIN
+	var capsule := 0.35
+	for child: Node in body.get_children():
+		if child is CollisionShape3D and (child as CollisionShape3D).shape is CapsuleShape3D:
+			capsule = ((child as CollisionShape3D).shape as CapsuleShape3D).radius
+			break
+	var middle := collision.global_position
+	return Vector2(middle.x - body.global_position.x, middle.z - body.global_position.z).length() > reach + capsule
 
 
 ## The middle of the bag's bottom face however it has tumbled (its box is

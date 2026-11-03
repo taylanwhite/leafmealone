@@ -477,6 +477,11 @@ func unload_junk() -> void:
 		_junk_bed.call("unload")
 
 
+## Whether E at the tailgate may unload the junk now: Chefty is standing still.
+func junk_unload_allowed() -> bool:
+	return speed() <= Constants.CHEFTY_PARK_SPEED
+
+
 ## Host only: the job is paid, so its bags come off the truck.
 func clear_bags() -> void:
 	if Net.is_host():

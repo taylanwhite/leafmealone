@@ -186,6 +186,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _unload_junk():
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _Seated.try_enter(self):
 		get_viewport().set_input_as_handled()
 	# G (drop) is wound up and released in _wind_up, on physics ticks.
@@ -925,6 +927,29 @@ func _nearest_hand_task() -> Dictionary:
 	return {}
 
 
+## E at Chefty's tailgate with junk in the bed (and nothing to pick up closer):
+## the junk hops out over it (net/components/junk_bed.gd, gap-specs critic C22).
+func _unload_junk() -> bool:
+	var bed := _junk_tailgate()
+	if bed == null:
+		return false
+	bed.call("request_unload")
+	return true
+
+
+## Chefty's junk bed when you stand at its tailgate, hands free of anything
+## that goes in the bed, and it has junk to unload; else null.
+func _junk_tailgate() -> Node:
+	var held := _held_prop()
+	if held != null and ["junk", "leaf_bag", "wheelbarrow"].has(str(held.get("kind"))):
+		return null
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var bed := chefty.get_node_or_null("Body/JunkBed") if chefty != null else null
+	if bed == null or not bool(bed.call("can_unload_from", self)):
+		return null
+	return bed
+
+
 ## E by Chefty with a bag (or a piece of junk for Rusty's) tosses it in; with a
 ## loaded wheelbarrow, dumps it.
 func _load_truck() -> bool:
@@ -1561,6 +1586,9 @@ func interaction_hint() -> Dictionary:
 	# Picking things up beats getting in: by the tailgate there are bags to load.
 	var closest := _best_pickup() if _hands_can_pick_up() else null
 	if closest == null:
+		var junk_bed := _junk_tailgate()
+		if junk_bed != null:
+			return {"text": _Strings.SHOP_UI["prompt_unload_junk"], "at": (junk_bed.call("tailgate_point") as Vector3) + Vector3(0.0, 1.5, 0.0)}
 		var seat_hint := _Seated.hint(self)
 		if not seat_hint.is_empty():
 			return seat_hint

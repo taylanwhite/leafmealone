@@ -141,6 +141,7 @@ static func _rustys_yard(root: Node3D, site: Dictionary) -> void:
 	_rustys_fence(root, area)
 	var gate := RustysGate.new()
 	gate.name = "RustysGate"
+	gate.yard = area
 	gate.position = Vector3(area.position.x, 0.0, middle.y)
 	root.add_child(gate)
 	_rustys_shack(root, area)
@@ -500,7 +501,10 @@ class ScaleDial extends Node3D:
 
 ## Rusty's double gate: two chain-link leaves that stand open (swung out to the
 ## lot) while he's open and swing shut when he closes, solid only shut. On his
-## day off the GONE FISHIN' board hangs on them. Local, from the clock.
+## day off the GONE FISHIN' board hangs on them. Local, from the clock and the
+## replicated players: while anyone is still in the yard (or in the gateway) he
+## holds it open, so nobody is fenced in overnight, and a shut gate swings open
+## for someone who turns up inside.
 class RustysGate extends Node3D:
 	const _Kit = preload("res://props/mesh_kit.gd")
 	const _Look = preload("res://props/stylized.gd")
@@ -514,6 +518,8 @@ class RustysGate extends Node3D:
 	var _wait: float = CHECK_SECONDS
 	var _board: Node3D
 	var _solid: CollisionShape3D
+	## The fenced yard, in the parent's (the site's) space.
+	var yard: Rect2 = Rect2()
 
 	func _ready() -> void:
 		for side: float in [-1.0, 1.0]:
@@ -568,9 +574,25 @@ class RustysGate extends Node3D:
 		var shops := tree.get_first_node_in_group("shops")
 		var clock := tree.get_first_node_in_group("day_clock")
 		var open := shops == null or (bool(shops.call("is_unlocked", "rustys")) and bool(shops.call("is_open", "rustys")))
-		_want_shut = 0.0 if open else 1.0
+		_want_shut = 0.0 if open or someone_inside() else 1.0
 		var day := int(clock.get("day")) if clock != null else 1
 		_board.visible = shops != null and bool(shops.call("is_unlocked", "rustys")) and _Shops._fishing("rustys", day)
+
+	## Whether a player stands in the yard, or within RUSTY_GATE_HOLD_MARGIN of
+	## it (the gateway, where the leaves swing).
+	func someone_inside() -> bool:
+		var site := get_parent() as Node3D
+		if site == null or yard.size == Vector2.ZERO:
+			return false
+		var around := yard.grow(Constants.RUSTY_GATE_HOLD_MARGIN)
+		for node: Node in get_tree().get_nodes_in_group("players"):
+			var body := node as Node3D
+			if body == null or not body.is_visible_in_tree():
+				continue
+			var local := site.to_local(body.global_position)
+			if around.has_point(Vector2(local.x, local.z)):
+				return true
+		return false
 
 	func _pose() -> void:
 		# Eased: the leaves slow into the latch and the stop.

@@ -771,7 +771,8 @@ const VENDING_QUEASY_CHANCE: float = 0.5
 
 ## Junk for Rusty's: weight in kg and base value range per type, the vintage
 ## flamingo jackpot, how many a yard has by hood ("" is every other hood),
-## Chefty's junk slots, and how close to the scale junk counts as on it.
+## Chefty's junk slots, and how far from the scale's middle (each way, along its
+## sides) a piece's base may lie and count as on it: half its platform (1.24 m).
 const JUNK_TYPES: Dictionary = {
 	"old_tv": {"kg": 18.0, "value": Vector2i(15, 30)},
 	"tire": {"kg": 10.0, "value": Vector2i(6, 12)},
@@ -785,7 +786,7 @@ const JUNK_TYPES: Dictionary = {
 const JUNK_JACKPOT: Dictionary = {"chance": 0.05, "value": 120}
 const JUNK_PER_HOOD: Dictionary = {"dandelion_acres": Vector2i(3, 6), "": Vector2i(0, 2)}
 const TRUCK_JUNK_CAPACITY: int = 8
-const JUNK_SCALE_RADIUS: float = 1.8
+const JUNK_SCALE_HALF: float = 0.62
 ## Rusty's mood multiplies every offer (rolled each morning), and where his
 ## chalkboard turns from GRUMPY to so-so to PAYING GOOD.
 const RUSTY_MOOD := Vector2(0.8, 1.25)
@@ -1131,6 +1132,8 @@ const STORE_LAYOUT: Dictionary = {
 	"garden_center": {"owner": "shops", "rect": SHOP_SITES["homie_depot"]["area"]},
 	"rustys": {"owner": "shops", "rect": SHOP_SITES["rustys"]["area"]},
 	"lunch_money": {"owner": "shops", "rect": Rect2(0.6, 13.5, 6.4, 4.5)},
+	# Last session's unsold junk, back in a grid by the TruckPad (Constants.JUNK_LEFT_*).
+	"junk_drop": {"owner": "shops", "rect": Rect2(3.9, 4.6, 3.8, 4.6)},
 	"spawns": {"owner": "store", "rect": Rect2(-1.5, 4.5, 5.0, 3.0)},
 	"cart_corral": {"owner": "store", "rect": Rect2(-8.4, 7.6, 1.8, 4.8)},
 	# Three parked cars, a lamp and a tree island.
@@ -3612,8 +3615,11 @@ const TOSS_SURE_SHARE: float = 0.04
 ## junk tips the next piece back out with this much lift (m/s).
 const JUNK_BED_REST_SPEED: float = 0.6
 const JUNK_BED_REFUSE_LIFT: float = 3.5
-## E by the bed with junk in your arms heaves it in, landing this long later (s).
-const JUNK_HEAVE_SECONDS: float = 0.55
+## E by the bed with junk in your arms heaves it in: the top of its arc is this
+## far over the bed's rail (m, BED_CATCH_RAIL_Y), so it clears the tailgate.
+const JUNK_HEAVE_CLEARANCE: float = 0.5
+## ... turning a little as it goes, up to this fast about each axis (rad/s).
+const JUNK_HEAVE_SPIN := Vector3(1.0, 1.5, 1.0)
 ## Set down, a piece of junk's look eases from your arms onto where it landed over this long (s).
 const JUNK_SET_DOWN_SECONDS: float = 0.22
 ## Unloading at the store: one piece hops out every this many seconds, straight
@@ -3632,12 +3638,64 @@ const JUNK_UNLOAD_SPREAD: float = 0.9
 const JUNK_LAND_SPEED: float = 2.0
 const JUNK_LAND_DB: float = -3.0
 const JUNK_LAND_LIGHT_DB: float = -9.0
-## How far apart junk lies in a yard and in the row by the TruckPad (m), and
-## where that row starts (StoreZone space): last session's unsold junk, back.
+## How far apart junk lies in a yard (m). A yard's junk goes on the front lawn
+## band (the TurfMasters signs' band): this far out to either side of the lot's
+## middle (m) and this far toward the street (m), up to this many tries a piece.
 const JUNK_SPACING: float = 1.6
-const JUNK_LEFT_ROW := Vector3(5.6, 0.02, 11.2)
-## How high above the scale's base a piece may sit and still count as on it (m).
+const JUNK_LAWN_ACROSS := Vector2(3.0, 12.5)
+const JUNK_LAWN_ALONG := Vector2(8.5, 17.0)
+const JUNK_LAWN_TRIES: int = 16
+## Last session's unsold junk, back on load (Shops._respawn_junk_left): what
+## was in Chefty's bed goes back in the bed, laid in JUNK_BED_SPOTS (bed space,
+## on its floor); what was left on the lot goes in a grid in STORE_LAYOUT's
+## "junk_drop" reservation (StoreZone space: the first spot, the step across
+## in x and along in z, the columns), at most JUNK_LEFT_MAX pieces.
+const JUNK_BED_SPOTS: Array[Vector3] = [
+	Vector3(-0.5, 0.9, 2.1), Vector3(0.5, 0.9, 2.1), Vector3(-0.5, 0.9, 1.15), Vector3(0.5, 0.9, 1.15),
+	Vector3(-0.5, 0.9, 0.2), Vector3(0.5, 0.9, 0.2), Vector3(-0.5, 0.9, -0.75), Vector3(0.5, 0.9, -0.75),
+]
+const JUNK_LEFT_FIRST := Vector3(4.6, 0.02, 5.4)
+const JUNK_LEFT_STEP := Vector2(1.2, 1.6)
+const JUNK_LEFT_COLUMNS: int = 3
+const JUNK_LEFT_MAX: int = 9
+## How high above the scale's base a piece may sit and still count as on it (m),
+## and the platform's top: a piece's base below it (less a little slack) is on
+## the gravel beside it, not on it.
 const JUNK_ON_SCALE_HEIGHT: float = 0.6
+const JUNK_SCALE_TOP: float = 0.12
+const JUNK_SCALE_TOP_SLACK: float = 0.06
+## Hopping out at the store: it tumbles end over end this fast (rad/s, bed
+## space, plus a random yaw spin up to JUNK_UNLOAD_YAW_SPIN either way), and a
+## piece from the bed's front lands this share of the extra way to the tailgate
+## farther back. A heave into the bed aims for this point (bed space).
+const JUNK_UNLOAD_TUMBLE: float = -2.5
+const JUNK_UNLOAD_YAW_SPIN: float = 1.0
+const JUNK_UNLOAD_FRONT_SHARE: float = 0.3
+const JUNK_HEAVE_AIM := Vector3(0.0, 1.1, 0.75)
+## E at Chefty's tailgate with nothing in your arms and junk in the bed unloads
+## it (gap-specs critic C22): within this far of the tailgate's middle (m).
+const JUNK_TAILGATE_REACH: float = 1.8
+## Someone standing behind the tailgate (out to this far past where the junk
+## lands, m) has it land this far over to the side away from them (m).
+const JUNK_UNLOAD_WATCH_BEYOND: float = 1.5
+const JUNK_UNLOAD_SIDE: float = 2.6
+## A landing thud plays at most this often for one piece (ms), when it was
+## falling faster than JUNK_LAND_SPEED and this tick it falls at less than this
+## share of that (it hit something).
+const JUNK_LAND_DEBOUNCE_MS: int = 250
+const JUNK_LAND_STOP_SHARE: float = 0.4
+## Set down or thrown, a piece of junk passes through whoever let go of it until
+## its box is clear of them (their capsule's radius plus this margin, m), or
+## this long at most (s): its box is wide, and turning solid against your legs
+## shoved you back (rec_setdown_1p frame 13).
+const JUNK_CLEAR_MARGIN: float = 0.1
+const JUNK_CLEAR_MAX_SECONDS: float = 3.0
+## ... and never for less than this (s): a few physics steps, so the step that
+## turns it solid has it where it was put down.
+const JUNK_CLEAR_MIN_SECONDS: float = 0.1
+## Rusty holds his gate for anyone still in the yard at closing: someone within
+## this far outside the yard (m, so the gateway counts) keeps it open.
+const RUSTY_GATE_HOLD_MARGIN: float = 0.8
 ## Rusty's dial scale reads full at this many kg; its needle swings like a
 ## spring: stiffness (1/s^2) and damping (1/s).
 const RUSTY_SCALE_FULL_KG: float = 60.0

@@ -322,9 +322,10 @@ func scale_point() -> Vector3:
 	return zone.to_global(site["scale"] as Vector3)
 
 
-## Whether a piece of junk lies on Rusty's scale: loose, within JUNK_SCALE_RADIUS
-## of its middle, and down on the platform (not flying over it). Every peer can
-## tell from the replicated positions.
+## Whether a piece of junk lies on Rusty's scale: loose, its base over the
+## platform (within JUNK_SCALE_HALF of the middle along both of the platform's
+## sides) and resting on it (at least its top, not on the gravel beside it, and
+## not flying over it). Every peer can tell from the replicated positions.
 func on_scale(prop: Node) -> bool:
 	var junk := prop as Node3D
 	if junk == null or str(junk.get("kind")) != "junk" or junk.is_queued_for_deletion():
@@ -334,8 +335,11 @@ func on_scale(prop: Node) -> bool:
 	var middle := scale_point()
 	if not middle.is_finite():
 		return false
-	var at := junk.global_position
-	return Vector2(at.x - middle.x, at.z - middle.z).length() <= Constants.JUNK_SCALE_RADIUS and at.y - middle.y <= Constants.JUNK_ON_SCALE_HEIGHT
+	# In the store's own space (the platform is square, so the dial's turn doesn't matter).
+	var zone := _site_zone(Constants.SHOP_SITES["rustys"])
+	var local := zone.global_basis.inverse() * (junk.global_position - middle)
+	return absf(local.x) <= Constants.JUNK_SCALE_HALF and absf(local.z) <= Constants.JUNK_SCALE_HALF \
+		and local.y >= Constants.JUNK_SCALE_TOP - Constants.JUNK_SCALE_TOP_SLACK and local.y <= Constants.JUNK_ON_SCALE_HEIGHT
 
 
 ## Every piece of junk on Rusty's scale, nearest the middle first.
@@ -362,6 +366,33 @@ func appraise(prop: Node) -> int:
 ## Whether this piece was haggled over already (one try each; the answer sticks).
 func was_haggled(prop: Node) -> bool:
 	return prop != null and haggled.has(str(prop.name))
+
+
+## What a haggle did to this piece's price for good (1.0: never haggled over).
+## It goes with the piece through Chefty's bed and the save (junk_bed.gd,
+## junk_left), so neither a ride nor a night wipes it.
+func haggle_of(prop: Node) -> float:
+	return float(haggled.get(str(prop.name), 1.0)) if prop != null else 1.0
+
+
+## Host: a piece of junk came back as a new prop (out of Chefty's bed, or from
+## the save) carrying a haggle's result: it keeps it under its new name.
+func host_keep_haggle(prop: Node, factor: float) -> void:
+	if not Net.is_host() or prop == null or is_equal_approx(factor, 1.0):
+		return
+	haggled[str(prop.name)] = factor
+	_broadcast()
+
+
+## Host: a piece of junk is leaving the world as a prop (into Chefty's bed): its
+## haggle goes with it, returned here (1.0 if none).
+func host_take_haggle(prop: Node) -> float:
+	if not Net.is_host() or prop == null or not haggled.has(str(prop.name)):
+		return 1.0
+	var factor := float(haggled[str(prop.name)])
+	haggled.erase(str(prop.name))
+	_broadcast()
+	return factor
 
 
 ## The catalog-style id a piece of junk sells as ("junk_toilet"), the jackpot
@@ -437,37 +468,72 @@ func _check_salvage_opened() -> void:
 	_salvage_open = open
 
 
-## Host, saving: the junk nobody sold, at the store or still in Chefty's bed
-## ([{type, value}]); the yards' own junk goes with the yard.
+## Host, saving: the junk nobody sold ([{type, value, bed?, haggle?}]): what's
+## in Chefty's bed ("bed": true), then what lies on the store's lot, at most
+## Constants.JUNK_LEFT_MAX of those (the junk_drop grid's spots). A haggle's
+## result rides along. The yards' own junk goes with the yard.
 func _unsold_junk() -> Array:
 	var out: Array = []
 	if not is_inside_tree():
 		return junk_left
-	for node: Node in get_tree().get_nodes_in_group("junk"):
-		if node.is_queued_for_deletion() or node.is_in_group("job_tools"):
-			continue
-		var at := (node as Node3D).global_position
-		if Constants.STORE_AREA.has_point(Vector2(at.x, at.z)):
-			out.append({"type": str(node.get("label")), "value": int(node.get("value"))})
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	var bed := chefty.get_node_or_null("Body/JunkBed") if chefty != null else null
 	if bed != null:
 		for entry: Dictionary in bed.get("junk") as Array:
-			out.append({"type": str(entry["type"]), "value": int(entry["value"])})
+			var saved := {"type": str(entry["type"]), "value": int(entry["value"]), "bed": true}
+			if not is_equal_approx(float(entry.get("haggle", 1.0)), 1.0):
+				saved["haggle"] = float(entry["haggle"])
+			out.append(saved)
+	var on_lot := 0
+	for node: Node in get_tree().get_nodes_in_group("junk"):
+		if node.is_queued_for_deletion() or node.is_in_group("job_tools") or on_lot >= Constants.JUNK_LEFT_MAX:
+			continue
+		var at := (node as Node3D).global_position
+		if Constants.STORE_AREA.has_point(Vector2(at.x, at.z)):
+			var saved := {"type": str(node.get("label")), "value": int(node.get("value"))}
+			if was_haggled(node):
+				saved["haggle"] = haggle_of(node)
+			out.append(saved)
+			on_lot += 1
 	return out
 
 
-## Host, on load: last session's unsold junk in a row by the TruckPad.
+## Host, on load: last session's unsold junk back. What was in Chefty's bed goes
+## back in it (junk_bed.gd restore); the rest lies in a grid in STORE_LAYOUT's
+## "junk_drop" by the TruckPad, at most JUNK_LEFT_MAX pieces, haggles kept.
 func _respawn_junk_left() -> void:
 	var world := get_tree().get_first_node_in_group("world")
 	var zone := world.get_node_or_null("StoreZone") as Node3D if world != null else null
 	if zone == null or not world.has_method("spawn_junk"):
 		return
-	for index: int in junk_left.size():
-		var entry: Dictionary = junk_left[index] if typeof(junk_left[index]) == TYPE_DICTIONARY else {}
-		var spot: Vector3 = Constants.JUNK_LEFT_ROW + Vector3(-float(index % 4) * Constants.JUNK_SPACING, 0.0, float(index / 4) * Constants.JUNK_SPACING)
-		world.call("spawn_junk", str(entry.get("type", "")), zone.to_global(spot), int(entry.get("value", -1)))
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var bed := chefty.get_node_or_null("Body/JunkBed") if chefty != null else null
+	var to_bed: Array = []
+	var to_lot: Array = []
+	for item: Variant in junk_left:
+		if typeof(item) != TYPE_DICTIONARY or not Constants.JUNK_TYPES.has(str((item as Dictionary).get("type", ""))):
+			continue
+		var entry: Dictionary = item
+		if bool(entry.get("bed", false)) and bed != null and to_bed.size() < Constants.TRUCK_JUNK_CAPACITY:
+			to_bed.append(entry)
+		else:
+			to_lot.append(entry)
+	if bed != null and not to_bed.is_empty():
+		bed.call("restore", to_bed)
+	for index: int in mini(to_lot.size(), Constants.JUNK_LEFT_MAX):
+		var entry: Dictionary = to_lot[index]
+		var spot := junk_drop_spot(index)
+		var junk := world.call("spawn_junk", str(entry["type"]), zone.to_global(spot), int(entry.get("value", -1))) as Node
+		host_keep_haggle(junk, float(entry.get("haggle", 1.0)))
 	junk_left = []
+
+
+## Where the index-th piece of last session's lot junk lies, in StoreZone space:
+## a grid inside STORE_LAYOUT's "junk_drop" (Constants.JUNK_LEFT_*).
+static func junk_drop_spot(index: int) -> Vector3:
+	var column := index % Constants.JUNK_LEFT_COLUMNS
+	var row := index / Constants.JUNK_LEFT_COLUMNS
+	return Constants.JUNK_LEFT_FIRST + Vector3(float(column) * Constants.JUNK_LEFT_STEP.x, 0.0, float(row) * Constants.JUNK_LEFT_STEP.y)
 
 
 ## Host: take from a crew supply. False (and nothing taken) when there isn't enough.
@@ -572,7 +638,11 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 			Campaign.grant_unlock(peer_id, item)
 		"used_tool":
 			Campaign.grant_unlock(peer_id, item)
-			used_today.erase(str(entry.get("tool", "")))
+			# Off its pallet: an empty spot ("") where it stood, so the rest of the
+			# day's tools stay on their own pallets.
+			var at := used_today.find(str(entry.get("tool", "")))
+			if at >= 0:
+				used_today[at] = ""
 		"cosmetic":
 			Campaign.grant_unlock(peer_id, item)
 			# Bought means worn: you walk out in the new hat.
@@ -664,8 +734,22 @@ func _restock(day: int) -> void:
 	stock = Constants.SHOP_DAILY_STOCK.duplicate(true)
 	stock_day = day
 	arrived_today.clear()
-	haggled.clear()
+	# A haggle sticks to its piece for good (the morning doesn't wipe it); only
+	# the pieces that are gone are forgotten.
+	_forget_gone_haggles()
 	_roll_rusty(day)
+
+
+## Host: drop the haggles of junk that isn't in the world any more.
+func _forget_gone_haggles() -> void:
+	if haggled.is_empty() or not is_inside_tree():
+		return
+	var here: Dictionary = {}
+	for node: Node in get_tree().get_nodes_in_group("junk"):
+		here[str(node.name)] = true
+	for key: Variant in haggled.keys():
+		if not here.has(str(key)):
+			haggled.erase(key)
 
 
 ## Host: Rusty's mood today (Constants.RUSTY_MOOD, his chalkboard says it) and

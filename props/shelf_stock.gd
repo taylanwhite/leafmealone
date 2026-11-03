@@ -130,11 +130,12 @@ func slot_state(item: String) -> Dictionary:
 	var shown := item
 	var tier := Catalog.TIER_STOCK
 	if item.begins_with(USED_SLOT):
-		# Rusty's rack: the day's n-th used tool, or an empty pallet.
+		# Rusty's rack: the day's n-th used tool, or an empty pallet (one sold
+		# today is "" in its place, so the others never move pallets).
 		var shops_node := _shops()
 		var rack: Array = shops_node.get("used_today") if shops_node != null else []
 		var index := int(item.trim_prefix(USED_SLOT))
-		if index >= rack.size():
+		if index >= rack.size() or str(rack[index]) == "":
 			return {"item": "", "tier": Catalog.TIER_USED, "units": 0, "tag": "", "look": "empty"}
 		shown = Catalog.tool_item(str(rack[index]), Catalog.TIER_USED)
 		tier = Catalog.TIER_USED

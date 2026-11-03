@@ -1002,6 +1002,8 @@ const SHOP_UI: Dictionary = {
 	"prompt_shop_closed": "Closed. Opens %s",
 	"prompt_look_at": "Look at %s",
 	"prompt_refuel": "Fill it up (%d%%)",
+	# E at Chefty's tailgate with junk in the bed (shops chunk 5, gap-specs critic C22).
+	"prompt_unload_junk": "Unload junk",
 	"prompt_vending": "Use the Snak-o-Matic",
 	"hud_out_of_bags": "Out of lawn bags. Homie Depot, the Snak-o-Matic, or your phone.",
 	"hud_out_of_gas": "Out of gas",
