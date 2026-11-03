@@ -159,6 +159,22 @@ func _build(root: Node3D) -> void:
 				model.rotation.y = PI + 0.5
 		"tool_tiers":
 			_tool_tiers(root)
+		"junk":
+			_junk(root)
+		"shopkeepers":
+			# Marty, Rusty and Dot (npcs/store_clerk.gd), close enough to see beards.
+			var shops := ["homie_depot", "rustys", "lunch_money"]
+			for index: int in shops.size():
+				var keeper: Node3D = load("res://npcs/store_clerk.gd").new()
+				keeper.set("shop_id", shops[index])
+				root.add_child(keeper)
+				keeper.position = Vector3(float(index) * 1.2 - 1.2, 0.0, 0.0)
+				keeper.set_process(false)
+				keeper.rotation.y = PI + float(index - 1) * 0.2
+			root.set_meta("views", [
+				{"from": Vector3(0.0, 1.6, 4.2), "at": Vector3(0.0, 1.1, 0.0), "fov": 40.0},
+				{"from": Vector3(0.6, 1.75, 1.6), "at": Vector3(0.0, 1.55, 0.0), "fov": 32.0},
+			])
 		"truck":
 			var truck := Node3D.new()
 			root.add_child(truck)
@@ -268,6 +284,39 @@ func _build(root: Node3D) -> void:
 			_PropCatalog.place(root, kind, Transform3D(Basis.IDENTITY, Vector3(0.0, lift, 0.0)), tint, {"season": _season, "lights": str(_options.get("lights", "classic"))})
 		_:
 			push_error("[Studio] no subject called %s" % _subject)
+
+
+## Rusty's junk (props/shop_models.gd, shops chunk 5): every type in a row on
+## the ground, a stack of tires, and his dial scale with the needle at half.
+## Views: the row, two close-ups, and the scale.
+func _junk(root: Node3D) -> void:
+	var models := preload("res://props/shop_models.gd")
+	var types: Array = models.JUNK_BOX.keys()
+	var x := -float(types.size()) * 0.5
+	for type: Variant in types:
+		var model: Node3D = models.junk(str(type))
+		root.add_child(model)
+		var box: Vector3 = models.JUNK_BOX[type]
+		model.position = Vector3(x + box.x * 0.5, 0.0, 0.0)
+		model.rotation.y = PI + 0.5
+		x += box.x + 0.45
+	var stack := models.node("tire_stack")
+	root.add_child(stack)
+	stack.position = Vector3(x + 0.6, 0.0, -0.6)
+	var scale_model := models.node("dial_scale")
+	root.add_child(scale_model)
+	scale_model.position = Vector3(0.0, 0.0, -2.6)
+	scale_model.rotation.y = PI
+	var needle := models.node("dial_needle")
+	root.add_child(needle)
+	needle.position = scale_model.position + Basis(Vector3.UP, PI) * (models.DIAL_AT + Vector3(0.0, 0.0, -0.042))
+	needle.rotation = Vector3(0.0, PI, 0.6)
+	root.set_meta("views", [
+		{"from": Vector3(0.0, 2.2, 5.6), "at": Vector3(0.0, 0.5, 0.0), "fov": 50.0},
+		{"from": Vector3(-2.2, 1.2, 2.2), "at": Vector3(-2.0, 0.45, 0.0), "fov": 36.0},
+		{"from": Vector3(2.0, 1.4, 2.4), "at": Vector3(1.8, 0.6, 0.0), "fov": 36.0},
+		{"from": Vector3(0.6, 1.5, -0.4), "at": Vector3(0.0, 0.9, -2.6), "fov": 40.0},
+	])
 
 
 ## The seven tools at every tier (props/yard_models.gd tier trim): a row per

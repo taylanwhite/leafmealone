@@ -15,6 +15,9 @@ extends Node3D
 ## that item. A shelving unit's levels share one spot in front of it, so tilt
 ## your head to pick the level (the one your pitch points at most nearly). The garden center's shelves are levels/dressing/store_dressing.gd's;
 ## the slots are SHELF_SLOTS below unless the builder passes its own.
+## Rusty's used-tool pallets (levels/dressing/shop_sites.gd, shops chunk 5) are
+## a used_rack: one slot per tool he can have out, each showing that day's
+## used tool (Shops.used_today) in its rust and tape, or nothing once it's sold.
 
 const _YardModels = preload("res://props/yard_models.gd")
 const _ShopModels = preload("res://props/shop_models.gd")
@@ -62,6 +65,10 @@ var shop_id: String = "homie_depot"
 ## The catalog tabs it shows, and the slots they fill (set before adding it).
 var tabs: Array[String] = SHELF_TABS.duplicate()
 var slots: Array[Dictionary] = SHELF_SLOTS.duplicate(true)
+## Rusty's rack: the slots show today's used tools, in order, whatever they are.
+var used_rack: bool = false
+## The slot ids a used rack fills: "used_slot_<n>".
+const USED_SLOT: String = "used_slot_"
 
 ## One per slot used: {item: the slot's catalog id (the tool's, for a tool), tab,
 ## slot index, node: the slot's Node3D, state: the last state drawn}.
@@ -70,7 +77,8 @@ var _entries: Array[Dictionary] = []
 
 func _ready() -> void:
 	add_to_group("prompt_sources")
-	add_to_group("shelf_stock")
+	# Rusty's rack is its own group: "shelf_stock" is Homie Depot's garden shelves.
+	add_to_group("rusty_rack" if used_rack else "shelf_stock")
 	var index := 0
 	for tab: String in tabs:
 		for id: String in _slot_items(tab):
@@ -93,6 +101,11 @@ func _ready() -> void:
 ## The ids one slot each: every tool once (its tiers are the same slot), then
 ## the tab's items in catalog order.
 func _slot_items(tab: String) -> PackedStringArray:
+	if used_rack:
+		var out := PackedStringArray()
+		for index: int in slots.size():
+			out.append(USED_SLOT + str(index))
+		return out
 	if tab == "tools":
 		return PackedStringArray(Catalog.TOOLS)
 	return Catalog.items_for(shop_id, tab)
@@ -116,7 +129,17 @@ func slot_state(item: String) -> Dictionary:
 	var me := Net.local_peer_id()
 	var shown := item
 	var tier := Catalog.TIER_STOCK
-	if Catalog.TOOLS.has(item):
+	if item.begins_with(USED_SLOT):
+		# Rusty's rack: the day's n-th used tool, or an empty pallet (one sold
+		# today is "" in its place, so the others never move pallets).
+		var shops_node := _shops()
+		var rack: Array = shops_node.get("used_today") if shops_node != null else []
+		var index := int(item.trim_prefix(USED_SLOT))
+		if index >= rack.size() or str(rack[index]) == "":
+			return {"item": "", "tier": Catalog.TIER_USED, "units": 0, "tag": "", "look": "empty"}
+		shown = Catalog.tool_item(str(rack[index]), Catalog.TIER_USED)
+		tier = Catalog.TIER_USED
+	elif Catalog.TOOLS.has(item):
 		var owned := Campaign.tool_tier(me, item)
 		tier = Catalog.TIER_STOCK if owned < Catalog.TIER_STOCK and owned != Catalog.TIER_USED else mini(maxi(owned + 1, Catalog.TIER_MK2), Catalog.TIER_MK3)
 		shown = Catalog.tool_item(item, tier)
@@ -154,6 +177,8 @@ func units_by_item() -> Dictionary:
 func slot_of(item: String) -> int:
 	var tool := str(Catalog.item(item).get("tool", ""))
 	for entry: Dictionary in _entries:
+		if str((entry["state"] as Dictionary).get("item", "")) == item and str(entry["item"]).begins_with(USED_SLOT):
+			return int(entry["slot"])
 		if str(entry["item"]) == item or (tool != "" and str(entry["item"]) == tool):
 			return int(entry["slot"])
 	return -1
@@ -201,6 +226,9 @@ func _nearest_entry() -> Dictionary:
 	var nearest := Constants.SHELF_LOOK_REACH
 	var distances: Array[float] = []
 	for entry: Dictionary in _entries:
+		if str((entry["state"] as Dictionary).get("look", "")) == "empty":
+			distances.append(INF)
+			continue
 		var front := slot_front(int(entry["slot"]))
 		var distance := Vector2(front.x - local.global_position.x, front.z - local.global_position.z).length()
 		distances.append(distance)
@@ -245,6 +273,9 @@ func _draw_slot(entry: Dictionary, state: Dictionary) -> void:
 	holder.rotation.y = face - PI * 0.5
 	# In the holder's space the customer is at -X and the shelf runs along Z.
 	var look := str(state["look"])
+	if look == "empty":
+		# An empty pallet on Rusty's rack: nothing on it, no tag.
+		return
 	if look == "locked":
 		var tarp := _ShopModels.node("tarp")
 		tarp.scale = Vector3(size.x * FILL, size.y * 0.7, size.z * 0.55)

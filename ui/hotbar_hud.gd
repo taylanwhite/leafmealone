@@ -233,6 +233,9 @@ static func item_label(item: Node) -> String:
 	var label := str(item.get("label"))
 	if Constants.TOOL_PRICES.has(kind) and label != "":
 		return label
+	# Junk says what it is (net_prop.gd display_name: "Toilet").
+	if kind == "junk" and item.has_method("display_name"):
+		return str(item.call("display_name"))
 	return _Strings.item_name(kind)
 
 

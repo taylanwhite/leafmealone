@@ -960,9 +960,19 @@ const SHOP_UI: Dictionary = {
 	"shop_offer": "Rusty offers $%d",
 	"shop_take": "Take it",
 	"shop_haggle": "Haggle",
-	"shop_scale_empty": "Put junk on the scale.",
+	"shop_scale_empty": "Rusty: \"Scale's empty. So's my wallet. One of those I can fix.\"",
+	"shop_used_empty": "Rusty: \"Rack's bare. Somebody's garage hasn't caved in yet. Give it a day.\"",
+	"shop_take_price": "Take $%d",
 	"haggle_won": "Fine. FINE. You drive a hard bargain for a toilet.",
 	"haggle_lost": "Now it's worth less. Emotionally.",
+	# Rusty's yard (levels/dressing/shop_sites.gd): the sign on his fence and the brand on his scale.
+	"rustys_yard_sign": "RUSTY'S\nWE BUY JUNK. WE SELL JUNK.",
+	"rustys_scale_brand": "HONEST-ISH",
+	# A sale or a haggle that didn't happen (Shops.host_sell).
+	"shop_result_off_scale": "Rusty only pays for what's on the scale.",
+	"shop_result_haggled": "Rusty doesn't haggle twice.",
+	# Junk, as the hotbar names it in your arms (Strings.item_name("junk")).
+	"item_junk": "Junk",
 	"rusty_mood_0": "TODAY: GRUMPY",
 	"rusty_mood_1": "TODAY: EH",
 	"rusty_mood_2": "TODAY: PAYING GOOD",
@@ -992,6 +1002,8 @@ const SHOP_UI: Dictionary = {
 	"prompt_shop_closed": "Closed. Opens %s",
 	"prompt_look_at": "Look at %s",
 	"prompt_refuel": "Fill it up (%d%%)",
+	# E at Chefty's tailgate with junk in the bed (shops chunk 5, gap-specs critic C22).
+	"prompt_unload_junk": "Unload junk",
 	"prompt_vending": "Use the Snak-o-Matic",
 	"hud_out_of_bags": "Out of lawn bags. Homie Depot, the Snak-o-Matic, or your phone.",
 	"hud_out_of_gas": "Out of gas",
@@ -1085,6 +1097,22 @@ const KEEPER_LINES: Dictionary = {
 			"GONE FISHIN'. The fish are not biting. Neither am I.",
 			"Closed. Try again when the sign says so.",
 			"Rusty's out. The junk is in. The junk will wait.",
+		],
+		# Shops chunk 5: junk sold off his scale, and how a haggle went (after the "hmm").
+		"sold": [
+			"Cash. Counted twice. Once by me, once by me again.",
+			"Sold. It's mine now. I already miss it less.",
+			"There you go. Don't spend it all on gas. Spend some on gas.",
+		],
+		"haggle_won": [
+			"Fine. FINE. You drive a hard bargain.",
+			"...Okay. Don't tell my other customers. I don't have other customers.",
+			"Hm. Fair. Annoyingly fair.",
+		],
+		"haggle_lost": [
+			"Now it's worth less. Emotionally.",
+			"You know what? Offense taken. Price taken too.",
+			"Haggle with me? In my own yard? Bold. Expensive, but bold.",
 		],
 	},
 	"dot": {
@@ -1202,6 +1230,57 @@ const KEEPER_LINES: Dictionary = {
 			"Closed. Come back in eight hours. I'll be right here. I'm always right here.",
 		],
 	},
+}
+
+
+## What Rusty says when a piece of junk lands on his scale (docs/GAME.md
+## "Rusty's Salvage & Pawn"), by type; the jackpot flamingo has its own.
+const JUNK_LINES: Dictionary = {
+	"old_tv": [
+		"A TV. Remember when these were furniture? I do. I'm furniture now too.",
+		"Rabbit ears and everything. Picks up three channels and one ghost.",
+		"Heavy for a box of nothing. I'll give you something for the nothing.",
+	],
+	"tire": [
+		"Bald as me. We'll get along.",
+		"One tire. Somewhere a car is very disappointed.",
+		"Tires I always take. Tires are the only thing that comes back.",
+	],
+	"grill": [
+		"A grill that's seen some summers. And some fires it wasn't invited to.",
+		"Lid's bent. Legs are honest. I'll take the honesty.",
+		"Smells like burgers and bad decisions. That's the good stuff.",
+	],
+	"toilet": [
+		"Porcelain holds its value. Don't ask what else it holds.",
+		"Clean. I checked. I always check.",
+		"You carried a toilet across town for me. I'm touched. Not literally.",
+	],
+	"bike": [
+		"Back wheel's a taco. Front wheel's an optimist.",
+		"Somebody's kid outgrew this. Or quit. Kids quit everything.",
+		"Frame's good. Everything bolted to it is a rumor.",
+	],
+	"flamingo": [
+		"Plastic. Pink. Priceless to exactly one person, and she's not here.",
+		"Lawn flamingo. Ornamental. Like most of my inventory.",
+		"Light as a feather. Pays like one.",
+	],
+	"flamingo_vintage": [
+		"Hold on. HOLD ON. That's a fifty-seven. Original legs.",
+		"Vintage. Don't tell the flamingo. It'll get ideas.",
+		"You know what you've got here? I do. That's why I'm paying you.",
+	],
+	"mannequin": [
+		"She was in a window downtown once. Now she's in my yard. Career arc.",
+		"Don't look at her too long. She looks back.",
+		"Good for scaring raccoons. And customers.",
+	],
+	"boombox": [
+		"Plays tapes. You know what a tape is? Me neither, anymore.",
+		"Batteries not included. Batteries never included. That's the law.",
+		"One speaker crackles. The other one crackles back.",
+	],
 }
 
 

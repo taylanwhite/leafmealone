@@ -14,10 +14,13 @@ const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
+const _JunkBed = preload("res://net/components/junk_bed.gd")
 
 var _riding: bool = false
 ## The bags drawn in the bed (props/truck_bed_load.gd), Chefty only.
 var _bed_load: Node3D
+## The junk in the bed for Rusty's (net/components/junk_bed.gd), Chefty only.
+var _junk_bed: Node3D
 var _start_time: float = 0.0
 var _duration: float = RIDE_DURATION_SECONDS
 var _destination: int = 0
@@ -157,6 +160,26 @@ func bag_value() -> int:
 	return _bag_value
 
 
+## Host: a piece of junk lying in the bed is loaded (junk_bed.gd). False when full.
+func accept_junk(prop: Node3D) -> bool:
+	return _junk_bed != null and bool(_junk_bed.call("accept", prop))
+
+
+func junk_count() -> int:
+	return int(_junk_bed.call("count")) if _junk_bed != null else 0
+
+
+## Host: the junk hops out over the tailgate, one piece at a time (at the store).
+func unload_junk() -> void:
+	if _junk_bed != null:
+		_junk_bed.call("unload")
+
+
+## Whether E at the tailgate may unload the junk now: parked, not on the road.
+func junk_unload_allowed() -> bool:
+	return not _riding
+
+
 ## Host only: the job is paid, so the truck's load is emptied.
 func clear_bags() -> void:
 	if Net.is_host():
@@ -235,6 +258,8 @@ func _build() -> void:
 	if name == "Chefty":
 		_bed_load = _BedLoad.new()
 		_body.add_child(_bed_load)
+		_junk_bed = _JunkBed.new()
+		_body.add_child(_junk_bed)
 	var seats := Node3D.new()
 	seats.name = "Seats"
 	_body.add_child(seats)
@@ -287,6 +312,8 @@ func _refresh_label() -> void:
 func _rpc_request_state() -> void:
 	if Net.is_host():
 		_rpc_parked.rpc_id(multiplayer.get_remote_sender_id(), _parked_along, _bags, _bag_value)
+		if _junk_bed != null:
+			_junk_bed.call("send_to", multiplayer.get_remote_sender_id())
 
 
 ## A late joiner learns where Chefty is parked and what it is carrying.

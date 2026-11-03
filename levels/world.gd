@@ -33,6 +33,9 @@ var town_map: bool = false
 var _lots_loaded: int = 0
 var _lot_swap_serial: int = 0
 var _bag_serial: int = 0
+## Host: junk props spawned so far (their names), and the dice for their values.
+var _junk_serial: int = 0
+var _junk_rng := RandomNumberGenerator.new()
 ## The town house whose yard the job site sits on, or -1 (legacy, or no site placed).
 var _job_site_house: int = -1
 ## Host: _ready is done (the town's colliders and dressing exist), so the board
@@ -45,6 +48,7 @@ var _site_check_wait: float = 0.0
 func _ready() -> void:
 	add_to_group("world")
 	%RuntimeProps.add_to_group("runtime_props")
+	_junk_rng.randomize()
 	_add_chefty()
 	# The sun is set up by levels/shared_look.gd.
 	var director := preload("res://net/run_events/director.gd").new()
@@ -415,6 +419,10 @@ func request_finish() -> void:
 func on_ride_arrived(destination: int) -> void:
 	if destination == Net.Zone.STORE:
 		_free_lot()
+		# Back at the store with junk in the bed: it hops out for Rusty's.
+		var chefty := get_node_or_null("Rides/Chefty")
+		if chefty != null and chefty.has_method("unload_junk"):
+			chefty.call("unload_junk")
 	elif destination == Net.Zone.LOT and town_map:
 		on_crew_arrived()
 	elif destination == Net.Zone.LOT:
@@ -507,6 +515,7 @@ func _load_job_lot() -> void:
 		town.call("start_job", int(offer["house_id"]))
 		_spawn_rival_signs(lot as Node3D, offer)
 	_spawn_job_tools()
+	_spawn_junk(lot as Node3D, offer)
 	var telemetry := get_tree().get_first_node_in_group("telemetry")
 	if telemetry != null:
 		telemetry.call("mark_job_start")
@@ -627,6 +636,98 @@ func _spawn_rival_signs(lot: Node3D, offer: Dictionary) -> void:
 		# Out on the front lawn, either side of the driveway.
 		var side := -1.0 if index % 2 == 0 else 1.0
 		sign.global_position = lot.global_position + Vector3(side * rng.randf_range(4.0, 12.0), 0.6, rng.randf_range(10.0, 17.0))
+
+
+## Host only. Rusty's junk in this yard (shops chunk 5; docs/GAME.md "Rusty's
+## Salvage & Pawn"): how many by the hood (Constants.JUNK_PER_HOOD, Dandelion
+## Acres has the most), which types, and where, all from the offer's seed. Only
+## once Rusty's is open (feature:salvage), so nobody hauls junk with nowhere to
+## sell it, and not in the timed tests other than --shop-test, whose yards stay
+## as they were. On the lot's free spots when the lot can say where those are
+## (free_spots, the lot agent's contract), else spread over the front lawn,
+## clear of each other, the signs and the tools.
+func _spawn_junk(lot: Node3D, offer: Dictionary) -> void:
+	if lot == null or not _junk_wanted():
+		return
+	var hood := str(lot.get("hood"))
+	var range_of: Vector2i = Constants.JUNK_PER_HOOD.get(hood, Constants.JUNK_PER_HOOD[""])
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([int(offer.get("seed", 0)), "junk"])
+	var count := rng.randi_range(range_of.x, range_of.y)
+	if count <= 0:
+		return
+	var spots: Array = []
+	if lot.has_method("free_spots"):
+		spots = lot.call("free_spots", count, int(rng.seed))
+	var taken: Array[Vector3] = []
+	for node: Node in get_tree().get_nodes_in_group("job_tools"):
+		taken.append((node as Node3D).global_position)
+	var types: Array = Constants.JUNK_TYPES.keys()
+	for index: int in count:
+		var at: Vector3 = spots[index] if index < spots.size() else _junk_lawn_spot(lot, rng, taken)
+		if not at.is_finite():
+			continue
+		taken.append(at)
+		var junk := spawn_junk(str(types[rng.randi() % types.size()]), at, -1, true)
+		if junk != null:
+			junk.rotation.y = rng.randf_range(-PI, PI)
+
+
+## A spot on the front lawn (the band the TurfMasters signs stand in,
+## Constants.JUNK_LAWN_*), at least JUNK_SPACING from everything already
+## placed; INF after JUNK_LAWN_TRIES tries.
+func _junk_lawn_spot(lot: Node3D, rng: RandomNumberGenerator, taken: Array[Vector3]) -> Vector3:
+	for _attempt: int in Constants.JUNK_LAWN_TRIES:
+		var side := -1.0 if rng.randf() < 0.5 else 1.0
+		var at := lot.global_position + Vector3(side * rng.randf_range(Constants.JUNK_LAWN_ACROSS.x, Constants.JUNK_LAWN_ACROSS.y), 0.02, rng.randf_range(Constants.JUNK_LAWN_ALONG.x, Constants.JUNK_LAWN_ALONG.y))
+		if taken.all(func(other: Vector3) -> bool: return Vector2(other.x - at.x, other.z - at.z).length() >= Constants.JUNK_SPACING):
+			return at
+	return Vector3.INF
+
+
+## Whether yards get junk: Rusty's is open, and this isn't a timed test other
+## than --shop-test (Shops._unlimited_supplies' rule).
+func _junk_wanted() -> bool:
+	if not Campaign.is_feature_on("salvage"):
+		return false
+	var options := Net.dev_options()
+	var timed := float(options.get("run_seconds")) > 0.0 or Net.is_automated()
+	return not timed or bool(options.get("shop_test"))
+
+
+## Host only. A piece of junk for Rusty's at `at` (its base on the ground there):
+## a yard prop of kind "junk", its type in label (Constants.JUNK_TYPES) and its
+## base appraisal in value; -1 rolls one from the type's range, with the vintage
+## flamingo now and then (Constants.JUNK_JACKPOT). on_yard: it goes with the
+## job's things when the yard does. Returns the prop.
+func spawn_junk(type: String, at: Vector3, value: int = -1, on_yard: bool = false) -> RigidBody3D:
+	if not Net.is_host() or not Constants.JUNK_TYPES.has(type):
+		return null
+	if value < 0:
+		value = roll_junk_value(type, _junk_rng)
+	_junk_serial += 1
+	var junk := BAG_SCENE.instantiate() as RigidBody3D
+	junk.name = "Junk%d" % _junk_serial
+	junk.set("kind", "junk")
+	junk.set("label", type)
+	junk.set("value", value)
+	junk.set("color", Color(0.5, 0.45, 0.4))
+	junk.mass = float((Constants.JUNK_TYPES[type] as Dictionary)["kg"])
+	junk.add_to_group("junk")
+	if on_yard:
+		junk.add_to_group("job_tools")
+	%RuntimeProps.add_child(junk, true)
+	junk.global_position = at
+	return junk
+
+
+## A junk type's base appraisal: a roll in its value range, and a flamingo is
+## now and then the vintage one.
+static func roll_junk_value(type: String, rng: RandomNumberGenerator) -> int:
+	var range_of: Vector2i = (Constants.JUNK_TYPES[type] as Dictionary)["value"]
+	if type == "flamingo" and rng.randf() < float(Constants.JUNK_JACKPOT["chance"]):
+		return int(Constants.JUNK_JACKPOT["value"])
+	return rng.randi_range(range_of.x, range_of.y)
 
 
 ## Host only. One of each tool the crew owns rides along, laid out by the truck,

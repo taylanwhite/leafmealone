@@ -678,6 +678,39 @@ def bed_thump() -> list[float]:
 SOUNDS["bed_thump"] = (bed_thump, 0, 0.8)
 
 
+# ---- shops: Rusty's (chunk 5)
+def haggle_hmm() -> list[float]:
+    """Rusty mulls a haggle over: a low closed-mouth hum that sinks, sits, and
+    tips up into a question at the end, "hmmmm... hm?", with a breath through
+    the nose before it. Low and slow: he's the babble set pitched 0.75."""
+    rng = random.Random(530)
+    out = silence(1.15)
+    mix_into(out, breath(rng, 0.09, 900.0), 0.0, 0.25)
+
+    def pitch(t: float) -> float:
+        # Down from 150 Hz into a long 118 Hz hum, then a rise on the last beat.
+        if t < 0.55:
+            return 150.0 - 32.0 * min(t / 0.25, 1.0)
+        if t < 0.75:
+            return 118.0
+        return 118.0 + 70.0 * ((t - 0.75) / 0.3) ** 1.6
+
+    hum = tone(1.05, pitch, "saw", (5.0, 0.012))
+    # A closed mouth: nasal, mostly the low formant, the rest damped.
+    nasal = [a + 0.25 * b for a, b in zip(bandpass(hum, 250.0, 3.0), bandpass(hum, 2200.0, 6.0))]
+    shaped = envelope(lowpass(nasal, 1400.0), 0.06, 0.12)
+    # A small dip in the middle: two thoughts, not one.
+    for index in range(len(shaped)):
+        t = index / RATE
+        if 0.62 < t < 0.72:
+            shaped[index] *= 0.45 + 0.55 * abs(t - 0.67) / 0.05
+    mix_into(out, shaped, 0.05, 1.0)
+    return out
+
+
+SOUNDS["haggle_hmm"] = (haggle_hmm, 0, 0.7)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

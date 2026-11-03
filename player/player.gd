@@ -188,6 +188,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _grab_nearby():
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact") and _unload_junk():
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _Seated.try_enter(self):
 		get_viewport().set_input_as_handled()
 	# G (drop) is wound up and released in _wind_up, on physics ticks.
@@ -927,13 +929,37 @@ func _nearest_hand_task() -> Dictionary:
 	return {}
 
 
-## E by Chefty with a bag tosses it in; with a loaded wheelbarrow, dumps it.
+## E at Chefty's tailgate with junk in the bed (and nothing to pick up closer):
+## the junk hops out over it (net/components/junk_bed.gd, gap-specs critic C22).
+func _unload_junk() -> bool:
+	var bed := _junk_tailgate()
+	if bed == null:
+		return false
+	bed.call("request_unload")
+	return true
+
+
+## Chefty's junk bed when you stand at its tailgate, hands free of anything
+## that goes in the bed, and it has junk to unload; else null.
+func _junk_tailgate() -> Node:
+	var held := _held_prop()
+	if held != null and ["junk", "leaf_bag", "wheelbarrow"].has(str(held.get("kind"))):
+		return null
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var bed := chefty.get_node_or_null("Body/JunkBed") if chefty != null else null
+	if bed == null or not bool(bed.call("can_unload_from", self)):
+		return null
+	return bed
+
+
+## E by Chefty with a bag (or a piece of junk for Rusty's) tosses it in; with a
+## loaded wheelbarrow, dumps it.
 func _load_truck() -> bool:
 	var held := _held_prop()
 	if held == null or not bool(held.call("near_truck")):
 		return false
 	var held_kind := str(held.get("kind"))
-	if held_kind != "leaf_bag" and not (held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0):
+	if held_kind != "leaf_bag" and held_kind != "junk" and not (held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0):
 		return false
 	held.call("request_load_truck")
 	return true
@@ -1562,8 +1588,8 @@ func interaction_hint() -> Dictionary:
 	var held := _held_prop()
 	if held != null and bool(held.call("near_truck")):
 		var held_kind := str(held.get("kind"))
-		# E heaves a bag in over the side, unlabeled: a bag by the truck says it.
-		if held_kind == "leaf_bag":
+		# E heaves a bag (or junk) in over the side, unlabeled: a bag by the truck says it.
+		if held_kind == "leaf_bag" or held_kind == "junk":
 			return {}
 		if held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0:
 			return {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0), "source": held}
@@ -1574,6 +1600,9 @@ func interaction_hint() -> Dictionary:
 	# Picking things up beats getting in: by the tailgate there are bags to load.
 	var closest := _best_pickup() if _hands_can_pick_up() else null
 	if closest == null:
+		var junk_bed := _junk_tailgate()
+		if junk_bed != null:
+			return {"text": _Strings.SHOP_UI["prompt_unload_junk"], "at": (junk_bed.call("tailgate_point") as Vector3) + Vector3(0.0, 1.5, 0.0)}
 		var seat_hint := _Seated.hint(self)
 		if not seat_hint.is_empty():
 			return seat_hint
@@ -1583,7 +1612,8 @@ func interaction_hint() -> Dictionary:
 	var closest_kind := str(closest.get("kind"))
 	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
 		return {"text": _Strings.UI["prompt_pockets_full"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "plain": true, "source": closest}
-	var prop_label := str(closest.get("label"))
+	# Junk says what it is ("Pick up Toilet"); everything else by its label.
+	var prop_label := str(closest.call("display_name")) if closest.has_method("display_name") else str(closest.get("label"))
 	var text: String = _Strings.UI["prompt_pick_up"] % prop_label if prop_label != "" else _Strings.UI["prompt_pick_up_plain"]
 	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "source": closest}
 
