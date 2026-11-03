@@ -82,6 +82,10 @@ var _yard_cue: Dictionary = {}
 ## Client: the host's cue for Rusty's (_rpc_client_rusty): the used tool to buy
 ## and the junk on the scale to sell.
 var _rusty_cue: Dictionary = {}
+## Host: the client has read its copy of Chefty's bed (_rpc_client_rusty_done).
+## junk_left empties the bed for a moment, so it waits for this first (W8
+## integration: a slow client read 0 against the host's 1 under load).
+var _rusty_read: bool = false
 
 
 func _process(_delta: float) -> void:
@@ -282,6 +286,9 @@ func _run() -> void:
 	# save: the section is written, and reads back into the same state.
 	Campaign.save_now()
 	_step("save", _check_save(shops, me))
+	# The client reads its bed copy at the end of its Rusty's half; junk_left
+	# empties the bed for a moment, so not before that read.
+	await _wait_until(func() -> bool: return _rusty_read, WAIT_SECONDS)
 	await _check_junk_left(shops)
 	# A stand-in truck, after everything the client waits on (it adds ~2.4 s).
 	_step("paint_pull_away", await _check_paint_pull_away())
@@ -1709,6 +1716,12 @@ func _rpc_client_rusty(item: String, junk_path: NodePath, bed_count: int) -> voi
 	_rusty_cue = {"item": item, "junk": junk_path, "bed": bed_count}
 
 
+## The client's word that it has read its bed copy (client_rusty).
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_client_rusty_done() -> void:
+	_rusty_read = true
+
+
 ## The client at Rusty's: walks up to his counter, sells the boombox on the scale
 ## (_rpc_request_sell answered "sold") and buys the used tool (_rpc_request_buy
 ## answered "ok"), through the real client path.
@@ -1739,6 +1752,7 @@ func _run_client_rusty(shops: Node, me: int) -> void:
 	var here := (junk_bed.get("junk") as Array).size() if junk_bed != null else -1
 	var drawn := junk_bed.get_child_count() if junk_bed != null else -1
 	var bed_same := here == int(_rusty_cue.get("bed", -2)) and drawn == here
+	_rpc_client_rusty_done.rpc_id(1)
 	_step("client_rusty", asked == "" and sale == ["sold", "junk_boombox", offer] and buy == ["ok", item, Catalog.price(item)] and Campaign.peer_has_unlock(me, StringName(item)) and bed_same,
 		"sold %s (offer $%d), bought %s, Chefty's bed here %d (%d drawn), the host's %d" % [str(sale), offer, str(buy), here, drawn, int(_rusty_cue.get("bed", -2))])
 
