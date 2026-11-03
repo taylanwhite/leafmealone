@@ -125,7 +125,7 @@ var fixed_step: int = 0
 ## --art-test: every neighborhood's look in the running game: styles, signatures,
 ## budgets, layout, determinism, seasons and words (net/dev/art_test.gd).
 var art_test: bool = false
-## True when --port= was on the command line (dev sessions then use campaign_test_<port>.json).
+## True when --port= was on the command line (a dev flag; the run uses campaign_test_<port>.json).
 var port_given: bool = false
 ## Every user argument that isn't a player flag, unknown ones included (docs/DECISIONS.md,
 ## "Dev sessions never touch the real save"). Any of them makes this a dev session.
@@ -133,16 +133,19 @@ var dev_flags: PackedStringArray = []
 
 ## The only flags a player launches with. Everything else is a dev, test or automation
 ## flag, so a new flag is a dev flag until it is added here. --town-map is a player flag
-## only on its own: with any other flag the session is a dev one anyway.
+## only on its own: with any other flag the session is a dev one anyway. --port= is a
+## dev flag: no menu offers a port, and agents pick custom ports to keep runs apart.
 const PLAYER_FLAGS: Array[String] = ["--host", "--no-steam", "--town-map"]
-const PLAYER_FLAG_PREFIXES: Array[String] = ["--join=", "--name=", "--port="]
-## Engine arguments (before --) that only automation uses.
-const ENGINE_DEV_FLAGS: Array[String] = ["--headless", "--fixed-fps", "--write-movie", "--quit", "--quit-after", "--script", "--check-only", "--import", "--doctool"]
+const PLAYER_FLAG_PREFIXES: Array[String] = ["--join=", "--name="]
 
 
 ## True when this run is a dev, test or automation session: any non-player user flag,
-## a headless display, or an automation-only engine flag. Such a session never reads
-## or writes the player's real save or settings (net/campaign.gd save_path()).
+## a headless display, or a Movie Maker run. Such a session never reads or writes the
+## player's real save or settings (net/campaign.gd save_path()).
+## Engine arguments Godot consumes (--fixed-fps, --quit-after, --script, --quit ...)
+## never reach scripts (OS.get_cmdline_args() leaves them out), so they can't mark a
+## session: an automated windowed run must also pass a dev user flag (--port=,
+## --fixed-step= next to --fixed-fps, ...), as ci_local.ps1, play.ps1 and the soaks do.
 func is_dev_session() -> bool:
 	return not dev_session_reasons().is_empty()
 
@@ -154,10 +157,6 @@ func dev_session_reasons() -> PackedStringArray:
 		reasons.append("headless")
 	if Engine.get_write_movie_path() != "":
 		reasons.append("--write-movie")
-	for argument: String in OS.get_cmdline_args():
-		var flag := argument.get_slice("=", 0)
-		if ENGINE_DEV_FLAGS.has(flag) and not reasons.has(flag):
-			reasons.append(flag)
 	return reasons
 
 

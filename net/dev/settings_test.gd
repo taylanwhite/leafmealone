@@ -5,10 +5,12 @@ extends Node
 ## gap-specs/critic.md C2, C4 and C15):
 ##   path         this run uses settings_test_<port>.cfg, never the player's file
 ##   save_path    (save:guard) this dev run's campaign save is campaign_test_<port>.json;
-##                a player's flags (--host --join= --name= --port= --no-steam
-##                --town-map) keep the real save and every other flag, unknown ones
+##                a player's flags (--host --join= --name= --no-steam --town-map)
+##                keep the real save and every other flag, --port= and unknown ones
 ##                included, makes a dev session; a dev session may never write the
-##                real save, its .tmp or its .bak
+##                real save, its .tmp or its .bak. (Engine flags Godot consumes, such
+##                as --fixed-fps or --quit-after, never reach scripts and are not
+##                detected: automated runs carry a dev user flag too.)
 ##   real_save    (save:guard, at the end) after a save_now() that lands in the test
 ##                save, the player's real campaign.json, its .bak and settings.cfg
 ##                have the same modified time and bytes as when the test began
@@ -65,7 +67,7 @@ const _Campaign = preload("res://net/campaign.gd")
 const PLAYER_ARG_SETS: Array = [
 	[],
 	["--host", "--name=Taylan", "--no-steam"],
-	["--join=192.168.1.20", "--port=7777", "--name=Deb", "--no-steam"],
+	["--join=192.168.1.20", "--name=Deb", "--no-steam"],
 	["--host", "--no-steam", "--town-map"],
 ]
 ## Each makes a dev session, alone or next to the player's flags (W6: driving:D's
@@ -79,7 +81,7 @@ const DEV_ARGS: Array[String] = [
 	"--clock-scale=0.02", "--start-day=7", "--legacy-map", "--warp-rides", "--walk-straight",
 	"--bot-stay", "--open-shop", "--open-board", "--open-settings=keys", "--end-day-at=20",
 	"--ride-at=5", "--run-event-at=10", "--fill-pockets", "--drive-test", "--settings-test",
-	"--playtest-tools-test", "--frobnicate",
+	"--playtest-tools-test", "--port=7777", "--port=9150", "--frobnicate",
 ]
 ## Hard-coded key names a player-facing string may not carry (settings:4, check
 ## 16): "left click", "(Tab)", "Hold G", "E to ...", "A and D", "[E]". Keys are
@@ -191,7 +193,7 @@ func _save_path() -> bool:
 		return _fail("save_path", "this run saves to %s, not %s" % [Campaign.save_path(), want])
 	if not bool(Net.dev_options().call("is_dev_session")):
 		return _fail("save_path", "a --settings-test run is not a dev session")
-	if _Campaign.resolve_save_path(false, true, 7777) != _Campaign.SAVE_PATH:
+	if _Campaign.resolve_save_path(false, false, Constants.DEFAULT_PORT) != _Campaign.SAVE_PATH:
 		return _fail("save_path", "a player's session does not get the real save")
 	if _Campaign.resolve_save_path(true, false, 7777) != _Campaign.DEV_SAVE_PATH:
 		return _fail("save_path", "a dev session without --port does not get campaign_dev.json")

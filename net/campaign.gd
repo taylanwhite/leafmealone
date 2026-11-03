@@ -665,9 +665,10 @@ func save_section(key: String) -> Dictionary:
 
 
 ## The save this run reads and writes. Any dev, test or automation session (any
-## flag but --host, --join=, --name=, --port=, --no-steam and --town-map, or a
-## headless or scripted engine run) gets a test save; only a player's session,
-## debug build or not, gets the real one.
+## user flag but --host, --join=, --name=, --no-steam and --town-map, a headless
+## display or a Movie Maker run) gets a test save; only a player's session, debug
+## build or not, gets the real one. Engine-only flags such as --fixed-fps or
+## --quit-after are invisible to scripts and don't count (command_line.gd).
 func save_path() -> String:
 	var options := Net.dev_options()
 	return resolve_save_path(bool(options.call("is_dev_session")), bool(options.get("port_given")), int(options.get("port")))
