@@ -37,6 +37,9 @@ var _last_origin := Vector3.INF
 var _excepted: PhysicsBody3D
 ## The last placement, so clear_staged can leave the body there.
 var _placed := Transform3D()
+## Another peer's release ease (STAGE_RELEASE_BLEND): from where, how far.
+var _release_from := Transform3D()
+var _release_t: float = 1.0
 
 
 static func reset_log() -> void:
@@ -60,6 +63,7 @@ func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringN
 	_from = _drawn_transform() if not was_staged else _placed
 	_blend_t = 0.0 if _blend > 0.0 else 1.0
 	_last_origin = Vector3.INF
+	_release_t = 1.0
 	log["staged"] = int(log["staged"]) + 1
 	_set_exception(anchor)
 	if not _is_owner():
@@ -86,10 +90,10 @@ func clear_staged() -> void:
 		player.global_position = _placed.origin
 		player.set("body_yaw", _placed.basis.get_euler().y)
 	else:
-		var visual := player.get_node_or_null("Visual") as Node3D
-		if visual != null:
-			visual.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
-			visual.reset_physics_interpolation()
+		# The network pose trails the owner by the link's delay: ease onto it from
+		# where the body was drawn instead of jumping back along the path.
+		_release_from = _placed
+		_release_t = 0.0
 	_pose = &"stand"
 	_apply_pose()
 
@@ -143,10 +147,33 @@ func _physics_process(delta: float) -> void:
 		_place(delta)
 
 
-func _process(_delta: float) -> void:
-	if not is_staged() or player == null or _is_owner():
+func _process(delta: float) -> void:
+	if player == null or _is_owner():
 		return
-	_place_visual(_target(_anchor.get_global_transform_interpolated()))
+	if is_staged():
+		_place_visual(_target(_anchor.get_global_transform_interpolated()))
+	elif _release_t < 1.0:
+		_ease_release(delta)
+
+
+## Another peer, just released: the network smoother has placed the Visual this
+## frame (it runs first); draw it between where the stage left it and there.
+func _ease_release(delta: float) -> void:
+	var visual := player.get_node_or_null("Visual") as Node3D
+	if visual == null:
+		_release_t = 1.0
+		return
+	_release_t = minf(1.0, _release_t + delta / maxf(Constants.STAGE_RELEASE_BLEND, 0.001))
+	var eased := 1.0 - pow(1.0 - _release_t, 3.0)
+	var smoothed := visual.global_transform
+	var drawn := _release_from.interpolate_with(smoothed, eased)
+	drawn.basis = drawn.basis.orthonormalized()
+	_note_step(drawn.origin)
+	visual.global_transform = drawn
+	if _release_t >= 1.0:
+		visual.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_INHERIT
+		visual.reset_physics_interpolation()
+		_last_origin = Vector3.INF
 
 
 ## The owner's body, on physics ticks: the anchor's pose, blended in at first.
@@ -173,7 +200,8 @@ func _place_visual(goal: Transform3D) -> void:
 func _blended(goal: Transform3D) -> Transform3D:
 	if _blend_t >= 1.0:
 		return goal
-	var eased := 1.0 - pow(1.0 - _blend_t, 3.0)
+	# Ease in and out: a body that starts at full speed reads as a pop.
+	var eased := smoothstep(0.0, 1.0, _blend_t)
 	var out := _from.interpolate_with(goal, eased)
 	out.basis = out.basis.orthonormalized()
 	return out

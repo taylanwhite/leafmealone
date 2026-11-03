@@ -818,6 +818,9 @@ const STAGE_BLEND_DEFAULT: float = 0.35
 ## A staged body (player/stage_body.gd) moving more than this in one physics
 ## tick is a pop; the probe counts them.
 const STAGE_MAX_STEP_METERS: float = 0.5
+## Released, another peer's view of a staged body eases back onto the network
+## pose over this long, which still trails the owner by the link's delay.
+const STAGE_RELEASE_BLEND: float = 0.3
 ## What each control lock (player.set_control_lock) still lets through. Held
 ## back otherwise: moving, jump, sprint, crouch, the pockets, interact, primary,
 ## secondary, drop and take. look_deg limits how far you can turn from where the
