@@ -18,7 +18,7 @@ const HAT_DISPLAY_SCALE: float = 0.5
 const CAN_METAL := Color(0.72, 0.73, 0.75)
 const CARD_RED := Color(0.75, 0.22, 0.15)
 const EASEL := Color(0.45, 0.32, 0.2)
-const HIVIS := Color(0.82, 0.98, 0.16)
+const HIVIS := Constants.HIVIS_NEON
 const SILVER := Color(0.86, 0.88, 0.9)
 
 static var _cache: Dictionary = {}

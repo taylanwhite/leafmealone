@@ -640,7 +640,11 @@ const SHOP_SITES: Dictionary = {
 		"yaw": 0.0, "area": Rect2(8.5, -16.5, 9.0, 7.0),
 		# Where the hat rack, the shirt cubby and the paint counter's customers stand
 		# (shops chunk 7, levels/dressing/wardrobe.gd): you buy there like at the counter.
-		"spots": [Vector3(-11.0, 0.0, -8.05), Vector3(-11.0, 0.0, -9.8), Vector3(10.0, 0.0, 1.7)],
+		"spots": [
+			Vector3(WARDROBE_WALL_X + WARDROBE_SPOT_OUT, 0.0, HAT_RACK_Z),
+			Vector3(WARDROBE_WALL_X + WARDROBE_SPOT_OUT, 0.0, SHIRT_CUBBY_Z),
+			PAINT_COUNTER_AT - Vector3(0.0, 0.0, PAINT_COUNTER_SPOT_BACK),
+		],
 	},
 	"rustys": {
 		"zone": "StoreZone", "counter": Vector3(15.2, 0.0, -4.5), "keeper": Vector3(16.4, 0.0, -4.5),
@@ -4383,6 +4387,8 @@ const SHIRT_DYES: Array[Color] = [
 	Color(0.84, 0.18, 0.16), Color(0.96, 0.52, 0.14), Color(0.97, 0.82, 0.22), Color(0.3, 0.66, 0.3),
 	Color(0.16, 0.66, 0.66), Color(0.22, 0.45, 0.85), Color(0.55, 0.32, 0.75), Color(0.55, 0.56, 0.58),
 ]
+## The hi-vis vest's neon (the vest on a body, its folded stack, its icons).
+const HIVIS_NEON := Color(0.82, 0.98, 0.16)
 ## Where Homie Depot shows its workwear, in StoreZone space: the fitting nook
 ## just south of the orange entrance block, where the store's front wall (its
 ## face at x WARDROBE_WALL_X) meets the block's south side (z MIRROR_AT.z). The
@@ -4398,6 +4404,29 @@ const HAT_RACK_Z: float = -8.05
 const SHIRT_CUBBY_Z: float = -9.8
 const MIRROR_AT := Vector3(-11.0, 0.0, -7.0)
 const PAINT_COUNTER_AT := Vector3(10.0, 0.0, 2.75)
+## Where you stand to buy (SHOP_SITES.homie_depot.spots): this far (m) out from
+## the front wall at the rack and the cubby, and this far on the paint counter's
+## -z side.
+const WARDROBE_SPOT_OUT: float = 1.0
+const PAINT_COUNTER_SPOT_BACK: float = 1.05
+## The paint cloud's puffs, in Chefty's body space (m): spread across, how high
+## (low, high) and front to back (min, max); each flies out at (min, max) m/s and
+## up at (min, max) m/s.
+const REPAINT_SPREAD_X: float = 1.3
+const REPAINT_SPREAD_Y := Vector2(0.5, 2.4)
+const REPAINT_SPREAD_Z := Vector2(-3.0, 2.8)
+const REPAINT_PUFF_OUT := Vector2(0.6, 1.6)
+const REPAINT_PUFF_UP := Vector2(0.3, 0.9)
+## Each puff's full size (m, min and max), and how late (s, at most) it starts.
+const REPAINT_PUFF_SIZE := Vector2(0.35, 0.65)
+const REPAINT_PUFF_STAGGER: float = 0.12
+## The mist is the paint lightened toward white by (min, max), plus up to
+## REPAINT_MIST_DARK more for a dark paint (a black job's cloud read as smoke, W8).
+const REPAINT_MIST := Vector2(0.1, 0.3)
+const REPAINT_MIST_DARK: float = 0.3
+## The googly eyes ignore a jump in Chefty's acceleration over this (m/s^2): a
+## teleport or a new trip, not a shove.
+const GOOGLY_TELEPORT_ACCEL: float = 200.0
 ## The mirror's glass (m: width, height), how high its bottom edge is, and its
 ## picture (pixels; the reflection is drawn only while a camera is within
 ## MIRROR_RANGE m of it and in front). Wearing something new within
@@ -4407,15 +4436,22 @@ const MIRROR_BOTTOM: float = 0.3
 const MIRROR_PIXELS := Vector2i(300, 552)
 const MIRROR_RANGE: float = 7.0
 const MIRROR_CLOSE_RANGE: float = 4.0
-## A new hat goes on (player/cartoon_body.gd rebuild): the old one flies off up
-## and back over HAT_FLY_SECONDS; the new one waits HAT_DROP_DELAY, drops from
-## HAT_DROP_HEIGHT (m) over HAT_DROP_SECONDS, lands squashed to HAT_SQUASH and
-## springs back over HAT_SETTLE_SECONDS. A new shirt puffs the torso by
-## SHIRT_PUFF over SHIRT_PUFF_SECONDS. The hands come up for both (the
+## A new hat goes on (player/cartoon_body.gd rebuild): the old one is flicked off
+## back over the head over HAT_FLY_SECONDS, rising at most HAT_FLY_RISE (m) and
+## landing HAT_FLY_BACK (m) behind as it shrinks away; the new one grows in from HAT_DROP_GROW_FROM
+## of its size over HAT_DROP_DELAY, HAT_DROP_HEIGHT (m) above the head and
+## HAT_DROP_AHEAD (m) in front of it (clear of the old one's arc: W8 review, two
+## hats stacked on a friend's head), drops over HAT_DROP_SECONDS, lands squashed
+## to HAT_SQUASH and springs back over HAT_SETTLE_SECONDS. A new shirt puffs the
+## torso by SHIRT_PUFF over SHIRT_PUFF_SECONDS. The hands come up for both (the
 ## dress_up gestures, HAT_ON_SECONDS and SHIRT_TUG_SECONDS long).
-const HAT_FLY_SECONDS: float = 0.34
-const HAT_DROP_DELAY: float = 0.08
-const HAT_DROP_HEIGHT: float = 0.34
+const HAT_FLY_SECONDS: float = 0.24
+const HAT_FLY_RISE: float = 0.14
+const HAT_FLY_BACK: float = 0.6
+const HAT_DROP_DELAY: float = 0.14
+const HAT_DROP_HEIGHT: float = 0.5
+const HAT_DROP_AHEAD: float = 0.12
+const HAT_DROP_GROW_FROM: float = 0.35
 const HAT_DROP_SECONDS: float = 0.2
 const HAT_SQUASH := Vector3(1.16, 0.74, 1.16)
 const HAT_SETTLE_SECONDS: float = 0.26

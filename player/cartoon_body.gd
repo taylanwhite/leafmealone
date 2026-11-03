@@ -771,9 +771,16 @@ func _build_hat(face: Node3D) -> void:
 			cap.blob(Vector3(0.0, 0.2, 0.01), Vector3(0.285, 0.16, 0.285), hat_color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
 			cap.blob(Vector3(0.0, 0.135, -0.29), Vector3(0.17, 0.018, 0.12), hat_color.darkened(0.1), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
 			cap.blob(Vector3(0.0, 0.36, 0.01), Vector3(0.03, 0.015, 0.03), hat_color.darkened(0.15), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
-			# Hair peeking out at the back and sides.
-			cap.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 2, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
 			part = _kit_part(face, cap.commit(), Vector3.ZERO)
+			# Hair peeking out at the back and sides: its own part, so it stays on
+			# the head while the cap flies off or drops on (W8 review: it rode down
+			# with the cap, a wig in mid-air).
+			var under := _MeshKit.new()
+			under.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 2, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
+			var cap_hair := _kit_part(face, under.commit(), Vector3.ZERO)
+			cap_hair.name = "CapHair"
+			_on_head_layer(cap_hair)
+			_hat_parts.append(cap_hair)
 		"hair":
 			var mop := _MeshKit.new()
 			mop.blob(Vector3(0.0, 0.14, 0.06), Vector3(0.28, 0.19, 0.27), hair, {"detail": 3, "lumps": 0.16, "lump_scale": 2.6, "outward": true, "flat": false, "jitter": 0.0, "seed": int(hair.r * 100.0)})
@@ -875,16 +882,22 @@ func dressing() -> bool:
 ## and faster (anticipation is the hands coming up), landing squashed, springing back.
 func _hat_dropped(t: float) -> Transform3D:
 	var up := _hat_rest.basis.y.normalized()
+	# The head's front (its -Z): the new hat starts a little ahead of the head,
+	# out of the old one's way as that flies off up and back.
+	var ahead := -_hat_rest.basis.z.normalized()
 	var fall := clampf((t - Constants.HAT_DROP_DELAY) / maxf(Constants.HAT_DROP_SECONDS, 0.001), 0.0, 1.0)
 	var height := Constants.HAT_DROP_HEIGHT * (1.0 - fall * fall)
-	var squash := Vector3.ONE
+	var forward := Constants.HAT_DROP_AHEAD * (1.0 - fall * fall)
+	# It grows in where it waits, instead of popping in full size.
+	var grow := clampf(t / maxf(Constants.HAT_DROP_DELAY, 0.001), 0.0, 1.0)
+	var squash := Vector3.ONE * lerpf(Constants.HAT_DROP_GROW_FROM, 1.0, grow * (2.0 - grow))
 	var landed := t - Constants.HAT_DROP_DELAY - Constants.HAT_DROP_SECONDS
 	if landed >= 0.0:
 		var s := clampf(landed / maxf(Constants.HAT_SETTLE_SECONDS, 0.001), 0.0, 1.0)
 		# A damped wobble from the squash back to round.
 		var wobble := exp(-5.0 * s) * cos(s * PI * 2.5) * (1.0 - s)
 		squash = Vector3.ONE.lerp(Constants.HAT_SQUASH, wobble)
-	return Transform3D(_hat_rest.basis.scaled(squash), _hat_rest.origin + up * height)
+	return Transform3D(_hat_rest.basis.scaled(squash), _hat_rest.origin + up * height + ahead * forward)
 
 
 ## The clothes' motion each tick: hats flying off and dropping on, the shirt's
@@ -901,8 +914,9 @@ func _animate_dress(delta: float) -> void:
 			_hats_off.remove_at(index)
 			continue
 		var from: Transform3D = going["from"]
-		# Up and back over the head in an arc, tipping back and shrinking away.
-		var arc := Vector3(0.0, sin(s * PI * 0.8) * 0.28 + s * 0.1, s * 0.42)
+		# Flicked off back over the head in a low arc, tipping back and shrinking
+		# away (low, so the new hat dropping from above never meets it).
+		var arc := Vector3(0.0, sin(s * PI) * Constants.HAT_FLY_RISE, s * Constants.HAT_FLY_BACK)
 		var turn := Basis(Vector3.RIGHT, s * 1.9) * Basis(Vector3.BACK, s * 0.6)
 		node.transform = Transform3D(turn * from.basis.scaled(Vector3.ONE * (1.0 - s * s * 0.9)), from.origin + arc)
 	if _hat_drop >= 0.0 and _hat_view != null and is_instance_valid(_hat_view):
@@ -1394,7 +1408,7 @@ func _torso_mesh(color: Color) -> ArrayMesh:
 ## open at the collar, two silver reflective bands, straps over the shoulders and
 ## a zip down the front. Squashed front to back like the torso it covers.
 func _vest_mesh() -> ArrayMesh:
-	var neon := Color(0.82, 0.98, 0.16)
+	var neon := Constants.HIVIS_NEON
 	var silver := Color(0.86, 0.88, 0.9)
 	var kit := _MeshKit.new()
 	kit.tube(PackedVector3Array([Vector3(0, -0.05, 0), Vector3(0, 0.08, 0), Vector3(0, 0.3, 0), Vector3(0, 0.42, 0)]),

@@ -16,9 +16,8 @@ extends RefCounted
 ## under it at the back (in the player's hair color), except the crown, which
 ## keeps the whole mop.
 ##
-## Detail: blobs are detail 2 for the big smooth crowns (a detail-1 dome reads as
-## a polygon at arm's length) and detail 1 or 0 for the small parts; tubes stay at
-## 14 sides or fewer; never rbox (gap-specs/critic.md C20: the body is already
+## Detail: every blob is detail 1 or 0, the hair under a hat included; tubes stay
+## at 14 sides or fewer; never rbox (gap-specs/critic.md C20: the body is already
 ## over its triangle budget). net/dev/shop_test.gd checks every hat stays under
 ## MAX_TRIANGLES and clear of the eyes.
 
@@ -45,8 +44,10 @@ const TRUCKER_SEAM_Z: float = -0.06
 const CROWN_AT := Vector3(0.0, 0.262, 0.045)
 ## Where the propeller's hub sits, in hat space.
 const PROPELLER_HUB := Vector3(0.0, 0.272, 0.0)
-## No hat may cost more than this many triangles (with its hair).
-const MAX_TRIANGLES: int = 1800
+## No hat may cost more than this many triangles (with its hair): less than the
+## cap your name gives you (about 1,040, which it replaces), so a hat never adds
+## to a body that is already over budget (critic C20).
+const MAX_TRIANGLES: int = 700
 ## The eyes, in the head's space (cartoon_body.gd _build_head): no hat may come
 ## lower than EYE_TOP within EYE_HALF_WIDTH of the middle, in front of the face.
 const EYE_TOP: float = 0.145
@@ -73,7 +74,7 @@ const CHEFTY_RED := Color(0.75, 0.22, 0.15)
 const PROPELLER_COLORS: Array[Color] = [Color(0.88, 0.2, 0.18), Color(0.98, 0.8, 0.2), Color(0.2, 0.45, 0.88), Color(0.3, 0.68, 0.32)]
 
 const _SMOOTH: Dictionary = {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0}
-const _ROUND: Dictionary = {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0}
+const _ROUND: Dictionary = {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0}
 
 static var _cache: Dictionary = {}
 
@@ -149,9 +150,9 @@ static func build(style: String, hair: Color) -> Dictionary:
 		mesh = _trucker_front(mesh)
 	if back_hair:
 		# Hair at the back and sides, under the hat (the cap's, R2b).
-		hair_kit.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 2, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
+		hair_kit.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 1, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
 	else:
-		hair_kit.blob(Vector3(0.0, 0.14, 0.06), Vector3(0.28, 0.19, 0.27), hair, {"detail": 2, "lumps": 0.16, "lump_scale": 2.6, "outward": true, "flat": false, "jitter": 0.0, "seed": int(hair.r * 100.0)})
+		hair_kit.blob(Vector3(0.0, 0.14, 0.06), Vector3(0.28, 0.19, 0.27), hair, {"detail": 1, "lumps": 0.16, "lump_scale": 2.6, "outward": true, "flat": false, "jitter": 0.0, "seed": int(hair.r * 100.0)})
 	var made := {"mesh": mesh, "at": at, "spin": spin, "spin_at": PROPELLER_HUB, "hair": hair_kit.commit()}
 	_cache[key] = made
 	return made
@@ -300,7 +301,7 @@ static func _trucker_front(mesh: ArrayMesh) -> ArrayMesh:
 
 ## A knit beanie with a folded cuff, and a pom-pom unless it's the propeller's.
 static func _beanie(kit: RefCounted, knit: Color, pom: Color, with_pom: bool = true) -> void:
-	kit.call("blob", Vector3.ZERO, Vector3(0.256, 0.212, 0.251), knit, {"detail": 2, "lumps": 0.04, "lump_scale": 7.0, "outward": true, "flat": false, "jitter": 0.0})
+	kit.call("blob", Vector3.ZERO, Vector3(0.256, 0.212, 0.251), knit, {"detail": 1, "lumps": 0.04, "lump_scale": 7.0, "outward": true, "flat": false, "jitter": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0.0, -0.025, 0.0), Vector3(0.0, 0.065, 0.0)]), PackedFloat32Array([0.272, 0.268]), knit.darkened(0.16), 14, {"jitter": 0.0, "cap": false, "wobble": 0.0})
 	if with_pom:
 		kit.call("blob", Vector3(0.0, 0.235, 0.0), Vector3(0.075, 0.068, 0.075), pom, {"detail": 1, "lumps": 0.35, "lump_scale": 4.0, "outward": true, "flat": false, "jitter": 0.0})
@@ -360,7 +361,7 @@ static func _chef(kit: RefCounted) -> void:
 	kit.call("tube", PackedVector3Array([Vector3(0.0, -0.03, 0.0), Vector3(0.0, 0.06, 0.0)]), PackedFloat32Array([0.266, 0.264]), WHITE.darkened(0.04), 14, {"jitter": 0.0, "cap": false, "wobble": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0.0, 0.02, 0.0), Vector3(0.0, 0.045, 0.0)]), PackedFloat32Array([0.268, 0.268]), CHEFTY_RED, 14, {"jitter": 0.0, "cap": false, "wobble": 0.0})
 	kit.call("tube", PackedVector3Array([Vector3(0.0, 0.05, 0.0), Vector3(0.0, 0.2, 0.0)]), PackedFloat32Array([0.258, 0.275]), WHITE, 14, {"jitter": 0.0, "cap": false, "wobble": 0.0})
-	kit.call("blob", Vector3(0.0, 0.27, 0.0), Vector3(0.31, 0.14, 0.305), WHITE, {"detail": 2, "lumps": 0.18, "lump_scale": 3.2, "outward": true, "flat": false, "jitter": 0.0, "seed": 3})
+	kit.call("blob", Vector3(0.0, 0.27, 0.0), Vector3(0.31, 0.14, 0.305), WHITE, {"detail": 1, "lumps": 0.18, "lump_scale": 3.2, "outward": true, "flat": false, "jitter": 0.0, "seed": 3})
 
 
 ## A traffic cone worn as a hat: orange, two white stripes, a black rubber base.
@@ -408,9 +409,9 @@ static func _crown(kit: RefCounted) -> void:
 		var angle := TAU * float(point) / 5.0 - PI * 0.5
 		var at := Vector3(cos(angle) * (high - 0.004), 0.1, sin(angle) * (high - 0.004))
 		kit.call("cone", at, 0.045, 0.1, GOLD, 6, {"lumps": 0.0})
-		kit.call("blob", at + Vector3(0.0, 0.105, 0.0), Vector3.ONE * 0.02, GOLD.lightened(0.15), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+		kit.call("blob", at + Vector3(0.0, 0.105, 0.0), Vector3.ONE * 0.02, GOLD.lightened(0.15), {"detail": 0, "lumps": 0.0, "flat": false, "jitter": 0.0})
 		var jewel_angle := angle + TAU / 10.0
-		kit.call("blob", Vector3(cos(jewel_angle) * (low + 0.012), 0.05, sin(jewel_angle) * (low + 0.012)), Vector3(0.022, 0.026, 0.022), RUBY if point % 2 == 0 else SAPPHIRE, {"detail": 1, "lumps": 0.0, "flat": true, "jitter": 0.0, "shade": false})
+		kit.call("blob", Vector3(cos(jewel_angle) * (low + 0.012), 0.05, sin(jewel_angle) * (low + 0.012)), Vector3(0.022, 0.026, 0.022), RUBY if point % 2 == 0 else SAPPHIRE, {"detail": 0, "lumps": 0.0, "flat": true, "jitter": 0.0, "shade": false})
 
 
 ## The propeller's two blades round a hub, in the hub's space.

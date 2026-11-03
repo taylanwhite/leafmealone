@@ -283,6 +283,8 @@ func _run() -> void:
 	Campaign.save_now()
 	_step("save", _check_save(shops, me))
 	await _check_junk_left(shops)
+	# A stand-in truck, after everything the client waits on (it adds ~2.4 s).
+	_step("paint_pull_away", await _check_paint_pull_away())
 	# Let the last snapshot reach the client before the reports.
 	await get_tree().create_timer(1.0).timeout
 	_finish("")
@@ -391,6 +393,42 @@ func _check_truck(shops: Node, me: int) -> bool:
 		and plain and no_decal and gold == "not_owned" and again == "applied" and eyes == "applied" and last and played >= 3 \
 		and (shops.get("crew_owned") as Array).has("paint_mint")
 	print("[ShopTest] truck: %s (mint %s on %s; googly %s on %s, pupils %s; red %s, peeled %s, plain %s no decal %s; gold %s; mint and eyes again %s %s %s; %d repaints shown)" % [ok, mint, mint_on, googly, googly_on, pupils, red, peel, plain, no_decal, gold, again, eyes, last, played])
+	return ok
+
+
+## paint_pull_away (critic C22, W8 review): a truck that drives off inside the
+## paint cloud, before the swap, keeps its old paint (the cloud is left behind),
+## and the show plays again once it parks. On a stand-in truck, so the real
+## Chefty's look stays what the client's report expects.
+func _check_paint_pull_away() -> bool:
+	var stand_in_script := GDScript.new()
+	stand_in_script.source_code = "extends Node3D\nvar moving := false\nvar applied := 0\nfunc is_moving() -> bool:\n\treturn moving\nfunc apply_paint(_color: Color, _decal: String) -> void:\n\tapplied += 1\n"
+	stand_in_script.reload()
+	var truck := Node3D.new()
+	truck.set_script(stand_in_script)
+	var body := Node3D.new()
+	body.name = "Body"
+	truck.add_child(body)
+	var paint: Node = preload("res://net/components/chefty_paint.gd").new()
+	paint.set("vehicle", truck)
+	paint.set("shown", {"color": Constants.CHEFTY_PAINTS["paint_classic"], "decal": ""})
+	paint.set("_wanted", {"color": Constants.CHEFTY_PAINTS["paint_mint"], "decal": ""})
+	truck.add_child(paint)
+	add_child(truck)
+	await get_tree().create_timer(0.1).timeout
+	var started := int(paint.get("repaints")) == 1
+	# Pulls away at once, inside the cloud.
+	truck.set("moving", true)
+	await get_tree().create_timer(Constants.REPAINT_SECONDS + 0.4).timeout
+	var kept := int(truck.get("applied")) == 0 and not bool(paint.call("is_settled"))
+	var no_new_show := int(paint.get("repaints")) == 1
+	# Parks: sprayed again, and it goes on this time.
+	truck.set("moving", false)
+	await get_tree().create_timer(Constants.REPAINT_SWAP_AT + 0.3).timeout
+	var sprayed := int(paint.get("repaints")) == 2 and int(truck.get("applied")) == 1
+	truck.queue_free()
+	var ok := started and kept and no_new_show and sprayed
+	print("[ShopTest] paint_pull_away: %s (show started %s; driving off kept the old paint %s, no show on the road %s; parked and sprayed %s)" % [ok, started, kept, no_new_show, sprayed])
 	return ok
 
 

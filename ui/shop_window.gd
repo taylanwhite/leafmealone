@@ -59,7 +59,7 @@ const SUPPLY_COLORS: Dictionary = {
 	"lawn_bags": Color(0.72, 0.55, 0.34), "big_bags": Color(0.2, 0.2, 0.22), "gas": Color(0.84, 0.14, 0.1),
 	"fertilizer": Color(0.36, 0.6, 0.3), "grass_seed": Color(0.92, 0.82, 0.42), "rock_salt": Color(0.75, 0.82, 0.92),
 }
-const HIVIS := Color(0.85, 1.0, 0.2)
+const HIVIS := Constants.HIVIS_NEON
 
 ## The shop and tab on show, and the item it was opened on ("" for none).
 var shop_id: String = "homie_depot"

@@ -261,7 +261,7 @@ func _closet() -> void:
 				var icon_id := _Icons.for_shop_item(StringName(id))
 				var picture := _Icons.rect(icon_id, STAT_PX * 1.5)
 				if icon_id == "shirt":
-					picture.modulate = Constants.SHIRT_DYES[clampi(int(Catalog.item(id).get("shirt", 0)), 0, Constants.SHIRT_DYES.size() - 1)] if typeof(Catalog.item(id).get("shirt", 0)) == TYPE_INT else Color(0.82, 0.98, 0.16)
+					picture.modulate = Constants.SHIRT_DYES[clampi(int(Catalog.item(id).get("shirt", 0)), 0, Constants.SHIRT_DYES.size() - 1)] if typeof(Catalog.item(id).get("shirt", 0)) == TYPE_INT else Constants.HIVIS_NEON
 				row.add_child(picture)
 			var label := _text(_Strings.shop_item_name(id) if id != "" else str(_Strings.SHOP_UI["closet_own_look"]), 15, INK)
 			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL

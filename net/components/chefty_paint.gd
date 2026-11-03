@@ -28,7 +28,8 @@ var shown: Dictionary = {}
 var _wanted: Dictionary = {}
 var _shops: Node
 ## A repaint under way: seconds into it (-1 for none), the look it puts on,
-## whether it has swapped yet, and its puffs [{node, velocity, life}].
+## whether its swap moment has passed (the look went on, or Chefty was moving
+## and it waits for the next show), and its puffs [{node, velocity, life}].
 var _repaint: float = -1.0
 var _repaint_look: Dictionary = {}
 var _swapped: bool = false
@@ -133,26 +134,30 @@ func _start_repaint(look: Dictionary) -> void:
 		puff.top_level = true
 		add_child(puff)
 		# Round the truck's body, low and high, front to back.
-		var local := Vector3(rng.randf_range(-1.3, 1.3), rng.randf_range(0.5, 2.4), rng.randf_range(-3.0, 2.8))
+		var local := Vector3(rng.randf_range(-Constants.REPAINT_SPREAD_X, Constants.REPAINT_SPREAD_X), rng.randf_range(Constants.REPAINT_SPREAD_Y.x, Constants.REPAINT_SPREAD_Y.y), rng.randf_range(Constants.REPAINT_SPREAD_Z.x, Constants.REPAINT_SPREAD_Z.y))
 		puff.global_position = body.global_transform * local
 		# Paint mist, lighter than the paint (a black job's cloud read as smoke, W8).
-		var tint := color.lerp(Color.WHITE, rng.randf_range(0.1, 0.3) + 0.3 * (1.0 - color.get_luminance()))
+		var tint := color.lerp(Color.WHITE, rng.randf_range(Constants.REPAINT_MIST.x, Constants.REPAINT_MIST.y) + Constants.REPAINT_MIST_DARK * (1.0 - color.get_luminance()))
 		puff.set_instance_shader_parameter("tint", Color(tint.r, tint.g, tint.b, 1.0))
 		var away := (body.global_basis * Vector3(local.x, 0.3, 0.0)).normalized()
 		_puffs.append({
 			"node": puff,
-			"velocity": away * rng.randf_range(0.6, 1.6) + Vector3.UP * rng.randf_range(0.3, 0.9),
-			"size": rng.randf_range(0.35, 0.65),
-			"delay": rng.randf_range(0.0, 0.12),
+			"velocity": away * rng.randf_range(Constants.REPAINT_PUFF_OUT.x, Constants.REPAINT_PUFF_OUT.y) + Vector3.UP * rng.randf_range(Constants.REPAINT_PUFF_UP.x, Constants.REPAINT_PUFF_UP.y),
+			"size": rng.randf_range(Constants.REPAINT_PUFF_SIZE.x, Constants.REPAINT_PUFF_SIZE.y),
+			"delay": rng.randf_range(0.0, Constants.REPAINT_PUFF_STAGGER),
 		})
 		puff.scale = Vector3.ONE * 0.01
 
 
 func _step_repaint(delta: float) -> void:
 	_repaint += delta
+	# Pulled away before the swap: the cloud stays behind and the old paint drives
+	# off in it; the show plays again once Chefty parks (critic C22: never on the
+	# road, W8 review).
 	if not _swapped and _repaint >= Constants.REPAINT_SWAP_AT:
 		_swapped = true
-		_apply(_repaint_look)
+		if _standing_still():
+			_apply(_repaint_look)
 	var life := Constants.REPAINT_SECONDS
 	for puff: Dictionary in _puffs:
 		var node := puff["node"] as Node3D
@@ -170,8 +175,6 @@ func _step_repaint(delta: float) -> void:
 				(puff["node"] as Node).queue_free()
 		_puffs.clear()
 		_repaint = -1.0
-		if not _swapped:
-			_apply(_repaint_look)
 
 
 # ---------------------------------------------------------------- googly eyes
@@ -194,7 +197,7 @@ func _jiggle(delta: float) -> void:
 	if eyes.is_empty():
 		return
 	# Teleports and new trips aren't a shove.
-	if accel.length() > 200.0:
+	if accel.length() > Constants.GOOGLY_TELEPORT_ACCEL:
 		accel = Vector3.ZERO
 	# In the truck's own space: braking (+z accel) flings the pupils up (a cartoon
 	# double take), turning throws them to the outside, a bump bounces them.
