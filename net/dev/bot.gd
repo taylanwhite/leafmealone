@@ -126,7 +126,12 @@ func _during_run_event(player: Node3D) -> bool:
 	if crew == null:
 		return false
 	Input.action_press(&"sprint")
-	_face(player, player.global_position * 2.0 - crew.global_position)
+	if _crew and Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT:
+		# Away, but round the yard, not into its corner (tools:crew review: Bot2 sat
+		# pinned in a corner for a whole chase).
+		_face(player, _crew_steer(player, _crew_flee_point(player, crew.global_position)))
+	else:
+		_face(player, player.global_position * 2.0 - crew.global_position)
 	return true
 
 
@@ -533,8 +538,20 @@ const CREW_IDLE_MIN: float = 3.0
 const CREW_IDLE_MAX: float = 8.0
 ## Wandering on the yard when there's no work: slow turns (rad/s) and no hops.
 const CREW_WANDER_TURN: float = 0.6
+## Wandering this close (m) to the leaf field's edge, or stuck, it walks back in to
+## a spot at least CREW_INNER_METERS inside, until within CREW_WANDER_ARRIVE of it
+## or CREW_WANDER_GOAL_SECONDS have gone. A runner flees to a point this far
+## inside the field too, and sideways along it when cornered.
+const CREW_EDGE_METERS: float = 4.0
+const CREW_INNER_METERS: float = 8.0
+const CREW_WANDER_ARRIVE: float = 1.5
+const CREW_WANDER_GOAL_SECONDS: float = 12.0
+const CREW_FLEE_METERS: float = 8.0
 
 var _crew: bool = false
+var _crew_wander_goal := Vector3.INF
+var _crew_wander_until: float = 0.0
+var _crew_got_stuck: bool = false
 var _crew_number: int = 1
 var _crew_next_idle: float = 0.0
 var _crew_shuffle := Vector3.ZERO
@@ -554,7 +571,27 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 				Input.action_release(action)
 			_crew_walk(player, bool(_job.get("wants_walk")), delta)
 			return
-		# Nothing to carry and the rake's taken: amble about the yard, scooping now and then.
+		# Nothing to carry and the rake's taken: amble about the yard, scooping now and
+		# then. Near the yard's edge, or stuck, it heads back in to somewhere among
+		# the leaves (tools:crew review: a constant turn and forward held pinned idle
+		# bots against the lot's edge and corners, grinding along an invisible wall).
+		if zone != Net.Zone.LOT:
+			_crew_wander_goal = Vector3.INF
+		elif _crew_wander_goal.is_finite():
+			var left := Vector2(_crew_wander_goal.x - player.global_position.x, _crew_wander_goal.z - player.global_position.z).length()
+			if left < CREW_WANDER_ARRIVE or _elapsed >= _crew_wander_until:
+				_crew_wander_goal = Vector3.INF
+			else:
+				_face(player, _crew_steer(player, _crew_wander_goal))
+				_crew_walk(player, true, delta)
+				return
+		if zone == Net.Zone.LOT and (_crew_got_stuck or _crew_yard_point(player.global_position, CREW_EDGE_METERS) != player.global_position):
+			_crew_got_stuck = false
+			_crew_wander_goal = _crew_inner_point()
+			_crew_wander_until = _elapsed + CREW_WANDER_GOAL_SECONDS
+			if _crew_wander_goal.is_finite():
+				_crew_walk(player, false, delta)
+				return
 		if _elapsed >= _next_change:
 			_next_change = _elapsed + _rng.randf_range(1.5, 4.0)
 			_turn_rate = _rng.randf_range(-CREW_WANDER_TURN, CREW_WANDER_TURN)
@@ -637,11 +674,65 @@ func _crew_walk(player: Node3D, walking: bool, delta: float) -> void:
 		if stuck:
 			_crew_side_left = 0.9
 			_crew_side = STRAFE_ACTIONS[_rng.randi_range(0, 1)]
+			_crew_got_stuck = true
 	if _crew_side_left > 0.0:
 		_crew_side_left -= delta
 		Input.action_press(_crew_side)
 		if _crew_side_left <= 0.0:
 			Input.action_release(_crew_side)
+
+
+## The point moved inside the leaf field, at least margin (m) from its edges (the
+## middle where the field is narrower than that); the point itself when it's there
+## already or there's no field.
+func _crew_yard_point(point: Vector3, margin: float) -> Vector3:
+	var field := get_tree().get_first_node_in_group("leaf_field") as Node3D
+	if field == null:
+		return point
+	var origin: Vector3 = field.get("grid_origin")
+	var cell := float(field.get("cell_size"))
+	var size := Vector2(float(int(field.get("grid_width"))), float(int(field.get("grid_depth")))) * cell
+	var local := field.global_transform.affine_inverse() * point
+	var x := local.x - origin.x
+	var z := local.z - origin.z
+	var in_x := clampf(x, minf(margin, size.x * 0.5), maxf(size.x - margin, size.x * 0.5))
+	var in_z := clampf(z, minf(margin, size.y * 0.5), maxf(size.y - margin, size.y * 0.5))
+	if is_equal_approx(in_x, x) and is_equal_approx(in_z, z):
+		return point
+	var inside := field.global_transform * Vector3(origin.x + in_x, local.y, origin.z + in_z)
+	return Vector3(inside.x, point.y, inside.z)
+
+
+## A random spot well inside the leaf field (Vector3.INF without one).
+func _crew_inner_point() -> Vector3:
+	var field := get_tree().get_first_node_in_group("leaf_field") as Node3D
+	if field == null:
+		return Vector3.INF
+	var origin: Vector3 = field.get("grid_origin")
+	var cell := float(field.get("cell_size"))
+	var size := Vector2(float(int(field.get("grid_width"))), float(int(field.get("grid_depth")))) * cell
+	var margin := Vector2(minf(CREW_INNER_METERS, size.x * 0.5), minf(CREW_INNER_METERS, size.y * 0.5))
+	var local := origin + Vector3(_rng.randf_range(margin.x, size.x - margin.x), 0.0, _rng.randf_range(margin.y, size.y - margin.y))
+	return field.global_transform * local
+
+
+## Where a crew runner flees to: away from the NICE BOY, but kept inside the yard;
+## cornered (that leaves it nowhere to go), sideways along the edge, whichever
+## way leads back toward the middle.
+func _crew_flee_point(player: Node3D, from: Vector3) -> Vector3:
+	var here := player.global_position
+	var away := Vector3(here.x - from.x, 0.0, here.z - from.z)
+	if away.length() < 0.01:
+		away = Vector3.FORWARD
+	away = away.normalized()
+	var goal := _crew_yard_point(here + away * CREW_FLEE_METERS, CREW_EDGE_METERS)
+	if Vector2(goal.x - here.x, goal.z - here.z).length() > CREW_FLEE_METERS * 0.5:
+		return goal
+	var middle := _crew_yard_point(here, INF)
+	var side := Vector3(-away.z, 0.0, away.x)
+	if middle.is_finite() and side.dot(middle - here) < 0.0:
+		side = -side
+	return _crew_yard_point(here + side * CREW_FLEE_METERS, CREW_EDGE_METERS)
 
 
 ## Straight at the point when the way is clear at knee height, else the nearest

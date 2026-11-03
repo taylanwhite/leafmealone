@@ -404,13 +404,18 @@ func _run(id: int, steps: Array) -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var shot := _dir.path_join("shot_%04d.png" % id)
-	if not DisplayServer.window_can_draw():
-		RenderingServer.force_draw(false)
+	if DisplayServer.get_name() == "headless":
+		# Nothing is drawn (a -BotsHeadless bot): no picture, and no engine error
+		# from asking the dummy renderer for one.
+		shot = ""
 	else:
-		await RenderingServer.frame_post_draw
-	var image := get_viewport().get_texture().get_image()
-	if image != null and not image.is_empty():
-		image.save_png(shot)
+		if not DisplayServer.window_can_draw():
+			RenderingServer.force_draw(false)
+		else:
+			await RenderingServer.frame_post_draw
+		var image := get_viewport().get_texture().get_image()
+		if image != null and not image.is_empty():
+			image.save_png(shot)
 	var report := _state()
 	report["id"] = id
 	report["shot"] = shot

@@ -195,14 +195,17 @@ func _draw_shed() -> void:
 	var jolt := Vector2(sin(_time * 70.0), cos(_time * 53.0)) * shake
 	draw_set_transform(Vector2(-size.x * 1.05 * part * part, 0.0) + jolt, 0.0, Vector2.ONE)
 	var board := Color(0.13, 0.09, 0.06)
-	var hole_center := size * Vector2(0.5, 0.5)
-	var hole := Vector2(size.x * 0.34, size.y * 0.26) * (1.0 + peek * 0.25)
 	var gap_x := size.x * lerpf(1.0, 0.82, peek)
-	# The hole's ragged rim (_rim, up to 1.1) stays left of the door's edge: peeking,
-	# the widening hole crossed it, the boards' outline crossed itself and every
+	# The hole is in the door, so it rides left with the door's edge as the door
+	# swings open (centred in what's left of it), and it widens as you lean in: by
+	# a quarter upward, and across by what the narrower door still has room for
+	# (its ragged rim, _rim, reaches 1.1 times out). Before, the widening hole
+	# crossed the door's edge, the boards' outline crossed itself and every peeking
 	# frame failed to triangulate (tools:crew: 400+ engine errors per peeking bot in
-	# the event soak).
-	hole.x = minf(hole.x, (gap_x - hole_center.x) / 1.12)
+	# the event soak); a plain clamp made it narrow as you peeked (review).
+	var hole_center := Vector2(gap_x * 0.5, size.y * 0.5)
+	var hole := Vector2(size.x * 0.34 * (1.0 + peek * 0.075), size.y * 0.26 * (1.0 + peek * 0.25))
+	hole.x = minf(hole.x, hole_center.x / 1.12)
 	# The boards: everything left of the door's edge except the ragged hole,
 	# one quarter at a time (each a corner of the screen and its quarter of the rim).
 	var corners: Array[Vector2] = [Vector2(gap_x, 0.0), Vector2(0.0, 0.0), Vector2(0.0, size.y), Vector2(gap_x, size.y)]

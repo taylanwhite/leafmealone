@@ -21,8 +21,9 @@ const GRAB_FROM_METERS: float = 1.8
 ## A crew bot (share_rake) sets the rake down after each pile it bags and leaves
 ## it for this long, so a teammate (a person especially) gets a turn with it.
 const RAKE_REST_SECONDS: float = 25.0
-## A rake set down is left this long (s) to a person with empty hands within
-## this far (m) of it (_mine_to_take).
+## A loose rake is left this long (s) to a person with empty hands within this
+## far (m) of it, or nearer it than the bot, timed from when they came near
+## (_mine_to_take).
 const RAKE_DEFER_SECONDS: float = 20.0
 const RAKE_DEFER_METERS: float = 15.0
 
@@ -52,7 +53,8 @@ var turn_left: float = 0.0
 
 var _rng: RandomNumberGenerator
 var _rake_rest_until: float = -1.0
-## The loose rake last weighed up, and since when (bot seconds) it's been seen loose.
+## The loose rake last weighed up, and since when (bot seconds) a person has had
+## a claim on it (-1: nobody now).
 var _loose_rake: Node3D
 var _loose_since: float = 0.0
 var _set_rake_down: bool = false
@@ -243,33 +245,46 @@ func _new_run(player: Node3D) -> void:
 	_stuck_goal = Vector3.INF
 
 
-## Crew bots: whether this loose rake is ours to go for. For its first
-## RAKE_DEFER_SECONDS on the ground it's a person's (anyone not named Bot<N>)
-## with empty hands within RAKE_DEFER_METERS of it; after that, or with nobody
-## like that about, the nearest bot's. (tools:crew: Bot1 set the rake down for
-## its 25 s rest and Bot2, with no rest of its own, had it before the host
-## standing next to it could press E; then Bot1 ran 20 m for one Bot2 dropped to
-## carry bags, past the host walking up to it. The host never raked all job.)
+## Crew bots: whether this loose rake is ours to go for. A person (anyone not
+## named Bot<N>) with empty hands has first claim: while one is nearer the rake
+## than this bot, or within RAKE_DEFER_METERS of it, it's theirs for
+## RAKE_DEFER_SECONDS, timed from when such a person came near it (not from when
+## the bot first looked: the tool-row rake is loose from the moment the crew
+## arrives, and its time ran out while the people were still walking over from
+## Chefty). After that, or with nobody like that about, the nearest bot's.
+## (tools:crew: Bot1 set the rake down for its 25 s rest and Bot2, with no rest of
+## its own, had it before the host standing next to it could press E; then Bot1
+## ran 20 m for one Bot2 dropped to carry bags, past the host walking up to it.
+## The host never raked all job.)
 func _mine_to_take(player: Node3D, rake: Node3D) -> bool:
 	if not share_rake:
 		return true
 	if _loose_rake != rake:
 		_loose_rake = rake
-		_loose_since = _elapsed
-	var deferring := _elapsed - _loose_since < RAKE_DEFER_SECONDS
+		_loose_since = -1.0
 	var mine := _flat_distance(player.global_position, rake.global_position)
+	var person_claims := false
+	var bot_nearer := false
 	for node: Node in player.get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
 		var peer_id := int(str(node.name))
 		if other == null or other == player or Net.player_zone(peer_id) != Net.Zone.LOT or Net.is_watcher(peer_id) or Net.player_name(peer_id) == "Observer":
 			continue
 		var theirs := _flat_distance(other.global_position, rake.global_position)
-		var person := not Net.player_name(peer_id).begins_with("Bot")
-		var free_hands := other.has_method("_held_prop") and other.call("_held_prop") == null
-		# Another bot nearer goes for it; a person only while it's still theirs.
-		if (theirs < mine and not person) or (deferring and person and free_hands and theirs <= RAKE_DEFER_METERS):
-			return false
-	return true
+		if not Net.player_name(peer_id).begins_with("Bot"):
+			var free_hands := other.has_method("_held_prop") and other.call("_held_prop") == null
+			person_claims = person_claims or (free_hands and (theirs <= RAKE_DEFER_METERS or theirs < mine))
+		elif theirs < mine:
+			bot_nearer = true
+	# _loose_since here: since when a person has had a claim on this rake (-1: none now).
+	if not person_claims:
+		_loose_since = -1.0
+	elif _loose_since < 0.0:
+		_loose_since = _elapsed
+	if person_claims and _elapsed - _loose_since < RAKE_DEFER_SECONDS:
+		return false
+	# Another bot nearer goes for it.
+	return not bot_nearer
 
 
 ## The pocket (0-based) holding a rake or a leaf bag of ours, or -1. hotbar.gd is

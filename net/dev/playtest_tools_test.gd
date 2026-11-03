@@ -42,6 +42,10 @@ const CREW_MIN_STROKES: int = 3
 ## with empty hands: inside bot_job.gd's RAKE_DEFER_METERS, so the bot leaves the
 ## rake to the host for RAKE_DEFER_SECONDS and then takes it up.
 const CREW_STEP_BACK: float = 8.0
+## The bot may take the rake no sooner than RAKE_DEFER_SECONDS after it joined,
+## less this (s): the 0.25 s poll. Real time since the join is measured, and the
+## bot's own clock (which times the wait) never runs ahead of real time.
+const CREW_DEFER_SLACK: float = 0.5
 
 static var result: Dictionary = {}
 
@@ -284,6 +288,7 @@ func _check_crew_bot(problems: Array[String]) -> Dictionary:
 			if Net.player_name(peer_id) == CREW_BOT_NAME:
 				bot = peer_id
 	report["joined_after"] = waited if bot != 0 else -1.0
+	var joined_ms := Time.get_ticks_msec()
 	var tally := {"strokes": 0, "moved": 0}
 	var on_stroke := func(ev: Dictionary) -> void:
 		if int(ev.get("actor", 0)) == bot and str(ev.get("kind")) == "rake" and int(ev.get("moved", 0)) > 0:
@@ -296,6 +301,7 @@ func _check_crew_bot(problems: Array[String]) -> Dictionary:
 		worked += 0.25
 		if float(report["took_rake_after"]) < 0.0 and is_instance_valid(rake) and int(rake.get("held_by")) == bot:
 			report["took_rake_after"] = worked
+			report["took_rake_real"] = float(Time.get_ticks_msec() - joined_ms) / 1000.0
 		if fmod(worked, 5.0) < 0.01:
 			print("[PlaytestToolsTest] crew bot at %.0f s: %s" % [worked, _crew_bot_where(bot, rake)])
 	report["last_seen"] = _crew_bot_where(bot, rake)
@@ -306,7 +312,12 @@ func _check_crew_bot(problems: Array[String]) -> Dictionary:
 	# The bot said it plays as one of the crew (its --bot-crew reached net/dev/bot.gd).
 	var said := FileAccess.get_file_as_string(log_path).contains("as a crew member")
 	report["crew_mode"] = said
-	var ok := bot != 0 and float(report["took_rake_after"]) >= 0.0 and int(tally["strokes"]) >= CREW_MIN_STROKES and said
+	# It left the rake to the host standing near it with empty hands for the whole
+	# wait first (net/dev/bot_job.gd _mine_to_take): a bot that took it at once fails.
+	var defer: float = load("res://net/dev/bot_job.gd").RAKE_DEFER_SECONDS
+	var waited_out := float(report.get("took_rake_real", -1.0)) >= defer - CREW_DEFER_SLACK
+	report["waited_out_defer"] = waited_out
+	var ok := bot != 0 and float(report["took_rake_after"]) >= 0.0 and waited_out and int(tally["strokes"]) >= CREW_MIN_STROKES and said
 	report["ok"] = ok
 	print("[PlaytestToolsTest] crew bot: %s %s" % ["ok" if ok else "FAIL", report])
 	if not ok:
