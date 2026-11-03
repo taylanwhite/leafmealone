@@ -11,9 +11,10 @@ extends Node
 ##
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, spotted, lunge,
 ## dodge, gotcha, cite_rescue, escort, hide, hide_bin, hide_shed, pile, peek,
-## inspect_near, inspect_found, border_return, van_ride, van_seated, van_unbuckle,
+## inspect_near, inspect_found, pile_found, border_return, van_ride, van_seated, van_unbuckle,
 ## van_straggler, van_straggler_far, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
-## annex_window_d, annex_turnstile, annex_visit (needs a second player), annex_closing, store,
+## annex_desk, annex_window_d, annex_turnstile, annex_visit and annex_heist_seen (need a
+## second player), annex_closing, store,
 ## drive (that one needs --town-map), toss, toss_full, toss_close, rustys (needs
 ## Rusty's open: --rank=5 or more), lunch_money,
 ## snak_o_matic (at the food truck's hatch or the vending machine, at noon,
@@ -29,7 +30,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_turnstile", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -117,7 +118,11 @@ const EYE_HEIGHT: float = 1.6
 ## the friend's catch yours comes (s).
 const TWO_CAUGHT_APART: float = 3.5
 const TWO_CAUGHT_GAP: float = 1.2
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "two_caught", "two_caught_far"]
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far"]
+## annex_heist_seen: where you watch a friend's self-stamp from (the window's
+## space: beside its counter, a step along from where they'll stand, side-on to
+## their hands).
+const HEIST_WATCH := Vector3(1.35, 0.0, 0.8)
 ## The name tools/play.ps1 gives the observer (remote_play.gd OBSERVER_NAME):
 ## never a scenario's friend, it only watches.
 const OBSERVER_NAME: String = "Observer"
@@ -210,6 +215,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _inspect_near()
 		"inspect_found":
 			out = await _inspect_found()
+		"pile_found":
+			out = await _pile_found()
 		"border_return", "annex":
 			out = await _annex()
 		"annex_break":
@@ -218,10 +225,14 @@ func run(scenario: String) -> Dictionary:
 			out = await _annex_heist()
 		"annex_bigstamp":
 			out = await _annex_bigstamp()
+		"annex_desk":
+			out = await _annex_desk()
 		"annex_window_d":
 			out = await _annex_window_d()
 		"annex_visit":
 			out = await _annex_visit()
+		"annex_heist_seen":
+			out = await _annex_heist_seen()
 		"annex_closing":
 			out = await _annex_closing()
 		"annex_turnstile":
@@ -901,6 +912,56 @@ func _reached_inspect_found() -> bool:
 	return _reached_peek()
 
 
+## In a raked pile, seen diving in; a NICE BOY walks over, pats it and finds you
+## (R2c hide: the pile's find, and the mound after it).
+func _pile_found() -> Dictionary:
+	var on_pile: Dictionary = await _pile()
+	if on_pile.has("error"):
+		return on_pile
+	var director := _director()
+	var me := _me()
+	var me_id := Net.local_peer_id()
+	var safe: Dictionary = director.get("_safe_until")
+	safe[me_id] = Net.server_time() + 3.0
+	director.call("_begin_chase")
+	await _ticks(4)
+	var van := _van()
+	if van != null:
+		van.call("dev_reset")
+	for each: Node in get_tree().get_nodes_in_group("crew"):
+		if each.has_method("host_set_mode"):
+			each.call("host_set_mode", 0)
+		each.set_physics_process(false)
+	var crew := _crew()
+	if crew == null:
+		return {"error": "no NICE BOY spawned"}
+	var ahead := -me.global_basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized()
+	var watch_at := me.global_position + ahead * 7.0 + Vector3(-ahead.z, 0.0, ahead.x) * 3.0
+	_placing("crew")
+	crew.global_position = Vector3(watch_at.x, me.global_position.y, watch_at.z)
+	var look := me.global_position - watch_at
+	crew.rotation.y = atan2(look.x, look.z)
+	for index: int in range(1, get_tree().get_nodes_in_group("crew").size()):
+		var other := get_tree().get_nodes_in_group("crew")[index] as Node3D
+		other.global_position = me.global_position - ahead * 25.0 + Vector3(float(index) * 3.0, 0.0, 0.0)
+	me.call("_hide_view").call("predict_pile_dive")
+	_field().call("request_pile_hide")
+	var inside: Variant = await _wait_for(func() -> Variant: return true if bool(me.get("in_pile")) else null)
+	if inside == null:
+		return {"error": "couldn't get into the pile"}
+	# He watched you go in (leaf_field.gd marks it when a NICE BOY sees the dive).
+	me.set_meta("pile_seen", true)
+	await get_tree().create_timer(Constants.HIDE_ENTER_SECONDS + 0.4).timeout
+	_inspect_soon(me, INSPECT_LEAD_SECONDS)
+	return {"moment": "pile_found", "note": "in the pile, seen going in; he pats it in %.1f s" % INSPECT_LEAD_SECONDS, "phase": _phase()}
+
+
+func _reached_pile_found() -> bool:
+	return bool(_me().get("in_pile")) and _phase() == "CHASE"
+
+
 ## The chase on, the crew held where this scenario puts them (no crew brain
 ## before R2 chunk 2 merges), and you inside the hedge: seen going in or not.
 func _hidden_in_hedge(seen: bool) -> Dictionary:
@@ -1363,6 +1424,36 @@ func _reached_annex_turnstile() -> bool:
 	return bool((_annex_node().call("form_of", Net.local_peer_id()) as Dictionary).get("approved", false))
 
 
+## annex_desk (R2c annex): a full form, you at the desk's visitor spot, and the
+## Head NICE BOY at the cooler or the copier with 2 s of his break left: he walks
+## back, sits, then stands, reads it and slams APPROVED, NICELY with his own hands.
+func _annex_desk() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var at := _find_state(annex, "head", [_Sched.S.AWAY], [])
+	if at < 0.0:
+		return {"error": "the Head NICE BOY never leaves his desk"}
+	var away := _Sched.window_state(int(annex.call("seed_value")), "head", at + 0.01)
+	annex.call("dev_retime", float(away["until"]) - 2.0)
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	form["stamped"] = (form["boxes"] as PackedStringArray).size()
+	annex.call("dev_set_form", Net.local_peer_id(), form)
+	var spot := _annex_point("HeadDesk/DeskSpot")
+	_stand_facing(spot if spot != Vector3.INF else _annex_point("HeadDesk"), _annex_point("HeadDesk/Pad"))
+	await _ticks(3)
+	return {"moment": "annex_desk", "note": "a full form at his desk; he's back in 2 s"}
+
+
+func _reached_annex_desk() -> bool:
+	if not _reached_annex() or not _on_annex_floor():
+		return false
+	var annex := _annex_node()
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	return not form.is_empty() and int(form["stamped"]) >= (form["boxes"] as PackedStringArray).size()
+
+
 ## Window D's blinds go up in 2 s; you're halfway across the room.
 func _annex_window_d() -> Dictionary:
 	var started: Dictionary = await _annex()
@@ -1412,6 +1503,43 @@ func _annex_visit() -> Dictionary:
 func _reached_annex_visit() -> bool:
 	var annex := _annex_node()
 	return annex != null and bool(annex.call("is_active")) and not get_tree().get_nodes_in_group("annex_doors").is_empty()
+
+
+## annex_heist_seen (R2c annex review): you and a friend are both inside; the
+## friend's next window's clerk has just gone on his break, and you watch that
+## window from the side. The friend walks to its counter (the result's "window")
+## and holds interact on the stamp: what everyone else sees of a self-stamp.
+func _annex_heist_seen() -> Dictionary:
+	var friend := _friend_id()
+	if friend == 0:
+		return {"error": "annex_heist_seen needs a second player to do the heist: start with tools\\play.ps1 -Start -Friend"}
+	var started: Dictionary = await _annex_start([friend, Net.local_peer_id()])
+	if started.has("error"):
+		return started
+	await _wait_for(func() -> Variant: return true if str(_annex_node().call("stage_of", Net.local_peer_id())) == "inside" else null)
+	var annex := _annex_node()
+	var form: Dictionary = annex.call("form_of", friend)
+	var window := str(preload("res://net/annex/form_state.gd").next_window(form))
+	var at := _find_state(annex, window, [_Sched.S.BREAK], [])
+	if at < 0.0:
+		return {"error": "window %s never takes a break" % window}
+	annex.call("dev_retime", at + 0.5)
+	_annex_window = window
+	var window_node := _annex_node3d("Windows/%s" % window)
+	if window_node != null:
+		var floor_y := _annex_point("Threshold").y
+		var watch := window_node.global_transform * HEIST_WATCH
+		_stand_facing(Vector3(watch.x, floor_y, watch.z), window_node.global_transform * Vector3(0.24, 1.0, 0.5))
+	await _ticks(3)
+	return {"moment": "annex_heist_seen", "note": "%s's window %s is on his break: they walk up and lift his stamp" % [Net.player_name(friend), window], "window": window}
+
+
+func _reached_annex_heist_seen() -> bool:
+	var annex := _annex_node()
+	var friend := _friend_id()
+	if annex == null or friend == 0 or _annex_window == "" or not _reached_annex():
+		return false
+	return str(annex.call("stage_of", friend)) == "inside" and not bool((annex.call("window_now", _annex_window) as Dictionary)["looking"])
 
 
 ## Closing time in 10 s: the clock races, the lights flicker.

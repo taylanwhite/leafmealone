@@ -18,13 +18,20 @@ def iris_swish() -> list[float]:
     up, and a small felt tock as the rosette meets in the middle."""
     rng = random.Random(2701)
     seconds = 0.42
-    air = base.bandpass(base.noise(rng, seconds), lambda t: 700.0 + 2400.0 * math.sin(math.pi * min(1.0, t / seconds)) ** 1.5, 1.6)
-    air = base.envelope(air, 0.08, 0.16)
+    # R2c annex: front-loaded. The swish is played on the frame the iris starts to
+    # move, and it used to swell in over 80 ms with its sweep (107-255 ms to an
+    # onset in the recordings): now a paper "fwip" opens it within 5 ms, the
+    # sweep falls from bright to soft, and the tock lands as the rosette meets.
+    fwip = base.decay(base.bandpass(base.noise(rng, 0.06), 3200.0, 1.4), 55.0)
+    air = base.bandpass(base.noise(rng, seconds), lambda t: 2900.0 - 2000.0 * min(1.0, t / seconds) ** 0.8, 1.6)
+    air = [value * (0.35 + 0.65 * math.exp(-index / base.RATE * 5.0)) for index, value in enumerate(air)]
+    air = base.envelope(air, 0.004, 0.16)
     # A gentle flutter, like a stack of forms riffled past the ear.
     for index in range(len(air)):
         t = index / base.RATE
         air[index] *= 0.75 + 0.25 * math.sin(base.TAU * 38.0 * t)
     out = base.silence(seconds + 0.12)
+    base.mix_into(out, fwip, 0.0, 0.8)
     base.mix_into(out, air, 0.0, 0.9)
     tock = base.lowpass(base.blip(0.09, 420.0, 260.0, 38.0), 1800.0)
     base.mix_into(out, tock, seconds - 0.06, 0.55)
@@ -33,7 +40,8 @@ def iris_swish() -> list[float]:
 
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
-    "iris_swish": (iris_swish, 0, 0.45),
+    # R2c annex: 0.75 (was 0.45): under the Shuttle's road bed it had no onset at all.
+    "iris_swish": (iris_swish, 0, 0.75),
 }
 
 
