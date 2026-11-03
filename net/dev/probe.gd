@@ -38,7 +38,7 @@ var _throttle_limit_min: int = -1
 ## after this peer was first linked (connected to the host, or hosting), what
 ## that frame was, and when (s after the link). Loading the world used to take
 ## one 2-5 s frame, long enough for ENet to drop the peer (docs/DECISIONS.md).
-const JOIN_WINDOW_SECONDS: float = 30.0
+const JOIN_WINDOW_SECONDS: float = Constants.JOIN_STALL_WINDOW_SECONDS
 var _linked_at: float = -1.0
 var _join_stall_ms: float = 0.0
 var _join_stall_at: float = -1.0

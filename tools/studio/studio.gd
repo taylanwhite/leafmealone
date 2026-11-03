@@ -934,10 +934,10 @@ func _town_block(root: Node3D) -> void:
 				continue
 			req["detail"] = ["near", "far"][row]
 			var parcel := _LotBuilder.build(root, at, req)
+			var leaves: Node3D = streamer._leaf_drifts(parcel, [1.0, 0.4, 0.0][index], _seed + index, row == 1)
+			if leaves != null:
+				parcel.add_child(leaves)
 			if row == 0:
-				var leaves: Node3D = streamer._leaf_drifts(parcel, [1.0, 0.4, 0.0][index], _seed + index)
-				if leaves != null:
-					parcel.add_child(leaves)
 				if index == 1:
 					parcel.add_child(streamer._rival_sign(_seed + index))
 				if index == 2:
@@ -948,7 +948,8 @@ func _town_block(root: Node3D) -> void:
 	root.set_meta("views", [
 		{"from": Vector3(0.0, 9.0, 52.0), "at": Vector3(0.0, 3.0, 0.0), "fov": 60.0},
 		{"from": Vector3(30.0, 60.0, 90.0), "at": Vector3(0.0, 0.0, -70.0), "fov": 60.0},
-		{"from": Vector3(0.0, 12.0, -20.0), "at": Vector3(0.0, 3.0, -70.0), "fov": 60.0},
+		# The grown-back lawn (mess 1.0) from a truck's cab at the curb.
+		{"from": Vector3(-spacing + 3.5, 1.9, 22.0), "at": Vector3(-spacing - 7.0, 0.0, 14.5), "fov": 55.0},
 		{"from": Vector3(spacing, 2.5, 26.0), "at": Vector3(spacing, 1.5, 8.0), "fov": 55.0},
 	])
 

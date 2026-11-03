@@ -842,9 +842,14 @@ func _clear_distance(look: Vector3, out: Vector3, full: float) -> float:
 				excluded.append((body as CollisionObject3D).get_rid())
 		# Line of sight: a wall, a house, a parked car between pulls the camera in.
 		# Something thin (a trunk, a post) may cross the view for a moment; it's
-		# only kept out of the camera itself, below.
-		for attempt: int in 4:
-			var ray := PhysicsRayQueryParameters3D.create(look, look + out * clear)
+		# only kept out of the camera itself, below. Thin is the shape the ray hit,
+		# not its whole body: the connected town's solids are one StaticBody3D
+		# (levels/town/town_colliders.gd) whose yard tree trunks and lamp posts used
+		# to count as wide as its ground, so a trunk the followed truck drove past
+		# pulled the camera into its bed (driving:E review, rec_drive_3p #376).
+		var from := look
+		for attempt: int in 8:
+			var ray := PhysicsRayQueryParameters3D.create(from, look + out * clear)
 			ray.exclude = excluded
 			var hit := space.intersect_ray(ray)
 			if hit.is_empty():
@@ -852,6 +857,10 @@ func _clear_distance(look: Vector3, out: Vector3, full: float) -> float:
 			var collider := hit.get("collider") as CollisionObject3D
 			if collider != null and _thin_collider(collider):
 				excluded.append(collider.get_rid())
+				continue
+			if collider != null and _thin_hit_shape(collider, int(hit.get("shape", -1))):
+				# Go on from just past it (a ray starting inside a shape ignores it).
+				from = (hit["position"] as Vector3) + out * 0.02
 				continue
 			clear = minf(clear, look.distance_to(hit["position"] as Vector3) - SPECTATOR_CLEARANCE)
 			_spec_why = "wall %s" % (collider.name if collider != null else "?")
@@ -938,19 +947,35 @@ static func _thin_collider(body: CollisionObject3D) -> bool:
 		return false
 	var scale := body.global_basis.get_scale()
 	for node: Node in shapes:
-		var shape := (node as CollisionShape3D).shape
-		var width := INF
-		if shape is CylinderShape3D:
-			width = (shape as CylinderShape3D).radius * 2.0
-		elif shape is CapsuleShape3D:
-			width = (shape as CapsuleShape3D).radius * 2.0
-		elif shape is SphereShape3D:
-			width = (shape as SphereShape3D).radius * 2.0
-		elif shape is BoxShape3D:
-			width = maxf((shape as BoxShape3D).size.x, (shape as BoxShape3D).size.z)
-		if width * maxf(scale.x, scale.z) >= OCCLUDER_THIN_SPAN:
+		if _shape_width((node as CollisionShape3D).shape) * maxf(scale.x, scale.z) >= OCCLUDER_THIN_SPAN:
 			return false
 	return true
+
+
+## The one shape of body a ray hit (its shape index) is thin, though the body
+## may hold wide ones too (the town's single static body).
+static func _thin_hit_shape(body: CollisionObject3D, shape_index: int) -> bool:
+	if shape_index < 0:
+		return false
+	var owner_id := body.shape_find_owner(shape_index)
+	var owner := body.shape_owner_get_owner(owner_id) as CollisionShape3D
+	if owner == null:
+		return false
+	var scale := owner.global_basis.get_scale()
+	return _shape_width(owner.shape) * maxf(scale.x, scale.z) < OCCLUDER_THIN_SPAN
+
+
+## A shape's width across (m, unscaled); INF for one we can't tell.
+static func _shape_width(shape: Shape3D) -> float:
+	if shape is CylinderShape3D:
+		return (shape as CylinderShape3D).radius * 2.0
+	if shape is CapsuleShape3D:
+		return (shape as CapsuleShape3D).radius * 2.0
+	if shape is SphereShape3D:
+		return (shape as SphereShape3D).radius * 2.0
+	if shape is BoxShape3D:
+		return maxf((shape as BoxShape3D).size.x, (shape as BoxShape3D).size.z)
+	return INF
 
 
 ## The drawn shapes near the subject, as boxes: trees, hedges, posts, fences,

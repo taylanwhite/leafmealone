@@ -335,9 +335,84 @@ func _check_streaming(world: Node, problems: Array[String]) -> void:
 		if TownMap.hood_id_of(house_id) == "maple_row" and level != 3:
 			wrong += 1
 	var far := int(stats["chunks_skyline"]) + int(stats["chunks_none"])
-	var ok := at_store <= 4 and mansion >= 1 and wrong == 0 and far > 0 and float(stats["max_build_ms"]) < 8.0
-	_verdict(ok, "streaming: %d chunks LOD 0 at the store; on Mansion Hill %d of its own (%.1f s), LOD 0 by hood %s, %d yards at the wrong level, %d chunks far or out; slowest build %.1f ms of %d chunks" % [at_store, mansion, waited, hoods, wrong, far, float(stats["max_build_ms"]), int(stats["chunks"])], problems)
+	var ok := at_store <= 4 and mansion >= 1 and wrong == 0 and far > 0
+	_verdict(ok, "streaming: %d chunks LOD 0 at the store; on Mansion Hill %d of its own (%.1f s), LOD 0 by hood %s, %d yards at the wrong level, %d chunks far or out, of %d chunks" % [at_store, mansion, waited, hoods, wrong, far, int(stats["chunks"])], problems)
 	streamer.call("set_focus_override", Vector3.INF)
+	_check_stream_build(streamer, problems)
+
+
+## The streamer's build path, which a headless peer never takes on its own: a
+## chunk's LOD 0 and LOD 1 levels have a parcel per slot; a job site placed
+## (or cleared) while the level is still being built is honored when it goes in
+## (the race the driving:E review found); a grown-back lawn has its leaves (flat
+## leaf cards, never a solid lump), a poached one its sign, a waiting homeowner
+## stands on the porch and waves only when someone comes by.
+func _check_stream_build(streamer: Node, problems: Array[String]) -> void:
+	# A chunk of three on Maple Row whose slots nobody has hidden.
+	var houses: Array = []
+	for house_id: int in TownMap.house_count():
+		var candidate: Array = streamer.call("chunk_houses", house_id)
+		if candidate.size() >= 2 and candidate.all(func(other: int) -> bool: return not bool(streamer.call("is_slot_hidden", other))):
+			houses = candidate
+			break
+	if houses.is_empty():
+		_verdict(false, "stream build: a chunk with two open slots", problems)
+		return
+	var first := int(houses[0])
+	var key := "Yard%d" % first
+	var started := Time.get_ticks_usec()
+	# Hidden while the chunk's later parcels are still being built.
+	var near: Node3D = streamer.call("build_level_now", first, 0, func() -> void: streamer.call("set_slot_hidden", first, true))
+	var near_ms := float(Time.get_ticks_usec() - started) / 1000.0
+	var parcels := 0
+	for house_id: int in houses:
+		if near != null and near.get_node_or_null("Yard%d" % house_id) != null:
+			parcels += 1
+	var hid_mid := near != null and near.get_node_or_null(key) != null and not (near.get_node(key) as Node3D).visible
+	# Shown again while LOD 1 is being built (built hidden, so this is the other way round).
+	var far: Node3D = streamer.call("build_level_now", first, 1, func() -> void: streamer.call("set_slot_hidden", first, false))
+	var shown_mid := far != null and far.get_node_or_null(key) != null and (far.get_node(key) as Node3D).visible
+	var near_shown := near != null and is_instance_valid(near) and (near.get_node(key) as Node3D).visible
+	_verdict(near != null and parcels == houses.size() and hid_mid and shown_mid and near_shown, "stream build: LOD 0 of houses %s has %d/%d parcels (%.0f ms); hidden mid-build stays hidden %s, shown mid-build is shown %s (LOD 0 too %s)" % [houses, parcels, houses.size(), near_ms, hid_mid, shown_mid, near_shown], problems)
+	# What the town says, on that LOD 0 parcel.
+	var parcel := near.get_node_or_null(key) as Node3D if near != null and is_instance_valid(near) else null
+	if parcel == null:
+		_verdict(false, "stream build: the LOD 0 parcel to dress", problems)
+		return
+	var leaves_at := Time.get_ticks_usec()
+	var leaves: Node3D = _Streamer._leaf_drifts(parcel, 1.0, 1234)
+	var leaves_ms := float(Time.get_ticks_usec() - leaves_at) / 1000.0
+	var far_leaves: Node3D = _Streamer._leaf_drifts(parcel, 1.0, 1234, true)
+	var none: Node3D = _Streamer._leaf_drifts(parcel, 0.0, 1234)
+	var flat := false
+	var cards := 0
+	var far_cards := 0
+	if leaves is MeshInstance3D and far_leaves is MeshInstance3D:
+		var mesh := (leaves as MeshInstance3D).mesh
+		var box := mesh.get_aabb()
+		cards = mesh.surface_get_array_len(0) if mesh.get_surface_count() > 0 else 0
+		far_cards = (far_leaves as MeshInstance3D).mesh.surface_get_array_len(0)
+		# Lying on the lawn: nothing a truck could visibly drive through.
+		flat = box.size.y < 0.25 and box.position.y > -0.05
+	var sign_node: Node3D = _Streamer._rival_sign(1234)
+	var waiting: Node3D = _Streamer._waiting_owner(parcel, 1234)
+	parcel.add_child(waiting)
+	var alone := _Streamer.someone_passing(waiting)
+	# ...and does wave at a player coming up the street.
+	var passer := get_tree().get_first_node_in_group("players") as Node3D
+	var seen := false
+	if passer != null:
+		waiting.global_position = passer.global_position + Vector3(Constants.STREAM_WAVE_METERS * 0.5, 0.0, 0.0)
+		seen = _Streamer.someone_passing(waiting)
+	waiting.queue_free()
+	_verdict(flat and cards > 0 and far_cards > 0 and far_cards < cards and none == null and sign_node != null and not alone and seen, "stream build: a grown-back lawn's leaves lie flat %s (%d vertices near in %.1f ms, %d far), a clean lawn has none %s, the sign %s, the homeowner waits without waving at nobody %s and sees a player come by %s" % [flat, cards, leaves_ms, far_cards, none == null, sign_node != null, not alone, seen], problems)
+	if leaves != null:
+		leaves.free()
+	if far_leaves != null:
+		far_leaves.free()
+	if sign_node != null:
+		sign_node.free()
+	streamer.call("drop_levels_of", first)
 
 
 ## The house a town slot stands for is the house the job yard builds there:

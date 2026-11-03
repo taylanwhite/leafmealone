@@ -3638,3 +3638,45 @@ const STREAM_FADE_SECONDS: float = 0.6
 const ENET_TIMEOUT_LIMIT: int = 32
 const ENET_TIMEOUT_MIN_MS: int = 12000
 const ENET_TIMEOUT_MAX_MS: int = 30000
+## The probe's join stall (net/dev/probe.gd join_stall_ms): the longest frame in
+## this long (s) after a peer first links.
+const JOIN_STALL_WINDOW_SECONDS: float = 30.0
+## What the streamed town says (levels/town/town_streamer.gd). A grown-back
+## lawn's leaves: up to this many drifts (a thin ragged bed of leaf colors with
+## this many sides, and this many loose leaf cards over and around it), plus
+## strays strewn over the rest of the front lawn, all scaled by the yard's mess.
+## Each card is this long (m, min/max); a drift spreads this far (m, radius
+## min/max) and rises this high (m) in its middle.
+const STREAM_LEAF_DRIFTS_MAX: int = 12
+const STREAM_LEAF_BED_SIDES: int = 13
+const STREAM_LEAVES_PER_DRIFT: int = 64
+const STREAM_LEAF_STRAYS: int = 120
+const STREAM_LEAF_SIZE := Vector2(0.1, 0.18)
+const STREAM_LEAF_DRIFT_RADIUS := Vector2(0.8, 1.8)
+const STREAM_LEAF_HEAP_METERS: float = 0.05
+## A drift's bed edge (and a stray leaf) sits this high (m), over the lawn's top
+## (ART_LAWN_TOP) and its grass; the cards lie on it.
+const STREAM_LEAF_BED_Y: float = 0.03
+## How much darker a drift's bed is than its leaves (the shaded under-layer).
+const STREAM_LEAF_BED_SHADE: float = 0.15
+## LOD 1 (far) lawns: this share of the leaves, each this many times bigger, so
+## they still read 110-260 m off without shimmering.
+const STREAM_LEAF_FAR_SHARE: float = 0.25
+const STREAM_LEAF_FAR_SCALE: float = 2.2
+## The front lawn the leaves lie on, parcel space: x within this half width,
+## z out to this (the curb side), and clear of the drive and walk within this x.
+const STREAM_LEAF_LAWN_HALF_WIDTH: float = 17.0
+const STREAM_LEAF_LAWN_FRONT_Z: float = 18.5
+const STREAM_LEAF_CLEAR_X: float = 3.0
+## TurfMasters™' sign on a poached lawn: this far either side of the drive (m,
+## min/max) at this z (by the curb), turned up to this much (rad).
+const STREAM_SIGN_SIDE_METERS := Vector2(6.0, 12.0)
+const STREAM_SIGN_Z: float = 18.2
+const STREAM_SIGN_TURN: float = 0.25
+## A homeowner waiting on the porch for a crew waves at Chefty or a player that
+## comes within this far (m), at most once per cooldown (s, plus a per-house
+## jitter of up to this much), looking every STREAM_WAVE_LOOK_SECONDS.
+const STREAM_WAVE_METERS: float = 28.0
+const STREAM_WAVE_COOLDOWN_SECONDS: float = 5.0
+const STREAM_WAVE_JITTER_SECONDS: float = 1.8
+const STREAM_WAVE_LOOK_SECONDS: float = 0.3

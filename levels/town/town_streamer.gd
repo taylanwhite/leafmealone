@@ -23,9 +23,9 @@ extends Node3D
 ## level next to the shown one is kept, so turning back doesn't rebuild.
 ##
 ## WHAT THE TOWN SAYS (town.changed): a yard's leaves grow back with its mess
-## (flat leaf drifts on the front lawn), a TurfMasters™ sign stands on a poached
-## lawn, and a homeowner whose request is open waits on the porch and waves at
-## passing trucks (LOD 0 only).
+## (loose drifts and strays of single leaf cards on the front lawn), a
+## TurfMasters™ sign stands on a poached lawn, and a homeowner whose request is
+## open waits on the porch and waves when Chefty or a player comes by (LOD 0 only).
 ##
 ## Headless peers do the bookkeeping only (which level each chunk wants: stats),
 ## never building a mesh. The job site's slot is hidden while the job yard
@@ -46,12 +46,9 @@ const LOD_NONE: int = 3
 const LOD_NAMES: Array[String] = ["Near", "Far", "Skyline", "None"]
 ## LotBuilder detail per parcel level.
 const DETAIL: Array[String] = ["near", "far"]
-## Leaf drift colors on a messy lawn.
-const LEAF_COLORS: Array[Color] = [Color(0.86, 0.42, 0.13), Color(0.74, 0.22, 0.12), Color(0.9, 0.68, 0.2), Color(0.6, 0.33, 0.15)]
-## How many drifts a fully grown-back lawn has.
-const LEAF_DRIFTS: int = 14
-## A waiting homeowner waves this often (s), give or take.
-const WAVE_EVERY: float = 4.5
+## Fallen leaf colors on a messy lawn (the yard's own leaves are props/yard_models.gd
+## LEAVES; these add a dry brown so a drift isn't one flat orange).
+const LEAF_COLORS: Array[Color] = [Color(0.9, 0.48, 0.15), Color(0.93, 0.72, 0.22), Color(0.75, 0.25, 0.14), Color(0.58, 0.34, 0.16)]
 
 ## For probe and tests: chunks at each level (what each wants; headless peers
 ## only keep this), chunks wanting LOD 0 by neighborhood, builds made, the
@@ -424,23 +421,33 @@ func _build_step() -> bool:
 		_fill_skyline(holder, chunk)
 		return true
 	var slot: Dictionary = slots[next]
+	if _job.has("dress"):
+		# A yard's own step after its parcel's: the leaves and the sign (a
+		# waiting homeowner once the level is in the tree, _finish_job, since a
+		# body builds itself there). Its own step so one frame never pays for both.
+		var dressed: Node3D = _job["dress"]
+		_job.erase("dress")
+		_leaves_into(dressed, int(slot["house_id"]), int(slot["seed"]), level == LOD_FAR)
+		if level == LOD_NEAR:
+			var said: Dictionary = _reflect.get(int(slot["house_id"]), {})
+			_replace(dressed, "RivalSign", _rival_sign(int(slot["seed"])) if bool(said.get("poached", false)) else null)
+		_job["next"] = next + 1
+		return next + 1 >= slots.size()
 	var req := parcel_request(str(slot["hood"]), int(slot["seed"]), int(slot["size"]), int(slot["hood_index"]), bool(slot["across"]))
 	req["detail"] = DETAIL[level]
 	req["name"] = str(slot["key"])
 	var parcel := _LotBuilder.build(holder, slot["xform"], req)
+	# Read again when the level goes in (_finish_job): the job site may come or go
+	# while the rest of the chunk builds.
 	parcel.visible = not _hidden.has(int(slot["house_id"]))
-	# The leaves and the sign now; a waiting homeowner once the level is in the
-	# tree (_finish_job), since a body builds itself there.
 	if int(slot["house_id"]) >= 0:
-		_leaves_into(parcel, int(slot["house_id"]), int(slot["seed"]))
-		if level == LOD_NEAR:
-			var said: Dictionary = _reflect.get(int(slot["house_id"]), {})
-			_replace(parcel, "RivalSign", _rival_sign(int(slot["seed"])) if bool(said.get("poached", false)) else null)
+		_job["dress"] = parcel
+		return false
 	_job["next"] = next + 1
 	return next + 1 >= slots.size()
 
 
-func _finish_job() -> void:
+func _finish_job() -> Node3D:
 	var chunk_index := int(_job["chunk"])
 	var level := int(_job["level"])
 	var holder: Node3D = _job["holder"]
@@ -451,6 +458,13 @@ func _finish_job() -> void:
 		(nodes[level] as Node3D).queue_free()
 	nodes[level] = holder
 	holder.visible = false
+	# set_slot_hidden only reaches levels in nodes: a job site placed or cleared
+	# while this one was off the tree is caught here.
+	if level != LOD_SKYLINE:
+		for slot: Dictionary in chunk["slots"]:
+			var parcel := holder.get_node_or_null(str(slot["key"])) as Node3D
+			if parcel != null:
+				parcel.visible = not _hidden.has(int(slot["house_id"]))
 	add_child(holder)
 	if level == LOD_NEAR:
 		for slot_index: int in (chunk["slots"] as Array).size():
@@ -459,6 +473,45 @@ func _finish_job() -> void:
 				_reflect_in(chunk_index, slot_index)
 	if int(chunk["want"]) == level:
 		_swap(chunk_index, level)
+	return holder
+
+
+## Tests (headless too): builds a yard house's chunk at level now, step by step
+## as the frames would, calling between() after the first parcel is built (to
+## land a change mid-build), and returns the finished level's node.
+func build_level_now(house_id: int, level: int, between: Callable = Callable()) -> Node3D:
+	var at: Array = _yard_slot.get(house_id, [])
+	if at.is_empty() or level > LOD_SKYLINE or not _chunk_ready(_chunks[int(at[0])]):
+		return null
+	if not _job.is_empty():
+		(_job["holder"] as Node3D).free()
+	_start(int(at[0]), level)
+	var first := true
+	while not _job.is_empty():
+		var done := _build_step()
+		if first and between.is_valid():
+			between.call()
+		first = false
+		if done:
+			return _finish_job()
+	return null
+
+
+## Tests: the houses in a yard house's chunk, in slot order.
+func chunk_houses(house_id: int) -> Array:
+	var at: Array = _yard_slot.get(house_id, [])
+	var out: Array = []
+	if not at.is_empty():
+		for slot: Dictionary in (_chunks[int(at[0])] as Dictionary)["slots"]:
+			out.append(int(slot["house_id"]))
+	return out
+
+
+## Tests: lets a yard house's chunk's built levels go.
+func drop_levels_of(house_id: int) -> void:
+	var at: Array = _yard_slot.get(house_id, [])
+	if not at.is_empty():
+		_drop_levels(int(at[0]))
 
 
 ## Shows level instead of what the chunk shows now, cross-faded.
@@ -567,19 +620,19 @@ func _reflect_in(chunk_index: int, slot_index: int) -> void:
 		if level == LOD_NEAR:
 			_reflect_into(parcel, int(slot["house_id"]), int(slot["seed"]))
 		else:
-			_leaves_into(parcel, int(slot["house_id"]), int(slot["seed"]))
+			_leaves_into(parcel, int(slot["house_id"]), int(slot["seed"]), true)
 
 
 func _reflect_into(parcel: Node3D, house_id: int, house_seed: int) -> void:
-	_leaves_into(parcel, house_id, house_seed)
+	_leaves_into(parcel, house_id, house_seed, false)
 	var said: Dictionary = _reflect.get(house_id, {})
 	_replace(parcel, "RivalSign", _rival_sign(house_seed) if bool(said.get("poached", false)) else null)
 	_replace(parcel, "Waiting", _waiting_owner(parcel, house_seed) if bool(said.get("waving", false)) else null)
 
 
-func _leaves_into(parcel: Node3D, house_id: int, house_seed: int) -> void:
+func _leaves_into(parcel: Node3D, house_id: int, house_seed: int, far: bool) -> void:
 	var said: Dictionary = _reflect.get(house_id, {})
-	_replace(parcel, "Leaves", _leaf_drifts(parcel, float(said.get("mess", 0.0)), house_seed))
+	_replace(parcel, "Leaves", _leaf_drifts(parcel, float(said.get("mess", 0.0)), house_seed, far))
 
 
 static func _replace(parcel: Node3D, child_name: String, made: Node3D) -> void:
@@ -592,12 +645,24 @@ static func _replace(parcel: Node3D, child_name: String, made: Node3D) -> void:
 		parcel.add_child(made)
 
 
-## Flat drifts of fallen leaves over the front lawn, as many as the yard has
-## grown back (net/town/town.gd mess), clear of the drive and the walk. Seeded
-## by the house, so every peer drops them in the same places.
-static func _leaf_drifts(parcel: Node3D, mess: float, house_seed: int) -> Node3D:
-	var count := roundi(clampf(mess, 0.0, 1.0) * float(LEAF_DRIFTS))
-	if count <= 0:
+## The leaves a yard has grown back (net/town/town.gd mess), lying on its front
+## lawn clear of the drive and the walk: loose drifts of single leaf cards, thick
+## in the middle and thinning out (where the wind left them against nothing in
+## particular), and strays strewn between. Never a solid: Chefty and the camera
+## pass through leaves, so they have to look like leaves. LOD 1 (far) lays a
+## share of them, bigger, so a lawn 200 m off still reads orange without
+## shimmering. Seeded by the house, so every peer drops them in the same places.
+static func _leaf_drifts(parcel: Node3D, mess: float, house_seed: int, far: bool = false) -> Node3D:
+	var share := clampf(mess, 0.0, 1.0)
+	var drifts := roundi(share * float(Constants.STREAM_LEAF_DRIFTS_MAX))
+	var strays := roundi(share * float(Constants.STREAM_LEAF_STRAYS))
+	var per_drift := Constants.STREAM_LEAVES_PER_DRIFT
+	var scale := 1.0
+	if far:
+		per_drift = maxi(1, roundi(float(per_drift) * Constants.STREAM_LEAF_FAR_SHARE))
+		strays = roundi(float(strays) * Constants.STREAM_LEAF_FAR_SHARE)
+		scale = Constants.STREAM_LEAF_FAR_SCALE
+	if drifts + strays <= 0:
 		return null
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([house_seed, "town_leaves"])
@@ -606,23 +671,89 @@ static func _leaf_drifts(parcel: Node3D, mess: float, house_seed: int) -> Node3D
 	var spec: Dictionary = parcel.get_meta("house_spec", {})
 	if house_at is Vector3 and spec.has("depth"):
 		front = (house_at as Vector3).z + float(spec["depth"]) * 0.5 + 1.5
+	var half := Constants.STREAM_LEAF_LAWN_HALF_WIDTH
+	var curb := Constants.STREAM_LEAF_LAWN_FRONT_Z
+	var clear := Constants.STREAM_LEAF_CLEAR_X
+	var near_z := clampf(front, 0.0, curb - 1.0)
 	var kit := _MeshKit.new()
 	var placed := 0
-	for _try: int in count * 4:
-		if placed >= count:
+	for _try: int in drifts * 4:
+		if placed >= drifts:
 			break
-		var at := Vector3(rng.randf_range(-17.0, 17.0), 0.02, rng.randf_range(clampf(front, 0.0, 17.0), 18.5))
-		# Off the drive and the front walk.
-		if absf(at.x) < 3.0:
+		var middle := Vector2(rng.randf_range(-half, half), rng.randf_range(near_z, curb))
+		if absf(middle.x) < clear + 0.5:
 			continue
-		var size := rng.randf_range(0.9, 2.2)
-		kit.blob(at, Vector3(size, 0.07, size * rng.randf_range(0.6, 1.0)), LEAF_COLORS[rng.randi() % LEAF_COLORS.size()], {"detail": 1, "lumps": 0.5, "flat": true, "seed": house_seed % 997 + placed})
 		placed += 1
-	if placed == 0:
+		var radius := rng.randf_range(Constants.STREAM_LEAF_DRIFT_RADIUS.x, Constants.STREAM_LEAF_DRIFT_RADIUS.y)
+		var squash := rng.randf_range(0.45, 1.0)
+		var turn := rng.randf() * TAU
+		_leaf_bed(kit, rng, middle, radius, squash, turn)
+		for _leaf: int in per_drift:
+			# Most on the bed, the rest past its edge so the edge breaks up.
+			var out := pow(rng.randf(), 0.7) * 1.2
+			var angle := rng.randf() * TAU
+			var spot := middle + Vector2(cos(angle) * out * radius, sin(angle) * out * radius * squash).rotated(turn)
+			if absf(spot.x) < clear or spot.y > curb or spot.y < near_z - 0.5:
+				continue
+			var lift := Constants.STREAM_LEAF_HEAP_METERS * maxf(1.0 - out, 0.0)
+			_leaf_card(kit, rng, Vector3(spot.x, Constants.STREAM_LEAF_BED_Y + 0.012 + lift + 0.015 * rng.randf(), spot.y), scale)
+	for _stray: int in strays:
+		var spot := Vector2(rng.randf_range(-half, half), rng.randf_range(near_z - 1.0, curb))
+		if absf(spot.x) < clear:
+			continue
+		_leaf_card(kit, rng, Vector3(spot.x, Constants.STREAM_LEAF_BED_Y, spot.y), scale)
+	var mesh := kit.commit()
+	if mesh == null:
 		return null
-	var view := _Stylized.instance(kit.commit(), {"roughness": 1.0})
+	var view := _Stylized.instance(mesh, {"roughness": 1.0})
 	view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return view
+
+
+## A drift's bed: a paper-thin mat of leaf colors with a ragged edge and a low
+## rise in the middle, so the drift reads as many leaves (its cards on top give
+## the leaf shapes) instead of a lawn with a few specks.
+static func _leaf_bed(kit: Object, rng: RandomNumberGenerator, middle: Vector2, radius: float, squash: float, turn: float) -> void:
+	var sides := Constants.STREAM_LEAF_BED_SIDES
+	var rim: Array[Vector3] = []
+	var inner: Array[Vector3] = []
+	var heap := Constants.STREAM_LEAF_HEAP_METERS
+	for side: int in sides:
+		var angle := TAU * (float(side) + rng.randf_range(-0.3, 0.3)) / float(sides)
+		var reach := radius * rng.randf_range(0.65, 1.1)
+		var flat := middle + Vector2(cos(angle) * reach, sin(angle) * reach * squash).rotated(turn)
+		rim.append(Vector3(flat.x, Constants.STREAM_LEAF_BED_Y, flat.y))
+		var half := middle + (flat - middle) * rng.randf_range(0.4, 0.6)
+		inner.append(Vector3(half.x, Constants.STREAM_LEAF_BED_Y + heap * 0.6, half.y))
+	var top := Vector3(middle.x, Constants.STREAM_LEAF_BED_Y + heap, middle.y)
+	# One deep under-layer tone per bed, barely varied, so its facets never read
+	# as shards up close; the cards on top bring the bright leaf colors.
+	var base := LEAF_COLORS[rng.randi() % LEAF_COLORS.size()].lerp(LEAF_COLORS[3], 0.35).darkened(Constants.STREAM_LEAF_BED_SHADE)
+	for side: int in sides:
+		var next := (side + 1) % sides
+		_bed_facet(kit, rng, base, top, inner[side], inner[next])
+		_bed_facet(kit, rng, base, inner[side], rim[side], rim[next])
+		_bed_facet(kit, rng, base, inner[side], rim[next], inner[next])
+
+
+static func _bed_facet(kit: Object, rng: RandomNumberGenerator, base: Color, a: Vector3, b: Vector3, c: Vector3) -> void:
+	var shade := rng.randf_range(-0.05, 0.05)
+	var color := base.lightened(shade) if shade > 0.0 else base.darkened(-shade)
+	# Godot's front face is clockwise seen from above: the cross points down.
+	if (b - a).cross(c - a).y > 0.0:
+		kit.call("triangle", a, c, b, Vector3.UP, color)
+	else:
+		kit.call("triangle", a, b, c, Vector3.UP, color)
+
+
+## One fallen leaf lying nearly flat, a little tipped, in a shade of autumn.
+static func _leaf_card(kit: Object, rng: RandomNumberGenerator, at: Vector3, scale: float) -> void:
+	var tip := Vector3(rng.randf_range(-0.3, 0.3), 1.0, rng.randf_range(-0.3, 0.3))
+	var color := LEAF_COLORS[rng.randi() % LEAF_COLORS.size()]
+	var shade := rng.randf_range(-0.12, 0.1)
+	color = color.lightened(shade) if shade > 0.0 else color.darkened(-shade)
+	var size := rng.randf_range(Constants.STREAM_LEAF_SIZE.x, Constants.STREAM_LEAF_SIZE.y) * scale
+	kit.call("leaf_card", at, tip, size, color, 0.0, rng.randf() * TAU)
 
 
 ## TurfMasters™' lawn sign on a yard they poached: a wire stake and a glossy
@@ -631,8 +762,9 @@ static func _rival_sign(house_seed: int) -> Node3D:
 	var root := Node3D.new()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([house_seed, "rival_sign"])
-	root.position = Vector3(rng.randf_range(6.0, 12.0) * (1.0 if rng.randf() < 0.5 else -1.0), 0.0, 18.2)
-	root.rotation.y = rng.randf_range(-0.25, 0.25)
+	var side := Constants.STREAM_SIGN_SIDE_METERS
+	root.position = Vector3(rng.randf_range(side.x, side.y) * (1.0 if rng.randf() < 0.5 else -1.0), 0.0, Constants.STREAM_SIGN_Z)
+	root.rotation.y = rng.randf_range(-Constants.STREAM_SIGN_TURN, Constants.STREAM_SIGN_TURN)
 	var kit := _MeshKit.new()
 	for x: float in [-0.22, 0.22]:
 		kit.tube(PackedVector3Array([Vector3(x, 0.0, 0.0), Vector3(x, 0.55, 0.0)]), PackedFloat32Array([0.012, 0.012]), Color(0.55, 0.56, 0.58), 5, {"jitter": 0.0})
@@ -653,7 +785,8 @@ static func _rival_sign(house_seed: int) -> Node3D:
 
 
 ## The homeowner out on the porch, waiting for a crew (their request is open):
-## they wave at whoever drives by.
+## they wave when Chefty or a player comes by (within STREAM_WAVE_METERS), not
+## at an empty street.
 static func _waiting_owner(parcel: Node3D, house_seed: int) -> Node3D:
 	var root := Node3D.new()
 	var door: Variant = parcel.get_meta("door", null)
@@ -664,11 +797,31 @@ static func _waiting_owner(parcel: Node3D, house_seed: int) -> Node3D:
 	body.call("dress_from_seed", house_seed)
 	root.add_child(body)
 	body.call("build")
+	var cooldown := Constants.STREAM_WAVE_COOLDOWN_SECONDS + float(posmod(house_seed, 7)) / 6.0 * Constants.STREAM_WAVE_JITTER_SECONDS
+	# A Dictionary, since a lambda's captured locals are copies.
+	var state := {"wait": 0.0}
 	var timer := Timer.new()
-	timer.wait_time = WAVE_EVERY + float(house_seed % 7) * 0.3
+	timer.wait_time = Constants.STREAM_WAVE_LOOK_SECONDS
 	timer.autostart = true
 	timer.timeout.connect(func() -> void:
-		if is_instance_valid(body) and body.is_visible_in_tree():
-			body.call("gesture", "wave"))
+		state["wait"] = maxf(float(state["wait"]) - Constants.STREAM_WAVE_LOOK_SECONDS, 0.0)
+		if float(state["wait"]) > 0.0 or not is_instance_valid(body) or not body.is_visible_in_tree():
+			return
+		if someone_passing(root):
+			body.call("gesture", "wave")
+			state["wait"] = cooldown)
 	root.add_child(timer)
 	return root
+
+
+## Chefty or a player within STREAM_WAVE_METERS of node (flat distance).
+static func someone_passing(node: Node3D) -> bool:
+	if not node.is_inside_tree():
+		return false
+	var here := node.global_position
+	for group: String in ["chefty", "players"]:
+		for other: Node in node.get_tree().get_nodes_in_group(group):
+			var spot := other as Node3D
+			if spot != null and Vector2(spot.global_position.x - here.x, spot.global_position.z - here.z).length() < Constants.STREAM_WAVE_METERS:
+				return true
+	return false
