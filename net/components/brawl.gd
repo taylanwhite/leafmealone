@@ -108,7 +108,8 @@ func _handle_skate_bonk(peer_id: int, target_path: NodePath, push: Vector3) -> v
 	if skater.global_position.distance_to(target.global_position) > Constants.SKATE_BONK_RADIUS + Constants.SKATE_BONK_SLACK:
 		return
 	var flat := Vector3(push.x, 0.0, push.z).limit_length(Constants.SKATE_TOP_SPEED)
-	var shove := flat.normalized() * float(Constants.PUNCH_PUSH.get("light", 3.0)) + Vector3.UP * 1.2 if flat.length() > 0.01 else Vector3.UP * 1.2
+	var lift := Vector3.UP * Constants.SKATE_BONK_LIFT
+	var shove := flat.normalized() * float(Constants.PUNCH_PUSH.get("light", 3.0)) + lift if flat.length() > 0.01 else lift
 	_rpc_hit.rpc(NodePath(), target.get_path(), shove, "light", "bonk")
 	_heat_for(target, "light")
 	if target.has_method("host_bonked_by"):

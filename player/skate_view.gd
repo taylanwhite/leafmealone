@@ -279,7 +279,7 @@ func _step_lean(delta: float, rolling: bool) -> void:
 	var rate := angle_difference(_last_yaw, yaw) / maxf(delta, 0.0001)
 	_last_yaw = yaw
 	var want := clampf(rate * Constants.SKATE_LEAN_PER_TURN, -Constants.SKATE_LEAN_MAX, Constants.SKATE_LEAN_MAX) if rolling else 0.0
-	_lean = lerpf(_lean, want, 1.0 - exp(-delta * 8.0))
+	_lean = lerpf(_lean, want, 1.0 - exp(-delta * Constants.SKATE_LEAN_RATE))
 
 
 # ---------------------------------------------------------------- the board
@@ -332,6 +332,9 @@ func _board_lift(air: bool) -> float:
 ## bounces off the ground and anything solid, skids, and settles where it stops.
 ## It lies there while you're down and goes in your pocket once you're up
 ## (shrinks, with the hotbar's pocket sound), so it never just vanishes.
+## Its floor is the real ground under it, found each tick (_ground_under), not the
+## rider's height: a bail in the air (off the ramp, into Rusty's fence) drops the
+## board all the way down instead of leaving it lying on nothing.
 func _launch_board() -> void:
 	if _root == null:
 		return
@@ -340,11 +343,29 @@ func _launch_board() -> void:
 	_root.global_transform = at
 	_root.visible = bool(player.call("is_body_drawn"))
 	var flat := Vector3(player.velocity.x, 0.0, player.velocity.z)
-	_fly_velocity = flat * Constants.SKATE_BOARD_FLY_SHARE + Vector3.UP * 2.6
-	_fly_floor = player.global_position.y
+	_fly_velocity = flat * Constants.SKATE_BOARD_FLY_SHARE + Vector3.UP * Constants.SKATE_BOARD_FLY_UP
+	_fly_floor = _ground_under(at.origin, player.global_position.y)
 	_fly_t = 0.0
 	_pocket_t = -1.0
 	_flip_t = -1.0
+
+
+## The ground straight under the loose board: the first solid thing (layer 1)
+## below it that isn't someone (a NICE BOY's or a hired hand's capsule is layer 1
+## too: the board doesn't lie on a head). fallback when there's nothing.
+func _ground_under(at: Vector3, fallback: float) -> float:
+	var space := _root.get_world_3d().direct_space_state
+	var skip: Array[RID] = [player.get_rid()]
+	for _try: int in 4:
+		var query := PhysicsRayQueryParameters3D.create(at + Vector3.UP * Constants.SKATE_BOARD_GROUND_ABOVE, at + Vector3.DOWN * Constants.SKATE_BOARD_GROUND_BELOW, 1, skip)
+		var hit := space.intersect_ray(query)
+		if hit.is_empty():
+			return fallback
+		if hit["collider"] is CharacterBody3D:
+			skip.append(hit["rid"])
+			continue
+		return (hit["position"] as Vector3).y
+	return fallback
 
 
 func _step_fly(delta: float) -> void:
@@ -352,8 +373,12 @@ func _step_fly(delta: float) -> void:
 		return
 	_fly_t += delta
 	var at := _root.global_position
-	if _fly_t < Constants.SKATE_BOARD_FLY_SECONDS:
-		_fly_velocity.y -= 9.8 * delta
+	_fly_floor = _ground_under(at, _fly_floor)
+	# Tumbling for SKATE_BOARD_FLY_SECONDS, and still falling after that while it's
+	# above the ground (a high bail), for at most SKATE_BOARD_FALL_MAX more.
+	var falling := at.y > _fly_floor + 0.02 and _fly_t < Constants.SKATE_BOARD_FLY_SECONDS + Constants.SKATE_BOARD_FALL_MAX
+	if _fly_t < Constants.SKATE_BOARD_FLY_SECONDS or falling:
+		_fly_velocity.y -= Constants.SKATE_BOARD_FLY_GRAVITY * delta
 		var to := at + _fly_velocity * delta
 		# Off a wall or a fence: back the way it came, slower, with a clack.
 		var hit := _root.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.08, to + Vector3.UP * 0.08, 1, [player.get_rid()]))
@@ -364,11 +389,11 @@ func _step_fly(delta: float) -> void:
 			_play_at("board_land", at, -2.0)
 		if to.y < _fly_floor and _fly_velocity.y < 0.0:
 			to.y = _fly_floor
-			if absf(_fly_velocity.y) > 1.2:
+			if absf(_fly_velocity.y) > Constants.SKATE_BOARD_CLACK_SPEED:
 				_play_at("board_land", to, -4.0)
 			_fly_velocity.y = -_fly_velocity.y * FLY_BOUNCE
-			_fly_velocity.x *= 0.6
-			_fly_velocity.z *= 0.6
+			_fly_velocity.x *= Constants.SKATE_BOARD_BOUNCE_KEEP
+			_fly_velocity.z *= Constants.SKATE_BOARD_BOUNCE_KEEP
 		if to.y <= _fly_floor + 0.01:
 			# Skidding on its side or its wheels.
 			var skid := Vector2(_fly_velocity.x, _fly_velocity.z)
@@ -575,7 +600,7 @@ func _step_sound(on: bool, air: bool, trick: int, speed: float) -> void:
 	if grinding:
 		if not _grind.playing:
 			_grind.play()
-		_grind.volume_db = lerpf(-8.0, 0.0, share)
+		_grind.volume_db = lerpf(Constants.SKATE_GRIND_DB.x, Constants.SKATE_GRIND_DB.y, share)
 	elif _grind.playing:
 		_grind.stop()
 

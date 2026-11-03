@@ -20,6 +20,7 @@ extends Node
 const _Strings = preload("res://ui/strings.gd")
 
 ## player.gd's AnimState values (appended to its enum).
+const ANIM_KNOCKED: int = 5
 const ANIM_SKATE: int = 6
 const ANIM_SKATE_AIR: int = 7
 ## skate_trick (the contract in gap-specs/driving.json): what the board is doing.
@@ -343,13 +344,13 @@ func _step_roll(delta: float, input: Dictionary) -> void:
 		# keeps the speed level), and the ramp's kicker adds a little more.
 		# (How fast the wheels were climbing, from where they actually went: the
 		# lip's edge reads as flat floor for a tick.)
-		if _climb > 0.5:
+		if _climb > Constants.SKATE_RAMP_CLIMB_MIN:
 			player.velocity.y = maxf(player.velocity.y, _climb) + Constants.SKATE_RAMP_POP
 		_take_off(false)
 	elif player.is_on_floor():
 		var rise := (player.global_position.y - lifted_from) / maxf(delta, 0.0001)
 		# The best of the last few ticks' climb, fading.
-		_climb = maxf(rise, _climb - 20.0 * delta)
+		_climb = maxf(rise, _climb - Constants.SKATE_RAMP_CLIMB_FADE * delta)
 	_was_on_floor = player.is_on_floor()
 
 
@@ -369,7 +370,7 @@ func _step_air(delta: float, input: Dictionary) -> void:
 			_start_flip(TRICK_KICKFLIP, "kickflip")
 		elif bool(input.get("heelflip", false)):
 			_start_flip(TRICK_HEELFLIP, "heelflip")
-	var grabbing := bool(input.get("tuck", false)) and _air_time > 0.08
+	var grabbing := bool(input.get("tuck", false)) and _air_time > Constants.SKATE_GRAB_DELAY
 	_grabbed = _grabbed or grabbing
 	# What the board is doing, for everyone: a flip, else a grab, else a spin.
 	var trick := TRICK_OLLIE if _jumped else TRICK_NONE
@@ -377,7 +378,7 @@ func _step_air(delta: float, input: Dictionary) -> void:
 		trick = _flip_trick
 	elif grabbing:
 		trick = TRICK_GRAB
-	elif absf(_spin) > 1.2:
+	elif absf(_spin) > Constants.SKATE_SPIN_SHOW_RAD:
 		trick = TRICK_SPIN
 	player.set("skate_trick", trick)
 	player.velocity.y -= _gravity() * delta
@@ -528,7 +529,7 @@ func _try_grind() -> bool:
 		var dir := line / length
 		var rel := Vector2(at.x - a.x, at.z - a.z)
 		var t := rel.dot(dir)
-		if t < 0.3 or t > length - 0.3:
+		if t < Constants.SKATE_GRIND_END_MARGIN or t > length - Constants.SKATE_GRIND_END_MARGIN:
 			continue
 		if absf(rel.dot(Vector2(-dir.y, dir.x))) > Constants.SKATE_GRIND_SNAP:
 			continue
@@ -556,7 +557,7 @@ func _step_grind(delta: float, input: Dictionary) -> void:
 	_grind_time += delta
 	var at := player.global_position
 	var t := Vector2(at.x - _grind_from.x, at.z - _grind_from.z).dot(dir)
-	var ended := speed < Constants.SKATE_GRIND_MIN_SPEED or t >= line.length() - 0.1
+	var ended := speed < Constants.SKATE_GRIND_MIN_SPEED or t >= line.length() - Constants.SKATE_GRIND_RUN_OUT
 	var jump := bool(input.get("jump", false))
 	if ended or jump or not player.is_on_floor():
 		_end_grind()
@@ -577,14 +578,14 @@ func _step_grind(delta: float, input: Dictionary) -> void:
 			_end_grind()
 			_settle_line(false)
 			return
-	player.velocity = Vector3(dir.x * speed, -0.5, dir.y * speed)
+	player.velocity = Vector3(dir.x * speed, Constants.SKATE_GRIND_HOLD_DOWN, dir.y * speed)
 	player.move_and_slide()
 
 
 func _end_grind() -> void:
 	_mode = Mode.ROLL
 	var seconds := _grind_time
-	if seconds > 0.15:
+	if seconds > Constants.SKATE_GRIND_MIN_SECONDS:
 		_count("grind")
 		var tenths := roundi(seconds * 10.0)
 		_line.append(str(_Strings.UI["trick_grind"]))
@@ -617,6 +618,10 @@ func _walls(before: Vector3) -> bool:
 		var thing := hit.get_collider() as CollisionObject3D
 		if thing != null and thing.collision_layer == Constants.PAD_WALL_LAYER:
 			continue
+		# Someone, not something: a NICE BOY or a hired hand is solid (layer 1)
+		# and stops the board like a wall, but that's a bump (_bumped_someone).
+		if _is_person(thing):
+			continue
 		last_wall = "%s @ %s" % [thing.get_path() if thing != null else NodePath("?"), hit.get_position()]
 		wipeout("wall")
 		return true
@@ -631,6 +636,15 @@ func _bumped_someone(before: Vector3) -> bool:
 	if speed < Constants.SKATE_BONK_SPEED:
 		return false
 	var dir := flat / speed
+	# Ran square into someone solid (a NICE BOY, a hired hand): the slide stopped on them.
+	for index: int in player.get_slide_collision_count():
+		var hit := player.get_slide_collision(index)
+		var thing := hit.get_collider() as Node3D
+		var normal := Vector2(hit.get_normal().x, hit.get_normal().z)
+		if _is_person(thing) and normal.length() > 0.01 and -normal.normalized().dot(dir) >= Constants.SKATE_BONK_FACING:
+			_bump(thing, dir, speed)
+			return true
+	# Someone you pass through (a crewmate, a passer-by): close and ahead of you.
 	var people: Array[Node] = get_tree().get_nodes_in_group("players")
 	people.append_array(get_tree().get_nodes_in_group("bonkable"))
 	for node: Node in people:
@@ -643,14 +657,27 @@ func _bumped_someone(before: Vector3) -> bool:
 		if absf(offset.y) > 1.2:
 			continue
 		var gap := Vector2(offset.x, offset.z)
-		if gap.length() > Constants.SKATE_BONK_RADIUS or (gap.length() > 0.2 and gap.normalized().dot(dir) < 0.3):
+		if gap.length() > Constants.SKATE_BONK_RADIUS or (gap.length() > 0.2 and gap.normalized().dot(dir) < Constants.SKATE_BONK_FACING):
 			continue
+		_bump(person, dir, speed)
+		return true
+	return false
+
+
+## A crewmate, a passer-by, a NICE BOY or a hired hand: someone a board bumps
+## into rather than crashes into.
+func _is_person(thing: Node) -> bool:
+	return thing != null and (thing.is_in_group("players") or thing.is_in_group("bonkable") or thing.is_in_group("crew_hands"))
+
+
+## You go down, and whoever you hit gets the host's light bonk (and the heat that
+## goes with it) if they're someone a bonk lands on: not a hired hand.
+func _bump(person: Node3D, dir: Vector2, speed: float) -> void:
+	if person.is_in_group("players") or person.is_in_group("bonkable"):
 		var brawl := get_tree().get_first_node_in_group("brawl")
 		if brawl != null and brawl.has_method("request_skate_bonk"):
 			brawl.call("request_skate_bonk", person.get_path(), Vector3(dir.x, 0.0, dir.y) * speed)
-		wipeout("bump")
-		return true
-	return false
+	wipeout("bump")
 
 
 func _dive_in_pile() -> void:
@@ -681,7 +708,7 @@ func wipeout(reason: String, push := Vector3.ZERO) -> void:
 	player.set("_knocked", true)
 	var thrown := Vector3(flat.x, 0.0, flat.y) * Constants.SKATE_WIPEOUT_THROW_SHARE + push
 	player.velocity = Vector3(thrown.x, Constants.SKATE_WIPEOUT_THROW_UP, thrown.z)
-	player.set("anim_state", 5)
+	player.set("anim_state", ANIM_KNOCKED)
 	if player.call("_held_prop") != null:
 		player.call("_release_held", false)
 	player.call("say_to_all", "vo_oof")
@@ -704,7 +731,9 @@ func _read_input() -> Dictionary:
 		return out
 	var playing := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if not playing:
-		return {}
+		# A window has the mouse (the phone, a shop, settings): your foot drags the
+		# board to a stop instead of it rolling on without you.
+		return {"brake": true}
 	return {
 		"push": Input.is_action_pressed("move_forward"),
 		"brake": Input.is_action_pressed("move_back"),

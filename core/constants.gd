@@ -4171,6 +4171,44 @@ const SKATE_LEAN_PER_TURN: float = 0.16
 const SKATE_LEAN_MAX: float = 0.45
 ## The trick popup (ui/trick_popup.gd): how long a line stays up (s).
 const SKATE_POPUP_SECONDS: float = 1.8
+## Rolling off a lip while the wheels were climbing faster than this (m/s) leaves
+## you going up it; the climb remembered fades this fast (m/s per s).
+const SKATE_RAMP_CLIMB_MIN: float = 0.5
+const SKATE_RAMP_CLIMB_FADE: float = 20.0
+## Holding tuck in the air grabs the board once you've been up this long (s).
+const SKATE_GRAB_DELAY: float = 0.08
+## Turned this far in the air (rad), the board shows as a spin to everyone.
+const SKATE_SPIN_SHOW_RAD: float = 1.2
+## Grinds: a landing this near a curb's end (m) doesn't catch it; the grind ends
+## this near the far end (m); the board is held down on the curb at this (m/s);
+## a grind shorter than this (s) scores nothing.
+const SKATE_GRIND_END_MARGIN: float = 0.3
+const SKATE_GRIND_RUN_OUT: float = 0.1
+const SKATE_GRIND_HOLD_DOWN: float = -0.5
+const SKATE_GRIND_MIN_SECONDS: float = 0.15
+## Run into a NICE BOY or a passer-by this square on (the dot of your way and the
+## way to them), and it's a bump, not a scrape past.
+const SKATE_BONK_FACING: float = 0.3
+## A skate bonk lifts its target this much (m/s) on top of the light punch's shove.
+const SKATE_BONK_LIFT: float = 1.2
+## The loose board after a bail (player/skate_view.gd): it pops up this fast (m/s)
+## and falls at this (m/s^2); hitting the ground faster than SKATE_BOARD_CLACK_SPEED
+## (m/s) clacks, and each bounce keeps SKATE_BOARD_BOUNCE_KEEP of its slide.
+const SKATE_BOARD_FLY_UP: float = 2.6
+const SKATE_BOARD_FLY_GRAVITY: float = 9.8
+const SKATE_BOARD_CLACK_SPEED: float = 1.2
+const SKATE_BOARD_BOUNCE_KEEP: float = 0.6
+## It finds the ground under it each tick: a ray from this far above it (m) down
+## this far (m). Still above the ground when its tumble is over, it keeps falling
+## for up to SKATE_BOARD_FALL_MAX more seconds.
+const SKATE_BOARD_GROUND_ABOVE: float = 0.15
+const SKATE_BOARD_GROUND_BELOW: float = 30.0
+const SKATE_BOARD_FALL_MAX: float = 1.5
+## The rider's lean follows the carve at this rate (1/s).
+const SKATE_LEAN_RATE: float = 8.0
+## The grind's scrape (player/skate_view.gd): its volume at a crawl and at
+## SKATE_MAX_PUSH_SPEED (dB).
+const SKATE_GRIND_DB := Vector2(-8.0, 0.0)
 
 # ---- R2c hide
 # The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a

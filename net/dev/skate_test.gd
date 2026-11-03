@@ -14,6 +14,9 @@ extends Node
 ##      and back up within 3 s.
 ##   g. into a wall at 6 m/s: a wipeout.
 ##   h. off the street onto a lawn at 8 m/s: a lawn bail.
+##   m. into a NICE BOY at 6 m/s (he's solid, like a wall): a bump, not a wall
+##      bail, and his bonk adds HEAT_CREW_BONK (run before i; j-l are driving
+##      G2's).
 ##   i. holding something heavy (a junk toilet), the board key won't get you on.
 ## The client's view of the host (it saw the host on a board, a kickflip, a
 ## wipeout: "skate_seen") is checked by CI from the probe reports.
@@ -164,6 +167,8 @@ func _run() -> void:
 		skate.set("dev_input", {})
 		_verdict(bailed and int((skate.get("wipeouts") as Dictionary).get("lawn", 0)) >= 1, "h. onto the lawn at 8 m/s from %s: %s (%s)" % [lawn["from"], bailed, skate.get("wipeouts")], problems)
 		await _seconds(Constants.SKATE_WIPEOUT_SECONDS + 0.3)
+	# m. Into a NICE BOY at 6 m/s.
+	await _into_nice_boy(me, skate, world, road, along, problems)
 	# i. Something heavy in hand: no board.
 	var heaviest := ""
 	for type: String in Constants.JUNK_TYPES:
@@ -190,6 +195,43 @@ func _run() -> void:
 	_verdict(held and kg > Constants.SKATE_MAX_CARRY_KG and refused, "i. holding a %.0f kg %s (%s): on the board %s" % [kg, heaviest, held, not refused], problems)
 	await _seconds(0.5)
 	_finish(problems.is_empty(), problems)
+
+
+## m. A NICE BOY standing on County Road 9 (stunned, so he stays put; out of the
+## "nice_crew" group, so the director doesn't tidy him away), ridden into at 9 m/s.
+## He's solid (layer 1, like a wall), but it's a bump: a "bump" wipeout, not a
+## "wall" one, and his light bonk brings the crew's heat (HEAT_CREW_BONK). Three
+## runs, each starting a third of a tick's travel further back, so at least two
+## of them reach his capsule on the tick that hits it rather than stopping inside
+## SKATE_BONK_RADIUS a tick early (the run-up the review found a wall bail on).
+func _into_nice_boy(me: CharacterBody3D, skate: Node, world: Node, road: Vector3, along: Vector3, problems: Array[String]) -> void:
+	var heat := get_tree().get_first_node_in_group("heat")
+	var crew := (load("res://npcs/crew_member.tscn") as PackedScene).instantiate() as CharacterBody3D
+	crew.name = "SkateTestCrew"
+	var npcs := world.get_node_or_null("Npcs")
+	(npcs if npcs != null else world).add_child(crew, true)
+	crew.remove_from_group("nice_crew")
+	var speed := 9.0
+	var step := speed / float(Engine.physics_ticks_per_second)
+	for run: int in 3:
+		crew.global_position = road + along * 8.0
+		crew.velocity = Vector3.ZERO
+		crew.set("_stun_left", 60.0)
+		await _seconds(0.4)
+		var heat_before := float(heat.get("heat")) if heat != null else 0.0
+		var walls_before := int((skate.get("wipeouts") as Dictionary).get("wall", 0))
+		var bumps_before := int((skate.get("wipeouts") as Dictionary).get("bump", 0))
+		await _ride_from(me, skate, road + along * (2.5 - step * float(run) / 3.0), along, speed)
+		var fell := await _until_wipeout(me, 2.5)
+		await _ticks(3)
+		var rise := (float(heat.get("heat")) if heat != null else 0.0) - heat_before
+		var bumps := int((skate.get("wipeouts") as Dictionary).get("bump", 0)) - bumps_before
+		var walls := int((skate.get("wipeouts") as Dictionary).get("wall", 0)) - walls_before
+		_verdict(fell and bumps == 1 and walls == 0 and rise >= Constants.HEAT_CREW_BONK - 0.5, "m. into a NICE BOY at %.0f m/s (run %d): wipeout %s, bumps %d, walls %d, heat +%.1f" % [speed, run + 1, fell, bumps, walls, rise], problems)
+		if heat != null:
+			heat.set("heat", heat_before)
+		await _seconds(Constants.SKATE_WIPEOUT_SECONDS + 0.3)
+	crew.queue_free()
 
 
 ## Teleport the host's player onto its feet at, facing yaw.
