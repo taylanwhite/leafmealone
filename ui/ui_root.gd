@@ -563,7 +563,11 @@ func any_window_open() -> bool:
 			return true
 	for group: String in ["phone", "day_summary"]:
 		var node := get_tree().get_first_node_in_group(group) as Control
-		if node != null and node.visible:
+		# The phone sliding back into the pocket is already put away (ui/phone.gd).
+		if node != null and node.has_method("is_out"):
+			if bool(node.call("is_out")):
+				return true
+		elif node != null and node.visible:
 			return true
 	return false
 

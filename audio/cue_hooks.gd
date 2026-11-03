@@ -329,4 +329,6 @@ func _summary_open() -> bool:
 
 func _phone_open() -> bool:
 	var phone := get_tree().get_first_node_in_group("phone") as CanvasItem
+	if phone != null and phone.has_method("is_out"):
+		return bool(phone.call("is_out"))
 	return phone != null and phone.visible

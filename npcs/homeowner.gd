@@ -436,7 +436,9 @@ func _rpc_paid(peer_id: int) -> void:
 		sfx.call("play", "cash_grab")
 	elif sfx != null:
 		sfx.call("play_at", "cash_grab", _cash.global_position)
-	_MoneyPopup.pop(get_tree(), _cash.global_position + Vector3(0.0, 0.4, 0.0), _amount)
+	# The snatch is the money's sound here; a coin on top of it piled four sounds
+	# onto one frame (rec_a5_pay2_1p frame 18, with the babble and Chefty).
+	_MoneyPopup.pop(get_tree(), _cash.global_position + Vector3(0.0, 0.4, 0.0), _amount, false)
 	_cash.visible = false
 	_body.set("mood", "raised")
 	_body.call("gesture", "wave")

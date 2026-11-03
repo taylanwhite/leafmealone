@@ -58,7 +58,7 @@ const SOUNDS: Dictionary = {
 	"glug": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	# Shops (chunk 4): the register on a confirmed buy (audio/cue_hooks.gd, the
 	# buyer's own ears), and the keeper's cash drawer slamming after it (npcs/store_clerk.gd).
-	"register": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -2.0},
+	"register": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -4.0},
 	"cash_drawer": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	# Rusty's (shops chunk 5): his long "hmmm?" over a haggle (npcs/store_clerk.gd think).
 	"haggle_hmm": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 1.5, "db": 0.0},
@@ -205,12 +205,12 @@ const SOUNDS: Dictionary = {
 	# (audio/ui_sounds.gd), the phone and windows are this player's own ears (UI);
 	# the coin, the homeowner's cash and the cot happen in the world (play_at).
 	"ui_click": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_CLICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": 0.0},
-	"ui_hover": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_HOVER_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.1, "db": 0.0},
+	"ui_hover": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_HOVER_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.1, "db": -6.0},
 	"ui_back": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_CLICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": 0.0},
 	"ui_tab": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_CLICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": 0.0},
 	"ui_deny": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.4, "db": 0.0},
-	"store_bell": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -2.0},
-	"coin": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.COIN_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"store_bell": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -5.0},
+	"coin": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.COIN_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": -3.0},
 	"receipt": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.2, "db": -2.0},
 	"cash_grab": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	"pin": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": 0.0},

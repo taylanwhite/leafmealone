@@ -4085,9 +4085,17 @@ const COT_CREAK_MAX_DISTANCE: float = 25.0
 ## landing with its chime (ui/phone.gd _slide_in).
 const PHONE_SLIDE_PX: float = 120.0
 const PHONE_SLIDE_SECONDS: float = 0.18
+## Put away, it drops back the same way over this long (s), with its swish
+## (ui/phone.gd close_phone), and only then stops being drawn.
+const PHONE_PUTAWAY_SECONDS: float = 0.14
 ## The payout card's printer starts this long (s) after the card shows: the cash
 ## is snatched the same moment (npcs/homeowner.gd), and that sound goes first.
 const RECEIPT_PRINT_DELAY: float = 0.3
+## The card then feeds up out of the printer from this far below (px) over this
+## long (s): the receipt sound's 'brrrt' (tools/sfx_ui.py receipt, feed 0.42 s),
+## settling as the paper tears.
+const RECEIPT_FEED_PX: float = 70.0
+const RECEIPT_FEED_SECONDS: float = 0.42
 ## The morning's held phone buzz waits for Rise and Rake (and New Client) to finish,
 ## plus this long (s) (audio/cue_hooks.gd).
 const CUE_BUZZ_AFTER_STINGERS: float = 0.25

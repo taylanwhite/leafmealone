@@ -52,6 +52,10 @@ var _dirty: bool = true
 var _seen: int = 0
 ## The slide up out of the pocket (_slide_in).
 var _slide: Tween
+## Where it rests on screen (position.y), from the last slide in; NAN before one.
+var _rest_y: float = NAN
+## Going back into the pocket: still drawn, sliding down (close_phone).
+var _closing: bool = false
 
 
 func _ready() -> void:
@@ -157,12 +161,12 @@ func _input(event: InputEvent) -> void:
 	if Net.current_state() != Net.State.IN_SESSION:
 		return
 	if event.is_action_pressed("phone"):
-		if visible:
+		if is_out():
 			close_phone()
 		else:
 			open_phone()
 		get_viewport().set_input_as_handled()
-	elif visible and event.is_action_pressed("pause"):
+	elif is_out() and event.is_action_pressed("pause"):
 		close_phone()
 		get_viewport().set_input_as_handled()
 
@@ -177,7 +181,9 @@ func unread() -> int:
 
 
 func open_phone(app: String = "") -> void:
-	var coming_out := not visible
+	# Pulled back out while it was still going into the pocket: it comes out again.
+	var coming_out := not visible or _closing
+	_closing = false
 	if coming_out:
 		_Look.sfx(self, "phone_open")
 	visible = true
@@ -201,6 +207,7 @@ func _slide_in() -> void:
 	if _slide != null and _slide.is_valid():
 		_slide.kill()
 	var rest := position.y
+	_rest_y = rest
 	position.y = rest + Constants.PHONE_SLIDE_PX
 	modulate.a = 0.0
 	_slide = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -208,13 +215,36 @@ func _slide_in() -> void:
 	_slide.tween_property(self, "modulate:a", 1.0, Constants.PHONE_SLIDE_SECONDS * 0.6)
 
 
+## Back into the pocket: it drops and fades as its swish plays, and only then
+## stops being drawn (it used to vanish in one frame). The mouse goes back to the
+## look at once; a second close while it drops does nothing.
 func close_phone() -> void:
-	if visible:
-		_Look.sfx(self, "phone_close")
-	visible = false
+	if not visible or _closing:
+		return
+	_Look.sfx(self, "phone_close")
+	_closing = true
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	if ui != null:
 		ui.call("recapture_mouse")
+	if _slide != null and _slide.is_valid():
+		_slide.kill()
+	var rest := _rest_y if not is_nan(_rest_y) else position.y
+	_slide = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	_slide.tween_property(self, "position:y", rest + Constants.PHONE_SLIDE_PX, Constants.PHONE_PUTAWAY_SECONDS)
+	_slide.tween_property(self, "modulate:a", 0.0, Constants.PHONE_PUTAWAY_SECONDS).set_delay(Constants.PHONE_PUTAWAY_SECONDS * 0.4)
+	_slide.chain().tween_callback(func() -> void:
+		if not _closing:
+			return
+		_closing = false
+		visible = false
+		position.y = rest
+		modulate.a = 1.0
+	)
+
+
+## Out and not on its way back into the pocket.
+func is_out() -> bool:
+	return visible and not _closing
 
 
 func show_app(app: String) -> void:
