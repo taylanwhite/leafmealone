@@ -46,7 +46,8 @@ static func run(parent: Node) -> Dictionary:
 	field.set("scratch", true)
 	field.name = "Field"
 	branch.add_child(field)
-	field.remove_from_group("leaf_field")
+	if field.is_in_group("leaf_field"):
+		field.remove_from_group("leaf_field")
 	field.set_process(false)
 	var report := _ops(field)
 	tree.set_multiplayer(null, branch.get_path())
