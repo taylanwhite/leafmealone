@@ -12,6 +12,7 @@ const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 const ASPHALT := Color(0.3, 0.3, 0.32)
 ## The center line's dashes: longer and further apart than a town street's.
 const DASH: float = 4.0
@@ -41,7 +42,12 @@ static func dress(world: Node3D) -> void:
 			if rng.randf() < 0.8:
 				var off := rng.randf_range(10.0, 34.0)
 				var kind := "pine" if rng.randf() < 0.25 else "broadleaf"
-				_Trees.spawn(root, Vector3(x + rng.randf_range(-6.0, 6.0), 0.0, road_z + side * off), rng.randf_range(6.5, 9.5), kind, CROWNS[rng.randi() % CROWNS.size()], rng.randi() % 4, false, rng.randf() * TAU)
+				var at := Vector3(x + rng.randf_range(-6.0, 6.0), 0.0, road_z + side * off)
+				var tall := rng.randf_range(6.5, 9.5)
+				var crown: String = CROWNS[rng.randi() % CROWNS.size()]
+				var variant := rng.randi() % 4
+				var turn := rng.randf() * TAU
+				_BuildQueue.later(root, func() -> void: _Trees.spawn(root, at, tall, kind, crown, variant, false, turn), "country tree")
 		x += rng.randf_range(14.0, 22.0)
 	# Fence lines along a few fields.
 	for field: int in 6:
@@ -64,7 +70,14 @@ static func dress(world: Node3D) -> void:
 		root.add_child(holder)
 		holder.position = at
 		holder.rotation.y = 0.0 if side < 0.0 else PI
-		_Neighborhood.house(holder, Vector3.ZERO, rng.randf_range(9.0, 12.0), rng.randf_range(7.0, 9.0), 1 + int(rng.randf() < 0.4), _Neighborhood.WALLS[rng.randi() % _Neighborhood.WALLS.size()], _Neighborhood.ROOFS[rng.randi() % _Neighborhood.ROOFS.size()], _Neighborhood.TRIMS[rng.randi() % _Neighborhood.TRIMS.size()], rng.randf() < 0.5)
+		var wide := rng.randf_range(9.0, 12.0)
+		var deep := rng.randf_range(7.0, 9.0)
+		var stories := 1 + int(rng.randf() < 0.4)
+		var wall: Color = _Neighborhood.WALLS[rng.randi() % _Neighborhood.WALLS.size()]
+		var roof: Color = _Neighborhood.ROOFS[rng.randi() % _Neighborhood.ROOFS.size()]
+		var trim: Color = _Neighborhood.TRIMS[rng.randi() % _Neighborhood.TRIMS.size()]
+		var garage := rng.randf() < 0.5
+		_BuildQueue.later(root, func() -> void: _Neighborhood.house(holder, Vector3.ZERO, wide, deep, stories, wall, roof, trim, garage), "farmhouse")
 		house_x += rng.randf_range(110.0, 170.0)
 
 

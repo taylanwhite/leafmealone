@@ -10,6 +10,7 @@ extends RefCounted
 const _Stylized = preload("res://props/stylized.gd")
 ## Grass lies flat under leaves (raking:2).
 const _GrassPress = preload("res://leaves/grass_press.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 const CHUNK: float = 14.0
 const BASE := Color(0.24, 0.38, 0.16)
 const TIP := Color(0.5, 0.66, 0.28)
@@ -20,7 +21,9 @@ static var _short_tuft: ArrayMesh
 
 ## Mark a rectangle (zone space, x and z) where no grass grows.
 static func keep_clear(zone: Node3D, rect: Rect2) -> void:
-	var rects: Array = zone.get_meta("no_grass", [])
+	# A copy: chunks may be grown a few frames from now (levels/build_queue.gd),
+	# and only what was cleared by now keeps them off.
+	var rects: Array = (zone.get_meta("no_grass", []) as Array).duplicate()
 	rects.append(rect)
 	zone.set_meta("no_grass", rects)
 
@@ -50,7 +53,9 @@ static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: in
 	if _tuft == null:
 		_tuft = _tuft_mesh(0.42, 7)
 		_short_tuft = _tuft_mesh(0.18, 5)
-	var rects: Array = zone.get_meta("no_grass", [])
+	# A copy: chunks may be grown a few frames from now (levels/build_queue.gd),
+	# and only what was cleared by now keeps them off.
+	var rects: Array = (zone.get_meta("no_grass", []) as Array).duplicate()
 	var root := Node3D.new()
 	root.name = "Grass"
 	zone.add_child(root)
@@ -66,30 +71,38 @@ static func plant(zone: Node3D, half_size: float, spacing: float, seed_value: in
 	for chunk_x: int in chunks_x:
 		for chunk_z: int in chunks_z:
 			var corner := area.position + Vector2(float(chunk_x) * CHUNK, float(chunk_z) * CHUNK)
-			var tall: Array[Transform3D] = []
-			var short: Array[Transform3D] = []
-			var tall_colors: Array[Color] = []
-			var short_colors: Array[Color] = []
-			var count := int(CHUNK * CHUNK / (spacing * spacing))
-			for _index: int in count:
-				var at := corner + Vector2(rng.randf() * CHUNK, rng.randf() * CHUNK)
-				if _cleared(rects, at):
-					continue
-				var in_yard := absf(at.x) < yard_half and absf(at.y) < yard_half
-				if in_yard and rng.randf() < 0.6:
-					continue
-				var scale := rng.randf_range(0.7, 1.3)
-				var xform := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale, scale * rng.randf_range(0.8, 1.25), scale)), Vector3(at.x, 0.0, at.y))
-				var tint := Color.WHITE.lerp(Color(1.08, 0.98, 0.75), rng.randf() * 0.6) * tint_all
-				if in_yard or all_short:
-					short.append(xform)
-					short_colors.append(tint)
-				else:
-					tall.append(xform)
-					tall_colors.append(tint)
-			_add_chunk(root, _tuft, tall, tall_colors, material)
-			_add_chunk(root, _short_tuft, short, short_colors, material)
+			# One chunk a BuildQueue step. The steps run in order, so the rng is
+			# drawn in the same order and every peer grows the same lawn.
+			_BuildQueue.later(root, func() -> void:
+				if is_instance_valid(root):
+					_grow_chunk(root, rng, corner, spacing, rects, yard_half, all_short, tint_all, material), "grass chunk")
 	return root
+
+
+static func _grow_chunk(root: Node3D, rng: RandomNumberGenerator, corner: Vector2, spacing: float, rects: Array, yard_half: float, all_short: bool, tint_all: Color, material: Material) -> void:
+	var tall: Array[Transform3D] = []
+	var short: Array[Transform3D] = []
+	var tall_colors: Array[Color] = []
+	var short_colors: Array[Color] = []
+	var count := int(CHUNK * CHUNK / (spacing * spacing))
+	for _index: int in count:
+		var at := corner + Vector2(rng.randf() * CHUNK, rng.randf() * CHUNK)
+		if _cleared(rects, at):
+			continue
+		var in_yard := absf(at.x) < yard_half and absf(at.y) < yard_half
+		if in_yard and rng.randf() < 0.6:
+			continue
+		var scale := rng.randf_range(0.7, 1.3)
+		var xform := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(scale, scale * rng.randf_range(0.8, 1.25), scale)), Vector3(at.x, 0.0, at.y))
+		var tint := Color.WHITE.lerp(Color(1.08, 0.98, 0.75), rng.randf() * 0.6) * tint_all
+		if in_yard or all_short:
+			short.append(xform)
+			short_colors.append(tint)
+		else:
+			tall.append(xform)
+			tall_colors.append(tint)
+	_add_chunk(root, _tuft, tall, tall_colors, material)
+	_add_chunk(root, _short_tuft, short, short_colors, material)
 
 
 static func _cleared(rects: Array, at: Vector2) -> bool:

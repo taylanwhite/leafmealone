@@ -2612,7 +2612,6 @@ const ART_PROP_CHUNK: float = 32.0
 ## draws two meshes (its near Look and its far LookFar), so a tree counts twice.
 const ART_BLOCK_MAX_VISUALS: int = 652
 const ART_YARD_MAX_VISUALS: int = 177
-const ART_BLOCK_PARCELS_PER_FRAME: int = 2
 const ART_NEIGHBOR_LEAF_PATCHES: int = 3
 const ART_STRING_LIGHT_SPACING: float = 0.45
 const ART_GRASS_WINTER_SPACING_SCALE: float = 1.6
@@ -3844,3 +3843,80 @@ const FOOD_TRUCK_HATCH_OPEN: float = 1.9
 const BUFF_HUD_PX: int = 30
 const BUFF_HUD_GAP: int = 6
 const BUFF_HUD_BLINK_SECONDS: float = 8.0
+
+# ---- driving: streaming and spread-out builds (driving chunk E; levels/build_queue.gd,
+# levels/town/town_streamer.gd; docs/DECISIONS.md "Builds are spread over frames")
+## The world's dressing (levels/build_queue.gd): at most this much of a frame
+## (ms) goes to building before the frame is let go. A joining peer built its
+## whole world in one 2-5 s frame before, long enough for ENet to drop it.
+const BUILD_MS_PER_FRAME: float = 8.0
+## The town streamer (levels/town/town_streamer.gd): chunks of houses draw full
+## (LOD 0) nearer the camera than this (m), simpler (LOD 1) nearer than
+## STREAM_LOD1_METERS, only as the neighborhood's skyline beyond that, and not
+## at all past STREAM_CULL_METERS.
+const STREAM_LOD0_METERS: float = 110.0
+const STREAM_LOD1_METERS: float = 260.0
+const STREAM_CULL_METERS: float = 420.0
+## A chunk only changes LOD this far (m) past the line it crossed, so one parked
+## at a boundary doesn't swap back and forth.
+const STREAM_HYSTERESIS_METERS: float = 12.0
+## The streamer's build budget per frame (ms) once the town is up, and how often
+## (s) it looks at where the camera is.
+const STREAM_BUILD_MS_PER_FRAME: float = 3.0
+const STREAM_TICK_SECONDS: float = 0.25
+## Yard slots per streamed chunk, along one side of one street.
+const STREAM_SLOTS_PER_CHUNK: int = 3
+## The far skyline (one merged mesh per neighborhood) starts drawing this far
+## out (m), under the LOD 1 houses it stands in for.
+const STREAM_SKYLINE_BEGIN_METERS: float = 240.0
+## A LOD swap fades the new look in and the old one out over this long (s), so
+## a house never pops.
+const STREAM_FADE_SECONDS: float = 0.6
+## ENet (net/net.gd): a peer that hasn't acknowledged anything for this long (ms)
+## is dropped, never sooner than the minimum. ENet's own 5 s minimum dropped a
+## player whose machine stalled loading the world (docs/DECISIONS.md).
+const ENET_TIMEOUT_LIMIT: int = 32
+const ENET_TIMEOUT_MIN_MS: int = 12000
+const ENET_TIMEOUT_MAX_MS: int = 30000
+## The probe's join stall (net/dev/probe.gd join_stall_ms): the longest frame in
+## this long (s) after a peer first links.
+const JOIN_STALL_WINDOW_SECONDS: float = 30.0
+## What the streamed town says (levels/town/town_streamer.gd). A grown-back
+## lawn's leaves: up to this many drifts (a thin ragged bed of leaf colors with
+## this many sides, and this many loose leaf cards over and around it), plus
+## strays strewn over the rest of the front lawn, all scaled by the yard's mess.
+## Each card is this long (m, min/max); a drift spreads this far (m, radius
+## min/max) and rises this high (m) in its middle.
+const STREAM_LEAF_DRIFTS_MAX: int = 12
+const STREAM_LEAF_BED_SIDES: int = 13
+const STREAM_LEAVES_PER_DRIFT: int = 64
+const STREAM_LEAF_STRAYS: int = 120
+const STREAM_LEAF_SIZE := Vector2(0.1, 0.18)
+const STREAM_LEAF_DRIFT_RADIUS := Vector2(0.8, 1.8)
+const STREAM_LEAF_HEAP_METERS: float = 0.05
+## A drift's bed edge (and a stray leaf) sits this high (m), over the lawn's top
+## (ART_LAWN_TOP) and its grass; the cards lie on it.
+const STREAM_LEAF_BED_Y: float = 0.03
+## How much darker a drift's bed is than its leaves (the shaded under-layer).
+const STREAM_LEAF_BED_SHADE: float = 0.15
+## LOD 1 (far) lawns: this share of the leaves, each this many times bigger, so
+## they still read 110-260 m off without shimmering.
+const STREAM_LEAF_FAR_SHARE: float = 0.25
+const STREAM_LEAF_FAR_SCALE: float = 2.2
+## The front lawn the leaves lie on, parcel space: x within this half width,
+## z out to this (the curb side), and clear of the drive and walk within this x.
+const STREAM_LEAF_LAWN_HALF_WIDTH: float = 17.0
+const STREAM_LEAF_LAWN_FRONT_Z: float = 18.5
+const STREAM_LEAF_CLEAR_X: float = 3.0
+## TurfMasters™' sign on a poached lawn: this far either side of the drive (m,
+## min/max) at this z (by the curb), turned up to this much (rad).
+const STREAM_SIGN_SIDE_METERS := Vector2(6.0, 12.0)
+const STREAM_SIGN_Z: float = 18.2
+const STREAM_SIGN_TURN: float = 0.25
+## A homeowner waiting on the porch for a crew waves at Chefty or a player that
+## comes within this far (m), at most once per cooldown (s, plus a per-house
+## jitter of up to this much), looking every STREAM_WAVE_LOOK_SECONDS.
+const STREAM_WAVE_METERS: float = 28.0
+const STREAM_WAVE_COOLDOWN_SECONDS: float = 5.0
+const STREAM_WAVE_JITTER_SECONDS: float = 1.8
+const STREAM_WAVE_LOOK_SECONDS: float = 0.3

@@ -28,6 +28,7 @@ const _VendingMachine = preload("res://props/vending_machine.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _YardExtras = preload("res://props/yard_extras.gd")
 const _ShelfStock = preload("res://props/shelf_stock.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 const BOARD := Color(0.17, 0.22, 0.2)
 const FRAME := Color(0.55, 0.38, 0.22)
 const ORANGE := Color(0.95, 0.5, 0.15)
@@ -45,7 +46,8 @@ static func dress(world: Node3D) -> void:
 		var site: Dictionary = Constants.SHOP_SITES[shop_id]
 		var zone := world.get_node_or_null(str(site.get("zone", ""))) as Node3D
 		if zone != null:
-			build_site(zone, shop_id, site)
+			# One site a BuildQueue step (levels/build_queue.gd): a keeper is a whole body.
+			_BuildQueue.later(zone, func() -> void: build_site(zone, shop_id, site), "shop site")
 
 
 ## One shop's site, in zone's space (site is its Constants.SHOP_SITES entry).

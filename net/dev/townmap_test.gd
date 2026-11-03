@@ -11,13 +11,20 @@ extends Node
 ## art's HouseBuilder gives it); and the job site hides its slot
 ## and gives it back. A joined client named Target must build the same town
 ## ("town_site" in the probe report: layout, colliders, site). Each step prints
-## a [TownmapTest] line. Chunks D and E add the site/zone and streaming steps.
+## a [TownmapTest] line. Chunk D adds the site and zone steps, chunk E the
+## spread-out build and the streaming steps.
 
 const _HouseBuilder = preload("res://levels/town/house_builder.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _StoreDressing = preload("res://levels/dressing/store_dressing.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
+const _Streamer = preload("res://levels/town/town_streamer.gd")
+## No single step of the world's build may take longer than this (ms, headless):
+## steps are one tree, one body, one parcel's solids. A stall is a frame, and a
+## frame past ENet's patience drops a joining player (driving chunk E).
+const BUILD_STEP_MAX_MS: float = 400.0
 ## The job board's posts stand 2.5 m apart (levels/job_board.gd _build_board).
 const JOB_BOARD_FOOTPRINT := Vector2(2.7, 0.4)
 ## Which STORE_LAYOUT reservations hold each shop's counter and buy area.
@@ -68,7 +75,10 @@ func _run(world: Node, town: Node) -> void:
 	await get_tree().create_timer(3.0).timeout
 	world.call("_free_lot")
 	await get_tree().physics_frame
+	# The town's solids and dressing are built over its first frames (levels/build_queue.gd).
+	await _check_build(problems)
 	_check_colliders(world, problems)
+	await _check_streaming(world, problems)
 	await _check_parity(world, town, problems)
 	_check_site(world, problems)
 	await _check_job_at_house(world, town, problems)
@@ -282,12 +292,134 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 		_verdict(false, "the town's ground and the border zone exist", problems)
 
 
+## Driving chunk E: the world's build is spread over frames (levels/build_queue.gd):
+## it finishes, and no step of it took a frame on its own past BUILD_STEP_MAX_MS.
+## The join's own longest frame is the CI check's (probe "join_stall_ms").
+func _check_build(problems: Array[String]) -> void:
+	var waited := 0.0
+	while not _BuildQueue.is_drained(get_tree()) and waited < 20.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var stats: Dictionary = _BuildQueue.stats
+	_verdict(_BuildQueue.is_drained(get_tree()) and float(stats["max_step_ms"]) < BUILD_STEP_MAX_MS, "the world built in %d steps over %d frames, the longest step %.0f ms (%s), most in one frame %.0f ms (want under %.0f)" % [int(stats["steps"]), int(stats["frames"]), float(stats["max_step_ms"]), stats["max_step"], float(stats["max_frame_ms"]), BUILD_STEP_MAX_MS], problems)
+
+
+## Driving chunk E: the streamer picks each chunk's level by distance. At the
+## store nothing in town is near; on Mansion Hill its own chunks are LOD 0 and
+## nobody else's (headless: the bookkeeping only, so no build is slow).
+func _check_streaming(world: Node, problems: Array[String]) -> void:
+	var streamer := world.get_node_or_null("TownStreamer")
+	if streamer == null:
+		_verdict(false, "TownStreamer built", problems)
+		return
+	var stats: Dictionary = _Streamer.stats
+	streamer.call("set_focus_override", Vector3(10.0, 1.7, 8.0))
+	var at_store := int(stats["chunks_lod0"])
+	var hood := _Hoods.index_of("mansion_hill")
+	var hill := Vector3(TownMap.slot_x(hood, 3), 1.7, TownMap.STREET_Z[hood])
+	streamer.call("set_focus_override", hill)
+	var waited := 0.0
+	while int((stats["lod0_hoods"] as Dictionary).get("mansion_hill", 0)) < 1 and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var hoods: Dictionary = stats["lod0_hoods"]
+	var mansion := int(hoods.get("mansion_hill", 0))
+	# Every yard whose chunk is LOD 0 has a parcel near; Maple Row, 500 m off, is out.
+	var wrong := 0
+	for house_id: int in TownMap.house_count():
+		var level := int(streamer.call("level_of_house", house_id))
+		var yard := TownMap.yard_transform(house_id).origin
+		var away := Vector2(yard.x - hill.x, yard.z - hill.z).length()
+		if level == 0 and away > Constants.STREAM_LOD0_METERS + Constants.STREAM_HYSTERESIS_METERS + TownMap.YARD_HALF + float(TownMap.SLOT_SPACING[hood]) * Constants.STREAM_SLOTS_PER_CHUNK:
+			wrong += 1
+		if TownMap.hood_id_of(house_id) == "maple_row" and level != 3:
+			wrong += 1
+	var far := int(stats["chunks_skyline"]) + int(stats["chunks_none"])
+	var ok := at_store <= 4 and mansion >= 1 and wrong == 0 and far > 0
+	_verdict(ok, "streaming: %d chunks LOD 0 at the store; on Mansion Hill %d of its own (%.1f s), LOD 0 by hood %s, %d yards at the wrong level, %d chunks far or out, of %d chunks" % [at_store, mansion, waited, hoods, wrong, far, int(stats["chunks"])], problems)
+	streamer.call("set_focus_override", Vector3.INF)
+	_check_stream_build(streamer, problems)
+
+
+## The streamer's build path, which a headless peer never takes on its own: a
+## chunk's LOD 0 and LOD 1 levels have a parcel per slot; a job site placed
+## (or cleared) while the level is still being built is honored when it goes in
+## (the race the driving:E review found); a grown-back lawn has its leaves (flat
+## leaf cards, never a solid lump), a poached one its sign, a waiting homeowner
+## stands on the porch and waves only when someone comes by.
+func _check_stream_build(streamer: Node, problems: Array[String]) -> void:
+	# A chunk of three on Maple Row whose slots nobody has hidden.
+	var houses: Array = []
+	for house_id: int in TownMap.house_count():
+		var candidate: Array = streamer.call("chunk_houses", house_id)
+		if candidate.size() >= 2 and candidate.all(func(other: int) -> bool: return not bool(streamer.call("is_slot_hidden", other))):
+			houses = candidate
+			break
+	if houses.is_empty():
+		_verdict(false, "stream build: a chunk with two open slots", problems)
+		return
+	var first := int(houses[0])
+	var key := "Yard%d" % first
+	var started := Time.get_ticks_usec()
+	# Hidden while the chunk's later parcels are still being built.
+	var near: Node3D = streamer.call("build_level_now", first, 0, func() -> void: streamer.call("set_slot_hidden", first, true))
+	var near_ms := float(Time.get_ticks_usec() - started) / 1000.0
+	var parcels := 0
+	for house_id: int in houses:
+		if near != null and near.get_node_or_null("Yard%d" % house_id) != null:
+			parcels += 1
+	var hid_mid := near != null and near.get_node_or_null(key) != null and not (near.get_node(key) as Node3D).visible
+	# Shown again while LOD 1 is being built (built hidden, so this is the other way round).
+	var far: Node3D = streamer.call("build_level_now", first, 1, func() -> void: streamer.call("set_slot_hidden", first, false))
+	var shown_mid := far != null and far.get_node_or_null(key) != null and (far.get_node(key) as Node3D).visible
+	var near_shown := near != null and is_instance_valid(near) and (near.get_node(key) as Node3D).visible
+	_verdict(near != null and parcels == houses.size() and hid_mid and shown_mid and near_shown, "stream build: LOD 0 of houses %s has %d/%d parcels (%.0f ms); hidden mid-build stays hidden %s, shown mid-build is shown %s (LOD 0 too %s)" % [houses, parcels, houses.size(), near_ms, hid_mid, shown_mid, near_shown], problems)
+	# What the town says, on that LOD 0 parcel.
+	var parcel := near.get_node_or_null(key) as Node3D if near != null and is_instance_valid(near) else null
+	if parcel == null:
+		_verdict(false, "stream build: the LOD 0 parcel to dress", problems)
+		return
+	var leaves_at := Time.get_ticks_usec()
+	var leaves: Node3D = _Streamer._leaf_drifts(parcel, 1.0, 1234)
+	var leaves_ms := float(Time.get_ticks_usec() - leaves_at) / 1000.0
+	var far_leaves: Node3D = _Streamer._leaf_drifts(parcel, 1.0, 1234, true)
+	var none: Node3D = _Streamer._leaf_drifts(parcel, 0.0, 1234)
+	var flat := false
+	var cards := 0
+	var far_cards := 0
+	if leaves is MeshInstance3D and far_leaves is MeshInstance3D:
+		var mesh := (leaves as MeshInstance3D).mesh
+		var box := mesh.get_aabb()
+		cards = mesh.surface_get_array_len(0) if mesh.get_surface_count() > 0 else 0
+		far_cards = (far_leaves as MeshInstance3D).mesh.surface_get_array_len(0)
+		# Lying on the lawn: nothing a truck could visibly drive through.
+		flat = box.size.y < 0.25 and box.position.y > -0.05
+	var sign_node: Node3D = _Streamer._rival_sign(1234)
+	var waiting: Node3D = _Streamer._waiting_owner(parcel, 1234)
+	parcel.add_child(waiting)
+	var alone := _Streamer.someone_passing(waiting)
+	# ...and does wave at a player coming up the street.
+	var passer := get_tree().get_first_node_in_group("players") as Node3D
+	var seen := false
+	if passer != null:
+		waiting.global_position = passer.global_position + Vector3(Constants.STREAM_WAVE_METERS * 0.5, 0.0, 0.0)
+		seen = _Streamer.someone_passing(waiting)
+	waiting.queue_free()
+	_verdict(flat and cards > 0 and far_cards > 0 and far_cards < cards and none == null and sign_node != null and not alone and seen, "stream build: a grown-back lawn's leaves lie flat %s (%d vertices near in %.1f ms, %d far), a clean lawn has none %s, the sign %s, the homeowner waits without waving at nobody %s and sees a player come by %s" % [flat, cards, leaves_ms, far_cards, none == null, sign_node != null, not alone, seen], problems)
+	if leaves != null:
+		leaves.free()
+	if far_leaves != null:
+		far_leaves.free()
+	if sign_node != null:
+		sign_node.free()
+	streamer.call("drop_levels_of", first)
+
+
 ## The house a town slot stands for is the house the job yard builds there:
 ## generate that house's yard (in its neighborhood) and compare its HouseBody
 ## with the walls art's HouseBuilder gives that house (request_for, the same
-## request the town's parcels make: gap-specs/critic.md C25). The town still
-## draws and collides its slots with fallback_house.gd's box until its streamer
-## builds them with art's LotBuilder (driving chunk E).
+## request the town's parcels make: gap-specs/critic.md C25). The town draws and
+## collides its slots with art's LotBuilder from the same request (driving chunk E).
 func _check_parity(world: Node, town: Node, problems: Array[String]) -> void:
 	var entry: Dictionary = town.call("house", PARITY_HOUSE)
 	var hood := TownMap.hood_id_of(PARITY_HOUSE)

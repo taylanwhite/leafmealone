@@ -1618,6 +1618,11 @@ func _ensure_set() -> void:
 	var zone := get_parent().get_node_or_null("BorderZone") as Node3D
 	if zone == null:
 		return
+	# The world builds the set over its first frames (levels/build_queue.gd):
+	# a visit that comes sooner gets the rest of the build now.
+	var built := zone.get_node_or_null("AnnexSet")
+	if built == null or not built.has_meta("built"):
+		preload("res://levels/build_queue.gd").finish(get_tree())
 	_set = zone.get_node_or_null("AnnexSet") as Node3D
 	if _set == null and not ResourceLoader.exists(SET_SCRIPT):
 		_set = _Greybox.build(zone, _seed)

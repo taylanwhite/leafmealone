@@ -14,6 +14,10 @@ const _Pedestrians = preload("res://npcs/pedestrians.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
 const _JobLot = preload("res://levels/lots/job_lot.gd")
 const _Cot = preload("res://props/cot.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
+## Preloaded, so its scripts compile when the world's do (at boot), not in the
+## middle of a join.
+const _AnnexB = preload("res://levels/annex/annex_b.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 ## How long a swapped-out yard has to leave every peer before the picked one loads.
 const LOT_SWAP_SECONDS: float = 0.4
@@ -49,6 +53,8 @@ func _ready() -> void:
 	add_to_group("world")
 	%RuntimeProps.add_to_group("runtime_props")
 	_junk_rng.randomize()
+	# First, so everything below can hand its building to it (levels/build_queue.gd).
+	add_child(_BuildQueue.new())
 	_add_chefty()
 	# The sun is set up by levels/shared_look.gd.
 	var director := preload("res://net/run_events/director.gd").new()
@@ -98,10 +104,19 @@ func _ready() -> void:
 	var hotbar := preload("res://net/components/hotbar.gd").new()
 	hotbar.name = "Hotbar"
 	add_child(hotbar)
-	_dress()
+	# The look before the dressing: the dressing is built over the next frames
+	# (_dress hands it to the BuildQueue), and every mesh it adds is restyled as
+	# it lands, like everything built after _ready always was.
 	_SharedLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
+	_dress()
+	# The host builds its world before anyone can be connected to it, so nobody
+	# waits on that frame: it builds it whole, now, and everything on it (tests
+	# included) finds the world as it always did. A joiner's ENet link is open
+	# while it builds, so its world comes over frames.
+	if Net.is_host():
+		_BuildQueue.finish(get_tree())
 	if town_map:
 		_drop_legacy_doors()
 	if not Net.is_host():
@@ -159,18 +174,26 @@ func _add_chefty() -> void:
 ## outline. Local on every peer. The angles keep each ride's route clear of trees:
 ## Chefty leaves the store east, arrives at the lot from the west, and the van
 ## leaves the lot northwest and arrives at the border from the southeast.
+## Built over the frames after _ready (levels/build_queue.gd), the store first,
+## where everyone spawns: a joining peer built all of this in one frame before,
+## 2-5 s, long enough for the host to drop it (docs/DECISIONS.md).
 func _dress() -> void:
-	_StoreDressing.dress($StoreZone)
-	_dress_annex()
+	add_child(preload("res://levels/outline_pass.gd").new())
+	# The town's colliders and its streamer's node now: physics needs the whole
+	# town solid from the first tick, and the job site hides slots on both.
+	if town_map:
+		add_child(preload("res://levels/town/town_colliders.gd").new())
+		add_child(preload("res://levels/town/town_streamer.gd").new())
+	_BuildQueue.later(self, func() -> void: _StoreDressing.dress($StoreZone), "store")
+	# Every shop's site, keeper and hours sign, where Constants.SHOP_SITES puts
+	# them (Marty behind the counter among them). Local on every peer: nothing
+	# about them is shared.
+	_BuildQueue.later(self, func() -> void: preload("res://levels/dressing/shop_sites.gd").dress(self), "shop_sites")
 	if town_map:
 		_dress_town()
 	else:
 		_dress_legacy()
-	add_child(preload("res://levels/outline_pass.gd").new())
-	# Every shop's site, keeper and hours sign, where Constants.SHOP_SITES puts
-	# them (Marty behind the counter among them). Local on every peer: nothing
-	# about them is shared.
-	preload("res://levels/dressing/shop_sites.gd").dress(self)
+	_BuildQueue.later(self, _dress_annex, "annex")
 
 
 ## Satellite Annex B in the BORDER zone's slot (levels/annex/annex_b.gd, R2
@@ -180,12 +203,11 @@ func _dress() -> void:
 ## its lanes still run on this pad, so the set stands but nothing in it is solid.
 func _dress_annex() -> void:
 	_Surroundings.dress($BorderZone, GRASS, 33, true, [0.15, 0.6, PI - 0.15, PI - 0.6])
-	var path := "res://levels/annex/annex_b.gd"
-	if not ResourceLoader.exists(path):
-		return
-	var annex_set: Node3D = load(path).call("build", $BorderZone, Constants.ANNEX_SET_SEED)
-	if get_node_or_null("BorderReturn") != null:
-		annex_set.call("set_solid", false)
+	_BuildQueue.later(self, func() -> void:
+		var annex_set: Node3D = _AnnexB.build($BorderZone, Constants.ANNEX_SET_SEED)
+		if get_node_or_null("BorderReturn") != null:
+			# After the set's own build steps, which run first (levels/build_queue.gd).
+			_BuildQueue.later(self, func() -> void: annex_set.call("set_solid", false), "annex solid"), "annex set")
 
 
 ## The connected town (net/town/town_map.gd, docs/GAME.md "Gutterford"): its
@@ -193,25 +215,25 @@ func _dress_annex() -> void:
 ## keeps its own dressing, grass, and walkers; the legacy lot street, the lot's
 ## surroundings, and the countryside drive aren't built, since the town is all
 ## of that.
+## Steps on the BuildQueue (levels/build_queue.gd); the colliders and the
+## streamer's node are made in _dress itself.
 func _dress_town() -> void:
-	var colliders := preload("res://levels/town/town_colliders.gd").new()
-	add_child(colliders)
-	preload("res://levels/town/town_dressing.gd").dress(self)
-	var streamer := preload("res://levels/town/town_streamer.gd").new()
-	add_child(streamer)
-	_StreetLife.dress_store($StoreZone)
-	_Grass.plant($StoreZone, 70.0, 0.52, 11)
-	_Pedestrians.populate($StoreZone, [
+	_BuildQueue.later(self, func() -> void: _StreetLife.dress_store($StoreZone), "store street life")
+	_BuildQueue.later(self, func() -> void: _Grass.plant($StoreZone, 70.0, 0.52, 11), "store grass")
+	_BuildQueue.later(self, func() -> void: _Pedestrians.populate($StoreZone, [
 		[Vector3(21.4, 0.1, -140.0), Vector3(21.4, 0.1, 140.0)],
 		[Vector3(32.6, 0.1, -140.0), Vector3(32.6, 0.1, 140.0)],
-	], 7, 11)
+	], 7, 11), "store walkers")
+	_BuildQueue.later(self, func() -> void: preload("res://levels/town/town_dressing.gd").dress(self), "town dressing")
 
 
+## Steps on the BuildQueue (levels/build_queue.gd).
 func _dress_legacy() -> void:
 	# No scenery tree in either street or on its sidewalks (R2b van: two pines stood
 	# in the lot street's far lane, and the Courtesy Shuttle swerved onto the lawn).
 	var near := _Neighborhood.SIDEWALK_NEAR.x - Constants.VAN_STREET_TREE_MARGIN
 	var across := _Neighborhood.SIDEWALK_FAR.y - _Neighborhood.SIDEWALK_NEAR.x + Constants.VAN_STREET_TREE_MARGIN * 2.0
+	# Their ground (solid, and what a job's block tints) now; their trees are steps.
 	_Surroundings.dress($StoreZone, GRASS, 11, false, [0.0], "grass", [Rect2(near, -400.0, across, 800.0)] as Array[Rect2])
 	_Surroundings.dress($LotZone, GRASS, 22, false, [PI * 0.75], "grass", [Rect2(-400.0, near, 800.0, across)] as Array[Rect2])
 	# The lot's street, neighbors, street life and grass come with each job yard:
@@ -220,18 +242,18 @@ func _dress_legacy() -> void:
 	# People out for a walk on the sidewalks (lot street at z 21.3 and 32.7 in the
 	# lot's space; the store's cross street at x 21.3 and 32.7).
 	# Grass on every lawn around the store.
-	_StreetLife.dress_store($StoreZone)
-	_Grass.plant($StoreZone, 70.0, 0.52, 11)
-	_Pedestrians.populate($LotZone, [
-		[Vector3(-110.0, 0.1, 21.4), Vector3(110.0, 0.1, 21.4)],
-		[Vector3(-110.0, 0.1, 32.6), Vector3(110.0, 0.1, 32.6)],
-	], 9, 22)
-	_Pedestrians.populate($StoreZone, [
+	_BuildQueue.later(self, func() -> void: _StreetLife.dress_store($StoreZone), "store street life")
+	_BuildQueue.later(self, func() -> void: _Grass.plant($StoreZone, 70.0, 0.52, 11), "store grass")
+	_BuildQueue.later(self, func() -> void: _Pedestrians.populate($StoreZone, [
 		[Vector3(21.4, 0.1, -140.0), Vector3(21.4, 0.1, 140.0)],
 		[Vector3(32.6, 0.1, -140.0), Vector3(32.6, 0.1, 140.0)],
-	], 7, 11)
+	], 7, 11), "store walkers")
+	_BuildQueue.later(self, func() -> void: _Pedestrians.populate($LotZone, [
+		[Vector3(-110.0, 0.1, 21.4), Vector3(110.0, 0.1, 21.4)],
+		[Vector3(-110.0, 0.1, 32.6), Vector3(110.0, 0.1, 32.6)],
+	], 9, 22), "lot walkers")
 	# The drive from Homie Depot to the town passes country, not a void.
-	preload("res://levels/dressing/countryside.gd").dress(self)
+	_BuildQueue.later(self, func() -> void: preload("res://levels/dressing/countryside.gd").dress(self), "countryside")
 
 
 ## The crew camp's cots by the store's side wall (props/cot.gd). Local on every
