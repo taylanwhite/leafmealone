@@ -3052,3 +3052,14 @@ const CLERK_FACE_EASE: float = 14.0
 const ANNEX_BIG_STAMP_HOLDER_HESITATE: float = 0.12
 ## The visitors' side door answers interact only this close (m).
 const ANNEX_SIDE_DOOR_REACH: float = 1.1
+## Staff ease out of people's way this fast (1/s).
+const CLERK_STAND_OFF_EASE: float = 8.0
+## How high (m) the hatch stamp winds up: Window D's volley, and closing's rush.
+const ANNEX_VOLLEY_LIFT: float = 0.45
+const ANNEX_RUSH_LIFT: float = 0.3
+## The blinds come down this long (s) after closing's last rush slam.
+const ANNEX_BLINDS_AFTER_RUSH: float = 0.3
+## A wrong-window clerk points this high (m) above the right window.
+const ANNEX_POINT_RISE: float = 2.5
+## A visitor's asks to leave: at most one this often (s).
+const ANNEX_LEAVE_ASK_GAP: float = 1.0

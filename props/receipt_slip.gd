@@ -44,6 +44,19 @@ static func show(lines: PackedStringArray, total_line: String, at: float, second
 	return show_for(me, lines, total_line, at, seconds, _Props.sees_first_person(me))
 
 
+## How many rows the slip prints for these lines: blank lead, header, a gap, the
+## lines, a gap, the total, a gap, footer (as Slip.build lays them out).
+static func row_count(lines: PackedStringArray) -> int:
+	var header := str(_Strings.ANNEX_SIGNS["receipt_header"]).split("\n").size()
+	var footer := str(_Strings.ANNEX_SIGNS["receipt_footer"]).split("\n").size()
+	return TOP_BLANK_LINES + header + 1 + lines.size() + 3 + footer
+
+
+## Seconds from `at` until the slip is pocketed and gone.
+static func duration(lines: PackedStringArray, seconds: float = 4.0) -> float:
+	return Constants.RECEIPT_LINE_SECONDS * float(row_count(lines)) + seconds + Constants.ANNEX_RECEIPT_POCKET
+
+
 static func show_for(player: Node3D, lines: PackedStringArray, total_line: String, at: float, seconds: float = 4.0, first_person: bool = true) -> Node3D:
 	var slip := Slip.new()
 	slip.name = "ReceiptSlip"

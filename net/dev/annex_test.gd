@@ -101,6 +101,14 @@ func _run() -> void:
 	_stand(client, _spot(annex, "Windows/%s/Counter" % window))
 	var served := await _until(func() -> bool: return int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped, 8.0)
 	_check("3 standing on window %s's counter gets the box stamped" % window, served, "stamped %d" % int((annex.call("form_of", client) as Dictionary)["stamped"]))
+	# R2b review: still on his spot watching the hand-back, the clerk who just
+	# served you doesn't turn round and call it the wrong window.
+	var after_serve := int(_AnnexScript.stats["wrong_windows"])
+	await get_tree().create_timer(Constants.ANNEX_SERVE_SECONDS + 2.0).timeout
+	_check("3 staying on window %s's counter after the serve is not a wrong window" % window, int(_AnnexScript.stats["wrong_windows"]) == after_serve, "wrong windows %d -> %d" % [after_serve, int(_AnnexScript.stats["wrong_windows"])])
+	# Off his spot: the next walk-up is a new visit (the wrong one may be him).
+	_stand(client, _spot(annex, "Threshold"))
+	await get_tree().create_timer(0.6).timeout
 	form = annex.call("form_of", client)
 	window = _Form.next_window(form)
 	var wrong := _other_window(window)

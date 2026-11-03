@@ -1151,20 +1151,54 @@ class Turnstile extends Prop:
 	var _push_progress: float = 0.0
 	var _push_clacked: bool = false
 	var _push_done: bool = false
+	## Whose push turns the arms (player node names); empty means anyone's. Only
+	## the players it was unlocked for: someone it wasn't for stops at the bar.
+	var _who: Array = []
+	## Server time it locks again (INF: until told, as at closing).
+	var _open_until: float = -1000.0
 
+	## Whether this prop dropped its own bar (an open for anyone).
+	var _unsealed: bool = false
+
+	## open args: {seconds} (a span, then it locks again; none: until "closed"),
+	## {who} (the player node names it turns for). Opened for named players, the
+	## bar's collider is not the prop's: annex.gd lets only its own local player
+	## through (_step_turnstile), so no one else walks through on their own peer.
+	## Opened for anyone (no who), it drops the bar itself.
 	func _begin(next: StringName, at: float, args: Dictionary) -> void:
 		match next:
 			&"open":
 				# Unlocked: the arms wait for a push, and turn with it.
 				_turn_from = _turned
-				_set_solid(false)
 				var seconds := float(args.get("seconds", 0.0))
+				var until := at + seconds if seconds > 0.0 else INF
+				var who: Array = args.get("who", [])
+				if who.is_empty() and not _unsealed:
+					_unsealed = true
+					_set_solid(false)
+				var still_open := at < _open_until
+				if still_open and _who.is_empty():
+					pass
+				elif still_open and not who.is_empty():
+					for name_id: Variant in who:
+						if not _who.has(name_id):
+							_who.append(name_id)
+				else:
+					_who = who.duplicate()
+				_open_until = maxf(until, _open_until if still_open else -1000.0)
 				_busy_until = maxf(_busy_until, at + (seconds if seconds > 0.0 else Constants.ANNEX_TURNSTILE_OPEN + 1.0))
 			&"bounce":
 				_turn_from = _turned
 				cue("turnstile_clunk", at)
 			&"closed":
-				_set_solid(true)
+				_open_until = -1000.0
+				_who = []
+				_push_progress = 0.0
+				_push_clacked = false
+				_push_done = false
+				if _unsealed:
+					_unsealed = false
+					_set_solid(true)
 
 	func _set_solid(on: bool) -> void:
 		var shape := _body.get_child(0) as CollisionShape3D
@@ -1196,14 +1230,17 @@ class Turnstile extends Prop:
 					_push_progress = 0.0
 					_push_clacked = false
 					_push_done = true
-				var seconds := float(state_args.get("seconds", 0.0))
-				if seconds > 0.0 and since >= seconds:
-					set_state(&"closed", state_at + seconds)
+				if t >= _open_until and _push_progress <= 0.0:
+					set_state(&"closed", minf(t, _open_until))
 					return false
 				return true
 			&"bounce":
 				var k := clampf(since / Constants.ANNEX_TURNSTILE_BOUNCE_SECONDS, 0.0, 1.0)
 				_arms.basis = Basis(Vector3.RIGHT, -PI * 0.25) * Basis(Vector3.UP, _turn_from + sin(k * PI * 3.0) * 0.12 * (1.0 - k))
+				if k >= 1.0 and t < _open_until:
+					# Someone bounced while it was unlocked for another: still theirs to push.
+					state = &"open"
+					return true
 				return k < 1.0
 		_spin(_turned)
 		return false
@@ -1218,6 +1255,8 @@ class Turnstile extends Prop:
 		for node: Node in get_tree().get_nodes_in_group("players"):
 			var person := node as Node3D
 			if person == null or not person.is_visible_in_tree():
+				continue
+			if not _who.is_empty() and not _who.has(str(person.name)):
 				continue
 			var local := global_transform.affine_inverse() * person.global_position
 			if absf(local.x) > half or local.z < Constants.ANNEX_TURNSTILE_PUSH.x - 0.2 or local.z > Constants.ANNEX_TURNSTILE_PUSH.y + 0.2:

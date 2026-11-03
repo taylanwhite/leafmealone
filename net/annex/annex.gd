@@ -607,6 +607,9 @@ func _do(item: Dictionary) -> void:
 				form = _Form.redirect(form, _redirect_window(window, form))
 				_bump(peer_id, "redirect")
 			stats["served"] = int(stats["served"]) + 1
+			# The clerk who just served you isn't a wrong window while you're still
+			# on his spot watching the hand-back (R2b review: he shook his head at you).
+			_wrong_seen[peer_id] = {"w": window}
 			_send_form(peer_id, form, float(item["hit"]), window)
 		"serve_done":
 			_serving.erase(str(item["window"]))
@@ -1192,7 +1195,7 @@ func _rpc_request_leave() -> void:
 	if not Net.is_host():
 		return
 	var peer_id := _sender()
-	if not _visitors.has(peer_id) or not _allow(peer_id, "leave", 1.0):
+	if not _visitors.has(peer_id) or not _allow(peer_id, "leave", Constants.ANNEX_LEAVE_ASK_GAP):
 		return
 	# Out the way they came in: through the door-swing iris, the move behind it
 	# (R2b: a hard cut of 983 m).
@@ -1335,6 +1338,9 @@ func _rpc_form(peer_id: int, form: Dictionary, at: float, source: String) -> voi
 		if tray != null and tray.has_method("set_state"):
 			tray.call("set_state", &"receive", at, {"from": body.global_position + Vector3(0.0, 1.2, 0.0)} if body != null else {})
 	if peer_id == Net.local_peer_id():
+		if SERVING.has(source) and _dwell_window == source:
+			# Served here: no asking this window again till we step off its spot.
+			_asked_wrong = source
 		_update_form_view(at, Constants.CLERK_VOLLEY_GAP if source == "D" else 0.0)
 
 
@@ -1378,7 +1384,11 @@ func _rpc_turnstile(peer_id: int, at: float, open: bool) -> void:
 	# Its sounds are its own (R2b): the clunk of a bounce, and one ratchet clack
 	# when someone pushes the arms round, not one per unlock.
 	if turnstile.has_method("set_state"):
-		turnstile.call("set_state", &"open" if open else &"bounce", at)
+		if open:
+			# Unlocked for the opener's push only, for as long as their pass takes.
+			turnstile.call("set_state", &"open", at, {"seconds": Constants.ANNEX_TURNSTILE_OPEN + Constants.ANNEX_TURNSTILE_PASS_SLACK, "who": [str(peer_id)]})
+		else:
+			turnstile.call("set_state", &"bounce", at)
 	if peer_id == Net.local_peer_id():
 		_gate_asked = true
 	if not open or peer_id != Net.local_peer_id():
@@ -1418,22 +1428,35 @@ func _rpc_closing(at: float, forms: Dictionary) -> void:
 	# The turnstile turns for everyone now.
 	var turnstile := _set_node("Turnstile")
 	if turnstile != null and turnstile.has_method("set_state"):
-		turnstile.call("set_state", &"open", at)
+		var who: Array = []
+		for peer_id: int in _roster:
+			who.append(str(peer_id))
+		turnstile.call("set_state", &"open", at, {"who": who})
 	# The rush (R2b): every hatch slams AFTER HOURS stamps in a volley, every
 	# clerk pumping (AFTER_HOURS), your empty boxes inking one per slam; AFTER
 	# HOURS lands across your form; then the blinds drop and the rows clunk off.
 	var rush := at + Constants.ANNEX_CLOSING_RUSH_AT
-	var rush_end := rush + Constants.ANNEX_STAMP_HIT + float(Constants.ANNEX_CLOSING_SLAMS) * Constants.ANNEX_CLOSING_RUSH_GAP
+	# The hatches slam at least once per empty box on any form closing approves,
+	# so no box inks after they've stopped (R2b review: 6-box forms inked silently).
+	var slams := Constants.ANNEX_CLOSING_SLAMS
+	for key: Variant in forms.keys():
+		var each: Dictionary = forms[key]
+		if bool(each.get("after_hours", false)):
+			slams = maxi(slams, (each["boxes"] as PackedStringArray).size() - int(each["stamped"]))
+	var rush_end := rush + Constants.ANNEX_STAMP_HIT + float(slams) * Constants.ANNEX_CLOSING_RUSH_GAP
 	for window: String in Constants.ANNEX_WINDOWS:
 		var piece := _set_node("Windows/%s" % window)
 		if piece != null and piece.has_method("set_state"):
 			if SERVING.has(window):
-				piece.call("set_state", &"stamp_down", rush, {"volley": Constants.ANNEX_CLOSING_SLAMS, "gap": Constants.ANNEX_CLOSING_RUSH_GAP, "lift": 0.3})
-			piece.call("set_state", &"blind_down", rush_end + 0.3)
+				piece.call("set_state", &"stamp_down", rush, {"volley": slams, "gap": Constants.ANNEX_CLOSING_RUSH_GAP, "lift": Constants.ANNEX_RUSH_LIFT})
+			piece.call("set_state", &"blind_down", rush_end + Constants.ANNEX_BLINDS_AFTER_RUSH)
 	_staff_play("Janitor", &"janitor_mop", at, {"path": _path_points("JanitorPath")})
-	if _forms.has(Net.local_peer_id()):
+	var mine: Dictionary = _forms.get(Net.local_peer_id(), {})
+	if not mine.is_empty():
 		_update_form_view(rush + Constants.ANNEX_STAMP_HIT, Constants.ANNEX_CLOSING_RUSH_GAP)
-		if _form_view != null and is_instance_valid(_form_view) and _form_view.has_method("approved_at"):
+		# AFTER HOURS only lands on a form this closing approved; one approved
+		# earlier is already stamped (R2b review: a KA-CHUNK on the bell, no stamp).
+		if bool(mine.get("after_hours", false)) and _form_view != null and is_instance_valid(_form_view) and _form_view.has_method("approved_at"):
 			var slam := float(_form_view.call("approved_at"))
 			_later(slam, func() -> void:
 				if _active:
@@ -1457,7 +1480,10 @@ func _rpc_through(peer_id: int, at: float, seconds: float, by_closing: bool, lin
 	_hide_form()
 	_show_receipt(lines, total, at)
 	# The quip waits until the slip is pocketed: a caption over it hid its total (R2b).
-	var after_slip := at + Constants.RECEIPT_LINE_SECONDS * float(lines.size() + 10) + Constants.ANNEX_RECEIPT_SECONDS + Constants.ANNEX_RECEIPT_POCKET
+	var slip_seconds := Constants.RECEIPT_LINE_SECONDS * float(lines.size() + 11) + Constants.ANNEX_RECEIPT_SECONDS + Constants.ANNEX_RECEIPT_POCKET
+	if ResourceLoader.exists(RECEIPT_SCRIPT):
+		slip_seconds = float(load(RECEIPT_SCRIPT).call("duration", lines, Constants.ANNEX_RECEIPT_SECONDS))
+	var after_slip := at + slip_seconds
 	var kind := "closing" if by_closing else ("fast" if seconds < Constants.ANNEX_FAST_SECONDS else "")
 	if kind != "":
 		_later(after_slip, func() -> void: _quip(kind, []))
@@ -1653,6 +1679,10 @@ func _reset_set() -> void:
 		if piece != null and piece.has_method("set_state"):
 			piece.call("set_state", &"clock_sign_off", Net.server_time())
 			piece.call("set_state", &"blind_down" if window == "D" else &"lamp_off", Net.server_time())
+	# Locked again for the next visit (R2b review: closing left it turning for anyone).
+	var turnstile := _set.get_node_or_null("Turnstile")
+	if turnstile != null and turnstile.has_method("set_state"):
+		turnstile.call("set_state", &"closed", Net.server_time())
 	var staff := _set.get_node_or_null("Staff")
 	if staff != null:
 		for member: Node in staff.get_children():
@@ -1890,7 +1920,7 @@ func _show_state(window: String, state: Dictionary) -> void:
 			# He points at the right window's plaque, its badge the one on your box.
 			var right_piece := _set_node("Windows/%s" % right_id) as Node3D
 			if right_piece != null:
-				play_args["to"] = right_piece.global_position + Vector3(0.0, 2.5, 0.0)
+				play_args["to"] = right_piece.global_position + Vector3(0.0, Constants.ANNEX_POINT_RISE, 0.0)
 			var line := _set_node("FloorLines/%s" % right_id)
 			if line != null and line.has_method("set_state"):
 				line.call("set_state", &"pulse", since)
@@ -1907,7 +1937,7 @@ func _show_state(window: String, state: Dictionary) -> void:
 		_Schedule.S.VOLLEY:
 			# Window D: he spins round, winds the stamp up high and slams every box
 			# left on the form, paper flying (R2b: silent, and he never moved).
-			_window_state_args(window, &"stamp_down", since, {"volley": maxi(int(args.get("n", 1)), 1), "first": Constants.ANNEX_VOLLEY_STAMP_AT + Constants.ANNEX_STAMP_HIT, "lift": 0.45, "gap": Constants.CLERK_VOLLEY_GAP})
+			_window_state_args(window, &"stamp_down", since, {"volley": maxi(int(args.get("n", 1)), 1), "first": Constants.ANNEX_VOLLEY_STAMP_AT + Constants.ANNEX_STAMP_HIT, "lift": Constants.ANNEX_VOLLEY_LIFT, "gap": Constants.CLERK_VOLLEY_GAP})
 		_Schedule.S.NOTICE:
 			_sound_at("babble", _window_spot(window, "Counter"), -3.0)
 		_Schedule.S.ASLEEP:

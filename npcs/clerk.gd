@@ -304,7 +304,7 @@ func _stand_off(delta: float) -> void:
 				push += away / d * (Constants.CLERK_STAND_OFF - d)
 		if parent != null:
 			push = parent.global_basis.inverse() * push
-	_avoid = _avoid.lerp(push, 1.0 - exp(-delta * 8.0))
+	_avoid = _avoid.lerp(push, 1.0 - exp(-delta * Constants.CLERK_STAND_OFF_EASE))
 	# _locomote sets the position afresh every tick while there's a route, so
 	# this never adds up; standing still, nothing moves him.
 	if not _route.is_empty():
