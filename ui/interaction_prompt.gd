@@ -103,7 +103,7 @@ static func on_screen(viewport: Viewport, at: Vector3) -> bool:
 		return false
 	var view := viewport.get_visible_rect().size
 	var px := camera.unproject_position(at)
-	var margin := Constants.R2B_HUD_SAFE_MARGIN * 2.0
+	var margin := Constants.R2C_HUD_PROMPT_EDGE
 	return px.x >= margin and px.y >= margin and px.x <= view.x - margin and px.y <= view.y - margin
 
 
@@ -130,7 +130,7 @@ func _over_panels(text: String, at: Vector3) -> bool:
 			if not control.is_visible_in_tree() or control.size.x <= 0.0 or control.size.y <= 0.0:
 				continue
 			var box := control.get_global_rect()
-			if box.size.x * box.size.y > view.x * view.y * 0.25:
+			if box.size.x * box.size.y > view.x * view.y * Constants.R2C_HUD_PANEL_HOLDER_SHARE:
 				continue
 			if rect.intersects(box):
 				return true

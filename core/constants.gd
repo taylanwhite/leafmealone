@@ -3657,3 +3657,26 @@ const R2C_HUD_QUIP_WAIT_MAX: float = 20.0
 ## gliding there at this rate (1/s).
 const R2C_HUD_QUIP_GOAL_GAP: float = 8.0
 const R2C_HUD_QUIP_GLIDE: float = 12.0
+## A bubble already up goes (fading) once the point over his head leaves the
+## picture or he comes closer than this (m): it no longer hangs pinned in a
+## corner. Across a camera cut it's gone at once. The view counts as cut when the
+## camera changes, or moves more than CUT_MOVE_M or turns more than CUT_TURN
+## (rad) in one frame.
+const R2C_HUD_BUBBLE_KEEP_M: float = 2.0
+const R2C_HUD_CUT_MOVE_M: float = 1.5
+const R2C_HUD_CUT_TURN: float = 0.8
+## A tag closing on another steps aside this much earlier for each px/s they
+## close at (times R2B_HUD_TAG_FADE), up to this many px more.
+const R2C_HUD_TAG_CLEAR_MAX: float = 120.0
+## The interact prompt isn't drawn within this far (px) of the screen's edge.
+const R2C_HUD_PROMPT_EDGE: float = R2B_HUD_SAFE_MARGIN * 2.0
+## A corner panel's piece bigger than this share of the screen is a holder, not
+## something drawn: the prompt doesn't count it as covered.
+const R2C_HUD_PANEL_HOLDER_SHARE: float = 0.25
+## A floating label's pixel size is only changed when it moves by more than this
+## share of its own (a new pixel size rebuilds its text's mesh).
+const R2C_HUD_FIT_STEP: float = 0.02
+## Balancing wrapped text: the narrowest width tried is this share of an even
+## split, and the width found gets this many px of slack (rounding).
+const R2C_HUD_BALANCE_FLOOR: float = 0.8
+const R2C_HUD_BALANCE_PAD: float = 2.0

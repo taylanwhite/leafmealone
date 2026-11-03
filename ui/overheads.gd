@@ -42,6 +42,13 @@ var _nudge: Dictionary = {}
 var _clear_since: Dictionary = {}
 ## Last frame's screen rects, for tests and the recorder: [{kind, rect, alpha}].
 var last_rects: Array[Dictionary] = []
+## R2c: the camera drawn last frame and where it was (bubbles go across a cut).
+var _last_camera: int = 0
+var _last_view: Transform3D = Transform3D.IDENTITY
+## R2c: each tag's screen centre last frame and its velocity on screen (px/s), so
+## a tag closing on another fast steps aside early enough (instance id -> value).
+var _tag_px: Dictionary = {}
+var _tag_vel: Dictionary = {}
 
 
 func _ready() -> void:
@@ -56,6 +63,7 @@ func _process(delta: float) -> void:
 	if camera == null or Net.current_state() != Net.State.IN_SESSION:
 		return
 	var view := get_viewport().get_visible_rect().size
+	var cut := _camera_cut(camera)
 	var bubbles: Array[Rect2] = []
 	# R2c: bubbles nearest first, so a farther one steps out of a nearer one's way.
 	var barks: Array[Dictionary] = []
@@ -73,7 +81,7 @@ func _process(delta: float) -> void:
 	for entry: Dictionary in barks:
 		var bark := entry["bark"] as Label3D
 		fit_size(bark, camera, view, Constants.R2C_HUD_BUBBLE_LINE_MIN, Constants.R2C_HUD_BUBBLE_LINE_MAX)
-		var rect := _place_bubble(bark, camera, view, delta, bubbles)
+		var rect := _place_bubble(bark, camera, view, delta, bubbles, cut)
 		if rect.size != Vector2.ZERO:
 			bubbles.append(rect)
 			last_rects.append({"kind": "bubble", "rect": rect, "alpha": 1.0 - bark.transparency, "text": bark.text})
@@ -93,6 +101,10 @@ func _process(delta: float) -> void:
 		tags.append({"tag": tag, "owner": entry["owner"], "hide": bool(entry["hide"]), "depth": depth, "rank": rank})
 	tags.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["rank"]) < float(b["rank"]))
 	var kept: Array[Rect2] = []
+	var kept_vel: Array[Vector2] = []
+	for rect: Rect2 in bubbles:
+		kept.append(rect)
+		kept_vel.append(Vector2.ZERO)
 	var seen: Dictionary = {}
 	# While the moment has you (held, escorted, in the van) nobody's name is
 	# needed on screen; in the Annex your crew's names are. R2c: nor while the
@@ -111,7 +123,12 @@ func _process(delta: float) -> void:
 		var near := 1.0
 		if entry["owner"] != null and (entry["owner"] as Node).is_in_group("players"):
 			near = smoothstep(Constants.R2C_HUD_TAG_NEAR_GONE_M, Constants.R2C_HUD_TAG_NEAR_FULL_M, float(entry["depth"]))
-		if bool(entry["hide"]) or not tag.visible or staged or near <= 0.0:
+		# R2c: drawn means drawn: a tag whose owner's Visual is hidden (a ghosted
+		# observer) is neither shown nor in anyone's way.
+		var drawn := tag.is_visible_in_tree()
+		var touching := false
+		var vel := Vector2.ZERO
+		if bool(entry["hide"]) or not drawn or staged or near <= 0.0:
 			want = 0.0
 		elif not in_front(camera, tag.global_position):
 			want = 0.0
@@ -119,15 +136,21 @@ func _process(delta: float) -> void:
 			# A readable size whatever the lens or the distance (R2c).
 			fit_size(tag, camera, view, Constants.R2C_HUD_TAG_LINE_MIN, Constants.R2C_HUD_TAG_LINE_MAX)
 			rect = screen_rect(tag, camera, view)
+			vel = _screen_velocity(id, rect, delta, cut)
 			if _blocked(tag, entry["owner"] as Node, camera):
 				want = 0.0
 			else:
 				# R2c: with room to spare, so a tag closing on another has faded
-				# before they touch (the fade used to finish over the other's letters).
-				for other: Rect2 in bubbles + kept:
-					if rect.grow(maxf(Constants.R2B_HUD_TAG_GAP, Constants.R2C_HUD_TAG_CLEAR)).intersects(other):
+				# before they touch (the fade used to finish over the other's letters):
+				# the faster the two close on screen, the earlier it steps aside.
+				for index: int in kept.size():
+					var other := kept[index]
+					var apart := rect.get_center() - other.get_center()
+					var closing := maxf(0.0, -(vel - kept_vel[index]).dot(apart.normalized())) if apart.length() > 0.5 else 0.0
+					var lead := minf(Constants.R2C_HUD_TAG_CLEAR_MAX, closing * Constants.R2B_HUD_TAG_FADE)
+					if rect.grow(maxf(Constants.R2B_HUD_TAG_GAP, Constants.R2C_HUD_TAG_CLEAR + lead)).intersects(other):
 						want = 0.0
-						break
+						touching = touching or rect.grow(Constants.R2B_HUD_TAG_GAP).intersects(other)
 		# R2c: a tag comes back only once it's been clear for a moment, so one
 		# grazing a hedge's edge or another tag doesn't blink half on and off.
 		var now := Time.get_ticks_msec()
@@ -139,17 +162,37 @@ func _process(delta: float) -> void:
 			if float(_shown.get(id, 0.0)) < 0.5 and now - int(_clear_since[id]) < int(Constants.R2C_HUD_TAG_DWELL * 1000.0):
 				want = 0.0
 		var shown := move_toward(float(_shown.get(id, want)), want, delta / Constants.R2B_HUD_TAG_FADE)
+		# Last resort (a cut, a head that jumped): letters never print on letters,
+		# even if the fade isn't done.
+		if touching:
+			shown = 0.0
 		_shown[id] = shown
 		tag.transparency = 1.0 - shown * near
 		# R2c: a tag still fading out holds its place too, so a farther one never
 		# fades in through it (two tags printed over each other).
-		if tag.visible and tag.modulate.a > 0.05 and rect.size != Vector2.ZERO and shown * near > 0.05:
+		if drawn and tag.modulate.a > 0.05 and rect.size != Vector2.ZERO and shown * near > 0.05:
 			kept.append(rect)
+			kept_vel.append(vel)
 			last_rects.append({"kind": "tag", "rect": rect, "alpha": shown * near * tag.modulate.a, "text": tag.text})
 	for id: Variant in _shown.keys():
 		if not seen.has(id):
 			_shown.erase(id)
 			_clear_since.erase(id)
+			_tag_px.erase(id)
+			_tag_vel.erase(id)
+
+
+## R2c: how a tag moves on screen (px/s, smoothed), from its rect's centre last
+## frame. Zero across a camera cut.
+func _screen_velocity(id: int, rect: Rect2, delta: float, cut: bool) -> Vector2:
+	var centre := rect.get_center()
+	var vel := Vector2.ZERO
+	if _tag_px.has(id) and not cut and delta > 0.0:
+		var now := (centre - (_tag_px[id] as Vector2)) / delta
+		vel = (_tag_vel.get(id, now) as Vector2).lerp(now, 0.5)
+	_tag_px[id] = centre
+	_tag_vel[id] = vel
+	return vel
 
 
 ## Whether this peer's own player is hidden (in a hedge, a bin, a shed, a pile).
@@ -181,7 +224,7 @@ static func fit_size(label: Label3D, camera: Camera3D, view: Vector2, lo: float,
 	if not label.fixed_size:
 		share /= maxf(0.05, camera.global_position.distance_to(label.global_position))
 	var want := base * _TextFit.clamp_scale(share, lo, hi)
-	if absf(label.pixel_size - want) > base * 0.02:
+	if absf(label.pixel_size - want) > base * Constants.R2C_HUD_FIT_STEP:
 		label.pixel_size = want
 
 
@@ -379,12 +422,14 @@ static func setup_tag(tag: Label3D) -> void:
 
 ## Puts a showing bubble back over his head, then nudges it (gliding) back
 ## inside the screen if it would hang off an edge. Returns its screen rect.
-func _place_bubble(bark: Label3D, camera: Camera3D, view: Vector2, delta: float, others: Array[Rect2] = []) -> Rect2:
+func _place_bubble(bark: Label3D, camera: Camera3D, view: Vector2, delta: float, others: Array[Rect2] = [], cut: bool = false) -> Rect2:
 	var parent := bark.get_parent() as Node3D
 	var home: Vector3 = bark.get_meta("r2b_home", bark.position)
 	var anchor := parent.to_global(home) if parent != null else bark.global_position
 	if not in_front(camera, anchor):
 		bark.position = home
+		_bubble_shown[bark.get_instance_id()] = 0.0
+		bark.transparency = 1.0
 		return Rect2()
 	var at := camera.unproject_position(anchor)
 	var size := text_size_px(bark, bark.text, camera, view)
@@ -410,12 +455,50 @@ func _place_bubble(bark: Label3D, camera: Camera3D, view: Vector2, delta: float,
 	# Drawn over the world (a roof or a tree never cuts a line in half), so it
 	# fades out instead while something solid stands between you and him.
 	var hidden := _blocked(bark, bark.get_parent().get_parent() if bark.get_parent() != null else null, camera)
-	var shown := move_toward(float(_bubble_shown.get(id, 0.0 if hidden else 1.0)), 0.0 if hidden else 1.0, delta / Constants.R2B_HUD_TAG_FADE)
+	# R2c: the bubble was chosen for the view when he spoke. Once his head leaves
+	# the picture or he's in your face, it goes instead of hanging pinned in a
+	# corner ("After you!" over the van's ceiling after the iris), and across a
+	# camera cut it's simply gone from the new shot, no fade.
+	var lost := not keeps_bubble(camera, anchor, view)
+	if cut and not lost:
+		# A new shot keeps it only as present() would have placed it there: his head
+		# well inside the picture and the bubble whole above it, unclamped.
+		var margin := Constants.R2B_HUD_SAFE_MARGIN
+		lost = rect.position.y < margin or at.x < margin or at.x > view.x - margin or at.y > view.y - margin
+	var shown := move_toward(float(_bubble_shown.get(id, 0.0 if hidden or lost else 1.0)), 0.0 if hidden or lost else 1.0, delta / Constants.R2B_HUD_TAG_FADE)
+	if cut and (lost or hidden):
+		shown = 0.0
 	_bubble_shown[id] = shown
 	bark.transparency = 1.0 - shown
 	if shown < 0.05:
 		return Rect2()
 	return Rect2(rect.position + nudge, rect.size)
+
+
+## R2c: whether a bubble already up still belongs in this view: the point over
+## his head is in the picture and he isn't in your face. (A bubble whose text
+## would hang off an edge still glides back inside: that's its anchor in view.)
+static func keeps_bubble(camera: Camera3D, anchor: Vector3, view: Vector2) -> bool:
+	if not in_front(camera, anchor):
+		return false
+	if camera.global_position.distance_to(anchor) < Constants.R2C_HUD_BUBBLE_KEEP_M:
+		return false
+	var at := camera.unproject_position(anchor)
+	return Rect2(Vector2.ZERO, view).has_point(at)
+
+
+## R2c: whether the view cut this frame (another camera, or this one jumped or
+## swung further than any move or turn would in a frame): the iris's cut into the
+## van, a stage shot taking over.
+func _camera_cut(camera: Camera3D) -> bool:
+	var xf := camera.global_transform
+	var cut := camera.get_instance_id() != _last_camera
+	if not cut:
+		var turned := (-_last_view.basis.z).angle_to(-xf.basis.z)
+		cut = _last_view.origin.distance_to(xf.origin) > Constants.R2C_HUD_CUT_MOVE_M or turned > Constants.R2C_HUD_CUT_TURN
+	_last_camera = camera.get_instance_id()
+	_last_view = xf
+	return cut
 
 
 ## How far (px) a bubble's rect must move to clear the rects already placed

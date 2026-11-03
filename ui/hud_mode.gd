@@ -17,7 +17,8 @@ extends RefCounted
 ## Stage shots that are the player's own view (hiding in a hedge or a pile: you
 ## still steer the peek), so they don't take the HUD away. R2c: and the eye's
 ## move back out of a hedge (hide_move): the dive keeps the HUD, so the climb
-## out does too (it used to blink the whole HUD out for 1.3 s).
+## out does too (it used to blink the whole HUD out for 1.3 s). Being pulled out
+## by a NICE BOY rides the same shot but is his moment (reason() checks it first).
 const OWN_SHOTS: Array[StringName] = [&"hide_peek", &"hide_orbit", &"hide_move"]
 
 ## R2c: per peer, the last stage shot seen on top, and when (msec) the moment
@@ -37,6 +38,11 @@ static func reason(tree: SceneTree, peer_id: int) -> StringName:
 	if me != null:
 		if me.has_method("is_control_locked") and bool(me.call("is_control_locked")):
 			return &"locked"
+		# R2c: hauled out by a NICE BOY is his moment, not your climb-out: the eye's
+		# move home (hide_move) is your own shot only when you climbed out yourself.
+		var hide_view := me.get_node_or_null("HideView")
+		if hide_view != null and hide_view.has_method("is_pulled") and bool(hide_view.call("is_pulled")):
+			return &"stage"
 		if me.has_method("stage_top"):
 			var top := StringName(me.call("stage_top"))
 			if top != &"" and not OWN_SHOTS.has(top):

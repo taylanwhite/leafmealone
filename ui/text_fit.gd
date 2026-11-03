@@ -16,17 +16,17 @@ static func balanced_width(font: Font, text: String, font_size: int, width: floa
 	var floor_w := 1.0
 	for word: String in text.split(" ", false):
 		floor_w = maxf(floor_w, font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x)
-	var lo := maxf(floor_w, width / float(want) * 0.8)
+	var lo := maxf(floor_w, width / float(want) * Constants.R2C_HUD_BALANCE_FLOOR)
 	var hi := width
 	if rows(font, text, font_size, lo) <= want:
-		return minf(width, ceilf(lo) + 2.0)
+		return minf(width, ceilf(lo) + Constants.R2C_HUD_BALANCE_PAD)
 	for _step: int in 12:
 		var mid := (lo + hi) * 0.5
 		if rows(font, text, font_size, mid) <= want:
 			hi = mid
 		else:
 			lo = mid
-	return minf(width, ceilf(hi) + 2.0)
+	return minf(width, ceilf(hi) + Constants.R2C_HUD_BALANCE_PAD)
 
 
 ## How many rows text wraps to at a width (px).

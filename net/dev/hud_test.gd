@@ -28,17 +28,24 @@ extends Node
 ##             nothing); free, they can.
 ##   apart     two bubbles at once don't touch; a narrow lens or a head a metre
 ##             off never makes a bubble line or a tag bigger than its cap.
-##   stack_seams  spoken lines in a row: never more lines drawn than the stack
-##             holds (a leaving one counted), never one twice, the newest always
-##             on; a wrapped line is balanced.
+##   held_seams  on the held client: spoken lines in a row with one on its way
+##             out: never more than R2B_HUD_CINEMATIC_LINES drawn (the leaving one
+##             counted), never one twice, the newest always on.
+##   stack_seams  the same in the yard (CAPTION_STACK_MAX); a wrapped line is
+##             balanced.
 ##   hedge     a hiding spot's leaves (no collider) hide a tag behind them.
-##   back      also: a corner quip triggered while held waits, and plays after.
+##   back      also: a corner quip triggered while held waits, and plays after
+##             (its line up in the corner).
+##   bubble_gone  a bubble that's up goes once his head leaves the picture (not
+##             pinned in a corner), and at once across a camera cut.
 ## Each step prints a [HudTest] line. The client reports its half by RPC.
 
 const _HudMode = preload("res://ui/hud_mode.gd")
 const _Overheads = preload("res://ui/overheads.gd")
 const _Prompt = preload("res://ui/interaction_prompt.gd")
 const _TextFit = preload("res://ui/text_fit.gd")
+const _Strings = preload("res://ui/strings.gd")
+const _QuipPlayer = preload("res://ui/quip_player.gd")
 const CLIENT_WAIT_SECONDS: float = 30.0
 const CAUGHT_WAIT_SECONDS: float = 15.0
 const BACK_WAIT_SECONDS: float = 10.0
@@ -47,7 +54,7 @@ const REPORT_WAIT_SECONDS: float = 10.0
 const FADE_SLACK: float = 0.25
 const CLEAR_METERS: float = 16.0
 ## Every step a passing run reports.
-const STEPS: Array[String] = ["free_host", "free", "caught", "stack", "back", "once", "clamp", "tags", "grab", "apart", "stack_seams", "hedge"]
+const STEPS: Array[String] = ["free_host", "free", "caught", "stack", "held_seams", "back", "once", "clamp", "tags", "grab", "apart", "stack_seams", "hedge", "bubble_gone"]
 const LONG_LINE :="This yard was selected for a random friendliness check! Please remain delightful."
 
 static var result: Dictionary = {}
@@ -71,8 +78,9 @@ var _prompt_free_frames: int = 0
 ## Every HudMode reason seen while held.
 var _reasons: Dictionary = {}
 var _held_last: bool = false
-## When this hold began (s), INF while free.
+## When this hold began (s), INF while free, and how much frame time has passed in it.
 var _held_since: float = INF
+var _held_for: float = 0.0
 ## R2c: a corner quip triggered while held was kept waiting.
 var _quip_waited: bool = false
 var _source: FakeSource = null
@@ -100,13 +108,13 @@ func _prompt_drawn() -> bool:
 	return label != null and label.is_visible_in_tree() and label.text != "" and label.transparency < 0.99
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not _started and get_tree().get_first_node_in_group("world") != null and _me() != null and get_tree().get_first_node_in_group("job_lot") != null:
 		_started = true
 		if Net.is_host():
 			_run_host()
 	if not Net.is_host():
-		_watch_client()
+		_watch_client(delta)
 
 
 # ---------------------------------------------------------------- client
@@ -121,7 +129,7 @@ func _alpha() -> float:
 
 
 ## The client's frames while it's held and let go.
-func _watch_client() -> void:
+func _watch_client(delta: float) -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	var why := _HudMode.reason(get_tree(), Net.local_peer_id())
 	var alpha := _alpha()
@@ -138,12 +146,20 @@ func _watch_client() -> void:
 			# (from the second held frame: the prompt may update after this node).
 			# R2c: the prompt fades out over R2C_HUD_PROMPT_FADE instead of
 			# vanishing in a frame, so it gets that long (and a frame) to be gone.
+			# Counted in the frames' own time, as the fade is: a loaded machine's
+			# long or clamped frames made wall time run ahead of it (a flaky fail).
 			var holding := why != &"" and why != &"annex"
+			var held_before := _held_for
 			if holding and _held_since == INF:
 				_held_since = now
+				_held_for = 0.0
+				held_before = 0.0
 			elif not holding:
 				_held_since = INF
-			if holding and _held_last and _prompt_drawn() and now - _held_since > Constants.R2C_HUD_PROMPT_FADE + 0.05:
+				_held_for = 0.0
+			else:
+				_held_for += delta
+			if holding and _held_last and _prompt_drawn() and held_before > Constants.R2C_HUD_PROMPT_FADE + 0.001:
 				_prompt_frames += 1
 			if why != &"":
 				_reasons[why] = true
@@ -282,6 +298,8 @@ func _stack_step() -> void:
 	stack.call("drop", radio)
 	stack.call("drop", spoken)
 	var receipt_ok := spoken_onset <= Constants.R2B_HUD_SUBTITLE_ONSET + 0.1 and blocked_kinds == ["subtitle"] and clear
+	await get_tree().create_timer(0.8).timeout
+	await _held_seams(stack)
 	# R2c: a corner quip triggered now waits for the moment to end (back step).
 	var quips := _ui().get_node_or_null("Quips") if _ui() != null else null
 	if quips != null:
@@ -289,6 +307,55 @@ func _stack_step() -> void:
 		_quip_waited = str(quips.call("waiting_trigger")) == "store_arrival"
 	var ok := onset <= Constants.R2B_HUD_SUBTITLE_ONSET + 0.1 and kinds.size() <= Constants.R2B_HUD_CINEMATIC_LINES and not kinds.has("quip") and kinds.count("subtitle") == 2 and low and plates and receipt_ok
 	_rpc_report.rpc_id(1, "stack", ok, "client: spoken line readable after %.3f s (want <= %.2f), shown %s (want two subtitles, no quip), low on the screen %s %s, plates %s; with a receipt up a spoken line after %.3f s, shown %s (want only the subtitle), clear of the receipt %s" % [onset, Constants.R2B_HUD_SUBTITLE_ONSET + 0.1, kinds, low, rects, plates, spoken_onset, blocked_kinds, clear])
+
+
+## R2c: the held stack's seams (the e2e takes' three lines and doubled line):
+## spoken lines in a row while held, the oldest dropped as each new one comes so
+## a line is on its way out, one said twice. Never more drawn than the held stack
+## holds (R2B_HUD_CINEMATIC_LINES, the leaving line counted), never one twice,
+## the newest always on.
+func _held_seams(stack: Node) -> void:
+	var most := int(stack.call("most_lines"))
+	var lines := ["Slow down! My lanyard's tangling!", "Hold STILL, please!", "Slow down! My lanyard's tangling!", "Ah-ah-AH!", "Gotcha! Have a NICE day!"]
+	var ids: Array[int] = []
+	var tally := {"crowded": 0, "doubled": 0, "leaving": 0, "most": 0}
+	for line: String in lines:
+		# The older of the two on screen starts on its way out, and the next line
+		# comes while it's still fading.
+		if ids.size() >= 2:
+			stack.call("drop", ids[ids.size() - 2])
+			await _tally_drawn(stack, most, tally, 3)
+		ids.append(int(stack.call("push", &"subtitle", line, 3.0)))
+		await _tally_drawn(stack, most, tally, 6)
+	var shown: Array = (stack.call("shown_lines") as Array).map(func(line: Dictionary) -> String: return str(line["text"]))
+	var newest_on := shown.has(lines[-1])
+	for id: int in ids:
+		stack.call("drop", id)
+	await get_tree().create_timer(0.6).timeout
+	var ok := most == Constants.R2B_HUD_CINEMATIC_LINES and int(tally["crowded"]) == 0 and int(tally["doubled"]) == 0 and newest_on and int(tally["leaving"]) > 0 and int(tally["most"]) == most
+	_rpc_report.rpc_id(1, "held_seams", ok, "client, held: the stack holds %d (want %d), at most %d drawn, %d crowded frames, %d doubled, a line on its way out on %d frames (want > 0), the newest on %s (%s)" % [most, Constants.R2B_HUD_CINEMATIC_LINES, int(tally["most"]), int(tally["crowded"]), int(tally["doubled"]), int(tally["leaving"]), newest_on, shown])
+
+
+## Over the next frames: the caption lines drawn (box shown, not faded out), how
+## many, whether one is on its way out, and any drawn twice.
+func _tally_drawn(stack: Node, most: int, tally: Dictionary, frames: int) -> void:
+	for frame: int in frames:
+		await get_tree().process_frame
+		var drawn: Array[String] = []
+		var leaving := false
+		for entry: Dictionary in stack.get("_lines"):
+			var box := entry["box"] as Control
+			if box.visible and float(entry["alpha"]) > 0.0:
+				drawn.append(str(entry["text"]))
+				leaving = leaving or not bool(entry["shown"])
+		tally["most"] = maxi(int(tally["most"]), drawn.size())
+		if leaving:
+			tally["leaving"] = int(tally["leaving"]) + 1
+		if drawn.size() > most:
+			tally["crowded"] = int(tally["crowded"]) + 1
+		for text: String in drawn:
+			if drawn.count(text) > 1:
+				tally["doubled"] = int(tally["doubled"]) + 1
 
 
 func _wait_back() -> void:
@@ -300,9 +367,18 @@ func _wait_back() -> void:
 	var want_max := Constants.R2B_HUD_RETURN_DELAY + Constants.R2B_HUD_FADE_IN + FADE_SLACK
 	await get_tree().create_timer(0.3).timeout
 	var quips := _ui().get_node_or_null("Quips") if _ui() != null else null
-	var quip_played := quips != null and str(quips.call("waiting_trigger")) == ""
+	# R2c: and it really played: the corner caption is up with its line (captions
+	# on), not just no longer waiting.
+	var caption := quips.get_node_or_null("Caption") as Label if quips != null else null
+	var want_line := ""
+	for row: Dictionary in _Strings.LINES:
+		if str(row["trigger"]) == "store_arrival":
+			want_line = _Strings.keyed(str(row["line"]))
+			break
+	var quip_shown := caption != null and caption.is_visible_in_tree() and want_line != "" and caption.text == want_line
+	var quip_played := quips != null and str(quips.call("waiting_trigger")) == "" and (quip_shown or not _QuipPlayer.captions_on())
 	var ok := _free_at != INF and _back_at != INF and took <= want_max and took >= Constants.R2B_HUD_RETURN_DELAY and _early_frames == 0 and _pop_frames == 0 and _quip_waited and quip_played
-	_rpc_report.rpc_id(1, "back", ok, "client: free %s, HUD back after %.2f s (want %.2f to %.2f), %d early frames, %d popping frames; a quip triggered while held waited %s and went once the HUD was back %s" % [_free_at != INF, took, Constants.R2B_HUD_RETURN_DELAY, want_max, _early_frames, _pop_frames, _quip_waited, quip_played])
+	_rpc_report.rpc_id(1, "back", ok, "client: free %s, HUD back after %.2f s (want %.2f to %.2f), %d early frames, %d popping frames; a quip triggered while held waited %s and played once the HUD was back %s (corner caption '%s')" % [_free_at != INF, took, Constants.R2B_HUD_RETURN_DELAY, want_max, _early_frames, _pop_frames, _quip_waited, quip_played, caption.text if caption != null and caption.visible else ""])
 	_phase = ""
 
 
@@ -650,8 +726,53 @@ func _seam_steps(camera: Camera3D, overheads: Node, stack: Node, eye: Vector3, a
 	await get_tree().create_timer(0.5).timeout
 	var leafed := tag.transparency >= 0.95
 	hedge.queue_free()
-	left.queue_free()
 	_step("hedge", open and leafed, "a tag in the open %s, behind a hedge's leaves %s (%.2f transparent)" % [open, leafed, tag.transparency])
+	await _bubble_gone_step(camera, overheads, left, eye, ahead, ground)
+	left.queue_free()
+
+
+## R2c (the escort's "After you!" pinned in a corner after the iris): a bubble
+## that's up goes once his head leaves the picture, comes back when it's in it
+## again, and is gone on the first frame of a cut to a shot without him.
+func _bubble_gone_step(camera: Camera3D, overheads: Node, crew: FakeCrew, eye: Vector3, ahead: Vector3, ground: float) -> void:
+	var view := get_viewport().get_visible_rect().size
+	var bark := crew.get_node("Visual/Bark") as Label3D
+	crew.global_position = Vector3(eye.x, ground, eye.z) + ahead * 9.0
+	_Overheads.setup_bubble(bark)
+	bark.text = "After you!"
+	bark.visible = true
+	await get_tree().create_timer(0.5).timeout
+	var up := bark.transparency <= 0.05 and _bubble_count(overheads) == 1
+	# Off the left edge of the picture, well past where his bubble could glide in.
+	var aside := camera.project_position(Vector2(-view.x * 0.4, view.y * 0.5), 9.0)
+	crew.global_position = Vector3(aside.x, ground, aside.z)
+	await get_tree().create_timer(0.5).timeout
+	var gone := bark.transparency >= 0.95 and _bubble_count(overheads) == 0
+	crew.global_position = Vector3(eye.x, ground, eye.z) + ahead * 9.0
+	await get_tree().create_timer(0.6).timeout
+	var back := bark.transparency <= 0.05
+	# A cut to another camera turned well away (he's still in front of it, just
+	# out of the picture): gone on its first frame, no fade.
+	var lens := Camera3D.new()
+	add_child(lens)
+	lens.global_position = eye
+	lens.look_at(eye + ahead.rotated(Vector3.UP, deg_to_rad(80.0)), Vector3.UP)
+	lens.current = true
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var cut_gone := bark.transparency >= 0.99 and _bubble_count(overheads) == 0
+	camera.current = true
+	lens.queue_free()
+	bark.visible = false
+	_step("bubble_gone", up and gone and back and cut_gone, "a bubble up %s; his head out of the picture, gone %s; back in it, back %s; across a cut, gone on the first frame %s" % [up, gone, back, cut_gone])
+
+
+func _bubble_count(overheads: Node) -> int:
+	var count := 0
+	for entry: Dictionary in overheads.get("last_rects"):
+		if str(entry["kind"]) == "bubble":
+			count += 1
+	return count
 
 
 func _fake(tag_text: String, at: Vector3, ground: float) -> FakeCrew:

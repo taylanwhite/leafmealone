@@ -326,7 +326,12 @@ func _cinematic_fade(delta: float) -> void:
 	# it sat over the peek), but stays: the job is still yours, and nothing pops
 	# when you climb out.
 	var hidden := _Overheads.local_hidden(get_tree()) if Net.current_state() == Net.State.IN_SESSION else false
-	_panel_dim = move_toward(_panel_dim, Constants.R2C_HUD_HIDDEN_PANEL_ALPHA if hidden else 1.0, delta * (1.0 - Constants.R2C_HUD_HIDDEN_PANEL_ALPHA) / Constants.R2C_HUD_HIDDEN_PANEL_FADE)
+	if hidden or _hud_reason == &"":
+		_panel_dim = move_toward(_panel_dim, Constants.R2C_HUD_HIDDEN_PANEL_ALPHA if hidden else 1.0, delta * (1.0 - Constants.R2C_HUD_HIDDEN_PANEL_ALPHA) / Constants.R2C_HUD_HIDDEN_PANEL_FADE)
+	elif _yard_alpha <= 0.0:
+		# Pulled out of the hedge: the panel stays dim while the HUD eases out (it
+		# used to brighten under his hands, then go), and is whole again for its return.
+		_panel_dim = 1.0
 	for name_of: String in YARD_HUD:
 		var node := get_node_or_null(name_of) as CanvasItem
 		if node != null:
