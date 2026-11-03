@@ -4,7 +4,8 @@ extends Node
 ## --sim-lag=150 --sim-loss=2 --rake-net-test). Both peers run this node; the host
 ## drives and cues the client through this node's own RPCs.
 ##
-## Host: the golden density rules (net/dev/leaf_golden.gd) first; then its own
+## Host: the golden density rules (net/dev/leaf_golden.gd) and what the windrow
+## rule promises (net/dev/rake_field_rules.gd, rakefeel:field) first; then its own
 ## stroke (one event, local, leaves_changed the same frame) and 3 s of a running
 ## mower (at most 11 mulch events a second; the client checks every batch that
 ## takes leaves away came after mulch events, acked by it, that add up to exactly
@@ -26,6 +27,7 @@ extends Node
 ## to build/r1/net/. Each step prints a [RakeNetTest] line.
 
 const _Golden = preload("res://net/dev/leaf_golden.gd")
+const _Rules = preload("res://net/dev/rake_field_rules.gd")
 const _FieldScript: Script = preload("res://net/leaf_field/leaf_field.gd")
 const LANE_X_STROKES: int = 30
 const LANE_Z_STROKES: int = 20
@@ -125,10 +127,15 @@ func _run_host(lot: Node3D) -> void:
 	await get_tree().create_timer(2.0).timeout
 	var field := _field()
 	var mate := _mate_id()
-	# 1. The density rules are 0.4.5's.
+	# 1. The density rules are the recorded ones (the windrow since rakefeel:field),
+	# and they behave like a rake: symmetric, head-wide, a growing berm, piles.
 	var golden := _Golden.run(self)
 	_step("golden", bool(golden["ok"]), str(golden.get("why", "")))
 	result["golden"] = {"hash": golden["hash"], "leaf_units": golden["leaf_units"], "cleaned": golden["cleaned"]}
+	var rules := _Rules.run(self)
+	_step("windrow_rules", bool(rules["ok"]), str(rules.get("why", "")))
+	result["windrow_rules"] = rules["numbers"]
+	print("[RakeNetTest] windrow numbers %s" % JSON.stringify(rules["numbers"]))
 	var spots := _pick_spots(field)
 	if spots.is_empty():
 		_finish_host("no room on this yard for the test's lanes")
@@ -512,10 +519,16 @@ func _rake(field: Node, at: Vector3, dir: Vector3, bite: int, width: float = Con
 	_track()
 	var me := Net.local_peer_id()
 	var in_reach := bool(field.call("_player_in_reach", me, at))
+	var inside := bool(field.call("_inside_grid", at))
 	var params: Dictionary = field.call("_stroke_params", me, width, strength)
 	var moved := int(field.call("request_rake", at, dir, width, strength, bite, TEMPO))
-	if in_reach and _reference != null:
-		_reference.call("_stroke_cells", at, dir, float(params["width"]), float(params["strength"]), int(params["cells"]))
+	if inside and _reference != null:
+		# The reference keeps its own drag record, as the client and the host do:
+		# every request counts, a refused one too (rakefeel:field).
+		var drag := float(_reference.call("_stroke_drag", me, at, dir))
+		if in_reach:
+			var rule_bite := bite if str(params["kind"]) == "rake" else -1
+			_reference.call("_stroke_cells", at, dir, float(params["width"]), float(params["strength"]), int(params["cells"]), drag, rule_bite)
 	_expect(field)
 	return moved
 
@@ -543,6 +556,7 @@ func _start_tracking(field: Node) -> void:
 		_reference.global_transform = (field as Node3D).global_transform
 		_reference.set("_density", (field.get("_density") as PackedByteArray).duplicate())
 		_reference.set("_clean_at_start", int(field.get("_clean_at_start")))
+		_reference.set("_last_strokes", (field.get("_last_strokes") as Dictionary).duplicate(true))
 	_expected = (field.get("_density") as PackedByteArray).duplicate()
 	_raised = PackedByteArray()
 	_raised.resize(_expected.size())

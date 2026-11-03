@@ -16,8 +16,8 @@ const _YardModels = preload("res://props/yard_models.gd")
 enum State { FIND, WALK, RAKE, BAG, HAUL, REST, BOARD }
 
 const HAND_BAG_AT := Vector3(0.0, 0.55, 0.4)
-## The step after the pile (m) glides over the swing's way back, from this phase on.
-const STEP_AFTER_PILE: float = 0.18
+## The step after each stroke (m) glides over the swing's way back, from this phase on.
+const STEP_AFTER_PILE: float = Constants.HIRE_STEP_AFTER_STROKE
 const GLIDE_FROM: float = 0.7
 ## How fast a hand turns to face the way it rakes (rad/s).
 const TURN_SPEED: float = Constants.HIRE_TURN_SPEED

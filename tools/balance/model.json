@@ -2,8 +2,8 @@
   "_about": "Assumptions tools/balance_sim.py needs that are not game tuning: how fast people work, how they choose, and the thresholds the checks hold. The game never reads this file. Every entry has a source: 'guess' (nobody has measured it yet), a doc, a game file it mirrors by hand, or 'calibrated <date>' once balance:G measures it. A value 'const:Script.NAME.key' is read from the game's scripts; 'model:name' is another entry here. See docs/BALANCE.md.",
 
   "leaf_rate_yard_per_min": {
-    "value": [0.055, 0.09, 0.11, 0.12],
-    "source": "guess, by crew size 1..4: a regular full yard's leaves per wall-clock minute with the job's one rake, bags and hauling (utilization already in). Matches docs/FUN.md's 6 to 12 minute jobs for 2 to 4 people."
+    "value": [0.0435, 0.0787, 0.0996, 0.1112],
+    "source": "guess, by crew size 1..4: a regular full yard's leaves per wall-clock minute with the job's one rake, bags and hauling (utilization already in); was [0.055, 0.09, 0.11, 0.12], matching docs/FUN.md's 6 to 12 minute jobs for 2 to 4 people. Calibrated 2026-11-02 by tools/rake_pace.gd for the windrow rule (rakefeel:field): a job with bagging and hauling at a walking pace takes 1.27x as long as with 0.4.7's 3.2 m stroke (785 s -> 995 s), so the rake's part of each rate (rake_share) is x0.79 and the rest is unchanged."
   },
   "leafable_share": {
     "value": 0.85,
