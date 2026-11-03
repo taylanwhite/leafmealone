@@ -638,6 +638,8 @@ const SHOP_SITES: Dictionary = {
 	"homie_depot": {
 		"zone": "StoreZone", "counter": Vector3(0.0, 0.0, -8.0), "keeper": Vector3(0.0, 0.0, -9.3),
 		"yaw": 0.0, "area": Rect2(8.5, -16.5, 9.0, 7.0),
+		# The walk-in lobby (art chunk 8): its tool endcaps sell from inside it too.
+		"lobby": Rect2(-20.0, -7.0, 10.0, 10.0),
 	},
 	"rustys": {
 		"zone": "StoreZone", "counter": Vector3(15.2, 0.0, -4.5), "keeper": Vector3(16.4, 0.0, -4.5),
@@ -1150,7 +1152,17 @@ const STORE_LAYOUT: Dictionary = {
 	"depot_safe_sign": {"owner": "driving", "rect": Rect2(18.6, 12.4, 1.6, 1.4), "at": Vector3(19.4, 0.0, 13.1), "yaw": PI * 0.5},
 	"mulch_bin": {"owner": "driving", "rect": Rect2(4.9, 9.4, 2.6, 2.6), "at": Vector3(6.2, 0.0, 10.7), "yaw": 0.0},
 	"pylon": {"owner": "art", "rect": Rect2(18.0, -14.5, 2.0, 2.0), "at": Vector3(19.0, 0.0, -13.5), "yaw": PI * 0.5},
-	"propane_cage": {"owner": "art", "rect": Rect2(-9.6, -9.8, 2.0, 2.6), "at": Vector3(-8.6, 0.0, -8.5), "yaw": PI * 0.5},
+	# Faces the lot (+X), its back to the store wall.
+	"propane_cage": {"owner": "art", "rect": Rect2(-9.6, -9.8, 2.0, 2.6), "at": Vector3(-8.6, 0.0, -8.5), "yaw": -PI * 0.5},
+	# The walk-in lobby's front (art chunk 8): the orange entrance block the doors
+	# are in, its canopy on two posts, and the bollards before the sidelights.
+	"store_entrance": {"owner": "art", "rect": Rect2(-12.0, -7.0, 4.8, 10.0)},
+	# Mulch, soil and the season's pallets beside the garden center.
+	"garden_yard": {"owner": "art", "rect": Rect2(3.0, -19.6, 5.2, 4.6)},
+	# The season's stock along the store front (pumpkins and hay, the holiday-tree
+	# lot and SNOW-B-GONE, flower flats, kiddie pools and grills).
+	"seasonal_display": {"owner": "art", "rect": Rect2(-12.0, 6.4, 2.8, 6.4)},
+	"cart_corral_east": {"owner": "art", "rect": Rect2(8.6, -6.0, 1.8, 4.8), "at": Vector3(9.5, 0.0, -3.6), "yaw": 0.0},
 }
 
 # ---- driving: Chefty (driving chunk C1, net/components/chefty_drive.gd and
@@ -2613,7 +2625,9 @@ const ART_YARD_MAX_VISUALS: int = 177
 const ART_NEIGHBOR_LEAF_PATCHES: int = 3
 const ART_STRING_LIGHT_SPACING: float = 0.45
 const ART_GRASS_WINTER_SPACING_SCALE: float = 1.6
-const ART_DOOR_OPEN_DISTANCE: float = 3.2
+## The sliding doors part for anyone this close to the doorway (m), over this
+## long (s). Walking (5 m/s) from a standstill just outside, you meet them open.
+const ART_DOOR_OPEN_DISTANCE: float = 4.2
 const ART_DOOR_OPEN_SECONDS: float = 0.5
 ## Chefty's lane in lot space (x, z, width, depth), kept clear of props.
 const ART_CHEFTY_LANE: Rect2 = Rect2(-75.0, 22.6, 83.0, 4.4)
@@ -2629,6 +2643,34 @@ const ART_HOUSE_FRONT_REACH: float = 2.6
 ## piece of one worth keeping after it is split around them, in meters.
 const ART_HOUSE_LINE_CLEARANCE: float = 0.1
 const ART_HOUSE_MIN_LINE: float = 0.4
+
+# ---- art:8 Homie Depot's walk-in lobby and lot, and the country road
+# (levels/dressing/store_dressing.gd, store_interior.gd, props/sliding_doors.gd,
+# levels/dressing/countryside.gd; docs/GAME.md "Homie Depot, inside and out").
+## The sliding doors: how long someone must be near before they part (the
+## sensor's beat), how long everyone must be clear before they close, how far
+## ahead a runner is seen (s of their speed), and how much quieter the closing
+## hiss is than the opening one (dB). Distance and slide time are ART_DOOR_* above.
+const ART_DOOR_SENSE_SECONDS: float = 0.06
+## The opening slide's curve is skewed this early (t^skew into a smootherstep):
+## under 1 it gets going sooner and still eases into its stop.
+const ART_DOOR_OPEN_SKEW: float = 0.7
+const ART_DOOR_HOLD_SECONDS: float = 1.1
+const ART_DOOR_LEAD_SECONDS: float = 0.35
+const ART_DOOR_CLOSE_DB: float = -5.0
+## The doorway: its width (four abreast fit through) and height (m).
+const ART_DOOR_WIDTH: float = 5.0
+const ART_DOOR_HEIGHT: float = 3.0
+## The lobby's ceiling lights: how far they reach (m) and how bright.
+const ART_LOBBY_LIGHT_RANGE: float = 7.0
+const ART_LOBBY_LIGHT_ENERGY: float = 1.1
+## How bright the ceiling's glow panels are.
+const ART_LOBBY_PANEL_ENERGY: float = 1.4
+## The country road's power line: a pole every this many meters this far off the
+## road's middle, the wires merged into one mesh per this many meters of road.
+const ART_COUNTRY_POLE_SPACING: float = 40.0
+const ART_COUNTRY_POLE_OFFSET: float = 6.5
+const ART_COUNTRY_WIRE_RUN: float = 200.0
 
 # ---- shops: tiers and consumables in play
 # Tool tiers and the crew's bags and gas at work (gap shops chunk 3; the rest of

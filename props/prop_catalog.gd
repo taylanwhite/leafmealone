@@ -4,7 +4,8 @@ extends RefCounted
 ## the neighborhood looks: street furniture and vehicles (props/street_props.gd),
 ## yard clutter and fence runs (props/yard_extras.gd), estate, HOA and
 ## waterfront pieces (props/estate_props.gd), and seasonal decor
-## (props/season_props.gd), with props/yard_models.gd as the fallback for the
+## (props/season_props.gd), Homie Depot's stock and fixtures
+## (props/store_props.gd), with props/yard_models.gd as the fallback for the
 ## older kinds (gnome, hedge, shed, ...). Nothing here is networked: every peer
 ## builds the same meshes from the same kind, color and size.
 ##
@@ -32,12 +33,14 @@ const _Street = preload("res://props/street_props.gd")
 const _Yard = preload("res://props/yard_extras.gd")
 const _Estate = preload("res://props/estate_props.gd")
 const _Season = preload("res://props/season_props.gd")
+# Homie Depot's own pieces (art chunk 8).
+const _Store = preload("res://props/store_props.gd")
 const _Water = preload("res://props/water_surface.gd")
 const _P = preload("res://props/prop_parts.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Neighborhoods = preload("res://net/town/neighborhoods.gd")
 
-const BUILDERS: Array = [_Street, _Yard, _Estate, _Season]
+const BUILDERS: Array = [_Street, _Yard, _Estate, _Season, _Store]
 
 ## Kinds that only look right through place() (they carry a glow, water, a
 ## required label, or bulbs). Everything else is SIMPLE.

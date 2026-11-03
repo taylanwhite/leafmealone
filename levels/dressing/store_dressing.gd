@@ -19,7 +19,38 @@ const _Stylized = preload("res://props/stylized.gd")
 const _Grass = preload("res://props/grass.gd")
 const _ShelfStock = preload("res://props/shelf_stock.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
+const _StoreInterior = preload("res://levels/dressing/store_interior.gd")
+const _PropBatch = preload("res://props/prop_batch.gd")
+const _PropCatalog = preload("res://props/prop_catalog.gd")
+const _StoreProps = preload("res://props/store_props.gd")
+const _SeasonStock = preload("res://levels/dressing/store_season_stock.gd")
+const _Strings = preload("res://ui/strings.gd")
+const _P = preload("res://props/prop_parts.gd")
 const WALL := Color(0.86, 0.8, 0.66)
+const BLOCK := Color(0.66, 0.65, 0.62)
+const FRAME := Color(0.72, 0.74, 0.76)
+## The building, in StoreZone space: its front wall's x, its back's, the z it
+## runs between, and the height of its walls; the cinder-block base's height.
+const FRONT_X: float = -12.0
+const BACK_X: float = -34.0
+const SHELL_Z := Vector2(-19.0, 15.0)
+const SHELL_HEIGHT: float = 8.0
+const BLOCK_BASE_HEIGHT: float = 1.2
+## The orange entrance block: its height, its side walls' thickness, and where
+## its glass transom stops and the orange header starts.
+const ENTRANCE_HEIGHT: float = 10.5
+const ENTRANCE_WALL: float = 0.4
+const TRANSOM_TOP: float = 4.4
+## The bollards stand before the two sidelights, at this x.
+const BOLLARD_X: float = -8.6
+const BOLLARDS_Z: Array[float] = [-6.4, -5.2, 1.2, 2.4]
+## The pallets in the garden yard (Constants.STORE_LAYOUT "garden_yard"): kind,
+## where, and the yaw.
+const GARDEN_PALLETS: Array = [
+	["mulch_pallet", Vector3(3.75, 0.0, -18.95), 0.0], ["mulch_pallet", Vector3(5.05, 0.0, -18.95), 0.04],
+	["mulch_pallet", Vector3(6.35, 0.0, -18.95), -0.03], ["soil_pallet", Vector3(7.55, 0.0, -18.9), PI * 0.5],
+	["mulch_pallet", Vector3(3.75, 0.0, -17.7), 0.03], ["soil_pallet", Vector3(5.05, 0.0, -17.7), -0.05],
+]
 const ROOF := Color(0.3, 0.32, 0.36)
 const ORANGE := Color(0.95, 0.5, 0.15)
 const DARK := Color(0.16, 0.17, 0.2)
@@ -47,6 +78,8 @@ static func dress(zone: Node3D) -> void:
 	root.name = "Dressing"
 	zone.add_child(root)
 	_BuildQueue.later(root, func() -> void: _building(root), "store building")
+	_BuildQueue.later(root, func() -> void: _StoreInterior.dress(root, zone), "store lobby")
+	_BuildQueue.later(root, func() -> void: _lot_extras(root), "store lot extras")
 	_BuildQueue.later(root, func() -> void: _garden_center(root), "store garden")
 	_parking(root)
 	_BuildQueue.later(root, func() -> void: _checkout(root, zone), "store checkout")
@@ -76,36 +109,148 @@ static func dress(zone: Node3D) -> void:
 		_BuildQueue.later(root, func() -> void: _Trees.spawn(root, Vector3(36.0, 0.0, float(z)), tall, "broadleaf", crown, int(z), false, turn), "store tree")
 
 
-## A big box store: walls, a flat roof with a parapet, an orange band, a tall
-## orange entrance with sliding doors, windows, and the name in big letters.
+## A big box store: a shell of corrugated metal over a cinder-block base, a flat
+## roof with a parapet, an orange band, display windows, and the tall orange
+## entrance block with the name in big letters. The shell is solid boxes around
+## the walk-in lobby (levels/dressing/store_interior.gd, art chunk 8): you walk
+## through the entrance block's sliding doors (between two glass sidelights,
+## under a glass transom and the canopy) into the room behind it.
 static func _building(root: Node3D) -> void:
-	var front := -12.0
-	var depth := 22.0
-	var center_x := front - depth * 0.5
-	# The part inside the pad is solid; the rest is out of reach anyway.
-	_LowPoly.paint(_LowPoly.box(root, Vector3(depth, 8.0, 34.0), Vector3(center_x, 4.0, -2.0), WALL, true), "concrete")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(depth + 0.4, 0.9, 34.4), Vector3(center_x, 8.4, -2.0), ROOF.lightened(0.15)), "concrete")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(0.25, 1.2, 34.0), Vector3(front + 0.1, 6.6, -2.0), ORANGE), "metal")
-	# Wall panel seams every few meters.
-	for z: float in range(-18, 15, 4):
-		_LowPoly.box(root, Vector3(0.06, 8.0, 0.08), Vector3(front + 0.04, 4.0, float(z)), WALL.darkened(0.12))
-	# The entrance block juts out, taller than the rest, all in orange.
-	var entrance := Vector3(front + 1.0, 0.0, -2.0)
-	_LowPoly.paint(_LowPoly.box(root, Vector3(2.0, 10.5, 10.0), entrance + Vector3(0.0, 5.25, 0.0), ORANGE, true), "metal")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(2.4, 0.5, 10.4), entrance + Vector3(0.0, 10.6, 0.0), ORANGE.darkened(0.15)), "metal")
-	_LowPoly.text_sign(root, "HOMIE DEPOT", entrance + Vector3(1.05, 7.6, 0.0), 230, Color.WHITE, PI * 0.5)
-	_LowPoly.box(root, Vector3(0.12, 4.0, 6.0), entrance + Vector3(1.0, 2.0, 0.0), DARK)
-	for z: float in [-1.4, 1.4]:
-		_LowPoly.window(root, 2.5, 3.4, entrance + Vector3(1.07, 1.8, z), DARK, PI * 0.5)
-	_LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.3, 8.0), entrance + Vector3(2.4, 4.4, 0.0), ORANGE.lightened(0.05)), "metal")
-	for z: float in [-3.7, 3.7]:
-		_LowPoly.paint(_LowPoly.cylinder(root, 0.14, 4.4, entrance + Vector3(3.6, 2.2, z), DARK, false, 10), "metal")
-	# Display windows along the front.
+	var front := FRONT_X
+	var room := _StoreInterior.ROOM
+	# The shell, solid: the back of the store, the two wings either side of the
+	# lobby, and the block over the lobby's ceiling.
+	_shell(root, Rect2(BACK_X, SHELL_Z.x, room.position.x - BACK_X, SHELL_Z.y - SHELL_Z.x), 0.0)
+	_shell(root, Rect2(room.position.x, SHELL_Z.x, front - room.position.x, room.position.y - SHELL_Z.x), 0.0)
+	_shell(root, Rect2(room.position.x, room.end.y, front - room.position.x, SHELL_Z.y - room.end.y), 0.0)
+	_shell(root, Rect2(room.position.x, room.position.y, front - room.position.x, room.size.y), _StoreInterior.CEILING + 0.2)
+	var depth := front - BACK_X
+	var center_x := (front + BACK_X) * 0.5
+	var middle_z := (SHELL_Z.x + SHELL_Z.y) * 0.5
+	var length := SHELL_Z.y - SHELL_Z.x
+	var roof := _LowPoly.paint(_LowPoly.box(root, Vector3(depth + 0.4, 0.9, length + 0.4), Vector3(center_x, SHELL_HEIGHT + 0.4, middle_z), ROOF.lightened(0.15)), "concrete")
+	# What the studio's store_lobby cutaway lifts off (tools/studio/studio.gd).
+	roof.add_to_group("store_roof")
+	_LowPoly.paint(_LowPoly.box(root, Vector3(0.25, 1.2, length), Vector3(front + 0.12, 6.6, middle_z), ORANGE), "metal")
+	_entrance(root)
+	# Display windows along the front, over the block base.
 	for z: float in [-15.0, -11.0, 7.0, 11.0]:
-		_LowPoly.window(root, 3.0, 2.0, Vector3(front + 0.03, 2.2, z), Color(0.85, 0.85, 0.82), PI * 0.5)
-	# A low concrete walk along the front.
-	_LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.15, 34.0), Vector3(front + 1.5, 0.05, -2.0), Color(0.72, 0.7, 0.66)), "concrete")
+		_LowPoly.window(root, 3.0, 2.0, Vector3(front + 0.08, 2.5, z), Color(0.85, 0.85, 0.82), PI * 0.5)
+	# A low concrete walk along the front, either side of the entrance block,
+	# and the apron in front of its doors.
+	var walk := Color(0.72, 0.7, 0.66)
+	for span: Vector2 in [Vector2(SHELL_Z.x, room.position.y), Vector2(room.end.y, SHELL_Z.y)]:
+		_LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.08, span.y - span.x), Vector3(front + 1.5, 0.0, (span.x + span.y) * 0.5), walk), "concrete")
+	_LowPoly.paint(_LowPoly.box(root, Vector3(1.0, 0.08, room.size.y), Vector3(room.end.x + 0.5, 0.0, room.get_center().y), walk), "concrete")
 	_carts(root, CART_CORRAL_AT)
+
+
+## One solid block of the shell over rect (x, z), from y bottom to the roof:
+## corrugated metal above a cinder-block base (just the metal when it starts up
+## high), with one collider.
+static func _shell(root: Node3D, rect: Rect2, bottom: float) -> void:
+	var height := SHELL_HEIGHT - bottom
+	var center := Vector3(rect.get_center().x, bottom + height * 0.5, rect.get_center().y)
+	var body := StaticBody3D.new()
+	body.name = "Shell"
+	root.add_child(body)
+	body.position = center
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(rect.size.x, height, rect.size.y)
+	shape.shape = box
+	body.add_child(shape)
+	if bottom > 0.0:
+		_LowPoly.paint(_LowPoly.box(body, box.size, Vector3.ZERO, WALL), "corrugated")
+		body.add_to_group("store_roof")
+		return
+	var base := BLOCK_BASE_HEIGHT
+	_LowPoly.paint(_LowPoly.box(body, Vector3(rect.size.x, height - base, rect.size.y), Vector3(0.0, base * 0.5, 0.0), WALL), "corrugated")
+	# The block base stands a hair proud of the metal, all round.
+	_LowPoly.paint(_LowPoly.box(body, Vector3(rect.size.x + 0.06, base, rect.size.y + 0.06), Vector3(0.0, base * 0.5 - height * 0.5, 0.0), BLOCK), "cinderblock")
+
+
+## The entrance block juts out of the front, taller than the rest, all in
+## orange: two side walls, the header over the doorway, the glass sidelights and
+## transom around the doors (store_interior.gd's), the canopy over the apron on
+## two posts, and the name.
+static func _entrance(root: Node3D) -> void:
+	var room := _StoreInterior.ROOM
+	var front := FRONT_X
+	var face := room.end.x
+	var top := ENTRANCE_HEIGHT
+	var door_half := Constants.ART_DOOR_WIDTH * 0.5
+	var door_z := _StoreInterior.DOOR_Z
+	var depth := face - front
+	for z: float in [room.position.y + ENTRANCE_WALL * 0.5, room.end.y - ENTRANCE_WALL * 0.5]:
+		_LowPoly.paint(_LowPoly.box(root, Vector3(depth, top, ENTRANCE_WALL), Vector3(front + depth * 0.5, top * 0.5, z), ORANGE, true), "metal")
+	var header_from := TRANSOM_TOP
+	_LowPoly.paint(_LowPoly.box(root, Vector3(0.25, top - header_from, room.size.y), Vector3(face - 0.125, (top + header_from) * 0.5, room.get_center().y), ORANGE), "metal")
+	_LowPoly.paint(_LowPoly.box(root, Vector3(depth + 0.4, 0.5, room.size.y + 0.4), Vector3(front + depth * 0.5, top + 0.1, room.get_center().y), ORANGE.darkened(0.15)), "metal").add_to_group("store_roof")
+	_LowPoly.text_sign(root, "HOMIE DEPOT", Vector3(face + 0.05, 7.6, room.get_center().y), 230, Color.WHITE, PI * 0.5)
+	# The glass: a sidelight either side of the doors (solid), the transom over
+	# them, framed in brushed metal.
+	var inner := Vector2(room.position.y + ENTRANCE_WALL, room.end.y - ENTRANCE_WALL)
+	var door_height := Constants.ART_DOOR_HEIGHT
+	for span: Vector2 in [Vector2(inner.x, door_z - door_half), Vector2(door_z + door_half, inner.y)]:
+		var width := span.y - span.x
+		var middle := (span.x + span.y) * 0.5
+		var pane := _LowPoly.box(root, Vector3(0.12, door_height, width), Vector3(face - 0.06, door_height * 0.5, middle), Color(0.55, 0.7, 0.82), true)
+		_glass(pane)
+		_LowPoly.paint(_LowPoly.box(root, Vector3(0.16, 0.12, width), Vector3(face - 0.06, 0.06, middle), FRAME), "metal")
+	for z: float in [door_z - door_half - 0.06, door_z + door_half + 0.06]:
+		_LowPoly.paint(_LowPoly.box(root, Vector3(0.18, door_height, 0.12), Vector3(face - 0.06, door_height * 0.5, z), FRAME), "metal")
+	_LowPoly.paint(_LowPoly.box(root, Vector3(0.2, 0.14, inner.y - inner.x), Vector3(face - 0.06, door_height + 0.07, room.get_center().y), FRAME), "metal")
+	_glass(_LowPoly.box(root, Vector3(0.06, header_from - door_height - 0.14, inner.y - inner.x), Vector3(face - 0.09, (header_from + door_height + 0.14) * 0.5, room.get_center().y), Color(0.55, 0.7, 0.82)))
+	# The canopy over the apron, a light under it, and its two posts.
+	var canopy := _LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.3, 8.0), Vector3(face + 1.4, 4.4, door_z), ORANGE.lightened(0.05)), "metal") as GeometryInstance3D
+	canopy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_LowPoly.glow(root, Vector3(1.6, 0.03, 4.0), Vector3(face + 1.3, 4.24, door_z), Color(1.0, 0.95, 0.85), 0.8)
+	for z: float in [door_z - 3.7, door_z + 3.7]:
+		_LowPoly.paint(_LowPoly.cylinder(root, 0.14, 4.4, Vector3(face + 2.6, 2.2, z), DARK, true, 10), "metal")
+	# Yellow bollards before the sidelights (never before the doors).
+	var batch := _PropBatch.new(root)
+	for z: float in BOLLARDS_Z:
+		var at := Vector3(BOLLARD_X, 0.0, z)
+		batch.add("bollard", Transform3D(Basis.IDENTITY, at))
+		_post_collider(root, at, 0.14, 1.0)
+	batch.commit()
+
+
+static func _glass(pane: Node3D) -> void:
+	var view := pane as MeshInstance3D
+	if view == null:
+		view = pane.get_node_or_null("MeshInstance3D") as MeshInstance3D
+		if view == null:
+			for child: Node in pane.get_children():
+				if child is MeshInstance3D:
+					view = child
+	if view == null:
+		return
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(0.62, 0.78, 0.86, 0.3)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.metallic = 0.3
+	glass.roughness = 0.06
+	glass.metallic_specular = 0.9
+	view.material_override = glass
+	view.set_meta("keep_material", true)
+	view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## A round post's collider (no mesh) standing at at.
+static func _post_collider(root: Node3D, at: Vector3, radius: float, height: float) -> void:
+	var body := StaticBody3D.new()
+	body.name = "Post"
+	root.add_child(body)
+	body.position = at + Vector3(0.0, height * 0.5, 0.0)
+	var shape := CollisionShape3D.new()
+	var cylinder := CylinderShape3D.new()
+	cylinder.radius = radius
+	cylinder.height = height
+	shape.shape = cylinder
+	body.add_child(shape)
+	body.add_to_group("store_art_solid")
 
 
 ## The garden center corner: three shelving units, stocked with what Homie
@@ -208,21 +353,185 @@ static func _loading_bay(root: Node3D, zone: Node3D) -> void:
 		stripe.rotation.y = 0.6
 
 
-## A cart corral by the parking lot: a rail frame and a few nested carts.
-static func _carts(root: Node3D, at: Vector3) -> void:
+## Art chunk 8's pieces on the lot, each where Constants.STORE_LAYOUT reserves
+## it ("art" entries): the roadside pylon sign, the propane cage, the mulch and
+## soil pallets beside the garden center, a second cart corral, and the
+## season's stock along the store front (levels/dressing/store_season_stock.gd).
+static func _lot_extras(root: Node3D) -> void:
+	var layout: Dictionary = Constants.STORE_LAYOUT
+	_pylon(root, layout["pylon"]["at"], float(layout["pylon"]["yaw"]))
+	_propane_cage(root, layout["propane_cage"]["at"], float(layout["propane_cage"]["yaw"]))
+	var batch := _PropBatch.new(root)
+	for pallet: Array in GARDEN_PALLETS:
+		var at: Vector3 = pallet[1]
+		var turn := Basis(Vector3.UP, float(pallet[2]))
+		batch.add(str(pallet[0]), Transform3D(turn, at))
+		var footprint := turn * Vector3(_StoreProps.PALLET.x, 0.0, _StoreProps.PALLET.z)
+		_box_collider(root, "Pallet", at + Vector3(0.0, 0.3, 0.0), Vector3(absf(footprint.x), 0.6, absf(footprint.z)))
+	batch.commit()
+	_post_sign(root, str(_Strings.SIGNS["mulch"]), Vector3(6.9, 0.0, -17.45), 0.0)
+	var corral: Dictionary = layout["cart_corral_east"]
+	var corral_root := Node3D.new()
+	corral_root.name = "CartCorralEast"
+	root.add_child(corral_root)
+	corral_root.position = corral["at"]
+	corral_root.rotation.y = float(corral["yaw"])
+	_carts(corral_root, Vector3.ZERO)
+	var stock: Node3D = _SeasonStock.new()
+	stock.name = "SeasonStock"
+	stock.set("area", layout["seasonal_display"]["rect"])
+	root.add_child(stock)
+
+
+## Homie Depot's roadside pylon: two steel legs and a tall orange cabinet with
+## the name and the slogan on both faces (Strings.SIGNS "store_pylon"), facing
+## along yaw so drivers on the cross street read it both ways.
+static func _pylon(root: Node3D, at: Vector3, yaw: float) -> void:
+	var holder := Node3D.new()
+	holder.name = "Pylon"
+	root.add_child(holder)
+	holder.position = at
+	holder.rotation.y = yaw
+	var kit := _MeshKit.new()
+	var steel := Color(0.36, 0.38, 0.42)
+	for x: float in [-0.75, 0.75]:
+		kit.box(Vector3(x, 3.4, 0.0), Vector3(0.28, 6.8, 0.28), steel)
+	kit.box(Vector3(0.0, 0.25, 0.0), Vector3(1.9, 0.5, 0.5), Color(0.66, 0.65, 0.62))
+	kit.rbox(Vector3(0.0, 8.2, 0.0), Vector3(1.9, 1.5, 0.3), ORANGE, 10.0, {"detail": 1})
+	kit.box(Vector3(0.0, 6.35, 0.0), Vector3(3.6, 0.7, 0.5), Color(0.97, 0.96, 0.92))
+	kit.box(Vector3(0.0, 9.85, 0.0), Vector3(3.9, 0.12, 0.66), ORANGE.darkened(0.2))
+	var view := _Stylized.instance(kit.commit(), {"roughness": 0.6, "specular": 0.25})
+	holder.add_child(view)
+	_box_collider(holder, "PylonBase", Vector3(0.0, 0.5, 0.0), Vector3(1.9, 1.0, 0.5))
+	var lines := str(_Strings.SIGNS["store_pylon"]).split("\n", false, 1)
 	for side: float in [-1.0, 1.0]:
-		_LowPoly.paint(_LowPoly.box(root, Vector3(0.08, 0.08, 4.0), at + Vector3(side * 0.6, 0.9, 0), Color(0.85, 0.85, 0.82)), "metal")
-		for z: float in [-2.0, 2.0]:
-			_LowPoly.paint(_LowPoly.box(root, Vector3(0.08, 0.9, 0.08), at + Vector3(side * 0.6, 0.45, z), Color(0.85, 0.85, 0.82)), "metal")
-	for index: int in 3:
-		_cart(root, at + Vector3(0, 0, -1.2 + index * 0.7))
+		var title := _LowPoly.text_sign(holder, lines[0], Vector3(0.0, 8.35, side * 0.31), 150, Color.WHITE, 0.0 if side > 0.0 else PI)
+		title.pixel_size = 0.009
+		title.outline_size = 18
+		if lines.size() > 1:
+			var tagline := _LowPoly.text_sign(holder, lines[1], Vector3(0.0, 6.35, side * 0.26), 56, Color(0.2, 0.2, 0.22), 0.0 if side > 0.0 else PI)
+			tagline.pixel_size = 0.0045
+			tagline.outline_size = 0
+			tagline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			tagline.width = 3.4 / tagline.pixel_size
 
 
-static func _cart(root: Node3D, at: Vector3) -> void:
-	var red := Color(0.85, 0.3, 0.15)
-	var wire := Color(0.8, 0.8, 0.78)
-	_LowPoly.paint(_LowPoly.box(root, Vector3(0.6, 0.45, 0.9), at + Vector3(0, 0.75, 0), wire), "metal")
-	_LowPoly.paint(_LowPoly.box(root, Vector3(0.62, 0.06, 0.06), at + Vector3(0, 1.05, 0.5), red), "metal")
-	for x: float in [-0.25, 0.25]:
-		for z: float in [-0.35, 0.35]:
-			_LowPoly.paint(_LowPoly.cylinder(root, 0.06, 0.04, at + Vector3(x, 0.07, z), Color(0.12, 0.12, 0.13)), "metal")
+## The propane exchange cage against the store wall, facing the lot, with its
+## red header's words (Strings.SIGNS "propane").
+static func _propane_cage(root: Node3D, at: Vector3, yaw: float) -> void:
+	var holder := Node3D.new()
+	holder.name = "PropaneCage"
+	root.add_child(holder)
+	holder.position = at
+	holder.rotation.y = yaw
+	holder.add_child(_PropCatalog.node("propane_cage"))
+	_box_collider(holder, "Cage", Vector3(0.0, 0.95, 0.0), Vector3(1.95, 1.9, 0.95))
+	var words := _LowPoly.text_sign(holder, str(_Strings.SIGNS["propane"]), Vector3(0.0, 1.9, -0.48), 40, Color.WHITE, PI)
+	words.pixel_size = 0.0034
+	words.outline_size = 0
+	words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.width = 1.35 / words.pixel_size
+
+
+## A chalkboard sign on a post, its words facing yaw (0 reads from +Z).
+static func _post_sign(root: Node3D, words: String, at: Vector3, yaw: float) -> void:
+	var holder := Node3D.new()
+	holder.name = "PostSign"
+	root.add_child(holder)
+	holder.position = at
+	holder.rotation.y = yaw
+	var kit := _MeshKit.new()
+	kit.box(Vector3(0.0, 0.6, -0.03), Vector3(0.07, 1.2, 0.07), Color(0.45, 0.33, 0.22))
+	kit.box(Vector3(0.0, 1.1, 0.0), Vector3(0.62, 0.48, 0.03), Color(0.16, 0.2, 0.18))
+	kit.box(Vector3(0.0, 1.1, -0.006), Vector3(0.68, 0.54, 0.02), Color(0.55, 0.4, 0.26))
+	holder.add_child(_Stylized.instance(kit.commit(), {"roughness": 0.85, "specular": 0.1}))
+	var label := _LowPoly.text_sign(holder, words, Vector3(0.0, 1.1, 0.02), 32, Color(0.95, 0.94, 0.88), 0.0)
+	label.pixel_size = 0.0032
+	label.outline_size = 0
+	_post_collider(holder, Vector3.ZERO, 0.06, 1.2)
+
+
+## A box collider (no mesh) under parent, in its space.
+static func _box_collider(parent: Node3D, name: String, center: Vector3, size: Vector3) -> void:
+	var body := StaticBody3D.new()
+	body.name = name
+	parent.add_child(body)
+	body.position = center
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	shape.shape = box
+	body.add_child(shape)
+	body.add_to_group("store_art_solid")
+
+
+## A cart corral by the parking lot: round rails on posts and a row of carts
+## parked in it, handles toward the open end (+Z). One mesh a corral.
+static func _carts(root: Node3D, at: Vector3) -> void:
+	var kit := _MeshKit.new()
+	var rail := Color(0.85, 0.85, 0.82)
+	for side: float in [-1.0, 1.0]:
+		for y: float in [0.5, 0.9]:
+			kit.tube(PackedVector3Array([at + Vector3(side * 0.6, y, -2.0), at + Vector3(side * 0.6, y, 2.0)]), PackedFloat32Array([0.035, 0.035]), rail, 8, {"jitter": 0.0})
+		for z: float in [-2.0, 0.0, 2.0]:
+			kit.tube(PackedVector3Array([at + Vector3(side * 0.6, 0.0, z), at + Vector3(side * 0.6, 0.94, z)]), PackedFloat32Array([0.045, 0.045]), rail, 8, {"jitter": 0.0})
+	# The closed end, toward the store.
+	kit.tube(PackedVector3Array([at + Vector3(-0.6, 0.9, -2.0), at + Vector3(0.6, 0.9, -2.0)]), PackedFloat32Array([0.035, 0.035]), rail, 8, {"jitter": 0.0})
+	for index: int in CART_COUNT:
+		_cart(kit, at + Vector3(0.0, 0.0, -1.45 + float(index) * CART_SPACING))
+	var view := _Stylized.instance(kit.commit(), {"roughness": 0.45, "specular": 0.5})
+	view.name = "CartCorral"
+	root.add_child(view)
+	# The rails and the closed end are solid (the carts sit inside them).
+	var body := StaticBody3D.new()
+	body.name = "CartCorralRails"
+	root.add_child(body)
+	body.position = at
+	for piece: Array in [[Vector3(-0.6, 0.47, 0.0), Vector3(0.1, 0.94, 4.1)], [Vector3(0.6, 0.47, 0.0), Vector3(0.1, 0.94, 4.1)], [Vector3(0.0, 0.47, -2.0), Vector3(1.3, 0.94, 0.1)]]:
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = piece[1]
+		shape.shape = box
+		shape.position = piece[0]
+		body.add_child(shape)
+
+
+## How many carts a corral holds, and how far apart they park (m; a cart is 0.9 long).
+const CART_COUNT: int = 3
+const CART_SPACING: float = 0.98
+
+
+## A shopping cart standing on its four casters at at, its handle to +Z: a wire
+## basket (a floor, open sides with rails), a bottom rack, the legs down to the
+## casters, and Homie Depot's orange handle.
+static func _cart(kit: _MeshKit, at: Vector3) -> void:
+	var handle := ORANGE
+	var wire := Color(0.78, 0.79, 0.78)
+	var frame := Color(0.6, 0.62, 0.64)
+	var tire := Color(0.12, 0.12, 0.13)
+	var half := Vector3(0.27, 0.0, 0.43)
+	var floor_y := 0.55
+	var top_y := 0.98
+	# The basket: its floor and four sides, each a frame of rails with a few wires.
+	kit.box(at + Vector3(0.0, floor_y, 0.0), Vector3(half.x * 2.0, 0.02, half.z * 2.0), wire)
+	for y: float in [floor_y + 0.14, floor_y + 0.28, top_y]:
+		for side: float in [-1.0, 1.0]:
+			kit.box(at + Vector3(side * half.x, y, 0.0), Vector3(0.02, 0.02, half.z * 2.0), wire)
+			kit.box(at + Vector3(0.0, y, side * half.z), Vector3(half.x * 2.0, 0.02, 0.02), wire)
+	for side: float in [-1.0, 1.0]:
+		for step: int in 5:
+			var z := -half.z + 0.06 + float(step) * (half.z * 2.0 - 0.12) / 4.0
+			kit.box(at + Vector3(side * half.x, (floor_y + top_y) * 0.5, z), Vector3(0.015, top_y - floor_y, 0.015), wire)
+		for step: int in 3:
+			var x := -half.x + 0.09 + float(step) * (half.x * 2.0 - 0.18) / 2.0
+			kit.box(at + Vector3(x, (floor_y + top_y) * 0.5, side * half.z), Vector3(0.015, top_y - floor_y, 0.015), wire)
+	# The handle on two short posts at the back.
+	for side: float in [-1.0, 1.0]:
+		kit.box(at + Vector3(side * (half.x - 0.02), top_y + 0.06, half.z + 0.06), Vector3(0.025, 0.14, 0.025), frame)
+	kit.box(at + Vector3(0.0, top_y + 0.13, half.z + 0.08), Vector3(half.x * 2.0 + 0.04, 0.05, 0.05), handle)
+	# The legs, the bottom rack, and the casters (wheels standing, along x).
+	for side: float in [-1.0, 1.0]:
+		for end: float in [-1.0, 1.0]:
+			kit.box(at + Vector3(side * (half.x - 0.04), (0.12 + floor_y) * 0.5, end * (half.z - 0.06)), Vector3(0.03, floor_y - 0.12, 0.03), frame)
+			_P.wheel(kit, at + Vector3(side * (half.x - 0.04), 0.06, end * (half.z - 0.06)), 0.06, 0.03, tire, frame)
+	kit.box(at + Vector3(0.0, 0.16, 0.0), Vector3(half.x * 2.0 - 0.06, 0.02, half.z * 2.0 - 0.1), wire)

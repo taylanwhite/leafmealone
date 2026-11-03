@@ -2183,6 +2183,11 @@ const SIGNS: Dictionary = {
 	"wet_floor": "CAUTION\nWET FLOOR\n(it's always wet)",
 	"restock": "AISLE CLOSED FOR RESTOCK\nSINCE 2019",
 	"salt": "SNOW-B-GONE\nROCK SALT",
+	"propane": "PROPANE EXCHANGE\nBring one, take one, don't ask",
+	"mulch": "MULCH\n3 FOR $10\n(4 FOR $14)",
+	# The country road (levels/dressing/countryside.gd)
+	"farm_stand": "FRESH EGGS\nHONOR SYSTEM\n(we have cameras)",
+	"farm_hay": "HAY\nFOR SALE\nOR TRADE\nOR WHATEVER",
 	# Around the yards
 	"lemonade": "LEMONADE\n50¢\n(was 25¢)",
 	"yard_sale": "YARD SALE\nNO EARLY BIRDS",
