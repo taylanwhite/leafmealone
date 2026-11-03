@@ -247,7 +247,7 @@ jobs:
           "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7803 --name=Target --no-steam --measure="$PWD/build/soak/ci-day/target.json" --run-seconds=26 > build/soak/ci-day/target.log 2>&1
           wait
           grep "DayTest" build/soak/ci-day/host.log || true
-          $PY -c "import json,sys; h=json.load(open('build/soak/ci-day/host.json')); t=json.load(open('build/soak/ci-day/target.json')); sys.exit(0 if h['day_test'].get('ok') and h['day'] == t['day'] else 1)"
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-day/host.json')); t=json.load(open('build/soak/ci-day/target.json')); sys.exit(0 if h['day_test'].get('ok') and h['day'] == t['day'] and abs(t['sky']['hour'] - t['sky']['clock']) < 0.05 else 1)"
 
       - name: Town test (clients, requests, a paid job, referrals, regrowth, a new neighborhood)
         if: matrix.part == 'features'

@@ -147,7 +147,7 @@ $Tests = [ordered]@{
 	day = @{
 		Port = 7803
 		Host = '--host --name=Tester --no-steam --day-test'; Seconds = 30; Client = 26
-		Check = { param($h, $c) [bool]$h.day_test.ok -and (Same $h.day $c.day) }
+		Check = { param($h, $c) [bool]$h.day_test.ok -and (Same $h.day $c.day) -and $c.sky -ne $null -and [math]::Abs([double]$c.sky.hour - [double]$c.sky.clock) -lt 0.05 }
 	}
 	town = @{
 		Port = 7804

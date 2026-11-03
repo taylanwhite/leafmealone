@@ -2196,6 +2196,12 @@ const TOWN_SIGNS: Dictionary = {
 	"shop_vacant": "FOR LEASE\nAsk about our gutters",
 	"shop_insurance": "LEAFSURE\nAct-of-Autumn coverage",
 	"shop_tax": "DUSTY'S TAX & BAIT\nWe'll find something",
+	# The town line's closed roads (levels/town/town_line.gd): the sign, and each road's excuse.
+	"road_closed": "ROAD CLOSED",
+	"road_closed_depot_n": "DETOUR: NONE\nGutterford Public Works",
+	"road_closed_depot_s": "CLOSED FOR LEAF REMOVAL\nSince 1987",
+	"road_closed_main_n": "BRIDGE OUT\nRepair permit pending since the bridge",
+	"road_closed_main_s": "OPENING SOON*\n*Pending Form 27-B, in triplicate",
 }
 
 ## A hired hand takes Chefty's wheel (net/components/chefty_drive.gd, the

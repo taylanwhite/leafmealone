@@ -56,7 +56,7 @@ func _ready() -> void:
 	# First, so everything below can hand its building to it (levels/build_queue.gd).
 	add_child(_BuildQueue.new())
 	_add_chefty()
-	# The sun is set up by levels/shared_look.gd.
+	# The sun is set up by levels/shared_look.gd and moved by the hour (levels/day_sky.gd).
 	var director := preload("res://net/run_events/director.gd").new()
 	director.name = "RunDirector"
 	add_child(director)
@@ -108,6 +108,10 @@ func _ready() -> void:
 	# (_dress hands it to the BuildQueue), and every mesh it adds is restyled as
 	# it lands, like everything built after _ready always was.
 	_SharedLook.call("apply", self)
+	# The hour's light on that look: sun, sky, moon, stars and lamps (levels/day_sky.gd).
+	var day_sky := preload("res://levels/day_sky.gd").new()
+	day_sky.name = "DaySky"
+	add_child(day_sky)
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
 	_dress()

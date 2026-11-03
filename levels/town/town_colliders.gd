@@ -9,8 +9,8 @@ extends Node3D
 ## One StaticBody3D "TownStatic" on layer 1: the ground over TownMap.TOWN_BOUNDS
 ## (its top at y -0.02, a hair under the lot's floor), each yard slot's house and
 ## tree trunks, each dressing house across the street, street lamps, parked
-## cars, the landmarks, the country trees, the lake's low wall, and Marty's
-## pallet ramp at Homie Depot. Curbs have no collider: vehicles ride over them.
+## cars, the landmarks, the country trees, the lake's low wall, Marty's pallet
+## ramp at Homie Depot, and the town line's hedge and barricades. Curbs have no collider: vehicles ride over them.
 ##
 ## A yard slot's house comes from the house's seed (the job yard's house), which
 ## clients learn with the town's state (net/town/town.gd); until then those
@@ -29,6 +29,7 @@ const _LotBuilder = preload("res://levels/town/lot_builder.gd")
 const _Streamer = preload("res://levels/town/town_streamer.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
 const _Outskirts = preload("res://levels/town/outskirts.gd")
+const _TownLine = preload("res://levels/town/town_line.gd")
 const GROUND_THICKNESS: float = 0.2
 const LAMP_RADIUS: float = 0.15
 ## The outskirts' tree trunks go in this many a build step.
@@ -73,6 +74,9 @@ func _ready() -> void:
 		_add_box("Landmark", solid[0], solid[1], Basis(Vector3.UP, float(solid[2])))
 	_lake_wall()
 	_ramp()
+	# The town line's hedge and its closed roads' barricades (levels/town/town_line.gd).
+	for solid: Array in _TownLine.solids():
+		_add_box("TownLine", solid[1], solid[2], Basis(Vector3.UP, float(solid[3])))
 	# The outskirts' poles, farm, water tower, billboard, leaf mountain, row trees
 	# and Main Street's storefronts (levels/town/outskirts.gd, driving:E2); the
 	# farmhouse costs a house plan.

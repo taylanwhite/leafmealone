@@ -271,6 +271,7 @@ func write_report() -> void:
 		"hotbar": preload("res://net/components/hotbar.gd").snapshot(get_tree()),
 		"crew_hands": get_tree().get_nodes_in_group("crew_hands").size(),
 		"day": _day(),
+		"sky": _sky(),
 		"town": _town(),
 		"townmap_test": preload("res://net/dev/townmap_test.gd").result.duplicate(true),
 		"icons_test": preload("res://net/dev/icons_test.gd").result.duplicate(true),
@@ -344,6 +345,15 @@ func _day() -> Dictionary:
 	if clock == null:
 		return {}
 	return {"day": int(clock.get("day")), "xp": Campaign.crew_xp(), "pending": Campaign.pending_xp(), "tier": Campaign.crew_tier()}
+
+
+## The hour the world's light shows (levels/day_sky.gd) and this peer's clock's.
+func _sky() -> Dictionary:
+	var sky := get_tree().get_first_node_in_group("day_sky")
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if sky == null or clock == null:
+		return {}
+	return {"hour": float((sky.get("shown") as Dictionary).get("hour", -1.0)), "clock": float(clock.call("hour"))}
 
 
 ## The town as this peer sees it: a hash of every house and the open requests.

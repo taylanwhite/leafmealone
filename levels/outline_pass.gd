@@ -11,6 +11,10 @@ const LINE_COLOR := Color(0.1, 0.09, 0.11, 0.6)
 const RELATIVE_THRESHOLD: float = 0.06
 ## Smallest depth jump that draws a line close up, in meters.
 const MIN_THRESHOLD: float = 0.35
+## Lines fade out with the haze (levels/shared_look.gd's fog), between these
+## distances (m): a hill or a tree line far off in the haze has no ink edge.
+const FADE_FROM: float = 80.0
+const FADE_TO: float = 220.0
 
 const SHADER := """
 shader_type spatial;
@@ -20,6 +24,8 @@ uniform sampler2D depth_texture : hint_depth_texture, filter_nearest;
 uniform vec4 line_color : source_color;
 uniform float relative_threshold;
 uniform float min_threshold;
+uniform float fade_from;
+uniform float fade_to;
 
 void vertex() {
 	POSITION = vec4(VERTEX.xy, 1.0, 1.0);
@@ -42,7 +48,7 @@ void fragment() {
 	float jump = max(max(left - center, right - center), max(up - center, down - center));
 	float threshold = max(min_threshold, center * relative_threshold);
 	ALBEDO = line_color.rgb;
-	ALPHA = step(threshold, jump) * line_color.a;
+	ALPHA = step(threshold, jump) * line_color.a * (1.0 - smoothstep(fade_from, fade_to, center));
 }
 """
 
@@ -60,6 +66,8 @@ func _ready() -> void:
 	material.set_shader_parameter("line_color", LINE_COLOR)
 	material.set_shader_parameter("relative_threshold", RELATIVE_THRESHOLD)
 	material.set_shader_parameter("min_threshold", MIN_THRESHOLD)
+	material.set_shader_parameter("fade_from", FADE_FROM)
+	material.set_shader_parameter("fade_to", FADE_TO)
 	material_override = material
 	# Never culled: the vertex shader puts it over the whole screen for any camera.
 	extra_cull_margin = 16384.0

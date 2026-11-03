@@ -1998,6 +1998,13 @@ func _dim_room(now: float) -> void:
 	if is_equal_approx(dim, _dim_shown):
 		return
 	_dim_shown = dim
+	# The hour's light (levels/day_sky.gd) owns the sun's and the sky light's
+	# strength: the room's dim goes on top of it there.
+	var day_sky := get_parent().get_node_or_null("DaySky") if get_parent() != null else null
+	if day_sky != null:
+		var picture := lerpf(Constants.ANNEX_CLOSING_PICTURE, 1.0, (dim - Constants.ANNEX_CLOSING_DIM) / (1.0 - Constants.ANNEX_CLOSING_DIM))
+		day_sky.call("set_room_dim", dim, picture)
+		return
 	var holder := get_parent().get_node_or_null("WorldEnvironment") as WorldEnvironment if get_parent() != null else null
 	var environment: Environment = holder.environment if holder != null else null
 	var sun := get_parent().get_node_or_null("Sun") as DirectionalLight3D if get_parent() != null else null

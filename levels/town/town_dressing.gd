@@ -31,6 +31,7 @@ const _StreetBuilder = preload("res://levels/town/street_builder.gd")
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const _PropBatch = preload("res://props/prop_batch.gd")
 const _Outskirts = preload("res://levels/town/outskirts.gd")
+const _TownLine = preload("res://levels/town/town_line.gd")
 
 const GRASS := Color(0.42, 0.52, 0.3)
 const ASPHALT := Color(0.3, 0.3, 0.32)
@@ -70,6 +71,8 @@ static func dress(world: Node3D) -> Node3D:
 	_country_trees(root)
 	# The farmland, landmarks and tree rows between it all (driving:E2).
 	_Outskirts.dress(root)
+	# The hedgerow round the town, the closed roads and the hills past it (p1-world).
+	_TownLine.dress(root)
 	_BuildQueue.later(root, func() -> void: _store_extras(root, world.get_node_or_null("StoreZone") as Node3D), "town store extras")
 	_walkers(root)
 	for at: Vector3 in [Vector3(0.0, 0.0, 0.0), Vector3(560.0, 0.0, -250.0), Vector3(560.0, 0.0, 250.0)]:
