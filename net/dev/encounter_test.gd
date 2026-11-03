@@ -237,6 +237,8 @@ func _run() -> void:
 		var to_cam: Vector3 = staging["to_cam"]
 		var turned := crew_face.dot(to_cam) > 0.2 and victim_face.normalized().dot(to_cam) > 0.2
 		_step("5 the gotcha stands them %.2f m apart (want %.2f), both turned toward the two-shot (%s)" % [apart, Constants.CATCH_GOTCHA_GAP, turned], absf(apart - Constants.CATCH_GOTCHA_GAP) < 0.15 and turned)
+	else:
+		_step("5 the gotcha's staging: no holder (%s) or past the cite (stage %d)" % [holding != null, int(encounter.call("stage_of", _client))], false)
 	var escorting: bool = await _wait(func() -> bool: return int(encounter.call("stage_of", _client)) == _Encounter.Stage.ESCORT and Net.server_time() > encounter.call("stage_at", _client) + 0.5, 8.0)
 	_step("5 caught again (no lunge) and walked off arm in arm", escorting)
 	var trash := _prop("trash")

@@ -208,6 +208,7 @@ func _run_host() -> void:
 	await _lock_step()
 	await _gesture_step()
 	await _iris_step()
+	await _boarding_release_step()
 	await _caption_step()
 	await _goal_step()
 	var waited_report := 0.0
@@ -410,26 +411,58 @@ func _pivot_step() -> void:
 	ahead.y = 0.0
 	ahead = ahead.normalized()
 	var side := ahead.cross(Vector3.UP).normalized()
-	var pivot := me.global_position + ahead * 3.0 + Vector3.UP * 1.4
-	var wanted := pivot + side * 3.0
+	# A: the shot wants the far side of someone 3 m ahead of you. A straight blend
+	# goes through them (about 0.2 m off the pivot); a swing round keeps its
+	# distance. A wide wall (no corner to graze) 1.6 m beyond them: the eye settles
+	# on this side of it and no frame of the swing is past its face.
+	var pivot_a := me.global_position + ahead * 3.0 + Vector3.UP * 1.4
+	var a: Dictionary = await _pivot_run(cam, pivot_a, pivot_a + ahead * 3.0, ahead, 1.6)
+	# B: the gotcha's case: someone right in front of you, the shot to the side,
+	# and a wall just behind you. The swing pulls back first; the eye drawn on
+	# every frame of it is kept clear, not just where it ends.
+	var pivot_b := me.global_position + ahead * 0.55 + Vector3.UP * Constants.CATCH_CAM_HEIGHT
+	var start := get_viewport().get_camera_3d().global_position if get_viewport().get_camera_3d() != null else me.global_position
+	var behind := maxf(1.6, (start - pivot_b).dot(-ahead) + 1.0)
+	var b: Dictionary = await _pivot_run(cam, pivot_b, pivot_b + side * 3.0, -ahead, behind)
+	var face_a := 1.6 - 0.15
+	var settled_ok := float(a["settled"]) < 1.6 - Constants.STAGE_CAM_RADIUS + 0.05
+	var ok := float(a["nearest"]) > 1.0 and int(a["speed_over"]) == 0 and int(a["past_wall"]) == 0 and settled_ok \
+		and int(b["speed_over"]) == 0 and int(b["past_wall"]) == 0
+	_step("pivot", ok, "round: closest to the pivot %.2f m (> 1.0), fastest %.1f m/s (%d frames over %.1f), %d frames past the wall, settled %.2f m from it behind a wall face at %.2f m; back to a wall %.2f m behind: deepest %.2f m, %d frames past it, fastest %.1f m/s (%d over)" % [
+		a["nearest"], a["fastest"], a["speed_over"], Constants.STAGE_CAM_MAX_SPEED, a["past_wall"], a["settled"], face_a,
+		behind - 0.15, b["deepest"], b["past_wall"], b["fastest"], b["speed_over"]])
+
+
+## One pivot shot from the view you have now: the eye (looking at the pivot) at
+## `wanted`, a 10 m wide wall `wall_at` m from the pivot along `wall_dir`. Reports
+## the closest it came to the pivot, how fast it moved, how many frames the eye
+## was past the wall's near face, how deep along wall_dir it went, where it settled.
+func _pivot_run(cam: Camera3D, pivot: Vector3, wanted: Vector3, wall_dir: Vector3, wall_at: float) -> Dictionary:
+	var me := _me()
 	var eye := _marker(wanted)
 	eye.global_transform = Transform3D(Basis.looking_at(pivot - wanted, Vector3.UP), wanted)
 	var wall := StaticBody3D.new()
 	wall.collision_layer = 1
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(4.0, 3.0, 0.3)
+	box.size = Vector3(10.0, 4.0, 0.3)
 	shape.shape = box
 	wall.add_child(shape)
 	add_child(wall)
-	wall.global_transform = Transform3D(Basis.looking_at(side, Vector3.UP), pivot + side * 1.6)
+	wall.global_transform = Transform3D(Basis.looking_at(wall_dir, Vector3.UP), pivot + wall_dir * wall_at)
 	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var face := wall_at - 0.15
 	var nearest := INF
 	var fastest := 0.0
 	var speed_over := 0
+	var past := 0
+	var deepest := -INF
+	# A half turn at 3 m in 0.8 s is faster than STAGE_CAM_MAX_SPEED: it's paced
+	# along its arc (slowed), never clamped into a chord through the pivot.
+	me.call("stage_push", &"t_pivot", {"anchor": eye, "blend_in": 0.8, "priority": 10, "pivot": pivot, "collide": true})
 	var last := cam.global_position
-	me.call("stage_push", &"t_pivot", {"anchor": eye, "blend_in": 0.5, "priority": 10, "pivot": pivot, "collide": true})
-	var until := Time.get_ticks_msec() + 1500
+	var until := Time.get_ticks_msec() + 2600
 	var last_delta := 0.0
 	while Time.get_ticks_msec() < until:
 		await get_tree().process_frame
@@ -443,16 +476,18 @@ func _pivot_step() -> void:
 		if step > Constants.STAGE_CAM_MAX_SPEED * delta + 0.02:
 			speed_over += 1
 		nearest = minf(nearest, now.distance_to(pivot))
+		var depth := (now - pivot).dot(wall_dir)
+		deepest = maxf(deepest, depth)
+		if depth > face:
+			past += 1
 		last = now
 	var settled := cam.global_position.distance_to(pivot)
 	me.call("stage_pop", &"t_pivot", 0.0)
 	wall.queue_free()
 	eye.queue_free()
 	await get_tree().process_frame
-	# The first-person eye starts about 3 m from the pivot; a straight blend to the
-	# side would cut the corner to about 2.1 m, a swing round keeps its distance.
-	var ok := nearest > 1.0 and speed_over == 0 and settled < 1.6 - Constants.STAGE_CAM_RADIUS + 0.05
-	_step("pivot", ok, "closest to the pivot %.2f m (> 1.0), fastest %.1f m/s (%d frames over %.1f), settled %.2f m from it behind a wall at 1.45 m" % [nearest, fastest, speed_over, Constants.STAGE_CAM_MAX_SPEED, settled])
+	await get_tree().process_frame
+	return {"nearest": nearest, "fastest": fastest, "speed_over": speed_over, "past_wall": past, "deepest": deepest, "settled": settled}
 
 
 ## A control lock holds movement and the held keys; its allowances pass.
@@ -567,6 +602,49 @@ func _iris_step() -> void:
 	await get_tree().create_timer(0.8).timeout
 	var ok := open_before and shut and held and open_after and door and not bool(iris.call("is_closed"))
 	_step("iris", ok, "open before %s, shut on time %s, held shut %s, open again %s, the door shape %s" % [open_before, shut, held, open_after, door])
+
+
+## R2b: freed (or reset) while boarding, the iris the boarding asked for never
+## stays shut: a close that hasn't started never shows, one under way opens again.
+func _boarding_release_step() -> void:
+	var iris := get_tree().get_first_node_in_group("iris")
+	var me := _me()
+	if iris == null or me == null:
+		_step("boarding release", false, "no iris or no player")
+		return
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	var own := encounter == null
+	if own:
+		encounter = (load("res://net/run_events/encounter.gd") as GDScript).new()
+		encounter.name = "StageTestEncounter"
+		add_child(encounter)
+	var anchor := _marker(me.global_position + Vector3(0.0, 2.0, 3.0))
+	var me_id := Net.local_peer_id()
+	# Freed before the close starts.
+	me.call("stage_push", &"t_board", {"anchor": anchor, "blend_in": 0.0, "priority": 10})
+	encounter.call("_board_behind_iris", me)
+	await get_tree().create_timer(0.1).timeout
+	encounter.call("_clear_peer", me_id)
+	var shown_early := 0.0
+	var until := Time.get_ticks_msec() + int((Constants.BOARD_IRIS_DELAY + Constants.IRIS_CLOSE + 0.3) * 1000.0)
+	while Time.get_ticks_msec() < until:
+		await get_tree().process_frame
+		shown_early = maxf(shown_early, float(iris.call("amount_at", Net.server_time())))
+	# Freed halfway through the close.
+	me.call("stage_push", &"t_board", {"anchor": anchor, "blend_in": 0.0, "priority": 10})
+	encounter.call("_board_behind_iris", me)
+	await get_tree().create_timer(Constants.BOARD_IRIS_DELAY + Constants.IRIS_CLOSE * 0.5).timeout
+	var closing := float(iris.call("amount_at", Net.server_time())) > 0.0
+	encounter.call("_clear_peer", me_id)
+	await get_tree().create_timer(Constants.IRIS_CLOSE + Constants.IRIS_HOLD_MIN + Constants.IRIS_OPEN + 0.4).timeout
+	var reopened := not bool(iris.call("is_closed")) and float(iris.call("amount_at", Net.server_time())) <= 0.0
+	me.call("stage_pop", &"t_board", 0.0)
+	anchor.queue_free()
+	if own:
+		encounter.queue_free()
+	await get_tree().process_frame
+	var ok := shown_early < 0.01 and closing and reopened
+	_step("boarding release", ok, "freed before the close: it showed %.2f (want 0); freed mid-close (closing %s): open again %s" % [shown_early, closing, reopened])
 
 
 ## The caption stack's layout at the normal and largest caption sizes, and captions off.

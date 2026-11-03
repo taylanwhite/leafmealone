@@ -807,7 +807,7 @@ func _show_mode(body: Node, poser: Node) -> void:
 			# arm shoots out at you and holds there through the freeze, with the
 			# whistle. Big enough to read from across the yard.
 			body.set("face_turn", 0.0)
-			poser.call("hold", "spot_take", Constants.CREW_SPOT_FREEZE + 0.25, late)
+			poser.call("hold", "spot_take", Constants.CREW_SPOT_FREEZE + Constants.CREW_SPOT_HOLD_EXTRA, late)
 			if sfx != null and fresh:
 				sfx.call("play_on", "whistle", self)
 		Mode.NOISE, Mode.PATROL when was == Mode.HOP_OUT:

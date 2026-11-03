@@ -3015,3 +3015,31 @@ const BOARD_IRIS_DELAY: float = 0.45
 ## Out of the van, he straightens his visor and looks left and right for this
 ## long (s) before his eyes count; then the spot is its own beat (CREW_SPOT_FREEZE).
 const CREW_LAND_LOOK_SECONDS: float = 0.9
+## His spot_take point holds this much longer (s) than the freeze, so the arm is
+## still out as he starts after you.
+const CREW_SPOT_HOLD_EXTRA: float = 0.25
+## A shot's pivot (the pair it's about) is followed no faster than this (m/s,
+## above the escort's late pace): an anchor read from a stale pose glides in, it
+## never carries the camera with it in one frame (outside a closed iris).
+const STAGE_CAM_PIVOT_MAX_SPEED: float = 6.0
+## A swing out of first person rises this far (m) at its middle, over a shoulder
+## rather than past the back of a head.
+const STAGE_CAM_ARC_LIFT: float = 0.3
+## The escort's route search: the pair's sweep is a sphere this big (m) this high
+## (m) off the lawn, aiming this far (m) short of the door (the van's side is
+## right there). A waypoint within ESCORT_ROUTE_RETRY_APART of one already tried,
+## or closer to him than ESCORT_ROUTE_MIN_STEP, isn't a way round; one within
+## ESCORT_ROUTE_NAV_SNAP of the navmesh counts as on it; within
+## ESCORT_ROUTE_REACHED of it, it's reached.
+const ESCORT_ROUTE_SWEEP_RADIUS: float = 0.32
+const ESCORT_ROUTE_LIFT: float = 0.7
+const ESCORT_ROUTE_DOOR_STANDOFF: float = 0.6
+const ESCORT_ROUTE_RETRY_APART: float = 1.5
+const ESCORT_ROUTE_MIN_STEP: float = 1.0
+const ESCORT_ROUTE_NAV_SNAP: float = 0.6
+const ESCORT_ROUTE_REACHED: float = 0.8
+## The escort's follow shot swings in from the two-shot over this long (s).
+const ESCORT_CAM_BLEND_IN: float = 1.1
+## The escort anchor's interpolated pose is trusted within this far (m) of its
+## real one; past it (a stale pose from before a teleport), the real one wins.
+const ESCORT_ANCHOR_TRUST_M: float = 1.0

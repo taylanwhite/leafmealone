@@ -429,7 +429,7 @@ func _host_escort(peer_id: int, crew: Node, entry: Dictionary, now: float) -> vo
 		route = {"via": _plan_route(crew, door, []), "tried": [], "best": INF, "since": now, "stuck": 0.0}
 		_routes[peer_id] = route
 	var via: Vector3 = route["via"]
-	if via.is_finite() and Vector2(at.x - via.x, at.z - via.z).length() <= 0.8:
+	if via.is_finite() and Vector2(at.x - via.x, at.z - via.z).length() <= Constants.ESCORT_ROUTE_REACHED:
 		route["via"] = Vector3.INF
 		route["best"] = INF
 		via = Vector3.INF
@@ -477,12 +477,13 @@ func _plan_route(crew: Node, door: Vector3, tried: Array, forced: bool = false) 
 	if world == null:
 		return Vector3.INF
 	var exclude := _Sweep.passable(get_tree())
-	var lift := Vector3.UP * 0.7
+	var lift := Vector3.UP * Constants.ESCORT_ROUTE_LIFT
 	var from := body.global_position + lift
 	var to_door := door + lift
-	var radius := 0.32
+	var radius := Constants.ESCORT_ROUTE_SWEEP_RADIUS
+	var standoff := Constants.ESCORT_ROUTE_DOOR_STANDOFF
 	# Stop short of the door itself: the van's side is right there.
-	var short := to_door + (from - to_door).normalized() * 0.6
+	var short := to_door + (from - to_door).normalized() * standoff
 	if not forced and _Sweep.clear(world, from, short, radius, exclude):
 		return Vector3.INF
 	var agent := crew.get_node_or_null("NavigationAgent3D") as NavigationAgent3D
@@ -497,18 +498,18 @@ func _plan_route(crew: Node, door: Vector3, tried: Array, forced: bool = false) 
 			point.y = body.global_position.y
 			var near_tried := false
 			for old: Variant in tried:
-				if (old as Vector3).distance_to(point) < 1.5:
+				if (old as Vector3).distance_to(point) < Constants.ESCORT_ROUTE_RETRY_APART:
 					near_tried = true
-			if near_tried or Vector2(point.x - body.global_position.x, point.z - body.global_position.z).length() < 1.0:
+			if near_tried or Vector2(point.x - body.global_position.x, point.z - body.global_position.z).length() < Constants.ESCORT_ROUTE_MIN_STEP:
 				continue
 			var cost := body.global_position.distance_to(point) + point.distance_to(door)
 			if cost >= best_cost:
 				continue
 			if _Sweep.inside(world, point + lift, radius, exclude):
 				continue
-			if not _Sweep.clear(world, point + lift, to_door + (point - door).normalized() * 0.6, radius, exclude):
+			if not _Sweep.clear(world, point + lift, to_door + (point - door).normalized() * standoff, radius, exclude):
 				continue
-			var on_mesh := nav_map.is_valid() and NavigationServer3D.map_get_closest_point(nav_map, point).distance_to(point) < 0.6
+			var on_mesh := nav_map.is_valid() and NavigationServer3D.map_get_closest_point(nav_map, point).distance_to(point) < Constants.ESCORT_ROUTE_NAV_SNAP
 			if not on_mesh and not _Sweep.clear(world, from, point + lift, radius, exclude):
 				continue
 			best = point
@@ -772,11 +773,12 @@ func _board_behind_iris(player: Node3D) -> void:
 func _step_boarding() -> void:
 	if _boarding.is_empty():
 		return
-	var player := _boarding.get("player") as Node3D
+	var raw: Variant = _boarding.get("player")
 	var iris := get_tree().get_first_node_in_group("iris")
-	if player == null or not is_instance_valid(player) or iris == null:
-		_boarding.clear()
+	if not is_instance_valid(raw) or iris == null:
+		_release_boarding_iris()
 		return
+	var player := raw as Node3D
 	if bool(_boarding["cut"]) or not bool(iris.call("is_closed")):
 		return
 	_boarding["cut"] = true
@@ -784,6 +786,18 @@ func _step_boarding() -> void:
 	_pop(player, &"escort", 0.0)
 	iris.call("open", Net.server_time() + 0.05, Constants.IRIS_OPEN)
 	_boarding.clear()
+
+
+## Freed, unbuckled or reset while boarding: the iris this asked to close is let
+## go (a close not yet started never shows; one under way opens again), so it
+## never stays shut with nothing left to open it.
+func _release_boarding_iris() -> void:
+	if _boarding.is_empty():
+		return
+	_boarding.clear()
+	var iris := get_tree().get_first_node_in_group("iris")
+	if iris != null and iris.has_method("release"):
+		iris.call("release", Net.server_time(), Constants.IRIS_OPEN)
 
 
 func director_mark(peer_id: int, caught: bool) -> void:
@@ -954,12 +968,12 @@ func _play_escort(peer_id: int, entry: Dictionary, now: float) -> void:
 			_push(player, &"escort", {
 				"anchor": _follow,
 				"offset": Transform3D(Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, -0.38), Vector3(0.3, Constants.ESCORT_CAM_UP - _FOLLOW_HEIGHT, -Constants.ESCORT_CAM_BACK)),
-				"blend_in": 1.1, "blend_out": 0.5, "orbit": true, "spring": false,
+				"blend_in": Constants.ESCORT_CAM_BLEND_IN, "blend_out": 0.5, "orbit": true, "spring": false,
 				"yaw_clamp": Vector2(-deg_to_rad(Constants.ESCORT_CAM_ORBIT_DEG), deg_to_rad(Constants.ESCORT_CAM_ORBIT_DEG)),
 				"pitch_clamp": Vector2(-0.5, 0.3), "lag": 0.12, "priority": 40,
 				"pivot": _follow, "collide": true,
 			})
-			_pop(player, &"gotcha", 1.1)
+			_pop(player, &"gotcha", Constants.ESCORT_CAM_BLEND_IN)
 
 
 # ---------------------------------------------------------------- the two-shot
@@ -1066,7 +1080,7 @@ func _start_follow(anchor: Node3D) -> void:
 func _anchor_point(anchor: Node3D) -> Vector3:
 	var drawn := anchor.get_global_transform_interpolated().origin
 	var real := anchor.global_position
-	return drawn if drawn.distance_to(real) < 1.0 else real
+	return drawn if drawn.distance_to(real) < Constants.ESCORT_ANCHOR_TRUST_M else real
 
 
 func _move_follow(delta: float) -> void:
@@ -1230,7 +1244,7 @@ func _clear_peer(peer_id: int) -> void:
 		_unstage_body(player)
 		_drop_caught_pose(player)
 		if peer_id == Net.local_peer_id():
-			_boarding.clear()
+			_release_boarding_iris()
 			_pop_shots(player)
 			for reason: StringName in [&"nice_cite", &"escort", &"van_seat"]:
 				_lock(player, reason, false)

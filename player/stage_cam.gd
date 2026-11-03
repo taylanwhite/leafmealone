@@ -78,6 +78,9 @@ var _clear_dist: float = INF
 var _last_drawn := Transform3D()
 var _last_pivot := Vector3.INF
 var _has_last: bool = false
+## The last frame's point on the blend's own arc, before the sweep and the clamp
+## (the swing is paced along it).
+var _last_arc := Vector3.INF
 var _hidden_bodies: Array[Node3D] = []
 
 
@@ -197,6 +200,8 @@ func _retop(blend_seconds: float) -> void:
 func _start_blend(from: Transform3D, from_fov: float, seconds: float) -> void:
 	_from = from
 	_from_fov = from_fov
+	# The new arc starts exactly where the view is drawn now.
+	_last_arc = from.origin
 	_blend_seconds = Constants.STAGE_BLEND_DEFAULT if seconds < 0.0 else seconds
 	_blend_t = 0.0 if _blend_seconds > 0.0 else 1.0
 	if _blend_seconds <= 0.0:
@@ -262,6 +267,7 @@ func _update(delta: float) -> void:
 	var target_fov := Settings.fov()
 	var pivot := Vector3.INF
 	var max_speed := 0.0
+	var collide := false
 	if _top != &"":
 		var shot: Dictionary = _shots[_top]
 		target = _shot_transform(shot, delta)
@@ -270,8 +276,7 @@ func _update(delta: float) -> void:
 		pivot = _pivot_of(shot)
 		if pivot.is_finite():
 			max_speed = float(shot.get("max_speed", Constants.STAGE_CAM_MAX_SPEED))
-			if bool(shot.get("collide", false)):
-				target.origin = _keep_clear(pivot, target.origin, delta)
+			collide = bool(shot.get("collide", false))
 	else:
 		var base := base_camera()
 		if base == null:
@@ -279,16 +284,28 @@ func _update(delta: float) -> void:
 			return
 		target = base.get_global_transform_interpolated()
 		target_fov = base.fov
+	var was_t := _blend_t
 	if _blend_t < 1.0 and _blend_seconds > 0.0:
 		_blend_t = minf(1.0, _blend_t + delta / _blend_seconds)
+	if pivot.is_finite() and max_speed > 0.0 and delta > 0.0 and was_t < 1.0:
+		_blend_t = _paced(was_t, _blend_t, target, pivot, max_speed, delta)
 	# Ease in and out: no blend leaves at full speed.
 	var eased := smoothstep(0.0, 1.0, _blend_t)
 	var drawn := target
 	if eased < 1.0:
 		drawn = _arc(_from, target, pivot, _blend_t) if pivot.is_finite() else _from.interpolate_with(target, eased)
+	_last_arc = drawn.origin
 	drawn.basis = drawn.basis.orthonormalized()
+	# The eye actually drawn is what's kept clear, every frame of the swing too
+	# (R2b: a swing out of first person pulls back behind you first; caught with
+	# your back to a hedge, it went through it).
+	if collide:
+		drawn.origin = _keep_clear(pivot, drawn.origin, delta)
 	if max_speed > 0.0 and delta > 0.0:
 		drawn = _clamped(drawn, pivot, max_speed, delta)
+		if collide:
+			# The clamp lands between last frame and this one: still never in a wall.
+			drawn.origin = _clear_now(pivot, drawn.origin)
 	_last_drawn = drawn
 	_last_pivot = pivot
 	_has_last = true
@@ -327,7 +344,7 @@ func _arc(a: Transform3D, b: Transform3D, pivot: Vector3, u: float) -> Transform
 	var flat := lerpf(flat_a, flat_b, pull)
 	# A little lift on the way (it rises over a shoulder rather than sliding past
 	# the back of a head).
-	var lift := 0.3 * sin(PI * swing) if flat_a < flat_b else 0.0
+	var lift := Constants.STAGE_CAM_ARC_LIFT * sin(PI * swing) if flat_a < flat_b else 0.0
 	var eye := pivot + Vector3(sin(angle) * flat, lerpf(ra.y, rb.y, swing) + lift, cos(angle) * flat)
 	var look_a := a.origin - a.basis.z.normalized() * maxf(0.5, ra.length())
 	var look_b := b.origin - b.basis.z.normalized() * maxf(0.5, rb.length())
@@ -354,15 +371,59 @@ func _keep_clear(pivot: Vector3, eye: Vector3, delta: float) -> Vector3:
 	return pivot + (eye - pivot) / full * minf(full, _clear_dist)
 
 
+## A swing faster than max_speed is slowed, not cut short: the blend only gets
+## as far along its arc this frame as max_speed allows (R2b: clamping the eye
+## after the fact chased the arc point in straight lines, through the pivot).
+## It always gets a quarter of its normal step, so a moving shot can't stall it.
+func _paced(from_u: float, to_u: float, target: Transform3D, pivot: Vector3, max_speed: float, delta: float) -> float:
+	if not _has_last or not _last_arc.is_finite() or _iris_closed():
+		return to_u
+	var start := _last_arc + _carried(pivot, delta)
+	var most := max_speed * delta
+	if _arc_origin(target, pivot, to_u).distance_to(start) <= most:
+		return to_u
+	var lo := from_u
+	var hi := to_u
+	for _i: int in 10:
+		var mid := (lo + hi) * 0.5
+		if _arc_origin(target, pivot, mid).distance_to(start) <= most:
+			lo = mid
+		else:
+			hi = mid
+	return maxf(lo, from_u + (to_u - from_u) * 0.25)
+
+
+func _arc_origin(target: Transform3D, pivot: Vector3, u: float) -> Vector3:
+	return target.origin if u >= 1.0 else _arc(_from, target, pivot, u).origin
+
+
+## How far the pivot carries the eye this frame: its own move, no faster than
+## STAGE_CAM_PIVOT_MAX_SPEED.
+func _carried(pivot: Vector3, delta: float) -> Vector3:
+	if not pivot.is_finite() or not _last_pivot.is_finite():
+		return Vector3.ZERO
+	return (pivot - _last_pivot).limit_length(Constants.STAGE_CAM_PIVOT_MAX_SPEED * delta)
+
+
+## The same sweep with no memory and only the near plane's size: the speed
+## clamp's eye (between last frame's and this one's, both clear) is pulled in
+## only if the near plane itself would be in something (a wall's corner).
+func _clear_now(pivot: Vector3, eye: Vector3) -> Vector3:
+	var full := pivot.distance_to(eye)
+	if full < 0.01:
+		return eye
+	var reach := _Sweep.reach(get_world_3d(), pivot, eye, maxf(near, 0.02), _Sweep.passable(get_tree()))
+	return pivot + (eye - pivot) * reach
+
+
 ## No faster than max_speed relative to the pivot (it may ride a walking pair),
-## and no faster a turn than STAGE_CAM_MAX_TURN, unless the iris covers it.
+## no faster a turn than STAGE_CAM_MAX_TURN, and the pivot itself carries the eye
+## no faster than STAGE_CAM_PIVOT_MAX_SPEED (an anchor read from a stale pose
+## glides the camera over, never jumps it), unless the iris covers it.
 func _clamped(drawn: Transform3D, pivot: Vector3, max_speed: float, delta: float) -> Transform3D:
 	if not _has_last or _iris_closed():
 		return drawn
-	var carried := Vector3.ZERO
-	if pivot.is_finite() and _last_pivot.is_finite():
-		carried = pivot - _last_pivot
-	var start := _last_drawn.origin + carried
+	var start := _last_drawn.origin + _carried(pivot, delta)
 	var step := drawn.origin - start
 	var most := max_speed * delta
 	var out := drawn

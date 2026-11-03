@@ -142,6 +142,20 @@ func open(at: float, seconds: float = Constants.IRIS_OPEN) -> void:
 	log.append({"op": "open", "at": _open_at, "seconds": seconds})
 
 
+## Let go of a close that's no longer wanted (R2b: freed mid-boarding): one
+## that hasn't started yet is dropped and never shows; one under way or shut
+## opens again, as open() would.
+func release(at: float, seconds: float = Constants.IRIS_OPEN) -> void:
+	if _close_at == INF:
+		return
+	if _open_at == INF and Net.server_time() < _close_at:
+		_close_at = INF
+		_swished_close = true
+		log.append({"op": "release", "at": at})
+		return
+	open(at, seconds)
+
+
 ## Fully shut right now.
 func is_closed() -> bool:
 	return amount_at(Net.server_time()) >= 1.0
