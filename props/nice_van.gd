@@ -23,10 +23,23 @@ extends RefCounted
 ##   VanLook/Livery    the lettering (Label3D), swayed with the Shell
 ##   VanLook/Wheels    WheelFL, WheelFR, WheelRL, WheelRR, which roll
 ##   VanLook/Solid     the five collision boxes riders and players bump into
-##   VanLook/Motion    rolls the wheels, sways the body, flares the brake lights and
-##                     pulses the dome, from how the VanLook itself moves. Whoever
-##                     moves the van (ride.gd, net/run_events/van_arrival.gd) just
-##                     moves it on physics ticks.
+##   VanLook/Motion    rolls the wheels, steers the front wheels and the steering
+##                     wheel with the yaw rate, swings the air freshener, sways the
+##                     body, flares the brake lights and pulses the dome, from how
+##                     the VanLook itself moves. Whoever moves the van
+##                     (net/run_events/shuttle.gd) just moves it.
+##   The moving parts and markers (nice_boys:4, the Courtesy Shuttle), all riding
+##   the Shell so they sway with the body:
+##   Shell/SideDoor    three telescoping panels on the outside track: slide(open, at)
+##   Shell/BackDoors   DoorL and DoorR on their hinges: swing(open, at)
+##   Shell/SteeringWheel, Shell/Freshener (the daisy on its string), Shell/MirrorR
+##                     (the door-side mirror's glint, shown by the shuttle)
+##   Shell/Seats/Seat0..3      rider seats on the left bench, facing the open side
+##   Shell/CabinCam/Seat0..3   a rider's eyes from each seat, looking out
+##   Shell/WindowFace/Seat0..3 where a knocking rider's face leans to
+##   Shell/CrewSeats/Seat0..2  shotgun, then the back bench, facing forward
+##   Shell/DriverSeat, Shell/FreshenerCam
+##   VanLook/DoorStep (the ground outside the door), VanLook/RearStep (the bumper)
 ##
 ## The roads: arrival_curve() is how it pulls up to a curb, departure_curve() how it
 ## leaves with its riders. One ends exactly where and how the other starts, so the
@@ -68,6 +81,22 @@ const SLANT_TOP := Vector2(-2.03, 2.9)
 ## arrives from +X and leaves toward the lot's van corridor (Constants.ART_VAN_ANGLE).
 const STREET_DIR := Vector3(-1.0, 0.0, 0.0)
 
+## The sliding door (nice_boys:4): three panels on the outside track, outermost
+## first. Parked open they stack over the rear quarter, as cast:5 drew it; shut,
+## they telescope forward over the whole open side, front to back.
+const DOOR_PANEL_X: Array[float] = [1.265, 1.235, 1.205]
+const DOOR_PANEL_CLOSED_Z: Array[float] = [-1.0, 0.6, 2.15]
+const DOOR_PANEL_OPEN_Z: float = 2.2
+const DOOR_PANEL_LENGTH: float = 1.7
+## The back doors' hinges (x) and how far they swing open (radians).
+const BACK_HINGE_X: float = 1.05
+const BACK_DOOR_OPEN: float = 1.9
+## The rider seats along the left bench (z), facing the open side.
+const RIDER_SEAT_Z: Array[float] = [0.72, 1.17, 1.62, 2.07]
+## The steering wheel's hub, and its tilt back toward the driver.
+const WHEEL_HUB := Vector3(-0.5, 2.0, -2.06)
+const WHEEL_UP := Vector3(0.0, 0.866, 0.5)
+
 static var _cache: Dictionary = {}
 
 
@@ -82,7 +111,12 @@ static func build(parent: Node3D, paint: Color = PAINT) -> Node3D:
 	parent.add_child(look)
 	var key := paint.to_html()
 	if not _cache.has(key):
-		_cache[key] = {"body": _body_mesh(paint), "glass": _glass_mesh(), "dome": _dome_mesh(), "wheel": _wheel_mesh()}
+		_cache[key] = {
+			"body": _body_mesh(paint), "glass": _glass_mesh(), "dome": _dome_mesh(), "wheel": _wheel_mesh(),
+			"door_panel": _door_panel_mesh(paint), "door_panel_glass": _door_panel_glass_mesh(),
+			"back_door": [_back_door_mesh(paint, -1.0), _back_door_mesh(paint, 1.0)], "back_door_glass": [_back_door_glass_mesh(-1.0), _back_door_glass_mesh(1.0)],
+			"steering": _steering_mesh(), "freshener": _freshener_mesh(),
+		}
 	var meshes: Dictionary = _cache[key]
 	var shell := Node3D.new()
 	shell.name = "Shell"
@@ -90,13 +124,16 @@ static func build(parent: Node3D, paint: Color = PAINT) -> Node3D:
 	var body := _Stylized.instance(meshes["body"], MATERIAL)
 	body.name = "Body"
 	shell.add_child(body)
+	var glass_material := _glass_material()
 	var glass := MeshInstance3D.new()
 	glass.name = "Glass"
 	glass.mesh = meshes["glass"]
-	glass.material_override = _glass_material()
+	glass.material_override = glass_material
 	glass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	glass.set_meta("keep_material", true)
 	shell.add_child(glass)
+	_moving_parts(shell, meshes, glass_material)
+	_markers(look, shell)
 	var dome := MeshInstance3D.new()
 	dome.name = "Dome"
 	dome.mesh = meshes["dome"]
@@ -152,6 +189,124 @@ static func build(parent: Node3D, paint: Color = PAINT) -> Node3D:
 	motion.setup(look, lights)
 	look.add_child(motion)
 	return look
+
+
+## A marker of a built VanLook by name ("Seats/Seat0", "DoorStep", ...): the
+## Shell's first (seats, cameras, faces), then the VanLook's own (the ground steps).
+static func marker(look: Node3D, path: String) -> Node3D:
+	if look == null:
+		return null
+	var on_shell := look.get_node_or_null("Shell/" + path) as Node3D
+	return on_shell if on_shell != null else look.get_node_or_null(path) as Node3D
+
+
+## The sliding door and the back doors (Door nodes that animate themselves from
+## the shared clock), the steering wheel, the air freshener and the mirror glint.
+static func _moving_parts(shell: Node3D, meshes: Dictionary, glass_material: Material) -> void:
+	var side := SideDoor.new()
+	side.name = "SideDoor"
+	shell.add_child(side)
+	for index: int in DOOR_PANEL_X.size():
+		var panel := _Stylized.instance(meshes["door_panel"], MATERIAL)
+		panel.name = "Panel%d" % index
+		panel.position = Vector3(DOOR_PANEL_X[index], 0.0, DOOR_PANEL_OPEN_Z)
+		side.add_child(panel)
+		var pane := MeshInstance3D.new()
+		pane.name = "Glass"
+		pane.mesh = meshes["door_panel_glass"]
+		pane.material_override = glass_material
+		pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		pane.set_meta("keep_material", true)
+		panel.add_child(pane)
+	# The handle and THE NICE BOYS ride the outermost panel, the one that travels.
+	var front := side.get_node("Panel0") as Node3D
+	var handle := _LowPoly.box(front, Vector3(0.02, 0.035, 0.12), Vector3(0.026, 1.86, -DOOR_PANEL_LENGTH * 0.5 + 0.12), CHROME)
+	handle.name = "Handle"
+	_letter(_LowPoly.text_sign(front, str(_Strings.UI["van_side"]), Vector3(0.018, 2.0, 0.19), 30, LETTERING, PI * 0.5))
+	side.setup(DOOR_PANEL_OPEN_Z, DOOR_PANEL_CLOSED_Z)
+	var back := BackDoors.new()
+	back.name = "BackDoors"
+	shell.add_child(back)
+	for index: int in 2:
+		var hinge_side := -1.0 if index == 0 else 1.0
+		var door := Node3D.new()
+		door.name = "DoorL" if index == 0 else "DoorR"
+		door.position = Vector3(hinge_side * BACK_HINGE_X, 0.0, 3.0)
+		back.add_child(door)
+		var leaf := _Stylized.instance((meshes["back_door"] as Array)[index], MATERIAL)
+		leaf.name = "Leaf"
+		door.add_child(leaf)
+		var pane := MeshInstance3D.new()
+		pane.name = "Glass"
+		pane.mesh = (meshes["back_door_glass"] as Array)[index]
+		pane.material_override = glass_material
+		pane.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		pane.set_meta("keep_material", true)
+		door.add_child(pane)
+	# "HOW'S MY ENFORCING?" on the right-hand door, wrapped to its width.
+	var rear := _LowPoly.text_sign(back.get_node("DoorR"), str(_Strings.UI["van_rear"]), Vector3(-0.53, 1.92, 0.077), 24, LETTERING)
+	rear.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rear.width = 200.0
+	_letter(rear)
+	var steering := Node3D.new()
+	steering.name = "SteeringWheel"
+	steering.transform = Transform3D(Basis(Vector3.RIGHT, WHEEL_UP, Vector3.RIGHT.cross(WHEEL_UP).normalized()), WHEEL_HUB)
+	shell.add_child(steering)
+	var wheel_mesh := _Stylized.instance(meshes["steering"], MATERIAL)
+	wheel_mesh.name = "Ring"
+	steering.add_child(wheel_mesh)
+	var freshener := Node3D.new()
+	freshener.name = "Freshener"
+	freshener.position = Vector3(0.0, 2.72, -2.05)
+	shell.add_child(freshener)
+	var daisy := _Stylized.instance(meshes["freshener"], MATERIAL)
+	daisy.name = "Daisy"
+	freshener.add_child(daisy)
+	# The door-side mirror's glint (the driver's check; the shuttle shows it).
+	var glint := _LowPoly.glow(shell, Vector3(0.05, 0.1, 0.01), Vector3(1.32, 2.14, -2.355), Color(1.0, 1.0, 0.92), 6.0) as Node3D
+	glint.name = "MirrorR"
+	glint.visible = false
+
+
+## Where everyone sits and stands, as Marker3Ds (see the header).
+static func _markers(look: Node3D, shell: Node3D) -> void:
+	var facing_side := Basis(Vector3.UP, -PI * 0.5)
+	var seats := Node3D.new()
+	seats.name = "Seats"
+	shell.add_child(seats)
+	var cams := Node3D.new()
+	cams.name = "CabinCam"
+	shell.add_child(cams)
+	var faces := Node3D.new()
+	faces.name = "WindowFace"
+	shell.add_child(faces)
+	for index: int in RIDER_SEAT_Z.size():
+		var z := RIDER_SEAT_Z[index]
+		_marker(seats, "Seat%d" % index, Transform3D(facing_side, Vector3(-0.78, 1.01, z)))
+		# Eye height when sat, looking out the open side and a touch down.
+		_marker(cams, "Seat%d" % index, Transform3D(facing_side * Basis(Vector3.RIGHT, -0.08), Vector3(-0.7, 2.3, z)))
+		_marker(faces, "Seat%d" % index, Transform3D(facing_side, Vector3(-0.3, 1.01, z)))
+	var crew := Node3D.new()
+	crew.name = "CrewSeats"
+	shell.add_child(crew)
+	# Shotgun in the cab, then two on the back bench facing forward.
+	_marker(crew, "Seat0", Transform3D(Basis.IDENTITY, Vector3(0.5, 1.0, -1.92)))
+	_marker(crew, "Seat1", Transform3D(Basis.IDENTITY, Vector3(-0.05, 1.01, 2.56)))
+	_marker(crew, "Seat2", Transform3D(Basis.IDENTITY, Vector3(0.55, 1.01, 2.56)))
+	_marker(shell, "DriverSeat", Transform3D(Basis.IDENTITY, Vector3(-0.5, 1.0, -1.92)))
+	# Close on the daisy, the windshield and the road behind it.
+	# From over the passenger seat, so the driver's head stays out of the shot.
+	var at := Vector3(0.32, 2.74, -1.6)
+	_marker(shell, "FreshenerCam", Transform3D(Basis.looking_at(Vector3(0.0, 2.56, -2.05) - at, Vector3.UP), at))
+	_marker(look, "DoorStep", Transform3D(facing_side.rotated(Vector3.UP, PI), Vector3(1.75, 0.0, 0.3)))
+	_marker(look, "RearStep", Transform3D(Basis.IDENTITY, Vector3(0.0, 0.87, 3.24)))
+
+
+static func _marker(parent: Node3D, marker_name: String, xform: Transform3D) -> void:
+	var node := Marker3D.new()
+	node.name = marker_name
+	node.transform = xform
+	parent.add_child(node)
 
 
 ## The curve a van leaving the curb at from drives to to: straight along the street
@@ -320,47 +475,113 @@ static func _left_wall(kit: _MeshKit, paint: Color) -> void:
 	kit.rbox(Vector3(-1.12, 2.21, 3.0), Vector3(0.085, 0.7, 0.085), paint, 4.0, {"detail": 1})
 
 
-## The back: two doors with windows, the seal on the band, handles, the bumper.
+## The back around its two doors (Shell/BackDoors, _back_door_mesh): the corner
+## posts that carry the taillights, the header over the doors, and the bumper the
+## straggler hops onto.
 static func _back_wall(kit: _MeshKit, paint: Color) -> void:
 	var z := 3.0
-	kit.box(Vector3(0.0, 1.27, z), Vector3(2.38, 0.5, 0.14), BAND)
-	kit.box(Vector3(0.0, 1.86, z), Vector3(2.38, 0.68, 0.14), paint)
-	for x: float in [-1.07, 0.0, 1.07]:
-		kit.box(Vector3(x, 2.45, z), Vector3(0.24 if x != 0.0 else 0.4, 0.5, 0.14), paint)
-	kit.box(Vector3(0.0, 2.81, z), Vector3(2.38, 0.22, 0.14), paint)
-	kit.box(Vector3(0.0, 1.535, z + 0.071), Vector3(2.36, 0.03, 0.006), BAND_DEEP)
-	# The seam between the doors (broken where the lettering runs across), and
-	# their handles.
-	kit.box(Vector3(0.0, 1.36, z + 0.072), Vector3(0.014, 0.68, 0.006), RUBBER)
-	kit.box(Vector3(0.0, 2.52, z + 0.072), Vector3(0.014, 0.8, 0.006), RUBBER)
 	for side: float in [-1.0, 1.0]:
-		kit.box(Vector3(side * 0.13, 1.72, z + 0.08), Vector3(0.12, 0.035, 0.02), CHROME)
-	_NiceSeal.add(kit, Vector3(0.0, 1.29, z + 0.072), 0.2, Vector3.BACK, 1)
+		kit.box(Vector3(side * 1.12, 1.27, z), Vector3(0.14, 0.5, 0.14), BAND)
+		kit.box(Vector3(side * 1.12, 2.21, z), Vector3(0.14, 1.38, 0.14), paint)
+		kit.box(Vector3(side * 1.12, 1.535, z + 0.071), Vector3(0.12, 0.03, 0.006), BAND_DEEP)
+	kit.box(Vector3(0.0, 2.9, z), Vector3(2.38, 0.06, 0.14), paint)
+	# The door frame's floor sill, so the open back shows a floor, not a gap.
+	kit.box(Vector3(0.0, 1.0, z), Vector3(2.1, 0.04, 0.16), TRIM)
 	kit.rbox(Vector3(0.0, 0.76, 3.16), Vector3(1.16, 0.11, 0.09), TRIM, 5.0, {"detail": 2})
 
 
+## One back door, hung on its hinge: side -1 the left (hinge at -BACK_HINGE_X,
+## the door reaching to the middle), 1 the right. In the hinge's own space, so
+## swinging is a turn about y. The left one carries the Daisy Seal on its band.
+static func _back_door_mesh(paint: Color, side: float) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var w := BACK_HINGE_X
+	# The door's middle, from the hinge toward the van's middle.
+	var mid := -side * w * 0.5
+	kit.box(Vector3(mid, 1.27, 0.0), Vector3(w, 0.5, 0.14), BAND)
+	kit.box(Vector3(mid, 1.86, 0.0), Vector3(w, 0.68, 0.14), paint)
+	# Round the window: the hinge-side strip, the middle strip, the header.
+	kit.box(Vector3(-side * 0.05, 2.45, 0.0), Vector3(0.1, 0.5, 0.14), paint)
+	kit.box(Vector3(-side * (w - 0.1), 2.45, 0.0), Vector3(0.2, 0.5, 0.14), paint)
+	kit.box(Vector3(mid, 2.79, 0.0), Vector3(w, 0.18, 0.14), paint)
+	kit.box(Vector3(mid, 1.535, 0.071), Vector3(w - 0.02, 0.03, 0.006), BAND_DEEP)
+	# The seam where they meet (rubber on the right door's edge) and the handle.
+	if side > 0.0:
+		kit.box(Vector3(-w + 0.007, 1.94, 0.072), Vector3(0.014, 1.84, 0.006), RUBBER)
+	kit.box(Vector3(-side * (w - 0.13), 1.72, 0.08), Vector3(0.12, 0.035, 0.02), CHROME)
+	if side < 0.0:
+		_NiceSeal.add(kit, Vector3(mid, 1.29, 0.072), 0.2, Vector3.BACK, 1)
+	return kit.commit()
+
+
+static func _back_door_glass_mesh(side: float) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.box(Vector3(-side * 0.475, 2.45, 0.0), Vector3(0.75, 0.5, 0.04), Color.WHITE)
+	return kit.commit()
+
+
+## One sliding door panel, centered on its own origin (z), its outer face at
+## +x: the lavender band, a window, the pinstripe.
+static func _door_panel_mesh(paint: Color) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var length := DOOR_PANEL_LENGTH
+	var t := 0.03
+	kit.box(Vector3(0.0, 1.27, 0.0), Vector3(t, 0.5, length), BAND)
+	kit.box(Vector3(0.0, 1.835, 0.0), Vector3(t, 0.63, length), paint)
+	for side: float in [-1.0, 1.0]:
+		kit.box(Vector3(0.0, 2.385, side * (length * 0.5 - 0.1)), Vector3(t, 0.47, 0.2), paint)
+	kit.box(Vector3(0.0, 2.74, 0.0), Vector3(t, 0.24, length), paint)
+	kit.box(Vector3(t * 0.5 + 0.003, 1.535, 0.0), Vector3(0.006, 0.03, length - 0.02), BAND_DEEP)
+	# Rubber round its edges, so three stacked panels read as three.
+	for side: float in [-1.0, 1.0]:
+		kit.box(Vector3(t * 0.5 + 0.003, 1.94, side * (length * 0.5 - 0.006)), Vector3(0.006, 1.84, 0.012), RUBBER)
+	return kit.commit()
+
+
+static func _door_panel_glass_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.box(Vector3(0.0, 2.385, 0.0), Vector3(0.022, 0.47, DOOR_PANEL_LENGTH - 0.4), Color.WHITE)
+	return kit.commit()
+
+
+## The steering wheel in its own space (the ring in x-y, the column down -z), with
+## a crossbar and a horn button so it can be seen turning.
+static func _steering_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var ring := PackedVector3Array()
+	var radii := PackedFloat32Array()
+	for index: int in 17:
+		var angle := TAU * float(index) / 16.0
+		ring.append(Vector3(cos(angle), sin(angle), 0.0) * 0.17)
+		radii.append(0.018)
+	kit.tube(ring, radii, RUBBER, 6, {"jitter": 0.0, "cap": false})
+	kit.tube(PackedVector3Array([Vector3(-0.16, 0.0, 0.0), Vector3(0.16, 0.0, 0.0)]), PackedFloat32Array([0.012, 0.012]), RUBBER.lightened(0.15), 5, {"jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0.0, 0.0, 0.0), Vector3(0.0, -0.16, 0.0)]), PackedFloat32Array([0.012, 0.012]), RUBBER.lightened(0.15), 5, {"jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0.0, 0.0, 0.01), Vector3(0.0, 0.0, 0.03)]), PackedFloat32Array([0.04, 0.04]), BAND, 8, {"jitter": 0.0, "cap": true})
+	# The column into the dash.
+	kit.tube(PackedVector3Array([Vector3(0.0, 0.0, -0.01), Vector3(0.0, 0.0, -0.18)]), PackedFloat32Array([0.025, 0.03]), RUBBER, 6, {"jitter": 0.0})
+	return kit.commit()
+
+
+## The daisy air freshener on its string, hanging from its pivot (the mirror).
+static func _freshener_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.tube(PackedVector3Array([Vector3(0.0, 0.0, 0.0), Vector3(0.0, -0.12, 0.0)]), PackedFloat32Array([0.004, 0.004]), Color(0.95, 0.95, 0.95), 4, {"jitter": 0.0})
+	_NiceSeal.add(kit, Vector3(0.0, -0.17, 0.0), 0.05, Vector3.FORWARD, 0, true)
+	return kit.commit()
+
+
 ## The open right side: posts at both ends, the door track, the running board with
-## its yellow "watch your step" edge, and the sliding door parked open at the back.
+## its yellow "watch your step" edge, and the rail the sliding door (Shell/SideDoor,
+## _door_panel_mesh) runs along, the whole length of the opening.
 static func _right_side(kit: _MeshKit, paint: Color) -> void:
 	kit.rbox(Vector3(1.12, 1.27, 3.0), Vector3(0.085, 0.25, 0.085), BAND, 4.0, {"detail": 1})
 	kit.rbox(Vector3(1.12, 2.21, 3.0), Vector3(0.085, 0.7, 0.085), paint, 4.0, {"detail": 1})
 	kit.box(Vector3(1.14, 2.86, 0.6), Vector3(0.05, 0.04, 4.9), RUBBER)
 	kit.box(Vector3(1.15, 0.93, -0.08), Vector3(0.2, 0.05, 3.5), TRIM)
 	kit.box(Vector3(1.252, 0.945, -0.08), Vector3(0.006, 0.022, 3.5), Color(0.98, 0.82, 0.2))
-	# The sliding door, slid back over the rear quarter, a hand's width out.
-	var x := 1.235
-	var z0 := 1.72
-	var z1 := 3.06
-	var mid := (z0 + z1) * 0.5
-	kit.box(Vector3(x, 1.27, mid), Vector3(0.06, 0.5, z1 - z0), BAND)
-	kit.box(Vector3(x, 1.835, mid), Vector3(0.06, 0.63, z1 - z0), paint)
-	kit.box(Vector3(x, 2.385, z0 + 0.065), Vector3(0.06, 0.47, 0.13), paint)
-	kit.box(Vector3(x, 2.385, z1 - 0.105), Vector3(0.06, 0.47, 0.21), paint)
-	kit.box(Vector3(x, 2.74, mid), Vector3(0.06, 0.24, z1 - z0), paint)
-	kit.box(Vector3(x + 0.031, 1.535, mid), Vector3(0.006, 0.03, z1 - z0 - 0.02), BAND_DEEP)
-	kit.box(Vector3(x + 0.036, 1.86, z0 + 0.1), Vector3(0.02, 0.035, 0.12), CHROME)
-	# The rollers it hangs from.
-	kit.box(Vector3(1.19, 2.87, mid), Vector3(0.06, 0.03, z1 - z0), RUBBER)
+	# The rail the door's rollers hang from.
+	kit.box(Vector3(1.24, 2.89, 0.58), Vector3(0.09, 0.03, 4.9), RUBBER)
 
 
 ## The roof, the amber dome's base, and the loudspeaker horn on the front edge.
@@ -386,25 +607,13 @@ static func _cab_inside(kit: _MeshKit) -> void:
 		kit.box(Vector3(x, 1.2, -1.98), Vector3(0.5, 0.26, 0.36), RUBBER)
 		kit.box(Vector3(x, 1.86, -1.79), Vector3(0.6, 0.8, 0.1), VINYL, Basis(Vector3.RIGHT, 0.1))
 		kit.box(Vector3(x, 2.36, -1.75), Vector3(0.36, 0.2, 0.09), VINYL.darkened(0.15))
-	# The steering wheel, leaned back toward the driver, on its column.
-	var hub := Vector3(-0.5, 2.0, -2.06)
-	var up := Vector3(0.0, 0.866, 0.5)
-	var ring := PackedVector3Array()
-	var radii := PackedFloat32Array()
-	for index: int in 17:
-		var angle := TAU * float(index) / 16.0
-		ring.append(hub + (Vector3.RIGHT * cos(angle) + up * sin(angle)) * 0.17)
-		radii.append(0.018)
-	kit.tube(ring, radii, RUBBER, 6, {"jitter": 0.0, "cap": false})
-	kit.tube(PackedVector3Array([hub, hub + Vector3(0.0, -0.08, -0.16)]), PackedFloat32Array([0.025, 0.03]), RUBBER, 6, {"jitter": 0.0})
+	# The steering wheel turns (Shell/SteeringWheel, _steering_mesh).
 	# The console between the seats: two cupholders (they mention them; docs/GAME.md).
 	kit.box(Vector3(0.0, 1.3, -2.02), Vector3(0.3, 0.6, 0.4), RUBBER.lightened(0.1))
 	for z: float in [-2.1, -1.94]:
 		kit.tube(PackedVector3Array([Vector3(0.0, 1.6, z), Vector3(0.0, 1.62, z)]), PackedFloat32Array([0.05, 0.05]), Color(0.12, 0.12, 0.13), 8, {"jitter": 0.0})
-	# The mirror, and a daisy air freshener hanging from it, facing out the front.
+	# The mirror; the daisy air freshener swings from it (Shell/Freshener).
 	kit.box(Vector3(0.0, 2.76, -2.04), Vector3(0.3, 0.07, 0.03), RUBBER)
-	kit.tube(PackedVector3Array([Vector3(0.0, 2.72, -2.05), Vector3(0.0, 2.6, -2.05)]), PackedFloat32Array([0.004, 0.004]), Color(0.95, 0.95, 0.95), 4, {"jitter": 0.0})
-	_NiceSeal.add(kit, Vector3(0.0, 2.55, -2.05), 0.05, Vector3.FORWARD, 0, true)
 
 
 ## The back, seen through the open side: a bench along the left wall and one across
@@ -435,8 +644,8 @@ static func _cabin_inside(kit: _MeshKit) -> void:
 	_NiceSeal.add(kit, Vector3(-1.026, 2.45, 0.9), 0.1, Vector3.RIGHT)
 
 
-## Every window as one see-through mesh: the windshield, both cab doors, the left
-## side, the two back doors and the sliding door.
+## Every fixed window as one see-through mesh: the windshield, both cab doors and
+## the left side (the doors carry their own panes).
 static func _glass_mesh() -> ArrayMesh:
 	var kit := _MeshKit.new()
 	var tilt := atan2(SLANT_TOP.x - SLANT_BOTTOM.x, SLANT_TOP.y - SLANT_BOTTOM.y)
@@ -448,9 +657,6 @@ static func _glass_mesh() -> ArrayMesh:
 		var inner_top := _slant_z(2.7) + 0.08
 		_prism(kit, [Vector2(inner_2, 2.0), Vector2(-1.95, 2.0), Vector2(-1.95, 2.7), Vector2(inner_top, 2.7)], side * 1.07, side * 1.1, Color.WHITE)
 	kit.box(Vector3(-1.12, 2.42, -0.9), Vector3(0.04, 0.5, 1.3), Color.WHITE)
-	for x: float in [-0.575, 0.575]:
-		kit.box(Vector3(x, 2.45, 3.0), Vector3(0.75, 0.5, 0.04), Color.WHITE)
-	kit.box(Vector3(1.235, 2.385, 2.27), Vector3(0.025, 0.47, 1.0), Color.WHITE)
 	return kit.commit()
 
 
@@ -528,8 +734,10 @@ static func _lights(shell: Node3D) -> Array[StandardMaterial3D]:
 	var tails: Array[StandardMaterial3D] = []
 	for side: float in [-1.0, 1.0]:
 		_LowPoly.glow(shell, Vector3(0.3, 0.16, 0.03), Vector3(side * 0.78, 1.38, -3.355), Color(1.0, 0.95, 0.78), 2.5)
-		_LowPoly.glow(shell, Vector3(0.14, 0.07, 0.03), Vector3(side * 0.9, 1.15, -3.322), BEACON_AMBER, 1.5)
-		var tail := _LowPoly.glow(shell, Vector3(0.14, 0.48, 0.03), Vector3(side * 1.0, 1.95, 3.085), Color(0.9, 0.12, 0.08), Constants.VAN_TAIL_GLOW) as MeshInstance3D
+		# The turn signals: the shuttle blinks the door side's pulling out.
+		_LowPoly.glow(shell, Vector3(0.14, 0.07, 0.03), Vector3(side * 0.9, 1.15, -3.322), BEACON_AMBER, 1.5).name = "BlinkerL" if side < 0.0 else "BlinkerR"
+		# On the corner posts, so they stay put when the back doors swing.
+		var tail := _LowPoly.glow(shell, Vector3(0.11, 0.48, 0.03), Vector3(side * 1.12, 1.95, 3.085), Color(0.9, 0.12, 0.08), Constants.VAN_TAIL_GLOW) as MeshInstance3D
 		tails.append(tail.material_override as StandardMaterial3D)
 		_LowPoly.glow(shell, Vector3(0.12, 0.08, 0.03), Vector3(side * 0.62, 0.82, 3.255), Color(1.0, 0.97, 0.9), 0.8)
 	for z: float in [-1.6, 2.85]:
@@ -539,8 +747,9 @@ static func _lights(shell: Node3D) -> Array[StandardMaterial3D]:
 
 
 ## The lettering (VanLook/Livery), all from ui/strings.gd: THE NICE BOYS and the
-## motto on the left, a smaller THE NICE BOYS on the sliding door, and the back's
-## "HOW'S MY ENFORCING?" wrapped onto two lines.
+## motto on the left. The smaller THE NICE BOYS rides the sliding door and the
+## back's "HOW'S MY ENFORCING?" the right back door (_moving_parts), so they go
+## where the doors go.
 static func _livery(look: Node3D) -> void:
 	var livery := Node3D.new()
 	livery.name = "Livery"
@@ -548,11 +757,6 @@ static func _livery(look: Node3D) -> void:
 	var side := str(_Strings.UI["van_side"])
 	_letter(_LowPoly.text_sign(livery, side, Vector3(-1.2, 2.33, 1.55), 72, LETTERING, -PI * 0.5))
 	_letter(_LowPoly.text_sign(livery, str(_Strings.UI["van_motto"]), Vector3(-1.2, 1.86, 1.55), 30, LETTERING, -PI * 0.5))
-	_letter(_LowPoly.text_sign(livery, side, Vector3(1.268, 2.0, 2.39), 30, LETTERING, PI * 0.5))
-	var rear := _LowPoly.text_sign(livery, str(_Strings.UI["van_rear"]), Vector3(0.0, 1.92, 3.077), 26, LETTERING)
-	rear.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rear.width = 330.0
-	_letter(rear)
 
 
 ## Painted-on lettering: no dark outline, a pale one so it reads on cream.
@@ -605,6 +809,16 @@ class Motion extends Node:
 	var _shell: Node3D
 	var _livery: Node3D
 	var _wheels: Array[Node3D] = []
+	var _front: Array[Node3D] = []
+	var _front_base: Array[float] = []
+	var _steering: Node3D
+	var _steering_base: Basis
+	var _freshener: Node3D
+	var _steer: float = 0.0
+	var _swing := Vector2.ZERO
+	var _swing_speed := Vector2.ZERO
+	## The front wheels' steer now (radians, + is left); read by tests.
+	var steer: float = 0.0
 	var _tails: Array[StandardMaterial3D] = []
 	var _dome: StandardMaterial3D
 	var _dome_light: OmniLight3D
@@ -626,6 +840,13 @@ class Motion extends Node:
 		_livery = look.get_node("Livery")
 		for wheel: Node in look.get_node("Wheels").get_children():
 			_wheels.append(wheel as Node3D)
+			if str(wheel.name).begins_with("WheelF"):
+				_front.append(wheel as Node3D)
+				_front_base.append((wheel as Node3D).rotation.y)
+		_steering = _shell.get_node_or_null("SteeringWheel") as Node3D
+		if _steering != null:
+			_steering_base = _steering.transform.basis
+		_freshener = _shell.get_node_or_null("Freshener") as Node3D
 		_tails = tails
 		_dome = (_shell.get_node("Dome") as MeshInstance3D).material_override as StandardMaterial3D
 		_dome_light = _shell.get_node("DomeLight") as OmniLight3D
@@ -634,6 +855,12 @@ class Motion extends Node:
 	func settle() -> void:
 		_has_last = false
 		_speed = 0.0
+
+	## A pothole: the body kicks up and rocks, the air freshener jumps.
+	func bump(strength: float = 1.0) -> void:
+		_pitch_speed += Constants.VAN_BUMP_KICK * strength
+		_roll_speed -= Constants.VAN_BUMP_KICK * 0.4 * strength
+		_swing_speed += Vector2(Constants.VAN_BUMP_KICK * 6.0, Constants.VAN_BUMP_KICK * 3.0) * strength
 
 	func _physics_process(delta: float) -> void:
 		if _look == null or delta <= 0.0:
@@ -673,6 +900,27 @@ class Motion extends Node:
 		_shell.transform = sway
 		_livery.transform = sway
 		_braking = 1.0 if accel < -Constants.VAN_BRAKE_LIGHT_ACCEL and _speed > 0.3 else maxf(0.0, _braking - delta * 4.0)
+		# The front wheels steer into the turn it's making (a bicycle model: the
+		# yaw rate over the speed, times the wheelbase), and the wheel in the cab
+		# turns with them; eased, so a corner never flicks them.
+		var yaw_rate := turned / delta
+		var goal := 0.0
+		if absf(_speed) > 0.5:
+			goal = clampf(atan(2.0 * WHEEL_Z * yaw_rate / absf(_speed)), -Constants.VAN_STEER_MAX, Constants.VAN_STEER_MAX)
+		_steer = lerpf(_steer, goal, clampf(delta * Constants.VAN_STEER_RATE, 0.0, 1.0))
+		steer = _steer
+		for index: int in _front.size():
+			_front[index].rotation.y = _front_base[index] + _steer
+		if _steering != null:
+			_steering.transform.basis = _steering_base * Basis(Vector3.BACK, -_steer * Constants.VAN_STEERING_RATIO)
+		# The air freshener swings against the van's pull: fore and aft when it
+		# speeds up or brakes, sideways in a turn.
+		if _freshener != null:
+			var push := Vector2(accel, -lateral) * Constants.VAN_FRESHENER_PUSH
+			_swing_speed += (-Constants.VAN_FRESHENER_STIFFNESS * _swing - Constants.VAN_FRESHENER_DAMPING * _swing_speed - push) * delta
+			_swing += _swing_speed * delta
+			_swing = _swing.limit_length(0.9)
+			_freshener.rotation = Vector3(_swing.x, 0.0, _swing.y)
 
 	func _process(_delta: float) -> void:
 		if _dome == null:
@@ -682,3 +930,91 @@ class Motion extends Node:
 		_dome_light.light_energy = lerpf(0.3, 1.4, pulse)
 		for tail: StandardMaterial3D in _tails:
 			tail.emission_energy_multiplier = lerpf(Constants.VAN_TAIL_GLOW, Constants.VAN_BRAKE_GLOW, _braking)
+
+
+## The sliding door: three panels that telescope along the outside track.
+## slide(open, at) eases them over Constants.VAN_DOOR_SLIDE from wherever they
+## are, starting at server time at, so every peer's door moves together; the
+## outermost panel travels farthest, the innermost hardly at all.
+class SideDoor extends Node3D:
+	var _open_z: float = 0.0
+	var _closed_z: Array[float] = []
+	var _from: float = 1.0
+	var _to: float = 1.0
+	var _at: float = -1000.0
+	## 1 fully open, 0 shut, as drawn now.
+	var openness: float = 1.0
+
+	func setup(open_z: float, closed_z: Array[float]) -> void:
+		_open_z = open_z
+		_closed_z = closed_z
+		_apply(1.0)
+
+	## Start sliding open (true) or shut at server time at.
+	func slide(open: bool, at: float) -> void:
+		_from = openness
+		_to = 1.0 if open else 0.0
+		_at = at
+
+	## Open or shut right now, no motion (a van built mid-trip).
+	func set_open_now(open: bool) -> void:
+		_from = 1.0 if open else 0.0
+		_to = _from
+		_apply(_from)
+
+	func target_open() -> bool:
+		return _to > 0.5
+
+	func _process(_delta: float) -> void:
+		if is_equal_approx(openness, _to) and Net.server_time() >= _at:
+			return
+		var u := clampf((Net.server_time() - _at) / maxf(Constants.VAN_DOOR_SLIDE, 0.01), 0.0, 1.0)
+		_apply(lerpf(_from, _to, u * u * (3.0 - 2.0 * u)))
+
+	func _apply(value: float) -> void:
+		openness = value
+		for index: int in _closed_z.size():
+			var panel := get_node_or_null("Panel%d" % index) as Node3D
+			if panel != null:
+				panel.position.z = lerpf(_closed_z[index], _open_z, value)
+
+
+## The back doors on their hinges: swing(open, at) turns both out over
+## Constants.VAN_BACK_DOOR_SWING, the left one a touch behind the right.
+class BackDoors extends Node3D:
+	var _from: float = 0.0
+	var _to: float = 0.0
+	var _at: float = -1000.0
+	## 1 swung wide, 0 shut.
+	var openness: float = 0.0
+
+	func swing(open: bool, at: float) -> void:
+		_from = openness
+		_to = 1.0 if open else 0.0
+		_at = at
+
+	func set_open_now(open: bool) -> void:
+		_from = 1.0 if open else 0.0
+		_to = _from
+		_apply(_from, _from)
+
+	func _process(_delta: float) -> void:
+		if is_equal_approx(openness, _to) and Net.server_time() >= _at + 0.2:
+			return
+		var seconds := maxf(Constants.VAN_BACK_DOOR_SWING, 0.01)
+		var right := clampf((Net.server_time() - _at) / seconds, 0.0, 1.0)
+		var left := clampf((Net.server_time() - _at - 0.12) / seconds, 0.0, 1.0)
+		_apply(lerpf(_from, _to, _ease(left)), lerpf(_from, _to, _ease(right)))
+
+	## Swinging out, a little past and back, like a door let go of.
+	static func _ease(u: float) -> float:
+		return 1.0 - pow(1.0 - u, 3.0) + 0.08 * sin(u * PI) * (1.0 - u)
+
+	func _apply(left: float, right: float) -> void:
+		openness = right
+		var door_l := get_node_or_null("DoorL") as Node3D
+		var door_r := get_node_or_null("DoorR") as Node3D
+		if door_l != null:
+			door_l.rotation.y = -left * BACK_DOOR_OPEN
+		if door_r != null:
+			door_r.rotation.y = right * BACK_DOOR_OPEN

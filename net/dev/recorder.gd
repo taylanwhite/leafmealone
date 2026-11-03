@@ -540,7 +540,16 @@ func _poll_changes() -> void:
 	if crossing != null:
 		_changed("border", str(crossing.call("status_line")), func(value: String) -> void: _event("border", {"status": value}))
 	for ride: Node in get_tree().get_nodes_in_group("rides"):
+		if ride.is_in_group("nice_shuttle"):
+			continue
 		_changed("ride:" + str(ride.name), str(ride.call("is_riding")), func(value: String) -> void: _event("ride", {"ride": str(ride.name), "riding": value == "true"}))
+	# The Courtesy Shuttle (nice_boys:4): each trip's leg, and who sits in a van.
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null:
+		for trip_id: Variant in shuttle.call("trip_ids"):
+			var trip := int(trip_id)
+			_changed("van_leg:%d" % trip, str(shuttle.call("leg_name", trip)), func(value: String) -> void: _event("van_leg", {"trip": trip, "leg": value}))
+		_changed("van_seated", str(shuttle.call("seated_riders")), func(value: String) -> void: _event("van_seated", {"riders": value}))
 	# How many NICE BOYS, and each one's mode (R2 chunk 2: seated, hopping out,
 	# spotting, winding up...), so a recording shows the catch beat by beat.
 	var crew_now := get_tree().get_nodes_in_group("crew")
@@ -572,7 +581,12 @@ func _watch_motion(delta: float) -> void:
 	var watched: Array = []
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var visual := node.get_node_or_null("Visual") as Node3D
-		watched.append(["player", "player %s" % _who(node), visual if visual != null else node as Node3D])
+		# A staged body (a van seat) is drawn later this frame from its anchor
+		# (player/stage_body.gd, priority 110): watch the anchor, not a Visual its
+		# synced parent has moved since last frame.
+		var stage := node.get_node_or_null("StageBody")
+		var anchor: Node3D = stage.call("staged_anchor") if stage != null and stage.has_method("staged_anchor") else null
+		watched.append(["player", "player %s" % _who(node), anchor if anchor != null else (visual if visual != null else node as Node3D)])
 	for node: Node in get_tree().get_nodes_in_group("crew"):
 		var visual := node.get_node_or_null("Visual") as Node3D
 		watched.append(["crew", str(node.name), visual if visual != null else node as Node3D])
@@ -580,6 +594,12 @@ func _watch_motion(delta: float) -> void:
 		var body := ride.get_node_or_null("Body") as Node3D
 		if body != null:
 			watched.append(["vehicle", str(ride.name), body])
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null:
+		for trip_id: Variant in shuttle.call("trip_ids"):
+			var holder := shuttle.get_node_or_null("Trip%d" % int(trip_id)) as Node3D
+			if holder != null and holder.visible:
+				watched.append(["vehicle", "van %d" % int(trip_id), holder])
 	var seen: Dictionary = {}
 	for item: Array in watched:
 		var node := item[2] as Node3D

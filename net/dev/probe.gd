@@ -215,6 +215,8 @@ func write_report() -> void:
 		"rake_net_test": _test_result_by_path("res://net/dev/rake_net_test.gd"),
 		"leaf_motion_test": _test_result_by_path("res://net/dev/leaf_motion_test.gd"),
 		"rake_stroke_test": _test_result_by_path("res://net/dev/rake_stroke_test.gd"),
+		"shuttle_test": _test_result_by_path("res://net/dev/shuttle_test.gd"),
+		"shuttle": _shuttle(),
 		"leaf_view": _leaf_view(),
 		"leaf_ledger": _leaf_ledger(),
 		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
@@ -393,6 +395,14 @@ func _shops() -> Dictionary:
 func _heat() -> float:
 	var heat := get_tree().get_first_node_in_group("heat")
 	return float(heat.get("heat")) if heat != null else -1.0
+
+
+## The Courtesy Shuttle's own measurements on this peer (net/run_events/shuttle.gd
+## stats: trips, the fastest and longest step it was seen to make, park slides,
+## seats, knocks, unbuckles, stragglers, zone moves, drops).
+func _shuttle() -> Dictionary:
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	return (shuttle.get("stats") as Dictionary).duplicate(true) if shuttle != null else {}
 
 
 ## What this peer heard: the music director's mood, track and stingers

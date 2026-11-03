@@ -102,12 +102,17 @@ func _run() -> void:
 	reached["store"] = _check(out, _zone() == "STORE", "zone %s" % _zone(), problems)
 
 	out = await _scenarios.run("van_ride")
-	var van := get_tree().get_first_node_in_group("world").get_node_or_null("Rides/Van")
-	var seated := van != null and int(van.call("seat_of", me)) >= 0
-	reached["van_ride"] = _check(out, _zone() == "TRANSIT" and seated, "zone %s, in a van seat %s" % [_zone(), seated], problems)
+	# The Courtesy Shuttle (nice_boys:4): buckled in at the yard's curb, about to leave.
+	var seated := bool(_scenarios.call("_reached_van_ride"))
+	reached["van_ride"] = _check(out, _zone() == "LOT" and seated, "zone %s, in a van seat %s" % [_zone(), seated], problems)
+	for moment: String in ["van_seated", "van_straggler", "dropoff"]:
+		out = await _scenarios.run(moment)
+		reached[moment] = _check(out, bool(_scenarios.call("_reached_" + moment)), "reached %s" % moment, problems)
 
 	out = await _scenarios.run("border_return")
-	reached["border_return"] = _check(out, _zone() == "BORDER", "zone %s, %s" % [_zone(), str(out.get("status", ""))], problems)
+	# In the zone and staged for the crossing (a non-empty status means Border
+	# Return has us in its roster, not just a teleport to the border).
+	reached["border_return"] = _check(out, _zone() == "BORDER" and str(out.get("status", "")) != "", "zone %s, %s" % [_zone(), str(out.get("status", ""))], problems)
 
 	# drive needs the connected town; in this legacy world it must say so, not pretend.
 	out = await _scenarios.run("drive")
@@ -162,7 +167,8 @@ func _check_recording(started: Dictionary, clip: Dictionary, problems: Array[Str
 		var listed: Array = (parsed as Dictionary).get("frames", [])
 		stamps_ok = listed.size() == frames and not listed.is_empty() and (listed[0] as Dictionary).has("state") and (listed[0] as Dictionary).has("camera")
 		misfiled = _misfiled_events(listed, float(clip.get("fps", CLIP_FPS)), int(clip.get("session_fixed_fps", 0)))
-	var saw_arrival := kinds.has("raid_phase") and kinds.has("crew")
+	# The crew ride in seated from the call (nice_boys:4): the van pulling up is the arrival.
+	var saw_arrival := kinds.has("raid_phase") and (kinds.has("crew") or kinds.has("van_leg"))
 	report = {"frames": frames, "want_about": want, "fixed_step": fixed, "spacing": spacing, "files": files, "sheet": sheet_ok, "stamps": stamps_ok, "saw_arrival": saw_arrival, "kinds": kinds.keys(), "misfiled_events": misfiled.slice(0, 6)}
 	var ok := fixed and even and absi(frames - want) <= 2 and files and sheet_ok and stamps_ok and saw_arrival and misfiled.is_empty()
 	report["ok"] = ok

@@ -473,3 +473,26 @@ The NICE BOYS encounter (gap-specs/nice_boys.json). Host-authoritative; every co
 | Hotbar | `_rpc_itemized(at, index)` | host -> all | one item out of the itemized row (its tick) |
 
 Lag: the wind-up's lead (0.35 s + up to 0.15 s of the target's half round trip) doubles as network lead, so a 150 ms client sees all of it; reach is judged in the host's view plus `CREW_GRAB_SLACK`. The gotcha and the escort place both bodies from anchors on every peer (chunk 1's `set_staged` for the player; the crew's own placement), so the pair never tears apart. Disconnects: a target mid-windup cancels the grab; a caught player who leaves frees the NICE BOY back to the chase (`_rpc_freed(..., "gone")`).
+
+## The Courtesy Shuttle (R2:4, net/run_events/shuttle.gd)
+
+One van per trip. Its pose is a pure function of the trip's legs and `Net.server_time()`; the host only sends the plan when it grows, each new leg `VAN_PLAN_LEAD` ahead. Everything is reliable on channel 0 and lives on `World/RunDirector/Shuttle` (a stable path, created on every peer by the director).
+
+| RPC | Direction | What |
+| --- | --- | --- |
+| `_rpc_plan(trip_id, legs, info)` | host to all | the whole leg list and the trip's info (purpose, park, drop, zone, beats) |
+| `_rpc_info(trip_id, info)` | host to all | info changed (a return trip's drop) |
+| `_rpc_raid(trip_id)` | host to all | which trip is the raid's van |
+| `_rpc_door(trip_id, which, open, at)` | host to all | the sliding door (`side`) or the back doors slide or swing at server time `at` |
+| `_rpc_seat(trip_id, peer, seat, at, mode, from)` | host to all | a rider boards: walk in, step up, or at once; every peer stages the body from its anchor |
+| `_rpc_unseat(trip_id, peer, exit, at)` | host to all | a rider unbuckles and steps down to `exit` |
+| `_rpc_release_riders(trip_id, at, handed_on)` | host to all | the Annex (handed_on: it re-stages them from the seats) or Border Return (unstaged at once, before its lane teleport) has the riders now |
+| `_rpc_crew_seat(trip_id, crew_index, seat, at, mode, from)` | host to all | a NICE BOY sits, climbs out, climbs in, or hops on the bumper |
+| `_rpc_beat(trip_id, kind, at)` | host to all | cosmetic beats: the blinker, the whistle, the driver's wave, a honk |
+| `_rpc_knock(trip_id, peer, at)` | host to all | a rider's knock on the glass |
+| `_rpc_end_trip(trip_id)` | host to all | the trip is over; each peer frees its van once it can't see it |
+| `_rpc_request_knock()` | client to host | a seated rider pressed primary |
+| `_rpc_request_unbuckle(target, start)` | client to host | a hold on the door begins (`start`) or claims it was held long enough; the host times it itself |
+| `_rpc_request_snapshot()` / `_rpc_snapshot(data)` | client to host / back | a late joiner's trips, until the R2 director's `_rpc_state` carries `snapshot()` |
+
+Host checks: an unbuckle needs the rescuer free and within `VAN_DOOR_REACH` of the door step, the rider settled in a parked van with its door open, no mirror check at the start, the end or in between, no NICE BOY who can see the rescuer within `VAN_GUARD_RADIUS`, and a hold of at least `VAN_UNBUCKLE_HOLD - 0.15` s by the host's clock. Mirror checks are a pure function of the trip id and the time since the hold began, so every peer sees the same glints.

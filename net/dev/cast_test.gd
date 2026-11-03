@@ -75,7 +75,7 @@ const PHASE_B_VAN: bool = true
 const _Vehicles = preload("res://props/vehicles.gd")
 const _NiceVan = preload("res://props/nice_van.gd")
 const _BeaconScript = preload("res://npcs/arrival_beacon.gd")
-const _VanArrival = preload("res://net/run_events/van_arrival.gd")
+const _VanArrival = preload("res://net/run_events/shuttle.gd")
 ## Steps 13-16: crew outfits and name tags on a networked crew (cast:4).
 const PHASE_C_CREW: bool = true
 ## Step 17: barks reach the client (cast:6).
@@ -244,7 +244,29 @@ func _van_look(scratch: Node3D) -> void:
 		_look(_Guardrail.is_clean(text), "11 the van's lettering '%s' passes the guardrail" % text)
 	if livery != null:
 		var painted := livery.find_children("*", "Label3D", true, false).size()
-		_look(painted >= 3, "11 the livery has at least 3 lettering labels (%d)" % painted)
+		_look(painted >= 2, "11 the livery has at least 2 lettering labels (%d); the doors carry theirs" % painted)
+	# Step 11 (nice_boys:4): the doors are their own parts, and every marker the
+	# Courtesy Shuttle seats and stands people on is there.
+	for part: String in ["Shell/SideDoor/Panel0", "Shell/SideDoor/Panel1", "Shell/SideDoor/Panel2", "Shell/BackDoors/DoorL", "Shell/BackDoors/DoorR",
+			"Shell/SteeringWheel", "Shell/Freshener", "Shell/MirrorR", "Shell/DriverSeat", "Shell/FreshenerCam", "DoorStep", "RearStep"]:
+		_look(van.get_node_or_null(part) != null, "11 the van has %s" % part)
+	for index: int in 4:
+		for group: String in ["Seats", "CabinCam", "WindowFace"]:
+			_look(van.get_node_or_null("Shell/%s/Seat%d" % [group, index]) != null, "11 the van has Shell/%s/Seat%d" % [group, index])
+	for index: int in 3:
+		_look(van.get_node_or_null("Shell/CrewSeats/Seat%d" % index) != null, "11 the van has Shell/CrewSeats/Seat%d" % index)
+	var side := van.get_node_or_null("Shell/SideDoor")
+	if side != null:
+		var panel := side.get_node("Panel0") as Node3D
+		var open_z := panel.position.z
+		side.call("set_open_now", false)
+		_look(panel.position.z < open_z - 2.0, "11 the sliding door shuts forward over the open side (%.2f to %.2f)" % [open_z, panel.position.z])
+		side.call("set_open_now", true)
+	var seat := van.get_node_or_null("Shell/Seats/Seat0") as Node3D
+	if seat != null:
+		# Facing the open side (+x), feet on the floor.
+		var facing := -seat.global_basis.z
+		_look(facing.dot(van.global_basis.x) > 0.95 and absf(seat.position.y - 1.01) < 0.05, "11 a rider's seat faces the open side, on the floor")
 	for key: String in ["van_side", "van_motto", "van_rear"]:
 		_look(texts.has(str(_Strings.UI[key])), "11 the van carries UI %s ('%s'); it has %s" % [key, _Strings.UI[key], texts])
 	var solid := van.get_node_or_null("Solid")
@@ -311,45 +333,31 @@ class FakeDirector extends Node:
 		return park
 
 
-## Step 11, called off (cast:5): a van that is still pulling up when the call is off
-## (everyone left the lot, or the crew gave up) drives on down the street from
-## where it is, without a jump back to the curb, and is gone after
-## Constants.VAN_LEAVE_SECONDS. Run against a stand-in director, out of the world.
-func _van_called_off(scratch: Node3D) -> void:
-	var holder := Node.new()
-	holder.name = "FakeWorld"
-	scratch.add_child(holder)
-	var director := FakeDirector.new()
-	director.name = "FakeDirector"
-	holder.add_child(director)
-	var arrival: Node = _VanArrival.new()
-	director.add_child(arrival)
-	# A warning whose van is 3.5 s into its 5 s pull-up, braking.
-	director.phase_now = 1
-	director.arrive_at = Net.server_time() + Constants.VAN_ARRIVE_SECONDS - 3.5
-	await _physics_ticks(12)
-	var van: Node3D = arrival.call("van_look")
-	var state := str(arrival.call("state_name"))
-	_look(van != null and state == "arriving", "11 a van pulls up during the warning (%s)" % state)
-	if van == null:
-		holder.queue_free()
-		return
-	var before := van.global_position
-	director.phase_now = 0
-	await _physics_ticks(3)
-	var after := van.global_position
-	var step := (after - before).dot(_NiceVan.STREET_DIR)
-	_look(str(arrival.call("state_name")) == "leaving", "11 a called-off van leaves")
-	_look(step > 0.0 and before.distance_to(after) < 2.0, "11 it drives on from where it was (%.2f m on, %.2f m moved)" % [step, before.distance_to(after)])
-	await get_tree().create_timer(0.6).timeout
-	_look((van.global_position - after).dot(_NiceVan.STREET_DIR) > 0.5, "11 it keeps going down the street")
-	var waited := 0.0
-	while str(arrival.call("state_name")) != "" and waited < Constants.VAN_LEAVE_SECONDS + 1.5:
-		await get_tree().physics_frame
-		waited += get_physics_process_delta_time()
-	_look(str(arrival.call("state_name")) == "", "11 the called-off van is gone after %.1f s" % Constants.VAN_LEAVE_SECONDS)
-	print("[CastTest] step 11: a called-off van drove on %.2f m in 3 ticks and was gone %.1f s later" % [step, waited + 0.6])
-	holder.queue_free()
+## Step 11, the Courtesy Shuttle's motion (nice_boys:4, net/run_events/shuttle.gd):
+## a pull-out from rest to a stop never backs up, never passes VAN_CRUISE, ends
+## at rest on its road; a pull-up cruising in stops at its curb; the mirror checks
+## come every VAN_MIRROR_EVERY, the same for a trip every time. (The call-off,
+## the drive on from wherever it is, is --shuttle-test's.)
+func _van_called_off(_scratch: Node3D) -> void:
+	for road: float in [40.0, 140.0]:
+		var segs: PackedFloat32Array = _VanArrival._drive_segments(0.0, road)
+		var leg := {"k": 2, "t": 0.0, "v0": 0.0, "segs": segs}
+		var total := float(_VanArrival._segs_seconds(segs))
+		var previous := 0.0
+		var fastest := 0.0
+		for step: int in 201:
+			var tau := total * float(step) / 200.0
+			var s := float(_VanArrival.leg_distance(leg, tau))
+			_look(s >= previous - 0.0001, "11 the shuttle never backs up (%.0f m road, step %d)" % [road, step])
+			previous = s
+			fastest = maxf(fastest, float(_VanArrival.leg_speed(leg, tau)))
+		_look(fastest <= Constants.VAN_CRUISE + 0.01, "11 it never passes a lawful %.0f m/s (%.1f on a %.0f m road)" % [Constants.VAN_CRUISE, fastest, road])
+		_look(absf(previous - road) < 0.5 and float(_VanArrival.leg_speed(leg, total)) < 0.05, "11 it stops at the end of a %.0f m road (%.2f m)" % [road, previous])
+	var first: Vector2 = _VanArrival.mirror_window(7, 0.0)
+	var again: Vector2 = _VanArrival.mirror_window(7, 0.0)
+	var next: Vector2 = _VanArrival.mirror_window(7, first.y + 0.01)
+	_look(first == again and first.x >= Constants.VAN_MIRROR_EVERY.x and next.x - first.y >= Constants.VAN_MIRROR_EVERY.x - 0.01 and next.x - first.y <= Constants.VAN_MIRROR_EVERY.y + 0.01, "11 the driver's mirror checks come every %s s, the same each time" % Constants.VAN_MIRROR_EVERY)
+	print("[CastTest] step 11: the shuttle's pull-outs and mirror checks")
 
 
 func _physics_ticks(count: int) -> void:
@@ -422,6 +430,7 @@ func _phase_c() -> void:
 	# when the chase starts (the director's status is for logs, not the HUD).
 	waited = 0.0
 	var limit := Constants.RUN_WARNING_SECONDS + 4.0
+	# They ride in seated from the call (nice_boys:4): wait for the arrival itself.
 	while (get_tree().get_nodes_in_group("crew").is_empty() or int(director.call("phase")) != 2) and waited < limit:
 		await get_tree().process_frame
 		waited += get_process_delta_time()
@@ -453,8 +462,8 @@ func _phase_c() -> void:
 	await get_tree().create_timer(CREW_SETTLE_SECONDS).timeout
 	# Step 14b (cast:5): the van pulled up with them and is parked at the curb.
 	if PHASE_B_VAN:
-		var arrival := get_tree().get_first_node_in_group("van_arrival")
-		var parked := str(arrival.call("state_name")) if arrival != null else "(no van_arrival)"
+		var arrival := get_tree().get_first_node_in_group("nice_shuttle")
+		var parked := str(arrival.call("state_name")) if arrival != null else "(no nice_shuttle)"
 		var van_look: Node3D = arrival.call("van_look") if arrival != null else null
 		var park: Vector3 = director.call("van_park_point")
 		var off := van_look.global_position.distance_to(park) if van_look != null else -1.0

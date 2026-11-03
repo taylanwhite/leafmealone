@@ -10,12 +10,20 @@ extends Node
 ## one reaches its state.
 ##
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, spotted, lunge,
-## dodge, gotcha, cite_rescue, escort, hide, border_return, van_ride, store, drive
-## (that one needs --town-map), toss, toss_full, toss_close.
+## dodge, gotcha, cite_rescue, escort, hide, border_return, van_ride, van_seated,
+## van_unbuckle, van_straggler, dropoff, store, drive (that one needs --town-map),
+## toss, toss_full, toss_close.
 
 const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "border_return", "van_ride", "store", "drive", "toss", "toss_full", "toss_close"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "store", "drive", "toss", "toss_full", "toss_close"]
+## van_ride: how long the seated van holds before it pulls out.
+const VAN_RIDE_LEAD_SECONDS: float = 2.0
+## van_unbuckle: how far from the door step you stand.
+const DOOR_STAND_METERS: float = 1.2
+## van_straggler: where you watch from, in the van's space: on the yard side, level
+## with its back doors (the yard's pad walls keep you off the far sidewalk).
+const STRAGGLER_WATCH := Vector3(6.0, 0.0, 2.5)
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
@@ -118,6 +126,14 @@ func run(scenario: String) -> Dictionary:
 			out = await _border_return()
 		"van_ride":
 			out = await _van_ride()
+		"van_seated":
+			out = await _van_seated()
+		"van_unbuckle":
+			out = await _van_unbuckle()
+		"van_straggler":
+			out = await _van_straggler()
+		"dropoff":
+			out = await _dropoff()
 		"store":
 			out = await _store()
 		"drive":
@@ -508,19 +524,130 @@ func _hide() -> Dictionary:
 	return {"note": "facing %s; tap interact to get in, they arrive in %.1f s" % [str(spot.get("label")), HIDE_LEAD_SECONDS], "phase": _phase(), "spot": _v(spot.global_position)}
 
 
-## Caught: the cohort closes, the van takes you (you're in it now).
+## Buckled into the NICE BOYS' van at the yard's curb, and it pulls out in
+## VAN_RIDE_LEAD_SECONDS: the door, the blinker, the drive, the iris.
 func _van_ride() -> Dictionary:
+	var seated: Dictionary = await _van_seated()
+	if seated.has("error"):
+		return seated
+	var van := _van()
+	van.call("host_depart", Net.server_time() + VAN_RIDE_LEAD_SECONDS)
+	await _ticks(2)
+	return {"note": "in the van; it pulls out in %.0f s" % VAN_RIDE_LEAD_SECONDS, "zone": _zone(), "trip": int(seated["trip"])}
+
+
+func _reached_van_ride() -> bool:
+	var van := _van()
+	return van != null and not (van.call("seat_info", Net.local_peer_id()) as Dictionary).is_empty() and str(van.call("leg_name", int(van.call("raid_trip_id")))) in ["parked", "depart", "hidden", "annex_arrive", "annex_parked"]
+
+
+## Buckled into the parked van, the door open: the seat camera, the window, the
+## knock (primary), the driver's mirror checks. It holds until something else
+## says go.
+func _van_seated() -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
-	var director := _director()
-	director.call("force_capture", Net.local_peer_id())
-	var van: Node = await _wait_for(func() -> Variant:
-		var ride := _van()
-		return ride if ride != null and bool(ride.call("is_riding")) and int(ride.call("seat_of", Net.local_peer_id())) >= 0 else null)
+	var van := _van()
 	if van == null:
-		return {"error": "the van didn't leave with you in it"}
-	return {"note": "in the van, %.0f s from the border" % float(van.get("_duration")), "zone": _zone()}
+		return {"error": "no Courtesy Shuttle (net/run_events/shuttle.gd)"}
+	var trip := int(van.call("dev_park_now", true))
+	await _ticks(3)
+	van.call("dev_seat", trip, Net.local_peer_id())
+	var sat: Variant = await _wait_for(func() -> Variant:
+		return true if bool((van.call("seat_info", Net.local_peer_id()) as Dictionary).get("settled", false)) else null)
+	if sat == null:
+		return {"error": "never sat down in the van"}
+	return {"note": "seated in the parked van, the door open; primary knocks", "zone": _zone(), "trip": trip}
+
+
+func _reached_van_seated() -> bool:
+	var van := _van()
+	return van != null and bool((van.call("seat_info", Net.local_peer_id()) as Dictionary).get("settled", false))
+
+
+## A friend buckled into the parked van and you at its door: hold interact to
+## unbuckle them, between the driver's mirror checks. Needs a second player (the
+## -Observer window).
+func _van_unbuckle() -> Dictionary:
+	var friend := 0
+	for peer_id: int in Net.peer_ids():
+		if peer_id != Net.local_peer_id():
+			friend = peer_id
+	if friend == 0:
+		return {"error": "van_unbuckle needs a friend in the van: start with -Observer"}
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	if Net.player_zone(friend) != Net.Zone.LOT:
+		Net.move_player_to_zone(friend, Net.Zone.LOT)
+		await get_tree().create_timer(0.5).timeout
+	var van := _van()
+	var trip := int(van.call("dev_park_now", true))
+	await _ticks(3)
+	van.call("dev_seat", trip, friend)
+	var step: Vector3 = van.call("door_step_point")
+	var pose: Transform3D = van.call("trip_pose", trip, Net.server_time())
+	var stand := step + pose.basis.x.normalized() * DOOR_STAND_METERS
+	_place(stand, _yaw_toward(stand, step + Vector3(0.0, 0.0, 0.0) - pose.basis.x * 2.0), -0.15)
+	await _ticks(3)
+	return {"note": "at the van's door with %s buckled in; hold interact %.1f s while the driver isn't checking his mirror" % [Net.player_name(friend), Constants.VAN_UNBUCKLE_HOLD], "friend": friend, "trip": trip}
+
+
+func _reached_van_unbuckle() -> bool:
+	var van := _van()
+	if van == null:
+		return false
+	for peer_id: int in Net.peer_ids():
+		if peer_id != Net.local_peer_id() and bool((van.call("seat_info", peer_id) as Dictionary).get("settled", false)):
+			return true
+	return false
+
+
+## The van leaving with one NICE BOY still out on the lawn: it creeps on with its
+## back doors open and he jogs after it and hops onto the bumper. You watch
+## from behind it.
+func _van_straggler() -> Dictionary:
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	var van := _van()
+	var trip := int(van.call("dev_park_now", true))
+	await _ticks(3)
+	van.call("dev_crew", 2, [2])
+	await get_tree().create_timer(3.0).timeout
+	var pose: Transform3D = van.call("trip_pose", trip, Net.server_time())
+	var stand := pose * STRAGGLER_WATCH
+	_place(Vector3(stand.x, pose.origin.y + 0.1, stand.z), _yaw_toward(stand, pose * Vector3(0.0, 0.0, 3.0)), -0.1)
+	van.call("dev_straggle", 2)
+	van.call("host_depart", Net.server_time() + 1.0)
+	await _ticks(2)
+	return {"note": "the van pulls out in 1 s with Crew2 still out; it creeps, he hops on the bumper", "trip": trip}
+
+
+func _reached_van_straggler() -> bool:
+	var van := _van()
+	return van != null and str(van.call("leg_name", int(van.call("raid_trip_id")))) in ["parked", "creep"]
+
+
+## Riding home: the shuttle pulling up at the yard's curb, you aboard; it parks,
+## the door slides, you unbuckle and step down onto the curb.
+func _dropoff() -> Dictionary:
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	var van := _van()
+	var trip := int(van.call("dev_dropoff", [Net.local_peer_id()]))
+	var sat: Variant = await _wait_for(func() -> Variant:
+		return true if not (van.call("seat_info", Net.local_peer_id()) as Dictionary).is_empty() else null)
+	if sat == null:
+		return {"error": "not aboard the return shuttle"}
+	return {"note": "aboard the return shuttle pulling up at the yard; it drops you at the curb", "trip": trip}
+
+
+func _reached_dropoff() -> bool:
+	var van := _van()
+	return van != null and not (van.call("seat_info", Net.local_peer_id()) as Dictionary).is_empty()
 
 
 ## Border Return starts now: caught, and the van ride skipped to its end.
@@ -528,19 +655,26 @@ func _border_return() -> Dictionary:
 	var ride: Dictionary = await _van_ride()
 	if ride.has("error"):
 		return ride
+	# Caught for real, so Border Return has us in its cohort (the van is already
+	# leaving, so the capture doesn't board anyone again).
+	var director := _director()
+	if director != null and director.has_method("force_capture"):
+		director.call("force_capture", Net.local_peer_id())
 	var van := _van()
-	# The ride's place on its path is a function of the shared clock: move its
-	# start back so it arrives on the next tick, through its own arrival code.
-	# Only the host's start moves: other peers (an observer) see the van drive on
-	# normally until the arrival message parks it at the route's end, a cut, so
-	# a 3P recording of this moment is the real thing only from the border on.
-	van.set("_start_time", Net.server_time() - float(van.get("_duration")))
+	# Straight to the end of the drive: the riders move on as if out of sight (the
+	# observer's copy of the van still drives off and is left out there).
+	await get_tree().create_timer(VAN_RIDE_LEAD_SECONDS + 0.5).timeout
+	van.call("dev_skip_ride", int(ride["trip"]))
 	var there: Variant = await _wait_for(func() -> Variant:
 		return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.BORDER else null)
 	if there == null:
 		return {"error": "never got to the border"}
-	await _ticks(3)
+	# The van rolls in to the Annex curb and Border Return takes the cohort there.
 	var crossing := get_tree().get_first_node_in_group("border_return")
+	if crossing != null:
+		await _wait_for(func() -> Variant:
+			return true if str(crossing.call("status_line")) != "" else null)
+	await _ticks(3)
 	return {"note": "Border Return staging; the lanes start in %.0f s" % Constants.BORDER_STAGING_SECONDS, "zone": _zone(), "status": str(crossing.call("status_line")) if crossing != null else ""}
 
 
@@ -606,13 +740,10 @@ func reset() -> void:
 		await _ticks(2)
 	if crossing != null and (crossing.get("_roster") as Array).has(me_id):
 		crossing.call("_send_home", me_id)
-	# A van still on its way (empty now) finishes its trip, or it can't leave again
-	# (the host's start time only, as in _border_return: other peers see it jump
-	# to the route's end when it arrives; start an observer recording after this).
+	# Every Courtesy Shuttle trip gone at once, riders let go where they sit.
 	var van := _van()
-	if van != null and bool(van.call("is_riding")):
-		van.set("_start_time", Net.server_time() - float(van.get("_duration")))
-		await _wait_for(func() -> Variant: return true if not bool(van.call("is_riding")) else null)
+	if van != null:
+		van.call("dev_reset")
 	await _ticks(3)
 
 
@@ -749,8 +880,9 @@ func _lot_zone() -> Node3D:
 	return _world().get_node_or_null("LotZone") as Node3D
 
 
+## The Courtesy Shuttle (net/run_events/shuttle.gd).
 func _van() -> Node:
-	return _world().get_node_or_null("Rides/Van")
+	return get_tree().get_first_node_in_group("nice_shuttle")
 
 
 func _crew() -> Node3D:

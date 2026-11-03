@@ -220,9 +220,9 @@ func mark_caught(peer_id: int, caught: bool) -> void:
 
 ## Riders on the van right now: the Shuttle's seats, or the old ride's.
 func van_occupied() -> int:
-	var shuttle := _shuttle()
-	if shuttle != null and shuttle.has_method("seated_riders"):
-		return (shuttle.call("seated_riders") as Array).size()
+	var shuttle := get_node_or_null("Shuttle")
+	if shuttle != null and shuttle.has_method("boarded_riders"):
+		return (shuttle.call("boarded_riders") as Array).size()
 	var van := get_parent().get_node_or_null("Rides/Van")
 	if van == null:
 		return 0
@@ -461,18 +461,12 @@ func _step_departing() -> void:
 
 ## Host: the van leaves with whoever's aboard; the raid is over.
 func _depart() -> void:
-	var riders := _seated_riders()
 	_hazard_seed = randi()
+	# The Courtesy Shuttle (nice_boys:4) takes whoever is seated (R2 integration:
+	# the old ride's fallback van, _rpc_legacy_ride, is gone with it).
 	var shuttle := _shuttle()
 	if shuttle != null and shuttle.has_method("host_depart"):
 		shuttle.call("host_depart", Net.server_time())
-	elif not riders.is_empty():
-		_rpc_legacy_ride.rpc(riders, _hazard_seed)
-		for peer_id: int in riders:
-			_encounter.call("host_set_stage", peer_id, _Encounter.Stage.RIDING)
-		var van := get_parent().get_node_or_null("Rides/Van")
-		if van != null:
-			van.call("depart", riders, Net.Zone.BORDER)
 	# A stray left on the lawn (the recall ran out) has to be somewhere: in the van.
 	for crew: Node in _crew_list():
 		var mode := int(crew.get("mode"))
@@ -635,24 +629,6 @@ func _rpc_phase(phase: int, started_at: float, status: String) -> void:
 	if Net.is_host():
 		_log("run_phase", {"phase": phase, "status": status})
 	# Sounds and visuals for each phase are in ui/run_cues.gd, timed from started_at.
-
-
-## Every peer, without a Shuttle: the old ride's van, built where the van is parked,
-## takes the riders to the border (the integrator drops this with chunk 4).
-@rpc("authority", "call_local", "reliable")
-func _rpc_legacy_ride(riders: Array, hazard_seed: int) -> void:
-	_hazard_seed = hazard_seed
-	for entry: Variant in riders:
-		mark_caught(int(entry), true)
-	var rides := get_parent().get_node("Rides")
-	var van := rides.get_node_or_null("Van")
-	if van == null:
-		van = _RideScript.new()
-		van.name = "Van"
-		rides.add_child(van)
-	if van.has_method("setup_as_van"):
-		var border := get_parent().get_node("BorderZone") as Node3D
-		van.call("setup_as_van", van_park_point(), border.global_position)
 
 
 @rpc("authority", "call_local", "reliable")

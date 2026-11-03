@@ -64,6 +64,18 @@ const SOUNDS: Dictionary = {
 	"van": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 4.0, "db": 0.0},
 	# The NICE BOYS' van's horn alone, as it pulls up (net/run_events/van_arrival.gd).
 	"van_honk": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# ---- nice_boys:4, the Courtesy Shuttle (net/run_events/shuttle.gd; made by
+	# tools/sfx_r2_van.py): the sliding door, a buckle, the blinker, a pothole, a
+	# rider's knock on the glass, the mirror's glint, and the cab radio (a loop).
+	"van_door_slide": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"seatbelt_click": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": 0.0},
+	"blinker_tick": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": -2.0},
+	"van_bump": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"window_knock": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 2.0},
+	"mirror_glint": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": -2.0},
+	# Pulling away (or driving on): the putt-putt alone, no door bonk after the slam.
+	"van_pull": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 3.0, "db": 0.0},
+	"radio_babble": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 4.0, "db": -4.0},
 	# The HUD's run-event cues (ui/run_cues.gd), heard wherever you are.
 	"warning": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.0, "db": 0.0},
 	"radio": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.0, "db": 0.0},

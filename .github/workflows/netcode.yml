@@ -403,6 +403,18 @@ jobs:
           grep "DriveTest" build/soak/ci-drive/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-drive/host.json')); t=json.load(open('build/soak/ci-drive/target.json')); sys.exit(0 if h['drive_test'].get('ok') and t['drive'].get('prediction_error_max_m', 99) < 1.5 and t['drive'].get('prediction_error_mean_m', 99) < 0.25 and t['drive'].get('prediction_samples', 0) > 100 and h['drive'].get('riders') == t['drive'].get('riders') and t['vehicle_view'].get('max_gap_ms', 9999) < 400 and h.get('ride_frames', 0) > 0 and h.get('ride_wobble_m', 1) < 0.05 and t.get('ride_frames', 0) > 0 and t.get('ride_wobble_m', 1) < 0.05 and t.get('zone') == 'TOWN' and t['drive'].get('trips_seen', 0) >= 3 and 'start,stop' in ','.join(t['drive'].get('chauffeur_seen') or []) and h['drive'].get('cosmetic') == t['drive'].get('cosmetic') and 'Big Sal' in json.dumps(h['drive'].get('cosmetic')) else 1)"
 
+      - name: Shuttle test (the NICE BOYS' Courtesy Shuttle over 150 ms of lag, one van per trip, seats, unbuckling, a straggler, the ride and the drop-off)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-shuttle
+          "$GODOT" --headless --path . -- --host --port=7829 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --shuttle-test --sim-lag=150 --measure="$PWD/build/soak/ci-shuttle/host.json" --run-seconds=150 > build/soak/ci-shuttle/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7829 --name=Target --no-steam --sim-lag=150 --shuttle-test --measure="$PWD/build/soak/ci-shuttle/target.json" --run-seconds=145 > build/soak/ci-shuttle/target.log 2>&1
+          wait
+          grep "ShuttleTest" build/soak/ci-shuttle/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-shuttle/host.json')); t=json.load(open('build/soak/ci-shuttle/target.json')); sys.exit(0 if h['shuttle_test'].get('ok') and t['shuttle'].get('max_speed_on_screen', 99) <= 14.5 else 1)"
+
       # The engine dumps its constants, a grid of economy formulas and the tables'
       # invariants (--balance-test, host only); tools/balance_sim.py then plays crews of
       # 1 to 4 through the town and compares itself with that dump (docs/BALANCE.md).

@@ -388,9 +388,17 @@ func _follow_target() -> Node3D:
 			var crew := get_tree().get_nodes_in_group("crew")
 			node = crew[0] if not crew.is_empty() else null
 		"van":
-			var world := get_tree().get_first_node_in_group("world")
-			node = world.get_node_or_null("Rides/Van") if world != null else null
-			return node.get_node_or_null("Body") as Node3D if node != null else null
+			# The Courtesy Shuttle's van (net/run_events/shuttle.gd): the raid's, else any trip's.
+			var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+			if shuttle == null:
+				return null
+			var look := shuttle.call("van_look") as Node3D
+			if look == null:
+				for trip_id: Variant in shuttle.call("trip_ids"):
+					var holder := shuttle.get_node_or_null("Trip%d" % int(trip_id)) as Node3D
+					if holder != null and holder.visible:
+						look = holder
+			return look
 		"chefty":
 			node = get_tree().get_first_node_in_group("chefty")
 			return node.get_node_or_null("Body") as Node3D if node != null and node.get_node_or_null("Body") != null else node as Node3D
