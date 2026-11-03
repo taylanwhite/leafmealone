@@ -87,6 +87,12 @@ jobs:
           # It must reach its last check: a --script that stops early can still exit 0.
           grep -q "BlockCheck\] seasons" build/soak/ci-meshcheck/host.log
 
+      - name: Leaf look check (species budgets, no stripes, palettes, heights, budgets)
+        if: matrix.part == 'features'
+        timeout-minutes: 3
+        run: |
+          "$GODOT" --headless --path . --script res://tools/leaf_look_check.gd
+
       - name: Job test (two whole jobs, rides included)
         if: matrix.part == 'features'
         run: |

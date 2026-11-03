@@ -34,6 +34,7 @@ const _PropBatch = preload("res://props/prop_batch.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Trees = preload("res://props/trees.gd")
+const _LeafShaders = preload("res://leaves/leaf_shaders.gd")
 
 const LEAVES: Array[Color] = [Color(0.88, 0.45, 0.15), Color(0.9, 0.7, 0.2), Color(0.72, 0.25, 0.14)]
 const PETALS := Color(0.98, 0.8, 0.86)
@@ -189,23 +190,55 @@ static func _place(root: Node3D, kind: String, xform: Transform3D, season: int, 
 	return _PropCatalog.place(root, kind, xform, Color.WHITE, options)
 
 
-## Fallen leaves on the lawn: a few patches of flat flakes, one mesh.
+## Fallen leaves on the lawn: a few patches of the job yard's own curled leaves
+## (LeafMeshes, LeafPalette, the flake material), so a neighbour's lawn matches
+## the one you rake. One MultiMesh for the parcel.
 static func _leaves(root: Node3D, yard: Array, rng: RandomNumberGenerator) -> void:
 	# No free lawn: no leaves (never a pile at the parcel origin, under the house).
 	if yard.is_empty():
 		return
-	var kit := _MeshKit.new()
-	for _patch: int in Constants.ART_NEIGHBOR_LEAF_PATCHES:
+	var crowns: Array[String] = ["orange", "red", "yellow", "rust"]
+	var looks: Array = []
+	for crown: String in crowns:
+		looks.append({"crown": crown, "species": LeafPalette.MAPLE if looks.size() % 2 == 0 else LeafPalette.OAK, "width": 1.0})
+	var mix: Array = [0, 1, 2, 3]
+	var floats := PackedFloat32Array()
+	var salt := rng.randi() & 0xffff
+	for patch: int in Constants.ART_NEIGHBOR_LEAF_PATCHES:
 		var center := _spot(yard, rng)
-		for _flake: int in 14:
-			var at := center + Vector3(rng.randf_range(-1.5, 1.5), 0.02, rng.randf_range(-1.5, 1.5))
-			kit.box(at, Vector3(0.22, 0.02, 0.16), LEAVES[rng.randi() % LEAVES.size()], Basis(Vector3.UP, rng.randf() * TAU))
-	var mesh := kit.commit()
-	if mesh == null:
-		return
-	var view := _Stylized.instance(mesh, {"roughness": 0.9})
+		var look := rng.randi() % looks.size()
+		for flake: int in Constants.LEAF_NEIGHBOR_PATCH_LEAVES:
+			# Thick in the middle of the patch, thinning out to a ragged edge.
+			var reach := Constants.LEAF_NEIGHBOR_PATCH_REACH * sqrt(rng.randf())
+			var angle := rng.randf() * TAU
+			var at := center + Vector3(cos(angle) * reach, 0.012 + 0.003 * float(flake % 4), sin(angle) * reach)
+			var leaf := LeafPalette.flake(looks, mix, look, 0, salt + patch, flake, 0)
+			var length := lerpf(Constants.LEAF_SIZE.x, Constants.LEAF_SIZE.y, rng.randf())
+			var lean := Constants.LEAF_NEIGHBOR_TILT
+			var tilt := Vector3(rng.randf_range(-lean, lean), rng.randf() * TAU, rng.randf_range(-lean, lean))
+			var basis := Basis.from_euler(tilt) * Basis.from_scale(Vector3(length * float(leaf["width"]), length, length))
+			var centre: Color = leaf["centre"]
+			var rim: Color = leaf["rim"]
+			floats.append_array([
+				basis.x.x, basis.y.x, basis.z.x, at.x,
+				basis.x.y, basis.y.y, basis.z.y, at.y,
+				basis.x.z, basis.y.z, basis.z.z, at.z,
+				centre.r, centre.g, centre.b, float(leaf["age"]),
+				rim.r, rim.g, rim.b, float(leaf["loose"]),
+			])
+	var multi := MultiMesh.new()
+	multi.transform_format = MultiMesh.TRANSFORM_3D
+	multi.use_colors = true
+	multi.use_custom_data = true
+	multi.mesh = LeafMeshes.mesh(LeafPalette.MAPLE)
+	multi.instance_count = floats.size() / 20
+	multi.buffer = floats
+	var view := MultiMeshInstance3D.new()
 	view.name = "Leaves"
+	view.multimesh = multi
+	view.material_override = _LeafShaders.flake_material("mover")
 	view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	view.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	view.visibility_range_end = Constants.ART_SMALL_PROP_RANGE
 	root.add_child(view)
 

@@ -98,6 +98,11 @@ func _stage() -> void:
 ## Every subject the studio knows. Add one here to iterate on a new model.
 func _build(root: Node3D) -> void:
 	match _subject:
+		"leaves":
+			# The leaf look (raking:2): --kind=carpet|pile|species|raked|gpu, --sun=noon|low|dusk.
+			var leaves_path := "res://tools/studio/leaves_subject.gd"
+			if ResourceLoader.exists(leaves_path):
+				load(leaves_path).call("build", root, _options)
 		"trees":
 			var crowns := ["orange", "red", "yellow", "turning", "rust"]
 			for index: int in crowns.size():

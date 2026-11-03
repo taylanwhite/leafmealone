@@ -12,6 +12,7 @@ const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
 const _Grass = preload("res://props/grass.gd")
+const _GrassPress = preload("res://leaves/grass_press.gd")
 const FRESH_PAINT := Color(0.96, 0.95, 0.9)
 const FADED_PAINT := Color(0.62, 0.58, 0.52)
 ## Tufts drawn per lawn cell, and how tall uncut grass stands compared to mowed.
@@ -245,7 +246,8 @@ func _build_lawn(grid_index: int) -> void:
 	multi.instance_count = included.size() * TUFTS_PER_CELL
 	var view := MultiMeshInstance3D.new()
 	view.multimesh = multi
-	view.material_override = _Stylized.material({"wind": 0.07, "roughness": 1.0, "specular": 0.05, "translucency": 0.25, "double_sided": true})
+	# Long grass lies flat under the leaves too (raking:2, leaves/grass_press.gd).
+	view.material_override = _GrassPress.material({"wind": 0.07, "roughness": 1.0, "specular": 0.05, "translucency": 0.25, "double_sided": true})
 	view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(view)
 	view.global_transform = Transform3D.IDENTITY
