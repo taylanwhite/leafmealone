@@ -1827,16 +1827,54 @@ const VAN_STEER_RATE: float = 8.0
 const VAN_STEERING_RATIO: float = 6.0
 const VAN_FRESHENER_PUSH: float = 0.08
 const VAN_FRESHENER_STIFFNESS: float = 30.0
-const VAN_FRESHENER_DAMPING: float = 2.5## Something standing in the street (a tree, a parked car): the route swerves round
+const VAN_FRESHENER_DAMPING: float = 2.5
+## Something standing in the street (a tree, a parked car): the route swerves round
 ## it, the slice of road checked being this big (m, across, up, along), never
 ## farther than this off the curb line (m, toward the far sidewalk, toward the near
 ## one: up a curb if it must), eased in and out over this many meters either side.
 const VAN_ROUTE_CLEARANCE := Vector3(3.0, 2.5, 2.2)
 const VAN_SWERVE_RANGE := Vector2(3.9, 7.1)
-const VAN_SWERVE_EASE: float = 10.0## A tree's crown, from above, reaches this share of its height from the trunk
+const VAN_SWERVE_EASE: float = 10.0
+## A tree's crown, from above, reaches this share of its height from the trunk
 ## (evergreens, broadleaves): the van parks and drives clear of it.
-const VAN_TREE_SPREAD := Vector2(0.3, 0.2)## The air freshener close-up's field of view (degrees), tight on the daisy.
+const VAN_TREE_SPREAD := Vector2(0.3, 0.2)
+## The air freshener close-up's field of view (degrees), tight on the daisy.
 const VAN_FRESHENER_FOV: float = 38.0
 ## On the legacy yard the van parks at least this far (m) inside the pad's ends, so
 ## its door and the curb its riders step onto are where people can walk.
 const VAN_PAD_INSET: float = 3.0
+## An ended trip is forgotten on the host this long (s) after it ends, once its van
+## is gone from the host's own view too.
+const VAN_TRIP_FORGET: float = 2.0
+## Annex B's roll-in speed (m/s) as it starts braking to the curb.
+const VAN_ANNEX_ROLL_SPEED: float = 8.0
+## After the door opens at the Annex: the van leaves this long (s) later when the
+## Annex walks the riders off, or when the legacy crossing has teleported them.
+const VAN_ANNEX_HANDOFF_LEAVE: float = 3.0
+const VAN_ANNEX_LEGACY_LEAVE: float = 1.5
+## A NICE BOY getting out: up off the seat into the aisle (s), then along it to the
+## sill (s); walking back to the door to climb in (m/s).
+const VAN_CREW_RISE_SECONDS: float = 0.35
+const VAN_CREW_AISLE_SECONDS: float = 0.9
+const VAN_CREW_WALK_SPEED: float = 4.0
+## At the drop curb: the door opens this long (s) after it stops, riders step down
+## this far apart (s, and m along the curb), the driver waves this long (s) after
+## the last one is down and it leaves this long (s) after.
+const VAN_DROP_DOOR_DELAY: float = 0.2
+const VAN_DROP_STAGGER: float = 0.45
+const VAN_DROP_SPACING: float = 0.75
+const VAN_DROP_WAVE_AFTER: float = 0.2
+const VAN_DROP_LEAVE_AFTER: float = 1.6
+## The driver: his lines are heard within this (m); paperwork comes round every this (s).
+const VAN_DRIVER_HEAR: float = 18.0
+const VAN_PAPERWORK_EVERY: float = 7.0
+## The seat camera's look-around: yaw either way (degrees), pitch down..up (radians).
+const VAN_SEAT_LOOK_YAW: float = 60.0
+const VAN_SEAT_LOOK_PITCH := Vector2(-0.6, 0.45)
+## The park point never slides past this (m, either way along the curb, yard space).
+const VAN_PARK_X_MAX: float = 40.0
+## A route's end is searched for up to this far (m), in steps this long (m).
+const VAN_ROUTE_SEARCH_MAX: float = 200.0
+const VAN_ROUTE_SEARCH_STEP: float = 10.0
+## The cab radio during the ride, under the bank's own level (dB).
+const VAN_RADIO_DB: float = -6.0

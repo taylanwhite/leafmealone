@@ -463,7 +463,7 @@ One van per trip. Its pose is a pure function of the trip's legs and `Net.server
 | `_rpc_door(trip_id, which, open, at)` | host to all | the sliding door (`side`) or the back doors slide or swing at server time `at` |
 | `_rpc_seat(trip_id, peer, seat, at, mode, from)` | host to all | a rider boards: walk in, step up, or at once; every peer stages the body from its anchor |
 | `_rpc_unseat(trip_id, peer, exit, at)` | host to all | a rider unbuckles and steps down to `exit` |
-| `_rpc_release_riders(trip_id, at)` | host to all | the Annex (or Border Return) has the riders now |
+| `_rpc_release_riders(trip_id, at, handed_on)` | host to all | the Annex (handed_on: it re-stages them from the seats) or Border Return (unstaged at once, before its lane teleport) has the riders now |
 | `_rpc_crew_seat(trip_id, crew_index, seat, at, mode, from)` | host to all | a NICE BOY sits, climbs out, climbs in, or hops on the bumper |
 | `_rpc_beat(trip_id, kind, at)` | host to all | cosmetic beats: the blinker, the whistle, the driver's wave, a honk |
 | `_rpc_knock(trip_id, peer, at)` | host to all | a rider's knock on the glass |

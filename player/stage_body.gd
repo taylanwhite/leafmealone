@@ -77,6 +77,12 @@ func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringN
 func clear_staged() -> void:
 	if _anchor == null:
 		return
+	_let_go()
+
+
+## Off the anchor: the owner's body stays where it was last placed, a remote
+## visual goes back to interpolating. Also runs when the anchor was freed.
+func _let_go() -> void:
 	_anchor = null
 	_set_exception(null)
 	if player == null:
@@ -132,8 +138,7 @@ func _target(frame: Transform3D) -> Transform3D:
 func _physics_process(delta: float) -> void:
 	if _anchor != null and not is_instance_valid(_anchor):
 		# The anchor was freed (a van left): stay where we were.
-		_anchor = null
-		clear_staged()
+		_let_go()
 		return
 	if not is_staged() or player == null:
 		return

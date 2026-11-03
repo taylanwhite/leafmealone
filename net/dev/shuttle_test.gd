@@ -13,21 +13,30 @@ extends Node
 ##             every route point has ground under it
 ##   poses     host and client work out the same van pose at the same server time
 ##             (within 0.05 m) on every leg the trip had
+##   knock     the seated client knocks through its own Shuttle; host and client
+##             both have it
 ##   seats     a boarded client sits; seats == boarded on both peers
 ##   unbuckle  refused next to a NICE BOY who can see you, refused while the driver
 ##             checks his mirror, and done unseen: the rider steps out, released
+##   rescue    the host buckled in, the client holds the door on its own Shuttle
+##             (start and finish over the lag): the host steps out, immune
 ##   straggler the van leaving with the crew out creeps with its back doors open
 ##             and a NICE BOY hops onto the bumper
 ##   ride      the rider's zone moves only after their iris has closed (the host's
 ##             schedule; the client's iris too when it has one), the van is freed
 ##             after it leaves, and nothing the client saw moved faster than
 ##             VAN_MAX_SCREEN_SPEED or more than 1 m a tick
+##   border    the client (in the cohort) is handed to the legacy Border Return at
+##             the Annex curb: a second on, unstaged and at its lane's start
 ##   dropoff   the return shuttle puts the rider on the curb, released, immune
+##   driveon   called off while still pulling up, it drives on: no step backwards,
+##             no jump
 ##   rides     no Rides/Van node; another ride arriving leaves Chefty's riders alone
 
 const _Trees = preload("res://props/trees.gd")
 const _RideScript: Script = preload("res://net/components/ride.gd")
 const _ShuttleScript = preload("res://net/run_events/shuttle.gd")
+const _LaneLayout = preload("res://border/lane_layout.gd")
 const CLIENT_WAIT_SECONDS: float = 20.0
 const STEP_WAIT_SECONDS: float = 30.0
 const POSE_TOLERANCE: float = 0.05
@@ -111,9 +120,11 @@ func _run() -> void:
 	await _step_raid(shuttle)
 	await _step_seats(shuttle)
 	await _step_unbuckle(shuttle)
+	await _step_rescue(shuttle)
 	await _step_straggler(shuttle)
 	await _step_ride(shuttle)
 	await _step_dropoff(shuttle)
+	await _step_driveon(shuttle)
 	_step_rides()
 	_finish(_problems.is_empty(), "")
 
@@ -182,6 +193,14 @@ func _step_seats(shuttle: Node) -> void:
 	var host_seats := (shuttle.call("seated_riders") as Array).size()
 	var director := _director()
 	var cohort_free := not bool(director.call("is_captured", _client))
+	# The seated client knocks on the glass through its own Shuttle: the host
+	# takes it and every peer hears it.
+	var knocks_before := int((shuttle.get("stats") as Dictionary).get("knocks", 0))
+	await _ask("request_knock", {})
+	await get_tree().create_timer(0.8).timeout
+	var host_knocks := int((shuttle.get("stats") as Dictionary).get("knocks", 0)) - knocks_before
+	var client_knocks := int((await _ask("knock", {})).get("knocks", 0))
+	_check("knock", host_knocks == 1 and client_knocks >= 1, "host saw %d knock from the client, the client heard %d" % [host_knocks, client_knocks])
 	_check("seats", seat >= 0 and sat != null and host_seats == 1 and int(reply.get("seated", -1)) == host_seats and int(reply.get("boarded", -1)) == 1, "seat %d, host seated %d, client seated %s boarded %s (cohort %s)" % [seat, host_seats, reply.get("seated"), reply.get("boarded"), "no" if cohort_free else "yes"])
 	_steps["trip"] = trip
 
@@ -231,6 +250,36 @@ func _step_unbuckle(shuttle: Node) -> void:
 	_check("unbuckle", guarded == "guard" and mirror_seen == "mirror" and done == 1 and out != null and safe, "guard refusal '%s', mirror refusal '%s', unbuckled %d, out %s, immune %s" % [guarded, mirror_seen, done, out != null, safe])
 
 
+## The other way round, through the network: the host buckled in, the client at
+## the door holding interact on its own Shuttle (start and finish timed by the
+## host across the lag).
+func _step_rescue(shuttle: Node) -> void:
+	var trip := int(_steps.get("trip", 0))
+	shuttle.call("dev_seat", trip, 1)
+	var sat: Variant = await _wait_for(func() -> Variant:
+		return true if bool((shuttle.call("seat_info", 1) as Dictionary).get("settled", false)) else null)
+	var step: Vector3 = shuttle.call("door_step_point")
+	var pose: Transform3D = shuttle.call("trip_pose", trip, Net.server_time())
+	await _ask("goto", {"at": step + pose.basis.x.normalized() * 0.8 + Vector3(0.0, 0.1, 0.0)})
+	await get_tree().create_timer(1.0).timeout
+	# Between two of the driver's mirror checks, with the lag to spare.
+	var hold_start := float(_hold_started(shuttle, trip))
+	while true:
+		while bool(shuttle.call("mirror_checking", trip, Net.server_time())):
+			await get_tree().physics_frame
+		var next: Vector2 = shuttle.call("mirror_window", trip, Net.server_time() - hold_start + 0.01)
+		if next.x - (Net.server_time() - hold_start) >= Constants.VAN_UNBUCKLE_HOLD + 1.0:
+			break
+		await get_tree().create_timer(maxf(next.y - (Net.server_time() - hold_start), 0.1) + 0.05).timeout
+	var before := int((shuttle.get("stats") as Dictionary).get("unbuckles", 0))
+	await _ask("unbuckle", {"trip": trip, "rider": 1})
+	var out: Variant = await _wait_for(func() -> Variant:
+		return true if (shuttle.call("seat_info", 1) as Dictionary).is_empty() else null, 8.0)
+	var done := int((shuttle.get("stats") as Dictionary).get("unbuckles", 0)) - before
+	var safe := float((_director().get("_safe_until") as Dictionary).get(1, 0.0)) > Net.server_time()
+	_check("rescue", sat != null and done == 1 and out != null and safe, "host seated %s; the client's hold unbuckled %d (last refusal '%s'), host out %s, immune %s" % [sat != null, done, (shuttle.get("stats") as Dictionary).get("last_refusal", ""), out != null, safe])
+
+
 func _step_straggler(shuttle: Node) -> void:
 	var trip := int(_steps.get("trip", 0))
 	# Back in for the ride, then off with every NICE BOY still out on the lawn.
@@ -253,6 +302,12 @@ func _step_straggler(shuttle: Node) -> void:
 
 func _step_ride(shuttle: Node) -> void:
 	var trip := int(_steps.get("trip", 0))
+	# The client was caught: in the cohort, so the legacy Border Return takes them
+	# at the Annex curb. Straight into the director's list (force_capture would
+	# close the cohort and free the crew this step is still measuring).
+	var cohort: Array = _director().get("_cohort")
+	if not cohort.has(_client):
+		cohort.append(_client)
 	var moved: Variant = await _wait_for(func() -> Variant:
 		return true if Net.player_zone(_client) == Net.Zone.BORDER else null, 45.0)
 	var host_stats: Dictionary = shuttle.get("stats")
@@ -263,6 +318,7 @@ func _step_ride(shuttle: Node) -> void:
 		var at := float((entry as Dictionary)["at"])
 		iris_ok = iris_ok and _iris_closed_by(shuttle, trip, at)
 	var poses: Dictionary = await _compare_poses(shuttle, trip)
+	await _check_border(shuttle)
 	var gone: Variant = await _wait_for(func() -> Variant:
 		return true if not (shuttle.call("trip_ids") as Array).has(trip) else null, 45.0)
 	var reply: Dictionary = await _ask("ride", {})
@@ -274,6 +330,28 @@ func _step_ride(shuttle: Node) -> void:
 	var crew_err := float(reply.get("crew_err_max", 99.0))
 	_check("poses", bool(poses.get("ok", false)), "host and client poses within %.2f m on %d samples over legs %s (worst %.4f m)" % [POSE_TOLERANCE, int(poses.get("samples", 0)), poses.get("legs", []), float(poses.get("worst", 99.0))])
 	_check("ride", moved != null and iris_ok and client_iris_ok and gone != null and speed <= Constants.VAN_MAX_SCREEN_SPEED + 0.5 and step <= STEP_MAX_METERS and crew_err <= SEAT_TOLERANCE, "zone move %s after the iris %s (client iris %s), freed after it left %s, client on-screen speed %.1f m/s, step %.2f m, crew off their seats %.3f m over %d samples" % [moved != null, iris_ok, "pending (no iris headless)" if iris_pending else str(client_iris_ok), gone != null, speed, step, crew_err, int(reply.get("crew_samples", 0))])
+
+
+## The legacy hand-off at the Annex curb: Border Return has the client, and a
+## second later they stand at their lane's start, off the van's seat (not held
+## at the curb by the seat anchor, nor clamped onto the exit).
+func _check_border(shuttle: Node) -> void:
+	var crossing := get_tree().get_first_node_in_group("border_return")
+	if crossing == null:
+		_check("border", false, "no BorderReturn node")
+		return
+	var begun: Variant = await _wait_for(func() -> Variant:
+		return true if (crossing.get("_roster") as Array).has(_client) else null, 45.0)
+	await get_tree().create_timer(1.0).timeout
+	var reply: Dictionary = await _ask("border", {})
+	var local: Vector3 = reply.get("local", Vector3.INF)
+	var seated := not (shuttle.call("seat_info", _client) as Dictionary).is_empty()
+	var at_start := local.z <= -_LaneLayout.HALF_LENGTH + 2.0
+	_check("border", begun != null and at_start and not bool(reply.get("staged", true)) and not seated, "Border Return has the client %s; a second on they stand at border-local %s (lane start z %.1f), staged %s, seated %s" % [begun != null, local, -_LaneLayout.HALF_LENGTH, reply.get("staged"), seated])
+	# Home again, so the drop-off step starts from a clean slate.
+	if begun != null:
+		crossing.call("_send_home", _client)
+		await get_tree().create_timer(0.3).timeout
 
 
 func _step_dropoff(shuttle: Node) -> void:
@@ -297,6 +375,45 @@ func _step_dropoff(shuttle: Node) -> void:
 		stage = str(int(encounter.call("stage_of", _client)) == 10)
 	var where := body.global_position - pose.origin if body != null else Vector3.INF
 	_check("dropoff", parked != null and out != null and on_curb and safe and dropped, "parked %s, out %s, on the curb %s (%s from the van), immune %s, dropped %s, stage FREE %s" % [parked != null, out != null, on_curb, where, safe, dropped, stage])
+
+
+## Called off while it's still pulling up: it drives on from where it is at the
+## speed it has, never stepping backwards or jumping.
+func _step_driveon(shuttle: Node) -> void:
+	var trip := int(shuttle.call("dev_arrive"))
+	var arriving: Variant = await _wait_for(func() -> Variant:
+		return true if str(shuttle.call("leg_name", trip)) == "arriving" or str(shuttle.call("leg_name", trip)) == "arrive" else null, 10.0)
+	await get_tree().create_timer(1.0).timeout
+	var called := Net.server_time()
+	shuttle.call("host_depart", called)
+	await get_tree().physics_frame
+	var legs: Array = []
+	var trips: Dictionary = shuttle.get("_trips")
+	var data: Object = trips.get(trip)
+	if data != null:
+		for leg: Dictionary in data.get("legs"):
+			legs.append(_ShuttleScript.LEG_NAMES[int(leg["k"])])
+	# The pose is a pure function of the plan: walk it frame by frame across the call.
+	var dt := 1.0 / 60.0
+	var worst_step := 0.0
+	var backwards := 0
+	var last: Vector3 = (shuttle.call("trip_pose", trip, called - 1.0) as Transform3D).origin
+	var heading := Vector3.ZERO
+	var t := called - 1.0 + dt
+	while t < called + 6.0:
+		var at: Vector3 = (shuttle.call("trip_pose", trip, t) as Transform3D).origin
+		var move := at - last
+		worst_step = maxf(worst_step, move.length())
+		if move.length() > 0.001:
+			if heading != Vector3.ZERO and move.normalized().dot(heading) < 0.0:
+				backwards += 1
+			heading = move.normalized()
+		last = at
+		t += dt
+	var drove_on := legs.has("depart") and not legs.has("parked")
+	var max_step := Constants.VAN_MAX_SCREEN_SPEED * dt * 1.5
+	_check("driveon", arriving != null and drove_on and backwards == 0 and worst_step <= max_step, "arriving %s; after the call the legs are %s; worst frame step %.3f m (cap %.3f), %d steps backwards" % [arriving != null, legs, worst_step, max_step, backwards])
+	shuttle.call("dev_reset")
 
 
 func _step_rides() -> void:
@@ -407,6 +524,26 @@ func _rpc_ask(what: String, args: Dictionary) -> void:
 			var stats: Dictionary = shuttle.get("stats")
 			out = {"max_speed_on_screen": float(stats.get("max_speed_on_screen", 0.0)), "max_step_m": float(stats.get("max_step_m", 0.0)),
 				"crew_err_max": _crew_err_max, "crew_samples": _crew_samples, "zone_iris": _zone_iris}
+		"border":
+			var me := _me()
+			var zone := get_tree().get_first_node_in_group("world").get_node_or_null("BorderZone") as Node3D
+			out = {"local": zone.to_local(me.global_position) if me != null and zone != null else Vector3.INF,
+				"staged": me != null and me.has_method("is_staged") and bool(me.call("is_staged"))}
+		"knock":
+			out = {"knocks": int((shuttle.get("stats") as Dictionary).get("knocks", 0))}
+		"goto":
+			var body := _me()
+			if body != null:
+				body.call("apply_network_teleport", Transform3D(Basis.IDENTITY, args["at"] as Vector3))
+			out = {"sent": true}
+		"unbuckle":
+			# A rescuer's hold from this peer's own Shuttle, through the host: the
+			# start now, the finish when _step_my_hold has timed the hold here.
+			shuttle.call("start_unbuckle", int(args["trip"]), int(args["rider"]), true)
+			out = {"sent": true}
+		"request_knock":
+			shuttle.call("request_knock")
+			out = {"sent": true}
 	_rpc_answer.rpc_id(1, out)
 
 

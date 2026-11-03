@@ -110,7 +110,9 @@ func _run() -> void:
 		reached[moment] = _check(out, bool(_scenarios.call("_reached_" + moment)), "reached %s" % moment, problems)
 
 	out = await _scenarios.run("border_return")
-	reached["border_return"] = _check(out, _zone() == "BORDER", "zone %s, %s" % [_zone(), str(out.get("status", ""))], problems)
+	# In the zone and staged for the crossing (a non-empty status means Border
+	# Return has us in its roster, not just a teleport to the border).
+	reached["border_return"] = _check(out, _zone() == "BORDER" and str(out.get("status", "")) != "", "zone %s, %s" % [_zone(), str(out.get("status", ""))], problems)
 
 	# drive needs the connected town; in this legacy world it must say so, not pretend.
 	out = await _scenarios.run("drive")

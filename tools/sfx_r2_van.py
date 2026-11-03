@@ -9,6 +9,7 @@ same writer), into assets/audio/sfx/:
   van_bump         a pothole: a thump through the springs and a rattle of the cabin
   window_knock     knuckles on the van's glass, two raps, a little hollow
   mirror_glint     the side mirror catching the light: a tiny bright 'ting'
+  van_pull         pulling away: the van's putt-putt alone (no door bonk, no honk)
   radio_babble     the cab radio (loop): a dispatcher babbling through a tinny speaker
 
 Usage: python3 tools/sfx_r2_van.py            write them all
@@ -85,6 +86,16 @@ def mirror_glint() -> list[float]:
     return out
 
 
+def van_pull() -> list[float]:
+    """Pulling away: the crew van's grumpy putt-putt alone, speeding up as it goes.
+    No door bonk (the slide already slammed) and no honk, so it also suits a van
+    that never stopped and just drives on."""
+    rng = random.Random(4207)
+    out = k.silence(2.4)
+    k.mix_into(out, k.putt_putt(rng, 2.3, 4.5, 11.0, 65.0), 0.0, 1.0)
+    return out
+
+
 def radio_babble() -> list[float]:
     """The cab radio, a loop: a dispatcher babbling (the game's babble voice) band-
     passed down to a tinny speaker, with hiss and the odd squelch, 3 s long and
@@ -112,6 +123,7 @@ SOUNDS = {
     "van_bump": (van_bump, 0.8),
     "window_knock": (window_knock, 0.8),
     "mirror_glint": (mirror_glint, 0.5),
+    "van_pull": (van_pull, 0.8),
     "radio_babble": (radio_babble, 0.5),
 }
 

@@ -369,6 +369,11 @@ func _border_return() -> Dictionary:
 	var ride: Dictionary = await _van_ride()
 	if ride.has("error"):
 		return ride
+	# Caught for real, so Border Return has us in its cohort (the van is already
+	# leaving, so the capture doesn't board anyone again).
+	var director := _director()
+	if director != null and director.has_method("force_capture"):
+		director.call("force_capture", Net.local_peer_id())
 	var van := _van()
 	# Straight to the end of the drive: the riders move on as if out of sight (the
 	# observer's copy of the van still drives off and is left out there).
@@ -378,8 +383,12 @@ func _border_return() -> Dictionary:
 		return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.BORDER else null)
 	if there == null:
 		return {"error": "never got to the border"}
-	await _ticks(3)
+	# The van rolls in to the Annex curb and Border Return takes the cohort there.
 	var crossing := get_tree().get_first_node_in_group("border_return")
+	if crossing != null:
+		await _wait_for(func() -> Variant:
+			return true if str(crossing.call("status_line")) != "" else null)
+	await _ticks(3)
 	return {"note": "Border Return staging; the lanes start in %.0f s" % Constants.BORDER_STAGING_SECONDS, "zone": _zone(), "status": str(crossing.call("status_line")) if crossing != null else ""}
 
 
