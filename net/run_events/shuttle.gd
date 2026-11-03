@@ -271,8 +271,10 @@ func host_cancel_hops() -> void:
 
 
 ## Host: seats a caught player in the raid van (C12). They step up from where
-## they stand. Returns the seat, or -1 (no van, or it's full).
-func host_board(peer_id: int) -> int:
+## they stand. Returns the seat, or -1 (no van, or it's full). behind_iris (R2c,
+## encounter.gd: handed over metres from the door): seated behind their iris
+## instead, never stepping up through the van's side or sliding across the yard.
+func host_board(peer_id: int, behind_iris: bool = false) -> int:
 	var trip := _trip(_raid_trip)
 	# Already aboard a van (a capture made mid-ride): that seat stands.
 	var aboard := seat_info(peer_id)
@@ -285,7 +287,7 @@ func host_board(peer_id: int) -> int:
 		# it's parked (R2 integration).
 		trip = _ensure_raid_trip()
 		return _host_board(trip.id, peer_id, BOARD_WALK) if trip != null else -1
-	return _host_board(_raid_trip, peer_id, BOARD_STEP)
+	return _host_board(_raid_trip, peer_id, BOARD_IRIS if behind_iris else BOARD_STEP)
 
 
 ## Who sits in any van now, fully seated (every peer).

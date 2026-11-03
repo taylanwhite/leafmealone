@@ -111,6 +111,8 @@ const SOUNDS: Dictionary = {
 	"scribble": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -3.0},
 	"gotcha_grab": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
 	"lunge_whoosh": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	# R2c: the wind-up's crouch, heard from his side (a wind-up out of view).
+	"windup_squeak": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
 	"sticker_slap": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
 	"paper_tear": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
 	"itemize_pop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.ITEMIZE_POP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": -2.0},

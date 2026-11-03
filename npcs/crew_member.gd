@@ -328,6 +328,11 @@ func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool
 	var poser := get_node_or_null("Visual/CartoonBody/Poser")
 	if poser != null and not from_spot:
 		poser.call("hold", "lunge_windup")
+	# R2c: the crouch squeaks where he is, so a wind-up out of view is heard from
+	# his side before the lunge (audit dodge-offscreen).
+	var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
+	if sfx != null and not from_spot and contact_at - _now() > Constants.CREW_LUNGE_SECONDS:
+		sfx.call("play_on", "windup_squeak", self)
 
 
 ## Every peer: stand here facing yaw (the gotcha and the cite), blending in over

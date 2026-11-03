@@ -19,7 +19,8 @@ extends Node
 ## snak_o_matic (at the food truck's hatch or the vending machine, at noon,
 ## with lunch money in your pocket; shops chunk 6), snack_crash (the Turbo Juice
 ## crash hits you now), snack_queasy (the machine's sandwich lands queasy),
-## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can).
+## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can),
+## two_caught and two_caught_far (both need a second player).
 ## border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
@@ -28,7 +29,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -108,7 +109,11 @@ const HEIST_STAND := Vector3(0.24, 0.0, 0.42)
 ## Roughly where a player's eyes are above their feet, for aiming a placement's look.
 const EYE_HEIGHT: float = 1.6
 ## The moments with a friend in them (a second player who plays).
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit"]
+## two_caught (R2c): how far apart (m) you and the friend stand, and how long after
+## the friend's catch yours comes (s).
+const TWO_CAUGHT_APART: float = 3.5
+const TWO_CAUGHT_GAP: float = 1.2
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "two_caught", "two_caught_far"]
 ## The name tools/play.ps1 gives the observer (remote_play.gd OBSERVER_NAME):
 ## never a scenario's friend, it only watches.
 const OBSERVER_NAME: String = "Observer"
@@ -243,6 +248,10 @@ func run(scenario: String) -> Dictionary:
 			out = await _snack_holding(scenario)
 		"snack_crash", "snack_queasy":
 			out = await _snack_effect(scenario)
+		"two_caught":
+			out = await _two_caught()
+		"two_caught_far":
+			out = await _two_caught(1)
 	out["scenario"] = scenario
 	if not out.has("ok"):
 		out["ok"] = not out.has("error")
@@ -568,6 +577,61 @@ func _reached_cite_rescue() -> bool:
 	return friend != null and _stage(int(str(friend.name))) >= 2
 
 
+## R2c: two of you taken at once, a few steps apart: the friend first, you
+## TWO_CAUGHT_GAP s later. two_caught: by the second NICE BOY (two two-shots, two
+## escorts; the heat is raised so two come). two_caught_far: one NICE BOY, so
+## you're handed straight to the van door from where you stand (the long
+## hand-over). Needs -Friend.
+func _two_caught(crews: int = 2) -> Dictionary:
+	var friend := _friend_id()
+	if friend == 0:
+		return {"error": "two_caught needs a second player who plays: start with tools\\play.ps1 -Start -Friend (the observer only watches)"}
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	await _friend_to_lot(friend, SETTLE_SECONDS * 2.0)
+	_safe_for(SETTLE_SECONDS * 2.0)
+	var out: Dictionary = await _crew_out(-1.0, crews)
+	if out.has("error"):
+		return out
+	var friend_node := _other_player()
+	var crew_list := get_tree().get_nodes_in_group("nice_crew")
+	if friend_node == null or crew_list.is_empty():
+		return {"error": "no friend or no NICE BOY on the yard"}
+	var lot := _lot_zone()
+	var stand := lot.global_position + Vector3(2.0, 0.1, 6.0)
+	var spot := stand + Vector3(TWO_CAUGHT_APART, 0.0, 0.0)
+	_place(stand, 0.0, -0.05)
+	_placing("friend")
+	friend_node.call("send_teleport", Transform3D(Basis.IDENTITY, spot))
+	# The friend's NICE BOY first; with only one, he has his hands full and you're
+	# walked straight to the van door from where you stand (the long hand-over).
+	_put_crew(crew_list[0] as Node3D, spot + Vector3(0.0, 0.0, -1.2), spot)
+	var second := crews > 1 and crew_list.size() > 1
+	if second:
+		_put_crew(crew_list[1] as Node3D, stand + Vector3(0.0, 0.0, -1.2), stand)
+	for index: int in range(2 if second else 1, crew_list.size()):
+		_put_crew(crew_list[index] as Node3D, stand + Vector3(18.0 + 3.0 * float(index), 0.0, -14.0), stand)
+	await get_tree().create_timer(0.4).timeout
+	_director().call("force_capture", friend)
+	await get_tree().create_timer(TWO_CAUGHT_GAP).timeout
+	if second:
+		_director().call("force_capture", Net.local_peer_id())
+	else:
+		# No NICE BOY free (the others are across the street): straight to the door.
+		get_tree().get_first_node_in_group("nice_encounter").call("host_begin_catch", Net.local_peer_id(), null)
+	await _ticks(1)
+	return {"moment": "two_caught" if crews > 1 else "two_caught_far", "note": "%s caught, then you %.1f s later, %s" % [Net.player_name(friend), TWO_CAUGHT_GAP, "by the other NICE BOY" if second else "walked straight to the van (no NICE BOY free)"], "phase": _phase(), "friend": friend}
+
+
+func _reached_two_caught() -> bool:
+	var friend := _other_player()
+	return friend != null and _stage(int(str(friend.name))) >= 2 and _stage(Net.local_peer_id()) >= 2
+
+
+func _reached_two_caught_far() -> bool:
+	return _reached_two_caught()
+
 ## Cited and on the way: arm in arm to the van.
 func _escort() -> Dictionary:
 	var out: Dictionary = await _gotcha()
@@ -589,11 +653,15 @@ func _reached_escort() -> bool:
 
 ## A raid with the crew out of the van and on the lawn (lead >= 0: CHASE starts
 ## that long from now and they're still climbing out; < 0: wait until they're all out).
-func _crew_out(lead: float) -> Dictionary:
+## crews > 1: the heat is raised first so at least that many come (dev save only).
+func _crew_out(lead: float, crews: int = 1) -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
 	var director := _director()
+	var heat := get_tree().get_first_node_in_group("heat")
+	if crews > 1 and heat != null and int(heat.call("crew_count")) < crews:
+		heat.call("add", Constants.HEAT_PER_EXTRA_CREW * float(crews - 1) + 1.0 - float(heat.get("heat")), "scenario")
 	_warn_with(director, maxf(0.05, lead))
 	var ready: Variant = await _wait_for(func() -> Variant:
 		if _phase() != "CHASE" or _crew() == null:

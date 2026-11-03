@@ -391,11 +391,12 @@ func stage_cam() -> Camera3D:
 
 
 ## Every peer, from the caller's reliable RPC: the body follows anchor * offset
-## (player/stage_body.gd), blending in over `blend` seconds, in `pose`.
-func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringName) -> void:
+## (player/stage_body.gd), blending in over `blend` seconds, in `pose`. clear_of
+## (R2c): someone the blend goes round, never through (the escort's link).
+func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringName, clear_of: Node3D = null) -> void:
 	var stage_body := get_node_or_null("StageBody")
 	if stage_body != null:
-		stage_body.call("set_staged", anchor, offset, blend, pose)
+		stage_body.call("set_staged", anchor, offset, blend, pose, clear_of)
 
 
 func clear_staged() -> void:
