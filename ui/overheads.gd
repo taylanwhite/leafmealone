@@ -89,7 +89,7 @@ func _process(delta: float) -> void:
 		var rect := Rect2()
 		if bool(entry["hide"]) or not tag.visible or staged:
 			want = 0.0
-		elif camera.is_position_behind(tag.global_position):
+		elif not in_front(camera, tag.global_position):
 			want = 0.0
 		else:
 			rect = screen_rect(tag, camera, view)
@@ -253,7 +253,7 @@ func _place_bubble(bark: Label3D, camera: Camera3D, view: Vector2, delta: float)
 	var parent := bark.get_parent() as Node3D
 	var home: Vector3 = bark.get_meta("r2b_home", bark.position)
 	var anchor := parent.to_global(home) if parent != null else bark.global_position
-	if camera.is_position_behind(anchor):
+	if not in_front(camera, anchor):
 		bark.position = home
 		return Rect2()
 	var at := camera.unproject_position(anchor)
@@ -314,8 +314,23 @@ static func text_size_px(label: Label3D, text: String, camera: Camera3D, view: V
 	return world * view.y / (2.0 * depth * tan_half)
 
 
-## A Label3D's rect on screen now (centered on its position).
+## False when `point` is behind the camera or on its near plane, measured with
+## the transform unproject_position itself uses (get_camera_transform, which
+## physics interpolation can put a tick away from the node's global transform:
+## is_position_behind alone let a point at depth 0 through, and unproject then
+## threw "p.d == 0" in the soak's bots; R2b integration).
+static func in_front(camera: Camera3D, point: Vector3) -> bool:
+	if camera.is_position_behind(point):
+		return false
+	var local := camera.get_camera_transform().affine_inverse() * point
+	return -local.z > camera.near
+
+
+## A Label3D's rect on screen now (centered on its position); empty when it
+## isn't in front of the camera.
 static func screen_rect(label: Label3D, camera: Camera3D, view: Vector2) -> Rect2:
+	if not in_front(camera, label.global_position):
+		return Rect2()
 	var at := camera.unproject_position(label.global_position)
 	var size := text_size_px(label, label.text, camera, view)
 	if label.vertical_alignment == VERTICAL_ALIGNMENT_BOTTOM:
@@ -368,7 +383,7 @@ static func bubble_fits(speaker: Node3D, bark: Label3D, text: String, camera: Ca
 	var parent := bark.get_parent() as Node3D
 	var home: Vector3 = bark.get_meta("r2b_home", bark.position)
 	var anchor := parent.to_global(home) if parent != null else bark.global_position
-	if camera.is_position_behind(anchor):
+	if not in_front(camera, anchor):
 		return false
 	if camera.global_position.distance_to(anchor) < Constants.R2B_HUD_BUBBLE_MIN_M:
 		return false

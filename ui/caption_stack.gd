@@ -56,6 +56,7 @@ const KIND_RANK: Dictionary = {&"subtitle": 10, &"teammate": 2, &"radio": 1, &"q
 ## they're cleared, and while a spoken line shows a quip waits under it.
 const YARD_KINDS: Array[StringName] = [&"radio", &"quip"]
 const _HudMode = preload("res://ui/hud_mode.gd")
+const _Overheads = preload("res://ui/overheads.gd")
 ## The soft plate's color (its darkness is Constants.R2B_HUD_PLATE_ALPHA).
 const PLATE := Color(0.06, 0.05, 0.05)
 
@@ -221,7 +222,7 @@ func _blocker_rects(view: Vector2) -> Array[Rect2]:
 				var box := visual.global_transform * visual.get_aabb()
 				for corner: int in 8:
 					var point := box.get_endpoint(corner)
-					if camera.is_position_behind(point):
+					if not _Overheads.in_front(camera, point):
 						continue
 					var at := camera.unproject_position(point)
 					rect = Rect2(at, Vector2.ZERO) if not any else rect.expand(at)
