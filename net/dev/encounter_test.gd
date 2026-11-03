@@ -69,7 +69,6 @@ var _yaw_where: String = ""
 var _yaw_skip: int = 0
 ## The physics tick of a client's last per-frame yaw sample.
 var _yaw_tick: int = 0
-var _yaw_usec: int = 0
 
 
 func _ready() -> void:
@@ -86,14 +85,10 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		# R2c: a client draws a NICE BOY once per rendered frame (the smoother), so its
-		# turn is sampled per frame, per physics tick that frame covered.
-		# The smoother draws on the wall clock: a frame stalled past its ticks (the
-		# engine runs at most a few per frame) still moves the drawn pose by the
-		# wall time it covered.
-		var now_usec := Time.get_ticks_usec()
-		var wall := float(now_usec - _yaw_usec) / 1000000.0 if _yaw_usec > 0 else 0.0
-		_yaw_usec = now_usec
-		var ticks := maxi(Engine.get_physics_frames() - _yaw_tick, roundi(wall / get_physics_process_delta_time()))
+		# turn is sampled per frame, per physics tick that frame covered. Only the
+		# ticks the frame really ran: a frame drawn after a stall shows its turn in
+		# one picture, so wall time never softens it (review r2c:stage).
+		var ticks := Engine.get_physics_frames() - _yaw_tick
 		_yaw_tick = Engine.get_physics_frames()
 		if ticks > 0:
 			_sample_yaw(ticks)

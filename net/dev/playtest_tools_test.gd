@@ -19,7 +19,7 @@ const CLIP_FPS: float = 10.0
 const CATCH_SECONDS: float = 8.0
 ## Scenarios with a second player in them: alone, they must say so; with the
 ## CI's client (a friend who plays) they must get there.
-const TWO_PLAYER_SCENARIOS: Array[String] = ["annex_visit", "cite_rescue", "van_unbuckle", "two_caught"]
+const TWO_PLAYER_SCENARIOS: Array[String] = ["annex_visit", "cite_rescue", "van_unbuckle", "two_caught", "two_caught_far"]
 ## record_stop returns at once: the files are written on the recorder's thread.
 const STOP_MAX_MS: float = 50.0
 ## cite_rescue: the friend within this of your line to the NICE BOY is behind his body.

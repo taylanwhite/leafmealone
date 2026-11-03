@@ -3625,6 +3625,18 @@ const STAGE_SELF_REVEAL_FAR: float = 2.3
 const STAGE_FRAME_OUT_GROUPS: Array[StringName] = [&"players", &"nice_crew", &"crew_hands", &"homeowner", &"bonkable"]
 const STAGE_FRAME_OUT_BEYOND: float = 1.5
 const STAGE_FRAME_OUT_SECONDS: float = 0.25
+## A teammate (or another caught pair) is never framed out for being in the shot:
+## they're who comes to punch or throw at him, and the rescue plays in your own
+## shot. Only one standing in the lens (flat, nearer the eye than
+## STAGE_FRAME_OUT_TEAM_LENS m) fades, or one in front of you or him: at least
+## STAGE_FRAME_OUT_TEAM_IN_FRONT m nearer the eye and overlapping on screen
+## (bodies STAGE_FRAME_OUT_HALF_WIDTH wide each side). Once faded, the lens
+## gets STAGE_FRAME_OUT_TEAM_SLACK m more and the overlap that share wider.
+const STAGE_FRAME_OUT_TEAM_LENS: float = 1.4
+const STAGE_FRAME_OUT_TEAM_IN_FRONT: float = 0.6
+const STAGE_FRAME_OUT_TEAM_SLACK: float = 0.4
+## Frame-out tests a body's flanks too, this far (m) either side of its middle.
+const STAGE_FRAME_OUT_HALF_WIDTH: float = 0.4
 ## The gotcha's stage cheat for the caught player (rad): turned this far from
 ## facing him toward the camera (his own is CATCH_CHEAT_TURN), so your face reads
 ## three-quarters on, not in profile; your eyes stay on him.

@@ -542,11 +542,15 @@ func _plan_route(crew: Node, door: Vector3, tried: Array, forced: bool = false) 
 func _host_at_door(peer_id: int) -> void:
 	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
 	if shuttle != null and shuttle.has_method("host_board"):
-		host_set_stage(peer_id, Stage.BOARDING)
 		# R2c: handed over away from the door (a pinned escort, a catch with no NICE
 		# BOY free), they're seated behind their iris, not stepped up from out there.
+		# Decided once, here, and sent: each peer's own lagged view of the body sits
+		# either side of the line at a normal door arrival, and an observer would
+		# dissolve a captive the host is stepping up (review r2c:stage, far boarding).
 		var player := _player(peer_id)
-		shuttle.call("host_board", peer_id, player != null and _from_door(player) > Constants.BOARD_NEAR_METERS)
+		var far := player != null and _from_door(player) > Constants.BOARD_NEAR_METERS
+		host_set_stage(peer_id, Stage.BOARDING, {"far": far})
+		shuttle.call("host_board", peer_id, far)
 		return
 	var door := _door_point()
 	host_set_stage(peer_id, Stage.SEATED, {"door": door, "facing": _door_facing()})
@@ -759,8 +763,9 @@ func _rpc_stage(peer_id: int, stage: int, at: float, crew_index: int, args: Dict
 			# catch beside the van's flank), the Shuttle's step up would carry the body
 			# through the van's side or slide it metres in a blink (audit m1,
 			# second-rider-slides-18m). Nobody sees that: the body fades out where it
-			# stands and is back once seated, and your own iris shuts at once.
-			var far := player != null and _from_door(player) > Constants.BOARD_NEAR_METERS
+			# stands and is back once seated, and your own iris shuts at once. The
+			# host's call, never this peer's own view of the body (_host_at_door).
+			var far := player != null and bool(args.get("far", false))
 			if far:
 				_fade_body(player, 1.0, Constants.BOARD_FADE_SECONDS)
 				get_tree().create_timer(Constants.BOARD_FADE_BACK).timeout.connect(_fade_back.bind(peer_id))
@@ -1035,7 +1040,7 @@ func _play_escort(peer_id: int, entry: Dictionary, now: float) -> void:
 				"pitch_clamp": Vector2(-0.5, 0.3), "lag": 0.12, "priority": 40,
 				"pivot": _follow, "collide": true,
 				# R2c: nobody else stands between you and the walk (a passer-by filled it).
-				"subjects": [player, crew],
+				"subjects": [player, crew], "frame_out_partner": _pair_partner,
 			})
 			_pop(player, &"gotcha", Constants.ESCORT_CAM_BLEND_IN)
 
@@ -1058,7 +1063,26 @@ func _push_two_shot(player: Node3D, late: bool) -> void:
 		"pivot": _two_shot_mid(), "collide": true,
 		# R2c: about the two of you: anyone else in frame fades out, and so does the
 		# tool in your hands.
-		"subjects": _two_shot_subjects(), "frame_out_held": true})
+		"subjects": _two_shot_subjects(), "frame_out_held": true, "frame_out_partner": _pair_partner})
+
+
+## Frame-out (StageCam "frame_out_partner"): the other half of another caught pair
+## (a NICE BOY's captive, a captive's NICE BOY), or null. The pair fades together
+## or not at all: a captive led by nobody (rec_h_two_fr 276-316) looked worse
+## than a pair walking past.
+func _pair_partner(node: Node) -> Node3D:
+	var me := Net.local_peer_id()
+	for peer_id: int in _stages:
+		if peer_id == me or crew_of(peer_id) == 0:
+			continue
+		var crew := _crew(crew_of(peer_id))
+		if crew == null:
+			continue
+		if crew == node:
+			return _player(peer_id)
+		if str(node.name) == str(peer_id):
+			return crew
+	return null
 
 
 ## Who the local player's two-shot is about: you and the NICE BOY holding you.

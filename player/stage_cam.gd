@@ -311,9 +311,10 @@ func _process(delta: float) -> void:
 
 
 ## R2c: a shot with "subjects" (the gotcha two-shot: you and him) is about them
-## alone. Anyone else (another NICE BOY, a teammate, a hired hand, a homeowner)
-## who comes into its frame nearer than the subjects' far side fades out, and
-## so does whatever a subject is holding ("frame_out_held": the trimmer across
+## alone. Anyone else (another NICE BOY, a hired hand, a homeowner) who comes
+## into its frame nearer than the subjects' far side fades out (a teammate, or
+## another caught pair named by "frame_out_partner", only when blocking the view:
+## _team_blocks), and so does whatever a subject is holding ("frame_out_held": the trimmer across
 ## his chest); they fade back in once the shot lets go. The audit saw three NICE
 ## BOYS in a row in the two-shot and a half-face cut by its left edge.
 func _frame_out(delta: float) -> void:
@@ -327,20 +328,39 @@ func _frame_out(delta: float) -> void:
 			if is_instance_valid(subject):
 				reach = maxf(reach, eye.distance_to((subject as Node3D).global_position))
 		reach += Constants.STAGE_FRAME_OUT_BEYOND
+		# "frame_out_partner": the other half of a caught pair (the Encounter: a
+		# NICE BOY holding someone else, that someone's captor). A NICE BOY with a
+		# partner goes by the teammate rule, and a pair fades together or not at
+		# all: another caught pair never walks past as a captive held by nobody.
+		var partner_of: Callable = shot.get("frame_out_partner", Callable())
 		for group: StringName in Constants.STAGE_FRAME_OUT_GROUPS:
 			for node: Node in get_tree().get_nodes_in_group(group):
 				if node == player or subjects.has(node) or not (node is Node3D) or want.has(node):
 					continue
-				var at := (node as Node3D).global_position
-				var visual := node.get_node_or_null("Visual") as Node3D
-				if visual != null:
-					at = visual.global_position
+				var at := _feet(node as Node3D)
+				# Their middle and both flanks: a body at the frame's edge, its middle
+				# just out, still showed a shoulder and flickered in and out (rec_g_two_fr
+				# 179-257, a teammate 0.9 m off the lens).
 				var in_frame := false
+				var side := global_basis.x * Constants.STAGE_FRAME_OUT_HALF_WIDTH
 				for height: float in [0.4, 1.2, 1.7]:
-					if is_position_in_frustum(at + Vector3.UP * height):
-						in_frame = true
-				if in_frame and eye.distance_to(at) < reach:
-					want[node] = true
+					for across: Vector3 in [Vector3.ZERO, side, -side]:
+						if is_position_in_frustum(at + Vector3.UP * height + across):
+							in_frame = true
+				if not in_frame or eye.distance_to(at) >= reach:
+					continue
+				var partner: Node3D = partner_of.call(node) as Node3D if partner_of.is_valid() else null
+				if partner != null and not is_instance_valid(partner):
+					partner = null
+				if node.is_in_group(&"players") or partner != null:
+					var blocks := _team_blocks(eye, node as Node3D, subjects)
+					if not blocks and partner != null:
+						blocks = _team_blocks(eye, partner, subjects)
+					if not blocks:
+						continue
+					if partner != null and not subjects.has(partner) and partner != player:
+						want[partner] = true
+				want[node] = true
 		if bool(shot.get("frame_out_held", false)):
 			for node: Node in get_tree().get_nodes_in_group("props"):
 				var holder := int(node.get("held_by")) if "held_by" in node else 0
@@ -363,6 +383,50 @@ func _frame_out(delta: float) -> void:
 				fade_geometry(mesh as GeometryInstance3D, amount)
 		if amount <= 0.0:
 			_faded.erase(node)
+
+
+## A teammate stays in the shot: they're who comes to get you out (a punch is
+## thrown from PUNCH_REACH of him, a throw from close by), and a NICE BOY reeling
+## from nobody was the rescue's payoff gone from the one view it matters in. One
+## fades only when standing in the lens (flat, nearer the eye than
+## STAGE_FRAME_OUT_TEAM_LENS: a shirt filled a third of the frame, rec_f_two_fr
+## 172-263), or in front of you or him: nearer the eye and overlapping one of
+## you on screen (a bystander the walk passed hid the pair, rec_j_two_fr
+## 277-295). A rescuer swinging at him from beside him stays. Once faded, both
+## tests have STAGE_FRAME_OUT_TEAM_SLACK of give, so nobody flickers on a line.
+func _team_blocks(eye: Vector3, body: Node3D, subjects: Array) -> bool:
+	var at := _feet(body)
+	var slack := Constants.STAGE_FRAME_OUT_TEAM_SLACK if _faded.has(body) and float((_faded[body] as Dictionary)["amount"]) > 0.0 else 0.0
+	if Vector2(at.x - eye.x, at.z - eye.z).length() < Constants.STAGE_FRAME_OUT_TEAM_LENS + slack:
+		return true
+	var middle := at + Vector3.UP * 1.0
+	if is_position_behind(middle):
+		return false
+	var look := -global_basis.z
+	var depth := (middle - eye).dot(look)
+	if depth <= 0.05:
+		return false
+	# Pixels per meter at depth 1: the vertical field of view across the viewport.
+	var focal := get_viewport().get_visible_rect().size.y * 0.5 / tan(deg_to_rad(fov) * 0.5)
+	var half := Constants.STAGE_FRAME_OUT_HALF_WIDTH
+	var on_screen := unproject_position(middle)
+	for subject: Variant in subjects:
+		if not is_instance_valid(subject):
+			continue
+		var theirs := _feet(subject as Node3D) + Vector3.UP * 1.0
+		var their_depth := (theirs - eye).dot(look)
+		if their_depth <= 0.05 or depth > their_depth - Constants.STAGE_FRAME_OUT_TEAM_IN_FRONT:
+			continue
+		var apart := absf(on_screen.x - unproject_position(theirs).x)
+		if apart < focal * (half / depth + half / their_depth) * (1.0 + slack):
+			return true
+	return false
+
+
+## Where a body is drawn (its Visual, smoothed on a client), at its feet.
+static func _feet(body: Node3D) -> Vector3:
+	var visual := body.get_node_or_null("Visual") as Node3D
+	return visual.global_position if visual != null else body.global_position
 
 
 func _update(delta: float) -> void:
