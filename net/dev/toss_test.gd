@@ -14,16 +14,24 @@ extends Node
 ##   H6.    a wheelbarrow thrown at the truck still unloads into it
 ##   H7.    a full Chefty bats a tossed bag back out: not counted, and it ends up
 ##          outside the bed
+##   H8.    a toss from 2 m (right by the bed, it hops in over the side) and E
+##          from 0.9 m and 3 m off the side wall: in, and the drawn bag goes over
+##          the rail, never through the wall (bed_toss.gd cut_depth)
+##   H9.    the same for every start beside the truck into every kind of spot,
+##          worked out (bed_toss.gd settle_plan): no glide cuts into the truck
 ## The client half (the same flag, CI's Extra) throws its two bags, watches its
 ## own drawn bag for jumps, and sees the catches, landings and the full bounce.
 ## --toss-survey prints a table of throws from 2, 4 and 6 m instead.
 
 const _BedToss = preload("res://net/components/bed_toss.gd")
 const _TossArc = preload("res://ui/toss_arc.gd")
+const _BedLoad = preload("res://props/truck_bed_load.gd")
 ## A bag's drawn look moving farther than this in one frame is a jump (m).
 const JUMP_LIMIT_M: float = 0.6
 ## How far off its stack spot a bag may be drawn when the load's bag replaces it (m).
 const POP_LIMIT_M: float = 0.08
+## How much deeper than at its ends a settling bag may cut into the truck (m).
+const CUT_LIMIT_M: float = 0.03
 const CLIENT_SPOTS: Array[float] = [3.0, 6.0]
 const BAG_VALUE: int = 10
 ## The client's bags are worth a dollar more, so it takes only the ones put out for it.
@@ -72,6 +80,14 @@ func _run_host() -> void:
 	_check("H5 the arc preview agreed: %s, %s caught, %s not" % [h1["arc_caught"], h2["arc_caught"], h4["arc_caught"]], bool(h1["arc_caught"]) and bool(h2["arc_caught"]) and not bool(h4["arc_caught"]))
 	await _client_turns()
 	await _wheelbarrow()
+	var sweep := _settle_sweep()
+	_check("H9 every settle from beside the truck clears it: %s" % JSON.stringify(sweep), float(sweep["worst_m"]) <= CUT_LIMIT_M)
+	var h8a: Dictionary = await _toss(2.0, 0.0, false)
+	_check("H8 a toss from 2 m hops in over the rail: %s" % JSON.stringify(h8a), _caught_ok(h8a) and _over_rail(h8a))
+	var h8b: Dictionary = await _heave(2.0)
+	_check("H8 E from 0.9 m off the side heaves it over the rail: %s" % JSON.stringify(h8b), _caught_ok(h8b) and _over_rail(h8b))
+	var h8c: Dictionary = await _heave(4.1)
+	_check("H8 E from 3 m off the side heaves it over the rail: %s" % JSON.stringify(h8c), _caught_ok(h8c) and _over_rail(h8c))
 	var h7: Dictionary = await _toss_full()
 	_check("H7 a full Chefty bats it back out: %s" % JSON.stringify(h7), not bool(h7["counted"]) and bool(h7["refused"]) and bool(h7["still_there"]) and not bool(h7["in_bed"]))
 	result["stats"] = _BedToss.stats.duplicate()
@@ -85,6 +101,11 @@ func _check(line: String, passed: bool) -> void:
 	_ok = _ok and passed
 	_checks.append({"step": line.substr(0, 3), "ok": passed})
 	print("[TossTest] %s %s" % ["ok  " if passed else "FAIL", line])
+
+
+## The drawn bag never cut into the truck deeper than where its glide began or ended.
+func _over_rail(row: Dictionary) -> bool:
+	return float(row.get("cut_m", 1.0)) <= CUT_LIMIT_M and bool(row.get("settled", false))
 
 
 func _caught_ok(row: Dictionary) -> bool:
@@ -170,6 +191,12 @@ func _watch(bag: Node3D, seconds: float) -> Dictionary:
 	var path: Array = []
 
 	var jump_at: Array = []
+	# While it settles into the load: how deep its drawn look cuts into the truck,
+	# where it started and ended, and at worst.
+	var cut_start := -1.0
+	var cut_end := 0.0
+	var cut_worst := 0.0
+	var rest := Transform3D(Basis.IDENTITY, Vector3(0.0, 0.35, 0.0)).affine_inverse()
 	while waited < seconds:
 		await get_tree().process_frame
 		waited += get_process_delta_time()
@@ -177,6 +204,14 @@ func _watch(bag: Node3D, seconds: float) -> Dictionary:
 			break
 		var now := (bag.get_node("Visual") as Node3D).global_position
 		var step := now.distance_to(last)
+		if bool(bag.call("is_settling")):
+			var body := (truck.call("bed_transform") as Transform3D).affine_inverse() * ((bag.get_node("Visual") as Node3D).global_transform * rest)
+			body.basis = body.basis.orthonormalized()
+			var depth := _BedToss.cut_depth(body * _BedToss.LOOK_MIDDLE, _BedToss.look_reach(body.basis))
+			if cut_start < 0.0:
+				cut_start = depth
+			cut_end = depth
+			cut_worst = maxf(cut_worst, depth)
 		if step > max_jump:
 			max_jump = step
 			jump_at = [snappedf(waited, 0.01), bool(bag.call("is_settling")), int(bag.get("held_by"))]
@@ -191,7 +226,7 @@ func _watch(bag: Node3D, seconds: float) -> Dictionary:
 		if still > 0.6:
 			break
 	var there := is_instance_valid(bag) and not bag.is_queued_for_deletion()
-	var out := {"max_jump_m": snappedf(max_jump, 0.001), "jump_at": jump_at, "still_there": there, "on_ground": false, "in_bed": false}
+	var out := {"max_jump_m": snappedf(max_jump, 0.001), "jump_at": jump_at, "still_there": there, "on_ground": false, "in_bed": false, "settled": cut_start >= 0.0, "cut_m": snappedf(maxf(cut_worst - maxf(cut_start, cut_end), 0.0), 0.001), "cut_ends_m": [snappedf(cut_start, 0.001), snappedf(cut_end, 0.001)]}
 	if bool(Net.dev_options().get("toss_survey")) or there:
 		out["path"] = path
 
@@ -278,6 +313,90 @@ func _wheelbarrow() -> void:
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
 	barrow.global_position = lot.global_position + Vector3(0.0, 0.5, 0.0)
 	(barrow as RigidBody3D).linear_velocity = Vector3.ZERO
+
+
+## E by the bed: stand distance m from the bed's middle (beside the side wall),
+## pick up a fresh bag, and heave it in from the hands the way E does.
+func _heave(distance: float) -> Dictionary:
+	var truck := _truck()
+	var me := _own_player()
+	await _stand(me, _spot(distance))
+	var yaw := _yaw_to_bed(me.global_position)
+	var bag: Node3D = await _fresh_bag(me.global_position + _facing(yaw) * 0.7)
+	await _grab(bag, yaw)
+	await get_tree().create_timer(0.3).timeout
+	var count_before := int(truck.call("bag_count"))
+	var value_before := int(truck.call("bag_value"))
+	_BedToss.stats["max_pop_m"] = 0.0
+	var near := bool(bag.call("near_truck"))
+	bag.call("request_load_truck")
+	var watch: Dictionary = await _watch(bag, 3.0)
+	await get_tree().create_timer(0.5).timeout
+	var row := {
+		"distance": distance,
+		"near": near,
+		"added": int(truck.call("bag_count")) - count_before,
+		"value_added": int(truck.call("bag_value")) - value_before,
+		"pop_m": snappedf(float(_BedToss.stats["max_pop_m"]), 0.001),
+		"stack_matches": int((truck.call("bed_load") as Node).call("shown_count")) == int(truck.call("bag_count")),
+	}
+	row.merge(watch)
+	row["counted"] = int(row["added"]) > 0
+	if is_instance_valid(bag):
+		bag.queue_free()
+		await _ticks(2)
+	return row
+
+
+## H9: plans a settle from every kind of start beside the truck (a bag in the
+## hands 0.2 to 3 m off a side wall or the tailgate, heaved up or lobbed in;
+## one caught just past a wall, falling in) into spots across the load, and
+## measures how much deeper than at its ends any of them cuts into the truck.
+static func _settle_sweep() -> Dictionary:
+	var starts: Array = []
+	for side: float in [-1.0, 1.0]:
+		for off: float in [0.2, 0.5, 1.0, 2.0, 3.0]:
+			for z: float in [-0.8, 0.7, 2.2]:
+				for bottom: float in [0.53, 1.2]:
+					starts.append([Vector3(side * (1.18 + off + 0.27), bottom, z), Vector3(-side, 0.0, 0.0)])
+		for off: float in [0.0, 0.3, 0.6]:
+			for bottom: float in [1.4, 1.7, 2.2]:
+				starts.append([Vector3(side * (1.05 + off), bottom, 0.7), Vector3(-side * 3.0, -3.0, 0.0), true])
+	for off: float in [0.2, 1.0, 3.0]:
+		for x: float in [-0.6, 0.0, 0.6]:
+			starts.append([Vector3(x, 0.53, 2.74 + off + 0.23), Vector3(0.0, 0.0, -1.0)])
+	var slots: Array[int] = [0, 1, 2, 5, 15, 16, 20, 30, 31, 40, 49]
+	var worst := 0.0
+	var worst_case: Array = []
+	var plans := 0
+	for start: Array in starts:
+		var at: Vector3 = start[0]
+		var toward: Vector3 = start[1]
+		var turn := Basis(Vector3.UP, atan2(-toward.x, -toward.z)) if start.size() < 3 else Basis(Vector3(0.3, 0.2, 0.9).normalized(), 1.1)
+		var ways: Array = [toward] if start.size() == 3 else [Vector3.UP * Constants.BED_HAND_IN_LIFT, _BedToss.launch_velocity("leaf_bag", 4.0, toward, Constants.THROW_POWER_MIN), _BedToss.launch_velocity("leaf_bag", 4.0, toward, Constants.THROW_POWER_MAX)]
+		for moving: Vector3 in ways:
+			for index: int in slots:
+				var from := Transform3D(turn, at)
+				var to := _BedLoad.slot(index)
+				var plan := _BedToss.settle_plan(from, moving, to, _BedToss.settle_seconds(from, to))
+				var ends := maxf(_BedToss.cut_depth(from * _BedToss.LOOK_MIDDLE, _BedToss.look_reach(turn)), _BedToss.cut_depth(to * _BedToss.LOOK_MIDDLE, _BedToss.look_reach(to.basis.orthonormalized())))
+				var excess := _fine_cut(plan) - ends
+				plans += 1
+				if excess > worst:
+					worst = excess
+					worst_case = [str(at), str(moving), index]
+	return {"plans": plans, "worst_m": snappedf(worst, 0.001), "worst_case": worst_case}
+
+
+## The deepest a planned settle cuts into the truck, looked at five times as
+## finely as the plan checks itself.
+static func _fine_cut(plan: Dictionary) -> float:
+	var deepest := 0.0
+	var samples := _BedToss.SETTLE_SAMPLES * 5
+	for index: int in samples + 1:
+		var body := _BedToss.settle_at(plan, float(plan["seconds"]) * float(index) / float(samples))
+		deepest = maxf(deepest, _BedToss.cut_depth(body * _BedToss.LOOK_MIDDLE, _BedToss.look_reach(body.basis)))
+	return deepest
 
 
 ## Fills Chefty to the brim and tosses one more from 3 m.
@@ -449,6 +568,7 @@ func _hold_for(bag: Node3D, me: Node3D, short: bool = false) -> float:
 			good.append(hold)
 		hold += 0.01
 	if good.is_empty():
+		print("[TossTest] no wind-up goes in: feet %s (%.2f m from the middle), hands %s, %.1f kg, held by %d" % [feet, _from_middle(feet), from, kg, int(bag.get("held_by"))])
 		return 0.6
 	if short:
 		# Below the shortest that goes in by itself: the middle of the ones only the

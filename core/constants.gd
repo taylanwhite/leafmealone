@@ -1437,13 +1437,19 @@ const THROW_FROM_TOLERANCE: float = 2.0
 ## everything over the open bed up to this high; plus this far past the side
 ## walls and the tailgate (a tumbling bag's side meets the wall about there),
 ## there only with the bag's bottom at least this high, on its way down or
-## heading in over the rail. Lower than that it bonks the wall.
+## heading in over the rail. Lower than that it bonks the wall. The margin is a
+## tumbling bag's corner past the wall's outside (its box's half diagonal, 0.5,
+## plus the wall, 0.13, plus a hair): with less, a bag turned corner-first
+## caught the rail before the catch and bonked off a toss that looked in.
 const BED_CATCH_TOP_Y: float = 3.9
-const BED_CATCH_SIDE_MARGIN: float = 0.6
+const BED_CATCH_SIDE_MARGIN: float = 0.68
 const BED_CATCH_RAIL_Y: float = 1.4
 ## A bag tossed with its middle this close past a side wall or the tailgate (m)
-## can't arc over the rail from there, so it hops in over it instead.
-const BED_CLOSE_REACH: float = 0.8
+## can't arc over the rail from there, so one that would bonk the side hops in
+## over it instead. Out to here: from closer than about 2.8 m to the bed's middle
+## no lob clears the rail (toss survey, 2026-11-02), so with less there was a
+## band where no wind-up went in.
+const BED_CLOSE_REACH: float = 1.4
 ## Aim help for a near miss (bed_toss.gd assist()): the smallest nudge that puts
 ## it in, turned by at most this much (rad) toward the bed's middle and thrown
 ## at most this share softer or harder. A throw aimed more than
@@ -1459,6 +1465,9 @@ const BED_SETTLE_MIN_SECONDS: float = 0.22
 const BED_SETTLE_MAX_SECONDS: float = 0.65
 const BED_SETTLE_LAND_SPEED: float = 2.5
 const BED_SETTLE_HOLD_SECONDS: float = 0.35
+## A bag that has to go over the rail (heaved in from beside the truck, or
+## caught just past a wall) clears it, and the cab, by this much (m).
+const BED_SETTLE_CLEARANCE: float = 0.08
 ## Walking up and pressing E: the bag leaves your hands this fast upward (m/s)
 ## on its little hop into the bed.
 const BED_HAND_IN_LIFT: float = 3.2
@@ -1472,6 +1481,22 @@ const BED_REFUSE_EVERY_SECONDS: float = 0.8
 const BED_LONG_TOSS_METERS: float = 5.0
 const BED_LONG_TOSS_QUIP_CHANCE: float = 0.4
 const BED_LONG_TOSS_QUIP_SECONDS: float = 20.0
+## A crewmate reacts only if they're this close to the bed (m), in the same zone.
+const BED_LONG_TOSS_WITNESS_METERS: float = 25.0
+## A tossed bag tumbles end over end this fast (rad/s, picked between the two;
+## a throwing client draws its own at the middle). A full bed bats one back out
+## spinning this fast.
+const BAG_TOSS_SPIN_MIN: float = 2.5
+const BAG_TOSS_SPIN_MAX: float = 4.0
+const BED_REFUSE_SPIN_MIN: float = 3.0
+const BED_REFUSE_SPIN_MAX: float = 5.0
+## A throwing client's drawn toss, once down, waits for the host's bag to come
+## within this far (m), or this long (s), before easing onto it.
+const BAG_TOSS_CATCH_UP_M: float = 0.35
+const BAG_TOSS_CATCH_UP_SECONDS: float = 1.0
+## A client seeing a bag caught while it moves slower than this (m/s) takes it
+## as heaved in from someone's hands (E by the bed).
+const BED_HEAVE_SPEED: float = 1.0
 ## The arc preview while winding up (ui/toss_arc.gd): a dot this often along
 ## the flight (s), and the longest flight it draws (s).
 const TOSS_ARC_STEP_SECONDS: float = 0.06

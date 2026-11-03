@@ -678,9 +678,9 @@ func _strings() -> bool:
 	panel.visible = false
 	if not push_text.contains("[K]"):
 		ok = _fail("strings", "the voice panel's push to talk reads '%s'" % push_text)
-	var goal := _Strings.keyed(_Strings.UI["goal_carry_held"])
-	if not goal.ends_with("[R]"):
-		ok = _fail("strings", "the carry goal reads '%s'" % goal)
+	var goal := _Strings.keyed(_Strings.UI["goal_dip_roller"])
+	if not goal.contains("[R]"):
+		ok = _fail("strings", "the dry roller goal reads '%s'" % goal)
 	# The scenes' words come from Strings now (ui_root.tscn, world.tscn).
 	if (ui.get("_leave") as Button).text != _Strings.UI["pause_leave"] or (ui.get_node("%HostButton") as Button).text != _Strings.UI["menu_host_steam"]:
 		ok = _fail("strings", "the menu buttons read '%s' and '%s'" % [(ui.get("_leave") as Button).text, (ui.get_node("%HostButton") as Button).text])

@@ -309,8 +309,7 @@ func _refresh_label() -> void:
 			lines.append(shown if shown != "" else str(_Strings.UI["ride_rider_unnamed"]) % int(peer_id))
 		_label.text = "\n".join(lines)
 		return
-	var full: String = _Strings.UI["ride_chefty_full"] if _bags >= Constants.TRUCK_BAG_CAPACITY else ""
-	_label.text = _Strings.UI["ride_chefty_label"] % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value, full]
+	_label.text = _Strings.UI["ride_chefty_label"] % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value]
 	if _bed_load != null:
 		_bed_load.call("set_count", _bags)
 

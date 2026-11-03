@@ -26,6 +26,25 @@ const HULL: Array = [
 	[Vector3(0.0, 0.85, -0.1), Vector3(1.2, 0.8, 2.85)],
 	[Vector3(0.0, 1.75, -2.0), Vector3(1.2, 0.75, 0.78)],
 ]
+## A drawn leaf bag (props/yard_models.gd) from its bottom, where its body's
+## origin is: its middle, and how far it reaches each way from there, upright.
+const LOOK_MIDDLE := Vector3(0.0, 0.4, 0.0)
+const LOOK_HALF := Vector3(0.27, 0.42, 0.23)
+## What a bag gliding into its spot goes over, never through (bed space; the
+## truck's solid boxes, props/vehicles.gd build_truck): the side walls, the
+## tailgate and the cab. [center, half size]
+const WALLS: Array = [
+	[Vector3(-1.1, 1.35, 0.72), Vector3(0.08, 0.3, 1.95)],
+	[Vector3(1.1, 1.35, 0.72), Vector3(0.08, 0.3, 1.95)],
+	[Vector3(0.0, 1.35, 2.66), Vector3(1.15, 0.3, 0.08)],
+	[Vector3(0.0, 1.75, -2.0), Vector3(1.15, 0.75, 0.75)],
+]
+## How finely a settle's path is checked against the walls, how much deeper
+## than at its ends it may brush one (m), and how much a bag on its way down may
+## brush the wall its spot leans on (the edge spots in the load lean on a wall).
+const SETTLE_SAMPLES: int = 64
+const SETTLE_CUT_SLACK: float = 0.01
+const SETTLE_LEAN_SLACK: float = 0.02
 
 ## What happened on this peer, for net/dev/probe.gd and the toss test. The host
 ## counts catches, refusals, long tosses and assists; every peer counts the
@@ -134,7 +153,8 @@ static func _catches_local(local: Vector3, heading: Vector3) -> bool:
 
 ## True when a bag tossed from right by the bed (its middle within
 ## Constants.BED_CLOSE_REACH past a side wall or the tailgate, thrown toward it)
-## would only bonk the wall from there: it goes in with a little hop instead
+## would only bonk the wall from there (no lob from that close clears the rail):
+## it goes in with a little hop instead
 ## (net_prop.gd), the way you'd heave it over the side.
 static func close_toss(truck: Node, pos: Vector3, vel: Vector3, ground_y: float) -> bool:
 	if truck == null or not truck.has_method("bed_transform"):
@@ -149,7 +169,9 @@ static func close_toss(truck: Node, pos: Vector3, vel: Vector3, ground_y: float)
 	var by_tail := past_tail > 0.0 and past_tail <= reach and absf(local.x) <= BED.end.x and heading.z < 0.0
 	if not by_side and not by_tail:
 		return false
-	return not bool(flight(pos, vel, ground_y, truck)["caught"])
+	# Only a toss that would bonk the side: one thrown clean over the truck misses.
+	var path := flight(pos, vel, ground_y, truck)
+	return not bool(path["caught"]) and bool(path["hull"])
 
 
 ## True when a bag whose bottom is here would be touching the truck's hull or
@@ -262,15 +284,232 @@ static func assist(truck: Node, pos: Vector3, vel: Vector3, ground_y: float) -> 
 	return best
 
 
-## A smooth path from p0 moving at v0 to p1 arriving at v1, over t in 0..1 of a
-## glide lasting `seconds` (cubic Hermite: position and speed both continuous).
-static func glide(p0: Vector3, v0: Vector3, p1: Vector3, v1: Vector3, seconds: float, t: float) -> Vector3:
+## How long a bag the bed caught takes into its spot (s): Constants
+## BED_SETTLE_SECONDS_PER_M along the way settle_plan() takes it (over the rail,
+## if it has to go over), within BED_SETTLE_MIN_SECONDS..MAX. from and to are its
+## body in the bed's space. The host sends it with the catch, so every peer's
+## glide ends together.
+static func settle_seconds(from: Transform3D, to: Transform3D) -> float:
+	var turn_from := from.basis.orthonormalized()
+	var turn_to := to.basis.orthonormalized()
+	var points := _over_points(Transform3D(turn_from, from.origin) * LOOK_MIDDLE, Transform3D(turn_to, to.origin) * LOOK_MIDDLE, _settle_reach(turn_from, turn_to), look_reach(turn_to), 0.0)
+	var length := 0.0
+	for index: int in range(1, points.size()):
+		length += (points[index] as Vector3).distance_to(points[index - 1])
+	return clampf(length * Constants.BED_SETTLE_SECONDS_PER_M, Constants.BED_SETTLE_MIN_SECONDS, Constants.BED_SETTLE_MAX_SECONDS)
+
+
+## The way a bag the bed caught goes into its spot, in the bed's space: from its
+## body at `from` moving at `moving`, to `to`, over `seconds`. It glides straight
+## in when that clears the truck; otherwise it goes up, over the rail (or the
+## cab) and down into its spot, never cutting into the truck deeper than it was
+## at either end (cut_depth). Its middle follows the path (smooth: position and
+## speed both continuous) while it turns from from's lean to to's (over a
+## wall, done turning by the time it's over it, so it comes down the way it will
+## sit). settle_at() reads it. {keys: [[middle, velocity, time]...], from, to
+## (Basis), turned (s), seconds}.
+static func settle_plan(from: Transform3D, moving: Vector3, to: Transform3D, seconds: float) -> Dictionary:
+	var turn_from := from.basis.orthonormalized()
+	var turn_to := to.basis.orthonormalized()
+	var plan := {"from": turn_from, "to": turn_to, "seconds": maxf(seconds, 0.05), "turned": maxf(seconds, 0.05), "keys": []}
+	var start := Transform3D(turn_from, from.origin) * LOOK_MIDDLE
+	var end := Transform3D(turn_to, to.origin) * LOOK_MIDDLE
+	var land := Vector3.DOWN * Constants.BED_SETTLE_LAND_SPEED
+	var allowed := maxf(cut_depth(start, look_reach(turn_from)), cut_depth(end, look_reach(turn_to))) + SETTLE_CUT_SLACK
+	# Straight in, carrying on as it was moving (or half as fast), when that clears.
+	for share: float in [1.0, 0.5]:
+		plan["keys"] = _timed([start, end], moving * share, land, float(plan["seconds"]))
+		if settle_cut(plan) <= allowed:
+			return plan
+	# Over the top: up first if it's beside the truck (its sideways speed would
+	# only push it into the wall), then over, then down into its spot.
+	var reach := _settle_reach(turn_from, turn_to)
+	for raise: float in [0.0, 0.15, 0.4]:
+		var points := _over_points(start, end, reach, look_reach(turn_to), raise)
+		var lift := moving
+		if points.size() > 2 and _under_walls(start, reach) and start.y < (points[1] as Vector3).y:
+			lift = Vector3(0.0, maxf(moving.y, 0.0), 0.0)
+		plan["keys"] = _timed(points, lift, land, float(plan["seconds"]))
+		var keys: Array = plan["keys"]
+		plan["turned"] = maxf(float(keys[maxi(keys.size() - 2, 1)][2]), 0.05)
+		if settle_cut(plan) <= allowed:
+			return plan
+	return plan
+
+
+## The body's transform (bed space) age seconds into a settle_plan().
+static func settle_at(plan: Dictionary, age: float) -> Transform3D:
+	var seconds := float(plan["seconds"])
+	var t := clampf(age / seconds, 0.0, 1.0)
+	var at := t * seconds
+	var turn := (plan["from"] as Basis).slerp(plan["to"] as Basis, smoothstep(0.0, 1.0, clampf(at / float(plan["turned"]), 0.0, 1.0)))
+	var keys: Array = plan["keys"]
+	var middle: Vector3 = keys[keys.size() - 1][0]
+	for index: int in range(1, keys.size()):
+		var a: Array = keys[index - 1]
+		var b: Array = keys[index]
+		if at <= float(b[2]) or index == keys.size() - 1:
+			var span := maxf(float(b[2]) - float(a[2]), 0.0001)
+			middle = _hermite(a[0], a[1], b[0], b[1], span, clampf((at - float(a[2])) / span, 0.0, 1.0))
+			break
+	return Transform3D(turn, middle - turn * LOOK_MIDDLE)
+
+
+## The deepest a settle_plan() cuts into the truck anywhere along it (m).
+static func settle_cut(plan: Dictionary) -> float:
+	var deepest := 0.0
+	for index: int in SETTLE_SAMPLES + 1:
+		var body := settle_at(plan, float(plan["seconds"]) * float(index) / float(SETTLE_SAMPLES))
+		deepest = maxf(deepest, cut_depth(body * LOOK_MIDDLE, look_reach(body.basis)))
+	return deepest
+
+
+## How far a drawn bag turned like this reaches from its middle along each of
+## the bed's axes.
+static func look_reach(turn: Basis) -> Vector3:
+	return Vector3(
+		absf(turn.x.x) * LOOK_HALF.x + absf(turn.y.x) * LOOK_HALF.y + absf(turn.z.x) * LOOK_HALF.z,
+		absf(turn.x.y) * LOOK_HALF.x + absf(turn.y.y) * LOOK_HALF.y + absf(turn.z.y) * LOOK_HALF.z,
+		absf(turn.x.z) * LOOK_HALF.x + absf(turn.y.z) * LOOK_HALF.y + absf(turn.z.z) * LOOK_HALF.z)
+
+
+## How deep a drawn bag with its middle here (bed space), reaching this far,
+## cuts into the truck's walls or cab: the least it would have to move to come
+## clear of the deepest one (m), 0 when it's clear.
+static func cut_depth(middle: Vector3, reach: Vector3) -> float:
+	var deepest := 0.0
+	for wall: Array in WALLS:
+		var gap: Vector3 = (wall[1] as Vector3) + reach - (middle - (wall[0] as Vector3)).abs()
+		if gap.x > 0.0 and gap.y > 0.0 and gap.z > 0.0:
+			deepest = maxf(deepest, minf(gap.x, minf(gap.y, gap.z)))
+	return deepest
+
+
+## The most a bag reaches from its middle while it turns from one lean to the other.
+static func _settle_reach(turn_from: Basis, turn_to: Basis) -> Vector3:
+	var reach := Vector3.ZERO
+	for index: int in 9:
+		var turn := turn_from.slerp(turn_to, float(index) / 8.0)
+		var here := look_reach(turn)
+		reach = Vector3(maxf(reach.x, here.x), maxf(reach.y, here.y), maxf(reach.z, here.z))
+	return reach
+
+
+## True when a bag's middle here, reaching this far, is over a wall or the cab
+## (seen from above).
+static func _under_walls(middle: Vector3, reach: Vector3) -> bool:
+	for wall: Array in WALLS:
+		var c: Vector3 = wall[0]
+		var h: Vector3 = wall[1]
+		if absf(middle.x - c.x) < h.x + reach.x and absf(middle.z - c.z) < h.z + reach.z:
+			return true
+	return false
+
+
+## The points a settle goes through (bed space, the bag's middle): start and
+## end, plus, when the way between them passes over a wall or the cab, where it
+## first comes over one and where it's last over one, high enough there (raise
+## higher still) that the bag clears it.
+static func _over_points(start: Vector3, end: Vector3, reach: Vector3, end_reach: Vector3, raise: float) -> Array:
+	var first := -1
+	var last := -1
+	var top := -INF
+	# A spot by a wall or the cab has its bag leaning on it a little: brushing it
+	# that much on the way down is no reason to go up over it.
+	var leaning: Array[float] = []
+	for wall: Array in WALLS:
+		var gap: Vector3 = (wall[1] as Vector3) + end_reach - (end - (wall[0] as Vector3)).abs()
+		leaning.append(maxf(minf(gap.x, minf(gap.y, gap.z)), 0.0) + SETTLE_LEAN_SLACK)
+	for index: int in SETTLE_SAMPLES + 1:
+		var here := start.lerp(end, float(index) / float(SETTLE_SAMPLES))
+		for wall_index: int in WALLS.size():
+			var c: Vector3 = WALLS[wall_index][0]
+			var h: Vector3 = WALLS[wall_index][1]
+			if minf(h.x + reach.x - absf(here.x - c.x), h.z + reach.z - absf(here.z - c.z)) > leaning[wall_index]:
+				top = maxf(top, c.y + h.y)
+				if first < 0:
+					first = index
+				last = index
+	if first < 0:
+		return [start, end]
+	var over := top + reach.y + Constants.BED_SETTLE_CLEARANCE + raise
+	var points: Array = [start]
+	var up_at := start.lerp(end, float(first) / float(SETTLE_SAMPLES))
+	if start.y < over:
+		points.append(Vector3(up_at.x, over, up_at.z))
+	var down_at := start.lerp(end, float(last) / float(SETTLE_SAMPLES))
+	if last > first or start.y >= over:
+		points.append(Vector3(down_at.x, maxf(over, minf(start.y, over + 0.5)), down_at.z))
+	points.append(end)
+	return points
+
+
+## Keys [[point, velocity, time]...] for a smooth path through points over
+## seconds, each stretch taking its share by length: leaving at start_vel,
+## arriving at end_vel, and through the points between at the speed that carries
+## on from the one before to the one after, held back where that would carry it
+## past either (so it never swings out over a wall it was meant to clear).
+static func _timed(points: Array, start_vel: Vector3, end_vel: Vector3, seconds: float) -> Array:
+	var lengths: Array[float] = [0.0]
+	for index: int in range(1, points.size()):
+		lengths.append(lengths[index - 1] + maxf((points[index] as Vector3).distance_to(points[index - 1]), 0.001))
+	var total := lengths[lengths.size() - 1]
+	var times: Array[float] = []
+	for index: int in points.size():
+		times.append(seconds * lengths[index] / total)
+	var keys: Array = []
+	var last := points.size() - 1
+	for index: int in points.size():
+		var vel := start_vel if index == 0 else end_vel
+		if last < 2:
+			keys.append([points[index], vel, times[index]])
+			continue
+		# Over a wall: the speed through each point (and leaving and landing too)
+		# is held back so no stretch swings past where it's headed.
+		var into := ((points[index] as Vector3) - (points[index - 1] as Vector3)) / maxf(times[index] - times[index - 1], 0.001) if index > 0 else Vector3.INF
+		var out := ((points[index + 1] as Vector3) - (points[index] as Vector3)) / maxf(times[index + 1] - times[index], 0.001) if index < last else Vector3.INF
+		if index > 0 and index < last:
+			vel = ((points[index + 1] as Vector3) - (points[index - 1] as Vector3)) / maxf(times[index + 1] - times[index - 1], 0.001)
+		keys.append([points[index], _held_back(vel, into, out), times[index]])
+	return keys
+
+
+## A speed through a point no faster than three times the stretch into it's or
+## out of it's (INF: no stretch that side), across (x and z together) and up and
+## down on their own, and none at all where the path turns back there.
+static func _held_back(vel: Vector3, into: Vector3, out: Vector3) -> Vector3:
+	var flat := Vector2(vel.x, vel.z)
+	var cap := INF
+	for side: Vector3 in [into, out]:
+		if not side.is_finite():
+			continue
+		var side_flat := Vector2(side.x, side.z)
+		if flat.dot(side_flat) <= 0.0:
+			flat = Vector2.ZERO
+		cap = minf(cap, 3.0 * side_flat.length())
+	if flat.length() > cap:
+		flat = flat.normalized() * cap
+	var rise := vel.y
+	for side: Vector3 in [into, out]:
+		if not side.is_finite():
+			continue
+		if rise * side.y <= 0.0:
+			rise = 0.0
+		rise = signf(rise) * minf(absf(rise), 3.0 * absf(side.y))
+	return Vector3(flat.x, rise, flat.y)
+
+
+## One stretch of cubic Hermite from p0 moving at v0 to p1 arriving at v1, over
+## seconds, at t in 0..1. A fast throw's speed would loop the curve, so each
+## pull is capped to the stretch's length.
+static func _hermite(p0: Vector3, v0: Vector3, p1: Vector3, v1: Vector3, seconds: float, t: float) -> Vector3:
 	var span := p0.distance_to(p1)
-	# A fast throw's speed would loop the curve; cap its pull to the glide's length.
 	var m0 := v0 * seconds
 	if m0.length() > span * 1.5:
 		m0 = m0.normalized() * span * 1.5
 	var m1 := v1 * seconds
+	if m1.length() > span * 1.5:
+		m1 = m1.normalized() * span * 1.5
 	var t2 := t * t
 	var t3 := t2 * t
 	return p0 * (2.0 * t3 - 3.0 * t2 + 1.0) + m0 * (t3 - 2.0 * t2 + t) + p1 * (-2.0 * t3 + 3.0 * t2) + m1 * (t3 - t2)

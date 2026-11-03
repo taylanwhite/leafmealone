@@ -32,10 +32,13 @@ const TOP_ROW: Array = [[0.0], [0.3, 1.2]]
 ## The middle of the bed along its length (z): the first spots fill out from here.
 const MIDDLE_Z: float = 0.72
 ## A drawn leaf bag's height (props/yard_models.gd), and how far a bag sinks
-## into the heap's edge before it bounces off (m).
+## into the heap's edge before it bounces off (m). Two bags' middles this far
+## apart across the bed (x) and along it (z) have their sides touching: a heap
+## bag's turned reach plus the incoming bag's.
 const BAG_HEIGHT: float = 0.62
 const PILE_GIVE: float = 0.3
-const PILE_SIDE_REACH: float = 0.55
+const PILE_SIDE_REACH: float = 0.62
+const PILE_DEPTH_REACH: float = 0.55
 const LAYER_RISE: float = 0.6
 ## Above the tank a bag sits on its lid (the tank is 0.75 m tall).
 const TANK_TOP: float = 1.8
@@ -58,7 +61,7 @@ static var _slots: Array[Transform3D] = []
 var _bags: Array[Node3D] = []
 var _count: int = 0
 var _synced: bool = false
-## slot -> the time it was held, while its tossed bag is still on its way.
+## slot -> {at: when it was held, bag: the tossed bag on its way into it}.
 var _held: Dictionary = {}
 ## Dollars the next count changes bring that a tossed bag will pop itself when
 ## it lands (hold_slot); the rest pop here.
@@ -121,14 +124,17 @@ static func pile_top(count: int) -> float:
 	return top
 
 
-## True when a bag whose bottom is here (bed space) is in the heap of count bags:
-## over the bed, below its top, with half a bag's give at the sides.
+## True when a bag whose bottom is here (bed space) meets the heap of count bags
+## where it really is: its side against a drawn bag's side, its bottom
+## PILE_GIVE into that bag's top or lower.
 static func in_pile(local: Vector3, count: int) -> bool:
-	if count <= 0:
+	if local.y < 1.0:
 		return false
-	# A bag's middle this far past the bed's walls already has its side on the heap.
-	var reach := PILE_SIDE_REACH
-	return absf(local.x) <= 1.05 + reach and local.z >= -1.2 - reach and local.z <= 2.65 + reach and local.y <= pile_top(count) - PILE_GIVE and local.y >= 1.0
+	for index: int in mini(count, 200):
+		var spot := slot(index).origin
+		if absf(local.x - spot.x) <= PILE_SIDE_REACH and absf(local.z - spot.z) <= PILE_DEPTH_REACH and local.y <= spot.y + BAG_HEIGHT - PILE_GIVE:
+			return true
+	return false
 
 
 ## How many bags are drawn (the replicated count).
@@ -177,7 +183,7 @@ func sync_count(count: int) -> void:
 ## empty until that bag is gone (its own look sits there meanwhile), and leave
 ## its dollars for it to pop when it lands.
 func hold_slot(index: int, bag: Node, amount: int) -> void:
-	_held[index] = Time.get_ticks_msec()
+	_held[index] = {"at": Time.get_ticks_msec(), "bag": bag}
 	_expected_value += maxi(amount, 0)
 	if index < _bags.size():
 		_bags[index].visible = false
@@ -194,13 +200,21 @@ func unhold_slot(index: int, bag: Node) -> void:
 		bag.tree_exiting.disconnect(release)
 	if bag != null and "value" in bag:
 		_expected_value = maxi(_expected_value - int(bag.get("value")), 0)
+	# Someone else's bag may have taken the spot since: it stays hidden for that one.
+	if not _holds(index, bag):
+		return
 	_held.erase(index)
 	if index < _count and index < _bags.size():
 		_bags[index].visible = true
 
 
+## True when spot index is held for this bag.
+func _holds(index: int, bag: Node) -> bool:
+	return _held.has(index) and (_held[index] as Dictionary).get("bag") == bag
+
+
 func _release_slot(index: int, bag: Node) -> void:
-	if not _held.has(index):
+	if not _holds(index, bag):
 		return
 	_held.erase(index)
 	# How far from its spot the bag was last drawn (net_prop.gd _step_settle keeps
@@ -254,7 +268,7 @@ func _process(_delta: float) -> void:
 	if not _held.is_empty():
 		var now := Time.get_ticks_msec()
 		for index: int in _held.keys():
-			if now - int(_held[index]) > int(HOLD_GIVE_UP_SECONDS * 1000.0):
+			if now - int((_held[index] as Dictionary)["at"]) > int(HOLD_GIVE_UP_SECONDS * 1000.0):
 				_held.erase(index)
 				if index < _count and index < _bags.size():
 					_bags[index].visible = true

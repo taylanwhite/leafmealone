@@ -95,14 +95,12 @@ var _bonked: Array[Node] = []
 ## A leaf bag Chefty's bed caught, on its way into its spot in the load (every
 ## peer, from _rpc_bed_catch). Each peer glides its own look there in the bed's
 ## space (the host moves the body, a client its drawn look, from wherever it was
-## drawn), so it never jumps: the spot, the glide (from where, how fast, how
-## long, how far along), whether it has landed, and the crew's reaction to show
-## when it does ([speaker peer, line], or []).
+## drawn), so it never jumps: the spot, the glide (bed_toss.gd settle_plan(),
+## over the rail when it has to go over), how far along, whether it has landed,
+## and the crew's reaction to show when it does ([speaker peer, line], or []).
 var _settling: bool = false
 var _settle_slot: int = -1
-var _settle_from := Vector3.ZERO
-var _settle_vel := Vector3.ZERO
-var _settle_basis := Basis.IDENTITY
+var _settle_plan: Dictionary = {}
 var _settle_seconds: float = 0.3
 var _settle_age: float = 0.0
 var _settle_landed: bool = false
@@ -229,8 +227,11 @@ func _client_bag_step(delta: float) -> void:
 	_seen_at = at
 
 
-## A leaf bag in the air, as this peer sees it.
-func _flying() -> bool:
+## A leaf bag in the air, as this peer sees it: no price tag, and nobody's
+## offered to pick it up (player.gd _best_pickup).
+func is_flying() -> bool:
+	if kind != "leaf_bag":
+		return false
 	if multiplayer.multiplayer_peer == null or Net.is_host():
 		return linear_velocity.length() > Constants.BAG_TOSS_LABEL_HIDE_SPEED
 	return _predicting or _blend_left > 0.0 or _seen_vel.length() > Constants.BAG_TOSS_LABEL_HIDE_SPEED
@@ -818,7 +819,7 @@ func _predict_toss(direction: Vector3, power: float) -> void:
 	_pred_vel = _BedToss.assist(truck, _pred_pos, _BedToss.launch_velocity(kind, weight_kg(), flat, power), _pred_ground)
 	_pred_basis = Basis(Vector3.UP, player.global_rotation.y)
 	# End over end, as the host spins it (_release), at its middling rate.
-	_pred_spin = Vector3(_pred_vel.z, 0.0, -_pred_vel.x).normalized() * 3.2
+	_pred_spin = Vector3(_pred_vel.z, 0.0, -_pred_vel.x).normalized() * (Constants.BAG_TOSS_SPIN_MIN + Constants.BAG_TOSS_SPIN_MAX) * 0.5
 	_pred_age = 0.0
 	_pred_done = false
 	_pred_wait = 0.0
@@ -828,8 +829,7 @@ func _predict_toss(direction: Vector3, power: float) -> void:
 	if _BedToss.close_toss(truck, _pred_pos, _pred_vel, _pred_ground) and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY:
 		_predicting = false
 		var slot := int(truck.call("bag_count"))
-		var spot: Transform3D = truck.call("bed_slot", slot)
-		var seconds := clampf(_pred_pos.distance_to(spot.origin) * Constants.BED_SETTLE_SECONDS_PER_M, Constants.BED_SETTLE_MIN_SECONDS, Constants.BED_SETTLE_MAX_SECONDS)
+		var seconds := _settle_seconds_for(truck, Transform3D(_pred_basis, _pred_pos), slot)
 		_begin_settle(truck, slot, seconds, value, [], Transform3D(_pred_basis, _pred_pos), _pred_vel)
 		_provisional = true
 		_provisional_age = 0.0
@@ -856,8 +856,7 @@ func _step_predict(delta: float) -> void:
 			(%Visual as Node3D).global_transform = body * _visual_rest()
 			_predicting = false
 			var slot := int(truck.call("bag_count"))
-			var spot: Transform3D = truck.call("bed_slot", slot)
-			var seconds := clampf(_pred_pos.distance_to(spot.origin) * Constants.BED_SETTLE_SECONDS_PER_M, Constants.BED_SETTLE_MIN_SECONDS, Constants.BED_SETTLE_MAX_SECONDS)
+			var seconds := _settle_seconds_for(truck, body, slot)
 			_begin_settle(truck, slot, seconds, value, [], body, _pred_vel)
 			_provisional = true
 			_provisional_age = 0.0
@@ -869,7 +868,7 @@ func _step_predict(delta: float) -> void:
 	else:
 		# Down (or off the truck): wait for the host's bag to get here, then ease onto it.
 		_pred_wait += delta
-		if global_position.distance_to(_pred_pos) < 0.35 or _pred_wait > 1.0:
+		if global_position.distance_to(_pred_pos) < Constants.BAG_TOSS_CATCH_UP_M or _pred_wait > Constants.BAG_TOSS_CATCH_UP_SECONDS:
 			_predicting = false
 			_blend_from = (%Visual as Node3D).global_transform
 			_blend_left = Constants.BAG_TOSS_BLEND_SECONDS
@@ -1088,7 +1087,7 @@ func _release(peer_id: int, direction: Vector3, power: float, from: Vector3 = Ve
 		# Right by the bed, it couldn't arc over the rail: heaved in over the side.
 		hop_in = _BedToss.close_toss(truck, global_position, velocity_now, ground) and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY
 		# It tumbles over forward, end over end, the way a heaved sack does.
-		angular_velocity = Vector3(velocity_now.z, 0.0, -velocity_now.x).normalized() * randf_range(2.5, 4.0) + Vector3(0.0, randf_range(-1.0, 1.0), 0.0)
+		angular_velocity = Vector3(velocity_now.z, 0.0, -velocity_now.x).normalized() * randf_range(Constants.BAG_TOSS_SPIN_MIN, Constants.BAG_TOSS_SPIN_MAX) + Vector3(0.0, randf_range(-1.0, 1.0), 0.0)
 	else:
 		angular_velocity = Vector3(randf_range(-4.0, 4.0), randf_range(-4.0, 4.0), randf_range(-4.0, 4.0)) * (6.0 / weight_kg())
 	linear_velocity = velocity_now
@@ -1315,13 +1314,12 @@ func _try_load_bag() -> void:
 	var truck := get_tree().get_first_node_in_group("chefty")
 	if truck != null and truck.has_method("bed_transform"):
 		var count := int(truck.call("bag_count"))
-		var caught := _BedToss.catches(truck, _bottom(), linear_velocity)
 		if count >= Constants.TRUCK_BAG_CAPACITY:
-			# Full: it bounces off the heap where it meets it, not inside it.
-			if caught or _BedLoad.in_pile((truck.call("bed_transform") as Transform3D).affine_inverse() * _bottom(), count):
+			# Full: it bounces off the heap where it meets a drawn bag, not before.
+			if _BedLoad.in_pile((truck.call("bed_transform") as Transform3D).affine_inverse() * _bottom(), count):
 				_bed_refuse(truck)
 				return
-		elif caught:
+		elif _BedToss.catches(truck, _bottom(), linear_velocity):
 			_bed_catch(truck)
 			return
 	var closest: Node = null
@@ -1349,8 +1347,7 @@ func _bottom() -> Vector3:
 ## (_rpc_bed_catch) and it goes, with the load's own bag showing in its place.
 func _bed_catch(truck: Node) -> void:
 	var slot := int(truck.call("bag_count"))
-	var spot: Transform3D = truck.call("bed_slot", slot)
-	var seconds := clampf(global_position.distance_to(spot.origin) * Constants.BED_SETTLE_SECONDS_PER_M, Constants.BED_SETTLE_MIN_SECONDS, Constants.BED_SETTLE_MAX_SECONDS)
+	var seconds := _settle_seconds_for(truck, global_transform, slot)
 	var stats: Dictionary = _BedToss.stats
 	stats["caught"] = int(stats["caught"]) + 1
 	var reaction := [0, -1]
@@ -1370,13 +1367,25 @@ func _bed_catch(truck: Node) -> void:
 	truck.call("accept_bags", 1, value)
 
 
+## How long a bag whose body is at `body` (world) takes into load spot slot
+## (bed_toss.gd settle_seconds()).
+func _settle_seconds_for(truck: Node, body: Transform3D, slot: int) -> float:
+	var bed: Transform3D = truck.call("bed_transform")
+	return _BedToss.settle_seconds(bed.affine_inverse() * body, _BedLoad.slot(slot))
+
+
 ## Who reacts to a long toss and with what (Strings.TOSS_QUIPS, then TOSS_BRAGS
-## counted on after it): a crewmate if anyone else is here, else the thrower.
+## counted on after it): a crewmate who was there to see it (in the thrower's
+## zone, within Constants.BED_LONG_TOSS_WITNESS_METERS), else the thrower.
 func _long_toss_reaction() -> Array:
 	var others: Array[int] = []
+	var zone := Net.player_zone(_thrower)
 	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.name.to_int() != _thrower and node.name.to_int() > 0:
-			others.append(node.name.to_int())
+		var peer := node.name.to_int()
+		if peer == _thrower or peer <= 0 or Net.player_zone(peer) != zone:
+			continue
+		if (node as Node3D).global_position.distance_to(global_position) <= Constants.BED_LONG_TOSS_WITNESS_METERS:
+			others.append(peer)
 	if not others.is_empty():
 		return [others[randi() % others.size()], randi() % _Strings.TOSS_QUIPS.size()]
 	return [_thrower, _Strings.TOSS_QUIPS.size() + randi() % _Strings.TOSS_BRAGS.size()]
@@ -1399,7 +1408,7 @@ func _bed_refuse(truck: Node) -> void:
 		away = bed.basis.x
 	away = away.normalized()
 	linear_velocity = away * Constants.BED_REFUSE_PUSH + Vector3.UP * Constants.BED_REFUSE_LIFT
-	angular_velocity = Vector3(-away.z, 0.0, away.x) * randf_range(3.0, 5.0)
+	angular_velocity = Vector3(-away.z, 0.0, away.x) * randf_range(Constants.BED_REFUSE_SPIN_MIN, Constants.BED_REFUSE_SPIN_MAX)
 	_airborne = true
 	_BedToss.stats["refused"] = int(_BedToss.stats["refused"]) + 1
 	_rpc_bed_refuse.rpc(global_position)
@@ -1434,7 +1443,7 @@ func _rpc_bed_catch(slot: int, seconds: float, amount: int, speaker: int, line: 
 		drawn = (%Visual as Node3D).global_transform * _visual_rest().affine_inverse()
 		moving = _seen_vel
 		# Barely moving: heaved in from someone's hands (E by the bed), as the host has it.
-		if moving.length() < 1.0:
+		if moving.length() < Constants.BED_HEAVE_SPEED:
 			moving = Vector3.UP * Constants.BED_HAND_IN_LIFT
 	_predicting = false
 	_blend_left = 0.0
@@ -1458,10 +1467,7 @@ func _begin_settle(truck: Node, slot: int, seconds: float, amount: int, quip: Ar
 	_settle_amount = amount
 	_settle_quip = quip
 	var bed: Transform3D = truck.call("bed_transform")
-	var local := bed.affine_inverse() * drawn
-	_settle_from = local.origin
-	_settle_basis = local.basis.orthonormalized()
-	_settle_vel = bed.basis.inverse() * moving
+	_settle_plan = _BedToss.settle_plan(bed.affine_inverse() * drawn, bed.basis.inverse() * moving, _BedLoad.slot(slot), _settle_seconds)
 	_refresh_label()
 	var load_node := truck.call("bed_load") as Node
 	if load_node != null:
@@ -1480,10 +1486,8 @@ func _step_settle(delta: float) -> void:
 	_settle_age += delta
 	var t := clampf(_settle_age / _settle_seconds, 0.0, 1.0)
 	var spot := _BedLoad.slot(_settle_slot)
-	var at := _BedToss.glide(_settle_from, _settle_vel, spot.origin, Vector3.DOWN * Constants.BED_SETTLE_LAND_SPEED, _settle_seconds, t)
-	var turn := _settle_basis.slerp(spot.basis.orthonormalized(), smoothstep(0.0, 1.0, t))
 	var bed: Transform3D = truck.call("bed_transform")
-	var world := bed * Transform3D(turn, at)
+	var world := bed * _BedToss.settle_at(_settle_plan, _settle_age)
 	settle_gap_m = world.origin.distance_to(bed * spot.origin)
 	if Net.is_host():
 		global_transform = world
@@ -1593,14 +1597,14 @@ func _refresh_label() -> void:
 	# Bags show what they're worth, so a fat bag from a big pile reads as a prize.
 	# Not while it flies or settles into Chefty's load: the price would pop up in
 	# your face as it leaves your hands, and the load pops its own.
-	%Label.visible = kind == "wheelbarrow" or (kind == "leaf_bag" and value > 0 and not _settling and not _flying())
+	%Label.visible = kind == "wheelbarrow" or (kind == "leaf_bag" and value > 0 and not _settling and not is_flying())
 	# Not on the thing in your own hands: it would sit in the middle of your view.
 	if held_by != 0 and held_by == Net.local_peer_id() or pocketed_by != 0:
 		%Label.visible = false
 	if kind == "wheelbarrow":
 		var capacity := Campaign.wheelbarrow_capacity()
-		var full := " full" if stored_bags >= capacity else ""
-		%Label.text = "%d/%d%s  $%d" % [stored_bags, capacity, full, stored_value]
+		# A count at its cap already says it's full.
+		%Label.text = "%d/%d  $%d" % [stored_bags, capacity, stored_value]
 		_PropLooks.show_bags(self, stored_bags)
 	elif kind == "leaf_bag":
 		%Label.text = "$%d" % value

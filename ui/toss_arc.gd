@@ -10,6 +10,7 @@ extends Node3D
 ## Chefty"). Only this player sees it.
 
 const _BedToss = preload("res://net/components/bed_toss.gd")
+const _BedLoad = preload("res://props/truck_bed_load.gd")
 ## Presentation: the dots' size and colors, how fast they slide along, the
 ## ring's size, how long it takes to fade in, and how much of the arc nearest
 ## your face is left out (s of flight).
@@ -150,17 +151,18 @@ func _process(delta: float) -> void:
 ## net_prop.gd _step_settle draws), in the same shape flight() gives.
 func _hop_path(truck: Node, from: Vector3, vel: Vector3, step: float) -> Dictionary:
 	var bed: Transform3D = truck.call("bed_transform")
-	var spot: Transform3D = truck.call("bed_slot", int(truck.call("bag_count")))
-	var seconds := clampf(from.distance_to(spot.origin) * Constants.BED_SETTLE_SECONDS_PER_M, Constants.BED_SETTLE_MIN_SECONDS, Constants.BED_SETTLE_MAX_SECONDS)
-	var p0 := bed.affine_inverse() * from
-	var p1 := bed.affine_inverse() * spot.origin
-	var v0 := bed.basis.inverse() * vel
+	var slot := _BedLoad.slot(int(truck.call("bag_count")))
+	var player := _own_player()
+	var turn := Basis(Vector3.UP, player.global_rotation.y) if player != null else Basis.IDENTITY
+	var body := bed.affine_inverse() * Transform3D(turn, from)
+	var plan := _BedToss.settle_plan(body, bed.basis.inverse() * vel, slot, _BedToss.settle_seconds(body, slot))
+	var seconds := float(plan["seconds"])
 	var points := PackedVector3Array()
 	var t := step * (1.0 - _slide)
 	while t < seconds:
-		points.append(bed * _BedToss.glide(p0, v0, p1, Vector3.DOWN * Constants.BED_SETTLE_LAND_SPEED, seconds, t / seconds))
+		points.append(bed * _BedToss.settle_at(plan, t).origin)
 		t += step
-	return {"points": points, "end": spot.origin, "caught": true, "hull": false}
+	return {"points": points, "end": bed * slot.origin, "caught": true, "hull": false}
 
 
 ## The first thing in the world (not the bag, its thrower or the truck, which

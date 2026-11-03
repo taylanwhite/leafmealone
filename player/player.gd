@@ -1066,7 +1066,8 @@ func _best_pickup() -> Node3D:
 	var best_score := INF
 	for node: Node in get_tree().get_nodes_in_group("props"):
 		var prop := node as Node3D
-		if prop == null or not bool(prop.call("is_loose")):
+		# A bag you just tossed is on its way, not something to pick up.
+		if prop == null or not bool(prop.call("is_loose")) or bool(prop.call("is_flying")):
 			continue
 		var offset := prop.global_position - global_position
 		var distance := offset.length()
@@ -1142,8 +1143,9 @@ func interaction_hint() -> Dictionary:
 	var held := _held_prop()
 	if held != null and bool(held.call("near_truck")):
 		var held_kind := str(held.get("kind"))
+		# E heaves a bag in over the side, unlabeled: a bag by the truck says it.
 		if held_kind == "leaf_bag":
-			return {"text": _Strings.UI["prompt_toss_truck"], "at": held.global_position + Vector3(0.0, 0.8, 0.0)}
+			return {}
 		if held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0:
 			return {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0)}
 	if held != null and str(held.get("kind")) == "leaf_bag":

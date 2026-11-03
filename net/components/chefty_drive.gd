@@ -1433,8 +1433,7 @@ func _play_on(id: String) -> void:
 func _refresh_label() -> void:
 	if _label == null:
 		return
-	var full := _Strings.UI["ride_chefty_full"] if bag_count() >= Constants.TRUCK_BAG_CAPACITY else ""
-	_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY, _job_value, full]
+	_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY, _job_value]
 	if _bed_load != null:
 		_bed_load.call("set_count", bag_count())
 

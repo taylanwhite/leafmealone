@@ -11,11 +11,11 @@ extends Node
 ##
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, hide,
 ## border_return, van_ride, store, drive (that one needs --town-map), toss,
-## toss_full.
+## toss_full, toss_close.
 
 const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "hide", "border_return", "van_ride", "store", "drive", "toss", "toss_full"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "hide", "border_return", "van_ride", "store", "drive", "toss", "toss_full", "toss_close"]
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
@@ -36,6 +36,9 @@ const RAKE_PITCH: float = -0.42
 ## toss: how far from the middle of Chefty's bed you stand, looking a touch up,
 ## and what the bag in your hands is worth.
 const TOSS_STAND_METERS: float = 4.0
+## toss_close: right by the side wall, where a toss hops in over the rail and E
+## heaves it in.
+const TOSS_CLOSE_METERS: float = 2.0
 const TOSS_PITCH: float = 0.12
 const TOSS_BAG_VALUE: int = 14
 ## Waits for a state, in seconds, before a scenario gives up.
@@ -106,6 +109,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _toss()
 		"toss_full":
 			out = await _toss(true)
+		"toss_close":
+			out = await _toss(false, TOSS_CLOSE_METERS)
 	out["scenario"] = scenario
 	if not out.has("ok"):
 		out["ok"] = not out.has("error")
@@ -165,7 +170,8 @@ func _rake_pile() -> Dictionary:
 ## A full leaf bag in your hands, TOSS_STAND_METERS from the middle of Chefty's
 ## bed on the yard's side, facing it (bags:throw; hold drop to wind up a toss).
 ## toss_full: Chefty's bed is already full, so the toss bounces off the pile.
-func _toss(full: bool = false) -> Dictionary:
+## toss_close: TOSS_CLOSE_METERS off, beside the side wall.
+func _toss(full: bool = false, meters: float = TOSS_STAND_METERS) -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
@@ -180,7 +186,7 @@ func _toss(full: bool = false) -> Dictionary:
 	var side := Vector3(bed.basis.x.x, 0.0, bed.basis.x.z).normalized()
 	if (middle + side).distance_to(lot.global_position) > (middle - side).distance_to(lot.global_position):
 		side = -side
-	var at := middle + side * TOSS_STAND_METERS
+	var at := middle + side * meters
 	at.y = bed.origin.y + 0.1
 	var yaw := _yaw_toward(at, middle)
 	_place(at, yaw, TOSS_PITCH)
@@ -198,7 +204,7 @@ func _toss(full: bool = false) -> Dictionary:
 	_place(at, yaw, TOSS_PITCH)
 	if held != "leaf_bag":
 		return {"error": "couldn't get the bag (holding '%s')" % held}
-	return {"note": "a bag in hand %.0f m from Chefty's bed, facing it; hold drop to wind up, let go to toss" % TOSS_STAND_METERS, "bed": _v(middle)}
+	return {"note": "a bag in hand %.0f m from Chefty's bed, facing it; hold drop to wind up, let go to toss" % meters, "bed": _v(middle)}
 
 
 ## The NICE BOYS have been called: the warning starts now.
