@@ -727,8 +727,9 @@ func _raid(music: Node) -> bool:
 	director.call("force_event")
 	var warned := await _wait_mood(music, [&"warning"], Constants.MUSIC_FADE_URGENT_SECONDS + 0.2)
 	var chased := await _wait_mood(music, [&"chase"], Constants.RUN_WARNING_SECONDS + 1.0)
-	# Before the crew can catch anyone (a capture would send us to the border).
-	director.call("_give_up")
+	# Before the crew can catch anyone (a capture would send us to the border): they
+	# pack up (R2 chunk 2's DEPARTING; the chase music ends there).
+	director.call("host_begin_departure")
 	var back := await _wait_mood(music, [&"hot", &"work_morning"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
 	print("[AudioTest] raid: warning %s, chase %s, back to the yard %s" % [warned, chased, back])
 	return warned and chased and back

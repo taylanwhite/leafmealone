@@ -921,6 +921,12 @@ const CREW_LUNGE_WINDUP: float = 0.35
 const CREW_LUNGE_WINDUP_LAG_MAX: float = 0.15
 const CREW_LUNGE_DISTANCE: float = 2.2
 const CREW_LUNGE_SECONDS: float = 0.25
+## Every peer eases him into the wind-up's spot over this long (s): a client drew
+## him a little behind the host, and that gap closes during the crouch.
+const CREW_WINDUP_BLEND: float = 0.3
+## Of the lunge's reach, this much is his arm (m): his body travels the rest, at
+## most, and never closer than arm's length to where you stood.
+const CREW_LUNGE_ARM: float = 0.75
 ## The host's verdict at contact: the target's chest within reach plus slack of
 ## the hand point (from + dir x distance + up 1.2), in the host's view.
 const CREW_GRAB_REACH: float = 0.95
@@ -939,7 +945,7 @@ const CREW_INVESTIGATE_SECONDS: float = 4.0
 ## Hop out of / into the van (the fallback when no Shuttle drives it): one NICE BOY
 ## every CREW_HOP_GAP s, CREW_HOP_SECONDS each, from the seat to the curb.
 const CREW_HOP_GAP: float = 0.5
-const CREW_HOP_SECONDS: float = 0.7
+const CREW_HOP_SECONDS: float = 1.15
 ## Seats in the cast:5 van (props/nice_van.gd VanLook space: x right, -z the nose,
 ## floor at y 1.0) for the fallback without chunk 4's CrewSeats markers: the
 ## driver, then the left bench and the back bench. [position, yaw].
@@ -961,9 +967,11 @@ const CATCH_BARK_AT: float = 0.95
 const CATCH_CITE_AT: float = 1.0
 const CATCH_CITE_SECONDS: float = 2.0
 ## The two-shot: low, side-on, this far from the pair (m), pushing in by this share.
-const CATCH_CAM_DISTANCE: float = 3.0
+const CATCH_CAM_DISTANCE: float = 2.6
 const CATCH_CAM_HEIGHT: float = 1.25
 const CATCH_PUSH_IN: float = 0.03
+## Its field of view (degrees): tighter than the player's, so the two faces fill it.
+const CATCH_CAM_FOV: float = 55.0
 ## Mashing jump during the cite: each press buys this much (s), up to the max, at
 ## most this many presses a second.
 const CATCH_WRIGGLE_ADD: float = 0.15
@@ -978,10 +986,14 @@ const CATCH_ITEM_FLIGHT: float = 0.42
 const CATCH_ESCORT_AFTER: float = 0.6
 ## The escorted player walks arm in arm on his right, in his own space (x right, +z ahead).
 const ESCORT_SIDE_OFFSET := Vector3(-0.62, 0.0, 0.0)
+## Stepping to his side for the arm link (and off it at the van door), in seconds.
+const ESCORT_LINK_BLEND: float = 0.55
 ## The follow shot during the escort: behind and above (m), orbit (degrees).
 const ESCORT_CAM_BACK: float = 4.0
 const ESCORT_CAM_UP: float = 2.2
 const ESCORT_CAM_ORBIT_DEG: float = 40.0
+## How fast the follow shot turns to where the pair walks (rad/s).
+const ESCORT_CAM_TURN: float = 1.4
 ## A friend's bonk during the cite or the escort: he's stunned this long, and the
 ## freed player can't be grabbed for RESCUE_IMMUNITY s.
 const RESCUE_STUN: float = 2.5
@@ -1000,8 +1012,8 @@ const XP_RESCUE: int = 25
 const HEAT_NOISE_WINDOW: float = 30.0
 ## Name tags: a fixed on-screen size (pixel_size, at most CREW_TAG_MAX_PX), faded
 ## out closer than CREW_TAG_FADE_NEAR m and farther than CREW_TAG_FADE_FAR m.
-const CREW_TAG_PIXEL_SIZE: float = 0.0016
-const CREW_TAG_MAX_PX: float = 0.0022
+const CREW_TAG_PIXEL_SIZE: float = 0.0009
+const CREW_TAG_MAX_PX: float = 0.0014
 const CREW_TAG_FADE_NEAR: float = 1.4
 const CREW_TAG_FADE_FAR: float = 22.0
 ## Barks: one NICE BOY speaks at most every CREW_BARK_MIN_GAP s, not before
@@ -1012,7 +1024,7 @@ const CREW_BARK_FIRST_DELAY: float = 1.0
 const CREW_BARK_SECONDS: float = 2.2
 const CREW_BARK_HEAR_METERS: float = 28.0
 ## The line over his head: a fixed on-screen size (pixel_size).
-const CREW_BARK_PIXEL_SIZE: float = 0.0018
+const CREW_BARK_PIXEL_SIZE: float = 0.0012
 ## Sound gaps (ms, audio/sound_bank.gd): several NICE BOYS' steps overlap, and the
 ## itemized row pops every CATCH_ITEM_GAP.
 const CREW_STEP_GAP_MS: int = 70

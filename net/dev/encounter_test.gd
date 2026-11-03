@@ -220,11 +220,15 @@ func _run() -> void:
 	if idle != null and trash != null:
 		_safe(_client, 30.0)
 		await _wait(func() -> bool: return bool(idle.call("in_brain_mode")) and int(idle.get("mode")) != _Crew.Mode.CHASE and int(idle.get("mode")) != _Crew.Mode.SPOT, 6.0)
-		var near := idle.global_position + idle.global_basis.x * 2.5
-		near.y = lot.global_position.y + 0.1
-		_move_to(near + Vector3(0.0, 0.0, 1.5), 0.0)
-		await _grab(trash)
-		trash.call("request_throw", Vector3(0.0, 0.0, -1.0), 0.35)
+		# A can come down out of the air beside him, as if lobbed (net_prop's own
+		# landing hook tells the crew when it comes to rest).
+		var near := idle.global_position + idle.global_basis.x * 2.5 + Vector3.UP * 1.2
+		_drop_all()
+		await _ticks(2)
+		trash.global_position = near
+		trash.set("linear_velocity", Vector3(0.0, -1.0, 0.0))
+		trash.set("_thrower", Net.local_peer_id())
+		trash.set("_airborne", true)
 		investigated = await _wait(func() -> bool: return int(idle.get("mode")) == _Crew.Mode.INVESTIGATE, 4.0)
 	_step("7 a can landing near %s: he investigates (%s)" % [idle.name if idle != null else "nobody", investigated], investigated)
 	# 8. Barks.
@@ -320,7 +324,7 @@ func _client_sample() -> void:
 	for member: Node in get_tree().get_nodes_in_group("nice_crew"):
 		if int(member.get("mode")) == _Crew.Mode.SEATED and int(director.call("phase")) == 1:
 			var look: Node3D = member.call("van_anchor")
-			if look != null:
+			if look != null and (member.get_node("Visual") as Node3D).visible:
 				var seat: Transform3D = look.global_transform * _Crew.fallback_seat(int(member.call("crew_index")))
 				var drawn := member.get_node("Visual") as Node3D
 				_sampled["seat_max"] = maxf(float(_sampled["seat_max"]), drawn.global_position.distance_to(seat.origin))
@@ -486,6 +490,12 @@ func _grab(item: Node3D) -> void:
 	await _ticks(2)
 	item.call("request_grab")
 	await _ticks(3)
+
+
+func _drop_all() -> void:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) == Net.local_peer_id():
+			node.call("request_drop")
 
 
 func _move_to(at: Vector3, yaw: float) -> void:

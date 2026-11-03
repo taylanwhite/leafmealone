@@ -28,6 +28,9 @@ const BRAIN_MODES: Array[int] = [Mode.PATROL, Mode.NOISE, Mode.SPOT, Mode.CHASE,
 const PLACED_MODES: Array[int] = [Mode.WINDUP, Mode.LUNGE, Mode.GOTCHA, Mode.CITE, Mode.SEATED, Mode.HOP_OUT, Mode.HOP_IN]
 
 const _CHEST := Vector3(0.0, 1.2, 0.0)
+## Of a hop out of the van (or in, backwards), the share spent stepping from the
+## seat to the sill; the rest is the hop down to the curb.
+const HOP_WALK_SHARE: float = 0.45
 const _EYES := Vector3(0.0, 1.55, 0.0)
 const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
@@ -79,14 +82,24 @@ var _rng := RandomNumberGenerator.new()
 ## The last bark this peer showed, "kind:index" (net/dev/probe.gd crew_cast: CI
 ## compares the host's with a client's).
 var last_bark: String = ""
+## The last hop this peer showed (a client may hold its end pose a moment).
+var _last_hop: int = -1
 
 
 func _ready() -> void:
 	set_multiplayer_authority(1)
+	# After the vans and the players move each tick, so a seat or a hold is where
+	# its anchor is now.
+	process_physics_priority = 105
 	add_to_group("crew")
 	add_to_group("nice_crew")
 	add_to_group("bonkable")
 	_dress_up()
+	# A client's Visual is drawn every frame (the network smoother, or a placement),
+	# never on physics ticks, so the escort anchor under it is where it's drawn.
+	var visual := get_node_or_null("Visual") as Node3D
+	if visual != null and not Net.is_host():
+		visual.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 	_next_bark_at = Net.server_time() + Constants.CREW_BARK_FIRST_DELAY
 	if Net.is_host():
@@ -121,6 +134,7 @@ func _dress_up() -> void:
 	var poser := _Gestures.new()
 	poser.name = "Poser"
 	body.add_child(poser)
+	_Gestures.register_all()
 	var capsule := visual.get_node_or_null("Body") as Node3D
 	if capsule != null:
 		capsule.visible = false
@@ -287,8 +301,8 @@ func is_staged() -> bool:
 
 ## Every peer, from net/run_events/encounter.gd's wind-up RPC: from where, which
 ## way, and when the hand lands. He winds up there and lunges along dir.
-func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool) -> void:
-	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "blend_from": _drawn_transform(), "since": _now()}
+func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float = Constants.CREW_LUNGE_DISTANCE) -> void:
+	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "travel": travel, "blend_from": _drawn_transform(), "since": _now()}
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null and not from_spot:
 		sfx.call("play_on", "lunge_whoosh", self, -6.0)
@@ -321,6 +335,7 @@ func _drawn_transform() -> Transform3D:
 func _settle_visual() -> void:
 	var visual := get_node_or_null("Visual") as Node3D
 	if visual != null:
+		visual.top_level = false
 		visual.transform = Transform3D.IDENTITY
 		visual.reset_physics_interpolation()
 
@@ -450,8 +465,10 @@ func _subtitle(text: String) -> void:
 func _physics_process(delta: float) -> void:
 	_auto_stage()
 	if not _placed.is_empty():
-		_place()
+		# The host places the body on physics ticks; a client draws it every frame
+		# (_process), from the anchors' interpolated poses.
 		if Net.is_host():
+			_place()
 			velocity = Vector3.ZERO
 			_speed_now = 0.0
 			_step_hop_and_seat()
@@ -507,9 +524,14 @@ func _step_hop_and_seat() -> void:
 func _auto_stage() -> void:
 	var seated := mode == Mode.SEATED or mode == Mode.HOP_OUT or mode == Mode.HOP_IN
 	if seated and _placed.is_empty():
-		set_staged(null, fallback_seat(crew_index()), 0.0, &"sit_buckled")
+		# Climbing in starts from wherever he stands at the door.
+		set_staged(null, fallback_seat(crew_index()), Constants.CREW_HOP_SECONDS * 0.4 if mode == Mode.HOP_IN else 0.0, &"sit_buckled")
 	elif not seated and is_staged() and _staged_anchor == null:
 		var at := _drawn_transform()
+		# A client holds the hop's last pose until the host's body (a lag behind)
+		# has caught up with it, so the hand-back to the network doesn't pop.
+		if not Net.is_host() and Net.server_time() - mode_at < 0.6 and Vector2(global_position.x - at.origin.x, global_position.z - at.origin.z).length() > 0.3:
+			return
 		clear_staged()
 		if Net.is_host():
 			global_transform = Transform3D(Basis(Vector3.UP, at.basis.get_euler().y), at.origin)
@@ -578,11 +600,11 @@ func _place() -> void:
 				visual.visible = anchor != null
 			if anchor == null:
 				return
-			want = anchor.global_transform * _staged_offset
+			var frame := anchor.global_transform if Net.is_host() else anchor.get_global_transform_interpolated()
+			want = _staged_motion(frame * _staged_offset, now)
 			if _staged_blend > 0.0 and now - _staged_since < _staged_blend:
 				var share := clampf((now - _staged_since) / _staged_blend, 0.0, 1.0)
 				want = _staged_from.interpolate_with(want, ease(share, -2.0))
-			want = _staged_motion(want, now)
 		"lunge":
 			var from: Vector3 = _placed["from"]
 			var dir: Vector3 = _placed["dir"]
@@ -591,9 +613,9 @@ func _place() -> void:
 			var along := 0.0
 			if not bool(_placed.get("spot", false)):
 				along = clampf((now - (contact - Constants.CREW_LUNGE_SECONDS)) / Constants.CREW_LUNGE_SECONDS, 0.0, 1.0)
-			var at := from + dir * Constants.CREW_LUNGE_DISTANCE * ease(along, 0.6)
+			var at := from + dir * float(_placed.get("travel", Constants.CREW_LUNGE_DISTANCE)) * ease(along, 0.6)
 			want = Transform3D(Basis(Vector3.UP, yaw), at)
-			want = _blend_in(want, 0.18, now)
+			want = _blend_in(want, Constants.CREW_WINDUP_BLEND, now)
 		"stand":
 			want = Transform3D(Basis(Vector3.UP, float(_placed["yaw"])), _placed["at"])
 			want = _blend_in(want, float(_placed.get("blend", 0.12)), now)
@@ -604,6 +626,12 @@ func _place() -> void:
 		if visual != null:
 			visual.transform = Transform3D.IDENTITY
 	elif visual != null:
+		# Top level while placed: the synchronizer moving the body under it between
+		# placements (the host's body rides the same van, a lag behind) can't drag it.
+		if not visual.top_level:
+			visual.top_level = true
+			visual.global_transform = want
+			visual.reset_physics_interpolation()
 		visual.global_transform = want
 
 
@@ -619,27 +647,36 @@ func _blend_in(want: Transform3D, seconds: float, now: float) -> Transform3D:
 ## Seated, hopping out, hopping in: the path between the seat and the curb, a pure
 ## function of mode_at and the van's pose.
 func _staged_motion(seat: Transform3D, now: float) -> Transform3D:
-	if mode != Mode.HOP_OUT and mode != Mode.HOP_IN:
+	var hop := mode
+	if mode == Mode.HOP_OUT or mode == Mode.HOP_IN:
+		_last_hop = mode
+	elif mode != Mode.SEATED and _last_hop == Mode.HOP_OUT:
+		# Out of the hop already (a client holding its last pose for the network):
+		# still at the curb, where it ended.
+		hop = Mode.HOP_OUT
+	if hop != Mode.HOP_OUT and hop != Mode.HOP_IN:
 		return seat
 	var anchor := _staged_anchor if is_instance_valid(_staged_anchor) else van_anchor()
 	if anchor == null:
 		return seat
-	var share := clampf((now - mode_at) / Constants.CREW_HOP_SECONDS, 0.0, 1.0)
-	if mode == Mode.HOP_IN:
+	var share := clampf((now - mode_at) / Constants.CREW_HOP_SECONDS, 0.0, 1.0) if hop == mode else 1.0
+	if hop == Mode.HOP_IN:
 		share = 1.0 - share
-	var local_seat := anchor.global_transform.affine_inverse() * seat
+	var frame := anchor.global_transform if Net.is_host() else anchor.get_global_transform_interpolated()
+	var local_seat := frame.affine_inverse() * seat
 	var sill := Vector3(Constants.CREW_VAN_SILL_X, 1.0, local_seat.origin.z)
 	var curb := Vector3(Constants.CREW_VAN_CURB_X, 0.0, clampf(local_seat.origin.z, -0.6, 1.6))
+	# A few steps from the seat to the sill (stooped under the roof), then the hop.
 	var point := Vector3.ZERO
-	if share < 0.4:
-		point = local_seat.origin.lerp(sill, ease(share / 0.4, -1.6))
+	if share < HOP_WALK_SHARE:
+		point = local_seat.origin.lerp(sill, ease(share / HOP_WALK_SHARE, -1.8))
 	else:
-		var hop := (share - 0.4) / 0.6
-		point = sill.lerp(curb, hop) + Vector3.UP * sin(hop * PI) * 0.35
+		var jump := (share - HOP_WALK_SHARE) / (1.0 - HOP_WALK_SHARE)
+		point = sill.lerp(curb, jump) + Vector3.UP * sin(jump * PI) * 0.35
 	# Facing the open side as he goes (+X in the van's space), from the seat's facing.
 	var out_basis := Basis(Vector3.UP, PI * 0.5)
 	var basis := local_seat.basis.slerp(out_basis, clampf(share * 2.5, 0.0, 1.0))
-	return anchor.global_transform * Transform3D(basis, point)
+	return frame * Transform3D(basis, point)
 
 
 ## The van the crew rides when no Shuttle seats them (the fallback): the cast:5 van
@@ -667,6 +704,8 @@ static func fallback_seat(index: int) -> Transform3D:
 # ---------------------------------------------------------------- how it looks (every peer)
 
 func _process(delta: float) -> void:
+	if not Net.is_host() and not _placed.is_empty():
+		_place()
 	var body := get_node_or_null("Visual/CartoonBody")
 	var poser := get_node_or_null("Visual/CartoonBody/Poser")
 	if mode != _shown_mode:
@@ -704,7 +743,7 @@ func _show_mode(body: Node, poser: Node) -> void:
 			poser.call("hold", "hop_out" if mode == Mode.HOP_OUT else "hop_in", Constants.CREW_HOP_SECONDS, late)
 			stats["hops"] = int(stats["hops"]) + 1
 			if sfx != null and fresh and mode == Mode.HOP_OUT:
-				get_tree().create_timer(maxf(0.0, Constants.CREW_HOP_SECONDS * 0.9 - late)).timeout.connect(func() -> void:
+				get_tree().create_timer(maxf(0.0, Constants.CREW_HOP_SECONDS * 0.95 - late)).timeout.connect(func() -> void:
 					if is_inside_tree():
 						sfx.call("play_on", "hop_land", self))
 		Mode.SPOT:

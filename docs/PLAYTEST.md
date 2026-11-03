@@ -79,3 +79,17 @@ These takes were made by the first recorder, before two fixes from its review: t
 - Walking while hidden does nothing and says nothing (cam_frozen at frame 84); "Hiding. [E] to come out." is the only cue, plus an "Occupied" label over the hedge.
 - Coming out at 9.33 s (frame 281): another 1.4 m pop, and the view jumps at once to where you had turned (visual_jump 0.14).
 - From the observer (`build\play-observer\rec_hide_3p`): the hider vanishes in one frame with no animation, and the hidden player's body keeps turning as they look around inside the hedge.
+
+### R2:2 the catch
+
+Scenarios (net/dev/scenarios.gd): `raid_arrive` (the door opens in 2 s in front of you), `caught` (he hops down 4 m away; his lunge starts in about 1.5 s: stand still), `spotted`, `lunge`, `dodge` (wind-up from your left in 1 s: strafe right), `gotcha` (caught now), `cite_rescue` (needs a second player: you hold a gnome, they're being cited), `escort`. Record each in first person, from the observer (`follow host 4 1.6 80`) and with `-Extra '--sim-lag=150'`.
+
+- [ ] They climb out of the van one at a time (steps, crouch, hop, knee bounce, `hop_land` on the landing frame); nobody pops in or vanishes; the head NICE BOY barks first.
+- [ ] Spotted: the freeze, the head snap, `whistle` and the point before he moves.
+- [ ] At least 5 wind-up frames at 15 fps before contact; `lunge_whoosh` on the crouch; he ends at arm's length, never in your face.
+- [ ] Contact: `gotcha_grab` within 50 ms of the contact frame, both bodies held 2 frames, the camera eases (no `cam_snap`) into a low two-shot with both faces in it, breathing and blinks keep moving in the hold, "Gotcha! Have a NICE day!" at about 0.95 s.
+- [ ] The cite: `scribble` under it; jump presses make him start over; a bonk frees you (clipboard flail, forms flutter down, the sticker peels).
+- [ ] Cite end: `paper_tear`, then `sticker_slap` with the sticker appearing on your chest; your things arc out one by one into a straight row with rising ticks.
+- [ ] The escort: arm in arm, nobody walks through anyone, the follow camera turns slowly with the pair (it never whips round when he turns), and under 150 ms the pair never tears apart.
+- [ ] Name tags stay small and readable at 1-3 m and fade out up close; bark lines never cover the two-shot.
+- Known (2026-11-02, build on gap/r2-niceboys-2): the caption stack (chunk 1) sits mid-screen over the catch; the `[E] Pick up` prompt and the hotbar hint still show while you're held; under 150 ms an observer sees the escorted player step about 0.7 m in one frame twice (chunk 1's StageBody on a non-owner); the old ride's van (until chunk 4) starts about 1 m off the parked van.

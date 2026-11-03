@@ -540,7 +540,13 @@ func _poll_changes() -> void:
 		_changed("border", str(crossing.call("status_line")), func(value: String) -> void: _event("border", {"status": value}))
 	for ride: Node in get_tree().get_nodes_in_group("rides"):
 		_changed("ride:" + str(ride.name), str(ride.call("is_riding")), func(value: String) -> void: _event("ride", {"ride": str(ride.name), "riding": value == "true"}))
-	_changed("crew", str(get_tree().get_nodes_in_group("crew").size()), func(value: String) -> void: _event("crew", {"count": int(value)}))
+	# How many NICE BOYS, and each one's mode (R2 chunk 2: seated, hopping out,
+	# spotting, winding up...), so a recording shows the catch beat by beat.
+	var crew_now := get_tree().get_nodes_in_group("crew")
+	var modes := PackedStringArray()
+	for member: Node in crew_now:
+		modes.append("%s=%d" % [member.name, int(member.get("mode")) if "mode" in member else -1])
+	_changed("crew", "%d|%s" % [crew_now.size(), ",".join(modes)], func(value: String) -> void: _event("crew", {"count": value.get_slice("|", 0).to_int(), "modes": value.get_slice("|", 1)}))
 	var me := _player(Net.local_peer_id())
 	if me != null:
 		_changed("hidden", str(me.call("is_hidden")), func(value: String) -> void: _event("hidden", {"hidden": value == "true"}))

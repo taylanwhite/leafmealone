@@ -535,13 +535,15 @@ func _spawn_crew() -> void:
 		shuttle.call("host_spawn_crew", count)
 		return
 	var npcs := get_parent().get_node("Npcs")
+	# Where the van starts its pull-up, out of sight: nothing jumps when it appears.
+	var start := _NiceVan.pose(_NiceVan.arrival_curve(van_park_point()), 0.0).origin
 	for index: int in count:
 		var crew := CREW_SCENE.instantiate()
 		crew.name = "Crew%d" % (index + 1)
 		# In their seats from the first frame (the van is still out of sight).
 		crew.set("mode", _Crew.Mode.SEATED)
 		crew.set("mode_at", Net.server_time())
-		crew.position = van_park_point()
+		crew.position = start
 		npcs.add_child(crew, true)
 
 

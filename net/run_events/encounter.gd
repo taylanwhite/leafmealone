@@ -41,6 +41,9 @@ const _GRIN_AT: float = 0.45
 const _GOTCHA_GAP: float = 0.78
 ## Close enough to the van door to hand you over (m).
 const _DOOR_REACH: float = 1.1
+## The escort's follow shot hangs off the pair at chest height (m), so its spring
+## never catches on the lawn.
+const _FOLLOW_HEIGHT: float = 1.2
 ## The scribble loop's length (s), for repeating it under the cite.
 const _SCRIBBLE_LOOP: float = 1.15
 const _NiceSeal = preload("res://props/nice_seal.gd")
@@ -71,8 +74,11 @@ var _played: Dictionary = {}
 var _holds: Dictionary = {}
 ## Every peer: the courtesy notice on each caught player's chest.
 var _stickers: Dictionary = {}
-## The local player's two-shot camera anchor.
+## The local player's two-shot camera anchor, and the escort's follow anchor.
 var _shot: Node3D
+var _follow: Node3D
+var _follow_target: Node3D
+var _follow_yaw: float = 0.0
 var _scribble_next: float = 0.0
 var _constants: Dictionary = {}
 
@@ -170,7 +176,10 @@ func host_windup(crew: Node, peer_id: int, from_spot: bool = false) -> bool:
 	crew.call("host_set_mode", _Crew.Mode.WINDUP, peer_id, dir)
 	if not from_spot:
 		crew.call("bark", "lunge", true)
-	_rpc_windup.rpc(grab_id, index, peer_id, from, dir, now + lead, from_spot)
+	# His body travels until the hand lands: never into your face (he stops a
+	# shoulder's width short of where you stood).
+	var travel := clampf(toward.length() - _GOTCHA_GAP, 0.0, Constants.CREW_LUNGE_DISTANCE - Constants.CREW_LUNGE_ARM)
+	_rpc_windup.rpc(grab_id, index, peer_id, from, dir, now + lead, from_spot, travel)
 	return true
 
 
@@ -237,6 +246,11 @@ func host_set_stage(peer_id: int, stage: int, args: Dictionary = {}) -> void:
 		return
 	if stage == Stage.FREE and stage_of(peer_id) == Stage.NONE:
 		return
+	# Let go of mid-catch (released by the director, a reset): he's back on the chase.
+	var holder := _crew(crew_of(peer_id))
+	if holder != null and stage != Stage.ESCORT and stage != Stage.CITE and [_Crew.Mode.GOTCHA, _Crew.Mode.CITE, _Crew.Mode.ESCORT].has(int(holder.get("mode"))):
+		holder.call("host_walk", Vector3.INF, 0.0)
+		holder.call("host_set_mode", _Crew.Mode.CHASE, 0)
 	var crew := crew_of(peer_id)
 	if stage != Stage.ESCORT and stage != Stage.GOTCHA and stage != Stage.CITE:
 		crew = 0
@@ -487,14 +501,14 @@ func _rpc_cite_end(peer_id: int, end_at: float) -> void:
 # ---------------------------------------------------------------- RPCs (every peer)
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_windup(grab_id: int, crew_index: int, peer_id: int, from: Vector3, dir: Vector3, contact_at: float, from_spot: bool) -> void:
+func _rpc_windup(grab_id: int, crew_index: int, peer_id: int, from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float) -> void:
 	_grabs[grab_id] = {"crew": crew_index, "peer": peer_id, "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "lunged": false}
 	if Net.is_host():
 		stats["windups"] = int(stats["windups"]) + 1
 	_log("windup", peer_id, contact_at)
 	var crew := _crew(crew_index)
 	if crew != null:
-		crew.call("play_windup", from, dir, contact_at, from_spot)
+		crew.call("play_windup", from, dir, contact_at, from_spot, travel)
 	_set_stage_local(peer_id, Stage.WINDUP, Net.server_time(), crew_index, {"contact": contact_at})
 
 
@@ -566,7 +580,7 @@ func _rpc_stage(peer_id: int, stage: int, at: float, crew_index: int, args: Dict
 				var hold := _hold_node(peer_id)
 				var facing: Vector3 = args.get("facing", Vector3.FORWARD)
 				hold.global_transform = Transform3D(Basis.looking_at(facing, Vector3.UP), args["door"])
-				_stage_body(player, hold, Transform3D.IDENTITY, 0.3, &"stand")
+				_stage_body(player, hold, Transform3D.IDENTITY, Constants.ESCORT_LINK_BLEND, &"stand")
 			if player != null and peer_id == Net.local_peer_id():
 				_pop_shots(player)
 				_lock(player, &"nice_cite", false)
@@ -634,9 +648,10 @@ func _rpc_freed(peer_id: int, by_peer: int, cause: String, at: float) -> void:
 
 # ---------------------------------------------------------------- the timeline (every peer)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
+	_move_follow(delta)
 	var now := Net.server_time()
 	for peer_id: int in _stages.keys():
 		var entry: Dictionary = _stages[peer_id]
@@ -731,15 +746,16 @@ func _play_escort(peer_id: int, entry: Dictionary, now: float) -> void:
 		if crew != null:
 			crew.call("release_placement")
 		if player != null and anchor != null:
-			_stage_body(player, anchor, Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO), 0.3, &"escorted")
+			_stage_body(player, anchor, Transform3D(Basis(Vector3.UP, PI), Vector3.ZERO), Constants.ESCORT_LINK_BLEND, &"escorted")
 		if peer_id == Net.local_peer_id() and player != null:
 			_lock(player, &"nice_cite", false)
 			_lock(player, &"escort", true)
 			if anchor != null:
+				_start_follow(anchor)
 				_push(player, &"escort", {
-					"anchor": anchor,
-					"offset": Transform3D(Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, -0.38), Vector3(0.3, Constants.ESCORT_CAM_UP, -Constants.ESCORT_CAM_BACK)),
-					"blend_in": 0.6, "blend_out": 0.5, "orbit": true, "spring": true,
+					"anchor": _follow,
+					"offset": Transform3D(Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, -0.38), Vector3(0.3, Constants.ESCORT_CAM_UP - _FOLLOW_HEIGHT, -Constants.ESCORT_CAM_BACK)),
+					"blend_in": 0.6, "blend_out": 0.5, "orbit": true, "spring": false,
 					"yaw_clamp": Vector2(-deg_to_rad(Constants.ESCORT_CAM_ORBIT_DEG), deg_to_rad(Constants.ESCORT_CAM_ORBIT_DEG)),
 					"pitch_clamp": Vector2(-0.5, 0.3), "lag": 0.12, "priority": 40,
 				})
@@ -757,7 +773,7 @@ func _push_two_shot(player: Node3D, late: bool) -> void:
 		add_child(_shot)
 		_shot.top_level = true
 	_aim_two_shot(Net.server_time())
-	_push(player, &"gotcha", {"anchor": _shot, "offset": Transform3D.IDENTITY, "blend_in": 0.0 if late else Constants.CATCH_CAM_BLEND, "blend_out": 0.6, "yaw_clamp": Vector2(-0.7, 0.7), "pitch_clamp": Vector2(-0.35, 0.35), "priority": 50})
+	_push(player, &"gotcha", {"anchor": _shot, "offset": Transform3D.IDENTITY, "blend_in": 0.0 if late else Constants.CATCH_CAM_BLEND, "blend_out": 0.6, "fov": Constants.CATCH_CAM_FOV, "yaw_clamp": Vector2(-0.7, 0.7), "pitch_clamp": Vector2(-0.35, 0.35), "priority": 50})
 
 
 func _aim_two_shot(now: float) -> void:
@@ -782,15 +798,51 @@ func _aim_two_shot(now: float) -> void:
 	_shot.global_transform = Transform3D(Basis.looking_at(mid - eye, Vector3.UP), eye)
 
 
+## Which side of the pair the two-shot sits on: the yard side first (the curb is
+## lined with trees, and the yard is open lawn), unless a wall is in the way.
 func _clear_side(mid: Vector3, side: Vector3, distance: float) -> float:
 	var world := get_viewport().world_3d if get_viewport() != null else null
+	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	var first := 1.0
+	if lot != null:
+		var toward := lot.global_position - mid
+		toward.y = 0.0
+		first = 1.0 if side.dot(toward) >= 0.0 else -1.0
 	if world == null:
-		return 1.0
-	for sign: float in [1.0, -1.0]:
+		return first
+	for sign: float in [first, -first]:
 		var query := PhysicsRayQueryParameters3D.create(mid, mid + side * sign * (distance + 0.3), 1)
 		if world.direct_space_state.intersect_ray(query).is_empty():
 			return sign
-	return 1.0
+	return first
+
+
+## The escort's follow shot hangs off this: on the pair, but turning slowly toward
+## where they walk (he turns round in a step; the camera shouldn't whip round with him).
+func _start_follow(anchor: Node3D) -> void:
+	if _follow == null:
+		_follow = Node3D.new()
+		_follow.name = "EscortFollow"
+		add_child(_follow)
+		_follow.top_level = true
+	_follow_target = anchor
+	var camera := get_viewport().get_camera_3d()
+	var look := -camera.global_basis.z if camera != null else -anchor.global_basis.z
+	look.y = 0.0
+	_follow_yaw = atan2(look.x, look.z) if look.length() > 0.01 else anchor.global_rotation.y
+	_follow.global_transform = Transform3D(Basis(Vector3.UP, _follow_yaw), anchor.global_position + Vector3.UP * _FOLLOW_HEIGHT)
+
+
+func _move_follow(delta: float) -> void:
+	if _follow == null or not is_instance_valid(_follow_target) or not _follow_target.is_inside_tree():
+		return
+	var forward := _follow_target.global_basis.z
+	forward.y = 0.0
+	if forward.length() > 0.01:
+		var want := atan2(forward.x, forward.z)
+		var step := wrapf(want - _follow_yaw, -PI, PI)
+		_follow_yaw += clampf(step, -Constants.ESCORT_CAM_TURN * delta, Constants.ESCORT_CAM_TURN * delta)
+	_follow.global_transform = Transform3D(Basis(Vector3.UP, _follow_yaw), _follow_target.get_global_transform_interpolated().origin + Vector3.UP * _FOLLOW_HEIGHT)
 
 
 # ---------------------------------------------------------------- stickers and forms

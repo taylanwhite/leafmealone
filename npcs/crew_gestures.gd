@@ -85,9 +85,15 @@ func current() -> String:
 
 ## Puts the one-shot poses in CartoonBody's registry when chunk 1's
 ## register_gesture exists (has_method guard: it is a static on the script).
+static var _registered: bool = false
+
+
 static func register_all() -> void:
+	if _registered:
+		return
+	_registered = true
 	var body_script: Script = load("res://player/cartoon_body.gd")
-	if body_script == null or not body_script.has_method("register_gesture"):
+	if body_script == null or not ("register_gesture" in body_script.get_script_method_list().map(func(m: Dictionary) -> String: return str(m["name"]))):
 		return
 	for pose_name: String in POSES:
 		var seconds := float((POSES[pose_name] as Array)[0])
@@ -99,6 +105,12 @@ static func register_all() -> void:
 func _physics_process(delta: float) -> void:
 	if _body == null:
 		return
+	# A hit-stop (chunk 1's set_anim_speed) holds the pose too.
+	if _body.has_method("anim_speed"):
+		var scale_by := float(_body.call("anim_speed"))
+		if scale_by <= 0.0:
+			return
+		delta *= scale_by
 	_time += delta
 	var parts := _parts(_body)
 	if parts.is_empty():
@@ -147,6 +159,16 @@ static func _t01(t: float, length: float) -> float:
 static func _parts(body: Node3D) -> Dictionary:
 	if body == null:
 		return {}
+	if body.has_method("pose_part"):
+		if body.call("pose_part", "arm_r") == null:
+			return {}
+		return {
+			"right": body.call("pose_part", "arm_r"), "left": body.call("pose_part", "arm_l"),
+			"leg_l": body.call("pose_part", "leg_l"), "leg_r": body.call("pose_part", "leg_r"),
+			"torso": body.call("pose_part", "torso"), "hips": body.call("pose_part", "hips"),
+			"face": body.call("pose_part", "face"), "clipboard": body.call("pose_part", "clipboard"),
+			"megaphone": body.call("pose_part", "megaphone"),
+		}
 	var arms: Array = body.get("_arms") if "_arms" in body else []
 	var legs: Array = body.get("_legs") if "_legs" in body else []
 	if arms.size() < 2 or legs.size() < 2:
@@ -254,15 +276,24 @@ static func _apply(parts: Dictionary, pose_name: String, t: float, t01: float, w
 			hips.position.y += absf(sin(phase)) * 0.05 * w
 			extras["face_z"] = float(extras.get("face_z", 0.0)) + 0.1 * sin(t * 3.0) * w
 		"hop_out", "hop_in":
-			# Crouch, spring, tuck, land with a knee bounce. t01 runs the hop.
+			# Stooped steps to the sill, then crouch, spring, tuck, land with a knee
+			# bounce (hop_in: the hop up first, then the steps to the seat). u runs the hop.
+			var walk_share := 0.45
+			var u := (t01 - walk_share) / (1.0 - walk_share) if pose_name == "hop_out" else t01 / (1.0 - walk_share)
 			var crouch := 0.0
 			var air := 0.0
-			if t01 < 0.25:
-				crouch = t01 / 0.25
-			elif t01 < 0.8:
-				air = sin((t01 - 0.25) / 0.55 * PI)
+			if u < 0.0 or u > 1.0:
+				# Stepping along inside the van, head ducked under the roof.
+				torso.rotation.x = lerpf(torso.rotation.x, -0.35, w)
+				hips.position.y -= 0.06 * w
+				u = clampf(u, 0.0, 1.0)
+				w *= 0.0
+			elif u < 0.2:
+				crouch = u / 0.2
+			elif u < 0.8:
+				air = sin((u - 0.2) / 0.6 * PI)
 			else:
-				crouch = sin((t01 - 0.8) / 0.2 * PI) * 1.2
+				crouch = sin((u - 0.8) / 0.2 * PI) * 1.2
 			hips.position.y -= 0.14 * crouch * w
 			torso.rotation.x = lerpf(torso.rotation.x, -0.2 * crouch, w)
 			leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.5 * crouch + 0.6 * air, w)
