@@ -26,10 +26,6 @@ const OAK: int = 1
 const OVAL: int = 2
 ## The shader takes at most this many looks.
 const MAX_LOOKS: int = 16
-## A blossom petal is an oval this big.
-const PETAL_SCALE: float = 0.5
-## A willow leaf is an oval this narrow.
-const WILLOW_WIDTH: float = 0.42
 ## Leaves fall where no tree stands over them (a yard without trees): a maple
 ## and oak mix in the home colours.
 const DEFAULT_SOURCES: Array = [
@@ -76,6 +72,24 @@ static func slot(x: int, z: int, k: int) -> Dictionary:
 	}
 
 
+## The cell whose look slot k of cell (x, z) takes: up to
+## Constants.LEAF_LOOK_JITTER_CELLS away (the litter shader jitters the same
+## distance), so tree colours blend leaf by leaf. Clamped to the grid.
+static func look_cell(x: int, z: int, k: int, width: int, depth: int) -> Vector2i:
+	var reach := Constants.LEAF_LOOK_JITTER_CELLS
+	var jx := clampi(x + int(round((unit(x, z, k, 50) * 2.0 - 1.0) * reach)), 0, width - 1)
+	var jz := clampi(z + int(round((unit(x, z, k, 51) * 2.0 - 1.0) * reach)), 0, depth - 1)
+	return Vector2i(jx, jz)
+
+
+## Where a leaf with no hero slot (one rising out of the skin or diving into it)
+## lies in cell (x, z), relative to its centre: inside the cell, never past
+## Constants.LEAF_SKIN_POINT_SPREAD of its size from the centre on either axis.
+static func skin_offset(x: int, z: int, k: int, cell_size: float) -> Vector2:
+	var reach := Constants.LEAF_SKIN_POINT_SPREAD * cell_size
+	return Vector2(unit(x, z, k, 8) * 2.0 - 1.0, unit(x, z, k, 9) * 2.0 - 1.0) * reach
+
+
 ## The species a tree drops, and how wide its leaf is drawn: [species, width
 ## scale], or [] for trees that drop nothing.
 static func species_of(kind: String, variant: int) -> Array:
@@ -85,7 +99,7 @@ static func species_of(kind: String, variant: int) -> Array:
 		"birch":
 			return [OVAL, 1.0]
 		"willow":
-			return [OVAL, WILLOW_WIDTH]
+			return [OVAL, Constants.LEAF_WILLOW_WIDTH]
 	return [MAPLE if posmod(variant, 2) == 0 else OAK, 1.0]
 
 
@@ -144,7 +158,7 @@ static func cell_looks(sources: Array, width: int, depth: int, first: Vector2, c
 			var roll := unit(x, z, 0, 40)
 			var pick := int(mix[int(roll * float(mix.size())) % mix.size()])
 			# Close to a tree its leaves win; out on the open lawn the yard's mix.
-			var open_share := clampf(0.08 / maxf(total, 0.0001), 0.0, 1.0)
+			var open_share := clampf(Constants.LEAF_OPEN_LAWN_SHARE / maxf(total, 0.0001), 0.0, 1.0)
 			if total > 0.0 and unit(x, z, 0, 41) >= open_share:
 				var aim := unit(x, z, 0, 42) * total
 				for index: int in weights.size():
@@ -172,31 +186,35 @@ static func flake(looks: Array, mix: Array, look: int, season: int, x: int, z: i
 	var scale := 1.0
 	var age := 0.0
 	var pair: Array = Constants.LEAF_PALETTES.get(crown, Constants.LEAF_PALETTES["orange"])
-	var value := lerpf(0.88, 1.10, unit(x, z, k, 22))
+	var value := lerpf(Constants.LEAF_VALUE_JITTER.x, Constants.LEAF_VALUE_JITTER.y, unit(x, z, k, 22))
 	var dry := unit(x, z, k, 23) < Constants.LEAF_DRY_SHARE
-	match posmod(season, 4):
+	var which := posmod(season, 4)
+	var ages: Vector2 = Constants.LEAF_SEASON_AGES[which]
+	match which:
 		0:
-			age = 0.6 if dry else lerpf(0.0, 0.35, unit(x, z, k, 24))
+			age = Constants.LEAF_DRY_AGE if dry else lerpf(ages.x, ages.y, unit(x, z, k, 24))
 		1:
-			age = lerpf(0.8, 1.0, unit(x, z, k, 24))
+			age = lerpf(ages.x, ages.y, unit(x, z, k, 24))
 		2:
 			pair = Constants.LEAF_PALETTES["last_year"]
-			age = 0.1 if not dry else 0.4
+			age = Constants.LEAF_SPRING_AGES.y if dry else Constants.LEAF_SPRING_AGES.x
 			var petal := str(PETALS.get(str(own["crown"]), ""))
-			if petal != "" and unit(x, z, k, 25) < 0.1:
+			if petal != "" and unit(x, z, k, 25) < Constants.LEAF_PETAL_SHARE:
 				pair = Constants.LEAF_PALETTES[petal]
 				species = OVAL
 				width = 1.0
-				scale = PETAL_SCALE
+				scale = Constants.LEAF_PETAL_SCALE
 				age = 0.0
 				value = 1.0
 		3:
 			var green := "deep_green" if SUMMER_DEEP.has(str(own["crown"])) else "green"
-			pair = Constants.LEAF_PALETTES["yellow" if unit(x, z, k, 25) < 0.2 else green]
-			age = lerpf(0.0, 0.2, unit(x, z, k, 24))
+			pair = Constants.LEAF_PALETTES["yellow" if unit(x, z, k, 25) < Constants.LEAF_SUMMER_YELLOW_SHARE else green]
+			age = lerpf(ages.x, ages.y, unit(x, z, k, 24))
 	var centre: Color = pair[0]
 	var rim: Color = pair[1]
-	var loose := lerpf(0.65, 1.0, unit(x, z, k, 26)) if unit(x, z, k, 27) < 0.3 else unit(x, z, k, 26) * 0.5
+	var loose := unit(x, z, k, 26) * Constants.LEAF_SETTLED_LOOSE_MAX
+	if unit(x, z, k, 27) < Constants.LEAF_LOOSE_SHARE:
+		loose = lerpf(Constants.LEAF_LOOSE_RANGE.x, Constants.LEAF_LOOSE_RANGE.y, unit(x, z, k, 26))
 	return {
 		"centre": Color(centre.r * value, centre.g * value, centre.b * value),
 		"rim": Color(rim.r * value, rim.g * value, rim.b * value),
@@ -218,18 +236,14 @@ static func litter(looks: Array, season: int) -> Array:
 		var pair: Array = Constants.LEAF_PALETTES.get(crown, Constants.LEAF_PALETTES["orange"])
 		var alt: Array = pair
 		var share := 0.0
-		var ages := Vector2(0.0, 0.35)
+		var ages: Vector2 = Constants.LEAF_SEASON_AGES[posmod(season, 4)]
 		match posmod(season, 4):
-			1:
-				ages = Vector2(0.8, 1.0)
 			2:
 				pair = Constants.LEAF_PALETTES["last_year"]
 				alt = pair
-				ages = Vector2(0.0, 0.3)
 			3:
 				pair = Constants.LEAF_PALETTES["deep_green" if SUMMER_DEEP.has(crown) else "green"]
 				alt = Constants.LEAF_PALETTES["yellow"]
-				share = 0.2
-				ages = Vector2(0.0, 0.2)
+				share = Constants.LEAF_SUMMER_YELLOW_SHARE
 		out.append({"centre": pair[0], "rim": pair[1], "alt_centre": alt[0], "alt_rim": alt[1], "alt_share": share, "age_lo": ages.x, "age_hi": ages.y})
 	return out

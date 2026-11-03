@@ -87,6 +87,10 @@ var _morphing: Dictionary = {}
 var _pressing: Dictionary = {}
 ## Fading hero leaves: key cell * 16 + slot -> [t 0..1, direction +1 in / -1 out].
 var _fades: Dictionary = {}
+## The fading MultiMeshes must drop an ended fade before the next render; how
+## many leaves they drew at their last refresh.
+var _fade_views_dirty := false
+var _fade_drawn: int = 0
 var _cell_dirty: Dictionary = {}
 ## Chunks waiting for a hero rebuild: index -> true when it must happen this frame.
 var _chunk_queue: Dictionary = {}
@@ -247,6 +251,7 @@ func take_slot(cell: Vector2i, k: int) -> Dictionary:
 	if c < 0 or k < 0 or k >= Constants.LEAF_HERO_MAX:
 		return {}
 	_hidden[c] |= 1 << k
+	_end_fade(c, k)
 	_mark_cell(c, true)
 	_note(cell, k, "kick_take")
 	return _slot_info(cell, k)
@@ -339,6 +344,7 @@ func stats() -> Dictionary:
 		"hero_instances": heroes,
 		"hero_draws": draws,
 		"fading": _fades.size(),
+		"fade_drawn": _fade_drawn,
 		"instant": _instant,
 		"morph_units": _morph_units,
 		"morphing": _morphing.size(),
@@ -349,6 +355,9 @@ func stats() -> Dictionary:
 	}
 
 
+## Logs {cell, slot, what, frame}: what is launch, land, kick_take,
+## kick_return, morph_in, morph_out, instant (a fade the LEAF_FADE_MAX cap
+## dropped), or snap (a hard reset: one entry, cell (-1, -1), slot -1).
 func set_flake_log(on: bool) -> void:
 	_log_on = on
 	if not on:
@@ -485,6 +494,12 @@ func _build_gpu() -> void:
 	for species: int in SPECIES:
 		var view := _new_flakes(species, AABB(Vector3(_grid_origin.x, _ground_local - 0.2, _grid_origin.z), Vector3(float(_width) * _cell, 1.5, float(_depth) * _cell)))
 		view.name = "Fading%d" % species
+		# One box spans the whole field, so a range measured from its middle
+		# would hide fades in the far corners (then they pop); at most
+		# LEAF_FADE_MAX leaves, so they draw at any distance.
+		view.visibility_range_end = 0.0
+		view.visibility_range_end_margin = 0.0
+		view.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 		_fade_views.append(view)
 	_apply_globals()
 	_warm_up()
@@ -652,6 +667,8 @@ func _flush() -> void:
 func _hard_reset() -> void:
 	_hard_pending = false
 	_queued.clear()
+	# One "snap" entry per hard reset (cell (-1, -1), slot -1): every cell snapped.
+	_note(Vector2i(-1, -1), -1, "snap")
 	_claiming = true
 	targets_changed.emit(PackedInt32Array(), true)
 	_claiming = false
@@ -821,16 +838,28 @@ func _fade_slot(c: int, k: int, direction: int) -> void:
 	_note(Vector2i(c % _width, c / _width), k, "morph_in" if direction > 0 else "morph_out")
 
 
-## A slot a mover takes or fills: no fade on it any more.
+## A slot a mover takes or fills, or a kick lifts: no fade on it any more, and
+## the fading MultiMeshes drop it before this frame renders (else a ghost of
+## the leaf stays where the mover took off, or doubles the one that landed).
 func _end_fade(c: int, k: int) -> void:
 	var key := c * 16 + k
 	if _fades.erase(key):
 		_fading[c] &= ~(1 << k)
 		_mark_cell(c, true)
+		if not _fade_views_dirty:
+			_fade_views_dirty = true
+			call_deferred("_refresh_fade_views")
+
+
+func _refresh_fade_views() -> void:
+	if _fade_views_dirty:
+		_update_fade_views()
 
 
 func _step_fades(dt: float) -> void:
 	if _fades.is_empty():
+		if _fade_views_dirty:
+			_update_fade_views()
 		return
 	for key: Variant in _fades.keys():
 		var running: Array = _fades[key]
@@ -846,13 +875,19 @@ func _step_fades(dt: float) -> void:
 
 
 func _update_fade_views() -> void:
-	if not _gpu:
-		return
+	_fade_views_dirty = false
+	_fade_drawn = 0
 	var buffers: Array = [PackedFloat32Array(), PackedFloat32Array(), PackedFloat32Array()]
 	for key: Variant in _fades:
 		var running: Array = _fades[key]
 		var c := int(key) / 16
 		var k := int(key) % 16
+		# A kicked leaf is the mover's to draw.
+		if (_hidden[c] & (1 << k)) != 0:
+			continue
+		_fade_drawn += 1
+		if not _gpu:
+			continue
 		var t := clampf(float(running[0]), 0.0, 1.0)
 		var grow := t * t * (3.0 - 2.0 * t)
 		var size := grow if int(running[1]) > 0 else 1.0 - grow
@@ -865,6 +900,8 @@ func _update_fade_views() -> void:
 		var into: PackedFloat32Array = buffers[species[k]]
 		into.append_array(record)
 		buffers[species[k]] = into
+	if not _gpu:
+		return
 	for species: int in SPECIES:
 		_fill(_fade_views[species], buffers[species])
 
@@ -1035,9 +1072,8 @@ func _slots_of(c: int) -> PackedFloat32Array:
 	for k: int in Constants.LEAF_HERO_MAX:
 		var spot := LeafPalette.slot(x, z, k)
 		# Each leaf takes the look of a cell near it, so tree colours blend leaf by leaf.
-		var jx := clampi(x + int(round((LeafPalette.unit(x, z, k, 50) * 2.0 - 1.0) * 1.6)), 0, _width - 1)
-		var jz := clampi(z + int(round((LeafPalette.unit(x, z, k, 51) * 2.0 - 1.0) * 1.6)), 0, _depth - 1)
-		var leaf := LeafPalette.flake(_looks, _mix, _cell_look[jx + jz * _width], _season, x, z, k)
+		var from := LeafPalette.look_cell(x, z, k, _width, _depth)
+		var leaf := LeafPalette.flake(_looks, _mix, _cell_look[from.x + from.y * _width], _season, x, z, k)
 		var length := float(spot["size"]) * float(leaf["scale"])
 		var basis := Basis.from_euler(Vector3(float(spot["tilt_x"]), float(spot["yaw"]), float(spot["tilt_z"]))) * Basis.from_scale(Vector3(length * float(leaf["width"]), length, length))
 		var offset: Vector2 = spot["offset"]
@@ -1071,14 +1107,15 @@ func _slot_info(cell: Vector2i, k: int) -> Dictionary:
 
 
 ## A leaf on the skin somewhere in a cell (for units that leave or arrive
-## without a hero leaf of their own).
+## without a hero leaf of their own). Always inside the cell: slot()'s spread is
+## only meant for the hero slots, so the offset is LeafPalette.skin_offset's.
 func _skin_point(cell: Vector2i) -> Dictionary:
 	_skin_counter += 1
 	var k := Constants.LEAF_HERO_MAX + (_skin_counter % 64)
 	var c := _index(cell)
 	var spot := LeafPalette.slot(cell.x, cell.y, k)
 	var leaf := LeafPalette.flake(_looks, _mix, _cell_look[c] if c >= 0 else 0, _season, cell.x, cell.y, k)
-	var offset: Vector2 = spot["offset"]
+	var offset := LeafPalette.skin_offset(cell.x, cell.y, k, _cell)
 	var local := Vector3(_grid_origin.x + (float(cell.x) + 0.5) * _cell + offset.x, _ground_local, _grid_origin.z + (float(cell.y) + 0.5) * _cell + offset.y)
 	var world := global_transform * local
 	world.y = surface_y(Vector2(world.x, world.z))

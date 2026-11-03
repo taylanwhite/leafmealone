@@ -179,14 +179,15 @@ static func _leaves(root: Node3D, yard: Array, rng: RandomNumberGenerator) -> vo
 	for patch: int in Constants.ART_NEIGHBOR_LEAF_PATCHES:
 		var center := _spot(yard, rng)
 		var look := rng.randi() % looks.size()
-		for flake: int in 26:
+		for flake: int in Constants.LEAF_NEIGHBOR_PATCH_LEAVES:
 			# Thick in the middle of the patch, thinning out to a ragged edge.
-			var reach := 1.7 * sqrt(rng.randf())
+			var reach := Constants.LEAF_NEIGHBOR_PATCH_REACH * sqrt(rng.randf())
 			var angle := rng.randf() * TAU
 			var at := center + Vector3(cos(angle) * reach, 0.012 + 0.003 * float(flake % 4), sin(angle) * reach)
 			var leaf := LeafPalette.flake(looks, mix, look, 0, salt + patch, flake, 0)
 			var length := lerpf(Constants.LEAF_SIZE.x, Constants.LEAF_SIZE.y, rng.randf())
-			var tilt := Vector3(rng.randf_range(-0.2, 0.2), rng.randf() * TAU, rng.randf_range(-0.2, 0.2))
+			var lean := Constants.LEAF_NEIGHBOR_TILT
+			var tilt := Vector3(rng.randf_range(-lean, lean), rng.randf() * TAU, rng.randf_range(-lean, lean))
 			var basis := Basis.from_euler(tilt) * Basis.from_scale(Vector3(length * float(leaf["width"]), length, length))
 			var centre: Color = leaf["centre"]
 			var rim: Color = leaf["rim"]

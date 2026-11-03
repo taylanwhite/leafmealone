@@ -190,6 +190,7 @@ uniform float skin_clean = 10.0;
 uniform float skin_full = 70.0;
 uniform float stray_share = 0.12;
 uniform float dry_share = 0.15;
+uniform float look_jitter = 1.6;
 uniform float wet = 0.0;
 
 varying vec3 world_pos;
@@ -341,7 +342,7 @@ void fragment() {
 				vec4 t = rand4(cell, n + 41u);
 				// Each leaf takes the colour of a cell near it: tree colours blend
 				// leaf by leaf instead of cell by cell.
-				int l = look_at(centre * tile + (t.xy * 2.0 - 1.0) * cell_m * 1.6, size);
+				int l = look_at(centre * tile + (t.xy * 2.0 - 1.0) * cell_m * look_jitter, size);
 				int species = int(look_alt_rim[l].a + 0.5);
 				float angle = r.w * 6.2831853;
 				float half_len = mix(0.6, 0.95, s.x) * (species == 0 ? 0.92 : 1.0);
@@ -502,6 +503,7 @@ static func litter_material() -> ShaderMaterial:
 	made.set_shader_parameter("skin_full", float(Constants.LEAF_SKIN_FULL))
 	made.set_shader_parameter("stray_share", Constants.LEAF_STRAY_SHARE)
 	made.set_shader_parameter("dry_share", Constants.LEAF_DRY_SHARE)
+	made.set_shader_parameter("look_jitter", Constants.LEAF_LOOK_JITTER_CELLS)
 	return made
 
 

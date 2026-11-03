@@ -10,10 +10,13 @@ extends SceneTree
 ##   seasons build
 ## - the mound: monotonic, about 0.015 m at density 60 and 0.77 m at 255; the
 ##   hero leaf counts; a hero leaf drawn exactly on the skin (slot_world vs
-##   surface_y); the view's ease (morph) lands on the field and claims hold
+##   surface_y); skin points (slot -1 launches and landings) inside their cell;
+##   the view's ease (morph) lands on the field and claims hold; a kick mid-fade
+##   leaves no ghost on the fading MultiMeshes
 ## - budgets on yards shaped like levels/lots/lot_generator.gd (seeds 777 and
-##   1000, every yard size): hero leaves near a camera, skin triangles, visible
-##   triangles and draw calls; and how long rebuilding the densest chunk takes
+##   1000, every yard size), fresh and half raked into piles: hero leaves near a
+##   camera, skin triangles, visible triangles and draw calls; and how long
+##   rebuilding the densest chunk takes
 ## Prints [LeafCheck] lines; exits 1 on any failure.
 
 const _Renderer = preload("res://leaves/leaf_renderer.gd")
@@ -28,6 +31,10 @@ var _view: Node3D
 var _frames: int = 0
 var _stage: int = 0
 var _claimed: int = 0
+## The kick-during-fade check: its cell, and the frame its leaf was kicked (-1 not yet).
+const KICK_CELL := Vector2i(60, 60)
+const KICK_CHUNK: int = 18
+var _kicked_at: int = -1
 
 
 ## A stand-in leaf field: the grid and the calls the view makes, no networking.
@@ -87,8 +94,13 @@ func _process(_delta: float) -> bool:
 		1:
 			if _frames >= 90:
 				_check_morph_end()
+				_start_kick_fade()
 				_stage = 2
+				_frames = 0
 		2:
+			if _step_kick_fade():
+				_stage = 3
+		3:
 			print("[LeafCheck] %s" % ("FAIL" if _failed else "PASS"))
 			quit(1 if _failed else 0)
 			return true
@@ -190,7 +202,7 @@ func _check_palettes() -> void:
 	var where := ""
 	for crown: String in Constants.LEAF_PALETTES:
 		for color: Color in Constants.LEAF_PALETTES[crown]:
-			for value: float in [0.88, 1.0, 1.10]:
+			for value: float in [Constants.LEAF_VALUE_JITTER.x, 1.0, Constants.LEAF_VALUE_JITTER.y]:
 				var shade := Color(color.r * value, color.g * value, color.b * value)
 				var distance := _lab(shade).distance_to(olive)
 				if distance < closest:
@@ -265,6 +277,19 @@ func _check_surface() -> void:
 	_expect(worst < 0.0001, "slot_world on the skin: %d slots, worst %.6f m" % [checked, worst])
 	var stats: Dictionary = _view.call("stats")
 	_expect(int(stats.get("instant", -1)) == 0, "a hard reset pops nothing (instant %d)" % int(stats.get("instant", -1)))
+	# A unit that leaves or arrives with no hero slot (take_launch and
+	# reserve_landing's slot -1) rises out of / dives into the skin inside its own cell.
+	var outside := 0
+	var points := 0
+	for c: int in range(0, GRID * GRID, 41):
+		var cell := Vector2i(c % GRID, c / GRID)
+		for _round: int in 64:
+			var point: Dictionary = _view.call("_skin_point", cell)
+			var origin: Vector3 = (point["xform"] as Transform3D).origin
+			if _view.call("cell_of", origin) != cell or int(point["slot"]) != -1:
+				outside += 1
+			points += 1
+	_expect(outside == 0, "skin points inside their cell (%d of %d outside)" % [outside, points])
 
 
 ## Yards like the lot generator makes: counts against the leaf budgets. Hero
@@ -273,53 +298,16 @@ func _check_surface() -> void:
 func _check_budgets() -> void:
 	var litter_triangles := 25 * int(LeafLitter.grid(Vector2(8.0, 8.0)).get_meta("triangles", 0))
 	_expect(litter_triangles == 51200, "skin triangles %d (51,200)" % litter_triangles)
-	var cameras: Array[Vector3] = [Vector3(0.0, 1.6, 0.0), Vector3(-17.0, 1.6, -17.0), Vector3(0.0, 1.6, 22.0)]
-	var per := Constants.LEAF_HERO_BLOCK_CHUNKS * 16
-	var blocks := int(ceil(float(GRID) / float(per)))
 	for seed_value: int in [777, 1000]:
 		for size: int in 3:
 			var yard := _yard(seed_value, size)
-			var density: PackedByteArray = yard["density"]
-			var made := LeafPalette.cell_looks(yard["sources"], GRID, GRID, Vector2(ORIGIN.x + 0.25, ORIGIN.z + 0.25), CELL)
-			var cell_look: PackedByteArray = made["cells"]
-			# Heroes per block and species, as the view lays them.
-			var counts: Array = []
-			for _block: int in blocks * blocks:
-				counts.append([0, 0, 0])
-			for z: int in GRID:
-				for x: int in GRID:
-					var heroes := int(_Renderer.hero_count(density[x + z * GRID]))
-					var block := int(x / per) + int(z / per) * blocks
-					for k: int in heroes:
-						var jx := clampi(x + int(round((LeafPalette.unit(x, z, k, 50) * 2.0 - 1.0) * 1.6)), 0, GRID - 1)
-						var jz := clampi(z + int(round((LeafPalette.unit(x, z, k, 51) * 2.0 - 1.0) * 1.6)), 0, GRID - 1)
-						var leaf := LeafPalette.flake(made["looks"], made["mix"], cell_look[jx + jz * GRID], 0, x, z, k)
-						counts[block][int(leaf["species"])] += 1
-			var worst_heroes := 0
-			var worst_triangles := 0
-			var worst_draws := 0
-			for camera: Vector3 in cameras:
-				var heroes := 0
-				var triangles := litter_triangles
-				var draws := 25
-				for block: int in blocks * blocks:
-					var span := float(per) * CELL
-					var centre := Vector3(ORIGIN.x + (float(block % blocks) + 0.5) * span, 0.0, ORIGIN.z + (float(block / blocks) + 0.5) * span)
-					if centre.distance_to(camera) > Constants.LEAF_HERO_RANGE + span * 0.5:
-						continue
-					for species: int in 3:
-						var count := int(counts[block][species])
-						heroes += count
-						triangles += count * LeafMeshes.triangles(species)
-						draws += 1 if count > 0 else 0
-				worst_heroes = maxi(worst_heroes, heroes)
-				worst_triangles = maxi(worst_triangles, triangles)
-				worst_draws = maxi(worst_draws, draws)
 			# The budgets are a medium yard's; a big yard (more trees, more leaves) gets LEAF_BIG_YARD_BUDGET times them.
 			var scale := Constants.LEAF_BIG_YARD_BUDGET if size >= 2 else 1.0
-			_expect(worst_heroes <= int(Constants.LEAF_MAX_HEROES_NEAR * scale), "seed %d size %d: %d hero leaves near a camera (budget %d)" % [seed_value, size, worst_heroes, int(Constants.LEAF_MAX_HEROES_NEAR * scale)])
-			_expect(worst_triangles <= int(Constants.LEAF_MAX_TRIS_VISIBLE * scale), "seed %d size %d: %d leaf triangles drawn (budget %d)" % [seed_value, size, worst_triangles, int(Constants.LEAF_MAX_TRIS_VISIBLE * scale)])
-			_expect(worst_draws <= Constants.LEAF_MAX_DRAWS, "seed %d size %d: %d leaf draws (budget %d)" % [seed_value, size, worst_draws, Constants.LEAF_MAX_DRAWS])	# The densest chunk, rebuilt from cached slices.
+			# Fresh, then half of every cell raked into full piles: hero leaves
+			# rise faster than density, so piles cost more than the carpet.
+			_yard_budgets(yard["density"], yard["sources"], litter_triangles, scale, "seed %d size %d fresh" % [seed_value, size])
+			_yard_budgets(_raked(yard["density"]), yard["sources"], litter_triangles, scale, "seed %d size %d raked" % [seed_value, size])
+	# The densest chunk, rebuilt from cached slices.
 	var densest := 0
 	var most := -1
 	var field_density: PackedByteArray = (_field as FakeField).density
@@ -340,6 +328,90 @@ func _check_budgets() -> void:
 	_expect(each <= 3.0, "densest chunk rebuild %.3f ms (<= 3 ms)" % each)
 
 
+## One yard's density against the leaf budgets, from three cameras.
+func _yard_budgets(density: PackedByteArray, sources: Array, litter_triangles: int, scale: float, label: String) -> void:
+	var cameras: Array[Vector3] = [Vector3(0.0, 1.6, 0.0), Vector3(-17.0, 1.6, -17.0), Vector3(0.0, 1.6, 22.0)]
+	var per := Constants.LEAF_HERO_BLOCK_CHUNKS * 16
+	var blocks := int(ceil(float(GRID) / float(per)))
+	var made := LeafPalette.cell_looks(sources, GRID, GRID, Vector2(ORIGIN.x + 0.25, ORIGIN.z + 0.25), CELL)
+	var cell_look: PackedByteArray = made["cells"]
+	# Heroes per block and species, as the view lays them.
+	var counts: Array = []
+	for _block: int in blocks * blocks:
+		counts.append([0, 0, 0])
+	var total := 0
+	for z: int in GRID:
+		for x: int in GRID:
+			var heroes := int(_Renderer.hero_count(density[x + z * GRID]))
+			var block := int(x / per) + int(z / per) * blocks
+			total += heroes
+			for k: int in heroes:
+				var from := LeafPalette.look_cell(x, z, k, GRID, GRID)
+				var leaf := LeafPalette.flake(made["looks"], made["mix"], cell_look[from.x + from.y * GRID], 0, x, z, k)
+				counts[block][int(leaf["species"])] += 1
+	var worst_heroes := 0
+	var worst_triangles := 0
+	var worst_draws := 0
+	for camera: Vector3 in cameras:
+		var heroes := 0
+		var triangles := litter_triangles
+		var draws := 25
+		for block: int in blocks * blocks:
+			var span := float(per) * CELL
+			var centre := Vector3(ORIGIN.x + (float(block % blocks) + 0.5) * span, 0.0, ORIGIN.z + (float(block / blocks) + 0.5) * span)
+			if centre.distance_to(camera) > Constants.LEAF_HERO_RANGE + span * 0.5:
+				continue
+			for species: int in 3:
+				var count := int(counts[block][species])
+				heroes += count
+				triangles += count * LeafMeshes.triangles(species)
+				draws += 1 if count > 0 else 0
+		worst_heroes = maxi(worst_heroes, heroes)
+		worst_triangles = maxi(worst_triangles, triangles)
+		worst_draws = maxi(worst_draws, draws)
+	print("[LeafCheck] %s: %d hero leaves on the whole field" % [label, total])
+	_expect(worst_heroes <= int(Constants.LEAF_MAX_HEROES_NEAR * scale), "%s: %d hero leaves near a camera (budget %d)" % [label, worst_heroes, int(Constants.LEAF_MAX_HEROES_NEAR * scale)])
+	_expect(worst_triangles <= int(Constants.LEAF_MAX_TRIS_VISIBLE * scale), "%s: %d leaf triangles drawn (budget %d)" % [label, worst_triangles, int(Constants.LEAF_MAX_TRIS_VISIBLE * scale)])
+	_expect(worst_draws <= Constants.LEAF_MAX_DRAWS, "%s: %d leaf draws (budget %d)" % [label, worst_draws, Constants.LEAF_MAX_DRAWS])
+
+
+## A yard half raked, mid-job: in each chunk the cells farthest from its middle
+## are raked clean (a rake leaves a cell at 0, not at half) until half the
+## chunk's leaves are moved, and those lie in full (255) piles around the
+## middle, on top of the leaves still there.
+func _raked(fresh: PackedByteArray) -> PackedByteArray:
+	var out := fresh.duplicate()
+	var middle := Vector2(7.5, 7.5)
+	var order: Array = []
+	for dz: int in 16:
+		for dx: int in 16:
+			order.append(Vector2i(dx, dz))
+	order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return Vector2(a).distance_squared_to(middle) < Vector2(b).distance_squared_to(middle))
+	for chunk: int in 25:
+		var corner := Vector2i((chunk % 5) * 16, (chunk / 5) * 16)
+		var total := 0
+		for spot: Vector2i in order:
+			total += int(out[corner.x + spot.x + (corner.y + spot.y) * GRID])
+		var removed := 0
+		for index: int in range(order.size() - 1, -1, -1):
+			if removed * 2 >= total:
+				break
+			var spot: Vector2i = order[index]
+			var c := corner.x + spot.x + (corner.y + spot.y) * GRID
+			removed += int(out[c])
+			out[c] = 0
+		# Piles from the chunk's middle outward.
+		for spot: Vector2i in order:
+			if removed <= 0:
+				break
+			var c := corner.x + spot.x + (corner.y + spot.y) * GRID
+			var add := mini(255 - int(out[c]), removed)
+			out[c] = int(out[c]) + add
+			removed -= add
+	return out
+
+
 ## A raked lane: the field changes; with no listener every unit eases in.
 func _check_morph_start() -> void:
 	var fake := _field as FakeField
@@ -357,8 +429,10 @@ func _check_morph_start() -> void:
 				_view.call("claim", Vector2i(41, 31), changes[index + 2])
 				_claimed = changes[index + 2]
 	)
+	# The kick check's cell starts bare (_start_kick_fade).
+	fake.density[KICK_CELL.x + KICK_CELL.y * GRID] = 0
 	# Only the chunks that changed (a refresh of every chunk at once is a reset).
-	for chunk: int in [6, 7, 11, 12]:
+	for chunk: int in [6, 7, 11, 12, KICK_CHUNK]:
 		fake.chunk_changed.emit(chunk)
 
 
@@ -378,6 +452,35 @@ func _check_morph_end() -> void:
 	_expect(mismatched == 0, "the ease lands on the field (%d cells off)" % mismatched)
 	_expect(int(stats.get("fading", -1)) == 0 and int(stats.get("morphing", -1)) == 0, "nothing still fading or easing after 1.5 s")
 	_expect(_claimed > 0, "a listener claimed a change (%d units)" % _claimed)
+
+
+## Leaves land on a bare cell (its only hero leaf fades in) and a kick lifts
+## that leaf mid-fade: the fading MultiMeshes must drop it at once, even though
+## no other fade is running (they used to keep drawing a ghost of it).
+func _start_kick_fade() -> void:
+	var fake := _field as FakeField
+	fake.density[KICK_CELL.x + KICK_CELL.y * GRID] = 60
+	fake.chunk_changed.emit(KICK_CHUNK)
+
+
+## True when the check is done.
+func _step_kick_fade() -> bool:
+	var c := KICK_CELL.x + KICK_CELL.y * GRID
+	if _kicked_at < 0:
+		var fading: PackedInt32Array = _view.get("_fading")
+		if (fading[c] & 1) != 0:
+			_view.call("take_slot", KICK_CELL, 0)
+			_kicked_at = _frames
+		elif _frames > 600:
+			_expect(false, "kick mid-fade: the leaf never started fading in")
+			return true
+		return false
+	if _frames < _kicked_at + 2:
+		return false
+	var stats: Dictionary = _view.call("stats")
+	_expect(int(stats.get("fading", -1)) == 0 and int(stats.get("fade_drawn", -1)) == 0, "a kick mid-fade leaves no ghost (fading %d, fade leaves drawn %d)" % [int(stats.get("fading", -1)), int(stats.get("fade_drawn", -1))])
+	_view.call("return_slot", KICK_CELL, 0)
+	return true
 
 
 ## Density like levels/lots/lot_generator.gd _shape_leaves: an even cover per

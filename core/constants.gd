@@ -489,10 +489,12 @@ const LEAF_CURL: float = 0.06
 const LEAF_TRANSLUCENCY: float = 0.45
 ## Hero leaves per 0.5 m cell: LEAF_HERO_MAX * (density / 255) ^ LEAF_HERO_CURVE,
 ## rounded up (at least one past the clean line). One on a fresh lawn (the skin
-## carries the carpet), two or three in a drift, seven on a raked pile. (One per
+## carries the carpet), two or three in a drift, six on a raked pile. (One per
 ## 22 units, the first plan, put about 20,000 on a medium yard: twice the
-## LEAF_MAX_HEROES_NEAR budget.)
-const LEAF_HERO_MAX: int = 7
+## LEAF_MAX_HEROES_NEAR budget. Seven per pile cell, the spec's eight less one,
+## passed on the fresh carpet but not half raked into piles, the worst case
+## mid-job: leafcheck measures both.)
+const LEAF_HERO_MAX: int = 6
 const LEAF_HERO_CURVE: float = 1.6
 ## Hero leaves draw out to this far (the skin carries the look past it), fading
 ## over the last LEAF_HERO_FADE meters.
@@ -543,6 +545,35 @@ const LEAF_SOURCE_REACH: float = 9.0
 const LEAF_SOURCE_SPREAD: float = 3.5
 const LEAF_STRAY_SHARE: float = 0.12
 const LEAF_DRY_SHARE: float = 0.15
+## Past every tree's pull, at least this much of a cell's look is the yard's
+## open-lawn mix (LeafPalette.cell_looks: share = this / the trees' total weight).
+const LEAF_OPEN_LAWN_SHARE: float = 0.08
+## Each leaf takes the look of a cell up to this many cells away (hero leaves
+## and the litter skin alike), so tree colours blend leaf by leaf.
+const LEAF_LOOK_JITTER_CELLS: float = 1.6
+## A leaf's brightness, times its palette colour (random in this range).
+const LEAF_VALUE_JITTER := Vector2(0.88, 1.10)
+## Leaf age (0 fresh .. 1 dry brown) by season, autumn, winter, spring, summer:
+## the range fresh leaves fall in (the skin uses it as is).
+const LEAF_SEASON_AGES: Array[Vector2] = [Vector2(0.0, 0.35), Vector2(0.8, 1.0), Vector2(0.0, 0.3), Vector2(0.0, 0.2)]
+## An autumn dry leaf's age; spring hero leaves' age (x fresh, y dry).
+const LEAF_DRY_AGE: float = 0.6
+const LEAF_SPRING_AGES := Vector2(0.1, 0.4)
+## Spring: share of a blossoming tree's leaves that are petals, and a petal's
+## size (of a leaf). Summer: share of yellow among the greens.
+const LEAF_PETAL_SHARE: float = 0.1
+const LEAF_PETAL_SCALE: float = 0.5
+const LEAF_SUMMER_YELLOW_SHARE: float = 0.2
+## A willow leaf is an oval this narrow (of its length).
+const LEAF_WILLOW_WIDTH: float = 0.42
+## Share of hero leaves lying loose (lift in a gust; looseness in
+## LEAF_LOOSE_RANGE); the rest have looseness 0 .. LEAF_SETTLED_LOOSE_MAX.
+const LEAF_LOOSE_SHARE: float = 0.3
+const LEAF_LOOSE_RANGE := Vector2(0.65, 1.0)
+const LEAF_SETTLED_LOOSE_MAX: float = 0.5
+## A leaf that leaves or arrives without a hero slot of its own (the skin) sits
+## within this share of a cell's size of its centre, so always inside the cell.
+const LEAF_SKIN_POINT_SPREAD: float = 0.45
 ## Leaf colours by crown (props/trees.gd CROWNS): [centre, rim]. The rest are
 ## what seasons turn fallen leaves into. No olive: it read as dead grass.
 const LEAF_PALETTES: Dictionary = {
@@ -570,6 +601,11 @@ const LEAF_HERO_BLOCK_CHUNKS: int = 2
 const LEAF_MAX_HEROES_NEAR: int = 9000
 ## The leaf budgets are a medium yard's; a big yard (more trees, more leaves) may use this many times them.
 const LEAF_BIG_YARD_BUDGET: float = 1.5
+## Neighbour yards' autumn leaf patches (levels/town/season_dressing.gd): leaves
+## per patch, how far a patch reaches (meters) and how much a leaf tilts (radians).
+const LEAF_NEIGHBOR_PATCH_LEAVES: int = 26
+const LEAF_NEIGHBOR_PATCH_REACH: float = 1.7
+const LEAF_NEIGHBOR_TILT: float = 0.2
 
 # ---- shops
 # The shops (docs/GAME.md, "Shops"). The catalog's ids and shapes are data in
