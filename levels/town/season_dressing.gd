@@ -11,8 +11,8 @@ extends RefCounted
 ## - spring: tulip beds and petals under the blossom trees
 ## - summer: a sprinkler, a pool float, a beach umbrella, sometimes a lemonade stand
 ## The job house (decor "job", levels/lots/lot_generator.gd) gets the porch and
-## bed decor only, never anything on the lawn where the work is: pumpkins and
-## mums, a wreath and snow piles along the shoveled drive, tulips, a pool float
+## bed decor only, never anything on the lawn where the work is: pumpkins, a
+## mums pot set into the back of each bed (beside no weed), a wreath and snow piles along the shoveled drive, tulips, a pool float
 ## in the middle of the pool and a pinwheel in a bed. No string lights.
 ## The hood's decor style shades it: "approved" (Oak Hollow: the same warm-white
 ## lights and the same wreath on every door), "homemade" (mismatched lights, a
@@ -24,7 +24,8 @@ extends RefCounted
 ## the style, the season, and the seed: every peer decorates the same.
 ##
 ## A parcel's decor dict (levels/town/lot_builder.gd plan()["decor"]), parcel space:
-##   house_at, spec (the HouseSpec, house space), beds [[center, size]], trees
+##   house_at, spec (the HouseSpec, house space), beds [[center, size]] (a job
+##   bed adds its mums pot's spot or null: [center, size, mums]), trees
 ##   [[at, kind, crown]], drive [from, to], walk [from, to], pools [at], yard
 ##   [Rect2 free lawn spots], job (bool)
 
@@ -38,10 +39,6 @@ const LEAVES: Array[Color] = [Color(0.88, 0.45, 0.15), Color(0.9, 0.7, 0.2), Col
 const PETALS := Color(0.98, 0.8, 0.86)
 ## Lights per decor style (props/prop_catalog.gd string_lights "lights").
 const LIGHTS: Dictionary = {"approved": "approved", "homemade": "homemade", "pro": "pro", "dock": "classic", "classic": "classic"}
-## The job yard's winter snow piles, from the house end of its drive (parcel
-## space): on the drive's edges, clear of the lawn's litter, the tools by the
-## drive and the homeowner's spot at the curb.
-const JOB_SNOW_PILES: Array[Vector3] = [Vector3(-2.45, 0.0, 6.0), Vector3(2.45, 0.0, 10.5)]
 
 
 ## Decorates a parcel for season under a new "SeasonDecor" child and returns it.
@@ -68,7 +65,12 @@ static func decorate(parcel: Node3D, spec: Dictionary, style: Dictionary, season
 			if rng.randf() < 0.6:
 				batch.add("pumpkin_small", Transform3D(Basis.IDENTITY, step + Vector3(1.25, 0.0, 0.3)))
 			for bed: Array in spec.get("beds", []):
-				batch.add("mums_pot", Transform3D(Basis.IDENTITY, (bed[0] as Vector3) + Vector3(0.0, 0.0, 0.9)))
+				if not job:
+					batch.add("mums_pot", Transform3D(Basis.IDENTITY, (bed[0] as Vector3) + Vector3(0.0, 0.0, 0.9)))
+				elif bed.size() > 2 and bed[2] is Vector3:
+					# The job's pot stands in the bed, at the back by the porch, its
+					# base set into the soil: never on the lawn, the edging or a weed.
+					batch.add("mums_pot", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), (bed[2] as Vector3) + Vector3(0.0, (bed[1] as Vector3).y * 0.5, 0.0)))
 			if not job and not yard.is_empty() and rng.randf() < 0.3:
 				var spot := _spot(yard, rng)
 				batch.add("hay_bale" if rng.randf() < 0.7 else "scarecrow", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), spot))
@@ -94,7 +96,7 @@ static func decorate(parcel: Node3D, spec: Dictionary, style: Dictionary, season
 				# The job's drive was shoveled the long way: piles along its edges,
 				# short of the curb, where the homeowner waits and Chefty parks.
 				var from: Vector3 = drive[0]
-				for at: Vector3 in JOB_SNOW_PILES:
+				for at: Vector3 in Constants.ART_JOB_SNOW_PILES:
 					# Long side along the drive, the smaller heap toward it.
 					var yaw := -signf(at.x) * PI * 0.5 + rng.randf_range(-0.2, 0.2)
 					batch.add("snow_pile", Transform3D(Basis(Vector3.UP, yaw), from + at))

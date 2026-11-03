@@ -25,10 +25,12 @@ extends Node
 ## - A7 budgets: every catalog prop, every archetype at the largest yard house,
 ##   every tree kind x crown x season near and far
 ## - A10 every hood's TWICE_SEED yard built twice: the same art and layout hash
-## - A11 Maple Row in all four seasons (and Lakeside in winter): four art hashes,
-##   Seasons.current() each time, winter's decor, bare trees and frozen lake,
-##   spring's blossoms, autumn's pumpkins, and the job house's own decor
-##   (pumpkins on its steps, a wreath on its door, never string lights)
+## - A11 Maple Row's big yard in all four seasons (and Lakeside in winter): four
+##   art hashes, Seasons.current() each time, winter's decor, bare trees and
+##   frozen lake, spring's blossoms, autumn's pumpkins, A13 on the block and the
+##   yard in every season (leafy crowns over the street), and the job house's own
+##   decor (pumpkins on its steps and mums pots inside its beds, a wreath on its
+##   door, a tulip bed per bed, a pool float and a pinwheel; never string lights)
 ## - A12 the words: every sign key a style or set piece names exists, and no
 ##   sign, boat name, aisle or label on a built block trips the guardrail
 ##   (net/dev/guardrail.gd) or the art wording rule (no "ice" at all: SNOW-B-GONE)
@@ -344,9 +346,14 @@ func _lane(lot: Node3D, root: Node3D, label: String) -> Array[String]:
 		for box: AABB in boxes:
 			var flat := Rect2(box.position.x, box.position.z, box.size.x, box.size.z)
 			if flat.intersects(lane) and box.position.y < LANE_HIGH and box.end.y > LANE_LOW:
-				# A box is coarse (a tree's runs from its roots to its crown's top):
-				# a single mesh only counts when a vertex of it is in the lane, low.
-				var low := _lowest_in_lane(view as MeshInstance3D, place, lane) if view is MeshInstance3D else box.position.y
+				# A tree's box is coarse (it runs from its roots to its crown's top,
+				# and a leafy crown over the street is fine above the truck): a tree's
+				# mesh only counts when a vertex of it is in the lane, low. Anything
+				# else counts by its box (a rail or fence run crossing the lane with
+				# every vertex outside it still blocks Chefty).
+				var low := box.position.y
+				if _is_tree(view):
+					low = _lowest_in_lane(view as MeshInstance3D, place, lane)
 				if is_inf(low):
 					continue
 				out.append("A13 %s: in Chefty's lane: %s (%s, %.2f m up)" % [label, lot.get_path_to(view), box, low])
@@ -354,6 +361,15 @@ func _lane(lot: Node3D, root: Node3D, label: String) -> Array[String]:
 		if out.size() >= 4:
 			break
 	return out
+
+
+## Whether view is a tree's near or far mesh ("Look"/"LookFar" under a
+## props/tree_node.gd, which carries metas form and crown; props/trees.gd spawn).
+func _is_tree(view: GeometryInstance3D) -> bool:
+	if not view is MeshInstance3D or (view as MeshInstance3D).mesh == null:
+		return false
+	var parent := view.get_parent()
+	return parent != null and parent.has_meta("form") and parent.has_meta("crown") and (view.name == "Look" or view.name == "LookFar")
 
 
 ## The height of the lowest vertex of view's mesh inside lane between LANE_LOW
@@ -388,16 +404,56 @@ func _job_decor(dressing: Node3D, season: int, label: String) -> Array[String]:
 			kinds[str(node.get_meta("prop_kind"))] = int(kinds.get(str(node.get_meta("prop_kind")), 0)) + int(node.get_meta("prop_instances", 1))
 	if kinds.has("string_lights"):
 		out.append("%s: string lights on the job house (a future hang-lights task owns those)" % label)
+	var beds: Array = dressing.get_meta("bed_rects", [])
+	var pool: Variant = dressing.get("_pool_at")
+	var has_pool: bool = pool is Vector3 and pool != Vector3.INF
 	match season:
 		0:
 			if int(kinds.get("pumpkin", 0)) + int(kinds.get("pumpkin_small", 0)) + int(kinds.get("pumpkin_big", 0)) < 2:
 				out.append("%s: autumn, but no pumpkins on the job house's steps (%s)" % [label, kinds])
+			# Each mums pot stands inside a bed, clear of its edges (the tires, the
+			# edging and the mowed lawn are all outside).
+			var pots := _instances(dressing, holder, "mums_pot")
+			if pots.size() > beds.size():
+				out.append("%s: %d mums pots for %d beds" % [label, pots.size(), beds.size()])
+			for at: Vector3 in pots:
+				var inside := false
+				for bed: Rect2 in beds:
+					if bed.grow(-0.25).has_point(Vector2(at.x, at.z)):
+						inside = true
+				if not inside:
+					out.append("%s: a mums pot at %s is not inside a bed (%s)" % [label, at, beds])
 		1:
 			if not kinds.has("wreath"):
 				out.append("%s: winter, but no wreath on the job house's door (%s)" % [label, kinds])
+		2:
+			if int(kinds.get("tulip_bed", 0)) != beds.size():
+				out.append("%s: spring, %d tulip beds for %d beds (%s)" % [label, int(kinds.get("tulip_bed", 0)), beds.size(), kinds])
+		3:
+			if int(kinds.get("pool_float", 0)) != (1 if has_pool else 0):
+				out.append("%s: summer, %d pool floats, pool %s (%s)" % [label, int(kinds.get("pool_float", 0)), has_pool, kinds])
+			if int(kinds.get("pinwheel", 0)) != (0 if beds.is_empty() else 1):
+				out.append("%s: summer, %d pinwheels for %d beds (%s)" % [label, int(kinds.get("pinwheel", 0)), beds.size(), kinds])
 	for kind: String in ["snowman", "sled", "hay_bale", "scarecrow", "sprinkler", "beach_umbrella", "lemonade_stand"]:
 		if kinds.has(kind):
 			out.append("%s: a %s on the job yard's lawn, where the work is" % [label, kind])
+	return out
+
+
+## Where every prop of kind under holder stands, in dressing's space (batched
+## instances through their instance_xforms, single props by their own place).
+func _instances(dressing: Node3D, holder: Node, kind: String) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	var to_dressing := dressing.global_transform.affine_inverse()
+	for node: Node in holder.find_children("*", "Node3D", true, false):
+		if str(node.get_meta("prop_kind", "")) != kind:
+			continue
+		var place := to_dressing * (node as Node3D).global_transform
+		if node is MultiMeshInstance3D:
+			for xform: Transform3D in node.get_meta("instance_xforms", []):
+				out.append(place * xform.origin)
+		else:
+			out.append(place.origin)
 	return out
 
 
@@ -455,7 +511,8 @@ func _seasons(world: Node) -> Array:
 		Seasons.apply_look(Seasons.first_day_of(season))
 		if Seasons.current() != season:
 			out.append("A11 Seasons.current() %d, want %d" % [Seasons.current(), season])
-		var lot := await _load(world, SEASON_HOOD, SWEEP_SEED, 1)
+		# The big yard: it has the pool the summer float rides on.
+		var lot := await _load(world, SEASON_HOOD, SWEEP_SEED, 2)
 		yards += 1
 		var label := "%s %s" % [SEASON_HOOD, Seasons.IDS[season]]
 		if lot == null or not bool(lot.get_meta("art_done", false)):
@@ -481,7 +538,9 @@ func _seasons(world: Node) -> Array:
 				if not crowns.has("blossom_pink") and not crowns.has("blossom_white"):
 					out.append("A11 %s: no blossoms (%s)" % [label, ",".join(PackedStringArray(crowns.keys()))])
 		out.append_array(_job_decor(lot.get_node("Dressing") as Node3D, season, "A11 " + label))
+		# The leafy seasons' crowns too (CI's main sweep runs in winter).
 		out.append_array(_lane(lot, lot.get_node("Block") as Node3D, label))
+		out.append_array(_lane(lot, lot.get_node("Dressing") as Node3D, label))
 	if hashes.size() != 4:
 		out.append("A11 four seasons gave %d art hashes" % hashes.size())
 	Seasons.apply_look(Seasons.first_day_of(1))

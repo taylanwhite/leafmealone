@@ -64,14 +64,6 @@ const BED_EDGES: Dictionary = {
 }
 ## The fence kinds the yard's paintable fence can be (hood_styles.gd "job_fence").
 const FENCE_KINDS: Array[String] = ["picket", "weathered_picket", "vinyl", "split_rail", "privacy", "iron"]
-## The front walk's width, and how far a bed's inner edge stays from the walk's
-## middle (0.45 m of lawn between them).
-const WALK_WIDTH: float = 1.3
-const BED_FROM_WALK: float = 1.1
-## Beds side by side keep this much lawn between them.
-const BED_GAP: float = 0.4
-## The least room a side of the walk needs to hold a (shortened) bed of its own.
-const BED_MIN_LENGTH: float = 1.2
 
 ## The neighborhood the yard is in (net/town/neighborhoods.gd id; "" looks like
 ## maple_row). Set by job_lot before generate(), like mess.
@@ -103,7 +95,7 @@ var _no_lawn: Array[Rect2] = []
 var _layout_hash: int = 0
 ## The front walk (yard x and z; empty when the porch reaches the drive).
 var _walk_rect := Rect2()
-## The beds as drawn ([center, size], yard space) and the yard's trees
+## The beds as drawn ([center, size, mums spot or null], yard space) and the yard's trees
 ## ([at, kind, crown]), for the house's season decor.
 var _bed_boxes: Array = []
 var _tree_looks: Array = []
@@ -395,8 +387,8 @@ func _driveway() -> void:
 	_kit.call("box", Vector3(4.2, 0.03, 17.0), Vector3(0.0, 0.015, 11.5), DRIVE[surface], surface)
 	var walk_from := _porch_front()
 	if walk_from < 3.0:
-		_kit.call("box", Vector3(WALK_WIDTH, 0.03, 3.0 - walk_from), Vector3(_door_x(), 0.015, (walk_from + 3.0) * 0.5), (DRIVE[surface] as Color).lightened(0.04), surface)
-		_walk_rect = Rect2(_door_x() - WALK_WIDTH * 0.5, walk_from, WALK_WIDTH, 3.0 - walk_from)
+		_kit.call("box", Vector3(Constants.ART_YARD_WALK_WIDTH, 0.03, 3.0 - walk_from), Vector3(_door_x(), 0.015, (walk_from + 3.0) * 0.5), (DRIVE[surface] as Color).lightened(0.04), surface)
+		_walk_rect = Rect2(_door_x() - Constants.ART_YARD_WALK_WIDTH * 0.5, walk_from, Constants.ART_YARD_WALK_WIDTH, 3.0 - walk_from)
 	set_meta("front_walk", _walk_rect)
 	_art_notes.append(["drive", surface])
 
@@ -455,7 +447,10 @@ func _beds() -> void:
 		var length: float = float(bed[1]) * squeeze
 		var rect := Rect2(x - length * 0.5, front, length, 1.3)
 		bed_rects.append(rect)
-		_bed_boxes.append([Vector3(rect.get_center().x, 0.0, rect.get_center().y), Vector3(length, 0.12, 1.3)])
+		var weed_spots: Array[Vector2] = []
+		for weed: Vector2 in bed[3]:
+			weed_spots.append(rect.get_center() + Vector2(weed.x * squeeze, weed.y))
+		_bed_boxes.append([Vector3(rect.get_center().x, 0.0, rect.get_center().y), Vector3(length, 0.12, 1.3), _mums_spot(rect, weed_spots)])
 		# Tires stick out past the bed's front edge.
 		var reach := Rect2(rect.position, rect.size + Vector2(0.0, 0.45 if edge == "tire" else 0.0))
 		_no_lawn.append(reach)
@@ -487,13 +482,35 @@ func _beds() -> void:
 	_art_notes.append(["beds", edge])
 
 
+## Where the job house's autumn mums pot stands in bed rect (yard space, front
+## edge toward the street): at the back by the porch, the walk's end first, then
+## the far end, then the middle, wherever it is ART_JOB_MUMS_WEED_CLEAR from every
+## weed (so it never hides one from the street), or null. Inside the bed, it is
+## clear of the edging and the tires, and no grass grows through it. Look only.
+func _mums_spot(rect: Rect2, weeds: Array[Vector2]) -> Variant:
+	var inset := Constants.ART_JOB_MUMS_INSET
+	if rect.size.x < inset * 2.0 or rect.size.y < inset * 2.0:
+		return null
+	var toward := 1.0 if _door_x() >= rect.get_center().x else -1.0
+	var reach := rect.size.x * 0.5 - inset
+	var z := rect.position.y + inset
+	for x: float in [rect.get_center().x + toward * reach, rect.get_center().x - toward * reach, rect.get_center().x]:
+		var clear := true
+		for weed: Vector2 in weeds:
+			if weed.distance_to(Vector2(x, z)) < Constants.ART_JOB_MUMS_WEED_CLEAR:
+				clear = false
+		if clear:
+			return Vector3(x, 0.0, z)
+	return null
+
+
 ## Where each bed ([side, length, ...]) stands along the house front, as
 ## Vector2(center x, squeeze): either side of the walk to the door, or, when the
 ## door sits too near a corner for a bed on that side, past its sibling on the
 ## roomy side. Failing that (a door so near a corner that the pair fits on
 ## neither side), they are packed beside the walk on whatever room there is,
 ## drawn shorter (squeeze < 1). A bed never leaves the house's width and never
-## touches the front walk: its inner edge stays BED_FROM_WALK from the walk's
+## touches the front walk: its inner edge stays Constants.ART_YARD_BED_FROM_WALK from the walk's
 ## middle. (The old last resort slid the pair round the house's middle and left
 ## the walk where it was, so about 1 yard in 30 had a bed across its walk.)
 func _bed_xs(beds: Array) -> Array[Vector2]:
@@ -503,23 +520,23 @@ func _bed_xs(beds: Array) -> Array[Vector2]:
 	var xs: Array[Vector2] = []
 	var misfits: Array[int] = []
 	# How far along each side of the walk is already used.
-	var used := {-1.0: BED_FROM_WALK, 1.0: BED_FROM_WALK}
+	var used := {-1.0: Constants.ART_YARD_BED_FROM_WALK, 1.0: Constants.ART_YARD_BED_FROM_WALK}
 	for index: int in beds.size():
 		var side: float = beds[index][0]
 		var length: float = beds[index][1]
-		var x := door + side * (BED_FROM_WALK + length * 0.5)
+		var x := door + side * (Constants.ART_YARD_BED_FROM_WALK + length * 0.5)
 		xs.append(Vector2(x, 1.0))
 		if x - length * 0.5 < low or x + length * 0.5 > high:
 			misfits.append(index)
 		else:
-			used[side] = BED_FROM_WALK + length + BED_GAP
+			used[side] = Constants.ART_YARD_BED_FROM_WALK + length + Constants.ART_YARD_BED_GAP
 	for index: int in misfits:
 		var side: float = -float(beds[index][0])
 		var length: float = beds[index][1]
 		var x := door + side * (float(used[side]) + length * 0.5)
 		if x - length * 0.5 >= low and x + length * 0.5 <= high:
 			xs[index] = Vector2(x, 1.0)
-			used[side] = float(used[side]) + length + BED_GAP
+			used[side] = float(used[side]) + length + Constants.ART_YARD_BED_GAP
 			continue
 		return _packed_beds(beds, door, low, high)
 	return xs
@@ -529,29 +546,29 @@ func _bed_xs(beds: Array) -> Array[Vector2]:
 ## to the room there, or, when one side has too little room for a bed, both on
 ## the other side, shortened together to fit.
 func _packed_beds(beds: Array, door: float, low: float, high: float) -> Array[Vector2]:
-	var room := {-1.0: maxf(door - BED_FROM_WALK - low, 0.0), 1.0: maxf(high - door - BED_FROM_WALK, 0.0)}
+	var room := {-1.0: maxf(door - Constants.ART_YARD_BED_FROM_WALK - low, 0.0), 1.0: maxf(high - door - Constants.ART_YARD_BED_FROM_WALK, 0.0)}
 	var roomy := -1.0 if float(room[-1.0]) > float(room[1.0]) else 1.0
 	var out: Array[Vector2] = []
 	var own_sides := true
 	for bed: Array in beds:
-		if float(room[float(bed[0])]) < BED_MIN_LENGTH:
+		if float(room[float(bed[0])]) < Constants.ART_YARD_BED_MIN_LENGTH:
 			own_sides = false
 	if own_sides:
 		for bed: Array in beds:
 			var side := float(bed[0])
 			var squeeze := minf(1.0, float(room[side]) / float(bed[1]))
-			out.append(Vector2(door + side * (BED_FROM_WALK + float(bed[1]) * squeeze * 0.5), squeeze))
+			out.append(Vector2(door + side * (Constants.ART_YARD_BED_FROM_WALK + float(bed[1]) * squeeze * 0.5), squeeze))
 		return out
 	var total := 0.0
 	for bed: Array in beds:
 		total += float(bed[1])
-	var gaps := BED_GAP * float(beds.size() - 1)
+	var gaps := Constants.ART_YARD_BED_GAP * float(beds.size() - 1)
 	var squeeze := clampf((float(room[roomy]) - gaps) / total, 0.1, 1.0)
-	var along := BED_FROM_WALK
+	var along := Constants.ART_YARD_BED_FROM_WALK
 	for bed: Array in beds:
 		var length := float(bed[1]) * squeeze
 		out.append(Vector2(door + roomy * (along + length * 0.5), squeeze))
-		along += length + BED_GAP
+		along += length + Constants.ART_YARD_BED_GAP
 	return out
 
 
