@@ -38,6 +38,30 @@ var _reverse: bool = false
 ## Where along the road it is parked between rides: 0 at the store, 1 at the lot.
 var _parked_along: float = 0.0
 
+## p1-depart, the honk-and-wait (docs/GAME.md "Leaving together"): Chefty parked
+## with the crew climbing in, honking, until _leave_at (server time). The host
+## decides who sits and when it goes (levels/world.gd _tick_boarding); every
+## peer knows the riders and seats from the RPCs and draws the same climbs.
+## _riders may hold 0 for a seat left empty, so nobody's seat moves when someone
+## hops out.
+var _boarding: bool = false
+var _leave_at: float = 0.0
+## Climbing in: peer -> [from (world), at (server time)].
+var _climbs: Dictionary = {}
+## Hopping out over the tailgate: seat -> [peer, at (server time)].
+var _exits: Dictionary = {}
+var _last_call_played: bool = false
+## Every peer: when it goes, on this peer's own game clock (_local_now).
+var _local_leave: float = 0.0
+## Local: the hold on E to leave now, armed once E was let go after sitting.
+var _hold: float = 0.0
+var _hold_armed: bool = false
+var _asked_to_go: bool = false
+## Local: jump was down last frame (a fresh press hops you out).
+var _jump_held: bool = false
+## Host: a boarder hopped out (world.gd keeps them from being sat right back down).
+signal hopped_out(peer_id: int)
+
 
 func _ready() -> void:
 	_build()
@@ -45,6 +69,8 @@ func _ready() -> void:
 	add_to_group("rides")
 	if name == "Chefty":
 		add_to_group("chefty")
+		# "Hold E: hit the road" while you sit in the bed waiting (p1-depart).
+		add_to_group("prompt_sources")
 		_refresh_label()
 		# A session started on the lot (--start-zone=lot) finds Chefty parked there.
 		if Net.is_host() and Net.start_zone() == Net.Zone.LOT:
@@ -70,26 +96,339 @@ func _physics_process(_delta: float) -> void:
 
 ## Host only. Seat these peers and drive to a zone.
 func depart(peer_ids: Array, destination_zone: int) -> void:
-	if not Net.is_host() or _riding or peer_ids.is_empty():
+	if not Net.is_host() or _riding or _seated(peer_ids).is_empty():
 		return
 	_rpc_depart.rpc(Net.server_time(), peer_ids, destination_zone, RIDE_DURATION_SECONDS)
-	for peer_id: Variant in peer_ids:
-		Net.move_player_to_zone(int(peer_id), Net.Zone.TRANSIT)
+	for peer_id: int in _seated(peer_ids):
+		Net.move_player_to_zone(peer_id, Net.Zone.TRANSIT)
 
 
 func is_riding() -> bool:
 	return _riding
 
 
+## The peers in a riders list, without the empty seats.
+static func _seated(riders: Array) -> Array[int]:
+	var out: Array[int] = []
+	for entry: Variant in riders:
+		if int(entry) != 0:
+			out.append(int(entry))
+	return out
+
+
 ## The seat this peer rides in right now, or -1. Every peer knows the riders
-## from the departure message, so every peer can place every rider.
+## from the departure message, so every peer can place every rider. While the
+## honk-and-wait runs the boarders have seats too, and someone hopping out over
+## the tailgate has seat_count() + their old seat until they land.
 func seat_of(peer_id: int) -> int:
-	if not _riding:
-		return -1
-	for index: int in _riders.size():
-		if int(_riders[index]) == peer_id:
-			return index
+	if _riding or _boarding:
+		for index: int in _riders.size():
+			if int(_riders[index]) == peer_id:
+				return index
+	for seat: Variant in _exits:
+		var exit: Array = _exits[seat]
+		if int(exit[0]) == peer_id and _local_now() - float(exit[1]) < float(exit[2]):
+			return seat_count() + int(seat)
 	return -1
+
+
+# ---------------------------------------------------------------- p1-depart: the honk-and-wait
+
+## Host: Chefty honks and waits for the crew, then goes to destination_zone at
+## the latest after wait seconds (levels/world.gd decides who sits and when).
+func open_boarding(destination_zone: int, wait: float) -> void:
+	if not Net.is_host() or _riding or _boarding:
+		return
+	_rpc_boarding.rpc(destination_zone, Net.server_time() + wait, wait)
+
+
+func is_boarding() -> bool:
+	return _boarding
+
+
+## Where the waiting truck is going (a Net.Zone).
+func boarding_destination() -> int:
+	return _destination
+
+
+## Server time the waiting truck goes on its own.
+func leave_at() -> float:
+	return _leave_at
+
+
+## Whether anyone aboard is still in mid-hop into the bed (on this peer's clock;
+## the host waits for it before it pulls away).
+func climbing() -> bool:
+	for peer_id: Variant in _climbs:
+		var climb: Array = _climbs[peer_id]
+		if _riders.has(peer_id) and _local_now() - float(climb[1]) < float(climb[2]):
+			return true
+	return false
+
+
+## Who's sitting in the bed now (not the empty seats).
+func boarders() -> Array[int]:
+	return _seated(_riders) if _boarding else ([] as Array[int])
+
+
+## Host: peer_id climbs in from where they stand (from). False when there's no
+## window, they're already in, or the bed is full.
+func board(peer_id: int, from: Vector3) -> bool:
+	if not Net.is_host() or not _boarding or _riders.has(peer_id):
+		return false
+	var seat := _free_seat()
+	if seat < 0:
+		return false
+	_rpc_boarded.rpc(peer_id, seat, from)
+	return true
+
+
+## Host: peer_id hops back out over the tailgate.
+func unboard(peer_id: int) -> void:
+	if not Net.is_host() or not _boarding or not _riders.has(peer_id):
+		return
+	_rpc_unboarded.rpc(peer_id)
+	hopped_out.emit(peer_id)
+
+
+## Host: the trip's off: everyone aboard hops back out, and the window closes.
+func cancel_boarding() -> void:
+	if not Net.is_host() or not _boarding:
+		return
+	for peer_id: int in boarders():
+		_rpc_unboarded.rpc(peer_id)
+	close_boarding()
+
+
+## Host: the window closes with nobody going (everyone hopped back out).
+func close_boarding() -> void:
+	if Net.is_host() and _boarding:
+		_rpc_boarding_closed.rpc()
+
+
+## Host: the window's over; go with whoever's aboard (their seats as they sat).
+func leave_now() -> void:
+	if not Net.is_host() or not _boarding:
+		return
+	if boarders().is_empty():
+		close_boarding()
+		return
+	depart(_riders.duplicate(), _destination)
+
+
+func _free_seat() -> int:
+	for seat: int in seat_count():
+		var leaving := _exits.has(seat) and _local_now() - float((_exits[seat] as Array)[1]) < float((_exits[seat] as Array)[2])
+		if (seat >= _riders.size() or int(_riders[seat]) == 0) and not leaving:
+			return seat
+	return -1
+
+
+## This peer's game clock (s): the climbs, hops and the last call run on it,
+## cosmetic and local, so a client's clock estimate never stalls them.
+static func _local_now() -> float:
+	return float(Engine.get_physics_frames()) / float(Engine.physics_ticks_per_second)
+
+
+## Where someone climbing (in or out) is this moment: an eased hop from a to b.
+static func _hop(a: Vector3, b: Vector3, t: float) -> Vector3:
+	var eased := t * t * (3.0 - 2.0 * t)
+	return a.lerp(b, eased) + Vector3.UP * Constants.CHEFTY_BOARD_CLIMB_HOP * 4.0 * t * (1.0 - t)
+
+
+## Where a boarder hopping out of seat lands: behind the tailgate, their side.
+func _step_down_spot(seat: int) -> Vector3:
+	var x := -0.5 + float(seat % 2)
+	return bed_transform() * Vector3(x, 0.0, Constants.CHEFTY_BOARD_STEP_DOWN_Z)
+
+
+func _process(delta: float) -> void:
+	if not _boarding:
+		_hold = 0.0
+		_hold_armed = false
+		_asked_to_go = false
+		_jump_held = Input.is_action_pressed("jump")
+		return
+	var now := _local_now()
+	# The last call: one more honk just before it goes (every peer on its own
+	# game clock from when it heard the first: a client's server-time estimate
+	# can trail the host's by most of a second on a busy machine).
+	if not _last_call_played and now >= _local_leave - Constants.CHEFTY_BOARD_LAST_CALL_SECONDS and now < _local_leave:
+		_last_call_played = true
+		_honk()
+	var me := Net.local_peer_id()
+	var jump := Input.is_action_pressed("jump")
+	var jumped := jump and not _jump_held
+	_jump_held = jump
+	if not _riders.has(me) or Net.is_automated():
+		_hold = 0.0
+		_hold_armed = false
+		return
+	if jumped:
+		_ask(false)
+		return
+	# Holding E leaves now; the press that sat you down doesn't count.
+	if not Input.is_action_pressed("interact"):
+		_hold_armed = true
+		_hold = 0.0
+	elif _hold_armed and not _asked_to_go:
+		_hold += delta
+		if _hold >= Constants.CHEFTY_BOARD_HOLD_SECONDS:
+			_asked_to_go = true
+			_ask(true)
+
+
+## Local: go now (go) or let me out.
+func _ask(go: bool) -> void:
+	if Net.is_host():
+		_handle_ask(Net.local_peer_id(), go)
+	else:
+		_rpc_request_board_choice.rpc_id(1, go)
+
+
+func _handle_ask(peer_id: int, go: bool) -> void:
+	if not _boarding or not _riders.has(peer_id):
+		return
+	if not go:
+		unboard(peer_id)
+		return
+	var world := get_tree().get_first_node_in_group("world")
+	if world != null and world.has_method("boarding_go_now"):
+		world.call("boarding_go_now")
+	else:
+		leave_now()
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_board_choice(go: bool) -> void:
+	if Net.is_host():
+		_handle_ask(multiplayer.get_remote_sender_id(), go)
+
+
+## While you sit in the bed waiting: hold E to go now. Anchored just ahead of
+## your own view, so it's there wherever you look.
+func prompt() -> Dictionary:
+	if not _boarding or not _riders.has(Net.local_peer_id()) or _asked_to_go:
+		return {}
+	var camera := get_viewport().get_camera_3d()
+	var ahead := bed_transform() * Vector3(0.0, 2.2, 0.0)
+	if camera != null:
+		ahead = camera.global_position - camera.global_basis.z * 2.5 - camera.global_basis.y * 0.6
+	return {"text": _Strings.UI["prompt_go_now"], "plain": true, "at": ahead}
+
+
+## Every peer: honks this Chefty made for the honk-and-wait (for --depart-test).
+var honks: int = 0
+
+
+func _honk() -> void:
+	honks += 1
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null and _body != null:
+		sfx.call("play_on", "truck_horn", _body)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_boarding(destination_zone: int, leave_at_time: float, wait: float) -> void:
+	_boarding = true
+	_destination = destination_zone
+	_leave_at = leave_at_time
+	_local_leave = _local_now() + wait
+	_riders = []
+	_climbs.clear()
+	_exits.clear()
+	_last_call_played = false
+	_asked_to_go = false
+	# The honk is the whole announcement: Chefty's going, get in.
+	_honk()
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_boarded(peer_id: int, seat: int, from: Vector3) -> void:
+	if not _boarding:
+		return
+	while _riders.size() <= seat:
+		_riders.append(0)
+	_riders[seat] = peer_id
+	_exits.erase(seat)
+	# The hop starts where this peer draws them now (the host's copy of a
+	# client lags its own by the ping: from there the climb began with a jump
+	# back on the climber's screen, play: rec_dep_1p frame 212, 0.73 m).
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id):
+			var visual := node.get_node_or_null("Visual") as Node3D
+			var here := visual.global_position if visual != null else (node as Node3D).global_position
+			if here.distance_to(from) <= Constants.CHEFTY_BOARD_CLIMB_FROM_MAX:
+				from = here
+	_climbs.erase(peer_id)
+	if from.distance_to(seat_transform(seat).origin) <= Constants.CHEFTY_BOARD_CLIMB_FROM_MAX:
+		# On this peer's own game clock, from when it hears of it: timed by the
+		# host's clock a client's hop stood still, then started late, by as much
+		# as its server-time estimate trailed (play: rec_dep2_fr frames 236-258).
+		# Farther off, the hop takes longer (no 13 m/s leap from the pad's edge:
+		# rec_dep3_1p frame 240).
+		var reach := from.distance_to(seat_transform(seat).origin)
+		_climbs[peer_id] = [from, _local_now(), Constants.CHEFTY_BOARD_CLIMB_SECONDS * maxf(1.0, reach / Constants.CHEFTY_BOARD_CLIMB_REACH)]
+	else:
+		_climbs.erase(peer_id)
+	if peer_id == Net.local_peer_id():
+		_hold_armed = false
+		_hold = 0.0
+		_seat_local_player()
+	# The thump is the landing in the bed, at the end of the hop.
+	if _climbs.has(peer_id):
+		_sound_later("bed_thump", float((_climbs[peer_id] as Array)[2]), Callable(), true)
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_unboarded(peer_id: int) -> void:
+	var seat := _riders.find(peer_id)
+	if seat < 0:
+		return
+	# Out from wherever they are now (still climbing in, they turn round mid-hop).
+	var from := seat_transform(seat).origin
+	_riders[seat] = 0
+	_climbs.erase(peer_id)
+	# The front seats are farther from the tailgate: a longer hop, not a faster one.
+	var hop := Constants.CHEFTY_BOARD_CLIMB_SECONDS * maxf(1.0, from.distance_to(_step_down_spot(seat)) / Constants.CHEFTY_BOARD_CLIMB_REACH)
+	_exits[seat] = [peer_id, _local_now(), hop, from]
+	if peer_id == Net.local_peer_id():
+		_asked_to_go = false
+		for node: Node in get_tree().get_nodes_in_group("players"):
+			if node.name == str(peer_id) and node.has_method("clear_riding"):
+				node.call("clear_riding")
+	# Feet on the ground at the end of the hop, behind the tailgate.
+	_sound_later("hop_land", hop, _step_down_spot.bind(seat), false)
+
+
+## A sound after delay seconds: on the truck (on_truck), or at where() then.
+func _sound_later(id: String, delay: float, where: Callable, on_truck: bool) -> void:
+	get_tree().create_timer(delay, false, true).timeout.connect(func() -> void:
+		var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
+		if sfx == null:
+			return
+		if on_truck and _body != null:
+			sfx.call("play_on", id, _body)
+		elif where.is_valid():
+			sfx.call("play_at", id, where.call())
+	)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_boarding_state(destination_zone: int, leave_at_time: float, left: float, riders: Array) -> void:
+	_boarding = true
+	_destination = destination_zone
+	_leave_at = leave_at_time
+	_local_leave = _local_now() + left
+	_riders = riders
+	_last_call_played = left <= Constants.CHEFTY_BOARD_LAST_CALL_SECONDS
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_boarding_closed() -> void:
+	_boarding = false
+	_riders = []
+	_climbs.clear()
 
 
 func bag_count() -> int:
@@ -97,7 +436,7 @@ func bag_count() -> int:
 
 
 func occupied_count() -> int:
-	return _riders.size()
+	return _seated(_riders).size()
 
 
 func drop_rider(peer_id: int) -> void:
@@ -196,8 +535,24 @@ func seat_count() -> int:
 func seat_transform(index: int) -> Transform3D:
 	if _seats == null or _seats.get_child_count() == 0:
 		return global_transform
-	var seat := _seats.get_child(clampi(index, 0, _seats.get_child_count() - 1)) as Node3D
-	return seat.global_transform
+	var count := _seats.get_child_count()
+	# Hopping out of seat (index - count), over the tailgate (seat_of).
+	if index >= count:
+		var from_seat := index - count
+		var seat_xf := (_seats.get_child(clampi(from_seat, 0, count - 1)) as Node3D).global_transform
+		var exit: Array = _exits.get(from_seat, [0, -1000.0, 1.0, seat_xf.origin])
+		var t := clampf((_local_now() - float(exit[1])) / float(exit[2]), 0.0, 1.0)
+		return Transform3D(seat_xf.basis, _hop(exit[3] as Vector3, _step_down_spot(from_seat), t))
+	var seat := _seats.get_child(clampi(index, 0, count - 1)) as Node3D
+	var xf := seat.global_transform
+	# Climbing in from where they stood (the honk-and-wait).
+	var peer_id := int(_riders[index]) if index < _riders.size() else 0
+	if _climbs.has(peer_id):
+		var climb: Array = _climbs[peer_id]
+		var t := (_local_now() - float(climb[1])) / float(climb[2])
+		if t < 1.0:
+			return Transform3D(xf.basis, _hop(climb[0] as Vector3, xf.origin, clampf(t, 0.0, 1.0)))
+	return xf
 
 
 func _arrive() -> void:
@@ -209,8 +564,8 @@ func _arrive() -> void:
 	_rpc_arrived.rpc()
 	if not Net.is_host():
 		return
-	for peer_id: Variant in riders:
-		Net.move_player_to_zone(int(peer_id), destination as Net.Zone)
+	for peer_id: int in _seated(riders):
+		Net.move_player_to_zone(peer_id, destination as Net.Zone)
 	var world := get_tree().get_first_node_in_group("world")
 	if world != null and world.has_method("on_ride_arrived"):
 		world.call("on_ride_arrived", destination)
@@ -272,7 +627,9 @@ func _build() -> void:
 	for index: int in Balance.EXPECTED_TRAVELING_PARTY_SIZE:
 		var seat := Marker3D.new()
 		seat.name = "Seat%d" % index
-		seat.position = Vector3(-0.5 + float(index % 2), 1.0, -1.2 + float(index / 2))
+		# Two by two, spread over the bed (p1-depart: a metre apart, a crew waiting
+		# in it stood nose to nose, rec_dep3_fr frames 252-261).
+		seat.position = Vector3(-0.55 + 1.1 * float(index % 2), 1.0, -0.9 + 1.7 * float(index / 2))
 		seats.add_child(seat)
 	_place(0.0)
 
@@ -304,6 +661,10 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	_reverse = is_in_group("chefty") and destination_zone == Net.Zone.STORE
 	_riders = riders
 	_riding = true
+	# The honk-and-wait is over: the boarders keep their seats (and a climb
+	# still finishing finishes on the move).
+	_boarding = false
+	_exits.clear()
 	if _body != null:
 		_body.reset_physics_interpolation()
 	_seat_local_player()
@@ -326,6 +687,9 @@ func _refresh_label() -> void:
 func _rpc_request_state() -> void:
 	if Net.is_host():
 		_rpc_parked.rpc_id(multiplayer.get_remote_sender_id(), _parked_along, _bags, _bag_value)
+		# Joined mid honk-and-wait: who's sitting where (no honk, no climbs).
+		if _boarding:
+			_rpc_boarding_state.rpc_id(multiplayer.get_remote_sender_id(), _destination, _leave_at, _leave_at - Net.server_time(), _riders)
 		if _junk_bed != null:
 			_junk_bed.call("send_to", multiplayer.get_remote_sender_id())
 
@@ -356,6 +720,7 @@ func _rpc_arrived() -> void:
 	if _body != null:
 		_body.reset_physics_interpolation()
 	_riders.clear()
+	_climbs.clear()
 	# Only this ride's riders get off: anyone seated elsewhere (the Shuttle, the
 	# drivable Chefty) stays put.
 	for node: Node in get_tree().get_nodes_in_group("players"):

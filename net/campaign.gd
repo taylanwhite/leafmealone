@@ -613,8 +613,7 @@ func _split_pool(pool: float) -> Array[Dictionary]:
 		leaf_total += float(leaves[peer_id])
 		rescue_total += float(rescues[peer_id])
 		objective_total += float(objectives[peer_id])
-	var scores: Dictionary = {}
-	var score_total := 0.0
+	var scores: Array = []
 	for peer_id: int in peers:
 		var leaf_share := 0.0 if leaf_total <= 0.0 else float(leaves[peer_id]) / leaf_total
 		var rescue_share := 0.0 if rescue_total <= 0.0 else float(rescues[peer_id]) / rescue_total
@@ -622,31 +621,23 @@ func _split_pool(pool: float) -> Array[Dictionary]:
 		var score := leaf_share * Balance.LEAF_CLEARING_SCORE_WEIGHT
 		score += rescue_share * Balance.RESCUE_SCORE_WEIGHT
 		score += objective_share * Balance.OBJECTIVE_SCORE_WEIGHT
-		scores[peer_id] = score
-		score_total += score
-	var raw: Dictionary = {}
-	if score_total <= 0.0:
-		var even := 1.0 / float(maxi(peers.size(), 1))
-		for peer_id: int in peers:
-			raw[peer_id] = even
-	else:
-		for peer_id: int in peers:
-			raw[peer_id] = float(scores[peer_id]) / score_total
-	var floored_total := 0.0
-	for peer_id: int in peers:
-		raw[peer_id] = maxf(float(raw[peer_id]), Balance.MINIMUM_CONTRIBUTION_SHARE)
-		floored_total += float(raw[peer_id])
+		scores.append(score)
+	# p1-depart: half the pool is the crew's, evenly; the rest by contribution
+	# (the bagger alone took a $3 job and the friends read "$0" before), in whole
+	# dollars that add up to the pool.
+	var shares := _Economy.split_shares(scores)
+	var dollars := _Economy.split_dollars(pool, shares)
 	var results: Array[Dictionary] = []
-	for peer_id: int in peers:
-		var share := float(raw[peer_id]) / floored_total if floored_total > 0.0 else 0.0
+	for index: int in peers.size():
+		var peer_id := peers[index]
 		results.append({
 			"peer_id": peer_id,
 			"name": Net.player_name(peer_id),
 			"leaves": float(leaves[peer_id]),
 			"rescues": float(rescues[peer_id]),
 			"objectives": float(objectives[peer_id]),
-			"share": share,
-			"credits": int(round(pool * share)),
+			"share": shares[index],
+			"credits": dollars[index],
 		})
 	return results
 

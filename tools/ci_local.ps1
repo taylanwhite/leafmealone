@@ -341,6 +341,16 @@ $Tests = [ordered]@{
 		Extra = '--sim-lag=150 --hud-test'
 		Check = { param($h, $c) [bool]$h.hud_test.ok -and $c -ne $null -and [bool]$c.hud_test.ok }
 	}
+	# How a crew leaves together and how a job ends (p1-depart, net/dev/depart_test.gd):
+	# the homeowner's verdict and the crew's split, Chefty's honk-and-wait at the
+	# store (hop out, walk up, everyone aboard, hold E to go) and after the cash
+	# (the window, the stragglers gathered, the job settled as it pulls away).
+	depart = @{
+		Port = 7837
+		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test'; Seconds = 110; Client = 105
+		Extra = '--sim-lag=80 --depart-test'
+		Check = { param($h, $c) [bool]$h.depart_test.ok -and $c -ne $null -and [bool]$c.depart_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

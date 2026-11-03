@@ -232,6 +232,12 @@ func _add_cases(cases: Array) -> void:
 				_case(cases, "Economy.job_pay", args, _Economy.job_pay(args[0], args[1], mood, budget, args[4], args[5]))
 	for perks: int in 5:
 		_case(cases, "Economy.bag_bonus", [perks], _Economy.bag_bonus(perks))
+	# The crew's split (p1-depart).
+	for scores: Array in [[], [0.0], [1.0], [0.7, 0.0, 0.0, 0.0], [0.4, 0.3, 0.3], [0.0, 0.0, 0.0, 0.0], [0.55, 0.15, 0.3, 0.0]]:
+		var shares := _Economy.split_shares(scores)
+		_case(cases, "Economy.split_shares", [scores], shares)
+		for pool: float in [0.0, 3.0, 40.0, 117.6]:
+			_case(cases, "Economy.split_dollars", [pool, shares], _Economy.split_dollars(pool, shares))
 	# Crew size.
 	for players: int in range(1, Constants.MAX_PLAYERS + 1):
 		_case(cases, "Economy.crew_work_scale", [players], _Economy.crew_work_scale(players))

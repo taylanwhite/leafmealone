@@ -464,6 +464,38 @@ class Economy:
             bonus += self.C["BAG_BONUS_PER_PERK"]
         return bonus
 
+    def split_shares(self, scores):
+        # p1-depart: CREW_SPLIT_EVEN_SHARE of the pool evenly, the rest by
+        # contribution (each floored at MINIMUM_CONTRIBUTION_SHARE, normalized).
+        count = len(scores)
+        if count == 0:
+            return []
+        total = sum(max(0.0, float(s)) for s in scores)
+        raw = []
+        for s in scores:
+            part = 1.0 / float(count) if total <= 0.0 else max(0.0, float(s)) / total
+            raw.append(max(part, self.B["MINIMUM_CONTRIBUTION_SHARE"]))
+        floored = sum(raw)
+        even = clampf(self.C["CREW_SPLIT_EVEN_SHARE"], 0.0, 1.0)
+        return [even / float(count) + (1.0 - even) * part / floored for part in raw]
+
+    def split_dollars(self, pool, shares):
+        whole = max(0, int(g_round(pool)))
+        out, rests = [], []
+        for index, share in enumerate(shares):
+            exact = float(whole) * float(share)
+            dollars = int(math.floor(exact + 1e-9))
+            out.append(dollars)
+            rests.append((exact - float(dollars), index))
+        left = whole - sum(out)
+        rests.sort(key=lambda r: (-r[0], r[1]))
+        for _, index in rests:
+            if left <= 0:
+                break
+            out[index] += 1
+            left -= 1
+        return out
+
     # The crew-size hooks return 1.0 until balance:E adds the tables; once the
     # constants exist (or a --set what-if adds them) they are read like E will.
     def crew_work_scale(self, players):
@@ -993,22 +1025,29 @@ class Run:
         return sum(parts) / len(parts) * clean_enough, clean_enough, messy_below
 
     def mood_odds(self, clean, clean_enough, messy_below, slow):
-        """The chance of each mood (homeowner._judge, with its inline surprise rolls)."""
-        C, M = self.g.C, self.g.M["homeowner_inline"]
+        """The chance of each mood (homeowner.verdict: the band, then the mood swing
+        a step up or down; a mess stays a mess, thrilled only for a clean yard)."""
+        C = self.g.C
         if clean < messy_below:
-            base = {"messy": 1.0}
+            return {"messy": 1.0}
         elif slow:
             base = {"slow": 1.0}
         elif clean >= clean_enough:
             base = {"thrilled": C["HOMEOWNER_THRILLED_CHANCE"], "happy": 1.0 - C["HOMEOWNER_THRILLED_CHANCE"]}
         else:
             base = {"happy": C["HOMEOWNER_HAPPY_CHANCE"], "fine": 1.0 - C["HOMEOWNER_HAPPY_CHANCE"]}
-        good, bad = M["surprise_good_below"], 1.0 - M["surprise_bad_above"]
-        odds = {mood: p * (1.0 - good - bad) for mood, p in base.items()}
-        for mood in ("happy", "thrilled"):
-            odds[mood] = odds.get(mood, 0.0) + good / 2.0
-        for mood in ("slow", "fine"):
-            odds[mood] = odds.get(mood, 0.0) + bad / 2.0
+        ladder = ["thrilled", "happy", "fine", "slow"]
+        up, down = C["HOMEOWNER_MOOD_SWING_UP_BELOW"], 1.0 - C["HOMEOWNER_MOOD_SWING_DOWN_ABOVE"]
+        odds = {}
+        for mood, p in base.items():
+            at = ladder.index(mood)
+            lifted = mood
+            if at > 0 and (at - 1 > 0 or clean >= clean_enough):
+                lifted = ladder[at - 1]
+            dropped = ladder[min(at + 1, len(ladder) - 1)]
+            odds[mood] = odds.get(mood, 0.0) + p * (1.0 - up - down)
+            odds[lifted] = odds.get(lifted, 0.0) + p * up
+            odds[dropped] = odds.get(dropped, 0.0) + p * down
         return odds
 
     def raw_value(self, plan):
@@ -1728,6 +1767,8 @@ def mirror_functions(tables: dict) -> dict:
         "Economy.messy_below_at": econ.messy_below_at,
         "Economy.job_pay": econ.job_pay,
         "Economy.bag_bonus": econ.bag_bonus,
+        "Economy.split_shares": econ.split_shares,
+        "Economy.split_dollars": econ.split_dollars,
         "Economy.crew_work_scale": econ.crew_work_scale,
         "Economy.crew_patience_scale": econ.crew_patience_scale,
         "Economy.xp_crew_scale": econ.xp_crew_scale,

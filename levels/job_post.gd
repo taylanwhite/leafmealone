@@ -28,14 +28,14 @@ func _ready() -> void:
 
 ## The prompt while the local player stands here, or empty.
 func prompt() -> Dictionary:
-	if not _inside:
+	if not _inside or _aboard():
 		return {}
 	var keys := {"finish": "prompt_finish", "store": "prompt_shop"}
 	return {"text": _Strings.UI[keys.get(action_name, "prompt_board")], "at": global_position + Vector3(0.0, 1.6, 0.0)}
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not _inside or not event.is_action_pressed("interact"):
+	if not _inside or _aboard() or not event.is_action_pressed("interact"):
 		return
 	var world := get_tree().get_first_node_in_group("world")
 	if world == null:
@@ -49,6 +49,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	else:
 		world.call("request_depart")
 	get_viewport().set_input_as_handled()
+
+
+## Sitting in Chefty's bed already (its honk-and-wait, p1-depart): the truck's
+## own prompt and hold take over.
+func _aboard() -> bool:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	return chefty != null and int(chefty.call("seat_of", Net.local_peer_id())) >= 0
 
 
 func _on_body_entered(body: Node3D) -> void:

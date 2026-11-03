@@ -47,6 +47,15 @@ func _ready() -> void:
 	close.set_meta(&"ui_sound", &"back")
 	close.pressed.connect(close_window)
 	column.add_child(close)
+	Net.player_zone_changed.connect(_on_zone_changed)
+
+
+## p1-depart (crew-09): the receipt prints as Chefty pulls away and is read on
+## the ride; stepping off at Homie Depot puts it away, so nobody arrives stuck
+## behind a card they have to click.
+func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
+	if visible and peer_id == Net.local_peer_id() and zone == Net.Zone.STORE:
+		close_window()
 
 
 func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:

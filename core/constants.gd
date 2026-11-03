@@ -5045,3 +5045,47 @@ const TOWN_STREET_PROP_CHUNK: float = 256.0
 ## the queue's last turn, the frame is already a long one (the job yard arriving
 ## on a joiner) and the queue sits it out (never two frames running).
 const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
+
+# ---- p1-depart (how a crew leaves together and how a job ends; docs/GAME.md
+# "Leaving together", levels/world.gd _tick_boarding, net/components/ride.gd)
+## Chefty's honk-and-wait: the first boarder sits, Chefty honks, and the truck
+## goes this long after (s), or sooner once the whole crew there is aboard. The
+## same window after the homeowner's cash, before the ride home.
+const CHEFTY_BOARD_WAIT_SECONDS: float = 6.0
+## Everyone aboard: the beat (s) before it pulls away, so the last one in lands
+## in the bed and hears the engine before the road moves.
+const CHEFTY_BOARD_ALL_ABOARD_SECONDS: float = 1.0
+## The last-call honk, this long (s) before the window runs out.
+const CHEFTY_BOARD_LAST_CALL_SECONDS: float = 1.6
+## Walking up to Chefty in the window seats you: within this far (m, flat) of
+## the bed's middle (the store's Board pad counts too). Crew bots wait at
+## net/dev/bot.gd CREW_WAIT_SLOTS, the farthest 3.3 m out.
+const CHEFTY_BOARD_WALKUP_METERS: float = 3.6
+## A seated boarder holds E this long (s) to leave right now.
+const CHEFTY_BOARD_HOLD_SECONDS: float = 0.6
+## Climbing into the bed (or hopping out over the tailgate): how long (s) and how
+## high the hop arcs (m). From farther than CHEFTY_BOARD_CLIMB_FROM_MAX (m) (a
+## straggler gathered off the yard) there is no climb: they're just aboard.
+const CHEFTY_BOARD_CLIMB_SECONDS: float = 0.45
+const CHEFTY_BOARD_CLIMB_HOP: float = 0.55
+## Climbs from farther than this (m) take longer in proportion (the Board pad's
+## edge is about 5 m from a seat).
+const CHEFTY_BOARD_CLIMB_REACH: float = 2.6
+const CHEFTY_BOARD_CLIMB_FROM_MAX: float = 9.0
+## Where a boarder hopping out lands, behind the tailgate (m along the bed's +Z
+## from the truck's origin).
+const CHEFTY_BOARD_STEP_DOWN_Z: float = 3.6
+## The homeowner settles up only for a job this done (the share of the leaves
+## and every task asked for, the measure _judge uses, 0..1): she waves the crew
+## over only past it, and below it the first talk gets a look at the yard and
+## no cash; ask again and she'll call it a day anyway (npcs/homeowner.gd).
+const HOMEOWNER_SETTLE_DONE: float = 0.25
+## "Some days people are just in a mood" (homeowner.verdict): a roll under this
+## lifts the mood a step, over this drops it a step. A mess stays a mess, and
+## only a job that's clean enough can be lifted to thrilled.
+const HOMEOWNER_MOOD_SWING_UP_BELOW: float = 0.12
+const HOMEOWNER_MOOD_SWING_DOWN_ABOVE: float = 0.9
+## The crew's split (core/economy.gd split_shares): this share of the pool goes
+## to the whole crew evenly, the rest by contribution (Balance weights and
+## MINIMUM_CONTRIBUTION_SHARE), so nobody who came along reads $0.
+const CREW_SPLIT_EVEN_SHARE: float = 0.5

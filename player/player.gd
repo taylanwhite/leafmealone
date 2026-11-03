@@ -211,6 +211,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("honk") and _honk():
 		get_viewport().set_input_as_handled()
+	# Sitting in Chefty's bed (the ride, or its honk-and-wait): E is the truck's
+	# (hold to hit the road, net/components/ride.gd), not the junk or a bag nearby.
+	elif event.is_action_pressed("interact") and _ride != null:
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _water_hookup():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact") and _refuel():
@@ -1634,7 +1638,7 @@ func _best_pickup() -> Node3D:
 ## same order _unhandled_input tries them. Empty when E does nothing here.
 func interaction_hint() -> Dictionary:
 	# Seated in Chefty the drive HUD shows the seat's keys (ui/drive_hud.gd).
-	if in_vehicle():
+	if in_vehicle() or _ride != null:
 		return {}
 	# A fresh notice (out of bags, out of gas) beats every other prompt for a moment.
 	if _notice_text != "" and Time.get_ticks_msec() < _notice_until:

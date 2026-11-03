@@ -5,9 +5,13 @@ extends Node3D
 ## them when you're done: they react to how clean the yard is, how long you took,
 ## and a little randomness, with a caption over their head, a goofy noise, and
 ## body language to match (the line: a bill they're owed, else usually their own
-## personality's, Strings.homeowner_pool). Then they hold out the cash, and whoever grabs it
-## settles the job: the crew is paid the bags' value times the mood's multiplier
-## (Constants.HOMEOWNER_PAY_BY_MOOD), split by contribution, and Chefty heads home.
+## personality's, Strings.homeowner_pool). Then they hold out the cash ("[E] Call
+## it a day ($N)"), and whoever grabs it settles the job: the crew is paid the
+## bags' value times the mood's multiplier (Constants.HOMEOWNER_PAY_BY_MOOD),
+## split (core/economy.gd split_shares), and Chefty honks for the ride home
+## (levels/world.gd _tick_boarding). Asked early (under HOMEOWNER_SETTLE_DONE)
+## they look the yard over first; another bag in Chefty mid-offer is counted
+## into the cash in their hand (p1-depart).
 ## Lives in the lot scene, so every peer has it at the same path.
 
 enum Phase { WAITING, REACTING, OFFERING, PAID }
@@ -35,6 +39,9 @@ const STAGING: Dictionary = {
 	"messy": {"gesture": "look_around", "sound": "vo_eh", "mood": "angry"},
 	"nothing": {"gesture": "scratch", "sound": "vo_huh", "mood": "worried"},
 }
+## Reactions that aren't a verdict (no personality pools): asked to settle up
+## with most of the yard still down (p1-depart), a long look at it.
+const NOT_DONE_STAGING: Dictionary = {"gesture": "look_around", "sound": "vo_huh", "mood": "worried"}
 
 var _phase: int = Phase.WAITING
 var _amount: int = 0
@@ -47,6 +54,9 @@ var _cash_label: Label3D
 var _rng := RandomNumberGenerator.new()
 ## Host: how this job is being settled, for the payout receipt.
 var _settlement: Dictionary = {}
+## Host: she's already looked over a job that wasn't near done (p1-depart); the
+## next ask settles up whatever's left.
+var _asked_early: bool = false
 
 
 func _ready() -> void:
@@ -207,7 +217,36 @@ func _process(delta: float) -> void:
 		if _body.call("current_gesture") != "offer":
 			_body.call("gesture", "offer")
 		_cash.position.y = 1.05 + sin(Time.get_ticks_msec() * 0.005) * 0.03
+	_host_recount()
 	_beckon(delta)
+
+
+## Host (p1-depart): another bag landed in Chefty while she was counting or
+## holding out the cash (a crew keeps working while one of them settles up).
+## She counts it in: the same verdict, the new load, the cash in her hand goes
+## up. (Taking the old offer paid for bags it never counted; pocketing it made
+## whoever was at her side ask all over again, play: rec_crew_1p frames 213-413.)
+func _host_recount() -> void:
+	if not Net.is_host() or multiplayer.multiplayer_peer == null:
+		return
+	if _phase != Phase.REACTING and _phase != Phase.OFFERING:
+		return
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty == null:
+		return
+	var value := int(chefty.call("bag_value"))
+	if value == int(_settlement.get("bags_value", 0)):
+		return
+	var task_value := 0
+	for row: Variant in (_settlement.get("tasks", []) as Array):
+		task_value += int((row as Array)[2])
+	var bills_total := 0
+	for reason: Variant in (_settlement.get("bills", {}) as Dictionary):
+		bills_total += int((_settlement["bills"] as Dictionary)[reason])
+	var amount := _Economy.job_pay(value, task_value, str(_settlement.get("mood", "fine")), _budget(), int(_settlement.get("water_fee", 0)), bills_total)
+	_settlement["bags_value"] = value
+	_settlement["paid"] = amount
+	_rpc_recount.rpc(amount)
 
 
 var _beckon_left: float = 0.0
@@ -251,6 +290,10 @@ func _beckon(delta: float) -> void:
 	var away := _flat_distance(me)
 	if away <= TALK_REACH or away > Constants.HOMEOWNER_BECKON_METERS:
 		return
+	# p1-depart (NB-01): a bag or two isn't a job. She waves you over to settle up
+	# only once the yard's well on its way (the share _judge weighs).
+	if _done_share_cached() < Constants.HOMEOWNER_SETTLE_DONE:
+		return
 	_beckon_left = _beckon_gap
 	_beckon_gap = minf(_beckon_gap * Constants.HOMEOWNER_BECKON_BACKOFF, Constants.HOMEOWNER_BECKON_MAX_SECONDS)
 	_body.call("gesture", "wave")
@@ -261,6 +304,39 @@ func _beckon(delta: float) -> void:
 
 
 var _beckoned: bool = false
+## done_share() for the wave, looked at about once a second (it counts the
+## whole leaf grid): [value, msec when taken].
+var _done_cache: Array = [0.0, -100000]
+## Tests only (net/dev/job_test.gd): stands in for done_share() when 0 or more.
+var dev_done_share: float = -1.0
+
+
+func _done_share_cached() -> float:
+	var now := Time.get_ticks_msec()
+	if now - int(_done_cache[1]) > 1000:
+		_done_cache = [done_share(), now]
+	return float(_done_cache[0])
+
+
+## How done the whole job is, 0..1 (every peer can ask; the host's is the truth):
+## the leaves, counted done at the owner's clean-enough line, and every task
+## they asked for, weighed alike. _judge's verdict and the settle line
+## (Constants.HOMEOWNER_SETTLE_DONE) both read it.
+func done_share() -> float:
+	if dev_done_share >= 0.0:
+		return dev_done_share
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	var clean_enough := _Economy.clean_enough_at(_standards())
+	var clean := float(field.call("cleaned_fraction")) if field != null else 0.0
+	var total := clampf(clean / clean_enough, 0.0, 1.0)
+	var parts := 1
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks != null:
+		for task: String in (tasks.get("active") as PackedStringArray):
+			if Constants.TASK_PAY.has(task):
+				total += clampf(float(tasks.call("progress", task)), 0.0, 1.0)
+				parts += 1
+	return total / float(parts)
 
 
 # ---------------------------------------------------------------- host
@@ -282,6 +358,14 @@ func _handle_talk(peer_id: int) -> void:
 			var pay := int(round(float(Constants.TASK_PAY[task]) * done))
 			task_value += pay
 			task_lines.append([task, int(round(done * 100.0)), pay])
+	# p1-depart (NB-01): settling up ends the job. Asked with most of the yard
+	# still down, she takes a long look at it first and holds on to the cash; ask
+	# again and she'll call it a day (the prompt then names the price).
+	if value + task_value > 0 and not _asked_early and done_share() < Constants.HOMEOWNER_SETTLE_DONE:
+		_asked_early = true
+		var early: Array = _Strings.homeowner_pool("not_done")
+		_rpc_react.rpc("not_done", _rng.randi() % early.size(), 0, "not_done")
+		return
 	var mood := _judge(value + task_value)
 	# Their water isn't free.
 	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
@@ -366,44 +450,49 @@ static func grumbled(mood: String, steps: int) -> String:
 func _judge(value: int) -> String:
 	if value <= 0:
 		return "nothing"
-	var field := get_tree().get_first_node_in_group("leaf_field")
 	# Picky owners want it cleaner before they're happy, and call it a mess sooner.
 	var standards := _standards()
 	var clean_enough := _Economy.clean_enough_at(standards)
 	var messy_below := _Economy.messy_below_at(standards)
-	# How done the whole job is: the leaves and every task asked for, weighed alike.
-	var clean := float(field.call("cleaned_fraction")) if field != null else 0.0
-	var tasks := get_tree().get_first_node_in_group("job_tasks")
-	if tasks != null:
-		var parts := [clampf(clean / clean_enough, 0.0, 1.0)]
-		for task: String in (tasks.get("active") as PackedStringArray):
-			if Constants.TASK_PAY.has(task):
-				parts.append(float(tasks.call("progress", task)))
-		var total := 0.0
-		for part: float in parts:
-			total += part
-		clean = total / float(parts.size()) * clean_enough
+	# How done the whole job is: the leaves and every task asked for, weighed
+	# alike, on the leaves' scale (done at clean_enough).
+	var clean := done_share() * clean_enough
 	var patience := Constants.HOMEOWNER_PATIENCE_MINUTES
 	if Campaign.has_perk("sweet_talk"):
 		patience *= Constants.SWEET_TALK_PATIENCE
 	var slow := Campaign.job_minutes() > patience
+	return verdict(clean, clean_enough, messy_below, slow, grumbles, _rng)
+
+
+## The mood for a job this done (clean, on the leaves' scale), pure but for the
+## rng: a mess, slow, or by how clean, then "some days people are just in a
+## mood" (Constants.HOMEOWNER_MOOD_SWING_*) a step up or down, then a step down
+## per grumble. crew-08 (play1): the swing used to pick happy or thrilled
+## outright, so a yard 0.6% done read "thrilled" and five stars about one time
+## in sixteen. Now a mess stays a mess, and only a job that's clean enough can
+## be lifted to thrilled. Static so --depart-test can roll it.
+static func verdict(clean: float, clean_enough: float, messy_below: float, slow: bool, grumble_steps: int, rng: RandomNumberGenerator) -> String:
 	var mood := "fine"
 	if clean < messy_below:
 		mood = "messy"
 	elif slow:
 		mood = "slow"
 	elif clean >= clean_enough:
-		mood = "thrilled" if _rng.randf() < Constants.HOMEOWNER_THRILLED_CHANCE else "happy"
+		mood = "thrilled" if rng.randf() < Constants.HOMEOWNER_THRILLED_CHANCE else "happy"
 	else:
-		mood = "happy" if _rng.randf() < Constants.HOMEOWNER_HAPPY_CHANCE else "fine"
-	# Some days people are just in a mood, either way.
-	var roll := _rng.randf()
-	if roll < 0.12:
-		mood = ["happy", "thrilled"][_rng.randi() % 2]
-	elif roll > 0.9:
-		mood = ["slow", "fine"][_rng.randi() % 2]
+		mood = "happy" if rng.randf() < Constants.HOMEOWNER_HAPPY_CHANCE else "fine"
+	var roll := rng.randf()
+	if mood != "messy":
+		var at := MOOD_LADDER.find(mood)
+		if roll < Constants.HOMEOWNER_MOOD_SWING_UP_BELOW and at > 0:
+			# Up a step (the ladder runs best first), but never into thrilled for a
+			# yard that isn't clean enough.
+			if at - 1 > 0 or clean >= clean_enough:
+				mood = MOOD_LADDER[at - 1]
+		elif roll > Constants.HOMEOWNER_MOOD_SWING_DOWN_ABOVE:
+			mood = MOOD_LADDER[mini(at + 1, MOOD_LADDER.size() - 1)]
 	# Whatever the crew did out front, they haven't forgotten (host_grumble).
-	return grumbled(mood, grumbles)
+	return grumbled(mood, grumble_steps)
 
 
 func _handle_take(peer_id: int) -> void:
@@ -438,11 +527,11 @@ func _rpc_request_state() -> void:
 @rpc("authority", "call_local", "reliable")
 func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -> void:
 	_amount = amount
-	_phase = Phase.WAITING if mood == "nothing" else Phase.REACTING
+	_phase = Phase.WAITING if mood == "nothing" or mood == "not_done" else Phase.REACTING
 	# pool is "<mood>", "bill_<reason>" or "<personality>/<mood>" (Strings.homeowner_pool).
 	var lines: Array = _Strings.homeowner_pool(pool if pool != "" else mood)
 	show_caption(str(lines[clampi(line_index, 0, lines.size() - 1)]))
-	var staging: Dictionary = STAGING.get(mood, STAGING["fine"])
+	var staging: Dictionary = NOT_DONE_STAGING if mood == "not_done" else STAGING.get(mood, STAGING["fine"])
 	_body.set("mood", staging["mood"])
 	_body.call("gesture", staging["gesture"])
 	_speak(str(staging["sound"]))
@@ -456,6 +545,17 @@ func _rpc_offer() -> void:
 @rpc("authority", "call_remote", "reliable")
 func _rpc_offer_with(amount: int) -> void:
 	_offer(amount)
+
+
+## p1-depart: another bag counted in (_host_recount): the wad in her hand says
+## the new amount, with a line and a grumble.
+@rpc("authority", "call_local", "reliable")
+func _rpc_recount(amount: int) -> void:
+	# Seeded by the new amount, which every peer has, so they all read the same line.
+	show_caption(_Strings.pick_seeded(_Strings.HOMEOWNER_LINES["recount"], amount), Constants.HOMEOWNER_PAID_CAPTION_SECONDS)
+	_amount = amount
+	_cash_label.text = _Strings.UI["cash_amount"] % amount
+	_speak("vo_huh")
 
 
 func _offer(amount: int) -> void:

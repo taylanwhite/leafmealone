@@ -78,6 +78,8 @@ const UI: Dictionary = {
 	# is in front of you, so the prompt doesn't name it (docs/GAME.md "Writing for
 	# players").
 	"prompt_board": "Board",
+	# Sitting in Chefty's bed while it honks for the rest of the crew (p1-depart).
+	"prompt_go_now": "Hold {key:interact}: hit the road",
 	"prompt_finish": "Call the job done",
 	"prompt_shop": "Shop",
 	"prompt_job_board": "Pick a job",
@@ -121,7 +123,8 @@ const UI: Dictionary = {
 	"homeowner_name": "The Homeowner",
 	"prompt_talk": "Talk",
 	"prompt_dump_truck": "Dump",
-	"prompt_take_cash": "Take the cash ($%d)",
+	# Taking it ends the job, so the prompt says so (p1-depart, NB-01).
+	"prompt_take_cash": "Call it a day ($%d)",
 	"cash_amount": "$%d",
 	"shop_tool_unlocks": "Unlocks: %s",
 	"shop_tools": "Tools",
@@ -616,6 +619,23 @@ const HOMEOWNER_LINES: Dictionary = {
 		"I'm not paying full price for a yard that still crunches.",
 		"You call this clean? The raccoons filed a complaint.",
 		"I've seen tidier yards AFTER a tornado. Here. Go.",
+	],
+	# Asked to settle up with most of the yard still down (p1-depart): no cash yet.
+	# Ask again and she'll call it a day anyway.
+	"not_done": [
+		"Done? Sweetie. Turn around. Look at it. All of it.",
+		"That's a bag. I have a YARD. Those are different sizes.",
+		"Oh, are we on break? Good for you. The leaves aren't.",
+		"I can still see the leaves from the kitchen. And the bathroom. And space.",
+		"You're quitting? I've had sneezes that lasted longer.",
+		"I'll pay for a job. That was a warm-up. I watched it.",
+	],
+	# Another bag landed while she was holding out the cash: she counts it in.
+	"recount": [
+		"Oh, MORE? Fine. Fine! Here.",
+		"New bag, new math. Ugh. Here.",
+		"Stop bringing me bags while I'm paying you!",
+		"Every time I count it, it goes up. Who taught you this.",
 	],
 	"nothing": [
 		"You haven't bagged anything. Are you here for the Wi-Fi?",
