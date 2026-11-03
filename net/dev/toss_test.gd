@@ -42,13 +42,20 @@ const _CarryView = preload("res://props/carry_view.gd")
 const FP_STEP_LIMIT_M: float = 0.35
 const FP_SHARE_GROWTH: float = 1.1
 const FP_FLIGHT_SHARE_LIMIT: float = 0.2
-## A bag's drawn look moving farther than this in one frame is a jump (m).
+## A bag's drawn look moving farther than this in one 60 Hz frame is a jump (m).
+## A longer frame (a loaded machine: one took 0.14 s, and a bag flying at 6 m/s
+## covered 0.8 m in it) may move it proportionally farther, so the check is a
+## speed: the step over the frame's own time, never less than JUMP_FRAME_S.
+## A teleport (meters in one frame) still fails at any frame length.
 const JUMP_LIMIT_M: float = 0.6
+const JUMP_FRAME_S: float = 1.0 / 60.0
 ## How far off its stack spot a bag may be drawn when the load's bag replaces it (m).
 const POP_LIMIT_M: float = 0.08
 ## How much deeper than at its ends a settling bag may cut into the truck (m).
 const CUT_LIMIT_M: float = 0.03
 const CLIENT_SPOTS: Array[float] = [3.0, 6.0]
+## H9's settle sweep works through this many plans a frame (see _settle_sweep).
+const SWEEP_PLANS_PER_FRAME: int = 20
 const BAG_VALUE: int = 10
 ## The client's bags are worth a dollar more, so it takes only the ones put out for it.
 const CLIENT_BAG_VALUE: int = 11
@@ -96,7 +103,7 @@ func _run_host() -> void:
 	_check("H5 the arc preview agreed: %s, %s caught, %s not" % [h1["arc_caught"], h2["arc_caught"], h4["arc_caught"]], bool(h1["arc_caught"]) and bool(h2["arc_caught"]) and not bool(h4["arc_caught"]))
 	await _client_turns()
 	await _wheelbarrow()
-	var sweep := _settle_sweep()
+	var sweep: Dictionary = await _settle_sweep()
 	_check("H9 every settle from beside the truck clears it: %s" % JSON.stringify(sweep), float(sweep["worst_m"]) <= CUT_LIMIT_M)
 	var h8a: Dictionary = await _toss(2.0, 0.0, false)
 	_check("H8 a toss from 2 m hops in over the rail: %s" % JSON.stringify(h8a), _caught_ok(h8a) and _over_rail(h8a))
@@ -133,7 +140,12 @@ func _own_eyes_ok(view: Dictionary, throws: int) -> bool:
 func _check(line: String, passed: bool) -> void:
 	_ok = _ok and passed
 	_checks.append({"step": line.substr(0, 3), "ok": passed})
-	print("[TossTest] %s %s" % ["ok  " if passed else "FAIL", line])
+	print("[TossTest] %s %s (at %.1f s)" % ["ok  " if passed else "FAIL", line, _clock()])
+
+
+## Seconds since this process started, to line the host's and the client's logs up.
+static func _clock() -> float:
+	return float(Time.get_ticks_msec()) / 1000.0
 
 
 ## The drawn bag never cut into the truck deeper than where its glide began or ended.
@@ -236,7 +248,10 @@ func _watch(bag: Node3D, seconds: float) -> Dictionary:
 		if not is_instance_valid(bag) or bag.is_queued_for_deletion():
 			break
 		var now := (bag.get_node("Visual") as Node3D).global_position
-		var step := now.distance_to(last)
+		var moved := now.distance_to(last)
+		# As far as it went at that speed in one 60 Hz frame (see JUMP_LIMIT_M).
+		var frame := get_process_delta_time()
+		var step := moved * JUMP_FRAME_S / maxf(frame, JUMP_FRAME_S)
 		if bool(bag.call("is_settling")):
 			var body := (truck.call("bed_transform") as Transform3D).affine_inverse() * ((bag.get_node("Visual") as Node3D).global_transform * rest)
 			body.basis = body.basis.orthonormalized()
@@ -247,14 +262,14 @@ func _watch(bag: Node3D, seconds: float) -> Dictionary:
 			cut_worst = maxf(cut_worst, depth)
 		if step > max_jump:
 			max_jump = step
-			jump_at = [snappedf(waited, 0.01), bool(bag.call("is_settling")), int(bag.get("held_by"))]
+			jump_at = [snappedf(waited, 0.01), bool(bag.call("is_settling")), int(bag.get("held_by")), snappedf(moved, 0.001), snappedf(frame, 0.001)]
 
 		if path.size() < 60 and Engine.get_process_frames() % 4 == 0:
 			var p: Vector3 = (truck.call("bed_transform") as Transform3D).affine_inverse() * now
 			path.append([snappedf(p.x, 0.01), snappedf(p.y, 0.01), snappedf(p.z, 0.01), snappedf(waited, 0.01)])
 		last = now
 		# Judged by the drawn look: a client's body is frozen and never says it moves.
-		var moving := step > 0.003 or bool(bag.call("is_settling")) or int(bag.get("held_by")) != 0
+		var moving := moved > 0.003 or bool(bag.call("is_settling")) or int(bag.get("held_by")) != 0
 		still = 0.0 if moving else still + get_process_delta_time()
 		if still > 0.6:
 			break
@@ -385,7 +400,9 @@ func _heave(distance: float) -> Dictionary:
 ## hands 0.2 to 3 m off a side wall or the tailgate, heaved up or lobbed in;
 ## one caught just past a wall, falling in) into spots across the load, and
 ## measures how much deeper than at its ends any of them cuts into the truck.
-static func _settle_sweep() -> Dictionary:
+## A few plans a frame: all at once it held the host's frame for 5 s or more,
+## and ENet dropped the client mid-test (it then never saw the full bounce).
+func _settle_sweep() -> Dictionary:
 	var starts: Array = []
 	for side: float in [-1.0, 1.0]:
 		for off: float in [0.2, 0.5, 1.0, 2.0, 3.0]:
@@ -415,6 +432,8 @@ static func _settle_sweep() -> Dictionary:
 				var ends := maxf(_BedToss.cut_depth(from * _BedToss.LOOK_MIDDLE, _BedToss.look_reach(turn)), _BedToss.cut_depth(to * _BedToss.LOOK_MIDDLE, _BedToss.look_reach(to.basis.orthonormalized())))
 				var excess := _fine_cut(plan) - ends
 				plans += 1
+				if plans % SWEEP_PLANS_PER_FRAME == 0:
+					await get_tree().process_frame
 				if excess > worst:
 					worst = excess
 					worst_case = [str(at), str(moving), index]
@@ -496,10 +515,12 @@ func _run_client() -> void:
 			watch = await _watch(bag, 6.0)
 		max_jump = maxf(max_jump, float(watch["max_jump_m"]))
 		throws.append({"distance": distance, "hold": snappedf(hold, 0.01), "caught_seen": int(_BedToss.stats["catch_seen"]) > catches_before, "landed_seen": int(_BedToss.stats["land_seen"]) > lands_before, "max_jump_m": watch["max_jump_m"], "jump_at": watch.get("jump_at", []), "pop_m": snappedf(float(_BedToss.stats["max_pop_m"]), 0.001)})
-		print("[TossTest] client toss %s" % JSON.stringify(throws[throws.size() - 1]))
+		print("[TossTest] client toss %s (at %.1f s)" % [JSON.stringify(throws[throws.size() - 1]), _clock()])
 	# Out of the way, then watch for the full bed's bounce.
 	await _stand(_own_player(), _spot(11.0))
+	var bounce_from := _clock()
 	await _until(func() -> bool: return int(_BedToss.stats["full_seen"]) > 0, 60.0)
+	print("[TossTest] client waited %.1f s for the full bounce (from %.1f s): seen %d" % [_clock() - bounce_from, bounce_from, int(_BedToss.stats["full_seen"])])
 	var ok := throws.size() == CLIENT_SPOTS.size() and int(_BedToss.stats["full_seen"]) > 0 and max_jump < JUMP_LIMIT_M
 	for row: Dictionary in throws:
 		ok = ok and bool(row.get("caught_seen", false)) and bool(row.get("landed_seen", false)) and float(row.get("pop_m", 1.0)) < POP_LIMIT_M

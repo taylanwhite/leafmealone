@@ -8,6 +8,12 @@ extends Node
 
 static var result: Dictionary = {}
 
+## How long _place waits to see the target where it was sent. Its own peer moves
+## it and streams it back; a client still building the block on a loaded machine
+## (2 s quiet, much longer beside 40 other Godots) took more than 3 s, and every
+## punch then hit the spot it hadn't left yet.
+const PLACE_WAIT_SECONDS: float = 10.0
+
 var _started: bool = false
 
 
@@ -38,8 +44,9 @@ func _run() -> void:
 	await _place(stand, stand + Vector3(1.2, 0.0, 0.0), target)
 	var from := target.global_position
 	brawl.call("request_punch", "medium")
+	var in_front: Node3D = brawl.call("person_in_front", me, Constants.PUNCH_REACH, Net.local_peer_id())
 	var moved: float = await _moved(target, from, 1.2)
-	print("[BrawlTest] medium punch: they were shoved %.2f m" % moved)
+	print("[BrawlTest] medium punch: they were shoved %.2f m (in front: %s, %.2f m away)" % [moved, in_front.name if in_front != null else "nobody", me.global_position.distance_to(from)])
 	ok = ok and moved > 0.4
 	# Nobody in front: a whiff, nothing happens to them.
 	await _place(stand, stand + Vector3(-3.0, 0.0, 0.0), target)
@@ -106,9 +113,12 @@ func _place(stand: Vector3, there: Vector3, target: Node3D) -> void:
 	# loaded machine that takes longer than 8 ticks, and a punch thrown before the
 	# host sees them arrive hits the spot they left.
 	var waited := 0.0
-	while waited < 3.0 and Vector2(target.global_position.x - there.x, target.global_position.z - there.z).length() > 0.3:
+	while waited < PLACE_WAIT_SECONDS and Vector2(target.global_position.x - there.x, target.global_position.z - there.z).length() > 0.3:
 		await get_tree().physics_frame
 		waited += get_physics_process_delta_time()
+	var off := Vector2(target.global_position.x - there.x, target.global_position.z - there.z).length()
+	if off > 0.3:
+		print("[BrawlTest] (they never got there: %.2f m off after %.1f s, at %s)" % [off, waited, target.global_position])
 	await _ticks(4)
 
 

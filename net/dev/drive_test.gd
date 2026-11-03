@@ -75,6 +75,11 @@ func _run(world: Node) -> void:
 	# walk it to the door and ask again until it's in.
 	waited = 0.0
 	while (int(chefty.call("driver")) != client or int(chefty.call("seat_of", host)) < 2) and waited < 12.0:
+		# A client dropped while it loaded (ENet times a peer out after about 5 s
+		# without a word; seen with 40 Godots on the machine): say so and finish.
+		if _player(client) == null:
+			_finish(false, ["the client left before it drove"])
+			return
 		if int(chefty.call("driver")) != client:
 			_player(client).call("send_teleport", Transform3D(Basis.IDENTITY, door + Vector3(0.0, 0.1, 0.0)))
 		if int(chefty.call("seat_of", host)) < 0:

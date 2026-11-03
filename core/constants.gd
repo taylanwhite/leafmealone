@@ -3202,3 +3202,18 @@ const RAKE_FIELD_BERM_REACH: int = 6
 ## a bag as a hand bagged before (tools/rake_pace.gd: 4,550 units, 0.4.7 4,430-4,550;
 ## 4,213-4,231 since the soft edge keeps part of a heap, and 0.45-0.65 all bag less).
 const HIRE_STEP_AFTER_STROKE: float = 0.55
+
+# ---- flakes:play (the gameplay tests' flakes, docs/DECISIONS.md "Flaky gameplay tests")
+## Chefty (net/components/chefty_drive.gd _host_input): how far ahead of a client
+## driver's inputs the host may drive on its last one while the next are late or
+## lost (s). Each of those ticks stands in for the input that comes later, so a
+## hitch on either peer doesn't yank the driver's truck forward; past this, the
+## extra ticks stand for nothing and the driver is corrected, as before.
+const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
+## Leaf bags into Chefty (net/components/bed_toss.gd sure_catch): a toss is sure
+## to go in when one this share softer and harder goes in too. The arc preview
+## turns gold on it (it was ui/toss_arc.gd SURE_SHARE), and the aim help aims for
+## it: its smallest nudge used to scrape in by a millimetre, and a real bag,
+## stepped by Jolt in its own float precision, missed that 29 times in 30 and
+## bounced off the rail.
+const TOSS_SURE_SHARE: float = 0.04

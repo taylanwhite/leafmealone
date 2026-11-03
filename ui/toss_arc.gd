@@ -23,8 +23,6 @@ const RING_WIDTH: float = 0.05
 const FADE_IN_SECONDS: float = 0.15
 const SKIP_NEAR_SECONDS: float = 0.08
 const MAX_DOTS: int = 64
-## How much softer and harder a throw may be and still go in for the arc to turn gold.
-const SURE_SHARE: float = 0.04
 ## The dots trace the bag's middle; the flight is worked out for its bottom.
 const CENTER_UP := Vector3(0.0, 0.35, 0.0)
 
@@ -103,9 +101,10 @@ func _process(delta: float) -> void:
 	vel = _BedToss.assist(truck, from, vel, feet.y)
 	var step := Constants.TOSS_ARC_STEP_SECONDS
 	var path := _BedToss.flight(from, vel, feet.y, truck, -1.0, step * (1.0 - _slide))
-	# Gold only when it's sure: a throw a touch softer or harder goes in too. The
-	# catch itself is kinder than that, so an arc left plain can still sneak in.
-	var caught := bool(path["caught"]) and bool(_BedToss.flight(from, vel * (1.0 - SURE_SHARE), feet.y, truck)["caught"]) and bool(_BedToss.flight(from, vel * (1.0 + SURE_SHARE), feet.y, truck)["caught"])
+	# Gold only when it's sure: a throw a touch softer or harder goes in too (the
+	# same test the aim help aims for). The catch itself is kinder than that, so
+	# an arc left plain can still sneak in.
+	var caught := bool(path["caught"]) and _BedToss.sure_catch(truck, from, vel, feet.y)
 	var room := truck != null and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY
 	if room and _BedToss.close_toss(truck, from, vel, feet.y):
 		# Right by the bed it hops in over the side (net_prop.gd): the dots follow the hop.

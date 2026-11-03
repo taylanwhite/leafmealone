@@ -879,6 +879,16 @@ func step(dt: float, clock: float, heads: Dictionary, fars: Dictionary) -> void:
 				w *= exp(-8.0 * dt)
 		elif s == SLIDE and p.y > ground + 0.05:
 			s = FLY
+		# Its last LATE_LAND_WINDOW: whatever is left to its spot closes on the
+		# deadline, a share of it each tick, so it arrives as its time runs out.
+		# The spring alone can't follow a spot that moves at the last moment (a
+		# hand rakes the pile out from under a leaf resting on it, or a mound
+		# rises under one, and it was left 2 to 3 cm off when its time ran out,
+		# then jumped there).
+		if homing[i] == 1:
+			var left := Constants.LEAF_SETTLE_MAX - a
+			if left < LATE_LAND_WINDOW:
+				p = p.lerp(target, clampf(dt / maxf(left, dt), 0.0, 1.0))
 		# Never more than LEAF_MAX_STEP a tick, the ground's push included (a leaf
 		# meeting the side of a pile climbs it over a few ticks).
 		var total := p - pos[i]

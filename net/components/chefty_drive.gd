@@ -81,6 +81,16 @@ var _queue: Array[Dictionary] = []
 var _held: Dictionary = {}
 var _input_msec: int = 0
 var _ack: int = 0
+## Host: the driver's input the pose is after (what snapshots ack). Ahead of _ack
+## while the host drove on the last input because the next ones were late (a
+## hitch on either end) or lost: those ticks stood in for the inputs, which then
+## move Chefty nothing more when they come (_host_input).
+var _sim_seq: int = 0
+## Host, for the probe: ticks driven on a stand-in, stand-ins the input made good
+## later, and ticks past CHEFTY_STAND_IN_MAX_SECONDS that stood in for nothing.
+var _stood_in: int = 0
+var _made_good: int = 0
+var _forgiven: int = 0
 ## The horn, as the host has it (every peer gets it with _rpc_horn), and the
 ## changes seen here, for the test.
 var _horn: bool = false
@@ -100,6 +110,8 @@ var _last_ack: int = 0
 var _prediction_error_max: float = 0.0
 var _prediction_error_sum: float = 0.0
 var _prediction_error_count: int = 0
+## Snapshots that acked an input this peer hadn't predicted yet (see _reconcile).
+var _acks_ahead: int = 0
 var _corrections: int = 0
 ## Host, for drive_test: each peer's last time getting out, peer -> {at, bail}.
 var _last_exits: Dictionary = {}
@@ -922,28 +934,59 @@ func _host_step(delta: float) -> void:
 		# an unreliable snapshot can outrun the world's spawn to a joining peer.
 		for peer_id: int in _watchers.keys():
 			if Net.peer_ids().has(peer_id):
-				_rpc_snap.rpc_id(peer_id, Net.server_time(), _chassis.global_position, float(_state["yaw"]), _state["vel"], float(_state["yaw_rate"]), float(_state["steer"]), _ack)
+				_rpc_snap.rpc_id(peer_id, Net.server_time(), _chassis.global_position, float(_state["yaw"]), _state["vel"], float(_state["yaw_rate"]), float(_state["steer"]), _sim_seq)
 	_note_parking()
 
 
 ## Host: the driver's next input. The host's own seated player drives directly; a
 ## client's come queued; with none for CHEFTY_INPUT_TIMEOUT, or nobody driving,
 ## Chefty brakes.
+##
+## Every tick of a client's drive stands for one of its inputs, in order
+## (_sim_seq), so the pose a snapshot acks is the one the driver predicted after
+## that input. When the next input is late (a long frame on either peer sends a
+## burst after a gap) or lost, the host drives on the last one and that tick
+## stands in for it; when it does come it only becomes the held input. Without
+## this, a 0.15 s hitch ran ten ticks the driver never had and its truck was
+## yanked 2 to 4 m forward (docs/DECISIONS.md, "Flaky gameplay tests").
 func _host_input() -> Dictionary:
 	var who := driver()
 	if who == 0:
 		return {"brake": true}
 	if who == Net.local_peer_id():
 		return _input_from_local()
-	if not _queue.is_empty():
-		var next: Dictionary = _queue.pop_front()
-		_ack = int(next["seq"])
-		_held = _unpack(next)
-		_input_msec = Time.get_ticks_msec()
+	# The first input of a stint (or after a gap longer than any queue) starts
+	# the count where the driver's is.
+	if not _queue.is_empty() and (_held.is_empty() or int(_queue[0]["seq"]) - _sim_seq > Constants.CHEFTY_INPUT_QUEUE_MAX):
+		_sim_seq = int(_queue[0]["seq"]) - 1
+	# Inputs the host already drove on while they were on their way.
+	while not _queue.is_empty() and int(_queue[0]["seq"]) <= _sim_seq:
+		_take_input(_queue.pop_front())
+		_made_good += 1
+	if not _queue.is_empty() and int(_queue[0]["seq"]) == _sim_seq + 1:
+		_take_input(_queue.pop_front())
+		_sim_seq += 1
 		return _held
 	if _held.is_empty() or Time.get_ticks_msec() - _input_msec > int(Constants.CHEFTY_INPUT_TIMEOUT * 1000.0):
+		# The link has stalled: Chefty brakes on the host's own say-so, and the
+		# ticks stood in so far stand for nothing.
+		_sim_seq = _ack
 		return {"brake": true}
+	# Late (nothing queued) or lost (the queue starts past it): drive on the last
+	# input in its place, up to CHEFTY_STAND_IN_MAX_SECONDS ahead of the inputs.
+	if not _queue.is_empty() or _sim_seq - _ack < int(round(Constants.CHEFTY_STAND_IN_MAX_SECONDS * Engine.physics_ticks_per_second)):
+		_sim_seq += 1
+		_stood_in += 1
+	else:
+		_forgiven += 1
 	return _held
+
+
+## Host: a client's input arrived at its turn (or after its stand-in drove).
+func _take_input(next: Dictionary) -> void:
+	_ack = int(next["seq"])
+	_held = _unpack(next)
+	_input_msec = Time.get_ticks_msec()
 
 
 ## The local seated player's controls, or a test's script while one plays.
@@ -992,6 +1035,11 @@ func _reconcile(pos: Vector3, yaw_now: float, vel: Vector3, yaw_rate: float, ack
 		_prediction_error_max = maxf(_prediction_error_max, error)
 		_prediction_error_sum += error
 		_prediction_error_count += 1
+	elif ack > _seq:
+		# The host's pose is after an input this peer hasn't sent yet: its frames ran
+		# so long it lost physics ticks (past Godot's catch-up limit) and fell behind
+		# real time, while the host stood in for it. Nothing here to compare it with.
+		_acks_ahead += 1
 	_last_ack = maxi(_last_ack, ack)
 	while not _pending.is_empty() and int(_pending[0]["seq"]) <= ack:
 		_pending.pop_front()
@@ -1398,7 +1446,11 @@ func dev_report() -> Dictionary:
 		"prediction_error_max_m": _prediction_error_max,
 		"prediction_error_mean_m": _prediction_error_sum / maxf(float(_prediction_error_count), 1.0),
 		"prediction_samples": _prediction_error_count,
+		"acks_ahead": _acks_ahead,
 		"corrections": _corrections,
+		"stood_in": _stood_in,
+		"made_good": _made_good,
+		"forgiven": _forgiven,
 		"horn_seen": _horn_log.duplicate(),
 		"crashes_seen": 0,
 		"dents": _dents,
@@ -1631,6 +1683,7 @@ func _rpc_seats(seated: PackedInt32Array, driver_id: int) -> void:
 		_queue.clear()
 		_held = {}
 		_ack = 0
+		_sim_seq = 0
 	# The driver's peer keeps counting its inputs up across seats, so nothing
 	# still on the way from an earlier stint is taken for a new one.
 	if driver_id != before_driver:
