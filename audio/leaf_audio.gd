@@ -16,9 +16,11 @@ extends Node
 ##                     layer (light / med / heavy) louder the more it moved;
 ##                     bite 1: the flick at the far end of the drive
 ##   hand              hand_scoop
-##   bag / crew_bag    bag_open now, bag_stuff (louder for a bigger pile), the
-##                     'bag' tie; for 'bag' the tie only off the host, whose
-##                     world._spawn_bag already plays it
+##   bag / crew_bag    bag_open now, bag_stuff (louder for a bigger pile), then
+##                     the 'bag' tie, on every peer, the host too: the host's
+##                     field asks world._spawn_bag for the bag before it tells
+##                     the stroke, so world leaves the tie to this (owns_bag_tie)
+##                     or the host would hear tie, open, stuff
 ##   scatter / plow    leaf_kick
 ##   blower / mulch    nothing (the blower and mower loops cover them)
 ## The leaf motion layer (raking:3) reports landings and kicks through the C5
@@ -63,12 +65,34 @@ func _hook() -> void:
 
 
 func _on_stroke_event(ev: Dictionary) -> void:
-	handle(ev, Net.is_host())
+	handle(ev)
 
 
-## Plays one stroke event's sounds. host says whether this peer is the host (the
-## host's bag tie comes from world._spawn_bag instead).
-func handle(ev: Dictionary, host: bool) -> void:
+## True when this plays the bag tie for field's bags, so world._spawn_bag must
+## not: field tells its strokes and a LeafAudio is listening. Before raking:1
+## gives the field stroke_event, world keeps tying its own bags.
+static func owns_bag_tie(field: Node) -> bool:
+	if field == null or not field.is_inside_tree() or not field.has_signal("stroke_event"):
+		return false
+	return field.get_tree().get_first_node_in_group("leaf_audio") != null
+
+
+## The scrape's pitch for a swing this long (s): stretched over half the swing,
+## within RAKE_SCRAPE_PITCH.
+static func scrape_pitch(tempo: float) -> float:
+	if tempo <= 0.0:
+		tempo = Constants.LEAF_SFX_DEFAULT_TEMPO
+	return clampf(Constants.RAKE_SCRAPE_SECONDS / (0.5 * tempo), Constants.RAKE_SCRAPE_PITCH.x, Constants.RAKE_SCRAPE_PITCH.y)
+
+
+## How loud count leaves landing or kicked sound (dB): base, louder by
+## LEAF_SFX_DB_PER_DOUBLING each time the count doubles, never over 0.
+static func count_db(base: float, count: int) -> float:
+	return minf(0.0, base + Constants.LEAF_SFX_DB_PER_DOUBLING * log(float(maxi(count, 1))) / log(2.0))
+
+
+## Plays one stroke event's sounds, the same on every peer.
+func handle(ev: Dictionary) -> void:
 	var kind := str(ev.get("kind", ""))
 	var actor := int(ev.get("actor", 0))
 	var at: Vector3 = ev.get("at", Vector3.ZERO)
@@ -83,8 +107,7 @@ func handle(ev: Dictionary, host: bool) -> void:
 			_play("bag_open", at, 0.0, actor)
 			var full := clampf(float(moved) / Constants.BAG_STUFF_REF_UNITS, 0.0, 1.0)
 			_later(Constants.BAG_STUFF_DELAY, "bag_stuff", at, lerpf(Constants.LEAF_SFX_GAIN_FLOOR_DB, 0.0, sqrt(full)), actor)
-			if kind == "crew_bag" or not host:
-				_later(Constants.BAG_TIE_DELAY, "bag", at, 0.0, actor)
+			_later(Constants.BAG_TIE_DELAY, "bag", at, 0.0, actor)
 		"scatter", "plow":
 			_play("leaf_kick", at, 0.0, actor)
 		_:
@@ -102,8 +125,7 @@ func _rake(ev: Dictionary, actor: int, at: Vector3, moved: int) -> void:
 		# The head lands short of the stroke's middle, then drives through it.
 		head = at - dir * Constants.LEAF_SFX_PLANT_BACK
 		_play("rake_plant", head, 0.0, actor)
-		var pitch := clampf(Constants.RAKE_SCRAPE_SECONDS / (0.5 * tempo), Constants.RAKE_SCRAPE_PITCH.x, Constants.RAKE_SCRAPE_PITCH.y)
-		_later(Constants.RAKE_SCRAPE_DELAY, "rake_scrape" if moved > 0 else "rake_empty", head, 0.0, actor, pitch)
+		_later(Constants.RAKE_SCRAPE_DELAY, "rake_scrape" if moved > 0 else "rake_empty", head, 0.0, actor, scrape_pitch(tempo))
 	if moved >= Constants.LEAF_SFX_MIN_UNITS:
 		_play(TIER_IDS[tier_of(moved)], head, leaf_gain_db(moved), actor)
 	if bite == 1 and moved > 0:
@@ -143,7 +165,7 @@ func on_settled(at: Vector3, count: int, onto_pile: bool) -> void:
 		_settles.pop_front()
 	if _settles.size() < Constants.LEAF_SETTLE_PER_SECOND:
 		_settles.append(now)
-		_play("leaf_settle", at, minf(0.0, -10.0 + 3.0 * log(float(count)) / log(2.0)), _area_source(key))
+		_play("leaf_settle", at, count_db(Constants.LEAF_SETTLE_BASE_DB, count), _area_source(key))
 	if not onto_pile or count < Constants.PILE_WHUMP_MIN:
 		return
 	if now < int(_whump_next.get(key, 0)):
@@ -155,8 +177,7 @@ func on_settled(at: Vector3, count: int, onto_pile: bool) -> void:
 ## C5: a player kicked or dove through count leaves at at.
 func on_kick(at: Vector3, count: int) -> void:
 	var key := Vector2i(floori(at.x / Constants.PILE_WHUMP_AREA), floori(at.z / Constants.PILE_WHUMP_AREA))
-	var db := clampf(Constants.LEAF_SFX_GAIN_FLOOR_DB + 3.0 * log(float(maxi(count, 1))) / log(2.0), Constants.LEAF_SFX_GAIN_FLOOR_DB, 0.0)
-	_play("leaf_kick", at, db, _area_source(key))
+	_play("leaf_kick", at, count_db(Constants.LEAF_SFX_GAIN_FLOOR_DB, count), _area_source(key))
 
 
 ## A throttle key for a 2 m area of the yard (never 0, so areas don't share one).

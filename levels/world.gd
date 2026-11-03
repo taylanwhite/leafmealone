@@ -662,15 +662,23 @@ func _on_player_left(peer_id: int) -> void:
 
 
 func _spawn_bag(at: Vector3, units: int) -> void:
+	_spawn_bag_for(get_tree().get_first_node_in_group("leaf_field"), at, units)
+
+
+## A bag of field's leaves (field prices it and decides who ties it; --audio-test
+## passes a stand-in field).
+func _spawn_bag_for(field: Node, at: Vector3, units: int) -> void:
 	_bag_serial += 1
 	var bag := BAG_SCENE.instantiate()
 	bag.name = "Bag%d" % _bag_serial
 	bag.set("kind", "leaf_bag")
 	bag.set("color", Color(0.72, 0.48, 0.18, 1))
 	bag.set("label", "Leaf bag")
-	var field := get_tree().get_first_node_in_group("leaf_field")
 	bag.set("value", int(field.call("dollars_for", units)) if field != null else 0)
-	_play_sfx("bag", at)
+	# Once the field tells its strokes, LeafAudio ties the bag after it opens and
+	# stuffs it (this runs before the stroke is told, so tying here comes first).
+	if not LeafAudio.owns_bag_tie(field):
+		_play_sfx("bag", at)
 	%RuntimeProps.add_child(bag, true)
 	bag.global_position = at + Vector3(0.0, 0.6, 0.0)
 

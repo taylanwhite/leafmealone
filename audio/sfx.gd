@@ -30,7 +30,8 @@ static var log: Array[String] = []
 static var unknown: Array[String] = []
 ## The recent positional plays, oldest first, kept even headless so tests can
 ## tell a positional sound from a 2D one: {"id", "kind" ("at" or "on"), "at"
-## (where it played), "node" (the path it rides on, "" for "at")}.
+## (where it played), "node" (the path it rides on, "" for "at"), "db" and
+## "pitch" (what the caller asked for, before the bank's own)}.
 static var placed: Array[Dictionary] = []
 
 var _next_msec: Dictionary = {}
@@ -83,7 +84,7 @@ func play_at(id: String, at: Vector3, db := 0.0, wobble := true, source := 0, pi
 		return
 	if not _accept(id, source):
 		return
-	_note_placed(id, "at", at, "")
+	_note_placed(id, "at", at, "", db, pitch)
 	if _silent():
 		return
 	var player := _player_3d(id, db, wobble, pitch)
@@ -101,7 +102,7 @@ func play_on(id: String, node: Node3D, db := 0.0) -> void:
 		return
 	if not _accept(id):
 		return
-	_note_placed(id, "on", node.global_position, str(node.get_path()))
+	_note_placed(id, "on", node.global_position, str(node.get_path()), db)
 	if _silent():
 		return
 	var player := _player_3d(id, db, true)
@@ -144,8 +145,8 @@ func _accept(id: String, source := 0) -> bool:
 	return true
 
 
-static func _note_placed(id: String, kind: String, at: Vector3, node_path: String) -> void:
-	placed.append({"id": id, "kind": kind, "at": at, "node": node_path})
+static func _note_placed(id: String, kind: String, at: Vector3, node_path: String, db := 0.0, pitch := 1.0) -> void:
+	placed.append({"id": id, "kind": kind, "at": at, "node": node_path, "db": db, "pitch": pitch})
 	if placed.size() > LOG_SIZE:
 		placed.pop_front()
 
@@ -167,12 +168,7 @@ func _player_3d(id: String, db: float, wobble: bool, pitch := 1.0) -> AudioStrea
 		return null
 	var player := AudioStreamPlayer3D.new()
 	player.stream = stream
-	player.bus = _Bank.bus(id)
-	player.volume_db = _Bank.db(id) + db + _jitter(id)
-	player.unit_size = _Bank.unit_size(id)
-	player.max_distance = _Bank.max_distance(id)
-	var range_ := _Bank.wobble(id)
-	player.pitch_scale = maxf(0.05, pitch * (randf_range(range_.x, range_.y) if wobble else 1.0))
+	configure_3d(player, id, db, wobble, pitch)
 	player.finished.connect(player.queue_free)
 	# Let go of the stream if the world goes first, or it outlives the engine at quit.
 	player.tree_exiting.connect(func() -> void:
@@ -180,6 +176,18 @@ func _player_3d(id: String, db: float, wobble: bool, pitch := 1.0) -> AudioStrea
 		player.stream = null
 	)
 	return player
+
+
+## Sets a positional player up for id from the bank: its bus, volume (plus db
+## and the id's jitter), reach, and pitch (pitch times the id's wobble). Static
+## and stream-free so --audio-test can check it headless.
+static func configure_3d(player: AudioStreamPlayer3D, id: String, db: float, wobble: bool, pitch := 1.0) -> void:
+	player.bus = _Bank.bus(id)
+	player.volume_db = _Bank.db(id) + db + _jitter(id)
+	player.unit_size = _Bank.unit_size(id)
+	player.max_distance = _Bank.max_distance(id)
+	var range_ := _Bank.wobble(id)
+	player.pitch_scale = maxf(0.05, pitch * (randf_range(range_.x, range_.y) if wobble else 1.0))
 
 
 ## A random variant's stream, never the same one twice in a row. Ids missing

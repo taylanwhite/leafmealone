@@ -1243,6 +1243,11 @@ const LEAF_SFX_MIN_UNITS: int = 150
 ## reference, never over the cap.
 const LEAF_SFX_GAIN_FLOOR_DB: float = -12.0
 const LEAF_SFX_GAIN_CAP_DB: float = 2.0
+## Leaves landing and kicked: a landing starts this many dB down (a kick starts
+## at LEAF_SFX_GAIN_FLOOR_DB), and both get this many dB louder each time the
+## count of leaves doubles, never over 0.
+const LEAF_SETTLE_BASE_DB: float = -10.0
+const LEAF_SFX_DB_PER_DOUBLING: float = 3.0
 ## How long the scrape file is (s): its pitch stretches it over half a swing.
 const RAKE_SCRAPE_SECONDS: float = 0.30
 const RAKE_SCRAPE_PITCH: Vector2 = Vector2(0.9, 1.15)
