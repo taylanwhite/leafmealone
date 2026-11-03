@@ -14,7 +14,12 @@ extends RefCounted
 ##   counters and their queues, the desk, the tray, the appliances, the forecourt)
 ##   is on the floor and reachable from the curb by a player's capsule (a flood
 ##   fill over the colliders, the doors and turnstile open)
+## - the budgets hold in the busiest pose chunk 6 drives too (every window
+##   closed and on a break, the tray receiving)
+## - the closed turnstile seals its passage from the floor to the lintel (no
+##   jump-and-crouch over it), and opened it leaves the passage clear
 ## - no camera anchor (Cam*) sits inside a collider
+## - Form 27-B held in someone's hand (attach_hand) is at their left hand
 ## - every sign passes the humor guardrail (net/dev/guardrail.gd)
 ## - the same seed builds the same set; another seed dresses the windows differently,
 ##   and apply_run dresses them for a run
@@ -22,6 +27,7 @@ extends RefCounted
 
 const _Annex = preload("res://levels/annex/annex_b.gd")
 const _Guardrail = preload("res://net/dev/guardrail.gd")
+const _Form = preload("res://props/form_27b.gd")
 
 ## A player's capsule (player/player.tscn) and the flood fill's grid, in meters.
 const RADIUS: float = 0.35
@@ -49,16 +55,19 @@ static func run() -> bool:
 		ok = _check_contract(made) and ok
 		ok = _check_budget(made, seed_value) and ok
 		ok = _check_signs(made) and ok
+		ok = _check_seal(made, true) and ok
 		# Open the doors and the turnstile, as the Annex does for someone walking in.
 		for path: String in ["Entrance", "SideDoor"]:
 			made.get_node(path).call("set_state", &"open", -1000.0)
 		made.get_node("Turnstile").call("set_state", &"open", -1000.0)
 		await tree.physics_frame
 		await tree.process_frame
+		ok = _check_seal(made, false) and ok
 		ok = _check_reach(made, seed_value) and ok
 		ok = _check_anchors(made) and ok
 		hashes.append(_hash(made))
 		icons.append(",".join(PackedStringArray([made.call("window_icon", "A"), made.call("window_icon", "B"), made.call("window_icon", "C")])))
+		ok = await _check_busy_budget(made, seed_value) and ok
 		zone.queue_free()
 	# The same seed, the same set; another seed, other looks.
 	var same: bool = hashes[2] == hashes[3]
@@ -66,6 +75,7 @@ static func run() -> bool:
 	print("[AnnexCheck] determinism: same seed same set %s, seeds %d and %d dress A-C as %s / %s (differ %s)" % [same, SEEDS[0], SEEDS[1], icons[0], icons[1], differs])
 	ok = same and differs and ok
 	ok = await _check_apply_run(holder) and ok
+	ok = await _check_form_in_hand(holder) and ok
 	holder.queue_free()
 	print("[AnnexCheck] %s" % ("ok" if ok else "FAIL"))
 	return ok
@@ -131,6 +141,113 @@ static func _check_contract(made: Node3D) -> bool:
 
 ## Triangles and draw calls of everything drawn, the staff aside.
 static func _check_budget(made: Node3D, seed_value: int) -> bool:
+	var measured := _measure(made)
+	var tris: int = measured[0]
+	var draws: int = measured[1]
+	var ok := tris <= Constants.ANNEX_MAX_TRIS and draws <= Constants.ANNEX_MAX_DRAWS
+	if not ok or OS.get_environment("ANNEX_DRAWS") != "":
+		_print_draws(made)
+	print("[AnnexCheck] seed %d: %d triangles (budget %d), %d draw calls (budget %d) %s" % [seed_value, tris, Constants.ANNEX_MAX_TRIS, draws, Constants.ANNEX_MAX_DRAWS, "ok" if ok else "FAIL"])
+	return ok
+
+
+## The busiest the room gets while chunk 6 drives it: every window closed and
+## on a break at once (its lamp off, as both are, blinds down, clock sign up,
+## the stamp lifted), the tray catching a form, the copier jamming. The budget
+## holds then too. The set is put back as it was built afterwards.
+static func _check_busy_budget(made: Node3D, seed_value: int) -> bool:
+	var tree := Engine.get_main_loop() as SceneTree
+	var now: float = OfficeProps.now()
+	for window: String in ["A", "B", "C", "D"]:
+		var node := made.get_node("Windows/%s" % window)
+		node.call("set_state", &"blind_down", now - 5.0)
+		node.call("set_state", &"lamp_off", now - 5.0)
+		node.call("set_state", &"clock_sign", now - 5.0)
+		node.call("set_state", &"stamp_lifted", now - 5.0)
+	made.get_node("OutgoingTray").call("set_state", &"receive", now - 0.2)
+	made.get_node("Copier").call("set_state", &"jam", now - 0.2)
+	await tree.process_frame
+	var measured := _measure(made)
+	var draws: int = measured[1]
+	var ok := draws <= Constants.ANNEX_MAX_DRAWS and int(measured[0]) <= Constants.ANNEX_MAX_TRIS
+	if not ok or OS.get_environment("ANNEX_DRAWS") != "":
+		_print_draws(made)
+	print("[AnnexCheck] seed %d busy (lamps off, blinds down, clock signs up, tray receiving): %d draw calls (budget %d) %s" % [seed_value, draws, Constants.ANNEX_MAX_DRAWS, "ok" if ok else "FAIL"])
+	for window: String in ["A", "B", "C", "D"]:
+		var node := made.get_node("Windows/%s" % window)
+		node.call("set_state", &"clock_sign_off", -1000.0)
+		node.call("set_state", &"stamp_down", -1000.0)
+		node.call("set_state", &"blind_down" if window == "D" else &"blind_up", -1000.0)
+		node.call("set_state", &"lamp_off" if window == "D" else &"lamp_on", -1000.0)
+	made.get_node("Copier").call("set_state", &"idle", -1000.0)
+	await tree.process_frame
+	return ok
+
+
+## The closed turnstile seals its passage from the floor to the lintel (a jump
+## with a crouch at the top must not clear it); open, the passage is clear.
+static func _check_seal(made: Node3D, closed: bool) -> bool:
+	var shapes: Array = []
+	for node: Node in made.find_children("*", "CollisionShape3D", true, false):
+		var shape_node := node as CollisionShape3D
+		if shape_node.shape is BoxShape3D and not shape_node.disabled:
+			shapes.append([shape_node.global_transform, (shape_node.shape as BoxShape3D).size * 0.5])
+	var z := Constants.ANNEX_SIZE.z * 0.5 + _Annex.WALL * 0.5
+	var problems := PackedStringArray()
+	for dx: float in ([-0.4, 0.0, 0.4] if closed else [0.0]):
+		var y := 0.05
+		while y < _Annex.DOOR_HEIGHT + 0.4:
+			var at := made.global_transform * Vector3(_Annex.TURNSTILE_X + dx, y, z)
+			var inside := false
+			for entry: Array in shapes:
+				var local: Vector3 = (entry[0] as Transform3D).affine_inverse() * at
+				var half: Vector3 = entry[1]
+				if absf(local.x) <= half.x + 0.001 and absf(local.y) <= half.y + 0.001 and absf(local.z) <= half.z + 0.001:
+					inside = true
+					break
+			if closed and not inside:
+				problems.append("the closed turnstile leaves a gap at x %+.1f, height %.2f m" % [dx, y])
+				break
+			if not closed and inside and y < _Annex.DOOR_HEIGHT - 0.1:
+				problems.append("the open turnstile still blocks its passage at height %.2f m" % y)
+				break
+			y += 0.1
+	for problem: String in problems:
+		print("[AnnexCheck] turnstile FAIL  %s" % problem)
+	if problems.is_empty():
+		print("[AnnexCheck] the turnstile, %s: %s" % ["closed" if closed else "open", "sealed to the lintel" if closed else "its passage clear"])
+	return problems.is_empty()
+
+
+## Form 27-B held by someone else (attach_hand) sits in their left hand, not
+## dangling at the shins: within a few cm of where the left arm's hand is.
+static func _check_form_in_hand(holder: Node3D) -> bool:
+	var player := Node3D.new()
+	player.name = "FormHolder"
+	holder.add_child(player)
+	var visual := Node3D.new()
+	visual.name = "Visual"
+	player.add_child(visual)
+	var body: Node3D = (load("res://player/cartoon_body.gd") as GDScript).new()
+	body.name = "CartoonBody"
+	visual.add_child(body)
+	body.call("build")
+	var form: Node3D = _Form.make(PackedStringArray(["A", "B"]), {})
+	holder.add_child(form)
+	form.call("attach_hand", player)
+	await (Engine.get_main_loop() as SceneTree).process_frame
+	var arm := body.call("pose_part", "arm_l") as Node3D
+	var hand := arm.global_transform * Vector3(0.0, -Constants.FORM_HAND_DROP, 0.0) if arm != null else Vector3.INF
+	var at := form.global_position
+	var off := at.distance_to(hand) if hand.is_finite() else INF
+	var ok := form.get_parent() == arm and off < 0.12 and at.y > 0.5 and at.y < 1.1
+	print("[AnnexCheck] Form 27-B in a held hand: %.2f m from the left hand, at height %.2f m %s" % [off, at.y, "ok" if ok else "FAIL"])
+	player.queue_free()
+	return ok
+
+
+## [triangles, draw calls] of what is drawn now, the staff aside.
+static func _measure(made: Node3D) -> Array:
 	var tris := 0
 	var draws := 0
 	var staff := made.get_node("Staff")
@@ -150,11 +267,7 @@ static func _check_budget(made: Node3D, seed_value: int) -> bool:
 			var multi := (node as MultiMeshInstance3D).multimesh
 			draws += 1
 			tris += multi.mesh.get_faces().size() / 3 * multi.instance_count if multi != null and multi.mesh != null else 0
-	var ok := tris <= Constants.ANNEX_MAX_TRIS and draws <= Constants.ANNEX_MAX_DRAWS
-	if not ok or OS.get_environment("ANNEX_DRAWS") != "":
-		_print_draws(made)
-	print("[AnnexCheck] seed %d: %d triangles (budget %d), %d draw calls (budget %d) %s" % [seed_value, tris, Constants.ANNEX_MAX_TRIS, draws, Constants.ANNEX_MAX_DRAWS, "ok" if ok else "FAIL"])
-	return ok
+	return [tris, draws]
 
 
 ## Every sign's words against the guardrail.

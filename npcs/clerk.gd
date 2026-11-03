@@ -383,6 +383,17 @@ func _aim(side: int, target: Vector3, weight: float) -> void:
 	arm.scale = Vector3(1.0, lerpf(1.0, reach, k), 1.0)
 
 
+## How much the body's gesture named gesture_name has the arms, 0 to 1: up over
+## its first CLERK_GESTURE_BLEND seconds, down over its last.
+func _gesture_blend(gesture_name: String) -> float:
+	if not bool(body.call("is_gesturing")) or str(body.call("current_gesture")) != gesture_name:
+		return 0.0
+	var at := float(body.get("_gesture_time"))
+	var length := float(body.get("_gesture_length"))
+	var blend := Constants.CLERK_GESTURE_BLEND
+	return smoothstep(0.0, blend, at) * smoothstep(0.0, blend, length - at)
+
+
 ## A point in front of this one: right (+), up, forward (+), in world space.
 func _ahead(right: float, up: float, forward: float) -> Vector3:
 	return global_transform * Vector3(-right, up, forward)
@@ -558,8 +569,15 @@ func _pose(t: float, _delta: float) -> void:
 			_aim(0, _ahead(0.2, head_y + 0.2, 0.5), clampf((t - 0.2) / 0.2, 0.0, 1.0) * 0.7)
 		&"add_carbon":
 			var slide := ease_reach(t, 0.0, 0.4, 1.0)
-			_aim(0, _ahead(0.08, 1.02, 0.5 + slide * 0.6), fade)
-			_aim(1, _ahead(-0.08, 1.02, 0.5 + slide * 0.6), fade)
+			# Then the body's scribble (head down, the board tipped up to the face),
+			# written here at the desk: the board held up off the desktop in the
+			# left hand, the pencil hand scratching at it. The hands ease from the
+			# slide into it and back out as the gesture starts and ends.
+			var write := _gesture_blend("scribble")
+			var board := _ahead(-0.1, 0.93, 0.46)
+			var pencil := _ahead(0.02 + 0.03 * sin(t * 31.0), 0.97 + 0.02 * sin(t * 23.0), 0.44)
+			_aim(0, _ahead(0.08, 1.02, 0.5 + slide * 0.6).lerp(pencil, write), fade)
+			_aim(1, _ahead(-0.08, 1.02, 0.5 + slide * 0.6).lerp(board, write), fade)
 			_show_prop("paper", t < 0.6)
 			if t > 1.0 and t < 1.05 and not body.call("is_gesturing"):
 				body.call("gesture", "scribble")
@@ -578,7 +596,7 @@ func _pose(t: float, _delta: float) -> void:
 			_aim(0, held + global_basis * Vector3(-0.05, 0.0, 0.0), 1.0)
 			_aim(1, held + global_basis * Vector3(0.05, 0.0, 0.0), 1.0)
 			face.rotation.x += 0.2
-			if t > 0.25 and t < 0.25 + Constants.ANNEX_BIG_STAMP_HESITATE:
+			if t > Constants.ANNEX_BIG_STAMP_LIFT_SECONDS and t < Constants.ANNEX_BIG_STAMP_LIFT_SECONDS + Constants.ANNEX_BIG_STAMP_HESITATE:
 				body.set("mood", "angry")
 				body.set("face_turn", 0.12 * sin(t * 18.0))
 		&"gasp_whistle":

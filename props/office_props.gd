@@ -5,7 +5,7 @@ extends RefCounted
 ## annex_b.gd builds the room from these; docs/GAME.md "Satellite Annex B").
 ## Every stateful prop is a Node3D with set_state(state, at, args := {}): it
 ## starts showing that state at server time `at` (fast-forwarding when the call
-## comes late, skipping a sound that is more than LATE_SECONDS late), and plays
+## comes late, skipping a sound that is more than Constants.BEAT_SKIP late), and plays
 ## its own sound on the frame its motion lands, so the KA-CHUNK is the stamp
 ## hitting the pad. Nothing here decides anything: net/annex/annex.gd (R2
 ## chunk 6) is the host's, and it calls these on every peer.
@@ -35,8 +35,6 @@ const _LowPoly = preload("res://props/low_poly.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _NiceSeal = preload("res://props/nice_seal.gd")
 
-## A sound whose moment passed longer ago than this is skipped (the beat clock's rule).
-const LATE_SECONDS: float = 0.5
 const WOOD := Color(0.62, 0.47, 0.32)
 const LAMINATE := Color(0.86, 0.83, 0.76)
 const TRIM := Color(0.36, 0.33, 0.42)
@@ -72,6 +70,21 @@ static func now() -> float:
 	if net != null and net.has_method("server_time") and net.has_method("current_state") and int(net.call("current_state")) != 0:
 		return float(net.call("server_time"))
 	return float(Time.get_ticks_msec()) / 1000.0
+
+
+## Whether player is this peer's own and its view is first person right now
+## (player/camera_rig.gd): what a held clipboard or slip attaches to.
+static func sees_first_person(player: Node) -> bool:
+	if player == null or not player.is_inside_tree() or not player.is_multiplayer_authority():
+		return false
+	var rig := player.get_node_or_null("CameraRig")
+	return rig == null or bool(rig.get("first_person"))
+
+
+## A sound for server time at still plays when this peer is at most
+## Constants.BEAT_SKIP late (the beat clock's rule, net/run_events/beat.gd).
+static func plays_sound(at: float) -> bool:
+	return now() - at <= Constants.BEAT_SKIP
 
 
 ## One positional one-shot from the sfx group (audio/sfx.gd), if there is one.
@@ -154,6 +167,43 @@ static func _label(parent: Node3D, text: String, at: Vector3, font_size: int, co
 	return label
 
 
+## A printed card's face (a sign's words in ink on paper, inside an ink
+## border) as a texture, drawn once by a SubViewport under owner: a card and its
+## words in one draw call, where a mesh and a Label3D take two.
+static func card_texture(owner: Node, text: String, pixels: Vector2i, ink: Color, paper: Color) -> Texture2D:
+	var viewport := SubViewport.new()
+	viewport.name = "CardPrint"
+	viewport.size = pixels
+	viewport.disable_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	owner.add_child(viewport)
+	var face := CardPrint.new()
+	face.text = text
+	face.ink = ink
+	face.paper = paper
+	face.size = Vector2(pixels)
+	viewport.add_child(face)
+	return viewport.get_texture()
+
+
+class CardPrint extends Control:
+	var text: String = ""
+	var ink := Color.BLACK
+	var paper := Color.WHITE
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), ink)
+		var border := size.y * 0.05
+		draw_rect(Rect2(Vector2(border, border), size - Vector2(border, border) * 2.0), paper)
+		var lines := text.split("\n")
+		var font := ThemeDB.fallback_font
+		var font_size := int(minf(size.y * 0.7 / float(maxi(lines.size(), 1)), size.x * 0.13))
+		var line_height := font.get_height(font_size)
+		var top := (size.y - line_height * float(lines.size())) * 0.5 + font.get_ascent(font_size)
+		for index: int in lines.size():
+			draw_string(font, Vector2(border, top + line_height * float(index)), lines[index], HORIZONTAL_ALIGNMENT_CENTER, size.x - border * 2.0, font_size, ink)
+
+
 ## A stand-in pictogram: the window's icon from ui/icons.gd (the same picture
 ## its box on Form 27-B shows), or a plain colored disc when there is no icon.
 static func pictogram_texture(icon_id: String) -> Texture2D:
@@ -216,7 +266,7 @@ class Prop extends Node3D:
 			var entry: Dictionary = _cues[index]
 			if t >= float(entry["at"]):
 				_cues.remove_at(index)
-				if t - float(entry["at"]) <= LATE_SECONDS:
+				if OfficeProps.plays_sound(float(entry["at"])):
 					var where: Vector3 = entry["where"]
 					OfficeProps._play_sfx(self, str(entry["id"]), global_position if not where.is_finite() else where)
 				continue
@@ -267,10 +317,16 @@ class ServiceWindow extends Prop:
 	var blind_down: bool = false
 	var _lamp: MeshInstance3D
 	var _lamp_on_mat: StandardMaterial3D
-	var _lamp_off_mat: StandardMaterial3D
 	var _blinds: Blinds
+	## Each part keeps its own clock, so one state never freezes another part
+	## mid-move: the blinds, the clock sign, the stamp.
 	var _blind_from: float = 0.0
 	var _blind_to: float = 0.0
+	var _blind_at: float = -1000.0
+	var _blind_set: bool = false
+	var _stamp_state: StringName = &""
+	var _stamp_at: float = -1000.0
+	var _stamp_volley: int = 1
 	var _stamp: Node3D
 	var _plaque: Sprite3D
 	var _plaque_board: MeshInstance3D
@@ -299,6 +355,9 @@ class ServiceWindow extends Prop:
 		kit.box(Vector3(0.0, 2.68, 0.02), Vector3(0.62, 0.62, 0.04), color)
 		kit.box(Vector3(0.0, 2.68, 0.0), Vector3(0.7, 0.7, 0.02), TRIM)
 		kit.box(Vector3(0.58, 2.8, 0.01), Vector3(0.36, 0.36, 0.03), DARK)
+		# The lamp's dead bulb, baked: the lit one covers it while the window serves
+		# (so a window that isn't serving costs no draw call for its lamp).
+		kit.blob(Vector3(0.58, 2.8, 0.05), Vector3(0.15, 0.1, 0.15), LAMP_OFF, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
 		# The desk bell on the ledge: a chrome dome on a black base.
 		kit.cone(Vector3(-0.58, COUNTER_Y, 0.24), 0.07, 0.03, DARK, 10)
 		kit.blob(Vector3(-0.58, COUNTER_Y + 0.045, 0.24), Vector3(0.055, 0.04, 0.055), STEEL.lightened(0.25), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
@@ -340,14 +399,12 @@ class ServiceWindow extends Prop:
 		add_child(glass)
 		# The serving lamp: lit warm while the window serves.
 		_lamp_on_mat = OfficeProps.glow_material(LAMP_WARM, Constants.ANNEX_WINDOW_LAMP_ENERGY)
-		_lamp_off_mat = StandardMaterial3D.new()
-		_lamp_off_mat.albedo_color = LAMP_OFF
-		_lamp_off_mat.roughness = 0.3
 		var bulb := _MeshKit.new()
-		bulb.blob(Vector3(0.58, 2.8, 0.05), Vector3(0.15, 0.1, 0.15), Color.WHITE, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+		bulb.blob(Vector3(0.58, 2.8, 0.05), Vector3(0.158, 0.106, 0.158), Color.WHITE, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
 		_lamp = MeshInstance3D.new()
 		_lamp.name = "Lamp"
 		_lamp.mesh = bulb.commit()
+		_lamp.material_override = _lamp_on_mat
 		_lamp.set_meta("keep_material", true)
 		_lamp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_lamp)
@@ -383,11 +440,20 @@ class ServiceWindow extends Prop:
 		_clock_sign.name = "ClockSign"
 		add_child(_clock_sign)
 		_clock_sign.position = Vector3(0.0, COUNTER_Y, 0.2)
-		var card := _MeshKit.new()
-		card.box(Vector3(0.0, 0.11, 0.0), Vector3(0.42, 0.22, 0.008), PAPER)
-		card.box(Vector3(0.0, 0.11, -0.006), Vector3(0.44, 0.24, 0.004), INK)
-		OfficeProps._view(_clock_sign, card, "Card")
-		OfficeProps._label(_clock_sign, _Strings.ANNEX_SIGNS["back_soon"], Vector3(0.0, 0.11, 0.006), 40, INK, 0.0022)
+		# One draw call: the card and its words are one printed texture (a break
+		# on every window stays inside the set's draw-call budget).
+		var card := MeshInstance3D.new()
+		card.name = "Card"
+		var face := QuadMesh.new()
+		face.size = Vector2(0.44, 0.24)
+		card.mesh = face
+		card.position = Vector3(0.0, 0.12, 0.0)
+		var printed := StandardMaterial3D.new()
+		printed.albedo_texture = OfficeProps.card_texture(self, _Strings.ANNEX_SIGNS["back_soon"], Vector2i(512, 280), INK, PAPER)
+		printed.roughness = 0.85
+		card.material_override = printed
+		card.set_meta("keep_material", true)
+		_clock_sign.add_child(card)
 		_clock_sign.visible = false
 		var counter := OfficeProps._marker(self, "Counter", Vector3(0.0, 0.0, 0.85))
 		counter.rotation.y = 0.0
@@ -454,7 +520,7 @@ class ServiceWindow extends Prop:
 
 	func _set_lamp(on: bool) -> void:
 		lamp_on = on
-		_lamp.material_override = _lamp_on_mat if on else _lamp_off_mat
+		_lamp.visible = on
 
 	func _begin(next: StringName, at: float, args: Dictionary) -> void:
 		match next:
@@ -466,6 +532,8 @@ class ServiceWindow extends Prop:
 			&"blind_up", &"blind_down":
 				_blind_from = _blinds.drop
 				_blind_to = 0.0 if next == &"blind_up" else 1.0
+				_blind_at = at
+				_blind_set = true
 				blind_down = next == &"blind_down"
 				cue("blinds_rattle", at)
 				if next == &"blind_up":
@@ -477,9 +545,15 @@ class ServiceWindow extends Prop:
 			&"clock_sign_off":
 				_sign_up = false
 				_sign_from = at
+			&"stamp_lifted":
+				_stamp_state = next
+				_stamp_at = at
 			&"stamp_down":
 				# Lift, then slam; a volley slams again and again.
 				var slams := maxi(1, int(args.get("volley", 1)))
+				_stamp_state = next
+				_stamp_at = at
+				_stamp_volley = slams
 				for index: int in slams:
 					var hit := at + Constants.ANNEX_STAMP_LIFT_SECONDS + Constants.ANNEX_STAMP_SLAM_SECONDS + float(index) * Constants.CLERK_VOLLEY_GAP
 					cue("stamp_kachunk", hit, global_position + global_basis * STAMP_SPOT)
@@ -488,11 +562,10 @@ class ServiceWindow extends Prop:
 		_busy_until = maxf(_busy_until, at + 2.0)
 
 	func _animate(t: float) -> bool:
-		var since := t - state_at
 		var moving := false
-		# Blinds.
-		if state == &"blind_up" or state == &"blind_down":
-			var k := clampf(since / Constants.ANNEX_BLIND_SECONDS, 0.0, 1.0)
+		# Blinds, on their own clock whatever the window did since.
+		if _blind_set:
+			var k := clampf((t - _blind_at) / Constants.ANNEX_BLIND_SECONDS, 0.0, 1.0)
 			# A rattle on the way: they jerk, not glide.
 			var jerk := 0.04 * sin(k * 26.0) * (1.0 - k)
 			_blinds.set_drop(lerpf(_blind_from, _blind_to, OfficeProps.ease_out(k)) + jerk)
@@ -508,11 +581,12 @@ class ServiceWindow extends Prop:
 		moving = moving or flip < 1.0
 		# The stamp: lifted in the clerk's hand, or lift-and-slam onto the pad.
 		var rise := 0.0
-		if state == &"stamp_lifted":
+		var since := t - _stamp_at
+		if _stamp_state == &"stamp_lifted":
 			rise = OfficeProps.ease_out(since / Constants.ANNEX_STAMP_LIFT_SECONDS) * 0.24
 			moving = moving or since < Constants.ANNEX_STAMP_LIFT_SECONDS
-		elif state == &"stamp_down":
-			var slams := maxi(1, int(state_args.get("volley", 1)))
+		elif _stamp_state == &"stamp_down":
+			var slams := _stamp_volley
 			var cycle := Constants.ANNEX_STAMP_LIFT_SECONDS + Constants.ANNEX_STAMP_SLAM_SECONDS
 			var local := since
 			if slams > 1:
@@ -606,9 +680,14 @@ class BigStamp extends Prop:
 		if by == null:
 			set_state(&"on_pad", OfficeProps.now())
 
+	## How long after a slam's `at` the stamp hits the form (the KA-CHUNK): R2
+	## chunk 6 lines the form's APPROVED, NICELY up with it.
+	static func slam_lands_after() -> float:
+		return Constants.ANNEX_BIG_STAMP_LIFT_SECONDS + Constants.ANNEX_BIG_STAMP_HESITATE + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS
+
 	func _begin(next: StringName, at: float, args: Dictionary) -> void:
 		if next == &"slam":
-			var hit := at + Constants.ANNEX_BIG_STAMP_RAISE * 0.0 + 0.25 + Constants.ANNEX_BIG_STAMP_HESITATE + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS
+			var hit := at + slam_lands_after()
 			cue("stamp_kachunk", hit)
 			if bool(args.get("toot", true)):
 				cue("party_toot", hit + 0.08)
@@ -628,14 +707,15 @@ class BigStamp extends Prop:
 		if state == &"slam":
 			var base: Vector3 = state_args.get("on", _rest) if state_args.get("on", null) is Vector3 else _rest
 			var up := 0.0
-			if since < 0.25:
-				up = OfficeProps.ease_out(since / 0.25)
-			elif since < 0.25 + Constants.ANNEX_BIG_STAMP_HESITATE:
-				up = 1.0 + 0.03 * sin((since - 0.25) * 30.0)
+			var lift := Constants.ANNEX_BIG_STAMP_LIFT_SECONDS
+			if since < lift:
+				up = OfficeProps.ease_out(since / lift)
+			elif since < lift + Constants.ANNEX_BIG_STAMP_HESITATE:
+				up = 1.0 + 0.03 * sin((since - lift) * 30.0)
 			else:
-				up = 1.0 - OfficeProps.ease_in((since - 0.25 - Constants.ANNEX_BIG_STAMP_HESITATE) / Constants.ANNEX_BIG_STAMP_SLAM_SECONDS)
+				up = 1.0 - OfficeProps.ease_in((since - lift - Constants.ANNEX_BIG_STAMP_HESITATE) / Constants.ANNEX_BIG_STAMP_SLAM_SECONDS)
 			global_position = get_parent().to_global(base) + Vector3(0.0, maxf(up, 0.0) * Constants.ANNEX_BIG_STAMP_RAISE, 0.0) if get_parent() is Node3D else position
-			return since < 0.25 + Constants.ANNEX_BIG_STAMP_HESITATE + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS + 0.4
+			return since < slam_lands_after() + 0.4
 		if holder == null and state != &"held":
 			position = position.lerp(_rest, 0.35)
 			return position.distance_to(_rest) > 0.002
@@ -818,7 +898,7 @@ class Turnstile extends Prop:
 	var _turn_from: float = 0.0
 	var _turned: float = 0.0
 
-	func build(passage: float) -> void:
+	func build(passage: float, clear_height: float) -> void:
 		var kit := _MeshKit.new()
 		kit.box(Vector3(-passage * 0.5 - 0.14, 0.5, 0.0), Vector3(0.28, 1.0, 0.7), STEEL.darkened(0.2))
 		kit.box(Vector3(-passage * 0.5 - 0.14, 1.01, 0.0), Vector3(0.3, 0.03, 0.72), DARK)
@@ -839,7 +919,9 @@ class Turnstile extends Prop:
 			arms.tube(PackedVector3Array([Vector3.ZERO, spoke]), PackedFloat32Array([0.022, 0.02]), STEEL.lightened(0.25), 6, {"jitter": 0.0})
 		OfficeProps._view(_arms, arms, "Mesh", {"roughness": 0.3, "specular": 0.6})
 		_spin(0.0)
-		_body = OfficeProps._solid(self, "Body", Vector3(passage, 1.0, 0.15), Vector3(0.0, 0.5, 0.0))
+		# Closed, it seals the passage up to the lintel (clear_height): the arms are
+		# waist high, but a jump with a crouch at the top would clear them.
+		_body = OfficeProps._solid(self, "Body", Vector3(passage, clear_height, 0.15), Vector3(0.0, clear_height * 0.5, 0.0))
 
 	## The arms turned by spin (radians) round the tilted axle.
 	func _spin(spin: float) -> void:
@@ -1156,10 +1238,11 @@ static func outgoing_tray() -> Node3D:
 	return tray
 
 
-static func turnstile(passage: float) -> Node3D:
+## clear_height: the passage's lintel, which the closed turnstile seals up to.
+static func turnstile(passage: float, clear_height: float = 2.4) -> Node3D:
 	var made := Turnstile.new()
 	made.name = "Turnstile"
-	made.build(passage)
+	made.build(passage, clear_height)
 	return made
 
 

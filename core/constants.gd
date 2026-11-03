@@ -1333,6 +1333,13 @@ const ANNEX_BELL_WOBBLE_SECONDS: float = 0.5
 const ANNEX_BIG_STAMP_RAISE: float = 0.55
 const ANNEX_BIG_STAMP_HESITATE: float = 0.6
 const ANNEX_BIG_STAMP_SLAM_SECONDS: float = 0.12
+## How long the big stamp takes to rise off its pad before the hesitation (s).
+## The KA-CHUNK lands LIFT + HESITATE + SLAM after the slam starts
+## (OfficeProps.BigStamp.slam_lands_after()).
+const ANNEX_BIG_STAMP_LIFT_SECONDS: float = 0.25
+## Past this far from the camera (m) the set stops drawing and its staff stop
+## moving; a peer with no camera (a headless host, a bot) never runs the staff.
+const ANNEX_CULL_DISTANCE: float = 160.0
 ## The staff (npcs/clerk.gd): walking pace and the hurry back (m/s), how fast they
 ## turn (radians a second), the head shake's rate, how loud and how often the asleep
 ## clerk snores (seconds between snores), and how far apart the closing volley's stamps fall.
@@ -1344,6 +1351,9 @@ const CLERK_SNORE_EVERY: float = 2.6
 const CLERK_VOLLEY_GAP: float = 0.22
 ## A clerk's bark caption (the caption stack's subtitle line), in seconds.
 const CLERK_BARK_SECONDS: float = 2.2
+## A clerk hands his arms over to a body gesture (the scribble) and takes them
+## back over this long (s).
+const CLERK_GESTURE_BLEND: float = 0.2
 ## The clipboard (props/form_27b.gd): its paper texture's width in pixels (the
 ## height is FORM_ASPECT times that), where it sits in a first-person view
 ## (camera space, m) and its tilt (radians), and how long a smudge takes to wipe a box off.
@@ -1352,6 +1362,9 @@ const FORM_ASPECT: float = 1.32
 const FORM_FIRST_PERSON_OFFSET: Vector3 = Vector3(-0.2, -0.17, -0.42)
 const FORM_FIRST_PERSON_TILT: Vector3 = Vector3(0.55, 0.32, 0.12)
 const FORM_SMUDGE_SECONDS: float = 0.8
+## Held in a body's left hand (Form.attach_hand): this far down the arm from
+## the shoulder pivot (m), where the hand is.
+const FORM_HAND_DROP: float = 0.56
 ## A stamp landing on the form: the ink's punch-in (seconds).
 const FORM_STAMP_SECONDS: float = 0.18
 ## The receipt slip (props/receipt_slip.gd): seconds per printed line, where it
@@ -1375,6 +1388,11 @@ const MUSIC_CAB_CUTOFF_HZ: float = 1200.0
 const AMBIENCE_OFFICE_DB: float = -16.0
 const AMBIENCE_OFFICE_PHONE_GAP: Vector2 = Vector2(14.0, 32.0)
 const AMBIENCE_OFFICE_GLUG_GAP: Vector2 = Vector2(20.0, 30.0)
+## How fast the office bed fades in and out at the Annex's door (dB a second).
+const AMBIENCE_OFFICE_FADE_DB_PER_SECOND: float = 120.0
+## Busted plays this long after the hand lands when CATCH_BARK_AT (the catch's
+## bark, R2 chunk 2) isn't in this build yet (s).
+const CUE_BUSTED_AFTER_FALLBACK: float = 0.95
 
 # ---- settings
 ## Player settings (core/settings.gd, user://settings.cfg; docs/DECISIONS.md

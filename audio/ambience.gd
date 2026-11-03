@@ -95,7 +95,7 @@ func _process(delta: float) -> void:
 		_waits["car"] = _between(Constants.AMBIENCE_CAR_GAP)
 		if in_hood and _car_t < 0.0:
 			_start_car(me.global_position)
-	_annex_office(zone)
+	_annex_office(zone, delta)
 	if _car_t >= 0.0:
 		_car_t += delta / Constants.AMBIENCE_CAR_SECONDS
 		_car.global_position = _car_from.lerp(_car_to, clampf(_car_t, 0.0, 1.0))
@@ -105,9 +105,9 @@ func _process(delta: float) -> void:
 
 ## Satellite Annex B (the BORDER zone): typewriters through the wall, a phone
 ## ringing in the back office now and then, the water cooler's glug.
-func _annex_office(zone: int) -> void:
+func _annex_office(zone: int, delta: float) -> void:
 	var inside := zone == Net.Zone.BORDER
-	_office.volume_db = move_toward(_office.volume_db, Constants.AMBIENCE_OFFICE_DB if inside else -80.0, 2.0)
+	_office.volume_db = move_toward(_office.volume_db, Constants.AMBIENCE_OFFICE_DB if inside else -80.0, Constants.AMBIENCE_OFFICE_FADE_DB_PER_SECOND * delta)
 	if float(_waits["office_phone"]) <= 0.0:
 		_waits["office_phone"] = _between(Constants.AMBIENCE_OFFICE_PHONE_GAP)
 		if inside:

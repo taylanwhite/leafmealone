@@ -11,6 +11,7 @@ extends RefCounted
 ##   form.set_progress(stamped, boxes, approved, at) # carbons are boxes on the end
 ##   form.glow(on); form.fast_pass(on); form.punch_card(visits)
 ##   form.attach_first_person(player); form.attach_hand(player)
+##   form.attach_auto(player)   # first person for your own view, else in the hand
 ##
 ## The paper is a SubViewport (Constants.FORM_TEXTURE_PX wide) drawn in 2D:
 ## the heading, the boxes and their pictograms, the purple ink of a stamp
@@ -311,22 +312,29 @@ class Form extends Node3D:
 		_first_person = true
 		_on_top(true)
 
-	## In the body's left hand, for everyone else and for your third-person view.
+	## In the body's left hand, for everyone else and for your third-person view:
+	## hung off the left shoulder's pivot, an arm's length down (the hand).
 	func attach_hand(player: Node3D) -> void:
 		var body := player.get_node_or_null("Visual/CartoonBody") as Node3D if player != null else null
 		if body == null:
 			body = player
-		var arms: Array = body.get("_arms") if body != null and "_arms" in body else []
-		var hand: Node3D = (arms[0] as Node3D) if arms.size() >= 2 else body
+		var shoulder: Node3D = null
 		if body != null and body.has_method("pose_part"):
-			var prop_hand: Node3D = body.call("pose_part", "prop_hand")
-			if prop_hand != null:
-				hand = prop_hand
-		_reparent(hand)
-		position = Vector3(0.0, -0.56, -0.08)
+			shoulder = body.call("pose_part", "arm_l")
+		_reparent(shoulder if shoulder != null else body)
+		position = Vector3(0.0, -Constants.FORM_HAND_DROP, -0.08) if shoulder != null else Vector3(-0.3, 0.75, -0.08)
 		rotation = Vector3(-1.2, 0.0, 0.0)
 		_first_person = false
 		_on_top(false)
+
+	## The local player in first person gets attach_first_person; anyone else (or
+	## you, looking over your shoulder) attach_hand. Called once: switching view
+	## while it's held doesn't move it.
+	func attach_auto(player: Node3D) -> void:
+		if _Props.sees_first_person(player):
+			attach_first_person(player)
+		else:
+			attach_hand(player)
 
 	func _reparent(parent: Node) -> void:
 		if get_parent() != null:

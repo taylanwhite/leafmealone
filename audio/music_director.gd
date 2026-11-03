@@ -437,17 +437,11 @@ func _play_synced(id: String, fade: float) -> void:
 		_play(id, fade)
 		return
 	var position := player.get_playback_position() + AudioServer.get_time_since_last_mix()
-	var bar := _Tracks.bar_seconds(id)
-	var next := ceilf(position / bar + 0.05) * bar
-	var wait := next - position
-	if wait > Constants.MUSIC_BAR_SWITCH_MAX_WAIT:
+	var cut := _Tracks.bar_switch(id, position)
+	if cut.is_empty():
 		_play(id, fade)
 		return
-	# Past the song's end the next bar is the loop's start.
-	var song := _Tracks.seconds(id)
-	if next >= song - 0.01:
-		next = _Tracks.loop_offset(id) - Constants.MUSIC_ENCODE_LEAD_SECONDS + (next - song)
-	_sync_pending = {"id": id, "at": Time.get_ticks_msec() + int(wait * 1000.0), "seek": next}
+	_sync_pending = {"id": id, "at": Time.get_ticks_msec() + int(float(cut["wait"]) * 1000.0), "seek": float(cut["seek"])}
 
 
 func _sync_switch() -> void:
@@ -468,20 +462,11 @@ func _hold_section() -> void:
 	if not player.playing:
 		return
 	for section: String in _sections:
-		var span := _Tracks.section_seconds(_track, section)
-		if span.is_empty():
+		if _Tracks.section_seconds(_track, section).is_empty():
 			continue
-		var position := player.get_playback_position()
-		var start: float = span[0]
-		var end: float = span[1]
-		if position >= end - 0.005:
-			player.seek(start + maxf(position - end, 0.0))
-		elif position < start:
-			var bar := _Tracks.bar_seconds(_track)
-			var into_bar := fmod(position, bar)
-			# On the bar line (within a frame), jump in.
-			if into_bar < 0.03 or bar - into_bar < 0.008:
-				player.seek(start + (into_bar if into_bar < 0.03 else 0.0))
+		var seek := _Tracks.section_seek(_track, section, player.get_playback_position())
+		if seek >= 0.0:
+			player.seek(seek)
 		return
 
 

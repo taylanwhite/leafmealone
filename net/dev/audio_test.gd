@@ -927,9 +927,64 @@ func _annex_music(music: Node) -> bool:
 	var cab_clear := not bool(music.call("ambience_on", &"van_cab"))
 	music.call("slowdown", 1.0)
 	var logged := _Director.hook_log.size() == hooks_before + 6
+	var math := _bar_math()
 	if stub != null:
 		stub.queue_free()
 	Net.move_player_to_zone(me_id, Net.Zone.STORE)
 	var after := await _wait_mood(music, [&"store", &"night", &"silence"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
-	print("[AudioTest] annex music: same tune %s, the Annex plays the muzak %s (%s), urgent cuts to escape %s on the bar %s; hooks: section %s %s, cab muffle %s cleared %s, logged %s; back %s" % [same, lobby, muzak, urgent, synced, section_on, span_ok, cab_muffled, cab_clear, logged, after])
-	return same and lobby and muzak and urgent and synced and section_on and span_ok and cab_muffled and cab_clear and logged and after
+	print("[AudioTest] annex music: same tune %s, the Annex plays the muzak %s (%s), urgent cuts to escape %s on the bar %s; hooks: section %s %s, cab muffle %s cleared %s, logged %s; bar and section math %s; back %s" % [same, lobby, muzak, urgent, synced, section_on, span_ok, cab_muffled, cab_clear, logged, math, after])
+	return same and lobby and muzak and urgent and synced and section_on and span_ok and cab_muffled and cab_clear and logged and math and after
+
+
+## The director's bar-line cut and section hold, by the arithmetic it uses
+## (audio/music_tracks.gd bar_switch, section_seek), at a few playback
+## positions: mid-bar, just past a line, the last bar (the loop's wrap), and
+## the hide section's way in, its loop back and inside it. A dry run never seeks.
+func _bar_math() -> bool:
+	var problems := PackedStringArray()
+	var bar := _Tracks.bar_seconds("escape_run")
+	var lead := _Tracks.lead_seconds("escape_run")
+	var bars := int(_Tracks.track("escape_run")["bars"])
+	var intro := int(_Tracks.track("escape_run")["intro_bars"])
+	var cases := [
+		# [position into the file, wait expected, seek expected]
+		[lead + 10.5 * bar, 0.5 * bar, lead + 11.0 * bar],
+		[lead + 10.0 * bar + 0.01, bar - 0.01, lead + 11.0 * bar],
+		[lead + (float(bars) - 0.5) * bar, 0.5 * bar, lead + float(intro) * bar],
+	]
+	for entry: Array in cases:
+		var cut := _Tracks.bar_switch("escape_run", float(entry[0]))
+		if cut.is_empty() or absf(float(cut["wait"]) - float(entry[1])) > 0.002 or absf(float(cut["seek"]) - float(entry[2])) > 0.002:
+			problems.append("bar_switch at %.3f gave %s, wanted wait %.3f seek %.3f" % [float(entry[0]), str(cut), float(entry[1]), float(entry[2])])
+	# Every cut lands on a bar line of the new file and after the old one's.
+	for step: int in 40:
+		var position := lead + float(step) * bar * 0.37
+		var cut := _Tracks.bar_switch("escape_run", position)
+		if cut.is_empty():
+			continue
+		var on_line := fmod(float(cut["seek"]) - lead + 0.0001, bar) < 0.001
+		if not on_line or float(cut["wait"]) <= 0.0:
+			problems.append("bar_switch at %.3f is off the bar line: %s" % [position, str(cut)])
+			break
+	var span := _Tracks.section_seconds("nice_boys_chase", "hide")
+	if span.size() == 2:
+		var chase_bar := _Tracks.bar_seconds("nice_boys_chase")
+		var chase_lead := _Tracks.lead_seconds("nice_boys_chase")
+		var start := float(span[0]) + chase_lead
+		var end := float(span[1]) + chase_lead
+		var holds := [
+			# [position, seek expected (-1 plays on)]
+			[chase_lead + 20.0 * chase_bar + 0.01, start + 0.01],
+			[chase_lead + 20.5 * chase_bar, -1.0],
+			[end + 0.01, start + 0.01],
+			[start + 2.0 * chase_bar, -1.0],
+		]
+		for entry: Array in holds:
+			var seek := _Tracks.section_seek("nice_boys_chase", "hide", float(entry[0]))
+			if absf(seek - float(entry[1])) > 0.002:
+				problems.append("section_seek at %.3f gave %.3f, wanted %.3f" % [float(entry[0]), seek, float(entry[1])])
+	else:
+		problems.append("the chase has no hide section")
+	for problem: String in problems:
+		print("[AudioTest] annex music FAIL  %s" % problem)
+	return problems.is_empty()

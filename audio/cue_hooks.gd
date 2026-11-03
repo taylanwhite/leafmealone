@@ -209,8 +209,6 @@ static func is_done(progress: float) -> bool:
 
 ## The Encounter's Stage.GOTCHA (net/run_events/encounter.gd, not preloaded).
 const STAGE_GOTCHA: int = 2
-## The catch's bark comes this long after the hand lands, without the constant.
-const BUSTED_AFTER_DEFAULT: float = 0.95
 
 ## msec when the local player's Busted plays, or 0.
 var _busted_at: int = 0
@@ -218,8 +216,20 @@ var _busted_at: int = 0
 var _busted_last: int = -100000
 
 
-func _on_zone_changed(_peer_id: int, _zone: Net.Zone) -> void:
+func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
 	_hook_r2()
+	# Until the run director tells of a catch (peer_caught, R2 chunk 2), the old
+	# trigger stands: a captured local player carried into TRANSIT is Busted.
+	if peer_id != Net.local_peer_id() or zone != Net.Zone.TRANSIT:
+		return
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director == null or director.has_signal("peer_caught") or get_tree().get_first_node_in_group("nice_encounter") != null:
+		return
+	if director.has_method("is_captured") and bool(director.call("is_captured", peer_id)):
+		var now := Time.get_ticks_msec()
+		if now - _busted_last >= 5000:
+			_busted_last = now
+			_stinger(&"st_busted")
 
 
 ## Connects to the R2 nodes once they exist (they come with the world).
@@ -255,7 +265,7 @@ func _caught() -> void:
 
 static func _busted_after() -> float:
 	var constants: Dictionary = (Constants as Script).get_script_constant_map()
-	return float(constants.get("CATCH_BARK_AT", BUSTED_AFTER_DEFAULT))
+	return float(constants.get("CATCH_BARK_AT", Constants.CUE_BUSTED_AFTER_FALLBACK))
 
 
 func _on_through_turnstile(peer: int) -> void:

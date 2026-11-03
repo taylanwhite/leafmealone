@@ -1046,6 +1046,13 @@ func _annex(root: Node3D, plan: bool) -> void:
 	annex.set("cutaway", false)
 	# The run's doors stand open (the Annex opens them when someone arrives).
 	built.get_node("Entrance").call("set_state", &"open", -1000.0)
+	# --windows=break: A and B on a break (lamp off, clock sign up), C closed (blinds down, lamp off).
+	if str(_options.get("windows", "")) == "break":
+		for id: String in ["A", "B"]:
+			built.get_node("Windows/%s" % id).call("set_state", &"lamp_off", -1000.0)
+			built.get_node("Windows/%s" % id).call("set_state", &"clock_sign", -1000.0)
+		built.get_node("Windows/C").call("set_state", &"blind_down", -1000.0)
+		built.get_node("Windows/C").call("set_state", &"lamp_off", -1000.0)
 	if plan:
 		(built.get_node("LightRows") as Node3D).visible = false
 		root.set_meta("views", [

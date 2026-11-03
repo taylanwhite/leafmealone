@@ -4,7 +4,7 @@ extends RefCounted
 ## "Satellite Annex B"): a curling strip of thermal paper fed up into your view
 ## line by line with the printer's chatter, held for a few seconds, then let go.
 ##
-##   ReceiptSlip.show(lines, total_line, at, seconds := 4.0)   # the local player's
+##   ReceiptSlip.show(lines, total_line, at, seconds := 4.0)   # the local player's, in their current view
 ##   ReceiptSlip.show_for(player, lines, total_line, at, seconds, first_person)
 ##
 ## The words are R2 chunk 6's (net/annex/receipt_lines.gd); the header and
@@ -34,7 +34,8 @@ static func show(lines: PackedStringArray, total_line: String, at: float, second
 			me = node as Node3D
 	if me == null:
 		return null
-	return show_for(me, lines, total_line, at, seconds, true)
+	# Lower centre of your view in first person; in your hand over the shoulder.
+	return show_for(me, lines, total_line, at, seconds, _Props.sees_first_person(me))
 
 
 static func show_for(player: Node3D, lines: PackedStringArray, total_line: String, at: float, seconds: float = 4.0, first_person: bool = true) -> Node3D:
@@ -78,6 +79,7 @@ class Slip extends Node3D:
 		_lines.append_array(lines)
 		_lines.append("")
 		_lines.append(total_line)
+		var total_index := _lines.size() - 1
 		_lines.append("")
 		for line: String in _Strings.ANNEX_SIGNS["receipt_footer"].split("\n"):
 			_lines.append(line)
@@ -91,6 +93,7 @@ class Slip extends Node3D:
 		add_child(_viewport)
 		var text := Print.new()
 		text.lines = _lines
+		text.total_index = total_index
 		text.size = Vector2(_viewport.size)
 		_viewport.add_child(text)
 		_material = StandardMaterial3D.new()
@@ -175,6 +178,8 @@ class Slip extends Node3D:
 ## The slip's print: centered lines in the printer's small type.
 class Print extends Control:
 	var lines := PackedStringArray()
+	## Which line is the total, printed big.
+	var total_index: int = -1
 
 	func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, size), PAPER)
@@ -182,5 +187,5 @@ class Print extends Control:
 		for index: int in lines.size():
 			var y := float(LINE_PX) * (float(index) + 1.5)
 			var line := lines[index]
-			var big := line.begins_with("TOTAL")
+			var big := index == total_index
 			draw_string(font, Vector2(6.0, y), line, HORIZONTAL_ALIGNMENT_CENTER, size.x - 12.0, 26 if big else 19, PRINT)

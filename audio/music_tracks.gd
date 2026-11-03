@@ -205,6 +205,53 @@ static func bar_seconds(id: String) -> float:
 	return 4.0 * 60.0 / maxf(float(track(id).get("bpm", 120.0)), 1.0)
 
 
+## The silence an encode puts before a track's first beat (s; .ogg only).
+static func lead_seconds(id: String) -> float:
+	return Constants.MUSIC_ENCODE_LEAD_SECONDS if str(track(id).get("file", "")).ends_with(".ogg") else 0.0
+
+
+## A cut to id on the next bar line, from `position` seconds into the playing
+## file (the two tracks share tempo, form and encode lead): {"wait": seconds
+## until that bar line, "seek": where in id's file to start}, or {} when the bar
+## line is further off than Constants.MUSIC_BAR_SWITCH_MAX_WAIT. A bar line at
+## or past the song's end is the loop's start (plus however far past it is).
+static func bar_switch(id: String, position: float) -> Dictionary:
+	var bar := bar_seconds(id)
+	var lead := lead_seconds(id)
+	var into := position - lead
+	# A bar line less than a twentieth of a bar off is too close to make: the next.
+	var next := ceilf(into / bar + 0.05) * bar
+	var wait := next - into
+	if wait > Constants.MUSIC_BAR_SWITCH_MAX_WAIT:
+		return {}
+	var song := seconds(id)
+	if next >= song - 0.01:
+		next = loop_offset(id) - lead + (next - song)
+	return {"wait": wait, "seek": next + lead}
+
+
+## Where a track held in `section` jumps to from `position` seconds into its
+## file, or -1.0 to play on: from the section's end back to its start, and from
+## before it in on a bar line (`frame` is how late a check can be, s).
+static func section_seek(id: String, section: String, position: float, frame: float = 0.03) -> float:
+	var span := section_seconds(id, section)
+	if span.is_empty():
+		return -1.0
+	var lead := lead_seconds(id)
+	var start: float = float(span[0]) + lead
+	var end: float = float(span[1]) + lead
+	if position >= end - 0.005:
+		return start + maxf(position - end, 0.0)
+	if position < start:
+		var bar := bar_seconds(id)
+		var into_bar := fmod(position - lead, bar)
+		if into_bar < frame:
+			return start + into_bar
+		if bar - into_bar < 0.008:
+			return start
+	return -1.0
+
+
 ## The sync name two tracks share, or "" when a switch between them is an
 ## ordinary crossfade.
 static func sync_of(a: String, b: String) -> String:

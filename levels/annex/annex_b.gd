@@ -179,13 +179,17 @@ func set_solid(on: bool) -> void:
 func _process(_delta: float) -> void:
 	# Out of sight (the whole crew on the yard 1,000 m away), the staff stop
 	# breathing and the room stops drawing.
+	# With no camera at all (a headless host, a bot) nobody watches the staff, so
+	# they don't run; the room stays "visible" there so the headless checks count it.
+	# Their play() still records state and state_at for when they run again.
 	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
-	var far := camera != null and camera.global_position.distance_to(global_position) > 160.0
+	var far := camera != null and camera.global_position.distance_to(global_position) > Constants.ANNEX_CULL_DISTANCE
 	if far != _far:
 		_far = far
 		visible = not far
-		if _staff != null:
-			_staff.process_mode = Node.PROCESS_MODE_DISABLED if far else Node.PROCESS_MODE_INHERIT
+	var staff_off := far or camera == null
+	if _staff != null and staff_off != (_staff.process_mode == Node.PROCESS_MODE_DISABLED):
+		_staff.process_mode = Node.PROCESS_MODE_DISABLED if staff_off else Node.PROCESS_MODE_INHERIT
 	_update_lamp_shadows()
 
 
@@ -671,7 +675,7 @@ func _fixtures() -> void:
 	var tray: Node3D = _Props.outgoing_tray()
 	add_child(tray)
 	tray.position = Vector3(4.5, 0.0, 5.3)
-	var gate: Node3D = _Props.turnstile(TURNSTILE_PASSAGE)
+	var gate: Node3D = _Props.turnstile(TURNSTILE_PASSAGE, DOOR_HEIGHT + 0.1)
 	add_child(gate)
 	gate.position = Vector3(TURNSTILE_X, 0.0, Constants.ANNEX_SIZE.z * 0.5 + WALL * 0.5)
 	var dispenser := Node3D.new()
