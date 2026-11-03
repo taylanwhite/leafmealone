@@ -67,6 +67,28 @@ const TOSS_PITCH: float = 0.12
 const TOSS_BAG_VALUE: int = 14
 ## Waits for a state, in seconds, before a scenario gives up.
 const SETTLE_SECONDS: float = 15.0
+## After a reset the director rolls no raid of its own for this long (a scenario
+## that wants the NICE BOYS calls them itself).
+const QUIET_AFTER_SECONDS: float = 120.0
+## lunge: he's on his feet facing you, and the wind-up starts this long after.
+const LUNGE_LEAD_SECONDS: float = 0.6
+## cite_rescue: where the cited friend stands (from the yard's middle), how far
+## from the NICE BOY you stand, and how far round from straight behind him: the
+## friend is on his far side, so a throw at him that misses goes wide of them.
+const RESCUE_SPOT := Vector3(0.0, 0.1, 6.0)
+const RESCUE_THROW_METERS: float = 3.4
+const RESCUE_ANGLE_DEGREES: float = 22.0
+## annex_heist: where you stand in front of the window's counter (its Counter
+## marker's space: right of center toward the stamp, at the counter's lip), and
+## annex_bigstamp: the visitor's spot in front of the Head NICE BOY's desk.
+const HEIST_STAND := Vector3(0.24, 0.0, 0.42)
+## Roughly where a player's eyes are above their feet, for aiming a placement's look.
+const EYE_HEIGHT: float = 1.6
+## The moments with a friend in them (a second player who plays).
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit"]
+## The name tools/play.ps1 gives the observer (remote_play.gd OBSERVER_NAME):
+## never a scenario's friend, it only watches.
+const OBSERVER_NAME: String = "Observer"
 
 ## The --scenario=<name> one at launch has run (or there was none).
 var start_done: bool = false
@@ -77,11 +99,20 @@ var _annex_window: String = ""
 
 
 func _ready() -> void:
+	# The host's scenario reset reaches every peer (the Courtesy Shuttle's dev reset),
+	# on every peer that runs this node: remote play's windows and the playtest_tools
+	# test's client (R2b tools review: CI's client now clears its own screen too).
+	add_to_group("scenario_listeners")
 	var wanted := str(Net.dev_options().get("scenario"))
 	if wanted == "":
 		start_done = true
 		return
 	_run_at_start(wanted)
+
+
+## A scenario reset on the host: this screen's leftovers from the last moment go at once.
+func on_scenario_reset() -> void:
+	clear_leftovers(get_tree())
 
 
 func _run_at_start(wanted: String) -> void:
@@ -108,7 +139,7 @@ func run(scenario: String) -> Dictionary:
 		return {"ok": false, "error": "no world or player yet"}
 	if not NAMES.has(scenario):
 		return {"ok": false, "error": "unknown scenario %s (try %s)" % [scenario, ", ".join(NAMES)]}
-	await reset()
+	await reset(FRIEND_SCENARIOS.has(scenario))
 	var out: Dictionary = {}
 	match scenario:
 		"rake_fresh":
@@ -361,16 +392,35 @@ func _reached_spotted() -> bool:
 	return _phase() == "CHASE" and _crew() != null
 
 
-## Close and in front of him once he's out: the wind-up, then the lunge.
+## Close and in front of him once he's out: the wind-up, then the lunge. He's
+## already on his feet (R2b tools: waiting for him to climb out took 3.9 s, so a
+## 4 s take missed the contact); he winds up LUNGE_LEAD_SECONDS after the jump.
 func _lunge() -> Dictionary:
-	var out: Dictionary = await _crew_out(0.2)
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	_safe_for(SETTLE_SECONDS * 2.0)
+	var out: Dictionary = await _crew_out(-1.0)
 	if out.has("error"):
 		return out
 	var crew := _crew()
 	var stand := _in_front_of(crew, Constants.CREW_LUNGE_RANGE + 0.4)
 	_place(stand, _yaw_toward(stand, crew.global_position), -0.05)
+	_put_crew(crew, crew.global_position, stand)
+	_safe_for(LUNGE_LEAD_SECONDS)
 	await _ticks(2)
-	return {"moment": "lunge", "note": "%s is %.1f m away, facing you; he winds up as soon as he's on his feet" % [crew.name, Constants.CREW_LUNGE_RANGE + 0.4], "phase": _phase()}
+	var crew_id := crew.get_instance_id()
+	get_tree().create_timer(LUNGE_LEAD_SECONDS).timeout.connect(_windup_later.bind(crew_id, Net.local_peer_id()))
+	return {"moment": "lunge", "note": "%s is %.1f m away, facing you; he winds up in %.1f s" % [crew.name, Constants.CREW_LUNGE_RANGE + 0.4, LUNGE_LEAD_SECONDS], "phase": _phase()}
+
+
+## A timer's wind-up on a NICE BOY that may be gone by then (a reset freed him):
+## looked up by id, never captured in a lambda.
+func _windup_later(crew_id: int, peer_id: int) -> void:
+	var crew := instance_from_id(crew_id) as Node
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	if crew != null and is_instance_valid(crew) and not crew.is_queued_for_deletion() and encounter != null:
+		encounter.call("host_windup", crew, peer_id, false)
 
 
 func _reached_lunge() -> bool:
@@ -392,10 +442,7 @@ func _dodge() -> Dictionary:
 	_put_crew(crew, stand + left * (Constants.CREW_LUNGE_RANGE - 0.5), stand)
 	_safe_for(DODGE_LEAD_SECONDS)
 	await _ticks(2)
-	get_tree().create_timer(DODGE_LEAD_SECONDS).timeout.connect(func() -> void:
-		var encounter := get_tree().get_first_node_in_group("nice_encounter")
-		if encounter != null and is_instance_valid(crew):
-			encounter.call("host_windup", crew, Net.local_peer_id(), false))
+	get_tree().create_timer(DODGE_LEAD_SECONDS).timeout.connect(_windup_later.bind(crew.get_instance_id(), Net.local_peer_id()))
 	return {"moment": "dodge", "note": "%s is at your left; he winds up in %.1f s: strafe right during it" % [crew.name, DODGE_LEAD_SECONDS], "phase": _phase()}
 
 
@@ -425,26 +472,62 @@ func _reached_gotcha() -> bool:
 
 ## The other player is being cited a couple of meters away and you're holding a
 ## gnome: throw it (or punch him) and they're free. Needs a second player.
+## R2b tools: the friend is a player who plays (tools\play.ps1 -Friend), put on
+## the yard by the scenario and safe, with you, until the scenario's own catch:
+## the roaming crew can't take them first. You stand behind the NICE BOY, the
+## friend on his far side, so a throw at him can't hit the friend.
 func _cite_rescue() -> Dictionary:
+	var friend := _friend_id()
+	if friend == 0:
+		return {"error": "cite_rescue needs a second player who plays: start with tools\\play.ps1 -Start -Friend (the observer only watches)"}
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	await _friend_to_lot(friend, SETTLE_SECONDS * 2.0)
+	_safe_for(SETTLE_SECONDS * 2.0)
 	var out: Dictionary = await _crew_out(-1.0)
 	if out.has("error"):
 		return out
-	var friend := _other_player()
-	if friend == null:
-		return {"error": "cite_rescue needs a second player (start with -Observer, or a client)"}
+	var friend_node := _other_player()
 	var crew := _crew()
+	if friend_node == null or crew == null:
+		return {"error": "no friend or no NICE BOY on the yard"}
 	var lot := _lot_zone()
-	var spot := lot.global_position + Vector3(0.0, 0.1, 6.0)
-	friend.call("send_teleport", Transform3D(Basis.IDENTITY, spot))
-	_put_crew(crew, spot + Vector3(0.0, 0.0, -1.2), spot)
-	var stand := spot + Vector3(3.2, 0.0, 1.0)
-	_place(stand, _yaw_toward(stand, crew.global_position), -0.1)
-	_safe_for(20.0)
+	var spot := lot.global_position + RESCUE_SPOT
+	var crew_at := spot + Vector3(0.0, 0.0, -1.2)
+	# The others well out of the shot.
+	var crew_list := get_tree().get_nodes_in_group("crew")
+	for index: int in range(1, crew_list.size()):
+		_put_crew(crew_list[index] as Node3D, spot + Vector3(18.0 + 3.0 * float(index), 0.0, -14.0), spot)
+	_placing("friend")
+	friend_node.call("send_teleport", Transform3D(Basis(Vector3.UP, _yaw_toward(spot, crew_at)), spot))
+	_put_crew(crew, crew_at, spot)
+	# Out of the way while the catch lands.
+	var aside := crew_at + Vector3(RESCUE_THROW_METERS + 2.0, 0.0, -3.0)
+	_place(aside, _yaw_toward(aside, crew_at), -0.1)
 	await get_tree().create_timer(0.4).timeout
-	_director().call("force_capture", int(str(friend.name)))
+	_director().call("force_capture", friend)
 	var held: String = await _hold("gnome")
-	_place(stand, _yaw_toward(stand, crew.global_position), -0.1)
-	return {"moment": "cite_rescue", "note": "%s is being cited in front of you; you hold '%s': throw it at %s" % [Net.player_name(int(str(friend.name))), held, crew.name], "phase": _phase()}
+	# Where you throw from is decided once the cite holds them still (the catch
+	# steps them into the two-shot): behind him, the friend on his far side.
+	var citing: Variant = await _wait_for(func() -> Variant: return true if _stage(friend) >= 3 else null)
+	if citing == null:
+		return {"error": "the cite never started (stage %d)" % _stage(friend)}
+	var him := _drawn_at(crew)
+	var them := _drawn_at(friend_node)
+	var away := Vector3(him.x - them.x, 0.0, him.z - them.z).normalized()
+	var stand := Vector3.INF
+	for degrees: float in [RESCUE_ANGLE_DEGREES, -RESCUE_ANGLE_DEGREES, 0.0, RESCUE_ANGLE_DEGREES * 2.0, -RESCUE_ANGLE_DEGREES * 2.0]:
+		var at := him + away.rotated(Vector3.UP, deg_to_rad(degrees)) * RESCUE_THROW_METERS
+		at.y = spot.y
+		if not stand.is_finite():
+			stand = at
+		if _clear_between(at + Vector3.UP * 1.2, him + Vector3.UP * 1.2, crew):
+			stand = at
+			break
+	_place(stand, _yaw_toward(stand, him), -0.1)
+	await _ticks(3)
+	return {"moment": "cite_rescue", "note": "%s is being cited %.1f m ahead, behind %s; you hold '%s': hold drop to wind up and throw it at him" % [Net.player_name(friend), RESCUE_THROW_METERS, crew.name, held], "phase": _phase(), "friend": friend}
 
 
 func _reached_cite_rescue() -> bool:
@@ -539,6 +622,7 @@ func _in_van(crew: Node) -> bool:
 
 ## The host moves a NICE BOY (and settles his smoothing everywhere), facing a point.
 func _put_crew(crew: Node3D, at: Vector3, facing: Vector3) -> void:
+	_placing(str(crew.name))
 	crew.global_position = at
 	var look := facing - at
 	crew.rotation.y = atan2(look.x, look.z)
@@ -557,11 +641,47 @@ func _stage(peer_id: int) -> int:
 	return int(encounter.call("stage_of", peer_id)) if encounter != null else 0
 
 
+## The friend a two-player moment needs: another player who plays (tools\play.ps1
+## -Friend, or any client), never the observer, a watcher that only films (R2b
+## tools: cite_rescue picked the observer, parked at the store, and cited it there).
+func _friend_id() -> int:
+	for peer_id: int in Net.peer_ids():
+		if peer_id != Net.local_peer_id() and not Net.is_watcher(peer_id) and Net.player_name(peer_id) != OBSERVER_NAME:
+			return peer_id
+	return 0
+
+
 func _other_player() -> Node3D:
+	var friend := _friend_id()
 	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.name != str(Net.local_peer_id()):
+		if friend != 0 and node.name == str(friend):
 			return node as Node3D
 	return null
+
+
+## Where a body is drawn (its Visual, which a stage shot may carry off its node).
+func _drawn_at(body: Node3D) -> Vector3:
+	var visual := body.get_node_or_null("Visual") as Node3D
+	var at := visual.global_position if visual != null else body.global_position
+	return Vector3(at.x, body.global_position.y, at.z)
+
+
+## The friend on the yard, the way the game moves anyone (a host-ordered zone
+## move), and safe from the NICE BOYS until the scenario says otherwise.
+func _friend_to_lot(friend: int, safe_seconds: float) -> void:
+	_safe_peer(friend, safe_seconds)
+	if Net.player_zone(friend) != Net.Zone.LOT:
+		Net.move_player_to_zone(friend, Net.Zone.LOT)
+		await _wait_for(func() -> Variant: return true if Net.player_zone(friend) == Net.Zone.LOT else null)
+		await get_tree().create_timer(0.5).timeout
+
+
+func _safe_peer(peer_id: int, seconds: float) -> void:
+	var director := _director()
+	if director == null:
+		return
+	var safe: Dictionary = director.get("_safe_until")
+	safe[peer_id] = Net.server_time() + seconds
 
 
 ## The hedge right in front of you, the warning counting down (R2 chunk 3).
@@ -707,6 +827,7 @@ func _hidden_in_hedge(seen: bool) -> Dictionary:
 	var along := Vector3(-out.z, 0.0, out.x)
 	# Off to the side, 9 m out: facing the hedge if he's to see you go in, else strolling across.
 	var watch_at := spot.global_position + out * 7.0 + along * 4.0
+	_placing("crew")
 	crew.global_position = Vector3(watch_at.x, crew.global_position.y, watch_at.z)
 	var look := (spot.global_position - watch_at) if seen else along
 	crew.rotation.y = atan2(look.x, look.z)
@@ -734,38 +855,47 @@ func _dive_into(spot: Node3D) -> void:
 ## A NICE BOY's inspection, the way the crew brain (R2 chunk 2) runs one: a
 ## look and a point, a walk to the spot's inspect point, the poke, the verdict.
 ## Without the R2 Encounter a found hider goes straight to the director.
+## The timers hold the NICE BOY and the spot by instance id (a reset may free
+## them first: a lambda capturing them then ran with nulls, R2b tools).
 func _inspect_soon(spot: Node3D, lead: float) -> void:
 	var crew := _crew()
 	if crew == null:
 		return
-	var body := crew.get_node_or_null("Visual/CartoonBody")
-	get_tree().create_timer(maxf(0.1, lead - 1.6)).timeout.connect(func() -> void:
-		if not is_instance_valid(crew):
-			return
-		var to := spot.global_position - crew.global_position
-		crew.rotation.y = atan2(to.x, to.z)
-		if body != null:
-			body.call("gesture", "point")
-		# The R2 crew (chunk 2) barks its own line; before it, the point says it.
-		if crew.has_method("bark"):
-			crew.call("bark", "inspect"))
-	get_tree().create_timer(lead - 1.0).timeout.connect(func() -> void:
-		if is_instance_valid(crew):
-			_walk(crew, spot.call("inspect_point"), 0.9))
-	get_tree().create_timer(lead).timeout.connect(func() -> void:
-		if not is_instance_valid(crew):
-			return
-		var face := spot.global_position - crew.global_position
-		crew.rotation.y = atan2(face.x, face.z)
-		spot.call("host_inspect_begin", crew)
-		get_tree().create_timer(Constants.HIDE_INSPECT_SECONDS).timeout.connect(func() -> void:
-			if is_instance_valid(crew) and is_instance_valid(spot):
-				var outcome: Dictionary = spot.call("host_inspect_resolve", crew)
-				print("[Scenario] inspection: %s" % outcome)
-				# Found: the gotcha from the spot, as the crew brain hands it over.
-				var encounter := get_tree().get_first_node_in_group("nice_encounter")
-				if encounter != null and StringName(outcome.get("outcome", &"")) == &"found":
-					encounter.call("host_windup", crew, int(outcome.get("peer", 0)), true)))
+	var ids := [crew.get_instance_id(), spot.get_instance_id()]
+	get_tree().create_timer(maxf(0.1, lead - 1.6)).timeout.connect(_inspect_beat.bind(ids, "point"))
+	get_tree().create_timer(lead - 1.0).timeout.connect(_inspect_beat.bind(ids, "walk"))
+	get_tree().create_timer(lead).timeout.connect(_inspect_beat.bind(ids, "poke"))
+	get_tree().create_timer(lead + Constants.HIDE_INSPECT_SECONDS).timeout.connect(_inspect_beat.bind(ids, "verdict"))
+
+
+func _inspect_beat(ids: Array, beat: String) -> void:
+	var crew := instance_from_id(int(ids[0])) as Node3D
+	var spot := instance_from_id(int(ids[1])) as Node3D
+	if crew == null or spot == null or not is_instance_valid(crew) or not is_instance_valid(spot) or crew.is_queued_for_deletion():
+		return
+	match beat:
+		"point":
+			var to := spot.global_position - crew.global_position
+			crew.rotation.y = atan2(to.x, to.z)
+			var body := crew.get_node_or_null("Visual/CartoonBody")
+			if body != null:
+				body.call("gesture", "point")
+			# The R2 crew (chunk 2) barks its own line; before it, the point says it.
+			if crew.has_method("bark"):
+				crew.call("bark", "inspect")
+		"walk":
+			_walk(crew, spot.call("inspect_point"), 0.9)
+		"poke":
+			var face := spot.global_position - crew.global_position
+			crew.rotation.y = atan2(face.x, face.z)
+			spot.call("host_inspect_begin", crew)
+		"verdict":
+			var outcome: Dictionary = spot.call("host_inspect_resolve", crew)
+			print("[Scenario] inspection: %s" % outcome)
+			# Found: the gotcha from the spot, as the crew brain hands it over.
+			var encounter := get_tree().get_first_node_in_group("nice_encounter")
+			if encounter != null and StringName(outcome.get("outcome", &"")) == &"found":
+				encounter.call("host_windup", crew, int(outcome.get("peer", 0)), true)
 
 
 ## Walk a held-still NICE BOY to a point over seconds (the host's body replicates).
@@ -846,22 +976,21 @@ func _reached_van_seated() -> bool:
 ## unbuckle them, between the driver's mirror checks. Needs a second player (the
 ## -Observer window).
 func _van_unbuckle() -> Dictionary:
-	var friend := 0
-	for peer_id: int in Net.peer_ids():
-		if peer_id != Net.local_peer_id():
-			friend = peer_id
+	var friend := _friend_id()
 	if friend == 0:
-		return {"error": "van_unbuckle needs a friend in the van: start with -Observer"}
+		return {"error": "van_unbuckle needs a second player in the van: start with tools\\play.ps1 -Start -Friend (the observer only watches)"}
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
-	if Net.player_zone(friend) != Net.Zone.LOT:
-		Net.move_player_to_zone(friend, Net.Zone.LOT)
-		await get_tree().create_timer(0.5).timeout
+	await _friend_to_lot(friend, SETTLE_SECONDS * 2.0)
 	var van := _van()
 	var trip := int(van.call("dev_park_now", true))
 	await _ticks(3)
 	van.call("dev_seat", trip, friend)
+	var sat: Variant = await _wait_for(func() -> Variant:
+		return true if bool((van.call("seat_info", friend) as Dictionary).get("settled", false)) else null)
+	if sat == null:
+		return {"error": "%s never sat down in the van" % Net.player_name(friend)}
 	var step: Vector3 = van.call("door_step_point")
 	var pose: Transform3D = van.call("trip_pose", trip, Net.server_time())
 	var stand := step + pose.basis.x.normalized() * DOOR_STAND_METERS
@@ -995,16 +1124,26 @@ func _annex_heist() -> Dictionary:
 		return {"error": "window %s never looks away" % window}
 	annex.call("dev_retime", at + 0.3)
 	_annex_window = window
-	_stand_by(_annex_point("Windows/%s/StampPad" % window), _annex_point("Windows/%s/ClerkSeat" % window), 0.25)
+	# On the floor at the counter's lip, looking down at his stamp (R2b tools: the
+	# stamp pad's own height put you on top of the counter).
+	var window_node := _annex_node3d("Windows/%s" % window)
+	if window_node != null:
+		_stand_facing(window_node.global_transform * HEIST_STAND, _annex_point("Windows/%s/StampPad" % window))
 	await _ticks(3)
 	return {"moment": "annex_heist", "note": "window %s's clerk is looking away; hold interact on his stamp" % window, "window": window}
 
 
 ## His clerk is looking away right now.
 func _reached_annex_heist() -> bool:
-	if not _reached_annex() or _annex_window == "":
+	if not _reached_annex() or _annex_window == "" or not _on_annex_floor():
 		return false
 	return not bool((_annex_node().call("window_now", _annex_window) as Dictionary)["looking"])
+
+
+## Standing on the Annex's floor (not on a counter or a desk).
+func _on_annex_floor() -> bool:
+	var window := _annex_node3d("Windows/A")
+	return window != null and _me().global_position.y < window.global_position.y + 0.4
 
 
 ## The Head NICE BOY just went to the copier: a full form, and his big stamp on its pad in front of you.
@@ -1020,14 +1159,17 @@ func _annex_bigstamp() -> Dictionary:
 	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
 	form["stamped"] = (form["boxes"] as PackedStringArray).size() - 1
 	annex.call("dev_set_form", Net.local_peer_id(), form)
-	_stand_by(_annex_point("HeadDesk/Pad"), _annex_point("HeadDesk"), 0.9)
+	# The visitor's spot in front of his desk, on the floor (R2b tools: the pad's
+	# height put you on the desk, where he walked through you).
+	var spot := _annex_point("HeadDesk/DeskSpot")
+	_stand_facing(spot if spot != Vector3.INF else _annex_point("HeadDesk"), _annex_point("HeadDesk/Pad"))
 	await _ticks(3)
 	return {"moment": "annex_bigstamp", "note": "he's away; interact lifts his big stamp, primary stamps"}
 
 
 ## He's away from his desk, and his big stamp is still on its pad.
 func _reached_annex_bigstamp() -> bool:
-	if not _reached_annex():
+	if not _reached_annex() or not _on_annex_floor():
 		return false
 	var annex := _annex_node()
 	return int((annex.call("window_now", "head") as Dictionary)["state"]) == _Sched.S.AWAY and int(annex.call("big_stamp_holder")) == 0
@@ -1058,13 +1200,9 @@ func _reached_annex_window_d() -> bool:
 ## A friend at the Annex (the second player is the rider), and you at the visitor
 ## door: the Field Office's in the town, the Courtesy Desk by Homie Depot otherwise.
 func _annex_visit() -> Dictionary:
-	var friend := 0
-	for peer_id: int in Net.peer_ids():
-		if peer_id != Net.local_peer_id():
-			friend = peer_id
-			break
+	var friend := _friend_id()
 	if friend == 0:
-		return {"error": "annex_visit needs a second player to be the one at the Annex (tools\\play.ps1 -Observer)"}
+		return {"error": "annex_visit needs a second player to be the one at the Annex: start with tools\\play.ps1 -Start -Friend (the observer only watches)"}
 	if not bool(_world().call("is_town_map")):
 		Net.move_player_to_zone(Net.local_peer_id(), Net.Zone.STORE)
 		await _wait_for(func() -> Variant: return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE else null)
@@ -1149,6 +1287,21 @@ func _stand_by(spot: Vector3, look_at: Vector3, back: float) -> void:
 	_place(Vector3(at.x, spot.y + 0.1, at.z), _yaw_toward(at, spot - away * 2.0), -0.12)
 
 
+## Stand on the floor at `at` (a floor-level point), facing `target` and looking
+## at it from eye height.
+func _stand_facing(at: Vector3, target: Vector3) -> void:
+	if at == Vector3.INF or target == Vector3.INF:
+		return
+	var flat := Vector2(target.x - at.x, target.z - at.z).length()
+	var pitch := clampf(atan2(target.y - (at.y + EYE_HEIGHT), maxf(flat, 0.1)), -1.1, 0.4)
+	_place(Vector3(at.x, at.y + 0.1, at.z), _yaw_toward(at, target), pitch)
+
+
+func _annex_node3d(path: String) -> Node3D:
+	var set_root := _world().get_node_or_null("BorderZone/AnnexSet")
+	return set_root.get_node_or_null(path) as Node3D if set_root != null else null
+
+
 func _annex_node() -> Node:
 	return get_tree().get_first_node_in_group("annex")
 
@@ -1197,12 +1350,19 @@ func _drive() -> Dictionary:
 
 
 ## Undo whatever an earlier moment left behind (a raid, a capture, a ride, a
-## visit to Annex B, a hiding spot, a seat), so each scenario starts clean.
-func reset() -> void:
+## visit to Annex B, a hiding spot, a seat), for every player, not just you, so
+## each scenario starts clean: no seat or hiding spot holds anyone, no raid or
+## NICE BOY is left, no line from the last moment is still on screen and no
+## stage shot is still blending (R2b tools: a friend left buckled in the van got
+## pulled back to the seat after the next scenario placed them). The director
+## then rolls no raid of its own for QUIET_AFTER_SECONDS, so the roaming crew
+## can't take a friend before the next scenario places them.
+func reset(keep_friends: bool = false) -> void:
 	var me_id := Net.local_peer_id()
 	var me := _me()
 	var director := _director()
 	var annex := _annex_node()
+	_placing("reset")
 	if me != null:
 		var spot := preload("res://net/components/hide_spot.gd").spot_of(get_tree(), me_id)
 		if spot != null:
@@ -1214,15 +1374,29 @@ func reset() -> void:
 		if view != null:
 			await _wait_for(func() -> Variant: return true if not bool(view.call("is_moving")) else null)
 		me.set("peeking", false)
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me_id:
+			continue
+		# Out of any hiding spot, the host's way (the player's own request is theirs).
+		var spot := preload("res://net/components/hide_spot.gd").spot_of(get_tree(), peer_id)
+		if spot != null and spot.has_method("_handle_exit"):
+			spot.call("_handle_exit", peer_id, -1)
 	for vehicle: Node in get_tree().get_nodes_in_group("vehicles"):
-		if vehicle.has_method("seat_of") and int(vehicle.call("seat_of", me_id)) >= 0 and vehicle.has_method("request_exit"):
+		if not vehicle.has_method("seat_of"):
+			continue
+		if int(vehicle.call("seat_of", me_id)) >= 0 and vehicle.has_method("request_exit"):
 			vehicle.call("request_exit")
+		for peer_id: int in Net.peer_ids():
+			if peer_id != me_id and int(vehicle.call("seat_of", peer_id)) >= 0 and vehicle.has_method("drop_rider"):
+				vehicle.call("drop_rider", peer_id)
 	if director != null:
-		if bool(director.call("is_captured", me_id)) or _van() != null:
-			# Off the van and out of the cohort, on every peer (the director's own message).
-			director.rpc("_rpc_drop_rider", me_id)
+		for peer_id: int in Net.peer_ids():
+			if bool(director.call("is_captured", peer_id)) or _van() != null:
+				# Off the van and out of the cohort, on every peer (the director's own message).
+				director.rpc("_rpc_drop_rider", peer_id)
 		# No raid, no catches, no crew (R2 chunk 2: the director's own reset).
 		director.call("dev_reset")
+		_hold_raids(director)
 		await _ticks(2)
 	if annex != null and bool(annex.call("is_active")):
 		# Closed up, and everyone it held back where the game would send them.
@@ -1232,11 +1406,65 @@ func reset() -> void:
 		for peer_id: Variant in held:
 			if Net.player_zone(int(peer_id)) == Net.Zone.BORDER:
 				Net.move_player_to_zone(int(peer_id), Net.Zone.STORE)
-	# Every Courtesy Shuttle trip gone at once, riders let go where they sit.
+	# Every Courtesy Shuttle trip gone at once, riders let go where they sit (and
+	# every peer clears the last moment's lines and shots: on_scenario_reset).
 	var van := _van()
 	if van != null:
 		van.call("dev_reset")
+	else:
+		clear_leftovers(get_tree())
+	# A friend waits at the store, out of whatever comes next, until a moment that
+	# needs them puts them on the yard (the observer goes where you go); one that
+	# needs them keeps them where they are, so they don't bounce through the store.
+	for peer_id: int in Net.peer_ids():
+		if not keep_friends and peer_id != me_id and not Net.is_watcher(peer_id) and Net.player_name(peer_id) != OBSERVER_NAME and Net.player_zone(peer_id) != Net.Zone.STORE:
+			Net.move_player_to_zone(peer_id, Net.Zone.STORE)
 	await _ticks(3)
+	# Whatever was still blending out has to be gone before the next placement.
+	clear_leftovers(get_tree())
+
+
+## No raid rolls on its own for QUIET_AFTER_SECONDS (a scenario calls the NICE
+## BOYS itself when it wants them).
+func _hold_raids(director: Node) -> void:
+	if "_next_roll" in director:
+		director.set("_next_roll", maxf(float(director.get("_next_roll")), Net.server_time() + QUIET_AFTER_SECONDS))
+
+
+## Every peer, from the Courtesy Shuttle's dev reset (and the host's reset): the
+## last moment's leftovers off this screen at once, so a recording of the next
+## one starts clean. The caption stack's lines (radio, quips, barks), the
+## bottom-left quip caption, the stage camera's shots (cut, not blended: the
+## scenario's placement is a cut anyway) and a closed iris.
+static func clear_leftovers(tree: SceneTree) -> void:
+	for stack: Node in tree.get_nodes_in_group("caption_stack"):
+		var lines: Variant = stack.get("_lines")
+		if typeof(lines) == TYPE_ARRAY:
+			for entry: Dictionary in lines as Array:
+				var box := entry.get("box") as Node
+				if box != null and is_instance_valid(box):
+					box.queue_free()
+			(lines as Array).clear()
+	var ui := tree.get_first_node_in_group("game_ui")
+	if ui != null:
+		var quip := ui.get_node_or_null("Quips/Caption") as CanvasItem
+		if quip != null:
+			quip.visible = false
+	for player: Node in tree.get_nodes_in_group("players"):
+		var cam := player.get_node_or_null("CameraRig/StageCam")
+		if cam == null or not cam.has_method("pop"):
+			continue
+		var shots: Variant = cam.get("_shots")
+		if typeof(shots) == TYPE_DICTIONARY:
+			for id: Variant in (shots as Dictionary).keys():
+				cam.call("pop", id, 0.0)
+	# An iris shut or closing (ui/iris.gd): wide open now, with no swish.
+	for iris: Node in tree.get_nodes_in_group("iris"):
+		if "_close_at" in iris and float(iris.get("_close_at")) != INF:
+			iris.set("_close_at", INF)
+			iris.set("_open_at", INF)
+			iris.set("_swished_close", true)
+			iris.set("_swished_open", true)
 
 
 # ---------------------------------------------------------------- helpers
@@ -1311,9 +1539,18 @@ func _held(me: Node) -> String:
 	return str(held.get("kind")) if held != null else ""
 
 
+## This window's recorder, if it's recording: what a scenario moves is setup,
+## logged as "placed", not as a pop or a camera snap (net/dev/recorder.gd).
+func _placing(reason: String) -> void:
+	var recorder := get_parent().get_node_or_null("RemotePlay/Recorder")
+	if recorder != null and recorder.has_method("note_placement"):
+		recorder.call("note_placement", reason)
+
+
 ## Stand here, facing yaw (radians; 0 faces -z), looking pitch radians up.
 func _place(at: Vector3, yaw: float, pitch: float) -> void:
 	var me := _me()
+	_placing("you")
 	me.call("apply_network_teleport", Transform3D(Basis(Vector3.UP, yaw), at))
 	me.set("body_yaw", yaw)
 	me.set("head_pitch", pitch)
