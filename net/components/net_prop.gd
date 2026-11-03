@@ -655,12 +655,8 @@ func _rpc_mower_fx(what: String, at: Vector3) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
 		sfx.call("play_at", {"chop": "chop", "grind": "grind", "burst": "bag", "clank": "bonk", "runaway": "mower_start", "sputter": "sputter", "glug": "glug"}.get(what, "bonk"), at)
-	# Running dry and filling up are only heard (and the holder told).
+	# Running dry and filling up are only heard: the sputter is the message (x1:text).
 	if what == "sputter" or what == "glug":
-		if what == "sputter" and held_by != 0 and held_by == Net.local_peer_id():
-			var holder := _player(held_by)
-			if holder != null and holder.has_method("flash_hint"):
-				holder.call("flash_hint", preload("res://ui/strings.gd").SHOP_UI["goal_out_of_gas"])
 		return
 	var looks := get_tree().get_first_node_in_group("task_looks")
 	if looks != null:

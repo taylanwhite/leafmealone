@@ -406,6 +406,17 @@ class ServiceWindow extends Prop:
 	var _sign_up: bool = false
 	var _sign_from: float = 0.0
 	var _ink: MeshInstance3D
+	## The stamp out of its window in a hand (R2c annex, the self-stamp): a
+	## Callable giving the world point it's carried to (where it slams), when it
+	## started, whether it just shoots out (others' view), and drawn over the
+	## first-person form; then the way back to the pad.
+	var _borrow_to: Callable = Callable()
+	var _borrow_at: float = -1000.0
+	var _borrow_quick: bool = false
+	var _return_at: float = -1000.0
+	var _return_from := Vector3.ZERO
+	var _stamp_saved_material: Material = null
+	var _stamp_top_material: StandardMaterial3D = null
 
 	func build(id: String, window_look: Dictionary) -> void:
 		window_id = id
@@ -446,13 +457,23 @@ class ServiceWindow extends Prop:
 		# The mug and the stool stay neutral: only the badge, the line and the
 		# footprints wear the window's color (R2b), so nothing else hints at it.
 		kit.cone(Vector3(0.45, 0.765, -0.55), 0.04, 0.09, PAPER, 8)
+		# A tall drafting stool with a foot ring (R2c: on a low one he sat hidden
+		# below the hatch, and a booth read empty from the line).
+		var stool_top := 0.82 - Constants.CLERK_STOOL_DROP - 0.03
 		kit.cone(Vector3(0.0, 0.0, -1.05), 0.2, 0.04, DARK, 8)
-		kit.box(Vector3(0.0, 0.25, -1.05), Vector3(0.04, 0.46, 0.04), STEEL)
-		kit.cone(Vector3(0.0, 0.47, -1.05), 0.2, 0.05, DARK.lightened(0.15), 10)
-		kit.box(Vector3(0.62, 0.62, -1.62), Vector3(0.5, 1.24, 0.55), STEEL.darkened(0.15))
+		kit.box(Vector3(0.0, stool_top * 0.5, -1.05), Vector3(0.04, stool_top - 0.02, 0.04), STEEL)
+		var ring := PackedVector3Array()
+		for step: int in 13:
+			var angle := TAU * float(step) / 12.0
+			ring.append(Vector3(cos(angle) * 0.17, 0.3, -1.05 + sin(angle) * 0.17))
+		kit.tube(ring, PackedFloat32Array([0.012]), STEEL, 5, {"jitter": 0.0})
+		kit.cone(Vector3(0.0, stool_top - 0.05, -1.05), 0.2, 0.05, DARK.lightened(0.15), 10)
+		# The filing cabinet stands back against the wall, out of the corridor the
+		# clerks walk behind the stools (R2c annex).
+		kit.box(Vector3(0.62, 0.62, -1.875), Vector3(0.5, 1.24, 0.45), STEEL.darkened(0.15))
 		for drawer: int in 3:
-			kit.box(Vector3(0.62, 0.25 + float(drawer) * 0.38, -1.34), Vector3(0.42, 0.3, 0.02), STEEL)
-			kit.box(Vector3(0.62, 0.33 + float(drawer) * 0.38, -1.325), Vector3(0.12, 0.025, 0.02), DARK)
+			kit.box(Vector3(0.62, 0.25 + float(drawer) * 0.38, -1.645), Vector3(0.42, 0.3, 0.02), STEEL)
+			kit.box(Vector3(0.62, 0.33 + float(drawer) * 0.38, -1.63), Vector3(0.12, 0.025, 0.02), DARK)
 		# The stamp's ink pad on the sill, right behind the hatch.
 		kit.box(STAMP_SPOT + Vector3(0.0, 0.012, 0.0), Vector3(0.16, 0.024, 0.11), DARK)
 		kit.box(STAMP_SPOT + Vector3(0.0, 0.026, 0.0), Vector3(0.13, 0.005, 0.08), INK)
@@ -543,7 +564,7 @@ class ServiceWindow extends Prop:
 		OfficeProps._marker(self, "StampPad", STAMP_SPOT + Vector3(0.0, 0.05, 0.0))
 		OfficeProps._marker(self, "Bell", Vector3(-0.58, COUNTER_Y + 0.06, 0.24))
 		OfficeProps._marker(self, "ClerkSeat", Vector3(0.0, 0.0, -1.05), PI)
-		OfficeProps._marker(self, "Cabinet", Vector3(0.62, 0.0, -1.2), PI)
+		OfficeProps._marker(self, "Cabinet", Vector3(0.62, 0.0, -1.5), PI)
 		for spot: int in 3:
 			OfficeProps._marker(self, "BreakSpot%d" % spot, Vector3(0.0, 0.0, -1.05))
 		# The lobby can't climb the counter or walk through the glass.
@@ -604,6 +625,75 @@ class ServiceWindow extends Prop:
 		lamp_on = on
 		_lamp.visible = on
 
+	## Someone takes the stamp out of the hatch (R2c annex: it inked your form from
+	## 1.5 m away with no hand on it). to() is where it's carried, in the world.
+	## quick: it goes straight there (someone else's self-stamp, seen as it lands);
+	## on_top: drawn over your own first-person clipboard.
+	func borrow(to: Callable, at: float, quick: bool, on_top: bool) -> void:
+		_borrow_to = to
+		_borrow_at = at
+		_borrow_quick = quick
+		_return_at = -1000.0
+		_stamp_on_top(on_top)
+		set_process(true)
+
+	## Taken back to its pad from wherever it is, from server time at.
+	func give_back(at: float) -> void:
+		if not _borrow_to.is_valid():
+			return
+		_borrow_to = Callable()
+		_return_at = at
+		_return_from = _stamp.global_position
+		set_process(true)
+
+	## Out of its window, in a hand or on its way back.
+	func borrowed() -> bool:
+		return _borrow_to.is_valid() or OfficeProps.now() - _return_at < Constants.ANNEX_BORROW_RETURN
+
+	## In someone's hand right now (not on its way home).
+	func in_hand() -> bool:
+		return _borrow_to.is_valid()
+
+	## Where the stamp's knob is (a hand holding it goes here).
+	func stamp_knob() -> Vector3:
+		return _stamp.global_position + _stamp.global_basis.y * 0.135
+
+	func _stamp_on_top(on: bool) -> void:
+		var view := _stamp.get_node_or_null("Mesh") as MeshInstance3D
+		if view == null:
+			return
+		if on:
+			if _stamp_top_material == null:
+				_stamp_top_material = StandardMaterial3D.new()
+				_stamp_top_material.vertex_color_use_as_albedo = true
+				_stamp_top_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				_stamp_top_material.no_depth_test = true
+				_stamp_top_material.render_priority = 3
+				_stamp_saved_material = view.material_override
+			view.material_override = _stamp_top_material
+		elif _stamp_top_material != null:
+			view.material_override = _stamp_saved_material
+
+	## Where a borrowed stamp is now (world), before the slam's own lift.
+	func _borrowed_at(t: float) -> Vector3:
+		var pad := global_transform * (STAMP_SPOT + Vector3(0.0, 0.026, 0.0))
+		var carry: Vector3 = _borrow_to.call()
+		if not carry.is_finite():
+			return pad
+		var since := t - _borrow_at
+		if _borrow_quick:
+			return pad.lerp(carry, OfficeProps.ease_out(since / Constants.ANNEX_BORROW_QUICK))
+		var reach := Constants.ANNEX_BORROW_REACH
+		var slide := Constants.ANNEX_BORROW_SLIDE
+		# Under the glass, out over the lobby side of the ledge.
+		var lip := global_transform * Vector3(STAMP_SPOT.x * 0.5, COUNTER_Y + 0.026, 0.34)
+		if since < reach:
+			return pad
+		if since < reach + slide:
+			return pad.lerp(lip, OfficeProps.ease_out((since - reach) / slide))
+		var k := OfficeProps.ease_out((since - reach - slide) / Constants.ANNEX_BORROW_LIFT)
+		return lip.lerp(carry, k) + Vector3.UP * 0.06 * sin(k * PI)
+
 	func _begin(next: StringName, at: float, args: Dictionary) -> void:
 		match next:
 			&"lamp_on":
@@ -639,6 +729,7 @@ class ServiceWindow extends Prop:
 				_stamp_from = _stamp_rise_now
 				_stamp_state = next
 				_stamp_at = at
+				give_back(at)
 			&"stamp_down":
 				# Lift, then slam, the KA-CHUNK on the frame it hits the pad
 				# (at + ANNEX_STAMP_HIT); a volley slams again every args.gap, the
@@ -651,8 +742,12 @@ class ServiceWindow extends Prop:
 				_stamp_lift = float(args.get("lift", 0.24))
 				_stamp_first = maxf(float(args.get("first", Constants.ANNEX_STAMP_HIT)), Constants.ANNEX_STAMP_SLAM_SECONDS + 0.05)
 				_stamp_from = _stamp_rise_now if _stamp_rise_now > 0.01 else 0.0
+				# A borrowed stamp lands on the form in a hand, and sounds there.
+				var lands: Vector3 = _borrow_to.call() if _borrow_to.is_valid() else Vector3.INF
+				if not lands.is_finite():
+					lands = global_position + global_basis * STAMP_SPOT
 				for index: int in slams:
-					cue("stamp_kachunk", at + _stamp_first + float(index) * _stamp_gap, global_position + global_basis * STAMP_SPOT)
+					cue("stamp_kachunk", at + _stamp_first + float(index) * _stamp_gap, lands)
 				_flutter_from = at + _stamp_first if slams > 1 else -1000.0
 			&"bell":
 				cue("desk_bell", at, global_position + global_basis * Vector3(-0.58, COUNTER_Y + 0.06, 0.24))
@@ -693,6 +788,24 @@ class ServiceWindow extends Prop:
 		# Behind closed blinds the stamp is out of sight.
 		_stamp.visible = _blinds.drop < 0.97
 		_stamp.rotation.z = -rise * 0.6
+		if _borrow_to.is_valid():
+			# In a hand (R2c annex): carried to the form, the slam on top of that.
+			var slam_up := rise if _stamp_state == &"stamp_down" else 0.0
+			# In hand it isn't lifted off a pad: the slam starts from the form.
+			_stamp_rise_now = slam_up
+			_stamp.global_position = _borrowed_at(t) + Vector3.UP * slam_up
+			_stamp.rotation.z = 0.0
+			moving = true
+			if _stamp_state == &"stamp_down" and since > _stamp_first + float(_stamp_volley - 1) * _stamp_gap + Constants.ANNEX_BORROW_LET_GO:
+				give_back(t)
+		elif t - _return_at < Constants.ANNEX_BORROW_RETURN:
+			# Put back on its pad over the sill.
+			var k := OfficeProps.ease_out((t - _return_at) / Constants.ANNEX_BORROW_RETURN)
+			var pad := global_transform * (STAMP_SPOT + Vector3(0.0, 0.026, 0.0))
+			_stamp.global_position = _return_from.lerp(pad, k) + Vector3.UP * Constants.ANNEX_BORROW_RETURN_ARC * sin(k * PI)
+			moving = true
+		elif _stamp_top_material != null and (_stamp.get_node("Mesh") as MeshInstance3D).material_override == _stamp_top_material:
+			_stamp_on_top(false)
 		moving = _flutter(t) or moving
 		return moving
 
@@ -852,6 +965,8 @@ class FloorLine extends Prop:
 class BigStamp extends Prop:
 	var holder: Node3D = null
 	var _rest: Vector3
+	var _sheet: Node3D
+	var _ink: MeshInstance3D
 
 	func build() -> void:
 		var kit := _MeshKit.new()
@@ -862,10 +977,40 @@ class BigStamp extends Prop:
 		kit.blob(Vector3(0.0, 0.35, 0.0), Vector3(0.09, 0.07, 0.09), WOOD, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
 		OfficeProps._view(self, kit, "Mesh", {"roughness": 0.5, "specular": 0.3})
 		_rest = position
+		# The form he lays on the pad to approve it (R2c): a sheet under the stamp,
+		# APPROVED, NICELY inked on it when the stamp comes down. Set by the Head
+		# NICE BOY's pose (npcs/clerk.gd), not here.
+		_sheet = Node3D.new()
+		_sheet.name = "Sheet"
+		add_child(_sheet)
+		var paper := _MeshKit.new()
+		paper.box(Vector3(0.0, 0.002, 0.0), Vector3(0.24, 0.004, 0.32), PAPER)
+		OfficeProps._view(_sheet, paper, "Paper", {"roughness": 0.9})
+		var mark := _MeshKit.new()
+		mark.box(Vector3(0.0, 0.0055, 0.02), Vector3(0.2, 0.002, 0.1), INK, Basis(Vector3.UP, 0.18))
+		_ink = OfficeProps._view(_sheet, mark, "Ink", {"roughness": 0.9})
+		_sheet.visible = false
 
 	func set_rest(at: Vector3) -> void:
 		_rest = at
 		position = at
+
+	## The sheet under the stamp at its rest (the Head NICE BOY's approval): shown
+	## or not, and inked or not. It lies where the stamp rests, wherever the stamp is.
+	func set_sheet(shown: bool, inked: bool) -> void:
+		_sheet.visible = shown
+		_ink.visible = inked
+		if shown:
+			_sheet.global_position = (get_parent() as Node3D).to_global(_rest)
+			_sheet.global_rotation = Vector3(0.0, (get_parent() as Node3D).global_rotation.y + 0.2, 0.0)
+
+	## Where it rests, in its parent's space.
+	func rest() -> Vector3:
+		return _rest
+
+	## While the Head NICE BOY has it (a slam with args.puppet), his hands place it.
+	func puppeted() -> bool:
+		return state == &"slam" and bool(state_args.get("puppet", false))
 
 	## Someone carries it (two-handed, at the chest), or null puts it back on its pad.
 	func set_held(by: Node3D) -> void:
@@ -905,8 +1050,12 @@ class BigStamp extends Prop:
 
 	func _animate(t: float) -> bool:
 		var since := t - state_at
+		if puppeted():
+			# In the Head NICE BOY's hands (R2c: it rose and slammed by itself while
+			# he stood at the cooler): his pose moves it; here only the sounds.
+			return since < slam_lands_after(_hesitate()) + 0.6
 		if state == &"slam":
-			# On the pad (the Head NICE BOY's) or in the holder's hands: raised high,
+			# In the holder's hands: raised high,
 			# a held breath, slammed down where it was.
 			var held := holder != null and is_instance_valid(holder)
 			var lift := Constants.ANNEX_BIG_STAMP_LIFT_SECONDS

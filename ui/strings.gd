@@ -73,20 +73,20 @@ const UI: Dictionary = {
 	"prompt_format": "{key:%s}  %s",
 	"prompt_hide": "Hide",
 	"prompt_load_bag": "Load the bag",
-	"prompt_pick_up": "Pick up %s",
 	"prompt_pick_up_plain": "Pick up",
-	"prompt_board": "Board Chefty",
+	# x1:text: an interact prompt is the key and a verb. The thing it floats over
+	# is in front of you, so the prompt doesn't name it (docs/GAME.md "Writing for
+	# players").
+	"prompt_board": "Board",
 	"prompt_finish": "Call the job done",
 	"prompt_shop": "Shop",
-	"prompt_job_board": "Pick the next job",
-	"prompt_pile_dive": "Dive into the pile",
+	"prompt_job_board": "Pick a job",
+	"prompt_pile_dive": "Dive in",
 	"hud_heat": "Heat",
 	"heat_warn_0": "Curtains are twitching.",
 	"heat_warn_1": "Somebody's on the phone.",
 	"prompt_grab_player": "Grab %s",
-	"prompt_put_down_player": "Put %s down   {key:drop} throws them",
-	"hud_carried": "You're being carried. Mash keys to wriggle free!",
-	"hud_punch": "Hold {key:primary} to wind up a punch",
+	"prompt_put_down_player": "Put %s down",
 	"board_title": "JOBS",
 	"board_house": "No. %d",
 	"board_size_0": "Small yard",
@@ -97,7 +97,6 @@ const UI: Dictionary = {
 	"board_pay_short": "$%d+",
 	"board_picked": "NEXT UP",
 	"board_window_title": "Job Board",
-	"board_window_subtitle": "Pick where Chefty goes next. Leaves pay by the bag.",
 	"board_rating_none": "Crew rating: no reviews yet",
 	"receipt_stars": "The homeowner's review: %s",
 	"board_take": "Take this job",
@@ -107,7 +106,6 @@ const UI: Dictionary = {
 	"prompt_gate_lot": "Go to the lot",
 	"prompt_gate_store": "Back to Homie Depot",
 	"prompt_gate_border": "Go to the border",
-	"hud_rake_hint": "{key:primary}  rake leaves into a pile     {key:secondary}  bag them     Hold {key:drop}  throw",
 	"shop_title": "Homie Depot",
 	"shop_subtitle": "Tools and upgrades",
 	"shop_credits": "Your cash: $%d",
@@ -121,11 +119,10 @@ const UI: Dictionary = {
 	"shop_barrow_name": "Bigger wheelbarrow",
 	"shop_barrow_blurb": "Holds %d bags instead of %d.",
 	"homeowner_name": "The Homeowner",
-	"prompt_talk": "Talk to the homeowner",
-	"prompt_dump_truck": "Dump into Chefty",
+	"prompt_talk": "Talk",
+	"prompt_dump_truck": "Dump",
 	"prompt_take_cash": "Take the cash ($%d)",
 	"cash_amount": "$%d",
-	# The goal line (ui/job_goal.gd): what to do next on the job.
 	"shop_tool_unlocks": "Unlocks: %s",
 	"shop_tools": "Tools",
 	"shop_upgrades": "Upgrades",
@@ -136,9 +133,9 @@ const UI: Dictionary = {
 	"tool_pressure_washer": "Pressure washer",
 	"tool_hedge_trimmer": "Hedge trimmer",
 	"tool_paint_roller": "Paint roller",
-	"tool_blurb_leaf_blower": "Blasts leaves into piles way faster than raking. Hold {key:primary}.",
+	"tool_blurb_leaf_blower": "Blasts leaves into piles way faster than raking.",
 	"tool_blurb_lawn_mower": "Push it around to mow. Heavy, loud, satisfying.",
-	"tool_blurb_ladder": "Reach the gutters. Hold {key:primary} under one to scoop it out.",
+	"tool_blurb_ladder": "Reach the gutters. The gutters will not be happy to see you.",
 	"tool_blurb_hose": "Spray dirty windows clean from across the yard.",
 	"tool_blurb_pressure_washer": "Blasts the grime off driveways.",
 	"tool_blurb_hedge_trimmer": "Turns shaggy hedges into neat ones.",
@@ -159,39 +156,20 @@ const UI: Dictionary = {
 	"prompt_climb_up": "Climb up    {key:take}  take it down",
 	"task_clear_roof": "Clear the leaves off the roof",
 	"task_skim_pool": "Scoop the leaves out of the pool",
-	"prompt_skim_pool": "Scoop out the leaves",
-	"goal_roof": "Hold {key:primary} to scoop the roof and gutters ({key:move_forward} at the ladder's top steps onto the roof)",
-	"goal_mower_running": "Push it over the lawn. {key:primary} stops it; let go and it drives off",
-	"goal_start_mower": "{key:primary} to pull the cord and start it (pull again to stop it)",
-	"goal_dip_roller": "The roller's dry. {key:interact} at the paint bucket to dip it",
-	"prompt_dip": "Dip the roller",
-	"prompt_hook_chefty": "Hook the hose to Chefty's tank",
-	"prompt_hook_spigot": "Hook the hose to the house (they'll bill you)",
-	"prompt_hook_hydrant": "Hook the hose to the hydrant (uh oh)",
-	"prompt_unhook": "Unhook the hose",
-	"prompt_refill": "Fill the washer",
-	"goal_hook_hose": "Hook the hose up first: {key:interact} at Chefty's tank, the house spigot, or a hydrant",
-	"goal_refill": "The washer's empty. {key:interact} at a water source to fill it",
-	"goal_washer_tank": "Pressure wash the driveway (tank %d%%)",
+	"prompt_skim_pool": "Scoop",
+	"prompt_dip": "Dip",
+	"prompt_hook_chefty": "Hook up",
+	"prompt_hook_spigot": "Hook up (they'll bill you)",
+	"prompt_hook_hydrant": "Hook up (uh oh)",
+	"prompt_unhook": "Unhook",
+	"prompt_refill": "Fill up",
 	"receipt_water": "Water from the house",
 	"receipt_bill_hose": "A new hose (you mowed it)",
 	"receipt_bill_gnome": "A new gnome (you mowed it)",
 	"receipt_bill_medical": "Medical bills",
 	"prompt_climb_down": "Climb down",
-	"goal_set_ladder": "Walk up to the house and {key:primary} under a gutter to set the ladder up",
-	"goal_gutters": "Hold {key:primary} to scoop the gutters (a leaf blower goes faster). {key:move_forward} steps onto the roof",
-	"prompt_pull_weed": "Pull weed",
-	"goal_task": "Next: %s",
+	"prompt_pull_weed": "Pull",
 	"receipt_task": "%s (%d%%)",
-	"goal_board": "Board Chefty to head to the job",
-	"goal_grab_rake": "Grab the rake",
-	"goal_rake": "Rake leaves into one big pile, then {key:secondary} to bag it",
-	"goal_carry_held": "Into Chefty with it",
-	"goal_carry_loose": "Carry the bags to Chefty (%d lying around)",
-	"goal_talk": "Talk to the homeowner to get paid ($%d in Chefty)",
-	"goal_rake_or_talk": "Grab the rake for more, or talk to the homeowner to get paid ($%d in Chefty)",
-	"goal_no_rake": "Someone has the rake. Scoop by hand, or carry their bags",
-	"goal_take_cash": "Grab the cash!",
 	"receipt_title": "Job paid",
 	"receipt_bags": "Bags delivered",
 	"receipt_mood": "Homeowner was %s",
@@ -202,22 +180,21 @@ const UI: Dictionary = {
 	# The spine (docs/SPINE.md): the day, sleeping, the crew's rank, the town, the phone.
 	"prompt_cot": "Lie down  (%d of %d in bed)",
 	"prompt_cot_early": "Too early for bed (after 6 PM)",
-	"pile_value": "Pile: $%d  {key:secondary}",
-	"pile_thin": "Pile's too thin to bag",
-	"prompt_cot_lying": "Zzz... %d of %d in bed. Move to get up",
+	# What a pile would bag for, over it (equipment/rake.gd). The bag key shows
+	# until your first bag of the session, the one control nothing else shows you.
+	"pile_value": "$%d  {key:secondary}",
+	"pile_cash": "$%d",
+	"prompt_cot_lying": "Zzz... %d of %d in bed.",
 	"prompt_cot_host": "Zzz... %d of %d in bed. Hold {key:interact}: everyone to bed",
 	"camp_sign": "CREW CAMP\nmgmt. not responsible",
 	"hud_clock": "Day %d · %s  %s",
-	"hud_quiet_hours": "Quiet hours: +%d%% pay, noise draws more heat",
-	"hud_closed": "2 AM. Go to bed, the crew camp is by the side wall",
+	"hud_quiet_hours": "Quiet hours · +%d%% pay",
+	"hud_closed": "Bedtime. Even the leaves are asleep.",
 	"hud_rank": "%s",
 	"hud_unread": "{icon:unread} %d new texts  {key:phone}",
 	"hud_xp": "%d / %d XP  (+%d tonight)",
-	"goal_no_jobs": "No jobs right now. Check your phone {key:phone}, or sleep it off at the crew camp",
-	"goal_sleep": "It's 2 AM. Sleep at the crew camp by the side wall",
-	"goal_texts": "You've got texts. {key:phone} to read them, then pick a job at the board",
 	"board_client_line": "%s, %s",
-	"board_none": "Nobody's asked for a job yet. Wait for a text, or sleep on it.",
+	"board_none": "Nobody's asked for a job yet. The leaves are biding their time.",
 	"receipt_bonus": "Night shift and rank bonus",
 	"receipt_xp": "Crew XP (banked when you sleep)",
 	"summary_title": "Day %d is over",
@@ -259,7 +236,7 @@ const UI: Dictionary = {
 	"phone_hire": "Hire a hand ($%d, then $%d a day)",
 	"summary_wages": "Wages paid: $%d",
 	"summary_poached": "TurfMasters™ poached %s",
-	"phone_poached": "With TurfMasters™ now. Win them back: great work on their street, or pull the signs.",
+	"phone_poached": "With TurfMasters™ now. The signs are still on the lawn. For now.",
 	"summary_quit": "%s quit (no pay)",
 	"clerk_name": "Marty",
 	# ---- settings: key names and rebinding (core/settings.gd, core/input_labels.gd)
@@ -383,7 +360,7 @@ const UI: Dictionary = {
 	"keys_group_crew": "Crew",
 	"keys_group_other": "Other",
 	"keys_listening": "Press a key or click…",
-	"keys_hint": "Click a slot, then press a key or mouse button (click the slot again for Left click). Esc or a click elsewhere cancels, Backspace clears.",
+	"keys_hint": "Click a slot, then press a key. Click it twice for Left click. Backspace clears.",
 	"keys_reset_all": "Reset all keys",
 	"keys_reset_row": "↺",
 	"notice_stamped": "%s is now %s. Stamped and filed.",
@@ -405,11 +382,9 @@ const UI: Dictionary = {
 	"item_wheelbarrow": "Wheelbarrow",
 	"item_turf_sign": "TurfMasters™ sign",
 	"hotbar_fists": "Bare hands",
-	"hotbar_full": "Pockets full. Drop something ({key:drop}).",
-	"hotbar_arms_full": "Hands full. {key:drop} sets it down.",
+	# x1:text: a refused pickup or switch is the bar's shake and red flash, no words.
 	"hotbar_confiscated": "The NICE BOYS emptied your pockets. Itemized. In triplicate.",
-	"hotbar_left": "You left the job. Your stuff stayed on the yard.",
-	"prompt_pockets_full": "Pockets full",
+	"hotbar_left": "Your stuff stayed on the yard.",
 	# The bar itself (ui/hotbar_hud.gd). A slot without an icon shows a colored
 	# chip with its four-letter tag.
 	"hotbar_abbr_rake": "RAKE",
@@ -431,7 +406,6 @@ const UI: Dictionary = {
 	"hotbar_weight": "%s · %d kg",
 	"hotbar_barrow": "%d/%d bags · $%d",
 	"hotbar_bag": "Leaf bag · $%d",
-	"hotbar_arms_hint": "{key:drop}  set down     Hold {key:drop}  throw",
 	"hotbar_paint": "%d%% paint",
 	"hotbar_gas": "%d%% gas",
 	"hotbar_hooked": "hooked up",
@@ -441,10 +415,7 @@ const UI: Dictionary = {
 	"hint_gnome": "Hug him like you mean it. He's seen three owners and a hailstorm.",
 	"hint_trash": "Full of mystery. Do not open the mystery.",
 	"hint_turf_sign": "Pulled up. Toss it somewhere TurfMasters™ won't look.",
-	"hint_gas_can": "Hold it by a thirsty tool and press {key:interact} to fill it up.",
-	"hint_hands": "Bare hands: scoop leaves, pick up litter, grab a teammate.",
-	# The goal line (ui/job_goal.gd): %s is the pocket's key, as keyed() writes it.
-	"goal_draw_rake": "Press %s for the rake",
+	"hint_gas_can": "Smells like a bad decision. The tools love it.",
 	"action_slot_1": "Pocket 1",
 	"action_slot_2": "Pocket 2",
 	"action_slot_3": "Pocket 3",
@@ -454,7 +425,7 @@ const UI: Dictionary = {
 	"action_slot_prev": "Previous pocket",
 	# ---- driving: Chefty (net/components/chefty_drive.gd, player/seated.gd, ui/drive_hud.gd)
 	"action_honk": "Honk",
-	"prompt_drive": "Drive Chefty",
+	"prompt_drive": "Drive",
 	"prompt_ride_shotgun": "Ride shotgun",
 	"prompt_ride_bed": "Hop in the bed",
 	"prompt_get_out": "Get out",
@@ -465,7 +436,8 @@ const UI: Dictionary = {
 	"drive_hud_bed": "Bed %d/%d ($%d)",
 	"drive_hud_driver": "Driver: %s",
 	"drive_hud_no_driver": "Nobody's driving",
-	"drive_hud_keys_driver": "{key:move_forward} Gas   {key:move_back} Brake   {key:move_left} {key:move_right} Steer   {key:jump} Handbrake   {key:honk} Honk",
+	# x1:text: only the keys a driver can't guess (WASD drives itself).
+	"drive_hud_keys_driver": "{key:jump} Handbrake   {key:honk} Honk",
 	"drive_hud_keys_rider": "{key:toggle_camera} Camera",
 	## The seat's own two keys, after the line above: prompt_swap_seat or
 	## prompt_too_fast, then prompt_get_out or prompt_bail_out.
@@ -513,14 +485,10 @@ const UI: Dictionary = {
 	"site_beacon": "%s's place",
 	## An address: the house number and the street ("14 Maple Row").
 	"site_address": "%d %s",
-	## %s is the address, %d meters away, and an arrow pointing the way.
-	"goal_get_in_chefty": "Get in Chefty and drive to %s · %d m %s",
-	"goal_drive_to": "Drive to %s · %d m %s",
-	"goal_go_to": "Head over to %s · %d m %s",
-	"goal_park": "Park in the chalk box, then {key:interact} to hop out",
-	"goal_pick_job": "Pick a job: {key:phone} for your texts",
-	"goal_next_job": "Paid! Take the next job on your phone {key:phone}, or head back to Homie Depot",
-	"goal_drive_home": "It's late. Get back to Homie Depot and sleep it off",
+	## The goal line's one job since x1:text: where the job is, which you can't
+	## see from here. %s is the address, %d meters away, and an arrow pointing the
+	## way. Nothing says what to do there (docs/GAME.md "Writing for players").
+	"goal_drive_to": "%s · %d m %s",
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -791,9 +759,9 @@ const SHOP_UI: Dictionary = {
 	"item_hedge_trimmer": "Hedge trimmer",
 	"item_pressure_washer": "Pressure washer",
 	"item_paint_roller": "Paint roller",
-	"item_blurb_leaf_blower": "Blasts leaves into piles way faster than raking. Hold {key:primary}.",
+	"item_blurb_leaf_blower": "Blasts leaves into piles way faster than raking.",
 	"item_blurb_lawn_mower": "Push it around to mow. Heavy, loud, satisfying.",
-	"item_blurb_ladder": "Reach the gutters. Hold {key:primary} under one to scoop it out.",
+	"item_blurb_ladder": "Reach the gutters. The gutters will not be happy to see you.",
 	"item_blurb_hose": "Spray dirty windows clean from across the yard.",
 	"item_blurb_hedge_trimmer": "Turns shaggy hedges into neat ones.",
 	"item_blurb_pressure_washer": "Blasts the grime off driveways.",
@@ -1032,15 +1000,15 @@ const SHOP_UI: Dictionary = {
 	"prompt_look_at": "Look at %s",
 	"prompt_refuel": "Fill it up (%d%%)",
 	# E at Chefty's tailgate with junk in the bed (shops chunk 5, gap-specs critic C22).
-	"prompt_unload_junk": "Unload junk",
-	"prompt_vending": "Use the Snak-o-Matic",
-	"hud_out_of_bags": "Out of lawn bags. Homie Depot, the Snak-o-Matic, or your phone.",
-	"hud_out_of_gas": "Out of gas",
-	"goal_out_of_gas": "Out of gas. Hold the gas can and press {key:interact} at the tool",
+	# A keycap and a verb (x1:text): the junk is right there in the bed.
+	"prompt_unload_junk": "Unload",
+	"prompt_vending": "Snack",
+	# The crew's bag supply can't be seen anywhere on the yard, so a rake that
+	# won't bag says why (x1:text: not where to get more). An empty gas tool
+	# sputters and its gauge reads empty, so it says nothing.
+	"hud_out_of_bags": "Out of bags.",
 	# The red gas can that rides along with the tools (core/tool_tiers.gd can_label).
 	"prop_gas_can": "Gas can (%.1f gal)",
-	# Holding a gas can with nothing left in it.
-	"hud_can_empty": "The can is empty. Homie Depot sells more. So does your phone, eventually.",
 	# Phone: Orders (app id "deliveries") and Closet.
 	"phone_tab_deliveries": "Orders",
 	"phone_tab_closet": "Closet",
@@ -1584,7 +1552,7 @@ const TEXT_LINES: Dictionary = {
 	},
 	# From Marty (UI clerk_name): the first morning's welcome, and leads he passes on.
 	"clerk_intro": [
-		"Welcome to the crew. Three of your neighbors want their leaves gone. Check the board by the checkout. The cots by the side wall are yours after 6 PM. {key:phone} to check your phone.",
+		"Welcome to the crew. Three of your neighbors want their leaves gone, and the board by the checkout knows where they live. The cots by the side wall are yours after 6 PM. Don't tell the manager. I'm the manager.",
 	],
 	"clerk_lead": [
 		"Somebody came by the store asking for a leaf crew. I gave them your number. You're welcome.",
@@ -1673,16 +1641,17 @@ const TEXT_LINES: Dictionary = {
 
 ## Run-event captions (ui/run_cues.gd), through the caption stack. Picked with
 ## pick_seeded() from the phase's start time, so every peer shows the same line.
-## R2: no arrival line; the van pulling up says it.
+## R2: no arrival line; the van pulling up says it. x1:text: every line is a joke
+## on top of the flare, the sting and the van, never a plain status line.
 const CUE_LINES: Dictionary = {
 	"radio": [
-		"RADIO: the NICE BOYS are on the way to this address",
+		"RADIO: Shuttle Two, please proceed nicely. Nicer. That's too nice.",
 		"RADIO: Courtesy Patrol to all units, we have a yard situation at this address.",
 		"RADIO: Somebody reported excessive raking at this address.",
 		"RADIO: The NICE BOYS are on the way. They packed extra clipboards.",
 	],
 	"clear": [
-		"All clear",
+		"All clear. They took the long way out. It's a cul-de-sac.",
 		"All clear. The NICE BOYS left a courtesy notice on your rake.",
 		"All clear. Somebody's filling out a LOT of forms about you.",
 		"All clear. They'll be back. They have a quota.",
@@ -1832,7 +1801,7 @@ const CREW_BARKS: Dictionary = {
 	],
 	"escort": [
 		"Right this way! Mind the lawn!",
-		"Arm in arm, like neighbors!",
+		"Lovely day for paperwork!",
 		"Doo doo doo, lovely day for it!",
 		"Step, step, nice and pleasant!",
 	],
@@ -2000,9 +1969,7 @@ const FORMAT_ARGS: Dictionary = {
 	"TOW_TEXTS": [1, 3],
 	"UI/site_beacon": [1, 1],
 	"UI/site_address": [2, 1],
-	"UI/goal_get_in_chefty": [3, 1],
 	"UI/goal_drive_to": [3, 1],
-	"UI/goal_go_to": [3, 1],
 	"UI/ride_rider_unnamed": [1, 1],
 	"UI/phone_text_head": [3, 1],
 	"UI/popup_cash": [1, 1],
@@ -2014,6 +1981,8 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/player_unnamed": [1, 1],
 	# R2:6
 	"ANNEX_QUIPS/teammate_inside": [1, 3],
+	"ANNEX_QUIPS/teammate_dispatch": [1, 6],
+	"ANNEX_QUIPS/teammate_out": [1, 3],
 	"RECEIPT_FORMAT/line": [2, 1],
 	"RECEIPT_FORMAT/time": [1, 1],
 	"RECEIPT_FORMAT/time_best": [2, 1],
@@ -2391,7 +2360,11 @@ const ANNEX_QUIPS: Dictionary = {
 	"first_visit": [
 		"Triplicate. Of course it's triplicate.",
 		"Somewhere, a filing cabinet is smiling.",
-		"Form 27-B. Request To Be Nice. Nicely.",
+		# R2c annex and x1:text both replaced "Form 27-B. Request To Be Nice.
+		# Nicely.", the heading printed on the paper in your hand at that moment;
+		# both new lines stay in the pool.
+		"The pen is chained to the desk. For your safety.",
+		"Your hold is important to us. So is your form. So is the other form.",
 	],
 	# Out in under ANNEX_FAST_SECONDS.
 	"fast": [
@@ -2411,6 +2384,24 @@ const ANNEX_QUIPS: Dictionary = {
 		"%s is at Annex B. In triplicate.",
 		"%s has been handed a clipboard at Annex B.",
 		"%s is at Annex B, taking a number.",
+	],
+	# x1:text: the free player's radio, a few times while a teammate is still
+	# inside (ui/quip_player.gd, Constants.ANNEX_DISPATCH_*). Where they are and
+	# how it's going, which nobody on the yard can see; never what to do about it.
+	"teammate_dispatch": [
+		"RADIO: Annex B is now serving number 4. %s is number 31.",
+		"RADIO: %s has been asked to fill out the form about the form.",
+		"RADIO: %s found the right window. The window went on break.",
+		"RADIO: %s's paperwork is with a clerk named Gary. Gary is at lunch.",
+		"RADIO: %s was offered a complimentary pen. It does not work.",
+		"RADIO: %s is in line behind a fern. The fern has been here since Tuesday.",
+		"RADIO: Annex B reports %s is being very nice about all this.",
+	],
+	# The same voice when a teammate's form goes through.
+	"teammate_out": [
+		"RADIO: %s has been approved, nicely. Shuttle Two is bringing them home.",
+		"RADIO: %s is out. They got a receipt. It's itemized.",
+		"RADIO: %s cleared Annex B. The turnstile would like a word.",
 	],
 }
 ## The words on things in the room (the clipboard, the tray, the visitor door).

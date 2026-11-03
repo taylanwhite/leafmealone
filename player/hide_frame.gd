@@ -157,15 +157,34 @@ func _draw_bin() -> void:
 	# up and off the top of the view (and the rim drops a touch as you're hauled).
 	var lid_bottom := size.y * lerpf(lerpf(0.36, 0.2, peek), -0.05, part)
 	var rim_top := size.y * lerpf(0.7, 0.86, part)
-	var lid := Color(0.06, 0.08, 0.08)
+	# R2c hide: molded plastic, not flat black. The lid's underside is ribbed and
+	# lit from the slit, its lip bevelled; the rim is a rolled edge; the slit's
+	# ends fall into shade instead of stopping at a hard line.
+	var lid := Color(0.08, 0.12, 0.1)
 	draw_rect(Rect2(0.0, 0.0, size.x, lid_bottom), lid)
-	# The lid's front lip catches a little light.
-	draw_rect(Rect2(0.0, lid_bottom - 10.0, size.x, 10.0), Color(0.16, 0.2, 0.2))
-	draw_rect(Rect2(0.0, rim_top, size.x, size.y - rim_top), Color(0.05, 0.07, 0.07))
-	draw_rect(Rect2(0.0, rim_top, size.x, 8.0), Color(0.2, 0.25, 0.25))
-	# Darker corners, the inside of the bin round the slit.
-	draw_rect(Rect2(0.0, lid_bottom, size.x * 0.05, rim_top - lid_bottom), Color(0.03, 0.04, 0.04, 0.85))
-	draw_rect(Rect2(size.x * 0.95, lid_bottom, size.x * 0.05, rim_top - lid_bottom), Color(0.03, 0.04, 0.04, 0.85))
+	var ribs := 5
+	for rib: int in ribs:
+		var y := lid_bottom * (0.2 + 0.75 * float(rib) / float(ribs))
+		var light := 0.25 + 0.75 * float(rib) / float(ribs - 1)
+		draw_rect(Rect2(0.0, y - 5.0, size.x, 5.0), lid.lightened(0.07 * light))
+		draw_rect(Rect2(0.0, y, size.x, 3.0), lid.darkened(0.35))
+	# The lip: three bevel bands, the lowest catching the daylight.
+	draw_rect(Rect2(0.0, lid_bottom - 18.0, size.x, 8.0), Color(0.12, 0.17, 0.15))
+	draw_rect(Rect2(0.0, lid_bottom - 10.0, size.x, 6.0), Color(0.2, 0.27, 0.24))
+	draw_rect(Rect2(0.0, lid_bottom - 4.0, size.x, 4.0), Color(0.34, 0.42, 0.38))
+	# The tub wall under the rim, darker going down, and the rolled rim itself.
+	draw_rect(Rect2(0.0, rim_top, size.x, size.y - rim_top), Color(0.06, 0.09, 0.08))
+	for band: int in 4:
+		var t := float(band) / 3.0
+		draw_rect(Rect2(0.0, rim_top + 14.0 + 22.0 * float(band), size.x, 22.0), Color(0.1, 0.14, 0.12, 0.6 * (1.0 - t)))
+	draw_rect(Rect2(0.0, rim_top, size.x, 6.0), Color(0.36, 0.44, 0.4))
+	draw_rect(Rect2(0.0, rim_top + 6.0, size.x, 8.0), Color(0.18, 0.24, 0.21))
+	# The slit's ends in shade, soft-edged.
+	for band: int in 6:
+		var w := size.x * (0.09 - 0.012 * float(band))
+		var shade := Color(0.03, 0.05, 0.04, 0.22)
+		draw_rect(Rect2(0.0, lid_bottom, w, rim_top - lid_bottom), shade)
+		draw_rect(Rect2(size.x - w, lid_bottom, w, rim_top - lid_bottom), shade)
 
 
 ## Inside the shed door: dark boards with light between them, and three knot
@@ -209,8 +228,18 @@ func _draw_shed() -> void:
 	for step: int in 33:
 		var t := float(step) / 32.0 * TAU
 		ring.append(hole_center + Vector2(cos(t) * hole.x, -sin(t) * hole.y) * _rim(t))
-	draw_polyline(ring, board.lightened(0.18), 10.0, true)
+	# Gone while you peek: the door's open a crack and you're looking past it,
+	# not through the hole (R2c hide: the ring floated over the open view).
+	var rim_color := board.lightened(0.18)
+	rim_color.a = 1.0 - _ease(peek)
+	if rim_color.a > 0.01:
+		draw_polyline(ring, rim_color, 10.0, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+static func _ease(t: float) -> float:
+	var x := clampf(t, 0.0, 1.0)
+	return x * x * (3.0 - 2.0 * x)
 
 
 ## The knot hole's ragged rim: a little bigger here, a little smaller there.
