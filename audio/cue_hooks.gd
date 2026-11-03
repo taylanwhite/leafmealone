@@ -6,7 +6,8 @@ extends Node
 ## traffic (docs/DECISIONS.md "Audio: a local music director"):
 ##   the day ends (DayClock.day_ended)    Clock Out, then Promoted! for a rank-up,
 ##                                        then New Season when the summary says so
-##   the summary card closes              Rise and Rake, then one buzz for the night's texts
+##   the summary card closes              Rise and Rake, then (once it's done) one buzz for
+##                                        the night's texts
 ##   a text (Town.texted)                 New Client for a referral, a lead or a
 ##                                        client won back; a droop when TurfMasters
 ##                                        poach one; a buzz for the rest (one per
@@ -18,11 +19,12 @@ extends Node
 ##   quiet hours begin, the clock closes  two soft bongs, a yawn
 ##   the NICE BOYS take you               Busted, at the catch's bark (R2)
 ##   through the Annex's turnstile        Made It Back (R2)
-## The game sounds (register, phone_buzz, ...) are ids audio chunk 5 synthesizes
-## and registers in audio/sound_bank.gd. Until an id is there, its cue is only
-## logged (cue_log), so tests can see it fire and nothing unregistered is played.
+## The game sounds (register, phone_buzz, ...) are audio chunk 5's (tools/sfx_ui.py,
+## registered in audio/sound_bank.gd); every cue is also logged (cue_log), and one
+## whose id isn't registered is only logged, never played.
 
 const _Bank = preload("res://audio/sound_bank.gd")
+const _Tracks = preload("res://audio/music_tracks.gd")
 const LOG_SIZE: int = 200
 ## Text kinds that mean work is coming (net/town/town.gd _text).
 const NEW_CLIENT_KINDS: Array[String] = ["referral", "lead", "won_back"]
@@ -35,6 +37,8 @@ var _incoming: Array[Dictionary] = []
 ## Kinds held while the day summary is up, played when it closes.
 var _held: Array[String] = []
 var _next_buzz_msec: int = 0
+## msec when the morning's held buzz plays (after its stingers), or 0.
+var _morning_buzz_at: int = 0
 var _task_wait: float = 0.0
 ## task -> whether it was done at the last look; cleared when the job changes.
 var _tasks_done: Dictionary = {}
@@ -61,6 +65,7 @@ func _ready() -> void:
 	Net.state_changed.connect(func(_next_state: Net.State) -> void:
 		_incoming.clear()
 		_held.clear()
+		_morning_buzz_at = 0
 		_tasks_done.clear()
 		_was_quiet = -1
 		_was_closed = -1
@@ -82,6 +87,7 @@ func _connect(node: Node, signal_name: String, callable: Callable) -> void:
 func _process(delta: float) -> void:
 	_settle_texts()
 	_busted_due()
+	_morning_buzz_due()
 	if Net.current_state() != Net.State.IN_SESSION:
 		return
 	_task_wait += delta
@@ -107,12 +113,23 @@ func _on_day_ended(summary: Dictionary) -> void:
 
 func _on_summary_closed() -> void:
 	_stinger(&"st_morning")
+	var after := _Tracks.seconds(&"st_morning")
 	if _held.any(func(kind: String) -> bool: return NEW_CLIENT_KINDS.has(kind)):
 		_stinger(&"st_new_client")
+		after += _Tracks.seconds(&"st_new_client")
+	# The buzz waits for the stingers to finish (audio:5): a phone rattling under
+	# the kazoo rooster was neither.
 	if not _held.is_empty():
+		_morning_buzz_at = Time.get_ticks_msec() + int((after + Constants.CUE_BUZZ_AFTER_STINGERS) * 1000.0)
+	_held.clear()
+
+
+## The held morning buzz, once its stingers are done.
+func _morning_buzz_due() -> void:
+	if _morning_buzz_at > 0 and Time.get_ticks_msec() >= _morning_buzz_at:
+		_morning_buzz_at = 0
 		_next_buzz_msec = 0
 		_buzz()
-	_held.clear()
 
 
 func _watch_clock() -> void:
@@ -312,4 +329,6 @@ func _summary_open() -> bool:
 
 func _phone_open() -> bool:
 	var phone := get_tree().get_first_node_in_group("phone") as CanvasItem
+	if phone != null and phone.has_method("is_out"):
+		return bool(phone.call("is_out"))
 	return phone != null and phone.visible

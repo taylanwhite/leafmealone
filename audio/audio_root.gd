@@ -4,12 +4,13 @@ extends Node
 ## app, menu included: it makes the mixer buses (audio/buses.gd) and holds the
 ## sound-effects player, Sfx (audio/sfx.gd, group "sfx"), the music director
 ## (audio/music_director.gd, group "music_director") and the game cues
-## (audio/cue_hooks.gd). The UI sounds join it later (gap-specs/audio.json, chunk 5).
+## (audio/cue_hooks.gd), and the buttons' sounds (audio/ui_sounds.gd).
 
 const _Buses = preload("res://audio/buses.gd")
 const _SfxScript = preload("res://audio/sfx.gd")
 const _DirectorScript = preload("res://audio/music_director.gd")
 const _CueHooksScript = preload("res://audio/cue_hooks.gd")
+const _UiSoundsScript = preload("res://audio/ui_sounds.gd")
 
 
 func _ready() -> void:
@@ -23,3 +24,6 @@ func _ready() -> void:
 	var cues := _CueHooksScript.new()
 	cues.name = "CueHooks"
 	add_child(cues)
+	var buttons := _UiSoundsScript.new()
+	buttons.name = "UiSounds"
+	add_child(buttons)

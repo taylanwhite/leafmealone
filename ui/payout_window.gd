@@ -20,6 +20,8 @@ const GREEN := Color(0.2, 0.55, 0.25)
 const RED := Color(0.75, 0.2, 0.15)
 
 var _rows: VBoxContainer
+## The card feeding up out of the printer (_print).
+var _feed: Tween
 
 
 func _ready() -> void:
@@ -42,6 +44,7 @@ func _ready() -> void:
 	close.add_theme_stylebox_override("pressed", _box(ORANGE.darkened(0.12), 10, ORANGE.darkened(0.25), 0))
 	close.add_theme_color_override("font_color", Color.WHITE)
 	close.size_flags_horizontal = Control.SIZE_SHRINK_END
+	close.set_meta(&"ui_sound", &"back")
 	close.pressed.connect(close_window)
 	column.add_child(close)
 
@@ -82,9 +85,33 @@ func show_payout(results: Array[Dictionary], settlement: Dictionary) -> void:
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	grow_vertical = Control.GROW_DIRECTION_BOTH
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_print()
+
+
+## The receipt prints (audio:5): a beat after the cash is snatched (the same
+## moment the card is asked for, so the snatch reads first), the card feeds up
+## out of the printer under its 'brrrt' and settles on the tear. The Paid
+## stinger is the music director's.
+func _print() -> void:
+	if _feed != null and _feed.is_valid():
+		_feed.kill()
+	var rest := position.y
+	modulate.a = 0.0
+	_feed = create_tween()
+	_feed.tween_interval(Constants.RECEIPT_PRINT_DELAY)
+	_feed.tween_callback(func() -> void:
+		if visible:
+			_Look.sfx(self, "receipt")
+		position.y = rest + Constants.RECEIPT_FEED_PX
+	)
+	_feed.tween_property(self, "modulate:a", 1.0, Constants.RECEIPT_FEED_SECONDS * Constants.RECEIPT_FEED_FADE_SHARE)
+	_feed.parallel().tween_property(self, "position:y", rest, Constants.RECEIPT_FEED_SECONDS).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 func close_window() -> void:
+	if _feed != null and _feed.is_valid():
+		_feed.kill()
+	modulate.a = 1.0
 	visible = false
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	if ui != null:

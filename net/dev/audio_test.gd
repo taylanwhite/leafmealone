@@ -27,12 +27,17 @@ extends Node
 ##   store_morning  the director (group music_director) plays the store at 8 AM
 ##   now_playing    the Settings window's Sound tab has its "Now playing" row, and
 ##                  opened from the pause buttons it keeps the music muffled
-##   register       a confirmed buy at Homie Depot rings the register cue
+##   ui_sounds      (chunk 5) buttons click, Close says back, a toggle tabs, a meta
+##                  picks its id or none, a greyed-out button denies, a slider ticks,
+##                  the Settings window keeps its own; the phone, a shop's bell, the
+##                  receipt, a coin where money pops up and a cot's creak at the cot
+##   register       a confirmed buy at Homie Depot rings the register, really played
 ##   ride_to_lot    the mood holds through Chefty's ride, then the yard's work music
-##   hot            a hot yard (heat) gets Hot Yard
+##   hot            a hot yard (heat) gets Hot Yard, and the heat meter whoops at its mark
 ##   raid           the warning cuts in at once, then the chase, then back after
 ##   day_end        sleeping: Clock Out then Promoted!, silence under the card, Rise
-##                  and Rake when it closes, and one buzz for the night's texts
+##                  and Rake when it closes, and one buzz for the night's texts once
+##                  the stingers are done (not under them)
 ##   escape         (chunk 4b, R2 chunk 6) Annex B has its music at once, the big
 ##                  stamp spotted switches to the escape cue, the turnstile plays
 ##                  "Made It Back"; "crossing" is still a mood (escape's alias)
@@ -49,6 +54,10 @@ const _Director = preload("res://audio/music_director.gd")
 const _CueHooks = preload("res://audio/cue_hooks.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
+const _UiSounds = preload("res://audio/ui_sounds.gd")
+const _MoneyPopup = preload("res://ui/money_popup.gd")
+## ui_sounds: a peer id nobody has, put on a cot for its creak.
+const TEST_COT_PEER: int = 424242
 ## A looping track's file may be this far from its bars' length (seconds).
 const TRACK_LENGTH_SLACK: float = 0.6
 ## A stinger is at most this long.
@@ -139,6 +148,7 @@ func _run() -> void:
 	_check("push_mood", _push_mood(music))
 	_check("store_morning", await _wait_mood(music, [&"store"], 2.0))
 	_check("now_playing", await _now_playing(music))
+	_check("ui_sounds", await _ui_sounds())
 	_check("register", await _register())
 	_check("ride_truck", await _ride(music))
 	_check("positional", await _positional())
@@ -703,6 +713,7 @@ func _register() -> bool:
 	await _stand_at("homie_depot")
 	Campaign._add_credits(Net.local_peer_id(), 10000)
 	var before := _CueHooks.cue_log.count("register")
+	var played_before := _SfxScript.log.count("register")
 	var refused := str(shops.call("request_buy", "homie_depot", "hot_dog", 1))
 	await get_tree().process_frame
 	var quiet := _CueHooks.cue_log.count("register") == before
@@ -711,7 +722,7 @@ func _register() -> bool:
 	while _CueHooks.cue_log.count("register") == before and waited < 1.0:
 		await get_tree().create_timer(0.05).timeout
 		waited += 0.05
-	var rang := _CueHooks.cue_log.count("register") == before + 1
+	var rang := _CueHooks.cue_log.count("register") == before + 1 and _SfxScript.log.count("register") > played_before
 	print("[AudioTest] a refused buy (%s) is quiet %s; a confirmed buy (%s) rings the register %s" % [refused, quiet, code, rang])
 	return code == "ok" and refused != "ok" and quiet and rang
 
@@ -720,8 +731,13 @@ func _hot(music: Node) -> bool:
 	var heat := get_tree().get_first_node_in_group("heat")
 	if heat == null:
 		return false
+	var whoops := _SfxScript.log.count("heat_whoop")
 	heat.call("add", Constants.MUSIC_HOT_HEAT + 5.0, "audio test")
-	return await _wait_mood(music, [&"hot"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
+	var hot := await _wait_mood(music, [&"hot"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
+	# The heat meter (ui/heat_meter.gd) crossed its first mark on the way up.
+	var whooped := _SfxScript.log.count("heat_whoop") > whoops
+	print("[AudioTest] hot: the music %s, the meter whoops %s" % [hot, whooped])
+	return hot and whooped
 
 
 ## The raid's warning cuts in at once, the chase follows, and when the NICE BOYS
@@ -780,12 +796,15 @@ func _day_end(music: Node) -> bool:
 	var held := _CueHooks.cue_log.count("phone_buzz") == buzzes_before
 	var mornings := _Director.stinger_log.count("st_morning")
 	summary.call("close_window")
+	# The buzz waits for the morning's stingers (audio/cue_hooks.gd).
 	await get_tree().create_timer(0.2).timeout
+	var early_buzzes := _CueHooks.cue_log.count("phone_buzz") - buzzes_before
+	await get_tree().create_timer(_Tracks.seconds("st_morning") + _Tracks.seconds("st_new_client") + Constants.CUE_BUZZ_AFTER_STINGERS + 0.3).timeout
 	if town != null:
 		town.disconnect("texted", count_text)
 	var morning := _Director.stinger_log.count("st_morning") == mornings + 1
 	var buzzes := _CueHooks.cue_log.count("phone_buzz") - buzzes_before
-	var buzz_ok := buzzes == (1 if texts.size() > 0 else 0)
+	var buzz_ok := early_buzzes == 0 and buzzes == (1 if texts.size() > 0 else 0) and (texts.is_empty() or _SfxScript.log.has("phone_buzz"))
 	print("[AudioTest] bedtime: stingers %s, card up %s, silence %s; %d texts overnight, held %s, then %d buzz; morning stinger %s" % [fired, card, silent, texts.size(), held, buzzes, morning])
 	return day_end and card and silent and held and morning and buzz_ok
 
@@ -828,6 +847,137 @@ func _escape(music: Node) -> bool:
 	var after := await _wait_mood(music, [&"store", &"night", &"silence"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
 	print("[AudioTest] escape: Annex B cuts to %s %s, spotted -> escape %s playing %s (%s), Made It Back %s, back to %s %s" % [at_annex, cut, spotted, track, plays, made_it, music.call("current_mood"), after])
 	return cut and spotted and plays and made_it and after
+
+
+## audio chunk 5: the buttons' sounds (audio/ui_sounds.gd) on test buttons under
+## the game UI, then the phone, a shop's door bell, the receipt, a coin where a
+## '+$' pops up and a cot's creak at the cot. Every play is in Sfx.log (headless
+## runs log without playing), and the world ones in Sfx.placed.
+func _ui_sounds() -> bool:
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	var hooks := sfx.get_parent().get_node_or_null("UiSounds") if sfx != null else null
+	if ui == null or hooks == null:
+		print("[AudioTest] ui_sounds: no game UI or no UiSounds")
+		return false
+	var checks := {}
+	var gap := float(maxi(Constants.UI_CLICK_GAP_MS, Constants.SFX_DEFAULT_GAP_MS) + 40) / 1000.0
+	# One press each: what lands at the end of Sfx.log ("" for nothing new).
+	var press := func(button: BaseButton) -> String:
+		var size := _SfxScript.log.size()
+		button.pressed.emit()
+		return str(_SfxScript.log.back()) if _SfxScript.log.size() > size else ""
+	var box := VBoxContainer.new()
+	ui.add_child(box)
+	var plain := Button.new()
+	box.add_child(plain)
+	var back := Button.new()
+	back.set_meta(&"ui_sound", &"back")
+	box.add_child(back)
+	var toggle := Button.new()
+	toggle.toggle_mode = true
+	box.add_child(toggle)
+	var pinned := Button.new()
+	pinned.set_meta(&"ui_sound", &"pin")
+	box.add_child(pinned)
+	var quiet := VBoxContainer.new()
+	quiet.set_meta(&"ui_sound", &"none")
+	box.add_child(quiet)
+	var hushed := Button.new()
+	quiet.add_child(hushed)
+	var greyed := Button.new()
+	greyed.disabled = true
+	box.add_child(greyed)
+	var slider := HSlider.new()
+	box.add_child(slider)
+	await get_tree().process_frame
+	checks["click"] = press.call(plain) == "ui_click"
+	checks["back"] = press.call(back) == "ui_back"
+	checks["tab"] = press.call(toggle) == "ui_tab"
+	checks["meta_id"] = press.call(pinned) == "pin"
+	checks["none"] = press.call(hushed) == ""
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	var denies := _SfxScript.log.count("ui_deny")
+	greyed.gui_input.emit(click)
+	checks["deny"] = _SfxScript.log.count("ui_deny") == denies + 1
+	var ticks := _SfxScript.log.count("ui_tick")
+	slider.drag_ended.emit(true)
+	checks["slider"] = _SfxScript.log.count("ui_tick") == ticks + 1
+	# The hover tick: a visible, enabled button; never a greyed-out one.
+	var hovers := _SfxScript.log.count("ui_hover")
+	greyed.mouse_entered.emit()
+	plain.mouse_entered.emit()
+	checks["hover"] = _SfxScript.log.count("ui_hover") == hovers + 1
+	box.queue_free()
+	# The Settings window plays its own (its root says none).
+	var settings := ui.get_node_or_null("SettingsWindow")
+	var settings_buttons: Array[Node] = settings.find_children("*", "BaseButton", true, false) if settings != null else []
+	checks["settings_own"] = settings != null and not _UiSounds.hovers(settings) and settings_buttons.all(func(found: Node) -> bool: return _UiSounds.press_id(found as BaseButton) == "")
+	await get_tree().create_timer(gap).timeout
+	# The phone out and away; a second open while it's out is quiet.
+	var phone := get_tree().get_first_node_in_group("phone")
+	var opens := _SfxScript.log.count("phone_open")
+	var closes := _SfxScript.log.count("phone_close")
+	phone.call("open_phone")
+	phone.call("open_phone")
+	await get_tree().create_timer(gap).timeout
+	phone.call("close_phone")
+	phone.call("close_phone")
+	checks["phone"] = _SfxScript.log.count("phone_open") == opens + 1 and _SfxScript.log.count("phone_close") == closes + 1
+	# A shop with a keeper rings its door bell; the Snak-o-Matic doesn't.
+	var bells := _SfxScript.log.count("store_bell")
+	ui.call("open_shop", "homie_depot")
+	await get_tree().process_frame
+	var shop_window := ui.get_node_or_null("ShopWindow")
+	if shop_window != null:
+		shop_window.call("close_window")
+	await get_tree().create_timer(gap).timeout
+	ui.call("open_shop", "snak_o_matic")
+	await get_tree().process_frame
+	if shop_window != null:
+		shop_window.call("close_window")
+	checks["store_bell"] = _SfxScript.log.count("store_bell") == bells + 1
+	# The payout receipt prints, just after the card shows.
+	var payout := ui.get_node_or_null("PayoutWindow")
+	var receipts := _SfxScript.log.count("receipt")
+	if payout != null:
+		var no_rows: Array[Dictionary] = []
+		payout.call("show_payout", no_rows, {})
+		await get_tree().create_timer(Constants.RECEIPT_PRINT_DELAY + 0.1).timeout
+		payout.call("close_window")
+	checks["receipt"] = _SfxScript.log.count("receipt") == receipts + 1
+	# A coin where a '+$' pops up.
+	var at := _me().global_position + Vector3(0.0, 1.0, 0.0)
+	_MoneyPopup.pop(get_tree(), at, 7)
+	checks["coin"] = _placed_at("coin", at)
+	# A cot creaks where it stands when someone lies down on it (the clock's cots,
+	# which every peer has), and again, softer, when they get up.
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var cot := get_tree().get_first_node_in_group("cots") as Node3D
+	if clock != null and cot != null:
+		var cots: Dictionary = clock.get("cots")
+		var creaks := _SfxScript.log.count("cot_creak")
+		cots[TEST_COT_PEER] = int(cot.get("index"))
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var down := _placed("cot_creak")
+		# Up a moment later (inside the bank's gap would be one creak, as it should).
+		await get_tree().create_timer(gap).timeout
+		cots.erase(TEST_COT_PEER)
+		await get_tree().create_timer(gap).timeout
+		var up := _placed("cot_creak")
+		var near_cot := not down.is_empty() and (down["at"] as Vector3).distance_to(cot.global_position) < 1.0
+		print("[AudioTest] cot %s: creaks %d, down %s, up %s" % [cot.get_path(), _SfxScript.log.count("cot_creak") - creaks, down, up])
+		checks["cot"] = _SfxScript.log.count("cot_creak") == creaks + 2 and near_cot and float(up.get("db", 0.0)) < float(down.get("db", 0.0))
+	else:
+		checks["cot"] = false
+	var ok := true
+	for value: Variant in checks.values():
+		ok = ok and bool(value)
+	print("[AudioTest] ui_sounds: %s" % checks)
+	return ok
 
 
 ## The host stands at a shop's counter, on the customer's side (as --shop-test does).

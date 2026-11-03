@@ -58,7 +58,7 @@ const SOUNDS: Dictionary = {
 	"glug": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	# Shops (chunk 4): the register on a confirmed buy (audio/cue_hooks.gd, the
 	# buyer's own ears), and the keeper's cash drawer slamming after it (npcs/store_clerk.gd).
-	"register": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -2.0},
+	"register": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -4.0},
 	"cash_drawer": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	# Rusty's (shops chunk 5): his long "hmmm?" over a haggle (npcs/store_clerk.gd think).
 	"haggle_hmm": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 1.5, "db": 0.0},
@@ -201,6 +201,32 @@ const SOUNDS: Dictionary = {
 	"jangle": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": -4.0},
 	# ---- bags: throw into Chefty: a bag landing in the bed (props/truck_bed_load.gd).
 	"bed_thump": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": 0.0},
+	# ---- audio:5 UI, store, phone and day sounds (tools/sfx_ui.py). Buttons
+	# (audio/ui_sounds.gd), the phone and windows are this player's own ears (UI);
+	# the coin, the homeowner's cash and the cot happen in the world (play_at).
+	"ui_click": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_CLICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": 0.0},
+	"ui_hover": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_HOVER_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.1, "db": -6.0},
+	"ui_back": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_CLICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": 0.0},
+	"ui_tab": {"variants": 0, "bus": &"UI", "gap_ms": Constants.UI_CLICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": 0.0},
+	"ui_deny": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.4, "db": 0.0},
+	"store_bell": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -5.0},
+	"coin": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.COIN_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": -3.0},
+	"receipt": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.2, "db": -2.0},
+	"cash_grab": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"pin": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": 0.0},
+	"phone_open": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": -1.0},
+	"phone_close": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": -1.0},
+	"phone_buzz": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"text_pop": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"text_bad": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	"phone_take": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": 0.0},
+	"quiet_chime": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 3.0, "db": -2.0},
+	"closing_yawn": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.0, "db": 0.0},
+	"cot_creak": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0, "max_distance": Constants.COT_CREAK_MAX_DISTANCE},
+	"task_done": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": -1.0},
+	"heat_whoop": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# Registered and generated only: audio:6's player foley plays it while someone sleeps.
+	"snore_loop": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 5.0, "db": -4.0},
 }
 
 

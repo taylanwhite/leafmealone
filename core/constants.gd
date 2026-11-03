@@ -4066,6 +4066,47 @@ const ESCORT_CAM_BIAS_RATE: float = 0.9
 ## The escort's follow eye wants this much room (m) round it: closer to the van's
 ## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
 const ESCORT_CAM_ROOM: float = 1.2
+
+# ---- audio:5 (UI, store, phone and day sounds; audio/ui_sounds.gd, tools/sfx_ui.py)
+## A button's click, back or tab sound plays at most this often (ms): two quick
+## clicks on two buttons both sound, one press's echo doesn't.
+const UI_CLICK_GAP_MS: int = 50
+## The pointer crossing buttons ticks at most this often (ms), so a sweep over a
+## row of them is a few ticks, not a rattle.
+const UI_HOVER_GAP_MS: int = 60
+## A '+$' popping up pings a coin at most this often (ms): a bag-filling spree is
+## a few pings, not a slot machine.
+const COIN_GAP_MS: int = 90
+## Getting up off a cot creaks this much softer (dB) than lying down on it.
+const COT_CREAK_UP_DB: float = -5.0
+## A cot's creak carries this far (m): the camp, not the whole store lot.
+const COT_CREAK_MAX_DISTANCE: float = 25.0
+## The phone comes up out of the pocket from this far below (px) over this long (s),
+## landing with its chime (ui/phone.gd _slide_in).
+const PHONE_SLIDE_PX: float = 120.0
+const PHONE_SLIDE_SECONDS: float = 0.18
+## It is fully opaque after this share of the slide, so it reads before it lands.
+const PHONE_SLIDE_FADE_SHARE: float = 0.6
+## Put away, it drops back the same way over this long (s), with its swish
+## (ui/phone.gd close_phone), and only then stops being drawn.
+const PHONE_PUTAWAY_SECONDS: float = 0.14
+## Its fade starts this share of PHONE_PUTAWAY_SECONDS into the drop (and runs
+## PHONE_PUTAWAY_SECONDS), so it visibly falls before it goes.
+const PHONE_PUTAWAY_FADE_DELAY_SHARE: float = 0.4
+## The payout card's printer starts this long (s) after the card shows: the cash
+## is snatched the same moment (npcs/homeowner.gd), and that sound goes first.
+const RECEIPT_PRINT_DELAY: float = 0.3
+## The card then feeds up out of the printer from this far below (px) over this
+## long (s): the receipt sound's 'brrrt' (tools/sfx_ui.py receipt, feed 0.42 s),
+## settling as the paper tears.
+const RECEIPT_FEED_PX: float = 70.0
+const RECEIPT_FEED_SECONDS: float = 0.42
+## The paper fades in over this share of the feed, under the first of the 'brrrt'.
+const RECEIPT_FEED_FADE_SHARE: float = 0.25
+## The morning's held phone buzz waits for Rise and Rake (and New Client) to finish,
+## plus this long (s) (audio/cue_hooks.gd).
+const CUE_BUZZ_AFTER_STINGERS: float = 0.25
+
 # ---- R2c hide
 # The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a
 # physical grab, heads riding the body's hide moves, the insides of a pile and a
