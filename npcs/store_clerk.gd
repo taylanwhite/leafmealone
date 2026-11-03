@@ -70,6 +70,9 @@ var _was_raided: bool = false
 ## to give when it's done ("" for none yet).
 var _thinking_until: float = 0.0
 var _verdict: String = ""
+## Dot's hand-over: the server time of the newest sale she's handing out, and who to.
+var _handed_at: float = -1.0
+var _handing_to: int = 0
 
 
 func _ready() -> void:
@@ -286,6 +289,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	_watch_snacks(delta)
 	visible = is_present()
 	if _verdict != "" and not is_thinking():
 		var trigger := _verdict
@@ -295,7 +299,10 @@ func _process(delta: float) -> void:
 		_caption_left = 0.0
 		_local_was_near = false
 		return
-	var nearest := _nearest_player()
+	# Whoever she's handing a snack to, else whoever's closest.
+	var nearest := _player(_handing_to) if _handing_to != 0 else null
+	if nearest == null:
+		nearest = _nearest_player()
 	if nearest != null:
 		# Turn toward them. Bodies face -Z, so look away from the target to face it.
 		var to := nearest.global_position - global_position
@@ -419,3 +426,51 @@ func _shops() -> Node:
 
 func _flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+# ---- Lunch Money (shops chunk 6): Dot hands each snack out through the hatch.
+
+## Dot, on every peer: a snack bought from her (World/Shops.snacks, replicated,
+## with the server time of the sale) has her turn to the buyer and reach her
+## right arm out through the hatch toward them (CartoonBody.reach_at), hold it
+## there till the pass, and bring it back after. The food itself is the
+## buyer's snack_eater's (player/snack_eater.gd): it sits at hand_point() until
+## it crosses to the buyer's hand at Constants.SNACK_HANDOVER_SECONDS.
+func _watch_snacks(_delta: float) -> void:
+	if keeper != "dot":
+		return
+	var shops := _shops()
+	if shops == null:
+		return
+	var all: Dictionary = shops.get("snacks")
+	for peer_id: Variant in all:
+		var snack: Dictionary = all[peer_id]
+		var at := float(snack.get("at", 0.0))
+		if at <= _handed_at or str(Catalog.item(str(snack.get("item", ""))).get("shop", "")) != shop_id:
+			continue
+		_handed_at = at
+		_handing_to = int(peer_id)
+	_reach_out()
+
+
+## Her arm out toward the buyer, by how far along the hand-over is.
+func _reach_out() -> void:
+	var handover := float(Constants.SNACK_HANDOVER_SECONDS.get(shop_id, 0.0))
+	var e := Net.server_time() - _handed_at
+	var buyer := _player(_handing_to) if _handing_to != 0 else null
+	var shoulder := _body.call("pose_part", "arm_r") as Node3D
+	if buyer == null or shoulder == null or _handed_at < 0.0 or e > handover + Constants.SNACK_GIVER_BACK_SECONDS:
+		(_body.get("reach_weight") as Array)[0] = 0.0
+		_handing_to = 0 if e > handover + Constants.SNACK_GIVER_BACK_SECONDS else _handing_to
+		return
+	var out := clampf(e / Constants.SNACK_GIVER_OUT_SECONDS, 0.0, 1.0)
+	var back := clampf((handover + Constants.SNACK_GIVER_BACK_SECONDS - e) / Constants.SNACK_GIVER_BACK_SECONDS, 0.0, 1.0)
+	var toward := (buyer.global_position + Vector3.UP * 1.15) - shoulder.global_position
+	(_body.get("reach_at") as Array)[0] = shoulder.global_position + toward.normalized() * Constants.SNACK_GIVER_REACH
+	(_body.get("reach_weight") as Array)[0] = minf(out, back)
+
+
+## Where a snack in her hand is (world): what the buyer's snack_eater holds it at.
+func hand_point() -> Vector3:
+	var hand := _body.call("pose_part", "prop_hand") as Node3D
+	return hand.global_position if hand != null else global_position + Vector3.UP * 1.2

@@ -78,6 +78,15 @@ var _megaphone: Node3D
 var _hold_targets: Array[Vector3] = [Vector3.INF, Vector3.INF]
 var _hold_last: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 var _hold_weight: Array[float] = [0.0, 0.0]
+## A hand taken off what it holds for a while, [right, left]: the hold fades out
+## and back in over HOLD_BLEND_SECONDS (eating with a rake in the other hand,
+## player/snack_eater.gd; the first-person arms do the same from the same flags).
+var hands_off: Array[bool] = [false, false]
+## A hand reaching for a world point, [right, left], blended over the walk, the
+## gesture and the hold by reach_weight (0 to 1): Dot passing a snack through
+## the hatch, a buyer reaching to take it (player/snack_eater.gd).
+var reach_at: Array[Vector3] = [Vector3.INF, Vector3.INF]
+var reach_weight: Array[float] = [0.0, 0.0]
 
 ## Set by player/character_life.gd each frame. Where the eyes look, in world
 ## space, or INF to look straight ahead.
@@ -174,6 +183,7 @@ static var _warned: Dictionary = {}
 ## and the face still, for a hit-stop. Never Engine.time_scale.
 var _anim_speed: float = 1.0
 var _prop_hand: Node3D
+var _prop_hand_l: Node3D
 ## The named parts an outfit adds, by outfit (the test looks for every one).
 const OUTFIT_PARTS: Dictionary = {
 	"nice_boy": ["Socks", "Collar", "Lanyard", "Badge", "Insignia", "FannyPack", "VisorSeal", "Clipboard"],
@@ -344,6 +354,11 @@ func pose_part(part_name: String) -> Node3D:
 				_prop_hand = _pivot(_arms[1], Vector3(0.0, -0.55, -0.02))
 				_prop_hand.name = "PropHand"
 			return _prop_hand
+		"prop_hand_l":
+			if _prop_hand_l == null:
+				_prop_hand_l = _pivot(_arms[0], Vector3(0.0, -0.55, -0.02))
+				_prop_hand_l.name = "PropHandL"
+			return _prop_hand_l
 	return null
 
 
@@ -601,18 +616,24 @@ func _apply_hold(delta: float) -> void:
 		var target := _hold_targets[side]
 		if target.is_finite():
 			_hold_last[side] = target
-		var want := 1.0 if target.is_finite() and fallen <= 0.3 else 0.0
+		var want := 1.0 if target.is_finite() and fallen <= 0.3 and not hands_off[side] else 0.0
 		_hold_weight[side] = move_toward(_hold_weight[side], want, delta / maxf(Constants.HOLD_BLEND_SECONDS, 0.001))
-		if _hold_weight[side] <= 0.0:
-			continue
-		var parent := arm.get_parent() as Node3D
-		var local := parent.global_transform.affine_inverse() * (frame * _hold_last[side]) - arm.position
-		if local.length() < 0.01:
-			continue
-		var blend := smoothstep(0.0, 1.0, _hold_weight[side])
-		arm.quaternion = arm.quaternion.slerp(Quaternion(Vector3.DOWN, local.normalized()), blend)
-		var reach := clampf(local.length() / Constants.HOLD_ARM_REACH, Constants.HOLD_ARM_SHORTEST, Constants.HOLD_ARM_LONGEST)
-		arm.scale = Vector3(1.0, lerpf(1.0, reach, blend), 1.0)
+		if _hold_weight[side] > 0.0:
+			_aim_arm(arm, frame * _hold_last[side], smoothstep(0.0, 1.0, _hold_weight[side]))
+		if reach_weight[side] > 0.0 and reach_at[side].is_finite() and fallen <= 0.3:
+			_aim_arm(arm, reach_at[side], smoothstep(0.0, 1.0, clampf(reach_weight[side], 0.0, 1.0)))
+
+
+## Swing an arm round from its shoulder toward a world point by blend (0 to 1),
+## stretching or shortening it a little to land the hand (Constants.HOLD_ARM_*).
+func _aim_arm(arm: Node3D, point: Vector3, blend: float) -> void:
+	var parent := arm.get_parent() as Node3D
+	var local := parent.global_transform.affine_inverse() * point - arm.position
+	if local.length() < 0.01:
+		return
+	arm.quaternion = arm.quaternion.slerp(Quaternion(Vector3.DOWN, local.normalized()), blend)
+	var reach := clampf(local.length() / Constants.HOLD_ARM_REACH, Constants.HOLD_ARM_SHORTEST, Constants.HOLD_ARM_LONGEST)
+	arm.scale = Vector3(1.0, lerpf(arm.scale.y, reach, blend), 1.0)
 
 
 func is_gesturing() -> bool:

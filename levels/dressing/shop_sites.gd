@@ -13,15 +13,18 @@ extends RefCounted
 ## a plank counter on two oil drums, the chalkboard with his mood today, the dial
 ## scale you heave junk onto (its needle swings to the weight, and Rusty has a
 ## word for whatever lands on it), the pallets his used tools sit on, tire
-## stacks, and a double gate that swings shut when he's closed. Until their own
-## chunk builds them, Dot works from a folding table in her parking stall (the
-## Lunch Money truck is shops chunk 6). The Snak-o-Matic's machine is chunk 6 too.
+## stacks, and a double gate that swings shut when he's closed. Dot works from the
+## Lunch Money food truck in her parking stall (props/vehicles.gd
+## build_food_truck, its awning swung by HatchWatcher), and the Snak-o-Matic
+## stands on the store's front wall (props/vending_machine.gd; shops chunk 6).
 
 const _LowPoly = preload("res://props/low_poly.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _ShopModels = preload("res://props/shop_models.gd")
 const _Keeper = preload("res://npcs/store_clerk.gd")
+const _Vehicles = preload("res://props/vehicles.gd")
+const _VendingMachine = preload("res://props/vending_machine.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _YardExtras = preload("res://props/yard_extras.gd")
 const _ShelfStock = preload("res://props/shelf_stock.gd")
@@ -59,9 +62,10 @@ static func build_site(zone: Node3D, shop_id: String, site: Dictionary) -> void:
 			_rustys_yard(root, site)
 			_drum_counter(root, counter)
 		"lunch_money":
-			var keeper_at: Vector3 = site.get("keeper", counter)
-			_folding_table(root, (keeper_at + counter) * 0.5)
+			_food_truck(root, site)
 			_post_sign(root, shop_id, counter + Vector3(0.5, 0.0, 1.7), PI * 0.5)
+		"snak_o_matic":
+			_vending_machine(root, site)
 		"back_room":
 			_pallet_base(root, counter)
 	var shop: Dictionary = Catalog.SHOPS.get(shop_id, {})
@@ -289,17 +293,34 @@ static func _drum_counter(root: Node3D, at: Vector3) -> void:
 	_solid(root, at + Vector3(0.0, 0.5, 0.0), Vector3(0.66, 1.0, 2.3))
 
 
-## Dot's stopgap: a white folding table with a striped cloth, solid.
-static func _folding_table(root: Node3D, at: Vector3) -> void:
-	var kit := _MeshKit.new()
-	kit.rbox(at + Vector3(0.0, 0.76, 0.0), Vector3(0.32, 0.025, 0.75), TABLE, 3.0, {"detail": 1})
-	for stripe: int in 5:
-		kit.rbox(at + Vector3(-0.33, 0.66, -0.6 + float(stripe) * 0.3), Vector3(0.006, 0.1, 0.075), ORANGE if stripe % 2 == 0 else Color(0.98, 0.85, 0.3), 2.0, {"detail": 1})
-	for x: float in [-0.26, 0.26]:
-		for z: float in [-0.65, 0.65]:
-			kit.tube(PackedVector3Array([at + Vector3(x, 0.0, z), at + Vector3(x * 0.8, 0.74, z)]), PackedFloat32Array([0.018, 0.018]), CAGE, 5, {"jitter": 0.0})
-	root.add_child(_Stylized.instance(kit.commit(), {"roughness": 0.7, "specular": 0.2}))
-	_solid(root, at + Vector3(0.0, 0.4, 0.0), Vector3(0.66, 0.8, 1.5))
+## Lunch Money (shops chunk 6): Dot's food truck parked in its stall
+## (props/vehicles.gd build_food_truck), its awning swinging up when she opens
+## and down when she closes (HatchWatcher). The site's yaw turns the truck as
+## built: at 0 its nose points -Z and the hatch, on its +X side, opens onto the
+## lot's middle.
+static func _food_truck(root: Node3D, site: Dictionary) -> void:
+	var holder := Node3D.new()
+	holder.name = "FoodTruck"
+	holder.position = site.get("truck", Vector3.ZERO)
+	holder.rotation.y = float(site.get("yaw", 0.0))
+	root.add_child(holder)
+	var look: Node3D = _Vehicles.build_food_truck(holder)
+	var watcher := HatchWatcher.new()
+	watcher.name = "HatchWatcher"
+	watcher.hatch = look.get_node("Hatch") as Node3D
+	holder.add_child(watcher)
+
+
+## The Snak-o-Matic (shops chunk 6) on the store's front wall: the machine
+## (props/vending_machine.gd), its back to the wall, facing the lot (the site's
+## yaw turns a +Z front; the machine is built facing -Z, so it turns yaw + PI).
+static func _vending_machine(root: Node3D, site: Dictionary) -> void:
+	var machine := _VendingMachine.new()
+	machine.name = "SnakOMatic"
+	var at: Vector3 = site.get("counter", Vector3.ZERO)
+	machine.position = Vector3(at.x, Constants.VEND_STAND_HEIGHT, at.z)
+	machine.rotation.y = float(site.get("yaw", 0.0)) + PI
+	root.add_child(machine)
 
 
 ## The back room's delivery spot: a pallet in a wire cage against the store's
@@ -603,3 +624,54 @@ class RustysGate extends Node3D:
 			_leaves[index].rotation.y = side * (1.0 - eased) * PI * 0.5
 		_solid.disabled = _shut < 0.95
 		_board.visible = _board.visible and _shut > 0.95
+
+
+## Lunch Money's awning, swung up when Dot opens and down when she goes home:
+## every peer works it out from the clock (Shops.is_open), like the hours sign,
+## so it needs no network. An eased swing with a little bounce at the top as it
+## props open, and a soft thud shut; the lights inside go with it.
+class HatchWatcher extends Node:
+	const CHECK_SECONDS: float = 0.25
+	var hatch: Node3D
+	var _open: float = 0.0
+	var _want: float = 0.0
+	var _from: float = 0.0
+	var _t: float = 1.0
+	var _wait: float = 0.0
+
+	func _ready() -> void:
+		_want = 1.0 if _is_open() else 0.0
+		_open = _want
+		_from = _want
+		_apply(_open)
+
+	func _process(delta: float) -> void:
+		_wait += delta
+		if _wait >= CHECK_SECONDS:
+			_wait = 0.0
+			var want := 1.0 if _is_open() else 0.0
+			if want != _want:
+				_from = _open
+				_want = want
+				_t = 0.0
+		if _t >= 1.0:
+			return
+		_t = minf(_t + delta / Constants.FOOD_TRUCK_HATCH_SECONDS, 1.0)
+		var e := _t * _t * (3.0 - 2.0 * _t)
+		# Opening overshoots and settles back onto its props; shutting just lands.
+		var bounce := 0.08 * sin(_t * PI) * (1.0 - _t) if _want > _from else 0.0
+		_open = lerpf(_from, _want, e) + bounce
+		_apply(_open)
+
+	func is_shown_open() -> bool:
+		return _open > 0.5
+
+	func _apply(share: float) -> void:
+		if hatch != null:
+			hatch.rotation.z = share * Constants.FOOD_TRUCK_HATCH_OPEN
+
+	func _is_open() -> bool:
+		var shops := get_tree().get_first_node_in_group("shops") if is_inside_tree() else null
+		if shops == null:
+			return true
+		return bool(shops.call("is_unlocked", "lunch_money")) and bool(shops.call("is_open", "lunch_money"))

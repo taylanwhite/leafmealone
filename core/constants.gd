@@ -647,7 +647,8 @@ const SHOP_SITES: Dictionary = {
 	},
 	"lunch_money": {
 		"zone": "StoreZone", "truck": Vector3(3.0, 0.0, 15.6), "counter": Vector3(5.2, 0.0, 15.4),
-		"keeper": Vector3(4.2, 0.0, 15.6), "yaw": 0.0, "area": Rect2(4.2, 14.0, 2.4, 3.0),
+		# Dot stands in the truck (props/vehicles.gd build_food_truck), on a sunk floor so the hatch frames her.
+		"keeper": Vector3(3.55, 0.32, 15.65), "yaw": 0.0, "area": Rect2(4.2, 14.0, 2.4, 3.0),
 	},
 	"snak_o_matic": {
 		"zone": "StoreZone", "counter": Vector3(-11.5, 0.0, 4.5), "keeper": Vector3(-11.5, 0.0, 4.5),
@@ -3780,3 +3781,66 @@ const RUSTY_SCALE_DAMPING: float = 5.0
 const RUSTY_HAGGLE_THINK_SECONDS: float = 1.1
 ## His gate swings open or shut over this long (s) as the yard opens and closes.
 const RUSTY_GATE_SWING_SECONDS: float = 1.4
+
+# ---- shops: Lunch Money, the Snak-o-Matic and snacks (gap shops chunk 6)
+# The food truck, the vending machine and what eating looks like (props/vehicles.gd
+# build_food_truck, props/vending_machine.gd, player/snack_eater.gd,
+# player/snack_gestures.gd, ui/buff_hud.gd). What each snack does is BUFFS under
+# "# ---- shops" above; prices are SHOP_PRICES.
+## Eating something (the "eat" gesture): how long it takes, hand up to stowed,
+## and when each bite lands (s from the start). The munch plays on each bite.
+const SNACK_EAT_SECONDS: float = 2.3
+const SNACK_EAT_BITES: Array[float] = [0.62, 1.12, 1.62]
+## Drinking (the "drink" gesture): how long, and the sip: the cup tipped to the
+## lips from x to y (s). The slurp runs the sip; the "ahh" comes off the lip.
+const SNACK_DRINK_SECONDS: float = 2.2
+const SNACK_DRINK_SIP := Vector2(0.55, 1.45)
+## A snack handed over this long ago (server s) is still eaten on screen by a
+## peer that only hears of it now (a late snapshot); older ones are not.
+const SNACK_SHOW_WINDOW: float = 4.0
+## How long the hand-over takes before you start eating, by shop (s from the
+## sale to the food in your hand): Dot reaching it out through the hatch, the
+## machine dropping it to the tray and it hopping out of the flap.
+const SNACK_HANDOVER_SECONDS: Dictionary = {"lunch_money": 1.1, "snak_o_matic": 1.3}
+## The pass at the end of a hand-over, by shop: how long the food takes from the
+## giver (Dot's hand, the machine's tray) to yours (s), and how high it arcs on
+## the way (m). The machine's flap spits it out; you catch it.
+const SNACK_PASS: Dictionary = {"lunch_money": Vector2(0.25, 0.05), "snak_o_matic": Vector2(0.3, 0.3)}
+## How long before the food reaches you your hand starts out to meet it (s).
+const SNACK_REACH_SECONDS: float = 0.45
+## Dot's arm out through the hatch toward the buyer: how long it takes to come
+## out and to go back after the pass (s), and how far toward them she aims (m;
+## past her arm's length, so it stretches all the way).
+const SNACK_GIVER_OUT_SECONDS: float = 0.45
+const SNACK_GIVER_BACK_SECONDS: float = 0.4
+const SNACK_GIVER_REACH: float = 0.75
+## What a buff looks like on you while it runs (player/snack_eater.gd): Turbo's
+## jitter (m) and wide eyes (eye height share); the crash's heavy lids (share)
+## and nodding head (rad); coffee's twitch, one every x to y s; queasy's green face.
+const BUFF_TURBO_JITTER: float = 0.007
+const BUFF_TURBO_EYES: float = 1.25
+const BUFF_CRASH_EYES: float = 0.35
+const BUFF_CRASH_NOD: float = 0.16
+const BUFF_COFFEE_TWITCH := Vector2(1.6, 3.2)
+const BUFF_QUEASY_TINT := Color(0.42, 0.78, 0.28, 0.3)
+## How long queasy's green takes to come on, and to drain off (s).
+const BUFF_QUEASY_FADE_SECONDS: float = 0.8
+## The Snak-o-Matic (props/vending_machine.gd): how long a snack takes to fall
+## from its coil to the tray (s), the sad trombone's wait after the clunk when it
+## keeps your money (s), and how long its screen holds a line after it has
+## scrolled past (s).
+const VEND_DROP_SECONDS: float = 0.42
+const VEND_EAT_TROMBONE_DELAY: float = 0.55
+const VEND_SCREEN_LINE_SECONDS: float = 5.0
+## The machine stands on the store's front walk, whose top is this high (m).
+const VEND_STAND_HEIGHT: float = 0.125
+## Lunch Money's hatch: how long its awning takes to swing up or down (s), and
+## how far up it props open (rad from shut: past level, so it shades the hatch
+## and not the customer's eyes).
+const FOOD_TRUCK_HATCH_SECONDS: float = 0.9
+const FOOD_TRUCK_HATCH_OPEN: float = 1.9
+## The HUD's snack icons (ui/buff_hud.gd): size (px) and gap, and when the last
+## seconds of one start to blink (s).
+const BUFF_HUD_PX: int = 30
+const BUFF_HUD_GAP: int = 6
+const BUFF_HUD_BLINK_SECONDS: float = 8.0

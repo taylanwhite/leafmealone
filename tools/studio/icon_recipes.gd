@@ -206,6 +206,19 @@ const RECIPES: Dictionary = {
 	"brand_rustys": {"kind": "flat", "px": 128, "draw": "draw_brand_rustys"},
 	"brand_lunch_money": {"kind": "flat", "px": 128, "draw": "draw_brand_lunch_money"},
 	"brand_snak_o_matic": {"kind": "flat", "px": 128, "draw": "draw_brand_snak_o_matic"},
+	# ---- snacks (128, flat; shops chunk 6): the shop cards' pictures (snack_<item>)
+	# and the HUD's buff icons (buff_<id>, ui/buff_hud.gd): what you ate, and the
+	# crash's empty can.
+	"snack_hot_dog": {"kind": "flat", "px": 128, "draw": "draw_hot_dog"},
+	"snack_turbo_juice": {"kind": "flat", "px": 128, "draw": "draw_turbo_can"},
+	"snack_coffee": {"kind": "flat", "px": 128, "draw": "draw_coffee_cup"},
+	"snack_vend_sandwich": {"kind": "flat", "px": 128, "draw": "draw_sandwich"},
+	"snack_vend_turbo": {"kind": "flat", "px": 128, "draw": "draw_turbo_can", "warm": true},
+	"buff_full": {"kind": "flat", "px": 128, "draw": "draw_hot_dog"},
+	"buff_turbo": {"kind": "flat", "px": 128, "draw": "draw_turbo_can", "zap": true},
+	"buff_crash": {"kind": "flat", "px": 128, "draw": "draw_crash"},
+	"buff_coffee": {"kind": "flat", "px": 128, "draw": "draw_coffee_cup"},
+	"buff_queasy": {"kind": "flat", "px": 128, "draw": "draw_sandwich", "queasy": true},
 	# ---- keycaps (64 tall; "wide" ones 128 wide) and mouse glyphs: every key a
 	# player can rebind to (critic C5)
 	"key_a": {"kind": "key", "px": 64, "draw": "draw_key", "label": "A"},
@@ -1712,6 +1725,81 @@ static func draw_brand_snak_o_matic(canvas: CanvasItem, size: float, _recipe: Di
 	for at: Vector2 in [Vector2(0.65, 0.41), Vector2(0.7, 0.41), Vector2(0.65, 0.47), Vector2(0.7, 0.47)]:
 		_disc(canvas, size, at, 0.015, INK.lightened(0.3))
 	_fill(canvas, _xf(_rrect_pts(Rect2(0.29, 0.76, 0.27, 0.09), 0.02), size), INK)
+
+
+# ---- snacks (shops chunk 6)
+
+## A hot dog in its bun, lying a little tilted, a mustard zigzag along it.
+static func draw_hot_dog(canvas: CanvasItem, size: float, _recipe: Dictionary) -> void:
+	var angle := -0.38
+	var at := Vector2(0.5, 0.55)
+	var bun := Color(0.93, 0.68, 0.38)
+	_inked(canvas, _xf(_ellipse_pts(Vector2(0.0, 0.07), 0.42, 0.15), size, at, 1.0, angle), bun.darkened(0.08), size)
+	_inked(canvas, _xf(_ellipse_pts(Vector2(0.0, -0.01), 0.45, 0.085), size, at, 1.0, angle), Color(0.76, 0.3, 0.2), size)
+	_inked(canvas, _xf(_ellipse_pts(Vector2(0.0, 0.1), 0.4, 0.1), size, at, 1.0, angle), bun, size)
+	var zig := PackedVector2Array()
+	for step: int in 9:
+		zig.append(Vector2(-0.3 + float(step) * 0.075, -0.03 + (0.035 if step % 2 == 0 else -0.035)))
+	_stroke(canvas, size, _xf(zig, 1.0, at, 1.0, angle), 0.03, Color(1.0, 0.82, 0.12))
+
+
+## A can of Turbo Juice with its lightning bolt. "warm": the machine's, paler,
+## with heat wobbling off it. "zap": sparks off the top (the buff).
+static func draw_turbo_can(canvas: CanvasItem, size: float, recipe: Dictionary) -> void:
+	var warm := bool(recipe.get("warm", false))
+	var body := Color(0.4, 0.72, 0.5) if warm else Color(0.12, 0.75, 0.35)
+	var can := Rect2(0.32, 0.16, 0.36, 0.72)
+	_inked(canvas, _xf(_rrect_pts(can, 0.06), size), body, size)
+	_fill(canvas, _xf(_rect_pts(Rect2(can.position.x, 0.44, can.size.x, 0.14)), size), Color(1.0, 0.86, 0.15))
+	_fill(canvas, _xf(_rrect_pts(Rect2(0.36, 0.12, 0.28, 0.06), 0.02), size), Color(0.8, 0.82, 0.85))
+	var bolt := PackedVector2Array([Vector2(0.53, 0.25), Vector2(0.42, 0.53), Vector2(0.5, 0.53), Vector2(0.46, 0.76), Vector2(0.6, 0.44), Vector2(0.52, 0.44), Vector2(0.57, 0.25)])
+	_inked(canvas, _xf(bolt, size), WHITE, size, INK, 0.012)
+	_line(canvas, size, Vector2(0.38, 0.22), Vector2(0.38, 0.8), 0.022, Color(1.0, 1.0, 1.0, 0.35))
+	if warm:
+		for index: int in 2:
+			var x := 0.22 + float(index) * 0.56
+			_stroke(canvas, size, PackedVector2Array([Vector2(x, 0.62), Vector2(x - 0.03, 0.52), Vector2(x + 0.02, 0.42), Vector2(x - 0.02, 0.32)]), 0.025, Color(0.95, 0.5, 0.2, 0.8))
+	if bool(recipe.get("zap", false)):
+		for index: int in 3:
+			var direction := Vector2.from_angle(-PI * 0.5 + (float(index) - 1.0) * 0.7)
+			_line(canvas, size, Vector2(0.5, 0.12) + direction * 0.04, Vector2(0.5, 0.12) + direction * 0.12, 0.035, GOLD)
+
+
+## A paper cup of burnt coffee: white, a brown sleeve, a black lid, steam.
+static func draw_coffee_cup(canvas: CanvasItem, size: float, _recipe: Dictionary) -> void:
+	_inked(canvas, _xf(PackedVector2Array([Vector2(0.3, 0.32), Vector2(0.7, 0.32), Vector2(0.64, 0.88), Vector2(0.36, 0.88)]), size), Color(0.97, 0.96, 0.92), size)
+	_fill(canvas, _xf(PackedVector2Array([Vector2(0.315, 0.48), Vector2(0.685, 0.48), Vector2(0.665, 0.68), Vector2(0.335, 0.68)]), size), Color(0.55, 0.36, 0.22))
+	_inked(canvas, _xf(_rrect_pts(Rect2(0.26, 0.24, 0.48, 0.1), 0.03), size), Color(0.2, 0.18, 0.18), size)
+	for index: int in 2:
+		var x := 0.43 + float(index) * 0.14
+		_stroke(canvas, size, PackedVector2Array([Vector2(x, 0.2), Vector2(x - 0.04, 0.14), Vector2(x + 0.02, 0.08), Vector2(x - 0.02, 0.03)]), 0.03, Color(0.82, 0.82, 0.86, 0.9))
+
+
+## A plastic-wedge sandwich, white bread and a frill of lettuce. "queasy":
+## gone a little green, with stink lines.
+static func draw_sandwich(canvas: CanvasItem, size: float, recipe: Dictionary) -> void:
+	var queasy := bool(recipe.get("queasy", false))
+	var bread := Color(0.82, 0.88, 0.62) if queasy else Color(0.97, 0.92, 0.78)
+	var wedge := PackedVector2Array([Vector2(0.16, 0.82), Vector2(0.84, 0.82), Vector2(0.24, 0.26)])
+	_inked(canvas, _xf(wedge, size), bread.darkened(0.12), size)
+	_fill(canvas, _xf(PackedVector2Array([Vector2(0.2, 0.74), Vector2(0.78, 0.74), Vector2(0.25, 0.36)]), size), Color(0.45, 0.72, 0.3) if not queasy else Color(0.5, 0.62, 0.25))
+	_fill(canvas, _xf(PackedVector2Array([Vector2(0.24, 0.7), Vector2(0.7, 0.7), Vector2(0.27, 0.42)]), size), Color(0.92, 0.6, 0.55) if not queasy else Color(0.7, 0.72, 0.45))
+	_inked(canvas, _xf(PackedVector2Array([Vector2(0.27, 0.66), Vector2(0.64, 0.66), Vector2(0.29, 0.46)]), size), bread, size, INK, 0.012)
+	if queasy:
+		for index: int in 3:
+			var x := 0.5 + float(index) * 0.12
+			_stroke(canvas, size, PackedVector2Array([Vector2(x, 0.4), Vector2(x - 0.03, 0.3), Vector2(x + 0.02, 0.2), Vector2(x - 0.02, 0.1)]), 0.025, Color(0.45, 0.75, 0.25))
+
+
+## The crash: an empty Turbo can tipped over, dented, a little "z" off it.
+static func draw_crash(canvas: CanvasItem, size: float, _recipe: Dictionary) -> void:
+	var at := Vector2(0.46, 0.66)
+	var angle := PI * 0.5 - 0.15
+	var can := PackedVector2Array([Vector2(-0.16, -0.32), Vector2(0.16, -0.32), Vector2(0.16, 0.05), Vector2(0.08, 0.1), Vector2(0.16, 0.16), Vector2(0.16, 0.32), Vector2(-0.16, 0.32)])
+	_inked(canvas, _xf(can, size, at, 1.0, angle), Color(0.45, 0.6, 0.5), size)
+	_fill(canvas, _xf(_rect_pts(Rect2(-0.155, -0.06, 0.31, 0.11)), size, at, 1.0, angle), Color(0.85, 0.75, 0.3))
+	_text(canvas, size, Vector2(0.72, 0.3), "z", 0.22, WHITE, 0.0, 0.18)
+	_text(canvas, size, Vector2(0.84, 0.14), "z", 0.15, WHITE, 0.0, 0.18)
 
 
 # ---- keycaps and mouse glyphs

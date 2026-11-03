@@ -15,7 +15,11 @@ extends Node
 ## van_straggler, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
 ## annex_window_d, annex_visit (needs a second player), annex_closing, store,
 ## drive (that one needs --town-map), toss, toss_full, toss_close, rustys (needs
-## Rusty's open: --rank=5 or more).
+## Rusty's open: --rank=5 or more), lunch_money,
+## snak_o_matic (at the food truck's hatch or the vending machine, at noon,
+## with lunch money in your pocket; shops chunk 6), snack_crash (the Turbo Juice
+## crash hits you now), snack_queasy (the machine's sandwich lands queasy),
+## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can).
 ## border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
@@ -24,7 +28,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -79,6 +83,13 @@ const TOSS_BAG_VALUE: int = 14
 const RUSTYS_UNLOAD_LEAD: float = 1.5
 ## Waits for a state, in seconds, before a scenario gives up.
 const SETTLE_SECONDS: float = 15.0
+## lunch_money, snak_o_matic: the clock hour you shop at, the cash you're given,
+## and how far in front of the vending machine you stand (m).
+const SNACK_HOUR: float = 12.0
+const SNACK_CASH: int = 100
+const SNACK_STAND_METERS: float = 1.8
+## snack_crash, snack_queasy: how long after you're placed the buff lands (s).
+const SNACK_EFFECT_LEAD: float = 1.5
 ## After a reset the director rolls no raid of its own for this long (a scenario
 ## that wants the NICE BOYS calls them itself).
 const QUIET_AFTER_SECONDS: float = 120.0
@@ -226,6 +237,12 @@ func run(scenario: String) -> Dictionary:
 			out = await _toss(false, TOSS_CLOSE_METERS)
 		"rustys":
 			out = await _rustys()
+		"lunch_money", "snak_o_matic":
+			out = await _snack_shop(scenario)
+		"lunch_money_rake", "snak_o_matic_can":
+			out = await _snack_holding(scenario)
+		"snack_crash", "snack_queasy":
+			out = await _snack_effect(scenario)
 	out["scenario"] = scenario
 	if not out.has("ok"):
 		out["ok"] = not out.has("error")
@@ -1711,3 +1728,64 @@ func _zone() -> String:
 
 func _v(at: Vector3) -> Array:
 	return [snappedf(at.x, 0.01), snappedf(at.y, 0.01), snappedf(at.z, 0.01)]
+
+
+## lunch_money, snak_o_matic (shops chunk 6): at the store at noon, standing at
+## the shop's counter (the food truck's hatch, the vending machine's front)
+## and facing it, with SNACK_CASH in your pocket. Press E and buy something.
+func _snack_shop(shop: String) -> Dictionary:
+	var out: Dictionary = await _store()
+	if out.has("error"):
+		return out
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock != null and clock.has_method("set_hour_for_tests"):
+		clock.call("set_hour_for_tests", SNACK_HOUR)
+	var me := Net.local_peer_id()
+	if Campaign.credits(me) < SNACK_CASH:
+		Campaign.pay(me, SNACK_CASH - Campaign.credits(me))
+	var site: Dictionary = Constants.SHOP_SITES[shop]
+	var zone := _world().get_node("StoreZone") as Node3D
+	var counter: Vector3 = site["counter"]
+	# The hatch faces +X, the machine's front faces where its yaw turns a +Z front.
+	var facing := Vector3.RIGHT if shop == "lunch_money" else Basis(Vector3.UP, float(site.get("yaw", 0.0))) * Vector3.BACK
+	var stand := zone.to_global(counter + facing * SNACK_STAND_METERS) if shop == "snak_o_matic" else zone.to_global(counter)
+	var look := zone.to_global(site.get("keeper", counter) as Vector3) + Vector3(0.0, 1.5, 0.0) if shop == "lunch_money" else zone.to_global(counter) + Vector3(0.0, 1.2, 0.0)
+	_stand_facing(Vector3(stand.x, zone.global_position.y, stand.z), look)
+	await _ticks(3)
+	return {"zone": _zone(), "cash": Campaign.credits(me)}
+
+## lunch_money_rake, snak_o_matic_can (shops chunk 6): the same, with the rake
+## in your hands (a snack goes in the right; the rake stays in the left) or the
+## gas can in your right (the snack goes in the left). The tool is brought from
+## wherever it lies loose.
+func _snack_holding(scenario: String) -> Dictionary:
+	var rake := scenario == "lunch_money_rake"
+	var out: Dictionary = await _snack_shop("lunch_money" if rake else "snak_o_matic")
+	if out.has("error"):
+		return out
+	var kind := "rake" if rake else "gas_can"
+	var held: String = await _hold(kind)
+	if held != kind:
+		return {"error": "couldn't get the %s (holding '%s')" % [kind, held]}
+	out["holding"] = held
+	return out
+
+## snack_crash, snack_queasy (shops chunk 6): at the Snak-o-Matic, the buff
+## arrives the way a real one does (World/Shops' buffs and last snack, sent to
+## everyone), only without the shop's dice: the crash hits now (the yawn, heavy
+## lids), or a sandwich lands queasy (eaten, then the burp and the green face).
+func _snack_effect(scenario: String) -> Dictionary:
+	var out: Dictionary = await _snack_shop("snak_o_matic")
+	if out.has("error"):
+		return out
+	var shops := get_tree().get_first_node_in_group("shops")
+	var me := Net.local_peer_id()
+	await get_tree().create_timer(SNACK_EFFECT_LEAD).timeout
+	var now := Net.server_time()
+	if scenario == "snack_crash":
+		(shops.get("buffs") as Dictionary)[me] = {"crash": now + float(Constants.BUFFS["crash"]["seconds"])}
+	else:
+		(shops.get("buffs") as Dictionary)[me] = {"queasy": now + float(Constants.BUFFS["queasy"]["seconds"])}
+		(shops.get("snacks") as Dictionary)[me] = {"item": "vend_sandwich", "buff": "queasy", "at": now}
+	shops.call("_broadcast")
+	return out

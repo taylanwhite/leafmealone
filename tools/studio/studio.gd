@@ -175,6 +175,10 @@ func _build(root: Node3D) -> void:
 				{"from": Vector3(0.0, 1.6, 4.2), "at": Vector3(0.0, 1.1, 0.0), "fov": 40.0},
 				{"from": Vector3(0.6, 1.75, 1.6), "at": Vector3(0.0, 1.55, 0.0), "fov": 32.0},
 			])
+		"food_truck", "vending":
+			# Shops chunk 6: Lunch Money (--hatch=0..1 how far its awning is up, Dot
+			# in the hatch) and the Snak-o-Matic with the snacks in hand beside it.
+			_snack_stand(root, _subject == "food_truck")
 		"truck":
 			var truck := Node3D.new()
 			root.add_child(truck)
@@ -316,6 +320,58 @@ func _junk(root: Node3D) -> void:
 		{"from": Vector3(-2.2, 1.2, 2.2), "at": Vector3(-2.0, 0.45, 0.0), "fov": 36.0},
 		{"from": Vector3(2.0, 1.4, 2.4), "at": Vector3(1.8, 0.6, 0.0), "fov": 36.0},
 		{"from": Vector3(0.6, 1.5, -0.4), "at": Vector3(0.0, 0.9, -2.6), "fov": 40.0},
+	])
+
+
+## Lunch Money's truck with Dot in the hatch, or the Snak-o-Matic with a snack
+## stuck on its coil and the five snacks laid out in front (shops chunk 6).
+func _snack_stand(root: Node3D, truck: bool) -> void:
+	if truck:
+		var holder := Node3D.new()
+		root.add_child(holder)
+		var look: Node3D = preload("res://props/vehicles.gd").build_food_truck(holder)
+		var hatch := look.get_node("Hatch") as Node3D
+		hatch.rotation.z = float(_options.get("hatch", "1.0")) * Constants.FOOD_TRUCK_HATCH_OPEN
+		var dot: Node3D = _CartoonBody.new()
+		dot.set("shirt", Color(0.96, 0.95, 0.9))
+		dot.set("pants", Color(0.2, 0.2, 0.24))
+		dot.set("skin", _CartoonBody.SKIN_TONES[3])
+		dot.set("hat_style", "cap")
+		dot.set("hat_color", Color(0.98, 0.8, 0.2))
+		holder.add_child(dot)
+		dot.position = Vector3(0.55, 0.32, 0.05)
+		dot.rotation.y = -PI * 0.5
+		dot.call("build")
+		var customer: Node3D = _CartoonBody.new()
+		customer.call("dress_from_seed", 7)
+		holder.add_child(customer)
+		customer.position = Vector3(2.2, 0.0, -0.2)
+		customer.rotation.y = PI * 0.5
+		customer.call("build")
+		root.set_meta("views", [
+			{"from": Vector3(7.5, 3.2, -5.5), "at": Vector3(0.0, 1.5, 0.0), "fov": 45.0},
+			{"from": Vector3(-7.0, 3.0, 4.5), "at": Vector3(0.0, 1.5, 0.0), "fov": 45.0},
+			{"from": Vector3(4.2, 1.7, 0.2), "at": Vector3(0.6, 1.7, 0.05), "fov": 45.0},
+			{"from": Vector3(2.5, 6.5, 5.5), "at": Vector3(0.0, 2.0, 0.0), "fov": 45.0},
+		])
+		return
+	var machine: Node3D = preload("res://props/vending_machine.gd").new()
+	root.add_child(machine)
+	machine.rotation.y = PI
+	var models := preload("res://props/shop_models.gd")
+	var x := -0.8
+	for item: String in models.SNACK_MODELS:
+		var food := models.food(item)
+		food.scale = Vector3.ONE * 3.0
+		root.add_child(food)
+		food.position = Vector3(x, 0.3, 1.4)
+		food.rotation.y = 0.6
+		x += 0.4
+	root.set_meta("views", [
+		{"from": Vector3(2.2, 1.9, 3.4), "at": Vector3(0.0, 1.0, 0.0), "fov": 45.0},
+		{"from": Vector3(0.0, 1.4, 1.6), "at": Vector3(0.0, 1.2, 0.0), "fov": 45.0},
+		{"from": Vector3(-2.6, 1.6, 1.6), "at": Vector3(0.0, 1.0, 0.0), "fov": 45.0},
+		{"from": Vector3(0.0, 0.9, 2.2), "at": Vector3(0.0, 0.35, 1.4), "fov": 35.0},
 	])
 
 

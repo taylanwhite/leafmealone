@@ -239,3 +239,176 @@ static func _lights(look: Node3D, front_z: float, height: float, back_z: float) 
 	for side: float in [-1.0, 1.0]:
 		_LowPoly.glow(look, Vector3(0.3, 0.2, 0.05), Vector3(side * 0.85, height, front_z), Color(1.0, 0.95, 0.75), 2.5)
 		_LowPoly.glow(look, Vector3(0.18, 0.26, 0.05), Vector3(side * 0.95, 1.2, back_z + 0.08), Color(0.9, 0.12, 0.08), 1.5)
+
+
+# ---- Lunch Money (shops chunk 6): Dot's food truck
+
+## The food truck's box: mustard yellow with a red skirt, the awning's stripes,
+## its stainless counter, and the kitchen's steel inside.
+const FOOD_BOX := Color(0.98, 0.76, 0.24)
+const FOOD_SKIRT := Color(0.8, 0.2, 0.14)
+const FOOD_STRIPE := Color(0.96, 0.95, 0.9)
+const FOOD_STEEL := Color(0.66, 0.68, 0.7)
+## The serving hatch on the box's +X side, in the truck's own space: z from x to
+## y, and up from FOOD_HATCH_Y.x to FOOD_HATCH_Y.y. The awning hangs from its top.
+const FOOD_HATCH_Z := Vector2(-0.75, 0.85)
+const FOOD_HATCH_Y := Vector2(1.18, 2.3)
+## The box's outside: half its width, its floor and roof, its front and back.
+const FOOD_BOX_HALF_X: float = 1.15
+const FOOD_BOX_Y := Vector2(0.85, 2.85)
+const FOOD_BOX_Z := Vector2(-1.28, 2.15)
+
+
+## Lunch Money (docs/GAME.md "Shops"): a converted Chefty, cab-over and all, 4.3 m
+## nose to tail, facing -Z, with a box on the back whose +X side opens into a
+## serving hatch under a striped awning. A giant hot dog rides on the roof. The
+## Chefty logo stays on the grille and the doors (DEC-006: every truck is a
+## Chefty), "LUNCH MONEY" is painted on both sides, and the menu board by the
+## hatch lists the real prices (Catalog.price). The awning is its own node,
+## "Hatch", hinged at the hatch's top: rotation.z 0 is shut over the hatch,
+## Constants.FOOD_TRUCK_HATCH_OPEN is propped open (levels/dressing/shop_sites.gd
+## swings it with the opening hours). Solid as one box; the awning isn't.
+static func build_food_truck(parent: Node3D) -> Node3D:
+	var look := _root(parent, "FoodTruckLook")
+	var key := "food_truck"
+	if not _cache.has(key):
+		_cache[key] = _food_truck_mesh()
+	look.add_child(_Stylized.instance(_cache[key], PAINT))
+	# The awning, shut by default.
+	var hatch := Node3D.new()
+	hatch.name = "Hatch"
+	hatch.position = Vector3(FOOD_BOX_HALF_X + 0.02, FOOD_HATCH_Y.y, (FOOD_HATCH_Z.x + FOOD_HATCH_Z.y) * 0.5)
+	look.add_child(hatch)
+	if not _cache.has("food_truck_awning"):
+		_cache["food_truck_awning"] = _awning_mesh()
+	hatch.add_child(_Stylized.instance(_cache["food_truck_awning"], {"roughness": 0.9, "specular": 0.1}))
+	# The giant hot dog on the roof, on two little posts.
+	if not _cache.has("food_truck_dog"):
+		var kit := _MeshKit.new()
+		preload("res://props/shop_models.gd").build_into(kit, "hot_dog")
+		_cache["food_truck_dog"] = kit.commit()
+	var dog := _Stylized.instance(_cache["food_truck_dog"], {"roughness": 0.6, "specular": 0.3})
+	dog.name = "RoofDog"
+	dog.scale = Vector3.ONE * 8.5
+	dog.position = Vector3(0.0, FOOD_BOX_Y.y + 0.38, 0.5)
+	look.add_child(dog)
+	# Words: LUNCH MONEY on both sides, Chefty on the doors and the grille.
+	var painted := str(preload("res://ui/strings.gd").SHOP_UI["sign_lunch_money"])
+	_LowPoly.text_sign(look, painted, Vector3(FOOD_BOX_HALF_X + 0.03, 2.58, 0.45), 44, FOOD_SKIRT, PI * 0.5)
+	_LowPoly.text_sign(look, painted, Vector3(-FOOD_BOX_HALF_X - 0.03, 1.95, 0.45), 84, FOOD_SKIRT, -PI * 0.5)
+	for side: float in [-1.0, 1.0]:
+		_LowPoly.text_sign(look, "Chefty", Vector3(side * 1.115, 1.55, -1.7), 40, TRIM, side * PI * 0.5)
+	_LowPoly.text_sign(look, "Chefty", Vector3(0.0, 1.32, -2.14), 30, TRIM, PI)
+	_menu_board(look)
+	_lights(look, -2.13, 1.05, 2.1)
+	_solid(look, [
+		[Vector3(0.0, 1.6, (FOOD_BOX_Z.x + FOOD_BOX_Z.y) * 0.5), Vector3(FOOD_BOX_HALF_X * 2.0, 2.5, FOOD_BOX_Z.y - FOOD_BOX_Z.x)],
+		[Vector3(0.0, 1.45, -1.7), Vector3(2.24, 1.9, 0.82)],
+	])
+	return look
+
+
+static func _food_truck_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var red := Color(0.75, 0.22, 0.15)
+	var dark := red.darkened(0.25)
+	var hx := FOOD_BOX_HALF_X
+	var wall := 0.05
+	# Frame under it all.
+	kit.rbox(Vector3(0.0, 0.62, 0.42), Vector3(1.02, 0.18, 1.85), GRILLE, 6.0, {"detail": 1})
+	# The Chefty cab up front (red, as it left the factory).
+	kit.rbox(Vector3(0.0, 1.5, -1.7), Vector3(1.1, 0.78, 0.42), red, 6.0, {"detail": 2})
+	kit.rbox(Vector3(0.0, 1.98, -2.1), Vector3(0.94, 0.28, 0.04), GLASS, 6.0, {"detail": 1, "shade": false})
+	for side: float in [-1.0, 1.0]:
+		kit.rbox(Vector3(side * 1.1, 1.98, -1.8), Vector3(0.04, 0.26, 0.26), GLASS, 6.0, {"detail": 1, "shade": false})
+		kit.rbox(Vector3(side * 1.13, 1.4, -1.5), Vector3(0.025, 0.03, 0.09), CHROME, 4.0, {"detail": 1})
+		kit.rbox(Vector3(side * 1.28, 1.95, -2.0), Vector3(0.16, 0.025, 0.025), GRILLE, 4.0, {"detail": 1})
+		kit.rbox(Vector3(side * 1.42, 1.95, -1.96), Vector3(0.05, 0.15, 0.1), GRILLE, 4.0, {"detail": 1})
+		for z: float in [-1.55, 1.45]:
+			kit.rbox(Vector3(side * 1.08, 0.92, z), Vector3(0.12, 0.18, 0.55), dark, 4.0, {"detail": 1})
+			kit.wheel(Vector3(side * 1.04, 0.42, z), 0.42, 0.34, TIRE, CHROME)
+	kit.rbox(Vector3(0.0, 1.05, -2.11), Vector3(0.58, 0.16, 0.03), GRILLE, 6.0, {"detail": 1, "shade": false})
+	for index: int in 3:
+		kit.rbox(Vector3(0.0, 0.95 + float(index) * 0.1, -2.14), Vector3(0.54, 0.012, 0.012), CHROME, 4.0, {"detail": 1})
+	kit.rbox(Vector3(0.0, 0.66, -2.16), Vector3(1.14, 0.1, 0.08), CHROME, 4.0, {"detail": 1})
+	kit.rbox(Vector3(0.0, 0.66, FOOD_BOX_Z.y + 0.06), Vector3(1.12, 0.09, 0.07), CHROME, 4.0, {"detail": 1})
+	# The box: floor, roof, front and back, the -X wall, and the +X wall around the hatch.
+	var box_y := (FOOD_BOX_Y.x + FOOD_BOX_Y.y) * 0.5
+	var box_hy := (FOOD_BOX_Y.y - FOOD_BOX_Y.x) * 0.5
+	var box_z := (FOOD_BOX_Z.x + FOOD_BOX_Z.y) * 0.5
+	var box_hz := (FOOD_BOX_Z.y - FOOD_BOX_Z.x) * 0.5
+	kit.rbox(Vector3(0.0, FOOD_BOX_Y.y - wall, box_z), Vector3(hx + 0.02, wall + 0.02, box_hz + 0.02), FOOD_BOX.lightened(0.1), 8.0, {"detail": 1})
+	kit.rbox(Vector3(0.0, FOOD_BOX_Y.x + wall, box_z), Vector3(hx, wall, box_hz), FOOD_SKIRT, 8.0, {"detail": 1})
+	for z: float in [FOOD_BOX_Z.x + wall, FOOD_BOX_Z.y - wall]:
+		kit.rbox(Vector3(0.0, box_y, z), Vector3(hx, box_hy, wall), FOOD_BOX, 10.0, {"detail": 1})
+	kit.rbox(Vector3(-hx + wall, box_y, box_z), Vector3(wall, box_hy, box_hz), FOOD_BOX, 10.0, {"detail": 1})
+	var hz0 := FOOD_HATCH_Z.x
+	var hz1 := FOOD_HATCH_Z.y
+	# Under and over the hatch, and either side of it (they overlap a little at the seams).
+	kit.rbox(Vector3(hx - wall, (FOOD_BOX_Y.x + FOOD_HATCH_Y.x) * 0.5, box_z), Vector3(wall, (FOOD_HATCH_Y.x - FOOD_BOX_Y.x) * 0.5 + 0.01, box_hz), FOOD_BOX, 10.0, {"detail": 1})
+	kit.rbox(Vector3(hx - wall, (FOOD_HATCH_Y.y + FOOD_BOX_Y.y) * 0.5, box_z), Vector3(wall, (FOOD_BOX_Y.y - FOOD_HATCH_Y.y) * 0.5 + 0.01, box_hz), FOOD_BOX, 10.0, {"detail": 1})
+	kit.rbox(Vector3(hx - wall, box_y, (FOOD_BOX_Z.x + hz0) * 0.5), Vector3(wall, box_hy, (hz0 - FOOD_BOX_Z.x) * 0.5 + 0.01), FOOD_BOX, 10.0, {"detail": 1})
+	kit.rbox(Vector3(hx - wall, box_y, (hz1 + FOOD_BOX_Z.y) * 0.5), Vector3(wall, box_hy, (FOOD_BOX_Z.y - hz1) * 0.5 + 0.01), FOOD_BOX, 10.0, {"detail": 1})
+	# A red skirt along the bottom of the box, both sides.
+	for side: float in [-1.0, 1.0]:
+		kit.rbox(Vector3(side * (hx + 0.005), FOOD_BOX_Y.x + 0.14, box_z), Vector3(0.012, 0.12, box_hz), FOOD_SKIRT, 6.0, {"detail": 1})
+	# The stainless counter under the hatch, on two little brackets.
+	kit.rbox(Vector3(hx + 0.12, FOOD_HATCH_Y.x + 0.02, (hz0 + hz1) * 0.5), Vector3(0.15, 0.022, (hz1 - hz0) * 0.5 + 0.02), FOOD_STEEL, 6.0, {"detail": 1})
+	for z: float in [hz0 + 0.15, hz1 - 0.15]:
+		kit.rbox(Vector3(hx + 0.07, FOOD_HATCH_Y.x - 0.08, z), Vector3(0.07, 0.07, 0.015), FOOD_STEEL.darkened(0.2), 4.0, {"detail": 1})
+	# The kitchen inside: steel on the back wall, a griddle, a coffee urn, cups on a shelf.
+	kit.rbox(Vector3(-hx + 0.12, 1.75, box_z), Vector3(0.012, 0.85, box_hz - 0.08), FOOD_STEEL, 8.0, {"detail": 1})
+	kit.rbox(Vector3(-hx + 0.4, 1.12, 0.05), Vector3(0.28, 0.2, 0.9), FOOD_STEEL.darkened(0.15), 8.0, {"detail": 1})
+	kit.rbox(Vector3(-hx + 0.4, 1.34, -0.3), Vector3(0.24, 0.02, 0.4), Color(0.12, 0.12, 0.13), 8.0, {"detail": 1})
+	kit.tube(PackedVector3Array([Vector3(-hx + 0.4, 1.32, 0.55), Vector3(-hx + 0.4, 1.7, 0.55)]), PackedFloat32Array([0.12, 0.11]), FOOD_STEEL.lightened(0.15), 12, {"jitter": 0.0, "cap": true, "cap_start": true})
+	kit.rbox(Vector3(-hx + 0.2, 2.15, 0.05), Vector3(0.1, 0.015, 0.8), FOOD_STEEL, 6.0, {"detail": 1})
+	for index: int in 6:
+		kit.tube(PackedVector3Array([Vector3(-hx + 0.2, 2.165, -0.6 + float(index) * 0.24), Vector3(-hx + 0.2, 2.27, -0.6 + float(index) * 0.24)]), PackedFloat32Array([0.03, 0.038]), Color(0.96, 0.95, 0.92), 8, {"jitter": 0.0, "cap": true, "cap_start": true})
+	# A string of bulbs along the hatch's top edge, outside.
+	for index: int in 8:
+		var z := lerpf(hz0 + 0.05, hz1 - 0.05, float(index) / 7.0)
+		kit.blob(Vector3(hx + 0.05, FOOD_HATCH_Y.y + 0.06, z), Vector3(0.025, 0.03, 0.025), Color(1.0, 0.93, 0.6), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+	# The hot dog's two posts on the roof.
+	for z: float in [0.1, 0.9]:
+		kit.tube(PackedVector3Array([Vector3(0.0, FOOD_BOX_Y.y, z), Vector3(0.0, FOOD_BOX_Y.y + 0.3, z)]), PackedFloat32Array([0.035, 0.03]), FOOD_STEEL, 6, {"jitter": 0.0})
+	return kit.commit()
+
+
+## The awning, hinged at its top edge (the node's origin), hanging down over
+## the hatch when shut: red and white stripes on the outside, a scalloped
+## valance at the bottom edge.
+static func _awning_mesh() -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var length := FOOD_HATCH_Y.y - FOOD_HATCH_Y.x + 0.06
+	var half_z := (FOOD_HATCH_Z.y - FOOD_HATCH_Z.x) * 0.5 + 0.08
+	var stripes := 7
+	for index: int in stripes:
+		var z := -half_z + (float(index) + 0.5) * (half_z * 2.0 / float(stripes))
+		kit.rbox(Vector3(0.02, -length * 0.5, z), Vector3(0.018, length * 0.5, half_z / float(stripes) + 0.002), FOOD_SKIRT if index % 2 == 0 else FOOD_STRIPE, 8.0, {"detail": 1})
+	for index: int in stripes * 2:
+		var z := -half_z + (float(index) + 0.5) * (half_z * 2.0 / float(stripes * 2))
+		kit.blob(Vector3(0.03, -length - 0.02, z), Vector3(0.012, 0.05, half_z / float(stripes * 2)), FOOD_SKIRT if (index / 2) % 2 == 0 else FOOD_STRIPE, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	return kit.commit()
+
+
+## The menu by the hatch: a chalkboard on the box with today's prices on it.
+static func _menu_board(look: Node3D) -> void:
+	var holder := Node3D.new()
+	holder.name = "MenuBoard"
+	holder.position = Vector3(FOOD_BOX_HALF_X + 0.02, 1.78, (FOOD_HATCH_Z.y + FOOD_BOX_Z.y) * 0.5)
+	holder.rotation.y = PI * 0.5
+	look.add_child(holder)
+	var kit := _MeshKit.new()
+	kit.rbox(Vector3(0.0, 0.0, 0.0), Vector3(0.5, 0.42, 0.015), Color(0.15, 0.19, 0.17), 8.0, {"detail": 1, "shade": false})
+	kit.rbox(Vector3(0.0, 0.0, -0.008), Vector3(0.54, 0.46, 0.012), Color(0.55, 0.38, 0.22), 8.0, {"detail": 1})
+	holder.add_child(_Stylized.instance(kit.commit(), {"roughness": 0.9, "specular": 0.05}))
+	var strings := preload("res://ui/strings.gd")
+	var lines := PackedStringArray()
+	for item: String in Catalog.items_for("lunch_money", "menu"):
+		if str(Catalog.item(item).get("kind", "")) == "snack":
+			lines.append(str(strings.SHOP_UI["menu_line"]) % [strings.shop_item_name(item).to_upper(), Catalog.price(item)])
+	var words := _LowPoly.text_sign(holder, "\n".join(lines), Vector3(0.0, 0.02, 0.02), 30, Color(0.96, 0.95, 0.88))
+	words.name = "Menu"
+	words.outline_size = 0
+	words.pixel_size = 0.0055
+	words.line_spacing = 6.0

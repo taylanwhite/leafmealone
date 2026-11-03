@@ -77,6 +77,10 @@ const IDS: PackedStringArray = [
 	# Brands (128, flat).
 	"brand_homie_depot", "brand_chefty", "brand_turfmasters",
 	"brand_rustys", "brand_lunch_money", "brand_snak_o_matic",
+	# Snacks and what they do to you (128, flat; shops chunk 6): the shop cards'
+	# snack_<item>, and the HUD's buff_<Constants.BUFFS id> (ui/buff_hud.gd).
+	"snack_hot_dog", "snack_turbo_juice", "snack_coffee", "snack_vend_sandwich", "snack_vend_turbo",
+	"buff_full", "buff_turbo", "buff_crash", "buff_coffee", "buff_queasy",
 	# Keycaps (64 tall; 128 wide for the long keys) and mouse glyphs: every key a
 	# player can rebind to (critic C5), so a rebound prompt still has its cap.
 	"key_a", "key_b", "key_c", "key_d", "key_e", "key_f", "key_g", "key_h", "key_i",

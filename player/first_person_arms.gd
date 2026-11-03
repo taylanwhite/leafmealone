@@ -39,6 +39,18 @@ const RAKE_FP_OFFSET := Constants.RAKE_FP_GRIP_OFFSET
 const FOLLOW_THROUGH: Array[Vector3] = [Constants.FP_ARMS_FOLLOW_REACH * Vector3(-1.0, 1.0, 1.0), Constants.FP_ARMS_FOLLOW_REACH]
 const FOLLOW_PEAK := Constants.FP_ARMS_FOLLOW_PEAK
 const BAG_ARM_STRETCH := Constants.FP_BAG_ARM_STRETCH
+const _SnackGestures = preload("res://player/snack_gestures.gd")
+## Eating in first person (shops chunk 6): where the right hand holds a snack in
+## front of your mouth (low in the view), how far a bite brings it in, and how
+## a sip lifts and brings in the cup (head space, m).
+const FP_MOUTH := Vector3(0.07, -0.17, -0.3)
+const FP_BITE := Vector3(-0.01, 0.02, 0.09)
+const FP_SIP := Vector3(-0.03, 0.07, 0.1)
+## Reaching for a snack being handed over: how far out along the line to it the
+## hand goes (z, m from the eye), how far to its own side (x), the lowest it
+## sits (y, so it's in view), and how far the arm may stretch to get there.
+const FP_REACH := Vector3(0.06, -0.2, 0.5)
+const FP_REACH_STRETCH: float = 1.2
 
 var _player: CharacterBody3D
 var _body: Node3D
@@ -60,6 +72,12 @@ var _follow_from: Array = [Vector3.ZERO, Vector3.ZERO]
 var _was_winding: bool = false
 ## What was just put in a pocket, while it's on its way (hotbar chunk D).
 var _stowing: Node = null
+## A hand reaching out for a world point (taking a snack: player/snack_eater.gd
+## sets these): which hand (0 left, 1 right), where, and how far, 0 to 1. Laid
+## over everything else, as the body's own reach is (CartoonBody.reach_at).
+var reach_side: int = 1
+var reach_at := Vector3.INF
+var reach_weight: float = 0.0
 
 
 func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
@@ -85,6 +103,17 @@ func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
 		_elbows.append(elbow)
 		_hands[side] = REST[side]
 	_solve()
+
+
+## Where a hand is now, in head space (0 left, 1 right): what a held snack
+## follows (player/snack_eater.gd).
+func hand_point(side: int) -> Vector3:
+	return _hands[clampi(side, 0, 1)]
+
+
+## The hand a snack is in (player/snack_gestures.gd side_of: the body's meta).
+func _snack_side() -> int:
+	return int(_body.get_meta("snack_side", 1)) if _body != null else 1
 
 
 func _part(mesh: Mesh) -> MeshInstance3D:
@@ -125,6 +154,12 @@ func _process(delta: float) -> void:
 		var want: Vector3 = targets["hands"][side]
 		_hands[side] = want if snap else _hands[side].lerp(want, 1.0 - exp(-rate * delta))
 	_solve()
+	# A snack in hand (player/snack_eater.gd sets where it sits from the hand):
+	# moved here, after the hand, so it never trails it by a frame.
+	var snack := get_node_or_null("SnackFP") as Node3D
+	if snack != null and snack.has_meta("from_hand"):
+		var from_hand: Transform3D = snack.get_meta("from_hand")
+		snack.transform = Transform3D(from_hand.basis, _hands[_snack_side()] + from_hand.origin)
 
 
 ## Where each hand wants to be, in head space, for what the player is doing now.
@@ -258,6 +293,36 @@ func _targets(delta: float) -> Dictionary:
 		for side: int in 2:
 			var along := sin(_phase + float(side) * PI)
 			hands[side] = REST[side] + Vector3(0.0, 0.03 * absf(along), along * swing)
+	# A snack (player/snack_eater.gd): the hand it's in (the right, or the left
+	# when the right holds something one-handed) brings it up into view and to
+	# your mouth, on the same clock as everyone's view of your body. From wherever
+	# that hand was (on a rake's handle, say), so it never jumps off it.
+	var side := _snack_side()
+	if gesture == "eat" or gesture == "drink":
+		var s := float(_body.get("_gesture_time"))
+		var length := float(_SnackGestures.SECONDS[gesture])
+		var up := _SnackGestures.lift(s, length)
+		var at_mouth := FP_MOUTH
+		if gesture == "eat":
+			at_mouth += FP_BITE * _SnackGestures.bite_nod(s)
+		else:
+			at_mouth += FP_SIP * _SnackGestures.sip_tip(s)
+		if side == 0:
+			at_mouth.x = -at_mouth.x
+		hands[side] = hands[side].lerp(at_mouth, up)
+		snap = true
+	# Reaching out to take it: the hand comes up from low in the view, out along
+	# your line of sight toward the point (so you see it go to meet the food),
+	# the arm stretched a little to get there.
+	if reach_weight > 0.0 and reach_at.is_finite():
+		var toward := to_local(reach_at)
+		var out := toward.normalized() * minf(toward.length(), FP_REACH.z)
+		out.x += FP_REACH.x * (1.0 if reach_side == 1 else -1.0)
+		out.y = maxf(out.y, FP_REACH.y)
+		var w := smoothstep(0.0, 1.0, clampf(reach_weight, 0.0, 1.0))
+		hands[reach_side] = hands[reach_side].lerp(out, w)
+		_stretch = maxf(_stretch, FP_REACH_STRETCH)
+		snap = true
 	# A mower cord pull yanks the right hand back, whatever else is going on.
 	if gesture == "startle" and held != null and str(held.get("kind")) == "lawn_mower":
 		var t := clampf(float(_body.get("_gesture_time")) / 0.5, 0.0, 1.0)

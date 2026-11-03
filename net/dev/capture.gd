@@ -56,6 +56,11 @@ const TOUR: Dictionary = {
 		["rustys_gate", Vector3(8.0, 1.7, -2.0), Vector3(12.5, 1.0, -2.0)],
 		["rustys_rack", Vector3(15.5, 1.7, 0.6), Vector3(18.6, 0.5, 0.5)],
 		["lunch_money_stall", Vector3(8.5, 1.7, 12.5), Vector3(4.8, 0.9, 15.8)],
+		# Shops chunk 6: Lunch Money's hatch from the customer's spot, the truck
+		# in its stall, and the Snak-o-Matic on the store's front wall.
+		["lunch_money_hatch", Vector3(6.4, 1.65, 15.2), Vector3(3.6, 1.6, 15.6)],
+		["lunch_money_truck", Vector3(10.5, 3.0, 9.0), Vector3(3.0, 1.4, 15.6)],
+		["snak_o_matic", Vector3(-8.2, 1.6, 6.2), Vector3(-11.5, 1.1, 4.5)],
 		["back_room", Vector3(-6.5, 1.8, -15.5), Vector3(-10.5, 0.6, -18.4)],
 	],
 	# The connected town (net/town/town_map.gd), in world space, once per run.

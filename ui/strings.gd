@@ -941,6 +941,11 @@ const SHOP_UI: Dictionary = {
 	"buff_crash": "Crashing",
 	"buff_coffee": "Wired",
 	"buff_queasy": "Queasy",
+	# Lunch Money's chalkboard menu by the hatch (props/vehicles.gd), one line a snack.
+	"menu_line": "%s  $%d",
+	# Painted on the food truck's sides and the vending machine's header.
+	"sign_lunch_money": "LUNCH MONEY",
+	"sign_snak_o_matic": "SNAK-O-MATIC",
 	# The shop window.
 	"shop_stock_left": "%d left today",
 	"shop_crew_has": "Crew has: %d bags · %d gal",
