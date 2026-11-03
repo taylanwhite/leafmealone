@@ -510,6 +510,13 @@ func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String])
 	# check that both peers draw him in the bed.
 	if hires != null:
 		hires.call("dev_add_hand", "Big Sal")
+	# The plow in o can clip the yard's furniture (the BigBin hiding spot, at
+	# about 7 m/s since the W8 merge with driving:E2's lot building): a real
+	# crash and a real dent. CI checks the client saw the body shop's last word
+	# (dents 0), so the shop fixes it again, the way m2 checked it does.
+	if int(chefty.call("dents")) > 0:
+		print("[DriveTest]   the yard steps left %d dent(s); the body shop fixes them" % int(chefty.call("dents")))
+		chefty.call("host_repair")
 	await get_tree().create_timer(0.5).timeout
 
 
