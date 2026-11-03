@@ -27,8 +27,8 @@ func _ready() -> void:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 14)
 	add_child(column)
+	# x1:text: no subtitle explaining the board; the cards' pay lines say it.
 	column.add_child(_text(_Strings.UI["board_window_title"], 34, ORANGE))
-	column.add_child(_text(_Strings.UI["board_window_subtitle"], 16, INK.lightened(0.3)))
 	_rating = HBoxContainer.new()
 	_rating.add_theme_constant_override("separation", 6)
 	column.add_child(_rating)

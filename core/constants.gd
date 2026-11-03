@@ -5,7 +5,7 @@ extends RefCounted
 ## core/balance.gd, which is generated from the design workbook.
 
 ## Bump on every build you hand to someone else. Peers on different versions cannot join each other.
-const BUILD_VERSION: String = "0.4.11"
+const BUILD_VERSION: String = "0.4.12"
 
 ## Used to tag Steam lobbies while we share Valve's test app ID with everyone else.
 const PROJECT_SLUG: String = "leaf-me-alone"
@@ -1382,9 +1382,6 @@ const PROP_LEASH_METERS: float = 45.0
 ## Chefty not at Homie Depot at bedtime: Marty tows it back for this much ($),
 ## split across the crew like wages.
 const CHEFTY_TOW_FEE: int = 20
-## The goal line says "go to" instead of "get in Chefty" within this many meters
-## of the yard's curb.
-const GOAL_WALK_METERS: float = 45.0
 ## The beacon over the job's curb (levels/lots/site_marker.gd): how tall and wide
 ## (m), and it fades out between these distances (m) as you get close.
 const SITE_BEACON_HEIGHT: float = 30.0
@@ -1484,9 +1481,9 @@ const HIDE_PILE_MOUND_DARKEN: float = 0.22
 const HIDE_EXIT_GAP: float = 0.55
 const HIDE_EXIT_RADIUS: float = 0.34
 const HIDE_EXIT_HEIGHT: float = 1.7
-## An inspection: a NICE BOY pokes the spot for this long (s), from this far out (m).
+## An inspection: a NICE BOY pokes the spot for this long (s) (from
+## HIDE_INSPECT_REACH out, under "# ---- R2c hide").
 const HIDE_INSPECT_SECONDS: float = 2.0
-const HIDE_INSPECT_STAND: float = 1.2
 ## A spot just inspected isn't picked again for this long (s).
 const HIDE_INSPECT_COOLDOWN: float = 20.0
 ## A searching NICE BOY inspects at most this many spots per search, and only
@@ -2295,8 +2292,8 @@ const HOTBAR_SELECT_SECONDS: float = 0.12
 const HOTBAR_SHAKE_SECONDS: float = 0.25
 const HOTBAR_SHAKE_PX: float = 6.0
 const HOTBAR_SHAKE_HZ: float = 22.0
-## How long a refusal's toast stays up, and the emptied-pockets notice (s).
-const HOTBAR_TOAST_SECONDS: float = 1.8
+## How long the emptied-pockets notice stays up (s). A refusal has no toast
+## since x1:text, only the shake.
 const HOTBAR_NOTICE_SECONDS: float = 3.0
 ## Arms full: the slots shrink to this and fade to this, and the hands card
 ## slides up over this long (s).
@@ -2462,8 +2459,9 @@ const ANNEX_WAKE_SECONDS: float = 1.0
 ## chewing with his back turned for ANNEX_LUNCH_CHEW.
 const ANNEX_LUNCH_BITE: float = 1.0
 const ANNEX_LUNCH_CHEW: float = 2.2
-## Copier jam: one break this long at the copier.
-const ANNEX_JAM_SECONDS: float = 12.0
+## Copier jam: one break this long at the copier (R2c annex: 20, was 12; the
+## walk there and back through the staff door is honest now, about 16 s of it).
+const ANNEX_JAM_SECONDS: float = 20.0
 ## Window D: blinds up once, at a seeded moment in this window, for ANNEX_D_OPEN.
 const ANNEX_D_WINDOW := Vector2(35.0, 90.0)
 const ANNEX_D_OPEN: float = 8.0
@@ -3523,10 +3521,10 @@ const R2B_HUD_VIGNETTE_INNER: float = 0.7
 const HIDE_FOUND_REVEAL: float = 0.55
 const HIDE_FOUND_GRAB_LEAD: float = 0.12
 const HIDE_FOUND_SETTLE: float = 0.12
-## Pulled out, you're set down on your feet this far out from the spot's face (m),
-## this far along it from the middle (m, clear of him), on a hop this high (m).
+## Pulled out, you're set down on your feet this far out from the spot's face (m)
+## (and HIDE_FOUND_LAND_SIDE along it, under "# ---- R2c hide"), on a hop this
+## high (m).
 const HIDE_FOUND_LAND_OUT: float = 0.5
-const HIDE_FOUND_LAND_ALONG: float = 0.4
 const HIDE_FOUND_HOP: float = 0.28
 ## A NICE BOY peering into each kind of spot: torso lean (rad, negative is
 ## forward), how far his hips drop (m), his face tilt (rad, negative looks down).
@@ -3591,9 +3589,9 @@ const HIDE_FOUND_CLANG_DB: float = -6.0
 ## step this far toward the latch side (m): base, plus this per second place.
 const HIDE_SHED_EXIT_ALONG: float = 0.1
 const HIDE_SHED_EXIT_SLOT_STEP: float = 0.45
-## Host: pulled out of a shed, you land off the latch side, this share of
-## HIDE_FOUND_LAND_ALONG along from the door's middle.
-const HIDE_FOUND_LAND_ALONG_SHED: float = 0.75
+## Host: pulled out of a shed, you land off the latch side, this far (m) along
+## from the door's middle (where R2b put it, clear of the door's swing).
+const HIDE_FOUND_LAND_SHED: float = 0.3
 ## Host: the gotcha trusts a found hider's landing (meta hide_pulled_to) for this
 ## long (s) after they're down; older than that and it stands them where they are.
 const HIDE_PULLED_TO_TRUST: float = 2.0
@@ -3689,8 +3687,9 @@ const ANNEX_GREETER_BACK_AT: float = 1.8
 ## before the bar to this far past it (m along the passage), one clack each push.
 const ANNEX_TURNSTILE_PUSH := Vector2(-0.55, 0.55)
 ## Staff step round people: a staff body walking within this far (m) of a
-## player eases sideways out of the way.
-const CLERK_STAND_OFF: float = 0.85
+## player eases sideways out of the way (R2c annex: standing too, and from 1.25,
+## was 0.85: walked into, he held his ground with his face in your camera).
+const CLERK_STAND_OFF: float = 1.25
 ## A clerk's head turns ease this fast (1/s): no one-frame snap.
 const CLERK_FACE_EASE: float = 14.0
 ## A player slamming the big stamp holds it up only this long (s).
@@ -4067,9 +4066,304 @@ const ESCORT_CAM_BIAS_RATE: float = 0.9
 ## The escort's follow eye wants this much room (m) round it: closer to the van's
 ## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
 const ESCORT_CAM_ROOM: float = 1.2
-
-
-# ---- tools:crew (a whole day played as a crew: tools/play.ps1 -Bots, docs/PLAYTEST.md)
-## A teammate's name tag fades out when its tag is closer than this to your eye (m):
-## sat next to each other in Chefty's bed it filled a quarter of the screen.
-const NAME_TAG_NEAR_HIDE: float = 1.8
+# ---- R2c hide
+# The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a
+# physical grab, heads riding the body's hide moves, the insides of a pile and a
+# bin, the shed's knot hole. Presentation tuning except where marked host.
+## Host: a NICE BOY stands this far out from the face he pokes (m): close enough
+## to reach in with both hands (it was 1.2 m, which put him in the picket fence a
+## metre off the hedge).
+const HIDE_INSPECT_REACH: float = 0.68
+## Host: a found hider is set down this far along the face from its middle (m),
+## clear of him now that he stands closer (it was 0.4). A shed has its own,
+## HIDE_FOUND_LAND_SHED.
+const HIDE_FOUND_LAND_SIDE: float = 0.8
+## His hands close on the hider's collar this far out in front of their eye (m),
+## this far under it (m), this far either side of the middle (m).
+const HIDE_GRIP_OUT: float = 0.3
+const HIDE_GRIP_DROP: float = 0.13
+const HIDE_GRIP_SPREAD: float = 0.15
+## Bodies in spots: crouched this far down (m) in a hedge and in a bin, so diving in
+## sinks them under the crown or the rim before they stop being drawn, and climbing
+## or being hauled out comes up out of it.
+const HIDE_HEDGE_CROUCH: float = 0.6
+const HIDE_BIN_CROUCH: float = 0.85
+## The head rides the torso through the hide moves, easing on and off over this
+## long (s).
+const HIDE_HEAD_CARRY_EASE: float = 0.12
+## Other peers: a diver stops being drawn once this far along the arc (0..1), or
+## this long (s) past HIDE_ENTER_SECONDS whatever happens (and a climb-out's low
+## start lets go as late).
+const HIDE_REMOTE_DIVE_IN: float = 0.97
+const HIDE_REMOTE_DIVE_SLACK: float = 0.8
+## A pile's mound face is this far ahead of the hider (m); their eye looks out of
+## it this high (m), and its shell's opening is this wide and tall (half-angles,
+## rad), centred this far under the eye's level (rad): ground level.
+const HIDE_PILE_FACE: float = 0.72
+const HIDE_PILE_EYE_HEIGHT: float = 0.34
+const HIDE_PILE_SHELL_OPENING: Vector2 = Vector2(0.78, 0.24)
+const HIDE_PILE_SHELL_OPENING_DIP: float = 0.1
+## Shed: the door you're behind stops being drawn this far into the step in (share
+## of the eye's move), before it can swing across the view; the knot hole lets you
+## turn this far either way (rad) and look this far down and up (rad).
+const HIDE_SHED_DOOR_HIDE_AT: float = 0.4
+const HIDE_SHED_YAW_CLAMP: float = 0.35
+const HIDE_SHED_PITCH_CLAMP: Vector2 = Vector2(-0.22, 0.14)
+## Leaving a spot, its inside is swept open off the edges of the view over this
+## long (s), spreading this many times its size; it's only gone once the eye is
+## this far (m) clear of the spot's box, when the spot's outside comes back.
+const HIDE_SHELL_OPEN_SECONDS: float = 0.22
+const HIDE_SHELL_OPEN_SPREAD: float = 3.5
+const HIDE_SHELL_CLEAR: float = 0.25
+## Found: the inside is torn open over this share of HIDE_FOUND_REVEAL.
+const HIDE_FOUND_TEAR_SHARE: float = 0.65
+## Peeking from a hedge parts the leaves at the mouth by this much (x, y scale).
+const HIDE_PEEK_PART: Vector2 = Vector2(0.55, 0.45)
+## ...and the whole tangle spreads this much more (share of its size) as you peek.
+const HIDE_PEEK_SPREAD: float = 0.45
+## Peering in, his face stops this far (m) from the hider's eye (he bends only to
+## get there) and his hips drop at most this far (m) to bring his eyes to theirs.
+const HIDE_PEER_FACE_GAP: float = 0.74
+const HIDE_PEER_SQUAT_MAX: float = 0.45
+## A pile: the mound sits this far (m) down into the raked heap under the hider,
+## the eye this far (m) under the heap's surface at the mound's face; a NICE BOY
+## bent over it (HIDE_PILE_STAND out) has his face end this far (m) above the
+## hider's eye (HIDE_PEER_PILE_FACE_UP).
+const HIDE_PILE_MOUND_SEAT: float = 0.3
+const HIDE_PILE_EYE_UNDER: float = 0.1
+## ...looking out where the heap is no taller than the eye, at most this far (m)
+## out from the hider: inside the mound everyone else sees over them (R2c hide
+## fixes: it walked up to 2 m out, so the NICE BOY bent over bare leaves well off
+## the mound and his hands never reached it).
+const HIDE_PILE_FACE_MAX: float = 0.85
+const HIDE_PEER_PILE_FACE_UP: float = 0.3
+## Host: over a pile a NICE BOY stands this far (m) out from the hider's eye, down
+## on his haunches with his hands at the mound's face and his grin still in the
+## hider's view (R2c hide fixes: it was HIDE_INSPECT_REACH plus a 0.7 m "bend
+## reach", and his hands closed on air well short of the leaves; at 0.55 his face
+## was over the top of the hider's view); a found hider is set down this far (m) from him, his
+## hands still on their shoulders (a spot's is HIDE_PULL_STANDOFF).
+const HIDE_PILE_STAND: float = 0.75
+const HIDE_PILE_PULL_STANDOFF: float = 0.6
+## Into a deep heap, the cannonball carries up to this much farther (m) than its
+## usual 0.25 m hop, landing where the heap's face is HIDE_PILE_FACE ahead: the
+## hider, the mound, the eye and the NICE BOY's hands all meet at one place.
+const HIDE_PILE_DIVE_REACH: float = 1.2
+## On the way into a pile the first-person eye stays this far (m) over the heap's
+## skin (under it, the lawn under the heap showed as a flat green band), and the
+## heap's leaf cards within this far (m) of the lens fold away (a hand-sized maple
+## a third of the screen wide); the dive's burst keeps this far (m) off the lens.
+const HIDE_PILE_EYE_OVER: float = 0.08
+const HIDE_PILE_LENS_CLEAR: float = 0.55
+const HIDE_PILE_BURST_CLEAR: float = 0.35
+## Sunk into a hedge or a bin, the legs hang straight once the body is this share
+## of the way down (other peers see no shoes kicking out of the hedge's foot).
+const HIDE_LEGS_HANG_FROM: float = 0.35
+## A pile's mound flattens into the heap over this long (s) as its hider bursts out.
+const HIDE_PILE_MOUND_FLATTEN: float = 0.2
+## Sinking into a pile, its leaves rise round the first-person eye from this far
+## below (m) and close over it, over this long (s).
+const HIDE_PILE_SHELL_RISE: float = 0.7
+const HIDE_PILE_SHELL_RISE_SECONDS: float = 0.3
+# ---- R2c annex (inside Satellite Annex B: the people, docs/GAME.md "The people in the room")
+## A clerk's stool is a tall drafting stool: seated, his hips drop only this far
+## (m) from standing, so head and shoulders clear the hatch from the line (the
+## Head NICE BOY's big chair keeps npcs/clerk.gd SIT_DROP).
+const CLERK_STOOL_DROP: float = 0.16
+## The behind-the-counter corridor clerks walk on (m behind the counter wall's
+## line): behind the stools, in front of the filing cabinets, never through a
+## seated colleague.
+const CLERK_CORRIDOR_BACK: float = 1.45
+## A staff member asked to be at his seat or post while somewhere else walks there
+## first at this speed (m/s), never posing his state in mid-air.
+const CLERK_HOME_SPEED: float = 2.2
+## Hurrying back from a break he walks at whatever speed gets him seated by the
+## end of RETURN, but never slower than CLERK_WALK_SPEED nor faster than this (m/s).
+const CLERK_RUSH_MAX: float = 4.5
+## On a break he arrives at his spot this share of the way into it (the rest he
+## stands there with his coffee).
+const CLERK_BREAK_ARRIVE_SHARE: float = 0.75
+## Standing staff keep this far apart (m, body centers); seated ones are left be.
+const CLERK_STAFF_GAP: float = 0.62
+## Each staff body is solid to players: a capsule this wide and tall (m) on the
+## pad-wall layer (people mask it, thrown things don't), so nobody walks into a
+## NICE BOY's head.
+const CLERK_SOLID_RADIUS: float = 0.45
+const CLERK_SOLID_HEIGHT: float = 1.75
+## The Copier Jam's walk back from the lobby copier through the staff door (s):
+## the longest walk any clerk has (window A, about 23 m at a hurry).
+const ANNEX_JAM_RETURN_WALK: float = 8.0
+## The Head NICE BOY is back in his chair this long (s) after his desk time
+## starts: the host waits for it before he reads a form (he walks back from the
+## copier or the cooler first; the desk approval never starts at an empty chair).
+## Counted from the later of his desk time's start and the end of his last walk
+## off to take the big stamp back (SPOTTED): never on his way back from a holder.
+const ANNEX_HEAD_SETTLE: float = 3.0
+## At the approval he stands and steps this far (m) to his desk's edge, so both
+## hands reach the big stamp on its pad; the pad sits on his side of the desk.
+const ANNEX_HEAD_DESK_STEP: float = 0.3
+const ANNEX_BIG_PAD := Vector3(0.18, 0.815, 0.22)
+## When, in his read (share of ANNEX_HEAD_READ), he lays the form down on the
+## pad and reaches for the stamp's knob.
+const ANNEX_HEAD_LAY_AT: float = 0.62
+## After the slam he holds the stamp down on the form this long (s), then lets go.
+const ANNEX_HEAD_SLAM_HOLD: float = 0.35
+## He raises it this high over the pad (m), this far back toward himself and this
+## far to his right (m):
+## over his head, his face clear of it, so the wind-up reads from the visitor spot.
+const ANNEX_HEAD_RAISE: float = 1.12
+const ANNEX_HEAD_RAISE_BACK: float = 0.2
+const ANNEX_HEAD_RAISE_SIDE: float = 0.24
+## His arms may stretch to this many times their length to hold it up there.
+const ANNEX_HEAD_ARM_STRETCH: float = 1.75
+## A self-stamp (the heist) in hand: your arm reaches through the hatch (s), drags
+## the stamp across the sill to the lip (s), lifts it over your form (s); the slam
+## lifts it this high (m) first; after it the stamp goes back to its pad (s).
+const ANNEX_BORROW_REACH: float = 0.25
+const ANNEX_BORROW_SLIDE: float = 0.35
+const ANNEX_BORROW_LIFT: float = 0.3
+const ANNEX_BORROW_SLAM_LIFT: float = 0.05
+const ANNEX_BORROW_RETURN: float = 0.45
+## How far your first-person arm may stretch (x its length) for a stamp across
+## the counter.
+const ANNEX_BORROW_STRETCH: float = 2.4
+## Someone else's self-stamp, seen from outside: the stamp shoots out of the hatch
+## to them in this long (s), and comes down on this point in front of their chest
+## (m, in the player's own space, -Z ahead: a little to their left), over their
+## left hand held out flat this far under it (m), as if on the form in it; their
+## right hand is on its knob while it's out.
+const ANNEX_BORROW_QUICK: float = 0.22
+const ANNEX_BORROW_CARRY := Vector3(-0.18, 1.0, -0.42)
+const ANNEX_BORROW_PALM_DROP: float = 0.04
+## A hand on a stamp's knob holds it this high over the knob's center (m).
+const ANNEX_KNOB_GRIP: float = 0.03
+## The slam's last stamp lets go this long (s) after it lands, then flies home,
+## arcing this high (m) over the sill on the way.
+const ANNEX_BORROW_LET_GO: float = 0.3
+const ANNEX_BORROW_RETURN_ARC: float = 0.08
+## Your own stamp comes down on your form here (m, in the form's space): a touch
+## right, down and toward you of its middle.
+const ANNEX_FORM_SLAM_SPOT := Vector3(0.03, -0.02, -0.04)
+## The Copier Jam: the clerk waits this far (m) to the copier's side, not where the
+## Head NICE BOY stands at it.
+const ANNEX_JAM_SPOT_SIDE: float = 0.7
+## The big stamp in your hands: one hand this far (m) to each side of its block,
+## gripping this high over its center.
+const ANNEX_BIG_GRIP_SPREAD: float = 0.15
+const ANNEX_BIG_GRIP_UP: float = 0.05
+## Keycaps (the [E] over a thing): a desk bell's sits this far over the bell's
+## marker (m), just over its plunger; the big stamp's this much higher (m) than
+## R2B_HUD_STAMP_PROMPT_LIFT over its pad, over the stamp's knob.
+const ANNEX_BELL_KEYCAP_LIFT: float = 0.06
+const ANNEX_BIG_KEYCAP_EXTRA: float = 0.25
+## The receipt in your hands (props/receipt_slip.gd): held at its bottom corners,
+## this share of its half width out from the middle and this far (m) under its end.
+const RECEIPT_GRIP_SPREAD: float = 0.42
+const RECEIPT_GRIP_UNDER: float = 0.012
+## A staff body's head is solid this wide (m) at head height, wider than the
+## capsule (R2c annex review: walking into a NICE BOY, his face still filled the
+## view from 0.4 m), so a camera stops this far off a face.
+const CLERK_SOLID_HEAD_RADIUS: float = 0.62
+const CLERK_SOLID_HEAD_Y: float = 1.5
+## The Greeter holds Form 27-B out from at least this far (m) from the rider (body
+## centers): out past arm's length, not in their face.
+const ANNEX_GREETER_OFFER_GAP: float = 1.15
+# ---- R2c hud
+# What's on screen, between the beats (docs/GAME.md "What's on screen, between
+# the beats"; ui/caption_stack.gd, ui/overheads.gd, ui/interaction_prompt.gd,
+# ui/quip_player.gd, ui/near_label.gd). Presentation only.
+## Words floating in the world keep a readable size on screen whatever the lens
+## (a 40 degree two-shot doubles a fixed-size label) and however close: one line
+## of a NICE BOY's bubble stands between these shares of the view's height,
+## a name tag between these, and a floating count (the wheelbarrow's, a bag's
+## price) at most this.
+const R2C_HUD_BUBBLE_LINE_MIN: float = 0.026
+const R2C_HUD_BUBBLE_LINE_MAX: float = 0.04
+const R2C_HUD_TAG_LINE_MIN: float = 0.017
+const R2C_HUD_TAG_LINE_MAX: float = 0.032
+const R2C_HUD_COUNT_LINE_MAX: float = 0.03
+## A player's name tag and a floating count fade out as you come close: fully
+## shown from FULL m, gone at GONE m (up close you know who it is, and the bag in
+## the barrow says the count).
+const R2C_HUD_TAG_NEAR_FULL_M: float = 2.6
+const R2C_HUD_TAG_NEAR_GONE_M: float = 1.6
+const R2C_HUD_COUNT_NEAR_FULL_M: float = 2.4
+const R2C_HUD_COUNT_NEAR_GONE_M: float = 1.3
+## Two bubbles keep this far apart on screen (px); a farther one steps up (or
+## down) out of a nearer one's way, gliding there.
+const R2C_HUD_BUBBLE_GAP: float = 6.0
+## Of two name tags that would sit on each other, the one already up keeps its
+## place until the other head is this much nearer (m).
+const R2C_HUD_TAG_KEEP_M: float = 0.8
+## A tag steps aside once it comes this close (px) to a nearer tag or a bubble,
+## so its fade is done before the two would touch.
+const R2C_HUD_TAG_CLEAR: float = 24.0
+## A tag that stepped aside comes back only after this long (s) in the clear.
+const R2C_HUD_TAG_DWELL: float = 0.3
+## Prompts and name tags come back this long (s) after the moment lets you go and
+## the camera is home, so nothing pops on during a swing back to your eyes: with
+## the yard HUD (R2B_HUD_RETURN_DELAY), so everything comes back together.
+const R2C_HUD_OVERLAY_DELAY: float = 0.6
+## The interact prompt fades in and out over this long (s).
+const R2C_HUD_PROMPT_FADE: float = 0.12
+## A spoken line older than this (s) when the moment takes you was about the chase,
+## not the catch: it goes with the yard's lines.
+const R2C_HUD_STALE_SPOKEN: float = 0.25
+## While you're hidden the job panel dims to this (0..1) over this long (s): the
+## leaves are the picture, the job is still yours.
+const R2C_HUD_HIDDEN_PANEL_ALPHA: float = 0.28
+const R2C_HUD_HIDDEN_PANEL_FADE: float = 0.3
+## A corner quip triggered while the moment has you waits for it to end, up to
+## this long (s); older, it's about something long gone and is dropped.
+const R2C_HUD_QUIP_WAIT_MAX: float = 20.0
+## The corner quip keeps this far (px) above the goal line when they'd share a band,
+## gliding there at this rate (1/s).
+const R2C_HUD_QUIP_GOAL_GAP: float = 8.0
+const R2C_HUD_QUIP_GLIDE: float = 12.0
+## A bubble already up goes (fading) once the point over his head leaves the
+## picture or he comes closer than this (m): it no longer hangs pinned in a
+## corner. Across a camera cut it's gone at once. The view counts as cut when the
+## camera changes, or moves more than CUT_MOVE_M or turns more than CUT_TURN
+## (rad) in one frame.
+const R2C_HUD_BUBBLE_KEEP_M: float = 2.0
+const R2C_HUD_CUT_MOVE_M: float = 1.5
+const R2C_HUD_CUT_TURN: float = 0.8
+## A tag closing on another steps aside this much earlier for each px/s they
+## close at (times R2B_HUD_TAG_FADE), up to this many px more.
+const R2C_HUD_TAG_CLEAR_MAX: float = 120.0
+## The interact prompt isn't drawn within this far (px) of the screen's edge.
+const R2C_HUD_PROMPT_EDGE: float = R2B_HUD_SAFE_MARGIN * 2.0
+## A corner panel's piece bigger than this share of the screen is a holder, not
+## something drawn: the prompt doesn't count it as covered.
+const R2C_HUD_PANEL_HOLDER_SHARE: float = 0.25
+## A floating label's pixel size is only changed when it moves by more than this
+## share of its own (a new pixel size rebuilds its text's mesh).
+const R2C_HUD_FIT_STEP: float = 0.02
+## Balancing wrapped text: the narrowest width tried is this share of an even
+## split, and the width found gets this many px of slack (rounding).
+const R2C_HUD_BALANCE_FLOOR: float = 0.8
+const R2C_HUD_BALANCE_PAD: float = 2.0
+# ---- x1:text (the plain-text sweep, docs/GAME.md "Writing for players")
+## The homeowner waves you over (npcs/homeowner.gd) once Chefty has bags in it
+## and they haven't been asked yet: the world's "come get paid" in place of a
+## goal line. While you're between TALK_REACH and this far away (m) from them,
+## the first wave comes soon (NOTICE_SECONDS), the next this many seconds (s) later, and each
+## gap after that is BACKOFF times the last, up to MAX_SECONDS (recorded at a
+## flat 6 s it was a wave every 7 s through minutes of raking: nagging). A new
+## bag landing in Chefty starts the gaps over: they noticed.
+const HOMEOWNER_BECKON_SECONDS: float = 6.0
+const HOMEOWNER_BECKON_METERS: float = 30.0
+const HOMEOWNER_BECKON_BACKOFF: float = 2.0
+const HOMEOWNER_BECKON_MAX_SECONDS: float = 48.0
+## A bag counts in Chefty's value while it's still flying in (props/truck_bed_load.gd
+## thumps it down on landing), so the wave it sets off waits this long (s): the
+## babble came half a second before the thump in rec_x1fix_beckon4_1p.
+const HOMEOWNER_BECKON_NOTICE_SECONDS: float = 1.2
+## A free player hears the radio about a teammate at Annex B (ui/quip_player.gd):
+## the first this long (s) after this player starts listening (the visit's start,
+## or when they come out of the room or join), then every gap (s) while
+## anyone they know is still inside, at most this many per visit. Then one line
+## when each teammate's form goes through.
+const ANNEX_DISPATCH_FIRST: float = 30.0
+const ANNEX_DISPATCH_GAP: float = 40.0
+const ANNEX_DISPATCH_MAX: int = 4

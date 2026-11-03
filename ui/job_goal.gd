@@ -1,10 +1,12 @@
 extends Label
 
-## Authority: local. One line near the bottom of the screen that always says what
-## to do next on the job: board Chefty, grab the rake, rake a pile and bag it,
-## carry bags to Chefty, talk to the homeowner, grab the cash. It reads state
-## every peer already has (who holds what, the homeowner's phase, Chefty's load),
-## so it never sends anything. It pops a little when the goal changes.
+## Authority: local. One line near the bottom of the screen that says where the
+## job is when you can't see it: the address, how far, and which way. It used to
+## say what to do next at every step (board Chefty, grab the rake, bag it, carry
+## it, talk to the homeowner); x1:text cut all of that (Taylan: "Our players are
+## not idiots"), so the yard, Chefty, the homeowner and the prompts teach the
+## loop (docs/GAME.md "Writing for players"). It reads state every peer already
+## has, so it never sends anything. It pops a little when the line changes.
 
 const _Strings = preload("res://ui/strings.gd")
 const POP_SECONDS: float = 0.25
@@ -42,138 +44,45 @@ func _process(delta: float) -> void:
 	scale = Vector2.ONE * (1.0 + 0.18 * (_pop / POP_SECONDS))
 
 
-## The next thing this player should do, or "" when there is nothing to say.
+## What the line says for this player right now, or "" when there is nothing
+## they can't already see: on the yard, at a store without a picked job, at
+## bedtime (the clock and Marty's welcome text cover it), and parked at the chalk
+## box (PARK HERE says it).
 static func goal(tree: SceneTree, peer_id: int) -> String:
 	var zone := Net.player_zone(peer_id)
-	var chefty := tree.get_first_node_in_group("chefty")
 	if (zone == Net.Zone.STORE or zone == Net.Zone.TOWN) and TownMap.enabled(tree):
-		return _town_goal(tree, peer_id, zone)
-	if zone == Net.Zone.STORE:
-		var clock := tree.get_first_node_in_group("day_clock")
-		if clock != null and bool(clock.call("is_closed")):
-			return _Strings.UI["goal_sleep"]
-		var board := tree.get_first_node_in_group("job_board")
-		if board != null and tree.get_first_node_in_group("town") != null and (board.get("offers") as Array).is_empty():
-			return _Strings.UI["goal_no_jobs"]
-		# Texts waiting: that's where the jobs come from.
-		var phone := tree.get_first_node_in_group("phone")
-		var ui := tree.get_first_node_in_group("game_ui")
-		var board_seen := ui != null and bool(ui.get("board_seen"))
-		if phone != null and int(phone.call("unread")) > 0 and not board_seen and int(Net.dev_options().get("job_seed")) == 0:
-			return _Strings.UI["goal_texts"]
-		if chefty != null and not bool(chefty.call("is_riding")):
-			return _Strings.UI["goal_board"]
-		return ""
-	if zone != Net.Zone.LOT:
-		return ""
-	# The connected town: a paid yard is where the next job gets taken (the lot's
-	# replicated stage, so a late joiner reads it too).
-	if TownMap.enabled(tree) and _site_paid(tree):
-		return _Strings.UI["goal_next_job"]
-	var homeowner := tree.get_first_node_in_group("homeowner")
-	# Homeowner phases: 0 waiting, 1 reacting, 2 holding out the cash, 3 paid.
-	var phase := int(homeowner.get("_phase")) if homeowner != null else 0
-	if phase == 2:
-		return _Strings.UI["goal_take_cash"]
-	if phase == 1 or phase == 3:
-		return ""
-	var held := _held_by(tree, peer_id)
-	var player := _player_node(tree, peer_id)
-	if player != null and bool(player.call("is_climbing")):
-		return _Strings.UI["goal_gutters"]
-	if player != null and bool(player.call("is_up_high")):
-		return _Strings.UI["goal_roof"]
-	if held == "ladder":
-		return _Strings.UI["goal_set_ladder"]
-	var held_node := _held_node(tree, peer_id)
-	if held == "hose" and held_node != null and str(held_node.get("hose_source")) == "":
-		return _Strings.UI["goal_hook_hose"]
-	if held == "lawn_mower" and held_node != null:
-		return _Strings.UI["goal_start_mower"] if not bool(held_node.get("spraying")) else _Strings.UI["goal_mower_running"]
-	if held == "paint_roller" and held_node != null and float(held_node.get("water")) <= 0.0:
-		return _Strings.UI["goal_dip_roller"]
-	if held == "pressure_washer" and held_node != null:
-		if float(held_node.get("water")) <= 0.0:
-			return _Strings.UI["goal_refill"]
-		return _Strings.UI["goal_washer_tank"] % int(float(held_node.get("water")))
-	# Holding a tool: say what it's for, if that work is still open.
-	if held != "" and Constants.TOOL_PRICES.has(held):
-		var for_task := _task_for_tool(held)
-		var tasks := tree.get_first_node_in_group("job_tasks")
-		if for_task != "" and tasks != null and (tasks.get("active") as PackedStringArray).has(for_task) and float(tasks.call("progress", for_task)) < 0.95:
-			return _Strings.UI["goal_task"] % _Strings.UI["task_" + for_task]
-	if held == "leaf_bag":
-		return _Strings.UI["goal_carry_held"]
-	if held == "rake":
-		return _Strings.UI["goal_rake"]
-	# The rake in your own pocket and nothing in hand: it's one key away.
-	if held == "" and player != null:
-		var pockets := player.get_node_or_null("Pockets")
-		var slot := int(pockets.call("slot_of_kind", "rake")) if pockets != null else -1
-		if slot >= 0:
-			return _Strings.UI["goal_draw_rake"] % _Strings.keyed("{key:slot_%d}" % (slot + 1))
-	var loose := 0
-	var rake_free := false
-	for node: Node in tree.get_nodes_in_group("props"):
-		var kind := str(node.get("kind"))
-		# Loose means nobody holds it or has it in a pocket (net_prop.gd is_loose).
-		if kind == "leaf_bag" and bool(node.call("is_loose")):
-			loose += 1
-		elif kind == "rake" and bool(node.call("is_loose")):
-			rake_free = true
-	if loose > 0:
-		return _Strings.UI["goal_carry_loose"] % loose
-	var banked := int(chefty.call("bag_value")) if chefty != null else 0
-	if rake_free:
-		return _Strings.UI["goal_rake_or_talk"] % banked if banked > 0 else _Strings.UI["goal_grab_rake"]
-	if banked > 0:
-		return _Strings.UI["goal_talk"] % banked
-	return _Strings.UI["goal_no_rake"]
+		return _town_goal(tree, peer_id)
+	return ""
 
 
 ## The connected town (driving chunk D), at the store or out in town: the job is
 ## at the client's house, so the line says where it is, how far, and which way
-## (an arrow from where this peer's camera looks). In the yard (LOT) the job
-## lines above take over.
-static func _town_goal(tree: SceneTree, peer_id: int, zone: Net.Zone) -> String:
+## (an arrow from where this peer's camera looks).
+static func _town_goal(tree: SceneTree, peer_id: int) -> String:
 	var clock := tree.get_first_node_in_group("day_clock")
 	if clock != null and bool(clock.call("is_closed")):
-		return _Strings.UI["goal_sleep"] if zone == Net.Zone.STORE else _Strings.UI["goal_drive_home"]
+		return ""
 	var world := tree.get_first_node_in_group("world")
 	var board := tree.get_first_node_in_group("job_board")
 	var house := int(world.call("job_site_house")) if world != null else -1
 	var lot := tree.get_first_node_in_group("job_lot")
 	if house < 0 or lot == null:
 		# A pick whose yard is on its way in (the host swaps a paid yard for it):
-		# point at the house already, rather than flashing "pick a job".
-		var picked := int((board.call("current") as Dictionary).get("house_id", -1)) if board != null else -1
-		if picked >= 0:
-			house = picked
-		else:
-			if board != null and (board.get("offers") as Array).is_empty():
-				return _Strings.UI["goal_no_jobs"]
-			var phone := tree.get_first_node_in_group("phone")
-			if phone != null and int(phone.call("unread")) > 0:
-				return _Strings.UI["goal_texts"]
-			return _Strings.UI["goal_pick_job"]
+		# point at the house already.
+		house = int((board.call("current") as Dictionary).get("house_id", -1)) if board != null else -1
+		if house < 0:
+			return ""
 	elif _site_paid(tree):
-		return _Strings.UI["goal_next_job"]
+		return ""
 	var player := _player_node(tree, peer_id) as Node3D
 	if player == null:
 		return ""
 	var curb := TownMap.curb_point(house)
 	var meters := Vector2(curb.x - player.global_position.x, curb.z - player.global_position.z).length()
-	var address := _address(tree, house)
-	var arrow := _arrow(tree, player.global_position, curb)
-	var chefty := tree.get_first_node_in_group("chefty")
-	var seated := chefty != null and int(chefty.call("seat_of", peer_id)) >= 0
-	if seated:
-		if meters <= Constants.CHEFTY_ARRIVE_RADIUS:
-			return _Strings.UI["goal_park"]
-		return _Strings.UI["goal_drive_to"] % [address, int(meters), arrow]
-	if meters <= Constants.GOAL_WALK_METERS:
-		return _Strings.UI["goal_go_to"] % [address, int(meters), arrow]
-	return _Strings.UI["goal_get_in_chefty"] % [address, int(meters), arrow]
+	# At the curb: the chalk box, the beacon and the homeowner say the rest.
+	if meters <= Constants.CHEFTY_ARRIVE_RADIUS:
+		return ""
+	return _Strings.UI["goal_drive_to"] % [_address(tree, house), int(meters), _arrow(tree, player.global_position, curb)]
 
 
 ## The loaded job yard has been paid for: its replicated stage (job_lot.gd), or
@@ -220,24 +129,3 @@ static func _player_node(tree: SceneTree, peer_id: int) -> Node:
 		if node.name == str(peer_id):
 			return node
 	return null
-
-
-static func _task_for_tool(tool: String) -> String:
-	for task: String in Constants.TASK_TOOLS:
-		if str(Constants.TASK_TOOLS[task]) == tool:
-			return task
-	return ""
-
-
-static func _held_node(tree: SceneTree, peer_id: int) -> Node:
-	for node: Node in tree.get_nodes_in_group("props"):
-		if int(node.get("held_by")) == peer_id:
-			return node
-	return null
-
-
-static func _held_by(tree: SceneTree, peer_id: int) -> String:
-	for node: Node in tree.get_nodes_in_group("props"):
-		if int(node.get("held_by")) == peer_id:
-			return str(node.get("kind"))
-	return ""

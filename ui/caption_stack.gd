@@ -57,6 +57,7 @@ const KIND_RANK: Dictionary = {&"subtitle": 10, &"teammate": 2, &"radio": 1, &"q
 const YARD_KINDS: Array[StringName] = [&"radio", &"quip"]
 const _HudMode = preload("res://ui/hud_mode.gd")
 const _Overheads = preload("res://ui/overheads.gd")
+const _TextFit = preload("res://ui/text_fit.gd")
 ## The soft plate's color (its darkness is Constants.R2B_HUD_PLATE_ALPHA).
 const PLATE := Color(0.06, 0.05, 0.05)
 
@@ -84,6 +85,15 @@ func push(kind: StringName, text: String, seconds: float, priority: int = 0) -> 
 		return 0
 	if not KINDS.has(kind):
 		kind = &"quip"
+	# R2c: the same words twice (two NICE BOYS with one line, a line said again
+	# before the last one went) are one line on screen: it stays, or comes back if
+	# it was on its way out, with its time renewed. Never a duplicate.
+	for entry: Dictionary in _lines:
+		if str(entry["text"]) == text and (float(entry["left"]) > 0.0 or float(entry["alpha"]) > 0.0):
+			entry["left"] = maxf(float(entry["left"]), maxf(0.1, seconds))
+			entry["priority"] = maxi(int(entry["priority"]), priority)
+			_layout(0.0)
+			return int(entry["id"])
 	# The slot: a clipping box the line is drawn in (it opens and closes, the line fades).
 	var box := Control.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -104,7 +114,7 @@ func push(kind: StringName, text: String, seconds: float, priority: int = 0) -> 
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	plate.show_behind_parent = true
 	label.add_child(plate)
-	var entry := {"id": _next_id, "kind": kind, "text": text, "left": maxf(0.1, seconds), "priority": priority, "label": label, "box": box, "alpha": 0.0, "grow": 0.0, "shown": false}
+	var entry := {"id": _next_id, "kind": kind, "text": text, "left": maxf(0.1, seconds), "priority": priority, "label": label, "box": box, "alpha": 0.0, "grow": 0.0, "shown": false, "at": Time.get_ticks_msec() / 1000.0}
 	_next_id += 1
 	_lines.append(entry)
 	_style(entry)
@@ -180,8 +190,12 @@ func _process(delta: float) -> void:
 func _watch_mode() -> void:
 	var now_cinematic := in_cinematic()
 	if now_cinematic and not _cinematic:
+		# R2c: and what the NICE BOYS said before the catch ("Slow down!") goes
+		# too: it was about the chase. A line said this very moment stays.
+		var now := Time.get_ticks_msec() / 1000.0
 		for entry: Dictionary in _lines:
-			if YARD_KINDS.has(StringName(entry["kind"])):
+			var kind := StringName(entry["kind"])
+			if YARD_KINDS.has(kind) or kind == &"subtitle" and now - float(entry.get("at", now)) > Constants.R2C_HUD_STALE_SPOKEN:
 				entry["left"] = 0.0
 	_cinematic = now_cinematic
 
@@ -248,17 +262,27 @@ func _visible_entries() -> Array[Dictionary]:
 		waiting = waiting.filter(func(entry: Dictionary) -> bool: return StringName(entry["kind"]) != &"quip")
 	# Highest priority first (a spoken line first of all), then oldest; at most
 	# CAPTION_STACK_MAX, or R2B_HUD_CINEMATIC_LINES while the moment has you.
+	# R2c: among spoken lines the newest wins: a line is shown on the frame its
+	# sound starts, so it can't wait behind older ones (the gotcha line used to
+	# wait up to 1.5 s for two chase lines to run out).
 	waiting.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var rank_a := int(a["priority"]) + int(KIND_RANK.get(StringName(a["kind"]), 0))
 		var rank_b := int(b["priority"]) + int(KIND_RANK.get(StringName(b["kind"]), 0))
 		if rank_a != rank_b:
 			return rank_a > rank_b
+		if StringName(a["kind"]) == &"subtitle" and StringName(b["kind"]) == &"subtitle":
+			return int(a["id"]) > int(b["id"])
 		return int(a["id"]) < int(b["id"]))
-	var most := Constants.R2B_HUD_CINEMATIC_LINES if _cinematic else Constants.CAPTION_STACK_MAX
-	var chosen := waiting.slice(0, most)
+	var chosen := waiting.slice(0, most_lines())
 	# On screen, oldest on top and the newest at the bottom.
 	chosen.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
 	return chosen
+
+
+## The most lines on screen at once now, counting a line on its way out:
+## CAPTION_STACK_MAX, or R2B_HUD_CINEMATIC_LINES while the moment has you.
+func most_lines() -> int:
+	return Constants.R2B_HUD_CINEMATIC_LINES if _cinematic else Constants.CAPTION_STACK_MAX
 
 
 func _layout(delta: float) -> void:
@@ -273,6 +297,10 @@ func _layout(delta: float) -> void:
 	for entry: Dictionary in _lines:
 		var on := shown.has(entry)
 		entry["shown"] = on
+		# R2c: a spoken line never waits for a place: one newer lines have pushed
+		# off is over (it would come back after them, out of time with its sound).
+		if not on and StringName(entry["kind"]) == &"subtitle":
+			entry["left"] = 0.0
 		var alpha := float(entry["alpha"])
 		var grow := float(entry["grow"])
 		# A spoken line lands with its sound: its slot opens and it fades in at once.
@@ -299,17 +327,34 @@ func _layout(delta: float) -> void:
 			drawn.append(entry)
 	_lines = keep
 	drawn.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
+	# R2c: never more lines on screen than the stack holds, a line on its way out
+	# included: when a new one takes a slot, the oldest leaving line makes way at
+	# once (a subtitle replaced, not a third line fading under two).
+	var most := most_lines()
+	var index_out := 0
+	while drawn.size() > most and index_out < drawn.size():
+		var leaving: Dictionary = drawn[index_out]
+		if bool(leaving["shown"]):
+			index_out += 1
+			continue
+		leaving["alpha"] = 0.0
+		leaving["grow"] = 0.0
+		(leaving["box"] as Control).visible = false
+		drawn.remove_at(index_out)
 	var slots: Array[float] = []
 	var heights: Array[float] = []
 	var total := 0.0
 	var pad := plate_pad()
 	for entry: Dictionary in drawn:
 		var label := entry["label"] as Label
-		label.custom_minimum_size = Vector2(width, 0.0)
-		label.size = Vector2(width, 0.0)
-		var h := _text_height(label, width)
-		label.size = Vector2(width, h)
-		_fit_plate(label, width, h, pad)
+		# R2c: wrapped lines are balanced (".. at every stop sign. Every / one." was
+		# a word alone on its row): the label is as narrow as keeps its row count.
+		var lw := _balanced(entry, label, width)
+		label.custom_minimum_size = Vector2(lw, 0.0)
+		label.size = Vector2(lw, 0.0)
+		var h := _text_height(label, lw)
+		label.size = Vector2(lw, h)
+		_fit_plate(label, lw, h, pad, width)
 		h += pad.y * 2.0
 		var eased := smoothstep(0.0, 1.0, float(entry["grow"]))
 		heights.append(h)
@@ -350,7 +395,7 @@ func _layout(delta: float) -> void:
 		box.size = Vector2(width, slots[index])
 		box.visible = slots[index] > 0.5
 		var label := entry["label"] as Label
-		label.position = Vector2(0.0, pad.y)
+		label.position = Vector2(floorf((width - label.size.x) * 0.5), pad.y)
 		label.modulate.a = float(entry["alpha"])
 		y += slots[index] + LINE_GAP * smoothstep(0.0, 1.0, float(entry["grow"]))
 	for entry: Dictionary in _lines:
@@ -431,6 +476,24 @@ func _text_height(label: Label, width: float) -> float:
 	return ceilf(text.y + spacing + margins.y)
 
 
+## R2c: how wide a line's label is drawn: the stack's width for one row, else
+## the narrowest width that keeps the same number of rows, so the rows come out
+## even instead of a long row and a lone word. Cached per text, size and width.
+func _balanced(entry: Dictionary, label: Label, width: float) -> float:
+	var font := label.get_theme_font("font")
+	var font_size := label.get_theme_font_size("font_size")
+	var key := "%s|%d|%d" % [label.text, font_size, roundi(width)]
+	if str(entry.get("bw_key", "")) == key:
+		return float(entry["bw"])
+	var box := label.get_theme_stylebox("normal")
+	var margins := box.get_minimum_size().x if box != null else 0.0
+	var result := _TextFit.balanced_width(font, label.text, font_size, maxf(1.0, width - margins)) + margins
+	result = minf(width, result)
+	entry["bw_key"] = key
+	entry["bw"] = result
+	return result
+
+
 ## The room the soft plate takes round a line (zero while the dark caption
 ## backdrop is on: that box has its own margins).
 static func plate_pad() -> Vector2:
@@ -441,7 +504,7 @@ static func plate_pad() -> Vector2:
 
 ## The plate hugs the words (centered, as wide as the widest wrapped line),
 ## not the stack's whole width.
-func _fit_plate(label: Label, width: float, height: float, pad: Vector2) -> void:
+func _fit_plate(label: Label, width: float, height: float, pad: Vector2, room: float = -1.0) -> void:
 	var plate := label.get_node_or_null("Plate") as Panel
 	if plate == null:
 		return
@@ -452,7 +515,9 @@ func _fit_plate(label: Label, width: float, height: float, pad: Vector2) -> void
 	var font_size := label.get_theme_font_size("font_size")
 	var natural := font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var words := minf(natural, width)
-	var plate_width := minf(words + pad.x * 2.0, width)
+	# A balanced label is narrower than the stack: its plate still pads the words,
+	# within the stack's width (room).
+	var plate_width := minf(words + pad.x * 2.0, maxf(width, room))
 	plate.position = Vector2((width - plate_width) * 0.5, -pad.y)
 	plate.size = Vector2(plate_width, height + pad.y * 2.0)
 

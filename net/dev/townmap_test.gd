@@ -25,6 +25,7 @@ const _Streamer = preload("res://levels/town/town_streamer.gd")
 ## steps are one tree, one body, one parcel's solids. A stall is a frame, and a
 ## frame past ENet's patience drops a joining player (driving chunk E).
 const BUILD_STEP_MAX_MS: float = 400.0
+const _JobGoal = preload("res://ui/job_goal.gd")
 ## The job board's posts stand 2.5 m apart (levels/job_board.gd _build_board).
 const JOB_BOARD_FOOTPRINT := Vector2(2.7, 0.4)
 ## Which STORE_LAYOUT reservations hold each shop's counter and buy area.
@@ -496,6 +497,7 @@ func _check_job_at_house(world: Node, town: Node, problems: Array[String]) -> vo
 	var streamer := world.get_node_or_null("TownStreamer")
 	var lot_zone := world.get_node("LotZone") as Node3D
 	var host := Net.local_peer_id()
+	await _check_goal_unpicked(board, problems)
 	var lot := await _pick(world, town, board, SITE_HOUSE)
 	if lot == null:
 		_verdict(false, "d1. house %d's request picked: no yard loaded" % SITE_HOUSE, problems)
@@ -544,6 +546,55 @@ func _check_job_at_house(world: Node, town: Node, problems: Array[String]) -> vo
 	var cleaned := float(field.call("cleaned_fraction")) if field != null else 0.0
 	var at_house := lot_zone.global_position.distance_to(site.origin) < 0.01 and int(world.call("job_site_house")) == next_house
 	_verdict(at_house and seen == ["LOT", "TOWN", "STORE"] and cleaned > 0.0, "d4. house %d's yard at its slot %s; yard, street, store: %s; leaves cleared %.3f" % [next_house, at_house, seen, cleaned], problems)
+	await _check_goal_line(next_house, problems)
+
+
+## x1:text, the goal line (ui/job_goal.gd), which only says where the job is:
+##   g1. At the store with no request picked (no yard, no offers): quiet.
+func _check_goal_unpicked(board: Node, problems: Array[String]) -> void:
+	var host := Net.local_peer_id()
+	_teleport(host, Vector3(2.0, 0.3, 4.0))
+	await get_tree().create_timer(0.6).timeout
+	if get_tree().get_first_node_in_group("job_lot") != null:
+		_verdict(false, "g1. no yard loaded before the first pick", problems)
+		return
+	# No frame passes between these lines, so nothing else sees the empty board.
+	var kept: Array = board.get("offers")
+	board.set("offers", [])
+	var shown := _JobGoal.goal(get_tree(), host)
+	board.set("offers", kept)
+	_verdict(Net.player_zone(host) == Net.Zone.STORE and shown == "", "g1. at the store with nothing picked the goal line is quiet (zone %s, %s)" % [Net.Zone.keys()[Net.player_zone(host)], JSON.stringify(shown)], problems)
+
+
+##   g2. At the store with house next_house's job picked: "<address> · N m <arrow>".
+##   g3. The same once the clock has closed for the night: quiet.
+##   g4. At that house's curb (within CHEFTY_ARRIVE_RADIUS): quiet.
+## The host ends back at the store, where d4 left it.
+func _check_goal_line(house: int, problems: Array[String]) -> void:
+	var host := Net.local_peer_id()
+	var shown := _JobGoal.goal(get_tree(), host)
+	var address := _JobGoal._address(get_tree(), house)
+	var located := address != "" and shown.begins_with(address) and shown.contains(" m ")
+	_verdict(Net.player_zone(host) == Net.Zone.STORE and located, "g2. at the store the goal line says where house %d's job is (%s)" % [house, JSON.stringify(shown)], problems)
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock != null:
+		# Closed for the night and straight back, with no frame between.
+		var hour := float(clock.call("hour"))
+		clock.call("set_hour_for_tests", 26.0)
+		var closed_shown := _JobGoal.goal(get_tree(), host)
+		clock.call("set_hour_for_tests", hour)
+		_verdict(closed_shown == "", "g3. after closing the goal line is quiet (%s)" % JSON.stringify(closed_shown), problems)
+	# Out on the street by the curb (the curb point itself is the yard's LOT), so
+	# it's the distance that quiets the line, not the zone.
+	var by_curb := TownMap.yard_transform(house) * Vector3(TownMap.CURB_POINT.x, 0.3, 33.6)
+	var curb := TownMap.curb_point(house)
+	_teleport(host, by_curb)
+	await get_tree().create_timer(0.6).timeout
+	var at_curb := _JobGoal.goal(get_tree(), host)
+	var near := Vector2(by_curb.x - curb.x, by_curb.z - curb.z).length() <= Constants.CHEFTY_ARRIVE_RADIUS
+	_verdict(near and Net.player_zone(host) == Net.Zone.TOWN and at_curb == "", "g4. on the street by the curb (zone %s, within %.0f m %s) the goal line is quiet (%s)" % [Net.Zone.keys()[Net.player_zone(host)], Constants.CHEFTY_ARRIVE_RADIUS, near, JSON.stringify(at_curb)], problems)
+	_teleport(host, Vector3(2.0, 0.3, 4.0))
+	await get_tree().create_timer(0.6).timeout
 
 
 ## Host: a request from this house, picked on the board; waits for its yard.

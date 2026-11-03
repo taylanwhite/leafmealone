@@ -766,6 +766,8 @@ func _apply_audio() -> void:
 		if VOLUME_BUSES[key] == _Buses.MASTER and muted_run:
 			mute = true
 		AudioServer.set_bus_mute(index, mute)
+	# SfxClear (a hider's own sounds, past the muffle) rides the effects fader.
+	_Buses.sync_followers()
 
 
 func _apply_voice_mode() -> void:

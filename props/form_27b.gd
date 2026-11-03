@@ -194,6 +194,7 @@ class Form extends Node3D:
 	var _rest_rotation := Vector3.ZERO
 	var _rise_at: float = -1000.0
 	var _rising: bool = false
+	var _rise_from: Node3D = null
 
 	static func clock() -> float:
 		return _Props.now()
@@ -325,11 +326,25 @@ class Form extends Node3D:
 	## Handed over (R2b): from `at` it comes up into the hand from below over
 	## ANNEX_FORM_RISE seconds, tipping toward you as it arrives; before `at` it's
 	## not in your hand yet.
-	func rise(at: float) -> void:
+	func rise(at: float, from: Node3D = null) -> void:
 		_rise_at = at
 		_rising = true
+		_rise_from = from
 		set_process(true)
 		_place_rise(clock())
+
+	## Where the hand-over starts, in this one's parent's space: the giver's hand
+	## (R2c annex), or under the view when there is none to see.
+	func _rise_start() -> Vector3:
+		var below := _rest_position + Vector3(0.04, -Constants.ANNEX_FORM_RISE_DROP, 0.0)
+		var parent := get_parent() as Node3D
+		if _rise_from == null or not is_instance_valid(_rise_from) or parent == null or not _rise_from.is_inside_tree():
+			return below
+		var local := parent.to_local(_rise_from.global_position)
+		# In front of the view (a hand behind you comes up from below instead).
+		if local.z > -0.25:
+			return below
+		return local
 
 	func _place_rise(t: float) -> void:
 		if not _rising:
@@ -339,7 +354,7 @@ class Form extends Node3D:
 		# A little overshoot settling, like a hand catching it.
 		var settle := sin(clampf((t - _rise_at - Constants.ANNEX_FORM_RISE) / 0.25, 0.0, 1.0) * PI) * 0.012
 		visible = t >= _rise_at
-		position = _rest_position + Vector3(0.04 * (1.0 - e), -Constants.ANNEX_FORM_RISE_DROP * (1.0 - e) + settle, 0.0)
+		position = _rise_start().lerp(_rest_position, e) + Vector3(0.0, settle, 0.0)
 		rotation = _rest_rotation + Vector3(-0.6 * (1.0 - e), 0.0, 0.25 * (1.0 - e))
 		if k >= 1.0 and t - _rise_at > Constants.ANNEX_FORM_RISE + 0.25:
 			_rising = false

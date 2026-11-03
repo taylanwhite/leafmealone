@@ -10,6 +10,8 @@ extends Label3D
 ## whichever camera is drawing, and only changes its own scale and transparency,
 ## so whoever owns it can still show, hide and move it.
 
+const _Overheads = preload("res://ui/overheads.gd")
+
 var max_screen: float = Constants.CHEFTY_LABEL_MAX_SCREEN
 var gone_m: float = Constants.CHEFTY_LABEL_GONE_M
 var full_m: float = Constants.CHEFTY_LABEL_FULL_M
@@ -35,7 +37,10 @@ func fit(camera: Camera3D) -> float:
 	if _base_pixel <= 0.0:
 		_base_pixel = pixel_size
 	var away := camera.global_position.distance_to(global_position)
-	transparency = 1.0 - smoothstep(gone_m, full_m, away)
+	# R2c: it's HUD hung in the world, so it eases out with the yard HUD while the
+	# moment has you (Chefty's "0/50 bags" used to float through the Courtesy
+	# Shuttle's window during the ride).
+	transparency = 1.0 - smoothstep(gone_m, full_m, away) * _Overheads.yard_alpha(get_tree())
 	var size := 1.0
 	if camera.projection == Camera3D.PROJECTION_PERSPECTIVE:
 		var view_height := 2.0 * away * tan(deg_to_rad(camera.fov) * 0.5)
