@@ -19,6 +19,10 @@ import struct
 import sys
 import wave
 
+# The rake and leaf sounds (gap R1, raking:5) live in their own recipe file.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import sfx_leaves  # noqa: E402
+
 RATE = 44100
 OUT = pathlib.Path(__file__).resolve().parent.parent / "assets" / "audio" / "sfx"
 TAU = 2.0 * math.pi
@@ -241,14 +245,9 @@ def step(variant: int) -> list[float]:
 
 
 def rake(variant: int) -> list[float]:
-    """A big swoosh up, with a scritchy leaf shuffle."""
-    rng = random.Random(200 + variant)
-    length = 0.36 + variant * 0.03
-    swoosh = bandpass(noise(rng, length), lambda t: 500.0 + 3500.0 * (t / length) ** 1.4, 2.5)
-    out = envelope(swoosh, 0.05, 0.12)
-    for burst_at in (0.08, 0.2):
-        mix_into(out, envelope(highpass(noise(rng, 0.05), 2500.0), 0.005, 0.03), burst_at + variant * 0.01, 0.25)
-    return out
+    """One stroke as one sound (plant, scrape, light leaves): tools/sfx_leaves.py.
+    Written by sfx_leaves.SOUNDS_RMS at its RMS target, not from SOUNDS below."""
+    return sfx_leaves.rake_legacy(variant)
 
 
 def bag(variant: int) -> list[float]:
@@ -666,8 +665,12 @@ def write(name: str, samples: list[float], peak_level: float) -> None:
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
-    wanted = sys.argv[1:] or list(SOUNDS)
+    wanted = sys.argv[1:] or list(SOUNDS) + list(sfx_leaves.SOUNDS_RMS)
+    # The rake and leaf ids (and 'rake' itself) are written at an RMS target by sfx_leaves.
+    sfx_leaves.write_all([name for name in wanted if name in sfx_leaves.SOUNDS_RMS])
     for sound_name in wanted:
+        if sound_name in sfx_leaves.SOUNDS_RMS:
+            continue
         build, variants, level = SOUNDS[sound_name]
         if variants:
             for variant in range(1, variants + 1):

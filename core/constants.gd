@@ -1222,6 +1222,58 @@ const HOTBAR_CARD_SECONDS: float = 0.15
 const HOTBAR_GOAL_LINE_Y: float = 122.0
 const HOTBAR_THROW_METER_Y: float = 168.0
 
+# ---- raking: sounds (R1 chunk 5)
+# audio/leaf_audio.gd plays the rake and leaf sounds from the leaf field's stroke
+# events (gap-specs/raking.json contract C6; docs/ART.md "Rake and leaf sounds").
+## Rake and leaf one-shots are close sounds: full volume inside this many meters
+## and gone past this many (a crewmate raking 10 m away is about 9 dB down).
+const RAKE_SFX_UNIT_SIZE: float = 3.5
+const RAKE_SFX_MAX_DISTANCE: float = 30.0
+## Each play's pitch lands within +-this of normal, and its volume within +-this dB.
+const RAKE_SFX_WOBBLE: float = 0.035
+const RAKE_SFX_DB_JITTER: float = 1.5
+## The least time between two plays of one leaf sound from one source (ms).
+const LEAF_SFX_GAP_MS: int = 60
+## Density units a stroke moves for a full-strength leaf layer, the tier edges as
+## fractions of that (light, medium, heavy), and the least it moves to be heard.
+const LEAF_SFX_REF_UNITS: float = 5000.0
+const LEAF_SFX_TIERS: Vector2 = Vector2(0.3, 0.9)
+const LEAF_SFX_MIN_UNITS: int = 150
+## The leaf layer's gain: from this many dB at nothing moved up to 0 at the
+## reference, never over the cap.
+const LEAF_SFX_GAIN_FLOOR_DB: float = -12.0
+const LEAF_SFX_GAIN_CAP_DB: float = 2.0
+## How long the scrape file is (s): its pitch stretches it over half a swing.
+const RAKE_SCRAPE_SECONDS: float = 0.30
+const RAKE_SCRAPE_PITCH: Vector2 = Vector2(0.9, 1.15)
+## The scrape starts this long after the plant (s).
+const RAKE_SCRAPE_DELAY: float = 0.015
+## A swing's length when an event doesn't say (s): two strokes.
+const LEAF_SFX_DEFAULT_TEMPO: float = RAKE_STROKE_SECONDS * 2.0
+## Where the sounds sit along the stroke: the plant this far behind the request
+## origin (where the head lands, m), the flick this far ahead (the end of the
+## drive), and the flick this fraction of a swing after the mid-drive bite.
+const LEAF_SFX_PLANT_BACK: float = 0.5
+const LEAF_SFX_FLICK_AHEAD: float = 0.75
+const LEAF_SFX_FLICK_PHASE: float = 0.2
+## Leaves landing: at least this many in one place to be heard, at most this many
+## settle sounds a second, a whump at most once per this long per 2 m area (s),
+## and the least a landing must be to whump.
+const LEAF_SETTLE_MIN: int = 3
+const LEAF_SETTLE_PER_SECOND: int = 3
+const PILE_WHUMP_GAP: float = 0.25
+const PILE_WHUMP_MIN: int = 6
+const PILE_WHUMP_AREA: float = 2.0
+## A bag: the stuffing this long after the bag opens, the tie this long (s), and
+## the units of leaves for a full-strength stuffing.
+const BAG_STUFF_DELAY: float = 0.15
+const BAG_TIE_DELAY: float = 0.45
+const BAG_STUFF_REF_UNITS: float = 4000.0
+## Footsteps by leaf depth (LeafAudio.step_id): deeper than this is "deep", and
+## than this a pile.
+const LEAF_STEP_DEEP_DENSITY: int = 60
+const LEAF_STEP_PILE_DENSITY: int = 150
+
 # ---- balance targets
 # What tools/balance_sim.py holds the economy to (docs/BALANCE.md). The game never
 # reads these; the simulator's --check does, and the retune (gap balance:E) sets

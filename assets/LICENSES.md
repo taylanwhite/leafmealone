@@ -10,6 +10,7 @@
 | assets/audio/sfx/rake_1.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/rake_2.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/rake_3.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/rake_*.wav (regenerated), rake_plant_*, rake_scrape_*, rake_empty_*, rake_leaves_light/med/heavy_*, leaf_flick_*, hand_scoop_*, bag_open_*, bag_stuff_*, leaf_settle_*, pile_whump_*, leaf_kick_*, step_leaves_deep_*, step_leaves_pile_* | Original, synthesized in-repo by tools/sfx_leaves.py (with tools/sfx_grains.py), written by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/bag_1.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/bag_2.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/truck.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
