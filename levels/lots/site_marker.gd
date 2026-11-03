@@ -7,7 +7,8 @@ extends Node3D
 ##   (the homeowner drew it; they have opinions about where trucks go);
 ## - a tall leaf-orange beacon over it with "Barb's place" on top, so the yard can
 ##   be found from across town. It breathes a little, fades out as you get close
-##   (SITE_BEACON_FADE), and goes once the homeowner has paid.
+##   (SITE_BEACON_FADE), and fades away with the chalk once the homeowner has
+##   paid (SITE_PAID_FADE_SECONDS).
 ## Nothing here is shared, and nothing is built headless.
 
 const _Strings = preload("res://ui/strings.gd")
@@ -25,7 +26,11 @@ var _beam: MeshInstance3D
 var _glow: StandardMaterial3D
 var _label: Label3D
 var _chalk: Node3D
+var _chalk_material: StandardMaterial3D
+var _chalk_words: Label3D
 var _time: float = 0.0
+## 1 until the job is paid, then down to 0 over SITE_PAID_FADE_SECONDS.
+var _unpaid: float = 1.0
 
 
 func _ready() -> void:
@@ -45,6 +50,7 @@ func _build_chalk() -> void:
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.albedo_color = CHALK
+	_chalk_material = material
 	# Four sides, a little uneven, like it was drawn by hand.
 	var sides: Array = [
 		[Vector3(0.0, CHALK_Y, -BOX.y * 0.5), Vector3(BOX.x, 0.01, LINE), 0.012],
@@ -77,6 +83,7 @@ func _build_chalk() -> void:
 	words.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
 	words.position = Vector3(0.0, CHALK_Y + 0.01, 0.0)
 	_chalk.add_child(words)
+	_chalk_words = words
 
 
 func _build_beacon() -> void:
@@ -140,16 +147,24 @@ func _process(delta: float) -> void:
 	if _label != null and _label.text.begins_with(_Strings.UI["homeowner_name"]):
 		# The town's houses reached this peer after the yard did.
 		_label.text = _whose()
-	var paid := false
+	# The yard's replicated stage (a late joiner has it), or the paid phase.
+	var paid := get_parent().has_method("is_paid") and bool(get_parent().call("is_paid"))
 	var homeowner := get_parent().get_node_or_null("Homeowner")
 	if homeowner != null:
-		paid = int(homeowner.get("_phase")) == 3
+		paid = paid or int(homeowner.get("_phase")) == 3
+	if paid and _unpaid > 0.0:
+		_unpaid = maxf(0.0, _unpaid - delta / maxf(Constants.SITE_PAID_FADE_SECONDS, 0.01))
+		var chalk := CHALK
+		chalk.a *= _unpaid
+		_chalk_material.albedo_color = chalk
+		_chalk_words.modulate = chalk
+		_chalk.visible = _unpaid > 0.0
 	var me := _local_body()
 	var distance := INF
 	if me != null:
 		distance = Vector2(me.global_position.x - global_position.x, me.global_position.z - global_position.z).length()
 	var fade := Constants.SITE_BEACON_FADE
-	var share := 0.0 if paid else clampf((distance - fade.x) / maxf(fade.y - fade.x, 0.01), 0.0, 1.0)
+	var share := _unpaid * clampf((distance - fade.x) / maxf(fade.y - fade.x, 0.01), 0.0, 1.0)
 	var pulse := 1.0 - Constants.SITE_BEACON_PULSE * (0.5 + 0.5 * sin(_time * TAU * Constants.SITE_BEACON_PULSE_HZ))
 	_glow.albedo_color = Color(BEACON, 0.75 * share * pulse)
 	_beam.visible = share > 0.01

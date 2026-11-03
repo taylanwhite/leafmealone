@@ -997,6 +997,9 @@ const SITE_BEACON_PULSE: float = 0.25
 ## drawn pulled in and scaled down so it still shows, and from this far (m) it
 ## gets wider with distance so it never thins to a hairline.
 const SITE_BEACON_DRAW_METERS: float = 300.0
+## Once the homeowner pays, the beacon and the chalk PARK HERE box fade out over
+## this long (s), rather than blinking off.
+const SITE_PAID_FADE_SECONDS: float = 1.5
 const SITE_BEACON_WIDEN_FROM: float = 120.0
 ## Its name is drawn at most this far from the camera (m), along the same line of
 ## sight, so the fog never swallows it.

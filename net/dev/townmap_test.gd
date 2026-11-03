@@ -348,7 +348,9 @@ func _check_site(world: Node, problems: Array[String]) -> void:
 ##       that house's slot (LotZone there, the slot's dressing house hidden and
 ##       its collider off, exactly one HouseBody: the yard's own).
 ##   d2. Walking into the yard is LOT and the crew has arrived (the homeowner's
-##       clock); paid with the host still in it, the yard stays.
+##       clock), which locks the pick; paid with the host still in it, the yard
+##       stays and the pick is open again (chaining from the truck). CI checks a
+##       client reads the same lock ("town_site" job_locked and job_stage).
 ##   d3. The host goes more than SITE_FREE_DISTANCE away: the paid yard goes and
 ##       the slot's house is back.
 ##   d4. The next job (house SITE_HOUSE + 1) loads at its own house. Its yard,
@@ -374,10 +376,14 @@ func _check_job_at_house(world: Node, town: Node, problems: Array[String]) -> vo
 	_teleport(host, site * Vector3(0.0, 0.3, 5.0))
 	await get_tree().create_timer(0.6).timeout
 	var arrived := Net.player_zone(host) == Net.Zone.LOT and bool(Campaign.get("_job_clock_started")) and lot.has_meta("crew_arrived")
+	# Arrived and unpaid: the pick is locked, from the yard's replicated stage.
+	var locked := int(lot.get("stage")) == 1 and bool(world.call("job_locked"))
 	world.call("finish_with_pay", 40)
 	await get_tree().create_timer(1.2).timeout
 	var kept := is_instance_valid(lot) and lot.is_inside_tree() and not Campaign.is_job_open()
-	_verdict(arrived and kept, "d2. in the yard: zone %s, crew arrived %s; paid with the host in it, the yard stays %s" % [Net.Zone.keys()[Net.player_zone(host)], arrived, kept], problems)
+	# Paid with the host still standing in it: the next job can be taken from here.
+	var chainable := kept and int(lot.get("stage")) == 2 and Net.player_zone(host) == Net.Zone.LOT and not bool(world.call("job_locked"))
+	_verdict(arrived and locked and kept and chainable, "d2. in the yard: zone %s, crew arrived %s, locked %s; paid with the host in it, the yard stays %s and the next job can be taken %s" % [Net.Zone.keys()[Net.player_zone(host)], arrived, locked, kept, chainable], problems)
 	_teleport(host, Vector3(site.origin.x + Constants.SITE_FREE_DISTANCE + 20.0, 0.3, TownMap.STREET_Z[0] + TownMap.STREET_WIDTH * 0.5 + 1.2))
 	var waited := 0.0
 	while is_instance_valid(lot) and lot.is_inside_tree() and waited < 4.0:

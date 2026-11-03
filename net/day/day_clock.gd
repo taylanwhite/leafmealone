@@ -248,9 +248,14 @@ func _tow_chefty() -> void:
 	var peers := Net.peer_ids()
 	if peers.is_empty():
 		return
-	var share := ceili(float(Constants.CHEFTY_TOW_FEE) / float(peers.size()))
-	for peer_id: int in peers:
-		Campaign.charge(peer_id, mini(share, Campaign.credits(peer_id)))
+	# Split exactly: the dollars left over go one each to the first peers (the
+	# host first; peer_ids is sorted), so the crew never pays more than the fee
+	# Marty's text says.
+	var share := floori(float(Constants.CHEFTY_TOW_FEE) / float(peers.size()))
+	var left_over := Constants.CHEFTY_TOW_FEE % peers.size()
+	for index: int in peers.size():
+		var owed := share + (1 if index < left_over else 0)
+		Campaign.charge(peers[index], mini(owed, Campaign.credits(peers[index])))
 	var town := get_tree().get_first_node_in_group("town")
 	if town != null and not _Strings.TOW_TEXTS.is_empty():
 		var line := _Strings.TOW_TEXTS[posmod(day, _Strings.TOW_TEXTS.size())] % Constants.CHEFTY_TOW_FEE

@@ -26,6 +26,16 @@ signal generated
 ## from these, before generating.
 @export var site := Transform3D()
 @export var house_id: int = -1
+## Where the job is (the connected town): STAGE_WAITING for the crew, STAGE_ARRIVED
+## (the homeowner's clock runs, the pick is locked), STAGE_PAID (the next job can
+## be taken from right here). Host-set, replicated on change and with the spawn,
+## so every peer and a late joiner read the same lock (world.job_locked), beacon
+## and goal line.
+@export var stage: int = STAGE_WAITING
+
+const STAGE_WAITING: int = 0
+const STAGE_ARRIVED: int = 1
+const STAGE_PAID: int = 2
 
 var is_generated: bool = false
 var _placed_house: int = -1
@@ -69,6 +79,11 @@ func _exit_tree() -> void:
 	if world != null and world.has_method("release_job_site"):
 		world.call("release_job_site", _placed_house)
 	_placed_house = -1
+
+
+## Every peer: the homeowner has paid for this yard (stage, replicated).
+func is_paid() -> bool:
+	return stage == STAGE_PAID
 
 
 ## The job's extra work (net/work/job_tasks.gd), or null until generated.

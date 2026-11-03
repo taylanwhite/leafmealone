@@ -13,6 +13,7 @@ const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Pedestrians = preload("res://npcs/pedestrians.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
+const _JobLot = preload("res://levels/lots/job_lot.gd")
 const _Cot = preload("res://props/cot.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 ## How long a swapped-out yard has to leave every peer before the picked one loads.
@@ -415,6 +416,8 @@ func on_crew_arrived() -> void:
 	if not lot.has_meta("crew_arrived"):
 		lot.set_meta("crew_arrived", true)
 		Campaign.start_job_clock()
+		# Every peer reads the lock from this (job_locked).
+		lot.set("stage", _JobLot.STAGE_ARRIVED)
 	if lot.has_meta("hands_off"):
 		return
 	var chefty := get_node_or_null("Rides/Chefty")
@@ -513,17 +516,25 @@ func _site_house_for(offer: Dictionary) -> int:
 
 
 ## True once the next job is set: Chefty is on the way, or someone's at the yard.
-## In the connected town: someone's in the yard, or the crew got there and the
-## job isn't paid yet. A paid yard nobody is standing in can be swapped for the
-## next pick (it goes by itself once everyone is SITE_FREE_DISTANCE away).
+## In the connected town it reads the yard's replicated stage (job_lot.gd), so
+## the host and every client agree: locked once the crew got there and until the
+## homeowner pays. A paid yard can be swapped for the next pick from anywhere,
+## standing in it or sitting in Chefty at its curb included (chaining jobs
+## straight from the truck); untouched, it goes by itself once everyone is
+## SITE_FREE_DISTANCE away.
 func job_locked() -> bool:
 	var ride := get_node_or_null("Rides/Chefty")
 	if ride != null and bool(ride.call("is_riding")):
 		return true
+	if town_map:
+		if %LotSlot.get_child_count() == 0:
+			return false
+		var stage := int(%LotSlot.get_child(0).get("stage"))
+		# Someone in a yard the tracker hasn't marked yet (a frame, or a test
+		# that sets zones by hand) still counts as there.
+		return stage == _JobLot.STAGE_ARRIVED or (stage == _JobLot.STAGE_WAITING and not Net.players_in_zone(Net.Zone.LOT).is_empty())
 	if not Net.players_in_zone(Net.Zone.LOT).is_empty():
 		return true
-	if town_map:
-		return %LotSlot.get_child_count() > 0 and Campaign.is_job_open() and bool(Campaign.get("_job_clock_started"))
 	# The town's yard is waiting for the crew (in the van, crossing back) and
 	# the job isn't paid: keep it, nobody swaps it out from a phone.
 	return get_node_or_null("Town") != null and %LotSlot.get_child_count() > 0 and Campaign.is_job_open()
@@ -714,6 +725,9 @@ func _host_finish(paid: float = -1.0, details: Dictionary = {}) -> void:
 ## truck is the point.
 func _host_finish_in_town(paid: float, details: Dictionary) -> void:
 	Campaign.finish_job(paid, details)
+	if %LotSlot.get_child_count() > 0:
+		# Unlocks the next pick on every peer, and late joiners see it paid.
+		%LotSlot.get_child(0).set("stage", _JobLot.STAGE_PAID)
 	var hires := get_node_or_null("Hires")
 	if hires != null:
 		hires.call("despawn", true)

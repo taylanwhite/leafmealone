@@ -66,6 +66,10 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 		return ""
 	if zone != Net.Zone.LOT:
 		return ""
+	# The connected town: a paid yard is where the next job gets taken (the lot's
+	# replicated stage, so a late joiner reads it too).
+	if TownMap.enabled(tree) and _site_paid(tree):
+		return _Strings.UI["goal_next_job"]
 	var homeowner := tree.get_first_node_in_group("homeowner")
 	# Homeowner phases: 0 waiting, 1 reacting, 2 holding out the cash, 3 paid.
 	var phase := int(homeowner.get("_phase")) if homeowner != null else 0
@@ -140,14 +144,19 @@ static func _town_goal(tree: SceneTree, peer_id: int, zone: Net.Zone) -> String:
 	var house := int(world.call("job_site_house")) if world != null else -1
 	var lot := tree.get_first_node_in_group("job_lot")
 	if house < 0 or lot == null:
-		if board != null and (board.get("offers") as Array).is_empty():
-			return _Strings.UI["goal_no_jobs"]
-		var phone := tree.get_first_node_in_group("phone")
-		if phone != null and int(phone.call("unread")) > 0:
-			return _Strings.UI["goal_texts"]
-		return _Strings.UI["goal_pick_job"]
-	var homeowner := lot.get_node_or_null("Homeowner")
-	if homeowner != null and int(homeowner.get("_phase")) == 3:
+		# A pick whose yard is on its way in (the host swaps a paid yard for it):
+		# point at the house already, rather than flashing "pick a job".
+		var picked := int((board.call("current") as Dictionary).get("house_id", -1)) if board != null else -1
+		if picked >= 0:
+			house = picked
+		else:
+			if board != null and (board.get("offers") as Array).is_empty():
+				return _Strings.UI["goal_no_jobs"]
+			var phone := tree.get_first_node_in_group("phone")
+			if phone != null and int(phone.call("unread")) > 0:
+				return _Strings.UI["goal_texts"]
+			return _Strings.UI["goal_pick_job"]
+	elif _site_paid(tree):
 		return _Strings.UI["goal_next_job"]
 	var player := _player_node(tree, peer_id) as Node3D
 	if player == null:
@@ -165,6 +174,18 @@ static func _town_goal(tree: SceneTree, peer_id: int, zone: Net.Zone) -> String:
 	if meters <= Constants.GOAL_WALK_METERS:
 		return _Strings.UI["goal_go_to"] % [address, int(meters), arrow]
 	return _Strings.UI["goal_get_in_chefty"] % [address, int(meters), arrow]
+
+
+## The loaded job yard has been paid for: its replicated stage (job_lot.gd), or
+## the homeowner's paid phase (3) on a peer that saw the payment.
+static func _site_paid(tree: SceneTree) -> bool:
+	var lot := tree.get_first_node_in_group("job_lot")
+	if lot == null:
+		return false
+	if lot.has_method("is_paid") and bool(lot.call("is_paid")):
+		return true
+	var homeowner := lot.get_node_or_null("Homeowner")
+	return homeowner != null and int(homeowner.get("_phase")) == 3
 
 
 ## "14 Maple Row": the house's number and street, from the town's houses.

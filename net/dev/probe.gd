@@ -271,7 +271,12 @@ func _town_site() -> Dictionary:
 	var streamer := world.get_node_or_null("TownStreamer")
 	var lot_zone := world.get_node_or_null("LotZone") as Node3D
 	var origin := lot_zone.global_position.snappedf(0.01) if lot_zone != null else Vector3.ZERO
+	var lot := get_tree().get_first_node_in_group("job_lot")
 	return {
+		# The pick lock and the yard's stage (job_lot.gd): a client must read the
+		# same as the host (driving chunk D review).
+		"job_locked": bool(world.call("job_locked")),
+		"job_stage": int(lot.get("stage")) if lot != null else -1,
 		"layout": TownMap.LAYOUT_VERSION,
 		"map": TownMap.layout_hash(),
 		"house_id": int(world.call("job_site_house")),
