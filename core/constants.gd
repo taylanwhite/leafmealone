@@ -1562,8 +1562,10 @@ const RAKE_SWING_STYLE: String = "push"
 const RAKE_SWING_BITES: Array[float] = [0.2, 0.5]
 ## The plant (tines touch down), the end of the drive, and the end of the flick.
 const RAKE_SWING_PHASES: Dictionary = {"plant": 0.2, "drive_end": 0.7, "flick_end": 0.85}
-## A hired hand's swing (HIRE_STROKE_SECONDS / skill long) bites once, here.
-const RAKE_CREW_BITES: Array[float] = [0.25]
+## A hired hand's swing (HIRE_STROKE_SECONDS / skill long) bites once, here. A
+## swing's first bite is never after its plant (RAKE_SWING_PHASES): the bite is
+## when the plant sounds on every peer (audio/leaf_audio.gd; audio_test "sync").
+const RAKE_CREW_BITES: Array[float] = [0.2]
 ## How far ahead of the feet the tines plant, and where the drive ends (m). The
 ## hands hold the 1.6 m handle near its top, so the plant can't come closer than
 ## this without the hands going up past the face; the far end needs the lunge.
@@ -1721,26 +1723,24 @@ const LEAF_SFX_TIERS: Vector2 = Vector2(0.3, 0.9)
 const LEAF_SFX_MIN_UNITS: int = 150
 ## The leaf layer's gain: from this many dB at nothing moved up to 0 at the
 ## reference, never over the cap.
-const LEAF_SFX_GAIN_FLOOR_DB: float = -12.0
+const LEAF_SFX_GAIN_FLOOR_DB: float = -8.0
 const LEAF_SFX_GAIN_CAP_DB: float = 2.0
 ## Leaves landing and kicked: a landing starts this many dB down (a kick starts
 ## at LEAF_SFX_GAIN_FLOOR_DB), and both get this many dB louder each time the
 ## count of leaves doubles, never over 0.
 const LEAF_SETTLE_BASE_DB: float = -10.0
 const LEAF_SFX_DB_PER_DOUBLING: float = 3.0
-## How long the scrape file is (s): its pitch stretches it over half a swing.
+## How long the scrape file is (s): its pitch stretches it over the drive (the
+## swing's plant to drive_end), within this range.
 const RAKE_SCRAPE_SECONDS: float = 0.30
 const RAKE_SCRAPE_PITCH: Vector2 = Vector2(0.9, 1.15)
-## The scrape starts this long after the plant (s).
-const RAKE_SCRAPE_DELAY: float = 0.015
 ## A swing's length when an event doesn't say (s): two strokes.
 const LEAF_SFX_DEFAULT_TEMPO: float = RAKE_STROKE_SECONDS * 2.0
 ## Where the sounds sit along the stroke: the plant this far behind the request
 ## origin (where the head lands, m), the flick this far ahead (the end of the
-## drive), and the flick this fraction of a swing after the mid-drive bite.
+## drive). When they play comes from the swing's phases (LeafAudio.after_bite).
 const LEAF_SFX_PLANT_BACK: float = 0.5
 const LEAF_SFX_FLICK_AHEAD: float = 0.75
-const LEAF_SFX_FLICK_PHASE: float = 0.2
 ## Leaves landing: at least this many in one place to be heard, at most this many
 ## settle sounds a second, a whump at most once per this long per 2 m area (s),
 ## and the least a landing must be to whump.
@@ -1749,15 +1749,43 @@ const LEAF_SETTLE_PER_SECOND: int = 3
 const PILE_WHUMP_GAP: float = 0.25
 const PILE_WHUMP_MIN: int = 6
 const PILE_WHUMP_AREA: float = 2.0
-## A bag: the stuffing this long after the bag opens, the tie this long (s), and
-## the units of leaves for a full-strength stuffing.
+## A bag: the stuffing this long after the bag opens (as the leaves fly in), and
+## the tie this long (s): once they're all in, after the stuffing's second whump,
+## never on top of it. Then the units of leaves for a full-strength stuffing.
 const BAG_STUFF_DELAY: float = 0.15
-const BAG_TIE_DELAY: float = 0.45
+const BAG_TIE_DELAY: float = 0.7
 const BAG_STUFF_REF_UNITS: float = 4000.0
 ## Footsteps by leaf depth (LeafAudio.step_id): deeper than this is "deep", and
 ## than this a pile.
 const LEAF_STEP_DEEP_DENSITY: int = 60
 const LEAF_STEP_PILE_DENSITY: int = 150
+
+# ---- raking: sound sync and mix (R1b rakefeel:sound)
+# Where the rake and leaf sounds sit in the mix (docs/GAME.md "Raking: what you
+# hear, and when"; audio/sound_bank.gd near_db and muffle_db; audio/sfx.gd).
+## Each id's trim (dB) on top of its file's RMS target (tools/sfx_leaves.py),
+## set against the yard's music and wind in R1b's recordings: the work is the
+## loudest thing in a yard, the crackle sits over the scrape, and the bag's three
+## beats land level with each other.
+const LEAF_SFX_MIX_DB: Dictionary = {
+	"rake_plant": 2.0, "rake_scrape": 1.0, "rake_empty": 0.0,
+	"rake_leaves_light": 4.0, "rake_leaves_med": 3.0, "rake_leaves_heavy": 2.0,
+	"leaf_flick": 2.0, "hand_scoop": 2.0,
+	"bag_open": 2.5, "bag_stuff": -1.0, "bag_tie": 4.5,
+	"leaf_settle": 6.0, "pile_whump": 2.0, "leaf_kick": 3.0,
+}
+## Up close, a rake or leaf sound is at most this many dB over its own volume
+## (your own rake is about 1.9 m from your ears: +5 dB at RAKE_SFX_UNIT_SIZE).
+const RAKE_SFX_NEAR_DB: float = 6.0
+## Distance takes at most this much off their highs (dB at 5 kHz, Godot's
+## attenuation filter; its -24 default buried the crackle for anyone not raking).
+const RAKE_SFX_MUFFLE_DB: float = -6.0
+## The stuffing of the thinnest bag is this many dB under a full one.
+const BAG_STUFF_FLOOR_DB: float = -8.0
+## A swing this peer is drawing counts as the one a stroke event is about when it
+## is within this much of the bite's phase (LeafAudio.after_bite times the rest
+## of the swing from it; a stale one, about to be re-phased, is ignored).
+const LEAF_SFX_LIVE_PHASE_SLACK: float = 0.05
 
 # ---- balance targets
 # What tools/balance_sim.py holds the economy to (docs/BALANCE.md). The game never

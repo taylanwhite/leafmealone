@@ -98,6 +98,7 @@ func play_at(id: String, at: Vector3, db := 0.0, wobble := true, source := 0, pi
 	world.add_child(player)
 	player.global_position = at
 	player.play()
+	_start_now(player)
 
 
 ## A one-shot that rides along with node, like a truck pulling away.
@@ -116,6 +117,7 @@ func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:
 		return
 	node.add_child(player)
 	player.play()
+	_start_now(player)
 
 
 ## A sound set to loop forever, for engines, sprays, wind, and music. The files
@@ -188,14 +190,35 @@ func _player_3d(id: String, db: float, wobble: bool, pitch := 1.0) -> AudioStrea
 	return player
 
 
+## Godot starts an AudioStreamPlayer3D's sound on its next internal physics
+## tick, not in play(): asked for from _process or a network message, it starts a
+## whole frame late (33 ms at 30 fps; measured in R1b, docs/DECISIONS.md "Audio:
+## positional sounds start when asked"). Running that tick's notification now
+## starts it in the very next mix, the way a 2D player does; the real tick later
+## only updates its panning.
+static func _start_now(player: AudioStreamPlayer3D) -> void:
+	if player.is_inside_tree():
+		player.notification(Node.NOTIFICATION_INTERNAL_PHYSICS_PROCESS)
+
+
 ## Sets a positional player up for id from the bank: its bus, volume (plus db
-## and the id's jitter), reach, and pitch (pitch times the id's wobble). Static
-## and stream-free so --audio-test can check it headless.
+## and the id's jitter), reach, its loudest up close, and pitch (pitch times the
+## id's wobble). Static and stream-free so --audio-test can check it headless.
 static func configure_3d(player: AudioStreamPlayer3D, id: String, db: float, wobble: bool, pitch := 1.0) -> void:
 	player.bus = _Bank.bus(id)
 	player.volume_db = _Bank.db(id) + db + _jitter(id)
 	player.unit_size = _Bank.unit_size(id)
 	player.max_distance = _Bank.max_distance(id)
+	# Godot caps distance gain plus volume at max_db (3 dB unless set), which
+	# flattens every trim on a sound heard up close; an id with near_db is
+	# capped relative to its own volume instead, so its trims survive.
+	if _Bank.has_near_db(id):
+		player.max_db = player.volume_db + _Bank.near_db(id)
+	# Godot also low-passes a sound by how far under full volume it is (-24 dB at
+	# 5 kHz by default, its volume trim included), which takes a quiet crackle's
+	# clicks away even up close; an id with muffle_db is muffled at most that much.
+	if _Bank.has_muffle_db(id):
+		player.attenuation_filter_db = _Bank.muffle_db(id)
 	var range_ := _Bank.wobble(id)
 	player.pitch_scale = maxf(0.05, pitch * (randf_range(range_.x, range_.y) if wobble else 1.0))
 

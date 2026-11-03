@@ -882,7 +882,7 @@ func _me() -> Node3D:
 ## the leaf layer's tier follows the leaves moved and is silent under
 ## LEAF_SFX_MIN_UNITS; a plant lands behind the stroke and a bare stroke scrapes
 ## rake_empty; hands scoop; the blower and mulch are silent; the bag plays open,
-## then stuff, then the tie (the tie only off the host, all three for a crew bag);
+## then stuff, then bag_tie (the host too, all three for a crew bag);
 ## two rakers in the same frame both play while one raker twice is held to the
 ## gap; landings are capped per second and whump once per area per
 ## PILE_WHUMP_GAP; the shuffle bag deals every variant once per refill; step_id.
@@ -922,12 +922,12 @@ func _leaf_audio(sfx: Node) -> bool:
 	# A real bite scrapes instead, and the mid-drive bite flicks at the end of the drive.
 	leaf.call("handle", stroke.call("rake", 9006, 3000, 0, plant_at))
 	leaf.call("handle", stroke.call("rake", 9006, 3000, 1, plant_at))
-	await get_tree().create_timer(0.2 * 0.6 + 0.08).timeout
+	await get_tree().create_timer(LeafAudio.after_bite(1, false, 0.6, LeafAudio.swing_phase("drive_end")) + 0.08).timeout
 	checks["scrape_flick"] = _SfxScript.log.count("rake_scrape") == scrapes + 1 and _placed_at("leaf_flick", plant_at + fwd * Constants.LEAF_SFX_FLICK_AHEAD)
 	# Hands scoop; the blower and the mower are someone else's sound.
 	leaf.call("handle", stroke.call("hand", 9007, 400, 0, base))
 	checks["hand"] = _SfxScript.log.count("hand_scoop") == 1
-	var everything: Array[String] = ["rake_plant", "rake_scrape", "rake_empty", "rake_leaves_light", "rake_leaves_med", "rake_leaves_heavy", "leaf_flick", "hand_scoop", "bag_open", "bag_stuff", "leaf_kick"]
+	var everything: Array[String] = ["rake_plant", "rake_scrape", "rake_empty", "rake_leaves_light", "rake_leaves_med", "rake_leaves_heavy", "leaf_flick", "hand_scoop", "bag_open", "bag_stuff", "bag_tie", "leaf_kick"]
 	var all_before := _count_ids(everything)
 	leaf.call("handle", stroke.call("blower", 9008, 3000, 0, base))
 	leaf.call("handle", stroke.call("mulch", 0, 3000, 0, base))
@@ -935,20 +935,21 @@ func _leaf_audio(sfx: Node) -> bool:
 	checks["blower_mulch_silent"] = _count_ids(everything) == all_before
 	# The bag, the same on every peer: open now, stuff, then the tie, in that order.
 	var bag_at := base + Vector3(-3.0, 0.0, 0.0)
-	var ties := _SfxScript.log.count("bag")
+	var ties := _SfxScript.log.count("bag_tie")
 	leaf.call("handle", stroke.call("bag", 9009, 4000, 0, bag_at))
 	var opened := _SfxScript.log.count("bag_open") == 1 and _SfxScript.log.count("bag_stuff") == 0
 	await get_tree().create_timer(Constants.BAG_STUFF_DELAY + 0.06).timeout
-	var stuffed := _SfxScript.log.count("bag_stuff") == 1 and _SfxScript.log.count("bag") == ties
+	var stuffed := _SfxScript.log.count("bag_stuff") == 1 and _SfxScript.log.count("bag_tie") == ties
 	await get_tree().create_timer(Constants.BAG_TIE_DELAY - Constants.BAG_STUFF_DELAY + 0.06).timeout
-	var tied := _SfxScript.log.count("bag") == ties + 1 and _placed_at("bag", bag_at)
+	# The tie is its own sound now (R1b): the old 'bag', a thump and a tie, doubled the stuffing's whump.
+	var tied := _SfxScript.log.count("bag_tie") == ties + 1 and _placed_at("bag_tie", bag_at) and _SfxScript.log.count("bag") == 0
 	checks["bag_order"] = opened and stuffed and tied
 	checks["bag_host"] = await _bag_host_order(leaf, stroke.call("bag", 9010, 4000, 0, bag_at + Vector3(0.0, 0.0, -2.0)))
 	# A hired hand's bag: all three, the tie last, like anyone's.
 	var crew_from := _SfxScript.log.size()
 	leaf.call("handle", stroke.call("crew_bag", 1001, 4000, 0, bag_at + Vector3(0.0, 0.0, 2.0)))
 	await get_tree().create_timer(Constants.BAG_TIE_DELAY + 0.1).timeout
-	checks["bag_crew"] = _in_order(_SfxScript.log.slice(crew_from), ["bag_open", "bag_stuff", "bag"])
+	checks["bag_crew"] = _in_order(_SfxScript.log.slice(crew_from), ["bag_open", "bag_stuff", "bag_tie"])
 	# Two rakers in one frame both play; one raker twice inside the gap plays once.
 	var meds := _SfxScript.log.count("rake_leaves_med")
 	leaf.call("handle", stroke.call("rake", 9011, 3000, 1, base))
@@ -1006,6 +1007,10 @@ func _leaf_audio(sfx: Node) -> bool:
 	# What a real (windowed) play would build: the bank's reach, the asked pitch
 	# times the id's wobble, the asked volume within the id's jitter.
 	checks["player_3d"] = _player_3d_ok("rake_plant", -4.0, 1.1) and _player_3d_ok("bonk", 0.0, 1.0)
+	checks["near_muffle"] = _near_muffle_ok()
+	var sync := await _leaf_sync(leaf)
+	for key: String in sync:
+		checks[key] = sync[key]
 	var ok := true
 	for value: Variant in checks.values():
 		ok = ok and bool(value)
@@ -1030,8 +1035,81 @@ func _bag_host_order(leaf: Node, ev: Dictionary) -> bool:
 	await get_tree().create_timer(Constants.BAG_TIE_DELAY + 0.1).timeout
 	field.free()
 	var heard := _SfxScript.log.slice(from)
-	var ok := owns and heard.count("bag") == 1 and _in_order(heard, ["bag_open", "bag_stuff", "bag"])
+	var ok := owns and heard.count("bag") == 0 and heard.count("bag_tie") == 1 and _in_order(heard, ["bag_open", "bag_stuff", "bag_tie"])
 	print("[AudioTest] bag_host: LeafAudio owns the tie %s, heard %s" % [owns, heard])
+	return ok
+
+
+## R1b rakefeel:sound: the rake's sounds land on the swing's own moments.
+##   sync_bites  every kind of swing bites first at or before its plant (the bite
+##               is when every peer plays the plant) and last before the drive ends
+##   sync_phase  a real swing driven tick by tick (RakeStroke.local_step at 60 Hz,
+##               the raker's clock) crosses drive_end on the very tick LeafAudio
+##               schedules the flick for (timed from where the swing really is),
+##               at the swing's tempo and a quicker one
+##   sync_ticks  a waiting play is counted down in physics ticks and plays on the
+##               tick nearest its moment (one tick either way at most)
+func _leaf_sync(leaf: Node) -> Dictionary:
+	var out := {}
+	var plant := LeafAudio.swing_phase("plant")
+	var drive_end := LeafAudio.swing_phase("drive_end")
+	var bites_ok := true
+	for crew: bool in [false, true]:
+		var list := RakeStroke.bites(crew)
+		bites_ok = bites_ok and list[0] <= plant + 0.0001 and list[list.size() - 1] < drive_end
+	out["sync_bites"] = bites_ok
+	var phase_ok := true
+	var dt := 1.0 / 60.0
+	for cycle: float in [RakeStroke.cycle_seconds(0), 0.45]:
+		var actor := 990001
+		RakeStroke.reset()
+		var fired_tick := -1
+		var flick_tick := -1
+		var planned := -1
+		for tick: int in 120:
+			var fired := RakeStroke.local_step(actor, dt, true, false, cycle)
+			if fired.has(1) and fired_tick < 0:
+				fired_tick = tick
+				planned = tick + int(round(LeafAudio.after_bite(1, false, cycle, drive_end, actor) / dt))
+			if fired_tick >= 0 and flick_tick < 0 and RakeStroke.phase_of(actor) + 0.5 * dt / cycle >= drive_end:
+				flick_tick = tick
+		RakeStroke.reset()
+		print("[AudioTest] sync_phase: cycle %.2f s, bite B on tick %d, drive_end on tick %d, flick planned for %d" % [cycle, fired_tick, flick_tick, planned])
+		phase_ok = phase_ok and fired_tick >= 0 and flick_tick == planned
+	out["sync_phase"] = phase_ok
+	# A waiting play counts down in physics ticks: the flick of a 0.6 s swing.
+	var wait := LeafAudio.after_bite(1, false, 0.6, drive_end)
+	var flicks := _SfxScript.log.count("leaf_flick")
+	await get_tree().physics_frame
+	var from := Engine.get_physics_frames()
+	leaf.call("handle", {"kind": "rake", "actor": 9020, "moved": 3000, "bite": 1, "at": Vector3(0.0, 0.0, 30.0), "dir": Vector3(0.0, 0.0, -1.0), "tempo": 0.6, "seq": 0, "local": false})
+	var queued: Array = leaf.call("pending")
+	var ticks := -1
+	for _index: int in 120:
+		await get_tree().physics_frame
+		if _SfxScript.log.count("leaf_flick") > flicks:
+			ticks = Engine.get_physics_frames() - from
+			break
+	var want := wait * float(Engine.physics_ticks_per_second)
+	print("[AudioTest] sync_ticks: queued %s, the flick played after %d ticks (its moment is %.1f ticks away)" % [queued, ticks, want])
+	out["sync_ticks"] = ticks >= 0 and absf(float(ticks) - want) <= 1.0 and not queued.is_empty() and str((queued[0] as Dictionary)["id"]) == "leaf_flick"
+	return out
+
+
+## Sfx.configure_3d gives a leaf id its near_db cap (max_db = its volume + near_db)
+## and its gentler distance muffle; any other id keeps Godot's defaults.
+func _near_muffle_ok() -> bool:
+	var leaf_player := AudioStreamPlayer3D.new()
+	_SfxScript.configure_3d(leaf_player, "rake_leaves_light", -5.0, false)
+	var plain := AudioStreamPlayer3D.new()
+	var defaults := [plain.max_db, plain.attenuation_filter_db]
+	_SfxScript.configure_3d(plain, "bonk", -5.0, false)
+	var ok := is_equal_approx(leaf_player.max_db, leaf_player.volume_db + Constants.RAKE_SFX_NEAR_DB) \
+		and is_equal_approx(leaf_player.attenuation_filter_db, Constants.RAKE_SFX_MUFFLE_DB) \
+		and is_equal_approx(plain.max_db, float(defaults[0])) and is_equal_approx(plain.attenuation_filter_db, float(defaults[1]))
+	print("[AudioTest] near_muffle: leaf max_db %.1f (volume %.1f), filter %.1f; bonk %.1f, %.1f" % [leaf_player.max_db, leaf_player.volume_db, leaf_player.attenuation_filter_db, plain.max_db, plain.attenuation_filter_db])
+	leaf_player.free()
+	plain.free()
 	return ok
 
 

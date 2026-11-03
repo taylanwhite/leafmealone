@@ -315,6 +315,49 @@ def bag_stuff(variant: int) -> list[float]:
     return out
 
 
+# Each tie variant is its own pair of hands: (gather s, twist s, twist turns, cinches).
+TIE_KINDS = (
+    (0.09, 0.12, 2, 1),    # gather the neck, two turns, pull it tight
+    (0.06, 0.08, 1, 2),    # a quick twist and a double tug
+    (0.12, 0.14, 3, 1),    # a slow gather, three turns, one hard yank
+)
+
+
+def bag_tie(variant: int) -> list[float]:
+    """The full bag tied off (R1b): no thump (the stuffing's whumps are the bag's
+    weight; a third would double them). The hands bunch the neck, so the thin
+    film crinkles (bag_open's bright, tiny clicks, fewer and softer: less film
+    moving); the neck is twisted, film sliding on film in short squeaks, each
+    turn a burst of stick-slip at a plastic's low ring rising as the twist
+    tightens; then the cinch: the tie pulled tight is a dry 'tk' of film under
+    tension and a small knock of the bag's neck against the full bag."""
+    rng = _rng(87, variant)
+    sec = 0.36
+    gather, twist, turns, cinches = TIE_KINDS[(variant - 1) % len(TIE_KINDS)]
+    out = g.silence(sec)
+    bunch = g.speed_curve(plant=0.02, pull=gather - 0.02, lift=0.03, wobble=0.2, rng=rng, end_speed=0.4, hitches=1)
+    g.mix(out, g.crackle(rng, gather + 0.04, lambda t: 900.0 * bunch(t), lambda t: 0.06, band=(2800.0, 10000.0),
+                         tau=(2e-4, 9e-4), partial=(2.4, 3.1), cluster=(2, 7), gap=(4e-4, 3e-3)))
+    turn_len = twist / turns
+    for k in range(turns):
+        at = gather + k * turn_len
+        spin = g.speed_curve(plant=0.012, pull=turn_len * 0.6, lift=turn_len * 0.3, wobble=0.15, rng=rng,
+                             end_speed=0.5, hitches=1, hitch_depth=0.7)
+        # Tighter each turn: the film grips harder, so the squeak rings higher.
+        lift = 1.0 + 0.18 * k
+        g.mix(out, g.stick_slip(rng, turn_len + 0.02, spin, tines=4, f=(700.0 * lift, 1500.0 * lift),
+                                tau=(2e-3, 5e-3), base=30.0, gain=220.0, fall=0.25, regularity=0.6), at, 0.9)
+    end = gather + twist
+    for c in range(cinches):
+        at = end + c * rng.uniform(0.05, 0.07)
+        weight = 1.0 if c == cinches - 1 else 0.6
+        snap = rng.uniform(1900.0, 2700.0)
+        g.mix(out, g.modal_click([snap, snap * 2.3, snap * 3.7], [0.004, 0.002, 0.001], [0.5, 0.25, 0.12], 0.04), at, weight)
+        knock = rng.uniform(150.0, 210.0)
+        g.mix(out, g.modal_click([knock, knock * 1.9], [0.012, 0.006], [0.35, 0.1], 0.08), at + 0.003, weight)
+    return out
+
+
 # ---------------------------------------------------------------- landing, kicking, stepping
 
 def leaf_settle(variant: int) -> list[float]:
@@ -427,6 +470,7 @@ SOUNDS_RMS = {
     "hand_scoop": (hand_scoop, 4, -28.0, 0.25),
     "bag_open": (bag_open, 3, -24.0, 0.25),
     "bag_stuff": (bag_stuff, 4, -21.0, 0.60),
+    "bag_tie": (bag_tie, 3, -27.0, 0.36),
     "leaf_settle": (leaf_settle, 6, -31.0, 0.35),
     "pile_whump": (pile_whump, 3, -24.0, 0.30),
     "leaf_kick": (leaf_kick, 4, -27.0, 0.30),
