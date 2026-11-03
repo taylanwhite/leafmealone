@@ -219,7 +219,7 @@ func _morph(delta: float) -> void:
 		var step := maxi(1, int(ceil(float(absi(left)) * delta / MORPH_SECONDS * 2.0)))
 		step = mini(step, absi(left)) * signi(left)
 		var before := hero_count(_displayed[index])
-		_displayed[index] = maxi(0, _displayed[index] + step)
+		_displayed[index] += step
 		_stats["morph_units"] = int(_stats["morph_units"]) + absi(step)
 		var after := hero_count(_displayed[index])
 		var cell := Vector2i(index % _w, index / _w)
@@ -251,7 +251,8 @@ func _ease_heights(delta: float) -> void:
 
 ## The displayed units changed at a cell: its mound eases to the new height.
 func _touch(index: int) -> void:
-	_height_goal[index] = mound_height(_displayed[index])
+	# Exact units (contract C3: never clamped); only the drawing clamps.
+	_height_goal[index] = mound_height(maxi(0, _displayed[index]))
 	if not is_equal_approx(_height_goal[index], _height[index]):
 		_moving[index] = true
 	if _gpu:
@@ -273,7 +274,7 @@ func take_launch(cell: Vector2i, units: int) -> Dictionary:
 	if index < 0:
 		return _skin(cell, 0)
 	var before := hero_count(_displayed[index])
-	_displayed[index] = maxi(0, _displayed[index] - units)
+	_displayed[index] -= units
 	_pending[index] += units
 	var after := hero_count(_displayed[index])
 	_touch(index)
@@ -301,7 +302,7 @@ func land(cell: Vector2i, units: int, slot: int) -> int:
 	if index < 0:
 		return Engine.get_physics_frames()
 	var before := hero_count(_displayed[index])
-	_displayed[index] = mini(255, _displayed[index] + units)
+	_displayed[index] += units
 	_reserved[index] = maxi(0, _reserved[index] - units)
 	_pending[index] -= units
 	var after := hero_count(_displayed[index])

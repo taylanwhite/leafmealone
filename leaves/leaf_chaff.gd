@@ -11,11 +11,12 @@ const BITS: int = 0
 const DUST: int = 1
 const GRASS: int = 2
 const SHREDS: int = 3
-## The pool: [type, particles] (Constants.LEAF_CHAFF_EMITTERS of them). Each keeps
-## its particle count for life: changing CPUParticles3D.amount reallocates its
-## instances, and under physics interpolation the fresh ones flash black at the
-## world origin for a frame. A light and a heavy bits emitter cover 12-40 bits.
-const POOL: Array = [[BITS, 14], [BITS, 36], [DUST, 8], [DUST, 8], [GRASS, 5], [SHREDS, 24]]
+## The pool: Constants.LEAF_CHAFF_POOL, [type, particles] (Constants.LEAF_CHAFF_EMITTERS
+## of them). Each keeps its particle count for life: changing CPUParticles3D.amount
+## reallocates its instances, and under physics interpolation the fresh ones flash
+## black at the world origin for a frame. The emitters' own shapes below are their
+## look (like a code-built model's dimensions), not tuning.
+const POOL: Array = Constants.LEAF_CHAFF_POOL
 const LEAF_TONES: Array[Color] = [
 	Color(0.96, 0.66, 0.20), Color(0.82, 0.30, 0.10), Color(0.96, 0.82, 0.30), Color(0.62, 0.36, 0.16),
 ]

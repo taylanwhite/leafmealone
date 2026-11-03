@@ -58,6 +58,8 @@ var _shots: String = ""
 var _side: Camera3D
 ## Motion clock at the last plant bite (-1 until one), for the films.
 var _bite_clock: float = -1.0
+## Bites so far (the sink step waits on it).
+var _bites: int = 0
 
 
 func _ready() -> void:
@@ -180,6 +182,9 @@ func _run() -> void:
 	else:
 		_note("minus_z", "no untouched strip")
 		_checks["minus_z"] = false
+	# 4b. Bag, then mow, a ridge while the rake's leaves are still flying into it.
+	await _sink_soon_check(lot, "bag")
+	await _sink_soon_check(lot, "mulch")
 	# 5. A burst bag fountains leaves out of its mouth.
 	await _scatter_check(lot)
 	# 6. Resyncs nothing explains: a small one animates, a big one morphs.
@@ -189,8 +194,12 @@ func _run() -> void:
 	# 8. Prediction (needs raking:1's ledger and the client's own strokes).
 	if not _events:
 		_note("prediction", "skipped: the field has no stroke_event yet (raking:1)")
-	# 9. Load: four rakers and two hands at once.
-	await _load_check(lot)
+	# 9. Load: four rakers and two hands at once, then on the 'low' preset's pool,
+	# where it fills and splits have no room.
+	await _load_check(lot, 0, LOAD_SECONDS, "load")
+	await _quiet()
+	await _load_check(lot, int(Constants.LEAF_DETAIL["low"][0]), LOAD_SECONDS * 0.4, "load_low")
+	_motion.call("set_pool_limit", 0)
 	# 10. Quiet again: everything lands, the view equals the field, nothing left over.
 	await _quiet()
 	_quiescence("quiescence_host")
@@ -203,7 +212,13 @@ func _run() -> void:
 	_checks["max_age"] = float(stats["max_age"]) <= Constants.LEAF_SETTLE_MAX + 0.1
 	_checks["conservation_host"] = _conservation_bad == 0 and _conservation_samples > 50
 	_checks["no_duplicates_host"] = _dup_bad == 0 and _dup_samples > 10
-	_checks["headless_default"] = LeafMotion.allowed(PackedStringArray()) == (DisplayServer.get_name() != "headless")
+	# The gate itself, for each display: headless runs it only with the flag.
+	var flag := PackedStringArray(["--leaf-motion-headless"])
+	_checks["headless_default"] = not LeafMotion.allowed(PackedStringArray(), "headless") and LeafMotion.allowed(flag, "headless") and LeafMotion.allowed(PackedStringArray(), "Windows")
+	# Hinted batches fly every unit they move: nothing shrinks away instead (the
+	# host gets each change whole; a client before raking:1 gets it chunk by chunk).
+	_note("fades", "host faded %d units in hinted batches (%d in all), pool overflow morphed %d" % [int(stats["fade_units_hinted"]), int(stats["fade_units"]), int(stats["morph_units"])])
+	_checks["no_hinted_fades_host"] = int(stats["fade_units_hinted"]) == 0
 	# The client's half.
 	if Net.peer_ids().size() > 1:
 		_rpc_final.rpc()
@@ -217,6 +232,13 @@ func _run() -> void:
 		else:
 			for key: String in _client_report.get("checks", {}):
 				_checks["client_" + key] = bool(_client_report["checks"][key])
+			var theirs: Dictionary = _client_report.get("motion", {})
+			# Before raking:1 a client gets a stroke's chunks in separate frames, so part
+			# of each stroke shrinks away and drops in instead of flying (asserted once
+			# the field sends stroke events).
+			_note("client_fades", "client faded %d units in hinted batches, dropped %d batches" % [int(theirs.get("fade_units_hinted", 0)), int(theirs.get("drops", 0))])
+			if _events:
+				_checks["client_no_hinted_fades"] = int(theirs.get("fade_units_hinted", 0)) == 0
 	else:
 		_note("client", "no client joined")
 	var ok := true
@@ -277,6 +299,7 @@ func _pose_head(stand: Vector3, dir: Vector3, phase: float) -> void:
 
 
 func _bite(stand: Vector3, dir: Vector3, bite: int) -> void:
+	_bites += 1
 	if bite == 0:
 		_bite_clock = float(_motion.call("clock"))
 	var at := stand + dir * 1.5 + Vector3(0.0, 0.2, 0.0)
@@ -464,10 +487,35 @@ func _kick_check(pile: Vector3) -> void:
 	var after: Dictionary = _motion.call("stats")
 	me.call("set_pile", false)
 	await _ticks(2)
-	_dup_watch = false
 	var kicks := int(after_run["kicks"]) - int(before["kicks"])
 	var dives := int(after["dives"]) - int(before["dives"])
 	var thrown := int(after["kicks"]) - int(after_run["kicks"])
+	# Run through it again and rake just behind the runner while the flakes they
+	# kicked are in the air: a launch from a cell whose top flake is airborne must
+	# not draw that flake twice (it goes on as the launching leaf).
+	var ran_again := 0.0
+	var next_bite := 0.9
+	while ran_again < 4.0:
+		var runner := pile + Vector3(-2.0 + ran_again, 0.1, 0.0)
+		_move_to(runner, -PI * 0.5)
+		if ran_again >= next_bite:
+			# The dive pocketed the rake: stroke the field directly (as the load step does).
+			next_bite += 0.5
+			var at := runner - Vector3(0.8, 0.0, 0.0)
+			var dir := Vector3(1.0, 0.0, 0.0)
+			if _events:
+				_field.call("host_hand_rake", at, dir, 1.0, Net.local_peer_id())
+			else:
+				_field.call("_stroke_cells", at, dir, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH, Constants.RAKE_STROKE_CELLS)
+				_hint({"kind": "rake", "actor": Net.local_peer_id(), "at": at, "dir": dir, "width": Constants.RAKE_WIDTH, "cells": Constants.RAKE_STROKE_CELLS, "moved": 1500})
+		await get_tree().physics_frame
+		ran_again += 4.0 * get_physics_process_delta_time()
+	await _seconds(1.2)
+	var after_rake: Dictionary = _motion.call("stats")
+	_dup_watch = false
+	var handed := int(after_rake["kick_handovers"]) - int(after["kick_handovers"])
+	_note("kick_launch", "running and raking at once: %d kicks, %d handed over to a launch, %d faded, %d duplicate frames of %d" % [int(after_rake["kicks"]) - int(after["kicks"]), handed, int(after_rake["kicks_faded"]) - int(after["kicks_faded"]), _dup_bad, _dup_samples])
+	_checks["kick_launch"] = _dup_bad == 0 and handed > 0
 	_note("kicks", "running kicked up %d flakes; the dive (in the pile %s) threw up %d; %d duplicate frames of %d" % [kicks, dived, thrown, _dup_bad, _dup_samples])
 	_checks["kicks"] = kicks > 0 and (not dived or (dives > 0 and thrown > 0)) and _dup_bad == 0
 
@@ -504,6 +552,79 @@ func _bag_check(pile: Vector3) -> void:
 	_checks["bag"] = count >= 4 and late == 0 and off < 0.3
 
 
+## Rakes a strip and, while the swing's leaves are still on their way, bags (or
+## mows) where most of them are heading: the leaves in the air must go into the
+## sink from the air, the cell must not launch leaves it does not show, and the
+## books must still balance and settle onto the field (the hired hands' rake, then
+## bag right away).
+func _sink_soon_check(lot: Node3D, kind: String) -> void:
+	var key := "sink_soon_" + kind
+	var dir := Vector3(1.0, 0.0, 0.0)
+	var strip := _find_strip(lot, dir)
+	if strip == Vector3.INF:
+		_note(key, "no untouched strip")
+		_checks[key] = false
+		return
+	if _held_kind() != "rake":
+		_move_to(strip, -PI * 0.5)
+		await _ticks(2)
+		await _grab(_prop("rake"))
+	var bad_before := _conservation_bad
+	var before: Dictionary = _motion.call("stats")
+	var stand := strip + dir * 0.5
+	var bites := _bites
+	_swing(stand, dir)
+	while _bites < bites + 2:
+		await get_tree().physics_frame
+	# One field flush (10 Hz before raking:1) and its batch.
+	await _seconds(0.15)
+	var spot := _incoming_spot()
+	if spot == Vector3.INF:
+		_note(key, "nothing in flight after the swing")
+		_checks[key] = false
+		await _quiet()
+		return
+	var in_flight := 0
+	for coming: int in (_motion.call("ledger") as Dictionary).values():
+		in_flight += maxi(coming, 0)
+	var at := spot + Vector3(0.0, 0.2, 0.0)
+	var units := int(_field.call("units_within_world", at, Constants.BAG_RADIUS))
+	if kind == "bag":
+		_move_to(spot - dir * 1.4, -PI * 0.5)
+		await get_tree().physics_frame
+		if _shots != "":
+			_film("bag_from_air", spot - dir * 2.4, dir)
+		_field.call("request_collect", at, Constants.BAG_RADIUS)
+	else:
+		_field.call("host_mulch", at, 0.8)
+	if not _events:
+		_hint({"kind": kind, "actor": Net.local_peer_id(), "at": at, "dir": dir, "width": (Constants.BAG_RADIUS if kind == "bag" else 0.8) * 2.0, "cells": 0, "moved": units})
+	await _quiet()
+	var after: Dictionary = _motion.call("stats")
+	var redirected := int(after["sink_redirects"]) - int(before["sink_redirects"])
+	var overdrawn := int(after["overdrawn"]) - int(before["overdrawn"])
+	var left := int(_field.call("units_within_world", at, Constants.BAG_RADIUS))
+	_quiescence(key + "_settled")
+	_note(key, "%s %d units at %s (%d left, %d in flight then): %d leaves went in from the air, %d launches took leaves their cell did not show yet, conservation breaks %d, pops %d, max step so far %.3f m" % [kind, units, spot, left, in_flight, redirected, overdrawn, _conservation_bad - bad_before, int(after["pops"]) - int(before["pops"]), float(after["max_step"])])
+	_checks[key] = redirected > 0 and overdrawn == 0 and left < units and _conservation_bad == bad_before and int(after["pops"]) == int(before["pops"]) and bool(_checks[key + "_settled"])
+	_checks.erase(key + "_settled")
+
+
+## The cell most units are still flying into (from the motion layer's ledger).
+func _incoming_spot() -> Vector3:
+	var ledger: Dictionary = _motion.call("ledger")
+	var best := -1
+	var most := 0
+	for index: int in ledger:
+		if int(ledger[index]) > most:
+			most = int(ledger[index])
+			best = index
+	var width := int(_field.get("grid_width"))
+	if best < 0:
+		return Vector3.INF
+	return _view.call("cell_center_world", Vector2i(best % width, best / width))
+
+
 func _scatter_check(lot: Node3D) -> void:
 	_motion.call("set_trace", true)
 	var at := lot.global_position + Vector3(6.0, 0.1, 10.0)
@@ -523,13 +644,20 @@ func _scatter_check(lot: Node3D) -> void:
 	var trace: Dictionary = _motion.call("trace")
 	var count := 0
 	var far := 0.0
+	var spread := 0.0
+	var high := 0.0
 	for entry: Dictionary in trace["finished"]:
 		if str(entry["kind"]) != "scatter":
 			continue
 		count += 1
 		far = maxf(far, (entry["start"] as Vector3).distance_to(at))
-	_note("scatter", "%d leaves came out of the burst bag, farthest start %.2f m from it (me at %s)" % [count, far, me.global_position])
-	_checks["scatter"] = count >= 4 and far <= 0.6
+		var end: Vector3 = entry["end"]
+		spread += Vector2(end.x - at.x, end.z - at.z).length()
+		high = maxf(high, float(entry.get("peak", 0.0)) - at.y)
+	spread /= float(maxi(count, 1))
+	# A fountain: the leaves go up well above the mouth and come down spread round it.
+	_note("scatter", "%d leaves came out of the burst bag, farthest start %.2f m from it, landed %.2f m out on average, highest %.2f m up (me at %s)" % [count, far, spread, high, me.global_position])
+	_checks["scatter"] = count >= 4 and far <= 0.6 and spread >= 0.25 and high >= 0.5
 
 
 func _resync_check(lot: Node3D) -> void:
@@ -591,7 +719,10 @@ func _hard_check_run(lot: Node3D) -> void:
 	await _quiet()
 
 
-func _load_check(lot: Node3D) -> void:
+func _load_check(lot: Node3D, limit: int, seconds: float, key: String) -> void:
+	_motion.call("set_pool_limit", limit)
+	var bad_before := _conservation_bad
+	var pops_before := int(_motion.call("stats")["pops"])
 	var rakers: Array[Vector3] = []
 	for index: int in LOAD_RAKERS + LOAD_HANDS:
 		rakers.append(lot.global_position + Vector3(-16.0 + float(index % 3) * 10.0, 0.2, -10.0 + float(index / 3) * 14.0))
@@ -602,7 +733,7 @@ func _load_check(lot: Node3D) -> void:
 	var next: Array[float] = []
 	for index: int in rakers.size():
 		next.append(float(index) * 0.05)
-	while t < LOAD_SECONDS:
+	while t < seconds:
 		for index: int in rakers.size():
 			if t < next[index]:
 				continue
@@ -625,8 +756,18 @@ func _load_check(lot: Node3D) -> void:
 		if int(t * 60.0) % 6 == 0:
 			peak = maxi(peak, int(_motion.call("stats")["movers_alive"]))
 	var stats: Dictionary = _motion.call("stats")
-	_note("load", "%d strokes in %.0f s: movers peak %d of %d, pops %d, max step %.3f m, sim %.2f ms avg %.2f ms p99, perf scale %.2f, view rebuild peak %.2f ms (wall %.1f s)" % [strokes, LOAD_SECONDS, peak, int(stats["cap"]), int(stats["pops"]), float(stats["max_step"]), float(stats["sim_ms_avg"]), float(stats["sim_ms_p99"]), float(stats["perf_scale"]), float((_view.call("stats") as Dictionary).get("rebuild_ms_peak", 0.0)), float(Time.get_ticks_msec() - started) / 1000.0])
-	_checks["load"] = peak <= int(stats["cap"]) and int(stats["pops"]) == 0 and float(stats["max_step"]) <= Constants.LEAF_MAX_STEP + 0.001 and float(stats["sim_ms_avg"]) < 8.0
+	var pool := int(stats["pool_limit"])
+	# The books must balance through it, full pool or not (once it settles, too).
+	await _quiet()
+	var bad := _conservation_bad - bad_before
+	var wrong := 0
+	var grid := Vector2i(int(_field.get("grid_width")), int(_field.get("grid_depth")))
+	for z: int in grid.y:
+		for x: int in grid.x:
+			if int(_view.call("displayed_units", Vector2i(x, z))) != int(_field.call("density_at_cell", x, z)):
+				wrong += 1
+	_note(key, "%d strokes in %.0f s: movers peak %d of %d, pops %d, max step %.3f m, sim %.2f ms avg %.2f ms p99, perf scale %.2f, pool overflow morphed %d units, conservation breaks %d, %d cells off after, view rebuild peak %.2f ms (wall %.1f s)" % [strokes, seconds, peak, pool, int(stats["pops"]) - pops_before, float(stats["max_step"]), float(stats["sim_ms_avg"]), float(stats["sim_ms_p99"]), float(stats["perf_scale"]), int(stats["morph_units"]), bad, wrong, float((_view.call("stats") as Dictionary).get("rebuild_ms_peak", 0.0)), float(Time.get_ticks_msec() - started) / 1000.0])
+	_checks[key] = peak <= pool and int(stats["pops"]) == pops_before and float(stats["max_step"]) <= Constants.LEAF_MAX_STEP + 0.001 and float(stats["sim_ms_avg"]) < 8.0 and bad == 0 and wrong == 0
 
 
 ## Waits until nothing moves (and a little longer), at most a few seconds.

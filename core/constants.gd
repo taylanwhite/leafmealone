@@ -1251,6 +1251,27 @@ const LEAF_CHAFF_EMITTERS: int = 6
 const LEAF_CHAFF_BITS := Vector2i(12, 40)
 const LEAF_CHAFF_FULL_UNITS: float = 3000.0
 const LEAF_CHAFF_EMPTY_BITS: int = 4
+## The chaff pool: [type (0 bits, 1 dust, 2 grass, 3 shreds), particles] per emitter.
+## A light and a heavy bits emitter cover LEAF_CHAFF_BITS.
+const LEAF_CHAFF_POOL: Array = [[0, 14], [0, 36], [1, 8], [1, 8], [2, 5], [3, 24]]
+## The bag's spiral: start radius (m), turns, lift at mid-flight (m).
+const LEAF_BAG_SPIRAL := Vector3(0.35, 1.5, 0.12)
+## A burst bag's leaves start this far round its mouth: sideways (m), up from..to (m);
+## they fly this long (s), homing from this age (s).
+const LEAF_SCATTER_SPAWN := Vector3(0.15, 0.2, 0.45)
+const LEAF_SCATTER_LIFE := Vector2(1.0, 0.55)
+## A leaf nothing explains: flight time and home age (s); it starts this far round
+## its cell (m).
+const LEAF_DROP_LIFE := Vector2(0.5, 0.2)
+const LEAF_DROP_SPREAD: float = 0.2
+## A redirected leaf starts homing on its new cell by this age (s) at the latest.
+const LEAF_RETARGET_HOME_MAX: float = 0.12
+## A dive throws up leaves within this distance (m); a player moving faster than
+## this (m/s) is teleporting, not running, and kicks nothing.
+const LEAF_DIVE_RADIUS: float = 1.1
+const LEAF_KICK_SPEED_MAX: float = 15.0
+## A gust tries this many flakes per unit of strength, at most the cap.
+const LEAF_GUST_TRIES := Vector2(20.0, 120.0)
 
 # ---- hotbar
 # The pockets (docs/GAME.md, "2026-11-01, the hotbar"; net/components/hotbar.gd,

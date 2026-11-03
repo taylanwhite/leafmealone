@@ -56,6 +56,8 @@ const LATE_LAND_DIST: float = 0.02
 const GRAVITY := Vector3(0.0, -9.8, 0.0)
 
 var cap: int = 0
+## Movers alive at most (cap; tests lower it to try a smaller preset's pool).
+var limit: int = 0
 var view: Object
 ## One MultiMesh per species, or empty when nothing is drawn (headless).
 var meshes: Array[MultiMesh] = []
@@ -106,10 +108,14 @@ var how := PackedInt32Array()
 ## Where the homing target was last tick (it rises as a pile grows under it).
 var home_last := PackedVector3Array()
 var waited := PackedFloat32Array()
+## Highest point of each flight (traces only).
+var peak := PackedFloat32Array()
 
 var _render_count := PackedInt32Array()
 var _render_owner: Array[PackedInt32Array] = []
 var _rng := RandomNumberGenerator.new()
+## Cells with kicked flakes alive (cell index -> movers), so launches look only there.
+var _kick_cells: Dictionary = {}
 
 ## Counters (LeafMotion.stats()).
 var launched: int = 0
@@ -122,6 +128,12 @@ var max_step: float = 0.0
 var max_snap: float = 0.0
 var max_handoff: float = 0.0
 var max_age: float = 0.0
+## Kicked flakes that went on as a launching leaf; kicks whose slot was gone by
+## the time they came down (they shrank into the litter instead).
+var handovers: int = 0
+var kicks_faded: int = 0
+## Launches that took more units than their cell showed (leaves out of nowhere).
+var overdrawn: int = 0
 var rays: int = 0
 var ray_hits: int = 0
 ## Landings this tick for the settle sounds: [position, destination cell index, units].
@@ -134,6 +146,7 @@ var tine_launches: Array = []
 
 func setup(pool_cap: int, leaf_view: Object, species_meshes: Array[MultiMesh], width: int) -> void:
 	cap = pool_cap
+	limit = pool_cap
 	view = leaf_view
 	meshes = species_meshes
 	grid_w = width
@@ -177,11 +190,13 @@ func setup(pool_cap: int, leaf_view: Object, species_meshes: Array[MultiMesh], w
 	how.resize(cap)
 	home_last.resize(cap)
 	waited.resize(cap)
+	peak.resize(cap)
 	_alive_at.resize(cap)
 	_free.resize(cap)
 	for index: int in cap:
 		_free[index] = cap - 1 - index
 		render[index] = -1
+	_kick_cells.clear()
 	_render_count.resize(meshes.size())
 	_render_owner.clear()
 	for mesh: MultiMesh in meshes:
@@ -196,7 +211,7 @@ func alive_count() -> int:
 
 
 func free_count() -> int:
-	return _free.size()
+	return maxi(0, mini(_free.size(), limit - alive.size()))
 
 
 func cell_index(cell: Vector2i) -> int:
@@ -210,7 +225,7 @@ func cell_of_index(index: int) -> Vector2i:
 ## A leaf that will leave src_cell (or a sink/source point) and fly to dst_cell
 ## (-1: into to_point and gone). Not drawn until it launches. Returns its slot or -1.
 func add(kind_id: int, carried: int, src_cell: int, dst_cell: int, from_world: Vector3, to_point: Vector3, stroke_dir: Vector3, who: int, launch_rule: int, launch_at: float, clock: float) -> int:
-	if _free.is_empty():
+	if free_count() <= 0:
 		return -1
 	var i := _free[_free.size() - 1]
 	_free.resize(_free.size() - 1)
@@ -263,37 +278,118 @@ func retarget(i: int, new_dst: int, new_aim: Vector3) -> void:
 		var ft := Constants.LEAF_FLIGHT_TIME
 		age[i] = 0.0
 		life[i] = clampf(ft.x + ft.y * flat.length(), ft.z, ft.w)
-		home_from[i] = minf(Constants.LEAF_HOME_AT * life[i], 0.12)
+		home_from[i] = minf(Constants.LEAF_HOME_AT * life[i], Constants.LEAF_RETARGET_HOME_MAX)
 		hurry[i] = 0
 
 
+## Splits rest units off this mover into a twin that keeps going where it was going
+## (this one keeps the others, for the caller to send on). A waiting mover splits
+## before anything is drawn; a flying one's twin grows out of it in mid-air and
+## homes into a slot of its own, so nothing lands instantly. Needs a free mover:
+## returns the twin, or -1 (and nothing changed) when the pool is full.
+func split(i: int, rest: int, clock: float) -> int:
+	if free_count() <= 0 or rest <= 0 or rest >= units[i]:
+		return -1
+	if state[i] == WAIT:
+		var waiting := add(kind[i], rest, src[i], dst[i], start[i], aim[i], dir[i], actor[i], rule[i], wait_until[i], clock)
+		born[waiting] = born[i]
+		units[i] -= rest
+		return waiting
+	# A reserved landing is handed back; the twin and this one each reserve again.
+	if slot[i] != NO_SLOT and dst[i] >= 0:
+		var old := cell_of_index(dst[i])
+		view.call("land", old, units[i], slot[i])
+		view.call("take_launch", old, units[i])
+	slot[i] = NO_SLOT
+	homing[i] = 0
+	var other := add(kind[i], rest, src[i], dst[i], pos[i], aim[i], dir[i], actor[i], rule[i], clock, clock)
+	state[other] = state[i]
+	vel[other] = vel[i]
+	rot[other] = rot[i]
+	rot_to[other] = rot_to[i]
+	spin[other] = spin[i] * -0.8
+	color[other] = color[i]
+	color_to[other] = color_to[i]
+	custom[other] = custom[i]
+	species[other] = species[i]
+	age[other] = age[i]
+	life[other] = life[i]
+	home_from[other] = home_from[i]
+	born[other] = born[i]
+	size[other] = size[i]
+	size_to[other] = size_to[i]
+	phase[other] = phase[i] + PI
+	freq[other] = freq[i]
+	glide[other] = glide[i]
+	how[other] = how[i]
+	waited[other] = waited[i]
+	start[other] = start[i]
+	drawn_at[other] = pos[i]
+	# Grows out of the leaf it split from instead of appearing beside it.
+	scale[other] = 0.0
+	units[i] -= rest
+	return other
+
+
+## A sink leaf redirected from mid-air, or launched from a cell farther out than
+## the sink's own, takes long enough that no tick moves it more than LEAF_MAX_STEP
+## (the scripted paths peak at about twice their average speed).
+func _bound_sink_life(i: int) -> void:
+	var tick := 1.0 / float(Engine.physics_ticks_per_second)
+	var far := pos[i].distance_to(aim[i])
+	life[i] = maxf(life[i], 2.0 * far * tick / (Constants.LEAF_MAX_STEP * 0.7))
+
+
 ## Sends only take of this mover's units on to new_dst; the rest still reaches its
-## old destination. A waiting mover splits in two (nothing is drawn yet); a flying
-## one leaves the rest in the old cell now, through a proper reservation, so the
-## view's units stay exact. Returns the slot of the mover that keeps the rest, or -1.
+## old destination in a twin (split). Returns the twin, or -1 when the pool had no
+## room to split (then nothing changed: the caller must not have claimed yet).
 func retarget_part(i: int, take: int, new_dst: int, new_aim: Vector3, clock: float) -> int:
 	var rest := units[i] - take
 	if rest <= 0:
 		retarget(i, new_dst, new_aim)
 		return -1
-	var other := -1
-	if state[i] == WAIT:
-		other = add(kind[i], rest, src[i], dst[i], start[i], aim[i], dir[i], actor[i], rule[i], wait_until[i], clock)
-		if other < 0:
-			return -1
-		born[other] = born[i]
-	else:
-		var old := cell_of_index(dst[i])
-		if slot[i] != NO_SLOT:
-			view.call("land", old, units[i], slot[i])
-			view.call("take_launch", old, take)
-		else:
-			var info: Dictionary = view.call("reserve_landing", old, rest)
-			view.call("land", old, rest, int(info.get("slot", -1)))
-		slot[i] = NO_SLOT
-	units[i] = take
+	var other := split(i, rest, clock)
+	if other < 0:
+		return -1
 	retarget(i, new_dst, new_aim)
 	return other
+
+
+## A mover that has not landed goes into a sink instead (a bag, a mower deck, off
+## the yard's edge) because a later batch emptied the cell it was flying into. A
+## waiting one will launch straight into it; a flying one turns from where it is,
+## keeping its speed into the first part of the slurp.
+func to_sink(i: int, sink_kind: int, point: Vector3) -> void:
+	if slot[i] != NO_SLOT and dst[i] >= 0:
+		var old := cell_of_index(dst[i])
+		view.call("land", old, units[i], slot[i])
+		view.call("take_launch", old, units[i])
+	slot[i] = NO_SLOT
+	homing[i] = 0
+	hurry[i] = 0
+	dst[i] = -1
+	kind[i] = sink_kind
+	aim[i] = point
+	if state[i] == WAIT:
+		rule[i] = R_SCHEDULED
+		return
+	start[i] = pos[i]
+	age[i] = 0.0
+	match sink_kind:
+		K_EDGE:
+			state[i] = FADE
+			life[i] = Constants.LEAF_EDGE_FADE_SECONDS
+		K_MULCH:
+			state[i] = SINK
+			life[i] = Constants.LEAF_MULCH_SECONDS
+		_:
+			state[i] = SINK
+			life[i] = Constants.LEAF_BAG_SECONDS
+	if state[i] == SINK:
+		_bound_sink_life(i)
+		spin[i] = Vector3(_rng.randf_range(-6.0, 6.0), _rng.randf_range(4.0, 9.0), _rng.randf_range(-6.0, 6.0))
+	# It shrinks from the size it is now (it may still be growing out of the skin).
+	size[i] = maxf(scale[i], 0.01)
 
 
 ## Lands this mover soon (the pool is full): a stiffer spring and an early home.
@@ -325,22 +421,88 @@ func launch(i: int, beside: bool) -> void:
 		_take_look(i, info, Transform3D(Basis.from_euler(Vector3(0.0, _rng.randf() * TAU, 0.0)), spawn))
 		scale[i] = 0.0
 	else:
-		info = view.call("take_launch", cell_of_index(src[i]), units[i])
+		var cell := cell_of_index(src[i])
+		# A flake kicked up from a slot this launch empties is in the air already:
+		# it goes on as this leaf (its slot handed back first, then taken with the
+		# launch), so the slot's look isn't drawn twice and the kick never lands on
+		# a slot that is gone.
+		if int(view.call("displayed_units", cell)) < units[i]:
+			# Taking leaves the cell does not show yet (they are still flying in).
+			overdrawn += 1
+		var kicks := _kicks_in_way(src[i], units[i])
+		for kick: int in kicks:
+			view.call("return_slot", cell, slot[kick])
+		info = view.call("take_launch", cell, units[i])
 		var xform: Transform3D = info.get("xform", Transform3D(Basis(), start[i]))
+		if not kicks.is_empty():
+			var kick := int(kicks[0])
+			xform = Transform3D(Basis.from_euler(rot[kick]).scaled(Vector3.ONE * maxf(scale[kick], 0.001)), pos[kick])
+			info = {"xform": xform, "color": color[kick], "custom": custom[kick], "species": species[kick], "slot": 0}
 		_take_look(i, info, xform)
-		if int(info.get("slot", -1)) < 0:
+		if not kicks.is_empty():
+			# The kicked flake's own draw slot and motion carry over: no frame of two.
+			var kick := int(kicks[0])
+			_hand_over_draw(kick, i)
+			vel[i] = vel[kick]
+			spin[i] = spin[kick]
+			handovers += 1
+			# More than one of the slots this launch empties was in the air: each of
+			# those flakes carries a share of the units on from where it is.
+			var share := units[i] / kicks.size()
+			for index: int in range(1, kicks.size()):
+				if share > 0:
+					_kick_joins(int(kicks[index]), i, share, beside)
+			_release(kick)
+		elif int(info.get("slot", -1)) < 0:
 			scale[i] = 0.0
 	launched += 1
+	start[i] = pos[i]
+	drawn_at[i] = pos[i]
+	_start_flight(i, beside)
+
+
+## A kicked flake whose slot a launch emptied becomes one of that launch's leaves
+## (share units of mover i's), flying on from where it is.
+func _kick_joins(j: int, i: int, share: int, beside: bool) -> void:
+	if _kick_cells.has(src[j]):
+		var left := int(_kick_cells[src[j]]) - 1
+		if left <= 0:
+			_kick_cells.erase(src[j])
+		else:
+			_kick_cells[src[j]] = left
+	kind[j] = kind[i]
+	units[j] = share
+	units[i] -= share
+	src[j] = src[i]
+	dst[j] = dst[i]
+	aim[j] = aim[i]
+	dir[j] = dir[i]
+	actor[j] = actor[i]
+	rule[j] = rule[i]
+	how[j] = how[i]
+	born[j] = born[i]
+	waited[j] = waited[i]
+	slot[j] = NO_SLOT
+	homing[j] = 0
+	hurry[j] = 0
+	start[j] = pos[j]
+	handovers += 1
+	_start_flight(j, beside)
+
+
+## The flight a just-launched leaf starts on, by its kind.
+func _start_flight(i: int, beside: bool) -> void:
+	var k := kind[i]
 	age[i] = 0.0
 	phase[i] = _rng.randf() * TAU
 	freq[i] = TAU * _rng.randf_range(Constants.LEAF_FLUTTER_HZ.x, Constants.LEAF_FLUTTER_HZ.y)
-	start[i] = pos[i]
-	drawn_at[i] = pos[i]
+	peak[i] = pos[i].y
 	var flat := dir[i]
 	match k:
 		K_BAG, K_MULCH:
 			state[i] = SINK
 			life[i] = Constants.LEAF_BAG_SECONDS * _rng.randf_range(0.85, 1.0) if k == K_BAG else Constants.LEAF_MULCH_SECONDS
+			_bound_sink_life(i)
 			spin[i] = Vector3(_rng.randf_range(-6.0, 6.0), _rng.randf_range(4.0, 9.0), _rng.randf_range(-6.0, 6.0))
 		K_EDGE:
 			state[i] = FADE
@@ -353,16 +515,46 @@ func launch(i: int, beside: bool) -> void:
 			out = out.normalized() if out.length() > 0.01 else Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0)).normalized()
 			vel[i] = Vector3(0.0, _rng.randf_range(Constants.LEAF_SCATTER_UP.x, Constants.LEAF_SCATTER_UP.y), 0.0) + out * _rng.randf_range(Constants.LEAF_SCATTER_OUT.x, Constants.LEAF_SCATTER_OUT.y)
 			spin[i] = Vector3(_rng.randf_range(-12.0, 12.0), _rng.randf_range(-3.0, 3.0), _rng.randf_range(-8.0, 8.0))
-			life[i] = 1.0
-			home_from[i] = 0.55
+			life[i] = Constants.LEAF_SCATTER_LIFE.x
+			home_from[i] = Constants.LEAF_SCATTER_LIFE.y
 		K_DROP:
 			state[i] = FLY
-			life[i] = 0.5
-			home_from[i] = 0.2
+			life[i] = Constants.LEAF_DROP_LIFE.x
+			home_from[i] = Constants.LEAF_DROP_LIFE.y
 			spin[i] = Vector3(_rng.randf_range(-3.0, 3.0), _rng.randf_range(-2.0, 2.0), _rng.randf_range(-3.0, 3.0))
 		_:
 			state[i] = FLY
 			_aim_launch(i, beside)
+
+
+## The airborne kicks holding slots that taking units off this cell empties,
+## highest slot first (usually none, at most a few).
+func _kicks_in_way(cell: int, taking: int) -> Array:
+	var found: Array = []
+	if not _kick_cells.has(cell):
+		return found
+	var shown := int(view.call("displayed_units", cell_of_index(cell)))
+	var before := int(view.call("hero_count", shown))
+	var after := int(view.call("hero_count", shown - taking))
+	if after >= before:
+		return found
+	for j: int in alive:
+		if kind[j] != K_KICK or src[j] != cell or state[j] == PARK or state[j] == FADE:
+			continue
+		if slot[j] >= after and slot[j] < before:
+			found.append(j)
+	var slots := slot
+	found.sort_custom(func(a: int, b: int) -> bool: return slots[a] > slots[b])
+	return found
+
+
+## Mover to takes over mover from's instance in the species MultiMesh (the same flake).
+func _hand_over_draw(from: int, to: int) -> void:
+	render[to] = render[from]
+	species[to] = species[from]
+	if render[from] >= 0 and not meshes.is_empty():
+		_render_owner[clampi(species[from], 0, meshes.size() - 1)][render[from]] = to
+	render[from] = -1
 
 
 ## The kicked flake k of a cell hops up and comes back to the same slot.
@@ -370,6 +562,7 @@ func add_kick(cell: Vector2i, k: int, push: Vector3, clock: float) -> int:
 	var i := add(K_KICK, 0, cell_index(cell), cell_index(cell), Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, 0, R_SCHEDULED, clock, clock)
 	if i < 0:
 		return -1
+	_kick_cells[src[i]] = int(_kick_cells.get(src[i], 0)) + 1
 	var info: Dictionary = view.call("take_slot", cell, k)
 	var xform: Transform3D = info.get("xform", Transform3D())
 	_take_look(i, info, xform)
@@ -395,7 +588,7 @@ func add_kick(cell: Vector2i, k: int, push: Vector3, clock: float) -> int:
 func kick_count() -> int:
 	var count := 0
 	for i: int in alive:
-		if kind[i] == K_KICK and state[i] != PARK:
+		if kind[i] == K_KICK and state[i] != PARK and state[i] != FADE:
 			count += 1
 	return count
 
@@ -559,12 +752,16 @@ func step(dt: float, clock: float, heads: Dictionary, fars: Dictionary) -> void:
 			scale[i] = size[i]
 		pos[i] = p
 		vel[i] = v
+		if trace:
+			peak[i] = maxf(peak[i], p.y)
 		rot[i] = r
 		spin[i] = w
 		state[i] = s
 		if homing[i] == 1:
 			var gap := p.distance_to(target)
-			var settled := blend >= 1.0 and gap < LAND_DIST * (4.0 if hurry[i] == 1 else 1.0) and (v - target_vel).length() < LAND_SPEED
+			# A rushed leaf (the pool is full) may land a little farther out, never
+			# more than the handoff tolerance.
+			var settled := blend >= 1.0 and gap < (LATE_LAND_DIST if hurry[i] == 1 else LAND_DIST) and (v - target_vel).length() < LAND_SPEED
 			# Near the end of its time a leaf close enough lands even if its slot is
 			# still moving (a mound rising frame by frame under it).
 			if not settled and a >= Constants.LEAF_SETTLE_MAX - LATE_LAND_WINDOW and gap < LATE_LAND_DIST:
@@ -706,7 +903,17 @@ func _home_point(i: int) -> Vector3:
 func _land(i: int, at: Vector3, frame: int) -> bool:
 	pos[i] = at
 	if kind[i] == K_KICK:
-		view.call("return_slot", cell_of_index(src[i]), slot[i])
+		var home := cell_of_index(src[i])
+		view.call("return_slot", home, slot[i])
+		if slot[i] >= int(view.call("hero_count", int(view.call("displayed_units", home)))):
+			# The view eased its flakes away under it (a morph): into the litter.
+			kicks_faded += 1
+			state[i] = FADE
+			age[i] = 0.0
+			life[i] = Constants.LEAF_SKIN_OUT_SECONDS
+			vel[i] = Vector3(0.0, -0.02 / Constants.LEAF_SKIN_OUT_SECONDS, 0.0)
+			_draw(i)
+			return true
 		state[i] = PARK
 		park_frame[i] = frame + 1
 		_draw(i)
@@ -742,15 +949,22 @@ func _land(i: int, at: Vector3, frame: int) -> bool:
 func _scripted(i: int, dt: float, a: float) -> bool:
 	var t := clampf(a / maxf(life[i], 0.001), 0.0, 1.0)
 	var k := kind[i]
+	# A leaf that was flying when it was sent here carries its speed into the first
+	# part of the slurp (zero at both ends, so it still starts and ends exactly).
+	var carry := vel[i] * (t * life[i]) * (1.0 - t) * (1.0 - t)
 	if state[i] == SINK and k == K_BAG:
 		var ease := t * t * (3.0 - 2.0 * t)
 		var center := start[i].lerp(aim[i], ease)
-		var radius := 0.35 * (1.0 - t)
-		var angle := phase[i] + t * TAU * 1.5
-		pos[i] = center + Vector3(cos(angle) * radius, sin(t * PI) * 0.12, sin(angle) * radius)
+		var spiral := Constants.LEAF_BAG_SPIRAL
+		var angle := phase[i] + t * TAU * spiral.y
+		# The spiral's offset is measured from where it starts, so the leaf leaves its
+		# slot without a jump and closes on the mouth.
+		var round_now := Vector3(cos(angle), 0.0, sin(angle)) * spiral.x * (1.0 - t)
+		var round_start := Vector3(cos(phase[i]), 0.0, sin(phase[i])) * spiral.x * (1.0 - ease)
+		pos[i] = center + round_now - round_start + Vector3(0.0, sin(t * PI) * spiral.z, 0.0) + carry
 		scale[i] = size[i] * (1.0 - (1.0 - Constants.LEAF_BAG_SHRINK) * t)
 	elif state[i] == SINK:
-		pos[i] = start[i].lerp(aim[i], t * t)
+		pos[i] = start[i].lerp(aim[i], t * t) + carry
 		scale[i] = size[i] * (1.0 - t)
 	else:
 		pos[i] += vel[i] * dt
@@ -784,7 +998,7 @@ func _take_look(i: int, info: Dictionary, xform: Transform3D) -> void:
 func _finish(i: int, at: Vector3) -> void:
 	if not trace:
 		return
-	finished.append({"kind": KIND_NAMES[kind[i]], "start": start[i], "end": at, "dir": dir[i], "age": age[i], "rule": rule[i], "how": how[i], "waited": waited[i], "dst": dst[i], "units": units[i], "src": src[i]})
+	finished.append({"kind": KIND_NAMES[kind[i]], "start": start[i], "end": at, "dir": dir[i], "age": age[i], "rule": rule[i], "how": how[i], "waited": waited[i], "peak": peak[i], "dst": dst[i], "units": units[i], "src": src[i]})
 
 
 func _release(i: int) -> void:
@@ -804,6 +1018,12 @@ func _release(i: int) -> void:
 		_render_count[species_id] = last
 		mesh.visible_instance_count = last
 	render[i] = -1
+	if kind[i] == K_KICK and _kick_cells.has(src[i]):
+		var left := int(_kick_cells[src[i]]) - 1
+		if left <= 0:
+			_kick_cells.erase(src[i])
+		else:
+			_kick_cells[src[i]] = left
 	state[i] = WAIT
 	var spot := _alive_at[i]
 	var tail := alive[alive.size() - 1]

@@ -54,13 +54,17 @@ var _counts := {
 	"batches": 0, "drops": 0, "fades": 0, "kicks": 0, "dives": 0, "morph_units": 0, "retargets": 0,
 	"hard_resets": 0, "lod_skipped": 0, "resyncs_morphed": 0, "movers_peak": 0, "sinks": 0,
 	"sources": 0, "transfers": 0, "corrections": 0, "predicted": 0, "edge": 0, "gusts": 0,
+	"sink_redirects": 0, "fade_units": 0, "fade_units_hinted": 0,
 }
 
 
 ## Whether leaf motion runs in this process: always with a window; headless only
 ## with --leaf-motion-headless (tests), and then nothing is drawn.
-static func allowed(args: PackedStringArray) -> bool:
-	return DisplayServer.get_name() != "headless" or args.has("--leaf-motion-headless")
+## display: DisplayServer.get_name(), or another name for tests.
+static func allowed(args: PackedStringArray, display: String = "") -> bool:
+	if display == "":
+		display = DisplayServer.get_name()
+	return display != "headless" or args.has("--leaf-motion-headless")
 
 
 func _ready() -> void:
@@ -161,7 +165,8 @@ func _on_targets_changed(changes: PackedInt32Array, hard: bool) -> void:
 			return
 		if distance > Constants.LEAF_MOTION_NEAR:
 			share = Constants.LEAF_MOTION_FAR_SHARE
-	if not _hinted(changes):
+	var hinted := _hinted(changes)
+	if not hinted:
 		# A resync nothing explains: a few flakes' worth animates, a big one morphs.
 		var flakes := 0
 		for index: int in cells:
@@ -173,7 +178,7 @@ func _on_targets_changed(changes: PackedInt32Array, hard: bool) -> void:
 			return
 	var solution := LeafFlow.solve(changes, _hints, _view, _grid)
 	_counts["batches"] = int(_counts["batches"]) + 1
-	_spawn(solution, share)
+	_spawn(solution, share, hinted)
 
 
 func view_center(cell: Vector2i) -> Vector3:
@@ -195,7 +200,14 @@ func _hinted(changes: PackedInt32Array) -> bool:
 
 
 ## Claims what the solution animates and creates the movers for it.
-func _spawn(solution: Dictionary, share: float) -> void:
+func _spawn(solution: Dictionary, share: float, hinted: bool) -> void:
+	for fade: Dictionary in solution["fades"]:
+		# Left unclaimed: the view morphs it out. Counted, since an observer sees
+		# these leaves shrink away instead of fly (the test asserts on hinted ones).
+		_counts["fades"] = int(_counts["fades"]) + 1
+		_counts["fade_units"] = int(_counts["fade_units"]) + int(fade["units"])
+		if hinted:
+			_counts["fade_units_hinted"] = int(_counts["fade_units_hinted"]) + int(fade["units"])
 	var total := 0
 	for key: String in ["transfers", "sinks", "sources", "drops"]:
 		for item: Dictionary in solution[key]:
@@ -227,30 +239,7 @@ func _spawn(solution: Dictionary, share: float) -> void:
 	for transfer: Dictionary in solution["transfers"]:
 		var src: Vector2i = transfer["src"]
 		var dst: Vector2i = transfer["dst"]
-		var left := int(transfer["units"])
-		var src_index := src.x + src.y * _grid.x
-		var dst_index := dst.x + dst.y * _grid.x
-		var coming: Array = inbound.get(src_index, [])
-		var at := coming.size() - 1
-		while left > 0 and at >= 0:
-			var mover := int(coming[at])
-			var mover_units := int(_movers.units[mover])
-			coming.remove_at(at)
-			at -= 1
-			var take := mini(mover_units, left)
-			_view.call("claim", src, -take)
-			_view.call("claim", dst, take)
-			if take == mover_units:
-				_movers.retarget(mover, dst_index, _aim_for(dst, mover))
-			else:
-				# Part of it goes on; the rest still lands here (and a split waiting
-				# mover stays in the list for a later transfer out of this cell).
-				var rest := _movers.retarget_part(mover, take, dst_index, _aim_for(dst, mover), _clock)
-				if rest >= 0:
-					coming.append(rest)
-					at += 1
-			left -= take
-			_counts["retargets"] = int(_counts["retargets"]) + 1
+		var left := _redirect_inbound(inbound, src, int(transfer["units"]), dst, -1, Vector3.INF)
 		if left <= 0:
 			continue
 		var hint := _hint_of(int(transfer["hint"]))
@@ -268,17 +257,55 @@ func _spawn(solution: Dictionary, share: float) -> void:
 			_counts["edge"] = int(_counts["edge"]) + 1
 		else:
 			_counts["sinks"] = int(_counts["sinks"]) + 1
-		_emit_movers(kind_id, hint, sink["src"], Vector2i(-1, -1), int(sink["units"]), per, sink["to"])
+		# Leaves still flying into a cell the bag (or deck, or edge) just emptied go
+		# into it from the air; only what the cell shows is launched from it.
+		var left := _redirect_inbound(inbound, sink["src"], int(sink["units"]), Vector2i(-1, -1), kind_id, sink["to"])
+		if left > 0:
+			_emit_movers(kind_id, hint, sink["src"], Vector2i(-1, -1), left, per, sink["to"])
 	for source: Dictionary in solution["sources"]:
 		_counts["sources"] = int(_counts["sources"]) + 1
 		_emit_movers(LeafMovers.K_SCATTER, _hint_of(int(source["hint"])), Vector2i(-1, -1), source["dst"], int(source["units"]), per, source["from"])
 	for drop: Dictionary in solution["drops"]:
 		_counts["drops"] = int(_counts["drops"]) + 1
 		_emit_movers(LeafMovers.K_DROP, {}, Vector2i(-1, -1), drop["dst"], int(drop["units"]), per, Vector3.INF)
-	for fade: Dictionary in solution["fades"]:
-		# Left unclaimed: the view morphs it out.
-		_counts["fades"] = int(_counts["fades"]) + 1
 	_counts["movers_peak"] = maxi(int(_counts["movers_peak"]), _movers.alive_count())
+
+
+## Movers still on their way into src (inbound: cell index -> movers) carry up to
+## units of src's loss on instead of the cell launching leaves it does not show yet:
+## on to dst, or (dst (-1, -1)) into the sink sink_kind at point. A mover bigger than
+## what is left splits, its twin still landing in src; with no free mover to split
+## into it is left alone and the rest goes the usual way. Returns the units left.
+func _redirect_inbound(inbound: Dictionary, src: Vector2i, units: int, dst: Vector2i, sink_kind: int, point: Vector3) -> int:
+	var left := units
+	var coming: Array = inbound.get(src.x + src.y * _grid.x, [])
+	var at := coming.size() - 1
+	while left > 0 and at >= 0:
+		var mover := int(coming[at])
+		var mover_units := int(_movers.units[mover])
+		at -= 1
+		var take := mini(mover_units, left)
+		if take < mover_units and _movers.free_count() <= 0:
+			continue
+		coming.remove_at(at + 1)
+		if take < mover_units:
+			# Part of it goes on; a twin keeps the rest coming here (and stays in the
+			# list for a later loss from this cell).
+			var rest := _movers.split(mover, mover_units - take, _clock)
+			if rest < 0:
+				coming.insert(at + 1, mover)
+				continue
+			coming.append(rest)
+		_view.call("claim", src, -take)
+		if dst.x >= 0:
+			_view.call("claim", dst, take)
+			_movers.retarget(mover, dst.x + dst.y * _grid.x, _aim_for(dst, mover))
+		else:
+			_movers.to_sink(mover, sink_kind, point)
+			_counts["sink_redirects"] = int(_counts["sink_redirects"]) + 1
+		left -= take
+		_counts["retargets"] = int(_counts["retargets"]) + 1
+	return left
 
 
 ## Claims units going from src to dst (either may be (-1, -1): a point instead)
@@ -306,10 +333,12 @@ func _emit_movers(kind_id: int, hint: Dictionary, src: Vector2i, dst: Vector2i, 
 		if has_src:
 			from = _source_point(src, part)
 		elif kind_id == LeafMovers.K_SCATTER:
-			from = point + Vector3(_rng.randf_range(-0.15, 0.15), _rng.randf_range(0.2, 0.45), _rng.randf_range(-0.15, 0.15))
+			var spawn := Constants.LEAF_SCATTER_SPAWN
+			from = point + Vector3(_rng.randf_range(-spawn.x, spawn.x), _rng.randf_range(spawn.y, spawn.z), _rng.randf_range(-spawn.x, spawn.x))
 		else:
 			var center := view_center(dst)
-			from = Vector3(center.x + _rng.randf_range(-0.2, 0.2), 0.0, center.z + _rng.randf_range(-0.2, 0.2))
+			var spread := Constants.LEAF_DROP_SPREAD
+			from = Vector3(center.x + _rng.randf_range(-spread, spread), 0.0, center.z + _rng.randf_range(-spread, spread))
 			from.y = float(_view.call("surface_y", Vector2(from.x, from.z))) + Constants.LEAF_DROP_HEIGHT
 		var to := point
 		if has_dst:
@@ -455,7 +484,7 @@ func _read_heads() -> void:
 ## come back to their own slots.
 func _kicks(delta: float) -> void:
 	var eye := _camera_point()
-	var room := _movers.alive_count() < int(float(_cap) * Constants.LEAF_KICK_POOL_SHARE)
+	var room := _movers.alive_count() < int(float(_movers.limit) * Constants.LEAF_KICK_POOL_SHARE)
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var body := node as Node3D
 		if body == null:
@@ -472,7 +501,8 @@ func _kicks(delta: float) -> void:
 			for _try: int in Constants.LEAF_DIVE_LEAVES * 2:
 				if thrown >= Constants.LEAF_DIVE_LEAVES:
 					break
-				var spot := at + Vector3(_rng.randf_range(-1.1, 1.1), 0.0, _rng.randf_range(-1.1, 1.1))
+				var reach := Constants.LEAF_DIVE_RADIUS
+				var spot := at + Vector3(_rng.randf_range(-reach, reach), 0.0, _rng.randf_range(-reach, reach))
 				if _kick_at(spot, velocity * 0.2 + Vector3(0.0, 1.0, 0.0), 1):
 					thrown += 1
 			if thrown > 0:
@@ -480,7 +510,7 @@ func _kicks(delta: float) -> void:
 				_kick_sound(record, at, thrown)
 		record["pile"] = pile
 		var speed := Vector2(velocity.x, velocity.z).length()
-		if near and room and not pile and speed > Constants.LEAF_KICK_SPEED and speed < 15.0:
+		if near and room and not pile and speed > Constants.LEAF_KICK_SPEED and speed < Constants.LEAF_KICK_SPEED_MAX:
 			record["budget"] = float(record["budget"]) + float(Constants.LEAF_KICK_PER_SEC) * delta
 			var thrown := 0
 			while float(record["budget"]) >= 1.0:
@@ -564,9 +594,9 @@ func spawn_gust(area: Rect2, dir: Vector3, strength: float) -> void:
 	if not _attached:
 		return
 	_counts["gusts"] = int(_counts["gusts"]) + 1
-	var tries := int(clampf(strength * 20.0, 1.0, 120.0))
+	var tries := int(clampf(strength * Constants.LEAF_GUST_TRIES.x, 1.0, Constants.LEAF_GUST_TRIES.y))
 	for _try: int in tries:
-		if _movers.alive_count() >= int(float(_cap) * Constants.LEAF_KICK_POOL_SHARE):
+		if _movers.alive_count() >= int(float(_movers.limit) * Constants.LEAF_KICK_POOL_SHARE):
 			return
 		var spot := Vector3(area.position.x + _rng.randf() * area.size.x, 0.0, area.position.y + _rng.randf() * area.size.y)
 		var cell: Vector2i = _view.call("cell_of", spot)
@@ -608,6 +638,11 @@ func kick_count() -> int:
 	return _movers.kick_count()
 
 
+## Tests: run as if the pool were this small (a lower video preset's cap); 0 resets.
+func set_pool_limit(count: int) -> void:
+	_movers.limit = _cap if count <= 0 else mini(count, _cap)
+
+
 func set_trace(on: bool) -> void:
 	_movers.trace = on
 	_movers.finished.clear()
@@ -644,12 +679,16 @@ func stats() -> Dictionary:
 		"max_snap": _movers.max_snap,
 		"max_handoff": _movers.max_handoff,
 		"max_age": _movers.max_age,
+		"kick_handovers": _movers.handovers,
+		"kicks_faded": _movers.kicks_faded,
+		"overdrawn": _movers.overdrawn,
 		"rays": _movers.rays,
 		"ray_hits": _movers.ray_hits,
 		"sim_ms_avg": average,
 		"sim_ms_p99": p99,
 		"perf_scale": _perf_scale,
 		"cap": _cap,
+		"pool_limit": _movers.limit,
 		"range": _range,
 	})
 	return out

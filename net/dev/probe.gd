@@ -444,7 +444,11 @@ func _leaf_view() -> Dictionary:
 		out.merge(view.call("stats"))
 	var motion := get_tree().get_first_node_in_group("leaf_motion")
 	if motion != null and motion.has_method("stats"):
-		out.merge(motion.call("stats"))
+		var stats: Dictionary = motion.call("stats")
+		out.merge(stats)
+		# Both define morph_units and merge keeps the view's: the motion layer's
+		# (units it could not fly because the pool was full) under its own name.
+		out["motion_morph_units"] = stats.get("morph_units", 0)
 	return out
 
 
