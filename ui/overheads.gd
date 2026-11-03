@@ -21,10 +21,14 @@ extends Node
 
 const _QuipPlayer = preload("res://ui/quip_player.gd")
 const _HudMode = preload("res://ui/hud_mode.gd")
+const _TextFit = preload("res://ui/text_fit.gd")
 ## The bark Label3D's look while it's a bubble (font pixels; presentation).
 const BUBBLE_LINE_SPACING: float = -4.0
 ## Anyone else with a Visual/Label tag and a Visual/Bark bubble joins this group.
 const SPEAKERS := "overhead_speakers"
+## R2c: things that hide a tag or a bubble behind them without a layer-1 collider
+## (a box_size box from their origin up), besides the hiding spots.
+const VIEW_BLOCKERS := "overhead_view_blockers"
 ## Where a body's head is over its feet (m): walls are checked against it.
 const HEAD_HEIGHT: float = 1.55
 
@@ -34,8 +38,17 @@ var _shown: Dictionary = {}
 var _bubble_shown: Dictionary = {}
 ## Each bubble's screen-space nudge back inside the screen (instance id -> px).
 var _nudge: Dictionary = {}
+## R2c: since when (msec) each tag has had nothing in its way (instance id -> msec).
+var _clear_since: Dictionary = {}
 ## Last frame's screen rects, for tests and the recorder: [{kind, rect, alpha}].
 var last_rects: Array[Dictionary] = []
+## R2c: the camera drawn last frame and where it was (bubbles go across a cut).
+var _last_camera: int = 0
+var _last_view: Transform3D = Transform3D.IDENTITY
+## R2c: each tag's screen centre last frame and its velocity on screen (px/s), so
+## a tag closing on another fast steps aside early enough (instance id -> value).
+var _tag_px: Dictionary = {}
+var _tag_vel: Dictionary = {}
 
 
 func _ready() -> void:
@@ -50,7 +63,10 @@ func _process(delta: float) -> void:
 	if camera == null or Net.current_state() != Net.State.IN_SESSION:
 		return
 	var view := get_viewport().get_visible_rect().size
+	var cut := _camera_cut(camera)
 	var bubbles: Array[Rect2] = []
+	# R2c: bubbles nearest first, so a farther one steps out of a nearer one's way.
+	var barks: Array[Dictionary] = []
 	for crew: Node in _speakers():
 		var bark := crew.get_node_or_null("Visual/Bark") as Label3D
 		if bark == null:
@@ -60,10 +76,16 @@ func _process(delta: float) -> void:
 			_nudge.erase(bark.get_instance_id())
 			_bubble_shown.erase(bark.get_instance_id())
 			continue
-		var rect := _place_bubble(bark, camera, view, delta)
+		barks.append({"bark": bark, "depth": camera.global_position.distance_to(bark.global_position)})
+	barks.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["depth"]) < float(b["depth"]))
+	for entry: Dictionary in barks:
+		var bark := entry["bark"] as Label3D
+		fit_size(bark, camera, view, Constants.R2C_HUD_BUBBLE_LINE_MIN, Constants.R2C_HUD_BUBBLE_LINE_MAX)
+		var rect := _place_bubble(bark, camera, view, delta, bubbles, cut)
 		if rect.size != Vector2.ZERO:
 			bubbles.append(rect)
-			last_rects.append({"kind": "bubble", "rect": rect, "alpha": 1.0, "text": bark.text})
+			last_rects.append({"kind": "bubble", "rect": rect, "alpha": 1.0 - bark.transparency, "text": bark.text})
+	_fit_counts(camera, view)
 	# Tags, nearest first: a nearer tag keeps its place and a farther one that
 	# would sit on it steps aside.
 	var tags: Array[Dictionary] = []
@@ -72,14 +94,24 @@ func _process(delta: float) -> void:
 		if not tag.is_inside_tree():
 			continue
 		var depth := camera.global_position.distance_to(tag.global_position)
-		tags.append({"tag": tag, "owner": entry["owner"], "hide": bool(entry["hide"]), "depth": depth})
-	tags.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["depth"]) < float(b["depth"]))
+		# R2c: a tag that's up keeps its place unless the other head is clearly
+		# nearer (two heads side by side in a two-shot swapped "nearer" every few
+		# frames, and the two tags cross-faded over each other).
+		var rank := depth - (Constants.R2C_HUD_TAG_KEEP_M if float(_shown.get(tag.get_instance_id(), 0.0)) > 0.5 else 0.0)
+		tags.append({"tag": tag, "owner": entry["owner"], "hide": bool(entry["hide"]), "depth": depth, "rank": rank})
+	tags.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["rank"]) < float(b["rank"]))
 	var kept: Array[Rect2] = []
+	var kept_vel: Array[Vector2] = []
+	for rect: Rect2 in bubbles:
+		kept.append(rect)
+		kept_vel.append(Vector2.ZERO)
 	var seen: Dictionary = {}
 	# While the moment has you (held, escorted, in the van) nobody's name is
-	# needed on screen; in the Annex your crew's names are.
-	var why := _HudMode.reason(get_tree(), Net.local_peer_id())
-	var staged := why != &"" and why != &"annex"
+	# needed on screen; in the Annex your crew's names are. R2c: nor while the
+	# camera swings back to you (hud_mode overlays_held), nor while you're hidden
+	# (you look out through leaves; a name over them would give away where he
+	# stands, text doing the world's job).
+	var staged := _HudMode.overlays_held(get_tree(), Net.local_peer_id()) or _me_hidden()
 	for entry: Dictionary in tags:
 		var tag := entry["tag"] as Label3D
 		setup_tag(tag)
@@ -87,29 +119,139 @@ func _process(delta: float) -> void:
 		seen[id] = true
 		var want := 1.0
 		var rect := Rect2()
-		if bool(entry["hide"]) or not tag.visible or staged:
+		# A player's tag fades out as you come close (R2c): up close you know who it is.
+		var near := 1.0
+		if entry["owner"] != null and (entry["owner"] as Node).is_in_group("players"):
+			near = smoothstep(Constants.R2C_HUD_TAG_NEAR_GONE_M, Constants.R2C_HUD_TAG_NEAR_FULL_M, float(entry["depth"]))
+		# R2c: drawn means drawn: a tag whose owner's Visual is hidden (a ghosted
+		# observer) is neither shown nor in anyone's way.
+		var drawn := tag.is_visible_in_tree()
+		var touching := false
+		var vel := Vector2.ZERO
+		if bool(entry["hide"]) or not drawn or staged or near <= 0.0:
 			want = 0.0
 		elif not in_front(camera, tag.global_position):
 			want = 0.0
 		else:
+			# A readable size whatever the lens or the distance (R2c).
+			fit_size(tag, camera, view, Constants.R2C_HUD_TAG_LINE_MIN, Constants.R2C_HUD_TAG_LINE_MAX)
 			rect = screen_rect(tag, camera, view)
+			vel = _screen_velocity(id, rect, delta, cut)
 			if _blocked(tag, entry["owner"] as Node, camera):
 				want = 0.0
 			else:
-				for other: Rect2 in bubbles + kept:
-					if rect.grow(Constants.R2B_HUD_TAG_GAP).intersects(other):
+				# R2c: with room to spare, so a tag closing on another has faded
+				# before they touch (the fade used to finish over the other's letters):
+				# the faster the two close on screen, the earlier it steps aside.
+				for index: int in kept.size():
+					var other := kept[index]
+					var apart := rect.get_center() - other.get_center()
+					var closing := maxf(0.0, -(vel - kept_vel[index]).dot(apart.normalized())) if apart.length() > 0.5 else 0.0
+					var lead := minf(Constants.R2C_HUD_TAG_CLEAR_MAX, closing * Constants.R2B_HUD_TAG_FADE)
+					if rect.grow(maxf(Constants.R2B_HUD_TAG_GAP, Constants.R2C_HUD_TAG_CLEAR + lead)).intersects(other):
 						want = 0.0
-						break
+						touching = touching or rect.grow(Constants.R2B_HUD_TAG_GAP).intersects(other)
+		# R2c: a tag comes back only once it's been clear for a moment, so one
+		# grazing a hedge's edge or another tag doesn't blink half on and off.
+		var now := Time.get_ticks_msec()
+		if want <= 0.0:
+			_clear_since.erase(id)
+		else:
+			if not _clear_since.has(id):
+				_clear_since[id] = now
+			if float(_shown.get(id, 0.0)) < 0.5 and now - int(_clear_since[id]) < int(Constants.R2C_HUD_TAG_DWELL * 1000.0):
+				want = 0.0
 		var shown := move_toward(float(_shown.get(id, want)), want, delta / Constants.R2B_HUD_TAG_FADE)
+		# Last resort (a cut, a head that jumped): letters never print on letters,
+		# even if the fade isn't done.
+		if touching:
+			shown = 0.0
 		_shown[id] = shown
-		tag.transparency = 1.0 - shown
-		# Only a tag that's really up holds its place against the farther ones.
-		if want > 0.0 and tag.visible and tag.modulate.a > 0.05 and rect.size != Vector2.ZERO:
+		tag.transparency = 1.0 - shown * near
+		# R2c: a tag still fading out holds its place too, so a farther one never
+		# fades in through it (two tags printed over each other).
+		if drawn and tag.modulate.a > 0.05 and rect.size != Vector2.ZERO and shown * near > 0.05:
 			kept.append(rect)
-			last_rects.append({"kind": "tag", "rect": rect, "alpha": shown * tag.modulate.a, "text": tag.text})
+			kept_vel.append(vel)
+			last_rects.append({"kind": "tag", "rect": rect, "alpha": shown * near * tag.modulate.a, "text": tag.text})
 	for id: Variant in _shown.keys():
 		if not seen.has(id):
 			_shown.erase(id)
+			_clear_since.erase(id)
+			_tag_px.erase(id)
+			_tag_vel.erase(id)
+
+
+## R2c: how a tag moves on screen (px/s, smoothed), from its rect's centre last
+## frame. Zero across a camera cut.
+func _screen_velocity(id: int, rect: Rect2, delta: float, cut: bool) -> Vector2:
+	var centre := rect.get_center()
+	var vel := Vector2.ZERO
+	if _tag_px.has(id) and not cut and delta > 0.0:
+		var now := (centre - (_tag_px[id] as Vector2)) / delta
+		vel = (_tag_vel.get(id, now) as Vector2).lerp(now, 0.5)
+	_tag_px[id] = centre
+	_tag_vel[id] = vel
+	return vel
+
+
+## Whether this peer's own player is hidden (in a hedge, a bin, a shed, a pile).
+func _me_hidden() -> bool:
+	return local_hidden(get_tree())
+
+
+static func local_hidden(tree: SceneTree) -> bool:
+	for node: Node in tree.get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			return node.has_method("is_hidden") and bool(node.call("is_hidden"))
+	return false
+
+
+## R2c: keeps one line of a label between lo and hi shares of the view's height
+## for this camera, whatever the lens (a 40 degree two-shot doubles a fixed-size
+## label) or the distance (a tag a metre away), by scaling its pixel size from
+## its own. Only changes it when it really changes (a new pixel size rebuilds the
+## text's mesh).
+static func fit_size(label: Label3D, camera: Camera3D, view: Vector2, lo: float, hi: float) -> void:
+	if camera == null or camera.projection != Camera3D.PROJECTION_PERSPECTIVE:
+		return
+	if not label.has_meta("r2c_base_px"):
+		label.set_meta("r2c_base_px", label.pixel_size)
+	var base := float(label.get_meta("r2c_base_px"))
+	var line := float(label.font_size) * base
+	var tan_half := tan(deg_to_rad(camera.fov) * 0.5)
+	var share := line / (2.0 * tan_half)
+	if not label.fixed_size:
+		share /= maxf(0.05, camera.global_position.distance_to(label.global_position))
+	var want := base * _TextFit.clamp_scale(share, lo, hi)
+	if absf(label.pixel_size - want) > base * Constants.R2C_HUD_FIT_STEP:
+		label.pixel_size = want
+
+
+## How much of the yard HUD shows now (ui_root.gd's cinematic fade), 1 without one.
+static func yard_alpha(tree: SceneTree) -> float:
+	var ui := tree.get_first_node_in_group("game_ui")
+	if ui != null and ui.has_method("yard_hud_alpha"):
+		return smoothstep(0.0, 1.0, float(ui.call("yard_hud_alpha")))
+	return 1.0
+
+
+## R2c: the floating counts on things (the wheelbarrow's "0/4  $0", a bag's
+## price) are HUD hung in the world: never bigger than R2C_HUD_COUNT_LINE_MAX of
+## the view, fading out as you come close (the bags in the barrow say it), and
+## easing out with the yard HUD while the moment has you. Their owner still
+## decides when they show (net_prop.gd _refresh_label); this only sets their
+## size and transparency.
+func _fit_counts(camera: Camera3D, view: Vector2) -> void:
+	var hud := yard_alpha(get_tree())
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var label := node.get_node_or_null("Visual/Label") as Label3D
+		if label == null or not label.visible:
+			continue
+		fit_size(label, camera, view, 0.0, Constants.R2C_HUD_COUNT_LINE_MAX)
+		var away := camera.global_position.distance_to(label.global_position)
+		var near := smoothstep(Constants.R2C_HUD_COUNT_NEAR_GONE_M, Constants.R2C_HUD_COUNT_NEAR_FULL_M, away)
+		label.transparency = 1.0 - near * hud
 
 
 ## Every name tag in the world now: {tag, owner, hide}. hide: its owner sits in
@@ -132,6 +274,11 @@ func _tags() -> Array[Dictionary]:
 			if label == null:
 				continue
 			out.append({"tag": label, "owner": node, "hide": in_van(node)})
+	# R2c: the homeowner's name too (it hung over the catch's two-shot).
+	for node: Node in get_tree().get_nodes_in_group("homeowner"):
+		var tag := node.get("_tag") as Label3D if "_tag" in node else null
+		if tag != null and is_instance_valid(tag):
+			out.append({"tag": tag, "owner": node, "hide": false})
 	return out
 
 
@@ -178,18 +325,42 @@ func _blocked(tag: Label3D, owner: Node, camera: Camera3D) -> bool:
 	query.exclude = exclude
 	if not space.intersect_ray(query).is_empty():
 		return true
+	if through_hide_spot(get_tree(), camera.global_position, target):
+		return true
 	return through_moving_van(get_tree(), camera.global_position, target)
+
+
+## R2c: whether the line passes through a hiding spot's box (a hedge, a bin, a
+## shed): leaves have no layer-1 collider, so the ray alone let a tag or a bubble
+## show through a hedge.
+static func through_hide_spot(tree: SceneTree, from: Vector3, to: Vector3) -> bool:
+	var spots: Array[Node] = tree.get_nodes_in_group("hide_spots")
+	# Anything else solid to the eye without a collider can join VIEW_BLOCKERS
+	# with a box_size (its box from its origin up, like a hiding spot's).
+	spots.append_array(tree.get_nodes_in_group(VIEW_BLOCKERS))
+	for spot: Node in spots:
+		var node := spot as Node3D
+		if node == null or not node.is_inside_tree() or not ("box_size" in node):
+			continue
+		var half: Vector3 = (node.get("box_size") as Vector3) * 0.5
+		var into := node.global_transform.affine_inverse()
+		var lift := Vector3(0.0, half.y, 0.0)
+		if segment_hits_box(into * from - lift, into * to - lift, half):
+			return true
+	return false
 
 
 ## Whether the line from one point to another passes through a Courtesy Shuttle
 ## on the move. A driving van's Solid is off every layer (shuttle._set_solid, so
 ## it never shoves anyone), so the layer-1 ray misses it; its five boxes are
 ## tested here instead, or a tag drawn over the world would show through it.
+## R2c: a parked one's Solid isn't on layer 1 either (a NICE BOY climbing in kept
+## his bubble over the van's roof once he was inside), so it's tested too.
 static func through_moving_van(tree: SceneTree, from: Vector3, to: Vector3) -> bool:
 	for shuttle: Node in tree.get_nodes_in_group("nice_shuttle"):
 		for trip: Node in shuttle.get_children():
 			var solid := trip.get_node_or_null("VanLook/Solid") as CollisionObject3D
-			if solid == null or solid.collision_layer != 0 or not solid.is_inside_tree():
+			if solid == null or not solid.is_inside_tree() or solid.collision_layer & 1 != 0:
 				continue
 			for child: Node in solid.get_children():
 				var shape := child as CollisionShape3D
@@ -229,6 +400,8 @@ static func setup_bubble(bark: Label3D) -> void:
 	if bark.has_meta("r2b_home"):
 		return
 	bark.set_meta("r2b_home", bark.position)
+	if not bark.has_meta("r2c_base_px"):
+		bark.set_meta("r2c_base_px", bark.pixel_size)
 	bark.width = Constants.R2B_HUD_BUBBLE_WIDTH
 	bark.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	bark.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -249,18 +422,24 @@ static func setup_tag(tag: Label3D) -> void:
 
 ## Puts a showing bubble back over his head, then nudges it (gliding) back
 ## inside the screen if it would hang off an edge. Returns its screen rect.
-func _place_bubble(bark: Label3D, camera: Camera3D, view: Vector2, delta: float) -> Rect2:
+func _place_bubble(bark: Label3D, camera: Camera3D, view: Vector2, delta: float, others: Array[Rect2] = [], cut: bool = false) -> Rect2:
 	var parent := bark.get_parent() as Node3D
 	var home: Vector3 = bark.get_meta("r2b_home", bark.position)
 	var anchor := parent.to_global(home) if parent != null else bark.global_position
 	if not in_front(camera, anchor):
 		bark.position = home
+		_bubble_shown[bark.get_instance_id()] = 0.0
+		bark.transparency = 1.0
 		return Rect2()
 	var at := camera.unproject_position(anchor)
 	var size := text_size_px(bark, bark.text, camera, view)
 	# Bottom-anchored: the text sits above the anchor point, centered on it.
 	var rect := Rect2(at.x - size.x * 0.5, at.y - size.y, size.x, size.y)
 	var want := clamp_shift(rect, view, Constants.R2B_HUD_SAFE_MARGIN)
+	# R2c: out of the way of the nearer bubbles already placed (two NICE BOYS
+	# talking at once used to print over each other): up over the other, or below
+	# it when there's no room above.
+	want += avoid_shift(Rect2(rect.position + want, rect.size), others, view)
 	var id := bark.get_instance_id()
 	var nudge: Vector2 = _nudge.get(id, want)
 	nudge = nudge.lerp(want, 1.0 - exp(-Constants.R2B_HUD_BUBBLE_GLIDE * delta))
@@ -276,12 +455,74 @@ func _place_bubble(bark: Label3D, camera: Camera3D, view: Vector2, delta: float)
 	# Drawn over the world (a roof or a tree never cuts a line in half), so it
 	# fades out instead while something solid stands between you and him.
 	var hidden := _blocked(bark, bark.get_parent().get_parent() if bark.get_parent() != null else null, camera)
-	var shown := move_toward(float(_bubble_shown.get(id, 0.0 if hidden else 1.0)), 0.0 if hidden else 1.0, delta / Constants.R2B_HUD_TAG_FADE)
+	# R2c: the bubble was chosen for the view when he spoke. Once his head leaves
+	# the picture or he's in your face, it goes instead of hanging pinned in a
+	# corner ("After you!" over the van's ceiling after the iris), and across a
+	# camera cut it's simply gone from the new shot, no fade.
+	var lost := not keeps_bubble(camera, anchor, view)
+	if cut and not lost:
+		# A new shot keeps it only as present() would have placed it there: his head
+		# well inside the picture and the bubble whole above it, unclamped.
+		var margin := Constants.R2B_HUD_SAFE_MARGIN
+		lost = rect.position.y < margin or at.x < margin or at.x > view.x - margin or at.y > view.y - margin
+	var shown := move_toward(float(_bubble_shown.get(id, 0.0 if hidden or lost else 1.0)), 0.0 if hidden or lost else 1.0, delta / Constants.R2B_HUD_TAG_FADE)
+	if cut and (lost or hidden):
+		shown = 0.0
 	_bubble_shown[id] = shown
 	bark.transparency = 1.0 - shown
 	if shown < 0.05:
 		return Rect2()
 	return Rect2(rect.position + nudge, rect.size)
+
+
+## R2c: whether a bubble already up still belongs in this view: the point over
+## his head is in the picture and he isn't in your face. (A bubble whose text
+## would hang off an edge still glides back inside: that's its anchor in view.)
+static func keeps_bubble(camera: Camera3D, anchor: Vector3, view: Vector2) -> bool:
+	if not in_front(camera, anchor):
+		return false
+	if camera.global_position.distance_to(anchor) < Constants.R2C_HUD_BUBBLE_KEEP_M:
+		return false
+	var at := camera.unproject_position(anchor)
+	return Rect2(Vector2.ZERO, view).has_point(at)
+
+
+## R2c: whether the view cut this frame (another camera, or this one jumped or
+## swung further than any move or turn would in a frame): the iris's cut into the
+## van, a stage shot taking over.
+func _camera_cut(camera: Camera3D) -> bool:
+	var xf := camera.global_transform
+	var cut := camera.get_instance_id() != _last_camera
+	if not cut:
+		var turned := (-_last_view.basis.z).angle_to(-xf.basis.z)
+		cut = _last_view.origin.distance_to(xf.origin) > Constants.R2C_HUD_CUT_MOVE_M or turned > Constants.R2C_HUD_CUT_TURN
+	_last_camera = camera.get_instance_id()
+	_last_view = xf
+	return cut
+
+
+## How far (px) a bubble's rect must move to clear the rects already placed
+## (R2c): up above each it touches, or, when that would leave the screen,
+## down below it. Zero when it touches none.
+static func avoid_shift(rect: Rect2, others: Array[Rect2], view: Vector2) -> Vector2:
+	var gap := Constants.R2C_HUD_BUBBLE_GAP
+	var margin := Constants.R2B_HUD_SAFE_MARGIN
+	var moved := rect
+	for _pass: int in 4:
+		var hit := false
+		for other: Rect2 in others:
+			if not moved.intersects(other.grow(gap)):
+				continue
+			hit = true
+			var up := other.position.y - gap - moved.end.y
+			if moved.position.y + up >= margin:
+				moved.position.y += up
+			else:
+				moved.position.y = other.end.y + gap
+		if not hit:
+			break
+	moved.position.y = clampf(moved.position.y, margin, maxf(margin, view.y - margin - moved.size.y))
+	return moved.position - rect.position
 
 
 ## How far (px) a rect must move to sit inside the screen less a margin (zero
@@ -388,6 +629,7 @@ static func bubble_fits(speaker: Node3D, bark: Label3D, text: String, camera: Ca
 	if camera.global_position.distance_to(anchor) < Constants.R2B_HUD_BUBBLE_MIN_M:
 		return false
 	var view := speaker.get_viewport().get_visible_rect().size
+	fit_size(bark, camera, view, Constants.R2C_HUD_BUBBLE_LINE_MIN, Constants.R2C_HUD_BUBBLE_LINE_MAX)
 	var at := camera.unproject_position(anchor)
 	var margin := Constants.R2B_HUD_SAFE_MARGIN
 	if at.x < margin or at.x > view.x - margin or at.y > view.y - margin:
@@ -403,5 +645,9 @@ static func bubble_fits(speaker: Node3D, bark: Label3D, text: String, camera: Ca
 		if not space.intersect_ray(query).is_empty():
 			return false
 	if through_moving_van(speaker.get_tree(), camera.global_position, anchor):
+		return false
+	# R2c: hidden, you hear him through the leaves (a subtitle); a bubble hung over
+	# the hedge would point at where he stands.
+	if through_hide_spot(speaker.get_tree(), camera.global_position, anchor) or local_hidden(speaker.get_tree()):
 		return false
 	return true

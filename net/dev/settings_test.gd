@@ -756,7 +756,7 @@ func _strings() -> bool:
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var phone := get_tree().get_first_node_in_group("phone")
 	if phone != null:
-		var line := phone.call("_text", _Strings.UI["goal_texts"], 14, Color.WHITE) as Label
+		var line := phone.call("_text", _Strings.UI["phone_close"], 14, Color.WHITE) as Label
 		if not line.text.contains("[J]"):
 			ok = _fail("strings", "a phone line reads '%s'" % line.text)
 		line.free()
@@ -767,9 +767,10 @@ func _strings() -> bool:
 	panel.visible = false
 	if not push_text.contains("[K]"):
 		ok = _fail("strings", "the voice panel's push to talk reads '%s'" % push_text)
-	var goal := _Strings.keyed(_Strings.UI["goal_dip_roller"])
+	# x1:text: the goal lines name no keys any more; an interact prompt does.
+	var goal := _Prompt.text_for({"text": _Strings.UI["prompt_dip"]})
 	if not goal.contains("[R]"):
-		ok = _fail("strings", "the dry roller goal reads '%s'" % goal)
+		ok = _fail("strings", "the dip prompt reads '%s'" % goal)
 	# The scenes' words come from Strings now (ui_root.tscn, world.tscn).
 	if (ui.get("_leave") as Button).text != _Strings.UI["pause_leave"] or (ui.get_node("%HostButton") as Button).text != _Strings.UI["menu_host_steam"]:
 		ok = _fail("strings", "the menu buttons read '%s' and '%s'" % [(ui.get("_leave") as Button).text, (ui.get_node("%HostButton") as Button).text])
@@ -842,8 +843,14 @@ func _captions() -> bool:
 		if not cue.visible or cue.get_theme_font_size("font_size") != cue_big or not cue.has_theme_stylebox_override("normal"):
 			ok = _fail("captions", "cue caption large with backdrop: visible %s, size %d (want %d), backdrop %s" % [cue.visible, cue.get_theme_font_size("font_size"), cue_big, cue.has_theme_stylebox_override("normal")])
 	var screen := caption.get_viewport_rect()
-	# Anchored, not placed: its bottom edge is the corner offset above the screen's bottom.
-	if not screen.encloses(caption.get_global_rect()) or absf(caption.get_global_rect().end.y - (screen.end.y - _QuipPlayer.CORNER_OFFSET.y)) > 1.0:
+	# Anchored, not placed: its bottom edge is the corner offset above the screen's
+	# bottom, or (R2c) lifted clear above the goal line when the two would share a band.
+	var rest_y := screen.end.y - _QuipPlayer.CORNER_OFFSET.y
+	var goal := ui.get_node_or_null("JobGoal") as Control
+	var goal_up := goal != null and goal.is_visible_in_tree() and goal.modulate.a > 0.05 and goal.size.x > 0.0
+	var at_rest := absf(caption.get_global_rect().end.y - rest_y) <= 1.0
+	var lifted := goal_up and caption.get_global_rect().end.y < rest_y and not caption.get_global_rect().intersects(goal.get_global_rect())
+	if not screen.encloses(caption.get_global_rect()) or not (at_rest or lifted) or goal_up and caption.get_global_rect().intersects(goal.get_global_rect()):
 		ok = _fail("captions", "at UI scale %.2f the caption %s leaves the screen %s" % [Constants.UI_SCALE_RANGE.y, caption.get_global_rect(), screen])
 	var lobby := ui.get_node_or_null("Lobby") as Control
 	if lobby != null:

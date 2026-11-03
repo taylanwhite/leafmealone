@@ -278,7 +278,9 @@ func inspect_point() -> Vector3:
 	var direction: Vector3 = SIDES[clampi(side, 0, 3)]
 	var half := box_size * 0.5
 	var extent := absf(direction.x) * half.x + absf(direction.z) * half.z
-	var local := direction * (extent + Constants.HIDE_INSPECT_STAND)
+	# Within arm's reach of the face (R2c hide: from 1.2 m out he stood in the
+	# picket fence and never touched the hider).
+	var local := direction * (extent + Constants.HIDE_INSPECT_REACH)
 	return global_transform * Vector3(local.x, 0.05, local.z)
 
 
@@ -597,13 +599,13 @@ func found_landing(peer_id: int, crew: Node3D) -> Vector3:
 	var options: Array[Vector3] = []
 	if spot_kind == "shed":
 		# The door swings out on its left hinge (-X): land on the latch side.
-		options = [out + Vector3(Constants.HIDE_FOUND_LAND_ALONG * Constants.HIDE_FOUND_LAND_ALONG_SHED, 0.0, 0.0)]
+		options = [out + Vector3(Constants.HIDE_FOUND_LAND_SHED, 0.0, 0.0)]
 	else:
 		var first := 1.0
 		if crew != null:
 			var local_crew := global_transform.affine_inverse() * crew.global_position
 			first = -1.0 if (local_crew - out).dot(along) > 0.0 else 1.0
-		options = [out + along * first * Constants.HIDE_FOUND_LAND_ALONG, out - along * first * Constants.HIDE_FOUND_LAND_ALONG, out]
+		options = [out + along * first * Constants.HIDE_FOUND_LAND_SIDE, out - along * first * Constants.HIDE_FOUND_LAND_SIDE, out]
 	for local: Vector3 in options:
 		var at := global_transform * Vector3(local.x, 0.05, local.z)
 		if not is_inside_tree() or _room_at(at):

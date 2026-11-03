@@ -193,6 +193,24 @@ def hide_grab() -> list[float]:
     return out
 
 
+def hedge_poke(variant: int) -> list[float]:
+    """A NICE BOY's hands shoved into your hedge (R2c hide): heard from inside,
+    right at your ears. A hard crack of twigs on the very first sample, a dry
+    thump of the push, and a short leafy shush that dies fast."""
+    rng = random.Random(1750 + variant)
+    out = silence(0.42)
+    # The crack: a cluster of bright snaps with no fade-in at all.
+    for index in range(4 + variant):
+        snap = decay(bandpass(noise(rng, 0.025), rng.uniform(2400.0, 4200.0), 2.5), 260.0)
+        mix_into(out, snap, 0.003 * index + rng.uniform(0.0, 0.004), 0.9 * rng.uniform(0.6, 1.0))
+    # The push: knuckles into the leaves, low and short.
+    mix_into(out, blip(0.12, 170.0 + 20.0 * variant, 90.0, 26.0), 0.0, 0.7)
+    shush = bandpass(noise(rng, 0.26), lambda t: 3400.0 - 1600.0 * min(1.0, t / 0.2), 1.2)
+    mix_into(out, decay(shush, 11.0), 0.0, 0.75)
+    _twigs(rng, out, 0.02, 0.18, 3, 0.4)
+    return out
+
+
 # Name -> (builder, number of variants or 0 for one file, peak level 0..1).
 SOUNDS = {
     "hedge_rustle": (hedge_rustle, 3, 0.55),
@@ -206,6 +224,7 @@ SOUNDS = {
     "notice_slap": (notice_slap, 0, 0.6),
     "hide_grab": (hide_grab, 0, 0.75),
     "shed_creak": (shed_creak, 2, 0.45),
+    "hedge_poke": (hedge_poke, 2, 0.6),
 }
 
 

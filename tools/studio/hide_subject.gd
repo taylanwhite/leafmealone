@@ -22,7 +22,7 @@ static func build(root: Node3D, options: Dictionary) -> void:
 	_HideGestures.register()
 	match str(options.get("part", "poses")):
 		"shell":
-			_shell(root, str(options.get("kind", "hedge")))
+			_shell(root, str(options.get("kind", "hedge")), int(options.get("index", "2")), float(options.get("grab", "0")))
 		_:
 			_poses(root)
 
@@ -74,23 +74,24 @@ static func _hold(body: Node3D, gesture_name: String, t: float) -> void:
 
 ## The inside of a spot from the hider's eye: the shell around a marker at 1.4 m
 ## looking down -Z, and the yard beyond.
-static func _shell(root: Node3D, kind: String) -> void:
-	var eye := Transform3D(Basis.IDENTITY, Vector3(0.0, 1.4, 0.0))
+static func _shell(root: Node3D, kind: String, index: int = 2, grab: float = 0.0) -> void:
+	var eye := Transform3D(Basis.IDENTITY, Vector3(0.0, 1.4 if kind != "pile" else 0.34, 0.0))
 	var shell := _HideView.make_shell(kind)
 	if shell != null:
 		root.add_child(shell)
 		shell.global_transform = eye
-	# Something out in the yard to look at.
+	# Something out in the yard to look at: a NICE BOY (--index=1, the head one)
+	# peering in where he stands to poke it, HIDE_INSPECT_REACH out from the face.
 	var body: Node3D = _CartoonBody.new()
-	preload("res://npcs/crew_member.gd").dress(body, 2)
+	preload("res://npcs/crew_member.gd").dress(body, index)
 	root.add_child(body)
-	# He stands HIDE_INSPECT_STAND out from the face, facing the eye.
-	body.position = Vector3(0.0, 0.0, -0.03 - Constants.HIDE_INSPECT_STAND)
+	body.position = Vector3(0.0, 0.0, -0.03 - Constants.HIDE_INSPECT_REACH)
 	body.rotation.y = PI
 	body.call("build")
 	for _step: int in 3:
 		body.call("_physics_process", 1.0 / 60.0)
-	_HideSpotLook.peer_pose(body, kind, 1.0, 0.0, 0.0, 0.0)
+	var grips := _HideSpotLook.grip_points(eye, null, 0.0)
+	_HideSpotLook.peer_pose(body, kind, 1.0, grab, 0.0, 0.0, grips, eye.origin)
 	body.set_physics_process(false)
 	var ahead := eye.origin + Vector3(0.0, 0.0, -1.0)
 	var turned := eye.origin + Vector3(-sin(1.05), 0.0, -cos(1.05))

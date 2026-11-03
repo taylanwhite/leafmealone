@@ -43,9 +43,10 @@ const CHIP_COLORS: Dictionary = {
 	"gas_can": Color(0.8, 0.15, 0.12), "leaf_bag": Color(0.55, 0.42, 0.28), "gnome": Color(0.75, 0.2, 0.2),
 	"trash": Color(0.4, 0.45, 0.5), "wheelbarrow": Color(0.3, 0.5, 0.75),
 }
-## Kinds whose use hint stays up the whole time they're in hand (the rake's is
-## the game's core keys); every other hint shows with the name after a switch.
-const HINT_STAYS: Array[String] = ["rake"]
+## Kinds whose hint line stays up the whole time they're in hand. None since
+## x1:text (the rake's keys are found by pressing them, and the pile's label
+## shows the bag key until the first bag); a hint shows with the name after a switch.
+const HINT_STAYS: Array[String] = []
 
 # Text sizes (px at the 1280x720 design size).
 const KEY_FONT: int = 12
@@ -197,7 +198,7 @@ static func slot_view(slot: Array) -> Dictionary:
 
 ## The hands card for a big thing: "Lawn mower · 24 kg", then what's in it (a
 ## wheelbarrow's bags, a bag's worth), its own line (the gnome, the trash can) or
-## its tank, and the G keys.
+## its tank. No keys (x1:text: G is found by pressing it).
 static func hands_view(item: Node) -> Dictionary:
 	var kind := str(item.get("kind"))
 	var name := item_label(item)
@@ -222,7 +223,7 @@ static func hands_view(item: Node) -> Dictionary:
 		"abbr": str(_Strings.UI.get("hotbar_abbr_" + kind, kind.left(4).to_upper())),
 		"title": str(_Strings.UI["hotbar_weight"]) % [name, kg],
 		"line": _Strings.keyed(line),
-		"hint": str(_Strings.UI["hotbar_arms_hint"]),
+		"hint": "",
 	}
 
 
@@ -239,17 +240,11 @@ static func item_label(item: Node) -> String:
 	return _Strings.item_name(kind)
 
 
-## The one-line use hint for a kind in hand, with {key:} tokens: the rake's keys,
-## a tool's shop blurb, the gnome's, trash can's, sign's and gas can's own lines,
-## and bare hands.
+## The flavor line under a kind's name after a switch: the gnome's, trash can's,
+## sign's and gas can's own lines. Nothing for bare hands, the rake or a tool
+## (x1:text: no use instructions; the name and the thing in your hands say it).
 static func hint_for(kind: String) -> String:
-	if kind == "":
-		return str(_Strings.UI["hint_hands"])
-	if kind == "rake":
-		return str(_Strings.UI["hud_rake_hint"])
-	if _Strings.UI.has("hint_" + kind):
-		return str(_Strings.UI["hint_" + kind])
-	return str(_Strings.UI.get("tool_blurb_" + kind, ""))
+	return str(_Strings.UI.get("hint_" + kind, "")) if kind != "" else ""
 
 
 ## The icon id for a kind when that icon exists (critic C9: Icons.for_kind), else "".
@@ -352,11 +347,10 @@ func _attach(pockets: Node) -> void:
 		_pockets.connect("notice", _on_notice)
 
 
-## "eh?": a shake, a red flash, and why ("Pockets full", "Hands full").
-func _on_refused(reason: String) -> void:
+## "eh?": a shake and a red flash. No words (x1:text): the full bar, or the big
+## thing in your arms, already says why.
+func _on_refused(_reason: String) -> void:
 	shake_left = Constants.HOTBAR_SHAKE_SECONDS
-	var key := "hotbar_arms_full" if reason == "arms_full" else "hotbar_full"
-	_toast(_Strings.keyed(str(_Strings.UI[key])), Constants.HOTBAR_TOAST_SECONDS)
 
 
 ## Emptied pockets: the NICE BOYS took inventory, or you walked off the job.

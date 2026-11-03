@@ -917,9 +917,18 @@ func _wiring() -> void:
 ## plus the time, the same for the same visit, totalling $0.00.
 func _annex_quips() -> void:
 	var receipt: Script = load("res://net/annex/receipt_lines.gd")
-	for kind: String in ["first_visit", "fast", "closing", "teammate_inside"]:
+	for kind: String in ["first_visit", "fast", "closing", "teammate_inside", "teammate_dispatch", "teammate_out"]:
 		var pool: Array = _Strings.ANNEX_QUIPS.get(kind, [])
 		_wire(pool.size() >= 3, "Q2 the Annex has its %s quips (%d)" % [kind, pool.size()])
+	# x1:text: a free teammate's radio while a friend is inside (ui/quip_player.gd):
+	# quiet before the first, then one per gap, never more than the cap.
+	var quips: Script = load("res://ui/quip_player.gd")
+	var first := Constants.ANNEX_DISPATCH_FIRST
+	var gap := Constants.ANNEX_DISPATCH_GAP
+	var schedule_ok: bool = not bool(quips.call("dispatch_due", first - 1.0, 0)) and bool(quips.call("dispatch_due", first, 0)) \
+		and not bool(quips.call("dispatch_due", first + gap - 1.0, 1)) and bool(quips.call("dispatch_due", first + gap, 1)) \
+		and not bool(quips.call("dispatch_due", 10000.0, Constants.ANNEX_DISPATCH_MAX))
+	_wire(schedule_ok, "X1 a free teammate's Annex dispatches come at %.0f s, then every %.0f s, %d at most" % [first, gap, Constants.ANNEX_DISPATCH_MAX])
 	_wire(_quip_id("border_fail") == "", "Q2 no quip plays on the old border_fail trigger")
 	_wire(get_tree().get_first_node_in_group("border_return") == null and get_tree().get_first_node_in_group("annex") != null, "Q2 the world has the Annex and no Border Return")
 	var stats := {"hid": 1, "window_d": 1, "carbon": 2}
