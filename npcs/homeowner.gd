@@ -269,6 +269,45 @@ static func choose_pool(mood: String, bills_owed: Dictionary, water_fee: int, pe
 	return pool
 
 
+## Host: something the crew did out front got to them (driving chunk C3: Chefty
+## parked on the lawn, "lawn_park"; the horn in their yard, "horn"): they yell
+## a line from that Strings.HOMEOWNER_LINES pool. With costs_mood, their mood at
+## payday drops a step (thrilled, happy, fine, slow) for each.
+func host_grumble(pool: String, costs_mood: bool) -> void:
+	if not Net.is_host() or _phase == Phase.PAID:
+		return
+	if costs_mood:
+		grumbles += 1
+	var lines: Array = _Strings.homeowner_pool(pool)
+	_rpc_yell.rpc(pool, _rng.randi() % lines.size())
+
+
+## Host: how many mood steps the crew has cost themselves (host_grumble).
+var grumbles: int = 0
+## Every peer: the yells heard, for tests ([pool, ...]).
+var yells_seen: Array[String] = []
+## The mood ladder a grumble steps down (messy and nothing stay as they are).
+const MOOD_LADDER: Array[String] = ["thrilled", "happy", "fine", "slow"]
+
+
+@rpc("authority", "call_local", "reliable")
+func _rpc_yell(pool: String, line_index: int) -> void:
+	yells_seen.append(pool)
+	var lines: Array = _Strings.homeowner_pool(pool)
+	show_caption(str(lines[clampi(line_index, 0, lines.size() - 1)]), Constants.HOMEOWNER_YELL_SECONDS)
+	_body.set("mood", "angry")
+	_body.call("gesture", "point")
+	_speak("vo_huh")
+
+
+## A mood stepped down the ladder once per grumble.
+static func grumbled(mood: String, steps: int) -> String:
+	var at := MOOD_LADDER.find(mood)
+	if at < 0 or steps <= 0:
+		return mood
+	return MOOD_LADDER[mini(at + steps, MOOD_LADDER.size() - 1)]
+
+
 ## How the homeowner feels about the job. No bags delivered means no pay.
 func _judge(value: int) -> String:
 	if value <= 0:
@@ -309,7 +348,8 @@ func _judge(value: int) -> String:
 		mood = ["happy", "thrilled"][_rng.randi() % 2]
 	elif roll > 0.9:
 		mood = ["slow", "fine"][_rng.randi() % 2]
-	return mood
+	# Whatever the crew did out front, they haven't forgotten (host_grumble).
+	return grumbled(mood, grumbles)
 
 
 func _handle_take(peer_id: int) -> void:

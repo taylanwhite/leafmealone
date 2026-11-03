@@ -414,8 +414,15 @@ func _card(data: Dictionary, wallet: int, shops: Node, open: bool) -> Control:
 		if left >= 0:
 			column.add_child(_text(str(_Strings.SHOP_UI["shop_sold_out"]) if left == 0 else str(_Strings.SHOP_UI["shop_stock_left"]) % left, 13, BAD if left == 0 else GOOD))
 	var price := Catalog.price(id)
-	column.add_child(_text(str(_Strings.SHOP_UI["shop_free"]) if price == 0 else str(_Strings.SHOP_UI["shop_price_tag"]) % price, 16, ORANGE.darkened(0.15)))
-	var why := _blocker(id, 1, wallet, shops, open, data)
+	var card_qty := 1
+	if kind == "service":
+		# Marty's Body Shop: every dent Chefty has, at its price each (driving C3).
+		var dents := int(shops.call("chefty_dents")) if shops != null else 0
+		card_qty = maxi(dents, 1)
+		column.add_child(_text(str(_Strings.SHOP_UI["shop_repair_price"]) % [price * dents, dents] if dents > 0 else str(_Strings.SHOP_UI["shop_repair_none"]), 16, ORANGE.darkened(0.15)))
+	else:
+		column.add_child(_text(str(_Strings.SHOP_UI["shop_free"]) if price == 0 else str(_Strings.SHOP_UI["shop_price_tag"]) % price, 16, ORANGE.darkened(0.15)))
+	var why := _blocker(id, card_qty, wallet, shops, open, data)
 	if why != "":
 		var reason := _text(why, 13, BAD)
 		reason.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -466,6 +473,9 @@ func _actions(id: String, data: Dictionary, wallet: int, shops: Node, open: bool
 		return [{"text": _Strings.SHOP_UI["shop_owned_crew"], "enabled": false, "do": "none"}]
 	if owned:
 		return [{"text": _Strings.UI["shop_owned"], "enabled": false, "do": "none"}]
+	if kind == "service":
+		var dents := int(shops.call("chefty_dents")) if shops != null else 0
+		return [{"text": _Strings.SHOP_UI["shop_repair_buy"], "enabled": why == "" and dents > 0, "do": "buy", "qty": maxi(dents, 1)}]
 	if kind == "consumable":
 		var out: Array[Dictionary] = []
 		for qty: int in Constants.SHOP_QTY_STEPS:

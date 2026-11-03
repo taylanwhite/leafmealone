@@ -189,6 +189,12 @@ const SOUNDS: Dictionary = {
 	"door_slam": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	"engine_idle": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 3.0, "db": 0.0},
 	"skid": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# ---- driving C3: Chefty's crash comedy (net/components/chefty_crash.gd): a crash
+	# (clang, boing, a short slide whistle), a big one (crunch, a slide whistle down,
+	# a car alarm's warble), and bags flying out of the bed (pomf-pomf).
+	"crash": {"variants": 0, "bus": &"Sfx", "gap_ms": 200, "voice": false, "loop": false, "max_seconds": 1.4, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
+	"crash_big": {"variants": 0, "bus": &"Sfx", "gap_ms": 200, "voice": false, "loop": false, "max_seconds": 2.6, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
+	"bag_spill": {"variants": 0, "bus": &"Sfx", "gap_ms": 150, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	# R2c van: the Courtesy Shuttle's brakes, its own squeal (it borrowed skid, which
 	# its engine buried), carrying as far as the engine does.
 	"van_brake": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.2, "db": 0.0, "unit_size": Constants.VAN_BRAKE_UNIT_SIZE, "max_distance": Constants.VAN_ENGINE_MAX_DISTANCE},

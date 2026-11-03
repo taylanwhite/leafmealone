@@ -48,6 +48,7 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
+const _CheftyCrash = preload("res://net/components/chefty_crash.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
@@ -183,6 +184,8 @@ var _horn_held: float = 0.0
 var _bed_load: Node3D
 ## The junk in the bed for Rusty's (net/components/junk_bed.gd).
 var _junk_bed: Node3D
+## The crash comedy (net/components/chefty_crash.gd, driving chunk C3).
+var _crash: Node
 
 
 func _ready() -> void:
@@ -279,6 +282,10 @@ func _build() -> void:
 	_view.name = "View"
 	_view.set("vehicle", self)
 	add_child(_view)
+	# Crashes, spills, run-overs and the rest of what driving does (driving C3).
+	_crash = _CheftyCrash.new()
+	_crash.set("vehicle", self)
+	add_child(_crash)
 	_attach_sound()
 
 
@@ -300,9 +307,15 @@ func _place(at: Vector3, yaw: float) -> void:
 	_state["vy"] = 0.0
 	_offset = Vector3.ZERO
 	_yaw_offset = 0.0
-	_body.global_transform = VehicleSim.body_transform(at, _state)
+	_draw_body(VehicleSim.body_transform(at, _state))
 	_body.reset_physics_interpolation()
 	_chassis.reset_physics_interpolation()
+
+
+## Every peer: where Body is drawn this tick, with a barrel roll's hop and turn on
+## top while one plays (chefty_crash.gd tumble_offset; the chassis never flips).
+func _draw_body(xform: Transform3D) -> void:
+	_body.global_transform = xform * _crash.call("tumble_offset") if _crash != null else xform
 
 
 # ---------------------------------------------------------------- the ride contract
@@ -430,6 +443,73 @@ func accept_bags(count: int, value: int = 0) -> int:
 	return taken
 
 
+## Host only (chefty_crash.gd): count of this job's bags come off the top of the
+## heap, each with its share of the bed's value (what flew out adds up to exactly
+## what the bed lost) and the spot it was drawn in: [{value, xform}]. Every peer's
+## heap loses those bags at once (they're the bags flying now).
+func host_take_bags(count: int) -> Array:
+	var out: Array = []
+	if not Net.is_host():
+		return out
+	count = mini(count, _job_bags)
+	if count <= 0:
+		return out
+	var top := _job_bags + _spent_bags
+	var bags_left := _job_bags
+	var value_left := _job_value
+	for index: int in count:
+		# Each bag's fair share of what's left, so the shares sum to the whole.
+		var value := int(round(float(value_left) / float(bags_left)))
+		value_left -= value
+		bags_left -= 1
+		out.append({"value": value, "xform": bed_slot(top - 1 - index)})
+	_job_bags = bags_left
+	_job_value = value_left
+	_rpc_spill.rpc(_job_bags, _job_value, _spent_bags)
+	return out
+
+
+## Chefty's dents (0..Constants.CHEFTY_MAX_DENTS), as this peer has them.
+func dents() -> int:
+	return _dents
+
+
+## Host: the crash left this many dents (the crash RPC tells every peer).
+func host_set_dents(count: int) -> void:
+	if Net.is_host():
+		_dents = clampi(count, 0, Constants.CHEFTY_MAX_DENTS)
+		_refresh_params()
+
+
+## Every peer: Chefty now has this many dents: its top speed (the sim's params,
+## the same on every peer so prediction keeps matching) and its looks.
+func apply_dents(count: int) -> void:
+	_dents = clampi(count, 0, Constants.CHEFTY_MAX_DENTS)
+	_refresh_params()
+	_Vehicles.set_dents(_look, _dents)
+
+
+## Host: Marty's Body Shop fixed every dent (net/shops/shops.gd, a "service").
+func host_repair() -> void:
+	if Net.is_host():
+		_rpc_dents.rpc(0)
+
+
+## Host (chefty_crash.gd): the sim's state as the host has it.
+func sim_state() -> Dictionary:
+	return _state
+
+
+## Whether the horn is blowing (the host's say, every peer has it).
+func horn_on() -> bool:
+	return _horn
+
+
+## Chefty's velocity as this peer draws it.
+func drawn_velocity() -> Vector3:
+	return _view_vel if _uses_view() else (_state["vel"] as Vector3)
+
+
 ## True when a point is inside Chefty's open bed.
 func in_bed(point: Vector3) -> bool:
 	if _body == null:
@@ -528,10 +608,9 @@ func _save_section() -> Dictionary:
 
 func _load_section() -> void:
 	var saved := Campaign.save_section("vehicle")
-	_dents = clampi(int(saved.get("dents", 0)), 0, Constants.CHEFTY_MAX_DENTS)
 	_spent_bags = maxi(int(saved.get("spent_bags", 0)), 0)
 	_towed_day = int(saved.get("towed_day", 0))
-	_refresh_params()
+	apply_dents(int(saved.get("dents", 0)))
 
 
 ## Host only. Seat these peers and take them to a zone: the autopilot drives the
@@ -928,6 +1007,7 @@ func _physics_process(delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
 	_step_dev_script(delta)
+	_crash.call("physics", delta)
 	if Net.is_host():
 		_host_step(delta)
 	elif driver() == Net.local_peer_id() and driver() != 0 and _trip == Trip.NONE:
@@ -948,11 +1028,13 @@ func _host_step(delta: float) -> void:
 		var steps := 2 if _queue.size() > Constants.CHEFTY_INPUT_QUEUE_CATCHUP else 1
 		for _step: int in steps:
 			var input := _host_input()
-			_set_horn(bool(input.get("horn", false)))
+			# A barrel roll jams the horn on for a while (chefty_crash.gd).
+			_set_horn(bool(input.get("horn", false)) or bool(_crash.call("horn_stuck")))
 			if driver() == Net.local_peer_id():
 				_local_horn(bool(input.get("horn", false)))
-			VehicleSim.step(_chassis, _state, input, _params, delta)
-	_body.global_transform = VehicleSim.body_transform(_chassis.global_position, _state)
+			_host_sim(input, delta)
+	_crash.call("host_every_tick", delta, _auto != null and (_warp or _swing_t >= 0.0))
+	_draw_body(VehicleSim.body_transform(_chassis.global_position, _state))
 	_tick += 1
 	var every := maxi(1, int(round(float(Engine.physics_ticks_per_second) / float(Constants.CHEFTY_SNAP_HZ))))
 	if _tick % every == 0:
@@ -962,6 +1044,14 @@ func _host_step(delta: float) -> void:
 			if Net.peer_ids().has(peer_id):
 				_rpc_snap.rpc_id(peer_id, Net.server_time(), _chassis.global_position, float(_state["yaw"]), _state["vel"], float(_state["yaw_rate"]), float(_state["steer"]), _sim_seq)
 	_note_parking()
+
+
+## Host: one step of the sim on these controls, then the crash rules on what it
+## hit (chefty_crash.gd host_after_step).
+func _host_sim(input: Dictionary, delta: float) -> void:
+	var pre_vel: Vector3 = _state["vel"]
+	var result := VehicleSim.step(_chassis, _state, input, _params, delta)
+	_crash.call("host_after_step", result, pre_vel, input, delta)
 
 
 ## Host: the driver's next input. The host's own seated player drives directly; a
@@ -1050,7 +1140,7 @@ func _predict_step(delta: float) -> void:
 	_yaw_offset *= fade
 	var drawn := _state.duplicate()
 	drawn["yaw"] = float(_state["yaw"]) + _yaw_offset
-	_body.global_transform = VehicleSim.body_transform(_chassis.global_position + _offset, drawn)
+	_draw_body(VehicleSim.body_transform(_chassis.global_position + _offset, drawn))
 
 
 ## The driver's peer, on a snapshot: back to where the host had Chefty after the
@@ -1105,7 +1195,7 @@ func apply_view_pose(pos: Vector3, yaw_now: float, vel: Vector3, snapped: bool) 
 	var lean := Constants.CHEFTY_LEAN_MAX
 	_view_state["lean_pitch"] = lerpf(float(_view_state["lean_pitch"]), clampf(accel.dot(forward) * Constants.CHEFTY_LEAN_PITCH, -lean, lean), clampf(dt * Constants.CHEFTY_LEAN_PITCH_RATE, 0.0, 1.0))
 	_view_state["lean_roll"] = lerpf(float(_view_state["lean_roll"]), clampf(-turn * vel.dot(forward) * Constants.CHEFTY_LEAN_ROLL, -lean, lean), clampf(dt * Constants.CHEFTY_LEAN_ROLL_RATE, 0.0, 1.0))
-	_body.global_transform = VehicleSim.body_transform(pos, _view_state)
+	_draw_body(VehicleSim.body_transform(pos, _view_state))
 	if snapped:
 		_body.reset_physics_interpolation()
 
@@ -1205,7 +1295,7 @@ func _autopilot_step(delta: float) -> void:
 		_end_trip()
 		return
 	_trip_clock += delta
-	_set_horn(false)
+	_set_horn(bool(_crash.call("horn_stuck")))
 	if not _warp and _trip_clock > _trip_give_up:
 		push_warning("Chefty's autopilot gave up driving after %.0f s; warping the rest" % _trip_clock)
 		_auto.start(VehicleAutopilot.plan(_chassis.global_position, _trip_stop.origin), _trip_stop.origin)
@@ -1217,7 +1307,7 @@ func _autopilot_step(delta: float) -> void:
 	if _warp:
 		_warp_step(delta)
 	else:
-		VehicleSim.step(_chassis, _state, _auto.next_input(_state, _chassis.global_position, delta), _params, delta)
+		_host_sim(_auto.next_input(_state, _chassis.global_position, delta), delta)
 		if _wants_swing():
 			_swing_from = _chassis.global_position
 			_swing_yaw = float(_state["yaw"])
@@ -1469,7 +1559,7 @@ func dev_report() -> Dictionary:
 	for id: int in _riders:
 		riders_list.append(id)
 	var at := _chassis.global_position
-	return {
+	var report := {
 		"riders": riders_list,
 		"driver": driver(),
 		"prediction_error_max_m": _prediction_error_max,
@@ -1481,7 +1571,6 @@ func dev_report() -> Dictionary:
 		"made_good": _made_good,
 		"forgiven": _forgiven,
 		"horn_seen": _horn_log.duplicate(),
-		"crashes_seen": 0,
 		"dents": _dents,
 		"bag_count": bag_count(),
 		"speed": speed(),
@@ -1492,7 +1581,11 @@ func dev_report() -> Dictionary:
 		"trips_seen": _trips_seen,
 		"chauffeur_seen": _chauffeur_seen.duplicate(),
 		"cosmetic": _cosmetic_report(),
+		"job_value": _job_value,
 	}
+	# The crash comedy's counts (chefty_crash.gd report: crashes_seen, runovers_me, ...).
+	report.merge(_crash.call("report") as Dictionary)
+	return report
 
 
 ## The hands riding along as [seat, name] pairs, for CI's host-equals-client check.
@@ -1746,6 +1839,31 @@ func _rpc_bags(job_bags: int, job_value: int, spent_bags: int) -> void:
 	_refresh_label()
 
 
+## Bags flew out of the bed (chefty_crash.gd host_spill): the new counts. The
+## heap loses its top bags at once (they're the bags in the air now), with a
+## pomf-pomf.
+@rpc("authority", "call_local", "reliable")
+func _rpc_spill(job_bags: int, job_value: int, spent_bags: int) -> void:
+	_job_bags = job_bags
+	_job_value = job_value
+	_spent_bags = spent_bags
+	if _bed_load != null and _bed_load.has_method("spill_to"):
+		_bed_load.call("spill_to", bag_count())
+	if _label != null:
+		_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY, _job_value]
+	_crash.call("note_spill", bed_transform() * Vector3(0.0, 1.8, 0.7))
+
+
+## Chefty's dents changed outside a crash (Marty's Body Shop: 0): every peer.
+@rpc("authority", "call_local", "reliable")
+func _rpc_dents(count: int) -> void:
+	var had := _dents
+	apply_dents(count)
+	# The dents pop out under Marty's nephew's mallet.
+	if count < had:
+		_play_on("bonk")
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_request_chauffeur() -> void:
 	if Net.is_host():
@@ -1796,12 +1914,11 @@ func _rpc_state(seated: PackedInt32Array, _driver_id: int, job_bags: int, job_va
 	_spent_bags = spent_bags
 	if _bed_load != null:
 		_bed_load.call("sync_count", job_bags + spent_bags)
-	_dents = dents
 	_horn = horn
 	_trip = trip
 	_trip_zone = trip_zone
 	_trip_label = trip_label
 	_place(at, yaw_now)
-	_refresh_params()
+	apply_dents(dents)
 	_refresh_role()
 	_refresh_label()

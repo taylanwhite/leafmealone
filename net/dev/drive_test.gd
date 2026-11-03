@@ -65,6 +65,10 @@ func _run(world: Node) -> void:
 	await get_tree().create_timer(1.5).timeout
 	var problems: Array[String] = []
 	var host := Net.local_peer_id()
+	if OS.get_environment("DRIVE_TEST_C3_ONLY") == "1":
+		await _crash_steps(world, get_tree().get_first_node_in_group("chefty"), host, problems)
+		_finish(problems.is_empty(), problems)
+		return
 	# a. Seats.
 	chefty.call("dev_place", Constants.CHEFTY_PARK_SPOT, Constants.CHEFTY_PARK_YAW)
 	await get_tree().create_timer(0.3).timeout
@@ -221,6 +225,7 @@ func _run(world: Node) -> void:
 	await get_tree().create_timer(0.5).timeout
 	_verdict(director != null and seated_before >= 2 and int(chefty.call("seat_of", client)) < 0, "i. caught in bed seat %d: now in seat %d" % [seated_before, int(chefty.call("seat_of", client))], problems)
 	await _autopilot_steps(world, chefty, host, problems)
+	await _crash_steps(world, chefty, host, problems)
 	# Give the client's report time to see the same seats and zone.
 	await get_tree().create_timer(1.0).timeout
 	_finish(problems.is_empty(), problems)
@@ -374,6 +379,213 @@ func _autopilot_steps(world: Node, chefty: Node, host: int, problems: Array[Stri
 	var freed := slot != null and slot.get_child_count() == 0
 	_verdict(not bool(chefty.call("is_riding")) and took < 20.0 and home <= 15.0 and Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE and int(chefty.call("seat_of", host)) < 0 and freed and _rides(chefty, "Big Sal", 2),
 		"l. warped home in %.1f s: %.1f m from the TruckPad, host zone %s, seat %d, yard freed %s, Big Sal back in the bed %s" % [took, home, Net.Zone.keys()[Net.player_zone(host)], int(chefty.call("seat_of", host)), freed, _rides(chefty, "Big Sal", 2)], problems)
+
+
+## Driving chunk C3, the crash comedy (the spec's drive_test steps h to j):
+##   m. the host drives 10 bags ($200) and the client (in the bed) into the side
+##      of a parked car at about 14 m/s: a crash every peer saw, at least 3 bags
+##      out of the bed as real leaf bags whose values and the bed's add up to
+##      $200 again, a dent, and the client thrown out of its seat.
+##   m2. with the Chefty Net, the same crash spills half as many, and the second
+##      dent; Marty's Body Shop (Shops.host_buy chefty_repair at the counter)
+##      takes $25 a dent and every dent out.
+##   n. the client stands on County Road 9; the host drives at it: the client
+##      was Chefty'd (its own report, CI), and the host saw it.
+##   o. in the job yard: driving through the leaves plows them, parking on the
+##      lawn for CHEFTY_LAWN_PARK_SECONDS makes the homeowner yell and costs a
+##      mood step, the horn there adds heat and gets a "Yes, I SEE you.", and a
+##      mailbox Chefty flattens adds HEAT_MAILBOX.
+func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String]) -> void:
+	var client := _client_id()
+	var hires := world.get_node_or_null("Hires")
+	if hires != null:
+		hires.call("_handle_fire", "Big Sal")
+	# m. A parked car, side on, with room on the street side to run up.
+	var target := _car_target()
+	if target.is_empty():
+		_verdict(false, "m. no parked car with a clear run-up", problems)
+		return
+	var run_from: Vector3 = target["from"]
+	var run_yaw := float(target["yaw"])
+	var first := await _crash_into(chefty, host, client, run_from, run_yaw, 10, 200)
+	var seen: Dictionary = first["report"]
+	_verdict(int(seen["crashes_seen"]) >= 1 and int(first["spilled"]) >= 3 and int(first["props"]) == int(first["spilled"]) and int(first["props_value"]) + int(first["bed_value"]) == 200 and int(seen["dents"]) >= 1 and bool(first["thrown"]) and int(chefty.call("seat_of", client)) < 0,
+		"m. crash at %.1f m/s: crashes %d, %d bags out (%d leaf bags worth $%d, the bed keeps $%d of $200), dents %d, the client thrown %s, seat %d" % [float(first["impact"]), int(seen["crashes_seen"]), int(first["spilled"]), int(first["props"]), int(first["props_value"]), int(first["bed_value"]), int(seen["dents"]), first["thrown"], int(chefty.call("seat_of", client))], problems)
+	_clear_spills()
+	# m2. The Chefty Net halves the spill; the second dent; Marty's Body Shop.
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops != null and not (shops.get("crew_owned") as Array).has("chefty_net"):
+		(shops.get("crew_owned") as Array).append("chefty_net")
+	var second := await _crash_into(chefty, host, client, run_from, run_yaw, 10, 200)
+	_clear_spills()
+	# What this crash would have spilled with no net, halved.
+	var bare := maxi(1, int(floor((float(second["impact"]) - Constants.CHEFTY_CRASH_MIN_SPEED) * Constants.CHEFTY_SPILL_PER_MPS + 0.5)))
+	var net_halves := float(second["impact"]) > 0.0 and int(second["spilled"]) == int(floor(float(bare) * Constants.CHEFTY_NET_SPILL_SHARE))
+	var dents_now := int(chefty.call("dents"))
+	if int(chefty.call("seat_of", host)) >= 0:
+		chefty.call("request_exit")
+		await get_tree().create_timer(0.4).timeout
+	Net.move_player_to_zone(host, Net.Zone.STORE)
+	await get_tree().create_timer(0.6).timeout
+	var counter: Vector3 = (Constants.SHOP_SITES["homie_depot"] as Dictionary)["counter"]
+	var store := world.get_node("StoreZone") as Node3D
+	_player(host).global_position = store.to_global(counter + Vector3(0.0, 0.1, 1.8))
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Campaign.pay(host, Constants.SHOP_PRICES["chefty_repair"] * Constants.CHEFTY_MAX_DENTS)
+	var cash_before := Campaign.credits(host)
+	var code := str(shops.call("host_buy", host, "homie_depot", "chefty_repair", dents_now)) if shops != null else "no shops"
+	var paid := cash_before - Campaign.credits(host)
+	await get_tree().create_timer(0.5).timeout
+	_verdict(net_halves and dents_now >= 2 and code == "ok" and paid == Catalog.price("chefty_repair") * dents_now and int(chefty.call("dents")) == 0,
+		"m2. with the Net %d bags out (%d without it), dents %d; the body shop said %s, took $%d, dents now %d" % [int(second["spilled"]), bare, dents_now, code, paid, int(chefty.call("dents"))], problems)
+	# n. Chefty'd: the client in the road, the host driving at it.
+	var road := Vector3(70.0, 0.0, TownMap.nearest_road_point(Vector3(70.0, 0.0, 15.0)).z)
+	await _take_wheel(chefty, host, road, -PI * 0.5)
+	_player(client).call("send_teleport", Transform3D(Basis.IDENTITY, road + Vector3(20.0, 0.1, 0.0)))
+	await get_tree().create_timer(1.2).timeout
+	var ran_before := int((chefty.call("dev_report") as Dictionary)["runovers_seen"])
+	chefty.call("dev_script", host, [{"seconds": 2.6, "throttle": 1.0}, {"seconds": 2.0, "throttle": -1.0}])
+	await get_tree().create_timer(4.8).timeout
+	var ran := int((chefty.call("dev_report") as Dictionary)["runovers_seen"]) - ran_before
+	print("[DriveTest]   road %s: driver %d, Chefty now %s, client at %s" % [road, int(chefty.call("driver")), (chefty.call("dev_report") as Dictionary)["pos"], _player(client).global_position])
+	_verdict(ran >= 1, "n. the host ran the client over: %d run-overs seen" % ran, problems)
+	# o. The job yard: plow, lawn, horn, mailbox.
+	var house := TownMap.test_site_house()
+	world.call("place_job_site", TownMap.yard_transform(house), house)
+	world.call("_load_job_lot")
+	var waited := 0.0
+	while get_tree().get_first_node_in_group("homeowner") == null and waited < 6.0:
+		await get_tree().create_timer(0.2).timeout
+		waited += 0.2
+	var homeowner := get_tree().get_first_node_in_group("homeowner")
+	var lot := (world.get_node("LotZone") as Node3D).global_transform
+	await _take_wheel(chefty, host, lot * Vector3(-17.0, 0.0, 8.0), -PI * 0.5)
+	var plowed_before := int((chefty.call("dev_report") as Dictionary)["plowed"])
+	chefty.call("dev_script", host, [{"seconds": 1.6, "throttle": 0.6}, {"seconds": 1.5, "throttle": -1.0}])
+	await get_tree().create_timer(3.4).timeout
+	var plowed := int((chefty.call("dev_report") as Dictionary)["plowed"]) - plowed_before
+	var grumbles_before := int(homeowner.get("grumbles")) if homeowner != null else 0
+	chefty.call("dev_place", lot * Vector3(-10.0, 0.0, 10.0), -PI * 0.5)
+	await get_tree().create_timer(Constants.CHEFTY_LAWN_PARK_SECONDS + 1.0).timeout
+	var grumbles := int(homeowner.get("grumbles")) - grumbles_before if homeowner != null else 0
+	var stepped := str(homeowner.call("grumbled", "happy", grumbles)) if homeowner != null else ""
+	var heat := get_tree().get_first_node_in_group("heat")
+	var heat_before := float(heat.get("heat")) if heat != null else 0.0
+	chefty.call("dev_script", host, [{"seconds": 1.2, "horn": true}, {"seconds": 0.2}])
+	await get_tree().create_timer(1.6).timeout
+	var horn_heat := (float(heat.get("heat")) if heat != null else 0.0) - heat_before
+	var yells: Array = homeowner.get("yells_seen") if homeowner != null else []
+	_verdict(homeowner != null and plowed > 0 and grumbles == 1 and stepped == "fine" and yells.has("lawn_park") and yells.has("horn") and horn_heat > 0.15,
+		"o. the yard: plowed %d, lawn parking cost %d mood step (happy -> %s), yells %s, the horn added %.2f heat" % [plowed, grumbles, stepped, yells, horn_heat], problems)
+	# The mailbox: along the curb of the next yard up the street, at 9 m/s.
+	var next_house := house + 1
+	var mailbox: Vector3 = TownMap.yard_transform(next_house) * preload("res://levels/town/town_dressing.gd").MAILBOX_AT
+	await _take_wheel(chefty, host, mailbox + Vector3(-14.0, 0.0, 0.0), -PI * 0.5)
+	var hit_before := int((chefty.call("dev_report") as Dictionary)["mailboxes_hit"])
+	heat_before = float(heat.get("heat")) if heat != null else 0.0
+	chefty.call("dev_script", host, [{"seconds": 2.4, "throttle": 0.8}, {"seconds": 1.5, "throttle": -1.0}])
+	await get_tree().create_timer(4.2).timeout
+	var hit := int((chefty.call("dev_report") as Dictionary)["mailboxes_hit"]) - hit_before
+	var box_heat := (float(heat.get("heat")) if heat != null else 0.0) - heat_before
+	_verdict(hit >= 1 and box_heat >= Constants.HEAT_MAILBOX - 0.5, "o2. flattened %d mailbox (+%.1f heat)" % [hit, box_heat], problems)
+	if int(chefty.call("seat_of", host)) >= 0:
+		chefty.call("request_exit")
+	await get_tree().create_timer(0.5).timeout
+
+
+## A parked car to crash into, rear-ended in its own lane: the run-up spot
+## CRASH_RUN_UP meters back up the street, and the heading that faces it. {}
+## with none clear.
+func _car_target() -> Dictionary:
+	for car: Array in TownMap.car_spots():
+		var at: Vector3 = car[0]
+		var along := Basis(Vector3.UP, float(car[1])).z
+		for flip: float in [1.0, -1.0]:
+			var from := at + along * flip * (CRASH_RUN_UP + Constants.CHEFTY_HALF_LENGTH + 2.2)
+			if TownMap.surface_at(from) != &"asphalt" or TownMap.surface_at(at + along * flip * 6.0) != &"asphalt":
+				continue
+			var toward := (at - from)
+			return {"from": Vector3(from.x, 0.0, from.z), "yaw": atan2(-toward.x, -toward.z)}
+	return {}
+
+
+## The run-up to a crash (m): about 14 m/s at the hit.
+const CRASH_RUN_UP: float = 15.0
+
+
+## Host at the wheel, the client in the bed, bags worth value in it, Chefty at
+## from facing yaw; full throttle into whatever's ahead. Returns what happened:
+## {impact, spilled, props, props_value, bed_value, thrown, report}.
+func _crash_into(chefty: Node, host: int, client: int, from: Vector3, yaw: float, bags: int, value: int) -> Dictionary:
+	await _take_wheel(chefty, host, from, yaw)
+	var waited := 0.0
+	while int(chefty.call("seat_of", client)) < 2 and waited < 10.0:
+		var gate: Vector3 = (chefty.call("body_transform") as Transform3D) * _Vehicles.CHEFTY_TAILGATE
+		_player(client).call("send_teleport", Transform3D(Basis.IDENTITY, gate + Vector3(0.0, 0.1, 0.0)))
+		await get_tree().create_timer(0.8).timeout
+		chefty.call("dev_script", client, [{"do": "enter", "kind": 2}])
+		await get_tree().create_timer(1.2).timeout
+		waited += 2.0
+	chefty.call("clear_bags")
+	await get_tree().create_timer(0.2).timeout
+	chefty.call("accept_bags", bags, value)
+	await get_tree().create_timer(0.4).timeout
+	var bags_before := int(chefty.call("bag_count"))
+	var crashes_before := int((chefty.call("dev_report") as Dictionary)["crashes_seen"])
+	chefty.call("dev_script", host, [{"seconds": 3.5, "throttle": 1.0}, {"seconds": 1.0, "throttle": -1.0}])
+	var thrown := false
+	var clock := 0.0
+	var top := 0.0
+	while clock < 4.0:
+		await get_tree().physics_frame
+		clock += get_physics_process_delta_time()
+		top = maxf(top, float(chefty.call("speed")))
+		var rider := _player(client)
+		if rider != null and int(chefty.call("seat_of", client)) < 0:
+			thrown = thrown or bool(rider.get("thrown"))
+	var report: Dictionary = chefty.call("dev_report")
+	var crash: Dictionary = report.get("last_crash", {})
+	print("[DriveTest]   run from %s yaw %.2f: driver %d, top %.1f m/s, now at %s" % [from, yaw, int(chefty.call("driver")), top, report["pos"]])
+	var props := 0
+	var props_value := 0
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == "leaf_bag" and node.name.begins_with("Spill"):
+			props += 1
+			props_value += int(node.get("value"))
+	return {
+		"impact": float(crash.get("impact", 0.0)) if int(report["crashes_seen"]) > crashes_before else 0.0,
+		"spilled": bags_before - int(chefty.call("bag_count")),
+		"props": props, "props_value": props_value, "bed_value": int(chefty.call("bag_value")),
+		"thrown": thrown, "report": report,
+	}
+
+
+## Spilled bags from a crash step go away before the next.
+func _clear_spills() -> void:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if node.name.begins_with("Spill"):
+			node.queue_free()
+	await get_tree().process_frame
+
+
+## The host in the driver's seat with Chefty stopped at `at` facing yaw.
+func _take_wheel(chefty: Node, host: int, at: Vector3, yaw: float) -> void:
+	chefty.call("dev_place", at, yaw)
+	await get_tree().create_timer(0.3).timeout
+	var waited := 0.0
+	while int(chefty.call("driver")) != host and waited < 6.0:
+		if int(chefty.call("seat_of", host)) >= 0:
+			chefty.call("request_exit")
+			await get_tree().create_timer(0.3).timeout
+		var door: Vector3 = (chefty.call("body_transform") as Transform3D) * _Vehicles.CHEFTY_DRIVER_DOOR
+		_player(host).call("send_teleport", Transform3D(Basis.IDENTITY, door + Vector3(0.0, 0.1, 0.0)))
+		await get_tree().create_timer(0.3).timeout
+		chefty.call("request_enter", 0)
+		await get_tree().create_timer(0.4).timeout
+		waited += 1.0
+	chefty.call("dev_place", at, yaw)
+	await get_tree().create_timer(0.3).timeout
 
 
 ## Whether a hand is drawn riding in Chefty: at the wheel (seat 0) or, with

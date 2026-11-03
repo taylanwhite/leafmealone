@@ -808,6 +808,66 @@ def vo_burp() -> list[float]:
     return out
 
 
+# ---------------------------------------------------------------- driving C3: crashes
+
+def _clang(rng: random.Random, seconds: float, base: float) -> list[float]:
+    """A sheet of metal hit: a few inharmonic partials ringing out over a crack."""
+    out = silence(seconds)
+    for ratio, gain, rate in [(1.0, 0.7, 9.0), (2.76, 0.45, 12.0), (5.4, 0.3, 16.0), (8.93, 0.18, 22.0)]:
+        mix_into(out, decay(tone(seconds, base * ratio, "sine", (5.0, 0.004)), rate), 0.0, gain)
+    mix_into(out, decay(highpass(noise(rng, 0.08), 1800.0), 50.0), 0.0, 0.6)
+    return out
+
+
+def crash() -> list[float]:
+    """Chefty hits something: a fender's clang, a rubbery boing as the bumper
+    bounces, and a short slide whistle down as everyone's stomach drops."""
+    rng = random.Random(3101)
+    out = silence(1.3)
+    mix_into(out, decay(lowpass(noise(rng, 0.25), 700.0), 18.0), 0.0, 0.8)
+    mix_into(out, _clang(rng, 0.9, 210.0), 0.0, 0.85)
+    boing = decay(tone(0.6, lambda t: 140.0 + 60.0 * math.sin(TAU * 9.0 * t) * math.exp(-5.0 * t), "triangle"), 4.5)
+    mix_into(out, boing, 0.06, 0.55)
+    whistle = tone(0.4, glide(1450.0, 700.0, 0.38, 1.4), "sine", (8.0, 0.015))
+    mix_into(out, envelope(whistle, 0.02, 0.08), 0.32, 0.35)
+    return out
+
+
+def crash_big() -> list[float]:
+    """A big one: a deep crunch with rattling bits, a long slide whistle all the
+    way down, and a car alarm's two-tone warble that gives up halfway through."""
+    rng = random.Random(3102)
+    out = silence(2.5)
+    mix_into(out, blip(0.5, 120.0, 38.0, 6.0), 0.0, 1.0)
+    mix_into(out, decay(lowpass(noise(rng, 0.5), 500.0), 7.0), 0.0, 0.9)
+    mix_into(out, _clang(rng, 1.0, 180.0), 0.02, 0.7)
+    for index in range(7):
+        rattle = decay(bandpass(noise(rng, 0.06), 2400.0 + rng.uniform(-500.0, 900.0), 3.0), 60.0)
+        mix_into(out, rattle, 0.12 + index * 0.07 + rng.uniform(0.0, 0.03), 0.35)
+    whistle = tone(0.9, glide(1700.0, 320.0, 0.85, 1.1), "sine", (6.0, 0.02))
+    mix_into(out, envelope(whistle, 0.03, 0.12), 0.35, 0.4)
+    # The car alarm: whoop-whoop, then it sags and quits.
+    alarm_seconds = 1.0
+    alarm = tone(alarm_seconds, lambda t: (880.0 if int(t * 7.0) % 2 == 0 else 660.0) * (1.0 - 0.25 * max(0.0, t - 0.6)), "square")
+    alarm = bandpass(alarm, 1500.0, 1.2)
+    mix_into(out, envelope(alarm, 0.02, 0.3), 1.3, 0.22)
+    return out
+
+
+def bag_spill() -> list[float]:
+    """Bags tumbling out of the bed: pomf, pomf-pomf, with a dry leafy rustle."""
+    rng = random.Random(3103)
+    out = silence(0.9)
+    for start, pitch, gain in [(0.0, 150.0, 1.0), (0.17, 125.0, 0.85), (0.27, 165.0, 0.75), (0.48, 110.0, 0.6)]:
+        mix_into(out, blip(0.22, pitch, pitch * 0.45, 14.0), start, gain)
+        mix_into(out, decay(lowpass(noise(rng, 0.12), 900.0), 25.0), start, 0.5 * gain)
+        mix_into(out, decay(bandpass(noise(rng, 0.2), 3200.0, 1.5), 14.0), start + 0.01, 0.18 * gain)
+    return out
+
+
+SOUNDS["crash"] = (crash, 0, 0.85)
+SOUNDS["crash_big"] = (crash_big, 0, 0.9)
+SOUNDS["bag_spill"] = (bag_spill, 0, 0.75)
 SOUNDS["munch"] = (munch, 3, 0.8)
 SOUNDS["slurp"] = (slurp, 0, 0.55)
 SOUNDS["vend_clunk"] = (vend_clunk, 0, 0.75)

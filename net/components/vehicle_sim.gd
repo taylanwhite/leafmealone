@@ -27,6 +27,12 @@ extends RefCounted
 ## input: throttle -1..1 (negative brakes, then reverses), steer -1..1 (positive
 ## is right), handbrake bool, brake bool (nobody driving: stop).
 
+## A chassis this far (m) under the ground it should stand on is sunk, and is
+## stood back up on it, found by a ray from this far over its wheels (m).
+const SUNK_MARGIN: float = 0.3
+const SUNK_LOOK_UP: float = 2.2
+
+
 ## The params dictionary for Chefty with this many dents and the tune-up perk.
 static func chefty_params(dents: int, tuneup: bool) -> Dictionary:
 	var top := Constants.CHEFTY_TOP_SPEED * (1.0 - Constants.CHEFTY_DENT_SPEED_SHARE * float(clampi(dents, 0, Constants.CHEFTY_MAX_DENTS)))
@@ -144,8 +150,17 @@ static func step(chassis: CharacterBody3D, state: Dictionary, input: Dictionary,
 	_expire_skips(chassis, state)
 	chassis.velocity = Vector3(vel.x, 0.0, vel.z)
 	chassis.global_rotation = Vector3(0.0, yaw, 0.0)
+	var from := chassis.global_position
 	chassis.move_and_slide()
 	var after := Vector3(chassis.velocity.x, 0.0, chassis.velocity.z)
+	# A floating CharacterBody keeps its velocity through a wall it can't pass;
+	# what it really managed is how far it got (driving C3: hitting a parked car
+	# head on stops the truck and counts as a crash, instead of grinding round it).
+	if chassis.get_slide_collision_count() > 0 and dt > 0.0:
+		var moved := chassis.global_position - from
+		var managed := Vector3(moved.x, 0.0, moved.z) / dt
+		if managed.length() < after.length():
+			after = managed
 	var hits: Array = []
 	var impact := 0.0
 	var impact_normal := Vector3.ZERO
@@ -204,12 +219,27 @@ static func _suspend(chassis: CharacterBody3D, state: Dictionary, params: Dictio
 				ground_sum += height
 		heights.append(height)
 	var vy := float(state["vy"])
+	if found == 0 and space != null:
+		# Pushed down into the ground (a crash's shove out of a car can do it): the
+		# rays start under the surface and miss it. Look from well above, and stand
+		# back up on what's there if it's over us.
+		var query := PhysicsRayQueryParameters3D.create(origin + Vector3.UP * (ride + SUNK_LOOK_UP), origin + Vector3.DOWN * 0.2, 1)
+		query.exclude = exclude
+		query.hit_back_faces = false
+		var hit := space.intersect_ray(query)
+		if not hit.is_empty() and (hit["normal"] as Vector3).y > 0.5 and (hit["position"] as Vector3).y > origin.y + SUNK_MARGIN \
+				and not hit["collider"] is RigidBody3D and not hit["collider"] is CharacterBody3D:
+			origin.y = (hit["position"] as Vector3).y
+			vy = 0.0
+			found = -1
 	if found == 0:
 		state["air"] = true
 		vy -= float(params["gravity"]) * dt
 		origin.y += vy * dt
 		# Never through the floor of the world.
 		origin.y = maxf(origin.y, -5.0)
+	elif found < 0:
+		state["air"] = false
 	else:
 		var ground := ground_sum / float(found)
 		if origin.y > ground + Constants.CHEFTY_LAND_GAP and vy <= Constants.CHEFTY_LAND_RISE_SPEED:

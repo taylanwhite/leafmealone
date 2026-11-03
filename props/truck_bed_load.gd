@@ -173,6 +173,19 @@ func set_count(count: int) -> void:
 	_BedToss.stats["stack"] = count
 
 
+## Bags flew out of the bed in a crash or a drift (driving chunk C3): the top
+## ones vanish at once, because the leaf bags flying out start right where they
+## were drawn (chefty_drive.gd host_take_bags).
+func spill_to(count: int) -> void:
+	count = maxi(count, 0)
+	for index: int in range(count, mini(_count, _bags.size())):
+		_bags[index].visible = false
+		_bags[index].scale = Vector3.ONE
+		_held.erase(index)
+	_count = mini(_count, count)
+	set_count(count)
+
+
 ## A late joiner's snapshot of the load: shown as it is, nothing drops in.
 func sync_count(count: int) -> void:
 	_synced = false

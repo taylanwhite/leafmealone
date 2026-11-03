@@ -196,6 +196,11 @@ static func for_shop_item(item_id: StringName) -> String:
 			return "supply_" + str(entry.get("supply", id))
 		"snack":
 			return "snack_" + id
+		# Chefty's gear and Marty's Body Shop (driving C3; critic.md icon ids).
+		"truck_gear":
+			return "gear_" + id
+		"service":
+			return "service_repair"
 		"cosmetic", "truck_cosmetic":
 			match str(entry.get("slot", "")):
 				"hat":

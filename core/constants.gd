@@ -688,6 +688,9 @@ const SHOP_PRICES: Dictionary = {
 	"paint_classic": 0, "paint_mint": 400, "paint_sunset": 400, "paint_pink": 500,
 	"paint_black": 800, "paint_gold": 5000,
 	"decal_stripes": 250, "decal_googly": 350, "decal_flames": 600, "decal_leaves": 900, "decal_rust": 50,
+	# Chefty's gear and Marty's Body Shop (driving chunk C3): the Chefty Net, and a
+	# repair, priced per dent (a repair buys as many as Chefty has).
+	"chefty_net": 120, "chefty_repair": 25,
 }
 ## What each shop puts out every morning; an item not listed never runs out.
 const SHOP_DAILY_STOCK: Dictionary = {
@@ -4067,3 +4070,101 @@ const ESCORT_CAM_BIAS_RATE: float = 0.9
 ## The escort's follow eye wants this much room (m) round it: closer to the van's
 ## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
 const ESCORT_CAM_ROOM: float = 1.2
+
+# ---- driving: crash comedy and the bed (driving chunk C3, net/components/chefty_drive.gd
+# and chefty_crash.gd; docs/GAME.md "Crash comedy"). First guesses, tuned by
+# crashing it with a crew aboard. TODO(balance): not in the workbook.
+## A crash is Chefty losing at least this much speed into something solid (m/s,
+## the speed it hit with, square on); none again for this long (s).
+const CHEFTY_CRASH_MIN_SPEED: float = 6.0
+const CHEFTY_CRASH_COOLDOWN: float = 0.8
+## A hit's lost speed is added up over the ticks it takes, at most this long (s).
+const CHEFTY_CRASH_GATHER_SECONDS: float = 0.1
+## Harder than this (m/s), the riders in the bed fly out; harder than this, Chefty
+## barrel-rolls on screen (the chassis never flips) and the horn sticks.
+const CHEFTY_EJECT_SPEED: float = 11.0
+const CHEFTY_TUMBLE_SPEED: float = 16.0
+## Bags out of the bed per m/s over CHEFTY_CRASH_MIN_SPEED (at least one), and the
+## Chefty Net's share of every spill.
+const CHEFTY_SPILL_PER_MPS: float = 0.5
+const CHEFTY_NET_SPILL_SHARE: float = 0.5
+## A drift (handbrake, sliding) faster than this (m/s) spills a bag with this chance
+## per second, sliding sideways faster than CHEFTY_DRIFT_SPILL_SLIP (m/s).
+const CHEFTY_DRIFT_SPILL_SPEED: float = 10.0
+const CHEFTY_DRIFT_SPILL_CHANCE: float = 0.25
+const CHEFTY_DRIFT_SPILL_SLIP: float = 3.0
+## A spilled bag keeps this share of Chefty's speed from before the hit, goes up
+## this fast (m/s), out over its side rail about this fast (m/s), and the bed
+## won't catch it again for this long (s).
+const CHEFTY_SPILL_CARRY: float = 0.3
+const CHEFTY_SPILL_UP: float = 5.0
+const CHEFTY_SPILL_SIDE: float = 3.2
+const CHEFTY_SPILL_NO_CATCH: float = 2.0
+## A rider thrown out of the bed keeps this share of Chefty's speed, plus this much
+## up (m/s) and up to CHEFTY_EJECT_SIDE out to their side.
+const CHEFTY_EJECT_SHARE: float = 0.7
+const CHEFTY_EJECT_UP: float = 5.5
+const CHEFTY_EJECT_SIDE: float = 2.0
+## The barrel roll: how long it takes (s), how high it hops (m), and the height it
+## rolls about (m, Chefty's middle). The stuck horn blares this long (s).
+const CHEFTY_TUMBLE_SECONDS: float = 1.15
+const CHEFTY_TUMBLE_HOP: float = 1.7
+const CHEFTY_TUMBLE_PIVOT_Y: float = 1.1
+const CHEFTY_HORN_STUCK_SECONDS: float = 3.0
+## Being Chefty'd: someone standing within this far (m) ahead of the bumper (or
+## behind the tailgate, backing up), across the truck's width plus
+## CHEFTY_RUNOVER_SIDE, at more than CHEFTY_RUNOVER_SPEED (m/s), is bonked flying
+## with this share of Chefty's speed and this much up (m/s); once per person per
+## CHEFTY_RUNOVER_COOLDOWN (s).
+const CHEFTY_RUNOVER_SPEED: float = 4.0
+const CHEFTY_RUNOVER_REACH: float = 1.0
+const CHEFTY_RUNOVER_SIDE: float = 0.35
+const CHEFTY_RUNOVER_SHARE: float = 0.9
+const CHEFTY_RUNOVER_UP: float = 4.5
+const CHEFTY_RUNOVER_COOLDOWN: float = 1.5
+## Chefty's half-length and half-width over the ground (m), for run-overs and knock-overs.
+const CHEFTY_HALF_LENGTH: float = 3.0
+const CHEFTY_HALF_WIDTH: float = 1.15
+## Mailboxes and curbside bins (levels/town/town_dressing.gd "town_knockables")
+## go flying when Chefty's body passes within this much of them (m) faster than
+## CHEFTY_KNOCK_MIN_SPEED (m/s); each mailbox adds HEAT_MAILBOX. The flying one
+## keeps this share of Chefty's speed, goes up this fast (m/s), lies where it
+## lands, and the town stands it back up once nobody's within
+## CHEFTY_KNOCK_RESTORE_METERS for CHEFTY_KNOCK_RESTORE_SECONDS (s). Knocking the
+## same one again only heats things up after CHEFTY_KNOCK_RESTORE_SECONDS.
+const CHEFTY_KNOCK_PAD: float = 0.35
+const CHEFTY_KNOCK_MIN_SPEED: float = 2.0
+const CHEFTY_KNOCK_CARRY: float = 0.75
+const CHEFTY_KNOCK_UP: float = 4.0
+const CHEFTY_KNOCK_RESTORE_SECONDS: float = 45.0
+const CHEFTY_KNOCK_RESTORE_METERS: float = 70.0
+const HEAT_MAILBOX: float = 2.0
+## Leaf piles in a job yard: Chefty rolling faster than CHEFTY_PLOW_MIN_SPEED (m/s)
+## plows a stroke this wide (m) at this strength (a rake's is RAKE_STRENGTH) every
+## CHEFTY_PLOW_SECONDS (leaf_field.gd host_plow).
+const CHEFTY_PLOW_MIN_SPEED: float = 1.5
+const CHEFTY_PLOW_WIDTH: float = 2.2
+const CHEFTY_PLOW_STRENGTH: float = 140.0
+const CHEFTY_PLOW_SECONDS: float = 0.12
+## Parked on the job yard's lawn (inside the yard, off the drive's strip this wide
+## each side of x 0, m) for CHEFTY_LAWN_PARK_SECONDS: the homeowner yells and
+## their mood drops a step (npcs/homeowner.gd host_grumble).
+const CHEFTY_LAWN_PARK_SECONDS: float = 6.0
+const CHEFTY_DRIVE_HALF_WIDTH: float = 2.6
+## The horn within this far (m) of the job yard's middle: heat per second held,
+## and the homeowner's "Yes, I SEE you." at most once per this long (s).
+const CHEFTY_HORN_YARD_METERS: float = 34.0
+const CHEFTY_HORN_HEAT_PER_SECOND: float = 0.6
+const CHEFTY_HORN_LINE_COOLDOWN: float = 10.0
+## Soft things Chefty hits (props, a NICE BOY): pushed with this share of
+## Chefty's speed and this much up (m/s), host only (net_prop.gd host_vehicle_push).
+const CHEFTY_PUSH_SHARE: float = 0.8
+const CHEFTY_PUSH_UP: float = 2.0
+## A dent's looks: how far the front bumper droops at each dent count (rad), and
+## the hubcap that rolls off at the second dent: how fast it rolls (m/s) and how
+## long it stays before it's gone (s).
+const CHEFTY_DENT_BUMPER_DROOP: Array[float] = [0.0, 0.22, 0.38, 0.55]
+const CHEFTY_HUBCAP_SPEED: float = 5.5
+const CHEFTY_HUBCAP_SECONDS: float = 9.0## A homeowner's yell about Chefty (npcs/homeowner.gd host_grumble) stays over
+## their head this long (s).
+const HOMEOWNER_YELL_SECONDS: float = 4.5
