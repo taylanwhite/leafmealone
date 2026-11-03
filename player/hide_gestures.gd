@@ -181,19 +181,35 @@ class _HideGesturePoses:
 			# A little stretch back at the top of it.
 			torso.rotation.x = lerpf(torso.rotation.x, 0.12 * fling * (1.0 - drop) - 0.2 * tuck, fade)
 
-	## Lifted out by the collar: legs kicking, arms up.
+	## Hauled out by the collar (R2c hide): out of a crouch in the spot, dragged
+	## shoulders first toward him (the torso pitched at him, the head riding it:
+	## player/hide_view.gd _carry_head), arms windmilling, legs kicking behind,
+	## and straightened up onto your feet as he sets you down.
 	static func upsy_daisy_victim(body: Node3D, t: float, _delta: float) -> void:
-		var fade := _fade(t)
+		var seconds := float(SECONDS["upsy_daisy_victim"])
+		var s := t * seconds
+		var pull := clampf(s / Constants.HIDE_PULL_SECONDS, 0.0, 1.0)
+		var fade := clampf(minf(s / 0.05, (seconds - s) / 0.12), 0.0, 1.0)
+		var kick := 1.0 - _ease(clampf((pull - 0.75) / 0.25, 0.0, 1.0))
+		var torso := _part(body, "torso")
+		if torso != null:
+			torso.rotation.x = lerpf(torso.rotation.x, lerpf(-0.7, 0.06, _ease(pull)), fade)
+		var hips := _part(body, "hips")
+		if hips != null:
+			hips.position.y -= 0.3 * (1.0 - _ease(clampf(pull / 0.7, 0.0, 1.0))) * fade
 		for index: int in 2:
 			var leg := _part(body, "leg_r" if index == 0 else "leg_l")
 			if leg != null:
-				leg.rotation.x = 0.7 * sin(t * 28.0 + float(index) * PI) * fade
+				leg.rotation.x = lerpf(leg.rotation.x, (-0.35 + 0.6 * sin(s * 26.0 + float(index) * PI)) * kick, fade)
 		var right := _part(body, "arm_r")
 		var left := _part(body, "arm_l")
+		var flail := 0.35 * sin(s * 21.0)
 		if right != null:
-			right.rotation.z = lerpf(right.rotation.z, 2.0, fade)
+			right.rotation.z = lerpf(right.rotation.z, (1.25 + flail) * kick + 0.12 * (1.0 - kick), fade)
+			right.rotation.x = lerpf(right.rotation.x, 0.5 * kick, fade)
 		if left != null:
-			left.rotation.z = lerpf(left.rotation.z, -2.0, fade)
+			left.rotation.z = lerpf(left.rotation.z, -(1.25 - flail) * kick - 0.12 * (1.0 - kick), fade)
+			left.rotation.x = lerpf(left.rotation.x, 0.5 * kick, fade)
 
 	## A NICE BOY parts the hedge with his clipboard: lean in, the board arm
 	## pushing forward and back twice, the other hand cupped to the brim.

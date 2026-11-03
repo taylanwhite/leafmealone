@@ -708,25 +708,23 @@ func _refuel() -> bool:
 	return true
 
 
-## Local: a notice over your head for a few seconds ("Out of lawn bags...",
-## "Out of gas..."), shown by the interaction prompt ahead of everything else.
+## Local: a notice over your head for a few seconds ("Out of bags."), shown by
+## the interaction prompt ahead of everything else.
 func flash_hint(text: String) -> void:
 	_notice_text = text
 	_notice_until = Time.get_ticks_msec() + int(Constants.SUPPLY_NOTICE_SECONDS * 1000.0)
 
 
-## What's keeping the tool in hand from working, as a plain hint: an empty gas
-## tool, an empty gas can, or a rake with the crew out of bags. {} when nothing.
+## What's keeping the tool in hand from working, as a plain hint, when the world
+## can't show it: a rake with the crew out of bags. {} when nothing. (x1:text: an
+## empty gas tool sputters and its gauge reads empty, and an empty can's gauge
+## does too, so neither says anything.)
 func _supply_hint() -> Dictionary:
 	var held := _held_prop() as Node3D
 	if held == null:
 		return {}
 	var held_kind := str(held.get("kind"))
 	var above := held.global_position + Vector3(0.0, 1.0, 0.0)
-	if _ToolTiers.is_gas_tool(held_kind) and not _ToolTiers.has_fuel(held):
-		return {"text": _Strings.SHOP_UI["hud_out_of_gas"], "at": above, "plain": true}
-	if held_kind == "gas_can" and _ToolTiers.can_gallons(held) <= 0.0:
-		return {"text": _Strings.SHOP_UI["hud_can_empty"], "at": above, "plain": true}
 	if held_kind == "rake" and Net.player_zone(name.to_int()) == Net.Zone.LOT:
 		var field := get_tree().get_first_node_in_group("leaf_field")
 		if field != null and str(field.call("bag_type")) == "":
@@ -1109,7 +1107,8 @@ func _grabbable_player() -> Node3D:
 	var best_distance := Constants.GRAB_PLAYER_REACH
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
-		if other == null or other == self or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")) or bool(other.call("is_sleeping")):
+		# A dev observer (net/dev/remote_play.gd) is invisible and not in the game.
+		if other == null or other == self or Net.is_watcher(other.name.to_int()) or not other.has_method("can_be_grabbed") or not bool(other.call("can_be_grabbed")):
 			continue
 		var offset := other.global_position - global_position
 		var flat := Vector3(offset.x, 0.0, offset.z)
@@ -1118,6 +1117,31 @@ func _grabbable_player() -> Node3D:
 		best = other
 		best_distance = flat.length()
 	return best
+
+
+## R2c: whether a friend can pick this player up now. Not while hidden, asleep,
+## carried, carrying or flying; not while a NICE BOY has them (caught, cited,
+## walked to the van) or a moment stages them; not seated (the Courtesy Shuttle,
+## Chefty); not when their body isn't drawn (a watcher's ghost). The prompt
+## (interaction_hint) and the host (net/components/brawl.gd) ask the same
+## question of the same replicated state, so no "[E] Grab" shows for a grab that
+## does nothing.
+func can_be_grabbed() -> bool:
+	if is_hidden() or is_sleeping() or carried_by != 0 or carrying != 0 or thrown:
+		return false
+	if is_staged() or in_vehicle() or _on_seat:
+		return false
+	var visual := get_node_or_null("Visual") as Node3D
+	if visual != null and not visual.visible:
+		return false
+	var peer := name.to_int()
+	var director := get_tree().get_first_node_in_group("run_director") if is_inside_tree() else null
+	if director != null and director.has_method("is_captured") and bool(director.call("is_captured", peer)):
+		return false
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle") if is_inside_tree() else null
+	if shuttle != null and shuttle.has_method("seat_info") and not (shuttle.call("seat_info", peer) as Dictionary).is_empty():
+		return false
+	return true
 
 
 ## From the host: now carrying someone, carried by someone, or neither.
@@ -1315,7 +1339,7 @@ func host_inspect_resolve(crew: Node) -> Dictionary:
 			var crew_at := (crew as Node3D).global_position
 			var away := crew_at - global_position
 			away.y = 0.0
-			toward = crew_at - away.normalized() * Constants.HIDE_PULL_STANDOFF if away.length() > 0.1 else crew_at
+			toward = crew_at - away.normalized() * Constants.HIDE_PILE_PULL_STANDOFF if away.length() > 0.1 else crew_at
 			toward.y = global_position.y
 		# The leaves part around his face first, then out you come (R2b hide); the
 		# gotcha stands you where you land (encounter.gd reads the meta).
@@ -1363,7 +1387,8 @@ func _rpc_pile_inspect(crew_index: int, at: float, phase: StringName) -> void:
 				for pat: int in 3:
 					get_tree().create_timer(0.3 + 0.45 * float(pat)).timeout.connect(func() -> void:
 						if is_instance_valid(sfx):
-							sfx.call("play_at", "peek_rustle", where, -2.0))
+							# Yours land right over your head: past the muffle (R2c hide).
+							sfx.call("play_clear" if is_multiplayer_authority() and in_pile and sfx.has_method("play_clear") else "play_at", "peek_rustle", where, -2.0))
 		&"near_miss":
 			load("res://props/hide_spot.gd").crew_gesture(crew, "shrug_notice", "scratch")
 		_:
@@ -1437,6 +1462,12 @@ func _process(_delta: float) -> void:
 		var wheel := _Seated.wheel_grips(self)
 		if not wheel.is_empty():
 			body_now.call("set_hold", wheel[0], wheel[1])
+		elif has_meta(&"body_hands") and anim_state != AnimState.KNOCKED and carried_by == 0:
+			# Hands on something that isn't held as a prop, as everyone else sees
+			# them (R2c annex: a window's stamp out of its hatch): world points
+			# {"right", "left"}, either one left out to leave that arm be.
+			var hands: Dictionary = get_meta(&"body_hands")
+			body_now.call("set_hold", hands.get("right", Vector3.INF), hands.get("left", Vector3.INF))
 		elif held != null and anim_state != AnimState.KNOCKED and carried_by == 0:
 			var grips := _PropLooks.grip_points(held, self)
 			body_now.call("set_hold", grips[0], grips[1])
@@ -1578,8 +1609,9 @@ func interaction_hint() -> Dictionary:
 	var ladder_top := _nearest_ladder_top()
 	if ladder_top != null:
 		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0), "source": ladder_top}
+	# Carried: you can see you are, and mashing to wriggle is what anyone tries.
 	if carried_by != 0:
-		return {"text": _Strings.UI["hud_carried"], "at": global_position + Vector3(0.0, 1.9, 0.0)}
+		return {}
 	if carrying != 0:
 		return {"text": _Strings.UI["prompt_put_down_player"] % Net.player_name(carrying), "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}
 	var grabbable := _grabbable_player()
@@ -1617,14 +1649,14 @@ func interaction_hint() -> Dictionary:
 			return seat_hint
 		# Nothing to do with E: say what's wrong with the tool in hand, if anything.
 		return _supply_hint()
-	# A pocket item with every pocket full (and no stack of its kind to join): say so.
+	# A pocket item with every pocket full (and no stack of its kind to join): no
+	# prompt. Press E anyway and the full bar shakes (x1:text).
 	var closest_kind := str(closest.get("kind"))
 	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
-		return {"text": _Strings.UI["prompt_pockets_full"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "plain": true, "source": closest}
-	# Junk says what it is ("Pick up Toilet"); everything else by its label.
-	var prop_label := str(closest.call("display_name")) if closest.has_method("display_name") else str(closest.get("label"))
-	var text: String = _Strings.UI["prompt_pick_up"] % prop_label if prop_label != "" else _Strings.UI["prompt_pick_up_plain"]
-	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "source": closest}
+		return {}
+	# x1:text: the key and the verb; the thing is right there under the prompt
+	# (junk too: the toilet is plainly a toilet).
+	return {"text": _Strings.UI["prompt_pick_up_plain"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "source": closest}
 
 
 ## The nearest hiding spot with room that can be got into from here, measured

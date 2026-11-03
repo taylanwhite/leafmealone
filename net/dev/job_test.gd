@@ -59,7 +59,7 @@ func _play_round(out: Dictionary) -> bool:
 	if Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE:
 		if not await _ride_to_lot(out):
 			return false
-	if not _fresh_job(out):
+	if not await _fresh_job(out):
 		return false
 	if not await _grab_rake(out):
 		return false
@@ -79,7 +79,7 @@ func _ride_to_lot(out: Dictionary) -> bool:
 		return _fail(out, "no truck pad at the store")
 	_move_player_to(pad.global_position + Vector3(0.0, 0.5, 3.2))
 	await _ticks(3)
-	_expect_goal(out, "goal_board")
+	_expect_quiet(out, "board")
 	get_tree().get_first_node_in_group("world").call("request_depart")
 	if not await _until(func() -> bool: return Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT, RIDE_TIMEOUT_SECONDS):
 		return _fail(out, "Chefty never got to the lot")
@@ -103,7 +103,12 @@ func _fresh_job(out: Dictionary) -> bool:
 	_note("fresh job: %.0f%% clean, truck $%d, homeowner waiting %s, rake free %s" % [float(out["start_clean"]) * 100.0, out["start_truck_value"], waiting, rake_free])
 	if float(out["start_clean"]) > 0.01 or int(out["start_truck_value"]) != 0 or not waiting or not rake_free:
 		return _fail(out, "the job did not start fresh")
-	_expect_goal(out, "goal_grab_rake")
+	_expect_quiet(out, "grab_rake")
+	# Nothing in Chefty yet: the homeowner has no reason to wave anyone over.
+	var body := owner_node.get_node_or_null("CartoonBody")
+	_move_player_to((owner_node as Node3D).global_position + Vector3(Constants.HOMEOWNER_BECKON_METERS * 0.4, 0.0, 0.0))
+	if body != null and await _until(func() -> bool: return str(body.call("current_gesture")) == "wave", 2.0):
+		return _fail(out, "the homeowner waved the crew over with an empty truck")
 	return true
 
 
@@ -116,7 +121,7 @@ func _grab_rake(out: Dictionary) -> bool:
 	out["holds_rake"] = bool(_field().call("holds_rake", Net.local_peer_id()))
 	if not bool(out["holds_rake"]):
 		return _fail(out, "could not grab the rake")
-	_expect_goal(out, "goal_rake")
+	_expect_quiet(out, "rake")
 	return true
 
 
@@ -212,7 +217,7 @@ func _deliver(out: Dictionary) -> bool:
 	if rake != null and int(rake.get("held_by")) == Net.local_peer_id():
 		rake.call("request_drop")
 	await _ticks(2)
-	_expect_goal(out, "goal_carry_loose")
+	_expect_quiet(out, "carry_loose")
 	var expected := 0
 	var bags := _bags()
 	for bag: Node in bags:
@@ -227,7 +232,7 @@ func _deliver(out: Dictionary) -> bool:
 		await _ticks(2)
 		if int(bag.get("held_by")) != Net.local_peer_id():
 			_note("could not pick up a bag at %s" % (bag as Node3D).global_position)
-		_expect_goal(out, "goal_carry_held")
+		_expect_quiet(out, "carry_held")
 		_move_player_to(truck_at + Vector3(0.0, 0.0, 2.5))
 		await _ticks(3)
 		if is_instance_valid(bag):
@@ -237,7 +242,25 @@ func _deliver(out: Dictionary) -> bool:
 	_note("carried bags worth $%d to Chefty and tossed them in, truck says $%d" % [expected, out["truck_value"]])
 	if int(out["truck_value"]) != expected:
 		return _fail(out, "the truck did not take every bag")
-	_expect_goal(out, "goal_rake_or_talk")
+	_expect_quiet(out, "rake_or_talk")
+	return await _beckoned(out)
+
+
+## x1:text: with bags in Chefty and nobody asking yet, the homeowner waves you
+## over from across the yard (npcs/homeowner.gd _beckon), the world's version of
+## the old "talk to the homeowner" line.
+func _beckoned(out: Dictionary) -> bool:
+	var owner_node := get_tree().get_first_node_in_group("homeowner") as Node3D
+	var body := owner_node.get_node_or_null("CartoonBody") if owner_node != null else null
+	if body == null:
+		return _fail(out, "no homeowner body to wave")
+	var away := owner_node.global_position + Vector3(Constants.HOMEOWNER_BECKON_METERS * 0.4, 0.0, 0.0)
+	_move_player_to(Vector3(away.x, _own_player().global_position.y, away.z))
+	var waved := await _until(func() -> bool: return str(body.call("current_gesture")) == "wave", Constants.HOMEOWNER_BECKON_SECONDS + 3.0)
+	out["beckoned"] = waved
+	_note("the homeowner waved us over from %.0f m: %s" % [Constants.HOMEOWNER_BECKON_METERS * 0.4, waved])
+	if not waved:
+		return _fail(out, "the homeowner never waved the crew over with bags in Chefty")
 	return true
 
 
@@ -251,7 +274,7 @@ func _get_paid(out: Dictionary) -> bool:
 	# Phase 2 is OFFERING: the reaction plays, then the cash comes out.
 	if not await _until(func() -> bool: return int(owner_node.get("_phase")) == 2, 6.0):
 		return _fail(out, "the homeowner never held out the cash")
-	_expect_goal(out, "goal_take_cash")
+	_expect_quiet(out, "take_cash")
 	out["offered"] = int(owner_node.get("_amount"))
 	owner_node.call("_handle_take", Net.local_peer_id())
 	await _ticks(3)
@@ -279,15 +302,16 @@ func _ride_home(out: Dictionary) -> bool:
 	return true
 
 
-## The HUD goal line (ui/job_goal.gd) should say this right now.
-func _expect_goal(out: Dictionary, key: String) -> void:
+## x1:text: the HUD goal line (ui/job_goal.gd) says nothing at this step of the
+## loop (at the board, rake, pile, bags, homeowner and cash alike): the world and
+## the prompts carry it (docs/GAME.md "Writing for players"). step names the moment.
+func _expect_quiet(out: Dictionary, step: String) -> void:
 	var shown := _JobGoal.goal(get_tree(), Net.local_peer_id())
-	var prefix := str(_Strings.UI[key]).split("%")[0]
-	if not shown.begins_with(prefix):
+	if shown != "":
 		var wrong: Array = out.get("wrong_goals", [])
-		wrong.append("%s showed \"%s\"" % [key, shown])
+		wrong.append("%s showed \"%s\"" % [step, shown])
 		out["wrong_goals"] = wrong
-		_note("goal line should be %s but says \"%s\"" % [key, shown])
+		_note("goal line should be quiet at %s but says \"%s\"" % [step, shown])
 
 
 func _fail(out: Dictionary, reason: String) -> bool:

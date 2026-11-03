@@ -80,6 +80,11 @@ func _run() -> void:
 	_check("1 the schedule's fingerprint is the same on both peers", report.get("hashes", []) == mine, "client %s, host %s" % [report.get("hashes", []), mine])
 	var guarantee := _never_wait()
 	_check("1 the never-wait guarantee over %d seeds" % SEEDS_TO_CHECK, guarantee.is_empty(), "; ".join(guarantee.slice(0, 4)))
+	# R2c annex: the people in the room.
+	var walks := _staff_walks()
+	_check("1 every clerk's walk back from his break and from the copier fits its RETURN, past no seated colleague", walks.is_empty(), "; ".join(walks.slice(0, 4)))
+	var solids := _staff_solids()
+	_check("1 every staff body is solid to players", solids.is_empty(), "; ".join(solids))
 	# 2. A visit begins for the client, the way the shuttle starts one.
 	director.set("_hazard_seed", RAID_SEED)
 	# A hot crew: four boxes on the form, room for every step below.
@@ -123,6 +128,14 @@ func _run() -> void:
 	var shakes := int(_AnnexScript.stats["wrong_windows"])
 	await get_tree().create_timer(Constants.ANNEX_WRONG_WINDOW * 2.5).timeout
 	_check("3 still standing at the wrong window, he shakes his head only once", int(_AnnexScript.stats["wrong_windows"]) == shakes, "wrong windows %d -> %d" % [shakes, int(_AnnexScript.stats["wrong_windows"])])
+	# R2c annex: a clerk away on his break can't shake his head at you.
+	_stand(client, _spot(annex, "Threshold"))
+	await get_tree().create_timer(0.6).timeout
+	var away_wrongs := int(_AnnexScript.stats["wrong_windows"])
+	var on_break := _retime_to(annex, wrong, [_Schedule.S.BREAK], 3.0)
+	_stand(client, _spot(annex, "Windows/%s/Counter" % wrong))
+	await get_tree().create_timer(2.0).timeout
+	_check("3 a wrong window whose clerk is on his break says nothing", on_break and int(_AnnexScript.stats["wrong_windows"]) == away_wrongs, "found a break %s, wrong windows %d -> %d" % [on_break, away_wrongs, int(_AnnexScript.stats["wrong_windows"])])
 	_stand(client, _spot(annex, "Threshold"))
 	await get_tree().create_timer(0.6).timeout
 	# 4. Heists.
@@ -133,9 +146,20 @@ func _run() -> void:
 	_stand(client, _spot(annex, "Windows/%s/StampPad" % window))
 	await get_tree().create_timer(0.5).timeout
 	annex.call("dev_client", client, "self_stamp", [window, true])
-	var heisted := await _until(func() -> bool: return int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped, 3.0)
+	# R2c annex review: seen from here, the client's hands are on the stamp while
+	# it's out of the hatch (player.gd body_hands), and off it once it's home.
+	var hands_seen := [false]
+	await _until(func() -> bool:
+		var them := _player(client)
+		if them != null and them.has_meta(&"body_hands"):
+			hands_seen[0] = true
+		return int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped and hands_seen[0], 3.5)
+	var heisted := int((annex.call("form_of", client) as Dictionary)["stamped"]) > stamped
 	annex.call("dev_client", client, "self_stamp", [window, false])
 	_check("4 a self-stamp at window %s while he looks away stamps the box" % window, away and heisted, "found a moment %s, stamped %d" % [away, int((annex.call("form_of", client) as Dictionary)["stamped"])])
+	await get_tree().create_timer(Constants.ANNEX_BORROW_LET_GO + Constants.ANNEX_BORROW_RETURN + 0.6).timeout
+	var let_go := _player(client) != null and not _player(client).has_meta(&"body_hands")
+	_check("4 everyone else sees their hand on the stamp while it's out, and let go after", hands_seen[0] and let_go, "hands seen %s, let go %s" % [hands_seen[0], let_go])
 	form = annex.call("form_of", client)
 	window = _Form.next_window(form)
 	var boxes := (form["boxes"] as PackedStringArray).size()
@@ -165,9 +189,15 @@ func _run() -> void:
 	_stand(client, _spot(annex, "Windows/D/Counter"))
 	var volley := await _until(func() -> bool: return _Form.is_full(annex.call("form_of", client)), 5.0)
 	_check("6 Window D stamps every remaining box in one volley", volley and int(_AnnexScript.stats["window_d"]) >= 1, "form %s" % annex.call("form_of", client))
-	_retime_head(annex, _Schedule.S.DESK, 4.0)
+	# R2c annex: just back from the cooler he walks to his chair first; a full form
+	# waiting at the desk is approved only once he's sat down (ANNEX_HEAD_SETTLE).
+	var back_at := _head_back_at(annex)
+	annex.call("dev_retime", back_at + 0.1)
 	_stand(client, _spot(annex, "HeadDesk/DeskSpot"))
-	var approved := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary)["approved"]), 5.0)
+	await get_tree().create_timer(Constants.ANNEX_HEAD_SETTLE - 1.2).timeout
+	var too_soon := bool((annex.call("form_of", client) as Dictionary)["approved"])
+	var approved := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary)["approved"]), 8.0)
+	_check("6 the Head NICE BOY, back from his break, sits down before he approves", back_at > 0.0 and not too_soon, "back at %.1f s, approved before %.1f s in: %s" % [back_at, Constants.ANNEX_HEAD_SETTLE - 1.2, too_soon])
 	_check("6 the Head NICE BOY approves a full form at his desk", approved, "form %s" % annex.call("form_of", client))
 	# 7. The big stamp.
 	_reset_form(annex, client, 1)
@@ -221,7 +251,8 @@ func _run() -> void:
 	await _until(func() -> bool: return int(annex.call("big_stamp_holder")) == client, 3.0)
 	var before := int((annex.call("form_of", client) as Dictionary)["stamped"])
 	var spotted_before := int(_AnnexScript.stats["spotted"])
-	_retime_head(annex, _Schedule.S.DESK, 6.0)
+	# Long enough a desk time to see him walk back, sit and approve after (review).
+	_retime_head(annex, _Schedule.S.DESK, 10.0)
 	var desk := _spot(annex, "HeadDesk/DeskSpot")
 	var out_dir := (desk - _spot(annex, "HeadDesk")).normalized()
 	_stand(client, desk + out_dir * 2.5, 0.0)
@@ -229,6 +260,31 @@ func _run() -> void:
 	var returned := await _until(func() -> bool: return int(annex.call("big_stamp_holder")) == 0, Constants.ANNEX_SPOTTED_WALK + 2.0)
 	var after: Dictionary = annex.call("form_of", client)
 	_check("7 spotted off its pad, the big stamp goes back and the holder loses one box", spotted and returned and int(after["stamped"]) == before - 1 and not bool(after["approved"]), "spotted %s, back %s, stamped %d -> %d" % [spotted, returned, before, int(after["stamped"])])
+	# R2c annex review: the moment he's back in DESK from taking it, a full form
+	# waits at the desk; he walks back to his chair (ANNEX_HEAD_SETTLE) before he
+	# reads it (the spotted override dropped him into DESK with its old start, and
+	# he approved on his way back from the holder).
+	var full: Dictionary = annex.call("form_of", client)
+	full["stamped"] = (full["boxes"] as PackedStringArray).size()
+	full["approved"] = false
+	annex.call("dev_set_form", client, full)
+	# When his walk to the holder ended (Annex time); the approval he starts must
+	# come ANNEX_HEAD_SETTLE after it. (dev_retime keeps earlier tests' overrides,
+	# so only an approval that starts after it counts.)
+	var spotted_until := -1.0
+	for entry: Variant in annex.get("_overrides"):
+		if str((entry as Dictionary).get("kind", "")) == "spotted":
+			spotted_until = maxf(spotted_until, float((entry as Dictionary)["until"]))
+	_stand(client, desk)
+	var approve_at := [-1.0]
+	await _until(func() -> bool:
+		var head: Dictionary = annex.call("window_now", "head")
+		if int(head["state"]) == _Schedule.S.APPROVE and float(head["since"]) > spotted_until:
+			approve_at[0] = float(head["since"])
+		return approve_at[0] > 0.0, Constants.ANNEX_HEAD_SETTLE + 6.0)
+	var approved_after := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary)["approved"]), 6.0)
+	var settled_for := float(approve_at[0]) - spotted_until
+	_check("7 straight back from taking his stamp, he sits down before he approves", spotted_until > 0.0 and approve_at[0] > 0.0 and settled_for >= Constants.ANNEX_HEAD_SETTLE - 0.05 and approved_after, "walk back ended at %.2f, approval began %.2f s after it (>= %.1f), approved %s" % [spotted_until, settled_for, Constants.ANNEX_HEAD_SETTLE, approved_after])
 	# 8. Co-signing.
 	_reset_form(annex, client, 0)
 	var rescues_before := float(Campaign.job_stats(host).get("rescues", 0.0))
@@ -416,7 +472,11 @@ func _solo_pace() -> Dictionary:
 				else:
 					t += 0.25
 		t += 4.0
-		while int(_Schedule.head_state(seed_value, t)["state"]) != _Schedule.S.DESK and t < Constants.ANNEX_CAP_SECONDS:
+		# At his desk, and back in his chair (R2c annex: ANNEX_HEAD_SETTLE).
+		while t < Constants.ANNEX_CAP_SECONDS:
+			var head := _Schedule.head_state(seed_value, t)
+			if int(head["state"]) == _Schedule.S.DESK and t - float(head["since"]) >= Constants.ANNEX_HEAD_SETTLE:
+				break
 			t += 0.25
 		t += Constants.ANNEX_HEAD_READ + OfficeProps.BigStamp.slam_lands_after() + 4.0
 		slowest = maxf(slowest, t)
@@ -425,6 +485,82 @@ func _solo_pace() -> Dictionary:
 	var mean := total / 40.0
 	print("[AnnexTest] a solo rider by the bot's rules: slowest of 40 seeds %.1f s, fastest %.1f, mean %.1f" % [slowest, fastest, mean])
 	return {"slowest": slowest, "fastest": fastest, "mean": mean}
+
+
+## R2c annex: each clerk's way back to his stool, from his break spots (in RETURN)
+## and from the lobby copier (the jam's RETURN), at a speed he may walk
+## (CLERK_RUSH_MAX), seated by the end; and no route passes within 0.35 m of
+## another window's stool, where a colleague sits.
+func _staff_walks() -> Array[String]:
+	var bad: Array[String] = []
+	var set_root := get_tree().get_first_node_in_group("world").get_node_or_null("BorderZone/AnnexSet") as Node3D
+	if set_root == null or not set_root.has_method("route"):
+		return ["no AnnexSet with route()"]
+	var seats := {}
+	for window: String in Constants.ANNEX_WINDOWS:
+		seats[window] = set_root.to_local((set_root.get_node("Windows/%s/ClerkSeat" % window) as Node3D).global_position)
+	for window: String in Constants.ANNEX_SERVING_WINDOWS:
+		var seat: Vector3 = seats[window]
+		var targets := {"jam": [set_root.to_local((set_root.get_node("Copier/Spot") as Node3D).global_position), Constants.ANNEX_JAM_RETURN_WALK]}
+		for spot: int in 3:
+			targets["break%d" % spot] = [set_root.to_local((set_root.get_node("Windows/%s/BreakSpot%d" % [window, spot]) as Node3D).global_position), Constants.ANNEX_RETURN_WALK]
+		for key: String in targets:
+			var from: Vector3 = targets[key][0]
+			var budget: float = targets[key][1]
+			var points: PackedVector3Array = set_root.call("route", from, seat)
+			var length := 0.0
+			var last := from
+			var path := PackedVector3Array([from])
+			path.append_array(points)
+			for point: Vector3 in points:
+				length += Vector2(point.x - last.x, point.z - last.z).length()
+				last = point
+			var needs := length / maxf(budget - 0.35 - 0.1, 0.1)
+			if needs > Constants.CLERK_RUSH_MAX + 0.001:
+				bad.append("window %s from %s: %.1f m in %.1f s needs %.1f m/s" % [window, key, length, budget, needs])
+			for other: String in seats:
+				if other == window:
+					continue
+				var stool: Vector3 = seats[other]
+				for index: int in range(1, path.size()):
+					var a := Vector2(path[index - 1].x, path[index - 1].z)
+					var b := Vector2(path[index].x, path[index].z)
+					var p := Vector2(stool.x, stool.z)
+					var k := clampf((p - a).dot(b - a) / maxf((b - a).length_squared(), 0.0001), 0.0, 1.0)
+					if (a + (b - a) * k).distance_to(p) < 0.35:
+						bad.append("window %s from %s passes window %s's stool" % [window, key, other])
+						break
+	return bad
+
+
+## Every staff member carries a capsule on the pad-wall layer (people mask it).
+func _staff_solids() -> Array[String]:
+	var bad: Array[String] = []
+	var set_root := get_tree().get_first_node_in_group("world").get_node_or_null("BorderZone/AnnexSet")
+	var staff := set_root.get_node_or_null("Staff") if set_root != null else null
+	if staff == null:
+		return ["no Staff"]
+	for member: Node in staff.get_children():
+		if not member.has_method("play"):
+			continue
+		var solid := member.get_node_or_null("Solid") as CollisionObject3D
+		if solid == null or (solid.collision_layer & Constants.PAD_WALL_LAYER) == 0:
+			bad.append("%s has no solid body" % member.name)
+	return bad
+
+
+## The schedule moment the Head NICE BOY's desk time starts after an away (s).
+func _head_back_at(annex: Node) -> float:
+	var seed_value := int(annex.call("seed_value"))
+	var t := 4.0
+	while t < Constants.ANNEX_CAP_SECONDS - 20.0:
+		var state := _Schedule.head_state(seed_value, t)
+		if int(state["state"]) == _Schedule.S.AWAY:
+			var after := _Schedule.head_state(seed_value, float(state["until"]) + 0.01)
+			if float(after["until"]) - float(state["until"]) > Constants.ANNEX_HEAD_SETTLE + 5.0:
+				return float(state["until"])
+		t = float(state["until"]) + 0.01
+	return -1.0
 
 
 # ---------------------------------------------------------------- helpers
