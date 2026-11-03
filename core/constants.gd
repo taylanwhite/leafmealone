@@ -1126,6 +1126,132 @@ const KEYBIND_GROUPS: Array[Dictionary] = [
 	{"id": "crew","actions": [&"phone", &"push_to_talk", &"honk", &"toggle_camera", &"toggle_music", &"pause"]},
 ]
 
+# ---- raking: leaf motion (R1 chunk 3)
+# Leaves you see travelling between cells (leaves/leaf_motion.gd, leaf_movers.gd,
+# leaf_flow.gd, leaf_chaff.gd; docs/DECISIONS.md 2026-11-02 "Leaf motion"). All of
+# it is cosmetic and local: the host's density grid stays the only truth.
+## Mover pool cap and simulation range (m) per video preset: [cap, range].
+const LEAF_DETAIL: Dictionary = {"low": [300, 18.0], "medium": [600, 24.0], "high": [900, 32.0], "ultra": [1500, 40.0]}
+## Density units one mover carries: one hero flake's worth (raking:2's
+## LEAF_HERO_UNITS), so a flake that leaves a cell is the flake you see fly.
+const LEAF_MOVER_UNITS: int = 22
+## Most movers one batch spawns before units per mover grow instead.
+const LEAF_MOVERS_PER_BATCH_MAX: int = 140
+## Full detail within this distance of the camera; fewer movers out to LEAF_MOTION_RANGE.
+const LEAF_MOTION_NEAR: float = 22.0
+const LEAF_MOTION_RANGE: float = 32.0
+## Mover share between NEAR and RANGE.
+const LEAF_MOTION_FAR_SHARE: float = 0.35
+## Simulation budget per physics tick (ms); over it, new batches get fewer, heavier
+## movers. GDScript runs a mover in about 3.5 us (i9 bench, 2026-11-02): one raker
+## is about 0.5 ms, four rakers and two hands about 1.7 ms.
+const LEAF_MOTION_MS: float = 2.0
+## How long a stroke event stays a hint for the changes it explains (s).
+const LEAF_HINT_SECONDS: float = 0.4
+## Leftover losses and gains pair up within this distance (m).
+const LEAF_FLOW_MAX_DIST: float = 4.5
+## A batch bigger than this (cells) or an unhinted one bigger than this (flakes) is morphed.
+const LEAF_FLOW_MAX_CELLS: int = 600
+const LEAF_RESYNC_ANIMATE_MAX: int = 300
+## Speed of the leaves' pressure wave ahead of a rake or blower (m/s).
+const LEAF_SWEEP_SPEED: float = 5.0
+## Longest a leaf waits for the rake head before it goes anyway (s).
+const LEAF_MOVER_WAIT_MAX: float = 0.4
+## An event this late (s) skips waiting for the head.
+const LEAF_LATE_EVENT: float = 0.25
+## Air drag across the leaf's face and along it (per s): a flat leaf falls at about
+## 1.4 m/s, a tilted one glides sideways (the falling-leaf zigzag).
+const LEAF_DRAG_NORMAL: float = 7.0
+const LEAF_DRAG_TANGENT: float = 0.5
+## Flutter: the restoring torque about the leaf's long axis.
+const LEAF_FLUTTER_K: float = 14.0
+## Flutter wobble frequency range (Hz) and strength (rad/s^2).
+const LEAF_FLUTTER_HZ := Vector2(2.2, 3.6)
+const LEAF_FLUTTER_KICK: float = 22.0
+## Faster than this (m/s) a leaf tumbles end over end.
+const LEAF_TUMBLE_SPEED: float = 2.5
+## The homing spring that skids a leaf into its resting place (rad/s).
+const LEAF_SPRING: float = 14.0
+## Share of a flight after which the homing spring starts, and how long it blends in (s).
+const LEAF_HOME_AT: float = 0.6
+const LEAF_HOME_BLEND: float = 0.15
+## Bounce and ground friction.
+const LEAF_RESTITUTION: float = 0.15
+const LEAF_BOUNCE_SPEED: float = 0.6
+const LEAF_FRICTION: float = 6.0
+## Leaves within the head's half width plus this (m) ride the tines.
+const LEAF_HEAD_SIDE: float = 0.25
+## A flight ends by this age (s), with at most this last jump (m).
+const LEAF_SETTLE_MAX: float = 1.4
+const LEAF_SNAP_MAX: float = 0.15
+## Most a mover moves in one physics tick (m).
+const LEAF_MAX_STEP: float = 0.35
+## A landed leaf keeps drawing at its slot until the view draws it (ticks).
+const LEAF_PARK_TICKS: int = 2
+## Flight time for a leaf going dist metres: clamp(base + per_m * dist, min, max) (s),
+## and the launch speed over-shoot that makes up for drag.
+const LEAF_FLIGHT_TIME := Vector4(0.32, 0.1, 0.3, 0.8)
+const LEAF_AIM_BOOST: float = 1.25
+## A leaf the rake throws: hop speed (m/s), spin (rad/s), extra push along the stroke (m/s).
+const LEAF_RAKE_HOP := Vector2(0.7, 1.7)
+const LEAF_RAKE_SPIN := Vector2(6.0, 14.0)
+const LEAF_RAKE_PUSH := Vector2(0.4, 1.2)
+## Leaves beside the head go at this share of the speed and hop (the bow wave).
+const LEAF_BESIDE_SPEED: float = 0.6
+const LEAF_BESIDE_HOP: float = 0.5
+## Bare hands hop leaves this much of a rake's.
+const LEAF_HAND_HOP: float = 0.4
+## A blower puff: speed along the stroke and hop (m/s); drag along the leaf is this share.
+const LEAF_BLOWER_SPEED := Vector2(5.0, 8.0)
+const LEAF_BLOWER_HOP := Vector2(0.8, 2.0)
+const LEAF_BLOWER_GLIDE: float = 0.5
+## Bagging: leaves spiral up into the bag mouth (this high above the pile, m) over this long (s).
+const LEAF_BAG_MOUTH: float = 0.7
+const LEAF_BAG_SECONDS: float = 0.45
+const LEAF_BAG_STAGGER: float = 0.08
+const LEAF_BAG_SHRINK: float = 0.6
+## A mower pulls leaves into its deck this fast (s).
+const LEAF_MULCH_SECONDS: float = 0.15
+## A burst bag's fountain: up and outward speed (m/s).
+const LEAF_SCATTER_UP := Vector2(2.0, 4.0)
+const LEAF_SCATTER_OUT := Vector2(1.0, 2.5)
+## Leaves that turn up with no stroke to explain them fall from this high (m).
+const LEAF_DROP_HEIGHT: float = 0.35
+## Scale-in when a leaf comes out of the litter skin, shrink when it dives into it (s).
+const LEAF_SKIN_IN_SECONDS: float = 0.08
+const LEAF_SKIN_OUT_SECONDS: float = 0.12
+## Leaves pushed off the yard's edge slide on and fade over this long (s).
+const LEAF_EDGE_FADE_SECONDS: float = 0.3
+## Running through deep leaves: faster than this (m/s) through cells this thick
+## kicks up this many leaves a second; a dive throws up this many.
+const LEAF_KICK_SPEED: float = 2.0
+const LEAF_KICK_DENSITY: int = 120
+const LEAF_KICK_PER_SEC: int = 16
+const LEAF_DIVE_LEAVES: int = 40
+## Players farther than this (m) from the camera kick nothing up.
+const LEAF_KICK_RANGE: float = 20.0
+## A kicked leaf's hop (m/s) and flight time (s).
+const LEAF_KICK_HOP := Vector2(1.2, 2.4)
+const LEAF_KICK_TIME := Vector2(0.45, 0.8)
+## Kicks stop once the pool is this full.
+const LEAF_KICK_POOL_SHARE: float = 0.8
+## Ray checks per tick against walls and fences for fast leaves (0 turns them off).
+const LEAF_WORLD_RAYS_PER_TICK: int = 48
+const LEAF_RAY_SPEED: float = 1.5
+## Landings are heard in bins this big (m) gathered over this long (s); a landing on
+## a cell at least this thick is onto a pile (contract C5, audio/leaf_audio.gd).
+const LEAF_SETTLE_WINDOW: float = 0.08
+const LEAF_SETTLE_AREA: float = 2.0
+const LEAF_PILE_WHUMP_DENSITY: int = 180
+## At most this many kick sounds per player per second.
+const LEAF_KICK_SOUNDS_PER_SEC: float = 4.0
+## Pooled chaff emitters: leaf bits, dust, grass and mower shreds at each bite.
+const LEAF_CHAFF_EMITTERS: int = 6
+## Chaff per stroke: fragments scale with the leaves moved, from to (count), at full load (units).
+const LEAF_CHAFF_BITS := Vector2i(12, 40)
+const LEAF_CHAFF_FULL_UNITS: float = 3000.0
+const LEAF_CHAFF_EMPTY_BITS: int = 4
+
 # ---- hotbar
 # The pockets (docs/GAME.md, "2026-11-01, the hotbar"; net/components/hotbar.gd,
 # player/pockets.gd). Inventory lives on the props themselves (pocketed_by, pocket_slot).
