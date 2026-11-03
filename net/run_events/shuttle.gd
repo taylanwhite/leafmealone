@@ -387,7 +387,10 @@ func _last_drive_leg(trip: Trip, now: float) -> Dictionary:
 ## pavement or in the van's aisle waiting for a friend; hold says more of the
 ## cohort is still to come, and the van waits for them (OQ-027) until a call
 ## without it (or host_release_return) says that was everyone.
-func host_start_return(peers: Array, to: Dictionary, hold: bool = false) -> void:
+## step: they walked up to its open door, so they step up into their seat from
+## there, no iris (R2c van review: the open door drew you to it, and you stood
+## pressed against its side until the forecourt's moment ran out).
+func host_start_return(peers: Array, to: Dictionary, hold: bool = false, step: bool = false) -> void:
 	if not Net.is_host():
 		return
 	var trip := _return_trip(not peers.is_empty())
@@ -397,8 +400,25 @@ func host_start_return(peers: Array, to: Dictionary, hold: bool = false) -> void
 	trip.info["hold"] = hold
 	_rpc_info.rpc(trip.id, trip.info)
 	for peer_id: Variant in peers:
-		_host_board(trip.id, int(peer_id), BOARD_IRIS)
+		_host_board(trip.id, int(peer_id), BOARD_STEP if step else BOARD_IRIS)
 		_stage(int(peer_id), STAGE_RETURNING)
+		if step:
+			stats["return_steps"] = int(stats.get("return_steps", 0)) + 1
+
+
+## Host, for the Annex: this player is at the open side door of the ride home,
+## parked and waiting at Annex B's curb (within VAN_RETURN_STEP_REACH of its step).
+func at_return_door(peer_id: int) -> bool:
+	var trip := _return_trip(false)
+	var player := _player(peer_id)
+	if trip == null or player == null:
+		return false
+	var now := Net.server_time()
+	var leg := _current_leg(trip, now)
+	if leg.is_empty() or int(leg["k"]) != Leg.ANNEX_PARKED or not _door_open(trip, "side", now):
+		return false
+	var step := _pose(trip, now) * _local_marker(trip, "DoorStep").origin
+	return _flat(player.global_position - step) <= Constants.VAN_RETURN_STEP_REACH
 
 
 ## Host, from the Annex: the cohort is all aboard (or the rest left), the return
@@ -930,14 +950,20 @@ func _host_creep(trip: Trip, leg: Dictionary, now: float) -> void:
 	# gets his sprint too.
 	_host_send_stragglers(trip, now + Constants.VAN_PLAN_LEAD)
 	var hopping := false
+	# It creeps for as long as the longest planned run takes him (the run is planned
+	# round the house and capped, VAN_STRAGGLER_RUN_MAX), never leaving him in the road.
+	var creep_for := Constants.VAN_CREEP_MAX
 	for index: Variant in trip.crew.keys():
 		var entry: Dictionary = trip.crew[index]
 		var mode := int(entry["mode"])
 		if mode == CREW_REAR and now < float(entry["at"]) + Constants.VAN_HOP_SECONDS:
 			hopping = true
-		elif mode == CREW_RUN and now < float(entry["at"]) + _straggler_run_seconds(trip, entry) + Constants.VAN_HOP_SECONDS:
-			hopping = true
-	if not hopping or now - trip.creep_started >= Constants.VAN_CREEP_MAX:
+		elif mode == CREW_RUN:
+			var aboard := float(entry["at"]) + _straggler_run_seconds(trip, entry) + Constants.VAN_HOP_SECONDS
+			creep_for = maxf(creep_for, aboard + Constants.VAN_PLAN_LEAD - trip.creep_started)
+			if now < aboard:
+				hopping = true
+	if not hopping or now - trip.creep_started >= creep_for:
 		trip.info["creep_done"] = true
 		# Everyone's on the bumper: off it goes (the back doors shut as the last one
 		# reached them, _host_send_stragglers).
@@ -963,30 +989,85 @@ func _host_send_stragglers(trip: Trip, at: float) -> void:
 		var crew := _crew_node(int(index))
 		if crew == null:
 			continue
-		var run := {"seat": -1, "at": at, "mode": CREW_RUN, "from": crew.global_position}
-		last = maxf(last, at + _straggler_run_seconds(trip, run))
-		_rpc_crew_seat.rpc(trip.id, int(index), -1, at, CREW_RUN, crew.global_position)
+		var plan := _plan_straggler_run(trip, crew, at)
+		last = maxf(last, at + float(plan["run"]))
+		_rpc_crew_run.rpc(trip.id, int(index), at, plan["path"] as PackedVector3Array, float(plan["run"]))
 		stats["stragglers"] = int(stats["stragglers"]) + 1
+		stats["straggler_points"] = (plan["path"] as PackedVector3Array).size()
+		stats["straggler_speed"] = _polyline_length(plan["path"] as PackedVector3Array) / maxf(float(plan["run"]), 0.001)
 		trip.info["doors_for"] = -1.0
 	if last > 0.0 and not is_equal_approx(float(trip.info.get("doors_for", -1.0)), last):
 		trip.info["doors_for"] = last
 		_host_door(trip, "back", false, maxf(last - Constants.VAN_BACK_DOOR_SWING, Net.server_time() + Constants.VAN_PLAN_LEAD))
 
 
-## How long a straggler's sprint lasts: from where he stood to just behind the
-## bumper of a van creeping away from him (every peer works it out the same).
-func _straggler_run_seconds(trip: Trip, entry: Dictionary) -> float:
-	var at := float(entry["at"])
-	var behind := _pose(trip, at) * _straggler_behind(trip).origin
-	var gap := _flat((entry["from"] as Vector3) - behind)
-	var closing := maxf(Constants.VAN_STRAGGLER_RUN_SPEED - Constants.VAN_CREEP_SPEED, 1.0)
-	# Never at the bumper before the back doors have swung open and shut again
-	# (they swing through where he'd stand).
+## How long a straggler's sprint lasts (the host planned it; every peer draws it).
+func _straggler_run_seconds(_trip: Trip, entry: Dictionary) -> float:
+	return float(entry.get("run", Constants.VAN_STRAGGLER_RUN_MIN))
+
+
+## Host: a straggler's run from where he stands at server time at, planned once:
+## his way along the yard's navmesh (round the house, the hedges and the fences;
+## R2c van review: a straight line took him through them at 15 m/s) to just behind
+## the bumper of the van where it will be when he gets there, and how long that
+## takes at VAN_STRAGGLER_RUN_SPEED. {"path": PackedVector3Array, "run": s}
+func _plan_straggler_run(trip: Trip, crew: Node3D, at: float) -> Dictionary:
+	var from := crew.global_position
+	var behind := _straggler_behind(trip).origin
+	var least := _straggler_least(trip, at)
+	var most := maxf(least, Constants.VAN_STRAGGLER_RUN_MAX)
+	var closing := maxf(Constants.VAN_STRAGGLER_RUN_SPEED - Constants.VAN_CREEP_SPEED, Constants.VAN_STRAGGLER_MIN_CLOSING)
+	var run := clampf(_flat(from - _pose(trip, at) * behind) / closing, least, most)
+	var path := PackedVector3Array([from, _pose(trip, at + run) * behind])
+	# The van creeps on while he runs: aim where it'll be, then again from the
+	# way's real length (it settles in a pass or two at a creep).
+	for _pass: int in 3:
+		path = _nav_way(crew, from, _pose(trip, at + run) * behind)
+		run = clampf(_polyline_length(path) / Constants.VAN_STRAGGLER_RUN_SPEED, least, most)
+	path[path.size() - 1] = _pose(trip, at + run) * behind
+	return {"path": path, "run": run}
+
+
+## Never at the bumper before the back doors have swung open and shut again
+## (they swing through where he'd stand): the shortest run starting at at.
+func _straggler_least(trip: Trip, at: float) -> float:
 	var least := Constants.VAN_STRAGGLER_RUN_MIN
 	for event: Variant in trip.doors.get("back", []):
 		if bool((event as Array)[0]) and float((event as Array)[1]) <= at + Constants.VAN_STRAGGLER_RUN_MAX:
-			least = maxf(least, float((event as Array)[1]) + Constants.VAN_BACK_DOOR_SWING * 2.0 + 0.1 - at)
-	return clampf(gap / closing, least, maxf(least, Constants.VAN_STRAGGLER_RUN_MAX))
+			least = maxf(least, float((event as Array)[1]) + Constants.VAN_BACK_DOOR_SWING * 2.0 + Constants.VAN_STRAGGLER_DOOR_MARGIN - at)
+	return least
+
+
+## Host: from to goal along the navmesh the crew walk on, then straight from its
+## edge (the street the van creeps along is off the mesh). Starts at from, ends at
+## goal; straight there when there's no mesh.
+func _nav_way(crew: Node3D, from: Vector3, goal: Vector3) -> PackedVector3Array:
+	var out := PackedVector3Array([from])
+	var agent := crew.get_node_or_null("NavigationAgent3D") as NavigationAgent3D if crew != null else null
+	var map := agent.get_navigation_map() if agent != null else (get_world_3d().navigation_map if is_inside_tree() else RID())
+	if map.is_valid() and NavigationServer3D.map_get_iteration_id(map) > 0:
+		for point: Vector3 in NavigationServer3D.map_get_path(map, from, goal, true):
+			if _flat(point - out[out.size() - 1]) > 0.05:
+				out.append(point)
+	if _flat(goal - out[out.size() - 1]) > 0.05:
+		out.append(goal)
+	else:
+		out[out.size() - 1] = goal
+	return out
+
+
+## How far along a run of length (m) taking seconds he is at tau: up to speed over
+## VAN_STRAGGLER_RAMP s, steady, then pulled up over the same at the end.
+static func _run_distance(length: float, seconds: float, tau: float) -> float:
+	var ramp := minf(Constants.VAN_STRAGGLER_RAMP, seconds / 3.0)
+	var top := length / maxf(seconds - ramp, 0.001)
+	var t := clampf(tau, 0.0, seconds)
+	if t < ramp:
+		return 0.5 * top * t * t / ramp
+	if t > seconds - ramp:
+		var left := seconds - t
+		return length - 0.5 * top * left * left / ramp
+	return 0.5 * top * ramp + top * (t - ramp)
 
 
 ## On the road just behind the bumper, facing the van, where his hop starts.
@@ -1113,7 +1194,7 @@ func _exit_point(trip: Trip, pose: Transform3D, order: int) -> Vector3:
 	# doorway's span) until nothing stands within VAN_EXIT_CLEAR (R2c van).
 	var lamps := _street_lamps()
 	stats["exit_lamps"] = lamps.size()
-	var step := 0.3
+	var step := Constants.VAN_EXIT_SLIDE_STEP
 	for index: int in int(Constants.VAN_EXIT_SLIDE_MAX / step) * 2 + 1:
 		var slide := step * float((index + 1) / 2) * (1.0 if index % 2 == 1 else -1.0)
 		var z := float(local.z) + slide
@@ -1144,10 +1225,10 @@ func _exit_clear(trip: Trip, at: Vector3, lamps: PackedVector3Array) -> bool:
 		return true
 	var shape := CylinderShape3D.new()
 	shape.radius = Constants.VAN_EXIT_CLEAR
-	shape.height = 1.6
+	shape.height = Constants.VAN_EXIT_CLEAR_HEIGHT
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = shape
-	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, 0.3 + 0.8, 0.0))
+	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, Constants.VAN_EXIT_CLEAR_LIFT + Constants.VAN_EXIT_CLEAR_HEIGHT * 0.5, 0.0))
 	query.collision_mask = 0xFFFF & ~Constants.PAD_WALL_LAYER
 	query.collide_with_areas = false
 	for hit: Dictionary in space.intersect_shape(query, 8):
@@ -1576,17 +1657,29 @@ func _watcher_points(avoid: Array) -> Array:
 ## Host: whether anyone but these riders could be watching a van turn up in zone:
 ## a player in it (the yard and the town count as one street), off any van. A dev
 ## watcher (the playtest observer) doesn't count: its camera follows a rider, and
-## cuts with them when they change zone.
+## cuts with them when they change zone. Nor does anyone inside Annex B's building
+## (its lobby and forecourt are one zone): the street is out there, past the walls.
 func _anyone_watching(zone: int, riders: Array) -> bool:
 	var riding := boarded_riders()
+	var annex := get_tree().get_first_node_in_group("annex")
 	for peer_id: int in Net.peer_ids():
 		if riders.has(peer_id) or riding.has(peer_id) or Net.is_watcher(peer_id):
 			continue
 		var theirs := Net.player_zone(peer_id)
+		if theirs == Net.Zone.BORDER and _indoors_at_annex(annex, peer_id):
+			continue
 		var street := [Net.Zone.LOT, Net.Zone.TOWN]
 		if theirs == zone or (street.has(theirs) and street.has(zone)):
 			return true
 	return false
+
+
+## In Annex B's building: walking in, at the windows, or a visitor in the lobby.
+func _indoors_at_annex(annex: Node, peer_id: int) -> bool:
+	if annex == null or not annex.has_method("stage_of") or not bool(annex.call("is_active")):
+		return false
+	var stage := str(annex.call("stage_of", peer_id))
+	return stage == "inside" or stage == "walk" or (annex.call("visitors") as Array).has(peer_id)
 
 
 func _avoid_points(trip: Trip) -> Array:
@@ -2226,6 +2319,17 @@ func _rpc_crew_seat(trip_id: int, crew_index: int, seat: int, at: float, mode: i
 	trip.crew_staged.erase(crew_index)
 
 
+## A straggler's sprint after the creeping van (_plan_straggler_run): from server
+## time at, along path (world space) for run seconds, then the hop onto the bumper.
+@rpc("authority", "call_local", "reliable")
+func _rpc_crew_run(trip_id: int, crew_index: int, at: float, path: PackedVector3Array, run: float) -> void:
+	var trip := _trip(trip_id)
+	if trip == null or path.size() < 2:
+		return
+	trip.crew[crew_index] = {"seat": -1, "at": at, "mode": CREW_RUN, "from": path[0], "path": path, "run": run}
+	trip.crew_staged.erase(crew_index)
+
+
 ## Cosmetic beats the plan doesn't carry: the blinker, the whistle to the crew, the
 ## driver's wave, a honk at someone fiddling with the door.
 @rpc("authority", "call_local", "reliable")
@@ -2493,11 +2597,12 @@ func _sounds(trip: Trip, leg: Dictionary, now: float) -> void:
 				if not trip.played.has(honk_key) and now >= t + Constants.VAN_HONK_EARLIEST and now < t + cruise and is_equal_approx(float(leg.get("t", -1.0)), t) and _locally_seen(trip, Constants.VAN_HONK_NEAR):
 					_sound_once(trip, honk_key, "van_honk", now, now)
 				_sound_once(trip, honk_key, "van_honk", now, t + maxf(cruise - Constants.VAN_HONK_BEFORE_BRAKE, 0.0))
-				_sound_once(trip, "brake%d" % index, "skid", now, t + cruise, Constants.VAN_BRAKE_DB)
-				# And the last squeal as it settles at the curb, close and loud, the
-				# nose dipping (R2c van: the one at 20 m out had no onset in the mix).
+				# The van's own brakes (R2c van review: Chefty's skid, 10 dB down, was
+				# buried under the engine; no onset in any take).
+				_sound_once(trip, "brake%d" % index, "van_brake", now, t + cruise, Constants.VAN_BRAKE_DB)
+				# And a last, softer squeal as it settles at the curb, the nose dipping.
 				var stop_at := t + _segs_seconds(segs)
-				_sound_once(trip, "settle%d" % index, "skid", now, stop_at - Constants.VAN_BRAKE_SETTLE_BEFORE, Constants.VAN_BRAKE_SETTLE_DB)
+				_sound_once(trip, "settle%d" % index, "van_brake", now, stop_at - Constants.VAN_BRAKE_SETTLE_BEFORE, Constants.VAN_BRAKE_SETTLE_DB)
 			Leg.DEPART, Leg.RETURN_DEPART, Leg.LEAVE:
 				# The putt-putt alone: the slide already slammed, and a van that
 				# never stopped (a drive-on) has no door to bonk.
@@ -2655,7 +2760,7 @@ func _rider_local(trip: Trip, peer_id: int, now: float) -> Array:
 			return [seat, true]
 		var k := clampf((u - unbuckle) / Constants.VAN_STEP_SECONDS, 0.0, 1.0)
 		# Stepping down and out, facing away from the van (the seat faces the open side).
-		return [_arc(seat, Transform3D(seat.basis, exit), k, 0.35), false]
+		return [_step_out(seat, exit, k), false]
 	if mode == BOARD_NOW or mode == BOARD_IRIS:
 		return [seat, true]
 	var walk := 0.0
@@ -2678,6 +2783,20 @@ func _rider_local(trip: Trip, peer_id: int, now: float) -> Array:
 		var lean := sin((now - knock) / Constants.VAN_KNOCK_SECONDS * PI)
 		return [seat.interpolate_with(face, lean), true]
 	return [seat, true]
+
+
+## Out of a seat and down onto exit (VanLook space), facing the open side: along
+## the aisle toward exit's place along the van first, then out through the door
+## and down (a curve through VAN_STEP_OUT_TURN_X), so they come out level with
+## where they land, not on a line through whoever stands in the door (R2c van
+## review: the freed friend's eyes went through their rescuer's head).
+static func _step_out(seat: Transform3D, exit: Vector3, k: float) -> Transform3D:
+	var e := k * k * (3.0 - 2.0 * k)
+	var turn := Vector3(Constants.VAN_STEP_OUT_TURN_X, seat.origin.y, exit.z)
+	var a := seat.origin.lerp(turn, e)
+	var b := turn.lerp(exit, e)
+	var at := a.lerp(b, e) + Vector3(0.0, Constants.VAN_STEP_OUT_LIFT * sin(k * PI), 0.0)
+	return Transform3D(seat.basis.orthonormalized(), at)
 
 
 ## From a to b along an arc up to lift meters high, turning from a's facing to b's.
@@ -2992,15 +3111,7 @@ func _crew_local(trip: Trip, index: int, now: float) -> Array:
 			var behind := _straggler_behind(trip)
 			var run := _straggler_run_seconds(trip, entry)
 			if tau < run:
-				# The sprint, in the van's space: from where he stood (falling back as
-				# the van creeps on) to just behind the bumper, easing off at the end.
-				var from := _pose(trip, now).affine_inverse() * (entry["from"] as Vector3)
-				var u := clampf(tau / run, 0.0, 1.0)
-				var at := from.lerp(behind.origin, u * u * (3.0 - 2.0 * u))
-				var dir := behind.origin - from
-				dir.y = 0.0
-				var facing := Basis.looking_at(dir.normalized(), Vector3.UP) if dir.length() > 0.05 else behind.basis
-				return [Transform3D(facing, at), false, false]
+				return [_straggler_place(trip, entry, behind, run, tau, now), false, false]
 			var k := (tau - run) / Constants.VAN_HOP_SECONDS
 			if k < 1.0:
 				return [_arc(behind, rear, k, 0.45), false, false]
@@ -3012,6 +3123,29 @@ func _crew_local(trip: Trip, index: int, now: float) -> Array:
 			if k < 1.0:
 				return [_arc(from, rear, k, 0.45), false, false]
 			return [rear, false, false]
+
+
+## The sprint, in the van's space: along his way across the yard (world space, the
+## host's plan) at a run, up to speed and pulled up at the ends; over his last
+## stretch he's eased onto the van's real bumper, should it be off the plan's.
+## He faces a little way along his way, so he leans into each corner.
+func _straggler_place(trip: Trip, entry: Dictionary, behind: Transform3D, run: float, tau: float, now: float) -> Transform3D:
+	var path: PackedVector3Array = entry.get("path", PackedVector3Array([entry["from"] as Vector3, entry["from"] as Vector3]))
+	var length := _polyline_length(path)
+	var s := _run_distance(length, run, tau)
+	var u := clampf(tau / maxf(run, 0.001), 0.0, 1.0)
+	var drift := _pose(trip, float(entry["at"]) + run) * behind.origin - path[path.size() - 1]
+	var world := _point_at(path, s) + drift * smoothstep(0.6, 1.0, u)
+	var pose := _pose(trip, now)
+	var inverse := pose.affine_inverse()
+	var at := inverse * world
+	var ahead := inverse * (_point_at(path, minf(s + Constants.VAN_STRAGGLER_LOOKAHEAD, length)) + drift) - at
+	ahead.y = 0.0
+	var facing := behind.basis
+	if ahead.length() > 0.05:
+		var w := clampf(1.0 - ahead.length() / Constants.VAN_STRAGGLER_LOOKAHEAD, 0.0, 1.0)
+		facing = Basis.looking_at(ahead.normalized(), Vector3.UP).slerp(behind.basis, w)
+	return Transform3D(facing, at)
 
 
 func _place_crew(trip: Trip, now: float) -> void:

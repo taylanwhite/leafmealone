@@ -93,10 +93,19 @@ const DOOR_WINDOW_Y := Vector2(1.86, 2.62)
 ## The water cooler's middle on the floor (x, z): the cabin's front-left corner.
 const COOLER_AT := Vector2(-0.86, 0.12)
 ## The riders' cab shot: the eye, and what it looks at (the daisy and the road).
-## R2c van: up under the ceiling and back a little, looking nearly level, so the
-## headrests and whoever rides shotgun sit low in the frame instead of filling it.
-const FRESHENER_CAM := Vector3(0.05, 2.78, -0.2)
-const FRESHENER_LOOK := Vector3(0.0, 2.58, -2.6)
+## Leaning in between the front seats: the driver's and shotgun's heads at the
+## edges, the daisy above the road in the middle (R2c van review: from up under
+## the ceiling at (0.05, 2.78, -0.2), a full cab's two heads filled the lower half).
+const FRESHENER_CAM := Vector3(0.0, 2.55, -1.25)
+const FRESHENER_LOOK := Vector3(0.0, 2.5, -4.0)
+## The open side's invisible wall (R2c van): a slab this thick and tall, its
+## middle at x and y, over the doorway's span (Constants.VAN_DOORWAY_Z) and this
+## much past each end, onto the door frame.
+const DOORWAY_X: float = 1.16
+const DOORWAY_Y: float = 1.6
+const DOORWAY_THICK: float = 0.12
+const DOORWAY_HEIGHT: float = 2.6
+const DOORWAY_OVERLAP: float = 0.45
 ## The engine's sound comes from here, under the hood.
 const ENGINE_AT := Vector3(0.0, 1.0, -2.6)
 ## The back doors' hinges (x) and how far they swing open (radians).
@@ -203,9 +212,10 @@ static func build(parent: Node3D, paint: Color = PAINT) -> Node3D:
 	doorway.sync_to_physics = false
 	var gap := CollisionShape3D.new()
 	var gap_box := BoxShape3D.new()
-	gap_box.size = Vector3(0.12, 2.6, 4.8)
+	var span: Vector2 = Constants.VAN_DOORWAY_Z
+	gap_box.size = Vector3(DOORWAY_THICK, DOORWAY_HEIGHT, span.y - span.x + DOORWAY_OVERLAP * 2.0)
 	gap.shape = gap_box
-	gap.position = Vector3(1.16, 1.6, 0.55)
+	gap.position = Vector3(DOORWAY_X, DOORWAY_Y, (span.x + span.y) * 0.5)
 	doorway.add_child(gap)
 	look.add_child(doorway)
 	var motion := Motion.new()

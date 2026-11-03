@@ -76,6 +76,8 @@ static func show_for(player: Node3D, lines: PackedStringArray, total_line: Strin
 		slip.position = Constants.ANNEX_RECEIPT_HOLD + Vector3(0.0, slip.length() * 0.5, 0.0)
 		slip.rotation = Vector3(Constants.ANNEX_RECEIPT_TILT, 0.0, 0.0)
 		slip.set_on_top(true)
+		if player.is_multiplayer_authority():
+			slip.follow_view(player)
 	else:
 		var body := player.get_node_or_null("Visual/CartoonBody") as Node3D
 		var arms: Array = body.get("_arms") if body != null and "_arms" in body else []
@@ -103,6 +105,7 @@ class Slip extends Node3D:
 	var _ticks: int = 0
 	var _rest_position := Vector3.ZERO
 	var _rest_rotation := Vector3.ZERO
+	var _viewer: Node3D = null
 
 	func build(lines: PackedStringArray, total_line: String, at: float, seconds: float) -> void:
 		_start = at
@@ -202,9 +205,24 @@ class Slip extends Node3D:
 
 	## Fed up out of the printer a line at a time, ticking; held up to read;
 	## then pocketed, down and to the right, and gone.
+	## Held up in front of whichever of the player's views is current, from frame
+	## to frame (R2c van review: stepping up into the ride home mid-read, it stayed
+	## on the body's eyes and hung in the doorway while the seat's view took over).
+	func follow_view(player: Node3D) -> void:
+		_viewer = player
+
+	func _follow_view() -> void:
+		if _viewer == null or not is_instance_valid(_viewer):
+			return
+		var stage := _viewer.get_node_or_null("CameraRig/StageCam") as Camera3D
+		var want := stage as Node3D if stage != null and stage.current else _viewer.get_node_or_null("Visual/Head/FirstPerson") as Node3D
+		if want != null and get_parent() != want:
+			reparent(want, false)
+
 	func _process(_delta: float) -> void:
 		if not is_inside_tree():
 			return
+		_follow_view()
 		var t := _Props.now() - _start
 		var feed_time := Constants.RECEIPT_LINE_SECONDS * float(_lines.size())
 		var feed := clampf(t / feed_time, 0.0, 1.0)

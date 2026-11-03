@@ -176,6 +176,9 @@ const SOUNDS: Dictionary = {
 	"door_slam": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	"engine_idle": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 3.0, "db": 0.0},
 	"skid": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# R2c van: the Courtesy Shuttle's brakes, its own squeal (it borrowed skid, which
+	# its engine buried), carrying as far as the engine does.
+	"van_brake": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.2, "db": 0.0, "unit_size": Constants.VAN_BRAKE_UNIT_SIZE, "max_distance": Constants.VAN_ENGINE_MAX_DISTANCE},
 	# ---- hotbar (player/pockets.gd): picking a pocket, something going into one,
 	# something coming out of one, and full pockets jangling as you walk (chunk D).
 	"slot_tick": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SETTINGS_TICK_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.2, "db": -3.0},

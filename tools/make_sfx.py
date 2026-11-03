@@ -343,6 +343,23 @@ def skid() -> list[float]:
     return envelope([a * 0.8 + b * 0.35 for a, b in zip(squeal, hiss)], 0.02, 0.3)
 
 
+def van_brake() -> list[float]:
+    """The Courtesy Shuttle's brakes as it pulls up: a rubbery bite you hear land
+    (a short bright chirp at full level from the first few ms), then a squeal that
+    sags in pitch as the van sheds speed, over a hiss, fading as it stops. Louder
+    and longer than Chefty's drift `skid`, and carries farther (sound_bank.gd): the
+    van's own engine buried the skid it used to borrow (R2c van review)."""
+    rng = random.Random(91)
+    seconds = 1.05
+    out = silence(seconds)
+    bite = envelope(bandpass(noise(rng, 0.08), 3000.0, 1.2), 0.002, 0.06)
+    mix_into(out, bite, 0.0, 0.9)
+    squeal = bandpass(tone(seconds, glide(1520.0, 1050.0, seconds), "triangle", (13.0, 0.035)), 1300.0, 1.6)
+    hiss = bandpass(noise(rng, seconds), 2800.0, 1.4)
+    mix_into(out, envelope([a + b * 0.4 for a, b in zip(squeal, hiss)], 0.006, 0.4), 0.0, 1.0)
+    return out
+
+
 def brass(seconds: float, freq, vibrato: tuple = (5.5, 0.012)) -> list[float]:
     """A cartoon trombone: a saw shaped to sound like a brass 'bwah'."""
     raw = tone(seconds, freq, "saw", vibrato)
@@ -652,6 +669,8 @@ SOUNDS = {
     "truck_horn": (truck_horn, 0, 0.75),
     "door_slam": (door_slam, 0, 0.7),
     "skid": (skid, 0, 0.45),
+    # ---- R2c van: the Courtesy Shuttle's own brakes (net/run_events/shuttle.gd)
+    "van_brake": (van_brake, 0, 0.8),
     # ---- hotbar (player/pockets.gd)
     "slot_tick": (slot_tick, 0, 0.3),
     "pocket": (pocket, 0, 0.5),

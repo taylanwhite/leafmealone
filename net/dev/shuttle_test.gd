@@ -26,6 +26,7 @@ extends Node
 ##             and a NICE BOY hops onto the bumper
 ##   straggler_aboard (R2c van) it drives off only with him on the bumper and
 ##             its back doors shut
+##   straggler_pace (R2c van review) his run is a navmesh way taken at a run
 ##   ride      the rider's zone moves only after their iris has closed (the host's
 ##             schedule; the client's iris too when it has one), the van is freed
 ##             after it leaves, and nothing the client saw moved faster than
@@ -344,6 +345,11 @@ func _step_straggler(shuttle: Node) -> void:
 		up = crew.global_position.y - (shuttle.call("trip_pose", trip, Net.server_time()) as Transform3D).origin.y
 	var shut := back != null and float(back.get("openness")) < 0.05
 	_check("straggler_aboard", departed != null and on_bumper >= 0.0 and on_bumper <= STRAGGLER_ON_BUMPER and up > 0.5 and shut, "drove off %s with him %.2f m from the bumper step (want <= %.2f), %.2f m up, back doors shut %s" % [departed != null, on_bumper, STRAGGLER_ON_BUMPER, up, shut])
+	# R2c van review: his run is a way along the navmesh at a run, not a straight
+	# line at whatever speed a fixed time needed.
+	var stats: Dictionary = shuttle.get("stats")
+	var pace := float(stats.get("straggler_speed", -1.0))
+	_check("straggler_pace", int(stats.get("straggler_points", 0)) >= 2 and pace > 0.0 and pace <= Constants.VAN_STRAGGLER_RUN_SPEED + 0.05, "his way has %d points, run at %.2f m/s (want <= %.2f)" % [int(stats.get("straggler_points", 0)), pace, Constants.VAN_STRAGGLER_RUN_SPEED])
 
 
 func _step_ride(shuttle: Node) -> void:

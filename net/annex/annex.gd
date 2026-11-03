@@ -461,25 +461,33 @@ func _through(peer_id: int, by_closing: bool) -> void:
 ## stands about on the pavement or in its aisle (28 s in the e2e audit).
 func _maybe_return() -> void:
 	var waiting: Array[int] = []
+	var stepping: Array = []
 	var inside := 0
 	var now := Net.server_time()
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
 	for peer_id: int in _roster:
 		var stage := stage_of(peer_id)
 		if stage == STAGE_THROUGH and not _returning.has(peer_id):
 			# The forecourt is theirs for a moment first: the receipt prints, is
 			# held up and pocketed before the shuttle home takes them (R2b). Let
 			# out at closing time there is no forecourt: the door swings shut over
-			# the lobby and opens on the seat (R2c van).
+			# the lobby and opens on the seat (R2c van). Walk up to the ride home's
+			# open door meanwhile and you step in there (R2c van review).
 			var entry: Dictionary = _stages.get(peer_id, {})
 			if not bool(entry.get("closing", false)) and now < float(entry.get("out_at", 0.0)) + Constants.ANNEX_FORECOURT_BEAT:
+				if shuttle != null and shuttle.has_method("at_return_door") and bool(shuttle.call("at_return_door", peer_id)):
+					stepping.append(peer_id)
+					_returning[peer_id] = INF
+					continue
 				inside += 1
 				continue
 			waiting.append(peer_id)
 		elif stage == STAGE_INSIDE or stage == STAGE_WALK:
 			inside += 1
-	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
 	if shuttle != null and shuttle.has_method("host_start_return"):
 		var more := Constants.ANNEX_FINISH_AS_GROUP and inside > 0
+		if not stepping.is_empty():
+			shuttle.call("host_start_return", stepping, _drop_target(), more or not waiting.is_empty(), true)
 		if not waiting.is_empty():
 			var peers: Array = []
 			for id: int in waiting:
