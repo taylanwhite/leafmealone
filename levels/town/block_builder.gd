@@ -25,8 +25,10 @@ extends RefCounted
 ##   job        the job yard (a Dictionary, see build_for_job): the slot at x 0 is
 ##              left empty, Chefty's lane is kept clear, and a far parcel in the
 ##              NICE BOYS van's way out is left a vacant lot
-##   async      true (default): parcels are built ART_BLOCK_PARCELS_PER_FRAME a
-##              frame after the street and set pieces; false builds it all now
+##   async      true (default): the street, the plan, the set pieces, each parcel
+##              and the finish are BuildQueue steps (levels/build_queue.gd, one
+##              parcel a frame at most: a job's block used to hold a joiner's
+##              frame for seconds); false builds it all now
 ##   length     street length (default STREET_LENGTH)
 ##   grass      false: no grass (default true)
 ##   detail     parcels' detail ("full")
@@ -48,6 +50,7 @@ const _Trees = preload("res://props/trees.gd")
 const _Grass = preload("res://props/grass.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
 const _StreetLife = preload("res://levels/dressing/street_life.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 
 ## The job yard's slot: x +-JOB_HALF between the hedge rows.
 const JOB_HALF: float = 21.2
@@ -83,46 +86,119 @@ static func build(parent: Node3D, xform: Transform3D, hood_id: String, block_see
 	root.set_meta("hood_style", hood)
 	parent.add_child(root)
 	var is_job := opts.has("job")
-	var yard: Dictionary = opts.get("job", {})
 	var length := float(opts.get("length", _Neighborhood.STREET_LENGTH))
-	var lane: Rect2 = opts.get("keep_clear_lane", Constants.ART_CHEFTY_LANE if is_job else Rect2())
-	var batch := _PropBatch.new(root)
-	var kit := _HouseKit.new()
-	var street_z := (_Neighborhood.STREET.x + _Neighborhood.STREET.y) * 0.5
 	var terrace := hood == "mansion_hill"
-	var far_y := Constants.ART_TERRACE_HEIGHT if terrace else 0.0
-	# yard_hash: the job yard's own look decisions (levels/lots/lot_generator.gd).
-	var digest: Array = [hood, block_seed, season, length, is_job, int(opts.get("yard_hash", 0))]
-	# 1. The street.
+	var state := {
+		"root": root, "look": look, "hood": hood, "opts": opts, "is_job": is_job, "yard": opts.get("job", {}),
+		"length": length, "lane": opts.get("keep_clear_lane", Constants.ART_CHEFTY_LANE if is_job else Rect2()),
+		"batch": _PropBatch.new(root), "kit": _HouseKit.new(), "street_z": (_Neighborhood.STREET.x + _Neighborhood.STREET.y) * 0.5,
+		"far_y": Constants.ART_TERRACE_HEIGHT if terrace else 0.0, "season": season, "seed": block_seed,
+		# yard_hash: the job yard's own look decisions (levels/lots/lot_generator.gd).
+		"digest": [hood, block_seed, season, length, is_job, int(opts.get("yard_hash", 0))],
+		"grass": bool(opts.get("grass", true)), "started": started, "meta_target": opts.get("meta_target", null),
+	}
+	# Async (in the tree): each piece below, each parcel and the finish are
+	# BuildQueue steps (levels/build_queue.gd), so a job's block never holds up
+	# a frame for more than one of them. They run in this order either way, so
+	# the block (and its art hash) is the same.
+	var steps: Array[Callable] = [_build_street.bind(state), _build_plan.bind(state), _build_pieces.bind(state), _build_decor.bind(state)]
+	state["async"] = bool(opts.get("async", true)) and root.is_inside_tree()
+	if bool(state["async"]):
+		for step: Callable in steps:
+			_BuildQueue.later(root, _while_built(root, step), "block")
+		_BuildQueue.later(root, _while_built(root, _build_async.bind(state)), "block")
+	else:
+		for step: Callable in steps:
+			step.call()
+		for index: int in (state["reqs"] as Array).size():
+			_LotBuilder.build(root, (state["slots"][index] as Dictionary)["xform"], state["reqs"][index])
+		_finish(state)
+	return root
+
+
+## A piece of a step: a BuildQueue step of its own when the block is built
+## async (right after the step that hands it over), else now.
+static func _part(state: Dictionary, fn: Callable) -> void:
+	if bool(state.get("async", false)):
+		_BuildQueue.later(state["root"], _while_built(state["root"], fn), "block part")
+	else:
+		fn.call()
+
+
+## step, run only while root is still in the tree (a yard swapped out mid-build).
+static func _while_built(root: Node3D, step: Callable) -> Callable:
+	return func() -> void:
+		if is_instance_valid(root) and root.is_inside_tree():
+			step.call()
+
+
+## 1. The street, and the job yard's frontage.
+static func _build_street(state: Dictionary) -> void:
+	var root: Node3D = state["root"]
+	var look: Dictionary = state["look"]
+	var length := float(state["length"])
+	var street_z := float(state["street_z"])
 	var street := _StreetBuilder.segment(root, Vector3(-length * 0.5, 0.0, street_z), Vector3(length * 0.5, 0.0, street_z), look,
-		{"batch": batch, "keep_clear_lane": lane, "hood": hood})
+		{"batch": state["batch"], "keep_clear_lane": state["lane"], "hood": state["hood"]})
+	state["street"] = street
 	var lamps: PackedVector3Array = street.get_meta("lamps")
+	state["lamps"] = lamps
 	root.set_meta("lamps", lamps)
-	if is_job:
-		digest.append(_job_frontage(root, look, yard, kit, batch))
-	# 2. Plan every parcel (data only), then top up the hood's signatures.
-	var slots := _slots(look, length, is_job, far_y, block_seed)
+	if bool(state["is_job"]):
+		(state["digest"] as Array).append(_job_frontage(root, look, state["yard"], state["kit"], state["batch"]))
+
+
+## 2. Plan every parcel (data only), then top up the hood's signatures.
+static func _build_plan(state: Dictionary) -> void:
+	var look: Dictionary = state["look"]
+	var block_seed := int(state["seed"])
+	var slots := _slots(look, float(state["length"]), bool(state["is_job"]), float(state["far_y"]), block_seed)
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([block_seed, "block", hood])
-	var reqs := _requests(slots, look, block_seed, season, str(opts.get("detail", "full")), is_job, root, batch, kit)
+	rng.seed = hash([block_seed, "block", state["hood"]])
+	var reqs := _requests(slots, look, block_seed, int(state["season"]), str((state["opts"] as Dictionary).get("detail", "full")), bool(state["is_job"]), state["root"], state["batch"], state["kit"])
 	var plans: Array = []
+	state["slots"] = slots
+	state["reqs"] = reqs
+	state["plans"] = plans
+	state["rng"] = rng
+	# A parcel plan is 5-15 ms: one a part.
 	for req: Dictionary in reqs:
-		plans.append(_LotBuilder.plan(req))
-	_top_up(look, slots, reqs, plans, street)
-	_labels(slots, reqs, plans)
-	# 3. Set pieces, side boundaries, the back boundary, street trees and cars.
-	var pieces := _set_pieces(root, look, slots, plans, lamps, length, season, block_seed, batch, far_y)
-	digest.append(pieces)
-	_side_boundaries(root, look, slots, length, is_job, far_y)
+		_part(state, func() -> void: plans.append(_LotBuilder.plan(req)))
+	_part(state, func() -> void:
+		_top_up(look, slots, reqs, plans, state["street"])
+		_labels(slots, reqs, plans))
+
+
+## 3. Set pieces, side boundaries, the back boundary, street trees and cars.
+static func _build_pieces(state: Dictionary) -> void:
+	var root: Node3D = state["root"]
+	var look: Dictionary = state["look"]
+	var length := float(state["length"])
+	var block_seed := int(state["seed"])
+	var batch: RefCounted = state["batch"]
+	var far_y := float(state["far_y"])
+	var pieces := _set_pieces(root, look, state["slots"], state["plans"], state["lamps"], length, int(state["season"]), block_seed, batch, far_y)
+	(state["digest"] as Array).append(pieces)
+	_part(state, func() -> void: _side_boundaries(root, look, state["slots"], length, bool(state["is_job"]), far_y))
 	var back := str(look.get("back_boundary", "wood_fence"))
-	_SetPieces.back_boundary(root, back, Constants.ART_BACK_BOUNDARY_Z, length, batch, block_seed)
 	root.set_meta("back_boundary", back)
-	if is_job:
-		_street_life(root, look, lamps, back, block_seed)
-	_street_trees(root, look, length, far_y, rng, batch)
-	_parked_cars(look, length, rng, batch, lane)
-	# Block decor data: curbs, the drives the snowbanks leave open, the inflatable's spot.
-	var gaps: Array = [Vector2(-2.8, 2.8)] if is_job else []
+	_part(state, func() -> void:
+		_SetPieces.back_boundary(root, back, Constants.ART_BACK_BOUNDARY_Z, length, batch, block_seed)
+		if bool(state["is_job"]):
+			_street_life(root, look, state["lamps"], back, block_seed))
+	_part(state, func() -> void:
+		_street_trees(root, look, length, far_y, state["rng"], batch)
+		_parked_cars(look, length, state["rng"], batch, state["lane"]))
+
+
+## 4. Block decor data: curbs, the drives the snowbanks leave open, the inflatable's spot.
+static func _build_decor(state: Dictionary) -> void:
+	var root: Node3D = state["root"]
+	var slots: Array = state["slots"]
+	var plans: Array = state["plans"]
+	var street: Node3D = state["street"]
+	var street_z := float(state["street_z"])
+	var gaps: Array = [Vector2(-2.8, 2.8)] if bool(state["is_job"]) else []
 	for index: int in plans.size():
 		var drive: Array = (plans[index] as Dictionary)["drive"]
 		if drive.size() == 2:
@@ -133,23 +209,10 @@ static func build(parent: Node3D, xform: Transform3D, hood_id: String, block_see
 	for curb: Array in street.get_meta("curbs", []):
 		var out := Vector3(0.0, 0.0, signf((curb[0] as Vector3).z - street_z) * 0.6)
 		banks.append([(curb[0] as Vector3) + out, (curb[1] as Vector3) + out])
-	var decor := {"curbs": banks, "gaps": gaps, "inflatable": _inflatable_spot(slots, plans, block_seed)}
+	var decor := {"curbs": banks, "gaps": gaps, "inflatable": _inflatable_spot(slots, plans, int(state["seed"]))}
 	root.set("decor", decor)
 	for plan: Dictionary in plans:
-		digest.append(plan["hash"])
-	var state := {
-		"root": root, "slots": slots, "reqs": reqs, "plans": plans, "batch": batch, "kit": kit, "look": look,
-		"yard": yard, "is_job": is_job, "length": length, "season": season, "seed": block_seed, "digest": digest,
-		"grass": bool(opts.get("grass", true)), "started": started, "meta_target": opts.get("meta_target", null),
-	}
-	if bool(opts.get("async", true)) and root.is_inside_tree():
-		_build_async(state)
-	else:
-		for index: int in reqs.size():
-			_LotBuilder.build(root, (slots[index] as Dictionary)["xform"], reqs[index])
-		_finish(state)
-	return root
-
+		(state["digest"] as Array).append(plan["hash"])
 
 ## The job's block, under the job lot (gap-specs/art.json, critic C24):
 ## neighbors, street, set pieces and back boundary from (hood, job_seed, season),
@@ -635,25 +698,18 @@ static func _inflatable_spot(slots: Array, plans: Array, block_seed: int) -> Var
 
 # ---------------------------------------------------------------- building
 
+## The parcels, one BuildQueue step each, then the finish (levels/build_queue.gd).
 static func _build_async(state: Dictionary) -> void:
 	var root: Node3D = state["root"]
-	var tree := root.get_tree()
 	var reqs: Array = state["reqs"]
 	var slots: Array = state["slots"]
-	var per := maxi(1, Constants.ART_BLOCK_PARCELS_PER_FRAME)
 	for index: int in reqs.size():
-		if index > 0 and index % per == 0:
-			await tree.process_frame
-			if not is_instance_valid(root) or not root.is_inside_tree():
-				return
-		# A season that turned mid-build (parcel.gd moved root.season): the rest
-		# are built for it, and the ones already built turned with it.
-		(reqs[index] as Dictionary)["season"] = int(root.get("season"))
-		_LotBuilder.build(root, (slots[index] as Dictionary)["xform"], reqs[index])
-	await tree.process_frame
-	if not is_instance_valid(root) or not root.is_inside_tree():
-		return
-	_finish(state)
+		_BuildQueue.later(root, _while_built(root, func() -> void:
+			# A season that turned mid-build (parcel.gd moved root.season): the rest
+			# are built for it, and the ones already built turned with it.
+			(reqs[index] as Dictionary)["season"] = int(root.get("season"))
+			_LotBuilder.build(root, (slots[index] as Dictionary)["xform"], reqs[index])), "block parcel")
+	_BuildQueue.later(root, _while_built(root, _finish.bind(state)), "block finish")
 
 
 ## After the last parcel: grass, the batched props and the ground, the block's

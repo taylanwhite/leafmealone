@@ -149,9 +149,17 @@ func _tour(camera: Camera3D, label: String) -> void:
 		return
 	if bool(world.call("is_town_map")) and not _toured.has("Town"):
 		_toured["Town"] = true
+		# The town streams its houses (levels/town/town_streamer.gd): each stop gets
+		# what a camera there would have once it had been there a while.
+		var streamer := world.get_node_or_null("TownStreamer")
+		preload("res://levels/build_queue.gd").finish(get_tree())
 		for stop: Array in TOUR["Town"]:
 			camera.look_at_from_position(stop[1], stop[2], Vector3.UP)
+			if streamer != null:
+				streamer.call("settle_now", stop[1])
 			await _shoot("%s/%s_tour_%s.png" % [_dir, label, stop[0]])
+		if streamer != null:
+			streamer.call("settle_now", Vector3.INF)
 	var zone_names := {Net.Zone.STORE: "StoreZone", Net.Zone.LOT: "LotZone", Net.Zone.BORDER: "BorderZone"}
 	var zone_name: String = zone_names.get(Net.player_zone(Net.local_peer_id()), "")
 	var zone := world.get_node_or_null(zone_name) as Node3D

@@ -6,6 +6,8 @@ extends RefCounted
 ## builds and moves the same people under the same names, which is how the host's
 ## bonk messages find them.
 
+const _BuildQueue = preload("res://levels/build_queue.gd")
+
 
 ## routes: pairs of zone-space points, one sidewalk each. count walkers share them.
 static func populate(zone: Node3D, routes: Array, count: int, seed_value: int) -> void:
@@ -23,4 +25,11 @@ static func populate(zone: Node3D, routes: Array, count: int, seed_value: int) -
 		walker.set("speed", rng.randf_range(1.0, 1.6))
 		walker.set("phase", rng.randf_range(0.0, 400.0))
 		walker.set("seed_value", seed_value * 100 + index)
-		root.add_child(walker)
+		# A walker's body is a whole cartoon body: one BuildQueue step each
+		# (levels/build_queue.gd). Its name and route are set, so it walks where
+		# every other peer's does from the moment it's in.
+		_BuildQueue.later(root, func() -> void:
+			if is_instance_valid(root):
+				root.add_child(walker)
+			else:
+				walker.free(), "walker")

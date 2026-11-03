@@ -12,13 +12,22 @@ extends Node3D
 ## cars, the landmarks, the country trees, the lake's low wall, and Marty's
 ## pallet ramp at Homie Depot. Curbs have no collider: vehicles ride over them.
 ##
-## A yard slot's house comes from the house's seed (the job yard's
-## LotGenerator.house_spec), which clients learn with the town's state
-## (net/town/town.gd); until then those shapes wait, disabled. While a slot is
-## the job site its shapes are off, since the job yard brings its own HouseBody
-## (set_slot_enabled).
+## A yard slot's house comes from the house's seed (the job yard's house), which
+## clients learn with the town's state (net/town/town.gd); until then those
+## shapes wait, disabled. While a slot is the job site its shapes are off, since
+## the job yard brings its own HouseBody (set_slot_enabled).
+##
+## The houses' solids are art's (levels/town/lot_builder.gd colliders: the
+## house's walls and roofs, and its trees' trunks), from the same parcel request
+## the streamer draws them with (TownStreamer.parcel_request), so what you see
+## is what you hit. Working one out costs a parcel plan, so each slot's are a
+## BuildQueue step (levels/build_queue.gd), ahead of the dressing (soon), over
+## the town's first frames; the houses stand 380 m from the store, where
+## everyone starts.
 
-const _Fallback = preload("res://levels/town/fallback_house.gd")
+const _LotBuilder = preload("res://levels/town/lot_builder.gd")
+const _Streamer = preload("res://levels/town/town_streamer.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 const GROUND_THICKNESS: float = 0.2
 const LAMP_RADIUS: float = 0.15
 const LAMP_HEIGHT: float = 5.2
@@ -50,9 +59,7 @@ func _ready() -> void:
 	var bounds := TownMap.TOWN_BOUNDS
 	_add_box("Ground", Vector3(bounds.get_center().x, -0.02 - GROUND_THICKNESS * 0.5, bounds.get_center().z), Vector3(bounds.size.x, GROUND_THICKNESS, bounds.size.z))
 	for slot: Dictionary in TownMap.dressing_slots():
-		var xform: Transform3D = slot["xform"]
-		for solid: Array in _Fallback.colliders(str(slot["hood"]), int(slot["seed"]), int(slot["size"])):
-			_add_box("Dressing", xform * (solid[0] as Vector3), solid[1], xform.basis)
+		_BuildQueue.soon(self, _add_across.bind(slot), "town solids across")
 	for lamp: Array in TownMap.lamp_spots():
 		_add_cylinder("Lamp", (lamp[0] as Vector3) + Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0), LAMP_RADIUS, LAMP_HEIGHT)
 	for car: Array in TownMap.car_spots():
@@ -136,17 +143,34 @@ func _refresh_yards() -> void:
 		return
 	_built_from = key
 	for house_id: int in TownMap.house_count():
-		for shape: CollisionShape3D in _slots[house_id]:
-			_body.remove_child(shape)
-			shape.queue_free()
-		var shapes: Array = []
 		var entry: Dictionary = houses[house_id]
-		var xform := TownMap.yard_transform(house_id)
-		for solid: Array in _Fallback.colliders(TownMap.hood_id_of(house_id), int(entry.get("seed", 0)), int(entry.get("size", 1))):
-			var shape := _add_box("Yard%d" % house_id, xform * (solid[0] as Vector3), solid[1], xform.basis)
-			shape.disabled = _off.has(house_id)
-			shapes.append(shape)
-		_slots[house_id] = shapes
+		_BuildQueue.soon(self, _add_yard.bind(house_id, int(entry.get("seed", 0)), int(entry.get("size", 1)), key), "town solids yard")
+
+
+## One house across the street: its solids.
+func _add_across(slot: Dictionary) -> void:
+	var xform: Transform3D = slot["xform"]
+	var req := _Streamer.parcel_request(str(slot["hood"]), int(slot["seed"]), int(slot["size"]), int(slot["hood_index"]), true)
+	for solid: Array in _LotBuilder.colliders(req):
+		_add_box("Dressing", xform * (solid[0] as Vector3), solid[1], xform.basis)
+
+
+## One yard slot's house: its solids, unless the seeds changed again since.
+func _add_yard(house_id: int, house_seed: int, size: int, built_from: int) -> void:
+	if built_from != _built_from:
+		return
+	for shape: CollisionShape3D in _slots[house_id]:
+		_body.remove_child(shape)
+		shape.queue_free()
+	var shapes: Array = []
+	var xform := TownMap.yard_transform(house_id)
+	var hood_index := int(TownMap.slot_of(house_id)["hood_index"])
+	var req := _Streamer.parcel_request(TownMap.hood_id_of(house_id), house_seed, size, hood_index, false)
+	for solid: Array in _LotBuilder.colliders(req):
+		var shape := _add_box("Yard%d" % house_id, xform * (solid[0] as Vector3), solid[1], xform.basis)
+		shape.disabled = _off.has(house_id)
+		shapes.append(shape)
+	_slots[house_id] = shapes
 
 
 func _add_box(label: String, center: Vector3, size: Vector3, basis: Basis = Basis.IDENTITY) -> CollisionShape3D:

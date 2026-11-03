@@ -34,6 +34,14 @@ var _throttle_trace: Array[int] = []
 ## once-a-second throttle sample above never saw that (docs/DECISIONS.md, 2026-11-03).
 var _throttle_limit_min: int = -1
 
+## A join (driving chunk E): the longest frame (ms) in the first JOIN_WINDOW_SECONDS
+## after this peer was first linked (connected to the host, or hosting), what
+## that frame was, and when (s after the link). Loading the world used to take
+## one 2-5 s frame, long enough for ENet to drop the peer (docs/DECISIONS.md).
+const JOIN_WINDOW_SECONDS: float = 30.0
+var _linked_at: float = -1.0
+var _join_stall_ms: float = 0.0
+var _join_stall_at: float = -1.0
 var _started_msec: int = 0
 var _session_msec: int = -1
 var _wait: float = 0.0
@@ -150,6 +158,7 @@ func _process(delta: float) -> void:
 	var now := local_seconds()
 	if _last_frame_at >= 0.0 and now - _last_frame_at > LONG_FRAME_SECONDS and _stalls.size() < STALL_LOG_MAX:
 		_stalls.append([_last_frame_at, now])
+	_track_join(now)
 	_last_frame_at = now
 	if _session_msec < 0 and Net.current_state() == Net.State.IN_SESSION:
 		_session_msec = Time.get_ticks_msec()
@@ -309,6 +318,9 @@ func write_report() -> void:
 		"physics_active_bodies_max": _active_bodies,
 		"physics_collision_pairs_max": _collision_pairs,
 		"long_frames": _long_frames,
+		"join_stall_ms": snappedf(_join_stall_ms, 0.1),
+		"join_stall_at": snappedf(_join_stall_at, 0.01),
+		"build_queue": preload("res://levels/build_queue.gd").stats.duplicate(),
 		"enet_throttle_min": _throttle_min,
 		"enet_throttle_trace": _throttle_trace,
 		"enet_throttle_limit_min": _throttle_limit_min,
@@ -612,6 +624,21 @@ func _voice_report() -> Dictionary:
 		# times the senders' own (host time).
 		"gap_log": (stats["gap_log"] as Array).duplicate(),
 	}
+
+
+## The join's longest frame (see JOIN_WINDOW_SECONDS).
+func _track_join(now: float) -> void:
+	var link := multiplayer.multiplayer_peer
+	if _linked_at < 0.0:
+		if link != null and not (link is OfflineMultiplayerPeer) and link.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
+			_linked_at = now
+		return
+	if _last_frame_at < _linked_at or now - _linked_at > JOIN_WINDOW_SECONDS:
+		return
+	var frame_ms := (now - _last_frame_at) * 1000.0
+	if frame_ms > _join_stall_ms:
+		_join_stall_ms = frame_ms
+		_join_stall_at = _last_frame_at - _linked_at
 
 
 func _track_throttle() -> void:

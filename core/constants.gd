@@ -2607,7 +2607,6 @@ const ART_PROP_CHUNK: float = 32.0
 ## draws two meshes (its near Look and its far LookFar), so a tree counts twice.
 const ART_BLOCK_MAX_VISUALS: int = 652
 const ART_YARD_MAX_VISUALS: int = 177
-const ART_BLOCK_PARCELS_PER_FRAME: int = 2
 const ART_NEIGHBOR_LEAF_PATCHES: int = 3
 const ART_STRING_LIGHT_SPACING: float = 0.45
 const ART_GRASS_WINTER_SPACING_SCALE: float = 1.6
@@ -3604,3 +3603,38 @@ const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
 ## stepped by Jolt in its own float precision, missed that 29 times in 30 and
 ## bounced off the rail.
 const TOSS_SURE_SHARE: float = 0.04
+
+# ---- driving: streaming and spread-out builds (driving chunk E; levels/build_queue.gd,
+# levels/town/town_streamer.gd; docs/DECISIONS.md "Builds are spread over frames")
+## The world's dressing (levels/build_queue.gd): at most this much of a frame
+## (ms) goes to building before the frame is let go. A joining peer built its
+## whole world in one 2-5 s frame before, long enough for ENet to drop it.
+const BUILD_MS_PER_FRAME: float = 8.0
+## The town streamer (levels/town/town_streamer.gd): chunks of houses draw full
+## (LOD 0) nearer the camera than this (m), simpler (LOD 1) nearer than
+## STREAM_LOD1_METERS, only as the neighborhood's skyline beyond that, and not
+## at all past STREAM_CULL_METERS.
+const STREAM_LOD0_METERS: float = 110.0
+const STREAM_LOD1_METERS: float = 260.0
+const STREAM_CULL_METERS: float = 420.0
+## A chunk only changes LOD this far (m) past the line it crossed, so one parked
+## at a boundary doesn't swap back and forth.
+const STREAM_HYSTERESIS_METERS: float = 12.0
+## The streamer's build budget per frame (ms) once the town is up, and how often
+## (s) it looks at where the camera is.
+const STREAM_BUILD_MS_PER_FRAME: float = 3.0
+const STREAM_TICK_SECONDS: float = 0.25
+## Yard slots per streamed chunk, along one side of one street.
+const STREAM_SLOTS_PER_CHUNK: int = 3
+## The far skyline (one merged mesh per neighborhood) starts drawing this far
+## out (m), under the LOD 1 houses it stands in for.
+const STREAM_SKYLINE_BEGIN_METERS: float = 240.0
+## A LOD swap fades the new look in and the old one out over this long (s), so
+## a house never pops.
+const STREAM_FADE_SECONDS: float = 0.6
+## ENet (net/net.gd): a peer that hasn't acknowledged anything for this long (ms)
+## is dropped, never sooner than the minimum. ENet's own 5 s minimum dropped a
+## player whose machine stalled loading the world (docs/DECISIONS.md).
+const ENET_TIMEOUT_LIMIT: int = 32
+const ENET_TIMEOUT_MIN_MS: int = 12000
+const ENET_TIMEOUT_MAX_MS: int = 30000

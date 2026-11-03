@@ -1250,6 +1250,16 @@ func _state() -> Dictionary:
 	var heat := get_tree().get_first_node_in_group("heat")
 	if heat != null:
 		out["heat"] = snappedf(float(heat.get("heat")), 0.1)
+	# The connected town's streaming (driving chunk E): levels, builds, frames, draw calls.
+	if get_tree().get_first_node_in_group("town_streamer") != null:
+		var streamed: Dictionary = preload("res://levels/town/town_streamer.gd").stats
+		out["streamer"] = {
+			"lod": [streamed.get("chunks_lod0", 0), streamed.get("chunks_lod1", 0), streamed.get("chunks_skyline", 0)],
+			"builds": streamed.get("builds", 0), "max_build_ms": snappedf(float(streamed.get("max_build_ms", 0.0)), 0.1),
+			"max_frame_ms": snappedf(float(streamed.get("max_frame_ms", 0.0)), 0.1), "pending": streamed.get("pending", 0),
+			"draw_calls": streamed.get("draw_calls", 0), "draw_calls_max": streamed.get("draw_calls_max", 0),
+			"queue": preload("res://levels/build_queue.gd").stats.duplicate(),
+		}
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and int(director.call("phase")) != 0:
 		out["raid"] = ["QUIET", "WARNING", "CHASE", "DEPARTING"][clampi(int(director.call("phase")), 0, 3)]

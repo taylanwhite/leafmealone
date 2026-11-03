@@ -35,6 +35,7 @@ const _Clerk = preload("res://npcs/clerk.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _NiceSeal = preload("res://props/nice_seal.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 
 ## The windows a run can ask for, and the pictograms and colors they can wear
 ## (the icons are the tools' own, ui/icons.gd, so the form's boxes match).
@@ -88,6 +89,9 @@ var looks: Dictionary = {}
 var _far: bool = false
 var _staff: Node3D
 var _lamps_checked: int = -1
+## The build's merged furniture and glass, baked in its last step.
+var _furnished: MeshInstance3D
+var _glass_view: MeshInstance3D
 
 
 ## Builds the set under parent (World/BorderZone) and returns it, named AnnexSet.
@@ -211,6 +215,11 @@ func _update_lamp_shadows() -> void:
 
 # ---------------------------------------------------------------- the build
 
+## In steps (levels/build_queue.gd): the world builds the set over a few frames
+## (it took 650 ms in one), in this order; with no queue (the studio, the annex
+## check) every step runs right away, as before. Its markers and windows exist
+## once the queue reaches them; net/annex/annex.gd's ensure_set finishes the
+## queue first.
 func _build() -> void:
 	var defaults := looks_for(set_seed)
 	for index: int in 3:
@@ -219,33 +228,42 @@ func _build() -> void:
 	_hide_pad_floor()
 	var shell := _HouseKit.new()
 	var furniture := _MeshKit.new()
-	_ground(shell, furniture)
-	_outside(shell, furniture)
-	_room(shell, furniture)
-	_lobby(shell, furniture)
-	shell.call("commit", self, "Shell")
-	var furnished := _Stylized.instance(furniture.commit(), {"roughness": 0.85})
-	furnished.name = "Furniture"
-	add_child(furnished)
-	var glass := _glass()
-	_colliders()
-	_windows()
-	_floor_lines()
-	_desk()
-	_appliances()
-	_fixtures()
-	_doors()
-	_markers()
-	_paths()
-	_staff = Node3D.new()
-	_staff.name = "Staff"
-	add_child(_staff)
-	_staff_bodies()
-	add_child(_Props.staff_door(STAFF_DOOR_X.y - STAFF_DOOR_X.x, _staff))
-	(get_node("StaffDoor") as Node3D).position = Vector3((STAFF_DOOR_X.x + STAFF_DOOR_X.y) * 0.5, 0.0, COUNTER_Z)
-	_bake(furnished, "bake")
-	_bake(glass, "bake_glass")
-	set_meta("solid", true)
+	_BuildQueue.later(self, func() -> void:
+		_ground(shell, furniture)
+		_outside(shell, furniture)
+		_room(shell, furniture)
+		_lobby(shell, furniture)
+		shell.call("commit", self, "Shell")
+		_furnished = _Stylized.instance(furniture.commit(), {"roughness": 0.85})
+		_furnished.name = "Furniture"
+		add_child(_furnished), "annex shell")
+	_BuildQueue.later(self, func() -> void:
+		_glass_view = _glass()
+		_colliders(), "annex glass")
+	_BuildQueue.later(self, _windows, "annex windows")
+	_BuildQueue.later(self, func() -> void:
+		_floor_lines()
+		_desk(), "annex desk")
+	_BuildQueue.later(self, func() -> void:
+		_appliances()
+		_fixtures(), "annex fixtures")
+	_BuildQueue.later(self, func() -> void:
+		_doors()
+		_markers()
+		_paths()
+		_staff = Node3D.new()
+		_staff.name = "Staff"
+		add_child(_staff), "annex doors")
+	_BuildQueue.later(self, _staff_bodies, "annex staff")
+	_BuildQueue.later(self, func() -> void:
+		add_child(_Props.staff_door(STAFF_DOOR_X.y - STAFF_DOOR_X.x, _staff))
+		(get_node("StaffDoor") as Node3D).position = Vector3((STAFF_DOOR_X.x + STAFF_DOOR_X.y) * 0.5, 0.0, COUNTER_Z)
+		_bake(_furnished, "bake")
+		_bake(_glass_view, "bake_glass")
+		# The ceiling lights came after the first look at the shadow setting.
+		_lamps_checked = -1
+		set_meta("solid", true)
+		set_meta("built", true), "annex bake")
 
 
 ## The zone's own pad floor (world.tscn) is a sand-colored box: the set lays its
@@ -755,26 +773,32 @@ func _staff_bodies() -> void:
 	seats.append({"name": "HeadNiceBoy", "role": "head", "at": desk.to_global(Vector3(0.95, 0.0, 0.0)), "yaw": -PI * 0.5, "index": 1})
 	seats.append({"name": "Greeter", "role": "greeter", "at": to_global(Vector3(ENTRANCE_X + 1.3, 0.0, Constants.ANNEX_SIZE.z * 0.5 - 1.4)), "yaw": 0.0, "index": 6})
 	seats.append({"name": "Janitor", "role": "janitor", "at": to_global(Vector3(7.4, 0.0, 4.2)), "yaw": -PI * 0.75, "index": 7})
+	# One body a step: each is a whole cartoon body (levels/build_queue.gd).
 	for entry: Dictionary in seats:
-		var clerk: Node3D = _Clerk.make(str(entry["name"]), str(entry["role"]), int(entry["index"]))
-		_staff.add_child(clerk)
-		clerk.global_position = entry["at"]
-		clerk.rotation.y = float(entry["yaw"])
-		clerk.call("set_home", clerk.position, clerk.rotation.y)
-		clerk.set("annex_set", self)
-		var start: StringName = &"counter_idle"
-		match str(entry["role"]):
-			"head":
-				start = &"counter_idle"
-			"greeter":
-				start = &"idle"
-			"janitor":
-				start = &"idle"
-		clerk.call("play", start, -1000.0)
+		_BuildQueue.later(self, _staff_body.bind(entry), "annex clerk")
 	# Window D's clerk dozes behind his blinds. (A direct call: the audio test's
 	# source scan reads call("play", "...") as a sound id.)
-	var dozer: Variant = _staff.get_node("ClerkD")
-	dozer.play(&"asleep", -1000.0)
+	_BuildQueue.later(self, func() -> void:
+		var dozer: Variant = _staff.get_node("ClerkD")
+		dozer.play(&"asleep", -1000.0), "annex dozer")
+
+
+func _staff_body(entry: Dictionary) -> void:
+	var clerk: Node3D = _Clerk.make(str(entry["name"]), str(entry["role"]), int(entry["index"]))
+	_staff.add_child(clerk)
+	clerk.global_position = entry["at"]
+	clerk.rotation.y = float(entry["yaw"])
+	clerk.call("set_home", clerk.position, clerk.rotation.y)
+	clerk.set("annex_set", self)
+	var start: StringName = &"counter_idle"
+	match str(entry["role"]):
+		"head":
+			start = &"counter_idle"
+		"greeter":
+			start = &"idle"
+		"janitor":
+			start = &"idle"
+	clerk.call("play", start, -1000.0)
 
 
 # ---------------------------------------------------------------- helpers

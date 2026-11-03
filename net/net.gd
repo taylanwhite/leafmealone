@@ -134,6 +134,8 @@ func host(transport: Transport) -> Error:
 ## Connect to an ENet host. The session stays CONNECTING until the world arrives.
 func join_enet(address: String, port: int = Constants.DEFAULT_PORT) -> Error:
 	_args.port = port
+	# The world's first frame on a joiner is the long one (levels/build_queue.gd).
+	preload("res://levels/build_queue.gd").prewarm()
 	var peer := ENetMultiplayerPeer.new()
 	var error := peer.create_client(address, port, CHANNEL_COUNT)
 	if error != OK:
@@ -628,6 +630,11 @@ func _open_throttle(peer_id: int) -> void:
 	if packet_peer == null:
 		return
 	packet_peer.throttle_configure(ENET_THROTTLE_INTERVAL_MS, ENetPacketPeer.PACKET_THROTTLE_SCALE, 0)
+	# A peer busy loading (one long frame) isn't a peer that left: ENet's own 5 s
+	# minimum dropped joiners whose machine stalled building the world. The world
+	# now builds over frames (levels/build_queue.gd); this is the margin for a slow
+	# PC's shader compiles on top (docs/DECISIONS.md "Builds are spread over frames").
+	packet_peer.set_timeout(Constants.ENET_TIMEOUT_LIMIT, Constants.ENET_TIMEOUT_MIN_MS, Constants.ENET_TIMEOUT_MAX_MS)
 
 
 func _on_peer_disconnected(peer_id: int) -> void:

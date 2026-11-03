@@ -18,6 +18,7 @@ const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Grass = preload("res://props/grass.gd")
 const _ShelfStock = preload("res://props/shelf_stock.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 const WALL := Color(0.86, 0.8, 0.66)
 const ROOF := Color(0.3, 0.32, 0.36)
 const ORANGE := Color(0.95, 0.5, 0.15)
@@ -39,33 +40,40 @@ const TREE_ISLAND_SIZE: float = 3.0
 const CART_CORRAL_FOOTPRINT := Vector2(1.4, 4.2)
 
 
+## The pieces are BuildQueue steps (levels/build_queue.gd), in this order; with
+## no queue they're all built right away.
 static func dress(zone: Node3D) -> void:
 	var root := Node3D.new()
 	root.name = "Dressing"
 	zone.add_child(root)
-	_building(root)
-	_garden_center(root)
+	_BuildQueue.later(root, func() -> void: _building(root), "store building")
+	_BuildQueue.later(root, func() -> void: _garden_center(root), "store garden")
 	_parking(root)
-	_checkout(root, zone)
-	_loading_bay(root, zone)
+	_BuildQueue.later(root, func() -> void: _checkout(root, zone), "store checkout")
+	_BuildQueue.later(root, func() -> void: _loading_bay(root, zone), "store bay")
 	# No grass through the parking lot, the store, or the roads.
 	_Grass.keep_clear(zone, Rect2(-20.5, -20.5, 41.0, 41.0))
 	_Grass.keep_clear(zone, Rect2(-35.0, -20.0, 24.0, 36.0))
 	_Grass.keep_clear(zone, Rect2(20.5, -165.0, 13.2, 330.0))
 	_Grass.keep_clear(zone, Rect2(20.5, 3.0, 285.0, 17.0))
 	# The cross street east of the lot, and the road Chefty leaves on toward the job.
-	_Neighborhood.road(root, Vector3(27.0, 0.0, -160.0), Vector3(27.0, 0.0, 160.0))
-	_Neighborhood.road(root, Vector3(32.0, 0.0, 8.6), Vector3(300.0, 0.0, 15.2), 8.8, false)
-	_Neighborhood.road(root, Vector3(21.0, 0.0, 8.0), Vector3(22.6, 0.0, 8.0), 8.8, false)
-	for z: float in range(-140, 141, 28):
-		_Neighborhood.lamp(root, Vector3(32.3, 0.0, float(z)), PI * 0.5)
+	_BuildQueue.later(root, func() -> void:
+		_Neighborhood.road(root, Vector3(27.0, 0.0, -160.0), Vector3(27.0, 0.0, 160.0))
+		_Neighborhood.road(root, Vector3(32.0, 0.0, 8.6), Vector3(300.0, 0.0, 15.2), 8.8, false)
+		_Neighborhood.road(root, Vector3(21.0, 0.0, 8.0), Vector3(22.6, 0.0, 8.0), 8.8, false), "store roads")
+	_BuildQueue.later(root, func() -> void:
+		for z: float in range(-140, 141, 28):
+			_Neighborhood.lamp(root, Vector3(32.3, 0.0, float(z)), PI * 0.5), "store lamps")
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 404
 	var crowns: Array[String] = ["orange", "red", "yellow", "rust"]
 	for z: float in range(-130, 131, 18):
 		if absf(float(z) - 10.0) < 12.0:
 			continue
-		_Trees.spawn(root, Vector3(36.0, 0.0, float(z)), rng.randf_range(6.5, 8.5), "broadleaf", crowns[rng.randi() % crowns.size()], int(z), false, rng.randf() * TAU)
+		var tall := rng.randf_range(6.5, 8.5)
+		var crown := crowns[rng.randi() % crowns.size()]
+		var turn := rng.randf() * TAU
+		_BuildQueue.later(root, func() -> void: _Trees.spawn(root, Vector3(36.0, 0.0, float(z)), tall, "broadleaf", crown, int(z), false, turn), "store tree")
 
 
 ## A big box store: walls, a flat roof with a parapet, an orange band, a tall
@@ -140,16 +148,19 @@ static func _parking(root: Node3D) -> void:
 	var cars: Array[Color] = [Color(0.3, 0.42, 0.62), Color(0.85, 0.82, 0.74), Color(0.55, 0.15, 0.15)]
 	# The east stalls stay empty: Lunch Money parks there (Constants.SHOP_SITES).
 	for index: int in PARKED_CARS.size():
-		var car := _YardModels.node("car", cars[index % cars.size()], Vector3.ONE, {"roughness": 0.5, "specular": 0.3})
-		root.add_child(car)
-		car.position = PARKED_CARS[index]
-	for corner: Vector3 in LOT_LAMPS:
-		_Neighborhood.lamp(root, corner, PI * 0.5 if corner.x > 0.0 else -PI * 0.5)
+		_BuildQueue.later(root, func() -> void:
+			var car := _YardModels.node("car", cars[index % cars.size()], Vector3.ONE, {"roughness": 0.5, "specular": 0.3})
+			root.add_child(car)
+			car.position = PARKED_CARS[index], "store car")
+	_BuildQueue.later(root, func() -> void:
+		for corner: Vector3 in LOT_LAMPS:
+			_Neighborhood.lamp(root, corner, PI * 0.5 if corner.x > 0.0 else -PI * 0.5), "store lot lamps")
 	# Tree islands: a curbed planter with a tree and mulch.
 	for at: Vector3 in TREE_ISLANDS:
-		_LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.25, 3.0), at + Vector3(0.0, 0.12, 0.0), Color(0.7, 0.68, 0.64)), "concrete")
-		_LowPoly.paint(_LowPoly.box(root, Vector3(2.6, 0.28, 2.6), at + Vector3(0.0, 0.14, 0.0), Color(0.36, 0.24, 0.17)), "dirt")
-		_Trees.spawn(root, at + Vector3(0.0, 0.25, 0.0), 6.5, "broadleaf", "orange", int(at.x + at.z), false, at.x)
+		_BuildQueue.later(root, func() -> void:
+			_LowPoly.paint(_LowPoly.box(root, Vector3(3.0, 0.25, 3.0), at + Vector3(0.0, 0.12, 0.0), Color(0.7, 0.68, 0.64)), "concrete")
+			_LowPoly.paint(_LowPoly.box(root, Vector3(2.6, 0.28, 2.6), at + Vector3(0.0, 0.14, 0.0), Color(0.36, 0.24, 0.17)), "dirt")
+			_Trees.spawn(root, at + Vector3(0.0, 0.25, 0.0), 6.5, "broadleaf", "orange", int(at.x + at.z), false, at.x), "store tree island")
 
 
 ## The checkout booth around the counter: a striped awning on posts and a

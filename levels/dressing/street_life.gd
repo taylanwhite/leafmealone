@@ -8,6 +8,7 @@ extends RefCounted
 ## so every peer sees the same street.
 
 const _Doodles = preload("res://props/doodles.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 ## Loaded when the store is dressed, not preloaded: the block builder uses this
 ## file, and tools/mesh_check.gd (a --script run, where autoloads are not yet
 ## names) compiles it; preloading the store pulled in its shelves, which name
@@ -37,6 +38,8 @@ const MAILBOX_SIDES: Dictionary = {
 ##   lamp (the style's lamp kind), street_z (the road's middle), walk_z and
 ##   walk_width (the near sidewalk's middle and width, far_walk_z the far one's),
 ##   mailbox (the yard mailbox's kind) and mailbox_at, boundary_z (the back boundary)
+## Each piece is a BuildQueue step (levels/build_queue.gd): a doodle draws its
+## texture, and a block's worth took 170 ms in one frame.
 static func dress_block(root: Node3D, lamps: PackedVector3Array, back_boundary: String, chalk: bool, seed_value: int, opts: Dictionary = {}) -> Node3D:
 	var holder := _root(root)
 	var rng := RandomNumberGenerator.new()
@@ -49,32 +52,34 @@ static func dress_block(root: Node3D, lamps: PackedVector3Array, back_boundary: 
 			if lamp.z > street_z:
 				continue
 			if rng.randf() < 0.6:
-				_Doodles.place_paper(holder, _Doodles.poster(int(lamp.x) + 300), lamp + Vector3(0.0, float(post[1]), -float(post[0]) - 0.012), Vector3.FORWARD, Vector2(0.3, 0.41), rng.randf_range(-0.12, 0.12))
+				var tilt := rng.randf_range(-0.12, 0.12)
+				_BuildQueue.later(holder, func() -> void: _Doodles.place_paper(holder, _Doodles.poster(int(lamp.x) + 300), lamp + Vector3(0.0, float(post[1]), -float(post[0]) - 0.012), Vector3.FORWARD, Vector2(0.3, 0.41), tilt), "street life")
 	# Chalk on the sidewalks: a hopscotch in front of the yard, more down the block.
 	if chalk and opts.has("walk_z"):
 		var walk_z := float(opts["walk_z"])
 		var far_z := float(opts.get("far_walk_z", walk_z))
 		var across := minf(float(opts.get("walk_width", 2.0)) * 0.9, 1.8)
-		_Doodles.place_on_ground(holder, _Doodles.chalk("hopscotch", 1), Vector3(-9.0, 0.1, walk_z), Vector2(minf(1.3, across), 2.6), PI * 0.5)
+		_BuildQueue.later(holder, func() -> void: _Doodles.place_on_ground(holder, _Doodles.chalk("hopscotch", 1), Vector3(-9.0, 0.1, walk_z), Vector2(minf(1.3, across), 2.6), PI * 0.5), "street life")
 		for index: int in CHALK_SPOTS.size():
 			var z := walk_z if index % 2 == 0 else far_z
-			_Doodles.place_on_ground(holder, _Doodles.chalk(CHALK_KINDS[index % CHALK_KINDS.size()], index + 3), Vector3(CHALK_SPOTS[index], 0.1, z), Vector2(across, across), rng.randf_range(-0.4, 0.4))
+			var turn := rng.randf_range(-0.4, 0.4)
+			_BuildQueue.later(holder, func() -> void: _Doodles.place_on_ground(holder, _Doodles.chalk(CHALK_KINDS[index % CHALK_KINDS.size()], index + 3), Vector3(CHALK_SPOTS[index], 0.1, z), Vector2(across, across), turn), "street life")
 	# Tags on the back fence or wall, seen from the yard.
 	var back_z := float(opts.get("boundary_z", Constants.ART_BACK_BOUNDARY_Z))
 	match back_boundary:
 		"wood_fence":
 			# Between the privacy fence's rails, on its boards.
 			for x: float in [-31.0, -9.5, 17.0, 46.0]:
-				_Doodles.place_on_wall(holder, _Doodles.graffiti(int(x) + 100), Vector3(x, 0.9, back_z + 0.02), Vector3.BACK, Vector2(2.2, 1.1))
+				_BuildQueue.later(holder, func() -> void: _Doodles.place_on_wall(holder, _Doodles.graffiti(int(x) + 100), Vector3(x, 0.9, back_z + 0.02), Vector3.BACK, Vector2(2.2, 1.1)), "street life")
 		"cinderblock":
 			for x: float in [-31.0, -9.5, 17.0, 46.0, -58.0]:
-				_Doodles.place_on_wall(holder, _Doodles.graffiti(int(x) + 100), Vector3(x, 0.95, back_z + 0.16), Vector3.BACK, Vector2(4.2, 1.7))
+				_BuildQueue.later(holder, func() -> void: _Doodles.place_on_wall(holder, _Doodles.graffiti(int(x) + 100), Vector3(x, 0.95, back_z + 0.16), Vector3.BACK, Vector2(4.2, 1.7)), "street life")
 	# A sticky note on the yard's mailbox. The house changes every job, so its
 	# door notes come from levels/lots/lot_generator.gd.
 	var side: Array = MAILBOX_SIDES.get(str(opts.get("mailbox", "")), [])
 	if not side.is_empty():
 		var at: Vector3 = opts.get("mailbox_at", Vector3(3.2, 0.0, 19.9))
-		_Doodles.place_paper(holder, _Doodles.note(14), at + Vector3(float(side[0]) + 0.01, float(side[1]), 0.0), Vector3.RIGHT, Vector2(0.17, 0.17), 0.15)
+		_BuildQueue.later(holder, func() -> void: _Doodles.place_paper(holder, _Doodles.note(14), at + Vector3(float(side[0]) + 0.01, float(side[1]), 0.0), Vector3.RIGHT, Vector2(0.17, 0.17), 0.15), "street life")
 	return holder
 
 
@@ -83,19 +88,19 @@ static func dress_store(zone: Node3D) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1110
 	# Tags on the store's long side wall facing the parking lot.
-	_Doodles.place_on_wall(root, _Doodles.graffiti(7), Vector3(-19.0, 2.4, 15.03), Vector3.BACK, Vector2(4.4, 2.2))
-	_Doodles.place_on_wall(root, _Doodles.graffiti(8), Vector3(-28.0, 1.9, 15.03), Vector3.BACK, Vector2(3.6, 1.8))
+	_BuildQueue.later(root, func() -> void: _Doodles.place_on_wall(root, _Doodles.graffiti(7), Vector3(-19.0, 2.4, 15.03), Vector3.BACK, Vector2(4.4, 2.2)), "street life")
+	_BuildQueue.later(root, func() -> void: _Doodles.place_on_wall(root, _Doodles.graffiti(8), Vector3(-28.0, 1.9, 15.03), Vector3.BACK, Vector2(3.6, 1.8)), "street life")
 	# Chalk on the asphalt by the spawn, and a hopscotch on the front walk.
-	_Doodles.place_on_ground(root, _Doodles.chalk("smiley", 21), Vector3(4.5, 0.01, 10.5), Vector2(1.8, 1.8), 0.2)
-	_Doodles.place_on_ground(root, _Doodles.chalk("stick_figure", 22), Vector3(-4.0, 0.01, 3.0), Vector2(1.5, 1.5), -0.3)
-	_Doodles.place_on_ground(root, _Doodles.chalk("hopscotch", 23), Vector3(-10.4, 0.13, 8.0), Vector2(0.9, 1.8), 0.0)
+	_BuildQueue.later(root, func() -> void: _Doodles.place_on_ground(root, _Doodles.chalk("smiley", 21), Vector3(4.5, 0.01, 10.5), Vector2(1.8, 1.8), 0.2), "street life")
+	_BuildQueue.later(root, func() -> void: _Doodles.place_on_ground(root, _Doodles.chalk("stick_figure", 22), Vector3(-4.0, 0.01, 3.0), Vector2(1.5, 1.5), -0.3), "street life")
+	_BuildQueue.later(root, func() -> void: _Doodles.place_on_ground(root, _Doodles.chalk("hopscotch", 23), Vector3(-10.4, 0.13, 8.0), Vector2(0.9, 1.8), 0.0), "street life")
 	# Notes stuck to the checkout counter, and posters on the parking lights.
 	for index: int in 3:
-		_Doodles.place_paper(root, _Doodles.note(30 + index), Vector3(-0.9 + float(index) * 0.35, 0.72 + rng.randf_range(-0.08, 0.08), -7.5), Vector3.BACK, Vector2(0.19, 0.19), rng.randf_range(-0.3, 0.3))
+		_BuildQueue.later(root, func() -> void: _Doodles.place_paper(root, _Doodles.note(30 + index), Vector3(-0.9 + float(index) * 0.35, 0.72 + rng.randf_range(-0.08, 0.08), -7.5), Vector3.BACK, Vector2(0.19, 0.19), rng.randf_range(-0.3, 0.3)), "street life")
 	for lamp: Vector3 in (load(STORE_DRESSING) as Script).get_script_constant_map()["LOT_LAMPS"]:
 		if lamp.x < 0.0:
 			continue
-		_Doodles.place_paper(root, _Doodles.poster(int(lamp.x + lamp.z) + 500), lamp + Vector3(0.0, 2.1, -0.1), Vector3.FORWARD, Vector2(0.3, 0.41), rng.randf_range(-0.12, 0.12))
+		_BuildQueue.later(root, func() -> void: _Doodles.place_paper(root, _Doodles.poster(int(lamp.x + lamp.z) + 500), lamp + Vector3(0.0, 2.1, -0.1), Vector3.FORWARD, Vector2(0.3, 0.41), rng.randf_range(-0.12, 0.12)), "street life")
 
 
 static func _root(zone: Node3D) -> Node3D:

@@ -258,6 +258,8 @@ func _build(root: Node3D) -> void:
 			_hood_lineup(root)
 		"block":
 			_block(root)
+		"town_block":
+			_town_block(root)
 		"street":
 			_streets(root)
 		"prop":
@@ -908,6 +910,46 @@ func _hood_lineup(root: Node3D) -> void:
 		{"from": Vector3(0.0, 30.0, 70.0), "at": Vector3(0.0, 2.0, 0.0), "fov": 60.0},
 		{"from": Vector3(96.0, 30.0, 70.0), "at": Vector3(96.0, 2.0, 0.0), "fov": 60.0},
 		{"from": Vector3(0.0, 150.0, 60.0), "at": Vector3(0.0, 0.0, 0.0), "fov": 65.0},
+	])
+
+
+## One streamed chunk of the connected town (levels/town/town_streamer.gd), three
+## --hood yards in a row, at every level: LOD 0 in front (with a messy lawn, a
+## TurfMasters™ sign and the homeowner waiting on the porch: what the town says),
+## LOD 1 behind it, and the skyline boxes at the back. Do the levels read as the
+## same houses, so a swap doesn't pop?
+func _town_block(root: Node3D) -> void:
+	var streamer := preload("res://levels/town/town_streamer.gd")
+	var hood_index := _HoodStyles.ids().find(_hood)
+	var spacing := TownMap.SLOT_SPACING[maxi(hood_index, 0)]
+	var kit := preload("res://props/mesh_kit.gd").new()
+	for row: int in 3:
+		for index: int in 3:
+			var at := Transform3D(Basis.IDENTITY, Vector3((float(index) - 1.0) * spacing, 0.0, -float(row) * 70.0))
+			var req := streamer.parcel_request(_hood, _seed + index, _size, maxi(hood_index, 0), false)
+			req["season"] = _season
+			if row == 2:
+				for box: Array in _LotBuilder.skyline_boxes(req):
+					kit.call("box", at * (box[0] as Vector3), box[1], box[2], at.basis)
+				continue
+			req["detail"] = ["near", "far"][row]
+			var parcel := _LotBuilder.build(root, at, req)
+			if row == 0:
+				var leaves: Node3D = streamer._leaf_drifts(parcel, [1.0, 0.4, 0.0][index], _seed + index)
+				if leaves != null:
+					parcel.add_child(leaves)
+				if index == 1:
+					parcel.add_child(streamer._rival_sign(_seed + index))
+				if index == 2:
+					parcel.add_child(streamer._waiting_owner(parcel, _seed + index))
+	root.add_child(_Stylized.instance(kit.commit(), {"roughness": 0.9}))
+	for row: int in 3:
+		_label(root, ["LOD 0", "LOD 1", "skyline"][row], Vector3(-spacing * 1.5 - 8.0, 6.0, -float(row) * 70.0), 0.05)
+	root.set_meta("views", [
+		{"from": Vector3(0.0, 9.0, 52.0), "at": Vector3(0.0, 3.0, 0.0), "fov": 60.0},
+		{"from": Vector3(30.0, 60.0, 90.0), "at": Vector3(0.0, 0.0, -70.0), "fov": 60.0},
+		{"from": Vector3(0.0, 12.0, -20.0), "at": Vector3(0.0, 3.0, -70.0), "fov": 60.0},
+		{"from": Vector3(spacing, 2.5, 26.0), "at": Vector3(spacing, 1.5, 8.0), "fov": 55.0},
 	])
 
 

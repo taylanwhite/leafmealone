@@ -26,6 +26,7 @@ const _Pedestrians = preload("res://npcs/pedestrians.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Colliders = preload("res://levels/town/town_colliders.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 
 const GRASS := Color(0.42, 0.52, 0.3)
 const ASPHALT := Color(0.3, 0.3, 0.32)
@@ -49,26 +50,28 @@ static func dress(world: Node3D) -> Node3D:
 	var root := Node3D.new()
 	root.name = "TownDressing"
 	world.add_child(root)
+	# Each piece is a BuildQueue step (levels/build_queue.gd), the ground first.
 	_ground(root, world)
-	_roads(root)
-	_square(root)
-	_street_signs(root)
-	_hoa_arch(root)
-	_mansion_gate(root)
-	_lake(root)
-	_field_office(root)
-	_lamps(root)
-	_curbside(root)
-	_cars(root)
+	_BuildQueue.later(root, func() -> void: _roads(root), "town roads")
+	_BuildQueue.later(root, func() -> void: _square(root), "town square")
+	_BuildQueue.later(root, func() -> void:
+		_street_signs(root)
+		_hoa_arch(root)
+		_mansion_gate(root), "town signs")
+	_BuildQueue.later(root, func() -> void: _lake(root), "town lake")
+	_BuildQueue.later(root, func() -> void: _field_office(root), "town field office")
+	_BuildQueue.later(root, func() -> void: _lamps(root), "town lamps")
+	_BuildQueue.later(root, func() -> void: _curbside(root), "town curbside")
+	_BuildQueue.later(root, func() -> void: _cars(root), "town cars")
 	_country_trees(root)
-	_store_extras(root, world.get_node_or_null("StoreZone") as Node3D)
+	_BuildQueue.later(root, func() -> void: _store_extras(root, world.get_node_or_null("StoreZone") as Node3D), "town store extras")
 	_walkers(root)
 	for at: Vector3 in [Vector3(0.0, 0.0, 0.0), Vector3(560.0, 0.0, -250.0), Vector3(560.0, 0.0, 250.0)]:
 		var sky := Node3D.new()
 		sky.name = "Sky"
 		root.add_child(sky)
 		sky.position = at
-		_Surroundings.clouds(sky, SEED + int(at.x + at.z))
+		_BuildQueue.later(root, func() -> void: _Surroundings.clouds(sky, SEED + int(at.x + at.z)), "town clouds")
 	return root
 
 
@@ -353,9 +356,13 @@ static func _country_trees(root: Node3D) -> void:
 	var holder := Node3D.new()
 	holder.name = "CountryTrees"
 	root.add_child(holder)
-	for index: int in TownMap.country_trees().size():
-		var tree: Array = TownMap.country_trees()[index]
-		_Trees.spawn(holder, tree[0], float(tree[1]), str(tree[2]), str(tree[3]), index % 4, false, float(index) * 1.7)
+	var trees := TownMap.country_trees()
+	# A few trees a BuildQueue step.
+	for first: int in range(0, trees.size(), 3):
+		_BuildQueue.later(holder, func() -> void:
+			for index: int in range(first, mini(first + 3, trees.size())):
+				var tree: Array = trees[index]
+				_Trees.spawn(holder, tree[0], float(tree[1]), str(tree[2]), str(tree[3]), index % 4, false, float(index) * 1.7), "town country trees")
 
 
 ## Homie Depot's town-only pieces, placed by Constants.STORE_LAYOUT in the

@@ -8,6 +8,7 @@ const _LowPoly = preload("res://props/low_poly.gd")
 const _Trees = preload("res://props/trees.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
+const _BuildQueue = preload("res://levels/build_queue.gd")
 const CLOUD_VARIANTS: int = 4
 
 static var _cloud_meshes: Array[ArrayMesh] = []
@@ -41,6 +42,8 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 	root.add_child(ground)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
+	# The clouds, trees and houses are BuildQueue steps (levels/build_queue.gd);
+	# the rng draws stay in the same order, so it's the same scenery.
 	_clouds(root, rng)
 	for index: int in 70:
 		var angle := rng.randf() * TAU
@@ -56,7 +59,7 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 		var turn := rng.randf() * TAU
 		if _in_rects(at, clear_rects):
 			continue
-		_Trees.spawn(root, at, height, "pine" if pine else "broadleaf", crown, index, false, turn)
+		_BuildQueue.later(root, func() -> void: _Trees.spawn(root, at, height, "pine" if pine else "broadleaf", crown, index, false, turn), "scenery tree")
 	if not with_houses:
 		return
 	var walls: Array[Color] = [Color(0.85, 0.78, 0.62), Color(0.62, 0.72, 0.8), Color(0.82, 0.6, 0.5), Color(0.75, 0.8, 0.62)]
@@ -66,7 +69,8 @@ static func dress(zone: Node3D, ground_color: Color, seed_value: int, with_house
 		if _in_corridor(angle, clear_angles):
 			continue
 		var at := Vector3(cos(angle) * distance, -0.02, sin(angle) * distance)
-		_house(root, at, walls[index % walls.size()], -angle + PI * 0.5)
+		var wall := walls[index % walls.size()]
+		_BuildQueue.later(root, func() -> void: _house(root, at, wall, -angle + PI * 0.5), "scenery house")
 
 
 ## The same clouds around root, for dressing that has its own ground (the
