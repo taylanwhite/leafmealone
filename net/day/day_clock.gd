@@ -204,6 +204,7 @@ func _end_day() -> void:
 	if _ending or not everyone_home():
 		return
 	_ending = true
+	_tow_chefty()
 	var tier_before := Campaign.crew_tier()
 	var banked := Campaign.bank_xp()
 	var tier_after := Campaign.crew_tier()
@@ -235,6 +236,30 @@ func _end_day() -> void:
 	Campaign.save_now()
 	_rpc_day.rpc(day, day_started_at, summary)
 	_ending = false
+
+
+## Host, at bedtime in the connected town: Chefty was left out in town, so Marty
+## tows it back to the TruckPad for Constants.CHEFTY_TOW_FEE, split across the
+## crew like wages (each pays their share, or what they have), and texts about it.
+func _tow_chefty() -> void:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty == null or not chefty.has_method("host_tow_home") or not bool(chefty.call("host_tow_home")):
+		return
+	var peers := Net.peer_ids()
+	if peers.is_empty():
+		return
+	# Split exactly: the dollars left over go one each to the first peers (the
+	# host first; peer_ids is sorted), so the crew never pays more than the fee
+	# Marty's text says.
+	var share := floori(float(Constants.CHEFTY_TOW_FEE) / float(peers.size()))
+	var left_over := Constants.CHEFTY_TOW_FEE % peers.size()
+	for index: int in peers.size():
+		var owed := share + (1 if index < left_over else 0)
+		Campaign.charge(peers[index], mini(owed, Campaign.credits(peers[index])))
+	var town := get_tree().get_first_node_in_group("town")
+	if town != null and not _Strings.TOW_TEXTS.is_empty():
+		var line := _Strings.TOW_TEXTS[posmod(day, _Strings.TOW_TEXTS.size())] % Constants.CHEFTY_TOW_FEE
+		town.call("_text", _Strings.UI["clerk_name"], "tow", line, -1)
 
 
 func _save_section() -> Dictionary:

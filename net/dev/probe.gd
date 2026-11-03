@@ -36,6 +36,9 @@ var _active_bodies: int = 0
 var _collision_pairs: int = 0
 ## This peer's own zones in order, for following captures and returns.
 var _zones: Array[String] = []
+## The host's zones in order as this peer heard them (townmap_test: a client's
+## registry follows the host's position-derived zones in the connected town).
+var _host_zones: Array[String] = []
 
 
 func _ready() -> void:
@@ -43,6 +46,8 @@ func _ready() -> void:
 	Net.player_zone_changed.connect(func(peer_id: int, zone: Net.Zone) -> void:
 		if peer_id == Net.local_peer_id():
 			_zones.append(Net.Zone.keys()[zone])
+		if peer_id == 1:
+			_host_zones.append(Net.Zone.keys()[zone])
 	)
 
 
@@ -211,6 +216,7 @@ func write_report() -> void:
 		"job_progress": _job_progress(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),
 		"zones": _zones,
+		"host_zones": _host_zones,
 		"audio_driver": AudioServer.get_driver_name(),
 		"leaf_instances": _leaf_instances(),
 		"lot_work": _lot_work(),
@@ -266,7 +272,12 @@ func _town_site() -> Dictionary:
 	var streamer := world.get_node_or_null("TownStreamer")
 	var lot_zone := world.get_node_or_null("LotZone") as Node3D
 	var origin := lot_zone.global_position.snappedf(0.01) if lot_zone != null else Vector3.ZERO
+	var lot := get_tree().get_first_node_in_group("job_lot")
 	return {
+		# The pick lock and the yard's stage (job_lot.gd): a client must read the
+		# same as the host (driving chunk D review).
+		"job_locked": bool(world.call("job_locked")),
+		"job_stage": int(lot.get("stage")) if lot != null else -1,
 		"layout": TownMap.LAYOUT_VERSION,
 		"map": TownMap.layout_hash(),
 		"house_id": int(world.call("job_site_house")),

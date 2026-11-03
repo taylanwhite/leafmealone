@@ -149,6 +149,11 @@ func _budget() -> float:
 func prompt() -> Dictionary:
 	if not _local_in_reach():
 		return {}
+	# Joined after they paid (the town keeps a paid yard up): the yard's stage
+	# says so, though this peer never saw the payment.
+	var lot := get_parent()
+	if lot != null and lot.has_method("is_paid") and bool(lot.call("is_paid")):
+		return {}
 	match _phase:
 		Phase.WAITING:
 			return {"text": _Strings.UI["prompt_talk"], "at": global_position + Vector3(0.0, 2.9, 0.0)}

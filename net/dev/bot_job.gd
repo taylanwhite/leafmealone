@@ -118,7 +118,8 @@ func _rake(player: Node3D, field: Node, tree: SceneTree) -> bool:
 func _carry_to_truck(player: Node3D, held: Node, tree: SceneTree) -> bool:
 	stop()
 	var truck := tree.get_first_node_in_group("chefty")
-	if truck == null or bool(truck.call("is_riding")):
+	# The drivable Chefty (the connected town) may be driving off with no trip.
+	if truck == null or bool(truck.call("is_riding")) or (truck.has_method("is_moving") and bool(truck.call("is_moving"))):
 		return false
 	_face(player, truck.call("body_position"))
 	if bool(held.call("near_truck")):

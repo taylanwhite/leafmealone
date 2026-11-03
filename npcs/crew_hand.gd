@@ -12,7 +12,8 @@ const _CharacterLife = preload("res://player/character_life.gd")
 const _LotNav = preload("res://npcs/lot_nav.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 
-enum State { FIND, WALK, RAKE, BAG, HAUL, REST }
+## BOARD: the job's paid, so they walk back to Chefty and climb in (driving chunk D).
+enum State { FIND, WALK, RAKE, BAG, HAUL, REST, BOARD }
 
 ## Where the hand's rake sits under their Visual (+Z ahead): its tine collar
 ## (the model's origin) just above the ground ahead, the handle tipped back up
@@ -144,6 +145,17 @@ func _physics_process(delta: float) -> void:
 			_stop(delta)
 			if _state_time > 2.0:
 				_begin(State.FIND)
+		State.BOARD:
+			# At the truck (or given up walking): climb in. Chefty draws them in a
+			# bed seat from the moment they're gone (chefty_drive.gd cosmetic_riders).
+			if _steer_to(_truck_point(), delta) or _state_time > Constants.HIRE_BOARD_SECONDS:
+				queue_free()
+
+
+## Host: the job's done: walk back to Chefty and get in.
+func board() -> void:
+	if _state != State.BOARD:
+		_begin(State.BOARD)
 
 
 func _begin(state: int) -> void:

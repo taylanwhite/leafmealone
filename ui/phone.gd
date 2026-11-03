@@ -265,7 +265,11 @@ func _texts(town: Node) -> void:
 		column.add_child(body)
 		if is_job:
 			var house_id := int(message.get("house", -1))
-			if house_id == picked:
+			# In the connected town "up next" means its yard is waiting at the house;
+			# a pick whose yard isn't loaded yet (the last job's yard is still up)
+			# keeps its button.
+			var waiting := world == null or not bool(world.call("is_town_map")) or int(world.call("job_site_house")) == house_id
+			if house_id == picked and waiting:
 				column.add_child(_text(_Strings.UI["phone_job_up_next"], 14, GREEN))
 			elif not locked:
 				var take := Button.new()

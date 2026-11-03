@@ -30,6 +30,8 @@ const SHOP_RESERVATIONS: Dictionary = {
 }
 ## The yard whose house the parity step generates: the third on Maple Row.
 const PARITY_HOUSE: int = 2
+## The house whose request the job-site steps pick (driving chunk D), then the next.
+const SITE_HOUSE: int = 2
 
 static var result: Dictionary = {}
 
@@ -60,9 +62,16 @@ func _run(world: Node, town: Node) -> void:
 	_check_roads(problems)
 	_check_surfaces(problems)
 	_check_store(problems)
+	# The connected town loads the picked job's yard on its own (driving chunk D):
+	# clear it (once the client has it, so nothing it asks of it goes astray), so
+	# every slot has its house and the parity step builds the yard it asks for.
+	await get_tree().create_timer(3.0).timeout
+	world.call("_free_lot")
+	await get_tree().physics_frame
 	_check_colliders(world, problems)
 	await _check_parity(world, town, problems)
 	_check_site(world, problems)
+	await _check_job_at_house(world, town, problems)
 	# Give the client time to have the town's seeds and its colliders before it reports.
 	await get_tree().create_timer(1.5).timeout
 	_finish(problems.is_empty(), problems)
@@ -328,10 +337,110 @@ func _check_site(world: Node, problems: Array[String]) -> void:
 	var hidden := not bool(colliders.call("is_slot_enabled", PARITY_HOUSE)) and bool(streamer.call("is_slot_hidden", PARITY_HOUSE))
 	world.call("place_job_site", TownMap.yard_transform(PARITY_HOUSE + 1), PARITY_HOUSE + 1)
 	var moved := bool(colliders.call("is_slot_enabled", PARITY_HOUSE)) and not bool(streamer.call("is_slot_hidden", PARITY_HOUSE)) and not bool(colliders.call("is_slot_enabled", PARITY_HOUSE + 1))
-	# Put the site back where this world keeps it until driving chunk D.
+	# Back where it was, with no house hidden (no yard is loaded).
 	world.call("place_job_site", home, -1)
 	var restored := int(colliders.call("house_shapes_enabled")) == TownMap.house_count() and (streamer.call("hidden_slots") as Array).is_empty()
 	_verdict(placed and hidden and moved and restored, "the job site hides its slot (placed %s, hidden %s, handed on %s, restored %s)" % [placed, hidden, moved, restored], problems)
+
+
+## Driving chunk D: the job lives at the client's real house.
+##   d1. A request from house SITE_HOUSE, picked on the board: its yard loads at
+##       that house's slot (LotZone there, the slot's dressing house hidden and
+##       its collider off, exactly one HouseBody: the yard's own).
+##   d2. Walking into the yard is LOT and the crew has arrived (the homeowner's
+##       clock), which locks the pick; paid with the host still in it, the yard
+##       stays and the pick is open again (chaining from the truck). CI checks a
+##       client reads the same lock ("town_site" job_locked and job_stage).
+##   d3. The host goes more than SITE_FREE_DISTANCE away: the paid yard goes and
+##       the slot's house is back.
+##   d4. The next job (house SITE_HOUSE + 1) loads at its own house. Its yard,
+##       the street and the store are LOT, TOWN and STORE on the host (CI checks
+##       the client heard the same, "host_zones"), and leaves raked off it there
+##       are gone on the client too (CI: the client's lot_work). It stays loaded,
+##       so CI compares both peers' town_site and lot_layout.
+func _check_job_at_house(world: Node, town: Node, problems: Array[String]) -> void:
+	var board := get_tree().get_first_node_in_group("job_board")
+	var colliders := world.get_node_or_null("TownColliders")
+	var streamer := world.get_node_or_null("TownStreamer")
+	var lot_zone := world.get_node("LotZone") as Node3D
+	var host := Net.local_peer_id()
+	var lot := await _pick(world, town, board, SITE_HOUSE)
+	if lot == null:
+		_verdict(false, "d1. house %d's request picked: no yard loaded" % SITE_HOUSE, problems)
+		return
+	var site := TownMap.yard_transform(SITE_HOUSE)
+	var placed := lot_zone.global_position.distance_to(site.origin) < 0.01 and int(lot.get("house_id")) == SITE_HOUSE and int(world.call("job_site_house")) == SITE_HOUSE
+	var hidden := not bool(colliders.call("is_slot_enabled", SITE_HOUSE)) and bool(streamer.call("is_slot_hidden", SITE_HOUSE))
+	var bodies := lot.find_children("HouseBody", "", true, false).size()
+	_verdict(placed and hidden and bodies == 1, "d1. house %d's yard loads at its slot %s (placed %s, slot hidden %s, %d HouseBody)" % [SITE_HOUSE, site.origin, placed, hidden, bodies], problems)
+	_teleport(host, site * Vector3(0.0, 0.3, 5.0))
+	await get_tree().create_timer(0.6).timeout
+	var arrived := Net.player_zone(host) == Net.Zone.LOT and bool(Campaign.get("_job_clock_started")) and lot.has_meta("crew_arrived")
+	# Arrived and unpaid: the pick is locked, from the yard's replicated stage.
+	var locked := int(lot.get("stage")) == 1 and bool(world.call("job_locked"))
+	world.call("finish_with_pay", 40)
+	await get_tree().create_timer(1.2).timeout
+	var kept := is_instance_valid(lot) and lot.is_inside_tree() and not Campaign.is_job_open()
+	# Paid with the host still standing in it: the next job can be taken from here.
+	var chainable := kept and int(lot.get("stage")) == 2 and Net.player_zone(host) == Net.Zone.LOT and not bool(world.call("job_locked"))
+	_verdict(arrived and locked and kept and chainable, "d2. in the yard: zone %s, crew arrived %s, locked %s; paid with the host in it, the yard stays %s and the next job can be taken %s" % [Net.Zone.keys()[Net.player_zone(host)], arrived, locked, kept, chainable], problems)
+	_teleport(host, Vector3(site.origin.x + Constants.SITE_FREE_DISTANCE + 20.0, 0.3, TownMap.STREET_Z[0] + TownMap.STREET_WIDTH * 0.5 + 1.2))
+	var waited := 0.0
+	while is_instance_valid(lot) and lot.is_inside_tree() and waited < 4.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().physics_frame
+	var freed := not (is_instance_valid(lot) and lot.is_inside_tree())
+	var shown := bool(colliders.call("is_slot_enabled", SITE_HOUSE)) and not bool(streamer.call("is_slot_hidden", SITE_HOUSE))
+	_verdict(freed and shown and Net.player_zone(host) == Net.Zone.TOWN, "d3. %.0f m away the paid yard goes (%s after %.1f s), its house is back %s, host in %s" % [Constants.SITE_FREE_DISTANCE + 20.0, freed, waited, shown, Net.Zone.keys()[Net.player_zone(host)]], problems)
+	var next_house := SITE_HOUSE + 1
+	lot = await _pick(world, town, board, next_house)
+	if lot == null:
+		_verdict(false, "d4. house %d's request picked: no yard loaded" % next_house, problems)
+		return
+	site = TownMap.yard_transform(next_house)
+	var seen: Array[String] = []
+	for spot: Vector3 in [site * Vector3(-3.0, 0.3, 4.0), site * Vector3(0.0, 0.3, 33.6), Vector3(2.0, 0.3, 4.0)]:
+		_teleport(host, spot)
+		await get_tree().create_timer(0.6).timeout
+		seen.append(Net.Zone.keys()[Net.player_zone(host)])
+	var field := lot.get_node_or_null("LeafField")
+	if field != null:
+		for offset: Vector3 in [Vector3(-6.0, 0.0, 6.0), Vector3(6.0, 0.0, 6.0), Vector3(0.0, 0.0, -2.0)]:
+			field.call("host_mulch", site * offset, 3.0)
+	await get_tree().create_timer(0.5).timeout
+	var cleaned := float(field.call("cleaned_fraction")) if field != null else 0.0
+	var at_house := lot_zone.global_position.distance_to(site.origin) < 0.01 and int(world.call("job_site_house")) == next_house
+	_verdict(at_house and seen == ["LOT", "TOWN", "STORE"] and cleaned > 0.0, "d4. house %d's yard at its slot %s; yard, street, store: %s; leaves cleared %.3f" % [next_house, at_house, seen, cleaned], problems)
+
+
+## Host: a request from this house, picked on the board; waits for its yard.
+## The yard (generated), or null.
+func _pick(world: Node, town: Node, board: Node, house: int) -> Node:
+	town.call("dev_request", house)
+	await get_tree().create_timer(0.3).timeout
+	var offers: Array = board.get("offers")
+	var index := -1
+	for at: int in offers.size():
+		if int((offers[at] as Dictionary).get("house_id", -1)) == house:
+			index = at
+	if index < 0:
+		return null
+	board.call("request_choose", index)
+	var waited := 0.0
+	while waited < 6.0:
+		var lot := get_tree().get_first_node_in_group("job_lot")
+		if lot != null and lot.is_inside_tree() and int(lot.get("house_id")) == house and bool(lot.get("is_generated")) and int(world.call("job_site_house")) == house:
+			return lot
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	return null
+
+
+func _teleport(peer_id: int, at: Vector3) -> void:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id):
+			node.call("send_teleport", Transform3D(Basis.IDENTITY, at))
 
 
 func _finish(ok: bool, problems: Array) -> void:

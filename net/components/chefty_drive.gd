@@ -144,7 +144,19 @@ var _wave_rng := RandomNumberGenerator.new()
 var _job_bags: int = 0
 var _job_value: int = 0
 var _spent_bags: int = 0
+## Host: the last day Marty towed Chefty home (the save's towed_day).
+var _towed_day: int = 0
 var _was_moving: bool = false
+## Host: coming home nose-first, the last stretch is a handbrake swing round to
+## face the road (_swing_step): where it started, its heading then, and how far
+## through it is (0..1, -1 when not swinging).
+var _swing_from := Vector3.ZERO
+var _swing_yaw: float = 0.0
+var _swing_t: float = -1.0
+## Every peer: the drawn heading last frame, and how fast it's turning, for the
+## skid sound (a swing or a drift squeals on everyone's screen).
+var _drawn_yaw: float = 0.0
+var _drawn_yaw_rate: float = 0.0
 ## Sound, built when nothing better is attached (audio/vehicle_sound.gd, audio:7):
 ## the engine loop, and whether this plays the skid one-shot itself (and when next).
 var _engine: AudioStreamPlayer3D
@@ -177,8 +189,14 @@ func _ready() -> void:
 	if Net.is_host():
 		if not Net.player_left.is_connected(_on_player_left):
 			Net.player_left.connect(_on_player_left)
+		_load_section()
+		Campaign.add_save_hook(_save_section)
 	elif multiplayer.multiplayer_peer != null:
 		_rpc_request_state.rpc_id(1)
+
+
+func _exit_tree() -> void:
+	Campaign.remove_save_hook(_save_section)
 
 
 func _build() -> void:
@@ -415,6 +433,47 @@ func on_job_paid() -> void:
 	clear_bags()
 
 
+## Host, at bedtime (net/day/day_clock.gd): Chefty isn't on Homie Depot's lot, so
+## Marty tows it back to the TruckPad. Anyone still sitting in it gets out where
+## it was. True if it was towed (the day clock charges the fee and texts).
+func host_tow_home() -> bool:
+	if not Net.is_host() or Constants.STORE_AREA.has_point(Vector2(_chassis.global_position.x, _chassis.global_position.z)):
+		return false
+	if _trip != Trip.NONE:
+		_end_trip()
+	for peer_id: int in _riders.duplicate():
+		if peer_id != 0:
+			_handle_exit(peer_id)
+	_riders.fill(0)
+	_send_seats()
+	_queue.clear()
+	_held = {}
+	dev_place(Constants.CHEFTY_PARK_SPOT, Constants.CHEFTY_PARK_YAW)
+	_towed_day = _day()
+	return true
+
+
+## The day the clock is on (the save's towed_day), 0 without a clock.
+func _day() -> int:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	return int(clock.get("day")) if clock != null else 0
+
+
+## The save's "vehicle" section (gap-specs/critic.md, save keys): Chefty's dents,
+## paid bags still in the bed (driving chunk J's mulch), and the last day Marty
+## towed it. Always parked on the TruckPad in the morning, so no position.
+func _save_section() -> Dictionary:
+	return {"vehicle": {"dents": _dents, "spent_bags": _spent_bags, "towed_day": _towed_day}}
+
+
+func _load_section() -> void:
+	var saved := Campaign.save_section("vehicle")
+	_dents = clampi(int(saved.get("dents", 0)), 0, Constants.CHEFTY_MAX_DENTS)
+	_spent_bags = maxi(int(saved.get("spent_bags", 0)), 0)
+	_towed_day = int(saved.get("towed_day", 0))
+	_refresh_params()
+
+
 ## Host only. Seat these peers and take them to a zone: the autopilot drives the
 ## roads to the stop (the yard's curb, or the TruckPad), and there everyone in a
 ## seat gets off into the zone, like the legacy ride (their zone is TRANSIT on
@@ -466,13 +525,22 @@ func chauffeur_action(peer_id: int) -> String:
 	return "start"
 
 
-## The hired hands riding along (net/crew/hires.gd's list), or [] while they're
-## off working a yard. Every peer: the list and the hands' bodies replicate.
+## The hired hands riding along (net/crew/hires.gd's list), less any off working
+## a yard (or still walking back to the truck, each one climbs in on their own).
+## Every peer: the list and the hands' bodies replicate.
 func hands_aboard() -> Array:
 	var hires := get_tree().get_first_node_in_group("hires")
-	if hires == null or not get_tree().get_nodes_in_group("crew_hands").is_empty():
+	if hires == null:
 		return []
-	return hires.get("hands") as Array
+	var out_working := {}
+	for node: Node in get_tree().get_nodes_in_group("crew_hands"):
+		if not node.is_queued_for_deletion():
+			out_working[str(node.get("hand_name"))] = true
+	var aboard: Array = []
+	for hand: Variant in hires.get("hands") as Array:
+		if hand is Dictionary and not out_working.has(str((hand as Dictionary).get("name", ""))):
+			aboard.append(hand)
+	return aboard
 
 
 ## Where the hands ride, drawn on every peer: [{seat, name, look}]. The trip's
@@ -1016,6 +1084,7 @@ func _start_trip(kind: int, zone: int, stop: Transform3D) -> void:
 	_auto = VehicleAutopilot.new()
 	_auto.start(VehicleAutopilot.plan(_chassis.global_position, stop.origin), stop.origin)
 	_warp = _warp_forced or VehicleAutopilot.wants_warp()
+	_swing_t = -1.0
 	_trip_stop = stop
 	_trip_clock = 0.0
 	_trip_give_up = _auto.length() / Constants.AUTOPILOT_GIVE_UP_SPEED + Constants.AUTOPILOT_GIVE_UP_EXTRA
@@ -1042,12 +1111,66 @@ func _autopilot_step(delta: float) -> void:
 		push_warning("Chefty's autopilot gave up driving after %.0f s; warping the rest" % _trip_clock)
 		_auto.start(VehicleAutopilot.plan(_chassis.global_position, _trip_stop.origin), _trip_stop.origin)
 		_warp = true
+	if _swing_t >= 0.0:
+		if _swing_step(delta):
+			_arrive()
+		return
 	if _warp:
 		_warp_step(delta)
 	else:
 		VehicleSim.step(_chassis, _state, _auto.next_input(_state, _chassis.global_position, delta), _params, delta)
+		if _wants_swing():
+			_swing_from = _chassis.global_position
+			_swing_yaw = float(_state["yaw"])
+			_swing_t = 0.0
+			return
 	if _auto.done:
 		_arrive()
+
+
+## Host: driving home to the TruckPad, the route comes in off County Road 9 nose
+## first, facing the store. The last few meters are a handbrake swing instead,
+## round to face the road, so Chefty is parked ready to go (Big Sal's signature
+## move). Only for the TruckPad: a yard's curb is parked along the street
+## whichever way you came.
+func _wants_swing() -> bool:
+	if _trip_zone != Net.Zone.STORE or _auto == null or _auto.remaining() > Constants.CHEFTY_HOME_SWING_METERS:
+		return false
+	var off := wrapf(_trip_stop.basis.get_euler().y - float(_state["yaw"]), -PI, PI)
+	return absf(off) > Constants.CHEFTY_HOME_SWING_MIN_ANGLE
+
+
+## Host: one tick of the swing: sliding onto the stop while the tail comes round
+## (out to the side by CHEFTY_HOME_SWING_BULGE), the heading turning the short way
+## to the stop's. True once it's parked there. It moves the chassis like a warp,
+## so the pose goes out in the snapshots and riders stay in their seats.
+func _swing_step(delta: float) -> bool:
+	_swing_t = minf(_swing_t + delta / Constants.CHEFTY_HOME_SWING_SECONDS, 1.0)
+	var target := _trip_stop.origin
+	var turn := wrapf(_trip_stop.basis.get_euler().y - _swing_yaw, -PI, PI)
+	var travel := Vector3(target.x - _swing_from.x, 0.0, target.z - _swing_from.z)
+	var side := travel.normalized().cross(Vector3.UP) * signf(turn) if travel.length() > 0.01 else Vector3.ZERO
+	var slide := smoothstep(0.0, 1.0, _swing_t)
+	var spin := smoothstep(0.08, 0.85, _swing_t)
+	var at := _swing_from.lerp(target, slide) + side * Constants.CHEFTY_HOME_SWING_BULGE * sin(PI * _swing_t)
+	at.y = target.y
+	var before := _chassis.global_position
+	var heading := _swing_yaw + turn * spin
+	_chassis.global_position = at
+	_chassis.global_rotation = Vector3(0.0, heading, 0.0)
+	_state["vel"] = (at - before) / maxf(delta, 0.0001)
+	_state["yaw_rate"] = wrapf(heading - float(_state["yaw"]), -PI, PI) / maxf(delta, 0.0001)
+	_state["yaw"] = heading
+	_state["vy"] = 0.0
+	_state["air"] = false
+	# Sideways the whole way round: the skid.
+	_state["slip"] = Constants.CHEFTY_SKID_SLIP * 2.0 if _swing_t < 0.9 else 0.0
+	if _swing_t < 1.0:
+		return false
+	_swing_t = -1.0
+	_state["slip"] = 0.0
+	_place(target, _trip_stop.basis.get_euler().y)
+	return true
 
 
 ## Warp mode: the chassis follows the route at AUTOPILOT_TEST_WARP times cruise,
@@ -1101,6 +1224,7 @@ func _arrive() -> void:
 func _end_trip() -> void:
 	_auto = null
 	_warp = false
+	_swing_t = -1.0
 	_rpc_autopilot.rpc(Trip.NONE, 0, "", -1)
 
 
@@ -1110,6 +1234,10 @@ func _update_presentation(delta: float) -> void:
 	if driver() == Net.local_peer_id() and driver() != 0 and _trip == Trip.NONE:
 		steer = float(_input_from_local().get("steer", 0.0))
 	_Vehicles.set_steering(_look, steer)
+	if _body != null and delta > 0.0:
+		var heading := _body.global_rotation.y
+		_drawn_yaw_rate = lerpf(_drawn_yaw_rate, wrapf(heading - _drawn_yaw, -PI, PI) / delta, clampf(delta * Constants.CHEFTY_SKID_YAW_SMOOTHING, 0.0, 1.0))
+		_drawn_yaw = heading
 	_update_sound(delta)
 	if _quip_label != null:
 		_quip_left = maxf(_quip_left - delta, 0.0)
@@ -1317,7 +1445,9 @@ func engine_state() -> Dictionary:
 		"on": driver() != 0 or is_moving() or _trip != Trip.NONE,
 		"throttle": throttle,
 		"speed": speed(),
-		"skidding": float(_state.get("slip", 0.0)) > Constants.CHEFTY_SKID_SLIP,
+		# The sim's slide where it runs (the host, the driver), and on everyone's
+		# screen a truck turning faster than any grip allows (a drift, the swing home).
+		"skidding": float(_state.get("slip", 0.0)) > Constants.CHEFTY_SKID_SLIP or (absf(_drawn_yaw_rate) > Constants.CHEFTY_SKID_YAW_RATE and speed() > Constants.CHEFTY_PARK_SPEED),
 	}
 
 

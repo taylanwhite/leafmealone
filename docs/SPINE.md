@@ -89,9 +89,19 @@ yard's mess regrows over the days since you last did it.
 - **The mess.** Leaves come back with the days since you were last there:
   `TOWN_REGROW_PER_DAY` of a full yard per day, up to a full yard. A client you
   visit every day pays less per visit; one you leave for a week is a mountain.
-- v1 draws each job's yard the way it does now (one yard in the lot zone with its
-  street around it), but the house, its layout, its homeowner, and its neighbors
-  are the same every visit. A drivable town is a later step.
+- The legacy world draws each job's yard in one lot zone with its street around
+  it; the house, its layout, its homeowner, and its neighbors are the same every
+  visit.
+- **The town loop** (Gutterford, `--town-map`, the default from driving chunk H):
+  pick a job (the board, or Take job on a text; the morning's first request is
+  picked already) and the yard is there at the client's real house, with a
+  beacon over its curb. Drive Chefty there (or let a hired hand drive), park in
+  the chalk box, work, get paid. The yard stays until the crew is 90 m away or
+  takes the next job, so jobs chain straight from the truck; nobody is driven
+  home. Drive back to Homie Depot to shop or sleep; a Chefty left out at bedtime
+  gets towed home by Marty for $20. Drive time is in-game time: a trip to Maple
+  Row is about 45 s, about 45 in-game minutes.
+- **perk:chefty_tuneup** (Hedge Hog IV) gives Chefty +8% top speed.
 
 ## 4. The phone
 

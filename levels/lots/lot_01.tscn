@@ -32,6 +32,15 @@ properties/3/replication_mode = 0
 properties/4/path = NodePath(".:hood")
 properties/4/spawn = true
 properties/4/replication_mode = 0
+properties/5/path = NodePath(".:site")
+properties/5/spawn = true
+properties/5/replication_mode = 0
+properties/6/path = NodePath(".:house_id")
+properties/6/spawn = true
+properties/6/replication_mode = 0
+properties/7/path = NodePath(".:stage")
+properties/7/spawn = true
+properties/7/replication_mode = 2
 
 [node name="Lot01" type="Node3D"]
 script = ExtResource("7_job")

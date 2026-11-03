@@ -879,6 +879,9 @@ func _check_bonks() -> void:
 ## Host only. Something thrown into the street or a neighbor's yard comes back
 ## into the pad once it settles, so the job's one rake can't be lost.
 func _come_back_in() -> void:
+	if TownMap.enabled(get_tree()):
+		_come_back_in_town()
+		return
 	var zone_name := _zone_name()
 	var zone := _zone_center()
 	var local := global_position - zone
@@ -891,6 +894,47 @@ func _come_back_in() -> void:
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
 		_airborne = false
+
+
+## Host only, the connected town (driving chunk D): there are no pads, people
+## carry and throw things all over town. The job's own things (the tools that
+## rode along, and the yard's rake, gnome, trash can and wheelbarrow) come back
+## to the yard once they settle more than PROP_LEASH_METERS from it; anything
+## that falls out of the world comes back to the nearest sidewalk (or the yard).
+func _come_back_in_town() -> void:
+	var fell := global_position.y < -5.0
+	var lot := _job_lot()
+	var belongs := lot != null and (is_in_group("job_tools") or lot.is_ancestor_of(self))
+	if belongs:
+		var center := (lot.get_parent() as Node3D).global_position
+		var away := Vector2(global_position.x - center.x, global_position.z - center.z).length()
+		if not fell and (away <= Constants.PROP_LEASH_METERS or linear_velocity.length() >= 0.5):
+			return
+		# Back on the yard, toward where it left, inside the edge.
+		var rect: Rect2 = Constants.PAD_RECTS.get("LotZone", Rect2(-20.0, -20.0, 40.0, 40.0))
+		var inner := Rect2(rect.position, Vector2(rect.size.x, Constants.PAD_HALF * 2.0)).grow(-1.5)
+		var local := global_position - center
+		_put_back(center + Vector3(clampf(local.x, inner.position.x, inner.end.x), 1.2, clampf(local.z, inner.position.y, inner.end.y)))
+		return
+	if fell:
+		_put_back(TownMap.respawn_point(global_position) + Vector3(0.0, 1.1, 0.0))
+
+
+## The loaded job yard (LotZone/LotSlot's child, which sits at the site), or null.
+func _job_lot() -> Node:
+	var world := get_tree().get_first_node_in_group("world")
+	var slot := world.get_node_or_null("LotZone/LotSlot") if world != null else null
+	if slot == null or slot.get_child_count() == 0:
+		return null
+	return slot.get_child(0)
+
+
+func _put_back(at: Vector3) -> void:
+	global_position = at
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	_airborne = false
+	reset_physics_interpolation()
 
 
 ## Which zone node this prop is nearest.

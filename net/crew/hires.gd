@@ -96,6 +96,12 @@ func spawn_on_lot() -> void:
 		return
 	var npcs := world.get_node("Npcs")
 	var at: Vector3 = truck.call("body_position")
+	# The drivable Chefty (the connected town): they hop down off the tailgate, in
+	# a row behind it, wherever the truck is facing.
+	var behind := Transform3D()
+	var drop := truck.has_method("tow_point")
+	if drop:
+		behind = truck.call("tow_point")
 	for index: int in hands.size():
 		var hand: Dictionary = hands[index]
 		var node: CharacterBody3D = HAND_SCENE.instantiate()
@@ -104,6 +110,11 @@ func spawn_on_lot() -> void:
 		node.set("look_seed", int(hand["look"]))
 		node.set("skill", float(hand["skill"]))
 		npcs.add_child(node, true)
+		if drop:
+			var across := (float(index) - float(hands.size() - 1) * 0.5) * Constants.CHEFTY_HAND_DROP_SPACING
+			# At the tailgate's height, so they drop down off it.
+			node.global_position = behind * Vector3(across, Constants.CHEFTY_HAND_DROP_HEIGHT, Constants.CHEFTY_HAND_DROP_BEHIND)
+			continue
 		node.global_position = Vector3(at.x - 1.5 + float(index) * 1.0, at.y + 0.2, at.z - 2.6)
 
 
@@ -120,11 +131,16 @@ func dev_add_hand(hand_name: String) -> void:
 ## Host: the job's over (paid, or the yard went away). Back on the truck.
 ## In the connected town they're drawn riding in Chefty's free bed seats while
 ## they're not working a yard (chefty_drive.gd cosmetic_riders()).
-func despawn() -> void:
+func despawn(walk: bool = false) -> void:
 	if not Net.is_host():
 		return
 	for node: Node in get_tree().get_nodes_in_group("crew_hands"):
-		node.queue_free()
+		# walk: they head back to the truck and climb in by themselves (paid in the
+		# connected town, where the truck is parked right there).
+		if walk and node.has_method("board"):
+			node.call("board")
+		else:
+			node.queue_free()
 
 
 ## A hand loaded a bag into Chefty (npcs/crew_hand.gd).

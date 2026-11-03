@@ -211,14 +211,20 @@ func _local_near() -> bool:
 # ---------------------------------------------------------------- host
 
 func _handle_choose(index: int) -> void:
-	if index < 0 or index >= offers.size() or index == chosen:
+	if index < 0 or index >= offers.size():
 		return
 	# Once Chefty is on the way, the job is set.
 	var lot_slot := get_tree().get_first_node_in_group("world")
 	if lot_slot != null and bool(lot_slot.call("job_locked")):
 		return
+	if index == chosen:
+		# In the connected town the pick is already up but its yard isn't loaded
+		# (the last one was kept, or went away): taking it loads it.
+		if lot_slot != null and bool(lot_slot.call("is_town_map")) and int(lot_slot.call("job_site_house")) != int(current().get("house_id", -1)):
+			lot_slot.call("reload_job_lot", true)
+		return
 	_rpc_offers.rpc(offers, index)
-	lot_slot.call("reload_job_lot")
+	lot_slot.call("reload_job_lot", true)
 
 
 ## Buying a tool can change what a homeowner asks for: re-read every offer from

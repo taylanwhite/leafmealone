@@ -1445,6 +1445,12 @@ func _stay_on_the_pad() -> void:
 	if world == null:
 		return
 	var zone := Net.player_zone(name.to_int())
+	# The connected town has no pads to stay on (driving chunk D): walk out of the
+	# store, the yard and down the street. Only a fall out of the world, or
+	# wandering off the edge of the map, puts you back.
+	if zone != Net.Zone.BORDER and zone != Net.Zone.TRANSIT and bool(world.call("is_town_map")):
+		_stay_in_town()
+		return
 	var pad := _pad_for_zone(world, zone)
 	if pad == null:
 		return
@@ -1459,6 +1465,19 @@ func _stay_on_the_pad() -> void:
 	var at: Transform3D = world.call("get_spawn_transform", zone, &"", name.to_int())
 	global_position = at.origin
 	velocity = Vector3.ZERO
+
+
+## The town's own rules: fallen below the world, back up on the nearest sidewalk;
+## past the town's edge, held at it.
+func _stay_in_town() -> void:
+	if global_position.y < -2.0:
+		global_position = TownMap.respawn_point(global_position)
+		velocity = Vector3.ZERO
+		reset_physics_interpolation()
+		return
+	var bounds := TownMap.TOWN_BOUNDS
+	global_position.x = clampf(global_position.x, bounds.position.x, bounds.end.x)
+	global_position.z = clampf(global_position.z, bounds.position.z, bounds.end.z)
 
 
 func is_throwing_back() -> bool:
