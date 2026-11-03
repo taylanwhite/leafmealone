@@ -299,7 +299,7 @@ jobs:
           grep "HotbarTest" build/soak/ci-hotbar/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-hotbar/host.json')); t=json.load(open('build/soak/ci-hotbar/target.json')); sys.exit(0 if h['hotbar_test'].get('ok') and h['hotbar'] == t['hotbar'] else 1)"
 
-      - name: Townmap test (Gutterford's layout, roads, routes, store reservations, colliders)
+      - name: Townmap test (Gutterford's layout, roads, routes, store reservations, colliders, the job at the client's house, position zones)
         if: matrix.part == 'features'
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
@@ -309,7 +309,7 @@ jobs:
           "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7816 --name=Target --no-steam --measure="$PWD/build/soak/ci-townmap/target.json" --run-seconds=55 > build/soak/ci-townmap/target.log 2>&1
           wait
           grep "TownmapTest" build/soak/ci-townmap/host.log || true
-          $PY -c "import json,sys; h=json.load(open('build/soak/ci-townmap/host.json')); t=json.load(open('build/soak/ci-townmap/target.json')); sys.exit(0 if h['townmap_test'].get('ok') and h['town_site'] == t['town_site'] and t['town_site'].get('house_shapes') == 47 else 1)"
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-townmap/host.json')); t=json.load(open('build/soak/ci-townmap/target.json')); sys.exit(0 if h['townmap_test'].get('ok') and h['town_site'] == t['town_site'] and t['town_site'].get('house_shapes') == 46 and h['lot_layout'] == t['lot_layout'] and t['lot_layout'] != 0 and t['lot_work']['cleaned_fraction'] > 0 and 'LOT,TOWN,STORE' in ','.join(t['host_zones']) else 1)"
 
       - name: Drive test (the drivable Chefty over 120 ms of lag, driver prediction, seats, horn, bails, a capture, the autopilot and the chauffeur)
         if: matrix.part == 'features'

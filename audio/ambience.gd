@@ -67,7 +67,10 @@ func _process(delta: float) -> void:
 		return
 	var zone := Net.player_zone(me.name.to_int())
 	# Wind is quieter in transit and at the border's lanes.
-	var outdoors := zone == Net.Zone.LOT or zone == Net.Zone.STORE
+	# Out in the connected town (driving chunk D) sounds like the neighborhood:
+	# the yard's dogs and passing cars wherever there are houses.
+	var in_hood := zone == Net.Zone.LOT or (zone == Net.Zone.TOWN and _hood_index(me.global_position) >= 0)
+	var outdoors := zone == Net.Zone.LOT or zone == Net.Zone.STORE or zone == Net.Zone.TOWN
 	_wind.volume_db = Constants.AMBIENCE_WIND_DB + (0.0 if outdoors else Constants.AMBIENCE_WIND_AWAY_DB)
 	for key: String in _waits:
 		_waits[key] = float(_waits[key]) - delta
@@ -78,12 +81,12 @@ func _process(delta: float) -> void:
 			_one_shot("bird", me.global_position + _around(Constants.AMBIENCE_BIRD_RANGE) + up, 0.0)
 	if float(_waits["dog"]) <= 0.0:
 		_waits["dog"] = _between(Constants.AMBIENCE_DOG_GAP)
-		if zone == Net.Zone.LOT:
+		if in_hood:
 			_one_shot("dog", me.global_position + _around(Constants.AMBIENCE_DOG_RANGE), 0.0)
 	if float(_waits["car"]) <= 0.0:
 		_waits["car"] = _between(Constants.AMBIENCE_CAR_GAP)
-		if zone == Net.Zone.LOT and _car_t < 0.0:
-			_start_car()
+		if in_hood and _car_t < 0.0:
+			_start_car(me.global_position)
 	if _car_t >= 0.0:
 		_car_t += delta / Constants.AMBIENCE_CAR_SECONDS
 		_car.global_position = _car_from.lerp(_car_to, clampf(_car_t, 0.0, 1.0))
@@ -91,16 +94,23 @@ func _process(delta: float) -> void:
 			_car_t = -1.0
 
 
-## A car drives along the far lane of the lot's street, past the yard.
-func _start_car() -> void:
+## A car drives along the far lane of the lot's street, past the yard. In the
+## connected town, along the street of whichever neighborhood you're in, past you.
+func _start_car(near: Vector3) -> void:
 	var world := get_tree().get_first_node_in_group("world")
 	var lot := world.get_node_or_null("LotZone") as Node3D if world != null else null
 	if lot == null:
 		return
-	var lane := _Neighborhood.STREET.y - 2.2
 	var direction := 1.0 if randf() < 0.5 else -1.0
-	_car_from = lot.to_global(Vector3(-Constants.AMBIENCE_CAR_RUN * direction, 0.6, lane))
-	_car_to = lot.to_global(Vector3(Constants.AMBIENCE_CAR_RUN * direction, 0.6, lane))
+	var hood := _hood_index(near) if TownMap.enabled(get_tree()) else -1
+	if hood >= 0:
+		var street_z := TownMap.STREET_Z[hood] - 2.2
+		_car_from = Vector3(near.x - Constants.AMBIENCE_CAR_RUN * direction, 0.6, street_z)
+		_car_to = Vector3(near.x + Constants.AMBIENCE_CAR_RUN * direction, 0.6, street_z)
+	else:
+		var lane := _Neighborhood.STREET.y - 2.2
+		_car_from = lot.to_global(Vector3(-Constants.AMBIENCE_CAR_RUN * direction, 0.6, lane))
+		_car_to = lot.to_global(Vector3(Constants.AMBIENCE_CAR_RUN * direction, 0.6, lane))
 	_car_t = 0.0
 	_car.global_position = _car_from
 	_car.pitch_scale = randf_range(0.9, 1.1)
@@ -121,6 +131,18 @@ func _one_shot(id: String, at: Vector3, db: float) -> void:
 	add_child(player)
 	player.global_position = at
 	player.play()
+
+
+## The connected town's neighborhood street pos is on or by (TownMap.region_of),
+## as its index in TownMap.STREET_Z, or -1 (the store, the country, the legacy world).
+func _hood_index(pos: Vector3) -> int:
+	if not TownMap.enabled(get_tree()):
+		return -1
+	var region := TownMap.region_of(pos)
+	for index: int in TownMap.STREET_Z.size():
+		if TownMap.hood_id_of(TownMap.first_house_of(index)) == region:
+			return index
+	return -1
 
 
 func _between(range_value: Vector2) -> float:

@@ -172,10 +172,13 @@ $Tests = [ordered]@{
 	}
 	# Gutterford's layout, roads, routes, store reservations and colliders (driving:B);
 	# the client gets the town mode with the world and must build the same solid town.
+	# The job at the client's house (driving:D): the client ends with the same yard at
+	# the same house (one slot hidden), heard the host's position-derived zones
+	# (yard, street, store), and sees the leaves cleared there.
 	townmap = @{
 		Port = 7816
 		Host = '--host --name=Tester --no-steam --town-map --townmap-test'; Seconds = 60; Client = 55
-		Check = { param($h, $c) [bool]$h.townmap_test.ok -and (Same $h.town_site $c.town_site) -and ([int]$c.town_site.house_shapes -eq 47) }
+		Check = { param($h, $c) [bool]$h.townmap_test.ok -and (Same $h.town_site $c.town_site) -and ([int]$c.town_site.house_shapes -eq 46) -and (Same $h.lot_layout $c.lot_layout) -and ([double]$c.lot_layout -ne 0) -and ([double]$c.lot_work.cleaned_fraction -gt 0) -and ((@($c.host_zones) -join ',') -match 'LOT,TOWN,STORE') }
 	}
 	# The drivable Chefty (driving:C1) over a laggy link: the client drives (each
 	# input's first prediction ends within 1.5 m of the host's pose after it, and

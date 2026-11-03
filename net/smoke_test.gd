@@ -197,6 +197,14 @@ func _rpc_hazard_sample(at: Vector3) -> void:
 	_finish(true, "")
 
 
+## The connected town's ZoneTracker (driving chunk D), on or off; nothing in the
+## legacy world.
+func _set_tracking(on: bool) -> void:
+	var tracker := _world().get_node_or_null("ZoneTracker") if _world() != null else null
+	if tracker != null:
+		tracker.set_physics_process(on)
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_status(stage: String, client_time: float) -> void:
 	if not Net.is_smoke_host():
@@ -211,6 +219,10 @@ func _rpc_status(stage: String, client_time: float) -> void:
 		if (client_time > 0.5) != host_town:
 			_finish(false, "client world mode differs from the host's (host town_map %s)" % host_town)
 			return
+		# In the connected town the host's ZoneTracker would re-label the client
+		# (standing on the store's lot) as STORE at once; this step checks Net's own
+		# no-teleport relabel, so the tracker waits until the client is sent on.
+		_set_tracking(false)
 		Net.set_player_zone(_client_id, Net.Zone.TOWN)
 	elif stage == "zone_quiet" and _saw_players and not _moved:
 		if client_time > QUIET_ZONE_MAX_METERS:
@@ -221,6 +233,7 @@ func _rpc_status(stage: String, client_time: float) -> void:
 			return
 		Net.move_player_to_zone(_client_id, Net.Zone.LOT)
 		_moved = true
+		_set_tracking(true)
 	elif stage == "zone_moved" and _moved and _leaf_phase == "":
 		Net.move_player_to_zone(1, Net.Zone.LOT)
 		_leaf_phase = "poke"

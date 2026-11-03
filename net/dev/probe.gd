@@ -36,6 +36,9 @@ var _active_bodies: int = 0
 var _collision_pairs: int = 0
 ## This peer's own zones in order, for following captures and returns.
 var _zones: Array[String] = []
+## The host's zones in order as this peer heard them (townmap_test: a client's
+## registry follows the host's position-derived zones in the connected town).
+var _host_zones: Array[String] = []
 
 
 func _ready() -> void:
@@ -43,6 +46,8 @@ func _ready() -> void:
 	Net.player_zone_changed.connect(func(peer_id: int, zone: Net.Zone) -> void:
 		if peer_id == Net.local_peer_id():
 			_zones.append(Net.Zone.keys()[zone])
+		if peer_id == 1:
+			_host_zones.append(Net.Zone.keys()[zone])
 	)
 
 
@@ -210,6 +215,7 @@ func write_report() -> void:
 		"job_progress": _job_progress(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),
 		"zones": _zones,
+		"host_zones": _host_zones,
 		"audio_driver": AudioServer.get_driver_name(),
 		"leaf_instances": _leaf_instances(),
 		"lot_work": _lot_work(),

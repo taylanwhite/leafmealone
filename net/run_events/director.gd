@@ -178,6 +178,10 @@ func _consider_roll() -> void:
 	# Nobody on the yard (riding home, all in Border Return): nobody to raid.
 	if Net.players_in_zone(Net.Zone.LOT).is_empty():
 		return
+	# The connected town keeps a paid yard up while the crew heads off: the job's
+	# done, so there's nothing to call in.
+	if not Campaign.is_job_open() and TownMap.enabled(get_tree()):
+		return
 	var field := get_tree().get_first_node_in_group("leaf_field")
 	var fraction := 0.0
 	if field != null:

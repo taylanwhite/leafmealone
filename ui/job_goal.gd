@@ -46,6 +46,8 @@ func _process(delta: float) -> void:
 static func goal(tree: SceneTree, peer_id: int) -> String:
 	var zone := Net.player_zone(peer_id)
 	var chefty := tree.get_first_node_in_group("chefty")
+	if (zone == Net.Zone.STORE or zone == Net.Zone.TOWN) and TownMap.enabled(tree):
+		return _town_goal(tree, peer_id, zone)
 	if zone == Net.Zone.STORE:
 		var clock := tree.get_first_node_in_group("day_clock")
 		if clock != null and bool(clock.call("is_closed")):
@@ -123,6 +125,73 @@ static func goal(tree: SceneTree, peer_id: int) -> String:
 	if banked > 0:
 		return _Strings.UI["goal_talk"] % banked
 	return _Strings.UI["goal_no_rake"]
+
+
+## The connected town (driving chunk D), at the store or out in town: the job is
+## at the client's house, so the line says where it is, how far, and which way
+## (an arrow from where this peer's camera looks). In the yard (LOT) the job
+## lines above take over.
+static func _town_goal(tree: SceneTree, peer_id: int, zone: Net.Zone) -> String:
+	var clock := tree.get_first_node_in_group("day_clock")
+	if clock != null and bool(clock.call("is_closed")):
+		return _Strings.UI["goal_sleep"] if zone == Net.Zone.STORE else _Strings.UI["goal_drive_home"]
+	var world := tree.get_first_node_in_group("world")
+	var board := tree.get_first_node_in_group("job_board")
+	var house := int(world.call("job_site_house")) if world != null else -1
+	var lot := tree.get_first_node_in_group("job_lot")
+	if house < 0 or lot == null:
+		if board != null and (board.get("offers") as Array).is_empty():
+			return _Strings.UI["goal_no_jobs"]
+		var phone := tree.get_first_node_in_group("phone")
+		if phone != null and int(phone.call("unread")) > 0:
+			return _Strings.UI["goal_texts"]
+		return _Strings.UI["goal_pick_job"]
+	var homeowner := lot.get_node_or_null("Homeowner")
+	if homeowner != null and int(homeowner.get("_phase")) == 3:
+		return _Strings.UI["goal_next_job"]
+	var player := _player_node(tree, peer_id) as Node3D
+	if player == null:
+		return ""
+	var curb := TownMap.curb_point(house)
+	var meters := Vector2(curb.x - player.global_position.x, curb.z - player.global_position.z).length()
+	var address := _address(tree, house)
+	var arrow := _arrow(tree, player.global_position, curb)
+	var chefty := tree.get_first_node_in_group("chefty")
+	var seated := chefty != null and int(chefty.call("seat_of", peer_id)) >= 0
+	if seated:
+		if meters <= Constants.CHEFTY_ARRIVE_RADIUS:
+			return _Strings.UI["goal_park"]
+		return _Strings.UI["goal_drive_to"] % [address, int(meters), arrow]
+	if meters <= Constants.GOAL_WALK_METERS:
+		return _Strings.UI["goal_go_to"] % [address, int(meters), arrow]
+	return _Strings.UI["goal_get_in_chefty"] % [address, int(meters), arrow]
+
+
+## "14 Maple Row": the house's number and street, from the town's houses.
+static func _address(tree: SceneTree, house_id: int) -> String:
+	var town := tree.get_first_node_in_group("town")
+	var entry: Dictionary = town.call("house", house_id) if town != null else {}
+	if entry.is_empty():
+		return TownMap.hood_id_of(house_id).capitalize()
+	return _Strings.UI["site_address"] % [int(entry.get("number", 0)), str(entry.get("street", ""))]
+
+
+## Which way the place is from here, as one of eight arrows, relative to where
+## this peer's camera faces (up is straight ahead).
+static func _arrow(tree: SceneTree, from: Vector3, to: Vector3) -> String:
+	var camera := tree.root.get_camera_3d()
+	var ahead := -camera.global_basis.z if camera != null else Vector3.FORWARD
+	var forward := Vector2(ahead.x, ahead.z)
+	var toward := Vector2(to.x - from.x, to.z - from.z)
+	if forward.length() < 0.01 or toward.length() < 0.01:
+		return ARROWS[0]
+	# Clockwise from straight ahead, seen from above (+x right of -z).
+	var turn := wrapf(forward.angle_to(toward), 0.0, TAU)
+	return ARROWS[posmod(roundi(turn / (TAU / 8.0)), 8)]
+
+
+## Ahead, then clockwise: ahead-right, right, behind-right, behind, ...
+const ARROWS: Array[String] = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"]
 
 
 static func _player_node(tree: SceneTree, peer_id: int) -> Node:

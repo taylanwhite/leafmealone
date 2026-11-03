@@ -965,6 +965,63 @@ const CHAUFFEUR_QUIP_SECONDS: float = 4.5
 const CHEFTY_HAND_WAVE_SECONDS := Vector2(3.0, 9.0)
 const CHEFTY_HAND_FIRST_WAVE: float = 0.5
 
+# ---- driving: the job at the client's house (driving chunk D, net/town/zone_tracker.gd,
+# levels/world.gd; docs/DECISIONS.md "One job site that moves"). First guesses.
+# TODO(balance): not in the workbook.
+## The host works out who is where this often (s), from where they stand: the
+## store's lot, the job yard (its PAD_RECTS["LotZone"], this many meters bigger
+## while already in it, so the curb doesn't flicker), or the town.
+const ZONE_TRACK_SECONDS: float = 0.1
+const ZONE_EXIT_MARGIN: float = 3.0
+## A paid job's yard stays until every player and Chefty are this far from it (m).
+const SITE_FREE_DISTANCE: float = 90.0
+## The job's tools (and the yard's own rake, gnome, ...) come back to the yard when
+## they settle farther away than this (m), and walking or driving this far off the
+## yard mid-job leaves what's in your pockets there (gap-specs/critic.md C23).
+const PROP_LEASH_METERS: float = 45.0
+## Chefty not at Homie Depot at bedtime: Marty tows it back for this much ($),
+## split across the crew like wages.
+const CHEFTY_TOW_FEE: int = 20
+## The goal line says "go to" instead of "get in Chefty" within this many meters
+## of the yard's curb.
+const GOAL_WALK_METERS: float = 45.0
+## The beacon over the job's curb (levels/lots/site_marker.gd): how tall and wide
+## (m), and it fades out between these distances (m) as you get close.
+const SITE_BEACON_HEIGHT: float = 30.0
+const SITE_BEACON_RADIUS: float = 0.85
+const SITE_BEACON_FADE := Vector2(22.0, 40.0)
+## How fast the beacon's light breathes (cycles per second) and by how much.
+const SITE_BEACON_PULSE_HZ: float = 0.6
+const SITE_BEACON_PULSE: float = 0.25
+## Farther than this from the camera (m; inside its 400 m reach) the beacon is
+## drawn pulled in and scaled down so it still shows, and from this far (m) it
+## gets wider with distance so it never thins to a hairline.
+const SITE_BEACON_DRAW_METERS: float = 300.0
+const SITE_BEACON_WIDEN_FROM: float = 120.0
+## Its name is drawn at most this far from the camera (m), along the same line of
+## sight, so the fog never swallows it.
+const SITE_BEACON_LABEL_METERS: float = 60.0
+## Coming home to the TruckPad nose-first, the autopilot swings Chefty round to
+## face the road (a handbrake turn): it starts this far from the stop (m), when the
+## nose is more than this far off the parking heading (rad), takes this long (s),
+## and the tail swings out this far (m).
+const CHEFTY_HOME_SWING_METERS: float = 7.5
+const CHEFTY_HOME_SWING_MIN_ANGLE: float = 1.6
+const CHEFTY_HOME_SWING_SECONDS: float = 1.25
+const CHEFTY_HOME_SWING_BULGE: float = 1.8
+## Turning faster than this (rad/s) as drawn counts as skidding (the skid sound).
+const CHEFTY_SKID_YAW_RATE: float = 2.4
+## How quickly that drawn turn rate follows the truck (per second).
+const CHEFTY_SKID_YAW_SMOOTHING: float = 12.0
+## The hands hop off the tailgate: they start this far behind Chefty's tow point,
+## this far apart and this high (m), and drop to the street.
+const CHEFTY_HAND_DROP_BEHIND: float = 0.4
+const CHEFTY_HAND_DROP_SPACING: float = 0.9
+const CHEFTY_HAND_DROP_HEIGHT: float = 1.0
+## Paid, the hands walk back to Chefty to climb in; past this many seconds of
+## walking they're just in (s).
+const HIRE_BOARD_SECONDS: float = 12.0
+
 
 # ---- audio
 # audio/ (docs/DECISIONS.md, "Audio: buses, a sound bank, positional sounds").

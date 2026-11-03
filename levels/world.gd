@@ -36,6 +36,11 @@ var _lot_swap_serial: int = 0
 var _bag_serial: int = 0
 ## The town house whose yard the job site sits on, or -1 (legacy, or no site placed).
 var _job_site_house: int = -1
+## Host: _ready is done (the town's colliders and dressing exist), so the board
+## may load a yard.
+var _built: bool = false
+## Host, the connected town: until the next look at whether a paid yard can go.
+var _site_check_wait: float = 0.0
 
 
 func _ready() -> void:
@@ -92,8 +97,15 @@ func _ready() -> void:
 	_SharedLook.call("apply", self)
 	if not get_tree().node_added.is_connected(_on_node_added):
 		get_tree().node_added.connect(_on_node_added)
+	if town_map:
+		_drop_legacy_doors()
 	if not Net.is_host():
 		return
+	if town_map:
+		# Who's where, from where they stand (driving chunk D).
+		var tracker := preload("res://net/town/zone_tracker.gd").new()
+		tracker.name = "ZoneTracker"
+		add_child(tracker)
 	# --all-tools: the host owns every tool this session, for tests and trying them out.
 	if bool(Net.dev_options().get("all_tools")):
 		Campaign.dev_grant_all_tools(Net.local_peer_id())
@@ -107,6 +119,22 @@ func _ready() -> void:
 	Net.player_joined.connect(_on_player_joined)
 	Net.player_left.connect(_on_player_left)
 	Net.player_zone_changed.connect(_on_zone_changed)
+	# The connected town: the picked job's yard is there from the start, at its
+	# house (the board's first offers came in before the town was dressed).
+	_built = true
+	if town_map:
+		reload_job_lot()
+
+
+## The connected town has no doors between zones: nobody boards Chefty at a sign
+## and rides off by itself (you drive it, or a hired hand does), and the debug
+## pads that teleported between the store and the yard would skip the town.
+func _drop_legacy_doors() -> void:
+	for path: String in ["StoreZone/Board", "StoreZone/ToLot", "LotZone/ToStore"]:
+		var door := get_node_or_null(path)
+		if door != null:
+			door.get_parent().remove_child(door)
+			door.queue_free()
 
 
 ## Chefty, made here on every peer at the same path (World/Rides/Chefty, which its
@@ -250,6 +278,16 @@ func place_job_site(site: Transform3D, house_id: int) -> void:
 	zone.reset_physics_interpolation()
 
 
+## Every peer: the job's yard at this house went away (job_lot.gd _exit_tree), so
+## its slot shows its own house again. LotZone stays where it is until the next
+## yard is placed. A different house's release changes nothing.
+func release_job_site(house_id: int) -> void:
+	if not town_map or house_id < 0 or house_id != _job_site_house:
+		return
+	_show_slot(house_id, true)
+	_job_site_house = -1
+
+
 ## A town slot's dressing house and colliders, on or off.
 func _show_slot(house_id: int, on: bool) -> void:
 	var colliders := get_node_or_null("TownColliders")
@@ -284,6 +322,13 @@ func can_enter_zone(zone: Net.Zone) -> bool:
 
 ## World position used when the host teleports a player into a zone.
 func get_spawn_transform(zone: Net.Zone, spawn_marker: StringName, peer_id: int) -> Transform3D:
+	# Sent into the town itself: the sidewalk nearest where they are.
+	if zone == Net.Zone.TOWN and town_map:
+		var near := Vector3.ZERO
+		for node: Node in get_tree().get_nodes_in_group("players"):
+			if node.name == str(peer_id):
+				near = (node as Node3D).global_position
+		return Transform3D(Basis.IDENTITY, TownMap.respawn_point(near))
 	var points := _spawn_points(zone)
 	if spawn_marker != &"" and points.has_node(String(spawn_marker)):
 		return points.get_node(String(spawn_marker)).global_transform
@@ -357,20 +402,31 @@ func on_ride_arrived(destination: int) -> void:
 			crossing.call("begin", director.call("cohort_roster"), int(director.call("hazard_seed")))
 
 
-## Host, the connected town. The crew got to the job's yard: a depart() trip
-## arrived, or Chefty parked by its curb (chefty_drive.gd's arrival detection,
-## however it was driven there). The homeowner's clock starts and the hired hands
-## hop off to work, once per yard: parking there again changes nothing.
+## Host, the connected town. The crew got to the job's yard: someone walked (or
+## drove) into it (net/town/zone_tracker.gd), a depart() trip arrived, or Chefty
+## parked by its curb (chefty_drive.gd's arrival detection, however it was driven
+## there). The homeowner's clock starts, once per yard. The hired hands hop off
+## once Chefty is parked by the curb (they ride in the bed, so a crew that
+## walked over gets them when the truck turns up).
 func on_crew_arrived() -> void:
-	if not Net.is_host() or %LotSlot.get_child_count() == 0:
+	if not Net.is_host() or %LotSlot.get_child_count() == 0 or not Campaign.is_job_open():
 		return
 	var lot := %LotSlot.get_child(0)
-	if lot.has_meta("crew_arrived"):
+	if not lot.has_meta("crew_arrived"):
+		lot.set_meta("crew_arrived", true)
+		Campaign.start_job_clock()
+	if lot.has_meta("hands_off"):
 		return
-	lot.set_meta("crew_arrived", true)
-	Campaign.start_job_clock()
+	var chefty := get_node_or_null("Rides/Chefty")
+	if chefty == null or bool(chefty.call("is_moving")):
+		return
+	var at: Vector3 = chefty.call("body_position")
+	var curb := ($LotZone as Node3D).global_transform * TownMap.CURB_POINT
+	if Vector2(at.x - curb.x, at.z - curb.z).length() > Constants.CHEFTY_ARRIVE_RADIUS:
+		return
+	lot.set_meta("hands_off", true)
 	var hires := get_node_or_null("Hires")
-	if hires != null and Campaign.is_job_open():
+	if hires != null:
 		hires.call("spawn_on_lot")
 
 
@@ -403,6 +459,15 @@ func _load_job_lot() -> void:
 	if str(Net.dev_options().get("hood")) != "":
 		lot.set("hood", str(Net.dev_options().get("hood")))
 	lot.set_meta("offer", offer)
+	if town_map:
+		# The yard is the client's real one, at their house's slot in Gutterford
+		# (net/town/town_map.gd). Placed before it's added, so the host builds it
+		# there; every client places it from the lot's spawn data (job_lot.gd).
+		var house := _site_house_for(offer)
+		var site := TownMap.yard_transform(house)
+		place_job_site(site, house)
+		lot.set("site", site)
+		lot.set("house_id", house)
 	%LotSlot.add_child(lot, true)
 	Campaign.mark_job_open()
 	var town := get_node_or_null("Town")
@@ -433,22 +498,50 @@ func _free_lot() -> void:
 	$JobBoard.call("refresh")
 
 
+## The town house a yard goes on: the offer's house, else the house whose yard
+## has the offer's seed, else the test yard (--job-seed's, and offers with no
+## house: TownMap.test_site_house()).
+func _site_house_for(offer: Dictionary) -> int:
+	if offer.has("house_id") and int(offer["house_id"]) >= 0:
+		return int(offer["house_id"])
+	var town := get_node_or_null("Town")
+	if town != null and offer.has("seed"):
+		var by_seed := int(town.call("house_by_seed", int(offer["seed"])))
+		if by_seed >= 0:
+			return by_seed
+	return TownMap.test_site_house()
+
+
 ## True once the next job is set: Chefty is on the way, or someone's at the yard.
+## In the connected town: someone's in the yard, or the crew got there and the
+## job isn't paid yet. A paid yard nobody is standing in can be swapped for the
+## next pick (it goes by itself once everyone is SITE_FREE_DISTANCE away).
 func job_locked() -> bool:
 	var ride := get_node_or_null("Rides/Chefty")
 	if ride != null and bool(ride.call("is_riding")):
 		return true
 	if not Net.players_in_zone(Net.Zone.LOT).is_empty():
 		return true
+	if town_map:
+		return %LotSlot.get_child_count() > 0 and Campaign.is_job_open() and bool(Campaign.get("_job_clock_started"))
 	# The town's yard is waiting for the crew (in the van, crossing back) and
 	# the job isn't paid: keep it, nobody swaps it out from a phone.
 	return get_node_or_null("Town") != null and %LotSlot.get_child_count() > 0 and Campaign.is_job_open()
 
 
 ## Host only. The job board's pick changed while nobody's at the yard: swap the
-## waiting yard for the picked one.
-func reload_job_lot() -> void:
-	if not Net.is_host() or job_locked() or %LotSlot.get_child_count() == 0:
+## waiting yard for the picked one. picked: a player picked it (the board, the
+## phone), not the board refreshing by itself.
+##
+## In the connected town the pick is where the job is, so an empty site loads
+## the picked yard right away (the goal line and the beacon point at it), and a
+## paid yard the crew is still near only goes when someone picks the next job.
+func reload_job_lot(picked: bool = false) -> void:
+	if not Net.is_host() or job_locked() or not _built:
+		return
+	if %LotSlot.get_child_count() == 0:
+		if town_map and int(Net.dev_options().get("job_seed")) == 0 and not ($JobBoard.call("current") as Dictionary).is_empty():
+			_load_job_lot()
 		return
 	# Already the picked yard with the same work: leave it be.
 	var waiting := %LotSlot.get_child(0)
@@ -456,6 +549,8 @@ func reload_job_lot() -> void:
 	if offer.is_empty() or int(Net.dev_options().get("job_seed")) != 0:
 		return
 	if int(waiting.get("job_seed")) == int(offer["seed"]) and (waiting.get("tasks") as PackedStringArray) == (offer["tasks"] as PackedStringArray):
+		return
+	if town_map and not picked and not Campaign.is_job_open():
 		return
 	for child: Node in %LotSlot.get_children():
 		%LotSlot.remove_child(child)
@@ -585,6 +680,9 @@ func can_depart() -> bool:
 
 ## Host only. paid is the homeowner's cash; without it, Campaign falls back to cleanup.
 func _host_finish(paid: float = -1.0, details: Dictionary = {}) -> void:
+	if town_map:
+		_host_finish_in_town(paid, details)
+		return
 	Campaign.finish_job(paid, details)
 	# Paid: the hands climb back on the truck.
 	var hires := get_node_or_null("Hires")
@@ -607,6 +705,50 @@ func _host_finish(paid: float = -1.0, details: Dictionary = {}) -> void:
 		_free_lot()
 		return
 	ride.call("depart", riding, Net.Zone.STORE)
+
+
+## Host, the connected town: settle up, and nobody gets driven anywhere. The
+## hands climb back into Chefty's bed, its bags come off (they're paid for), and
+## the yard stays put until the crew is SITE_FREE_DISTANCE away or picks the
+## next job (_maybe_free_site, reload_job_lot). Chaining jobs straight from the
+## truck is the point.
+func _host_finish_in_town(paid: float, details: Dictionary) -> void:
+	Campaign.finish_job(paid, details)
+	var hires := get_node_or_null("Hires")
+	if hires != null:
+		hires.call("despawn", true)
+	var chefty := get_node_or_null("Rides/Chefty")
+	if chefty != null:
+		chefty.call("on_job_paid")
+
+
+func _physics_process(delta: float) -> void:
+	if not town_map or not Net.is_host() or multiplayer.multiplayer_peer == null:
+		return
+	_site_check_wait -= delta
+	if _site_check_wait > 0.0:
+		return
+	_site_check_wait = Constants.ZONE_TRACK_SECONDS * 5.0
+	_maybe_free_site()
+
+
+## Host, the connected town: a paid job's yard goes once every player and Chefty
+## are more than SITE_FREE_DISTANCE from it, and the next pick's yard loads.
+func _maybe_free_site() -> void:
+	if %LotSlot.get_child_count() == 0 or Campaign.is_job_open():
+		return
+	var site := ($LotZone as Node3D).global_position
+	var spots: Array[Vector3] = []
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		spots.append((node as Node3D).global_position)
+	var chefty := get_node_or_null("Rides/Chefty")
+	if chefty != null:
+		spots.append(chefty.call("body_position"))
+	for spot: Vector3 in spots:
+		if Vector2(spot.x - site.x, spot.z - site.z).length() <= Constants.SITE_FREE_DISTANCE:
+			return
+	_free_lot()
+	reload_job_lot()
 
 
 func _players_near(point: Vector3) -> Array[int]:
@@ -686,6 +828,6 @@ func _spawn_points(zone: Net.Zone) -> Node3D:
 			return %LotSpawnPoints
 		Net.Zone.BORDER:
 			return %BorderSpawnPoints
-		# STORE, and TOWN until driving chunk B gives the town its own respawn points.
+		# STORE (TOWN is the nearest sidewalk, get_spawn_transform).
 		_:
 			return %StoreSpawnPoints

@@ -520,6 +520,21 @@ const UI: Dictionary = {
 	"prompt_chauffeur_stop": "Pull over",
 	"drive_hud_chauffeur": "%s is driving",
 	"drive_hud_autopilot": "Chefty is driving itself. Don't ask.",
+	# ---- driving: the job at the client's house (driving chunk D, ui/job_goal.gd,
+	# levels/lots/site_marker.gd)
+	## The chalk box the homeowner drew on the street, and the beacon over it.
+	"site_park_here": "PARK HERE",
+	"site_beacon": "%s's place",
+	## An address: the house number and the street ("14 Maple Row").
+	"site_address": "%d %s",
+	## %s is the address, %d meters away, and an arrow pointing the way.
+	"goal_get_in_chefty": "Get in Chefty and drive to %s · %d m %s",
+	"goal_drive_to": "Drive to %s · %d m %s",
+	"goal_go_to": "Head over to %s · %d m %s",
+	"goal_park": "Park in the chalk box, then {key:interact} to hop out",
+	"goal_pick_job": "Pick a job: {key:phone} for your texts",
+	"goal_next_job": "Paid! Take the next job on your phone {key:phone}, or head back to Homie Depot",
+	"goal_drive_home": "It's late. Get back to Homie Depot and sleep it off",
 }
 
 ## What a rank unlock reads as, on the summary card and the phone.
@@ -1771,6 +1786,12 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/prompt_chauffeur": [1, 1],
 	"UI/drive_hud_chauffeur": [1, 1],
 	"CHAUFFEUR_QUIPS": [2, 3],
+	"TOW_TEXTS": [1, 3],
+	"UI/site_beacon": [1, 1],
+	"UI/site_address": [2, 1],
+	"UI/goal_get_in_chefty": [3, 1],
+	"UI/goal_drive_to": [3, 1],
+	"UI/goal_go_to": [3, 1],
 	"UI/ride_rider_unnamed": [1, 1],
 	"UI/phone_text_head": [3, 1],
 	"UI/popup_cash": [1, 1],
@@ -1942,6 +1963,15 @@ const CHAUFFEUR_QUIPS: Array[String] = [
 	"%s takes the wheel with one hand. The other hand is a gas-station coffee the size of a paint can. Classic %s.",
 	"Hands at ten and two, says %s, at a quarter past seven. That's %s for you.",
 	"%s calls the brake pedal \"a suggestion.\" %s is now driving.",
+]
+
+## Chefty wasn't at Homie Depot at bedtime, so Marty towed it (net/day/day_clock.gd,
+## chefty_drive.gd host_tow_home; docs/GAME.md). %d is the fee. Texted from Marty.
+const TOW_TEXTS: Array[String] = [
+	"Towed your truck. Again. You're welcome. That's $%d.",
+	"Found Chefty out in town with its door open and a squirrel at the wheel. Towed it home. $%d.",
+	"Your truck spent the night out. I don't ask where. I just tow. $%d.",
+	"Towed Chefty back to the lot. My tow truck would like you to know it's tired. $%d.",
 ]
 
 # ---- art

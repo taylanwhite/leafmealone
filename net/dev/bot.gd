@@ -73,7 +73,8 @@ func _maybe_change_zone() -> void:
 		var here := Net.player_zone(Net.local_peer_id())
 		if here == Net.Zone.STORE:
 			Net.request_zone_move(Net.Zone.LOT)
-		elif here == Net.Zone.LOT:
+		elif here == Net.Zone.LOT or here == Net.Zone.TOWN:
+			# Out in the connected town counts as away from the store too.
 			Net.request_zone_move(Net.Zone.STORE)
 
 
