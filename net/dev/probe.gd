@@ -27,6 +27,12 @@ var _throttle_min: int = -1
 var _throttle_samples: int = 0
 ## Throttle toward each linked peer, once a second, for diagnosing drops.
 var _throttle_trace: Array[int] = []
+## Lowest ENet packet throttle LIMIT seen toward any connected peer, every frame
+## from the first connection on (loading included), or -1 before one. 32 is full.
+## The limit caps the throttle, and ENet's bandwidth pass dropped it to 1-5 for a
+## second after each client joined until Net.host() set bandwidth_limit(0, 0); the
+## once-a-second throttle sample above never saw that (docs/DECISIONS.md, 2026-11-03).
+var _throttle_limit_min: int = -1
 
 var _started_msec: int = 0
 var _session_msec: int = -1
@@ -147,6 +153,7 @@ func _process(delta: float) -> void:
 	_last_frame_at = now
 	if _session_msec < 0 and Net.current_state() == Net.State.IN_SESSION:
 		_session_msec = Time.get_ticks_msec()
+	_track_throttle_limit()
 	_wait += delta
 	if _wait < 1.0:
 		return
@@ -303,6 +310,7 @@ func write_report() -> void:
 		"long_frames": _long_frames,
 		"enet_throttle_min": _throttle_min,
 		"enet_throttle_trace": _throttle_trace,
+		"enet_throttle_limit_min": _throttle_limit_min,
 		"fps_median": _percentile(_fps, 0.5),
 		"fps_min": _fps.min() if not _fps.is_empty() else 0.0,
 	}
@@ -623,6 +631,18 @@ func _track_throttle() -> void:
 			_throttle_opened = true
 		if _throttle_opened:
 			_throttle_min = value if _throttle_min < 0 else mini(_throttle_min, value)
+
+
+func _track_throttle_limit() -> void:
+	var enet := Net.enet_peer()
+	# A closed peer's host getter logs an engine error, so ask only while it's open.
+	if enet == null or enet.get_connection_status() == MultiplayerPeer.CONNECTION_DISCONNECTED:
+		return
+	for packet_peer: ENetPacketPeer in enet.host.get_peers():
+		if packet_peer.get_state() != ENetPacketPeer.STATE_CONNECTED:
+			continue
+		var value := int(packet_peer.get_statistic(ENetPacketPeer.PEER_PACKET_THROTTLE_LIMIT))
+		_throttle_limit_min = value if _throttle_limit_min < 0 else mini(_throttle_limit_min, value)
 
 
 func _percentile(values: Array[float], fraction: float) -> float:

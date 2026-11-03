@@ -14,8 +14,11 @@ when it ended, and each run of lost voice packets with the send times either sid
 mover, the host relaying, or the receiver; for voice the peer it was due at or the
 host relaying it) is the machine's, not the network's: a peer that isn't reading
 lets its socket's receive buffer overflow, and a peer that isn't running sends no
-updates. Those are counted and printed apart (+stall, v loss), and a peer that spent
-over half its run stalled is inconclusive. A peer that exits non-zero fails, even
+updates. Those are counted and printed apart (+stall, v loss). A busy machine's
+stalls also land near the network's own problems by chance, so each peer's odds of
+that are measured and the network's share is scaled back up by them (h odds, v
+odds); a check that fails with odds over half is inconclusive. A peer whose ENet
+throttle limit ever fell fails. A peer that exits non-zero fails, even
 after writing its report. docs/DECISIONS.md, 2026-11-03 "The bot soaks' flakes",
 has the measurements.
 """
@@ -28,15 +31,27 @@ MAX_HITCH_RATE = 0.02
 # A stall this long or longer on the way can explain a hitch (an update gap over
 # NetSmoother's 100 ms delay needs only a 50 ms frame on top of the 33 ms sync).
 HITCH_STALL_SECONDS = 0.05
-# A stall this long or longer can explain lost voice packets: a socket's receive
-# buffer outlasted every shorter one measured (0 of 273 lost to 400 ms stalls at
-# 150 KB/s, more than the soak's busiest peer receives; DECISIONS.md).
-VOICE_STALL_SECONDS = 0.25
+# A stall this long or longer can explain lost voice packets. A bare ENet socket
+# lost 0 of 273 packets to 400 ms stalls at 150 KB/s (more than the soak's busiest
+# peer receives) and 50 of 273 to an 800 ms one (DECISIONS.md), so only a stall
+# past the longest that measured clean excuses anything.
+VOICE_STALL_SECONDS = 0.4
 # Slack around a stall for frame timing, in seconds.
 STALL_SLACK_SECONDS = 0.1
-# A peer whose checks had more than this share of its session excused by stalls
-# can't be judged: inconclusive, like a peer with too many long frames.
-MAX_EXCUSED_SHARE = 0.5
+# On a busy machine a stall lands near many of the network's own hitches and lost
+# packets too, and the stall rule excuses them by chance (a 50 ms frame on any of
+# three peers inside a 0.4 s window). So each peer's odds of that are measured
+# by putting a made-up problem at EXCUSE_SAMPLES moments spread over its session,
+# and the network's share is scaled back up by them: judged / (1 - odds). Odds
+# over MAX_EXCUSE_ODDS leave too little unexcused to scale from, so a check that
+# fails then is inconclusive instead.
+EXCUSE_SAMPLES = 2000
+MAX_EXCUSE_ODDS = 0.5
+# The made-up problems' size: a hitch's update gap (the median in the 2026-11-03
+# soaks was 0.11-0.13 s, just over NetSmoother's 100 ms delay), and the send times
+# either side of a run of lost voice packets (median 0.04-0.046 s, one lost packet).
+TYPICAL_HITCH_GAP_SECONDS = 0.12
+TYPICAL_VOICE_GAP_SECONDS = 0.04
 # Long frames per peer per minute above which the round trip, voice latency and
 # playback, and run-event cue checks can't be blamed on the network.
 BUSY_LONG_FRAMES_PER_MINUTE = 20
@@ -141,22 +156,30 @@ def main() -> int:
         early = at - gap - 2 * one_way - STALL_SLACK_SECONDS
         return any(stalled(peer, early, at, HITCH_STALL_SECONDS) for peer in {mover, "Host"} if peer != receiver)
 
-    def excused_share(name: str, shortest: float) -> float:
-        """Share of this peer's session that it or the host spent in stalls of `shortest` or more."""
+    def excuse_odds(name: str, excused) -> float:
+        """How likely the stall rule is to excuse a problem that has nothing to do with
+        a stall: the share of EXCUSE_SAMPLES evenly spread moments in this peer's
+        session that `excused(at, other)` lets off, the other peer taking turns."""
         report = reports[name]
         since = float(report.get("session_started_at", -1.0))
         session = float(report["session_seconds"])
-        if since < 0:
+        others = [other for other in expected if other != name and other in reports]
+        if since < 0 or not others:
             return 0.0
-        windows = sorted((start, end) for peer in {name, "Host"} for start, end in stalls.get(peer, [])
-                         if end - start >= shortest)
-        covered, reach = 0.0, since
-        for start, end in windows:
-            start = max(start, reach)
-            if end > start:
-                covered += end - start
-                reach = end
-        return covered / max(session, 1.0)
+        hits = sum(1 for i in range(EXCUSE_SAMPLES)
+                   if excused(since + session * (i + 0.5) / EXCUSE_SAMPLES, others[i % len(others)]))
+        return hits / EXCUSE_SAMPLES
+
+    def percent(value: float) -> str:
+        """A share for printing; ? when the stalls left nothing to judge from."""
+        return "?" if value == float("inf") else f"{value:.1%}"
+
+    def network_estimate(judged: float, odds: float) -> float:
+        """The network's share, allowing for the network's own problems the stall rule
+        excused by chance: on a busy machine a stall lands near many of them."""
+        if judged <= 0.0:
+            return 0.0
+        return judged / (1.0 - odds) if odds < 1.0 else float("inf")
 
     for name, report in reports.items():
         minutes = max(report["session_seconds"], 1.0) / 60.0
@@ -165,8 +188,10 @@ def main() -> int:
         hitch_log = smoother.get("hitch_log", [])
         stall_hitches = sum(1 for at, gap, mover in hitch_log
                             if hitch_stalled(name, at, gap, names.get(int(mover), "?")))
-        hitch_rate = (int(smoother["hitches"]) - stall_hitches) / samples
+        hitch_odds = excuse_odds(name, lambda at, mover: hitch_stalled(name, at, TYPICAL_HITCH_GAP_SECONDS, mover))
+        hitch_rate = network_estimate((int(smoother["hitches"]) - stall_hitches) / samples, hitch_odds)
         report["_stall_hitches"] = stall_hitches
+        report["_hitch_odds"] = hitch_odds
         long_per_minute = report["long_frames"] / minutes
         rows.append((name, report, hitch_rate, long_per_minute))
         if report["state"] != "IN_SESSION":
@@ -176,6 +201,12 @@ def main() -> int:
         throttle = report["enet_throttle_min"]
         if 0 <= throttle < FULL_THROTTLE:
             failures.append(f"{name}: ENet throttle fell to {throttle} of {FULL_THROTTLE}, so movement was dropped")
+        # The limit caps the throttle. Net.host()'s bandwidth_limit(0, 0) keeps it full;
+        # without that call it fell to 1-5 of 32 a second after each client joined.
+        limit = int(report.get("enet_throttle_limit_min", -1))
+        if 0 <= limit < FULL_THROTTLE:
+            failures.append(f"{name}: ENet throttle limit fell to {limit} of {FULL_THROTTLE}, "
+                            f"so its unreliable traffic (movement, voice) was dropped")
         if not report["is_host"] and lag_ms > 0 and report["rtt_ms_median"] >= 0:
             if not lag_ms * 0.8 <= report["rtt_ms_median"] <= lag_ms + RTT_SLACK_MS:
                 message = f"{name}: round trip {report['rtt_ms_median']:.0f} ms, expected about {lag_ms} ms"
@@ -198,16 +229,18 @@ def main() -> int:
             stall_lost = sum(int(missing) for sent_from, sent_to, sender, missing in voice.get("gap_log", [])
                              if voice_gap_stalled(name, sent_from, sent_to, names.get(int(sender), "?")))
             lost = int(voice["lost_packets"])
-            net_lost = lost - stall_lost
+            voice_odds = excuse_odds(name, lambda at, sender: voice_gap_stalled(
+                name, at - TYPICAL_VOICE_GAP_SECONDS, at, sender))
+            net_lost = min(network_estimate(lost - stall_lost, voice_odds), lost)
             net_rate = net_lost / max(int(voice["received_packets"]) + net_lost, 1)
             voice["net_loss_rate"] = net_rate
             voice["stall_lost"] = stall_lost
+            voice["excuse_odds"] = voice_odds
             if net_rate > loss_limit:
                 message = (f"{name}: lost {net_rate:.1%} of voice packets to the network (limit {loss_limit:.1%}; "
                            f"{lost} lost, {stall_lost} of them while it or the host stalled)")
-                share = excused_share(name, VOICE_STALL_SECONDS)
-                if share > MAX_EXCUSED_SHARE:
-                    busy.append(f"{message}, but it or the host stalled for {share:.0%} of the run")
+                if voice_odds > MAX_EXCUSE_ODDS:
+                    busy.append(f"{message}, but a stall lined up with {voice_odds:.0%} of moments, too many to tell")
                 else:
                     failures.append(message)
             # The Dummy driver used by headless runs doesn't play in real time,
@@ -235,31 +268,32 @@ def main() -> int:
                 message = f"{name}: a run event cue showed {late:.0f} ms late (limit {late_limit:.0f} ms)"
                 (busy if long_per_minute > BUSY_LONG_FRAMES_PER_MINUTE or host_busy else failures).append(message)
         if hitch_rate > MAX_HITCH_RATE:
-            message = (f"{name}: remote players hitched on {hitch_rate:.1%} of updates over the network "
+            message = (f"{name}: remote players hitched on {percent(hitch_rate)} of updates over the network "
                        f"(limit {MAX_HITCH_RATE:.0%}; {report['_stall_hitches']} more came with a stall)")
-            share = excused_share(name, HITCH_STALL_SECONDS)
-            if share > MAX_EXCUSED_SHARE:
-                busy.append(f"{message}, but it or the host stalled for {share:.0%} of the run")
+            if hitch_odds > MAX_EXCUSE_ODDS:
+                busy.append(f"{message}, but a stall lined up with {hitch_odds:.0%} of moments, too many to tell")
             else:
                 failures.append(message)
 
     print()
-    # hitch and v net are the network's share, which the checks judge; +stall and
-    # v loss add what came with a stall, and stall s is time in frames over 50 ms.
-    print(f"{'peer':<6} {'rtt ms':>7} {'KB/s in':>8} {'KB/s out':>9} {'hitch':>6} {'+stall':>6} {'max gap':>8} {'snaps':>5} "
-          f"{'long/min':>8} {'stall s':>7} {'fps':>4} {'voice ms':>8} {'v net':>6} {'v loss':>6} {'heard':>5}")
+    # hitch and v net are the network's share, which the checks judge, scaled up by
+    # the odds (h odds, v odds) that a stall excused one of the network's by chance;
+    # +stall and v loss add what came with a stall, and stall s is time in frames over 50 ms.
+    print(f"{'peer':<6} {'rtt ms':>7} {'KB/s in':>8} {'KB/s out':>9} {'hitch':>6} {'+stall':>6} {'h odds':>6} {'max gap':>8} "
+          f"{'snaps':>5} {'long/min':>8} {'stall s':>7} {'fps':>4} {'voice ms':>8} {'v net':>6} {'v loss':>6} "
+          f"{'v odds':>6} {'heard':>5}")
     for name, report, hitch_rate, long_per_minute in sorted(rows, key=lambda row: (not row[1]["is_host"], row[0])):
         rtt = report["rtt_ms_median"]
         voice = report.get("voice") or {}
         voice_cells = (f"{voice['latency_ms_median']:>8.0f} {voice.get('net_loss_rate', voice['loss_rate']):>6.1%} "
-                       f"{voice['loss_rate']:>6.1%} {voice['heard_from']:>5}"
-                       if voice else f"{'-':>8} {'-':>6} {'-':>6} {'-':>5}")
+                       f"{voice['loss_rate']:>6.1%} {voice.get('excuse_odds', 0.0):>6.0%} {voice['heard_from']:>5}"
+                       if voice else f"{'-':>8} {'-':>6} {'-':>6} {'-':>6} {'-':>5}")
         since = float(report.get("session_started_at", -1.0))
         stall_seconds = sum(end - start for start, end in stalls.get(name, []) if since >= 0 and end > since)
         stall_hitch_rate = report["_stall_hitches"] / max(int(report["smoother"]["samples"]), 1)
         print(f"{name:<6} {rtt if rtt >= 0 else 0:>7.0f} {report['bytes_in_per_second'] / 1024:>8.1f} "
-              f"{report['bytes_out_per_second'] / 1024:>9.1f} {hitch_rate:>6.1%} {stall_hitch_rate:>6.1%} "
-              f"{report['smoother']['max_gap_ms']:>6.0f}ms {report['smoother']['snaps']:>5} "
+              f"{report['bytes_out_per_second'] / 1024:>9.1f} {percent(hitch_rate):>6} {stall_hitch_rate:>6.1%} "
+              f"{report['_hitch_odds']:>6.0%} {report['smoother']['max_gap_ms']:>6.0f}ms {report['smoother']['snaps']:>5} "
               f"{long_per_minute:>8.0f} {stall_seconds:>7.1f} {report['fps_median']:>4.0f} {voice_cells}")
     print()
 
