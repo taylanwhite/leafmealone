@@ -363,6 +363,28 @@ if ($NeedsGodot -and -not $SkipImport) {
 	$p.WaitForExit()
 }
 
+## The player's real save and settings (docs/DECISIONS.md, "Dev sessions never touch the
+## real save"): every test here is a dev session, so none of these may change during the run.
+$RealFiles = @(
+	(Join-Path $SaveDir 'campaign.json'),
+	(Join-Path $SaveDir 'campaign.json.bak'),
+	(Join-Path (Split-Path -Parent $SaveDir) 'settings.cfg')
+)
+function Get-RealFileStamps {
+	$stamps = [ordered]@{}
+	foreach ($f in $RealFiles) {
+		if (Test-Path -LiteralPath $f) {
+			$item = Get-Item -LiteralPath $f
+			$hash = (Get-FileHash -LiteralPath $f -Algorithm MD5).Hash
+			$stamps[$f] = "$($item.LastWriteTimeUtc.Ticks) $($item.Length) $hash"
+		} else {
+			$stamps[$f] = 'missing'
+		}
+	}
+	$stamps
+}
+$RealBefore = Get-RealFileStamps
+
 $Results = [ordered]@{}
 $Times = @{}
 $Clock = [Diagnostics.Stopwatch]::StartNew()
@@ -594,6 +616,17 @@ foreach ($s in $Soaks) {
 		}
 	}
 	$Results[$s.Name] = $ok
+}
+
+if ($NeedsGodot) {
+	$RealAfter = Get-RealFileStamps
+	$changed = @($RealFiles | Where-Object { $RealBefore[$_] -ne $RealAfter[$_] })
+	$Results['real-save'] = $changed.Count -eq 0
+	if ($changed.Count -gt 0) {
+		Write-Host 'FAIL  real-save: the player''s real files changed during a test run:' -ForegroundColor Red
+		foreach ($f in $changed) { Write-Host "      $f" -ForegroundColor Yellow }
+		Write-Host '      A dev session wrote them (or someone played meanwhile). Dev sessions must use campaign_test_<port>.json (net/campaign.gd save_path()).' -ForegroundColor Yellow
+	}
 }
 
 Write-Host ''
