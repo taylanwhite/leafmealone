@@ -41,11 +41,11 @@ const TRACKS: Dictionary = {
 	# ---- audio 4b: the tense half (tools/music_tension.py). A loop's bpm is the
 	# exact tempo make_music.py rendered (its .json sidecar's bpm_exact), nudged
 	# so the loop is a whole number of 20 ms frames; loop_offset needs it exact.
-	"hot_yard": {"file": "res://assets/audio/music/hot_yard.ogg", "bpm": 115.98872331856627, "bars": 48, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_hot_yard", "db": 0.0},
+	"hot_yard": {"file": "res://assets/audio/music/hot_yard.ogg", "bpm": 115.94202898550725, "bars": 48, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_hot_yard", "db": 0.0},
 	"nice_boys_incoming": {"file": "res://assets/audio/music/nice_boys_incoming.ogg", "bpm": 128.0, "bars": 8, "intro_bars": 0, "loop": true, "stinger": false, "title_key": "track_nice_boys_incoming", "db": 0.0},
-	"nice_boys_chase": {"file": "res://assets/audio/music/nice_boys_chase.ogg", "bpm": 151.98891747476745, "bars": 64, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_nice_boys_chase", "db": 0.0},
+	"nice_boys_chase": {"file": "res://assets/audio/music/nice_boys_chase.ogg", "bpm": 151.89873417721518, "bars": 64, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_nice_boys_chase", "db": 0.0},
 	# The escape/end-sequence cue: Border Return's lanes today, the Field Office escape later.
-	"escape_run": {"file": "res://assets/audio/music/escape_run.ogg", "bpm": 144.014401440144, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_escape_run", "db": 0.0},
+	"escape_run": {"file": "res://assets/audio/music/escape_run.ogg", "bpm": 144.14414414414415, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_escape_run", "db": 0.0},
 	"st_rank_up": {"file": "res://assets/audio/music/st_rank_up.ogg", "bpm": 100.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_rank_up", "db": 0.0},
 	"st_season": {"file": "res://assets/audio/music/st_season.ogg", "bpm": 96.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_season", "db": 0.0},
 	"st_morning": {"file": "res://assets/audio/music/st_morning.ogg", "bpm": 110.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_morning", "db": 0.0},
