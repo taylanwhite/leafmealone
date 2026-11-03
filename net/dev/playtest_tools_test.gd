@@ -11,6 +11,7 @@ extends Node
 const _RecorderScript = preload("res://net/dev/recorder.gd")
 const _HideSpot = preload("res://net/components/hide_spot.gd")
 const _ScenariosScript = preload("res://net/dev/scenarios.gd")
+const _RemotePlayScript = preload("res://net/dev/remote_play.gd")
 ## The test recording: this many seconds at this rate.
 const CLIP_SECONDS: float = 3.0
 const CLIP_FPS: float = 10.0
@@ -115,6 +116,13 @@ func _run() -> void:
 	if not reached["drive_refuses_legacy"]:
 		problems.append("drive didn't refuse the legacy world: %s" % out)
 
+	# Remote play's cmd.json numbers arrive as floats: "follow <peer id>" must still name the peer.
+	var parsed_steps: Variant = JSON.parse_string('[["follow", %d, 4, 1.6, 80]]' % me)
+	var follow_word := _RemotePlayScript._word((parsed_steps as Array)[0][1])
+	reached["follow_peer_id"] = follow_word == str(me)
+	if not reached["follow_peer_id"]:
+		problems.append("follow by peer id reads %s, not %d" % [follow_word, me])
+
 	# Leave the session as it was: no raid, nobody in the crossing.
 	await _scenarios.reset()
 	_finish(problems.is_empty(), {"scenarios": reached, "recording": recording}, problems)
@@ -147,14 +155,16 @@ func _check_recording(started: Dictionary, clip: Dictionary, problems: Array[Str
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(str(clip["events_json"]))) if files else null
 	var kinds := {}
 	var stamps_ok := false
+	var misfiled: Array = []
 	if typeof(parsed) == TYPE_DICTIONARY:
 		for entry: Variant in (parsed as Dictionary).get("events", []):
 			kinds[str((entry as Dictionary).get("kind"))] = true
 		var listed: Array = (parsed as Dictionary).get("frames", [])
 		stamps_ok = listed.size() == frames and not listed.is_empty() and (listed[0] as Dictionary).has("state") and (listed[0] as Dictionary).has("camera")
+		misfiled = _misfiled_events(listed, float(clip.get("fps", CLIP_FPS)), int(clip.get("session_fixed_fps", 0)))
 	var saw_arrival := kinds.has("raid_phase") and kinds.has("crew")
-	report = {"frames": frames, "want_about": want, "fixed_step": fixed, "spacing": spacing, "files": files, "sheet": sheet_ok, "stamps": stamps_ok, "saw_arrival": saw_arrival, "kinds": kinds.keys()}
-	var ok := fixed and even and absi(frames - want) <= 2 and files and sheet_ok and stamps_ok and saw_arrival
+	report = {"frames": frames, "want_about": want, "fixed_step": fixed, "spacing": spacing, "files": files, "sheet": sheet_ok, "stamps": stamps_ok, "saw_arrival": saw_arrival, "kinds": kinds.keys(), "misfiled_events": misfiled.slice(0, 6)}
+	var ok := fixed and even and absi(frames - want) <= 2 and files and sheet_ok and stamps_ok and saw_arrival and misfiled.is_empty()
 	report["ok"] = ok
 	print("[PlaytestToolsTest] recorder: %s %s" % ["ok" if ok else "FAIL", report])
 	if not fixed:
@@ -162,6 +172,25 @@ func _check_recording(started: Dictionary, clip: Dictionary, problems: Array[Str
 	elif not ok:
 		problems.append("recorder: %s" % report)
 	return report
+
+
+## Every event is filed under the first frame at or after it, and its time is a
+## whole engine frame (a multiple of the fixed step): frame k holds events with
+## t_{k-1} < t <= t_k (frame 0 only t = 0; the last frame also holds what fired
+## up to record_stop, within one frame gap). Returns the ones that aren't.
+func _misfiled_events(listed: Array, fps: float, step_fps: int) -> Array:
+	var bad: Array = []
+	for k: int in listed.size():
+		var frame: Dictionary = listed[k]
+		var t_k := float(frame["t"])
+		var low := float(listed[k - 1]["t"]) if k > 0 else -0.0001
+		var high := t_k + (1.0 / fps if k == listed.size() - 1 else 0.0)
+		for entry: Dictionary in frame.get("events", []):
+			var t := float(entry["t"])
+			var whole := absf(t * float(step_fps) - round(t * float(step_fps))) < 0.01
+			if (k == 0 and absf(t) > 0.0001) or (k > 0 and t <= low + 0.0001) or t > high + 0.0001 or not whole:
+				bad.append({"frame": k, "frame_t": t_k, "kind": entry.get("kind"), "t": t})
+	return bad
 
 
 func _finish(ok: bool, details: Dictionary, problems: Array) -> void:

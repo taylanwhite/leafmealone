@@ -29,14 +29,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import audio_check as ac  # noqa: E402
 
 # How a sound's onset is found: the RMS envelope in HOP-second steps first rises
-# ONSET_DB over the quietest level of the BASELINE seconds before the request,
-# within WINDOW seconds after it (and EARLY before, for sounds started a tick early).
+# ONSET_DB over the median level of the BASELINE seconds before the request
+# (the median, so a noisy bed's dips don't make every bump an onset), within
+# WINDOW seconds after it. Event times are exact to the frame (recorder.gd) and
+# a frame's wall stamp is its start, so nothing the frame asks for can sound
+# before it: EARLY only covers the audio start's estimate (one hop).
 HOP = 0.005
 BASELINE = 0.06
 ONSET_DB = 6.0
 FLOOR_DB = -55.0
 WINDOW = 0.3
-EARLY = 0.05
+EARLY = 0.005
 BAND_FFT = 1024
 # The change graph's full height: this much mean colour difference between frames.
 CHANGE_FULL = 0.15
@@ -132,7 +135,8 @@ def onset(env: list, rate_hops: float, wall: float):
     base_to = max(base_from + 1, int(wall * rate_hops))
     if base_from >= len(env):
         return None
-    base = min(env[base_from:min(base_to, len(env))] or [FLOOR_DB])
+    window = sorted(env[base_from:min(base_to, len(env))] or [FLOOR_DB])
+    base = window[len(window) // 2]
     for i in range(max(0, i0), min(len(env), int((wall + WINDOW) * rate_hops))):
         if env[i] >= max(base + ONSET_DB, FLOOR_DB):
             return i / rate_hops
@@ -150,6 +154,9 @@ def main() -> int:
     margin, width = int(film.get("margin", 36)), int(film.get("width", 2000))
     seconds = max(float(film.get("seconds", 0.0)), 0.001)
     events = log.get("events", [])
+    # The wav starts at the audio thread's first mix after recording began, this
+    # many wall seconds in: audio second a is wall second a + lead.
+    lead = float(log.get("audio", {}).get("wall_start", 0.0))
 
     def x_of(t: float) -> int:
         return margin + int(round(t / seconds * width))
@@ -203,8 +210,8 @@ def main() -> int:
         for col in range(width):
             t0 = col / width * seconds
             t1 = (col + 1) / width * seconds
-            a = max(0, int(wall_of(frames, t0) * rate))
-            b = min(len(mono), max(a + 1, int(wall_of(frames, t1) * rate)))
+            a = max(0, int((wall_of(frames, t0) - lead) * rate))
+            b = min(len(mono), max(a + 1, int((wall_of(frames, t1) - lead) * rate)))
             chunk = mono[a:b]
             if not chunk:
                 continue
@@ -213,7 +220,7 @@ def main() -> int:
             canvas.vline(margin + col, mid - int(hi * half), mid - int(lo * half), (110, 150, 200))
             canvas.vline(margin + col, mid - int(level * half), mid + int(level * half), (190, 220, 255))
         for col in range(0, width, 3):
-            at = int(wall_of(frames, col / width * seconds) * rate)
+            at = int((wall_of(frames, col / width * seconds) - lead) * rate)
             if at >= len(mono):
                 break
             for band, level in enumerate(ac.band_levels(mono, rate, max(0, at - BAND_FFT // 2), BAND_FFT)):
@@ -257,7 +264,8 @@ def main() -> int:
         entry = {"t": t, "id": event.get("id", "")}
         if env:
             wall = wall_of(frames, t)
-            found = onset(env, hops, wall)
+            found = onset(env, hops, wall - lead)
+            found = None if found is None else found + lead
             if found is None:
                 entry["onset"] = None
                 entry["note"] = "no onset found within %.0f ms (quiet, far away, or masked)" % (WINDOW * 1000)

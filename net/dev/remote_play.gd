@@ -175,7 +175,7 @@ func _run(id: int, steps: Array) -> void:
 						errors.append("scenario %s: %s" % [str(step[1]), outcome["error"]])
 			"follow":
 				_follow = {
-					"who": str(step[1]) if step.size() > 1 else "me",
+					"who": _word(step[1]) if step.size() > 1 else "me",
 					"distance": float(step[2]) if step.size() > 2 else 4.0,
 					"height": float(step[3]) if step.size() > 3 else 1.8,
 					"yaw": float(step[4]) if step.size() > 4 else 0.0,
@@ -199,7 +199,7 @@ func _run(id: int, steps: Array) -> void:
 			"hud":
 				var ui := get_tree().get_first_node_in_group("game_ui")
 				if ui != null:
-					ui.set("visible", step.size() < 2 or not ["false", "0", "off", "no"].has(str(step[1]).to_lower()))
+					ui.set("visible", step.size() < 2 or not ["false", "0", "off", "no"].has(_word(step[1]).to_lower()))
 			_:
 				errors.append("unknown step %s" % str(step[0]))
 		await get_tree().process_frame
@@ -419,6 +419,15 @@ func _park_observer() -> void:
 	_follow = {"who": "host", "distance": OBSERVER_VIEW[0], "height": OBSERVER_VIEW[1], "yaw": OBSERVER_VIEW[2], "mode": "body"}
 	_spectate_on()
 	print("[RemotePlay] observer: parked at the store, following the host")
+
+
+## A step argument as a word. cmd.json is read with JSON.parse_string, which
+## makes every number a float (peer id 1527381234 would read "1527381234.0"),
+## so a whole number comes back as its digits.
+static func _word(value: Variant) -> String:
+	if typeof(value) == TYPE_FLOAT and is_finite(value) and float(value) == floorf(float(value)) and absf(float(value)) < 9.0e15:
+		return str(int(value))
+	return str(value)
 
 
 func _player_node(peer_id: int) -> Node3D:

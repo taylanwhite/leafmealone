@@ -24,10 +24,11 @@ static var unknown: Array[String] = []
 ## tell a positional sound from a 2D one: {"id", "kind" ("at" or "on"), "at"
 ## (where it played), "node" (the path it rides on, "" for "at")}.
 static var placed: Array[Dictionary] = []
-## Every play accepted so far (log is capped; this keeps counting), so the
-## playtest recorder (net/dev/recorder.gd) can tell which entries are new.
-static var plays: int = 0
-static var placed_total: int = 0
+## Dev only: the playtest recorder's hook (net/dev/recorder.gd), called the
+## moment a play is accepted, so the recorder files it under the frame it
+## happened in: (id, "", ZERO) for every play, then (id, "at" or "on", where)
+## for a positional one.
+static var on_play: Callable = Callable()
 
 var _next_msec: Dictionary = {}
 var _last_variant: Dictionary = {}
@@ -125,17 +126,19 @@ func _accept(id: String) -> bool:
 		return false
 	_next_msec[id] = now + _Bank.gap_ms(id)
 	log.append(id)
-	plays += 1
 	if log.size() > LOG_SIZE:
 		log.pop_front()
+	if on_play.is_valid():
+		on_play.call(id, "", Vector3.ZERO)
 	return true
 
 
 static func _note_placed(id: String, kind: String, at: Vector3, node_path: String) -> void:
 	placed.append({"id": id, "kind": kind, "at": at, "node": node_path})
-	placed_total += 1
 	if placed.size() > LOG_SIZE:
 		placed.pop_front()
+	if on_play.is_valid():
+		on_play.call(id, kind, at)
 
 
 ## Nobody hears a headless run or the smoke test, so nothing is made there.

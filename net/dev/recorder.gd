@@ -25,7 +25,9 @@ extends Node
 ## real time, and Net's clock counts game time), and a recording at N/k fps
 ## keeps every k-th frame. Without them it records the first frame at or after
 ## each 1/fps step and says so (fixed_step false); spacing then wanders.
-## Event times are good to a physics tick (1/60 s).
+## Every event carries the game time of the frame it happened in, the same `t`
+## as that frame's entry, whether it fired in a physics tick, in the network
+## poll or in _process, and however the recording was started.
 
 const _Sfx = preload("res://audio/sfx.gd")
 ## Contact sheet: at most this wide, in tiles of this size, this many per page.
@@ -97,7 +99,13 @@ var _fps: float = 30.0
 var _fixed_fps: int = 0
 var _every: int = 1
 var _t: float = 0.0
-var _phys_t: float = 0.0
+## The engine frame (Engine.get_process_frames()) whose time _t is: set in
+## this node's _process, which runs first in every frame's process step.
+var _clock_frame: int = -1
+## Events that fired in a frame before its time was known (a physics tick or
+## the network poll come before _process): stamped when it is.
+var _unstamped: Array[Dictionary] = []
+var _post_draw: bool = false
 var _process_frames: int = 0
 var _next_due: float = 0.0
 var _wall0_usec: int = 0
@@ -113,8 +121,8 @@ var _tasks: Array[int] = []
 var _tile := Vector2i(SHEET_TILE_WIDTH, 144)
 var _audio_effect: AudioEffectRecord
 var _audio_bus_slot: int = -1
-var _sfx_seen: int = 0
-var _placed_seen: int = 0
+## Seconds from the recording's wall-clock start to the wav's first sample.
+var _audio_lead: float = 0.0
 var _hooked: Dictionary = {}
 var _chunks: Array[int] = []
 var _last_pos: Dictionary = {}
@@ -181,7 +189,11 @@ func start(base_dir: String, fps: float, label: String) -> Dictionary:
 		_every = 1
 		_fps = fps
 	_t = 0.0
-	_phys_t = 0.0
+	# Frame 0 is the next frame whose _process this node runs while recording:
+	# this one's, if start() comes before it (a physics tick, the network poll),
+	# otherwise the next one's. Events until then get frame 0's time.
+	_clock_frame = -1
+	_unstamped.clear()
 	_process_frames = 0
 	_next_due = 0.0
 	_frames.clear()
@@ -200,8 +212,7 @@ func start(base_dir: String, fps: float, label: String) -> Dictionary:
 	_last_look_at = -100.0
 	_look_sum = Vector2.ZERO
 	_hud_scan_wait = 0
-	_sfx_seen = _Sfx.plays
-	_placed_seen = _Sfx.placed_total
+	_Sfx.on_play = _on_sfx
 	var size := HEADLESS_FRAME if _headless else Vector2i(get_viewport().get_visible_rect().size)
 	var columns := mini(SHEET_MAX_WIDTH / SHEET_TILE_WIDTH, 8)
 	_tile = Vector2i(SHEET_MAX_WIDTH / columns, int(round(float(SHEET_MAX_WIDTH / columns) * float(size.y) / maxf(1.0, float(size.x)))))
@@ -218,8 +229,13 @@ func stop() -> Dictionary:
 	if not recording:
 		return {"error": "not recording"}
 	_event("record_stop", {})
+	# Stopped before this frame's _process: these keep the time this frame will
+	# have (exact on a fixed step) and are filed under the last frame captured.
+	_unstamped.clear()
 	_flush_frame_events_into_last()
 	recording = false
+	if _Sfx.on_play == Callable(self, "_on_sfx"):
+		_Sfx.on_play = Callable()
 	_capture_pending = false
 	for task: int in _tasks:
 		WorkerThreadPool.wait_for_task_completion(task)
@@ -255,7 +271,7 @@ func stop() -> Dictionary:
 		"spacing": spacing,
 		"realtime_ratio": report["realtime_ratio"],
 		"film": {"margin": FILM_MARGIN, "width": FILM_WIDTH, "seconds": report["seconds"]},
-		"audio": {"wav": audio, "wall_start": 0.0},
+		"audio": {"wav": audio, "wall_start": snappedf(_audio_lead, 0.0001)},
 		"flags": _flags,
 		"events": _events,
 		"frames": _frames,
@@ -277,6 +293,10 @@ func _process(delta: float) -> void:
 	if _process_frames > 0:
 		_t += delta
 	_last_delta = delta
+	_clock_frame = Engine.get_process_frames()
+	for entry: Dictionary in _unstamped:
+		_stamp(entry, _t)
+	_unstamped.clear()
 	# The frame's wall-clock time is when it started (its first physics tick,
 	# just after net/dev/pacer.gd's wait), not when the picture was read back
 	# after drawing, so a sound asked for on one of its ticks lines up.
@@ -308,7 +328,6 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if recording:
-		_phys_t += delta
 		if _wall_frame != Engine.get_process_frames():
 			_wall_frame = Engine.get_process_frames()
 			_frame_wall_usec = Time.get_ticks_usec()
@@ -332,16 +351,37 @@ func _input(event: InputEvent) -> void:
 
 
 func _on_post_draw() -> void:
-	if not _capture_pending or not recording:
+	if not recording:
+		return
+	# Still the frame whose time _t is: this node's _process ran earlier in it.
+	_post_draw = true
+	_poll_changes()
+	_post_draw = false
+	if not _capture_pending:
 		return
 	_capture_pending = false
 	_capture(get_viewport().get_texture().get_image())
 
 
-## The game time of something happening now: this frame's, or the physics tick's
-## when that is already ahead (physics runs before _process in a frame).
+## The game time of the frame running now. Before this node's _process in a
+## frame (physics ticks and the network poll run first) that frame's time isn't
+## known yet: this guesses it from the last frame's step (exact on a fixed step)
+## and _now_known() says false, so _event() stamps the real one later.
 func _now() -> float:
-	return maxf(_t, _phys_t)
+	if _now_known():
+		return _t
+	return 0.0 if _process_frames == 0 else _t + _last_delta
+
+
+func _now_known() -> bool:
+	return _post_draw or _clock_frame == Engine.get_process_frames()
+
+
+func _stamp(entry: Dictionary, t: float) -> void:
+	var was := float(entry["t"])
+	entry["t"] = snappedf(t, 0.0001)
+	if entry.has("until") and is_equal_approx(float(entry["until"]), was):
+		entry["until"] = entry["t"]
 
 
 func _event(kind: String, data: Dictionary) -> void:
@@ -365,6 +405,8 @@ func _event(kind: String, data: Dictionary) -> void:
 		_sustained[kind + ":" + str(data.get("who", data.get("camera", "")))] = entry
 	_events.append(entry)
 	_frame_events.append(entry)
+	if not _now_known():
+		_unstamped.append(entry)
 	if RED_FLAGS.has(kind):
 		_flags.append(entry)
 
@@ -475,19 +517,21 @@ func _hook_signals() -> void:
 		)
 
 
-## Things with no signal, checked every frame: sounds, captures, the crossing,
-## rides, the crew, the current camera, and the local player's state.
+## audio/sfx.gd's hook: a sound the game asked for, the moment it asked.
+func _on_sfx(id: String, how: String, at: Vector3) -> void:
+	if not recording:
+		return
+	if how == "":
+		_event("sfx", {"id": id})
+	else:
+		_event("sfx_at", {"id": id, "how": how, "at": _v(at)})
+
+
+## Things with no signal: captures, the crossing, rides, the crew, the current
+## camera, and the local player's state. Checked in _process and again after
+## the frame is drawn, so a change made later in the frame than this node's
+## _process is still filed under the frame that shows it.
 func _poll_changes() -> void:
-	if _Sfx.plays > _sfx_seen:
-		var fresh := mini(_Sfx.plays - _sfx_seen, _Sfx.log.size())
-		for id: String in _Sfx.log.slice(_Sfx.log.size() - fresh):
-			_event("sfx", {"id": id})
-		_sfx_seen = _Sfx.plays
-	if _Sfx.placed_total > _placed_seen:
-		var fresh_placed := mini(_Sfx.placed_total - _placed_seen, _Sfx.placed.size())
-		for entry: Dictionary in _Sfx.placed.slice(_Sfx.placed.size() - fresh_placed):
-			_event("sfx_at", {"id": entry["id"], "how": entry["kind"], "at": _v(entry["at"])})
-		_placed_seen = _Sfx.placed_total
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
 		_changed("cohort", str(director.call("cohort_roster")), func(value: String) -> void: _event("capture", {"cohort": value}))
@@ -620,6 +664,7 @@ func _collect_labels(node: Node) -> void:
 func _start_audio() -> void:
 	_audio_effect = null
 	_audio_bus_slot = -1
+	_audio_lead = 0.0
 	if _headless or AudioServer.get_bus_count() == 0:
 		return
 	_audio_effect = AudioEffectRecord.new()
@@ -627,6 +672,8 @@ func _start_audio() -> void:
 	AudioServer.add_bus_effect(0, _audio_effect)
 	_audio_bus_slot = AudioServer.get_bus_effect_count(0) - 1
 	_audio_effect.set_recording_active(true)
+	# The wav's first sample is mixed at the audio thread's next mix, not now.
+	_audio_lead = maxf(0.0, AudioServer.get_time_to_next_mix())
 
 
 func _stop_audio() -> String:

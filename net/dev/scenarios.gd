@@ -245,6 +245,9 @@ func _border_return() -> Dictionary:
 	var van := _van()
 	# The ride's place on its path is a function of the shared clock: move its
 	# start back so it arrives on the next tick, through its own arrival code.
+	# Only the host's start moves: other peers (an observer) see the van drive on
+	# normally until the arrival message parks it at the route's end, a cut, so
+	# a 3P recording of this moment is the real thing only from the border on.
 	van.set("_start_time", Net.server_time() - float(van.get("_duration")))
 	var there: Variant = await _wait_for(func() -> Variant:
 		return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.BORDER else null)
@@ -319,7 +322,9 @@ func reset() -> void:
 		safe.erase(me_id)
 	if crossing != null and (crossing.get("_roster") as Array).has(me_id):
 		crossing.call("_send_home", me_id)
-	# A van still on its way (empty now) finishes its trip, or it can't leave again.
+	# A van still on its way (empty now) finishes its trip, or it can't leave again
+	# (the host's start time only, as in _border_return: other peers see it jump
+	# to the route's end when it arrives; start an observer recording after this).
 	var van := _van()
 	if van != null and bool(van.call("is_riding")):
 		van.set("_start_time", Net.server_time() - float(van.get("_duration")))
