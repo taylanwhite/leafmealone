@@ -93,6 +93,9 @@ var squinting := false
 var _torso: Node3D
 var _hips: Node3D
 var _legs: Array[Node3D] = []
+## Each leg's knee pivot (the shin and shoe hang from it) and its shoe.
+var _shins: Array[Node3D] = []
+var _shoes: Array[Node3D] = []
 var _arms: Array[Node3D] = []
 var _eyes: Array[Node3D] = []
 var _mouth: Node3D
@@ -131,10 +134,21 @@ var _sit_pose: int = 0
 ## it follows; the neck's height above the hips, for the head to ride the lean.
 var _work_target := Vector3.ZERO
 var _work := Vector3.ZERO
+## set_work_pose's crouch (how far the hips sink, m), asked and shown; how far
+## into the planted work stance the feet are (0 walking, 1 planted); the lean's
+## last value and the head's lag behind it (secondary motion).
+var _crouch_target: float = 0.0
+var _crouch: float = 0.0
+var _stance: float = 0.0
+var _lean_last: float = 0.0
+var _head_lag: float = 0.0
+var _in_air: bool = false
 const WORK_SMOOTH_SECONDS: float = 0.015
-const WORK_NECK: float = 0.55
-## Hip to sole, for the lunge's step.
-const WORK_LEG: float = 0.76
+## The head's height over the hips' pivot, which the lean swings it round.
+const WORK_NECK: float = 0.72
+## Hip to knee (the knee pivot) and the stance's shoe height above the feet.
+const KNEE: float = Constants.BODY_THIGH
+const SHOE_Y: float = 0.06
 ## Share of a player's look up and down that the visible head shows.
 const HEAD_TILT_SHARE: float = 0.35
 const GESTURE_SECONDS: Dictionary = {
@@ -195,16 +209,25 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 	_kit_part(_hips, _blob_mesh(Vector3(0.0, -0.02, 0.0), Vector3(0.19, 0.13, 0.15), pants), Vector3.ZERO)
 	_kit_part(_torso, _torso_mesh(shirt), Vector3.ZERO)
 	for side: float in [-1.0, 1.0]:
+		# The thigh hangs from the hip, the shin (and the shoe) from the knee, so the
+		# knees can bend (docs/GAME.md, "Raking feel: the look").
 		var leg := _pivot(_hips, Vector3(side * 0.1, 0.0, 0.0))
-		# The leg is child 0 and the shoe child 1 (_show_foot hides the shoe).
+		var shin := _pivot(leg, Vector3(0.0, -KNEE, 0.0))
+		shin.name = "Knee"
+		var shoe_part: MeshInstance3D
 		if outfit != "":
 			# Shorts, bare shins and white knee socks.
-			_kit_part(leg, _leg_mesh(pants, skin, SOCK), Vector3.ZERO).name = "Socks"
-			_kit_part(leg, _shoe_mesh(shoe, Color(0.7, 0.72, 0.74)), Vector3(0.0, -0.76, -0.04))
+			_kit_part(leg, _thigh_mesh(pants, skin), Vector3.ZERO).name = "Shorts"
+			_kit_part(shin, _leg_mesh(skin, SOCK), Vector3.ZERO).name = "Socks"
+			shoe_part = _kit_part(shin, _shoe_mesh(shoe, Color(0.7, 0.72, 0.74)), Vector3(0.0, KNEE - 0.76, -0.04))
 		else:
-			_kit_part(leg, _limb_mesh([Vector3(0.0, 0.0, 0.0), Vector3(0.0, -0.36, 0.0), Vector3(0.0, -0.72, 0.0)], [0.088, 0.078, 0.07], pants), Vector3.ZERO)
-			_kit_part(leg, _shoe_mesh(shoe), Vector3(0.0, -0.76, -0.04))
+			_kit_part(leg, _limb_mesh([Vector3(0.0, 0.0, 0.0), Vector3(0.0, -KNEE, 0.0)], [0.088, 0.078], pants), Vector3.ZERO)
+			# The knee: a round joint the shin turns on, so a bent leg has no gap.
+			_kit_part(shin, _knee_mesh([Vector3(0.0, 0.0, 0.0), Vector3(0.0, KNEE - 0.72, 0.0)], [0.078, 0.07], pants), Vector3.ZERO)
+			shoe_part = _kit_part(shin, _shoe_mesh(shoe), Vector3(0.0, KNEE - 0.76, -0.04))
 		_legs.append(leg)
+		_shins.append(shin)
+		_shoes.append(shoe_part)
 		var arm := _pivot(_torso, Vector3(side * 0.25, 0.46, 0.0))
 		arm.rotation.z = side * 0.12
 		# Your own arms swing right through your first-person view during gestures,
@@ -269,8 +292,12 @@ func set_hold(right: Vector3, left: Vector3) -> void:
 ## frame (zeros to stand up straight). The head rides along with the torso, except
 ## your own head while you look through it in first person (the camera nods on its
 ## own, player/stroke_cam.gd).
-func set_work_pose(lean_x: float, twist_y: float, hip: float) -> void:
+## crouch: how far the hips sink into the knees (m). While working and standing
+## (slower than Constants.RAKE_STANCE_SPEED) the feet step into a planted stance,
+## the left a half step ahead, and the knees take up the sink and the lunge.
+func set_work_pose(lean_x: float, twist_y: float, hip: float, crouch: float = 0.0) -> void:
 	_work_target = Vector3(lean_x, twist_y, hip)
+	_crouch_target = crouch
 
 
 ## The current, smoothed work pose: (lean, twist, hip). For tests.
@@ -278,10 +305,30 @@ func work_pose() -> Vector3:
 	return _work
 
 
+## How far into the planted work stance the feet are (0 walking, 1 planted), and
+## each knee's bend (rad, 0 straight). For tests.
+func stance() -> float:
+	return _stance
+
+
+func knee_bend(index: int) -> float:
+	if index < 0 or index >= _shins.size():
+		return 0.0
+	return absf(_shins[index].rotation.x)
+
+
 func _apply_work(delta: float) -> void:
-	_work = _work.lerp(_work_target, 1.0 - exp(-delta / WORK_SMOOTH_SECONDS))
-	if _work.length_squared() < 0.0000001 and _work_target == Vector3.ZERO:
+	var follow := 1.0 - exp(-delta / WORK_SMOOTH_SECONDS)
+	_work = _work.lerp(_work_target, follow)
+	_crouch = lerpf(_crouch, _crouch_target, follow)
+	var working := _work_target != Vector3.ZERO or _crouch_target > 0.0
+	var plant := working and _speed < Constants.RAKE_STANCE_SPEED and _sit_pose == 0 and fallen <= 0.01 and not _in_air
+	_stance = move_toward(_stance, 1.0 if plant else 0.0, delta / maxf(Constants.RAKE_STANCE_SECONDS, 0.001))
+	if _work.length_squared() < 0.0000001 and not working and _stance <= 0.0:
 		_work = Vector3.ZERO
+		_crouch = 0.0
+		_head_lag = 0.0
+		_lean_last = 0.0
 		_hips.rotation.y = 0.0
 		_hips.position.z = 0.0
 		return
@@ -290,17 +337,48 @@ func _apply_work(delta: float) -> void:
 	_hips.rotation.y = -Constants.WORK_HIP_COUNTER * _work.y
 	_torso.rotation.y = _work.y * Constants.WORK_TWIST_SHARE
 	_hips.position.z = _work.z
-	if _work.z < 0.0 and _legs.size() == 2:
-		# A lunge: the hips go forward, the right foot stays put and the left one
-		# steps out ahead of them, and the hips sink a little between the two.
-		var lunge := -_work.z
-		var back := -asin(clampf(lunge / WORK_LEG, -0.9, 0.9))
-		var front := asin(clampf(Constants.WORK_FRONT_STEP * lunge / WORK_LEG, -0.9, 0.9))
-		_legs[1].rotation.x += back
-		_legs[0].rotation.x += front
-		_hips.position.y -= WORK_LEG * (1.0 - cos(back))
+	if _stance > 0.0 and _legs.size() == 2 and _shins.size() == 2:
+		# Planted: the hips sink and lunge, the feet stay put, the knees bend.
+		var s := smoothstep(0.0, 1.0, _stance)
+		_hips.position.y -= _crouch * s
+		var feet: Array[Vector2] = [Constants.RAKE_STANCE_FRONT, Constants.RAKE_STANCE_BACK]
+		for index: int in 2:
+			var foot := Vector3(feet[index].x, SHOE_Y, feet[index].y)
+			var angles := _leg_reach(index, foot)
+			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, angles.x, s)
+			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, angles.y, s)
+			# Feet flat on the ground, whatever the leg does.
+			_shoes[index].rotation.x = lerpf(0.0, -(angles.x + angles.y), s)
 	# Eyes on the tines.
 	_face.rotation.x -= absf(_work.x) * Constants.WORK_FACE_TILT
+	# The head lags the back a beat: it tips up as the shove throws the torso
+	# down, and nods as the torso comes back up.
+	if delta > 0.0:
+		var lean_rate := (_work.x - _lean_last) / delta
+		_lean_last = _work.x
+		var want := clampf(-lean_rate * Constants.RAKE_HEAD_LAG, -0.2, 0.2)
+		_head_lag = lerpf(_head_lag, want, 1.0 - exp(-delta / 0.06))
+		_face.rotation.x += _head_lag
+
+
+## Thigh and shin angles (rotation.x of the leg and its knee) that put leg
+## index's shoe at foot (body space), the knee bending forward; a foot out of
+## reach gets a straight leg pointing at it.
+func _leg_reach(index: int, foot: Vector3) -> Vector2:
+	var leg := _legs[index]
+	var hip := _hips.transform * leg.position
+	var d := foot - hip
+	var flat := Vector2(d.z, d.y)
+	var thigh := Constants.BODY_THIGH
+	var shin := Constants.BODY_SHIN
+	var length := clampf(flat.length(), absf(thigh - shin) + 0.01, thigh + shin - 0.001)
+	# The leg's -Y swings forward (toward -Z) for positive x turns.
+	var aim := atan2(-flat.x, -flat.y)
+	var at_hip := acos(clampf((thigh * thigh + length * length - shin * shin) / (2.0 * thigh * length), -1.0, 1.0))
+	var at_knee := acos(clampf((thigh * thigh + shin * shin - length * length) / (2.0 * thigh * shin), -1.0, 1.0))
+	# The hips may be turned (the counter-twist) and tipped: aim in their frame.
+	var tilt := _hips.rotation.x
+	return Vector2(aim + at_hip - tilt, -(PI - at_knee))
 
 
 ## The head follows the leaning torso (it isn't parented to it), unless it's your
@@ -308,7 +386,9 @@ func _apply_work(delta: float) -> void:
 func _apply_work_head() -> void:
 	if _head_root == self:
 		return
-	var offset := Vector3(0.0, WORK_NECK * (cos(_work.x) - 1.0), WORK_NECK * sin(_work.x) + _work.z)
+	# On the collar of the leaning torso, sunk with the hips into the knees.
+	var sink := _crouch * smoothstep(0.0, 1.0, _stance)
+	var offset := Vector3(0.0, WORK_NECK * (cos(_work.x) - 1.0) - sink, WORK_NECK * sin(_work.x) + _work.z)
 	if _own_head:
 		for child: Node in _head_root.get_children():
 			if child is Camera3D and (child as Camera3D).current:
@@ -461,6 +541,7 @@ func _physics_process(delta: float) -> void:
 	_last_position = now
 	var state := int(get_parent().get_parent().get("anim_state")) if get_parent() != null and get_parent().get_parent() != null and "anim_state" in get_parent().get_parent() else 0
 	var in_air := state == STATE_AIR
+	_in_air = in_air
 	var crouching := state == STATE_CROUCH
 	var knocked := state == STATE_KNOCKED
 	var owner_node := get_parent().get_parent() if get_parent() != null else null
@@ -486,9 +567,15 @@ func _physics_process(delta: float) -> void:
 	var swing := sin(_phase) * 0.65 * walk
 	_legs[0].rotation.x = swing
 	_legs[1].rotation.x = -swing
+	# Each knee flexes as its leg swings through, the foot clearing the ground.
+	for index: int in _shins.size():
+		var through := cos(_phase + PI * float(index))
+		_shins[index].rotation.x = -Constants.BODY_WALK_KNEE * walk * maxf(through, 0.0)
+		_shoes[index].rotation.x = 0.0
 	if foot_hurt >= 2:
 		# Hopping: the footless leg tucked up behind, a bounce on every hop.
-		_legs[0].rotation.x = 0.9
+		_legs[0].rotation.x = 0.5
+		_shins[0].rotation.x = -1.4
 		_legs[1].rotation.x = swing * 0.3
 	elif _limping:
 		# The hurt leg stays stiff and swings out; the hips lurch onto the good one.
@@ -518,9 +605,14 @@ func _physics_process(delta: float) -> void:
 	_torso.scale = Vector3(1.0 + _squash * 0.15, 1.0 + breathe - _squash * 0.12, 1.0 + _squash * 0.15)
 	for index: int in _legs.size():
 		if crouching:
-			_legs[index].rotation.x = -0.9
+			# Squatting on bent knees, the feet under the hips.
+			var squat := _leg_reach(index, Vector3(_legs[index].position.x * 1.2, SHOE_Y, 0.06 - 0.12 * float(index)))
+			_legs[index].rotation.x = squat.x
+			_shins[index].rotation.x = squat.y
+			_shoes[index].rotation.x = -(squat.x + squat.y)
 		if in_air:
 			_legs[index].rotation.x = 0.5 if index == 0 else -0.25
+			_shins[index].rotation.x = -0.75 if index == 0 else -0.35
 		if _sit_pose == 1:
 			_legs[index].rotation.x = SIT_LEGS
 	for index: int in _arms.size():
@@ -564,6 +656,8 @@ func _apply_fall(delta: float) -> void:
 		for index: int in _legs.size():
 			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, -0.3 + 0.15 * float(index), fallen)
 			_legs[index].rotation.z = lerpf(0.0, (-0.3 if index == 0 else 0.3), fallen)
+			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, -0.25, fallen)
+			_shoes[index].rotation.x = lerpf(_shoes[index].rotation.x, 0.0, fallen)
 		for index: int in _arms.size():
 			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, (-1.6 if index == 0 else 1.6) + 0.2 * sin(_time * 9.0 + index), fallen)
 	else:
@@ -581,21 +675,21 @@ func _apply_fall(delta: float) -> void:
 ## A mower's work: a cut foot gets a fat bandage over the shoe; a lost foot leaves
 ## a round bandaged stump where the shoe was.
 func _show_foot() -> void:
-	if _legs.is_empty():
+	if _legs.is_empty() or _shins.is_empty():
 		return
-	var shoe := _legs[0].get_child(1) as Node3D if _legs[0].get_child_count() > 1 else null
+	var shoe := _shoes[0] if not _shoes.is_empty() else null
 	if shoe != null:
 		shoe.visible = foot_hurt < 2
 	if foot_hurt == 1 and _foot_wrap == null:
 		var kit := _MeshKit.new()
 		kit.blob(Vector3(0.0, -0.74, -0.04), Vector3(0.1, 0.09, 0.17), Color(0.97, 0.96, 0.93), {"detail": 2, "lumps": 0.15, "lump_scale": 4.0, "outward": true, "flat": false, "jitter": 0.0})
 		kit.blob(Vector3(0.0, -0.66, -0.12), Vector3(0.03, 0.03, 0.01), Color(0.85, 0.2, 0.2), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
-		_foot_wrap = _kit_part(_legs[0], kit.commit(), Vector3.ZERO)
+		_foot_wrap = _kit_part(_shins[0], kit.commit(), Vector3(0.0, KNEE, 0.0))
 		_on_head_layer(_foot_wrap)
 	if foot_hurt >= 2 and _stump == null:
 		var kit := _MeshKit.new()
 		kit.blob(Vector3(0.0, -0.72, 0.0), Vector3(0.085, 0.07, 0.085), Color(0.97, 0.96, 0.93), {"detail": 2, "lumps": 0.15, "lump_scale": 4.0, "outward": true, "flat": false, "jitter": 0.0})
-		_stump = _kit_part(_legs[0], kit.commit(), Vector3.ZERO)
+		_stump = _kit_part(_shins[0], kit.commit(), Vector3(0.0, KNEE, 0.0))
 		_on_head_layer(_stump)
 	if _foot_wrap != null:
 		_foot_wrap.visible = foot_hurt == 1
@@ -613,7 +707,8 @@ func _show_bandage() -> void:
 		var kit := _MeshKit.new()
 		for wrap: int in 4:
 			kit.tube(PackedVector3Array([Vector3(0, -0.28 - float(wrap) * 0.07, 0), Vector3(0, -0.33 - float(wrap) * 0.07, 0.01)]), PackedFloat32Array([0.098, 0.098]), Color(0.96, 0.95, 0.92), 10, {"jitter": 0.0, "cap": false})
-		_bandage = _kit_part(_legs[0], kit.commit(), Vector3.ZERO)
+		# Around the shin, just under the knee.
+		_bandage = _kit_part(_shins[0], kit.commit(), Vector3(0.0, KNEE - 0.08, 0.0))
 		_on_head_layer(_bandage)
 	_bandage.visible = true
 	if mood == "neutral":
@@ -893,14 +988,32 @@ func _shoe_mesh(color: Color, sole := Color(0.82, 0.78, 0.7)) -> ArrayMesh:
 const _SMOOTH: Dictionary = {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0}
 
 
-## Shorts, bare shins, and white knee socks with a lavender stripe, hip to ankle.
-func _leg_mesh(shorts: Color, shin: Color, sock: Color) -> ArrayMesh:
+## The thigh under shorts: the shorts from the hip, bare skin down to the knee.
+func _thigh_mesh(shorts: Color, shin: Color) -> ArrayMesh:
 	var kit := _MeshKit.new()
 	kit.blob(Vector3.ZERO, Vector3.ONE * 0.093, shorts, _SMOOTH)
 	kit.tube(PackedVector3Array([Vector3(0, 0, 0), Vector3(0, -0.3, 0)]), PackedFloat32Array([0.096, 0.093]), shorts, 10, {"jitter": 0.0})
-	kit.tube(PackedVector3Array([Vector3(0, -0.28, 0), Vector3(0, -0.51, 0)]), PackedFloat32Array([0.058, 0.055]), shin, 8, {"jitter": 0.0, "cap": false})
-	kit.tube(PackedVector3Array([Vector3(0, -0.49, 0), Vector3(0, -0.74, 0)]), PackedFloat32Array([0.061, 0.064]), sock, 10, {"jitter": 0.0})
-	kit.tube(PackedVector3Array([Vector3(0, -0.515, 0), Vector3(0, -0.54, 0)]), PackedFloat32Array([0.0635, 0.0635]), _NiceSeal.ROSETTE, 10, {"jitter": 0.0, "cap": false})
+	kit.tube(PackedVector3Array([Vector3(0, -0.28, 0), Vector3(0, -KNEE, 0)]), PackedFloat32Array([0.058, 0.057]), shin, 8, {"jitter": 0.0, "cap": false})
+	return kit.commit()
+
+
+## From the knee (the origin) down: a round bare knee, the shin, and a white knee
+## sock with a lavender stripe to the ankle.
+func _leg_mesh(shin: Color, sock: Color) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	var k := KNEE
+	kit.blob(Vector3.ZERO, Vector3.ONE * 0.058, shin, {"detail": 0, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0, 0, 0), Vector3(0, k - 0.51, 0)]), PackedFloat32Array([0.057, 0.055]), shin, 8, {"jitter": 0.0, "cap": false})
+	kit.tube(PackedVector3Array([Vector3(0, k - 0.49, 0), Vector3(0, k - 0.74, 0)]), PackedFloat32Array([0.061, 0.064]), sock, 10, {"jitter": 0.0})
+	kit.tube(PackedVector3Array([Vector3(0, k - 0.515, 0), Vector3(0, k - 0.54, 0)]), PackedFloat32Array([0.0635, 0.0635]), _NiceSeal.ROSETTE, 10, {"jitter": 0.0, "cap": false})
+	return kit.commit()
+
+
+## A plain shin hanging from a round knee.
+func _knee_mesh(points: Array, radii: Array, color: Color) -> ArrayMesh:
+	var kit := _MeshKit.new()
+	kit.tube(PackedVector3Array(points), PackedFloat32Array(radii), color, 10, {"jitter": 0.0})
+	kit.blob(points[0], Vector3.ONE * (float(radii[0]) + 0.004), color, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
 	return kit.commit()
 
 

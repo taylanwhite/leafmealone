@@ -247,7 +247,7 @@ func _spawn(solution: Dictionary, share: float, hinted: bool) -> void:
 	var states := _movers.state
 	for i: int in _movers.alive:
 		var state := states[i]
-		if kinds[i] == LeafMovers.K_KICK or dsts[i] < 0 or not (state == LeafMovers.WAIT or state == LeafMovers.FLY or state == LeafMovers.SLIDE):
+		if kinds[i] == LeafMovers.K_KICK or dsts[i] < 0 or not (state == LeafMovers.WAIT or state == LeafMovers.FLY or state == LeafMovers.SLIDE or state == LeafMovers.RIDE):
 			continue
 		if not inbound.has(dsts[i]):
 			inbound[dsts[i]] = []
@@ -389,8 +389,11 @@ func _schedule(kind_id: int, hint: Dictionary, from: Vector3) -> Array:
 		var rel := from - (head["mid"] as Vector3)
 		var ahead := rel.dot(head["fwd"] as Vector3)
 		if ahead <= 0.0:
-			# Behind the tines already (bite B's near leaves, an observer's late batch).
-			return [LeafMovers.R_SCHEDULED, soon]
+			# Behind the tines already (bite B's near leaves, an observer's late batch):
+			# swept up over a moment, so the litter thins rather than blinks out, and
+			# they slide along the lawn into the windrow while the tines still drive
+			# (rakefeel:look) instead of hopping off on their own.
+			return [LeafMovers.R_SCHEDULED, _clock + _rng.randf_range(0.0, Constants.RAKE_SWEEP_STAGGER)]
 		var side := absf(rel.dot(head["right"] as Vector3))
 		var rule := LeafMovers.R_TINE if side <= float(head["half"]) + Constants.LEAF_HEAD_SIDE else LeafMovers.R_BESIDE
 		return [rule, _clock + Constants.LEAF_MOVER_WAIT_MAX]
@@ -453,7 +456,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var started := Time.get_ticks_usec()
 	_clock += delta
-	_read_heads()
+	_read_heads(delta)
 	if Constants.LEAF_WORLD_RAYS_PER_TICK > 0:
 		_movers.space = get_world_3d().direct_space_state
 		_movers.rays_per_tick = Constants.LEAF_WORLD_RAYS_PER_TICK
@@ -471,7 +474,8 @@ func _physics_process(delta: float) -> void:
 
 
 ## The posed rakes this frame (contract C4), and when each one finished its drive.
-func _read_heads() -> void:
+func _read_heads(delta: float = 0.0) -> void:
+	var last := _heads.duplicate()
 	_heads.clear()
 	for node: Node in get_tree().get_nodes_in_group("rake_heads"):
 		if not node.has_meta("actor") or not node.has_meta("head_a"):
@@ -490,7 +494,17 @@ func _read_heads() -> void:
 		# Two poses for one actor (a stowed rake and a swinging one): the lowered one wins.
 		if _heads.has(who) and bool((_heads[who] as Dictionary)["down"]) and not down:
 			continue
-		_heads[who] = {"mid": mid, "fwd": fwd, "right": right, "half": float(node.get_meta("half_width", a.distance_to(b) * 0.5)), "down": down}
+		# How fast the head moves (the windrow it shoves carries on with it).
+		var vel := Vector3.ZERO
+		if last.has(who) and delta > 0.0:
+			var before: Dictionary = last[who]
+			var moved := mid - (before["mid"] as Vector3)
+			# Rakes are posed per frame, this runs per tick: a tick with no new pose
+			# keeps the speed it had.
+			vel = before.get("vel", Vector3.ZERO) if moved.length() < 0.00001 else moved / delta
+			if vel.length() > 20.0:
+				vel = Vector3.ZERO
+		_heads[who] = {"mid": mid, "fwd": fwd, "right": right, "half": float(node.get_meta("half_width", a.distance_to(b) * 0.5)), "down": down, "vel": vel}
 		if bool(_was_down.get(who, false)) and not down:
 			_fars[who] = {"mid": mid, "fwd": fwd, "t": _clock}
 		_was_down[who] = down
@@ -687,6 +701,8 @@ func stats() -> Dictionary:
 		"parked": _movers.count_state(LeafMovers.PARK),
 		"airborne_kicks": _movers.kick_count(),
 		"launched": _movers.launched,
+		"rode": _movers.rode,
+		"riding": _movers.count_state(LeafMovers.RIDE),
 		"landed": _movers.landed,
 		"sunk": _movers.sinks_done,
 		"snaps": _movers.snaps,

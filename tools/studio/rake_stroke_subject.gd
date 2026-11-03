@@ -70,7 +70,7 @@ static func build(root: Node3D, options: Dictionary) -> void:
 			_pose(prop, holder, sample, first_person)
 			var grips := RakeMotion.grips(prop)
 			body.call("set_hold", grips[0], grips[1])
-			body.call("set_work_pose", float(sample["lean"]), float(sample["twist"]), float(sample["hip"]))
+			body.call("set_work_pose", float(sample["lean"]), float(sample["twist"]), float(sample["hip"]), float(sample.get("crouch", 0.0)))
 			body.call("_physics_process", 1.0 / 60.0)
 		_pose(prop, holder, sample, first_person)
 		var grips := RakeMotion.grips(prop)
@@ -101,7 +101,7 @@ static func build(root: Node3D, options: Dictionary) -> void:
 				head.visible = false
 				views.append({"from": Vector3(x + 0.03, 1.6, -0.08), "at": Vector3(x + 0.05, 0.75, -1.9), "fov": 75.0})
 			_:
-				views.append({"from": Vector3(x + 3.4, 1.15, -0.85), "at": Vector3(x, 0.8, -0.85), "fov": 40.0})
+				views.append({"from": Vector3(x + 4.2, 1.15, -0.95), "at": Vector3(x, 0.75, -0.95), "fov": 42.0})
 	root.set_meta("views", views)
 
 

@@ -389,7 +389,7 @@ const HIRE_SPEED: float = 3.2
 ## Seasons (core/seasons.gd): days in each, autumn first.
 const SEASON_DAYS: int = 7
 
-## The rival, TurfMasters™ (net/town/town.gd), once the rank brings them to town:
+## The rival, TurfMastersâ„¢ (net/town/town.gd), once the rank brings them to town:
 ## the chance each morning they poach a client below this relationship, the chance
 ## a great job wins one back, signs in a yard (at most), and XP per sign pulled.
 const RIVAL_POACH_CHANCE: float = 0.35
@@ -447,7 +447,7 @@ const TOWN_RELATIONSHIP_MISSED: float = 3.0
 ## TOWN_REFERRAL_AT.
 const TOWN_LEAD_REFERRAL_SHARE: float = 0.75
 ## XP for meeting a client by referral (or Marty's lead), and for winning one
-## back from TurfMasters™.
+## back from TurfMastersâ„¢.
 const XP_REFERRAL: int = 25
 const XP_WON_BACK: int = 25
 
@@ -544,9 +544,11 @@ const LEAF_SKIN_FULL: int = 70
 ## Grass under leaves presses flat between these densities (smoothstep), by up
 ## to LEAF_GRASS_PRESS_MAX of its height; it springs back over LEAF_GRASS_SPRING
 ## seconds when the leaves go and presses in LEAF_GRASS_SETTLE when they land.
+## (rakefeel:look: a raked strip stays combed flat a while and slowly stands up,
+## so the stroke reads as a pressed path, not an eraser's hole.)
 const LEAF_GRASS_PRESS := Vector2(8, 45)
 const LEAF_GRASS_PRESS_MAX: float = 0.85
-const LEAF_GRASS_SPRING: float = 0.4
+const LEAF_GRASS_SPRING: float = 2.5
 const LEAF_GRASS_SETTLE: float = 0.1
 ## Changes no mover claims ease in over this long; each hero leaf the ease adds
 ## or takes scales in or out over LEAF_FADE_SECONDS (at most LEAF_FADE_MAX at once).
@@ -824,7 +826,7 @@ const HOMEOWNER_PERSONALITY_LINE_CHANCE: float = 0.65
 ## When the crew owes the homeowner only for water, how often they mention it
 ## (Strings.HOMEOWNER_LINES.bill_water).
 const HOMEOWNER_WATER_LINE_CHANCE: float = 0.5
-## How often TurfMasters™ text a taunt after poaching a client, and a complaint
+## How often TurfMastersâ„¢ text a taunt after poaching a client, and a complaint
 ## when one of their signs is pulled (net/town/town.gd).
 const RIVAL_TAUNT_CHANCE: float = 0.5
 const RIVAL_SIGN_TEXT_CHANCE: float = 0.35
@@ -1561,14 +1563,17 @@ const RAKE_SWING_STYLE: String = "push"
 ## When each field stroke bites, as a fraction of the swing (0.12 s and 0.30 s).
 const RAKE_SWING_BITES: Array[float] = [0.2, 0.5]
 ## The plant (tines touch down), the end of the drive, and the end of the flick.
-const RAKE_SWING_PHASES: Dictionary = {"plant": 0.2, "drive_end": 0.7, "flick_end": 0.85}
+const RAKE_SWING_PHASES: Dictionary = {"plant": 0.2, "drive_end": 0.74, "flick_end": 0.87}
 ## A hired hand's swing (HIRE_STROKE_SECONDS / skill long) bites once, here.
 const RAKE_CREW_BITES: Array[float] = [0.25]
 ## How far ahead of the feet the tines plant, and where the drive ends (m). The
 ## hands hold the 1.6 m handle near its top, so the plant can't come closer than
 ## this without the hands going up past the face; the far end needs the lunge.
-const RAKE_HEAD_NEAR: float = 1.25
-const RAKE_HEAD_FAR: float = 1.95
+## (R1b rakefeel:look: the drive starts close in, the handle nearly upright, and
+## the lunge carries it out to the far end, 1.25 m of drag; the upper hand may sit
+## lower on the handle, RAKE_HAND_SLIDE_MAX, so the top clears the face.)
+const RAKE_HEAD_NEAR: float = 0.85
+const RAKE_HEAD_FAR: float = 2.1
 ## The head sits a little to the right of center (a right-handed hold), drifts
 ## sideways at most this much during a drive, alternating sides swing to swing,
 ## and is never further than RAKE_HEAD_LATERAL off center (m).
@@ -1591,14 +1596,13 @@ const RAKE_TINE_FLICK: float = 0.35
 const RAKE_LOAD_FULL: float = 5000.0
 ## The hands on the handle: the upper (left) hand near the top, the lower (right)
 ## one this far below it, or as close as RAKE_HAND_SPAN_MIN when the arm can't
-## reach. The upper hand aims for the chest with the head close in and out over
-## the belly at full stretch, in the holder's body space (x right, y up, -z ahead),
-## before the lunge; it slides at most RAKE_HAND_SLIDE_MAX down from the top.
+## reach (the hands come together at full stretch). The upper hand aims for the
+## chest with the head close in and the belly at full stretch, from the
+## shoulders (RAKE_GRIP_NEAR/FAR); it slides at most RAKE_HAND_SLIDE_MAX down
+## from the top.
 const RAKE_HAND_SPAN: float = 0.48
-const RAKE_HAND_SPAN_MIN: float = 0.35
-const RAKE_HAND_NEAR: Vector3 = Vector3(0.16, 1.3, -0.3)
-const RAKE_HAND_FAR: Vector3 = Vector3(0.12, 1.0, -0.6)
-const RAKE_HAND_SLIDE_MAX: float = 0.3
+const RAKE_HAND_SPAN_MIN: float = 0.24
+const RAKE_HAND_SLIDE_MAX: float = 0.5
 ## Your own rake while you look through your eyes (your body is hidden then, and
 ## the camera doesn't lunge): both hands at the handle's top, this far apart, and
 ## your first-person arms may stretch to this times their length to hold on.
@@ -1608,13 +1612,11 @@ const RAKE_FP_ARM_STRETCH: float = 1.9
 const RAKE_FP_HANDLE_AIM: Vector3 = Vector3(0.3, 1.25, 0.0)
 ## The handle slides this far through the hands over a drive (m).
 const RAKE_HANDLE_SLIDE: float = 0.1
-## The body leans into the shove (torso x, negative is forward), twists with the
-## drift, sticks its hips back as the tines plant (m) and then lunges forward
-## into the drive, the left foot stepping out (m).
-const RAKE_LEAN_X: float = -0.36
+## The body twists with the drift and sticks its hips back as the tines plant
+## (m); how far it leans and lunges into the drive is RAKE_LEAN_DRIVE and
+## RAKE_LUNGE_DRIVE (rakefeel: look).
 const RAKE_TWIST_Y: float = 0.2
 const RAKE_HIP_SHIFT: float = 0.06
-const RAKE_LUNGE: float = 0.3
 ## First person: the camera nods down this far at the plant (in 0.06 s, back over
 ## 0.25 s), rolls a touch with the drift, and narrows the view during the drive.
 const RAKE_CAM_DIP_DEG: float = 1.6
@@ -1653,12 +1655,10 @@ const RAKE_CAM_DIP_OUT: float = 0.31
 const RAKE_FLICK_STRETCH: float = 1.6
 const RAKE_FLICK_FLEX: float = -0.05
 ## The body in the work pose (player/cartoon_body.gd set_work_pose): the hips turn
-## this share of the twist the other way, the shoulders this share of it with; the
-## front foot steps out this share of the lunge; the face tilts down this share of
-## the lean.
+## this share of the twist the other way, the shoulders this share of it with;
+## the face tilts down this share of the lean. (The feet: RAKE_STANCE_*.)
 const WORK_HIP_COUNTER: float = 0.1
 const WORK_TWIST_SHARE: float = 1.1
-const WORK_FRONT_STEP: float = 0.6
 const WORK_FACE_TILT: float = 0.6
 ## How far a hand can be from its shoulder before the lower hand slides up the
 ## handle (props/rake_motion.gd, m).
@@ -1671,6 +1671,86 @@ const HIRE_TURN_SPEED: float = 7.0
 ## Before raking:1 the field doesn't say how much a stroke moved: the leaves under
 ## the head times this stand in for it (equipment/rake.gd, look only).
 const RAKE_LOAD_GUESS: float = 1.5
+
+# ---- rakefeel: look (R1b; docs/GAME.md "Raking feel: the look")
+# The swing with weight (equipment/rake_stroke.gd, props/rake_motion.gd,
+# player/cartoon_body.gd, player/stroke_cam.gd) and the leaves it pushes
+# (leaves/leaf_movers.gd ride, leaves/leaf_shaders.gd edges).
+## How far the hips sink (m): just holding the rake, sitting back into the plant,
+## and at the bottom of the lunge (more under a full load, RAKE_LOAD_CROUCH a load).
+const RAKE_CROUCH_IDLE: float = 0.04
+const RAKE_CROUCH_PLANT: float = 0.06
+const RAKE_CROUCH_DRIVE: float = 0.12
+const RAKE_LOAD_CROUCH: float = 0.04
+## The work stance (body space x, z; -Z ahead, m): the left foot a half step
+## forward, the right one back, planted while the rake works and the body stands
+## (slower than RAKE_STANCE_SPEED m/s); stepping into it or out takes
+## RAKE_STANCE_SECONDS. The knees take up the hips' sink and lunge.
+const RAKE_STANCE_FRONT := Vector2(-0.13, -0.26)
+const RAKE_STANCE_BACK := Vector2(0.13, 0.14)
+const RAKE_STANCE_SECONDS: float = 0.18
+const RAKE_STANCE_SPEED: float = 0.9
+## Leg bones (m): hip to knee, knee to the middle of the shoe; and how far the
+## knee flexes as a walking leg swings through (rad at a full stride).
+const BODY_THIGH: float = 0.36
+const BODY_SHIN: float = 0.4
+const BODY_WALK_KNEE: float = 0.55
+## A heavy load drags: the head's progress through the drive is slowed at the
+## start by up to this power (pow(t, 1 + this x load)), and the tines judder
+## sideways by up to RAKE_JUDDER m at RAKE_JUDDER_HZ cycles a drive.
+const RAKE_RESIST: float = 0.35
+const RAKE_JUDDER: float = 0.012
+const RAKE_JUDDER_HZ: float = 7.0
+## The return through the air: how high the head lifts (m) to reset.
+const RAKE_RESET_LIFT: float = 0.17
+## The forward lean at the bottom of the shove (rad, negative is forward) and
+## how far the hips go forward into the lunge (m).
+const RAKE_LEAN_DRIVE: float = -0.62
+const RAKE_LUNGE_DRIVE: float = 0.28
+## Secondary motion: the head lags the torso's lean by this share of its
+## velocity (s), and the torso overshoots its return by this share.
+const RAKE_HEAD_LAG: float = 0.05
+const RAKE_SETTLE_OVERSHOOT: float = 0.18
+## Third person: the upper hand's spot is this far from the shoulders' middle
+## (body space, x right, y up, -z ahead) with the head close in, and at full stretch.
+const RAKE_GRIP_NEAR := Vector3(-0.2, -0.12, -0.3)
+const RAKE_GRIP_FAR := Vector3(0.08, -0.22, -0.2)
+## First person: the head plants this far out (instead of RAKE_HEAD_NEAR) so it
+## clears the hotbar, and drives to RAKE_HEAD_FAR + RAKE_FP_FAR_EXTRA.
+const RAKE_FP_NEAR: float = 1.45
+const RAKE_FP_FAR_EXTRA: float = 0.25
+## First person: the eyes go with the lunge (this share of the hips' travel, m,
+## and this share of the crouch), and look this far further down (degrees) while
+## the rake works, easing in and out over RAKE_FP_LOOK_SECONDS.
+const RAKE_FP_LUNGE_SHARE: float = 0.45
+const RAKE_FP_CROUCH_SHARE: float = 0.6
+const RAKE_FP_LOOK_DEG: float = 7.0
+const RAKE_FP_LOOK_SECONDS: float = 0.35
+## The windrow (leaves/leaf_movers.gd): a leaf the tines reach rides ahead of
+## them while they drive, bunched up to RAKE_RIDE_DEPTH ahead and stacked up to
+## RAKE_RIDE_STACK high (more as more ride), rolling; a share spill over the top
+## early. Released at the end of the drive (or once its own cell is behind the
+## tines), it carries on with RAKE_RIDE_CARRY of the head's speed.
+const RAKE_RIDE_DEPTH := Vector2(0.04, 0.3)
+const RAKE_RIDE_STACK: float = 0.2
+const RAKE_RIDE_FULL: int = 60
+const RAKE_RIDE_SPILL: float = 0.18
+const RAKE_RIDE_STIFF: float = 26.0
+## A leaf the tines swept from behind them slides up to the berm at most this
+## fast (m/s), along the lawn.
+const RAKE_RIDE_SLIDE: float = 3.0
+## Leaves already behind the tines when their stroke lands go over this long (s).
+const RAKE_SWEEP_STAGGER: float = 0.15
+const RAKE_RIDE_CARRY: float = 0.55
+const RAKE_RIDE_MAX: float = 0.7
+## Leaves' edges on the lawn (leaves/leaf_shaders.gd litter): each skin leaf reads
+## the density this far (m) off its middle, by a slow noise, so a raked edge is
+## ragged, not a cell staircase; and a straggler share of skin leaves read their
+## neighbours up to RAKE_STRAY_REACH away at RAKE_STRAY_WEIGHT.
+const LEAF_EDGE_WARP: float = 0.22
+const LEAF_STRAY_SHARE_EDGE: float = 0.07
+const LEAF_STRAY_REACH: float = 0.55
+const LEAF_STRAY_WEIGHT: float = 0.45
 
 # ---- hotbar hud
 # The bar along the bottom of the screen (ui/hotbar_hud.gd; docs/GAME.md "the

@@ -19,10 +19,14 @@ const SURFACE_GAP: float = 0.02
 const HAND_REACH: float = Constants.RAKE_HAND_REACH
 ## The handle's top, from the head (yard_models.gd _rake: the grip ends at 1.62).
 const HANDLE_TOP: float = 1.6
-## Where the upper hand rides, near and far (Constants.RAKE_HAND_NEAR/FAR); vars
-## only so a tuning sweep can try others.
-static var hand_near: Vector3 = Constants.RAKE_HAND_NEAR
-static var hand_far: Vector3 = Constants.RAKE_HAND_FAR
+
+
+## Where the head goes through your own eyes for a sample's head_forward: the
+## same drive, planted at RAKE_FP_NEAR instead of RAKE_HEAD_NEAR (and a little
+## further out at the far end), so the tines clear the hotbar.
+static func fp_reach(reach: float) -> float:
+	var far := Constants.RAKE_HEAD_FAR + Constants.RAKE_FP_FAR_EXTRA
+	return remap(reach, Constants.RAKE_HEAD_NEAR, Constants.RAKE_HEAD_FAR, Constants.RAKE_FP_NEAR, far)
 
 
 ## Poses a held rake prop (props/prop_looks.gd pose_rake): its Visual/Look/Pose,
@@ -61,23 +65,40 @@ static func pose_frame(pose_node: Node3D, frame: Transform3D, sample: Dictionary
 		forward = Vector3.FORWARD
 	var right := forward.cross(Vector3.UP).normalized()
 	var reach := float(sample.get("head_forward", Constants.RAKE_HEAD_NEAR))
+	var extend := clampf(inverse_lerp(Constants.RAKE_HEAD_NEAR, Constants.RAKE_HEAD_FAR, reach), 0.0, 1.0)
+	if first_person:
+		# Through your own eyes the plant would be under your feet, behind the
+		# hotbar: the same drive, planted further out where you can see the tines.
+		reach = fp_reach(reach)
 	var lateral := clampf(float(sample.get("head_lateral", 0.0)), -Constants.RAKE_HEAD_LATERAL, Constants.RAKE_HEAD_LATERAL)
 	var contact := frame.origin + forward * reach + right * lateral
 	contact.y = surface_y(pose_node, contact, frame.origin.y) + SURFACE_GAP + float(sample.get("head_lift", 0.0)) - draw_dip
 	var heading := forward.rotated(Vector3.UP, -float(sample.get("head_yaw", 0.0)))
 	var across := heading.cross(Vector3.UP).normalized()
-	# The upper hand's spot: up at the chest with the head close in, out at the belly
-	# with it far out (the arms reach and the body leans into it).
-	var extend := clampf(inverse_lerp(Constants.RAKE_HEAD_NEAR, Constants.RAKE_HEAD_FAR, reach), 0.0, 1.0)
-	var hand_local := hand_near.lerp(hand_far, smoothstep(0.0, 1.0, extend))
-	# The body's hips move with the wind-up and the lunge (sample hip, + is back);
-	# in first person the camera stays put, so the hands do too.
+	# The body's hips move with the wind-up and the lunge (sample hip, + is back)
+	# and sink into the knees (crouch); in first person the camera stays put, so
+	# the hands do too.
 	var hip := 0.0 if first_person else float(sample.get("hip", 0.0))
+	var crouch := 0.0 if first_person else float(sample.get("crouch", 0.0))
+	var lean := float(sample.get("lean", 0.0))
+	var torso := Vector3.UP * cos(lean) + forward * -sin(lean)
+	var hips := frame.origin + Vector3.UP * (0.82 - crouch) - forward * hip
+	var twist := float(sample.get("twist", 0.0))
+	var shoulder_r := hips + (right * 0.25 + torso * 0.46).rotated(Vector3.UP, twist)
+	var shoulder_l := hips + (-right * 0.25 + torso * 0.46).rotated(Vector3.UP, twist)
+	if shoulders.size() == 2:
+		shoulder_r = shoulders[0]
+		shoulder_l = shoulders[1]
+	# The upper hand's spot, from the shoulders: up at the chest with the head
+	# close in, down at the belly and out at full stretch (the body leans into it).
+	var grip_local := Constants.RAKE_GRIP_NEAR.lerp(Constants.RAKE_GRIP_FAR, smoothstep(0.0, 1.0, extend))
+	var chest := (shoulder_r + shoulder_l) * 0.5
+	var anchor := chest + right * grip_local.x + Vector3.UP * grip_local.y - forward * grip_local.z
 	if first_person:
 		# The handle aims past your right shoulder: in close its top is just out of
 		# view bottom right, and the drive brings it (and your hands) into view.
-		hand_local = Constants.RAKE_FP_HANDLE_AIM
-	var anchor := frame.origin + right * hand_local.x + Vector3.UP * hand_local.y + forward * (-hand_local.z - hip)
+		var hand_local := Constants.RAKE_FP_HANDLE_AIM
+		anchor = frame.origin + right * hand_local.x + Vector3.UP * hand_local.y + forward * -hand_local.z
 	# The tines' kink at the head bar.
 	var tines := pose_node.get_node_or_null("Rake/Tines") as Node3D
 	var kink := float(sample.get("toe_down", Constants.RAKE_HEAD_TOE_DOWN)) + float(sample.get("tine_flex", 0.0))
@@ -100,15 +121,6 @@ static func pose_frame(pose_node: Node3D, frame: Transform3D, sample: Dictionary
 	var lowest := HANDLE_TOP - Constants.RAKE_HAND_SLIDE_MAX
 	var along := clampf((anchor - head).dot(basis.y), lowest, HANDLE_TOP - 0.05)
 	along = minf(along + Constants.RAKE_HANDLE_SLIDE * extend, HANDLE_TOP - 0.05)
-	var lean := float(sample.get("lean", 0.0))
-	var torso := Vector3.UP * cos(lean) + forward * -sin(lean)
-	var hips := frame.origin + Vector3.UP * 0.82 - forward * hip
-	var twist := float(sample.get("twist", 0.0))
-	var shoulder_r := hips + (right * 0.25 + torso * 0.46).rotated(Vector3.UP, twist)
-	var shoulder_l := hips + (-right * 0.25 + torso * 0.46).rotated(Vector3.UP, twist)
-	if shoulders.size() == 2:
-		shoulder_r = shoulders[0]
-		shoulder_l = shoulders[1]
 	var span := Constants.RAKE_HAND_SPAN
 	while span > Constants.RAKE_HAND_SPAN_MIN and (head + basis.y * (along - span)).distance_to(shoulder_r) > HAND_REACH:
 		span -= 0.01
