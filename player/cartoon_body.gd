@@ -483,19 +483,23 @@ func _stance_feet(delta: float) -> Array[Vector3]:
 		if not _foot_spot[index].is_finite() or _foot_spot[index].distance_to(homes[index]) > Constants.RAKE_STEP_LOST:
 			_foot_spot[index] = homes[index]
 			_foot_step[index] = -1.0
-	if _foot_step[0] < 0.0 and _foot_step[1] < 0.0:
+	# A foot the leg can no longer reach (the lunge carried the hips past a
+	# trailing foot) steps up now instead of dragging, even while the other foot
+	# is still coming down from its own step (past RAKE_STEP_OVERLAP of it).
+	var stretched := -1
+	for index: int in 2:
+		var other := _foot_step[1 - index]
+		if _foot_step[index] < 0.0 and (other < 0.0 or other >= Constants.RAKE_STEP_OVERLAP) and _foot_overreach(index) > Constants.RAKE_STEP_STRETCH:
+			stretched = index
+			break
+	if stretched >= 0:
+		_foot_step[stretched] = 0.0
+		_foot_from[stretched] = _foot_spot[stretched]
+	elif _foot_step[0] < 0.0 and _foot_step[1] < 0.0:
 		var worst := 0 if _foot_spot[0].distance_to(homes[0]) >= _foot_spot[1].distance_to(homes[1]) else 1
 		# Shuffling steps wait for the hips to come back out of the lunge, so the
 		# back foot is free to step up in the next one.
-		var go := _foot_spot[worst].distance_to(homes[worst]) > Constants.RAKE_STEP_DRIFT and absf(_work.z) < Constants.RAKE_STEP_LUNGE_MAX
-		# A foot the leg can no longer reach (the lunge carried the hips past a
-		# trailing foot) steps up now instead of dragging.
-		for index: int in 2:
-			if _foot_overreach(index) > Constants.RAKE_STEP_STRETCH:
-				worst = index
-				go = true
-				break
-		if go:
+		if _foot_spot[worst].distance_to(homes[worst]) > Constants.RAKE_STEP_DRIFT and absf(_work.z) < Constants.RAKE_STEP_LUNGE_MAX:
 			_foot_step[worst] = 0.0
 			_foot_from[worst] = _foot_spot[worst]
 	var out: Array[Vector3] = []

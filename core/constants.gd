@@ -2157,6 +2157,10 @@ const RAKE_STANCE_SPEED: float = 0.75
 ## RAKE_STEP_LUNGE_MAX (m) of upright. A foot further off than RAKE_STEP_LOST (a
 ## teleport, a ride) is put back without a step.
 const RAKE_STEP_STRETCH: float = -0.008
+## A foot about to be out of reach may start its step once the other foot is this
+## far through its own (R1b integration: waiting for it to land let the back foot
+## drag a tick, 6 mm, as the lunge came on).
+const RAKE_STEP_OVERLAP: float = 0.75
 const RAKE_STEP_LUNGE_MAX: float = 0.08
 const RAKE_STEP_DRIFT: float = 0.14
 const RAKE_STEP_SECONDS: float = 0.17
@@ -3124,9 +3128,11 @@ const TOSS_ARC_NEAR_M: float = 1.1
 ## the stroke, and drops them in a berm just ahead of the tines; the next stroke
 ## picks the berm up and pushes it on, so it grows into a pile (docs/GAME.md
 ## "Raking: the windrow"). Metres along the stroke from its origin, which is
-## equipment/rake.gd REACH (1.5 m) ahead of the raker; the head runs
-## RAKE_HEAD_NEAR..RAKE_HEAD_FAR (1.25..1.95 m) out, so the plant line is 0.25 m
-## behind the origin and the drive ends 0.45 m past it.
+## equipment/rake.gd REACH (1.5 m) ahead of the raker; the field works 1.25..1.95 m
+## out, so the plant line is 0.25 m behind the origin and the drive ends 0.45 m past
+## it. (R1b integration: rakefeel:look then drew the head 0.85..2.1 m out for others
+## and 1.45..2.35 m in your own view; the field sits between the two and was left
+## as is. See docs/DECISIONS.md "R1b integration".)
 const RAKE_FIELD_BACK: float = 0.25
 ## Where each bite's tine line has got to: the plant bite (0) carries leaves to
 ## just past 0.1 m, the mid-drive bite (1) to just past 0.45 m. Every stroke that
