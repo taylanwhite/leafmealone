@@ -55,18 +55,18 @@ static func mesh_for(item: String) -> ArrayMesh:
 			mesh = _Hats.merged([[display, Transform3D(Basis.IDENTITY, Vector3(0.0, 0.32, 0.0))]])
 		"shirt":
 			var which: Variant = entry.get("shirt", 0)
-			mesh = _folded_shirt(HIVIS if str(which) == "hivis" else Constants.SHIRT_DYES[clampi(int(which), 0, Constants.SHIRT_DYES.size() - 1)], str(which) == "hivis")
+			mesh = folded_shirt(HIVIS if str(which) == "hivis" else Constants.SHIRT_DYES[clampi(int(which), 0, Constants.SHIRT_DYES.size() - 1)], str(which) == "hivis")
 		"paint":
-			mesh = _paint_can(Constants.CHEFTY_PAINTS.get(item, CARD_RED))
+			mesh = paint_can(Constants.CHEFTY_PAINTS.get(item, CARD_RED))
 		"decal":
-			mesh = _decal_card(item)
+			mesh = decal_card(item)
 	_cache[item] = mesh
 	return mesh
 
 
 ## A shirt folded flat: the body, the collar, the folded-in sleeves; a vest gets
 ## its reflective bands across instead of sleeves.
-static func _folded_shirt(color: Color, vest: bool) -> ArrayMesh:
+static func folded_shirt(color: Color, vest: bool) -> ArrayMesh:
 	var kit := _MeshKit.new()
 	# Two layers, as a folded shirt is: the folded body and the top fold over it.
 	kit.rbox(Vector3(0.0, 0.025, 0.0), Vector3(0.15, 0.025, 0.12), color.darkened(0.08), 6.0, {"detail": 1})
@@ -85,7 +85,7 @@ static func _folded_shirt(color: Color, vest: bool) -> ArrayMesh:
 
 ## A one-gallon can: steel, a label band in the paint's color, the lid with a
 ## puddle of it, and a drip running down the side.
-static func _paint_can(color: Color) -> ArrayMesh:
+static func paint_can(color: Color) -> ArrayMesh:
 	var kit := _MeshKit.new()
 	kit.tube(PackedVector3Array([Vector3(0.0, 0.0, 0.0), Vector3(0.0, 0.17, 0.0)]), PackedFloat32Array([0.1, 0.1]), CAN_METAL, 14, {"jitter": 0.0, "cap": true, "cap_start": true, "wobble": 0.0})
 	kit.tube(PackedVector3Array([Vector3(0.0, 0.035, 0.0), Vector3(0.0, 0.135, 0.0)]), PackedFloat32Array([0.102, 0.102]), color, 14, {"jitter": 0.0, "cap": false, "wobble": 0.0})
@@ -98,7 +98,7 @@ static func _paint_can(color: Color) -> ArrayMesh:
 
 
 ## A sample card on an easel: a red panel (Chefty's factory paint) wearing the decal.
-static func _decal_card(item: String) -> ArrayMesh:
+static func decal_card(item: String) -> ArrayMesh:
 	var kit := _MeshKit.new()
 	var tilt := Basis(Vector3.RIGHT, -0.25)
 	var middle := Vector3(0.0, 0.17, 0.0)

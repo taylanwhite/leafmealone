@@ -2160,7 +2160,8 @@ func _on_looks_changed(peer_id: int) -> void:
 		return
 	body.call("dress_from_seed", _dress_seed)
 	_Hats.wear(body, shops.call("look_of", peer_id))
-	var animate := Time.get_ticks_msec() - _dressed_msec > int(Constants.DRESS_ANIMATE_AFTER_SECONDS * 1000.0)
+	var animate := Time.get_ticks_msec() - _dressed_msec > int(Constants.DRESS_ANIMATE_AFTER_SECONDS * 1000.0) \
+		and not bool(shops.get("first_snapshot"))
 	body.call("rebuild", %Head, is_multiplayer_authority(), animate)
 	var arms := %Head.get_node_or_null("Arms")
 	if arms != null and arms.has_method("recolor"):

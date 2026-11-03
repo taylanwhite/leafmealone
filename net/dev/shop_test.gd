@@ -832,6 +832,12 @@ func _check_snack(shops: Node, me: int) -> bool:
 	await _ticks(2)
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var row := ui.get_node_or_null("HudRows/BuffRow") if ui != null else null
+	# The row redraws on process frames: on a loaded machine two physics ticks
+	# can pass inside one of them, so give it a few frames (W8: it read []).
+	for _frame: int in 10:
+		if row == null or (row.get("shown") as Array).has("turbo"):
+			break
+		await get_tree().process_frame
 	if row == null or not (row.get("shown") as Array).has("turbo"):
 		problems.append("the HUD shows %s" % (str(row.get("shown")) if row != null else "no buff row"))
 	if not await _ate(body, "drink", 4.0):
@@ -1043,6 +1049,14 @@ func _run_client() -> void:
 	await get_tree().create_timer(0.6).timeout
 	await _stand_at("homie_depot")
 	await get_tree().create_timer(0.5).timeout
+	# Before anyone paints it (the host's truck step comes later): this peer's
+	# Chefty already shows the look it joined to, quietly, so the first paint job
+	# gets its cloud here too (W8: the first snapshot never said truck_changed
+	# for a factory-red truck, and the observer's Chefty swapped in one frame).
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var paint := chefty.get_node_or_null("Paint") if chefty != null else null
+	var joined_look: Dictionary = paint.get("shown") if paint != null else {}
+	_step("client_truck_look", paint != null and not joined_look.is_empty() and int(paint.get("repaints")) == 0, "shows %s, %d repaints" % [str(joined_look), int(paint.get("repaints")) if paint != null else -1])
 
 	var cash := Campaign.credits(me)
 	var asked := str(shops.call("request_buy", "homie_depot", CLIENT_HAT, 1))
@@ -1100,8 +1114,15 @@ func _run_client_equip(shops: Node, me: int) -> bool:
 	var off: Array = _results[before] if _results.size() > before else []
 	var on: Array = _results[before + 1] if _results.size() > before + 1 else []
 	var back := body != null and str(body.get("hat_style")) == "beanie"
-	print("[ShopTest] client_equip: off %s %s bare %s, on %s back %s" % [asked, str(off), bare, str(on), back])
-	return asked == "" and off.size() > 0 and str(off[0]) == "worn" and bare and on.size() > 0 and str(on[0]) == "worn" and back
+	# The host's truck step is done by now: this peer's Chefty sprayed its new
+	# look on with the show too (W8: a client that never learned the first look
+	# swapped the next one in a frame), and ends mint with googly eyes.
+	var paint := get_tree().get_first_node_in_group("chefty").get_node_or_null("Paint") if get_tree().get_first_node_in_group("chefty") != null else null
+	var sprayed := paint != null and int(paint.get("repaints")) >= 1
+	var shown: Dictionary = paint.get("shown") if paint != null else {}
+	var mint := not shown.is_empty() and (shown["color"] as Color).is_equal_approx(Constants.CHEFTY_PAINTS["paint_mint"]) and str(shown["decal"]) == "decal_googly"
+	print("[ShopTest] client_equip: off %s %s bare %s, on %s back %s; Chefty here sprayed %s (%d repaints), mint with googly eyes %s" % [asked, str(off), bare, str(on), back, sprayed, int(paint.get("repaints")) if paint != null else -1, mint])
+	return asked == "" and off.size() > 0 and str(off[0]) == "worn" and bare and on.size() > 0 and str(on[0]) == "worn" and back and sprayed and mint
 
 
 ## The client's snack (shops chunk 6): at the Snak-o-Matic it buys a warm Turbo

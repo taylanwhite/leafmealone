@@ -785,6 +785,11 @@ func _build_hat(face: Node3D) -> void:
 		part.name = "HatHair"
 		_on_head_layer(part)
 		_hat_parts.append(part)
+		# Your own cap drops back on like a bought hat (taking a hat off in the
+		# closet); hair and the NICE BOYS' visor are just there.
+		if hat_style == "cap":
+			_hat_view = part
+			_hat_rest = part.transform
 
 
 ## The hi-vis vest over the shirt, on the torso (it leans and breathes with it).
@@ -824,7 +829,7 @@ func rebuild(head_parent: Node3D = null, own_head: bool = _own_head, animate: bo
 		if animate:
 			_shirt_puff = 0.0
 	if hat_changed and _face != null:
-		var going_to_hat := _Hats.has_style(hat_style)
+		var going_to_hat := _Hats.has_style(hat_style) or hat_style == "cap"
 		for node: Node3D in _hair_until_landed:
 			if is_instance_valid(node):
 				node.queue_free()

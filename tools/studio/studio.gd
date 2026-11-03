@@ -189,6 +189,10 @@ func _build(root: Node3D) -> void:
 			# hat on one head from the front, three quarters, the side and above;
 			# --shirt=<0..7|hivis> dresses them too.
 			_hats(root)
+		"dressing":
+			# Shops chunk 7: a hat going on (CartoonBody.rebuild with the show), a
+			# body per moment of it, front on and in profile; --shirt=1 a shirt instead.
+			_dressing(root)
 		"chefty_paints":
 			# Shops chunk 7: Chefty in each paint, each with a decal (--interior=1
 			# the drivable one's open cab); --decal=<id> one truck close up.
@@ -353,6 +357,36 @@ func _hats(root: Node3D) -> void:
 	])
 
 
+## A hat going on (shops chunk 7), frozen at 60 Hz steps into the rebuild: the
+## top row faces the camera, the bottom row is the same moments in profile.
+func _dressing(root: Node3D) -> void:
+	var steps: Array[int] = [6, 14, 20, 28, 40]
+	var shirt := str(_options.get("shirt", "")) == "1"
+	for row: int in 2:
+		for index: int in steps.size():
+			var body: Node3D = _CartoonBody.new()
+			body.call("dress_from_seed", 11)
+			body.set("hat_style", "cap")
+			root.add_child(body)
+			body.position = Vector3((float(index) - 2.0) * 1.3, 0.0, float(row) * -2.6)
+			body.rotation.y = PI if row == 0 else -PI * 0.5
+			body.call("build")
+			if shirt:
+				body.set("shirt", Constants.SHIRT_DYES[5])
+			else:
+				body.set("hat_style", "cowboy")
+			body.call("rebuild", null, false, true)
+			for _step: int in steps[index]:
+				body.call("_physics_process", 1.0 / 60.0)
+			body.set_physics_process(false)
+	root.set_meta("views", [
+		{"from": Vector3(0.0, 1.5, 7.5), "at": Vector3(0.0, 1.2, 0.0), "fov": 40.0},
+		{"from": Vector3(-1.3, 1.7, 2.2), "at": Vector3(-1.3, 1.55, 0.0), "fov": 40.0},
+		{"from": Vector3(0.0, 1.5, 5.0), "at": Vector3(0.0, 1.2, -2.6), "fov": 52.0},
+		{"from": Vector3(0.0, 1.7, 2.2), "at": Vector3(0.0, 1.55, 0.0), "fov": 40.0},
+	])
+
+
 ## Chefty in every paint, each with one of the decals (shops chunk 7), three
 ## across and two deep; or one decal close up (--decal=<id>, --paint=<id>).
 func _chefty_paints(root: Node3D) -> void:
@@ -390,15 +424,17 @@ func _chefty_paints(root: Node3D) -> void:
 func _wardrobe(root: Node3D) -> void:
 	var wall := Node3D.new()
 	root.add_child(wall)
-	# The entrance block's face, so the rack has something to hang on.
-	_LowPoly.box(wall, Vector3(2.0, 3.0, 6.0), Vector3(Constants.WARDROBE_WALL_X - 1.0, 1.5, -4.8), Color(0.95, 0.5, 0.15))
+	# The store's front wall and the entrance block's south side: the nook.
+	_LowPoly.box(wall, Vector3(1.0, 3.0, 5.0), Vector3(Constants.WARDROBE_WALL_X - 0.5, 1.5, Constants.MIRROR_AT.z - 2.5), Color(0.86, 0.82, 0.74))
+	_LowPoly.box(wall, Vector3(2.0, 3.0, 2.0), Vector3(Constants.WARDROBE_WALL_X + 1.0, 1.5, Constants.MIRROR_AT.z + 1.0), Color(0.95, 0.5, 0.15))
 	preload("res://levels/dressing/wardrobe.gd").build(wall)
 	var rack := Vector3(Constants.WARDROBE_WALL_X, 1.2, Constants.HAT_RACK_Z)
+	var mirror := Constants.MIRROR_AT + Vector3(0.0, 1.2, 0.0)
 	var counter := Constants.PAINT_COUNTER_AT
 	root.set_meta("views", [
-		{"from": rack + Vector3(3.6, 0.5, 1.6), "at": rack + Vector3(0.0, 0.0, 1.4), "fov": 48.0},
+		{"from": rack + Vector3(3.6, 0.6, -2.6), "at": rack + Vector3(0.6, 0.0, -0.4), "fov": 48.0},
 		{"from": rack + Vector3(1.6, 0.4, 0.0), "at": rack + Vector3(0.0, 0.2, 0.0), "fov": 44.0},
-		{"from": Vector3(Constants.WARDROBE_WALL_X + 2.2, 1.6, Constants.MIRROR_Z + 0.6), "at": Vector3(Constants.WARDROBE_WALL_X, 1.2, Constants.MIRROR_Z), "fov": 44.0},
+		{"from": mirror + Vector3(0.5, 0.4, -2.2), "at": mirror, "fov": 44.0},
 		{"from": counter + Vector3(0.6, 1.9, -2.4), "at": counter + Vector3(0.0, 1.1, 0.0), "fov": 46.0},
 	])
 

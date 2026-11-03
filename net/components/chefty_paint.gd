@@ -54,7 +54,12 @@ func _process(delta: float) -> void:
 		_shops = get_tree().get_first_node_in_group("shops")
 		if _shops != null and not _shops.is_connected("truck_changed", _on_truck_changed):
 			_shops.connect("truck_changed", _on_truck_changed)
-			_on_truck_changed()
+	# Until this peer knows the look: a client's first snapshot only says
+	# truck_changed when the look differs from the defaults, and a Chefty that
+	# never learned its first look would put the next one on with no show (W8:
+	# the observer's Chefty went black in a frame while the host's sprayed).
+	if _wanted.is_empty() and _shops != null:
+		_on_truck_changed()
 	if _repaint >= 0.0:
 		_step_repaint(delta)
 	elif not _wanted.is_empty() and not _same(_wanted, shown) and _standing_still():
@@ -130,7 +135,8 @@ func _start_repaint(look: Dictionary) -> void:
 		# Round the truck's body, low and high, front to back.
 		var local := Vector3(rng.randf_range(-1.3, 1.3), rng.randf_range(0.5, 2.4), rng.randf_range(-3.0, 2.8))
 		puff.global_position = body.global_transform * local
-		var tint := color.lerp(Color.WHITE, rng.randf_range(0.0, 0.3))
+		# Paint mist, lighter than the paint (a black job's cloud read as smoke, W8).
+		var tint := color.lerp(Color.WHITE, rng.randf_range(0.1, 0.3) + 0.3 * (1.0 - color.get_luminance()))
 		puff.set_instance_shader_parameter("tint", Color(tint.r, tint.g, tint.b, 1.0))
 		var away := (body.global_basis * Vector3(local.x, 0.3, 0.0)).normalized()
 		_puffs.append({

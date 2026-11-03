@@ -999,7 +999,6 @@ const SHOP_UI: Dictionary = {
 	"deliveries_full": "That's every order the van can take. The van has feelings.",
 	"closet_title": "Closet",
 	"closet_empty": "Nothing in here but a lonely hanger. Buy a hat.",
-	"closet_wearing": "Wearing: %s",
 	"pay_crewmate_title": "Pay a crewmate",
 	"pay_crewmate_button": "$%d to %s",
 	"pay_crewmate_sent": "You sent %s $%d",

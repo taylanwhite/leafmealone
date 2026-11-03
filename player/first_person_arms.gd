@@ -40,6 +40,7 @@ const FOLLOW_THROUGH: Array[Vector3] = [Constants.FP_ARMS_FOLLOW_REACH * Vector3
 const FOLLOW_PEAK := Constants.FP_ARMS_FOLLOW_PEAK
 const BAG_ARM_STRETCH := Constants.FP_BAG_ARM_STRETCH
 const _SnackGestures = preload("res://player/snack_gestures.gd")
+const _DressGestures = preload("res://player/dress_gestures.gd")
 ## Eating in first person (shops chunk 6): where the right hand holds a snack in
 ## front of your mouth (low in the view), how far a bite brings it in, and how
 ## a sip lifts and brings in the cup (head space, m).
@@ -300,6 +301,20 @@ func _targets(delta: float) -> Dictionary:
 	elif gesture == "cheer":
 		for side: int in 2:
 			hands[side] = Vector3(signf(float(side) - 0.5) * 0.3, 0.28 + 0.05 * sin(_time * 8.0 + float(side)), -0.3)
+	elif gesture == "hat_on" or gesture == "shirt_tug":
+		# Something new going on (shops chunk 7, player/dress_gestures.gd, on the
+		# same clock as everyone's view of your body): for a hat both hands sweep
+		# up and out past the top corners of the view to the brim and give it a tug
+		# down (W8: straight up at 0.12 m they filled the view on the way); for a
+		# shirt they come in to the hem at the bottom edge of the view and tug it
+		# twice (W8: any lower and they just vanished).
+		var s := float(_body.get("_gesture_time"))
+		var lift := _DressGestures.fp_amount(gesture, s)
+		var tug := _DressGestures.fp_tug(gesture, s)
+		for hand_side: int in 2:
+			var out := signf(float(hand_side) - 0.5)
+			var to := Vector3(out * 0.34, 0.38 - 0.07 * tug, -0.3) if gesture == "hat_on" else Vector3(out * 0.13, -0.33 - 0.07 * tug, -0.42)
+			hands[hand_side] = REST[hand_side].lerp(to, lift)
 	elif gesture == "flail" or gesture == "stumble":
 		for side: int in 2:
 			hands[side] = REST[side] + Vector3(sin(_time * 14.0 + float(side) * 3.0) * 0.15, 0.25 + cos(_time * 12.0 + float(side)) * 0.12, 0.0)

@@ -234,7 +234,7 @@ if ($Start) {
 		$hostArgs = @('--host', '--no-steam', '--name=Claude', "--port=$Port")
 		if ($Scenario -ne '') {
 			if (-not $scenarioLater) { $hostArgs += "--scenario=$Scenario" }
-			$wantsTown = $Scenario -eq 'drive'
+			$wantsTown = $Scenario -eq 'drive' -or $Scenario -eq 'paint_counter'
 			if ($wantsTown -and $Extra -notmatch '--town-map') { $hostArgs += '--town-map' }
 			if ($wantsTown -and $Extra -notmatch '--job-seed') { $hostArgs += '--job-seed=777' }
 			if (-not $wantsTown -and $Scenario -ne 'store' -and $Extra -notmatch '--start-zone|--job-seed') { $hostArgs += @('--start-zone=lot', '--job-seed=777', '--yard-size=1') }

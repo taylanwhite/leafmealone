@@ -564,14 +564,15 @@ func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 	# so you watch it go on.
 	if code == "worn" or code == "applied":
 		_refresh()
-		if code == "worn" and _near_mirror():
+		if (code == "worn" and _near_mirror()) or (code == "applied" and _near_chefty()):
 			close_window()
 		return
 	var line := str(_Strings.SHOP_UI.get("shop_result_" + code, code))
 	if code == "ok":
 		line = line % _Strings.shop_item_name(item_id)
 		bought.emit(StringName(item_id))
-		if str(Catalog.item(item_id).get("kind", "")) == "cosmetic" and _near_mirror():
+		var kind := str(Catalog.item(item_id).get("kind", ""))
+		if (kind == "cosmetic" and _near_mirror()) or (kind == "truck_cosmetic" and _near_chefty()):
 			close_window()
 			return
 		# A snack is eaten on the spot (player/snack_eater.gd): the window gets
@@ -791,6 +792,19 @@ func _near_mirror() -> bool:
 		if glass != null and glass.global_position.distance_to(me.global_position + Vector3.UP * 1.0) <= Constants.MIRROR_CLOSE_RANGE \
 			and (me.global_position - glass.global_position).dot(glass.global_basis.z) > 0.0:
 			return true
+	return false
+
+
+## Whether Chefty is in sight of the local player (the paint counter looks over
+## its pad): a paint job going on puts the window away, so you watch the cloud.
+func _near_chefty() -> bool:
+	var chefty := get_tree().get_first_node_in_group("chefty") as Node3D
+	var body := chefty.get_node_or_null("Body") as Node3D if chefty != null else null
+	if body == null:
+		return false
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			return (node as Node3D).global_position.distance_to(body.global_position) <= Constants.PAINT_WATCH_RANGE
 	return false
 
 

@@ -239,12 +239,8 @@ func _closet() -> void:
 		return
 	var me := Net.local_peer_id()
 	var look: Dictionary = shops.call("look_of", me)
-	var on := PackedStringArray()
-	for slot: String in ["hat", "shirt"]:
-		if str(look.get(slot, "")) != "":
-			on.append(_Strings.shop_item_name(str(look[slot])))
-	if not on.is_empty():
-		_list.add_child(_text(str(_Strings.SHOP_UI["closet_wearing"]) % ", ".join(on), 15, INK))
+	# What you have on is the greyed-out Wearing button in its row; no summary
+	# line restating it (W8).
 	var any := false
 	for slot: String in ["hat", "shirt"]:
 		var owned: Array[String] = []

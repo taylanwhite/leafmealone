@@ -88,6 +88,8 @@ var vending_stuck: Array = []
 ## first snapshot lands. Before that a client's fields are defaults, and anything
 ## that watches them for changes (the vending machine) must wait.
 var synced: bool = false
+## Local, true only while a client's first snapshot hands out its signals.
+var first_snapshot: bool = false
 ## The last snack each player ate: {peer id: {item, buff, at}} (at is the server
 ## time it was handed over; buff is what it gave, so a sandwich's roll shows).
 ## Every peer plays the eating from it (player/snack_eater.gd), so a bite needs
@@ -1104,6 +1106,9 @@ func _rpc_state(all_stock: Dictionary, all_supplies: Dictionary, all_orders: Arr
 	vending_eaten = int(extra.get("vending_eaten", 0))
 	vending_stuck = extra.get("vending_stuck", [])
 	snacks = extra.get("snacks", {})
+	# A joiner's first snapshot puts everyone's look on without the show
+	# (player.gd _on_looks_changed reads this while the signal runs).
+	first_snapshot = not synced
 	synced = true
 	for peer_id: int in Net.peer_ids():
 		var key := Campaign.key_of(peer_id)
@@ -1111,6 +1116,7 @@ func _rpc_state(all_stock: Dictionary, all_supplies: Dictionary, all_orders: Arr
 			looks_changed.emit(peer_id)
 	if JSON.stringify(old_truck) != JSON.stringify(truck):
 		truck_changed.emit()
+	first_snapshot = false
 	changed.emit()
 
 

@@ -81,6 +81,12 @@ const IDS: PackedStringArray = [
 	# snack_<item>, and the HUD's buff_<Constants.BUFFS id> (ui/buff_hud.gd).
 	"snack_hot_dog", "snack_turbo_juice", "snack_coffee", "snack_vend_sandwich", "snack_vend_turbo",
 	"buff_full", "buff_turbo", "buff_crash", "buff_coffee", "buff_queasy",
+	# Workwear and Chefty's paint (256, models; shops chunk 7): hat_<style>, the
+	# white "shirt" and "paint_swatch" the caller tints, decal_<x>.
+	"hat_hd_cap", "hat_beanie", "hat_bucket", "hat_hard", "hat_cowboy", "hat_chef",
+	"hat_crown", "hat_cone", "hat_propeller", "hat_viking", "hat_trucker",
+	"shirt", "paint_swatch",
+	"decal_stripes", "decal_googly", "decal_flames", "decal_leaves", "decal_rust",
 	# Keycaps (64 tall; 128 wide for the long keys) and mouse glyphs: every key a
 	# player can rebind to (critic C5), so a rebound prompt still has its cap.
 	"key_a", "key_b", "key_c", "key_d", "key_e", "key_f", "key_g", "key_h", "key_i",
