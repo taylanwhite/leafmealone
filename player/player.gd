@@ -70,6 +70,8 @@ var _on_seat: bool = false
 ## _dress_up has already waited once for this player's name.
 var _dress_waited: bool = false
 var _step_wait: float = 0.0
+## Footsteps taken, for the pockets' jangle on every other one.
+var _step_count: int = 0
 ## Bonked by a thrown item: no control for this long. Knocked flat if the item was heavy.
 var _stun_left: float = 0.0
 var _knocked: bool = false
@@ -1365,6 +1367,11 @@ func set_coat(kind: int) -> void:
 		say_to_all("vo_eh")
 
 
+## What was in this player's hands last frame, so their arms carry it to its
+## pocket while it's being put away (_process).
+var _last_hand_prop: Node3D = null
+
+
 ## Every peer: what this player looks like right now beyond the body's own
 ## animation: gone into a pile (with a mound of leaves over them), paint, water.
 func _process(_delta: float) -> void:
@@ -1383,6 +1390,13 @@ func _process(_delta: float) -> void:
 	# first-person arms use too), except when they're flat on their back.
 	if body_now != null:
 		var held := _held_prop() as Node3D
+		# Just put away: the hands go with it to its pocket (hotbar chunk D).
+		if held != null:
+			_last_hand_prop = held
+		elif _last_hand_prop != null and is_instance_valid(_last_hand_prop) and _PropLooks.is_stowing(_last_hand_prop):
+			held = _last_hand_prop
+		else:
+			_last_hand_prop = null
 		# Sitting in Chefty's cab, standing in its bed, hands on the wheel if driving.
 		body_now.call("sit", 1 if _stage_pose == &"sit_buckled" and is_staged() else _Seated.pose_for(self))
 		var wheel := _Seated.wheel_grips(self)
@@ -1929,6 +1943,11 @@ func _steps(delta: float) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
 		sfx.call("play", _step_sound())
+		# A full set of pockets jangles (hotbar chunk D): every other step.
+		_step_count += 1
+		var pocket := pockets()
+		if pocket != null and _step_count % Constants.HOTBAR_JANGLE_EVERY == 0 and int(pocket.call("pocketed_count")) >= Constants.HOTBAR_JANGLE_AT:
+			sfx.call("play", "jangle", Constants.HOTBAR_JANGLE_DB)
 
 
 ## What the ground underfoot sounds like: a crunch in leaves, a swish on the

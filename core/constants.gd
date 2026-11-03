@@ -3638,3 +3638,44 @@ const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
 ## stepped by Jolt in its own float precision, missed that 29 times in 30 and
 ## bounced off the rail.
 const TOSS_SURE_SHARE: float = 0.04
+
+# ---- hotbar: stowed looks and the draw (hotbar chunk D, props/prop_looks.gd
+# pose_stowed, _blend_put; HOTBAR_DRAW_SECONDS and HOTBAR_JANGLE_AT are above)
+## Putting something in a pocket: how long it takes to get from the hands to its
+## spot on the body (s).
+const HOTBAR_STOW_SECONDS: float = 0.2
+## A draw or a stow travels round the body, not through it: at the middle of the
+## glide it bows this far out from the holder's middle and this far up (m).
+const HOTBAR_DRAW_ARC: float = 0.22
+const HOTBAR_DRAW_RISE: float = 0.1
+## Through your own eyes, a drawn thing comes up from (and a stowed one drops to)
+## this far from its spot in hand, in the body's frame (x right, y up, +z back):
+## down at the right hip, out of the bottom of the view.
+const HOTBAR_FP_DRAW_FROM := Vector3(0.16, -0.6, 0.12)
+## (Not the rake: its head is on the leaves well ahead. Drawn through your own
+## eyes, it comes off your back the way everyone sees it, but bowed this much
+## wider (m) and this much lower, round your right side, so it never sweeps across
+## your face on the way past the camera.)
+const HOTBAR_FP_RAKE_ARC: float = 0.5
+const HOTBAR_FP_RAKE_DROP: float = 0.3
+## Put away through your own eyes, the rake keeps its angle and slides this far
+## (body frame: x right, y up, +z back, m) off the leaves, out past the right edge
+## of the view, before it cuts onto your back.
+const HOTBAR_FP_RAKE_STOW_TO := Vector3(1.5, 0.25, 1.0)
+## A stack worn fanned (the signs down your back): when one leaves, the rest ease
+## over to their new places at this rate (per second; about 0.17 s to settle).
+const HOTBAR_FAN_SETTLE: float = 18.0
+## A drawn rake's head comes off the back this much higher (m) than the swing
+## puts it, and plants on the leaves as the draw ends (RakeMotion's draw_dip); a
+## stowed one lifts this much off the leaves on its way over the shoulder.
+const HOTBAR_RAKE_DRAW_LIFT: float = 0.45
+## A replicated drawn/stowed stamp younger than this (ms) starts the glide's clock,
+## so a pose that runs a tick late doesn't lengthen it.
+const HOTBAR_STAMP_FRESH_MS: int = 250
+## Footsteps jangle on every this-many-th step with HOTBAR_JANGLE_AT or more
+## things in your pockets, this loud (dB).
+const HOTBAR_JANGLE_EVERY: int = 2
+const HOTBAR_JANGLE_DB: float = -6.0
+## How fast (per second) your first-person hands chase a drawn or stowed thing's
+## grips: a little behind it, so they reach down for it, then pull it up.
+const HOTBAR_FP_DRAW_FOLLOW: float = 22.0

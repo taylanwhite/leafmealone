@@ -511,6 +511,8 @@ class StudioProp extends Node3D:
 	var kind := ""
 	var hose_source := ""
 	var held_by := 0
+	var pocketed_by := 0
+	var pocket_slot := -1
 	var spraying := false
 	var water := 100.0
 	var ladder_top := Vector3.ZERO
@@ -520,7 +522,13 @@ class StudioProp extends Node3D:
 ## holding one thing the way the game poses it (prop_looks.gd pose_rake, pose_tool,
 ## pose_held) with their arms on its grips (grip_points -> CartoonBody.set_hold).
 ## --kinds=gnome,trash picks which; with one kind the views close in on it.
+## --stowed=1: bodies wearing their pockets instead (prop_looks.gd STOWED,
+## pose_stowed; hotbar chunk D), seen from behind, the side and the front;
+## --walk=1 walks them and holds them at full stride.
 func _holds(root: Node3D) -> void:
+	if str(_options.get("stowed", "0")) == "1":
+		_stowed(root)
+		return
 	var all := ["rake", "leaf_bag", "gnome", "trash", "turf_sign", "wheelbarrow", "lawn_mower", "ladder", "leaf_blower", "hedge_trimmer", "paint_roller", "hose", "pressure_washer"]
 	var kinds: Array = all
 	if _options.has("kinds"):
@@ -602,6 +610,76 @@ func _holds(root: Node3D) -> void:
 			{"from": Vector3(-half * 0.5 - 2.0, 1.6, -2.2), "at": Vector3(-half * 0.5, 1.0, -0.3), "fov": 55.0},
 			{"from": Vector3(half * 0.5 + 2.0, 2.2, 3.4), "at": Vector3(half * 0.5, 1.0, -0.3), "fov": 55.0},
 		])
+
+
+## Two bodies wearing full pockets (see _holds): one with the rake across the
+## back, the trimmer, the roller, the hose and a sign; one with the blower, a
+## stack of three signs and the gas can.
+func _stowed(root: Node3D) -> void:
+	var looks := preload("res://props/prop_looks.gd")
+	var outfits := [["rake", "hedge_trimmer", "paint_roller", "hose", "turf_sign"], ["leaf_blower", "turf_sign", "turf_sign", "turf_sign", "gas_can"]]
+	var holders: Array[Node3D] = []
+	var props: Array[Node3D] = []
+	for index: int in outfits.size():
+		var holder := Node3D.new()
+		holder.name = "Wearer%d" % index
+		root.add_child(holder)
+		holder.position = Vector3((float(index) - 0.5) * 1.6, 0.0, 0.0)
+		var visual := Node3D.new()
+		visual.name = "Visual"
+		holder.add_child(visual)
+		var head := Node3D.new()
+		head.name = "Head"
+		visual.add_child(head)
+		head.position.y = 1.6
+		var body: Node3D = _CartoonBody.new()
+		body.name = "CartoonBody"
+		body.call("dress_from_seed", 7 + index * 9)
+		visual.add_child(body)
+		body.call("build", head)
+		var kinds: Array = outfits[index]
+		for slot: int in kinds.size():
+			var kind := str(kinds[slot])
+			var prop := StudioProp.new()
+			prop.name = "Stowed%d_%d_%s" % [index, slot, kind]
+			prop.kind = kind
+			prop.pocketed_by = index + 1
+			# The signs share one slot, a stack.
+			prop.pocket_slot = 1 if kind == "turf_sign" else slot
+			prop.add_to_group("props")
+			root.add_child(prop)
+			var mesh := MeshInstance3D.new()
+			mesh.name = "Visual"
+			mesh.position.y = looks.VISUAL_HEIGHT
+			prop.add_child(mesh)
+			looks.dress(prop, kind, _prop_color(kind))
+			prop.global_position = holder.global_position + Vector3(0.0, 0.9, 0.0)
+			holders.append(holder)
+			props.append(prop)
+	var walking := str(_options.get("walk", "0")) == "1"
+	var wearers: Array = root.get_children().filter(func(node: Node) -> bool: return node.name.begins_with("Wearer"))
+	for step: int in 120:
+		for holder: Node3D in wearers:
+			if walking:
+				holder.position.z -= 4.0 / 60.0
+			holder.get_node("Visual/CartoonBody").call("_physics_process", 1.0 / 60.0)
+		for index: int in props.size():
+			looks.pose_stowed(props[index], holders[index], false)
+		if step < 40:
+			continue
+		# Walking: stop at full stride (legs furthest apart) and hold it there, or
+		# the engine's own ticks would see them standing still and settle them idle.
+		var body: Node = (wearers[0] as Node3D).get_node("Visual/CartoonBody")
+		if not walking or absf(sin(float(body.get("_phase")))) > 0.97:
+			break
+	if walking:
+		for holder: Node3D in wearers:
+			holder.get_node("Visual/CartoonBody").set_physics_process(false)
+	var views: Array = []
+	var middle: Vector3 = holders[0].global_position.lerp(holders[holders.size() - 1].global_position, 0.5)
+	for view: Array in [[Vector3(1.4, 1.7, 3.0), 45.0], [Vector3(-3.4, 1.4, 0.4), 40.0], [Vector3(0.6, 1.5, -3.2), 45.0], [Vector3(1.6, 1.3, 1.5), 32.0]]:
+		views.append({"from": middle + (view[0] as Vector3), "at": middle + Vector3(0.0, 1.0, 0.0), "fov": float(view[1])})
+	root.set_meta("views", views)
 
 
 ## Where the game puts a held prop's body (net_prop.gd _hold_position), for the
