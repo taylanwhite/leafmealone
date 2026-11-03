@@ -44,6 +44,7 @@ const _BlockBuilder = preload("res://levels/town/block_builder.gd")
 const _HouseKit = preload("res://props/house_kit.gd")
 const _PropCatalog = preload("res://props/prop_catalog.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
+const _Parcel = preload("res://levels/town/parcel.gd")
 const YARD_HALF: float = 20.0
 const POOL_RADIUS: float = 2.3
 const POOL_HEIGHT: float = 1.15
@@ -63,6 +64,14 @@ const BED_EDGES: Dictionary = {
 }
 ## The fence kinds the yard's paintable fence can be (hood_styles.gd "job_fence").
 const FENCE_KINDS: Array[String] = ["picket", "weathered_picket", "vinyl", "split_rail", "privacy", "iron"]
+## The front walk's width, and how far a bed's inner edge stays from the walk's
+## middle (0.45 m of lawn between them).
+const WALK_WIDTH: float = 1.3
+const BED_FROM_WALK: float = 1.1
+## Beds side by side keep this much lawn between them.
+const BED_GAP: float = 0.4
+## The least room a side of the walk needs to hold a (shortened) bed of its own.
+const BED_MIN_LENGTH: float = 1.2
 
 ## The neighborhood the yard is in (net/town/neighborhoods.gd id; "" looks like
 ## maple_row). Set by job_lot before generate(), like mess.
@@ -92,6 +101,12 @@ var _pool_at := Vector3.INF
 ## Where no lawn grows: beds, hedges, the shed and bins.
 var _no_lawn: Array[Rect2] = []
 var _layout_hash: int = 0
+## The front walk (yard x and z; empty when the porch reaches the drive).
+var _walk_rect := Rect2()
+## The beds as drawn ([center, size], yard space) and the yard's trees
+## ([at, kind, crown]), for the house's season decor.
+var _bed_boxes: Array = []
+var _tree_looks: Array = []
 ## 0 small, 1 regular, 2 big.
 var _size: int = 1
 ## Set by job_lot before generate(): how grown back the leaves are (net/town/town.gd).
@@ -139,6 +154,7 @@ func generate(job_seed: int, tasks: PackedStringArray, yard_size: int = 1) -> vo
 	var yard_look: Node3D = _kit.call("commit", self, "YardLook")
 	yard_look.set_meta("art", "yard")
 	_paint_ground(lot)
+	_season_decor()
 	var art_hash := hash(_art_notes)
 	lot.set_meta("hood_style", str(_style["id"]))
 	lot.set_meta("archetype", str(_spec.get("archetype", "")))
@@ -379,7 +395,9 @@ func _driveway() -> void:
 	_kit.call("box", Vector3(4.2, 0.03, 17.0), Vector3(0.0, 0.015, 11.5), DRIVE[surface], surface)
 	var walk_from := _porch_front()
 	if walk_from < 3.0:
-		_kit.call("box", Vector3(1.3, 0.03, 3.0 - walk_from), Vector3(_door_x(), 0.015, (walk_from + 3.0) * 0.5), (DRIVE[surface] as Color).lightened(0.04), surface)
+		_kit.call("box", Vector3(WALK_WIDTH, 0.03, 3.0 - walk_from), Vector3(_door_x(), 0.015, (walk_from + 3.0) * 0.5), (DRIVE[surface] as Color).lightened(0.04), surface)
+		_walk_rect = Rect2(_door_x() - WALK_WIDTH * 0.5, walk_from, WALK_WIDTH, 3.0 - walk_from)
+	set_meta("front_walk", _walk_rect)
 	_art_notes.append(["drive", surface])
 
 
@@ -427,11 +445,17 @@ func _beds() -> void:
 	var front := _porch_front() + 0.1
 	var edge := str(_style.get("bed_edge", "concrete"))
 	var flowers := WINTER_FLOWERS if Seasons.current() == 1 else FLOWER_COLORS
+	var bed_rects: Array[Rect2] = []
 	for bed_index: int in beds.size():
 		var bed: Array = beds[bed_index]
-		var length: float = bed[1]
-		var x: float = xs[bed_index]
+		var x: float = (xs[bed_index] as Vector2).x
+		# A bed squeezed in beside a corner door's walk is drawn shorter: the same
+		# flowers and weeds, closer together.
+		var squeeze: float = (xs[bed_index] as Vector2).y
+		var length: float = float(bed[1]) * squeeze
 		var rect := Rect2(x - length * 0.5, front, length, 1.3)
+		bed_rects.append(rect)
+		_bed_boxes.append([Vector3(rect.get_center().x, 0.0, rect.get_center().y), Vector3(length, 0.12, 1.3)])
 		# Tires stick out past the bed's front edge.
 		var reach := Rect2(rect.position, rect.size + Vector2(0.0, 0.45 if edge == "tire" else 0.0))
 		_no_lawn.append(reach)
@@ -450,60 +474,85 @@ func _beds() -> void:
 		var kit := _MeshKit.new()
 		var blooms: Array = bed[2]
 		for flower: int in blooms.size():
-			var spot := center + Vector3(-length * 0.5 + 0.3 + float(flower) * 0.5, 0.0, float(blooms[flower][0]))
+			var spot := center + Vector3(-length * 0.5 + (0.3 + float(flower) * 0.5) * squeeze, 0.0, float(blooms[flower][0]))
 			kit.tube(PackedVector3Array([spot, spot + Vector3(0.0, 0.32, 0.0)]), PackedFloat32Array([0.015, 0.012]), Color(0.3, 0.55, 0.25), 4, {"jitter": 0.0, "sway_to": 0.6})
 			kit.blob(spot + Vector3(0.0, 0.36, 0.0), Vector3(0.09, 0.06, 0.09), flowers[int(blooms[flower][1]) % flowers.size()], {"detail": 1, "lumps": 0.3, "flat": true, "jitter": 0.05, "sway": 0.8, "seed": flower})
 		add_child(_Stylized.instance(kit.commit(), {"wind": 0.04, "roughness": 0.9}))
 		for weed: Vector2 in bed[3]:
-			var spot := center + Vector3(weed.x, 0.12, weed.y)
+			var spot := center + Vector3(weed.x * squeeze, 0.12, weed.y)
 			var index: int = _tasks.call("define_spot", "pull_weeds", to_global(spot), Vector3.UP, 0.3)
 			_looks.call("add_weed", index, to_global(spot))
 		_note(["bed", rect])
+	set_meta("bed_rects", bed_rects)
 	_art_notes.append(["beds", edge])
 
 
-## Where each bed ([side, length, ...]) stands along the house front (its
-## center x): either side of the walk at the door, or, when the door sits too
-## near a corner for a bed on that side, past its sibling on the roomy side, or
-## failing that both slid toward the middle until they fit. Never off the house.
-func _bed_xs(beds: Array) -> Array[float]:
+## Where each bed ([side, length, ...]) stands along the house front, as
+## Vector2(center x, squeeze): either side of the walk to the door, or, when the
+## door sits too near a corner for a bed on that side, past its sibling on the
+## roomy side. Failing that (a door so near a corner that the pair fits on
+## neither side), they are packed beside the walk on whatever room there is,
+## drawn shorter (squeeze < 1). A bed never leaves the house's width and never
+## touches the front walk: its inner edge stays BED_FROM_WALK from the walk's
+## middle. (The old last resort slid the pair round the house's middle and left
+## the walk where it was, so about 1 yard in 30 had a bed across its walk.)
+func _bed_xs(beds: Array) -> Array[Vector2]:
 	var door := _door_x()
 	var low := _house_rect.position.x
 	var high := _house_rect.end.x
-	var xs: Array[float] = []
+	var xs: Array[Vector2] = []
 	var misfits: Array[int] = []
 	# How far along each side of the walk is already used.
-	var used := {-1.0: 1.1, 1.0: 1.1}
+	var used := {-1.0: BED_FROM_WALK, 1.0: BED_FROM_WALK}
 	for index: int in beds.size():
 		var side: float = beds[index][0]
 		var length: float = beds[index][1]
-		var x := door + side * (1.1 + length * 0.5)
-		xs.append(x)
+		var x := door + side * (BED_FROM_WALK + length * 0.5)
+		xs.append(Vector2(x, 1.0))
 		if x - length * 0.5 < low or x + length * 0.5 > high:
 			misfits.append(index)
 		else:
-			used[side] = 1.1 + length + 0.4
+			used[side] = BED_FROM_WALK + length + BED_GAP
 	for index: int in misfits:
 		var side: float = -float(beds[index][0])
 		var length: float = beds[index][1]
 		var x := door + side * (float(used[side]) + length * 0.5)
 		if x - length * 0.5 >= low and x + length * 0.5 <= high:
-			xs[index] = x
-			used[side] = float(used[side]) + length + 0.4
+			xs[index] = Vector2(x, 1.0)
+			used[side] = float(used[side]) + length + BED_GAP
 			continue
-		# No room by the door: the pair round the house's walkable middle.
-		var walk_low := low
-		var walk_high := high
-		for bed: Array in beds:
-			if float(bed[0]) < 0.0:
-				walk_low = low + 1.1 + float(bed[1])
-			else:
-				walk_high = high - 1.1 - float(bed[1])
-		var walk := clampf(door, walk_low, walk_high)
-		for each: int in beds.size():
-			xs[each] = walk + float(beds[each][0]) * (1.1 + float(beds[each][1]) * 0.5)
-		break
+		return _packed_beds(beds, door, low, high)
 	return xs
+
+
+## The last resort of _bed_xs: each bed on its own side of the walk, shortened
+## to the room there, or, when one side has too little room for a bed, both on
+## the other side, shortened together to fit.
+func _packed_beds(beds: Array, door: float, low: float, high: float) -> Array[Vector2]:
+	var room := {-1.0: maxf(door - BED_FROM_WALK - low, 0.0), 1.0: maxf(high - door - BED_FROM_WALK, 0.0)}
+	var roomy := -1.0 if float(room[-1.0]) > float(room[1.0]) else 1.0
+	var out: Array[Vector2] = []
+	var own_sides := true
+	for bed: Array in beds:
+		if float(room[float(bed[0])]) < BED_MIN_LENGTH:
+			own_sides = false
+	if own_sides:
+		for bed: Array in beds:
+			var side := float(bed[0])
+			var squeeze := minf(1.0, float(room[side]) / float(bed[1]))
+			out.append(Vector2(door + side * (BED_FROM_WALK + float(bed[1]) * squeeze * 0.5), squeeze))
+		return out
+	var total := 0.0
+	for bed: Array in beds:
+		total += float(bed[1])
+	var gaps := BED_GAP * float(beds.size() - 1)
+	var squeeze := clampf((float(room[roomy]) - gaps) / total, 0.1, 1.0)
+	var along := BED_FROM_WALK
+	for bed: Array in beds:
+		var length := float(bed[1]) * squeeze
+		out.append(Vector2(door + roomy * (along + length * 0.5), squeeze))
+		along += length + BED_GAP
+	return out
 
 
 # ---------------------------------------------------------------- the yard
@@ -540,6 +589,7 @@ func _trees_around() -> void:
 		# The yard's own trees stay big enough to bury a lawn (a staked sapling drops nothing).
 		var tall := maxf(lerpf(heights.x, heights.y, (height - 7.0) / 2.5), Constants.ART_YARD_TREE_MIN_HEIGHT)
 		_Trees.spawn(self, at, tall, kind, crown, variant, true, yaw)
+		_tree_looks.append([at, kind, crown])
 		_art_notes.append([kind, crown, snappedf(tall, 0.01)])
 		_note(["tree", at])
 
@@ -830,10 +880,12 @@ func _grids() -> void:
 	var lot_global := get_parent() as Node3D
 	var house := _built_rect()
 	var no_lawn := _no_lawn.duplicate()
+	# No grass to mow on the front walk either (it grew through the paving).
+	var walk := _walk_rect.grow(0.15) if _walk_rect.has_area() else Rect2()
 	var lawn: int = _tasks.call("define_grid", "mow_lawn", to_global(Vector3(-YARD_HALF, 0.0, -YARD_HALF)), Vector2(YARD_HALF * 2.0, YARD_HALF * 2.0), 1.0, func(center: Vector3) -> bool:
 		var local := lot_global.to_local(center)
 		var at := Vector2(local.x, local.z)
-		if house.grow(-0.3).has_point(at) or Rect2(-2.2, 3.0, 4.4, 17.5).has_point(at):
+		if house.grow(-0.3).has_point(at) or Rect2(-2.2, 3.0, 4.4, 17.5).has_point(at) or walk.has_point(at):
 			return false
 		for rect: Rect2 in no_lawn:
 			if rect.has_point(at):
@@ -920,6 +972,35 @@ func _paint_ground(lot: Node3D) -> void:
 	view.set_meta("surface_accent", accent)
 	view.material_override = _Surfaces.material("grass", color, accent, params)
 	_art_notes.append(["ground", color.to_html()])
+
+
+## The house's own season decor, like its neighbors' (levels/town/season_dressing.gd,
+## job: porch, beds, door and drive only, nothing on the lawn where the work is,
+## and no string lights: a future hang-lights task owns those). Its root is a
+## levels/town/parcel.gd in group "seasonal", so it redecorates itself the
+## morning a season turns. Look only: no colliders, nothing a task uses.
+func _season_decor() -> void:
+	var holder: Node3D = _Parcel.new()
+	holder.name = "JobDecor"
+	holder.set("role", "parcel")
+	holder.set("hood", str(_style["id"]))
+	holder.set("seed_value", hash([_job_seed, "job_decor"]))
+	holder.set("season", Seasons.current())
+	holder.set("lights", false)
+	var walk: Array = []
+	if _walk_rect.has_area():
+		walk = [Vector3(_walk_rect.get_center().x, 0.0, _walk_rect.position.y), Vector3(_walk_rect.get_center().x, 0.0, _walk_rect.end.y)]
+	var pools: Array = []
+	if _pool_at != Vector3.INF:
+		# The above-ground pool's float rides on its water (task_looks.gd add_pool).
+		pools.append(_pool_at + Vector3(0.0, POOL_HEIGHT - 0.23, 0.0))
+	holder.set("decor", {
+		"house_at": _house_at, "spec": _spec, "beds": _bed_boxes, "trees": _tree_looks,
+		"drive": [Vector3(0.0, 0.0, 3.0), Vector3(0.0, 0.0, YARD_HALF)], "walk": walk, "pools": pools,
+		"yard": [], "job": true,
+	})
+	add_child(holder)
+	holder.call("dress")
 
 
 ## The street block around the yard (levels/town/block_builder.gd), built over

@@ -207,6 +207,8 @@ func write_report() -> void:
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},
 		"lot_layout": _lot_layout(),
+		"art_test": preload("res://net/dev/art_test.gd").result.duplicate(true),
+		"lot_art": _lot_art(),
 		"job_progress": _job_progress(),
 		"hide_spots": _HideSpotScript.stats.duplicate(),
 		"zones": _zones,
@@ -396,6 +398,16 @@ func _board() -> Dictionary:
 func _lot_layout() -> int:
 	var lot := get_tree().get_first_node_in_group("job_lot")
 	return int(lot.get_meta("layout_hash", 0)) if lot != null else 0
+
+
+## The job yard's art hash (its look and its street block's, from the replicated
+## hood, seed and the day's season; levels/town/block_builder.gd), 0 until the
+## block is done. CI compares the host's with a client's (net/dev/art_test.gd).
+func _lot_art() -> int:
+	var lot := get_tree().get_first_node_in_group("job_lot")
+	if lot == null or not bool(lot.get_meta("art_done", false)):
+		return 0
+	return int(lot.get_meta("art_hash", 0))
 
 
 ## How far along each task on this job is, as this peer sees it.

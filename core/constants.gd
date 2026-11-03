@@ -1260,9 +1260,13 @@ const ART_PROP_FADE_MARGIN: float = 6.0
 const ART_LARGE_PROP_SIZE: float = 8.0
 ## Repeated props are batched into MultiMeshes per square chunk this many meters wide.
 const ART_PROP_CHUNK: float = 32.0
-## Draw-call proxies: GeometryInstance3Ds under a street block and under a yard's dressing.
-const ART_BLOCK_MAX_VISUALS: int = 650
-const ART_YARD_MAX_VISUALS: int = 260
+## Draw-call proxies: GeometryInstance3Ds under a street block and under a yard's
+## dressing, about 1.15x the most --art-test measured over every hood, size and
+## season (art chunk 7: a block 567, Dandelion Acres in winter; a yard 154, Oak
+## Hollow's big yard in spring, its house's own season decor included). Every tree
+## draws two meshes (its near Look and its far LookFar), so a tree counts twice.
+const ART_BLOCK_MAX_VISUALS: int = 652
+const ART_YARD_MAX_VISUALS: int = 177
 const ART_BLOCK_PARCELS_PER_FRAME: int = 2
 const ART_NEIGHBOR_LEAF_PATCHES: int = 3
 const ART_STRING_LIGHT_SPACING: float = 0.45
