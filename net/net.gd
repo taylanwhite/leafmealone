@@ -113,6 +113,14 @@ func host(transport: Transport) -> Error:
 	if error != OK:
 		push_error("[Net] create_server failed: %s" % error_string(error))
 		return error
+	# No bandwidth limits, said out loud. Without this call, ENet's first
+	# once-a-second bandwidth pass on each client (about a second after it connects;
+	# on a joiner, right as it finishes loading the yard) drops the client's throttle
+	# limit toward the host to 1-5 of 32 until the next pass, so for a second ENet
+	# threw away almost everything the client sent unreliably: its movement and its
+	# voice (the bot soak's voice loss came mostly from this). With the host's limits
+	# set explicitly to 0 it never drops. Measured in docs/DECISIONS.md.
+	peer.host.bandwidth_limit(0, 0)
 	multiplayer.multiplayer_peer = _maybe_wrap(peer)
 	_transport = Transport.ENET
 	_hosting = true

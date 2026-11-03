@@ -77,6 +77,10 @@ static func show_for(player: Node3D, lines: PackedStringArray, total_line: Strin
 		hand.add_child(slip)
 		slip.position = Vector3(0.0, -0.58, -0.06)
 		slip.rotation = Vector3(-1.1, 0.0, 0.0)
+	# Posed for this moment before its first frame is drawn, and only now that it is in
+	# the tree: a slip shown late (after a stall, or a receipt that crossed a laggy
+	# link) chatters on its very first pose, and the printer's sound is placed at the
+	# slip's global position, which a node outside the tree doesn't have.
 	slip.remember_rest()
 	return slip
 

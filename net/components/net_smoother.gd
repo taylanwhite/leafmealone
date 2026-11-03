@@ -19,6 +19,10 @@ const STOP_AFTER_SECONDS: float = 0.07
 ## moving, which shows as a freeze and a jump. Assumes the mover never stands still,
 ## which holds for --bot players.
 static var stats: Dictionary = {"samples": 0, "hitches": 0, "max_gap_ms": 0.0, "snaps": 0}
+## Each hitch as [when it ended (local seconds, _now), the gap in seconds, the
+## mover's authority peer], so tools/soak_report.py can set it against stalls.
+static var hitch_log: Array = []
+const HITCH_LOG_MAX: int = 4000
 
 ## How far behind the newest snapshot the visual is rendered, in seconds.
 @export var delay_seconds: float = 0.1
@@ -82,6 +86,8 @@ func _physics_process(_delta: float) -> void:
 		stats["max_gap_ms"] = maxf(float(stats["max_gap_ms"]), gap * 1000.0)
 		if gap > delay_seconds:
 			stats["hitches"] = int(stats["hitches"]) + 1
+			if hitch_log.size() < HITCH_LOG_MAX:
+				hitch_log.append([now, snappedf(gap, 0.001), body.get_multiplayer_authority()])
 	stats["samples"] = int(stats["samples"]) + 1
 	var velocity: Vector3 = body.get("velocity") if "velocity" in body else Vector3.ZERO
 	_last_recorded = origin
