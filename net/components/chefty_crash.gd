@@ -40,9 +40,6 @@ const CAB_ROOF_Y: float = 2.6
 ## The Chefty this belongs to (chefty_drive.gd).
 var vehicle: Node3D
 
-## Speed lost into something (m/s) below this in a tick is a scrape, not contact.
-const CONTACT_SPEED: float = 0.3
-
 ## Host.
 var _cool: float = 0.0
 ## Host: a hit being added up (-1 when none): how long, how much speed lost so
@@ -63,6 +60,10 @@ var _horn_was: bool = false
 var _horn_line_at: float = -INF
 ## Host: peer (or node instance id) -> when they were last Chefty'd (msec).
 var _ran_over: Dictionary = {}
+## Host: player instance id -> until when (msec) Chefty can't run them over: they
+## just left it flying (a crash threw them out of the bed, or they bailed), and the
+## host's copy of them still stands where their seat was, inside its own footprint.
+var _spared: Dictionary = {}
 ## Host: the town's mailboxes and bins [{at, mailbox}], and when each was last hit (s).
 var _spots: Array = []
 var _spots_built: bool = false
@@ -96,6 +97,8 @@ var runovers_seen: int = 0
 var runovers_me: int = 0
 var spills_seen: int = 0
 var knocks_seen: int = 0
+## The second dent's rolling hubcap, on this peer (counted headless too).
+var hubcaps_seen: int = 0
 ## Host only.
 var bags_spilled: int = 0
 var riders_ejected: int = 0
@@ -121,7 +124,7 @@ func host_after_step(result: Dictionary, pre_vel: Vector3, input: Dictionary, de
 	# A hit is spread over a tick or two (the tick it touches only loses the speed
 	# it had left after reaching the wall): add them up until it's over.
 	var impact := float(result.get("impact", 0.0))
-	if impact > CONTACT_SPEED:
+	if impact > Constants.CHEFTY_CONTACT_SPEED:
 		if _hit_age < 0.0:
 			_hit_age = 0.0
 			_hit_sum = 0.0
@@ -135,7 +138,7 @@ func host_after_step(result: Dictionary, pre_vel: Vector3, input: Dictionary, de
 			_hit_what = _solid_hit_name(result.get("hits", []) as Array)
 	if _hit_age >= 0.0:
 		_hit_age += delta
-		if impact <= CONTACT_SPEED or _hit_age >= Constants.CHEFTY_CRASH_GATHER_SECONDS:
+		if impact <= Constants.CHEFTY_CONTACT_SPEED or _hit_age >= Constants.CHEFTY_CRASH_GATHER_SECONDS:
 			var total := _hit_sum
 			_hit_age = -1.0
 			if total >= Constants.CHEFTY_CRASH_MIN_SPEED and _cool <= 0.0:
@@ -183,7 +186,8 @@ func _crash(impact: float, normal: Vector3, pre_vel: Vector3) -> void:
 		ejected = _eject_bed(pre_vel)
 	if tumble:
 		_horn_stuck = Constants.CHEFTY_HORN_STUCK_SECONDS
-	vehicle.call("host_set_dents", dents)
+	# The dent count changes in _rpc_crash on every peer, the host included: it
+	# compares the count before with the new one (the hubcap rolls off at the second).
 	last_crash = {"impact": impact, "spilled": spilled, "ejected": ejected, "dents": dents, "tumble": tumble}
 	print("[Chefty] crash at %.1f m/s into %s: %d bags out, %d riders out, %d dents%s" % [impact, _hit_what, spilled, ejected, dents, ", barrel roll" if tumble else ""])
 	_rpc_crash.rpc(at, impact, tumble, dents, -1.0 if _rng.randf() < 0.5 else 1.0)
@@ -359,6 +363,8 @@ func _runovers() -> void:
 		var key := body.get_instance_id()
 		if now - int(_ran_over.get(key, -100000)) < int(Constants.CHEFTY_RUNOVER_COOLDOWN * 1000.0):
 			continue
+		if now < int(_spared.get(key, 0)):
+			continue
 		if body.is_in_group("players"):
 			var peer_id := body.name.to_int()
 			if int(vehicle.call("seat_of", peer_id)) >= 0 or bool(body.get("thrown")) or int(body.get("carried_by")) != 0:
@@ -366,7 +372,10 @@ func _runovers() -> void:
 			if bool(body.call("is_hidden")) or bool(body.get("in_pile")):
 				continue
 		var local := to_local * (body.global_position - origin)
-		if absf(local.y) > 2.5 or absf(local.x) > Constants.CHEFTY_HALF_WIDTH + Constants.CHEFTY_RUNOVER_SIDE:
+		if absf(local.y) > Constants.CHEFTY_RUNOVER_TALL or absf(local.x) > Constants.CHEFTY_HALF_WIDTH + Constants.CHEFTY_RUNOVER_SIDE:
+			continue
+		# Standing on it (in the bed, on the hood) isn't standing in its way.
+		if local.y > Constants.CHEFTY_RUNOVER_ON_TOP_Y and absf(local.z) <= Constants.CHEFTY_HALF_LENGTH:
 			continue
 		var reach := Constants.CHEFTY_HALF_LENGTH + Constants.CHEFTY_RUNOVER_REACH
 		# The face it's driving into, and the body behind it.
@@ -376,8 +385,16 @@ func _runovers() -> void:
 		_ran_over[key] = now
 		var right := VehicleSim.right_of(yaw)
 		var away := right * (1.0 if local.x >= 0.0 else -1.0)
-		var push := Vector3(vel.x, 0.0, vel.z) * Constants.CHEFTY_RUNOVER_SHARE + Vector3.UP * Constants.CHEFTY_RUNOVER_UP + away * 2.0
+		var push := Vector3(vel.x, 0.0, vel.z) * Constants.CHEFTY_RUNOVER_SHARE + Vector3.UP * Constants.CHEFTY_RUNOVER_UP + away * Constants.CHEFTY_RUNOVER_ASIDE
 		_hit(body, push, body.is_in_group("crew"))
+
+
+## Host: this player just left Chefty flying (chefty_drive.gd host_eject): it
+## can't run them over for CHEFTY_EJECT_SPARE_SECONDS, so the throw out of the bed
+## (or the bail) is the flight they get, not a bonk off their own truck.
+func host_spare(body: Node3D) -> void:
+	if body != null:
+		_spared[body.get_instance_id()] = Time.get_ticks_msec() + int(Constants.CHEFTY_EJECT_SPARE_SECONDS * 1000.0)
 
 
 func _hit(body: Node3D, push: Vector3, crew: bool) -> void:
@@ -510,7 +527,7 @@ func _knock_host() -> void:
 	var now := Net.server_time()
 	for index: int in _spots.size():
 		var at: Vector3 = (_spots[index] as Dictionary)["at"]
-		if absf(at.x - origin.x) > 5.0 or absf(at.z - origin.z) > 5.0:
+		if absf(at.x - origin.x) > Constants.CHEFTY_NEAR_BOX or absf(at.z - origin.z) > Constants.CHEFTY_NEAR_BOX:
 			continue
 		if not _in_footprint(to_local * (at - origin)):
 			continue
@@ -612,8 +629,9 @@ func _shake_view(delta: float) -> void:
 	if camera == null:
 		return
 	var amount := Constants.CHEFTY_SHAKE_METERS_MAX * _shake * _shake
-	camera.h_offset = amount * sin(_shake_t * 53.0) * cos(_shake_t * 17.0)
-	camera.v_offset = amount * sin(_shake_t * 41.0 + 1.3)
+	var rates := Constants.CHEFTY_SHAKE_RATES
+	camera.h_offset = amount * sin(_shake_t * rates.x) * cos(_shake_t * rates.z)
+	camera.v_offset = amount * sin(_shake_t * rates.y + 1.3)
 
 
 ## Whether this peer's own player feels a crash at `at`: riding along, or close.
@@ -642,7 +660,7 @@ func _knock_local() -> void:
 		if piece == null or not piece.visible:
 			continue
 		var at := piece.global_position
-		if absf(at.x - body.origin.x) > 5.0 or absf(at.z - body.origin.z) > 5.0:
+		if absf(at.x - body.origin.x) > Constants.CHEFTY_NEAR_BOX or absf(at.z - body.origin.z) > Constants.CHEFTY_NEAR_BOX:
 			continue
 		if not _in_footprint(to_local * at):
 			continue
@@ -660,7 +678,7 @@ func _knock_over(piece: Node3D) -> void:
 	flier.name = "Knocked%d" % knocks_seen
 	flier.collision_layer = 0
 	flier.collision_mask = 1
-	flier.mass = 6.0 if mailbox else 9.0
+	flier.mass = Constants.CHEFTY_KNOCK_MASS_MAILBOX if mailbox else Constants.CHEFTY_KNOCK_MASS_BIN
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = size
@@ -680,7 +698,7 @@ func _knock_over(piece: Node3D) -> void:
 	var vel: Vector3 = vehicle.call("drawn_velocity")
 	var right := VehicleSim.right_of(float(vehicle.call("yaw")))
 	var side := right * signf((piece.global_position - vehicle.call("body_position")).dot(right))
-	flier.linear_velocity = Vector3(vel.x, 0.0, vel.z) * Constants.CHEFTY_KNOCK_CARRY + Vector3.UP * Constants.CHEFTY_KNOCK_UP + side * 1.5
+	flier.linear_velocity = Vector3(vel.x, 0.0, vel.z) * Constants.CHEFTY_KNOCK_CARRY + Vector3.UP * Constants.CHEFTY_KNOCK_UP + side * Constants.CHEFTY_KNOCK_SIDE
 	flier.angular_velocity = Vector3(_rng.randf_range(-7.0, 7.0), _rng.randf_range(-3.0, 3.0), _rng.randf_range(-7.0, 7.0))
 	_fallen.append({"node": piece, "body": flier, "at": Time.get_ticks_msec()})
 	_play_at("bonk", piece.global_position + Vector3.UP)
@@ -765,7 +783,7 @@ func _roll_hubcap() -> void:
 	var axle := away.cross(Vector3.UP).normalized()
 	cap.global_transform = Transform3D(Basis(axle, Vector3.UP, axle.cross(Vector3.UP)), body * (_Vehicles.HUBCAP_AT + Vector3(0.08, 0.0, 0.0)))
 	var vel: Vector3 = vehicle.call("drawn_velocity")
-	cap.linear_velocity = away * Constants.CHEFTY_HUBCAP_SPEED + Vector3(vel.x, 0.0, vel.z) * 0.3 + Vector3.UP * 0.8
+	cap.linear_velocity = away * Constants.CHEFTY_HUBCAP_SPEED + Vector3(vel.x, 0.0, vel.z) * Constants.CHEFTY_HUBCAP_CARRY + Vector3.UP * Constants.CHEFTY_HUBCAP_UP
 	cap.angular_velocity = Vector3.UP.cross(away) * (Constants.CHEFTY_HUBCAP_SPEED / _Vehicles.HUBCAP_RADIUS)
 	get_tree().create_timer(Constants.CHEFTY_HUBCAP_SECONDS).timeout.connect(func() -> void:
 		if not is_instance_valid(cap):
@@ -785,7 +803,7 @@ func _play_at(id: String, at: Vector3) -> void:
 func report() -> Dictionary:
 	return {
 		"crashes_seen": crashes_seen, "tumbles_seen": tumbles_seen, "runovers_seen": runovers_seen,
-		"runovers_me": runovers_me, "spills_seen": spills_seen, "knocks_seen": knocks_seen,
+		"runovers_me": runovers_me, "spills_seen": spills_seen, "knocks_seen": knocks_seen, "hubcaps_seen": hubcaps_seen,
 		"bags_spilled": bags_spilled, "riders_ejected": riders_ejected, "plowed": plowed,
 		"mailboxes_hit": mailboxes_hit, "last_crash": last_crash.duplicate(),
 	}
@@ -803,6 +821,7 @@ func _rpc_crash(at: Vector3, strength: float, tumble: bool, dents: int, roll_sig
 	vehicle.call("apply_dents", dents)
 	_play_at("crash_big" if strength >= Constants.CHEFTY_EJECT_SPEED else "crash", at)
 	if before < 2 and dents >= 2:
+		hubcaps_seen += 1
 		_roll_hubcap()
 	if tumble:
 		tumbles_seen += 1

@@ -486,13 +486,6 @@ func dents() -> int:
 	return _dents
 
 
-## Host: the crash left this many dents (the crash RPC tells every peer).
-func host_set_dents(count: int) -> void:
-	if Net.is_host():
-		_dents = clampi(count, 0, Constants.CHEFTY_MAX_DENTS)
-		_refresh_params()
-
-
 ## Every peer: Chefty now has this many dents: its top speed (the sim's params,
 ## the same on every peer so prediction keeps matching) and its looks.
 func apply_dents(count: int) -> void:
@@ -874,6 +867,9 @@ func host_eject(peer_id: int, velocity: Vector3) -> void:
 	var player := _player(peer_id)
 	if player == null:
 		return
+	# Its own run-over check would see them still standing on their seat (the
+	# host's copy of them, until their flight comes back) and bonk them off it.
+	_crash.call("host_spare", player)
 	if peer_id == Net.local_peer_id():
 		player.call("set_thrown", velocity, 0)
 	else:

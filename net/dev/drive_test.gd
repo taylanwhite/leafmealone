@@ -65,10 +65,6 @@ func _run(world: Node) -> void:
 	await get_tree().create_timer(1.5).timeout
 	var problems: Array[String] = []
 	var host := Net.local_peer_id()
-	if OS.get_environment("DRIVE_TEST_C3_ONLY") == "1":
-		await _crash_steps(world, get_tree().get_first_node_in_group("chefty"), host, problems)
-		_finish(problems.is_empty(), problems)
-		return
 	# a. Seats.
 	chefty.call("dev_place", Constants.CHEFTY_PARK_SPOT, Constants.CHEFTY_PARK_YAW)
 	await get_tree().create_timer(0.3).timeout
@@ -407,10 +403,14 @@ func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String])
 		return
 	var run_from: Vector3 = target["from"]
 	var run_yaw := float(target["yaw"])
+	var dents_start := int(chefty.call("dents"))
+	var host_before: Dictionary = chefty.call("dev_report")
 	var first := await _crash_into(chefty, host, client, run_from, run_yaw, 10, 200)
 	var seen: Dictionary = first["report"]
-	_verdict(int(seen["crashes_seen"]) >= 1 and int(first["spilled"]) >= 3 and int(first["props"]) == int(first["left_bed"]) and int(first["props_value"]) + int(first["bed_value"]) == 200 and int(seen["dents"]) >= 1 and bool(first["thrown"]) and int(chefty.call("seat_of", client)) < 0,
-		"m. crash at %.1f m/s: crashes %d, %d bags out (%d leaf bags worth $%d, the bed keeps $%d of $200), dents %d, the client thrown %s, seat %d" % [float(first["impact"]), int(seen["crashes_seen"]), int(first["spilled"]), int(first["props"]), int(first["props_value"]), int(first["bed_value"]), int(seen["dents"]), first["thrown"], int(chefty.call("seat_of", client))], problems)
+	# The thrown rider sails off; their own truck never Chefty's them on the way out.
+	var self_runovers := int((chefty.call("dev_report") as Dictionary)["runovers_seen"]) - int(host_before["runovers_seen"])
+	_verdict(int(seen["crashes_seen"]) >= 1 and int(first["spilled"]) >= 3 and int(first["props"]) == int(first["left_bed"]) and int(first["props_value"]) + int(first["bed_value"]) == 200 and int(seen["dents"]) >= 1 and bool(first["thrown"]) and int(chefty.call("seat_of", client)) < 0 and self_runovers == 0,
+		"m. crash at %.1f m/s: crashes %d, %d bags out (%d leaf bags worth $%d, the bed keeps $%d of $200), dents %d, the client thrown %s, seat %d, run over by its own truck %d" % [float(first["impact"]), int(seen["crashes_seen"]), int(first["spilled"]), int(first["props"]), int(first["props_value"]), int(first["bed_value"]), int(seen["dents"]), first["thrown"], int(chefty.call("seat_of", client)), self_runovers], problems)
 	_clear_spills()
 	# m2. The Chefty Net halves the spill; the second dent; Marty's Body Shop.
 	var shops := get_tree().get_first_node_in_group("shops")
@@ -422,6 +422,9 @@ func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String])
 	var bare := maxi(1, int(floor((float(second["impact"]) - Constants.CHEFTY_CRASH_MIN_SPEED) * Constants.CHEFTY_SPILL_PER_MPS + 0.5)))
 	var net_halves := float(second["impact"]) > 0.0 and int(second["spilled"]) == int(floor(float(bare) * Constants.CHEFTY_NET_SPILL_SHARE))
 	var dents_now := int(chefty.call("dents"))
+	# The second dent rolls the hubcap off on the host too (it's a playing peer).
+	var hubcaps := int((chefty.call("dev_report") as Dictionary)["hubcaps_seen"]) - int(host_before["hubcaps_seen"])
+	var hubcap_ok := hubcaps == (1 if dents_start < 2 and dents_now >= 2 else 0)
 	if int(chefty.call("seat_of", host)) >= 0:
 		chefty.call("request_exit")
 		await get_tree().create_timer(0.4).timeout
@@ -437,8 +440,8 @@ func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String])
 	var code := str(shops.call("host_buy", host, "homie_depot", "chefty_repair", dents_now)) if shops != null else "no shops"
 	var paid := cash_before - Campaign.credits(host)
 	await get_tree().create_timer(0.5).timeout
-	_verdict(net_halves and dents_now >= 2 and code == "ok" and paid == Catalog.price("chefty_repair") * dents_now and int(chefty.call("dents")) == 0,
-		"m2. with the Net %d bags out (%d without it), dents %d; the body shop said %s, took $%d, dents now %d" % [int(second["spilled"]), bare, dents_now, code, paid, int(chefty.call("dents"))], problems)
+	_verdict(net_halves and dents_now >= 2 and hubcap_ok and code == "ok" and paid == Catalog.price("chefty_repair") * dents_now and int(chefty.call("dents")) == 0,
+		"m2. with the Net %d bags out (%d without it), dents %d (from %d, %d hubcaps off on the host); the body shop said %s, took $%d, dents now %d" % [int(second["spilled"]), bare, dents_now, dents_start, hubcaps, code, paid, int(chefty.call("dents"))], problems)
 	# n. Chefty'd: the client in the road, the host driving at it.
 	var road := Vector3(70.0, 0.0, TownMap.nearest_road_point(Vector3(70.0, 0.0, 15.0)).z)
 	await _take_wheel(chefty, host, road, -PI * 0.5)

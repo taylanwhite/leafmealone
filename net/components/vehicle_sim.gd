@@ -27,11 +27,6 @@ extends RefCounted
 ## input: throttle -1..1 (negative brakes, then reverses), steer -1..1 (positive
 ## is right), handbrake bool, brake bool (nobody driving: stop).
 
-## A chassis this far (m) under the ground it should stand on is sunk, and is
-## stood back up on it, found by a ray from this far over its wheels (m).
-const SUNK_MARGIN: float = 0.3
-const SUNK_LOOK_UP: float = 2.2
-
 
 ## The params dictionary for Chefty with this many dents and the tune-up perk.
 static func chefty_params(dents: int, tuneup: bool) -> Dictionary:
@@ -227,11 +222,11 @@ static func _suspend(chassis: CharacterBody3D, state: Dictionary, params: Dictio
 		# Pushed down into the ground (a crash's shove out of a car can do it): the
 		# rays start under the surface and miss it. Look from well above, and stand
 		# back up on what's there if it's over us.
-		var query := PhysicsRayQueryParameters3D.create(origin + Vector3.UP * (ride + SUNK_LOOK_UP), origin + Vector3.DOWN * 0.2, 1)
+		var query := PhysicsRayQueryParameters3D.create(origin + Vector3.UP * (ride + Constants.VEHICLE_SUNK_LOOK_UP), origin + Vector3.DOWN * 0.2, 1)
 		query.exclude = exclude
 		query.hit_back_faces = false
 		var hit := space.intersect_ray(query)
-		if not hit.is_empty() and (hit["normal"] as Vector3).y > 0.5 and (hit["position"] as Vector3).y > origin.y + SUNK_MARGIN \
+		if not hit.is_empty() and (hit["normal"] as Vector3).y > 0.5 and (hit["position"] as Vector3).y > origin.y + Constants.VEHICLE_SUNK_MARGIN \
 				and not hit["collider"] is RigidBody3D and not hit["collider"] is CharacterBody3D:
 			origin.y = (hit["position"] as Vector3).y
 			vy = 0.0

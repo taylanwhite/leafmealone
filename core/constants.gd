@@ -4191,10 +4191,50 @@ const CHEFTY_SHAKE_NEAR: float = 14.0
 ## Standing in Chefty's bed your first-person eye sits this much higher (m), so
 ## you look out over the cab-over's roof instead of into the back of it.
 const CHEFTY_BED_EYE_LIFT: float = 0.75
+## It eases on and off this fast (m/s): about a third of a second each way.
+const CHEFTY_BED_EYE_EASE: float = 2.2
 ## Thrown (a toss, a crash or a bail out of Chefty): the first this many seconds
 ## count as lifting off even on the ground; after that, touching down is landing,
 ## and that's when you go flat with stars (player.gd _step_stunned).
 const THROWN_LIFTOFF_SECONDS: float = 0.15
+## A throw's clock starts at this (s); it ends on the ground once under 1.2 s are
+## left (player.gd).
+const THROWN_SECONDS: float = 1.5
+## Host: speed lost into something (m/s) below this in a tick is a scrape, not
+## contact, and doesn't start adding up a crash.
+const CHEFTY_CONTACT_SPEED: float = 0.3
+## Host: a rider who just left Chefty flying (thrown out of the bed in a crash, or
+## a bail) can't be Chefty'd by it for this long (s): the host's copy of them still
+## stands on their seat, inside its footprint, until their flight comes back.
+## (Played with a crew: the front bed row was bonked sideways off its own truck
+## instead of sailing over the cab.)
+const CHEFTY_EJECT_SPARE_SECONDS: float = 1.5
+## Run-overs only look this far above or below Chefty's chassis (m); anyone whose
+## feet are higher than CHEFTY_RUNOVER_ON_TOP_Y over it, within its length, is
+## standing on it (the bed, the hood), not in its way. Who's Chefty'd is also
+## pushed this fast (m/s) out to the side they stood on.
+const CHEFTY_RUNOVER_TALL: float = 2.5
+const CHEFTY_RUNOVER_ON_TOP_Y: float = 0.8
+const CHEFTY_RUNOVER_ASIDE: float = 2.0
+## Mailboxes and bins further than this from Chefty along x or z (m) aren't
+## checked against its footprint at all (a cheap first cut).
+const CHEFTY_NEAR_BOX: float = 5.0
+## A knocked mailbox or bin also flies out this fast (m/s) to the side it was
+## on, and weighs this much (kg; it only falls and tumbles).
+const CHEFTY_KNOCK_SIDE: float = 1.5
+const CHEFTY_KNOCK_MASS_MAILBOX: float = 6.0
+const CHEFTY_KNOCK_MASS_BIN: float = 9.0
+## The rolling hubcap keeps this share of Chefty's speed and hops up this fast (m/s).
+const CHEFTY_HUBCAP_CARRY: float = 0.3
+const CHEFTY_HUBCAP_UP: float = 0.8
+## A crash's camera shake: the side-to-side wobble's two rates (x, z: rad/s,
+## multiplied) and the up-and-down one (y), uneven so it never reads as a loop.
+const CHEFTY_SHAKE_RATES := Vector3(53.0, 41.0, 17.0)
+## A vehicle chassis this far (m) under the ground it should stand on is sunk, and
+## is stood back up on it, found by a ray from this far over its wheels (m)
+## (net/components/vehicle_sim.gd; a crash's shove out of a car can sink it).
+const VEHICLE_SUNK_MARGIN: float = 0.3
+const VEHICLE_SUNK_LOOK_UP: float = 2.2
 ## A homeowner's yell about Chefty (npcs/homeowner.gd host_grumble) stays over
 ## their head this long (s).
 const HOMEOWNER_YELL_SECONDS: float = 4.5

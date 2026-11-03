@@ -99,8 +99,6 @@ var _punch_cool: float = 0.0
 var _swing_left: float = 0.0
 var _struggle: int = 0
 var _thrown_left: float = 0.0
-## A throw's clock starts here (s); it ends on the ground once under 1.2 s are left.
-const THROWN_SECONDS: float = 1.5
 var _coat_shown: int = 0
 var _next_strain: float = 0.0
 ## A notice over your head (flash_hint) and when it goes (ticks msec).
@@ -230,7 +228,14 @@ func _physics_process(delta: float) -> void:
 		# In a pile you're crouched down in the leaves; walking forward climbs out.
 		# Standing in Chefty's bed you look out over the cab, not into the back of
 		# its roof (driving C3: from a plain standing eye the cab filled half the view).
-		%FirstPerson.position.y = -1.05 if in_pile else (Constants.CHEFTY_BED_EYE_LIFT if _Seated.pose_for(self) == 2 else 0.0)
+		# The bed's lift eases on and off (thrown out of the bed, it dropped 0.6 m in a frame).
+		var eye_lift := Constants.CHEFTY_BED_EYE_LIFT if _Seated.pose_for(self) == 2 else 0.0
+		if in_pile:
+			%FirstPerson.position.y = -1.05
+		elif %FirstPerson.position.y < 0.0:
+			%FirstPerson.position.y = eye_lift
+		else:
+			%FirstPerson.position.y = move_toward(%FirstPerson.position.y, eye_lift, Constants.CHEFTY_BED_EYE_EASE * delta)
 		if in_pile and (Input.is_action_just_pressed("move_forward") or Input.is_action_just_pressed("jump")) and not bool(_hide_view().call("is_found")):
 			set_pile(false)
 		var seated_in_vehicle := in_vehicle()
@@ -1193,7 +1198,7 @@ func set_thrown(velocity_now: Vector3, _thrower: int) -> void:
 					remove_collision_exception_with(solid))
 	carried_by = 0
 	thrown = true
-	_thrown_left = THROWN_SECONDS
+	_thrown_left = Constants.THROWN_SECONDS
 	_apply_bonk(velocity_now, "heavy")
 	say_to_all("vo_yelp")
 
@@ -1967,7 +1972,7 @@ func _step_stunned(delta: float) -> void:
 	move_and_slide()
 	# Thrown (a toss, a crash out of Chefty's bed): flailing through the air, eyes
 	# on where you're headed, and flat on your back with stars only when you land.
-	var flying := thrown and (_thrown_left > THROWN_SECONDS - Constants.THROWN_LIFTOFF_SECONDS or not is_on_floor())
+	var flying := thrown and (_thrown_left > Constants.THROWN_SECONDS - Constants.THROWN_LIFTOFF_SECONDS or not is_on_floor())
 	anim_state = AnimState.KNOCKED if _knocked and not flying else (AnimState.AIR if not is_on_floor() else AnimState.IDLE)
 	if _stun_left <= 0.0:
 		_knocked = false
