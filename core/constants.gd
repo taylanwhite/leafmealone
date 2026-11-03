@@ -1829,10 +1829,10 @@ const VAN_FRESHENER_PUSH: float = 0.08
 const VAN_FRESHENER_STIFFNESS: float = 30.0
 const VAN_FRESHENER_DAMPING: float = 2.5## Something standing in the street (a tree, a parked car): the route swerves round
 ## it, the slice of road checked being this big (m, across, up, along), never
-## farther than this off the curb line (m, toward the far curb, toward the near
-## one), eased in and out over this many meters either side.
+## farther than this off the curb line (m, toward the far sidewalk, toward the near
+## one: up a curb if it must), eased in and out over this many meters either side.
 const VAN_ROUTE_CLEARANCE := Vector3(3.0, 2.5, 2.2)
-const VAN_SWERVE_RANGE := Vector2(1.6, 4.8)
+const VAN_SWERVE_RANGE := Vector2(3.9, 7.1)
 const VAN_SWERVE_EASE: float = 10.0## A tree's crown, from above, reaches this share of its height from the trunk
 ## (evergreens, broadleaves): the van parks and drives clear of it.
 const VAN_TREE_SPREAD := Vector2(0.3, 0.2)## The air freshener close-up's field of view (degrees), tight on the daisy.

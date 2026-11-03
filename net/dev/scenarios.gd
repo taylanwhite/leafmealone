@@ -20,8 +20,9 @@ const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arri
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
 const DOOR_STAND_METERS: float = 1.2
-## van_straggler: where you watch from, meters behind and beside the van.
-const STRAGGLER_WATCH := Vector3(-5.0, 0.0, 11.0)
+## van_straggler: where you watch from, in the van's space: on the yard side, level
+## with its back doors (the yard's pad walls keep you off the far sidewalk).
+const STRAGGLER_WATCH := Vector3(6.0, 0.0, 2.5)
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
@@ -331,7 +332,7 @@ func _van_straggler() -> Dictionary:
 	await get_tree().create_timer(3.0).timeout
 	var pose: Transform3D = van.call("trip_pose", trip, Net.server_time())
 	var stand := pose * STRAGGLER_WATCH
-	_place(Vector3(stand.x, pose.origin.y + 0.1, stand.z), _yaw_toward(stand, pose.origin), -0.1)
+	_place(Vector3(stand.x, pose.origin.y + 0.1, stand.z), _yaw_toward(stand, pose * Vector3(0.0, 0.0, 3.0)), -0.1)
 	van.call("dev_straggle", 2)
 	van.call("host_depart", Net.server_time() + 1.0)
 	await _ticks(2)

@@ -1241,6 +1241,7 @@ func _route(origin: Vector3, h: Vector3, right: Vector3, along: Array[float], ba
 	var need: Array[float] = []
 	need.resize(count)
 	need.fill(0.0)
+	var blocked: Dictionary = {}
 	for index: int in count:
 		if absi(index - fixed) <= 2:
 			continue
@@ -1248,15 +1249,20 @@ func _route(origin: Vector3, h: Vector3, right: Vector3, along: Array[float], ba
 		if not _route_blocked(at, h):
 			continue
 		# The nearest clear offset, toward the street's middle first.
-		for step: int in range(1, 9):
+		var found := false
+		for step: int in range(1, 25):
 			var offset := 0.6 * float((step + 1) / 2) * (1.0 if step % 2 == 1 else -1.0)
 			var lateral := base[index] + offset
 			if lateral < -Constants.VAN_SWERVE_RANGE.x or lateral > Constants.VAN_SWERVE_RANGE.y:
 				continue
 			if not _route_blocked(at + right * offset, h):
 				need[index] = offset
+				found = true
 				break
 		stats["swerves"] = int(stats.get("swerves", 0)) + 1
+		if not found:
+			# No way round: the route ends short of it (walked from the fixed end).
+			blocked[index] = true
 	# Each swerve eased in and out over VAN_SWERVE_EASE meters either side.
 	var reach := maxi(1, int(Constants.VAN_SWERVE_EASE / Constants.VAN_ROUTE_STEP))
 	var lateral_final: Array[float] = []
@@ -1278,6 +1284,9 @@ func _route(origin: Vector3, h: Vector3, right: Vector3, along: Array[float], ba
 	for index: int in order:
 		var point := origin + h * along[index] + right * lateral_final[index]
 		var y := _ground_y(point, origin.y, true)
+		if blocked.has(index):
+			stats["route_blocked_ends"] = int(stats.get("route_blocked_ends", 0)) + 1
+			break
 		if y < -1000.0:
 			stats["route_ground_misses"] = int(stats["route_ground_misses"]) + 1
 			break
@@ -1532,7 +1541,10 @@ func _host_unbuckle(rescuer: int, target: int, start: bool) -> void:
 			return
 	_holds.erase(rescuer)
 	var pose := _pose(trip, now)
-	var exit := pose * (_local_marker(trip, "DoorStep").origin + Vector3(0.0, 0.0, 0.6))
+	# Down beside the door, on the side away from whoever let them out.
+	var step_local := _local_marker(trip, "DoorStep").origin
+	var rescuer_local := pose.affine_inverse() * _player(rescuer).global_position
+	var exit := pose * (step_local + Vector3(0.3, 0.0, -1.0 if rescuer_local.z > step_local.z else 1.0))
 	var at := now + Constants.VAN_PLAN_LEAD * 0.5
 	_rpc_unseat.rpc(trip.id, target, exit, at)
 	stats["unbuckles"] = int(stats["unbuckles"]) + 1
@@ -2065,7 +2077,8 @@ func _rider_local(trip: Trip, peer_id: int, now: float) -> Array:
 		if u < unbuckle:
 			return [seat, true]
 		var k := clampf((u - unbuckle) / Constants.VAN_STEP_SECONDS, 0.0, 1.0)
-		return [_arc(seat, Transform3D(step.basis, exit), k, 0.35), false]
+		# Stepping down and out, facing away from the van (the seat faces the open side).
+		return [_arc(seat, Transform3D(seat.basis, exit), k, 0.35), false]
 	if mode == BOARD_NOW:
 		return [seat, true]
 	var walk := 0.0
@@ -2315,14 +2328,15 @@ func _crew_local(trip: Trip, index: int, now: float) -> Array:
 			if tau < 0.0:
 				return [seat, true, false]
 			var order := int((entry["from"] as Vector3).x)
-			var land := Transform3D(step.basis, step.origin + Vector3(0.6 * float(order % 2), 0.0, -0.9 + 1.1 * float(order)))
+			# Landing facing the yard, a step apart.
+			var land := Transform3D(step.basis.rotated(Vector3.UP, PI), step.origin + Vector3(0.6 * float(order % 2), 0.0, -0.9 + 1.1 * float(order)))
 			if tau < 0.35:
-				return [_arc(seat, aisle, tau / 0.35, 0.05), false, false]
+				return [_arc(seat, Transform3D(land.basis, aisle.origin), tau / 0.35, 0.05), false, false]
 			if tau < 1.25:
-				return [_arc(aisle, sill, (tau - 0.35) / 0.9, 0.0), false, false]
+				return [_arc(Transform3D(land.basis, aisle.origin), Transform3D(land.basis, sill.origin), (tau - 0.35) / 0.9, 0.0), false, false]
 			var k := (tau - 1.25) / Constants.VAN_HOP_SECONDS
 			if k < 1.0:
-				return [_arc(sill, land, k, 0.35), false, false]
+				return [_arc(Transform3D(land.basis, sill.origin), land, k, 0.35), false, false]
 			return [land, false, true]
 		CREW_HOP_IN:
 			var from := Transform3D(step.basis, entry["from"] as Vector3)
