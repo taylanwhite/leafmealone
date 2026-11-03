@@ -392,7 +392,13 @@ func get_spawn_transform(zone: Net.Zone, spawn_marker: StringName, peer_id: int)
 		return points.global_transform
 	# The first slot nobody is standing on, so nobody spawns inside someone else.
 	# Peer ids are random, so a slot by id or by sorted order can collide.
-	for slot: int in SPAWN_SLOTS_TO_TRY:
+	# Each peer starts looking at its own place in the session's (sorted) roster:
+	# a whole crew stepping off Chefty is placed by each owner at the same moment,
+	# while everyone else still sits in the bed, so a search from slot 0 put two
+	# riders on one spot (tools:crew, the host's camera inside the Friend's head).
+	var first := maxi(0, Net.peer_ids().find(peer_id))
+	for index: int in SPAWN_SLOTS_TO_TRY:
+		var slot := first + index
 		var candidate := _slot_transform(markers, slot)
 		if not _someone_near(candidate.origin, peer_id):
 			return candidate
@@ -920,7 +926,8 @@ func _maybe_free_site() -> void:
 func _players_near(point: Vector3) -> Array[int]:
 	var ids: Array[int] = []
 	for node: Node in get_tree().get_nodes_in_group("players"):
-		if not node is Node3D:
+		# A watcher (the playtest observer) never takes a seat from the crew.
+		if not node is Node3D or Net.is_watcher(int(str(node.name))):
 			continue
 		if (node as Node3D).global_position.distance_to(point) <= _Boarding.BOARD_RADIUS_METERS:
 			ids.append(int(node.name))

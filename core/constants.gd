@@ -4067,3 +4067,9 @@ const ESCORT_CAM_BIAS_RATE: float = 0.9
 ## The escort's follow eye wants this much room (m) round it: closer to the van's
 ## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
 const ESCORT_CAM_ROOM: float = 1.2
+
+
+# ---- tools:crew (a whole day played as a crew: tools/play.ps1 -Bots, docs/PLAYTEST.md)
+## A teammate's name tag fades out when its tag is closer than this to your eye (m):
+## sat next to each other in Chefty's bed it filled a quarter of the screen.
+const NAME_TAG_NEAR_HIDE: float = 1.8

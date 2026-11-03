@@ -1104,6 +1104,10 @@ func _grabbable_player() -> Node3D:
 	var best_distance := Constants.GRAB_PLAYER_REACH
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
+		# Nobody grabs what isn't drawn (a dev session's playtest observer, a ghost).
+		var drawn := other.get_node_or_null("Visual") as Node3D if other != null else null
+		if drawn != null and not drawn.visible:
+			continue
 		if other == null or other == self or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")) or bool(other.call("is_sleeping")):
 			continue
 		var offset := other.global_position - global_position

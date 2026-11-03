@@ -222,6 +222,7 @@ func _process(delta: float) -> void:
 	_update_spectator(delta)
 	_park_observer()
 	_shadow_observers()
+	_ghost_observers()
 	_poll -= delta
 	if _busy or _poll > 0.0:
 		return
@@ -504,11 +505,44 @@ func _point_of(args: Array) -> Vector3:
 	if typeof(args[0]) == TYPE_STRING and not str(args[0]).is_valid_float():
 		var world := get_tree().get_first_node_in_group("world")
 		var node := world.get_node_or_null(NodePath(str(args[0]))) as Node3D if world != null else null
-		return node.global_position if node != null else Vector3.INF
+		if node == null:
+			return named_point(str(args[0]))
+		return node.global_position
 	if args.size() < 2:
 		return Vector3.INF
 	var me := _player_node(Net.local_peer_id())
 	return Vector3(float(args[0]), me.global_position.y if me != null else 0.0, float(args[1]))
+
+
+## tools:crew: face and goto by what a player would walk to: a teammate's name
+## (goto Bot2), "chefty" (its bed's tailgate side), or a group's first node
+## ("homeowner", "job_board", "hide_spots" ...). Vector3.INF when there's none.
+func named_point(word: String) -> Vector3:
+	var lowered := word.to_lower()
+	for peer_id: int in Net.peer_ids():
+		if Net.player_name(peer_id).to_lower() == lowered:
+			var body := _player_node(peer_id)
+			return body.global_position if body != null else Vector3.INF
+	if lowered == "chefty":
+		var truck := get_tree().get_first_node_in_group("chefty")
+		if truck == null:
+			return Vector3.INF
+		# Behind the tailgate, where people stand to load it and to board it.
+		var bed: Transform3D = truck.call("bed_transform") if truck.has_method("bed_transform") else (truck as Node3D).global_transform
+		return bed * Vector3(0.0, 0.0, 3.2)
+	var first := get_tree().get_first_node_in_group(word) as Node3D
+	if first != null:
+		return first.global_position
+	# A loose thing by its kind, the nearest one: "rake", "leaf_bag", "gnome".
+	var me := _player_node(Net.local_peer_id())
+	var best := Vector3.INF
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or str(node.get("kind")) != lowered or (node.has_method("is_loose") and not bool(node.call("is_loose"))):
+			continue
+		if me == null or not best.is_finite() or prop.global_position.distance_to(me.global_position) < best.distance_to(me.global_position):
+			best = prop.global_position
+	return best
 
 
 ## The yaw error to face a point (radians, positive = turn left).
@@ -1186,6 +1220,18 @@ func _shadow_observers() -> void:
 			Net.move_player_to_zone(peer_id, target)
 
 
+## Every other remote-play window (the Friend, the bots: tools:crew): the
+## observer's body is a ghost here too. Only the host and the observer itself
+## hid it, so the Friend found a yellow-shirted "Observer" standing on the yard
+## in every take, waving, and could grab it.
+func _ghost_observers() -> void:
+	if Net.is_host() or bool(Net.dev_options().get("observer")) or Net.current_state() != Net.State.IN_SESSION:
+		return
+	for peer_id: int in Net.peer_ids():
+		if peer_id != Net.local_peer_id() and Net.player_name(peer_id) == OBSERVER_NAME:
+			_ghost(_player_node(peer_id))
+
+
 ## An observer's own body, here: not drawn (its name tag goes with it) and not
 ## solid. Every frame, since the player's own code may show it again.
 static func _ghost(body: Node3D) -> void:
@@ -1290,6 +1336,21 @@ func _state() -> Dictionary:
 			"draw_calls": streamed.get("draw_calls", 0), "draw_calls_max": streamed.get("draw_calls_max", 0),
 			"queue": preload("res://levels/build_queue.gd").stats.duplicate(),
 		}
+	# tools:crew: everyone else in the session, as this screen knows them (a crew
+	# session's bots and the Friend), so a script can wait on a teammate.
+	var others := {}
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me or Net.player_name(peer_id) == OBSERVER_NAME:
+			continue
+		var body := _player_node(peer_id)
+		var mate := {"zone": Net.Zone.keys()[Net.player_zone(peer_id)]}
+		if body != null:
+			mate["position"] = [snappedf(body.global_position.x, 0.1), snappedf(body.global_position.z, 0.1)]
+			var their: Node = body.call("_held_prop") if body.has_method("_held_prop") else null
+			mate["holding"] = str(their.get("kind")) if their != null else ""
+		others[Net.player_name(peer_id)] = mate
+	if not others.is_empty():
+		out["crew"] = others
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and int(director.call("phase")) != 0:
 		out["raid"] = ["QUIET", "WARNING", "CHASE", "DEPARTING"][clampi(int(director.call("phase")), 0, 3)]

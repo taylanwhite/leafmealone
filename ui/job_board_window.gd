@@ -46,6 +46,9 @@ func open() -> void:
 	if board != null and not board.is_connected("offers_changed", _refresh_if_open):
 		board.connect("offers_changed", _refresh_if_open)
 	super.open()
+	# Shrunk back to what this many cards need, still centered.
+	reset_size()
+	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 
 
 func _board() -> Node:
@@ -53,7 +56,11 @@ func _board() -> Node:
 
 
 func _refresh() -> void:
+	# Out of the row at once: a card only queued for freeing still counts toward the
+	# window's size this frame, and the board opened twice as wide as the screen with
+	# its left side and Close button off it (tools:crew, a fresh day's three offers).
 	for child: Node in _board_cards.get_children():
+		_board_cards.remove_child(child)
 		child.queue_free()
 	_show_rating(Campaign.rating(), Campaign.rating_count())
 	var board := _board()

@@ -188,14 +188,14 @@ func _handle_sleep(peer_id: int, lying_down: bool, cot: int = -1) -> void:
 		sleepers.erase(peer_id)
 		cots.erase(peer_id)
 	_rpc_sleepers.rpc(sleepers, cots)
-	if not sleepers.is_empty() and sleepers.size() >= Net.peer_ids().size():
+	if not sleepers.is_empty() and sleepers.size() >= _crew_count():
 		_end_day()
 
 
 ## Everyone is back at the store: nobody's mid-job, in the van, or crossing.
 func everyone_home() -> bool:
 	for peer_id: int in Net.peer_ids():
-		if Net.player_zone(peer_id) != Net.Zone.STORE:
+		if Net.player_zone(peer_id) != Net.Zone.STORE and not Net.is_watcher(peer_id):
 			return false
 	return true
 
@@ -286,7 +286,7 @@ func _on_player_left(peer_id: int) -> void:
 
 
 func _check_all_asleep() -> void:
-	if not sleepers.is_empty() and sleepers.size() >= Net.peer_ids().size():
+	if not sleepers.is_empty() and sleepers.size() >= _crew_count():
 		_end_day()
 
 
@@ -334,3 +334,13 @@ func _rpc_day(number: int, started_at: float, summary: Dictionary) -> void:
 	sleepers_changed.emit()
 	day_ended.emit(summary)
 	day_started.emit(number)
+
+
+## Everyone who has to be in bed for the day to end: a watcher (the playtest
+## observer, tools/play.ps1 -Observer) never lies down (tools:crew).
+func _crew_count() -> int:
+	var count := 0
+	for peer_id: int in Net.peer_ids():
+		if not Net.is_watcher(peer_id):
+			count += 1
+	return count

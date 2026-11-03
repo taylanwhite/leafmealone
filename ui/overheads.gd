@@ -89,6 +89,10 @@ func _process(delta: float) -> void:
 		var rect := Rect2()
 		if bool(entry["hide"]) or not tag.visible or staged:
 			want = 0.0
+		elif float(entry["depth"]) < Constants.NAME_TAG_NEAR_HIDE:
+			# Right beside you (sat in Chefty's bed together): you can see who it
+			# is, and the tag would fill the screen (tools:crew).
+			want = 0.0
 		elif not in_front(camera, tag.global_position):
 			want = 0.0
 		else:

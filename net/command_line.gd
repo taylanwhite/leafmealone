@@ -25,6 +25,10 @@ var voice_test: bool = false
 var mute_audio: bool = false
 var run_event_at: float = -1.0
 var bot_stay: bool = false
+## --bot-crew (with --bot; tools/play.ps1 -Bots): the bot plays a whole day as a crew
+## member instead of soaking zone moves: it waits by Chefty and rides along, works
+## the job, rides home, and never asks for a zone move itself (net/dev/bot.gd).
+var bot_crew: bool = false
 var open_shop: bool = false
 ## --open-shop=<shop>[:<tab>] opens that shop's window on that tab (open_shop too).
 var open_shop_id: String = ""
@@ -255,6 +259,9 @@ func parse(arguments: PackedStringArray) -> void:
 			run_event_at = float(argument.trim_prefix("--run-event-at="))
 		elif argument == "--bot-stay":
 			bot_stay = true
+		elif argument == "--bot-crew":
+			bot_crew = true
+			bot = true
 		elif argument == "--open-shop":
 			open_shop = true
 		elif argument.begins_with("--open-shop="):
