@@ -108,6 +108,8 @@ func _ready() -> void:
 		_add_by_path("res://net/dev/leaf_motion_test.gd", "LeafMotionTest")
 	if bool(options.get("rake_stroke_test")):
 		_add_by_path("res://net/dev/rake_stroke_test.gd", "RakeStrokeTest")
+	if bool(options.get("shuttle_test")):
+		_add_by_path("res://net/dev/shuttle_test.gd", "ShuttleTest")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
 		# --open-shop=<shop>[:<tab>] picks the shop and tab (Homie Depot's first tab by default).

@@ -165,3 +165,43 @@ func _own_player() -> Node:
 		if node.name == own_name:
 			return node
 	return null
+
+
+# ---- R2:4
+## The van's holds this bot has decided about: trip id -> whether it goes for the door.
+var _van_plan: Dictionary = {}
+var _van_try_at: float = -10.0
+
+
+## The Courtesy Shuttle (net/run_events/shuttle.gd), from the R2 dispatcher: a
+## seated bot knocks on the glass now and then; a free one goes for the van's door
+## on a quarter of the holds and holds interact on it to unbuckle a friend. True
+## while it is steering.
+func _r2_van_tick(delta: float) -> bool:
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	var player := _own_player() as Node3D
+	if shuttle == null or player == null:
+		return false
+	if not (shuttle.call("seat_info", Net.local_peer_id()) as Dictionary).is_empty():
+		if _rng.randf() < delta * 0.25:
+			shuttle.call("request_knock")
+		return true
+	var trip := int(shuttle.call("raid_trip_id"))
+	if trip == 0 or str(shuttle.call("leg_name", trip)) != "parked" or (shuttle.call("seated_riders") as Array).is_empty():
+		return false
+	if not _van_plan.has(trip):
+		_van_plan[trip] = _rng.randf() < 0.25
+	if not bool(_van_plan[trip]):
+		return false
+	var step: Vector3 = shuttle.call("door_step_point")
+	var away := Vector2(step.x - player.global_position.x, step.z - player.global_position.z).length()
+	_face(player, step)
+	if away > Constants.VAN_DOOR_REACH * 0.7:
+		Input.action_press(&"sprint")
+		return true
+	Input.action_release(&"sprint")
+	if _elapsed - _van_try_at >= Constants.VAN_UNBUCKLE_HOLD + 1.0:
+		_van_try_at = _elapsed
+		var riders: Array = shuttle.call("seated_riders")
+		shuttle.call("start_unbuckle", trip, int(riders[0]), true)
+	return true

@@ -165,7 +165,8 @@ func _check_recording(started: Dictionary, clip: Dictionary, problems: Array[Str
 		var listed: Array = (parsed as Dictionary).get("frames", [])
 		stamps_ok = listed.size() == frames and not listed.is_empty() and (listed[0] as Dictionary).has("state") and (listed[0] as Dictionary).has("camera")
 		misfiled = _misfiled_events(listed, float(clip.get("fps", CLIP_FPS)), int(clip.get("session_fixed_fps", 0)))
-	var saw_arrival := kinds.has("raid_phase") and kinds.has("crew")
+	# The crew ride in seated from the call (nice_boys:4): the van pulling up is the arrival.
+	var saw_arrival := kinds.has("raid_phase") and (kinds.has("crew") or kinds.has("van_leg"))
 	report = {"frames": frames, "want_about": want, "fixed_step": fixed, "spacing": spacing, "files": files, "sheet": sheet_ok, "stamps": stamps_ok, "saw_arrival": saw_arrival, "kinds": kinds.keys(), "misfiled_events": misfiled.slice(0, 6)}
 	var ok := fixed and even and absi(frames - want) <= 2 and files and sheet_ok and stamps_ok and saw_arrival and misfiled.is_empty()
 	report["ok"] = ok

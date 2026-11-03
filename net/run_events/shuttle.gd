@@ -408,11 +408,12 @@ func seat_info(peer_id: int) -> Dictionary:
 
 ## The world transform of a rider's or crew member's anchor now ("p<peer>" or
 ## "c<index>"), or an empty transform.
-func anchor_transform(trip_id: int, key: String) -> Transform3D:
+func anchor_transform(trip_id: int, key: String, interpolated: bool = false) -> Transform3D:
 	var trip := _trip(trip_id)
-	if trip == null or not trip.anchors.has(key):
+	if trip == null or not trip.anchors.has(key) or not is_instance_valid(trip.anchors[key]):
 		return Transform3D()
-	return (trip.anchors[key] as Node3D).global_transform
+	var anchor := trip.anchors[key] as Node3D
+	return anchor.get_global_transform_interpolated() if interpolated else anchor.global_transform
 
 
 ## True while the driver is looking at his mirror (a pure function of the trip and
@@ -769,7 +770,10 @@ func _host_creep(trip: Trip, leg: Dictionary, now: float) -> void:
 			hopping = true
 	if trip.creep_started < 0.0:
 		trip.creep_started = float(leg["t"])
+	if bool(trip.info.get("creep_done", false)):
+		return
 	if not hopping and (out == 0 or now - trip.creep_started >= Constants.VAN_CREEP_MAX):
+		trip.info["creep_done"] = true
 		# Everyone's on (or the straggler's on his own): doors shut, off it goes.
 		var at := now + Constants.VAN_PLAN_LEAD
 		_host_door(trip, "back", false, at)
@@ -785,7 +789,7 @@ func _host_move_riders(trip: Trip, now: float) -> void:
 	var zone: int = int(drop.get("zone", Net.Zone.LOT)) if returning else Net.Zone.BORDER
 	for peer_id: int in _riding_peers(trip):
 		Net.move_player_to_zone(peer_id, zone as Net.Zone, &"", false)
-		(stats["zone_moves"] as Array).append({"peer": peer_id, "zone": zone, "at": snappedf(now, 0.01), "trip": trip.id})
+		(stats["zone_moves"] as Array).append({"peer": peer_id, "zone": zone, "at": now, "trip": trip.id})
 	var at := now + Constants.VAN_PLAN_LEAD
 	if returning:
 		var curb := _drop_curb(zone)
@@ -959,12 +963,8 @@ func _arrival_legs(curb: Transform3D, start: float, arrive_at: float, moving: in
 			a = v / span
 	else:
 		length = maxf(length, Constants.VAN_HIDE_METERS)
-	# Come in from whichever end of the street is farther from everyone on it.
-	var h := -curb.basis.z.normalized()
-	var flipped := _farther_side(curb.origin, h, length, avoid)
-	if flipped:
-		curb = Transform3D(curb.basis.rotated(Vector3.UP, PI), curb.origin)
-		h = -h
+	# Always the same way down the street: its open side has to face the yard (or
+	# the store), so it can't come in from the other end without a U-turn.
 	var points := _street_points(curb, -length, 0.0, true)
 	var got := _polyline_length(points)
 	var cruise := maxf((got - v * v / (2.0 * a)) / v, 0.0)
@@ -1124,11 +1124,25 @@ func _default_curb() -> Transform3D:
 ## Slides a parking spot along its curb (1 m steps either way, up to
 ## VAN_PARK_SLIDE_MAX) until the van's box, and the stretch it pulls in and out
 ## over, are clear of trees, props and parked cars.
-func _clear_curb(curb: Transform3D) -> Transform3D:
+func _clear_curb(curb: Transform3D, on_yard: bool = true) -> Transform3D:
 	var h := -curb.basis.z
+	# The legacy yard's pad walls keep people on it (player.gd _stay_on_pad): the
+	# door and the curb its riders step down onto stay inside them.
+	var lot := _lot_zone()
+	var world := _world()
+	var bounded := on_yard and lot != null and world != null and not bool(world.call("is_town_map"))
+	var pad: Rect2 = Constants.PAD_RECTS.get("LotZone", Rect2(-20.0, -20.0, 40.0, 40.0))
+	if bounded:
+		var local := lot.global_transform.affine_inverse() * curb.origin
+		local.x = clampf(local.x, pad.position.x + Constants.VAN_PAD_INSET, pad.end.x - Constants.VAN_PAD_INSET)
+		curb.origin = lot.global_transform * local
 	for step: int in int(Constants.VAN_PARK_SLIDE_MAX) * 2 + 1:
 		var offset := float((step + 1) / 2) * (1.0 if step % 2 == 1 else -1.0)
 		var at := Transform3D(curb.basis, curb.origin + h * offset)
+		if bounded:
+			var local_x := (lot.global_transform.affine_inverse() * at.origin).x
+			if local_x < pad.position.x + Constants.VAN_PAD_INSET or local_x > pad.end.x - Constants.VAN_PAD_INSET:
+				continue
 		at.origin.y = _ground_y(at.origin, curb.origin.y)
 		if _box_clear(at):
 			stats["park_slides"] = absf(offset)
@@ -1147,8 +1161,8 @@ func _box_clear(at: Transform3D) -> bool:
 	var boxes: Array = [
 		[at.origin, Vector3(size.x, size.y, size.z)],
 		# Where it pulls in from and out to, half in the lane.
-		[at.origin - h * (size.z * 0.5 + 3.0) + lane * 0.5, Vector3(size.x, size.y, 6.0)],
-		[at.origin + h * (size.z * 0.5 + 3.0) + lane * 0.5, Vector3(size.x, size.y, 6.0)],
+		[at.origin - h * (size.z * 0.5 + 2.0) + lane * 0.5, Vector3(size.x, size.y, 4.0)],
+		[at.origin + h * (size.z * 0.5 + 2.0) + lane * 0.5, Vector3(size.x, size.y, 4.0)],
 	]
 	for entry: Array in boxes:
 		var shape := BoxShape3D.new()
@@ -1176,21 +1190,6 @@ func _is_own_van(node: Node) -> bool:
 		if trip.look != null and trip.look.is_ancestor_of(node):
 			return true
 	return false
-
-
-## Which way to come in: true to come from the other end, when that start is
-## farther from everyone on the yard.
-func _farther_side(park: Vector3, h: Vector3, length: float, avoid: Array) -> bool:
-	var here := park - h * length
-	var there := park + h * length
-	return _nearest_watcher(there, avoid) > _nearest_watcher(here, avoid) + 5.0 and _ground_y(there, park.y, true) > -1000.0
-
-
-func _nearest_watcher(at: Vector3, avoid: Array) -> float:
-	var best := INF
-	for point: Vector3 in _watcher_points(avoid):
-		best = minf(best, Vector2(point.x - at.x, point.z - at.z).length())
-	return best
 
 
 ## Where everyone on the yard (and the town) is, minus those inside a van.
@@ -1426,7 +1425,7 @@ func _drop_curb(zone: int) -> Transform3D:
 		var world := _world()
 		var store := world.get_node_or_null("StoreZone") as Node3D if world != null else null
 		var origin := (store.global_transform * Constants.SHUTTLE_STORE_STOP) if store != null else Constants.SHUTTLE_STORE_STOP
-		return _clear_curb(Transform3D(Basis.looking_at(Vector3.FORWARD, Vector3.UP), origin))
+		return _clear_curb(Transform3D(Basis.looking_at(Vector3.FORWARD, Vector3.UP), origin), false)
 	_park_cache.clear()
 	return _clear_curb(_default_curb() if _noisiest_player() == null else _host_park())
 
@@ -1564,6 +1563,7 @@ func _unbuckle_refusal(rescuer: int, target: int, trip: Trip, now: float) -> Str
 		return "no_body"
 	var step := _pose(trip, now) * _local_marker(trip, "DoorStep").origin
 	if Vector2(body.global_position.x - step.x, body.global_position.z - step.z).length() > Constants.VAN_DOOR_REACH:
+		stats["last_reach_m"] = snappedf(Vector2(body.global_position.x - step.x, body.global_position.z - step.z).length(), 0.01)
 		return "reach"
 	if mirror_checking(trip.id, now):
 		return "mirror"
@@ -1820,6 +1820,8 @@ func _draw_trip(trip: Trip, now: float, delta: float) -> void:
 	var first := trip.legs[0] as Dictionary
 	if now < float(first["t"]) and not trip.placed:
 		return
+	if trip.ended and trip.look == null:
+		return
 	if trip.look == null:
 		_build_look(trip)
 	var pose := _pose(trip, now)
@@ -1995,19 +1997,21 @@ func _driver(trip: Trip, now: float, kind: int) -> void:
 		trip.played["wave%.2f" % wave] = true
 		if now - wave < 0.5:
 			_VanGestures.play(body, "wave_driver")
-			_say(trip, "drop_wave")
+			_driver_line(trip, "drop_wave")
 	var whistle := float(trip.info.get("beat_whistle", -1000.0))
 	if now >= whistle and not trip.played.has("whistle%.2f" % whistle):
 		trip.played["whistle%.2f" % whistle] = true
 		if now - whistle < 0.5:
 			var sfx := get_tree().get_first_node_in_group("sfx")
 			if sfx != null:
-				sfx.call("play_on", "whistle" if _has_sound("whistle") else "van_honk", body, -2.0)
+				# nice_boys:2's whistle when it's there, else a toot of the horn.
+				var whistle_id := "whistle" if _has_sound("whistle") else "van_honk"
+				sfx.call("play_on", whistle_id, body, -2.0)
 
 
 ## A line from the driver, as a caption (nice_boys:1's caption stack) for anyone
 ## near enough to hear it, with a babble.
-func _say(trip: Trip, pool: String) -> void:
+func _driver_line(trip: Trip, pool: String) -> void:
 	var lines: Array = _Strings.VAN_LINES.get(pool, [])
 	if lines.is_empty() or trip.driver == null:
 		return
@@ -2179,7 +2183,7 @@ func _seat_camera(trip: Trip, peer_id: int, on: bool) -> void:
 		var cam := _NiceVan.marker(trip.look, "CabinCam/Seat%d" % int(entry.get("seat", 0)))
 		player.call("stage_push", SHOT_SEAT, {"anchor": cam, "offset": Transform3D.IDENTITY, "blend_in": Constants.VAN_STEP_SECONDS,
 			"blend_out": 0.35, "yaw_clamp": Vector2(-deg_to_rad(60.0), deg_to_rad(60.0)), "pitch_clamp": Vector2(-0.6, 0.45),
-			"orbit": false, "spring": false, "fov": 0.0, "lag": 0.0, "priority": 30})
+			"orbit": false, "spring": false, "fov": 0.0, "lag": 0.0, "priority": 30, "hide_self": true})
 	else:
 		player.call("stage_pop", SHOT_FRESHENER, 0.0)
 		player.call("stage_pop", SHOT_SEAT, 0.35)
@@ -2207,7 +2211,7 @@ func _local_rider_beats(now: float) -> void:
 				if player != null and player.has_method("stage_push"):
 					player.call("stage_push", SHOT_FRESHENER, {"anchor": _NiceVan.marker(trip.look, "FreshenerCam"), "offset": Transform3D.IDENTITY,
 						"blend_in": 0.4, "blend_out": 0.0, "yaw_clamp": Vector2.ZERO, "pitch_clamp": Vector2.ZERO, "orbit": false,
-						"spring": false, "fov": 0.0, "lag": 0.0, "priority": 60})
+						"spring": false, "fov": Constants.VAN_FRESHENER_FOV, "lag": 0.0, "priority": 60, "hide_self": true})
 				_radio_on(true)
 				var lines: Array = _Strings.VAN_LINES.get("ride_radio", [])
 				var stack := get_tree().get_first_node_in_group("caption_stack")
@@ -2376,7 +2380,9 @@ func _place_crew(trip: Trip, now: float) -> void:
 			trip.played["land%d_%.2f" % [i, float((trip.crew[index] as Dictionary)["at"])]] = true
 			var sfx := get_tree().get_first_node_in_group("sfx")
 			if sfx != null:
-				sfx.call("play_on", "hop_land" if _has_sound("hop_land") else "step_hard", crew)
+				# nice_boys:2's landing thump when it's there.
+				var land_id := "hop_land" if _has_sound("hop_land") else "step_hard"
+				sfx.call("play_on", land_id, crew)
 
 
 func _stage_crew(crew: Node, anchor: Node3D, sitting: bool, first: bool) -> void:

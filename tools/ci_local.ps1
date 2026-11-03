@@ -214,6 +214,18 @@ $Tests = [ordered]@{
 		Extra = '--sim-lag=120'
 		Check = { param($h, $c) [bool]$h.drive_test.ok -and $c -ne $null -and ([double]$c.drive.prediction_error_max_m -lt 1.5) -and ([double]$c.drive.prediction_error_mean_m -lt 0.25) -and ([int]$c.drive.prediction_samples -gt 100) -and (Same $h.drive.riders $c.drive.riders) -and ([double]$c.vehicle_view.max_gap_ms -lt 400) -and ([int]$h.ride_frames -gt 0) -and ([double]$h.ride_wobble_m -lt 0.05) -and ([int]$c.ride_frames -gt 0) -and ([double]$c.ride_wobble_m -lt 0.05) -and ($c.zone -eq 'TOWN') -and ([int]$c.drive.trips_seen -ge 3) -and ((@($c.drive.chauffeur_seen) -join ',') -match 'start,stop') -and (Same $h.drive.cosmetic $c.drive.cosmetic) -and (($h.drive.cosmetic | ConvertTo-Json -Compress) -match 'Big Sal') }
 	}
+	# The Courtesy Shuttle (nice_boys:4) over 150 ms: the park point clears a tree and a
+	# prop, the raid van pulls up with the crew seated (on their anchors on the client),
+	# host and client agree on its pose on every leg, a boarded client sits, an unbuckle
+	# is refused by a guard and the mirror and done unseen, a straggler hops on the
+	# bumper, the rider moves zone behind the iris, the van is freed, the drop-off
+	# leaves the rider on the curb, and Rides/Van is gone. Both peers run the node.
+	shuttle = @{
+		Port = 7829
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --shuttle-test'; Seconds = 150; Client = 145
+		Extra = '--sim-lag=150 --shuttle-test'
+		Check = { param($h, $c) [bool]$h.shuttle_test.ok -and $c -ne $null -and ([double]$c.shuttle.max_speed_on_screen -le 14.5) }
+	}
 	# The engine half of the balance lab (net/dev/balance_test.gd): every tuning constant,
 	# a grid of economy formulas, and the tables' invariants. Host only, a second or two.
 	# The balance-sim step then compares its host.json with tools/balance_sim.py.

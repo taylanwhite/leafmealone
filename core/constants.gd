@@ -1835,4 +1835,8 @@ const VAN_ROUTE_CLEARANCE := Vector3(3.0, 2.5, 2.2)
 const VAN_SWERVE_RANGE := Vector2(1.6, 4.8)
 const VAN_SWERVE_EASE: float = 10.0## A tree's crown, from above, reaches this share of its height from the trunk
 ## (evergreens, broadleaves): the van parks and drives clear of it.
-const VAN_TREE_SPREAD := Vector2(0.3, 0.2)
+const VAN_TREE_SPREAD := Vector2(0.3, 0.2)## The air freshener close-up's field of view (degrees), tight on the daisy.
+const VAN_FRESHENER_FOV: float = 38.0
+## On the legacy yard the van parks at least this far (m) inside the pad's ends, so
+## its door and the curb its riders step onto are where people can walk.
+const VAN_PAD_INSET: float = 3.0

@@ -135,6 +135,8 @@ var leaf_motion_test: bool = false
 var leaf_motion_headless: bool = false
 ## --rake-stroke-test: the rake swing's bites, a remote swing and a hired hand's rake (net/dev/rake_stroke_test.gd, raking:4).
 var rake_stroke_test: bool = false
+## --shuttle-test: the Courtesy Shuttle's trips, seats, unbuckling, straggler and drop-off (net/dev/shuttle_test.gd, nice_boys:4).
+var shuttle_test: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -144,7 +146,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0 or art_test or rake_net_test or leaf_motion_test or rake_stroke_test or shuttle_test
 
 
 func read() -> void:
@@ -305,5 +307,7 @@ func read() -> void:
 			leaf_motion_headless = true
 		elif argument == "--rake-stroke-test":
 			rake_stroke_test = true
+		elif argument == "--shuttle-test":
+			shuttle_test = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

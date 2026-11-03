@@ -295,7 +295,8 @@ static func _markers(look: Node3D, shell: Node3D) -> void:
 	_marker(crew, "Seat2", Transform3D(Basis.IDENTITY, Vector3(0.55, 1.01, 2.56)))
 	_marker(shell, "DriverSeat", Transform3D(Basis.IDENTITY, Vector3(-0.5, 1.0, -1.92)))
 	# Close on the daisy, the windshield and the road behind it.
-	var at := Vector3(0.2, 2.6, -1.62)
+	# From over the passenger seat, so the driver's head stays out of the shot.
+	var at := Vector3(0.32, 2.74, -1.6)
 	_marker(shell, "FreshenerCam", Transform3D(Basis.looking_at(Vector3(0.0, 2.56, -2.05) - at, Vector3.UP), at))
 	_marker(look, "DoorStep", Transform3D(facing_side.rotated(Vector3.UP, PI), Vector3(1.75, 0.0, 0.3)))
 	_marker(look, "RearStep", Transform3D(Basis.IDENTITY, Vector3(0.0, 0.87, 3.24)))

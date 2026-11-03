@@ -399,8 +399,9 @@ func _nice_boys(root: Node3D) -> void:
 
 
 ## The NICE BOYS' Courtesy Shuttle (props/nice_van.gd) with --riders=N (default 2)
-## players standing on its seats the way net/components/ride.gd seats them, to
-## check they can be counted through the open side. "van": the open side three
+## players buckled into its rider seats (net/run_events/shuttle.gd), the driver and
+## the head NICE BOY up front, to check they can be counted through the open side;
+## --door=shut and --back=open move the doors. "van": the open side three
 ## quarters, the left side's livery, the back, and from above. "van_detail": the
 ## nose and cab, the interior through the open side, the back's lettering close,
 ## and the roof's dome and loudspeaker.
@@ -408,15 +409,26 @@ func _van(root: Node3D, detail: bool) -> void:
 	var van := Node3D.new()
 	van.name = "Van"
 	root.add_child(van)
-	preload("res://props/vehicles.gd").build_van(van, preload("res://props/vehicles.gd").VAN_PAINT)
+	var look: Node3D = preload("res://props/vehicles.gd").build_van(van, preload("res://props/vehicles.gd").VAN_PAINT)
+	# --door=shut / --back=open: the sliding and back doors (nice_boys:4).
+	if str(_options.get("door", "open")) == "shut":
+		look.get_node("Shell/SideDoor").call("set_open_now", false)
+	if str(_options.get("back", "shut")) == "open":
+		look.get_node("Shell/BackDoors").call("set_open_now", true)
 	for index: int in clampi(int(_options.get("riders", "2")), 0, 4):
 		var body: Node3D = _CartoonBody.new()
 		body.call("dress_from_seed", 5 + index * 9)
-		van.add_child(body)
-		# The ride's seats: two across, from z -1.2 back (ride.gd setup_as_van).
-		body.position = Vector3(-0.5 + float(index % 2), 1.0, -1.2 + float(index / 2))
-		body.rotation.y = -PI * 0.5 + float(index) * 0.3
+		# Buckled in on the Shuttle's rider seats, facing the open side.
+		look.get_node("Shell/Seats/Seat%d" % index).add_child(body)
 		body.call("build")
+		body.call("sit", 1)
+	# The driver at the wheel and the head NICE BOY riding shotgun.
+	for seat: String in ["DriverSeat", "CrewSeats/Seat0"]:
+		var crew: Node3D = _CartoonBody.new()
+		preload("res://npcs/crew_member.gd").dress(crew, 4 if seat == "DriverSeat" else 1)
+		look.get_node("Shell/" + seat).add_child(crew)
+		crew.call("build")
+		crew.call("sit", 1)
 	if detail:
 		root.set_meta("views", [
 			{"from": Vector3(-3.2, 2.2, -7.5), "at": Vector3(0.0, 1.6, -2.6), "fov": 42.0},

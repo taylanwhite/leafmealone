@@ -450,3 +450,26 @@ A hitch is a gap between position updates from a moving player that is longer th
 ## Debug overlay
 
 F3 toggles a small overlay (owned by NET) that shows the transport, session state, local peer id, whether this instance is the host, each player's name, peer id, zone, and ping where the transport exposes it, the clock offset estimate, the frame rate, bandwidth in and out, and the number of synchronized nodes. Every networking bug report should include a screenshot of it.
+
+## The Courtesy Shuttle (R2:4, net/run_events/shuttle.gd)
+
+One van per trip. Its pose is a pure function of the trip's legs and `Net.server_time()`; the host only sends the plan when it grows, each new leg `VAN_PLAN_LEAD` ahead. Everything is reliable on channel 0 and lives on `World/RunDirector/Shuttle` (a stable path, created on every peer by the director).
+
+| RPC | Direction | What |
+| --- | --- | --- |
+| `_rpc_plan(trip_id, legs, info)` | host to all | the whole leg list and the trip's info (purpose, park, drop, zone, beats) |
+| `_rpc_info(trip_id, info)` | host to all | info changed (a return trip's drop) |
+| `_rpc_raid(trip_id)` | host to all | which trip is the raid's van |
+| `_rpc_door(trip_id, which, open, at)` | host to all | the sliding door (`side`) or the back doors slide or swing at server time `at` |
+| `_rpc_seat(trip_id, peer, seat, at, mode, from)` | host to all | a rider boards: walk in, step up, or at once; every peer stages the body from its anchor |
+| `_rpc_unseat(trip_id, peer, exit, at)` | host to all | a rider unbuckles and steps down to `exit` |
+| `_rpc_release_riders(trip_id, at)` | host to all | the Annex (or Border Return) has the riders now |
+| `_rpc_crew_seat(trip_id, crew_index, seat, at, mode, from)` | host to all | a NICE BOY sits, climbs out, climbs in, or hops on the bumper |
+| `_rpc_beat(trip_id, kind, at)` | host to all | cosmetic beats: the blinker, the whistle, the driver's wave, a honk |
+| `_rpc_knock(trip_id, peer, at)` | host to all | a rider's knock on the glass |
+| `_rpc_end_trip(trip_id)` | host to all | the trip is over; each peer frees its van once it can't see it |
+| `_rpc_request_knock()` | client to host | a seated rider pressed primary |
+| `_rpc_request_unbuckle(target, start)` | client to host | a hold on the door begins (`start`) or claims it was held long enough; the host times it itself |
+| `_rpc_request_snapshot()` / `_rpc_snapshot(data)` | client to host / back | a late joiner's trips, until the R2 director's `_rpc_state` carries `snapshot()` |
+
+Host checks: an unbuckle needs the rescuer free and within `VAN_DOOR_REACH` of the door step, the rider settled in a parked van with its door open, no mirror check at the start, the end or in between, no NICE BOY who can see the rescuer within `VAN_GUARD_RADIUS`, and a hold of at least `VAN_UNBUCKLE_HOLD - 0.15` s by the host's clock. Mirror checks are a pure function of the trip id and the time since the hold began, so every peer sees the same glints.

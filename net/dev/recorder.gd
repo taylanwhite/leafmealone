@@ -574,7 +574,12 @@ func _watch_motion(delta: float) -> void:
 	var watched: Array = []
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var visual := node.get_node_or_null("Visual") as Node3D
-		watched.append(["player", "player %s" % _who(node), visual if visual != null else node as Node3D])
+		# A staged body (a van seat) is drawn later this frame from its anchor
+		# (player/stage_body.gd, priority 110): watch the anchor, not a Visual its
+		# synced parent has moved since last frame.
+		var stage := node.get_node_or_null("StageBody")
+		var anchor: Node3D = stage.call("staged_anchor") if stage != null and stage.has_method("staged_anchor") else null
+		watched.append(["player", "player %s" % _who(node), anchor if anchor != null else (visual if visual != null else node as Node3D)])
 	for node: Node in get_tree().get_nodes_in_group("crew"):
 		var visual := node.get_node_or_null("Visual") as Node3D
 		watched.append(["crew", str(node.name), visual if visual != null else node as Node3D])
