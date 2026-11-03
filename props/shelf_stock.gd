@@ -342,6 +342,9 @@ func _draw_slot(entry: Dictionary, state: Dictionary) -> void:
 	tag.outline_size = 12
 	tag.modulate = TAG_PRICE
 	tag.outline_modulate = {"owned": TAG_OWNED, "sold_out": TAG_SOLD_OUT, "locked": TAG_LOCKED, "season": TAG_LOCKED}.get(look, TAG_EDGE)
+	# No wider than its slot (the lobby's endcaps are narrow): a long tag wraps.
+	tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tag.width = size.z / TAG_PIXEL
 	# On the shelf's front lip, facing the aisle.
 	tag.position = Vector3(-size.x * 0.5 - 0.07, -0.04, 0.0)
 	tag.rotation.y = -PI * 0.5

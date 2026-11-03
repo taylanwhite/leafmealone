@@ -348,6 +348,10 @@ func _build(root: Node3D) -> void:
 			_town_block(root)
 		"street":
 			_streets(root)
+		"store_front", "store_lobby":
+			_store(root, _subject == "store_lobby")
+		"store_props":
+			_catalog_lineup(root, preload("res://props/store_props.gd").KINDS, 5)
 		"prop":
 			# One catalog prop: --kind=<id> (--color=<html> optional).
 			var tint := Color.html(str(_options.get("color", "ffffff")))
@@ -477,6 +481,47 @@ func _wardrobe(root: Node3D) -> void:
 		{"from": mirror + Vector3(0.5, 0.4, -2.2), "at": mirror, "fov": 44.0},
 		{"from": counter + Vector3(0.6, 1.9, -2.4), "at": counter + Vector3(0.0, 1.1, 0.0), "fov": 46.0},
 	])
+
+## Homie Depot as the game builds it (levels/dressing/store_dressing.gd, art
+## chunk 8) on a stand-in StoreZone. store_front: the entrance from the lot, the
+## whole front, the pylon and the garden yard, the season's stock (--season=N
+## shows each season's). store_lobby: inside, from the doors to the back, from
+## the back to the doors, the endcaps up close, and --cutaway=1 from above with
+## the roof lifted off. --doors=open holds the sliding doors open.
+func _store(root: Node3D, lobby: bool) -> void:
+	var zone := Node3D.new()
+	zone.name = "StoreZone"
+	root.add_child(zone)
+	preload("res://levels/dressing/store_dressing.gd").dress(zone)
+	if str(_options.get("cutaway", "0")) == "1":
+		for node: Node in get_tree().get_nodes_in_group("store_roof"):
+			(node as Node3D).visible = false
+	if str(_options.get("doors", "")) == "open":
+		for doors: Node in get_tree().get_nodes_in_group("store_doors"):
+			doors.set("amount", 1.0)
+			doors.call("_place_leaves")
+			doors.set_process(false)
+	if lobby and str(_options.get("cutaway", "0")) == "1":
+		root.set_meta("views", [
+			{"from": Vector3(-14.0, 17.0, 7.0), "at": Vector3(-15.0, 0.0, -2.0), "fov": 50.0},
+			{"from": Vector3(-15.0, 20.0, -1.99), "at": Vector3(-15.0, 0.0, -2.0), "fov": 40.0},
+			{"from": Vector3(-15.0, 14.0, -9.0), "at": Vector3(-15.0, 0.0, -1.0), "fov": 55.0},
+			{"from": Vector3(-22.0, 14.0, -2.0), "at": Vector3(-13.0, 0.0, -2.0), "fov": 55.0},
+		])
+	elif lobby:
+		root.set_meta("views", [
+			{"from": Vector3(-10.4, 1.7, -2.0), "at": Vector3(-18.5, 1.3, -2.0), "fov": 70.0},
+			{"from": Vector3(-17.2, 1.7, -0.2), "at": Vector3(-10.0, 1.4, -2.0), "fov": 70.0},
+			{"from": Vector3(-13.5, 1.65, -3.3), "at": Vector3(-14.6, 0.8, -5.7), "fov": 60.0},
+			{"from": Vector3(-14.0, 1.65, -1.0), "at": Vector3(-16.4, 0.9, 1.7), "fov": 65.0},
+		])
+	else:
+		root.set_meta("views", [
+			{"from": Vector3(-1.0, 1.7, -2.0), "at": Vector3(-11.0, 2.4, -2.0), "fov": 60.0},
+			{"from": Vector3(14.0, 7.0, 16.0), "at": Vector3(-10.0, 3.0, -2.0), "fov": 60.0},
+			{"from": Vector3(9.0, 2.2, -6.0), "at": Vector3(12.0, 2.5, -16.0), "fov": 70.0},
+			{"from": Vector3(-5.5, 1.8, 14.0), "at": Vector3(-10.6, 0.8, 9.0), "fov": 55.0},
+		])
 
 
 ## Rusty's junk (props/shop_models.gd, shops chunk 5): every type in a row on

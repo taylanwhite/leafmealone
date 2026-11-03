@@ -705,6 +705,11 @@ func _near_site(peer_id: int, shop: String) -> bool:
 		var area: Rect2 = site["area"]
 		if area.grow(Constants.SHOP_REACH_SLACK).has_point(spot):
 			return true
+	# Homie Depot's walk-in lobby, where its tool endcaps stand (art chunk 8).
+	if site.has("lobby"):
+		var lobby: Rect2 = site["lobby"]
+		if lobby.grow(Constants.SHOP_REACH_SLACK).has_point(spot):
+			return true
 	return false
 
 

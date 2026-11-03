@@ -36,7 +36,18 @@ extends Node
 ##   (net/dev/guardrail.gd) or the art wording rule (no "ice" at all: SNOW-B-GONE)
 ## Then it loads the configured yard again (the day's real season) and waits
 ## CLIENT_SETTLE_SECONDS, so CI can compare the host's lot_art with the client's.
-## (A14, the store lobby, comes with art chunk 8.)
+## - A14 Homie Depot (art chunk 8): no solid of the store's dressing within
+##   STORE_COUNTER_CLEAR of the counter, STORE_COT_CLEAR of a cot, STORE_SPAWN_CLEAR
+##   of a spawn or STORE_PAD_CLEAR of Chefty's pad; every piece art added on the
+##   lot (group store_art_solid) inside an "art" reservation of
+##   Constants.STORE_LAYOUT, so none lands on a shop's or driving's; the lobby's
+##   floor (STORE_LOBBY_POINT) open, and a box as wide as four players abreast
+##   (STORE_CREW_WIDTH) swept from the lot through the doors down the lobby
+##   without touching a thing a player's body collides with (STORE_PLAYER_MASK),
+##   while Chefty's chassis nosing in from the lot (STORE_CHASSIS_FROM, on its own
+##   mask) is stopped before it reaches the doors; a ShelfSlot marker per tool, the lobby's stock
+##   standing every tool in one, each slot's front open and inside the shop's
+##   "lobby"; the sliding doors there.
 
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const _BlockBuilder = preload("res://levels/town/block_builder.gd")
@@ -69,6 +80,24 @@ const SET_PIECE_SIGNS: Array[String] = [
 	"dandelion_speed", "hoa_slow", "mansion_private", "birchwood_pool", "birchwood_sod",
 	"lakeside_no_wake", "mansion_lawn",
 ]
+
+## A14: how far (m) the store dressing's solids keep from the counter, a cot, a
+## spawn and Chefty's pad; a point on the lobby's floor; and the walk-in sweep:
+## a box this wide (four players abreast) from STORE_SWEEP_FROM to STORE_SWEEP_TO.
+const STORE_COUNTER_CLEAR: float = 2.5
+const STORE_COT_CLEAR: float = 1.2
+const STORE_SPAWN_CLEAR: float = 1.5
+const STORE_PAD_CLEAR: float = 4.0
+const STORE_LOBBY_POINT := Vector3(-16.0, 0.5, -2.0)
+const STORE_CREW_WIDTH: float = 4.4
+const STORE_SWEEP_FROM := Vector3(-6.0, 1.0, -2.0)
+const STORE_SWEEP_TO := Vector3(-16.8, 1.0, -2.0)
+## What a player's body collides with (player/player.tscn collision_mask).
+const STORE_PLAYER_MASK: int = 5
+## Where Chefty's chassis starts nosing at the doors from, and the farthest in
+## (x) its front may get: a little past the entrance's face is already the glass.
+const STORE_CHASSIS_FROM := Vector3(-2.0, 0.0, -2.0)
+const STORE_CHASSIS_LIMIT_X: float = -9.9
 
 static var result: Dictionary = {}
 
@@ -105,9 +134,10 @@ func _run() -> void:
 	var hoods := {}
 	var yards := 0
 	var started := Time.get_ticks_msec()
-	# What needs no yard: budgets and words.
+	# What needs no yard: budgets and words, and Homie Depot.
 	problems.append_array(_budgets())
 	problems.append_array(_strings())
+	problems.append_array(_store(world))
 	# Every hood at every size.
 	for hood: String in _HoodStyles.ids():
 		hoods[hood] = {"archetypes": {}, "fences": {}, "street": "", "mailbox": {}, "ground": {}, "max_visuals_block": 0, "max_visuals_yard": 0, "signatures": {}, "build_ms": 0.0}
@@ -553,6 +583,144 @@ func _seasons(world: Node) -> Array:
 
 
 # ---------------------------------------------------------------- tables
+
+## A14: Homie Depot's dressing (levels/dressing/store_dressing.gd and
+## store_interior.gd, art chunk 8). See the header.
+func _store(world: Node) -> Array[String]:
+	var out: Array[String] = []
+	var zone := world.get_node_or_null("StoreZone") as Node3D
+	var dressing := zone.get_node_or_null("Dressing") as Node3D if zone != null else null
+	if dressing == null:
+		return ["A14 no StoreZone/Dressing"]
+	var to_zone := zone.global_transform.affine_inverse()
+	var keep_from: Array = [[Constants.SHOP_SITES["homie_depot"]["counter"], STORE_COUNTER_CLEAR, "the counter"]]
+	for spot: Vector3 in Constants.COT_SPOTS:
+		keep_from.append([spot, STORE_COT_CLEAR, "a cot"])
+	var spawns := zone.get_node_or_null("StoreSpawnPoints")
+	if spawns != null:
+		for spawn: Node in spawns.get_children():
+			keep_from.append([(spawn as Node3D).position, STORE_SPAWN_CLEAR, "a spawn"])
+	var pad := zone.get_node_or_null("TruckPad") as Node3D
+	if pad != null:
+		keep_from.append([pad.position, STORE_PAD_CLEAR, "Chefty's pad"])
+	var solids := 0
+	for shape: Node in dressing.find_children("*", "CollisionShape3D", true, false):
+		if not (shape.get_parent() is StaticBody3D):
+			continue
+		var footprint := _footprint(shape as CollisionShape3D, to_zone)
+		if footprint.size == Vector2.ZERO:
+			continue
+		solids += 1
+		for keep: Array in keep_from:
+			var at: Vector3 = keep[0]
+			var spot := Vector2(at.x, at.z)
+			var nearest := Vector2(clampf(spot.x, footprint.position.x, footprint.end.x), clampf(spot.y, footprint.position.y, footprint.end.y))
+			if nearest.distance_to(spot) < float(keep[1]):
+				out.append("A14 %s is %.2f m from %s (needs %.1f)" % [dressing.get_path_to(shape.get_parent()), nearest.distance_to(spot), keep[2], float(keep[1])])
+	# Art's pieces stand in art's reservations, so they never land on anyone else's.
+	var art_rects: Array[Rect2] = []
+	for key: Variant in Constants.STORE_LAYOUT:
+		var entry: Dictionary = Constants.STORE_LAYOUT[key]
+		if str(entry["owner"]) == "art":
+			art_rects.append((entry["rect"] as Rect2).grow(0.05))
+	var pieces := 0
+	for body: Node in get_tree().get_nodes_in_group("store_art_solid"):
+		if not dressing.is_ancestor_of(body):
+			continue
+		for shape: Node in body.get_children():
+			if not (shape is CollisionShape3D):
+				continue
+			pieces += 1
+			var footprint := _footprint(shape as CollisionShape3D, to_zone)
+			if not art_rects.any(func(rect: Rect2) -> bool: return rect.encloses(footprint)):
+				out.append("A14 %s (%s) is outside art's reservations" % [dressing.get_path_to(body), footprint])
+	if pieces < 20:
+		out.append("A14 only %d art pieces on the lot" % pieces)
+	# The lobby: open floor, and four abreast walk in from the lot without a bump.
+	var space := zone.get_world_3d().direct_space_state
+	var probe := PhysicsPointQueryParameters3D.new()
+	probe.position = zone.global_transform * STORE_LOBBY_POINT
+	probe.collide_with_areas = false
+	if not space.intersect_point(probe, 4).is_empty():
+		out.append("A14 the lobby floor at %s is inside a solid" % STORE_LOBBY_POINT)
+	var crew := BoxShape3D.new()
+	crew.size = Vector3(0.4, 1.6, STORE_CREW_WIDTH)
+	var sweep := PhysicsShapeQueryParameters3D.new()
+	sweep.shape = crew
+	sweep.collision_mask = STORE_PLAYER_MASK
+	sweep.collide_with_areas = false
+	var steps := int(ceil(STORE_SWEEP_FROM.distance_to(STORE_SWEEP_TO) / 0.3))
+	for step: int in steps + 1:
+		var at := STORE_SWEEP_FROM.lerp(STORE_SWEEP_TO, float(step) / float(steps))
+		sweep.transform = zone.global_transform * Transform3D(Basis.IDENTITY, at)
+		var hits := space.intersect_shape(sweep, 4)
+		if not hits.is_empty():
+			var hit := hits[0]["collider"] as Node
+			out.append("A14 four abreast walking in bump %s at x %.1f" % [hit.get_path() if hit != null else "?", at.x])
+			break
+	# ...and Chefty, driven nose first at the doors, stops outside them.
+	var chassis := BoxShape3D.new()
+	chassis.size = Constants.CHEFTY_CHASSIS_SIZE
+	var drive := PhysicsShapeQueryParameters3D.new()
+	drive.shape = chassis
+	drive.collision_mask = 1 | Constants.VEHICLE_LAYER
+	drive.collide_with_areas = false
+	var start := STORE_CHASSIS_FROM + Vector3(0.0, Constants.CHEFTY_CHASSIS_CENTER.y, 0.0)
+	var half_length := Constants.CHEFTY_CHASSIS_SIZE.z * 0.5
+	drive.transform = zone.global_transform * Transform3D(Basis(Vector3.UP, PI * 0.5), start)
+	drive.motion = zone.global_transform.basis * Vector3(STORE_SWEEP_TO.x - start.x, 0.0, 0.0)
+	var safe := 1.0
+	if space.intersect_shape(drive, 1).is_empty():
+		var moved := space.cast_motion(drive)
+		safe = float(moved[0]) if not moved.is_empty() else 1.0
+	else:
+		out.append("A14 Chefty's chassis at %s already overlaps something" % start)
+	var nose := start.x + (STORE_SWEEP_TO.x - start.x) * safe - half_length
+	if nose < STORE_CHASSIS_LIMIT_X:
+		out.append("A14 Chefty drives into the lobby (its nose reaches x %.1f)" % nose)
+	print("[ArtTest] A14 Chefty nosing at the doors stops with its nose at x %.2f (the doors are at %.2f)" % [nose, STORE_CHASSIS_LIMIT_X])
+	# The endcaps: a ShelfSlot per tool, the lobby stock standing each tool in one,
+	# each slot's front open and in the shop's lobby (where Shops sells).
+	var markers := get_tree().get_nodes_in_group("shop_shelf_slot")
+	if markers.size() != Catalog.TOOLS.size():
+		out.append("A14 %d ShelfSlot markers for %d tools" % [markers.size(), Catalog.TOOLS.size()])
+	var stock := get_tree().get_first_node_in_group("lobby_stock")
+	if stock == null or stock.is_in_group("shelf_stock"):
+		out.append("A14 no lobby stock of its own")
+	else:
+		var lobby: Rect2 = Constants.SHOP_SITES["homie_depot"]["lobby"]
+		for tool: String in Catalog.TOOLS:
+			var slot := int(stock.call("slot_of", tool))
+			if slot < 0:
+				out.append("A14 the lobby endcaps have no %s" % tool)
+				continue
+			var front := to_zone * (stock.call("slot_front", slot) as Vector3)
+			probe.position = zone.global_transform * Vector3(front.x, 0.5, front.z)
+			if not lobby.has_point(Vector2(front.x, front.z)) or not space.intersect_point(probe, 4).is_empty():
+				out.append("A14 the %s endcap's front %s is blocked or outside the lobby" % [tool, front])
+	if get_tree().get_first_node_in_group("store_doors") == null:
+		out.append("A14 no sliding doors")
+	print("[ArtTest] A14 Homie Depot: %d solids, %d art pieces, %d ShelfSlots, %d problems" % [solids, pieces, markers.size(), out.size()])
+	return out
+
+
+## A collision shape's ground footprint (x, z) in the zone's space, or an empty
+## rect for a shape it can't size.
+func _footprint(shape: CollisionShape3D, to_zone: Transform3D) -> Rect2:
+	var half := Vector3.ZERO
+	if shape.shape is BoxShape3D:
+		half = (shape.shape as BoxShape3D).size * 0.5
+	elif shape.shape is CylinderShape3D:
+		var cylinder := shape.shape as CylinderShape3D
+		half = Vector3(cylinder.radius, cylinder.height * 0.5, cylinder.radius)
+	else:
+		return Rect2()
+	var place := to_zone * shape.global_transform
+	var box := AABB(place * Vector3(-half.x, -half.y, -half.z), Vector3.ZERO)
+	for corner: int in 8:
+		box = box.expand(place * Vector3(half.x * (1.0 if corner & 1 else -1.0), half.y * (1.0 if corner & 2 else -1.0), half.z * (1.0 if corner & 4 else -1.0)))
+	return Rect2(box.position.x, box.position.z, box.size.x, box.size.z)
+
 
 ## A7: the triangle budgets, from the 'triangles' metas (counted at build time,
 ## so headless works).
