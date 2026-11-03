@@ -25,6 +25,8 @@ const _CommandLineScript = preload("res://net/command_line.gd")
 const _ClockSyncScript = preload("res://net/clock_sync.gd")
 const _LinkPeerScript = preload("res://net/dev/link_peer.gd")
 const _Strings = preload("res://ui/strings.gd")
+## The playtest observer's name (tools/play.ps1 -Observer, net/dev/remote_play.gd).
+const OBSERVER_NAME: String = "Observer"
 
 var _state: State = State.OFFLINE
 var _transport: Transport = Transport.ENET
@@ -109,7 +111,11 @@ func host(transport: Transport) -> Error:
 		_steam.call("create_friends_lobby")
 		return OK
 	var peer := ENetMultiplayerPeer.new()
-	var error := peer.create_server(_args.port, Constants.MAX_PLAYERS - 1, CHANNEL_COUNT)
+	# A dev session keeps one more connection for a playtest observer (tools/play.ps1
+	# -Observer), who watches and never plays: four players plus a watcher.
+	# _rpc_hello still turns away a fifth player.
+	var clients := Constants.MAX_PLAYERS - 1 + (1 if _args.is_dev_session() else 0)
+	var error := peer.create_server(_args.port, clients, CHANNEL_COUNT)
 	if error != OK:
 		push_error("[Net] create_server failed: %s" % error_string(error))
 		return error
@@ -674,12 +680,31 @@ func _rpc_hello(build_version: String, display_name: String) -> void:
 		multiplayer.multiplayer_peer.disconnect_peer(sender)
 		return
 	var resolved := display_name if display_name != "" else _Strings.UI["player_unnamed"] % sender
+	# The dev session's spare slot (host()) is the observer's alone.
+	if resolved != OBSERVER_NAME and player_count() >= Constants.MAX_PLAYERS:
+		_rpc_rejected.rpc_id(sender, _Strings.UI["end_crew_full"])
+		multiplayer.multiplayer_peer.disconnect_peer(sender)
+		return
 	var steam_id := 0
 	if _steam != null:
 		steam_id = int(_steam.call("steam_id_for_peer", sender))
 	_add_player(sender, resolved, steam_id, _initial_zone())
 	_rpc_welcome.rpc_id(sender, _registry_payload())
 	_rpc_player_added.rpc(sender, resolved, steam_id, int(_initial_zone()))
+
+
+## Players in the session, the playtest observer left out (a dev session lets it
+## in on top of Constants.MAX_PLAYERS). Every peer knows the names, so every peer
+## counts the same: the cots' tally (props/cot.gd) and the host's bedtime agree.
+## Outside a dev session everyone counts, whatever they're called.
+func player_count() -> int:
+	if not _args.is_dev_session():
+		return peer_ids().size()
+	var count := 0
+	for peer_id: int in peer_ids():
+		if player_name(peer_id) != OBSERVER_NAME:
+			count += 1
+	return count
 
 
 @rpc("authority", "call_remote", "reliable")

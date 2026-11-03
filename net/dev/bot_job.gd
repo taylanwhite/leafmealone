@@ -18,8 +18,46 @@ const RUNS_PER_PILE: int = 5
 ## With this many bags lying around, the raker puts the rake down and carries.
 const LOOSE_BAGS_BEFORE_CARRYING: int = 3
 const GRAB_FROM_METERS: float = 1.8
+## A crew bot (share_rake) sets the rake down after each pile it bags and leaves
+## it for this long, so a teammate (a person especially) gets a turn with it.
+const RAKE_REST_SECONDS: float = 25.0
+## A loose rake is left this long (s) to a person with empty hands within this
+## far (m) of it, or nearer it than the bot, timed from when they came near
+## (_mine_to_take).
+const RAKE_DEFER_SECONDS: float = 20.0
+const RAKE_DEFER_METERS: float = 15.0
+
+## Walking at something for this long without getting 0.5 m closer is stuck (s).
+const STUCK_SECONDS: float = 3.0
+const STUCK_RUNS_BEFORE_NEW_PILE: int = 3
+## Pile spots tried for the leafiest one, and run starts tried for one on leaves.
+const PILE_TRIES: int = 8
+const RUN_TRIES: int = 6
+## How fast a crew bot turns (rad/s).
+const CREW_TURN_RATE: float = 5.0
+
+## Set by a crew bot (net/dev/bot.gd --bot-crew): take turns with the rake, steer
+## round things, give up on a spot it can't reach, and pick spots with leaves.
+var share_rake: bool = false
+var _field: Node
+var _stuck_goal := Vector3.INF
+var _stuck_best: float = INF
+var _stuck_since: float = 0.0
+var _stuck_runs: int = 0
+## Whether this tick's steering means walking (a crew bot holds forward only
+## then; a soak bot always walks). False while bagging, grabbing or tossing.
+var wants_walk: bool = true
+## How far (rad) the last _face this tick still had to turn (crew bots), so the
+## bot can stop and turn before it walks (net/dev/bot.gd _crew_walk).
+var turn_left: float = 0.0
 
 var _rng: RandomNumberGenerator
+var _rake_rest_until: float = -1.0
+## The loose rake last weighed up, and since when (bot seconds) a person has had
+## a claim on it (-1: nobody now).
+var _loose_rake: Node3D
+var _loose_since: float = 0.0
+var _set_rake_down: bool = false
 var _pile := Vector3.INF
 var _run_start := Vector3.ZERO
 var _runs_on_pile: int = 0
@@ -40,6 +78,10 @@ func _init(rng: RandomNumberGenerator) -> void:
 ## wanders instead.
 func step(player: Node3D, delta: float) -> bool:
 	_elapsed += delta
+	wants_walk = true
+	# Picked up since: the next time it's set down, the wait starts over.
+	if _loose_rake != null and (not is_instance_valid(_loose_rake) or not bool(_loose_rake.call("is_loose"))):
+		_loose_rake = null
 	_press_wait = maxf(0.0, _press_wait - delta)
 	if _release_next != &"":
 		_send(_release_next, false)
@@ -83,29 +125,51 @@ func _rake(player: Node3D, field: Node, tree: SceneTree) -> bool:
 		stop()
 		_tap(&"drop")
 		return false
+	if _set_rake_down:
+		# The pile's bagged: put the rake down where it is for someone else.
+		wants_walk = false
+		Input.action_release(&"primary")
+		if _press_wait <= 0.0 and _release_next == &"":
+			_set_rake_down = false
+			_rake_rest_until = _elapsed + RAKE_REST_SECONDS
+			_tap(&"drop")
+		return true
 	if _bag_next:
 		Input.action_release(&"primary")
 		_face(player, _pile)
-		if _press_wait > 0.0 or _release_next != &"" or _flat_distance(player.global_position, _pile) > BAG_FROM_METERS:
+		var close := _flat_distance(player.global_position, _pile) <= BAG_FROM_METERS
+		wants_walk = not close
+		if _press_wait > 0.0 or _release_next != &"" or not close:
 			return true
 		_bag_next = false
 		_tap(&"secondary")
 		_pile = Vector3.INF
+		_set_rake_down = share_rake
 		return true
 	if _pile == Vector3.INF:
 		_pile = _random_spot(field)
 		_runs_on_pile = 0
+		_stuck_runs = 0
 		_new_run(player)
 	if not _raking_in:
 		Input.action_release(&"primary")
-		_face(player, _run_start)
+		_face(player, _steer(player, _run_start))
 		if _flat_distance(player.global_position, _run_start) < 1.0:
 			_raking_in = true
+		elif _stuck(player, _run_start):
+			# A wall, a fence or the house in the way: come at the pile from elsewhere,
+			# and after a few tries, rake somewhere else.
+			_stuck_runs += 1
+			if _stuck_runs >= STUCK_RUNS_BEFORE_NEW_PILE:
+				_pile = Vector3.INF
+			else:
+				_new_run(player)
 		return true
 	_face(player, _pile)
 	Input.action_press(&"primary")
 	Input.action_press(&"crouch")
-	if _flat_distance(player.global_position, _pile) <= STOP_RAKING_METERS:
+	var stuck_raking := _stuck(player, _pile)
+	if stuck_raking or _flat_distance(player.global_position, _pile) <= STOP_RAKING_METERS:
 		Input.action_release(&"primary")
 		_runs_on_pile += 1
 		if _runs_on_pile >= RUNS_PER_PILE:
@@ -121,26 +185,37 @@ func _carry_to_truck(player: Node3D, held: Node, tree: SceneTree) -> bool:
 	# The drivable Chefty (the connected town) may be driving off with no trip.
 	if truck == null or bool(truck.call("is_riding")) or (truck.has_method("is_moving") and bool(truck.call("is_moving"))):
 		return false
-	_face(player, truck.call("body_position"))
+	_face(player, _steer(player, truck.call("body_position")))
 	if bool(held.call("near_truck")):
-		_tap(&"interact")
+		wants_walk = false
+		_press_e(player, func() -> void: held.call("request_load_truck"))
 	return true
 
 
 func _find_work(player: Node3D, tree: SceneTree) -> bool:
 	_raking_in = false
 	_bag_next = false
+	# Something of ours in a pocket (a dive into a hedge pockets what you hold):
+	# take it back out, or the crew's only rake sits in a bot's pocket all day
+	# (tools:crew, "Press [1] for the rake" on a bot that thought its hands were empty).
+	var pocket := _pocketed_work(player) if share_rake else -1
+	if pocket >= 0:
+		wants_walk = false
+		_tap(StringName("slot_%d" % (pocket + 1)))
+		return true
 	var target: Node3D = _nearest(player, _loose_bags(tree))
-	if target == null:
+	if target == null and _elapsed >= _rake_rest_until:
 		var rake := _free_rake(tree)
-		if rake != null:
+		if rake != null and _mine_to_take(player, rake):
 			target = rake
 	if target != null:
 		_hand_raking = false
 		Input.action_release(&"primary")
-		_face(player, target.global_position)
 		if _flat_distance(player.global_position, target.global_position) <= GRAB_FROM_METERS:
-			_tap(&"interact")
+			wants_walk = false
+			_press_e(player, func() -> void: target.call("request_grab"), target)
+		else:
+			_face(player, _steer(player, target.global_position))
 		return true
 	# Nothing to carry and someone else has the rake: scoop by hand, sometimes.
 	if _elapsed >= _next_hand_choice:
@@ -156,11 +231,134 @@ func _find_work(player: Node3D, tree: SceneTree) -> bool:
 func _new_run(player: Node3D) -> void:
 	var angle := _rng.randf_range(0.0, TAU)
 	_run_start = _pile + Vector3(cos(angle), 0.0, sin(angle)) * RUN_METERS
+	if share_rake and _field != null:
+		# A run over leaves, not across the path or out of the house's wall.
+		var best := -1
+		for _try: int in RUN_TRIES:
+			var start := _pile + Vector3(cos(angle), 0.0, sin(angle)) * RUN_METERS
+			var leafy := _leaves_at(start) + _leaves_at((start + _pile) * 0.5)
+			if leafy > best:
+				best = leafy
+				_run_start = start
+			angle = _rng.randf_range(0.0, TAU)
 	_raking_in = _flat_distance(player.global_position, _run_start) < 1.0
+	_stuck_goal = Vector3.INF
 
 
-## A pile spot well inside the leaf field, so every run starts on leaves.
+## Crew bots: whether this loose rake is ours to go for. A person (anyone not
+## named Bot<N>) with empty hands has first claim: while one is nearer the rake
+## than this bot, or within RAKE_DEFER_METERS of it, it's theirs for
+## RAKE_DEFER_SECONDS, timed from when such a person came near it (not from when
+## the bot first looked: the tool-row rake is loose from the moment the crew
+## arrives, and its time ran out while the people were still walking over from
+## Chefty). After that, or with nobody like that about, the nearest bot's.
+## (tools:crew: Bot1 set the rake down for its 25 s rest and Bot2, with no rest of
+## its own, had it before the host standing next to it could press E; then Bot1
+## ran 20 m for one Bot2 dropped to carry bags, past the host walking up to it.
+## The host never raked all job.)
+func _mine_to_take(player: Node3D, rake: Node3D) -> bool:
+	if not share_rake:
+		return true
+	if _loose_rake != rake:
+		_loose_rake = rake
+		_loose_since = -1.0
+	var mine := _flat_distance(player.global_position, rake.global_position)
+	var person_claims := false
+	var bot_nearer := false
+	for node: Node in player.get_tree().get_nodes_in_group("players"):
+		var other := node as Node3D
+		var peer_id := int(str(node.name))
+		if other == null or other == player or Net.player_zone(peer_id) != Net.Zone.LOT or Net.is_watcher(peer_id) or Net.player_name(peer_id) == "Observer":
+			continue
+		var theirs := _flat_distance(other.global_position, rake.global_position)
+		if not Net.player_name(peer_id).begins_with("Bot"):
+			var free_hands := other.has_method("_held_prop") and other.call("_held_prop") == null
+			person_claims = person_claims or (free_hands and (theirs <= RAKE_DEFER_METERS or theirs < mine))
+		elif theirs < mine:
+			bot_nearer = true
+	# _loose_since here: since when a person has had a claim on this rake (-1: none now).
+	if not person_claims:
+		_loose_since = -1.0
+	elif _loose_since < 0.0:
+		_loose_since = _elapsed
+	if person_claims and _elapsed - _loose_since < RAKE_DEFER_SECONDS:
+		return false
+	# Another bot nearer goes for it.
+	return not bot_nearer
+
+
+## The pocket (0-based) holding a rake or a leaf bag of ours, or -1. hotbar.gd is
+## loaded here, not preloaded as a constant: with the preload every peer of the
+## event soak (host and bots, all running this script) crashed with an access
+## violation on quit, after writing its report; without it, none did.
+func _pocketed_work(player: Node3D) -> int:
+	var slots: Array = load("res://net/components/hotbar.gd").slots_of(player.get_tree(), Net.local_peer_id())
+	for index: int in slots.size():
+		var slot: Array = slots[index]
+		if not slot.is_empty() and slot[0] != null and str((slot[0] as Node).get("kind")) in ["rake", "leaf_bag"]:
+			return index
+	return -1
+
+
+func _leaves_at(point: Vector3) -> int:
+	return int(_field.call("sample_world", point)) if _field != null and _field.has_method("sample_world") else 0
+
+
+## Crew bots: true once walking at goal has got no closer for STUCK_SECONDS.
+func _stuck(player: Node3D, goal: Vector3) -> bool:
+	if not share_rake:
+		return false
+	var left := _flat_distance(player.global_position, goal)
+	if goal != _stuck_goal or left < _stuck_best - 0.5:
+		_stuck_goal = goal
+		_stuck_best = left
+		_stuck_since = _elapsed
+		return false
+	if _elapsed - _stuck_since < STUCK_SECONDS:
+		return false
+	_stuck_goal = Vector3.INF
+	return true
+
+
+## Crew bots: straight at the point when the way is clear at knee height, else the
+## nearest clear heading either side (the house's corner, the hedge, a tree).
+func _steer(player: Node3D, point: Vector3) -> Vector3:
+	if not share_rake:
+		return point
+	var from := player.global_position + Vector3(0.0, 0.45, 0.0)
+	var flat := Vector3(point.x - from.x, 0.0, point.z - from.z)
+	var reach := minf(flat.length(), 2.5)
+	if reach < 0.3:
+		return point
+	var space := player.get_world_3d().direct_space_state
+	var dir := flat.normalized()
+	for turn: float in [0.0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5, 2.2, -2.2]:
+		var heading := dir.rotated(Vector3.UP, turn)
+		var query := PhysicsRayQueryParameters3D.create(from, from + heading * reach, 1)
+		query.exclude = [(player as CollisionObject3D).get_rid()]
+		if space.intersect_ray(query).is_empty():
+			return player.global_position + heading * 2.0
+	return point
+
+
+## A pile spot well inside the leaf field, so every run starts on leaves (a crew
+## bot takes the leafiest of a few).
 func _random_spot(field: Node) -> Vector3:
+	_field = field
+	if not share_rake:
+		return _any_spot(field)
+	var best := _any_spot(field)
+	var most := _leaves_at(best)
+	for _try: int in PILE_TRIES - 1:
+		var spot := _any_spot(field)
+		var leafy := _leaves_at(spot)
+		if leafy > most:
+			most = leafy
+			best = spot
+	return best
+
+
+func _any_spot(field: Node) -> Vector3:
 	var origin: Vector3 = field.get("grid_origin")
 	var cell := float(field.get("cell_size"))
 	var width := float(int(field.get("grid_width"))) * cell
@@ -207,7 +405,45 @@ func _face(player: Node3D, point: Vector3) -> void:
 	var away := point - player.global_position
 	if Vector2(away.x, away.z).length() < 0.01:
 		return
-	player.set("body_yaw", atan2(-away.x, -away.z))
+	var want := atan2(-away.x, -away.z)
+	if share_rake:
+		# A crew bot turns like a hand on a mouse, not in one tick: a snap turn
+		# made everyone else's screen draw it lurching 0.6 m out and back.
+		var have := float(player.get("body_yaw"))
+		var step := CREW_TURN_RATE * player.get_physics_process_delta_time()
+		turn_left = wrapf(want - have, -PI, PI)
+		want = have + clampf(turn_left, -step, step)
+	player.set("body_yaw", want)
+
+
+## E, meaning what the bot means by it (picking up its target, loading Chefty).
+## E does the first thing it can (player.gd): with a teammate in front it picks
+## them up, next to a hedge or on a deep pile it dives in. A crew bot that would
+## set one of those off turns away from the teammate first, as a person would;
+## a hiding spot or a pile it can't turn away from, so it does the thing itself
+## (tools:crew: a bot pressing E for the rake at the host's feet carried the
+## host off instead, and one by the hedge spent a raid-free morning diving in).
+func _press_e(player: Node3D, meant: Callable, target: Node = null) -> void:
+	if not share_rake:
+		_tap(&"interact")
+		return
+	var mate: Node3D = player.call("_grabbable_player") if player.has_method("_grabbable_player") else null
+	if mate != null:
+		var away := player.global_position * 2.0 - mate.global_position
+		_face(player, away)
+		return
+	var dives := player.has_method("_nearest_free_spot") and player.call("_nearest_free_spot") != null
+	dives = dives or (player.has_method("_on_pile") and bool(player.call("_on_pile")))
+	# E picks up whatever's best in reach (player.gd _best_pickup): by the tool row
+	# that was the gas can beside the rake, picked up and dropped again and again.
+	var other: bool = target != null and player.has_method("_best_pickup") and player.call("_best_pickup") != target
+	if not dives and not other:
+		_tap(&"interact")
+		return
+	if _press_wait > 0.0 or _release_next != &"":
+		return
+	_press_wait = 1.0
+	meant.call()
 
 
 ## A quick press, released next tick, sent as input events so both

@@ -35,7 +35,8 @@ func prompt() -> Dictionary:
 		return {}
 	var me := Net.local_peer_id()
 	var lying := (clock.get("sleepers") as Array).size()
-	var total := Net.peer_ids().size()
+	# Players, not the dev observer (who never lies down): the host's tally too.
+	var total := Net.player_count()
 	if bool(clock.call("is_sleeping", me)):
 		var key := "prompt_cot_host" if Net.is_host() else "prompt_cot_lying"
 		return {"text": _Strings.UI[key] % [lying, total], "at": global_position + Vector3(0.0, 1.4, 0.0)}

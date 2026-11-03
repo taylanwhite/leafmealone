@@ -16,6 +16,10 @@
   tools\play.ps1 -Start -Friend -Observer -Scenario cite_rescue   # + a friend who plays
   tools\play.ps1 -Instance friend 'record_start 30 cited_2p'       # the friend's own view
   tools\play.ps1 -Script build\annex_visit.txt     # a whole sequence, no round trips
+  tools\play.ps1 -Start -Observer -Friend -Bots 2  # a crew session: you, the Friend and Bot1, Bot2
+  tools\play.ps1 -Instance observer 'follow Bot2 4 1.8 30'  # watch any player by name
+  tools\play.ps1 -Instance bot1 'record 6 15 bot1_eyes'     # a bot's own view, while it plays
+  tools\play.ps1 -Bots 1                           # one more bot into the running session
 
 .NOTES
   Each call sends one command to one instance (-Instance main, the default, or
@@ -48,6 +52,15 @@ param(
 	# With -Start: also launch a client that plays ("Friend"): a second player on the host's
 	# yard for cite_rescue, van_unbuckle and annex_visit. Address it with -Instance friend.
 	[switch]$Friend,
+	# With -Start (or added to a running session): this many bot teammates (Bot1..BotN), each a
+	# client running the bot brain in crew mode (net/dev/bot.gd --bot-crew: waits by Chefty at
+	# the store and rides along, works the job, hides from raids, unbuckles friends, walks the
+	# Annex). Small windows unless -BotsHeadless. Players are capped at Constants.MAX_PLAYERS
+	# (4: the host, the Friend and the bots); the observer never counts. Each bot has remote
+	# play too (-Instance bot2 'record 6 15 bot2_eyes'), so its own view can be recorded.
+	[ValidateRange(0, 3)]
+	[int]$Bots = 0,
+	[switch]$BotsHeadless,
 	# A file of steps to run in the game in one go (see .NOTES).
 	[string]$Script = '',
 	[string]$Instance = 'main',
@@ -69,7 +82,17 @@ $Godot = Join-Path $env:USERPROFILE 'Tools\Godot\Godot_v4.7.2-stable_win64.exe'
 $Python = $env:PYTHON
 if (-not $Python) { $Python = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe' }
 $MainDir = Join-Path $Root 'build\play'
+# Constants.MAX_PLAYERS: the host, the Friend and the bots together; the observer isn't a player.
+$MaxPlayers = 4
+$m = [regex]::Match((Get-Content (Join-Path $Root 'core\constants.gd') -Raw), 'const MAX_PLAYERS: int = (\d+)')
+if ($m.Success) { $MaxPlayers = [int]$m.Groups[1].Value }
 $SessionFile = Join-Path $MainDir 'session.json'
+# Recordings are thousands of PNGs under build\: Godot must never import them (a fresh
+# worktree has no build\.gdignore until the music tools run, and its --import then spent
+# minutes on every frame of every take).
+$BuildDir = Join-Path $Root 'build'
+New-Item -ItemType Directory -Force $BuildDir | Out-Null
+if (-not (Test-Path (Join-Path $BuildDir '.gdignore'))) { [IO.File]::WriteAllText((Join-Path $BuildDir '.gdignore'), '') }
 
 function Get-InstanceDir([string]$name) {
 	if ($name -eq 'main') { return $MainDir }
@@ -107,7 +130,7 @@ function Stop-Instance([string]$name) {
 
 if ($Stop) {
 	$s = Read-Session
-	$names = @('main', 'observer', 'friend')
+	$names = @('main', 'observer', 'friend', 'bot1', 'bot2', 'bot3')
 	if ($PSBoundParameters.ContainsKey('Instance')) { $names = @($Instance) }
 	elseif ($s -and $s.pids) { $names = @($s.pids.PSObject.Properties.Name) }
 	foreach ($n in $names) { Stop-Instance $n }
@@ -147,7 +170,7 @@ function Send-Command([string]$name, [string]$stepsJson) {
 	$dir = Get-InstanceDir $name
 	if (-not (Test-Path $dir)) {
 		$switch = ''
-		if ($name -eq 'observer') { $switch = ' -Observer' } elseif ($name -eq 'friend') { $switch = ' -Friend' }
+		if ($name -eq 'observer') { $switch = ' -Observer' } elseif ($name -eq 'friend') { $switch = ' -Friend' } elseif ($name -like 'bot*') { $switch = ' -Bots N' }
 		throw "no $name instance (start one with tools\play.ps1 -Start$switch)"
 	}
 	$cmdPath = Join-Path $dir 'cmd.json'
@@ -185,7 +208,7 @@ function Complete-Recordings($result) {
 	}
 }
 
-function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position) {
+function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position, [string]$size = $Resolution, [bool]$headless = $false, [bool]$fixedStep = $true) {
 	Stop-Instance $name
 	$dir = Get-InstanceDir $name
 	New-Item -ItemType Directory -Force $dir | Out-Null
@@ -198,16 +221,21 @@ function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position) {
 		$shots | Move-Item -Destination $keep -Force
 	}
 	Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'session.json' } | Remove-Item -Force
-	$engine = @('--path', "`"$Root`"", '--resolution', $Resolution, '--position', $position)
-	if ($Fps -gt 0) { $engine += @('--fixed-fps', "$Fps") }
+	$engine = @('--path', "`"$Root`"", '--resolution', $size, '--position', $position)
+	if ($headless) { $engine = @('--headless') + $engine }
+	# Bots keep real time instead (-Bots): a starved bot window on a fixed step plays in
+	# slow motion and its body reaches everyone else in bursts.
+	$stepped = $Fps -gt 0 -and $fixedStep
+	if ($stepped) { $engine += @('--fixed-fps', "$Fps") }
 	$all = $engine + @('--') + $gameArgs + @("--remote-play=`"$dir`"")
-	if ($Fps -gt 0) { $all += "--fixed-step=$Fps" }
+	if ($stepped) { $all += "--fixed-step=$Fps" }
 	if ($Mute) { $all += '--mute-audio' }
 	# The log goes through Godot's own --log-file: redirecting the output here would hand
 	# the game this shell's handles, and a caller piping this script would then wait for
 	# the game to quit.
 	$all = @('--log-file', "`"$(Join-Path $dir 'godot.log')`"") + $all
-	$p = Start-Process -FilePath $Godot -ArgumentList $all -PassThru -WindowStyle Normal
+	$style = if ($headless) { 'Hidden' } else { 'Normal' }
+	$p = Start-Process -FilePath $Godot -ArgumentList $all -PassThru -WindowStyle $style
 	# Remote play writes ready.json once it reads its mailbox; a command sent before
 	# that would be taken for a stale one.
 	$deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -215,14 +243,24 @@ function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position) {
 	return $p.Id
 }
 
+## Whether an instance this session started is still running.
+function Test-Alive($pids, [string]$name) {
+	if (-not $pids.Contains($name)) { return $false }
+	$p = Get-Process -Id $pids[$name] -ErrorAction SilentlyContinue
+	return [bool]($p -and $p.Path -eq $Godot)
+}
+
+# "-Bots 2" on its own adds bots to the running session.
+if ($Bots -gt 0 -and -not $Start) { $Start = $true }
+
 if ($Start) {
 	if (-not (Test-Path $Godot)) { throw "Godot not found at $Godot" }
 	$s = Read-Session
 	$pids = [ordered]@{}
 	if ($s -and $s.pids) { foreach ($prop in $s.pids.PSObject.Properties) { $pids[$prop.Name] = $prop.Value } }
-	$mainAlive = $false
-	if ($pids.Contains('main')) { $mainAlive = [bool](Get-Process -Id $pids['main'] -ErrorAction SilentlyContinue) }
-	$addingOnly = ($Observer -or $Friend) -and $mainAlive
+	$mainAlive = Test-Alive $pids 'main'
+	$addingOnly = ($Observer -or $Friend -or $Bots -gt 0) -and $mainAlive
+	if ($Bots -gt 0 -and -not $mainAlive -and -not $PSBoundParameters.ContainsKey('Start')) { throw 'no session to add bots to (start one with tools\play.ps1 -Start -Bots N)' }
 	if ($s -and $addingOnly -and -not $PSBoundParameters.ContainsKey('Port')) { $Port = [int]$s.port }
 	$started = @()
 	# With -Friend, the scenario waits until the friend has joined: a --scenario at launch
@@ -231,6 +269,9 @@ if ($Start) {
 	# the scenario itself as a command once everyone is in.
 	$scenarioLater = $Friend -and $Scenario -ne ''
 	if (-not $addingOnly) {
+		# A fresh session: last session's windows (its friend and bots too) go first.
+		foreach ($n in @($pids.Keys)) { Stop-Instance $n }
+		$pids = [ordered]@{}
 		$hostArgs = @('--host', '--no-steam', '--name=Claude', "--port=$Port")
 		if ($Scenario -ne '') {
 			if (-not $scenarioLater) { $hostArgs += "--scenario=$Scenario" }
@@ -251,7 +292,7 @@ if ($Start) {
 	if ($Observer) {
 		$obsArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', '--name=Observer', '--observer')
 		# The --sim- flags, and --rank= (a dev rank floor each peer reads for itself, so a client sees the shops the host's rank opened).
-		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=') { $obsArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=)' }) }
+		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=') { $obsArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=)' }) }
 		$pids['observer'] = Start-Instance 'observer' $obsArgs '660,120'
 		$started += 'observer'
 		Save-Session $pids $Port $Fps
@@ -262,12 +303,35 @@ if ($Start) {
 		# A plain client that plays: no --observer, so it isn't parked, ghosted or kept
 		# safe; the scenarios that need a friend put it on the yard themselves.
 		$friendArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', '--name=Friend')
-		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=') { $friendArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=)' }) }
+		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=') { $friendArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=)' }) }
 		$pids['friend'] = Start-Instance 'friend' $friendArgs '340,380'
 		$started += 'friend'
 		Save-Session $pids $Port $Fps
 		$r = Send-Command 'friend' '[["wait",1.0]]'
 		if ($r) { $r | ConvertTo-Json -Depth 6 -Compress }
+	}
+	if ($Bots -gt 0) {
+		# Players: the host, the Friend and every bot already in; the observer only watches.
+		$players = 1
+		if (Test-Alive $pids 'friend') { $players++ }
+		$free = @()
+		foreach ($n in 1..3) { if (Test-Alive $pids "bot$n") { $players++ } else { $free += $n } }
+		$room = [math]::Max(0, $MaxPlayers - $players)
+		$want = [math]::Min($Bots, [math]::Min($room, $free.Count))
+		if ($want -lt $Bots) { Write-Host "only $want more bot(s): $players of $MaxPlayers players are in (the observer doesn't count)" }
+		$botFlags = @()
+		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=') { $botFlags = @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=)' }) }
+		for ($i = 0; $i -lt $want; $i++) {
+			$n = $free[$i]
+			$botArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', "--name=Bot$n", '--bot', '--bot-crew') + $botFlags
+			if (-not $Mute) { $botArgs += '--mute-audio' }
+			# Small windows in a row along the bottom right, out of the host's way.
+			$pids["bot$n"] = Start-Instance "bot$n" $botArgs "$(1300 + ($n - 1) * 40),$(560 + ($n - 1) * 150)" '480x270' ([bool]$BotsHeadless) $false
+			$started += "bot$n"
+			Save-Session $pids $Port $Fps
+			$r = Send-Command "bot$n" '[["wait",0.5]]'
+			if ($r) { "[bot$n] zone $($r.zone) at $($r.position -join ',')" }
+		}
 	}
 	if ($scenarioLater) {
 		$r = Send-Command 'main' (Convert-Steps "scenario $Scenario")

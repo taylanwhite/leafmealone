@@ -31,9 +31,13 @@ func _ready() -> void:
 	var number := str(Net.dev_options().get("player_name")).trim_prefix("Bot").to_int()
 	_hider = number % 2 == 1
 	_job = _BotJob.new(_rng)
+	_crew = bool(Net.dev_options().get("bot_crew"))
+	_crew_number = maxi(1, number)
+	_job.set("share_rake", _crew)
 	_next_zone_move = _rng.randf_range(ZONE_MOVE_MIN_SECONDS, ZONE_MOVE_MAX_SECONDS)
-	Input.action_press(&"move_forward")
-	print("[Bot] driving the local player")
+	if not _crew:
+		Input.action_press(&"move_forward")
+	print("[Bot] driving the local player%s" % (" as a crew member" if _crew else ""))
 
 
 func _exit_tree() -> void:
@@ -62,6 +66,9 @@ func _physics_process(delta: float) -> void:
 	if bool(Net.dev_options().get("walk_straight")):
 		Input.action_release(&"sprint")
 		Input.action_release(&"crouch")
+		return
+	if _crew:
+		_crew_tick(player, delta)
 		return
 	_maybe_change_zone()
 	if _job.call("step", player, delta):
@@ -97,7 +104,11 @@ func _during_run_event(player: Node3D) -> bool:
 			_press_interact()
 		return false
 	if hidden:
+		if _crew:
+			Input.action_release(&"move_forward")
 		return true
+	# A crew bot only walks while it means to (a soak bot always holds forward).
+	Input.action_press(&"move_forward")
 	if _hider:
 		var spot := _nearest_free_spot(player)
 		if spot != null:
@@ -115,7 +126,12 @@ func _during_run_event(player: Node3D) -> bool:
 	if crew == null:
 		return false
 	Input.action_press(&"sprint")
-	_face(player, player.global_position * 2.0 - crew.global_position)
+	if _crew and Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT:
+		# Away, but round the yard, not into its corner (tools:crew review: Bot2 sat
+		# pinned in a corner for a whole chase).
+		_face(player, _crew_steer(player, _crew_flee_point(player, crew.global_position)))
+	else:
+		_face(player, player.global_position * 2.0 - crew.global_position)
 	return true
 
 
@@ -136,7 +152,15 @@ func _nearest_free_spot(player: Node3D) -> Node3D:
 ## Turn so move_forward heads toward the point. Forward is -Z, rotated by body_yaw.
 func _face(player: Node3D, point: Vector3) -> void:
 	var away := point - player.global_position
-	player.set("body_yaw", atan2(-away.x, -away.z))
+	var want := atan2(-away.x, -away.z)
+	if _crew and Vector2(away.x, away.z).length() > 0.01:
+		# Eased like a hand on a mouse (bot_job.gd CREW_TURN_RATE).
+		var have := float(player.get("body_yaw"))
+		var step := _BotJob.CREW_TURN_RATE * player.get_physics_process_delta_time()
+		var error := wrapf(want - have, -PI, PI)
+		_job.set("turn_left", error)
+		want = have + clampf(error, -step, step)
+	player.set("body_yaw", want)
 
 
 func _press_interact() -> void:
@@ -217,6 +241,7 @@ func _r2_crew_tick(_delta: float) -> bool:
 		if held == null:
 			continue
 		_face(player, holder.global_position)
+		Input.action_press(&"move_forward")
 		var distance := player.global_position.distance_to(holder.global_position)
 		if distance > 6.0:
 			Input.action_press(&"sprint")
@@ -259,8 +284,11 @@ func _r2_van_tick(delta: float) -> bool:
 	_face(player, step)
 	if away > Constants.VAN_DOOR_REACH * 0.7:
 		Input.action_press(&"sprint")
+		Input.action_press(&"move_forward")
 		return true
 	Input.action_release(&"sprint")
+	if _crew:
+		Input.action_release(&"move_forward")
 	if _elapsed - _van_try_at >= Constants.VAN_UNBUCKLE_HOLD + 1.0:
 		_van_try_at = _elapsed
 		var riders: Array = shuttle.call("seated_riders")
@@ -274,6 +302,8 @@ func _r2_van_tick(delta: float) -> bool:
 var _r2_next_peek: float = -1.0
 var _r2_peek_until: float = -1.0
 var _r2_poke_seen: bool = false
+## When a hidden bot climbs out after the raid (bot seconds), -1 while one's on.
+var _r2_out_at: float = -1.0
 
 
 ## Called by the R2 dispatcher (chunk 2) each tick: true while it is steering.
@@ -286,6 +316,21 @@ func _r2_hide_tick(_delta: float) -> bool:
 			_r2_peek_until = -1.0
 			Input.action_release(&"secondary")
 		return false
+	# The raid's over: climb out (tools:crew: this tick kept every hider in its
+	# hedge for good, since it steers whenever hidden and the older "come out when
+	# it ends" code below never ran). A moment's wait first, like a person checking.
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and int(director.call("phase")) == 0:
+		if _r2_peek_until >= 0.0:
+			_r2_peek_until = -1.0
+			Input.action_release(&"secondary")
+		if _r2_out_at < 0.0:
+			_r2_out_at = _elapsed + _rng.randf_range(1.5, 4.0)
+		elif _elapsed >= _r2_out_at:
+			_r2_out_at = _elapsed + 1.0
+			_press_interact()
+		return true
+	_r2_out_at = -1.0
 	if _r2_next_peek < 0.0:
 		_r2_next_peek = _elapsed + _rng.randf_range(4.0, 9.0)
 	if _r2_peek_until >= 0.0 and _elapsed >= _r2_peek_until:
@@ -471,3 +516,266 @@ func _annex_point(path: String) -> Vector3:
 	var world := get_tree().get_first_node_in_group("world")
 	var node := world.get_node_or_null("BorderZone/AnnexSet/" + path) as Node3D if world != null else null
 	return node.global_position if node != null else Vector3.INF
+
+
+# ---- tools:crew (tools/play.ps1 -Bots): a bot that plays a whole day as one of
+# the crew. No zone moves of its own: at the store it waits by Chefty, a few
+# steps apart from the others, so it rides along whenever someone sets off;
+# on the yard it works the job (net/dev/bot_job.gd, sharing the rake); after
+# payday Chefty takes it home with everyone. Raids, the van and the Annex are the
+# R2 ticks above, as for any bot.
+## Where crew bots wait for the ride, in Chefty's own space (m; +Z is behind the
+## tailgate): Bot1 by the passenger side, Bot2 by the driver's, Bot3 by the cab.
+## All well inside levels/boarding.gd's BOARD_RADIUS_METERS of the pad.
+const CREW_WAIT_SLOTS: Array[Vector3] = [Vector3(2.4, 0.0, 0.8), Vector3(-2.4, 0.0, 0.8), Vector3(2.4, 0.0, -1.6)]
+## Close enough to its waiting spot (m).
+const CREW_ARRIVE_METERS: float = 0.7
+## A crew bot walks only while what it's turning to is within this (rad) of
+## straight ahead; past it, it stops and turns first.
+const CREW_WALK_TURN: float = 0.6
+## Between idle glances and shuffles (s).
+const CREW_IDLE_MIN: float = 3.0
+const CREW_IDLE_MAX: float = 8.0
+## Wandering on the yard when there's no work: slow turns (rad/s) and no hops.
+const CREW_WANDER_TURN: float = 0.6
+## Wandering this close (m) to the leaf field's edge, or stuck, it walks back in to
+## a spot at least CREW_INNER_METERS inside, until within CREW_WANDER_ARRIVE of it
+## or CREW_WANDER_GOAL_SECONDS have gone. A runner flees to a point this far
+## inside the field too, and sideways along it when cornered.
+const CREW_EDGE_METERS: float = 4.0
+const CREW_INNER_METERS: float = 8.0
+const CREW_WANDER_ARRIVE: float = 1.5
+const CREW_WANDER_GOAL_SECONDS: float = 12.0
+const CREW_FLEE_METERS: float = 8.0
+
+var _crew: bool = false
+var _crew_wander_goal := Vector3.INF
+var _crew_wander_until: float = 0.0
+var _crew_got_stuck: bool = false
+var _crew_number: int = 1
+var _crew_next_idle: float = 0.0
+var _crew_shuffle := Vector3.ZERO
+var _crew_last_spot := Vector3.INF
+var _crew_check_left: float = 1.0
+var _crew_side_left: float = 0.0
+var _crew_side: StringName = &"move_left"
+
+
+func _crew_tick(player: Node3D, delta: float) -> void:
+	Input.action_release(&"crouch")
+	_job.set("turn_left", 0.0)
+	var zone := Net.player_zone(Net.local_peer_id())
+	if zone == Net.Zone.LOT or zone == Net.Zone.TOWN:
+		if _job.call("step", player, delta):
+			for action: StringName in STRAFE_ACTIONS:
+				Input.action_release(action)
+			_crew_walk(player, bool(_job.get("wants_walk")), delta)
+			return
+		# Nothing to carry and the rake's taken: amble about the yard, scooping now and
+		# then. Near the yard's edge, or stuck, it heads back in to somewhere among
+		# the leaves (tools:crew review: a constant turn and forward held pinned idle
+		# bots against the lot's edge and corners, grinding along an invisible wall).
+		if zone != Net.Zone.LOT:
+			_crew_wander_goal = Vector3.INF
+		elif _crew_wander_goal.is_finite():
+			var left := Vector2(_crew_wander_goal.x - player.global_position.x, _crew_wander_goal.z - player.global_position.z).length()
+			if left < CREW_WANDER_ARRIVE or _elapsed >= _crew_wander_until:
+				_crew_wander_goal = Vector3.INF
+			else:
+				_face(player, _crew_steer(player, _crew_wander_goal))
+				_crew_walk(player, true, delta)
+				return
+		if zone == Net.Zone.LOT and (_crew_got_stuck or _crew_yard_point(player.global_position, CREW_EDGE_METERS) != player.global_position):
+			_crew_got_stuck = false
+			_crew_wander_goal = _crew_inner_point()
+			_crew_wander_until = _elapsed + CREW_WANDER_GOAL_SECONDS
+			if _crew_wander_goal.is_finite():
+				_crew_walk(player, false, delta)
+				return
+		if _elapsed >= _next_change:
+			_next_change = _elapsed + _rng.randf_range(1.5, 4.0)
+			_turn_rate = _rng.randf_range(-CREW_WANDER_TURN, CREW_WANDER_TURN)
+		player.set("body_yaw", float(player.get("body_yaw")) + _turn_rate * delta)
+		_crew_walk(player, true, delta)
+		return
+	_job.call("stop")
+	Input.action_release(&"primary")
+	if zone != Net.Zone.STORE:
+		# Riding, or anywhere the R2 ticks didn't take: stand still.
+		_crew_walk(player, false, delta)
+		return
+	if _crew_bedtime(player, delta):
+		return
+	var spot := _crew_wait_spot()
+	if spot == Vector3.INF:
+		_crew_walk(player, false, delta)
+		return
+	var away := Vector2(spot.x - player.global_position.x, spot.z - player.global_position.z).length()
+	if away > CREW_ARRIVE_METERS:
+		_face(player, _crew_steer(player, spot))
+		if away < 8.0:
+			Input.action_release(&"sprint")
+		else:
+			Input.action_press(&"sprint")
+		_crew_walk(player, true, delta)
+		return
+	Input.action_release(&"sprint")
+	_crew_walk(player, false, delta)
+	# Waiting: look at the truck, glance round now and then, shift your feet.
+	if _elapsed >= _crew_next_idle:
+		_crew_next_idle = _elapsed + _rng.randf_range(CREW_IDLE_MIN, CREW_IDLE_MAX)
+		var truck := get_tree().get_first_node_in_group("chefty") as Node3D
+		var look_at := truck.global_position if truck != null else spot
+		if _rng.randf() < 0.4:
+			look_at = player.global_position + Vector3(_rng.randf_range(-5.0, 5.0), 0.0, _rng.randf_range(-5.0, 5.0))
+		_face(player, look_at)
+		if _rng.randf() < 0.3:
+			_crew_shuffle = Vector3(_rng.randf_range(-0.5, 0.5), 0.0, _rng.randf_range(-0.5, 0.5))
+
+
+## Where this bot waits for the ride: beside Chefty's bed, a slot per bot number
+## (CREW_WAIT_SLOTS, in the truck's own space), never behind the tailgate where
+## people walk up to board (tools:crew: waiting round the pad, Bot1 stood on the
+## spot the host walked to and the host's eye ended up in its head). Round the
+## truck pad while Chefty's away.
+func _crew_wait_spot() -> Vector3:
+	var truck := get_tree().get_first_node_in_group("chefty") as Node3D
+	var slot: Vector3 = CREW_WAIT_SLOTS[(_crew_number - 1) % CREW_WAIT_SLOTS.size()]
+	if truck != null and truck.has_method("bed_transform") and not bool(truck.call("is_riding")):
+		var bed: Transform3D = truck.call("bed_transform")
+		var at := bed * slot
+		return Vector3(at.x, bed.origin.y, at.z) + _crew_shuffle
+	var world := get_tree().get_first_node_in_group("world")
+	var pad := world.get_node_or_null("StoreZone/TruckPad") as Node3D if world != null else null
+	if pad == null:
+		return Vector3.INF
+	return pad.global_transform * slot + _crew_shuffle
+
+
+## Holds or lets go of move_forward, and sidesteps when walking gets nowhere (a
+## doorframe, a shelf end, a teammate in the way), the way people do.
+func _crew_walk(player: Node3D, walking: bool, delta: float) -> void:
+	# Turn first, then go: walking while still turning hard circled a spot it
+	# could never reach (tools:crew: Bot2 orbited its waiting spot for a minute,
+	# at 5 rad/s and a walk its turn circle was wider than the spot).
+	var turning := absf(float(_job.get("turn_left"))) > CREW_WALK_TURN
+	if not walking or turning:
+		Input.action_release(&"move_forward")
+		for action: StringName in STRAFE_ACTIONS:
+			Input.action_release(action)
+		_crew_last_spot = Vector3.INF
+		return
+	Input.action_press(&"move_forward")
+	_crew_check_left -= delta
+	if _crew_check_left <= 0.0:
+		_crew_check_left = 1.0
+		var stuck := _crew_last_spot.is_finite() and player.global_position.distance_to(_crew_last_spot) < 0.25
+		_crew_last_spot = player.global_position
+		if stuck:
+			_crew_side_left = 0.9
+			_crew_side = STRAFE_ACTIONS[_rng.randi_range(0, 1)]
+			_crew_got_stuck = true
+	if _crew_side_left > 0.0:
+		_crew_side_left -= delta
+		Input.action_press(_crew_side)
+		if _crew_side_left <= 0.0:
+			Input.action_release(_crew_side)
+
+
+## The point moved inside the leaf field, at least margin (m) from its edges (the
+## middle where the field is narrower than that); the point itself when it's there
+## already or there's no field.
+func _crew_yard_point(point: Vector3, margin: float) -> Vector3:
+	var field := get_tree().get_first_node_in_group("leaf_field") as Node3D
+	if field == null:
+		return point
+	var origin: Vector3 = field.get("grid_origin")
+	var cell := float(field.get("cell_size"))
+	var size := Vector2(float(int(field.get("grid_width"))), float(int(field.get("grid_depth")))) * cell
+	var local := field.global_transform.affine_inverse() * point
+	var x := local.x - origin.x
+	var z := local.z - origin.z
+	var in_x := clampf(x, minf(margin, size.x * 0.5), maxf(size.x - margin, size.x * 0.5))
+	var in_z := clampf(z, minf(margin, size.y * 0.5), maxf(size.y - margin, size.y * 0.5))
+	if is_equal_approx(in_x, x) and is_equal_approx(in_z, z):
+		return point
+	var inside := field.global_transform * Vector3(origin.x + in_x, local.y, origin.z + in_z)
+	return Vector3(inside.x, point.y, inside.z)
+
+
+## A random spot well inside the leaf field (Vector3.INF without one).
+func _crew_inner_point() -> Vector3:
+	var field := get_tree().get_first_node_in_group("leaf_field") as Node3D
+	if field == null:
+		return Vector3.INF
+	var origin: Vector3 = field.get("grid_origin")
+	var cell := float(field.get("cell_size"))
+	var size := Vector2(float(int(field.get("grid_width"))), float(int(field.get("grid_depth")))) * cell
+	var margin := Vector2(minf(CREW_INNER_METERS, size.x * 0.5), minf(CREW_INNER_METERS, size.y * 0.5))
+	var local := origin + Vector3(_rng.randf_range(margin.x, size.x - margin.x), 0.0, _rng.randf_range(margin.y, size.y - margin.y))
+	return field.global_transform * local
+
+
+## Where a crew runner flees to: away from the NICE BOY, but kept inside the yard;
+## cornered (that leaves it nowhere to go), sideways along the edge, whichever
+## way leads back toward the middle.
+func _crew_flee_point(player: Node3D, from: Vector3) -> Vector3:
+	var here := player.global_position
+	var away := Vector3(here.x - from.x, 0.0, here.z - from.z)
+	if away.length() < 0.01:
+		away = Vector3.FORWARD
+	away = away.normalized()
+	var goal := _crew_yard_point(here + away * CREW_FLEE_METERS, CREW_EDGE_METERS)
+	if Vector2(goal.x - here.x, goal.z - here.z).length() > CREW_FLEE_METERS * 0.5:
+		return goal
+	var middle := _crew_yard_point(here, INF)
+	var side := Vector3(-away.z, 0.0, away.x)
+	if middle.is_finite() and side.dot(middle - here) < 0.0:
+		side = -side
+	return _crew_yard_point(here + side * CREW_FLEE_METERS, CREW_EDGE_METERS)
+
+
+## Straight at the point when the way is clear at knee height, else the nearest
+## clear heading either side (the store's shelves, the truck's bed).
+func _crew_steer(player: Node3D, point: Vector3) -> Vector3:
+	return _annex_steer(player, point)
+
+## Bedtime: once a teammate lies down on a cot in the evening, a crew bot walks
+## to the nearest free one and lies down too (the day only ends with everyone in
+## bed). True while it's handling that.
+func _crew_bedtime(player: Node3D, delta: float) -> bool:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock == null or not bool(clock.call("can_sleep_now")):
+		return false
+	var me := Net.local_peer_id()
+	if bool(clock.call("is_sleeping", me)):
+		_crew_walk(player, false, delta)
+		return true
+	var sleepers: Array = clock.get("sleepers")
+	if sleepers.is_empty():
+		return false
+	var world := get_tree().get_first_node_in_group("world")
+	var store := world.get_node_or_null("StoreZone") as Node3D if world != null else null
+	if store == null:
+		return false
+	var taken: Array = (clock.get("cots") as Dictionary).values()
+	var cot := -1
+	var closest := INF
+	for index: int in Constants.COT_SPOTS.size():
+		var at := store.to_global(Constants.COT_SPOTS[index])
+		var away := Vector2(at.x - player.global_position.x, at.z - player.global_position.z).length()
+		if not taken.has(index) and away < closest:
+			cot = index
+			closest = away
+	if cot < 0:
+		return false
+	var spot := store.to_global(Constants.COT_SPOTS[cot])
+	if closest > 1.2:
+		_face(player, _crew_steer(player, spot))
+		_crew_walk(player, true, delta)
+		return true
+	_crew_walk(player, false, delta)
+	if _elapsed >= _crew_next_idle:
+		_crew_next_idle = _elapsed + 1.5
+		clock.call("request_sleep", true, cot)
+	return true

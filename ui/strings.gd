@@ -466,6 +466,8 @@ const UI: Dictionary = {
 	"end_host_left": "Host left",
 	"end_connection_failed": "Connection failed",
 	"end_version_mismatch": "Version mismatch",
+	# tools:crew: a fifth player knocking on a dev session's spare (observer) slot.
+	"end_crew_full": "Crew's full. Four's a crew, five's a parade.",
 	"end_steam_lobby_failed": "Steam lobby failed",
 	"end_steam_not_running": "Steam is not running",
 	"end_steam_skipped": "Steam is off for this run",
