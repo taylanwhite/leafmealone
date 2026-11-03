@@ -55,6 +55,13 @@ const PATTERNS: Array = [
 	# ---- Slurs. Kept as stems; any hit is a hard no, whatever the context.
 	{"id": "slur", "re": "(?i)\\b(wet\\s?backs?|beaners?|spics?|greasers?|chinks?|chinam[ae]n|gooks?|ragheads?|towelheads?|redskins?|oriental|gyp(s|ped|ping|sy|sies)?|jew(ed|ing)|indian\\s+givers?|welsh(ed|er|ers|ing)|n[i1]gg\\w*)\\b",
 		"why": "an ethnic or national slur (say 'spotless', 'a gap', 'ripped off')"},
+	# ---- Custody (R2): nobody is held. A catch is a citation and an errand at a
+	# Satellite Annex with open doors, never detention, cells, booking or bail.
+	{"id": "custody", "re": "(?i)\\b(detain\\w*|detention\\w*|custody|holding\\s+(cells?|pens?|areas?)|booking|booked\\s+in|mug\\s?shots?|fingerprint(s|ed|ing)?|inmates?|jail\\w*|prison\\w*|cell\\s?blocks?|perp\\s+walks?|processing\\s+(centers?|facilit(y|ies)))\\b",
+		"why": "custody imagery: the NICE BOYS cite and file, they never hold anyone"},
+	# "Bail out!" (jumping out of Chefty) is a different bail; the court kind is out.
+	{"id": "custody", "re": "(?i)\\b(post(s|ed|ing)?\\s+bail|bail\\s+(bonds?|money|hearings?|is\\s+set|was\\s+set)|on\\s+bail|make\\s+bail|made\\s+bail|jump(s|ed|ing)?\\s+bail|bail(ed)?\\s+(me|him|her|them|you|us)\\s+out|without\\s+bail|no\\s+bail)\\b",
+		"why": "bail in the courtroom sense"},
 	# ---- Canon casing: the crew is always NICE BOYS in caps (lowercase 'nice boys' is the pun, allowed).
 	{"id": "canon", "re": "\\bNice\\s+Boys?\\b", "why": "write NICE BOYS in caps"},
 ]
@@ -70,6 +77,10 @@ const SHOULD_HIT: Array = [
 	"Where are you from?", "Speak English", "a funny accent", "Mexican food truck",
 	"No habla", "no problemo", "Gracias, señor", "a sombrero on the gnome", "eet ees done",
 	"wetback", "spic and span", "you got gypped", "Nice Boys incoming",
+	"Detained for questioning", "the detention lot", "taken into custody", "a holding cell",
+	"Booking desk", "smile for your mugshot", "fingerprinted", "fingerprints on file", "an inmate",
+	"Leaf Jail", "jailbreak", "prison yard", "cell block C", "the perp walk", "posted bail",
+	"bail money", "out on bail", "the processing center", "a processing facility",
 ]
 const SHOULD_PASS: Array = [
 	"The NICE BOYS are here. Run. Hide. Break line of sight.", "nice boys finish last",
@@ -78,6 +89,8 @@ const SHOULD_PASS: Array = [
 	"Unpermitted wheelbarrow parking, ma'am", "Paperwork Incoming", "Office of Curb Appeal",
 	"Spotless. Spick-and-span would be a stretch.", "a custom paint job", "Notice of Niceness",
 	"Pulled the TurfMasters sign", "Go back to the truck", "Raid warning", "The save migration ran", "Rake It Easy",
+	"Courtesy Lounge", "Satellite Annex B", "APPROVED, NICELY", "Form 27-B", "co-signer sheet",
+	"Bail out!", "They took Pat. Pat had the good rake.", "Have a NICE day!",
 ]
 
 static var _compiled: Array = []

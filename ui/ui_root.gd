@@ -101,6 +101,14 @@ func _ready() -> void:
 	var drive_hud := preload("res://ui/drive_hud.gd").new()
 	drive_hud.name = "DriveHud"
 	add_child(drive_hud)
+	# R2: every raid line goes through one stack (ui/caption_stack.gd), and cuts
+	# hide behind the iris (ui/iris.gd, its own layer over this one).
+	var captions := preload("res://ui/caption_stack.gd").new()
+	captions.name = "CaptionStack"
+	add_child(captions)
+	var iris := preload("res://ui/iris.gd").new()
+	iris.name = "Iris"
+	add_child(iris)
 	%HostButton.pressed.connect(_on_host_pressed)
 	var dev_host := Button.new()
 	dev_host.text = _Strings.UI["menu_dev_host"]
@@ -152,6 +160,7 @@ func _process(delta: float) -> void:
 		_fps.visible = bool(Settings.get_value("interface", "show_fps"))
 		if _fps.visible:
 			_fps.text = _Strings.UI["fps_label"] % roundi(Engine.get_frames_per_second())
+	_dim_goal(delta)
 	var fields := get_tree().get_nodes_in_group("leaf_field")
 	if fields.is_empty() or Net.current_state() != Net.State.IN_SESSION:
 		_hud_rows.visible = false
@@ -168,10 +177,12 @@ func _process(delta: float) -> void:
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
 		var status := str(director.call("status_line"))
-		if status != "":
+		# R2: the raid shows itself (the van, the crew, the radio); its status words
+		# stay in the director's logs, not on the HUD.
+		if status != "" and status != str(_Strings.UI["status_crew_coming"]) and status != str(_Strings.UI["status_crew_here"]):
 			crew_line = "\n" + status
 	var crossing := get_tree().get_first_node_in_group("border_return")
-	if crossing != null:
+	if crossing != null and crossing.has_method("status_line"):
 		var crossing_status := str(crossing.call("status_line"))
 		if crossing_status != "":
 			crew_line += "\n" + crossing_status
@@ -252,16 +263,34 @@ func _button_icon(button: Button, id: String) -> void:
 	button.add_theme_constant_override("icon_max_width", BUTTON_ICON_PX)
 
 
-## "Talking" while this player's voice is going out, or the push-to-talk hint,
-## after a line saying so while hiding.
+## "Talking" while this player's voice is going out, or the push-to-talk hint.
+## (R2: no "you're hidden" line; you can see you're in the hedge.)
 func _voice_line() -> String:
-	var line := ""
-	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.name == str(Net.local_peer_id()) and bool(node.call("is_hidden")):
-			line = "\n" + str(_Strings.UI["hud_hidden"])
 	if not Net.voice_available():
-		return line
-	return line + _voice_part()
+		return ""
+	return _voice_part()
+
+
+## R2: the job goal line dims away while the NICE BOYS are on their way, on the
+## yard or leaving, and while you're caught: the raid is the goal now.
+func _dim_goal(delta: float) -> void:
+	var goal := get_node_or_null("JobGoal") as Control
+	if goal == null:
+		return
+	var want := 0.0 if goal_hidden_by_raid(get_tree(), Net.local_peer_id()) else 1.0
+	goal.modulate.a = move_toward(goal.modulate.a, want, delta / Constants.STAGE_BLEND_DEFAULT)
+
+
+## Whether the raid has the goal line hidden for this peer: the director in
+## WARNING (1), CHASE (2) or DEPARTING (3, R2 chunk 2), or this peer caught.
+static func goal_hidden_by_raid(tree: SceneTree, peer_id: int) -> bool:
+	var director := tree.get_first_node_in_group("run_director")
+	if director == null:
+		return false
+	var phase := int(director.call("phase"))
+	if phase >= 1 and phase <= 3:
+		return true
+	return director.has_method("is_captured") and bool(director.call("is_captured", peer_id))
 
 
 func _voice_part() -> String:
