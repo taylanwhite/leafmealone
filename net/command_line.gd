@@ -109,6 +109,12 @@ var drive_test: bool = false
 ## --balance-test: the engine side of the balance lab's parity check: every tuning constant,
 ## a grid of economy formulas, and the tables' invariants (net/dev/balance_test.gd).
 var balance_test: bool = false
+## --leaf-motion-test: leaves moving between cells: conservation, no teleports, no duplicates,
+## quiescence and caps (net/dev/leaf_motion_test.gd).
+var leaf_motion_test: bool = false
+## --leaf-motion-headless: run the leaf view's state and the leaf motion simulation in a headless
+## run (nothing is drawn). Read by the leaf view from OS.get_cmdline_user_args().
+var leaf_motion_headless: bool = false
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -118,7 +124,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or leaf_motion_test
 
 
 func read() -> void:
@@ -261,5 +267,9 @@ func read() -> void:
 			drive_test = true
 		elif argument == "--balance-test":
 			balance_test = true
+		elif argument == "--leaf-motion-test":
+			leaf_motion_test = true
+		elif argument == "--leaf-motion-headless":
+			leaf_motion_headless = true
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)

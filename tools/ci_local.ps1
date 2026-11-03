@@ -99,6 +99,16 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --yard-size=1 --gag-test'; Seconds = 80; Client = 75
 		Check = { param($h, $c) [bool]$h.gag_test.ok -and ([math]::Abs([double]$h.heat - [double]$c.heat) -lt 1.5) }
 	}
+	# Leaves travel between cells instead of teleporting (raking R1 chunk 3,
+	# leaves/leaf_motion.gd): conservation, no teleports or duplicates, head contact,
+	# direction, bags, burst bags, kicks, resyncs, resets, load, quiescence. The
+	# client runs its half too (--leaf-motion-test in Extra) and reports to the host.
+	leaf_motion = @{
+		Port = 7822
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --leaf-motion-test'; Seconds = 100; Client = 95
+		Extra = '--sim-lag=120 --leaf-motion-headless --leaf-motion-test'
+		Check = { param($h, $c) [bool]$h.leaf_motion_test.ok }
+	}
 	brawl = @{
 		Port = 7802
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --brawl-test'; Seconds = 50; Client = 45

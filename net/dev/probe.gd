@@ -202,6 +202,8 @@ func write_report() -> void:
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
 		"drive": _drive(),
+		"leaf_motion_test": _guarded_result("res://net/dev/leaf_motion_test.gd"),
+		"leaf_view": _leaf_view(),
 		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
 		"heat": _heat(),
 		"board": _board(),
@@ -423,6 +425,27 @@ func _lot_work() -> Dictionary:
 		"truck_bags": int(chefty.call("bag_count")) if chefty != null else 0,
 		"truck_value": int(chefty.call("bag_value")) if chefty != null else 0,
 	}
+
+
+## A test's static result by path, without a preload (a missing script is no parse error).
+func _guarded_result(path: String) -> Dictionary:
+	if not ResourceLoader.exists(path):
+		return {"done": true, "ok": false, "why": "not built"}
+	var script := load(path) as GDScript
+	var result: Variant = script.get("result") if script != null else null
+	return (result as Dictionary).duplicate(true) if result is Dictionary else {}
+
+
+## The leaf view's and the leaf motion layer's counters (raking R1), {} when absent.
+func _leaf_view() -> Dictionary:
+	var out: Dictionary = {}
+	var view := get_tree().get_first_node_in_group("leaf_view")
+	if view != null and view.has_method("stats"):
+		out.merge(view.call("stats"))
+	var motion := get_tree().get_first_node_in_group("leaf_motion")
+	if motion != null and motion.has_method("stats"):
+		out.merge(motion.call("stats"))
+	return out
 
 
 ## Leaf flakes drawn by every leaf renderer on this peer, and where the first one sits.

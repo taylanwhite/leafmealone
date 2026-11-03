@@ -90,6 +90,11 @@ func _ready() -> void:
 		_add(preload("res://net/dev/drive_test.gd").new(), "DriveTest")
 	if bool(options.get("balance_test")):
 		_add(preload("res://net/dev/balance_test.gd").new(), "BalanceTest")
+	if bool(options.get("leaf_motion_test")):
+		if ResourceLoader.exists("res://net/dev/leaf_motion_test.gd"):
+			_add((load("res://net/dev/leaf_motion_test.gd") as GDScript).new(), "LeafMotionTest")
+		else:
+			print("[Dev] leaf_motion_test not built")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
 		# --open-shop=<shop>[:<tab>] picks the shop and tab (Homie Depot's first tab by default).
