@@ -4085,9 +4085,14 @@ const COT_CREAK_MAX_DISTANCE: float = 25.0
 ## landing with its chime (ui/phone.gd _slide_in).
 const PHONE_SLIDE_PX: float = 120.0
 const PHONE_SLIDE_SECONDS: float = 0.18
+## It is fully opaque after this share of the slide, so it reads before it lands.
+const PHONE_SLIDE_FADE_SHARE: float = 0.6
 ## Put away, it drops back the same way over this long (s), with its swish
 ## (ui/phone.gd close_phone), and only then stops being drawn.
 const PHONE_PUTAWAY_SECONDS: float = 0.14
+## Its fade starts this share of PHONE_PUTAWAY_SECONDS into the drop (and runs
+## PHONE_PUTAWAY_SECONDS), so it visibly falls before it goes.
+const PHONE_PUTAWAY_FADE_DELAY_SHARE: float = 0.4
 ## The payout card's printer starts this long (s) after the card shows: the cash
 ## is snatched the same moment (npcs/homeowner.gd), and that sound goes first.
 const RECEIPT_PRINT_DELAY: float = 0.3
@@ -4096,6 +4101,8 @@ const RECEIPT_PRINT_DELAY: float = 0.3
 ## settling as the paper tears.
 const RECEIPT_FEED_PX: float = 70.0
 const RECEIPT_FEED_SECONDS: float = 0.42
+## The paper fades in over this share of the feed, under the first of the 'brrrt'.
+const RECEIPT_FEED_FADE_SHARE: float = 0.25
 ## The morning's held phone buzz waits for Rise and Rake (and New Client) to finish,
 ## plus this long (s) (audio/cue_hooks.gd).
 const CUE_BUZZ_AFTER_STINGERS: float = 0.25

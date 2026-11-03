@@ -104,7 +104,7 @@ func _print() -> void:
 			_Look.sfx(self, "receipt")
 		position.y = rest + Constants.RECEIPT_FEED_PX
 	)
-	_feed.tween_property(self, "modulate:a", 1.0, Constants.RECEIPT_FEED_SECONDS * 0.25)
+	_feed.tween_property(self, "modulate:a", 1.0, Constants.RECEIPT_FEED_SECONDS * Constants.RECEIPT_FEED_FADE_SHARE)
 	_feed.parallel().tween_property(self, "position:y", rest, Constants.RECEIPT_FEED_SECONDS).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 

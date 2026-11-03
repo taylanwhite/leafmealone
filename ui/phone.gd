@@ -212,7 +212,7 @@ func _slide_in() -> void:
 	modulate.a = 0.0
 	_slide = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	_slide.tween_property(self, "position:y", rest, Constants.PHONE_SLIDE_SECONDS)
-	_slide.tween_property(self, "modulate:a", 1.0, Constants.PHONE_SLIDE_SECONDS * 0.6)
+	_slide.tween_property(self, "modulate:a", 1.0, Constants.PHONE_SLIDE_SECONDS * Constants.PHONE_SLIDE_FADE_SHARE)
 
 
 ## Back into the pocket: it drops and fades as its swish plays, and only then
@@ -231,7 +231,7 @@ func close_phone() -> void:
 	var rest := _rest_y if not is_nan(_rest_y) else position.y
 	_slide = create_tween().set_parallel(true).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	_slide.tween_property(self, "position:y", rest + Constants.PHONE_SLIDE_PX, Constants.PHONE_PUTAWAY_SECONDS)
-	_slide.tween_property(self, "modulate:a", 0.0, Constants.PHONE_PUTAWAY_SECONDS).set_delay(Constants.PHONE_PUTAWAY_SECONDS * 0.4)
+	_slide.tween_property(self, "modulate:a", 0.0, Constants.PHONE_PUTAWAY_SECONDS).set_delay(Constants.PHONE_PUTAWAY_SECONDS * Constants.PHONE_PUTAWAY_FADE_DELAY_SHARE)
 	_slide.chain().tween_callback(func() -> void:
 		if not _closing:
 			return

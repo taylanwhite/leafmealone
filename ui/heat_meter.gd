@@ -19,8 +19,13 @@ var _caption: Label
 var _caption_left: float = 0.0
 var _shown: float = 0.0
 var _warned: int = -1
-## Whether _warned has had a first reading (heat already high on joining doesn't whoop).
+## Whether _warned has had a first real reading of this session's heat, so heat that
+## is already high on joining (or rejoining) doesn't whoop. Re-armed per heat node.
 var _read: bool = false
+## The heat node _read belongs to, and whether its value is the host's yet (a client's
+## copy starts at 0 until _rpc_heat lands; the host's is real from _ready).
+var _heat_id: int = 0
+var _synced: bool = false
 
 
 func _ready() -> void:
@@ -58,7 +63,15 @@ func _process(delta: float) -> void:
 	var heat := get_tree().get_first_node_in_group("heat")
 	visible = heat != null and Net.current_state() == Net.State.IN_SESSION
 	if not visible:
+		_heat_id = 0
 		return
+	if heat.get_instance_id() != _heat_id:
+		_heat_id = heat.get_instance_id()
+		_warned = -1
+		_read = false
+		_synced = Net.is_host()
+		if not _synced and not heat.is_connected("heat_changed", _on_heat_synced):
+			heat.connect("heat_changed", _on_heat_synced, CONNECT_ONE_SHOT)
 	# Bottom left, clear of the job list and the hints.
 	position = Vector2(16.0, get_viewport_rect().size.y - 118.0)
 	var value := float(heat.get("heat"))
@@ -90,8 +103,13 @@ func _process(delta: float) -> void:
 		if sfx != null:
 			sfx.call("play", "heat_whoop")
 	_warned = level
-	_read = true
+	_read = _synced
 	if _caption_left > 0.0:
 		_caption_left -= delta
 		if _caption_left <= 0.0:
 			_caption.visible = false
+
+
+## The host's heat value reached this client; the next reading is the first real one.
+func _on_heat_synced(_value: float) -> void:
+	_synced = true
