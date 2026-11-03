@@ -758,7 +758,7 @@ func _day_end(music: Node) -> bool:
 
 ## An escape sequence (Border Return today; audio chunk 4b): the border cuts to
 ## the escape music at once (urgent), the start fires the starting pistol, a
-## throw-back boings where you stand, and finishing plays "Made It Back". The
+## throw-back's boing rides on you through the flight, and finishing plays "Made It Back". The
 ## crossing's own RPC handlers run here as plain calls, so nothing goes over the
 ## network, and _rpc_end puts the crossing back as it was.
 func _escape(music: Node) -> bool:
@@ -785,13 +785,21 @@ func _escape(music: Node) -> bool:
 	var go := _SfxScript.log.count("crossing_go") == go_before + 1
 	var where := me.global_position
 	crossing.call("_rpc_throwback", where)
-	var bonk := _SfxScript.log.count("crossing_bonk") == bonk_before + 1 and _placed_at("crossing_bonk", where)
+	# The bonk rides on the flying body (play_on), so its landing pomf lands under you.
+	var entry := _placed("crossing_bonk")
+	var on_me: bool = not entry.is_empty() and entry["kind"] == "on" and entry["node"] == str(me.get_path())
+	var bonk := _SfxScript.log.count("crossing_bonk") == bonk_before + 1 and on_me
+	# Let the throw-back land before leaving, or it drags the body back to the border.
+	var flying := 0.0
+	while bool(me.call("is_throwing_back")) and flying < Constants.BORDER_THROWBACK_SECONDS + 1.0:
+		await get_tree().physics_frame
+		flying += get_physics_process_delta_time()
 	crossing.call("_rpc_clear", me_id)
 	var made_it: bool = _Director.stinger_log.count("st_made_it") == made_before + 1 and _Director.stinger_log.back() == "st_made_it"
 	crossing.call("_rpc_end")
 	Net.move_player_to_zone(me_id, Net.Zone.STORE)
 	var after := await _wait_mood(music, [&"store", &"night", &"silence"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
-	print("[AudioTest] escape: the border cuts to escape %s playing %s (%s), pistol %s, bonk where you stood %s, Made It Back %s, back to %s %s" % [cut, track, plays, go, bonk, made_it, music.call("current_mood"), after])
+	print("[AudioTest] escape: the border cuts to escape %s playing %s (%s), pistol %s, bonk riding on you %s, Made It Back %s, back to %s %s" % [cut, track, plays, go, bonk, made_it, music.call("current_mood"), after])
 	return cut and plays and go and bonk and made_it and after
 
 

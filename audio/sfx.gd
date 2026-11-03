@@ -8,7 +8,7 @@ extends Node
 ## don't sound like the same file over and over.
 ##   play(id, db)                    2D, heard the same everywhere (UI, HUD cues)
 ##   play_at(id, at, db, wobble)     positional, heard only near where it happened
-##   play_on(id, node, db)           positional and moving with node (a truck)
+##   play_on(id, node, db, wobble)   positional and moving with node (a truck)
 ## Headless runs (tests, bots) make no players, but every play is still logged
 ## (log), and the positional ones also land in placed, with where they played.
 
@@ -79,7 +79,8 @@ func play_at(id: String, at: Vector3, db := 0.0, wobble := true) -> void:
 
 
 ## A one-shot that rides along with node, like a truck pulling away.
-func play_on(id: String, node: Node3D, db := 0.0) -> void:
+## wobble false keeps the pitch exact, for a sound timed to an animation.
+func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:
 	if node == null or not node.is_inside_tree():
 		play(id, db)
 		return
@@ -88,7 +89,7 @@ func play_on(id: String, node: Node3D, db := 0.0) -> void:
 	_note_placed(id, "on", node.global_position, str(node.get_path()))
 	if _silent():
 		return
-	var player := _player_3d(id, db, true)
+	var player := _player_3d(id, db, wobble)
 	if player == null:
 		return
 	node.add_child(player)

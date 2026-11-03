@@ -177,12 +177,14 @@ func _throw_local(body: Node) -> void:
 	body.call("play_throwback", start)
 
 
-## Local presentation: the boing where you were hit, its slide whistle falling
-## while play_throwback flies you back (both BORDER_THROWBACK_SECONDS long).
+## Local presentation: the boing as you're hit, its slide whistle falling while
+## play_throwback flies you back, the pomf as you land (BORDER_THROWBACK_SECONDS).
+## It rides on the flying body, so the camera that follows you hears all of it
+## at one level, and plays unwobbled so the pomf lands on the landing.
 func _bonk_fx(body: Node) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null and body is Node3D and not bool(body.call("is_throwing_back")):
-		sfx.call("play_at", "crossing_bonk", (body as Node3D).global_position)
+		sfx.call("play_on", "crossing_bonk", body, 0.0, false)
 
 
 func _handle_hit(peer_id: int) -> void:

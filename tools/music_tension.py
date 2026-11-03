@@ -142,8 +142,11 @@ INSTRUMENTS = {"xylo": i_xylo, "trombone": i_trombone, "boing": i_boing, "bell":
 DRUMS = {"kick_seam": d_kick_seam, "chip_kick": d_chip_kick, "chip_snare": d_chip_snare, "chip_hat": d_chip_hat, "kaching": d_kaching}
 PLACEMENT = {
     "kick_seam": (0.0, 0.02), "chip_kick": (0.0, 0.02), "chip_snare": (0.05, 0.08), "chip_hat": (0.25, 0.04),
-    "kaching": (0.1, 0.15), "triangle": (0.0, 0.03),
+    "kaching": (0.1, 0.15),
 }
+# The chip triangle bass stays dry. make_music's own "triangle" has no PLACEMENT
+# row, and a book only places what it adds, so the send is passed on each part.
+TRI_VERB = 0.03
 
 
 # ---------------------------------------------------------------- the loops
@@ -396,7 +399,7 @@ def escape_run():
         return [
             melody("pulse", lead, gain=0.42, pan=0.12, verb=0.12),
             arp("pulse", "1.3.5.6.5.3.1.3.", low=60, gain=0.16, pan=-0.35, verb=0.08),
-            bass("triangle", bounce, low=36, gain=0.8),
+            bass("triangle", bounce, low=36, gain=0.8, verb=TRI_VERB),
             drum("chip_kick", kick, gain=0.75),
             drum("chip_snare", snare, gain=0.42),
             drum("chip_hat", hat, gain=0.16),
@@ -405,7 +408,7 @@ def escape_run():
     sections = {
         "intro": m.Section(4, ["C", "C", "F", "G7"], [
             arp("pulse", "1.2.3.6.3.2.1.2.", low=60, gain=0.36, pan=0.1, verb=0.1),
-            bass("triangle", bounce, low=36, gain=0.8, only=[2, 3]),
+            bass("triangle", bounce, low=36, gain=0.8, only=[2, 3], verb=TRI_VERB),
             drum("chip_kick", kick, gain=0.75, only=[2, 3]),
             drum("chip_hat", hat, gain=0.16, only=[1, 2, 3]),
             drum("chip_snare", ["................", "................", snare, "x.x.x.x.xxxxxxxx"], gain=0.42),
@@ -420,7 +423,7 @@ def escape_run():
         ])),
         "bridge": m.Section(8, ["Am", "F", "C", "G", "Am", "F", "Dm7", "G7"], [
             melody("pulse", office, gain=0.4, pan=0.12, verb=0.12),
-            bass("triangle", "R-..R-..5-..5-..", low=36, gain=0.6),
+            bass("triangle", "R-..R-..5-..5-..", low=36, gain=0.6, verb=TRI_VERB),
             drum("typewriter", "xoxoxoxoxoxoxoxo", gain=0.24, pan=0.3, verb=0.06),
             drum("rubber_stamp", "x...............", gain=0.6, only=[0, 4]),
             drum("type_bell", "............x...", gain=0.22, pan=0.35, only=[7]),
@@ -429,7 +432,7 @@ def escape_run():
         ]),
         "out": m.Section(4, ["F", "G", "Am F", "G7"], [
             melody("pulse", run_up, gain=0.42, pan=0.12, verb=0.12),
-            bass("triangle", bounce, low=36, gain=0.8),
+            bass("triangle", bounce, low=36, gain=0.8, verb=TRI_VERB),
             drum("chip_kick", "x.x.x.x.x.x.x.x.", gain=0.7),
             drum("chip_snare", ["....x.......x...", "....x.......x...", "....x...x...x.x.", "x.x.x.x.xxxxxxxx"], gain=0.42),
             drum("chip_hat", hat, gain=0.16),
@@ -516,7 +519,7 @@ def st_made_it():
     return _stinger("st_made_it", "Made It Back", 132.0, "C major", 4507, "C", [
         m.melody("pulse", "C5:1 E5:1 G5:1 C6:1 r:1 G5:1 C6:6! r:4", gain=0.5, pan=0.1, verb=0.15),
         m.arp("pulse", "......1.3.5.6...", low=60, gain=0.2, pan=-0.3, verb=0.1),
-        m.bass("triangle", "R.....R-----....", low=36, gain=0.8),
+        m.bass("triangle", "R.....R-----....", low=36, gain=0.8, verb=TRI_VERB),
         m.drum("chip_kick", "x.....x.........", gain=0.7),
         m.drum("chip_snare", "x.x.x.x.........", gain=0.4),
         m.slide([("0:8", 520.0), ("0:14", 1760.0)], gain=0.3, pan=-0.15, verb=0.25),
