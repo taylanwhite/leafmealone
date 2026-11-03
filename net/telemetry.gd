@@ -6,7 +6,7 @@ extends Node
 var _events: Array[Dictionary] = []
 var _path: String = ""
 var _job_started_msec: int = 0
-var _border_started_msec: int = 0
+var _annex_started_msec: int = 0
 var _logging: bool = false
 
 
@@ -60,14 +60,15 @@ func mark_job_finish(cleanup: float, payouts: Array) -> void:
 	})
 
 
-func mark_border_start() -> void:
-	_border_started_msec = Time.get_ticks_msec()
-	event("border_start", {})
+## Satellite Annex B (net/annex/annex.gd): a visit began, and a rider got out.
+func mark_annex_start() -> void:
+	_annex_started_msec = Time.get_ticks_msec()
+	event("annex_start", {})
 
 
-func mark_border_finish(peer_id: int) -> void:
-	var seconds := float(Time.get_ticks_msec() - _border_started_msec) / 1000.0
-	event("border_finish", {"peer_id": peer_id, "seconds": seconds})
+func mark_annex_finish(peer_id: int) -> void:
+	var seconds := float(Time.get_ticks_msec() - _annex_started_msec) / 1000.0
+	event("annex_finish", {"peer_id": peer_id, "seconds": seconds})
 
 
 func _flush() -> void:

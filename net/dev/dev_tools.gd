@@ -108,6 +108,8 @@ func _ready() -> void:
 		_add(preload("res://net/dev/balance_test.gd").new(), "BalanceTest")
 	if bool(options.get("art_test")):
 		_add(preload("res://net/dev/art_test.gd").new(), "ArtTest")
+	if bool(options.get("annex_test")):
+		_add(preload("res://net/dev/annex_test.gd").new(), "AnnexTest")
 	# The R1 raking tests are loaded by path: each chunk adds its own file, and a
 	# run asking for one that isn't built yet just says so (the probe reports it).
 	if bool(options.get("rake_net_test")):

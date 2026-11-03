@@ -44,7 +44,7 @@ Some numbers those files still write inline are copied into `tools/balance/model
 
 1. Morning: requests are on the phone. Homie Depot is open 7 AM to 9 PM: the crew buys what it wants (below) and hires a hand if it can.
 2. The crew takes the request with the best expected pay per minute, rides out, works, and settles with the homeowner. Work: the leaves at the crew's rate (the one rake, a leaf blower, the rake tune-up for its share, the wheelbarrow, hired hands), the doable tasks split across the players, and nothing for a task the crew has no tool for. If finishing would outlast the homeowner's patience, the crew either finishes ("slow") or wraps up at the patience line with less done, whichever pays more per minute.
-3. While they work the heat rises with the loud tools (run in one stretch, as many at once as there are players) and the director rolls; a raid costs the chase and, for each player caught, Border Return.
+3. While they work the heat rises with the loud tools (run in one stretch, as many at once as there are players) and the director rolls; a raid costs the chase and, for each player caught, the trip to Satellite Annex B and its paperwork.
 4. Daytime texts come in at 10, 1, 4 and 7. With nothing to do before 6 PM the crew waits for the next text, then sleeps. With requests waiting they keep working until the clock stops at 2 AM.
 5. Bedtime: XP is banked and ranks unlock, wages are paid, the town's new day.
 

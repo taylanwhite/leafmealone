@@ -289,7 +289,7 @@ $Tests = [ordered]@{
 	playtest_tools = @{
 		Port = 7820
 		Engine = '--fixed-fps 30'
-		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test'; Seconds = 90
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test'; Seconds = 150
 		Check = { param($h, $c) [bool]$h.playtest_tools_test.ok }
 	}
 	# Tossing leaf bags into Chefty's bed (bags:throw): the host and a client 150 ms away each
@@ -300,6 +300,18 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --toss-test'; Seconds = 110; Client = 105
 		Extra = '--toss-test --sim-lag=150'
 		Check = { param($h, $c) [bool]$h.toss_test.ok -and $c -ne $null -and [bool]$c.toss_test.ok }
+	}
+	# Satellite Annex B (R2 chunk 6, net/dev/annex_test.gd) over 150 ms of lag: the
+	# schedule is the same on both peers and keeps the never-wait guarantee over 200
+	# seeds, forms fill through served windows, wrong windows, heists and carbons,
+	# bells, Window D, the big stamp, co-signing, the turnstile, closing time, the
+	# receipt, the save section, a late joiner, a disconnect, and both peers dress
+	# everyone at the Annex alike.
+	annex = @{
+		Port = 7830
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --annex-test'; Seconds = 150; Client = 145
+		Extra = '--sim-lag=150'
+		Check = { param($h, $c) [bool]$h.annex_test.ok -and $c -ne $null -and (Same $h.annex.looks $c.annex.looks) }
 	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").

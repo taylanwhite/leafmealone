@@ -2,7 +2,7 @@
 
 This is the reference for everything that runs in multiplayer. `AGENTS.md` lists the rules, and this file explains the patterns behind them so both lanes implement them the same way. If something here turns out to be wrong in practice, fix it here and log the change in `DECISIONS.md` rather than working around it in code.
 
-Leaf Me Alone has a few needs that most co-op games don't: players are in different places at the same time (the store, a job lot, and Border Return Mode), a lot holds hundreds of thousands of leaf units, and Border Return needs hazards that every player sees in the same place at the same moment. The sections on zones, the leaf field, the shared clock, and Border Return cover those.
+Leaf Me Alone has a few needs that most co-op games don't: players are in different places at the same time (the store, a job lot, and Satellite Annex B), a lot holds hundreds of thousands of leaf units, and the Annex needs clerks that every player sees doing the same thing at the same moment. The sections on zones, the leaf field, the shared clock, and the Annex cover those.
 
 ## Topology
 
@@ -156,8 +156,8 @@ Session flow:
 | Rides (truck, van) and their seating | Host | Host drives them along paths and assigns seats |
 | Enforcement crew and run events | Host | AI and the run event director run only on the host |
 | Captures and cohorts | Host | Host decides who is captured and which cohort they join |
-| Border Return hazards | Nobody at runtime | Deterministic from a seed and a start time on the shared clock |
-| Border Return hits | The player who got hit | The owning client detects its own hits and reports them |
+| Annex B clerks, the Head NICE BOY, Window D | Nobody at runtime | A pure schedule of a seed and the Annex's begin time on the shared clock, plus the host's ordered overrides (`net/annex/annex_schedule.gd`) |
+| Annex B forms, stamps, the big stamp, the turnstile | Host | Clients ask (`_rpc_request_*` with their server time, clamped to a grace window); the host stamps and sends the whole form |
 | Credits, unlocks, payout, saves | Host | Inside `Campaign` |
 | Cosmetic effects (leaf particles, ragdolls, sounds, screen shake) | Each peer locally | Triggered by events, never read back into gameplay |
 
@@ -250,7 +250,7 @@ The collision body follows the latest snapshot, and only the visual child follow
 
 ## Shared clock
 
-Border Return hazards, ride progress, and run event timers need every peer to agree on the time. `Net.server_time()` returns the host's clock in seconds on every peer.
+The Annex's clerks, ride progress, and run event timers need every peer to agree on the time. `Net.server_time()` returns the host's clock in seconds on every peer.
 
 - On the host it is simply the host's monotonic clock since the session started.
 - Each client estimates its offset from the host. Every second it sends a ping on channel 1 with its own send time, the host replies with its current time, and the client computes `offset = host_time + round_trip / 2 - local_receive_time`. Keep the samples from the last 10 seconds and use the offset from the sample with the lowest round trip, which is the least distorted by jitter.
@@ -332,13 +332,18 @@ Players never walk around inside a moving vehicle. That is the hardest problem i
 - When the window closes, the host freezes the roster, fills the van's seats from it, and starts the van ride to the border zone.
 - A cohort has an id, a roster, a hazard seed, and a start time. These are broadcast to every peer, so even players on the lot can show who was taken.
 
-## Border Return Mode
+## Satellite Annex B (Form 27-B)
 
-- Hazards are deterministic. Each lane's hazards are a pure function of the cohort's seed, the lane, and `Net.server_time() - start_time`. Never accumulate hazard motion frame by frame. A pure function of time gives the same positions on every peer, including Apple Silicon Macs and x86 Windows PCs, without replicating any hazard.
-- Each player's own client checks its character against the hazards. On a hit, it plays the throwback immediately and tells the host with a request RPC so the host can track stats. In a co-op game, trusting the owner here is what makes hits feel fair at any ping.
-- Reaching the exit is also reported by the owner. The host does a loose position check, then moves the player back to the lot zone.
-- Two open design questions are flags in the cohort config: whether a miss resets one player or the whole cohort (OQ-011, default one player) and whether players finish individually or as a group (OQ-027, default individually).
-- While a cohort is in Border Return, the lot keeps running for everyone else (OQ-023).
+Border Return (the lane crossing) is gone (R2 chunk 6, 2026-11-02). Caught players do a paperwork errand at Satellite Annex B, in the BORDER zone's slot (`Net.Zone.BORDER` now means the Annex). `World/Annex` (`net/annex/annex.gd`, group `annex`) runs it; docs/GAME.md has the design.
+
+- **Pure schedule plus host overrides.** Every clerk's routine, the Head NICE BOY's desk-and-away, Window D's one opening and the run's quirks and pictograms are a pure function of the Annex's seed and the seconds since it began (`annex_schedule.gd`). Interruptions (a serve, a bell, a head shake, a noticed heist, the big stamp spotted, closing time) are host overrides `{kind, w, at, until, ...}` in the same clock, sent reliably in order and applied newest-first (`effective()`). Every peer draws the same room without replicating a body; the host judges "is he looking" from the schedule, never from the cosmetic bodies.
+- **Outcomes are the host's.** Clients ask (`_rpc_request_serve(window, client_t)`, `_self_stamp`, `_bell`, `_desk`, `_big_stamp`, `_cosign`, `_tray`, `_leave`, `_visit`), with `client_t` clamped to `[now - ANNEX_GRACE, now]`; the host checks reach and state and sends the whole form back (`_rpc_form`). Owners predict only the stamp lifting; the KA-CHUNK waits for the host.
+- **The never-wait guarantee** is a property of the generator (annex_test checks 200 seeds): no "looking but not serving" stretch over `ANNEX_MAX_IDLE`, a serving window always open, each open at least `ANNEX_MIN_OPEN_SHARE`.
+- **The turnstile** turns for one player: their own peer disables its bar's shapes while it's open for them (each peer simulates only its own player, so that lets exactly them through); the host sees them reach the forecourt.
+- **Late joiners** get `_rpc_snapshot(snapshot())` from the host on `player_joined` (and from the director's state request once R2 chunk 2 sends one); they spectate and are never in the roster. **Disconnects** leave the roster, queues and holds; a held big stamp goes back to its pad; an empty Annex with no visitors ends (`_rpc_end`).
+- **Without the other R2 chunks** (each guarded by group + has_method or `ResourceLoader.exists`): no Shuttle, so `world.on_ride_arrived(BORDER)` calls `begin()` and the finishers go home by the host's teleport; no AnnexSet, clerks, clipboard or slip, so `annex_greybox.gd` and `annex_paper.gd` stand in with the same node names and calls; no Encounter, so no stage changes; no iris, so a cut.
+- While a cohort is at the Annex, the lot keeps running for everyone else (OQ-023).
+- RPCs (World/Annex): `_rpc_begin(trip_id, roster, seed, start_at, forms, windows, quirk_windows, d_open_at, close_at)`, `_rpc_join(peer, form, at)`, `_rpc_stage(peer, stage, at)`, `_rpc_override(entry)`, `_rpc_form(peer, form, at, source)`, `_rpc_stamped(peer, window, at, ok)`, `_rpc_big_stamp(holder, at)`, `_rpc_big_slam(holder, target, at)`, `_rpc_turnstile(peer, at, open)`, `_rpc_cosigned(visitor, at)`, `_rpc_visitors(list)`, `_rpc_closing(at, forms)`, `_rpc_through(peer, at, seconds, by_closing, lines, total)`, `_rpc_out(peer)`, `_rpc_left(peer)`, `_rpc_end()`, `_rpc_snapshot(snap)`, `_rpc_place(at)` and `_rpc_door_iris(at)` to one peer, `_rpc_retime(start_at, close_at)` (dev), and the `_rpc_request_*` asks above. The smoke test's `_rpc_hazard_probe/_sample` became `_rpc_schedule_probe/_sample` (the schedule's 200-sample fingerprint).
 
 ## Campaign saves
 

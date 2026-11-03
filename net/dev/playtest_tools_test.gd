@@ -109,10 +109,26 @@ func _run() -> void:
 		out = await _scenarios.run(moment)
 		reached[moment] = _check(out, bool(_scenarios.call("_reached_" + moment)), "reached %s" % moment, problems)
 
+	# Every other scenario (the Annex's, and each R2 chunk's) says itself whether it
+	# got there: scenarios.gd's _reached_<name>(). One that needs a second player
+	# (annex_visit) must say so instead of pretending.
+	for name: String in _ScenariosScript.NAMES:
+		if reached.has(name) or name in ["drive", "border_return"]:
+			continue
+		var probe := "_reached_%s" % name
+		if not _scenarios.has_method(probe):
+			continue
+		out = await _scenarios.run(name)
+		if name == "annex_visit" and Net.peer_ids().size() < 2:
+			reached[name] = not bool(out.get("ok", true)) and str(out.get("error", "")).contains("second player")
+			print("[PlaytestToolsTest] annex_visit alone: %s" % out.get("error", "no error"))
+			if not reached[name]:
+				problems.append("annex_visit didn't say it needs a second player: %s" % out)
+			continue
+		reached[name] = _check(out, bool(_scenarios.call(probe)), "%s reached: %s" % [name, out.get("note", "")], problems)
+	# The old name still lands at the Annex for one wave.
 	out = await _scenarios.run("border_return")
-	# In the zone and staged for the crossing (a non-empty status means Border
-	# Return has us in its roster, not just a teleport to the border).
-	reached["border_return"] = _check(out, _zone() == "BORDER" and str(out.get("status", "")) != "", "zone %s, %s" % [_zone(), str(out.get("status", ""))], problems)
+	reached["border_return"] = _check(out, _zone() == "BORDER" and bool(_scenarios.call("_reached_annex")), "zone %s, %s" % [_zone(), str(out.get("note", ""))], problems)
 
 	# drive needs the connected town; in this legacy world it must say so, not pretend.
 	out = await _scenarios.run("drive")

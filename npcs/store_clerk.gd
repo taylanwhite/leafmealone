@@ -21,7 +21,7 @@ extends Node3D
 ##   greet       walking up to the counter
 ##   morning     the first time you walk up on a new day, before noon
 ##   night       walking up during quiet hours
-##   after_raid  the first time you walk up after the NICE BOYS took you over the border
+##   after_raid  the first time you walk up after the NICE BOYS took you to Annex B
 ##   open        opening the shop window
 ##   closed      opening the shop window after hours
 ##   buy         a purchase the host confirmed in their window (on_sale: ui/ui_root.gd
@@ -63,7 +63,7 @@ var _greeted_at: float = -1000.0
 var _local_was_near: bool = false
 ## The day of the last greet, so the first one of a day can be "morning".
 var _greeted_day: int = -1
-## The local player was taken over the border and the keeper hasn't said the after-raid line yet.
+## The local player was taken to Annex B (Zone.BORDER) and the keeper hasn't said the after-raid line yet.
 var _was_raided: bool = false
 
 

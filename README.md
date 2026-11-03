@@ -17,7 +17,7 @@ This kit sets up the Leaf Me Alone repo so two people can build the game in Godo
 | `core/constants.gd`, `core/balance.gd` | Project constants and generated tuning values, checked in Godot 4.7 |
 | `docs/GAME.md` | The workbook's confirmed canon, working assumptions, and open questions, written for agents |
 | `docs/PLAN.md` | Milestones M0 to M6 with tasks per lane, workbook backlog ids, and done criteria |
-| `docs/NETCODE.md` | The networking design: `Net` and `Campaign` APIs, zones, shared clock, leaf field, rides, captures, Border Return, saves, Steam, voice |
+| `docs/NETCODE.md` | The networking design: `Net` and `Campaign` APIs, zones, shared clock, leaf field, rides, captures, Satellite Annex B, saves, Steam, voice |
 | `docs/PLATFORMS.md` | Developing on Mac, exporting and testing for Mac and Windows |
 | `docs/DECISIONS.md` | Log of technical decisions, seeded with the ones made so far |
 | `docs/HANDOFFS.md` | Where one lane asks the other for something |
@@ -28,8 +28,8 @@ This kit sets up the Leaf Me Alone repo so two people can build the game in Godo
 
 Work is split by folder so the two agents rarely touch the same files.
 
-- **NET** (Taylan by default) owns the session, Steam, zones, the shared clock, the leaf field's data and replication, rides, the run event director, captures, Border Return timing, saves, voice, and the smoke test.
-- **PLAY** (Taylan's brother by default) owns the player, equipment, leaf rendering, props, the world and lots, crew behavior, Border Return lanes, and all UI.
+- **NET** (Taylan by default) owns the session, Steam, zones, the shared clock, the leaf field's data and replication, rides, the run event director, captures, Satellite Annex B, saves, voice, and the smoke test.
+- **PLAY** (Taylan's brother by default) owns the player, equipment, leaf rendering, props, the world and lots, crew behavior, and all UI.
 - **SHARED** covers `project.godot`, export presets, `core/`, `assets/`, `design/`, and the docs.
 
 Swap or rebalance whenever you like. Update `AGENTS.md` and your `local-me.mdc` files when you do.

@@ -30,8 +30,8 @@ extends Node
 ##  W7. the homeowner's reaction pool (homeowner.gd choose_pool, a seeded rng): their
 ##      personality's voice, bill_water and breakage bills as often as Constants says
 ## Phase A, the inline sweep's follow-ups (cast:3, host):
-##  Q2. the border crossing answers is_thrown_back() (true only while running and
-##      thrown back), and a quip player watching it plays border_fail once per throw
+##  Q2. (R2 chunk 6) the Annex's quip pools and receipt: every kind has its lines,
+##      no border_fail quip, the world has the Annex and no Border Return
 ##  Q3. season names, and neighborhood and personality blurbs, read from Strings
 ##  Q1. (in phase C) the director's status is the Strings text, and the quip player
 ##      plays its run_warning and crew_arrival (Q-009) lines from the phase number
@@ -126,7 +126,7 @@ const SWEEP_LITERAL := "\"[A-Za-z][^\"%\\n]*\\s[A-Za-z][^\"\\n]*\""
 const SWEEP_ALLOW: Array[String] = ["HOMIE DEPOT", "Homie Depot", "Chefty"]
 ## The scene sweep (settings:4) reads .tscn files in SWEEP_DIRS and these, for
 ## these properties. The scenes' text belongs in ui/strings.gd, set by the script.
-const SWEEP_SCENE_DIRS: Array[String] = ["res://border", "res://equipment"]
+const SWEEP_SCENE_DIRS: Array[String] = ["res://equipment"]
 const SWEEP_SCENE_PROPERTIES: Array[String] = ["text", "placeholder_text", "tooltip_text"]
 
 static var result: Dictionary = {}
@@ -813,7 +813,7 @@ func _wiring() -> void:
 		var quiet := clock != null and bool(clock.call("is_quiet_hours"))
 		_wire(str(clerk.call("greet_trigger")) == ("night" if quiet else "greet"), "W1 the next greet is '%s', not '%s'" % ["night" if quiet else "greet", clerk.call("greet_trigger")])
 		clerk.call("_on_zone_changed", Net.local_peer_id(), Net.Zone.BORDER)
-		_wire(str(clerk.call("greet_trigger")) == "after_raid", "W1 a greet after a trip over the border is 'after_raid', not '%s'" % clerk.call("greet_trigger"))
+		_wire(str(clerk.call("greet_trigger")) == "after_raid", "W1 a greet after a trip to Annex B is 'after_raid', not '%s'" % clerk.call("greet_trigger"))
 		clerk.call("_greet")
 		_wire(str(clerk.call("greet_trigger")) != "after_raid", "W1 'after_raid' is said once")
 		# A raid, then the next day's first greet before noon: "morning" wins, and the
@@ -885,12 +885,10 @@ func _wiring() -> void:
 	# W5: hired hands are never named for a nationality.
 	var hire_names: Array = _constant("res://net/crew/hires.gd", "NAMES", [])
 	_wire(not hire_names.is_empty() and not hire_names.has("Dutch"), "W5 the hire nicknames have no 'Dutch'")
-	# Q2 (cast:3): the quip player asks the crossing whether you were thrown back,
-	# instead of matching its status text.
-	var crossing := get_tree().get_first_node_in_group("border_return")
-	_wire(crossing != null and crossing.has_method("is_thrown_back") and not bool(crossing.call("is_thrown_back")), "Q2 the border crossing says is_thrown_back() (false with nobody crossing)")
-	if crossing != null and crossing.has_method("is_thrown_back"):
-		_throwback(crossing)
+	# Q2 (R2 chunk 6, replacing Border Return's throw-back quip): the Annex's
+	# quips and receipt read from Strings, every pool has its lines, and the slip
+	# is the same for the same visit.
+	_annex_quips()
 	# Q3 (cast:3): text that moved out of game code reads the same through its new home.
 	_wire(_Seasons.name_of(0) == _Strings.SEASON_NAMES[0] and _Seasons.name_of(5) == _Strings.SEASON_NAMES[1], "Q3 Seasons.name_of() reads Strings.SEASON_NAMES")
 	for hood: Dictionary in _Hoods.HOODS:
@@ -901,35 +899,25 @@ func _wiring() -> void:
 	print("[CastTest] steps W1-W5 and W7, the lines in the game: %s" % (_problems.size() == before))
 
 
-## Q2 (cast:3): is_thrown_back() is true only while the local player is running
-## and was thrown back, and a quip player watching it plays the border_fail line
-## once per throw. Done in one frame on the real crossing, whose state is put back
-## before its _process can see it.
-func _throwback(crossing: Node) -> void:
-	var saved := {}
-	for field: String in ["_running", "_local_done", "_threw_back"]:
-		saved[field] = crossing.get(field)
-	crossing.set("_running", true)
-	crossing.set("_local_done", false)
-	crossing.set("_threw_back", true)
-	_wire(bool(crossing.call("is_thrown_back")), "Q2 is_thrown_back() is true while running and thrown back")
-	var quips: Node = _QuipPlayer.new()
-	quips.name = "CastThrowQuips"
-	add_child(quips)
-	quips.call("_watch_throwback")
-	quips.call("_watch_throwback")
-	var id := _quip_id("border_fail")
-	var played: Dictionary = quips.get("_played")
-	_wire(id != "" and int(played.get(id, 0)) == 1, "Q2 a throw-back plays the border_fail quip (%s) once; played: %s" % [id, JSON.stringify(played)])
-	crossing.set("_local_done", true)
-	_wire(not bool(crossing.call("is_thrown_back")), "Q2 is_thrown_back() is false once the local player is done")
-	crossing.set("_local_done", false)
-	crossing.set("_threw_back", false)
-	_wire(not bool(crossing.call("is_thrown_back")), "Q2 is_thrown_back() is false while running without a throw-back")
-	for field: String in saved:
-		crossing.set(field, saved[field])
-	remove_child(quips)
-	quips.queue_free()
+## Q2 (R2 chunk 6): Border Return and its border_fail quip are gone; the Annex's
+## lines are Strings.ANNEX_QUIPS and RECEIPT_LINES. Every quip kind the Annex
+## plays has a pool, nothing names the old crossing, and a receipt is 4-6 lines
+## plus the time, the same for the same visit, totalling $0.00.
+func _annex_quips() -> void:
+	var receipt: Script = load("res://net/annex/receipt_lines.gd")
+	for kind: String in ["first_visit", "fast", "closing", "teammate_inside"]:
+		var pool: Array = _Strings.ANNEX_QUIPS.get(kind, [])
+		_wire(pool.size() >= 3, "Q2 the Annex has its %s quips (%d)" % [kind, pool.size()])
+	_wire(_quip_id("border_fail") == "", "Q2 no quip plays on the old border_fail trigger")
+	_wire(get_tree().get_first_node_in_group("border_return") == null and get_tree().get_first_node_in_group("annex") != null, "Q2 the world has the Annex and no Border Return")
+	var stats := {"hid": 1, "window_d": 1, "carbon": 2}
+	var a: PackedStringArray = receipt.call("lines", 77, stats, 72.0, 58.0)
+	var b: PackedStringArray = receipt.call("lines", 77, stats, 72.0, 58.0)
+	_wire(a == b and a.size() >= 5 and a.size() <= 7, "Q2 a receipt is the same for the same visit, 4-6 lines and the time: %s" % [a])
+	_wire(str(receipt.call("total_line", stats)).ends_with("$0.00"), "Q2 the receipt totals $0.00: %s" % receipt.call("total_line", stats))
+	for line: String in a:
+		for hit: Variant in _Guardrail.check(line):
+			_fail("Q2 receipt guardrail %s" % str(hit), line)
 
 
 ## Step W7: the homeowner's reaction pool (npcs/homeowner.gd choose_pool), rolled

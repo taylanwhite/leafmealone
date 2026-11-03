@@ -85,6 +85,4 @@
 | assets/audio/music/st_job_paid.ogg | Original, synthesized by tools/make_music.py (tools/music_tension.py), encoded by tools/encode_ogg.py | Project original | no | Python, Godot Movie Maker (encode) |
 | assets/audio/music/st_busted.ogg | Original, synthesized by tools/make_music.py (tools/music_tension.py), encoded by tools/encode_ogg.py | Project original | no | Python, Godot Movie Maker (encode) |
 | assets/audio/music/st_made_it.ogg | Original, synthesized by tools/make_music.py (tools/music_tension.py), encoded by tools/encode_ogg.py | Project original | no | Python, Godot Movie Maker (encode) |
-| assets/audio/sfx/crossing_go.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
-| assets/audio/sfx/crossing_bonk.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/icons/*.png, assets/icons/app_icon.ico | Original, generated in-house by tools/studio/icon_studio.gd from the project's own code models and code-drawn shapes (labels in Godot's built-in fallback font); no third-party source | Project original | no | Godot (tools/studio/icon_studio.gd) |

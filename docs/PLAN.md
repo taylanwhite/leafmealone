@@ -134,6 +134,8 @@ Done when a run event can fire, players can escape or be caught, the van always 
 
 ## M5: Border Return Mode
 
+Superseded 2026-11-02 (R2): Border Return was replaced by Satellite Annex B's Form 27-B (`net/annex/`, docs/GAME.md). The tasks below are kept as history.
+
 Captured players cross back together (BL-011).
 
 NET

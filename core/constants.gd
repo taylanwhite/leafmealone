@@ -43,12 +43,7 @@ const CREW_SEARCH_RADIUS: float = 8.0
 ## ...for this long, then patrols the lot.
 const CREW_SEARCH_SECONDS: float = 12.0
 
-## Disembark beat before the crossing clock.
-## The workbook's full crossing is Balance.BORDER_RETURN_TARGET_DURATION_MINUTES.
-## This gray-box run is 60 seconds, set 2026-10-13.
-const BORDER_CROSSING_SECONDS: float = 60.0
-const BORDER_STAGING_SECONDS: float = 3.0
-const BORDER_THROWBACK_SECONDS: float = 0.55
+## Immunity after being let go (director.release_peer's default).
 const BORDER_RETURN_IMMUNITY_SECONDS: float = 4.0
 
 ## The rake and the homeowner, from Taylan on 2026-10-19 (docs/GAME.md, developer notes).
@@ -2219,6 +2214,179 @@ const ARC_HOURS := Vector2(10.0, 20.0)
 const RANK_PACE_HOURS: Array[float] = [0.0, 1.0, 2.5, 4.5, 6.5, 9.0, 11.5, 14.0, 16.0]
 ## A solo crew's arc may take at most this many times a four-player crew's.
 const ARC_SOLO_RATIO_MAX: float = 1.3
+
+# ---- nice boys: Form 27-B (R2 chunk 6)
+# Satellite Annex B (net/annex/annex.gd, docs/GAME.md "Form 27-B, in Triplicate"):
+# the paperwork errand that replaced Border Return. Times are seconds of server time
+# since the Annex began (annex_schedule.gd is a pure function of the seed and these).
+## The Annex closes this long after the first walk-in: everyone still inside is
+## approved AFTER HOURS and let out. urgent() (the clock speeds up, the lights
+## flicker, the escape cue) from ANNEX_URGENT_AT.
+const ANNEX_CAP_SECONDS: float = 150.0
+const ANNEX_URGENT_AT: float = 120.0
+## The event soak's shorter day (--run-event-at), so bot runs end inside the soak.
+const ANNEX_CAP_SECONDS_SOAK: float = 50.0
+## Boxes on a caught player's form by heat at the catch: 2 under the first, 3
+## under the second, 4 at or over it.
+const ANNEX_BOXES_BY_HEAT: Array[float] = [35.0, 70.0]
+## Window ids on the back wall: A-C serve every form, D opens once.
+const ANNEX_WINDOWS: Array[String] = ["A", "B", "C", "D"]
+const ANNEX_SERVING_WINDOWS: Array[String] = ["A", "B", "C"]
+## The pictograms the three serving windows draw from (ui/icons.gd ids), three per run.
+const ANNEX_WINDOW_ICONS: Array[String] = ["item_rake", "item_leaf_bag", "tool_lawn_mower", "tool_hedge_trimmer"]
+const ANNEX_WINDOW_COLORS: Array[Color] = [Color(0.95, 0.55, 0.25), Color(0.36, 0.62, 0.92), Color(0.45, 0.78, 0.4), Color(0.86, 0.42, 0.74)]
+## A clerk taking the form, stamping it and handing it back.
+const ANNEX_SERVE_SECONDS: float = 2.0
+## Standing on a window's counter spot this long asks to be served.
+const ANNEX_COUNTER_DWELL: float = 0.4
+## Holding interact on a window's stamp this long stamps your own form.
+const ANNEX_SELF_STAMP_HOLD: float = 1.0
+## A clerk's view cone, in degrees (the host judges with the schedule, not the bodies).
+const ANNEX_CLERK_VIEW_DEG: float = 100.0
+## A desk bell: the clerk turns to his filing cabinet this long, twitches at
+## ANNEX_BELL_TWITCH_AT, and every ANNEX_BELL_EARLY_EVERY-th ring turns back early
+## at ANNEX_BELL_EARLY_AT. One ring per window per cooldown.
+const ANNEX_BELL_TURN: float = 3.0
+const ANNEX_BELL_TWITCH_AT: float = 1.2
+const ANNEX_BELL_EARLY_EVERY: int = 3
+const ANNEX_BELL_EARLY_AT: float = 1.8
+const ANNEX_BELL_COOLDOWN: float = 4.0
+## A clerk's routine, (min, max) seconds per segment: open, then a phone call or a
+## break (telegraphed first, then the walk back is ANNEX_RETURN_WALK of it).
+const ANNEX_OPEN := Vector2(5.0, 9.0)
+const ANNEX_PHONE := Vector2(2.0, 4.0)
+const ANNEX_BREAK := Vector2(6.0, 10.0)
+const ANNEX_TELEGRAPH: float = 0.8
+const ANNEX_RETURN_WALK: float = 2.5
+## The never-wait guarantee: no clerk is "looking but not serving" longer than this.
+const ANNEX_MAX_IDLE: float = 4.0
+## Each serving window is open at least this share of the day (annex_test checks).
+const ANNEX_MIN_OPEN_SHARE: float = 0.45
+## Quirks per run (min, max), on distinct serving windows.
+const ANNEX_QUIRKS := Vector2i(1, 2)
+## Asleep: his breaks are naps this many times longer, at the counter.
+const ANNEX_ASLEEP_SCALE: float = 1.4
+## Waking from a bell, before he's serving again.
+const ANNEX_WAKE_SECONDS: float = 1.0
+## Lunch: on his phone slots he eats, turning round for a bite of this long, then
+## chewing with his back turned for ANNEX_LUNCH_CHEW.
+const ANNEX_LUNCH_BITE: float = 1.0
+const ANNEX_LUNCH_CHEW: float = 2.2
+## Copier jam: one break this long at the copier.
+const ANNEX_JAM_SECONDS: float = 12.0
+## Window D: blinds up once, at a seeded moment in this window, for ANNEX_D_OPEN.
+const ANNEX_D_WINDOW := Vector2(35.0, 90.0)
+const ANNEX_D_OPEN: float = 8.0
+## The Head NICE BOY: at his desk, then away with his back turned (min, max).
+const ANNEX_HEAD_DESK := Vector2(12.0, 18.0)
+const ANNEX_HEAD_AWAY := Vector2(6.0, 9.0)
+## The approval: the big stamp up, a hesitation, then the slam.
+const ANNEX_HEAD_WINDUP: float = 0.6
+const ANNEX_HEAD_SLAM: float = 0.3
+## Carrying the big stamp: move speed scale, and how close a friend must be.
+const ANNEX_BIG_STAMP_SLOW: float = 0.7
+const ANNEX_BIG_STAMP_REACH: float = 1.5
+## The host's check of the Head NICE BOY's view of a lifted stamp, per second.
+const ANNEX_STAMP_SPOT_HZ: float = 5.0
+## Spotted: he walks over with his hand out this long, and the escape cue plays.
+const ANNEX_SPOTTED_WALK: float = 2.0
+const ANNEX_SPOTTED_ESCAPE: float = 6.0
+## The co-signer sheet: hold interact this long (visitors only).
+const ANNEX_COSIGN_HOLD: float = 1.5
+## The turnstile turns this long for an approved form.
+const ANNEX_TURNSTILE_OPEN: float = 2.0
+## Requests carry the client's server time, clamped to now minus this.
+const ANNEX_GRACE: float = 0.25
+## A wrong window's head shake costs this long before he looks at you again.
+const ANNEX_WRONG_WINDOW: float = 1.5
+## OQ-027: the return shuttle waits for the whole cohort.
+const ANNEX_FINISH_AS_GROUP: bool = true
+## Out faster than this (seconds from the walk-in) earns the fast quip.
+const ANNEX_FAST_SECONDS: float = 60.0
+## XP for a finished form (the paperwork), banked at bedtime like other XP.
+const XP_PAPERWORK: int = 15
+## Every this many visits the Greeter hands over a Fast Pass: the first box comes pre-stamped.
+const ANNEX_FAST_PASS_EVERY: int = 5
+## BAL-28: a catch costs only time. Kept as constants for Taylan; never shown as a
+## charge while both are 0.
+const ANNEX_FEE_BASE: int = 0
+const ANNEX_FEE_PER_HEAT: float = 0.0
+## The walk-in behind the Greeter, curb to threshold, before the clipboard; the
+## riders are staged behind him this long after the begin (after the zone move),
+## and he turns to lead them in this long after it, once he's waved them over.
+const ANNEX_GREETER_WALK: float = 5.0
+const ANNEX_WALK_STAGE_DELAY: float = 0.25
+const ANNEX_WALK_LEAD_DELAY: float = 1.6
+## Reach to each spot (meters, to the player's feet): a counter spot (measured to
+## the capsule edge, the spec's 0.6 m), the queue behind it, a stamp, a bell, the
+## desk, the tray, the co-signer sheet, a door.
+const ANNEX_COUNTER_REACH: float = 0.9
+const ANNEX_QUEUE_REACH: float = 2.6
+const ANNEX_STAMP_REACH: float = 1.1
+const ANNEX_BELL_REACH: float = 1.3
+const ANNEX_DESK_REACH: float = 1.6
+const ANNEX_TRAY_REACH: float = 1.3
+const ANNEX_SHEET_REACH: float = 1.3
+const ANNEX_DOOR_REACH: float = 2.0
+## The host's slack on those reaches, for a client's lag: a one-off ask
+## (ANNEX_REACH_SLACK), a hold kept going or the big stamp lifted or used
+## (ANNEX_HOLD_SLACK), the big stamp put back or a visitor door (ANNEX_LOOSE_SLACK).
+## So a counter ask is honoured to 1.25 m from the feet: the spec's 0.6 m capsule
+## edge is the local spot, the slack is for the 150 ms the ask spends travelling.
+const ANNEX_REACH_SLACK: float = 0.35
+const ANNEX_HOLD_SLACK: float = 0.4
+const ANNEX_LOOSE_SLACK: float = 0.6
+## The turnstile: walking within ANNEX_GATE_REACH of it asks it to turn (the host
+## allows ANNEX_REACH_SLACK more); a rider is through once ANNEX_TURNSTILE_PASS_DEPTH
+## past it on the forecourt side, within ANNEX_TURNSTILE_PASS_WIDTH of it; the bar
+## stays out of the opener's way ANNEX_TURNSTILE_PASS_SLACK past its turn.
+const ANNEX_GATE_REACH: float = 1.0
+const ANNEX_TURNSTILE_PASS_DEPTH: float = 0.45
+const ANNEX_TURNSTILE_PASS_WIDTH: float = 4.0
+const ANNEX_TURNSTILE_PASS_SLACK: float = 0.6
+## One tray ask per player per this long.
+const ANNEX_TRAY_ASK_GAP: float = 0.8
+## A clerk's notice of a hand on his stamp (the smile, the carbon slid in this far into it).
+const ANNEX_NOTICE_SECONDS: float = 1.4
+const ANNEX_NOTICE_CARBON_AT: float = 0.5
+## Window D's volley: how long it lasts, and when in it the form is full.
+const ANNEX_VOLLEY_SECONDS: float = 1.6
+const ANNEX_VOLLEY_STAMP_AT: float = 0.8
+## A serve's beats, seconds into ANNEX_SERVE_SECONDS: he takes the form, lifts
+## his stamp, stamps, hands it back; the stamp lands ANNEX_SERVE_STAMP_LEAD before the end.
+const ANNEX_SERVE_TAKE_AT: float = 0.4
+const ANNEX_SERVE_LIFT_AT: float = 1.0
+const ANNEX_SERVE_STAMP_AT: float = 1.2
+const ANNEX_SERVE_HAND_AT: float = 1.7
+const ANNEX_SERVE_STAMP_LEAD: float = 0.15
+## A visitor goes through the door this long into the door-swing iris.
+const ANNEX_DOOR_IRIS_WAIT: float = 0.4
+## The first light row goes off this long after closing.
+const ANNEX_LIGHTS_OFF_DELAY: float = 1.2
+## A waiting client asks again this often.
+const ANNEX_RETRY_SECONDS: float = 0.5
+## After closing, anyone still inside goes out this long later.
+const ANNEX_CLOSING_OUT: float = 8.0
+## The light rows clunk off this far apart, back of the room first.
+const ANNEX_LIGHT_ROW_OFF_GAP: float = 0.3
+## The receipt in your hands after the turnstile.
+const ANNEX_RECEIPT_SECONDS: float = 4.0
+## Without the Shuttle (chunk 4): the finishers wait this long in the forecourt
+## before going back (the group waits for the last one first).
+const ANNEX_RETURN_WAIT: float = 2.0
+## Immunity after the drop-off without the Shuttle.
+const ANNEX_DROP_IMMUNITY: float = 6.0
+## The schedule is generated this far ahead (seconds), then repeats its last day.
+const ANNEX_SCHEDULE_HORIZON: float = 240.0
+## The legacy map's Courtesy Desk door, in StoreZone space, by the Homie Depot
+## curb (outside every STORE_LAYOUT reservation), and the way it faces.
+const ANNEX_STORE_DOOR := Vector3(-16.0, 0.0, 17.0)
+const ANNEX_STORE_DOOR_YAW: float = 0.0
+## The town's Field Office front door, in the office's own space (town_dressing.gd).
+const ANNEX_FIELD_OFFICE_DOOR := Vector3(0.0, 0.0, 5.0)
+## A player body spawned before its name reached this peer waits this long for
+## it before dressing anyway (player.gd _dress_up: looks come from the name).
+const DRESS_NAME_WAIT_SECONDS: float = 2.0
 
 # ---- art
 # The neighborhood looks (docs/ART.md "Houses and the kit", docs/DECISIONS.md

@@ -514,9 +514,9 @@ func _state() -> Dictionary:
 	if director != null and int(director.call("phase")) != 0:
 		out["raid"] = ["QUIET", "WARNING", "CHASE"][clampi(int(director.call("phase")), 0, 2)]
 		out["raid_status"] = str(director.call("status_line"))
-	var crossing := get_tree().get_first_node_in_group("border_return")
-	if crossing != null and str(crossing.call("status_line")) != "":
-		out["border"] = str(crossing.call("status_line"))
+	var annex := get_tree().get_first_node_in_group("annex")
+	if annex != null and bool(annex.call("is_active")):
+		out["annex"] = annex.call("status")
 	var camera := get_viewport().get_camera_3d()
 	if camera != null:
 		out["camera"] = "%s/%s" % [camera.get_parent().name, camera.name] if camera.get_parent() != null else str(camera.name)

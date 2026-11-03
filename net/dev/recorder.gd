@@ -528,7 +528,7 @@ func _on_sfx(id: String, how: String, at: Vector3) -> void:
 		_event("sfx_at", {"id": id, "how": how, "at": _v(at)})
 
 
-## Things with no signal: captures, the crossing, rides, the crew, the current
+## Things with no signal: captures, the Annex, rides, the crew, the current
 ## camera, and the local player's state. Checked in _process and again after
 ## the frame is drawn, so a change made later in the frame than this node's
 ## _process is still filed under the frame that shows it.
@@ -536,9 +536,10 @@ func _poll_changes() -> void:
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
 		_changed("cohort", str(director.call("cohort_roster")), func(value: String) -> void: _event("capture", {"cohort": value}))
-	var crossing := get_tree().get_first_node_in_group("border_return")
-	if crossing != null:
-		_changed("border", str(crossing.call("status_line")), func(value: String) -> void: _event("border", {"status": value}))
+	var annex := get_tree().get_first_node_in_group("annex")
+	if annex != null:
+		var status: Dictionary = annex.call("status")
+		_changed("annex", "%s %s %s" % [status.get("active", false), status.get("form", ""), status.get("stage", "")], func(_value: String) -> void: _event("annex", status.duplicate()))
 	for ride: Node in get_tree().get_nodes_in_group("rides"):
 		if ride.is_in_group("nice_shuttle"):
 			continue

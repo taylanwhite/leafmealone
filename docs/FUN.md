@@ -29,7 +29,7 @@ need a person, and the notes below say where.
 - So the whole shop is bought in 3 to 5 jobs. After that nothing new is for
   sale, nothing new shows up, and the only variable is the yard's layout.
 - The NICE BOYS run event is the game's identity and the thinnest system in it:
-  one trigger rule, one chase, hide spots, the van, Border Return.
+  one trigger rule, one chase, hide spots, the van, Border Return (since replaced by Annex B's Form 27-B, R2).
 
 Honest estimate of content today: 2 to 3 hours before it's the same evening
 again. The target is 8 to 10. The gap is not "more tasks"; it's the lack of a
@@ -51,7 +51,7 @@ progression ladder and of pressure that changes how you play.
 | Pool | New; scooping | Nothing yet | Fall in: soaked and slow, leaves stick to you; underwater you're invisible to the NICE BOYS while your breath holds; a thrown bag in the pool is a bill |
 | Homeowner | The new lines; stars | They stand still until you talk | They watch from a window and react live (a thumbs up, a frown, a shout when something breaks); they come out when the mower hits the gnome |
 | Throws and bonks | Weight tiers; knockouts | Only players and pedestrians react | **Throw things at the NICE BOYS** to stun them (the one counterplay that's a joke); bags thrown into Chefty from far away pay a trick-shot bonus |
-| NICE BOYS | The warning, the chase, the van, Border Return | Nothing you did caused it; nothing you do changes it except hiding | See Heat below. Also: decoys (a gnome in your shirt), disguises (a homeowner's hat from a clothesline), and being carried off in a pile of your friends |
+| NICE BOYS | The warning, the chase, the van, Form 27-B at Annex B | Nothing you did caused it; nothing you do changes it except hiding | See Heat below. Also: decoys (a gnome in your shirt), disguises (a homeowner's hat from a clothesline), and being carried off in a pile of your friends |
 
 The column "Do" is build work with no design decisions in it, except the
 NICE BOYS row (see decisions).

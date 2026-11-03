@@ -225,6 +225,80 @@ func _tally(key: String, amount: float) -> void:
 	_day_tally[key] = float(_day_tally.get(key, 0.0)) + amount
 
 
+# ---- nice boys: rescues, escapes and Annex B (R2 chunk 6; docs/GAME.md
+# "Form 27-B, in Triplicate"). Host only; the save keeps visits and the best time.
+
+## Visits to Annex B by player key, and the crew's best time out (0 = none yet).
+var _annex: Dictionary = {"visits": {}, "best_s": 0.0}
+
+
+## Host only. A friend got someone out: a bonk during the cite, an unbuckle, a
+## co-signature at the Annex. Counts the rescues stat (BAL-20) and today's tally,
+## and earns the crew XP_RESCUE (R2 chunk 2's constant; nothing until it exists).
+func add_rescue(peer_id: int, cause: StringName) -> void:
+	if not Net.is_host():
+		return
+	record_stat(peer_id, &"rescues", 1.0)
+	_tally("rescues", 1.0)
+	add_xp(int(_constant("XP_RESCUE", 0)), "rescue_%s" % String(cause))
+
+
+## Host only. Spotted in a raid and never caught (driving:F reuses it for a lost pursuit).
+func award_escape(_peer_id: int) -> void:
+	if Net.is_host():
+		add_xp(Constants.XP_ESCAPE, "escape")
+
+
+## Host only. Another visit to Annex B; returns the visits after this one.
+func note_annex_visit(peer_id: int) -> int:
+	if not Net.is_host():
+		return 0
+	var visits: Dictionary = _annex.get("visits", {})
+	var key := _key_for(peer_id)
+	visits[key] = int(visits.get(key, 0)) + 1
+	_annex["visits"] = visits
+	_tally("annex_visits", 1.0)
+	return int(visits[key])
+
+
+## How many times this player has been to Annex B (saved).
+func annex_visits(peer_id: int) -> int:
+	return int((_annex.get("visits", {}) as Dictionary).get(_key_for(peer_id), 0))
+
+
+## Host only. Out through the turnstile after this many seconds: today's best
+## ("annex_best") and the crew's best ever.
+func note_annex_time(_peer_id: int, seconds: float) -> void:
+	if not Net.is_host() or seconds <= 0.0:
+		return
+	var today := float(_day_tally.get("annex_best", 0.0))
+	if today <= 0.0 or seconds < today:
+		_day_tally["annex_best"] = seconds
+	var best := float(_annex.get("best_s", 0.0))
+	if best <= 0.0 or seconds < best:
+		_annex["best_s"] = seconds
+
+
+## The crew's best time out of Annex B, 0 when nobody has been yet.
+func annex_best(_peer_id: int = 0) -> float:
+	return float(_annex.get("best_s", 0.0))
+
+
+## The saved "annex" section as read (visits by key, best time), with defaults.
+static func annex_from_save(section: Dictionary) -> Dictionary:
+	var visits := {}
+	var saved: Variant = section.get("visits", {})
+	if typeof(saved) == TYPE_DICTIONARY:
+		for key: Variant in saved:
+			visits[str(key)] = int(saved[key])
+	return {"visits": visits, "best_s": maxf(float(section.get("best_s", 0.0)), 0.0)}
+
+
+## A constant another chunk may add (core/constants.gd), or fallback until it does.
+static func _constant(constant_name: String, fallback: Variant) -> Variant:
+	return (Constants as Script).get_script_constant_map().get(constant_name, fallback)
+
+
 ## Ask the host to buy a stock tool or an upgrade at Homie Depot's counter. Kept
 ## for the old callers: with the Shops node (net/shops/shops.gd) it is a buy of
 ## one at Homie Depot, with all of Shops' checks (hours, distance, rank, cash).
@@ -636,6 +710,8 @@ func _save_data() -> Dictionary:
 		# curve: which XP curve the banked XP is counted on, so a retune of
 		# core/ranks.gd can carry it over on the next load (crew_xp_from_save).
 		"crew": {"xp": _crew_xp, "pending": _pending_xp, "curve": _Ranks.CURVE_ID},
+		# R2 chunk 6: Annex B visits by player key and the crew's best time out.
+		"annex": _annex.duplicate(true),
 	}, true)
 	_save_hooks = _save_hooks.filter(func(hook: Callable) -> bool: return hook.is_valid())
 	for extra: Callable in _save_hooks:
@@ -710,6 +786,7 @@ func _refuse_write(path: String) -> bool:
 
 func _load() -> void:
 	_loaded = {}
+	_annex = annex_from_save({})
 	var data := _read_save(_save_path())
 	if data.is_empty():
 		# A missing or broken save falls back to the last good copy.
@@ -736,6 +813,7 @@ func _load() -> void:
 			_Ranks.title(_Ranks.tier_for_xp(_crew_xp))])
 	# Pending XP is today's, not yet banked on any curve's tiers: kept as it is.
 	_pending_xp = int(crew.get("pending", 0))
+	_annex = annex_from_save(save_section("annex"))
 
 
 ## The banked XP a saved "crew" section holds, on today's XP curve. A save banked

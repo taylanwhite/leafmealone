@@ -14,7 +14,7 @@ extends Control
 ##
 ## The bar owns the bottom center up to the job goal line (Constants
 ## HOTBAR_GOAL_LINE_Y); it hides with any window (Ui.any_window_open: the shop,
-## board, phone, a receipt, pause, Settings), in a Chefty seat, in Border Return,
+## board, phone, a receipt, pause, Settings), in a Chefty seat, at Annex B,
 ## and off the yard when the pockets are empty (shown_when).
 
 const _Hotbar = preload("res://net/components/hotbar.gd")
@@ -269,7 +269,7 @@ static func bar_shown(tree: SceneTree, peer_id: int) -> bool:
 
 
 ## The visibility rule: never with a window up (pause and Settings included), in
-## a Chefty seat (the drive HUD has the bottom right), or in Border Return; always
+## a Chefty seat (the drive HUD has the bottom right), or at Annex B; always
 ## on the yard; anywhere else only while carrying something.
 static func shown_when(state: Dictionary) -> bool:
 	if not bool(state.get("in_session", false)) or bool(state.get("window_open", false)) or bool(state.get("seated", false)):
@@ -446,7 +446,7 @@ func _draw() -> void:
 		elif _name_left > 0.0 and toast_text == "":
 			var alpha := clampf(_name_left / NAME_FADE_SECONDS, 0.0, 1.0)
 			_line(font, _name_text, NAME_FONT, NAME_COLOR, alpha)
-	# A toast shows even with the bar down (caught on the way to Border Return,
+	# A toast shows even with the bar down (caught on the way to Annex B,
 	# walked off to the store), but never over a window.
 	if toast_text != "" and not _window_open():
 		_line(font, toast_text, TOAST_FONT, TOAST_COLOR, clampf(_toast_left / NAME_FADE_SECONDS, 0.0, 1.0))

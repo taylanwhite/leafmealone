@@ -12,7 +12,9 @@ const QUIET_ZONE_MAX_METERS: float = 0.5
 const QUIET_STEP_OFF: Vector3 = Vector3(4.0, 0.0, 0.0)
 ## How close to the job site a player sent to the LOT must land.
 const LOT_ARRIVAL_METERS: float = 60.0
-const _Timeline: Script = preload("res://border/hazard_timeline.gd")
+## Satellite Annex B's pure schedule (R2 chunk 6): the same 200 samples on both peers.
+const _Schedule: Script = preload("res://net/annex/annex_schedule.gd")
+const SCHEDULE_SAMPLES: int = 200
 
 var _started_msec: int = 0
 var _child_pid: int = -1
@@ -176,24 +178,23 @@ func _rpc_clock_probe_reply(sent_local_seconds: float, host_seconds: float) -> v
 
 
 @rpc("authority", "call_remote", "reliable")
-func _rpc_hazard_probe(seed: int, elapsed: float) -> void:
+func _rpc_schedule_probe(seed: int) -> void:
 	if not Net.is_smoke_client():
 		return
-	var at: Vector3 = _Timeline.call("position", seed, 0, elapsed, 1.0)
-	_rpc_hazard_sample.rpc_id(1, at)
+	_rpc_schedule_sample.rpc_id(1, int(_Schedule.call("hash_samples", seed, SCHEDULE_SAMPLES)))
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _rpc_hazard_sample(at: Vector3) -> void:
-	if not Net.is_smoke_host() or _leaf_phase != "hazard":
+func _rpc_schedule_sample(fingerprint: int) -> void:
+	if not Net.is_smoke_host() or _leaf_phase != "schedule":
 		return
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director == null:
 		_finish(false, "director missing")
 		return
-	var expected: Vector3 = _Timeline.call("position", int(director.call("hazard_seed")), 0, 10.0, 1.0)
-	if at.distance_to(expected) > 0.02:
-		_finish(false, "hazard off by %.3f" % at.distance_to(expected))
+	var expected := int(_Schedule.call("hash_samples", int(director.call("hazard_seed")), SCHEDULE_SAMPLES))
+	if fingerprint != expected:
+		_finish(false, "the Annex schedule differs on the client (%d vs %d)" % [fingerprint, expected])
 		return
 	_finish(true, "")
 
@@ -268,8 +269,8 @@ func _rpc_status(stage: String, client_time: float) -> void:
 		if cohort < 1 or cohort != seats or int(client_time) != seats:
 			_finish(false, "van seats %d (client %d) do not match cohort %d" % [seats, int(client_time), cohort])
 			return
-		_leaf_phase = "hazard"
-		_rpc_hazard_probe.rpc_id(_client_id, int(director.call("hazard_seed")), 10.0)
+		_leaf_phase = "schedule"
+		_rpc_schedule_probe.rpc_id(_client_id, int(director.call("hazard_seed")))
 
 
 func _host_ride_step() -> void:

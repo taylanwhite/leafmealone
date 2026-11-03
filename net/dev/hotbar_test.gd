@@ -280,7 +280,7 @@ func _run() -> void:
 ## their icons, the hose selected and in hand with its hint, the roller's paint
 ## strip; it hides under the pause buttons and under Settings opened from them
 ## (any_window_open), and comes back when they close; and the visibility rule
-## (shown_when) keeps it off in Border Return and a Chefty seat, and off the yard
+## (shown_when) keeps it off at Annex B and in a Chefty seat, and off the yard
 ## unless something's carried.
 func _check_hud_bar() -> void:
 	await _frames(3)
