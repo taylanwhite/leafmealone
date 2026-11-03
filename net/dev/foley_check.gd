@@ -11,7 +11,8 @@ extends RefCounted
 ##                 or shuffling under FOLEY_STEP_MIN_SPEED
 ##   body          paint_splat, splash, grab_yoink, throw_big, foot_pop, the wind-up's
 ##                 loop and land_thump, each where it happened; a body that arrives
-##                 already painted makes no sound
+##                 already painted makes no sound; two bodies splatted in one tick
+##                 both sound (the throttle counts per peer)
 ##   props         ladder_clack at its top, ladder_crash when a knocked-over one stops
 ##                 tumbling (none when taken down by hand), hose_click, bag_plop,
 ##                 pickup_heavy off the ground (into hands, or pocketed and drawn in
@@ -23,7 +24,7 @@ extends RefCounted
 ##   ambience      night, crickets by the hour, and who hears an owl, the PA, a
 ##                 cart and a neighbor's mower (audio/ambience.gd wants)
 ##   say_routing   a non-voice id from player.say rides the head through Sfx (the
-##                 horn); H off a ride doesn't honk
+##                 horn); H off a ride doesn't honk; two riders' horns both sound
 ##   live_foley    every player in the session has its Foley node
 
 const _SfxScript = preload("res://audio/sfx.gd")
@@ -111,9 +112,9 @@ static func run(test: Node) -> Dictionary:
 	return checks
 
 
-static func _stub_player(world: Node3D, at: Vector3, coat := 0) -> Array:
+static func _stub_player(world: Node3D, at: Vector3, coat := 0, peer := STUB_PEER) -> Array:
 	var player := StubPlayer.new()
-	player.name = str(STUB_PEER)
+	player.name = str(peer)
 	player.coat = coat
 	var visual := Node3D.new()
 	visual.name = "Visual"
@@ -262,6 +263,16 @@ static func _body(tree: SceneTree, world: Node3D, at: Vector3) -> bool:
 	player.velocity = Vector3.ZERO
 	await _wait(tree, 0.05)
 	heard["hop_quiet"] = _SfxScript.log.count("land_thump") == thumps + 1
+	# Two of the crew soaked by one sweep in the same tick: both splat, since the
+	# throttle counts per body, not per sound.
+	var other := _stub_player(world, at + Vector3(-2.0, 0.0, 0.0), 0, STUB_PEER + 1)
+	await _wait(tree, Constants.SFX_DEFAULT_GAP_MS / 1000.0)
+	var splats := _SfxScript.log.count("paint_splat")
+	player.coat = 1
+	(other[0] as StubPlayer).coat = 1
+	await _wait(tree, 0.05)
+	heard["two_splats"] = _SfxScript.log.count("paint_splat") == splats + 2
+	(other[0] as Node).queue_free()
 	player.queue_free()
 	var ok := late_quiet
 	for key: String in heard:
@@ -425,8 +436,16 @@ static func _say_routing(tree: SceneTree, me: Node3D) -> bool:
 	var routed := _SfxScript.log.count("truck_horn") == horns + 1 and rides_head
 	await tree.create_timer(Constants.SFX_DEFAULT_GAP_MS / 1000.0 + 0.05).timeout
 	var off_ride := not bool(me.call("_honk"))
-	print("[AudioTest] foley say routing: the horn rides the head %s, H off a ride passes %s" % [routed, off_ride])
-	return routed and off_ride
+	# Two of the crew honking in the same tick: each horn sounds (the throttle
+	# counts per peer, so one rider's honk never swallows another's).
+	var sfx := tree.get_first_node_in_group("sfx")
+	var horns_before := _SfxScript.log.count("truck_horn")
+	if sfx != null and head != null:
+		sfx.call("play_on", "truck_horn", head, 0.0, true, STUB_PEER)
+		sfx.call("play_on", "truck_horn", head, 0.0, true, STUB_PEER + 1)
+	var two_horns := _SfxScript.log.count("truck_horn") == horns_before + 2
+	print("[AudioTest] foley say routing: the horn rides the head %s, H off a ride passes %s, two riders' horns both sound %s" % [routed, off_ride, two_horns])
+	return routed and off_ride and two_horns
 
 
 static func _placed(id: String) -> Dictionary:

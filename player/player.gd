@@ -2144,7 +2144,7 @@ func say(sound_name: String) -> void:
 	if bank.has(sound_name) and not bank.is_voice(sound_name):
 		var sfx := get_tree().get_first_node_in_group("sfx")
 		if sfx != null:
-			sfx.call("play_on", sound_name, %Head)
+			sfx.call("play_on", sound_name, %Head, 0.0, true, name.to_int())
 		return
 	if Net.is_automated():
 		return

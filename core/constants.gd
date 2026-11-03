@@ -4091,6 +4091,9 @@ const FOLEY_STEP_SPRINT_DB: float = 1.5
 ## Footsteps are close sounds: full volume inside this (m), gone past this.
 const FOLEY_STEP_UNIT_SIZE: float = 2.5
 const FOLEY_STEP_MAX_DISTANCE: float = 24.0
+## How much a far footstep's distance low-pass takes off (dB; Godot's default is
+## -24): a teammate's steps across the yard go soft, not muddy.
+const FOLEY_STEP_MUFFLE_DB: float = -8.0
 ## A body whose stride moves slower than this (m/s) is shuffling, not stepping.
 const FOLEY_STEP_MIN_SPEED: float = 1.0
 ## A landing thumps when the body came down faster than this (m/s).
@@ -4121,6 +4124,10 @@ const TASK_SFX_GAP_MS: Dictionary = {
 	"snip": 260, "rake": 450, "squeegee": 480, "gutter_gloop": 380, "splash_small": 420,
 	"litter_crinkle": 160, "weed_pluck": 160,
 }
+## The patch (m, square) that TASK_SFX_GAP_MS counts per, and how many patches
+## task_looks.gd remembers before it forgets the ones whose gap has run out.
+const TASK_SFX_PATCH_METERS: float = 2.0
+const TASK_SFX_PATCH_MEMORY: int = 64
 ## Night (audio/ambience.gd): from this hour the birds stop and the crickets
 ## fade in over AMBIENCE_NIGHT_FADE_HOURS; they sit this loud (dB).
 const AMBIENCE_NIGHT_FROM_HOUR: float = 19.5

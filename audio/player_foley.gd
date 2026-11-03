@@ -80,21 +80,21 @@ func _physics_process(delta: float) -> void:
 		return
 	if coat != _coat:
 		if coat == 1:
-			_play("paint_splat", _chest())
+			_play("paint_splat", _chest(), 0.0, _peer())
 		elif coat == 2:
-			_play("splash", _chest())
+			_play("splash", _chest(), 0.0, _peer())
 		_coat = coat
 	if carried_by != _carried_by:
 		if _carried_by == 0:
-			_play("grab_yoink", _chest())
+			_play("grab_yoink", _chest(), 0.0, _peer())
 		_carried_by = carried_by
 	if thrown != _thrown:
 		if thrown:
-			_play("throw_big", _chest())
+			_play("throw_big", _chest(), 0.0, _peer())
 		_thrown = thrown
 	if foot_hurt != _foot_hurt:
 		if foot_hurt >= 2 and _foot_hurt < 2:
-			_play("foot_pop", body.global_position + Vector3.UP * 0.2)
+			_play("foot_pop", body.global_position + Vector3.UP * 0.2, 0.0, _peer())
 		_foot_hurt = foot_hurt
 	_windup_loop(winding, delta)
 	_landing(delta)
@@ -196,7 +196,7 @@ func _landing(delta: float) -> void:
 			_thrown_fall = true
 		elif _thrown_fall and falling < Constants.FOLEY_THROWN_LANDED:
 			_thrown_fall = false
-			_play("land_thump", body.global_position + Vector3.UP * 0.1)
+			_play("land_thump", body.global_position + Vector3.UP * 0.1, 0.0, _peer())
 		return
 	_thrown_fall = false
 	if anim == ANIM_AIR:
@@ -204,7 +204,7 @@ func _landing(delta: float) -> void:
 		_fall_speed = maxf(_fall_speed, falling)
 		return
 	if _air_seconds >= Constants.FOLEY_LAND_MIN_AIR_SECONDS and _fall_speed > Constants.LAND_THUMP_SPEED and int(player.get("carried_by")) == 0:
-		_play("land_thump", body.global_position + Vector3.UP * 0.1)
+		_play("land_thump", body.global_position + Vector3.UP * 0.1, 0.0, _peer())
 	_air_seconds = 0.0
 	_fall_speed = 0.0
 

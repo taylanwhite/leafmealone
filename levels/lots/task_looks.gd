@@ -396,21 +396,21 @@ func work_fx(task: String, at: Vector3, with_sound := true) -> void:
 	get_tree().create_timer(1.0).timeout.connect(particles.queue_free)
 
 
-## A task's sound at the spot, held to its gap per 2 m patch (Constants.
-## TASK_SFX_GAP_MS), so two of the crew on two windows both squeak and one held
+## A task's sound at the spot, held to its gap per patch (Constants.
+## TASK_SFX_GAP_MS, TASK_SFX_PATCH_METERS), so two of the crew on two windows both squeak and one held
 ## trimmer doesn't buzz-saw the snips together.
 func _work_sound(task: String, at: Vector3) -> void:
 	var id := str(TASK_SOUNDS.get(task, ""))
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if id == "" or sfx == null:
 		return
-	var patch := Vector2i(floori(at.x / 2.0), floori(at.z / 2.0))
+	var patch := Vector2i(floori(at.x / Constants.TASK_SFX_PATCH_METERS), floori(at.z / Constants.TASK_SFX_PATCH_METERS))
 	var key := "%s:%d:%d" % [task, patch.x, patch.y]
 	var now := Time.get_ticks_msec()
 	if now < int(_sound_next.get(key, 0)):
 		return
 	_sound_next[key] = now + int(Constants.TASK_SFX_GAP_MS.get(id, Constants.SFX_DEFAULT_GAP_MS))
-	if _sound_next.size() > 64:
+	if _sound_next.size() > Constants.TASK_SFX_PATCH_MEMORY:
 		for old: String in _sound_next.keys():
 			if int(_sound_next[old]) < now:
 				_sound_next.erase(old)

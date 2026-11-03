@@ -130,11 +130,12 @@ func play_clear(id: String, at: Vector3, db := 0.0) -> void:
 
 ## A one-shot that rides along with node, like a truck pulling away.
 ## wobble false keeps the pitch exact, for a sound timed to an animation.
-func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:
+## source (a peer id, say) keeps one sender's throttle from swallowing another's.
+func play_on(id: String, node: Node3D, db := 0.0, wobble := true, source := 0) -> void:
 	if node == null or not node.is_inside_tree():
 		play(id, db)
 		return
-	if not _accept(id):
+	if not _accept(id, source):
 		return
 	_note_placed(id, "on", node.global_position, str(node.get_path()), db)
 	if _silent():
