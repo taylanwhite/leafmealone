@@ -660,7 +660,10 @@ func save_section(key: String) -> Dictionary:
 
 
 func _save_path() -> String:
-	if float(Net.dev_options().get("run_seconds")) > 0.0 or Net.is_automated():
+	# Remote play and scenario jumps (docs/PLAYTEST.md) grant tools, start raids
+	# and get people caught: never on the real crew's save.
+	var playtesting := str(Net.dev_options().get("remote_play")) != "" or str(Net.dev_options().get("scenario")) != ""
+	if float(Net.dev_options().get("run_seconds")) > 0.0 or Net.is_automated() or playtesting:
 		return TEST_SAVE_PATH % int(Net.dev_options().get("port"))
 	return SAVE_PATH
 

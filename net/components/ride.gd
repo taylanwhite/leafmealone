@@ -315,6 +315,12 @@ func _rpc_parked(along: float, count: int, value: int) -> void:
 func _rpc_arrived() -> void:
 	_riding = false
 	_parked_along = 0.0 if _reverse else 1.0
+	# A client's last tick can fall just short of the end (its clock estimate
+	# trails the host's), and a dev scenario that skips the ride moves only the
+	# host's start time (net/dev/scenarios.gd): park where the trip ends either way.
+	_place(_parked_along)
+	if _body != null:
+		_body.reset_physics_interpolation()
 	_riders.clear()
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if node.has_method("clear_riding"):

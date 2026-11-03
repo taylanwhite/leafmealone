@@ -41,6 +41,8 @@ var _voice: Node
 func _ready() -> void:
 	_args = _CommandLineScript.new()
 	_args.read()
+	# Dev only: a --fixed-step run's clock counts game time (net/clock_sync.gd).
+	_clock.game_ticks = _args.fixed_step > 0
 	if _args.player_name != "":
 		_local_name = _args.player_name
 	multiplayer.peer_connected.connect(_on_peer_connected)

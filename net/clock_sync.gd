@@ -11,7 +11,12 @@ const SLEW_RATE: float = 0.05
 ## An error bigger than this snaps instead (the first sample, or a hitch).
 const SNAP_SECONDS: float = 0.25
 
+## Dev only (--fixed-step, docs/PLAYTEST.md): count game time, physics ticks,
+## instead of the wall clock, so a fixed-step run that falls behind real time
+## slows down as a whole instead of its clock running ahead of its physics.
+var game_ticks: bool = false
 var _origin_usec: int = 0
+var _origin_ticks: int = 0
 var _offset_seconds: float = 0.0
 ## The offset actually used: walks toward _offset_seconds, never jumps.
 var _applied_offset: float = 0.0
@@ -24,6 +29,7 @@ var _samples: Array[Dictionary] = []
 
 func start() -> void:
 	_origin_usec = Time.get_ticks_usec()
+	_origin_ticks = Engine.get_physics_frames()
 	_offset_seconds = 0.0
 	_applied_offset = 0.0
 	_applied_started = false
@@ -93,4 +99,6 @@ func note_sample(sent_local_seconds: float, host_seconds: float, received_local_
 
 
 func _local_seconds() -> float:
+	if game_ticks:
+		return float(Engine.get_physics_frames() - _origin_ticks) / float(Engine.physics_ticks_per_second)
 	return float(Time.get_ticks_usec() - _origin_usec) / 1000000.0

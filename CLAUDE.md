@@ -32,6 +32,12 @@ Every change gets run, and you report what you ran.
 - **Quick checks:** `-Only smoke` (about 30 s) for anything networked.
 - **Script errors after edits:** `& $G --headless --path . --quit` and read stderr. Run `--import` once after adding files or classes.
 - **Looking at the game:** windowed runs with `--screenshot=<dir> --tour` (see `net/dev/capture.gd`), or the studio: `& $G --path . res://tools/studio/studio.tscn -- --subject=<name> --out=build/art/<name>.png`. Read the PNGs with the Read tool. Look for clipping, z-fighting, floating or sunk objects, and wrong lighting.
+- **Playtesting a moment** (anything a player does or sees happen; the full guide and the detail checklist are `docs/PLAYTEST.md`): a still can't show motion, so record it.
+  1. `tools\play.ps1 -Start -Observer -Scenario <moment>`: a windowed host on a fixed step, already at the moment (`rake_fresh`, `rake_pile`, `raid_warn`, `raid_arrive`, `caught`, `hide`, `van_ride`, `border_return`, `store`, `drive`), and a second window watching it.
+  2. `tools\play.ps1 -Instance observer 'follow host 4 1.6 80; record_start 30 x_3p'`, then `tools\play.ps1 'record_start 30 x_1p; hold primary 1.3; wait 0.5; record_stop'` (or `'record 4 30 x_1p'` while it plays out), then `tools\play.ps1 -Instance observer record_stop`.
+  3. Read `build\play\rec_x_1p\sheet.png` (frames stamped with number and game time), `audio.png` (thumbnails, waveform, bands, picture change, every sound and event on one time axis), `events.json` (per frame: player, camera, HUD text, what fired; flags for pops, snaps and frozen views), `sync.json` (each sound's lag), and the observer's copies; `tools\frames.ps1 <rec dir> "40..46"` puts frames side by side.
+  4. Walk the checklist in `docs/PLAYTEST.md` with frame numbers, then `tools\play.ps1 -Stop` (it closes only this worktree's windows).
+- **Driving a game by hand:** `tools\play.ps1 -Start`, then `tools\play.ps1 'hold move_forward 1.5; look 200 0; tap interact'` (net/dev/remote_play.gd lists the steps); each call prints what's on screen and a screenshot path.
 - **Multiplayer by hand:** one instance with `-- --host --no-steam`, others with `-- --join=127.0.0.1 --no-steam --name=Bot1 --bot`. Add `--sim-lag=150 --sim-loss=2` to every instance for a bad network.
 - **Voice:** `--voice-test` exercises the whole voice path with a tone over ENet. Real Steam voice needs a second machine and Steam account.
 

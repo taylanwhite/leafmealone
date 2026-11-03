@@ -339,6 +339,20 @@ jobs:
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-balance/host.json'))['balance_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
           $PY tools/balance_sim.py --check --baseline --engine-dump build/soak/ci-balance/host.json --report build/soak/ci-balance/report.json --md build/soak/ci-balance/report.md
 
+      # The playtest tools (docs/PLAYTEST.md): every scenario jump reaches its moment through
+      # the real game code, and the recorder writes evenly spaced frames (a fixed step:
+      # the engine's --fixed-fps and the game's --fixed-step), a contact sheet and an events
+      # log that saw the raid arrive. Headless, so the frames are stand-ins.
+      - name: Playtest tools (scenario jumps, recorder spacing)
+        if: matrix.part == 'features'
+        timeout-minutes: 3
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-playtest
+          "$GODOT" --headless --path . --fixed-fps 30 -- --host --port=7820 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --fixed-step=30 --playtest-tools-test --measure="$PWD/build/soak/ci-playtest/host.json" --run-seconds=90 > build/soak/ci-playtest/host.log 2>&1
+          grep "PlaytestToolsTest" build/soak/ci-playtest/host.log || true
+          $PY -c "import json,sys; r=json.load(open('build/soak/ci-playtest/host.json'))['playtest_tools_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

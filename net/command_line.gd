@@ -109,6 +109,19 @@ var drive_test: bool = false
 ## --balance-test: the engine side of the balance lab's parity check: every tuning constant,
 ## a grid of economy formulas, and the tables' invariants (net/dev/balance_test.gd).
 var balance_test: bool = false
+## Playtesting (docs/PLAYTEST.md). --scenario=<name>: the host jumps to a moment once the
+## world is up (net/dev/scenarios.gd). --observer: a remote-play client that parks at the
+## store and watches the host (tools/play.ps1 -Observer). --playtest-tools-test: the
+## scenarios and the recorder (net/dev/playtest_tools_test.gd).
+var scenario: String = ""
+var observer: bool = false
+var playtest_tools_test: bool = false
+## --fixed-step=N: this run was launched with the engine's --fixed-fps N (which
+## scripts can't see), so every frame is exactly 1/N s of game time. The dev tools
+## then hold it to real time (net/dev/pacer.gd) and Net's clock counts game time
+## (net/clock_sync.gd), so recordings are evenly spaced and rides and raids keep
+## in step with physics even on a loaded machine. tools/play.ps1 passes both.
+var fixed_step: int = 0
 
 
 ## True when the transport should be wrapped in LinkPeer for counting or simulation.
@@ -118,7 +131,7 @@ func wants_link_peer() -> bool:
 
 ## True when any net/dev tool is requested.
 func wants_dev_tools() -> bool:
-	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test
+	return bot or measure_path != "" or run_seconds > 0.0 or screenshot_dir != "" or mute_audio or run_event_at >= 0.0 or open_shop or open_board or ride_at >= 0.0 or job_test or bonk_test or work_test or throw_test or water_test or mower_test or board_test or gag_test or brawl_test or day_test or town_test or layout_test or hire_test or rival_test or cast_test or remote_play != "" or open_phone != "" or end_day_at >= 0.0 or audio_test or settings_test or open_settings != "" or shop_test or hotbar_test or fill_pockets or townmap_test or icons_test or drive_test or balance_test or scenario != "" or playtest_tools_test or fixed_step > 0
 
 
 func read() -> void:
@@ -261,5 +274,13 @@ func read() -> void:
 			drive_test = true
 		elif argument == "--balance-test":
 			balance_test = true
+		elif argument.begins_with("--scenario="):
+			scenario = argument.trim_prefix("--scenario=")
+		elif argument == "--observer":
+			observer = true
+		elif argument == "--playtest-tools-test":
+			playtest_tools_test = true
+		elif argument.begins_with("--fixed-step="):
+			fixed_step = maxi(0, int(argument.trim_prefix("--fixed-step=")))
 		else:
 			push_warning("[Net] ignored command-line argument %s" % argument)
