@@ -367,8 +367,10 @@ func _hand_check(me: Node3D, lot: Node3D, report: Dictionary) -> bool:
 	# Once the field has stroke events (raking:1), the hand's strokes must be among them.
 	if field.has_signal("stroke_event"):
 		actor_ok = actor_ok and not events.is_empty()
+	# Each event carries the hand's own swing, so every peer's sounds keep to it (R1b).
 	for ev: Dictionary in events:
 		actor_ok = actor_ok and int(ev.get("actor", 0)) == actor
+		actor_ok = actor_ok and absf(float(ev.get("tempo", 0.0)) - cycle) <= Constants.LEAF_EVENT_TEMPO_STEP
 	# Glide and the rake's travel while raking.
 	var biggest := 0.0
 	var travel := 0.0

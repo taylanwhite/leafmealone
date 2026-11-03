@@ -266,7 +266,7 @@ A lot holds up to hundreds of thousands of leaf units, so leaves are never indiv
 
 - `request_rake(origin: Vector3, direction: Vector3, width: float, strength: float, bite := 0, tempo := 0.0) -> int` moves density from cells under the rake to the cells ahead of it, which builds piles. It returns the density moved (on a client, what it predicted; 0 when it couldn't). `bite` (0 the plant bite, 1 mid-drive) and `tempo` (the swing's seconds) only ride along on the stroke event, for the rake swing (raking:4).
 - `request_collect(origin: Vector3, radius: float) -> int` removes density from cells around a point, for bagging, blowing into a truck, or anything else that takes leaves away.
-- Host only: `host_hand_rake(origin, direction, skill, actor := 0) -> int` and `host_hand_collect(origin, actor := 0) -> int` (hired hands; `actor` is `RAKE_ACTOR_HAND_BASE + N` for "HandN"), `host_mulch(at, radius) -> int` (a running mower), `host_scatter(at, radius, dollars)` (a burst bag). Callers of the old forms keep working.
+- Host only: `host_hand_rake(origin, direction, skill, actor := 0, tempo := 0.0) -> int` (`tempo`: the hand's swing seconds for its stroke event; 0 means `HIRE_STROKE_SECONDS / skill`) and `host_hand_collect(origin, actor := 0) -> int` (hired hands; `actor` is `RAKE_ACTOR_HAND_BASE + N` for "HandN"), `host_mulch(at, radius) -> int` (a running mower), `host_scatter(at, radius, dollars)` (a burst bag). Callers of the old forms keep working.
 
 What counts as "cleaned" is one function on the leaf field that the design can change, for example density below a threshold inside the lawn area. The host credits removed or moved leaf units to the requesting peer through `Campaign.record_stat()`, which is what payout uses.
 

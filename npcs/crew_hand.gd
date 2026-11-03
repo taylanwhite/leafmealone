@@ -315,7 +315,7 @@ func _rake(delta: float) -> void:
 			return
 		var origin := global_position + _rake_dir * 0.9
 		if field.has_signal("stroke_event"):
-			field.call("host_hand_rake", origin, _rake_dir, skill, actor())
+			field.call("host_hand_rake", origin, _rake_dir, skill, actor(), cycle)
 		else:
 			field.call("host_hand_rake", origin, _rake_dir, skill)
 		_strokes += 1

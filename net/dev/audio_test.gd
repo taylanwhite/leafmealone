@@ -1004,6 +1004,7 @@ func _leaf_audio(sfx: Node) -> bool:
 	await get_tree().create_timer(0.1).timeout
 	var scrape := _placed("rake_scrape")
 	checks["scrape_pitch"] = pitch_ok and not scrape.is_empty() and is_equal_approx(float(scrape["pitch"]), LeafAudio.scrape_pitch(0.55)) and float(scrape["pitch"]) > 1.05
+	checks["crew_tempo"] = await _crew_tempo_ok(leaf, base + Vector3(4.0, 0.0, -4.0))
 	# What a real (windowed) play would build: the bank's reach, the asked pitch
 	# times the id's wobble, the asked volume within the id's jitter.
 	checks["player_3d"] = _player_3d_ok("rake_plant", -4.0, 1.1) and _player_3d_ok("bonk", 0.0, 1.0)
@@ -1094,6 +1095,32 @@ func _leaf_sync(leaf: Node) -> Dictionary:
 	print("[AudioTest] sync_ticks: queued %s, the flick played after %d ticks (its moment is %.1f ticks away)" % [queued, ticks, want])
 	out["sync_ticks"] = ticks >= 0 and absf(float(ticks) - want) <= 1.0 and not queued.is_empty() and str((queued[0] as Dictionary)["id"]) == "leaf_flick"
 	return out
+
+
+## A hired hand's one-bite swing at its own (slow) tempo, not the default: the
+## flick waits for that swing's drive_end and the scrape is stretched over that
+## swing's drive (a hand at skill 0.6 swings HIRE_STROKE_SECONDS / 0.6 s).
+func _crew_tempo_ok(leaf: Node, at: Vector3) -> bool:
+	var cycle := Constants.HIRE_STROKE_SECONDS / 0.6
+	var drive_end := LeafAudio.swing_phase("drive_end")
+	var want_flick := LeafAudio.after_bite(0, true, cycle, drive_end)
+	var want_plant := LeafAudio.after_bite(0, true, cycle, LeafAudio.swing_phase("plant"))
+	await get_tree().physics_frame
+	leaf.call("handle", {"kind": "crew_rake", "actor": 9030, "moved": 3000, "bite": 0, "at": at, "dir": Vector3(0.0, 0.0, -1.0), "tempo": cycle, "seq": 0, "local": false})
+	var queued: Array = leaf.call("pending")
+	var flick_left := -1.0
+	for entry: Dictionary in queued:
+		if str(entry["id"]) == "leaf_flick":
+			flick_left = float(entry["left"])
+	await get_tree().create_timer(want_plant + 0.1).timeout
+	var scrape := _placed("rake_scrape")
+	var tick := 1.0 / float(Engine.physics_ticks_per_second)
+	var ok := flick_left >= 0.0 and absf(flick_left - want_flick) <= tick \
+		and absf(want_flick - (drive_end - RakeStroke.bites(true)[0]) * cycle) < 0.001 \
+		and not scrape.is_empty() and is_equal_approx(float(scrape["pitch"]), LeafAudio.scrape_pitch(cycle)) \
+		and not is_equal_approx(LeafAudio.scrape_pitch(cycle), LeafAudio.scrape_pitch(Constants.LEAF_SFX_DEFAULT_TEMPO))
+	print("[AudioTest] crew_tempo: a %.2f s hand swing, flick in %.3f s (want %.3f), scrape pitch %s (want %.3f)" % [cycle, flick_left, want_flick, scrape.get("pitch", "none"), LeafAudio.scrape_pitch(cycle)])
+	return ok
 
 
 ## Sfx.configure_3d gives a leaf id its near_db cap (max_db = its volume + near_db)

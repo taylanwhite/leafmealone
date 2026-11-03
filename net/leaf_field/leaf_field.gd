@@ -317,13 +317,17 @@ func _take_bag(supply_id: String) -> bool:
 ## Host: a hired hand's rake stroke (npcs/crew_hand.gd). A real rake, at the
 ## hand's skill; nobody's contribution stats (hands are paid wages instead).
 ## actor names the hand on its stroke events (Constants.RAKE_ACTOR_HAND_BASE + N
-## for "HandN", raking:4); 0 when the caller doesn't say.
-func host_hand_rake(origin: Vector3, direction: Vector3, skill: float, actor: int = 0) -> int:
+## for "HandN", raking:4); 0 when the caller doesn't say. tempo: the hand's swing
+## (s), which its event carries so every peer times the scrape and flick to it
+## (R1b); 0 means the swing a hand of this skill has (crew_hand.gd _cycle).
+func host_hand_rake(origin: Vector3, direction: Vector3, skill: float, actor: int = 0, tempo: float = 0.0) -> int:
 	if not Net.is_host() or not _inside_grid(origin):
 		return 0
+	if tempo <= 0.0:
+		tempo = Constants.HIRE_STROKE_SECONDS / maxf(skill, 0.3)
 	var moved := _stroke_cells(origin, direction, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH * clampf(skill, 0.3, 1.0), Constants.RAKE_STROKE_CELLS)
 	# Every stroke is told, an empty one too: the hand's swing and scrape still happen.
-	_emit_stroke("crew_rake", actor, origin, direction, Constants.RAKE_WIDTH, Constants.RAKE_STROKE_CELLS, moved)
+	_emit_stroke("crew_rake", actor, origin, direction, Constants.RAKE_WIDTH, Constants.RAKE_STROKE_CELLS, moved, 0, 0, tempo)
 	if moved > 0:
 		var flat := Vector3(direction.x, 0.0, direction.z).normalized()
 		_turn_out(origin + flat * cell_size * 2.0, Constants.PILE_HIDE_RADIUS + 1.2)
