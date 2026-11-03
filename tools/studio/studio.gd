@@ -209,6 +209,28 @@ func _build(root: Node3D) -> void:
 				{"from": Vector3(-2.6, 2.4, 2.0), "at": Vector3(-0.6, 1.7, 1.4), "fov": 40.0},
 				{"from": Vector3(0.5, 7.0, 1.0), "at": Vector3(0.0, 1.0, 0.0), "fov": 45.0},
 			])
+		"chefty_dents":
+			# Chefty with 0 to 3 dents, front three-quarters (driving C3): the logo
+			# losing letters, the drooping bumper, the bare hub, the caved door; the
+			# last one carries the Chefty Net over a load.
+			var vehicles := preload("res://props/vehicles.gd")
+			for dents: int in 4:
+				var truck := Node3D.new()
+				root.add_child(truck)
+				truck.position = Vector3(-7.5 + float(dents) * 5.0, 0.0, 0.0)
+				truck.rotation.y = PI * 0.8
+				vehicles.build_truck(truck, {"color": Color(0.75, 0.22, 0.15), "interior": true, "dents": dents})
+				if dents == 3:
+					var load: Node3D = preload("res://props/truck_bed_load.gd").new()
+					truck.add_child(load)
+					load.call("sync_count", 14)
+					var net: Node3D = preload("res://props/chefty_net_look.gd").new()
+					truck.add_child(net)
+					net.call("show_over", 14)
+			root.set_meta("views", [
+				{"from": Vector3(-1.0, 4.5, -13.0), "at": Vector3(0.0, 1.0, 0.0), "fov": 50.0},
+				{"from": Vector3(6.0, 4.0, -5.0), "at": Vector3(7.5, 1.2, 0.0), "fov": 40.0},
+			])
 		"van", "van_detail":
 			_van(root, _subject == "van_detail")
 		"beacon":

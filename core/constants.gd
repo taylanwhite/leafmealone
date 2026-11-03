@@ -4095,15 +4095,22 @@ const CHEFTY_DRIFT_SPILL_SLIP: float = 3.0
 ## A spilled bag keeps this share of Chefty's speed from before the hit, goes up
 ## this fast (m/s), out over its side rail about this fast (m/s), and the bed
 ## won't catch it again for this long (s).
-const CHEFTY_SPILL_CARRY: float = 0.3
-const CHEFTY_SPILL_UP: float = 5.0
-const CHEFTY_SPILL_SIDE: float = 3.2
-const CHEFTY_SPILL_NO_CATCH: float = 2.0
+## (Played with a crew: at a third of the speed and 5 m/s up, the bags hit the back
+## of the cab and dropped straight back into the bed, which caught them again.)
+const CHEFTY_SPILL_CARRY: float = 0.12
+const CHEFTY_SPILL_UP: float = 6.0
+const CHEFTY_SPILL_SIDE: float = 3.8
+const CHEFTY_SPILL_NO_CATCH: float = 3.0
+## Bags and riders thrown out of the bed pass through the truck (and the bags
+## through each other) this long (s), long enough to clear its rails and cab.
+const CHEFTY_SPILL_CLEAR_SECONDS: float = 0.45
 ## A rider thrown out of the bed keeps this share of Chefty's speed, plus this much
 ## up (m/s) and up to CHEFTY_EJECT_SIDE out to their side.
 const CHEFTY_EJECT_SHARE: float = 0.7
-const CHEFTY_EJECT_UP: float = 5.5
-const CHEFTY_EJECT_SIDE: float = 2.0
+const CHEFTY_EJECT_UP: float = 7.0
+## (Little sideways: the bags go out over the side rails, the riders forward over
+## the cab, so nobody lands under a bag.)
+const CHEFTY_EJECT_SIDE: float = 0.8
 ## The barrel roll: how long it takes (s), how high it hops (m), and the height it
 ## rolls about (m, Chefty's middle). The stuck horn blares this long (s).
 const CHEFTY_TUMBLE_SECONDS: float = 1.15
@@ -4165,6 +4172,29 @@ const CHEFTY_PUSH_UP: float = 2.0
 const CHEFTY_DENT_BUMPER_DROOP: Array[float] = [0.0, 0.22, 0.38, 0.55]
 const CHEFTY_HUBCAP_SPEED: float = 5.5
 const CHEFTY_HUBCAP_SECONDS: float = 9.0
+## A crash's jolt on every peer (one that doesn't barrel-roll): the drawn body
+## pitches back end up about its front bumper (CHEFTY_JOLT_PIVOT, Chefty's space;
+## the tailgate's for a hit backing up) by up to CHEFTY_JOLT_PITCH rad at a
+## CHEFTY_TUMBLE_SPEED hit, then rocks back and settles, a swing at
+## CHEFTY_JOLT_RATE rad/s damped by CHEFTY_JOLT_DAMP per s, over CHEFTY_JOLT_SECONDS.
+const CHEFTY_JOLT_SECONDS: float = 0.9
+const CHEFTY_JOLT_PITCH: float = 0.16
+const CHEFTY_JOLT_RATE: float = 13.0
+const CHEFTY_JOLT_DAMP: float = 5.5
+const CHEFTY_JOLT_PIVOT := Vector3(0.0, 0.35, -2.95)
+## The view shakes for whoever rides along, or stands within CHEFTY_SHAKE_NEAR (m):
+## up to CHEFTY_SHAKE_METERS_MAX (m, the camera's own offsets) at a
+## CHEFTY_TUMBLE_SPEED hit, fading out over CHEFTY_SHAKE_SECONDS (s).
+const CHEFTY_SHAKE_SECONDS: float = 0.6
+const CHEFTY_SHAKE_METERS_MAX: float = 0.14
+const CHEFTY_SHAKE_NEAR: float = 14.0
+## Standing in Chefty's bed your first-person eye sits this much higher (m), so
+## you look out over the cab-over's roof instead of into the back of it.
+const CHEFTY_BED_EYE_LIFT: float = 0.75
+## Thrown (a toss, a crash or a bail out of Chefty): the first this many seconds
+## count as lifting off even on the ground; after that, touching down is landing,
+## and that's when you go flat with stars (player.gd _step_stunned).
+const THROWN_LIFTOFF_SECONDS: float = 0.15
 ## A homeowner's yell about Chefty (npcs/homeowner.gd host_grumble) stays over
 ## their head this long (s).
 const HOMEOWNER_YELL_SECONDS: float = 4.5

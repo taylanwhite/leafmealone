@@ -420,7 +420,13 @@ func is_moving() -> bool:
 
 
 func yaw() -> float:
-	return _body.global_rotation.y if _body != null else 0.0
+	if _body == null:
+		return 0.0
+	# From where its length points, not the Euler angles: a barrel roll turns it
+	# about that axis (chefty_crash.gd), and past a quarter turn the Euler yaw flips
+	# by half a turn.
+	var length := _body.global_basis.z
+	return atan2(length.x, length.z)
 
 
 ## Where a skateboarder hangs on behind (driving G2): behind the tailgate.
@@ -467,6 +473,12 @@ func host_take_bags(count: int) -> Array:
 	_job_value = value_left
 	_rpc_spill.rpc(_job_bags, _job_value, _spent_bags)
 	return out
+
+
+## The body you bump into (the bed, the cab; props/vehicles.gd's "Solid"): what
+## bags and riders thrown out of the bed pass through on the way out.
+func solid_body() -> PhysicsBody3D:
+	return _look.get_node_or_null("Solid") as PhysicsBody3D if _look != null else null
 
 
 ## Chefty's dents (0..Constants.CHEFTY_MAX_DENTS), as this peer has them.
@@ -1625,6 +1637,21 @@ func dev_place(at: Vector3, yaw_now: float) -> void:
 		return
 	_place(at, yaw_now)
 	_rpc_placed.rpc(at, yaw_now)
+
+
+## Host, scenarios: sit this peer in this seat (free, or theirs already), wherever
+## they stand. True when they're in it.
+func dev_seat(peer_id: int, seat: int) -> bool:
+	if not Net.is_host() or seat < 0 or seat >= _riders.size() or is_riding():
+		return false
+	if seat_of(peer_id) == seat:
+		return true
+	if _riders[seat] != 0 or seat_of(peer_id) >= 0:
+		return false
+	_riders[seat] = peer_id
+	_stow(peer_id)
+	_send_seats()
+	return true
 
 
 # ---------------------------------------------------------------- sound

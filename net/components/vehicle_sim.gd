@@ -152,6 +152,10 @@ static func step(chassis: CharacterBody3D, state: Dictionary, input: Dictionary,
 	chassis.global_rotation = Vector3(0.0, yaw, 0.0)
 	var from := chassis.global_position
 	chassis.move_and_slide()
+	# The slide only moves it across the ground; the suspension below says how high
+	# it rides. Pushed out of a parked car, the slide's recovery could shove it half
+	# a meter into the road (driving C3: the drawn truck sank, then popped back up).
+	chassis.global_position.y = from.y
 	var after := Vector3(chassis.velocity.x, 0.0, chassis.velocity.z)
 	# A floating CharacterBody keeps its velocity through a wall it can't pass;
 	# what it really managed is how far it got (driving C3: hitting a parked car

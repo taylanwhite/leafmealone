@@ -15,7 +15,9 @@ extends Node
 ## van_straggler, van_straggler_far, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
 ## annex_desk, annex_window_d, annex_turnstile, annex_visit and annex_heist_seen (need a
 ## second player), annex_closing, store,
-## drive (that one needs --town-map), toss, toss_full, toss_close, rustys (needs
+## drive (that one needs --town-map), crash and crash_big (the same, lined up on a
+## parked car with bags and the other players in the bed), knock (a mailbox ahead,
+## the friend past it), plow (at the job yard's leafy lawn), toss, toss_full, toss_close, rustys (needs
 ## Rusty's open: --rank=5 or more), lunch_money,
 ## snak_o_matic (at the food truck's hatch or the vending machine, at noon,
 ## with lunch money in your pocket; shops chunk 6), snack_crash (the Turbo Juice
@@ -27,10 +29,24 @@ extends Node
 const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
 const _Sched = preload("res://net/annex/annex_schedule.gd")
+const _DriveTest = preload("res://net/dev/drive_test.gd")
+## crash, crash_big: the run-up to the parked car (m), and the load in the bed.
+const CRASH_RUN_UP: float = 15.0
+const CRASH_BIG_RUN_UP: float = 30.0
+const CRASH_BAGS: int = 14
+const CRASH_BAG_VALUE: int = 20
+## knock: the run-up to the mailbox (m), and how far past it the friend stands.
+const KNOCK_RUN_UP: float = 14.0
+const KNOCK_FRIEND_PAST: float = 7.0
+## ...and how far toward the street from the mailbox Chefty's middle runs (m).
+const KNOCK_SIDE: float = 1.2
+## plow: where Chefty starts and the friend watches from (the job yard's space).
+const PLOW_FROM := Vector3(-19.0, 0.0, 8.0)
+const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -253,6 +269,14 @@ func run(scenario: String) -> Dictionary:
 			out = await _store()
 		"drive":
 			out = await _drive()
+		"crash":
+			out = await _crash(false)
+		"crash_big":
+			out = await _crash(true)
+		"knock":
+			out = await _knock()
+		"plow":
+			out = await _plow()
 		"toss":
 			out = await _toss()
 		"toss_full":
@@ -1721,6 +1745,91 @@ func _drive() -> Dictionary:
 	if int(chefty.call("driver")) != Net.local_peer_id():
 		return {"error": "couldn't get in the driver's seat"}
 	return {"note": "driving: move_forward/back throttle, move_left/right steer, interact gets out", "zone": _zone()}
+
+
+## crash, crash_big (driving C3): at the wheel, stopped on a street with a parked
+## car dead ahead (CRASH_RUN_UP m to run up: about 14 m/s at the hit, bags out,
+## the bed thrown; CRASH_BIG_RUN_UP: 16+, the barrel roll and the stuck horn),
+## CRASH_BAGS bags in the bed, and everyone else who plays (a friend, bots; never
+## the observer) standing in the bed. hold move_forward to crash.
+func _crash(big: bool) -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var target: Dictionary = _DriveTest.car_target(CRASH_BIG_RUN_UP if big else CRASH_RUN_UP)
+	if target.is_empty():
+		return {"error": "no parked car with a clear run-up"}
+	chefty.call("dev_place", target["from"], float(target["yaw"]))
+	await _ticks(2)
+	var me_id := Net.local_peer_id()
+	var seat := _Vehicles.CHEFTY_CAB_SEATS
+	var riders: Array[String] = []
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me_id or Net.is_watcher(peer_id) or Net.player_name(peer_id) == OBSERVER_NAME or seat >= Constants.CHEFTY_SEATS:
+			continue
+		_safe_peer(peer_id, QUIET_AFTER_SECONDS)
+		if bool(chefty.call("dev_seat", peer_id, seat)):
+			Net.set_player_zone(peer_id, Net.Zone.TOWN)
+			riders.append(Net.player_name(peer_id))
+			seat += 1
+	Net.set_player_zone(me_id, Net.Zone.TOWN)
+	chefty.call("clear_bags")
+	await _ticks(2)
+	chefty.call("accept_bags", CRASH_BAGS, CRASH_BAGS * CRASH_BAG_VALUE)
+	await get_tree().create_timer(0.4).timeout
+	return {"note": "a parked car %.0f m ahead; hold move_forward to hit it" % (CRASH_BIG_RUN_UP if big else CRASH_RUN_UP), "riders": riders, "bags": int(chefty.call("bag_count")), "zone": _zone()}
+
+
+## plow (driving C3): at the wheel at the edge of the job yard (the test site's
+## house), its leafy lawn ahead, the homeowner home. Drive in: the bumper plows
+## the leaves; stop on the lawn for CHEFTY_LAWN_PARK_SECONDS and they yell; honk.
+func _plow() -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var world := _world()
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var house := TownMap.test_site_house()
+	world.call("place_job_site", TownMap.yard_transform(house), house)
+	world.call("_load_job_lot")
+	await _wait_for(func() -> Variant: return true if get_tree().get_first_node_in_group("homeowner") != null else null)
+	var lot := (world.get_node("LotZone") as Node3D).global_transform
+	chefty.call("dev_place", lot * PLOW_FROM, -PI * 0.5)
+	Net.set_player_zone(Net.local_peer_id(), Net.Zone.TOWN)
+	var friend := _friend_id()
+	if friend != 0:
+		_safe_peer(friend, QUIET_AFTER_SECONDS)
+		var body := _other_player()
+		if body != null:
+			body.call("send_teleport", Transform3D(Basis(Vector3.UP, PI * 0.5), lot * PLOW_FRIEND))
+	await get_tree().create_timer(0.5).timeout
+	return {"note": "the job yard's lawn ahead; drive in, stop on it, honk", "zone": _zone()}
+
+
+## knock (driving C3): at the wheel on a street, a curbside mailbox KNOCK_RUN_UP m
+## dead ahead, and the friend (if there is one) standing in the road
+## KNOCK_FRIEND_PAST m past it, back to you. hold move_forward: the mailbox flies,
+## the friend gets Chefty'd.
+func _knock() -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var house := TownMap.test_site_house() + 1
+	var mailbox: Vector3 = TownMap.yard_transform(house) * preload("res://levels/town/town_dressing.gd").MAILBOX_AT
+	# On the sidewalk side of it, so the truck's flank takes it and the fence stays.
+	chefty.call("dev_place", mailbox + Vector3(-KNOCK_RUN_UP, 0.0, KNOCK_SIDE), -PI * 0.5)
+	Net.set_player_zone(Net.local_peer_id(), Net.Zone.TOWN)
+	var friend := _friend_id()
+	if friend != 0:
+		_safe_peer(friend, QUIET_AFTER_SECONDS)
+		Net.set_player_zone(friend, Net.Zone.TOWN)
+		var body := _other_player()
+		if body != null:
+			body.call("send_teleport", Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(mailbox.x + KNOCK_FRIEND_PAST, 0.1, mailbox.z + KNOCK_SIDE)))
+	await get_tree().create_timer(0.5).timeout
+	return {"note": "a mailbox %.0f m ahead%s; hold move_forward" % [KNOCK_RUN_UP, ", the friend past it" if friend != 0 else ""], "mailbox": _v(mailbox), "zone": _zone()}
 
 
 # ---------------------------------------------------------------- reset

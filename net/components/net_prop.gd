@@ -118,7 +118,8 @@ var _runaway_stuck: float = 0.0
 var _runaway_last := Vector3.INF
 var _thrown_at: float = 0.0
 ## Host: spilled out of Chefty's bed (host_spill), the bed won't catch it until
-## this tick-clock time (msec).
+## this physics frame (game time, not the wall clock: a paced or busy session
+## runs slower than real time, and a wall-clock window ran out mid-flight).
 var _no_catch_until: int = 0
 ## Everyone this throw already hit, so one throw bonks each person once.
 var _bonked: Array[Node] = []
@@ -364,7 +365,7 @@ func host_unown(at: Vector3, pop: Vector3) -> void:
 func host_spill(velocity_now: Vector3, no_catch: float) -> void:
 	if not Net.is_host():
 		return
-	_no_catch_until = Time.get_ticks_msec() + int(no_catch * 1000.0)
+	_no_catch_until = Engine.get_physics_frames() + int(no_catch * float(Engine.physics_ticks_per_second))
 	linear_velocity = velocity_now
 	angular_velocity = Vector3(randf_range(-6.0, 6.0), randf_range(-3.0, 3.0), randf_range(-6.0, 6.0))
 	_airborne = true
@@ -1483,7 +1484,7 @@ func _try_load_bag() -> void:
 	# (net/components/bed_toss.gd catches()), or batted back out of a full one.
 	var truck := get_tree().get_first_node_in_group("chefty")
 	# Just spilled out of the bed (host_spill): it isn't caught on its way out.
-	if Time.get_ticks_msec() < _no_catch_until:
+	if Engine.get_physics_frames() < _no_catch_until:
 		truck = null
 	if truck != null and truck.has_method("bed_transform"):
 		var count := int(truck.call("bag_count"))

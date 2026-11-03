@@ -893,6 +893,7 @@ const SHOP_UI: Dictionary = {
 	"item_blurb_chefty_repair": "Marty's nephew and a rubber mallet. Every dent out, every letter back.",
 	# A repair card: its price for all the dents, and Chefty without any.
 	"shop_repair_price": "$%d for %d dents",
+	"shop_repair_price_one": "$%d for the dent",
 	"shop_repair_none": "Not a scratch on her.",
 	"shop_repair_buy": "Fix her up",
 	# Rusty's oddities.
@@ -1958,6 +1959,7 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/error_join": [1, 1],
 	"UI/ride_chefty_label": [3, 1],
 	"SHOP_UI/shop_repair_price": [2, 1],
+	"SHOP_UI/shop_repair_price_one": [1, 1],
 	"UI/drive_hud_speed": [1, 1],
 	"UI/drive_hud_bed": [3, 1],
 	"UI/drive_hud_driver": [1, 1],

@@ -29,6 +29,13 @@ const _NetLook = preload("res://props/chefty_net_look.gd")
 const _TownDressing = preload("res://levels/town/town_dressing.gd")
 const BAG_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 const BAG_COLOR := Color(0.72, 0.48, 0.18, 1)
+## A spilled bag's middle starts at least this high in Chefty's space (m): clear
+## of the bed floor's box (its top is at 1.05, props/vehicles.gd build_truck).
+const SPILL_START_Y: float = 1.5
+## The back wall of the cab (z) and the height over it a thrown rider's feet must
+## clear (m, Chefty's space; props/vehicles.gd's Solid boxes).
+const CAB_BACK_Z: float = -1.25
+const CAB_ROOF_Y: float = 2.6
 
 ## The Chefty this belongs to (chefty_drive.gd).
 var vehicle: Node3D
@@ -45,6 +52,8 @@ var _hit_sum: float = 0.0
 var _hit_best: float = 0.0
 var _hit_vel := Vector3.ZERO
 var _hit_normal := Vector3.ZERO
+## Host: what the hardest tick hit (a node path, for the log).
+var _hit_what: String = ""
 var _horn_stuck: float = 0.0
 var _rng := RandomNumberGenerator.new()
 var _plow_left: float = 0.0
@@ -63,6 +72,17 @@ var _spill_serial: int = 0
 ## Every peer: the barrel roll under way (-1 when not), and which way it rolls.
 var _tumble_t: float = -1.0
 var _tumble_sign: float = 1.0
+## Every peer: a crash's jolt (the nose dips, the back kicks up, it rocks back):
+## its age (s, -1 when none) and strength (0..1).
+var _jolt_t: float = -1.0
+var _jolt_strength: float = 0.0
+## 1 for a hit on the nose (the back kicks up), -1 on the tailgate (the nose does).
+var _jolt_dir: float = 1.0
+## This peer's view shakes while its player rides along (or stands close by):
+## how hard (0..1, fading), and the camera the shake is on.
+var _shake: float = 0.0
+var _shake_t: float = 0.0
+var _shaken: Camera3D
 ## Every peer: knocked-over pieces lying about [{node, body, at}].
 var _fallen: Array = []
 var _restore_left: float = 0.0
@@ -112,6 +132,7 @@ func host_after_step(result: Dictionary, pre_vel: Vector3, input: Dictionary, de
 		if impact > _hit_best:
 			_hit_best = impact
 			_hit_normal = result.get("impact_normal", Vector3.ZERO) as Vector3
+			_hit_what = _solid_hit_name(result.get("hits", []) as Array)
 	if _hit_age >= 0.0:
 		_hit_age += delta
 		if impact <= CONTACT_SPEED or _hit_age >= Constants.CHEFTY_CRASH_GATHER_SECONDS:
@@ -164,8 +185,19 @@ func _crash(impact: float, normal: Vector3, pre_vel: Vector3) -> void:
 		_horn_stuck = Constants.CHEFTY_HORN_STUCK_SECONDS
 	vehicle.call("host_set_dents", dents)
 	last_crash = {"impact": impact, "spilled": spilled, "ejected": ejected, "dents": dents, "tumble": tumble}
-	print("[Chefty] crash at %.1f m/s: %d bags out, %d riders out, %d dents%s" % [impact, spilled, ejected, dents, ", barrel roll" if tumble else ""])
+	print("[Chefty] crash at %.1f m/s into %s: %d bags out, %d riders out, %d dents%s" % [impact, _hit_what, spilled, ejected, dents, ", barrel roll" if tumble else ""])
 	_rpc_crash.rpc(at, impact, tumble, dents, -1.0 if _rng.randf() < 0.5 else 1.0)
+
+
+## The first solid thing in a step's hits, as a short path (for the log).
+static func _solid_hit_name(hits: Array) -> String:
+	for hit: Variant in hits:
+		if hit is Dictionary and not bool((hit as Dictionary).get("soft", false)):
+			var collider: Variant = (hit as Dictionary).get("collider")
+			if collider is Node and is_instance_valid(collider):
+				var node := collider as Node
+				return "%s/%s" % [node.get_parent().name if node.get_parent() != null else "", node.name]
+	return "?"
 
 
 ## Host: count bags fly out of the bed (from the top of the heap), each a real
@@ -177,6 +209,9 @@ func host_spill(count: int, carry: Vector3, sideways: Vector3 = Vector3.ZERO) ->
 		return 0
 	var runtime := get_tree().get_first_node_in_group("runtime_props")
 	var right := VehicleSim.right_of(float(vehicle.call("yaw")))
+	var bed: Transform3D = vehicle.call("bed_transform")
+	var solid := vehicle.call("solid_body") as PhysicsBody3D
+	var flying: Array[RigidBody3D] = []
 	for entry: Dictionary in taken:
 		var bag := BAG_SCENE.instantiate() as RigidBody3D
 		_spill_serial += 1
@@ -190,15 +225,37 @@ func host_spill(count: int, carry: Vector3, sideways: Vector3 = Vector3.ZERO) ->
 			continue
 		runtime.add_child(bag, true)
 		var spot: Transform3D = entry["xform"]
-		bag.global_position = spot.origin + Vector3.UP * 0.35
+		# Where it was drawn, lifted clear of the bed floor (a body started inside
+		# the floor's box, or inside the next bag, was shot out at random or stopped
+		# dead and dropped back in: driving C3's first crash takes).
+		var truck := Transform3D(Basis(Vector3.UP, float(vehicle.call("yaw"))), (vehicle.call("body_transform") as Transform3D).origin)
+		var local := truck.affine_inverse() * spot.origin
+		bag.global_position = truck * Vector3(local.x, maxf(local.y, SPILL_START_Y), local.z)
 		# Over the side rail the bag sat nearest (a drift throws them all to the
 		# outside), a little of the truck's own speed, and up and out.
-		var local_x := (spot.origin - (vehicle.call("bed_transform") as Transform3D).origin).dot(right)
+		var local_x := (spot.origin - bed.origin).dot(right)
 		var out := sideways.normalized() if sideways.length() > 0.01 else right * (1.0 if local_x > 0.0 or (absf(local_x) < 0.1 and _rng.randf() < 0.5) else -1.0)
 		var velocity := Vector3(carry.x, 0.0, carry.z) * Constants.CHEFTY_SPILL_CARRY * _rng.randf_range(0.7, 1.1) \
 			+ Vector3.UP * Constants.CHEFTY_SPILL_UP * _rng.randf_range(0.85, 1.15) \
 			+ out * Constants.CHEFTY_SPILL_SIDE * _rng.randf_range(0.75, 1.25)
 		bag.call("host_spill", velocity, Constants.CHEFTY_SPILL_NO_CATCH)
+		flying.append(bag)
+	# On the way out they pass through the truck and each other; once clear of the
+	# rails they're solid again.
+	for index: int in flying.size():
+		if solid != null:
+			flying[index].add_collision_exception_with(solid)
+		for other: int in range(index + 1, flying.size()):
+			flying[index].add_collision_exception_with(flying[other])
+	get_tree().create_timer(Constants.CHEFTY_SPILL_CLEAR_SECONDS, true, true).timeout.connect(func() -> void:
+		for bag: RigidBody3D in flying:
+			if not is_instance_valid(bag):
+				continue
+			if solid != null and is_instance_valid(solid):
+				bag.remove_collision_exception_with(solid)
+			for other: RigidBody3D in flying:
+				if other != bag and is_instance_valid(other):
+					bag.remove_collision_exception_with(other))
 	bags_spilled += taken.size()
 	return taken.size()
 
@@ -217,11 +274,32 @@ func _eject_bed(pre_vel: Vector3) -> int:
 		if peer_id == 0:
 			continue
 		var side := signf(_Vehicles.CHEFTY_SEATS[seat].x)
-		var velocity := Vector3(pre_vel.x, 0.0, pre_vel.z) * Constants.CHEFTY_EJECT_SHARE + Vector3.UP * Constants.CHEFTY_EJECT_UP + right * side * Constants.CHEFTY_EJECT_SIDE * _rng.randf_range(0.5, 1.0)
+		# Up and over the cab, never through it: going forward no faster than gets
+		# them over its roof by the time they reach its back wall (the front row
+		# mostly pops straight up, the back row sails over the hood).
+		var flat := Vector3(pre_vel.x, 0.0, pre_vel.z) * Constants.CHEFTY_EJECT_SHARE
+		var to_cab := _Vehicles.CHEFTY_SEATS[seat].z - CAB_BACK_Z
+		var rise_time := _time_to_rise(Constants.CHEFTY_EJECT_UP, CAB_ROOF_Y - _Vehicles.CHEFTY_SEATS[seat].y)
+		var ahead := flat.dot(VehicleSim.forward_of(float(vehicle.call("yaw")))) > 0.0
+		if ahead and rise_time > 0.0 and flat.length() > to_cab / rise_time:
+			flat = flat.normalized() * (to_cab / rise_time)
+		var velocity := flat + Vector3.UP * Constants.CHEFTY_EJECT_UP + right * side * Constants.CHEFTY_EJECT_SIDE * _rng.randf_range(0.5, 1.0)
 		vehicle.call("host_eject", peer_id, velocity)
 		count += 1
 	riders_ejected += count
 	return count
+
+
+## How long something thrown up at speed (m/s) takes to rise height (m) under
+## the world's gravity (the time to its peak if it never gets that high; 0 for no height).
+static func _time_to_rise(speed: float, height: float) -> float:
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+	var reach := speed * speed - 2.0 * gravity * height
+	if height <= 0.0:
+		return 0.0
+	if reach < 0.0:
+		return speed / gravity
+	return (speed - sqrt(reach)) / gravity
 
 
 ## Host: a drift fast enough shakes a bag loose now and then, out the far side.
@@ -465,6 +543,11 @@ func physics(delta: float) -> void:
 		_tumble_t += delta / Constants.CHEFTY_TUMBLE_SECONDS
 		if _tumble_t >= 1.0:
 			_tumble_t = -1.0
+	if _jolt_t >= 0.0:
+		_jolt_t += delta
+		if _jolt_t >= Constants.CHEFTY_JOLT_SECONDS:
+			_jolt_t = -1.0
+	_shake_view(delta)
 	_knock_local()
 	_restore_left -= delta
 	if _restore_left <= 0.0:
@@ -480,7 +563,7 @@ func physics(delta: float) -> void:
 ## hop, and a full turn about its length through its middle.
 func tumble_offset() -> Transform3D:
 	if _tumble_t < 0.0:
-		return Transform3D.IDENTITY
+		return _jolt_offset()
 	var t := clampf(_tumble_t, 0.0, 1.0)
 	# Up fast, a hang at the top, down hard: the turn follows the same curve.
 	var spin := smoothstep(0.0, 1.0, t)
@@ -491,6 +574,57 @@ func tumble_offset() -> Transform3D:
 
 func is_tumbling() -> bool:
 	return _tumble_t >= 0.0
+
+
+## The drawn body's offset for a crash's jolt: it pitches about its front
+## bumper, back end up, then rocks back past level and settles (a damped swing).
+func _jolt_offset() -> Transform3D:
+	if _jolt_t < 0.0:
+		return Transform3D.IDENTITY
+	var t := _jolt_t
+	var swing := cos(t * Constants.CHEFTY_JOLT_RATE) * exp(-t * Constants.CHEFTY_JOLT_DAMP)
+	# Back end up is a negative turn about +X (the nose is -Z).
+	var angle := -Constants.CHEFTY_JOLT_PITCH * _jolt_strength * swing * _jolt_dir
+	# It tips over the end that's on the ground: the front bumper for back end up.
+	var pivot := Vector3(0.0, Constants.CHEFTY_JOLT_PIVOT.y, Constants.CHEFTY_JOLT_PIVOT.z if angle <= 0.0 else -Constants.CHEFTY_JOLT_PIVOT.z)
+	return Transform3D(Basis.IDENTITY, pivot) * Transform3D(Basis(Vector3.RIGHT, angle), Vector3.ZERO) * Transform3D(Basis.IDENTITY, -pivot)
+
+
+## This peer's camera shakes after a crash while its player rides along or stands
+## within CHEFTY_SHAKE_METERS: the current camera's own offsets, so whichever eye
+## it is (the chase camera, first person in the cab or the bed) shakes, and they're
+## put back after.
+func _shake_view(delta: float) -> void:
+	if _shake <= 0.0:
+		if _shaken != null:
+			if is_instance_valid(_shaken):
+				_shaken.h_offset = 0.0
+				_shaken.v_offset = 0.0
+			_shaken = null
+		return
+	_shake = maxf(_shake - delta / Constants.CHEFTY_SHAKE_SECONDS, 0.0)
+	_shake_t += delta
+	var camera := get_viewport().get_camera_3d() if get_viewport() != null else null
+	if camera != _shaken and _shaken != null and is_instance_valid(_shaken):
+		_shaken.h_offset = 0.0
+		_shaken.v_offset = 0.0
+	_shaken = camera
+	if camera == null:
+		return
+	var amount := Constants.CHEFTY_SHAKE_METERS_MAX * _shake * _shake
+	camera.h_offset = amount * sin(_shake_t * 53.0) * cos(_shake_t * 17.0)
+	camera.v_offset = amount * sin(_shake_t * 41.0 + 1.3)
+
+
+## Whether this peer's own player feels a crash at `at`: riding along, or close.
+func _feels(at: Vector3) -> bool:
+	var me := Net.local_peer_id()
+	if int(vehicle.call("seat_of", me)) >= 0:
+		return true
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(me):
+			return (node as Node3D).global_position.distance_to(at) < Constants.CHEFTY_SHAKE_NEAR
+	return false
 
 
 ## Every peer: the drawn mailboxes and bins Chefty's drawn body runs through fly.
@@ -674,6 +808,14 @@ func _rpc_crash(at: Vector3, strength: float, tumble: bool, dents: int, roll_sig
 		tumbles_seen += 1
 		_tumble_t = 0.0
 		_tumble_sign = roll_sign
+	else:
+		_jolt_t = 0.0
+		_jolt_strength = clampf(strength / Constants.CHEFTY_TUMBLE_SPEED, 0.35, 1.0)
+		var local := (vehicle.call("body_transform") as Transform3D).affine_inverse() * at
+		_jolt_dir = 1.0 if local.z <= 0.0 else -1.0
+	if _feels(at):
+		_shake = maxf(_shake, clampf(strength / Constants.CHEFTY_TUMBLE_SPEED, 0.4, 1.0))
+		_shake_t = 0.0
 	vehicle.emit_signal("crashed", strength, at)
 
 

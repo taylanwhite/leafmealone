@@ -928,6 +928,11 @@ func dizzy(seconds: float) -> void:
 			kit.blob(at, Vector3(0.07, 0.07, 0.025), Color(1.0, 0.85, 0.25), {"detail": 1, "lumps": 0.6, "lump_scale": 5.0, "outward": true, "flat": true, "jitter": 0.0, "shade": false, "seed": index})
 		var view := _Stylized.instance(kit.commit(), {"roughness": 0.4, "specular": 0.4})
 		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Your own stars circle your own head, where your first-person eye is: on
+		# its layer, or they fill the view as yellow blobs (driving C3: a crash
+		# thrown out of Chefty's bed lands you staring up through them).
+		if _own_head:
+			view.layers = 1 << (HEAD_LAYER - 1)
 		_stars.add_child(view)
 	_stars_left = seconds
 

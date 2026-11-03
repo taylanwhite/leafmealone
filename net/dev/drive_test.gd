@@ -401,7 +401,7 @@ func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String])
 	if hires != null:
 		hires.call("_handle_fire", "Big Sal")
 	# m. A parked car, side on, with room on the street side to run up.
-	var target := _car_target()
+	var target := car_target()
 	if target.is_empty():
 		_verdict(false, "m. no parked car with a clear run-up", problems)
 		return
@@ -409,7 +409,7 @@ func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String])
 	var run_yaw := float(target["yaw"])
 	var first := await _crash_into(chefty, host, client, run_from, run_yaw, 10, 200)
 	var seen: Dictionary = first["report"]
-	_verdict(int(seen["crashes_seen"]) >= 1 and int(first["spilled"]) >= 3 and int(first["props"]) == int(first["spilled"]) and int(first["props_value"]) + int(first["bed_value"]) == 200 and int(seen["dents"]) >= 1 and bool(first["thrown"]) and int(chefty.call("seat_of", client)) < 0,
+	_verdict(int(seen["crashes_seen"]) >= 1 and int(first["spilled"]) >= 3 and int(first["props"]) == int(first["left_bed"]) and int(first["props_value"]) + int(first["bed_value"]) == 200 and int(seen["dents"]) >= 1 and bool(first["thrown"]) and int(chefty.call("seat_of", client)) < 0,
 		"m. crash at %.1f m/s: crashes %d, %d bags out (%d leaf bags worth $%d, the bed keeps $%d of $200), dents %d, the client thrown %s, seat %d" % [float(first["impact"]), int(seen["crashes_seen"]), int(first["spilled"]), int(first["props"]), int(first["props_value"]), int(first["bed_value"]), int(seen["dents"]), first["thrown"], int(chefty.call("seat_of", client))], problems)
 	_clear_spills()
 	# m2. The Chefty Net halves the spill; the second dent; Marty's Body Shop.
@@ -491,19 +491,37 @@ func _crash_steps(world: Node, chefty: Node, host: int, problems: Array[String])
 	_verdict(hit >= 1 and box_heat >= Constants.HEAT_MAILBOX - 0.5, "o2. flattened %d mailbox (+%.1f heat)" % [hit, box_heat], problems)
 	if int(chefty.call("seat_of", host)) >= 0:
 		chefty.call("request_exit")
+	# Big Sal sat these out (his bed seat isn't a rider's); he's back for CI's
+	# check that both peers draw him in the bed.
+	if hires != null:
+		hires.call("dev_add_hand", "Big Sal")
 	await get_tree().create_timer(0.5).timeout
 
 
 ## A parked car to crash into, rear-ended in its own lane: the run-up spot
-## CRASH_RUN_UP meters back up the street, and the heading that faces it. {}
-## with none clear.
-func _car_target() -> Dictionary:
-	for car: Array in TownMap.car_spots():
+## run_up meters back up the street, and the heading that faces it. {} with none
+## clear (net/dev/scenarios.gd's crash moments use it too).
+static func car_target(run_up: float = CRASH_RUN_UP) -> Dictionary:
+	var cars: Array = TownMap.car_spots()
+	for car: Array in cars:
 		var at: Vector3 = car[0]
 		var along := Basis(Vector3.UP, float(car[1])).z
 		for flip: float in [1.0, -1.0]:
-			var from := at + along * flip * (CRASH_RUN_UP + Constants.CHEFTY_HALF_LENGTH + 2.2)
-			if TownMap.surface_at(from) != &"asphalt" or TownMap.surface_at(at + along * flip * 6.0) != &"asphalt":
+			var from := at + along * flip * (run_up + Constants.CHEFTY_HALF_LENGTH + 2.2)
+			if TownMap.surface_at(from) != &"asphalt" or TownMap.surface_at(at + along * flip * 6.0) != &"asphalt" \
+					or TownMap.surface_at(at.lerp(from, 0.5)) != &"asphalt":
+				continue
+			# No other parked car in the lane on the way.
+			var blocked := false
+			for other: Array in cars:
+				var spot: Vector3 = other[0]
+				if spot.is_equal_approx(at):
+					continue
+				var t := clampf((spot - at).dot(from - at) / (from - at).length_squared(), 0.0, 1.0)
+				if Vector2(spot.x - lerpf(at.x, from.x, t), spot.z - lerpf(at.z, from.z, t)).length() < 3.0:
+					blocked = true
+					break
+			if blocked:
 				continue
 			var toward := (at - from)
 			return {"from": Vector3(from.x, 0.0, from.z), "yaw": atan2(-toward.x, -toward.z)}
@@ -516,7 +534,9 @@ const CRASH_RUN_UP: float = 15.0
 
 ## Host at the wheel, the client in the bed, bags worth value in it, Chefty at
 ## from facing yaw; full throttle into whatever's ahead. Returns what happened:
-## {impact, spilled, props, props_value, bed_value, thrown, report}.
+## {impact, spilled (the crash's own count), left_bed (out of the bed now: a bag
+## that came back down into it is in again), props, props_value, bed_value,
+## thrown, report}.
 func _crash_into(chefty: Node, host: int, client: int, from: Vector3, yaw: float, bags: int, value: int) -> Dictionary:
 	await _take_wheel(chefty, host, from, yaw)
 	var waited := 0.0
@@ -550,12 +570,15 @@ func _crash_into(chefty: Node, host: int, client: int, from: Vector3, yaw: float
 	var props := 0
 	var props_value := 0
 	for node: Node in get_tree().get_nodes_in_group("props"):
-		if str(node.get("kind")) == "leaf_bag" and node.name.begins_with("Spill"):
+		# One that came back down into the bed is settling into the load (its value
+		# is the bed's again): it isn't out.
+		if str(node.get("kind")) == "leaf_bag" and node.name.begins_with("Spill") and not bool(node.get("_settling")) and not node.is_queued_for_deletion():
 			props += 1
 			props_value += int(node.get("value"))
 	return {
 		"impact": float(crash.get("impact", 0.0)) if int(report["crashes_seen"]) > crashes_before else 0.0,
-		"spilled": bags_before - int(chefty.call("bag_count")),
+		"spilled": int(crash.get("spilled", 0)) if int(report["crashes_seen"]) > crashes_before else 0,
+		"left_bed": bags_before - int(chefty.call("bag_count")),
 		"props": props, "props_value": props_value, "bed_value": int(chefty.call("bag_value")),
 		"thrown": thrown, "report": report,
 	}

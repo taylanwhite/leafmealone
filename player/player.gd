@@ -99,6 +99,8 @@ var _punch_cool: float = 0.0
 var _swing_left: float = 0.0
 var _struggle: int = 0
 var _thrown_left: float = 0.0
+## A throw's clock starts here (s); it ends on the ground once under 1.2 s are left.
+const THROWN_SECONDS: float = 1.5
 var _coat_shown: int = 0
 var _next_strain: float = 0.0
 ## A notice over your head (flash_hint) and when it goes (ticks msec).
@@ -226,7 +228,9 @@ func _physics_process(delta: float) -> void:
 			if _coat_left <= 0.0:
 				coat = 0
 		# In a pile you're crouched down in the leaves; walking forward climbs out.
-		%FirstPerson.position.y = -1.05 if in_pile else 0.0
+		# Standing in Chefty's bed you look out over the cab, not into the back of
+		# its roof (driving C3: from a plain standing eye the cab filled half the view).
+		%FirstPerson.position.y = -1.05 if in_pile else (Constants.CHEFTY_BED_EYE_LIFT if _Seated.pose_for(self) == 2 else 0.0)
 		if in_pile and (Input.is_action_just_pressed("move_forward") or Input.is_action_just_pressed("jump")) and not bool(_hide_view().call("is_found")):
 			set_pile(false)
 		var seated_in_vehicle := in_vehicle()
@@ -1176,10 +1180,20 @@ func set_thrown(velocity_now: Vector3, _thrower: int) -> void:
 	# in the same breath: on the host in one call, on a client in one poll (the
 	# seats and the throw ride the same reliable channel, in order). Catch the seat
 	# up now, or _apply_bonk still sees us seated and drops the fling.
+	var was_in := _seat_ride if _seat_ride != null and is_instance_valid(_seat_ride) and _seat_ride.has_method("solid_body") else null
 	_seat_on_ride()
+	# Out of Chefty (driving C3): you go through its cab roof and rails on the way
+	# out instead of slamming into the back of the cab and dropping into the bed.
+	if was_in != null:
+		var solid := was_in.call("solid_body") as PhysicsBody3D
+		if solid != null:
+			add_collision_exception_with(solid)
+			get_tree().create_timer(Constants.CHEFTY_SPILL_CLEAR_SECONDS, true, true).timeout.connect(func() -> void:
+				if is_instance_valid(solid):
+					remove_collision_exception_with(solid))
 	carried_by = 0
 	thrown = true
-	_thrown_left = 1.5
+	_thrown_left = THROWN_SECONDS
 	_apply_bonk(velocity_now, "heavy")
 	say_to_all("vo_yelp")
 
@@ -1929,7 +1943,9 @@ func _apply_bonk(push: Vector3, tier: String) -> void:
 			"medium":
 				body.call("gesture", "stumble")
 			_:
-				body.call("dizzy", float(Constants.BONK_STUN_SECONDS["heavy"]))
+				# Thrown, the stars wait for the landing (the body's knocked flop).
+				if not thrown:
+					body.call("dizzy", float(Constants.BONK_STUN_SECONDS["heavy"]))
 	say("vo_oof" if tier != "light" else "vo_eh")
 	if not is_multiplayer_authority() or _hidden_spot != null or _on_seat:
 		return
@@ -1949,7 +1965,10 @@ func _step_stunned(delta: float) -> void:
 	velocity.x = flat.x
 	velocity.z = flat.y
 	move_and_slide()
-	anim_state = AnimState.KNOCKED if _knocked else (AnimState.AIR if not is_on_floor() else AnimState.IDLE)
+	# Thrown (a toss, a crash out of Chefty's bed): flailing through the air, eyes
+	# on where you're headed, and flat on your back with stars only when you land.
+	var flying := thrown and (_thrown_left > THROWN_SECONDS - Constants.THROWN_LIFTOFF_SECONDS or not is_on_floor())
+	anim_state = AnimState.KNOCKED if _knocked and not flying else (AnimState.AIR if not is_on_floor() else AnimState.IDLE)
 	if _stun_left <= 0.0:
 		_knocked = false
 

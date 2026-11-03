@@ -419,7 +419,12 @@ func _card(data: Dictionary, wallet: int, shops: Node, open: bool) -> Control:
 		# Marty's Body Shop: every dent Chefty has, at its price each (driving C3).
 		var dents := int(shops.call("chefty_dents")) if shops != null else 0
 		card_qty = maxi(dents, 1)
-		column.add_child(_text(str(_Strings.SHOP_UI["shop_repair_price"]) % [price * dents, dents] if dents > 0 else str(_Strings.SHOP_UI["shop_repair_none"]), 16, ORANGE.darkened(0.15)))
+		var repair_text := str(_Strings.SHOP_UI["shop_repair_none"])
+		if dents == 1:
+			repair_text = str(_Strings.SHOP_UI["shop_repair_price_one"]) % (price * dents)
+		elif dents > 1:
+			repair_text = str(_Strings.SHOP_UI["shop_repair_price"]) % [price * dents, dents]
+		column.add_child(_text(repair_text, 16, ORANGE.darkened(0.15)))
 	else:
 		column.add_child(_text(str(_Strings.SHOP_UI["shop_free"]) if price == 0 else str(_Strings.SHOP_UI["shop_price_tag"]) % price, 16, ORANGE.darkened(0.15)))
 	var why := _blocker(id, card_qty, wallet, shops, open, data)

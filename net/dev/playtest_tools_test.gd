@@ -82,6 +82,9 @@ func _run() -> void:
 		var drove: Dictionary = await _scenarios.run("drive")
 		var chefty := get_tree().get_first_node_in_group("chefty")
 		reached["drive"] = _check(drove, chefty != null and int(chefty.call("driver")) == me, "driver %d" % (int(chefty.call("driver")) if chefty != null else 0), problems)
+		# Lined up on a parked car with a load in the bed (driving C3's crash moment).
+		var lined: Dictionary = await _scenarios.run("crash")
+		reached["crash"] = _check(lined, chefty != null and int(chefty.call("driver")) == me and int(chefty.call("bag_count")) > 0 and float(chefty.call("speed")) < 0.5, "driver %d, %d bags" % [int(chefty.call("driver")) if chefty != null else 0, int(chefty.call("bag_count")) if chefty != null else 0], problems)
 		var shopping: Dictionary = await _scenarios.run("store")
 		reached["store"] = _check(shopping, _zone() == "STORE", "zone %s" % _zone(), problems)
 		_finish(problems.is_empty(), {"scenarios": reached, "town_map": true}, problems)
