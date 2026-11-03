@@ -16,13 +16,15 @@ extends RefCounted
 ## until then the old 8-bar loop that ambience.gd used to play stands in for
 ## the calm moods that have no track of their own yet.
 ##
-## MOODS: mood -> {tracks, rests, urgent, priority, stand_in?}
+## MOODS: mood -> {tracks, rests, urgent, priority, stand_in?}, or {alias: mood}
 ##   tracks    played in turn, never the same one twice in a row when there are two
 ##   rests     calm music: MUSIC_LOOPS_BEFORE_REST loops, then a break of ambience only
 ##   urgent    switched to at once with the short fade, and never rests
 ##   priority  a pushed mood (push_mood) wins over a picked one of lower priority
 ##   stand_in  while the mood has no tracks: another mood to play instead (hot plays
 ##             the work music), or "hold" to keep whatever is already playing (road)
+##   alias     another name for that mood: every function here answers for the mood
+##             it names, and the director stores the real one (canonical())
 ## "silence" plays nothing; "hold" is never stored, pick_mood returns the current mood for it.
 
 const TRACKS: Dictionary = {
@@ -31,6 +33,21 @@ const TRACKS: Dictionary = {
 	# The old tune from the first sound pass (tools/make_loops.py), at the level it
 	# always had under ambience.gd (-15 dB). Chunk 4 retires it.
 	"old_tune": {"file": "res://assets/audio/sfx/music_loop.wav", "bpm": 92.0, "bars": 8, "intro_bars": 0, "loop": true, "stinger": false, "title_key": "track_old_tune", "db": -9.0},
+	# ---- audio 4b: the tense half (tools/music_tension.py). A loop's bpm is the
+	# exact tempo make_music.py rendered (its .json sidecar's bpm_exact), nudged
+	# so the loop is a whole number of 20 ms frames; loop_offset needs it exact.
+	"hot_yard": {"file": "res://assets/audio/music/hot_yard.ogg", "bpm": 115.98872331856627, "bars": 48, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_hot_yard", "db": 0.0},
+	"nice_boys_incoming": {"file": "res://assets/audio/music/nice_boys_incoming.ogg", "bpm": 128.0, "bars": 8, "intro_bars": 0, "loop": true, "stinger": false, "title_key": "track_nice_boys_incoming", "db": 0.0},
+	"nice_boys_chase": {"file": "res://assets/audio/music/nice_boys_chase.ogg", "bpm": 151.98891747476745, "bars": 64, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_nice_boys_chase", "db": 0.0},
+	# The escape/end-sequence cue: Border Return's lanes today, the Field Office escape later.
+	"escape_run": {"file": "res://assets/audio/music/escape_run.ogg", "bpm": 144.014401440144, "bars": 40, "intro_bars": 4, "loop": true, "stinger": false, "title_key": "track_escape_run", "db": 0.0},
+	"st_rank_up": {"file": "res://assets/audio/music/st_rank_up.ogg", "bpm": 100.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_rank_up", "db": 0.0},
+	"st_season": {"file": "res://assets/audio/music/st_season.ogg", "bpm": 96.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_season", "db": 0.0},
+	"st_morning": {"file": "res://assets/audio/music/st_morning.ogg", "bpm": 110.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_morning", "db": 0.0},
+	"st_new_client": {"file": "res://assets/audio/music/st_new_client.ogg", "bpm": 100.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_new_client", "db": 0.0},
+	"st_job_paid": {"file": "res://assets/audio/music/st_job_paid.ogg", "bpm": 120.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_job_paid", "db": 0.0},
+	"st_busted": {"file": "res://assets/audio/music/st_busted.ogg", "bpm": 92.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_busted", "db": 0.0},
+	"st_made_it": {"file": "res://assets/audio/music/st_made_it.ogg", "bpm": 132.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_made_it", "db": 0.0},
 }
 
 const MOODS: Dictionary = {
@@ -39,17 +56,21 @@ const MOODS: Dictionary = {
 	"work_evening": {"tracks": ["old_tune"], "rests": true, "urgent": false, "priority": 10},
 	"store": {"tracks": ["old_tune"], "rests": true, "urgent": false, "priority": 10},
 	"night": {"tracks": ["old_tune"], "rests": true, "urgent": false, "priority": 20},
-	"hot": {"tracks": [], "rests": true, "urgent": false, "priority": 30, "stand_in": "work_morning"},
-	"warning": {"tracks": [], "rests": false, "urgent": true, "priority": 60},
-	"chase": {"tracks": [], "rests": false, "urgent": true, "priority": 70},
-	"crossing": {"tracks": [], "rests": false, "urgent": true, "priority": 80},
+	"hot": {"tracks": ["hot_yard"], "rests": true, "urgent": false, "priority": 30},
+	"warning": {"tracks": ["nice_boys_incoming"], "rests": false, "urgent": true, "priority": 60},
+	"chase": {"tracks": ["nice_boys_chase"], "rests": false, "urgent": true, "priority": 70},
+	# An escape or end sequence: Border Return's lanes today (pick_mood's BORDER),
+	# the NICE BOYS' Field Office escape later (push_mood or a pick_mood rule).
+	"escape": {"tracks": ["escape_run"], "rests": false, "urgent": true, "priority": 80},
+	# The old name for escape, still accepted everywhere a mood id is (MOOD_ALIASES).
+	"crossing": {"alias": "escape"},
 	"silence": {"tracks": [], "rests": false, "urgent": false, "priority": 55},
 	# The drivable truck's radio (driving pushes it); keeps what's playing until it has a track.
 	"road": {"tracks": [], "rests": true, "urgent": false, "priority": 50, "stand_in": "hold"},
 }
 
 ## Every stinger the game fires (MusicDirector.stinger), whether its file exists
-## yet or not. Chunk 4b makes the missing ones; st_lost_em is driving's.
+## yet or not. All but st_lost_em (driving's pursuit, still to come) have one.
 const STINGER_IDS: Array[String] = [
 	"st_day_end", "st_rank_up", "st_season", "st_morning", "st_new_client",
 	"st_job_paid", "st_busted", "st_made_it", "st_lost_em",
@@ -69,7 +90,17 @@ static func has_mood(mood_id: String) -> bool:
 
 
 static func mood(mood_id: String) -> Dictionary:
-	return MOODS.get(mood_id, {}) as Dictionary
+	return MOODS.get(canonical(mood_id), {}) as Dictionary
+
+
+## The mood an alias stands for ("crossing" -> "escape"); any other id as it is.
+static func canonical(mood_id: String) -> String:
+	var entry: Dictionary = MOODS.get(mood_id, {})
+	return str(entry["alias"]) if entry.has("alias") else mood_id
+
+
+static func is_alias(mood_id: String) -> bool:
+	return canonical(mood_id) != mood_id
 
 
 ## The tracks a mood plays, in turn. Empty for silence and for moods still waiting on theirs.

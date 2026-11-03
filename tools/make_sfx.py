@@ -395,6 +395,35 @@ def clear() -> list[float]:
     return out
 
 
+def crossing_go() -> list[float]:
+    """An escape starts (Border Return's lanes): a cartoon starting pistol's 'pak!'
+    and its echo, then a referee's pea-whistle trill."""
+    rng = random.Random(91)
+    out = silence(1.05)
+    crack = decay(bandpass(noise(rng, 0.12), 1800.0, 0.8), 60.0)
+    mix_into(out, crack, 0.0, 1.0)
+    mix_into(out, blip(0.16, 210.0, 60.0, 22.0), 0.0, 0.7)
+    mix_into(out, decay(lowpass(noise(rng, 0.25), 1300.0), 14.0), 0.11, 0.22)
+    whistle_s = 0.55
+    trill = [0.35 + 0.65 * (0.5 + 0.5 * math.sin(TAU * 27.0 * i / RATE)) for i in range(int(whistle_s * RATE))]
+    pea = [(a + 0.7 * b) * t for a, b, t in zip(tone(whistle_s, 2150.0), tone(whistle_s, 2330.0), trill)]
+    mix_into(out, envelope(pea, 0.015, 0.08), 0.32, 0.38)
+    return out
+
+
+def crossing_bonk() -> list[float]:
+    """A lane hazard throws you back to the start: a spring 'boing' on contact,
+    a slide whistle all the way down while you fly (Constants.BORDER_THROWBACK_SECONDS,
+    0.55 s), and a soft pomf as you land."""
+    out = silence(0.85)
+    spring = tone(0.4, lambda t: 330.0 * (1.0 + 0.4 * math.exp(-6.0 * t) * math.sin(TAU * 14.0 * t)), "triangle")
+    mix_into(out, decay(spring, 7.0), 0.0, 0.8)
+    whistle = tone(0.48, glide(1500.0, 380.0, 0.46, 0.8), "sine", (7.0, 0.012))
+    mix_into(out, envelope(whistle, 0.03, 0.05), 0.06, 0.45)
+    mix_into(out, blip(0.22, 170.0, 70.0, 16.0), 0.55, 0.75)
+    return out
+
+
 def bonk(variant: int) -> list[float]:
     """A cartoon bonk on the head: a hollow wooden knock that boings down."""
     out = silence(0.45)
@@ -615,6 +644,9 @@ SOUNDS = {
     "arrive": (arrive, 0, 0.85),
     "tick": (tick, 0, 0.45),
     "clear": (clear, 0, 0.6),
+    # ---- audio 4b: an escape sequence (net/border_return.gd).
+    "crossing_go": (crossing_go, 0, 0.7),
+    "crossing_bonk": (crossing_bonk, 0, 0.7),
     "vo_ah": (vo_ah, 0, 0.7),
     "vo_eh": (vo_eh, 0, 0.7),
     "vo_huh": (vo_huh, 0, 0.7),

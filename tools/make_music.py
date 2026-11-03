@@ -1501,7 +1501,18 @@ def st_day_end() -> Song:
 SONGS = {song.id: song for song in (rake_it_easy(), st_day_end())}
 
 
+## Song books in their own modules (tools/<name>.py, each with register(module, songs)),
+## so chunks composing at the same time never edit the same lines here.
+SONG_BOOKS = ("music_tension",)
+
+
+def load_song_books() -> None:
+    for book in SONG_BOOKS:
+        __import__(book).register(sys.modules[__name__], SONGS)
+
+
 def main() -> int:
+    load_song_books()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("ids", nargs="*")
     parser.add_argument("--preview", action="store_true", help="22.05 kHz mono into build/audio/preview/")

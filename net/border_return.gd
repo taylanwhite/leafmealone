@@ -173,7 +173,16 @@ func _throw_local(body: Node) -> void:
 	var border := get_parent().get_node("BorderZone") as Node3D
 	var lane := _lane_of(Net.local_peer_id())
 	var start := border.to_global(Vector3(float(_Layout.call("lane_center_x", lane)), 0.1, -float(_Layout.HALF_LENGTH)))
+	_bonk_fx(body)
 	body.call("play_throwback", start)
+
+
+## Local presentation: the boing where you were hit, its slide whistle falling
+## while play_throwback flies you back (both BORDER_THROWBACK_SECONDS long).
+func _bonk_fx(body: Node) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null and body is Node3D and not bool(body.call("is_throwing_back")):
+		sfx.call("play_at", "crossing_bonk", (body as Node3D).global_position)
 
 
 func _handle_hit(peer_id: int) -> void:
@@ -380,6 +389,11 @@ func _rpc_go(start_time: float) -> void:
 	_staging = false
 	_running = true
 	_start_time = start_time
+	# The starting pistol, for the ones crossing (local presentation).
+	if _roster.has(Net.local_peer_id()) and not _finished.has(Net.local_peer_id()):
+		var sfx := get_tree().get_first_node_in_group("sfx")
+		if sfx != null:
+			sfx.call("play", "crossing_go")
 	if Net.is_host():
 		for peer_id: int in _roster:
 			if not _finished.has(peer_id):
@@ -402,6 +416,7 @@ func _rpc_finish() -> void:
 func _rpc_throwback(to: Vector3) -> void:
 	var body := _player(Net.local_peer_id())
 	if body != null and body.has_method("play_throwback"):
+		_bonk_fx(body)
 		body.call("play_throwback", to)
 
 
@@ -422,6 +437,10 @@ func _rpc_clear(peer_id: int) -> void:
 		return
 	_local_done = true
 	_camera.current = false
+	# "Made It Back" over the music (local presentation).
+	var music := get_tree().get_first_node_in_group("music_director")
+	if music != null:
+		music.call("stinger", &"st_made_it")
 	var body := _player(peer_id)
 	if body == null:
 		return

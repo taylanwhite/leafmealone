@@ -2021,7 +2021,10 @@ const MUSIC_TITLES: Dictionary = {
 	"track_hot_yard": "Hot Yard",
 	"track_nice_boys_incoming": "Paperwork Incoming",
 	"track_nice_boys_chase": "The NICE BOYS",
-	"track_lane_change": "Lane Change",
+	# The escape/end-sequence cue (escape_run). "Lane Change" was its working
+	# title while it was only Border Return's; the old key still answers.
+	"track_escape_run": "Clean Getaway",
+	"track_lane_change": "Clean Getaway",
 	"track_old_tune": "The Old Tune (it was here first)",
 	"track_st_day_end": "Clock Out",
 	"track_st_rank_up": "Promoted!",
