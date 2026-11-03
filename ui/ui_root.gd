@@ -158,7 +158,7 @@ func _process(delta: float) -> void:
 		return
 	_hud_rows.visible = true
 	var fraction: float = fields[0].call("cleaned_fraction")
-	_set_text(_wallet_label, str(_Strings.UI["cash_amount"]) % Campaign.credits(Net.local_peer_id()))
+	_set_text(_wallet_label, str(_Strings.UI["hud_wallet_amount"]) % Campaign.credits(Net.local_peer_id()))
 	_set_text(_cleanup_label, str(_Strings.UI["hud_cleanup_amount"]) % (fraction * 100.0))
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	_chefty_row.visible = chefty != null

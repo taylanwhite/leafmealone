@@ -71,12 +71,11 @@ const UI: Dictionary = {
 	"phone_text_head": "%s  ·  Day %d %s",
 	"phone_close_x": "✕",
 	"popup_cash": "+$%d",
-	# The HUD's cleanup and Chefty rows (ui/ui_root.gd). The amounts are the icons
-	# spec's keys (critic C7), so its icon rows can show them without the words.
+	# The HUD's icon rows (ui/ui_root.gd): [cash] $N, [cleanup] N%, [Chefty] N/50.
+	# The three amount keys are critic C7's contract.
+	"hud_wallet_amount": "$%d",
 	"hud_cleanup_amount": "%.1f%%",
 	"hud_chefty_amount": "%d/%d",
-	"hud_cleanup_row": "Cleanup %s",
-	"hud_chefty_row": "Chefty %s bags",
 	# ---- end cast
 	"hide_taken": "Occupied",
 	"hud_hidden": "Hiding. {key:interact} to come out.",
@@ -138,7 +137,6 @@ const UI: Dictionary = {
 	"prompt_dump_truck": "Dump into Chefty",
 	"prompt_take_cash": "Take the cash ($%d)",
 	"cash_amount": "$%d",
-	"hud_wallet": "Cash $%d",
 	# The goal line (ui/job_goal.gd): what to do next on the job.
 	"shop_tool_unlocks": "Unlocks: %s",
 	"shop_tools": "Tools",
@@ -1774,10 +1772,9 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/ride_rider_unnamed": [1, 1],
 	"UI/phone_text_head": [3, 1],
 	"UI/popup_cash": [1, 1],
+	"UI/hud_wallet_amount": [1, 1],
 	"UI/hud_cleanup_amount": [1, 1],
 	"UI/hud_chefty_amount": [2, 1],
-	"UI/hud_cleanup_row": [1, 1],
-	"UI/hud_chefty_row": [1, 1],
 	# settings:4: the prompt is "{key:<action>}  <what it does>".
 	"UI/prompt_format": [2, 1],
 	"UI/player_unnamed": [1, 1],

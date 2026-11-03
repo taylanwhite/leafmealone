@@ -51,13 +51,20 @@ func _ready() -> void:
 	offset_top = 14.0
 	offset_bottom = 120.0
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# [season] Day 3 · Autumn  9:45 AM [sun], pushed to the right edge.
+	# [season] Day 3 · Autumn  9:45 AM [sun], pushed to the right edge. Anchored to
+	# that edge and grown leftward, so a long line (Day 28 · Summer  12:45 AM)
+	# reaches out to the left instead of pushing the moon off the screen.
 	var clock_row := HBoxContainer.new()
 	clock_row.alignment = BoxContainer.ALIGNMENT_END
 	clock_row.add_theme_constant_override("separation", 6)
 	clock_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	clock_row.position = Vector2.ZERO
-	clock_row.size = Vector2(BAR_WIDTH + COLUMN_X, CLOCK_ROW_HEIGHT)
+	clock_row.anchor_left = 1.0
+	clock_row.anchor_right = 1.0
+	clock_row.offset_left = -(BAR_WIDTH + COLUMN_X)
+	clock_row.offset_right = 0.0
+	clock_row.offset_top = 0.0
+	clock_row.offset_bottom = CLOCK_ROW_HEIGHT
+	clock_row.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	add_child(clock_row)
 	_season_icon = _icon(_Icons.SIZE_HUD)
 	clock_row.add_child(_season_icon)
