@@ -41,7 +41,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	if _elapsed() > TIMEOUT_SECONDS:
-		_finish(false, "timed out")
+		_finish(false, "timed out (saw players %s, moved %s, phase '%s')" % [_saw_players, _moved, _leaf_phase])
 		return
 	if Net.is_smoke_host():
 		_host_leaf_step()
