@@ -474,18 +474,17 @@ func _build_step() -> bool:
 		_job["phase"] = "trees"
 		return false
 	if phase == "trees":
+		# One tree mesh a step (near, then far): a cold one is the whole cost of
+		# its step, and warm ones are cache hits, so _build_some's budget decides
+		# how many go in a frame.
 		var trees: Array = (_job["plan"] as Dictionary)["trees"]
-		var started := Time.get_ticks_usec()
 		var index := int(_job["tree"])
-		while index < trees.size():
-			var tree: Array = trees[index]
-			_Trees.mesh_for(str(tree[1]), str(tree[2]), int(tree[4]))
-			_Trees.mesh_for(str(tree[1]), str(tree[2]), int(tree[4]), -1, true)
+		if index < trees.size() * 2:
+			var tree: Array = trees[int(index / 2.0)]
+			_Trees.mesh_for(str(tree[1]), str(tree[2]), int(tree[4]), -1, index % 2 == 1)
 			index += 1
-			if Time.get_ticks_usec() - started > int(Constants.STREAM_BUILD_MS_PER_FRAME * 1000.0):
-				break
 		_job["tree"] = index
-		if index >= trees.size():
+		if index >= trees.size() * 2:
 			_job["phase"] = "props"
 			_job["prop"] = 0
 		return false

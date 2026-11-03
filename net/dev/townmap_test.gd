@@ -330,6 +330,27 @@ func _check_outskirts(space: PhysicsDirectSpaceState3D, problems: Array[String])
 		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(rect.get_center().x, top + 5.0, rect.get_center().y), Vector3(rect.get_center().x, 0.5, rect.get_center().y), 1))
 		roof_hit = not hit.is_empty() and absf(float((hit["position"] as Vector3).y) - top) < 0.1
 	_verdict(in_way.is_empty() and shops.size() >= 10 and sides.size() == 4 and roof_hit, "outskirts: %d solids, in the way: %s; %d storefronts on %d of Main Street's 4 block sides, a roof solid %s" % [solids.size(), in_way, shops.size(), sides.size(), roof_hit], problems)
+	_check_pumpkins(problems)
+
+
+## The pumpkin patch follows the season live: its pumpkins are a "seasonal"
+## holder that hides outside autumn and comes back in it (each holder is put
+## back to the season this peer shows afterwards).
+func _check_pumpkins(problems: Array[String]) -> void:
+	var holders: Array[Node3D] = []
+	for node: Node in get_tree().get_nodes_in_group("seasonal"):
+		if node is _Outskirts.InSeason:
+			holders.append(node as Node3D)
+	var follows := not holders.is_empty()
+	for holder: Node3D in holders:
+		var now_shown := holder.visible == (Seasons.current() == _Outskirts.PUMPKIN_SEASON)
+		holder.call("apply_season", 1)
+		var winter := holder.visible
+		holder.call("apply_season", _Outskirts.PUMPKIN_SEASON)
+		var autumn := holder.visible
+		holder.call("apply_season", Seasons.current())
+		follows = follows and now_shown and not winter and autumn
+	_verdict(follows, "the pumpkin patch follows the season (%d seasonal holders: shown now as the season says, gone in winter, back in autumn)" % holders.size(), problems)
 
 
 ## Driving chunk E: the world's build is spread over frames (levels/build_queue.gd):

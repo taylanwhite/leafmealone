@@ -57,6 +57,23 @@ const TOWER := Color(0.78, 0.8, 0.82)
 const TOWER_TEXT := Color(0.18, 0.3, 0.5)
 const LEAF_PILE: Array[Color] = [Color(0.88, 0.48, 0.16), Color(0.74, 0.3, 0.14), Color(0.9, 0.7, 0.24), Color(0.55, 0.33, 0.17)]
 const BAG := Color(0.12, 0.13, 0.14)
+## The season (Seasons.IDS index) the pumpkin patch has pumpkins in: autumn.
+const PUMPKIN_SEASON: int = 0
+
+
+## A holder in group "seasonal" that shows its children in one season only
+## (Seasons.apply_look calls apply_season on every peer when the season turns,
+## and once on its first call, so a world built before the day synced corrects).
+class InSeason extends Node3D:
+	var only := 0
+
+	func _init(season: int) -> void:
+		only = season
+		visible = Seasons.current() == season
+		add_to_group("seasonal")
+
+	func apply_season(next: int) -> void:
+		visible = next == only
 ## Fences come in whole runs this long (PropBatch groups by size).
 const RUN: float = 6.0
 ## The County Road's half width, and how far out from its centerline the north
@@ -450,12 +467,17 @@ static func _field(parent: Node3D, rect: Rect2, kind: String, along_x: bool, ind
 			for _vine: int in 70:
 				var at := Vector3(rng.randf_range(rect.position.x + 1.0, rect.end.x - 1.0), 0.05, rng.randf_range(rect.position.y + 1.0, rect.end.y - 1.0))
 				standing.blob(at, Vector3(rng.randf_range(0.6, 1.1), 0.18, rng.randf_range(0.6, 1.1)), VINE.lightened(rng.randf_range(-0.05, 0.08)), {"detail": 1, "lumps": 0.3, "seed": rng.randi()})
-			# Pumpkins only while it's pumpkin season.
-			if Seasons.current() == 0:
-				for _pumpkin: int in 46:
-					var at := Vector3(rng.randf_range(rect.position.x + 1.0, rect.end.x - 1.0), 0.0, rng.randf_range(rect.position.y + 1.0, rect.end.y - 1.0))
-					var size := rng.randf_range(0.28, 0.5)
-					standing.blob(at + Vector3(0.0, size * 0.75, 0.0), Vector3(size * 2.0, size * 1.5, size * 2.0), PUMPKIN.lightened(rng.randf_range(-0.08, 0.06)), {"detail": 1, "lumps": 0.12, "seed": rng.randi()})
+			# Pumpkins only while it's pumpkin season: their own mesh under a
+			# "seasonal" holder, so they come and go when the season turns live.
+			var pumpkins := _MeshKit.new()
+			for _pumpkin: int in 46:
+				var at := Vector3(rng.randf_range(rect.position.x + 1.0, rect.end.x - 1.0), 0.0, rng.randf_range(rect.position.y + 1.0, rect.end.y - 1.0))
+				var size := rng.randf_range(0.28, 0.5)
+				pumpkins.blob(at + Vector3(0.0, size * 0.75, 0.0), Vector3(size * 2.0, size * 1.5, size * 2.0), PUMPKIN.lightened(rng.randf_range(-0.08, 0.06)), {"detail": 1, "lumps": 0.12, "seed": rng.randi()})
+			var in_season := InSeason.new(PUMPKIN_SEASON)
+			in_season.name = "Field%dPumpkins" % index
+			parent.add_child(in_season)
+			_mesh(in_season, pumpkins, "Pumpkins")
 			# The scarecrow keeps an eye on it.
 			var crow := _PropCatalog.node("scarecrow")
 			crow.position = Vector3(middle.x + 4.0, 0.0, middle.y - 3.0)
