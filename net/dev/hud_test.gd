@@ -74,11 +74,13 @@ class FakeSource extends Node:
 		return {"text": "Test", "at": at.global_position + Vector3(0.0, 1.0, -0.8)}
 
 
-## Whether the interaction prompt (ui/interaction_prompt.gd's Label3D) is drawn.
+## Whether the interaction prompt (ui/interaction_prompt.gd's screen-space pill)
+## is showing a hint: its current_text, not its fade, so a pill fading out where
+## it was doesn't count as a prompt while held.
 func _prompt_drawn() -> bool:
-	var world := get_tree().get_first_node_in_group("world")
-	var label := world.get_node_or_null("InteractionPrompt") as Label3D if world != null else null
-	return label != null and label.is_visible_in_tree() and label.text != ""
+	var ui := _ui()
+	var prompt := ui.get_node_or_null("InteractionPrompt") if ui != null else null
+	return prompt != null and str(prompt.get("current_text")) != ""
 
 
 func _process(_delta: float) -> void:
