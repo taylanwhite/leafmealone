@@ -11,11 +11,12 @@ extends RefCounted
 ## Preload it (no class_name).
 
 
-## A fresh form: 2, 3 or 4 boxes by the heat at the catch (ANNEX_BOXES_BY_HEAT),
-## in a seeded order that never asks for the same window twice in a row. Two
-## caught players (peer_index 0, 1, ...) get different orders, so a cohort spreads out.
+## A fresh form: ANNEX_BOXES_MIN boxes, one more per ANNEX_BOXES_BY_HEAT threshold
+## the heat at the catch reached, in a seeded order that never asks for the same
+## window twice in a row. Two caught players (peer_index 0, 1, ...) get different
+## orders, so a cohort spreads out.
 static func boxes_for(seed_value: int, peer_index: int, heat_at_catch: float, windows: Array) -> PackedStringArray:
-	var count := 2
+	var count := Constants.ANNEX_BOXES_MIN
 	for threshold: float in Constants.ANNEX_BOXES_BY_HEAT:
 		if heat_at_catch >= threshold:
 			count += 1
@@ -79,6 +80,10 @@ static func carbon(form: Dictionary, window: String) -> Dictionary:
 	boxes.append(window)
 	out["boxes"] = boxes
 	out["carbons"] = int(out.get("carbons", 0)) + 1
+	# Which boxes are carbons (the clipboard dashes exactly those, R2b).
+	var marked: Array = (out.get("carbon_idx", []) as Array).duplicate()
+	marked.append(boxes.size() - 1)
+	out["carbon_idx"] = marked
 	return out
 
 
@@ -86,6 +91,7 @@ static func carbon(form: Dictionary, window: String) -> Dictionary:
 static func redirect(form: Dictionary, window: String) -> Dictionary:
 	var out := carbon(form, window)
 	out["carbons"] = int(form.get("carbons", 0))
+	out["carbon_idx"] = (form.get("carbon_idx", []) as Array).duplicate()
 	out["redirected"] = true
 	return out
 

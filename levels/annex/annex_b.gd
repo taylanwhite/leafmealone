@@ -101,18 +101,18 @@ static func build(parent: Node3D, seed_value: int) -> Node3D:
 	return made
 
 
-## The run's looks for windows A, B and C from a seed: three different pictograms
-## and three different colors, so no two windows read alike. D keeps its own.
+## The room's looks for windows A, B and C before a run dresses them: three of
+## the Annex's pictograms (Constants.ANNEX_WINDOW_ICONS), each in the one color it
+## always wears (Constants.ANNEX_ICON_COLORS), so no two windows read alike and a
+## pictogram never changes color between visits (R2b). D keeps its own.
 static func looks_for(seed_value: int) -> Array[Dictionary]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
-	var icons := PICTOGRAMS.duplicate()
-	var colors := COLORS.duplicate()
+	var icons: Array = Constants.ANNEX_WINDOW_ICONS.duplicate()
 	var out: Array[Dictionary] = []
 	for index: int in 3:
 		var icon: String = icons.pop_at(rng.randi() % icons.size())
-		var color: Color = colors.pop_at(rng.randi() % colors.size())
-		out.append({"icon": icon, "color": color})
+		out.append({"icon": icon, "color": _Props.icon_color(icon)})
 	return out
 
 
@@ -134,7 +134,9 @@ static func apply_run(set_node: Node3D, run_looks: Array) -> void:
 		if window != null:
 			window.call("apply_look", look)
 		var line := set_node.get_node_or_null("FloorLines/%s" % id)
-		if line != null:
+		if line != null and line.has_method("apply_look"):
+			line.call("apply_look", look)
+		elif line != null:
 			line.call("recolor", look.get("color", Color.WHITE))
 
 
@@ -593,9 +595,15 @@ func _floor_lines() -> void:
 			Vector3(x + 0.35, 0.0, lane_z),
 			Vector3(x + 0.35, 0.0, COUNTER_Z + 3.4),
 		])
-		var line: Node3D = _Props.floor_line(points, looks[id]["color"])
+		# The window's footprints are painted in its line's color (R2b).
+		var feet := PackedVector3Array()
+		for spot: int in 4:
+			for side: float in [-1.0, 1.0]:
+				feet.append(Vector3(x + side * 0.12, 0.0, COUNTER_Z + _Props.FOOT_Z + float(spot) * _Props.FOOT_STEP))
+		var line: Node3D = _Props.floor_line(points, looks[id]["color"], feet)
 		line.name = id
 		holder.add_child(line)
+		line.call("apply_look", looks[id])
 
 
 ## The Head NICE BOY's desk in the lobby's back corner: a wide desk, his chair,
@@ -672,9 +680,12 @@ func _fixtures() -> void:
 	sheet.position = Vector3(-6.7, 1.05, 4.45)
 	sheet.rotation.y = -0.2
 	_sign(_Strings.ANNEX_SIGNS["cosign"], Vector3(-6.5, 0.6, 4.84), 24, Color(0.25, 0.18, 0.4), 0.0045, self, 0.0)
+	# Against the front wall beside the turnstile, its label to the lobby: out of
+	# the way of the arms and of anyone walking up to them (R2b).
 	var tray: Node3D = _Props.outgoing_tray()
 	add_child(tray)
-	tray.position = Vector3(4.5, 0.0, 5.3)
+	tray.position = Vector3(4.7, 0.0, Constants.ANNEX_SIZE.z * 0.5 - 0.3)
+	tray.rotation.y = PI
 	var gate: Node3D = _Props.turnstile(TURNSTILE_PASSAGE, DOOR_HEIGHT + 0.1)
 	add_child(gate)
 	gate.position = Vector3(TURNSTILE_X, 0.0, Constants.ANNEX_SIZE.z * 0.5 + WALL * 0.5)
@@ -709,7 +720,9 @@ func _doors() -> void:
 func _markers() -> void:
 	var d := Constants.ANNEX_SIZE.z * 0.5
 	_spot(self, "AnnexCurb", Vector3(ENTRANCE_X, 0.0, SIDEWALK_END - 0.7), PI)
-	_spot(self, "AnnexSide", Vector3(-Constants.ANNEX_SIZE.x * 0.5 - 2.4, 0.0, SIDE_DOOR_Z), -PI * 0.5)
+	# A visitor comes in through the side door: they land inside, a few steps in,
+	# facing the lobby (R2b: outside, they faced a shut door from the grass).
+	_spot(self, "AnnexSide", Vector3(-Constants.ANNEX_SIZE.x * 0.5 + 2.2, 0.0, SIDE_DOOR_Z), -PI * 0.5)
 	_spot(self, "Threshold", Vector3(ENTRANCE_X, 0.0, d - 0.9), 0.0)
 	_spot(self, "Forecourt", Vector3(TURNSTILE_X, 0.0, d + 1.9), PI)
 	_spot(self, "ForecourtCurb", Vector3(TURNSTILE_X, 0.0, SIDEWALK_END - 0.7), PI)

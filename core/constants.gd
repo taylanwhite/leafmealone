@@ -1672,7 +1672,7 @@ const FORM_HAND_DROP: float = 0.56
 const FORM_STAMP_SECONDS: float = 0.18
 ## The receipt slip (props/receipt_slip.gd): seconds per printed line, where it
 ## sits in a first-person view (camera space, m).
-const RECEIPT_LINE_SECONDS: float = 0.22
+const RECEIPT_LINE_SECONDS: float = 0.12
 const RECEIPT_FIRST_PERSON_OFFSET: Vector3 = Vector3(0.06, -0.06, -0.34)
 ## The lobby muzak's mood priority (audio/music_tracks.gd MOODS "annex_hold"; the
 ## escape cue it switches to is 80). The switch waits for the next bar line of
@@ -2226,8 +2226,8 @@ const ANNEX_CAP_SECONDS: float = 150.0
 const ANNEX_URGENT_AT: float = 120.0
 ## The event soak's shorter day (--run-event-at), so bot runs end inside the soak.
 const ANNEX_CAP_SECONDS_SOAK: float = 50.0
-## Boxes on a caught player's form by heat at the catch: 2 under the first, 3
-## under the second, 4 at or over it.
+## Boxes on a caught player's form by heat at the catch: ANNEX_BOXES_MIN under
+## the first, one more under the second, two more at or over it.
 const ANNEX_BOXES_BY_HEAT: Array[float] = [35.0, 70.0]
 ## Window ids on the back wall: A-C serve every form, D opens once.
 const ANNEX_WINDOWS: Array[String] = ["A", "B", "C", "D"]
@@ -2235,8 +2235,9 @@ const ANNEX_SERVING_WINDOWS: Array[String] = ["A", "B", "C"]
 ## The pictograms the three serving windows draw from (ui/icons.gd ids), three per run.
 const ANNEX_WINDOW_ICONS: Array[String] = ["item_rake", "item_leaf_bag", "tool_lawn_mower", "tool_hedge_trimmer"]
 const ANNEX_WINDOW_COLORS: Array[Color] = [Color(0.95, 0.55, 0.25), Color(0.36, 0.62, 0.92), Color(0.45, 0.78, 0.4), Color(0.86, 0.42, 0.74)]
-## A clerk taking the form, stamping it and handing it back.
-const ANNEX_SERVE_SECONDS: float = 2.0
+## A clerk taking the form, reading it, stamping it and handing it back (R2b:
+## 3.4 s, from 2, for the pace and so each beat reads).
+const ANNEX_SERVE_SECONDS: float = 3.4
 ## Standing on a window's counter spot this long asks to be served.
 const ANNEX_COUNTER_DWELL: float = 0.4
 ## Holding interact on a window's stamp this long stamps your own form.
@@ -2349,20 +2350,23 @@ const ANNEX_TRAY_ASK_GAP: float = 0.8
 ## A clerk's notice of a hand on his stamp (the smile, the carbon slid in this far into it).
 const ANNEX_NOTICE_SECONDS: float = 1.4
 const ANNEX_NOTICE_CARBON_AT: float = 0.5
-## Window D's volley: how long it lasts, and when in it the form is full.
-const ANNEX_VOLLEY_SECONDS: float = 1.6
-const ANNEX_VOLLEY_STAMP_AT: float = 0.8
-## A serve's beats, seconds into ANNEX_SERVE_SECONDS: he takes the form, lifts
-## his stamp, stamps, hands it back; the stamp lands ANNEX_SERVE_STAMP_LEAD before the end.
+## Window D's volley: he spins round and winds up (ANNEX_VOLLEY_STAMP_AT, the
+## stamp starting down), then one slam per box CLERK_VOLLEY_GAP apart, and the
+## blinds drop ANNEX_VOLLEY_SECONDS after the last.
+const ANNEX_VOLLEY_SECONDS: float = 0.9
+const ANNEX_VOLLEY_STAMP_AT: float = 0.55
+## A serve's beats, seconds into ANNEX_SERVE_SECONDS: he takes the form, peers at
+## it (ANNEX_SERVE_READ_AT), lifts his stamp, brings it down (ANNEX_SERVE_STAMP_AT:
+## the ink and the KA-CHUNK land ANNEX_STAMP_HIT later), hands it back.
 const ANNEX_SERVE_TAKE_AT: float = 0.4
-const ANNEX_SERVE_LIFT_AT: float = 1.0
-const ANNEX_SERVE_STAMP_AT: float = 1.2
-const ANNEX_SERVE_HAND_AT: float = 1.7
-const ANNEX_SERVE_STAMP_LEAD: float = 0.15
+const ANNEX_SERVE_READ_AT: float = 0.85
+const ANNEX_SERVE_LIFT_AT: float = 1.95
+const ANNEX_SERVE_STAMP_AT: float = 2.3
+const ANNEX_SERVE_HAND_AT: float = 2.85
 ## A visitor goes through the door this long into the door-swing iris.
 const ANNEX_DOOR_IRIS_WAIT: float = 0.4
 ## The first light row goes off this long after closing.
-const ANNEX_LIGHTS_OFF_DELAY: float = 1.2
+const ANNEX_LIGHTS_OFF_DELAY: float = 2.9
 ## A waiting client asks again this often.
 const ANNEX_RETRY_SECONDS: float = 0.5
 ## After closing, anyone still inside goes out this long later.
@@ -2969,3 +2973,82 @@ const CHEFTY_LABEL_MIN_SCALE: float = 0.2
 ## The toss arc's dots leave out anything closer to your eyes than this (m):
 ## a hop over Chefty's side climbs right past your face.
 const TOSS_ARC_NEAR_M: float = 1.1
+
+# ---- R2b annex
+# Satellite Annex B, the motion pass (docs/GAME.md "Form 27-B, in Triplicate":
+# "The room teaches itself"). The room's one language, the stamps' timing, the
+# closing beat, the turnstile, the receipt and the pace.
+## Each pictogram always wears one color, everywhere it appears: its window's
+## plaque, its box on Form 27-B, its floor line, its footprints and the sticker
+## at the line's start (ui/icons.gd ids). Four hues no two of which read alike
+## under the lobby's warm light.
+const ANNEX_ICON_COLORS: Dictionary = {
+	"item_rake": Color(0.98, 0.62, 0.1),
+	"item_leaf_bag": Color(0.24, 0.66, 0.3),
+	"tool_lawn_mower": Color(0.86, 0.2, 0.24),
+	"tool_hedge_trimmer": Color(0.2, 0.46, 0.95),
+}
+## The badge that pictogram and color make (a colored board, a white disc, the
+## icon), drawn once per pair, this many pixels square.
+const ANNEX_BADGE_PX: int = 160
+## The fewest boxes on a form; ANNEX_BOXES_BY_HEAT adds one per threshold (R2b:
+## 4 to 6, from 2 to 4, so a solo visit lands in ANNEX_PACE_TARGET: a bot
+## that knows the room did one in 27 s with 3 boxes, a person in about 40).
+const ANNEX_BOXES_MIN: int = 4
+## A solo visit by the bot's rules should take this long on average (s, from the
+## walk-in to the turnstile; annex_test checks it). gap-specs nice_boys "40-75 s solo".
+const ANNEX_PACE_TARGET := Vector2(40.0, 75.0)
+## A window's stamp, sent down at some moment, hits the pad (KA-CHUNK, and the
+## ink in the box) this long after: its lift plus its slam.
+const ANNEX_STAMP_HIT: float = ANNEX_STAMP_LIFT_SECONDS + ANNEX_STAMP_SLAM_SECONDS
+## The host sends a stamped form this long before its ink lands, so the ink
+## arrives ahead of the stamp under lag and waits for it (s).
+const ANNEX_INK_LEAD: float = 0.35
+## The Head NICE BOY reads a full form this long before he raises the big stamp (s).
+const ANNEX_HEAD_READ: float = 1.1
+## Closing: this long after the bell the clerks start their rush, every hatch
+## slamming ANNEX_CLOSING_SLAMS times CLOSING_RUSH_GAP apart; each box still
+## empty on your form inks with a slam, then AFTER HOURS lands across it.
+const ANNEX_CLOSING_RUSH_AT: float = 0.7
+const ANNEX_CLOSING_SLAMS: int = 5
+const ANNEX_CLOSING_RUSH_GAP: float = 0.2
+## The room's sky light while the rows go off: this share of itself once all
+## are off, eased over each row's clunk (local, cosmetic, only while you're inside).
+const ANNEX_CLOSING_DIM: float = 0.15
+const ANNEX_ROW_DIM_SECONDS: float = 0.25
+## ... and the picture's brightness with them, to this share once all are off.
+const ANNEX_CLOSING_PICTURE: float = 0.55
+## Out through the door-swing iris: it shuts over ANNEX_IRIS_CLOSE, the move
+## happens ANNEX_DOOR_IRIS_WAIT in (fully shut), and it opens again this long in.
+const ANNEX_IRIS_CLOSE: float = 0.35
+const ANNEX_IRIS_OPEN_AT: float = 0.85
+## Through the turnstile, the forecourt is yours for this long (s) before the
+## shuttle home takes you: the receipt prints, is held up and pocketed.
+const ANNEX_FORECOURT_BEAT: float = 6.8
+## The receipt in first person: held up lower centre this far from your eyes
+## (view space, m), tipped back this much (rad), then pocketed down and right
+## over ANNEX_RECEIPT_POCKET seconds.
+const ANNEX_RECEIPT_HOLD := Vector3(0.0, -0.03, -0.3)
+const ANNEX_RECEIPT_TILT: float = 0.12
+const ANNEX_RECEIPT_POCKET: float = 0.4
+## The clipboard comes up into your hand from the Greeter's: it starts rising
+## this long into his offer, over ANNEX_FORM_RISE seconds, from this far below.
+const ANNEX_FORM_HANDOFF_AT: float = 0.65
+const ANNEX_FORM_RISE: float = 0.4
+const ANNEX_FORM_RISE_DROP: float = 0.3
+## The Greeter hands it over from beside the threshold (set space offset from
+## Threshold, m), then walks back to his post this long after the offer.
+const ANNEX_GREETER_OFFER_SPOT := Vector3(0.75, 0.0, -0.6)
+const ANNEX_GREETER_BACK_AT: float = 1.8
+## The turnstile: its arms turn with the body pushing through, from this far
+## before the bar to this far past it (m along the passage), one clack each push.
+const ANNEX_TURNSTILE_PUSH := Vector2(-0.55, 0.55)
+## Staff step round people: a staff body walking within this far (m) of a
+## player eases sideways out of the way.
+const CLERK_STAND_OFF: float = 0.85
+## A clerk's head turns ease this fast (1/s): no one-frame snap.
+const CLERK_FACE_EASE: float = 14.0
+## A player slamming the big stamp holds it up only this long (s).
+const ANNEX_BIG_STAMP_HOLDER_HESITATE: float = 0.12
+## The visitors' side door answers interact only this close (m).
+const ANNEX_SIDE_DOOR_REACH: float = 1.1

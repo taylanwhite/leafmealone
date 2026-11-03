@@ -995,7 +995,8 @@ func _annex_heist() -> Dictionary:
 		return {"error": "window %s never looks away" % window}
 	annex.call("dev_retime", at + 0.3)
 	_annex_window = window
-	_stand_by(_annex_point("Windows/%s/StampPad" % window), _annex_point("Windows/%s/ClerkSeat" % window), 0.25)
+	# In front of the counter with his stamp within reach, not on the counter.
+	_stand_by(_annex_point("Windows/%s/StampPad" % window), _annex_point("Windows/%s/ClerkSeat" % window), 0.85)
 	await _ticks(3)
 	return {"moment": "annex_heist", "note": "window %s's clerk is looking away; hold interact on his stamp" % window, "window": window}
 
@@ -1146,7 +1147,11 @@ func _stand_by(spot: Vector3, look_at: Vector3, back: float) -> void:
 		return
 	var away := Vector3(spot.x - look_at.x, 0.0, spot.z - look_at.z).normalized() if look_at != Vector3.INF else Vector3.BACK
 	var at := spot + away * back
-	_place(Vector3(at.x, spot.y + 0.1, at.z), _yaw_toward(at, spot - away * 2.0), -0.12)
+	# On the lobby floor, not at the spot's height: a stamp pad or the desk's
+	# velvet pad stood the player on the counter or the desk (R2b).
+	var floor_y := _annex_point("Threshold").y
+	var y := (floor_y if is_finite(floor_y) and floor_y != INF else spot.y) + 0.1
+	_place(Vector3(at.x, y, at.z), _yaw_toward(at, spot - away * 2.0), -0.12)
 
 
 func _annex_node() -> Node:
