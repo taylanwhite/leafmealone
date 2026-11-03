@@ -232,7 +232,9 @@ static func _max_session(id: String) -> int:
 
 func _try(trigger: String, on_stack: bool = false) -> void:
 	# R2b: no corner quip while the moment has you (held, in the van, at the
-	# Annex); the row keeps its turn for later.
+	# Annex). The quip is dropped, on purpose: it was about that moment (a store
+	# arrival while you're still buckled in) and would be stale later. Its play
+	# count isn't spent, so the row can still play on a later trigger.
 	if not on_stack and _HudMode.cinematic(get_tree(), Net.local_peer_id()):
 		return
 	for row: Dictionary in _Strings.LINES:

@@ -55,6 +55,30 @@ var _free_at: float = INF
 var _back_at: float = INF
 var _early_frames: int = 0
 var _last_alpha: float = 1.0
+## Frames the prompt was drawn while still free in the caught phase (want > 0).
+var _prompt_free_frames: int = 0
+## Every HudMode reason seen while held.
+var _reasons: Dictionary = {}
+var _held_last: bool = false
+var _source: FakeSource = null
+
+
+## A prompt source that always offers one, at the client's own feet: while held
+## the prompt must stay down anyway.
+class FakeSource extends Node:
+	var at: Node3D
+
+	func prompt() -> Dictionary:
+		if at == null or not is_instance_valid(at):
+			return {}
+		return {"text": "Test", "at": at.global_position + Vector3(0.0, 1.0, -0.8)}
+
+
+## Whether the interaction prompt (ui/interaction_prompt.gd's Label3D) is drawn.
+func _prompt_drawn() -> bool:
+	var world := get_tree().get_first_node_in_group("world")
+	var label := world.get_node_or_null("InteractionPrompt") as Label3D if world != null else null
+	return label != null and label.is_visible_in_tree() and label.text != ""
 
 
 func _process(_delta: float) -> void:
@@ -91,8 +115,16 @@ func _watch_client() -> void:
 			# Once eased out, it stays out while you're held.
 			if _seen_hidden_at != INF and alpha > 0.01 and why != &"":
 				_pop_frames += 1
-			if why != &"" and why != &"annex" and not _Prompt.current_hint(get_tree()).is_empty():
+			# The drawn prompt itself, with a source offering one the whole time
+			# (from the second held frame: the prompt may update after this node).
+			if why != &"" and why != &"annex" and _held_last and _prompt_drawn():
 				_prompt_frames += 1
+			if why != &"":
+				_reasons[why] = true
+		elif _prompt_drawn():
+			# Before the catch lands the same source's prompt is up: the check can fail.
+			_prompt_free_frames += 1
+		_held_last = why != &"" and why != &"annex"
 	elif _phase == "back":
 		if why == &"" and _free_at == INF:
 			_free_at = now
@@ -118,7 +150,14 @@ func _rpc_client(phase: String) -> void:
 			_seen_cinematic_at = INF
 			_seen_hidden_at = INF
 			_prompt_frames = 0
+			_prompt_free_frames = 0
+			_reasons.clear()
 			_pop_frames = 0
+			_source = FakeSource.new()
+			_source.name = "HudTestPromptSource"
+			_source.at = _me()
+			add_child(_source)
+			_source.add_to_group("prompt_sources")
 			_wait_caught()
 		"back":
 			_free_at = INF
@@ -143,8 +182,11 @@ func _wait_caught() -> void:
 		if node != null and node.modulate.a > 0.01:
 			hud_parts_away = false
 	var why := _HudMode.reason(get_tree(), Net.local_peer_id())
-	var ok := _seen_cinematic_at != INF and fade <= Constants.R2B_HUD_FADE_OUT + FADE_SLACK and _pop_frames == 0 and _prompt_frames == 0 and hud_parts_away and why != &""
-	_rpc_report.rpc_id(1, "caught", ok, "client: cinematic (%s) seen %s, HUD eased out in %.2f s (want <= %.2f), %d pop-back frames, %d frames with a prompt, every yard piece away %s" % [why, _seen_cinematic_at != INF, fade, Constants.R2B_HUD_FADE_OUT + FADE_SLACK, _pop_frames, _prompt_frames, hud_parts_away])
+	if _source != null:
+		_source.queue_free()
+		_source = null
+	var ok := _seen_cinematic_at != INF and fade <= Constants.R2B_HUD_FADE_OUT + FADE_SLACK and _pop_frames == 0 and _prompt_frames == 0 and _prompt_free_frames > 0 and hud_parts_away and why != &""
+	_rpc_report.rpc_id(1, "caught", ok, "client: cinematic (%s; reasons seen %s) seen %s, HUD eased out in %.2f s (want <= %.2f), %d pop-back frames, prompt drawn on %d free frames (want > 0) and %d held frames (want 0), every yard piece away %s" % [why, _reasons.keys(), _seen_cinematic_at != INF, fade, Constants.R2B_HUD_FADE_OUT + FADE_SLACK, _pop_frames, _prompt_free_frames, _prompt_frames, hud_parts_away])
 	await _stack_step()
 
 
@@ -183,10 +225,39 @@ func _stack_step() -> void:
 		if label != null and label.is_visible_in_tree():
 			var plate := label.get_node_or_null("Plate") as Control
 			plates = plates and plate != null and plate.visible and plate.size.x > 0.0
-	var ok := onset <= Constants.R2B_HUD_SUBTITLE_ONSET + 0.1 and kinds.size() <= Constants.R2B_HUD_CINEMATIC_LINES and not kinds.has("quip") and kinds.count("subtitle") == 2 and low and plates
-	_rpc_report.rpc_id(1, "stack", ok, "client: spoken line readable after %.3f s (want <= %.2f), shown %s (want two subtitles, no quip), low on the screen %s %s, plates %s" % [onset, Constants.R2B_HUD_SUBTITLE_ONSET + 0.1, kinds, low, rects, plates])
 	for id: int in ids:
 		stack.call("drop", id)
+	await get_tree().create_timer(0.8).timeout
+	# A receipt being read (any caption blocker): the radio waits for it, a spoken
+	# line doesn't (it lands with its sound), and shows clear of it.
+	var slip := ColorRect.new()
+	slip.name = "HudTestReceipt"
+	slip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slip.size = Vector2(view.x * 0.3, view.y * 0.35)
+	slip.position = Vector2(view.x * 0.35, view.y * 0.65)
+	slip.add_to_group("caption_blockers")
+	(stack as Control).get_parent().add_child(slip)
+	var radio := int(stack.call("push", &"radio", "RADIO: still testing.", 3.0, 1))
+	var spoken := int(stack.call("push", &"subtitle", "Lovely paperwork, folks!", 3.0))
+	var spoken_onset := INF
+	var spoken_at := Time.get_ticks_msec() / 1000.0
+	while Time.get_ticks_msec() / 1000.0 - spoken_at < 0.5:
+		await get_tree().process_frame
+		var label := stack.call("line_label", spoken) as Label
+		if label != null and label.modulate.a >= 0.9 and label.is_visible_in_tree():
+			spoken_onset = Time.get_ticks_msec() / 1000.0 - spoken_at
+			break
+	await get_tree().create_timer(0.4).timeout
+	var blocked_kinds: Array = (stack.call("shown_lines") as Array).map(func(line: Dictionary) -> String: return str(line["kind"]))
+	var clear := true
+	for rect: Rect2 in stack.call("line_rects"):
+		clear = clear and not rect.intersects(slip.get_global_rect())
+	slip.queue_free()
+	stack.call("drop", radio)
+	stack.call("drop", spoken)
+	var receipt_ok := spoken_onset <= Constants.R2B_HUD_SUBTITLE_ONSET + 0.1 and blocked_kinds == ["subtitle"] and clear
+	var ok := onset <= Constants.R2B_HUD_SUBTITLE_ONSET + 0.1 and kinds.size() <= Constants.R2B_HUD_CINEMATIC_LINES and not kinds.has("quip") and kinds.count("subtitle") == 2 and low and plates and receipt_ok
+	_rpc_report.rpc_id(1, "stack", ok, "client: spoken line readable after %.3f s (want <= %.2f), shown %s (want two subtitles, no quip), low on the screen %s %s, plates %s; with a receipt up a spoken line after %.3f s, shown %s (want only the subtitle), clear of the receipt %s" % [onset, Constants.R2B_HUD_SUBTITLE_ONSET + 0.1, kinds, low, rects, plates, spoken_onset, blocked_kinds, clear])
 
 
 func _wait_back() -> void:
@@ -398,9 +469,41 @@ func _overhead_steps() -> void:
 	far.mode = FakeCrew.Mode.SEATED
 	await get_tree().create_timer(0.5).timeout
 	var seated := far_tag.transparency >= 0.95
-	_step("tags", stacked and behind_wall and after_wall and seated, "two heads in a line show the nearer tag only %s (near %.2f, far %.2f transparent), behind a wall it fades %s and comes back %s, sat in the van it's down %s" % [stacked, far_tag.transparency, near_tag.transparency, behind_wall, after_wall, seated])
-	far.queue_free()
+	far.mode = FakeCrew.Mode.PATROL
+	var near_clear := near_tag.transparency
 	near.queue_free()
+	# A Courtesy Shuttle on the move between you and him: its Solid is off every
+	# layer while it drives (shuttle._set_solid), and the tag still fades.
+	var behind_van := false
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null:
+		await get_tree().create_timer(0.5).timeout
+		var trip := Node3D.new()
+		trip.name = "HudTestTrip"
+		var look := Node3D.new()
+		look.name = "VanLook"
+		trip.add_child(look)
+		var solid := AnimatableBody3D.new()
+		solid.name = "Solid"
+		solid.collision_layer = 0
+		solid.collision_mask = 0
+		# As props/nice_van.gd builds it: moved by its look, not by physics.
+		solid.sync_to_physics = false
+		var van_shape := CollisionShape3D.new()
+		var van_box := BoxShape3D.new()
+		van_box.size = Vector3(2.3, 2.4, 6.4)
+		van_shape.shape = van_box
+		van_shape.position = Vector3(0.0, 1.2, 0.0)
+		solid.add_child(van_shape)
+		look.add_child(solid)
+		shuttle.add_child(trip)
+		trip.global_position = eye + ahead * 4.0 + Vector3.DOWN * (eye.y - ground)
+		trip.look_at(trip.global_position + camera.global_basis.x, Vector3.UP)
+		await get_tree().create_timer(0.5).timeout
+		behind_van = far_tag.transparency >= 0.95
+		trip.queue_free()
+	_step("tags", stacked and behind_wall and after_wall and seated and behind_van, "two heads in a line show the nearer tag only %s (near %.2f, far %.2f transparent), behind a wall it fades %s and comes back %s, sat in the van it's down %s, behind a driving van it fades %s" % [stacked, far_tag.transparency, near_clear, behind_wall, after_wall, seated, behind_van])
+	far.queue_free()
 
 
 func _fake(tag_text: String, at: Vector3, ground: float) -> FakeCrew:

@@ -176,7 +176,49 @@ func _blocked(tag: Label3D, owner: Node, camera: Camera3D) -> bool:
 		if node.name == str(Net.local_peer_id()) and node is CollisionObject3D:
 			exclude.append((node as CollisionObject3D).get_rid())
 	query.exclude = exclude
-	return not space.intersect_ray(query).is_empty()
+	if not space.intersect_ray(query).is_empty():
+		return true
+	return through_moving_van(get_tree(), camera.global_position, target)
+
+
+## Whether the line from one point to another passes through a Courtesy Shuttle
+## on the move. A driving van's Solid is off every layer (shuttle._set_solid, so
+## it never shoves anyone), so the layer-1 ray misses it; its five boxes are
+## tested here instead, or a tag drawn over the world would show through it.
+static func through_moving_van(tree: SceneTree, from: Vector3, to: Vector3) -> bool:
+	for shuttle: Node in tree.get_nodes_in_group("nice_shuttle"):
+		for trip: Node in shuttle.get_children():
+			var solid := trip.get_node_or_null("VanLook/Solid") as CollisionObject3D
+			if solid == null or solid.collision_layer != 0 or not solid.is_inside_tree():
+				continue
+			for child: Node in solid.get_children():
+				var shape := child as CollisionShape3D
+				if shape == null or not (shape.shape is BoxShape3D):
+					continue
+				var half := (shape.shape as BoxShape3D).size * 0.5
+				var into := shape.global_transform.affine_inverse()
+				if segment_hits_box(into * from, into * to, half):
+					return true
+	return false
+
+
+## A segment against a box centered on the origin (half its size each way): slabs.
+static func segment_hits_box(a: Vector3, b: Vector3, half: Vector3) -> bool:
+	var enter := 0.0
+	var leave := 1.0
+	var along := b - a
+	for axis: int in 3:
+		if absf(along[axis]) < 0.000001:
+			if absf(a[axis]) > half[axis]:
+				return false
+			continue
+		var t1 := (-half[axis] - a[axis]) / along[axis]
+		var t2 := (half[axis] - a[axis]) / along[axis]
+		enter = maxf(enter, minf(t1, t2))
+		leave = minf(leave, maxf(t1, t2))
+		if enter > leave:
+			return false
+	return true
 
 
 # ---------------------------------------------------------------- bubbles
@@ -345,4 +387,6 @@ static func bubble_fits(speaker: Node3D, bark: Label3D, text: String, camera: Ca
 			query.exclude = [(speaker as CollisionObject3D).get_rid()]
 		if not space.intersect_ray(query).is_empty():
 			return false
+	if through_moving_van(speaker.get_tree(), camera.global_position, anchor):
+		return false
 	return true

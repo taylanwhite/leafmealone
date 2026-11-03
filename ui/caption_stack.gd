@@ -190,21 +190,55 @@ func in_cinematic() -> bool:
 	return is_inside_tree() and _HudMode.cinematic(get_tree(), Net.local_peer_id())
 
 
-## Something on screen the lines wait for (a receipt being read): any visible
-## member of the "caption_blockers" group.
-func _blocked() -> bool:
+## Something on screen being read (a receipt): the visible members of the
+## "caption_blockers" group. The radio and quips wait for them; a spoken line
+## or a teammate taken can't wait (it would land seconds after its sound), so it
+## shows, clear of them (_blocker_rects).
+func _blockers() -> Array[Node]:
+	var out: Array[Node] = []
 	for node: Node in get_tree().get_nodes_in_group("caption_blockers"):
 		if node is Node3D and (node as Node3D).is_visible_in_tree() or node is CanvasItem and (node as CanvasItem).is_visible_in_tree():
-			return true
-	return false
+			out.append(node)
+	return out
+
+
+## Where the blockers are on screen: a 2D one's rect, a 3D one's meshes' boxes
+## through the camera (the slip fed up into your view, or in your hand).
+func _blocker_rects(view: Vector2) -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	var camera := get_viewport().get_camera_3d()
+	var screen := Rect2(Vector2.ZERO, view)
+	for node: Node in _blockers():
+		var rect := Rect2()
+		if node is Control:
+			rect = (node as Control).get_global_rect()
+		elif node is Node3D and camera != null:
+			var any := false
+			for child: Node in node.find_children("*", "VisualInstance3D", true, false):
+				var visual := child as VisualInstance3D
+				if not visual.is_visible_in_tree():
+					continue
+				var box := visual.global_transform * visual.get_aabb()
+				for corner: int in 8:
+					var point := box.get_endpoint(corner)
+					if camera.is_position_behind(point):
+						continue
+					var at := camera.unproject_position(point)
+					rect = Rect2(at, Vector2.ZERO) if not any else rect.expand(at)
+					any = true
+		rect = rect.intersection(screen)
+		if rect.size.x > 0.0 and rect.size.y > 0.0:
+			out.append(rect)
+	return out
 
 
 func _visible_entries() -> Array[Dictionary]:
 	var waiting: Array[Dictionary] = []
-	if _blocked():
-		return waiting
+	var blocked := not _blockers().is_empty()
 	var speaking := false
 	for entry: Dictionary in _lines:
+		if blocked and YARD_KINDS.has(StringName(entry["kind"])):
+			continue
 		if float(entry["left"]) > 0.0 and kind_shown(StringName(entry["kind"])):
 			waiting.append(entry)
 			speaking = speaking or StringName(entry["kind"]) == &"subtitle"
@@ -283,17 +317,22 @@ func _layout(delta: float) -> void:
 	total = maxf(0.0, total - LINE_GAP)
 	var bottom := _baseline(view)
 	var left := (view.x - width) * 0.5
-	# Up and over anything it would cover.
+	# Up and over anything it would cover (a receipt being read included).
+	var avoid := obstacle_rects()
+	if not drawn.is_empty():
+		avoid.append_array(_blocker_rects(view))
 	for _pass: int in 4:
 		var stack_rect := Rect2(left, bottom - total, width, total)
 		var moved := false
-		for rect: Rect2 in obstacle_rects():
+		for rect: Rect2 in avoid:
 			if stack_rect.intersects(rect):
 				bottom = rect.position.y - CLEARANCE
 				moved = true
 				stack_rect = Rect2(left, bottom - total, width, total)
 		if not moved:
 			break
+	# Never pushed off the top of the screen.
+	bottom = maxf(bottom, total + CLEARANCE)
 	# The whole stack glides when what it keeps clear of moves (a quip appears).
 	if _bottom == INF or not drawn.is_empty() and _bottom_idle:
 		_bottom = bottom
