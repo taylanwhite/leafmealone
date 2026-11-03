@@ -71,7 +71,7 @@ var scratch: bool = false
 
 # Host: the number of the last chunk batch sent (a stroke's ack_tick is the next one).
 var _send_tick: int = 0
-# Host: each running mower's mulch since its last event, {key: {moved, at, radius, next}}.
+# Host: each running mower's mulch since the last batch, {key: {moved, at, radius}}.
 var _mulch: Dictionary = {}
 
 # Client prediction ledger. _confirmed is the host's bytes as the batches left
@@ -97,10 +97,13 @@ var _stats: Dictionary = {
 	"pending_peak": 0, "recomposes": 0, "recompose_changes": 0, "timeouts": 0, "dropped_full": 0,
 	"events_out": 0, "events_in": 0, "acks": 0, "mulch_events": 0, "batches_out": 0, "batches_in": 0,
 	"batch_bytes_out": 0, "batch_chunks_out": 0, "resets_hard": 0, "resets_soft": 0, "snapshots_in": 0, "snapshot_hard": 0,
+	"kept_on_resync": 0,
 }
 
 
 func _ready() -> void:
+	# Mulch events ride the send tick (_flush_mulch), so it sets their rate.
+	assert(SEND_INTERVAL >= Constants.LEAF_EVENT_MULCH_SECONDS)
 	if not scratch:
 		add_to_group("leaf_field")
 	_chunks_x = int(ceil(float(grid_width) / float(CHUNK_SIZE)))
@@ -123,9 +126,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if Net.is_host():
-		_flush_mulch()
-	else:
+	if not Net.is_host():
 		_expire_predictions()
 	_send_wait += delta
 	if _send_wait < SEND_INTERVAL or _dirty.is_empty():
@@ -145,6 +146,9 @@ func _process(delta: float) -> void:
 	# One RPC per send tick, so a stroke's chunks never arrive split; every stroke
 	# event of this tick went out before it on the same reliable channel.
 	if host:
+		# The mulch since the last batch is told now, with this batch's tick, so
+		# its event always goes out ahead of the bytes it describes.
+		_flush_mulch()
 		_send_tick += 1
 		if not scratch:
 			var compressed := data.size() > Constants.LEAF_BATCH_COMPRESS_BYTES
@@ -205,6 +209,7 @@ func shape_initial(multiplier: Callable) -> void:
 	_confirmed = _density.duplicate()
 	_pending.clear()
 	_unpredicted.clear()
+	_mulch.clear()
 	_reset_view(true)
 
 
@@ -455,7 +460,7 @@ func _stroke_params(peer_id: int, width: float, strength: float) -> Dictionary:
 
 func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: float, strength: float, seq: int = 0, bite: int = 0, tempo: float = 0.0) -> int:
 	if not _player_in_reach(peer_id, origin):
-		_send_snapshot(peer_id)
+		_send_snapshot(peer_id, false, seq)
 		return 0
 	var params := _stroke_params(peer_id, width, strength)
 	var blower: Node = params["blower"]
@@ -475,21 +480,21 @@ func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: floa
 
 func _handle_collect(peer_id: int, origin: Vector3, radius: float, seq: int = 0) -> int:
 	if not _player_in_reach(peer_id, origin):
-		_send_snapshot(peer_id)
+		_send_snapshot(peer_id, false, seq)
 		return 0
 	# Every pile takes a bag from the crew's supply: contractor bags first (they
 	# scoop wider), then lawn bags. Out of both, nothing is bagged.
 	var supply_id := bag_type()
 	if supply_id == "":
-		_refuse_bag(peer_id, "no_bags")
+		_refuse_bag(peer_id, "no_bags", seq)
 		return 0
 	var scoop := bag_radius(supply_id, minf(radius, Constants.BAG_RADIUS))
 	# Too few leaves here to fill a bag: rake a pile first. Nothing is taken.
 	if _units_within(origin, scoop) < int(Constants.MIN_BAG_CELLS * INITIAL_DENSITY):
-		_refuse_bag(peer_id, "thin")
+		_refuse_bag(peer_id, "thin", seq)
 		return 0
 	if not _take_bag(supply_id):
-		_refuse_bag(peer_id, "no_bags")
+		_refuse_bag(peer_id, "no_bags", seq)
 		return 0
 	var removed := _apply_collect(origin, scoop, true)
 	if removed <= 0:
@@ -587,15 +592,15 @@ func host_mulch(at: Vector3, radius: float) -> int:
 		return 0
 	var removed := _apply_collect(at, radius, false)
 	if removed > 0:
-		# Mulch runs every physics tick: it's told once per LEAF_EVENT_MULCH_SECONDS
-		# per mower, summed, at the last spot (_flush_mulch sends the remainder).
+		# Mulch runs every physics tick: it's told once per send tick per mower,
+		# summed, at the last spot, just ahead of the batch that carries it
+		# (_flush_mulch, from _process).
 		var key := _mower_key(at)
-		var acc: Dictionary = _mulch.get(key, {"moved": 0, "next": 0})
+		var acc: Dictionary = _mulch.get(key, {"moved": 0})
 		acc["moved"] = int(acc["moved"]) + removed
 		acc["at"] = at
 		acc["radius"] = radius
 		_mulch[key] = acc
-		_flush_mulch_one(acc)
 	_turn_out(at, radius + 0.8)
 	return removed
 
@@ -672,12 +677,12 @@ func _units_within(origin: Vector3, radius: float) -> int:
 
 
 ## Host: no bag for this peer, and why ("thin", "no_bags"). A client's
-## predicted bagging is undone first.
-func _refuse_bag(peer_id: int, reason: String) -> void:
+## predicted bagging (request seq) is undone first.
+func _refuse_bag(peer_id: int, reason: String, seq: int = -1) -> void:
 	if peer_id == Net.local_peer_id():
 		_on_bag_refused(reason)
 	else:
-		_send_snapshot(peer_id)
+		_send_snapshot(peer_id, false, seq)
 		_rpc_bag_refused.rpc_id(peer_id, reason)
 
 
@@ -739,13 +744,15 @@ func _confirm_chunk_bytes(chunk_index: int, version: int, bytes: PackedByteArray
 
 
 ## hard: a join or a new lot (everything snaps); otherwise a resync (an
-## out-of-reach stroke, a refused bag) that the view may animate.
-func _send_snapshot(peer_id: int, hard: bool = false) -> void:
+## out-of-reach stroke, a refused bag) that the view may animate. upto_seq: the
+## refused request's seq on a resync (the client keeps its later predictions),
+## -1 to drop them all.
+func _send_snapshot(peer_id: int, hard: bool = false, upto_seq: int = -1) -> void:
 	# The host already has the true field; it never resyncs itself.
 	if peer_id == Net.local_peer_id() or scratch:
 		return
 	var compressed := _density.compress(FileAccess.COMPRESSION_DEFLATE)
-	_rpc_snapshot.rpc_id(peer_id, compressed, _versions.duplicate(), _removed_units, _send_tick, hard)
+	_rpc_snapshot.rpc_id(peer_id, compressed, _versions.duplicate(), _removed_units, _send_tick, hard, -1 if hard else upto_seq)
 
 
 # ---- stroke events
@@ -820,23 +827,17 @@ func _rpc_stroke_event(packed: PackedByteArray) -> void:
 		stroke_visual.emit(ev["at"])
 
 
-## Host: a mower's coalesced mulch is due.
+## Host, at a send tick, before _send_tick counts it: every mower's mulch since the
+## last batch, one event each, whose ack_tick (_send_tick + 1) is the batch about
+## to go. All of that mulch is dirty in that batch, so no mulch reaches a client
+## ahead of its event, and none is left untold when the mower stops. The send
+## tick (SEND_INTERVAL, never shorter than LEAF_EVENT_MULCH_SECONDS) bounds the rate.
 func _flush_mulch() -> void:
-	var now := Time.get_ticks_msec()
 	for key: Variant in _mulch.keys():
 		var acc: Dictionary = _mulch[key]
-		_flush_mulch_one(acc)
-		if int(acc["moved"]) == 0 and now > int(acc["next"]) + 1000:
-			_mulch.erase(key)
-
-
-func _flush_mulch_one(acc: Dictionary) -> void:
-	var now := Time.get_ticks_msec()
-	if int(acc["moved"]) <= 0 or now < int(acc["next"]):
-		return
-	_emit_stroke("mulch", 0, acc["at"], Vector3.ZERO, float(acc["radius"]) * 2.0, 0, int(acc["moved"]))
-	acc["moved"] = 0
-	acc["next"] = now + int(Constants.LEAF_EVENT_MULCH_SECONDS * 1000.0)
+		if int(acc["moved"]) > 0:
+			_emit_stroke("mulch", 0, acc["at"], Vector3.ZERO, float(acc["radius"]) * 2.0, 0, int(acc["moved"]))
+	_mulch.clear()
 
 
 ## Which mower is mulching here (the lawn mower prop at this spot), so two mowers
@@ -890,6 +891,18 @@ func _recompose() -> void:
 	_stats["recomposes"] = int(_stats["recomposes"]) + 1
 	var before := _density
 	_density = _confirmed.duplicate()
+	_replay_pending()
+	if before == _density:
+		return
+	_stats["recompose_changes"] = int(_stats["recompose_changes"]) + 1
+	for chunk_index: int in _changed_chunks(before, _density):
+		_view_dirty[chunk_index] = true
+		chunk_changed.emit(chunk_index)
+	_queue_flush()
+
+
+## The pending strokes, in order, onto _density (which starts as _confirmed).
+func _replay_pending() -> void:
 	_replaying = true
 	for op: Dictionary in _pending:
 		var args: Array = op["args"]
@@ -898,13 +911,6 @@ func _recompose() -> void:
 		else:
 			_apply_collect(args[0], float(args[1]), false)
 	_replaying = false
-	if before == _density:
-		return
-	_stats["recompose_changes"] = int(_stats["recompose_changes"]) + 1
-	for chunk_index: int in _changed_chunks(before, _density):
-		_view_dirty[chunk_index] = true
-		chunk_changed.emit(chunk_index)
-	_queue_flush()
 
 
 ## The chunks in which two whole-field byte arrays differ.
@@ -1082,9 +1088,12 @@ func _rpc_chunk_batch(tick: int, indices: PackedByteArray, versions: PackedInt32
 
 
 ## Client: the host's whole field (on arrival, a new lot, or a resync). tick is the
-## host's last batch tick; every prediction here is dropped.
+## host's last batch tick. upto_seq is the request a resync answers: the host had
+## applied everything this peer sent up to it, so those predictions go, and the
+## later ones (still on their way to the host) are replayed over the new bytes.
+## -1 (a hard snapshot) drops every prediction.
 @rpc("authority", "call_remote", "reliable")
-func _rpc_snapshot(compressed: PackedByteArray, versions: PackedInt32Array, removed_units: float, tick: int, hard: bool) -> void:
+func _rpc_snapshot(compressed: PackedByteArray, versions: PackedInt32Array, removed_units: float, tick: int, hard: bool, upto_seq: int) -> void:
 	var raw := compressed.decompress(grid_width * grid_depth, FileAccess.COMPRESSION_DEFLATE)
 	if raw.size() != _density.size():
 		push_warning("[LeafField] snapshot size %d did not match %d" % [raw.size(), _density.size()])
@@ -1104,11 +1113,30 @@ func _rpc_snapshot(compressed: PackedByteArray, versions: PackedInt32Array, remo
 		_stats["snapshot_hard"] = int(_stats["snapshot_hard"]) + 1
 	_had_snapshot = true
 	_confirmed = raw
-	_density = raw.duplicate()
 	_versions = versions
 	_removed_units = removed_units
 	_last_tick = maxi(_last_tick, tick)
-	_pending.clear()
+	if upto_seq < 0:
+		_pending.clear()
+		_density = raw.duplicate()
+	else:
+		var kept: Array[Dictionary] = []
+		for op: Dictionary in _pending:
+			if not _seq_at_or_before(int(op["seq"]), upto_seq):
+				kept.append(op)
+		_pending = kept
+		for seq: Variant in _unpredicted.keys():
+			if _seq_at_or_before(int(seq), upto_seq):
+				_unpredicted.erase(seq)
+		_stats["kept_on_resync"] = int(_stats["kept_on_resync"]) + kept.size()
+		# _recompose marks only what differs; the snapshot's chunks are all told below.
+		_density = _confirmed.duplicate()
+		_replay_pending()
 	for chunk_index: int in chunk_count():
 		chunk_changed.emit(chunk_index)
 	_reset_view(reset_hard)
+
+
+## u16 sequence order, wrap aware: a is b or was sent before it.
+static func _seq_at_or_before(a: int, b: int) -> bool:
+	return ((b - a) & 0xFFFF) < 0x8000

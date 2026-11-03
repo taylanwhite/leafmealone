@@ -6,10 +6,13 @@ extends Node
 ##
 ## Host: the golden density rules (net/dev/leaf_golden.gd) first; then its own
 ## stroke (one event, local, leaves_changed the same frame) and 3 s of a running
-## mower (at most 11 mulch events a second); then it clears a bare patch, gives
-## the blower tier 2 and a full tank, picks the spots and cues the client.
+## mower (at most 11 mulch events a second; the client checks every batch that
+## takes leaves away came after mulch events, acked by it, that add up to exactly
+## what it took); then it clears a bare patch, gives the blower tier 2 and a full
+## tank, picks the spots and cues the client.
 ## Client: holding the rake it rakes a lane 30 times toward +X and 20 toward -Z,
-## 0.3 s apart, plus 3 strokes on the bare patch (moved 0) and one out of reach;
+## 0.3 s apart, plus 3 strokes on the bare patch (moved 0), and one out of reach
+## with an in-reach stroke right behind it (kept through the resync, no reversal);
 ## then 10 tier-2 blower puffs, a bag of its pile and a bag of the bare patch
 ## (refused: thin). Throughout, every cell it shows is checked every frame against
 ## what its own strokes left there: no cell a stroke raised ever falls back
@@ -62,10 +65,19 @@ var _trace: Array[Dictionary] = []
 var _ledger_peak: int = 0
 var _reference: Node3D
 var _report: Dictionary = {}
+# Client, while the host mows: every batch that takes leaves away must come after
+# mulch events (acked by it) that add up to exactly what it took.
+var _watching_mulch: bool = false
+var _watch_tick: int = -1
+var _watch_total: int = 0
+var _mulch_batches: int = 0
+var _mulch_mismatches: Array[String] = []
 
 
 func _process(_delta: float) -> void:
 	_hook_field()
+	if _watching_mulch:
+		_watch_mulch()
 	if _tracking:
 		_track()
 		var field := _field()
@@ -80,6 +92,7 @@ func _process(_delta: float) -> void:
 	if Net.is_host():
 		_run_host(lot as Node3D)
 	else:
+		_watching_mulch = true
 		_run_client()
 
 
@@ -233,9 +246,46 @@ func _mow(field: Node, line: Vector3) -> void:
 				count += 1
 		peak = maxi(peak, count)
 	var mulched := units_before - float(field.call("leaf_units"))
+	# Every batch with mulch in it has gone out by now; the client stops watching.
+	_rpc_mow_done.rpc_id(_mate_id())
 	result["mulch_events"] = times.size()
 	_step("mulch_rate", times.size() >= 5 and peak <= MULCH_PER_SECOND_MAX and mulched > 0.0,
 		"%d mulch events in %.1f s, at most %d in a second, %.1f units mulched" % [times.size(), MOW_SECONDS, peak, mulched])
+
+
+## Client: the host's mowing is over (sent after its last mulch batch, same channel).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_mow_done() -> void:
+	_watch_mulch()
+	_watching_mulch = false
+
+
+## Client, once a frame while the host mows: when batches have landed, the leaves
+## they took away (nothing else removes any then) must equal the mulch events this
+## peer already got for those ticks. A batch carrying mulch nobody had told yet, or
+## an event naming a batch that doesn't carry it, is a mismatch.
+func _watch_mulch() -> void:
+	var field := _field()
+	if field == null:
+		return
+	var tick := int((field.call("ledger_stats") as Dictionary)["last_tick"])
+	if tick == _watch_tick:
+		return
+	var total := 0
+	for byte: int in field.get("_density") as PackedByteArray:
+		total += byte
+	if _watch_tick >= 0 and int(field.call("pending_count")) == 0:
+		var drop := _watch_total - total
+		var told := 0
+		for ev: Dictionary in _events:
+			if str(ev["kind"]) == "mulch" and int(ev["ack"]) > _watch_tick and int(ev["ack"]) <= tick:
+				told += int(ev["moved"])
+		if drop > 0 or told > 0:
+			_mulch_batches += 1
+			if drop != told:
+				_mulch_mismatches.append("ticks %d-%d took %d, told %d" % [_watch_tick + 1, tick, drop, told])
+	_watch_tick = tick
+	_watch_total = total
 
 
 ## The client's report (its last step): what it sent, its checks, its bytes.
@@ -289,6 +339,9 @@ func _run_client() -> void:
 	var mulch := _events.filter(func(ev: Dictionary) -> bool: return str(ev["kind"]) == "mulch")
 	_step("others_events", host_rakes.size() == 1 and not bool(host_rakes[0]["local"]) and mulch.size() >= 5,
 		"%d host rakes, %d mulch events" % [host_rakes.size(), mulch.size()])
+	# Every batch of mulch came after the events that tell it, and they agree.
+	_step("mulch_told_first", not _watching_mulch and _mulch_batches >= 5 and _mulch_mismatches.is_empty(),
+		"%d batches with mulch, mismatches %s" % [_mulch_batches, _mulch_mismatches.slice(0, 4)])
 	# Pick up the rake.
 	var rake := get_node_or_null(_cue["rake"] as NodePath) as Node3D
 	var blower := get_node_or_null(_cue["blower"] as NodePath) as Node3D
@@ -352,20 +405,38 @@ func _run_client() -> void:
 		await get_tree().create_timer(STROKE_SECONDS).timeout
 	var empty_events := _own_events(true).filter(func(ev: Dictionary) -> bool: return int(ev["moved"]) == 0).size() - empty_before
 	_step("empty_strokes", empty_moved == 0 and empty_events == BARE_STROKES, "moved %d, %d empty events" % [empty_moved, empty_events])
-	# Out of reach: no prediction, no event, a soft resync.
+	# Out of reach: no prediction, no event, a soft resync. A stroke in reach goes
+	# right behind it, so it is still on its way to the host when the resync
+	# lands: its prediction must stay through the resync (nothing falls back).
+	var follow := lane_x + Vector3.RIGHT * (LANE_STEP * float(LANE_X_STROKES))
+	await _stand(follow - Vector3.RIGHT * 1.5, Vector3.RIGHT)
+	await get_tree().create_timer(0.8).timeout
+	await _settle(field)
+	_track()
+	var reversals_before := _reversals
+	var corrections_before := _corrections
+	var kept_before := int((field.call("ledger_stats") as Dictionary)["kept_on_resync"])
 	var soft_before := _resets.count(false)
 	var events_before := _events.size()
-	var far: Vector3 = spots["far"]
+	var far := _far_from(field, follow)
 	var oor := int(field.call("request_rake", far, Vector3.RIGHT, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH))
 	sent["out_of_reach"] = 1
-	_stop_tracking()
+	var follow_moved := _rake(field, follow, Vector3.RIGHT, 0)
+	sent["rake"] = int(sent["rake"]) + 1
 	waited = 0.0
 	while _resets.count(false) == soft_before and waited < 3.0:
-		await get_tree().create_timer(0.1).timeout
-		waited += 0.1
-	await get_tree().create_timer(0.3).timeout
-	_step("out_of_reach", oor == 0 and _resets.count(false) == soft_before + 1 and _events.size() == events_before,
-		"moved %d, soft resets +%d, events +%d" % [oor, _resets.count(false) - soft_before, _events.size() - events_before])
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	await _settle(field)
+	_track()
+	_stop_tracking()
+	var heard := _events.slice(events_before)
+	_step("out_of_reach", oor == 0 and _resets.count(false) == soft_before + 1 and heard.size() == 1 and int(heard[0]["actor"]) == me \
+		and bool(heard[0]["local"]) and int(heard[0]["moved"]) == follow_moved,
+		"moved %d, soft resets +%d, events +%d (the stroke behind it)" % [oor, _resets.count(false) - soft_before, heard.size()])
+	var kept := int((field.call("ledger_stats") as Dictionary)["kept_on_resync"]) - kept_before
+	_step("resync_keeps_later", follow_moved > 0 and kept >= 1 and _reversals == reversals_before and _corrections == corrections_before,
+		"stroke behind it moved %d, %d kept through the resync, %d reversals, %d corrections" % [follow_moved, kept, _reversals - reversals_before, _corrections - corrections_before])
 	# The blower at tier 2: predicted with the host's numbers, so no correction.
 	rake.call("request_drop")
 	await _wait_for(func() -> bool: return int(rake.get("held_by")) == 0, 3.0)
@@ -579,11 +650,14 @@ func _pick_spots(field: Node) -> Dictionary:
 		if not found:
 			print("[RakeNetTest] no room for %s" % want[0])
 			return {}
-	# Out of reach of the bare patch's stroke spot, still on the grid.
-	var bare_local := (field as Node3D).to_local(spots["bare"] as Vector3)
-	var far_z := bare_local.z + 8.0 if bare_local.z < 8.0 else bare_local.z - 8.0
-	spots["far"] = (field as Node3D).to_global(Vector3(bare_local.x, 0.25, far_z))
 	return spots
+
+
+## Out of reach of a stroke spot, still on the grid.
+func _far_from(field: Node, at: Vector3) -> Vector3:
+	var local := (field as Node3D).to_local(at)
+	var far_z := local.z + 8.0 if local.z < 8.0 else local.z - 8.0
+	return (field as Node3D).to_global(Vector3(local.x, 0.25, far_z))
 
 
 ## At least 95% of the rectangle has leaves (no house, no path, nothing heaped).
