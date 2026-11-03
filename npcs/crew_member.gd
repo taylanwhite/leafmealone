@@ -21,7 +21,7 @@ extends CharacterBody3D
 enum Mode { PATROL, NOISE, SPOT, CHASE, INVESTIGATE, SEARCH, INSPECT, WINDUP, LUNGE, WHIFF, GOTCHA, CITE, ESCORT, DOOR, RECALL, SEATED, HOP_OUT, HOP_IN, STUNNED }
 
 ## The bark kinds (Strings.CREW_BARKS has a pool for each; cast_test checks).
-const BARK_KINDS: Array[String] = ["arrive", "spot", "chase", "lunge", "whiff", "lost", "search", "inspect", "near_miss", "pile", "caught", "cite_wriggle", "bonked", "escort", "door", "buckle", "recall", "ride", "wave", "capacity", "investigate"]
+const BARK_KINDS: Array[String] = ["arrive", "spot", "chase", "lunge", "whiff", "lost", "search", "inspect", "near_miss", "pile", "caught", "cite_wriggle", "bonked", "escort", "door", "buckle", "recall", "ride", "wave", "capacity", "investigate", "inspect_hedge", "inspect_bin", "inspect_shed", "inspect_pile", "near_miss_hedge", "near_miss_bin", "near_miss_shed", "near_miss_pile"]
 ## The modes the brain decides; the rest belong to the Encounter, the van or the director.
 const BRAIN_MODES: Array[int] = [Mode.PATROL, Mode.NOISE, Mode.SPOT, Mode.CHASE, Mode.INVESTIGATE, Mode.SEARCH, Mode.INSPECT]
 ## Modes in which every peer places the body itself.

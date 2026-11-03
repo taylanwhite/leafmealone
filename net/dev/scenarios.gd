@@ -839,12 +839,14 @@ func _hidden_in_hedge(seen: bool) -> Dictionary:
 	# Off to the side, 9 m out: facing the hedge if he's to see you go in, else strolling across.
 	var watch_at := spot.global_position + out * 7.0 + along * 4.0
 	_placing("crew")
-	crew.global_position = Vector3(watch_at.x, crew.global_position.y, watch_at.z)
+	# On the lawn: taken off a van seat, his height was the seat's (R2b hide).
+	crew.global_position = Vector3(watch_at.x, spot.global_position.y, watch_at.z)
 	var look := (spot.global_position - watch_at) if seen else along
 	crew.rotation.y = atan2(look.x, look.z)
 	for index: int in range(1, get_tree().get_nodes_in_group("crew").size()):
 		var other := get_tree().get_nodes_in_group("crew")[index] as Node3D
 		other.global_position = spot.global_position - out * 25.0 + along * float(index) * 3.0
+		other.global_position.y = spot.global_position.y
 	var stand: Vector3 = spot.call("entry_point", side, 0)
 	_place(stand, _yaw_toward(stand, spot.global_position), -0.2)
 	await _ticks(3)
@@ -891,9 +893,9 @@ func _inspect_beat(ids: Array, beat: String) -> void:
 			var body := crew.get_node_or_null("Visual/CartoonBody")
 			if body != null:
 				body.call("gesture", "point")
-			# The R2 crew (chunk 2) barks its own line; before it, the point says it.
+			# The line the crew brain says, naming the spot (R2b hide).
 			if crew.has_method("bark"):
-				crew.call("bark", "inspect")
+				crew.call("bark", str(spot.call("inspect_bark")) if spot.has_method("inspect_bark") else "inspect", true)
 		"walk":
 			_walk(crew, spot.call("inspect_point"), 0.9)
 		"poke":
@@ -907,6 +909,8 @@ func _inspect_beat(ids: Array, beat: String) -> void:
 			var encounter := get_tree().get_first_node_in_group("nice_encounter")
 			if encounter != null and StringName(outcome.get("outcome", &"")) == &"found":
 				encounter.call("host_windup", crew, int(outcome.get("peer", 0)), true)
+			elif crew.has_method("bark"):
+				crew.call("bark", str(spot.call("near_miss_bark")) if spot.has_method("near_miss_bark") else "near_miss", true)
 
 
 ## Walk a held-still NICE BOY to a point over seconds (the host's body replicates).

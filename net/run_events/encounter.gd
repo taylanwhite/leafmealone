@@ -202,6 +202,13 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 	var now := Net.server_time()
 	var at := now if grab_id != 0 else now + float(_k("BEAT_LEAD", 0.15))
 	var victim := player.global_position
+	# Found in a hiding spot: they're set down at the spot's landing, whatever this
+	# peer's copy of their lift shows yet (R2b hide; net/components/hide_spot.gd _pull).
+	if player.has_meta(&"hide_pulled_to"):
+		var pulled: Variant = player.get_meta(&"hide_pulled_to")
+		if pulled is Array and (pulled as Array).size() == 2 and now <= float(pulled[1]) + Constants.HIDE_PULLED_TO_TRUST:
+			victim = pulled[0]
+		player.remove_meta(&"hide_pulled_to")
 	if crew == null:
 		_rpc_catch.rpc(grab_id, 0, peer_id, at, victim, Vector3.INF, 0.0)
 		# Straight to the door: the itemized row where they stood, then the van.

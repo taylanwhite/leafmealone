@@ -220,7 +220,7 @@ func _physics_process(delta: float) -> void:
 				coat = 0
 		# In a pile you're crouched down in the leaves; walking forward climbs out.
 		%FirstPerson.position.y = -1.05 if in_pile else 0.0
-		if in_pile and (Input.is_action_just_pressed("move_forward") or Input.is_action_just_pressed("jump")):
+		if in_pile and (Input.is_action_just_pressed("move_forward") or Input.is_action_just_pressed("jump")) and not bool(_hide_view().call("is_found")):
 			set_pile(false)
 		var seated_in_vehicle := in_vehicle()
 		if not seated_in_vehicle:
@@ -948,7 +948,8 @@ func _toggle_hiding() -> bool:
 		view.call("request_exit")
 		return true
 	if in_pile:
-		set_pile(false)
+		if not bool(view.call("is_found")):
+			set_pile(false)
 		return true
 	var closest := _nearest_free_spot()
 	if closest != null:
@@ -1244,6 +1245,16 @@ func peek_anchor() -> Node3D:
 func host_inspect_cancel(crew: Node) -> void:
 	if Net.is_host():
 		_hide_view().call("pile_inspect_cancel", crew)
+		_rpc_pile_inspect.rpc(_crew_number(crew), Net.server_time(), &"cancel")
+
+
+## His line walking over, and after a near miss (R2b hide).
+func inspect_bark() -> String:
+	return "inspect_pile"
+
+
+func near_miss_bark() -> String:
+	return "near_miss_pile"
 
 
 ## A NICE BOY pats the pile: everyone sees the telegraph and the pats.
@@ -1269,12 +1280,17 @@ func host_inspect_resolve(crew: Node) -> Dictionary:
 			away.y = 0.0
 			toward = crew_at - away.normalized() * Constants.HIDE_PULL_STANDOFF if away.length() > 0.1 else crew_at
 			toward.y = global_position.y
-		_rpc_pile_pulled.rpc(toward)
+		# The leaves part around his face first, then out you come (R2b hide); the
+		# gotcha stands you where you land (encounter.gd reads the meta).
+		set_meta(&"hide_pulled_to", [toward, Net.server_time() + Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS])
+		get_tree().create_timer(Constants.HIDE_FOUND_REVEAL).timeout.connect(func() -> void:
+			if is_instance_valid(self) and in_pile:
+				_rpc_pile_pulled.rpc(toward))
 		if get_tree().get_first_node_in_group("nice_encounter") == null:
 			var director := get_tree().get_first_node_in_group("run_director")
 			if director != null:
 				var peer_id := name.to_int()
-				get_tree().create_timer(Constants.HIDE_PULL_SECONDS).timeout.connect(func() -> void:
+				get_tree().create_timer(Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS).timeout.connect(func() -> void:
 					if is_instance_valid(director):
 						director.call("note_capture", peer_id))
 	return result
@@ -1299,6 +1315,10 @@ func _rpc_pile_inspect(crew_index: int, at: float, phase: StringName) -> void:
 				crew = node as Node3D
 	var where := global_position + Vector3(0.0, 0.4, 0.0)
 	var sfx := get_tree().get_first_node_in_group("sfx")
+	# He bends over the pile, and the hider's view is drawn to him (R2b hide).
+	_hide_view().call("on_pile_inspect", crew, phase, at)
+	if phase == &"cancel":
+		return
 	match phase:
 		&"begin":
 			load("res://props/hide_spot.gd").crew_gesture(crew, "pile_pat", "scribble")

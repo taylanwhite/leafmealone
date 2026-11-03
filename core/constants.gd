@@ -939,8 +939,9 @@ const CREW_LUNGE_ARM: float = 0.75
 ## travel + CREW_LUNGE_ARM), up 1.2), in the host's view.
 const CREW_GRAB_REACH: float = 0.95
 const CREW_GRAB_SLACK: float = 0.35
-## A found hider is grabbed this long (s) after the inspection says so (no lunge).
-const CREW_FOUND_CONTACT: float = 0.3
+## A found hider is grabbed this long (s) after the inspection says so (no lunge):
+## once the reveal and the pull out have set them on their feet (R2b hide).
+const CREW_FOUND_CONTACT: float = HIDE_FOUND_REVEAL + HIDE_PULL_SECONDS + HIDE_FOUND_SETTLE
 ## A whiff: he sprawls this long, and the target can't be grabbed for the grace.
 const CREW_WHIFF_SECONDS: float = 0.9
 const CREW_WHIFF_GRACE: float = 1.0
@@ -1460,7 +1461,8 @@ const HIDE_MUFFLE_HZ: float = 950.0
 const HIDE_CLEAR_CREW_METERS: float = 12.0
 ## The hider's voice chat, heard by everyone, through this low-pass (Hz).
 const HIDE_VOICE_MUFFLE_HZ: float = 700.0
-## Tells: turning faster than this (rad/s) inside a hedge or pile shakes it.
+## Tells: turning faster than this (rad/s, smoothed over HIDE_TREMBLE_SMOOTH) inside
+## a hedge or pile shakes it.
 const HIDE_TREMBLE_TURN_RATE: float = 2.2
 ## A shake lasts this long (s) and the hedge squash-wobbles this much.
 const HIDE_TREMBLE_SECONDS: float = 0.5
@@ -1505,8 +1507,9 @@ const HIDE_SHRUG_SECONDS: float = 1.2
 const HIDE_UPSY_DAISY_SECONDS: float = 0.9
 ## Suspicion at or over this when the poke ends: found.
 const HIDE_FOUND_AT: float = 0.6
-## Found: he lifts you out toward him over this long (s), then the gotcha.
-const HIDE_PULL_SECONDS: float = 0.5
+## Found: after the reveal (HIDE_FOUND_REVEAL) he lifts you out toward him over
+## this long (s), sets you on your feet, then the gotcha.
+const HIDE_PULL_SECONDS: float = 0.55
 ## Courtesy Notice stickers a spot shows at most (one per near miss, all day).
 const HIDE_NOTICE_MAX: int = 5
 
@@ -3385,3 +3388,110 @@ const R2B_HUD_STAMP_PROMPT_LIFT: float = 0.2
 ## The raid's edge vignette (ui/run_cues.gd) starts this far out (0 the middle,
 ## 1 the screen's edge, a rounded rectangle), so the middle of the view is never tinted.
 const R2B_HUD_VIGNETTE_INNER: float = 0.7
+
+# ---- R2b hide
+# Being found, peering in, the view from inside and the tells (player/hide_view.gd,
+# player/hide_frame.gd, props/hide_spot.gd, net/components/hide_spot.gd; docs/GAME.md
+# "Hiding", R2b). Presentation tuning except where marked host.
+## Found (host timing): the spot comes open and his grinning face and hands are in
+## the gap for this long (s) before he pulls you out; his hands close on you this
+## long (s) before the pull starts; the gotcha lands this long (s) after you're
+## back on your feet (CREW_FOUND_CONTACT adds the three).
+const HIDE_FOUND_REVEAL: float = 0.55
+const HIDE_FOUND_GRAB_LEAD: float = 0.12
+const HIDE_FOUND_SETTLE: float = 0.12
+## Pulled out, you're set down on your feet this far out from the spot's face (m),
+## this far along it from the middle (m, clear of him), on a hop this high (m).
+const HIDE_FOUND_LAND_OUT: float = 0.5
+const HIDE_FOUND_LAND_ALONG: float = 0.4
+const HIDE_FOUND_HOP: float = 0.28
+## A NICE BOY peering into each kind of spot: torso lean (rad, negative is
+## forward), how far his hips drop (m), his face tilt (rad, negative looks down).
+const HIDE_PEER_POSE: Dictionary = {
+	"hedge": Vector3(-0.45, 0.1, 0.0),
+	"bin": Vector3(-0.6, 0.04, -0.3),
+	"shed": Vector3(-0.32, 0.0, 0.0),
+	"pile": Vector3(-0.95, 0.3, -0.45),
+}
+## He leans in over this long (s) once the poke starts, and back out over this long.
+const HIDE_PEER_IN_SECONDS: float = 0.4
+const HIDE_PEER_OUT_SECONDS: float = 0.35
+## From inside, your view is drawn to his face while he peers in: all the way over
+## this long (s), never turned more than this (rad), and your own look offset
+## eases back toward him at no more than this (rad/s, under the tremble rate).
+const HIDE_PEER_AIM_SECONDS: float = 0.35
+const HIDE_PEER_AIM_MAX: float = 0.9
+## ...and never tipped up or down more than this (rad): it stays in the gap.
+const HIDE_PEER_AIM_PITCH_MAX: float = 0.28
+const HIDE_PEER_LOOK_RETURN: float = 1.2
+## The world through the wall: the low-pass sweeps down from this (Hz) to
+## HIDE_MUFFLE_HZ over this long (s) once you're in, so your own lid's clang and
+## the hedge settling around you are heard before the world goes dull.
+const HIDE_MUFFLE_FROM_HZ: float = 9000.0
+const HIDE_MUFFLE_SWEEP_SECONDS: float = 0.4
+## Your own spot's sounds (the lid, the clang, the door) play this much louder
+## on your own machine (dB), and the music ducks this much (dB) for this long (s).
+const HIDE_OWN_SOUND_DB: float = 4.0
+const HIDE_DIVE_DUCK_DB: float = -6.0
+const HIDE_DIVE_DUCK_SECONDS: float = 0.9
+## Tells: the turn speed is smoothed over this long (s), so the steps of a
+## replicated or stepped look never read as a jerk; a rustle comes at most every
+## (min, max) seconds and is louder the harder you turn (dB per rad/s over the
+## threshold, up to the cap).
+const HIDE_TREMBLE_SMOOTH: float = 0.16
+const HIDE_TREMBLE_COOL: Vector2 = Vector2(0.65, 1.2)
+const HIDE_TREMBLE_DB_PER_RATE: float = 2.0
+const HIDE_TREMBLE_DB_CAP: float = 6.0
+## Inside a hedge, a shell of leaves around your eye (you see this, not the
+## hedge's own outside): its radius (m) and the opening ahead (half-angles, rad).
+const HIDE_SHELL_RADIUS: float = 0.42
+const HIDE_SHELL_OPENING: Vector2 = Vector2(0.62, 0.36)
+## A shed's eye sits this far inside the door (m), at the knot holes, this far
+## either side of the middle for its two places (m).
+const HIDE_SHED_EYE_IN: float = 0.16
+const HIDE_SHED_EYE_SIDE: float = 0.22
+## The pile: the mound grows from this share of its size as you land, over this
+## long (s), while your body sinks this far (m) into it.
+const HIDE_PILE_MOUND_FROM: float = 0.3
+const HIDE_PILE_MOUND_GROW: float = 0.3
+const HIDE_PILE_SINK: float = 0.9
+## A find holds you (no climb-out, no peek) only for its reveal, pull and settle
+## plus this slack (s, for the pull to arrive over a slow link); after that the
+## spot's find is old news and whoever dives in next is free to leave.
+const HIDE_FOUND_HOLD_SLACK: float = 0.5
+## After a find the lid or door drops shut this long (s) after you're out; a bin's
+## clang follows the drop by this long (s), this loud (dB).
+const HIDE_FOUND_SHUT_DELAY: float = 0.35
+const HIDE_FOUND_CLANG_DELAY: float = 0.14
+const HIDE_FOUND_CLANG_DB: float = -6.0
+## Host: a shed's door swings out on its hinge side, so its two climb-out places
+## step this far toward the latch side (m): base, plus this per second place.
+const HIDE_SHED_EXIT_ALONG: float = 0.1
+const HIDE_SHED_EXIT_SLOT_STEP: float = 0.45
+## Host: pulled out of a shed, you land off the latch side, this share of
+## HIDE_FOUND_LAND_ALONG along from the door's middle.
+const HIDE_FOUND_LAND_ALONG_SHED: float = 0.75
+## Host: the gotcha trusts a found hider's landing (meta hide_pulled_to) for this
+## long (s) after they're down; older than that and it stands them where they are.
+const HIDE_PULLED_TO_TRUST: float = 2.0
+## The shed's shape, shared by its model and the hider's eye (host: the eye is the
+## peek anchor): walls are this share of its height, the door stops this far (m)
+## under the wall top, and the knot holes (the eye) are this far (m) under the door's top.
+const HIDE_SHED_WALL_SHARE: float = 0.72
+const HIDE_SHED_DOOR_HEADROOM: float = 0.26
+const HIDE_SHED_KNOT_DROP: float = 0.22
+## A NICE BOY's poke, shared by the spot (props/hide_spot.gd _poke) and the
+## hider's view of it (player/hide_view.gd): a hedge's two pushes (s in), each
+## parting it this much (0..1) for a beat; a bin lid lifted a crack at this time
+## (s), this far open; a shed's three knocks, the first at x (s), then every y (s);
+## a pile's pats part it this much.
+const HIDE_POKE_HEDGE_PUSHES: Array[float] = [0.2, 0.9]
+const HIDE_POKE_HEDGE_PART: float = 0.28
+const HIDE_POKE_BIN_CRACK_AT: float = 0.3
+const HIDE_POKE_BIN_PART: float = 0.22
+const HIDE_POKE_SHED_KNOCKS: Vector2 = Vector2(0.25, 0.3)
+const HIDE_POKE_PILE_PART: float = 0.12
+## Gestures outlast their moves by this long (s) so the landing reads: a
+## climb-out, and being pulled out.
+const HIDE_EXIT_GESTURE_TAIL: float = 0.4
+const HIDE_PULL_GESTURE_TAIL: float = 0.15
