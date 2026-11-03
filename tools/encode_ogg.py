@@ -368,13 +368,19 @@ def verify(track_id: str, wav: pathlib.Path, ogg: pathlib.Path) -> dict:
     lead_seconds = encode_lead_seconds()
     lead = int(lead_seconds * RATE)  # Godot truncates a seek time to a sample, so this does too
     first = onset(source)
+    # Line the two up on a stretch with transients in it: a loop's start (its
+    # drums and bass) rather than the very first sound, which can be a pure tone
+    # (Aisle Seven opens on the PA chime) that lines up one period off just as well.
+    align_at = loop_start if loop and loop_start > 0 else max(0, first - 256)
+    align_length = 8192 if loop and loop_start > 0 else 4096
     # The plain WAV through the same path gives Godot's playback latency alone.
-    played, _ = godot_play(wav, track_id + "_wav", min(n // FRAME, 4 * FPS))
-    play_lag = best_offset(source, played, onset(played) - first, 64, max(0, first - 256), 4096)
+    wav_frames = min(n // FRAME, max(4 * FPS, (align_at + align_length + 2 * FRAME) // FRAME + FPS))
+    played, _ = godot_play(wav, track_id + "_wav", wav_frames)
+    play_lag = best_offset(source, played, onset(played) - first, 64, align_at, align_length)
     frames = (2 * n - loop_start) // FRAME + 2 * FPS if loop else n // FRAME + FPS
     loop_offset = meta.get("loop_start_seconds", 0.0) + lead_seconds
     decoded, output = godot_play(ogg, track_id + "_ogg", frames, loop_offset if loop else None)
-    lag = best_offset(source, decoded, onset(decoded) - first, 96, max(0, first - 256), 4096)
+    lag = best_offset(source, decoded, onset(decoded) - first, 96, align_at, align_length)
     report = {"playback_latency": play_lag, "encode_latency": lag - play_lag}
     for line in output.splitlines():
         if line.startswith("[OggRender] length"):

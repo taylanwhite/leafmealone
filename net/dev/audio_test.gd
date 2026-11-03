@@ -18,7 +18,9 @@ extends Node
 ##                tools/encode_ogg.py; chunk 2) loads as Vorbis with a sane length
 ## The music director (chunk 3; docs/DECISIONS.md "Audio: a local music director"):
 ##   moods          every mood has tracks unless MOODS_WAITING lists it, every track it
-##                  names is in TRACKS and loads at its length, stingers and titles line up
+##                  names is in TRACKS and loads at its length, stingers and titles line up,
+##                  loops are 60 to 150 s (the warning's may be 15) and loop back to a
+##                  whole 20 ms frame (audio chunk 4a)
 ##   picker_table   pick_mood's rules, case by case, and push_mood over them
 ##   schedule_sim   900 simulated seconds of work music: loops, a rest, the next
 ##                  track; urgent moods fade fast and never rest; rests can be off
@@ -48,6 +50,12 @@ const _Ranks = preload("res://core/ranks.gd")
 const TRACK_LENGTH_SLACK: float = 0.6
 ## A stinger is at most this long.
 const STINGER_MAX_SECONDS: float = 6.0
+## A looping track's length by its bars, shortest to longest (gap-specs/audio.json, check 2).
+const LOOP_TRACK_SECONDS: Vector2 = Vector2(60.0, 150.0)
+## A track only the raid warning plays may loop this short.
+const WARNING_LOOP_MIN_SECONDS: float = 15.0
+## tools/make_music.py puts a loop's intro on this grid (Movie Maker's fixed fps in tools/encode_ogg.py).
+const MUSIC_FRAMES_PER_SECOND: float = 50.0
 ## Simulated seconds of work music in schedule_sim.
 const SIM_SECONDS: float = 900.0
 const SIM_STEP: float = 0.25
@@ -467,11 +475,30 @@ func _moods() -> bool:
 		if not good:
 			(result["bad_lengths"] as Array).append("%s %.2fs" % [path, seconds])
 			ok = false
+		if not _Tracks.is_stinger(id):
+			# A loop is LOOP_TRACK_SECONDS long (the raid warning's may be shorter), and
+			# its intro ends on a whole 20 ms frame, so the loop point is a whole sample:
+			# true only with the exact tempo make_music.py rendered (music_tracks.gd, bpm).
+			var floor_seconds := LOOP_TRACK_SECONDS.x if not _warning_only(id) else WARNING_LOOP_MIN_SECONDS
+			if _Tracks.seconds(id) < floor_seconds or _Tracks.seconds(id) > LOOP_TRACK_SECONDS.y:
+				bad.append("%s is %.1f s, outside %.0f-%.0f s" % [id, _Tracks.seconds(id), floor_seconds, LOOP_TRACK_SECONDS.y])
+			var intro_frames := (_Tracks.loop_offset(id) - Constants.MUSIC_ENCODE_LEAD_SECONDS) * MUSIC_FRAMES_PER_SECOND
+			if absf(intro_frames - roundf(intro_frames)) > 0.001:
+				bad.append("%s loops back to %.6f s, between frames: is its bpm the exact one?" % [id, _Tracks.loop_offset(id)])
 	for id: String in _Tracks.STINGER_IDS:
 		if _Strings.track_title("track_" + id) == "":
 			bad.append("stinger %s has no title" % id)
 	print("[AudioTest] %d moods, %d tracks; waiting for a track of their own %s; problems %s" % [_Tracks.MOODS.size(), _Tracks.TRACKS.size(), waiting, bad])
 	return ok and bad.is_empty()
+
+
+## True when the raid warning is the only mood that plays this track.
+func _warning_only(id: String) -> bool:
+	var moods: Array[String] = []
+	for mood_id: String in _Tracks.MOODS:
+		if _Tracks.tracks_for(mood_id).has(id):
+			moods.append(mood_id)
+	return moods.size() == 1 and moods[0] == "warning"
 
 
 ## A state for pick_mood.

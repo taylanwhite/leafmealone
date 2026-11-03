@@ -2019,7 +2019,6 @@ const MUSIC_TITLES: Dictionary = {
 	"track_nice_boys_incoming": "Paperwork Incoming",
 	"track_nice_boys_chase": "The NICE BOYS",
 	"track_lane_change": "Lane Change",
-	"track_old_tune": "The Old Tune (it was here first)",
 	"track_st_day_end": "Clock Out",
 	"track_st_rank_up": "Promoted!",
 	"track_st_season": "New Season",
