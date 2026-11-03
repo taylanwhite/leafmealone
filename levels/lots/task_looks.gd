@@ -343,8 +343,23 @@ func _on_cell_changed(grid_index: int, cell: int, amount: int) -> void:
 
 # ---------------------------------------------------------------- effects
 
-## A quick burst where work just landed, in the task's colors.
-func work_fx(task: String, at: Vector3) -> void:
+## What task work sounds like at the spot (audio chunk 6; tools/sfx_foley.py).
+## The mower, the pressure washer and the roller have their own running loops
+## (audio/tool_sound.gd), so they have none here.
+const TASK_SOUNDS: Dictionary = {
+	"pick_litter": "litter_crinkle", "pull_weeds": "weed_pluck", "clean_gutters": "gutter_gloop",
+	"wash_windows": "squeegee", "trim_hedges": "snip", "skim_pool": "splash_small", "clear_roof": "rake",
+}
+## "task:patch" -> the msec before which that patch's task sound waits.
+var _sound_next: Dictionary = {}
+
+
+## A quick burst where work just landed, in the task's colors, and its sound
+## (TASK_SOUNDS) unless with_sound is false (a mower hitting things borrows the
+## bursts, net_prop.gd _rpc_mower_fx, and has its own sounds).
+func work_fx(task: String, at: Vector3, with_sound := true) -> void:
+	if with_sound:
+		_work_sound(task, at)
 	var colors := {
 		"wash_windows": [Color(0.6, 0.8, 1.0, 0.8), Vector3.UP, 1.5],
 		"power_wash": [Color(0.85, 0.92, 1.0, 0.8), Vector3.UP, 2.5],
@@ -379,6 +394,27 @@ func work_fx(task: String, at: Vector3) -> void:
 	add_child(particles)
 	particles.global_position = at
 	get_tree().create_timer(1.0).timeout.connect(particles.queue_free)
+
+
+## A task's sound at the spot, held to its gap per 2 m patch (Constants.
+## TASK_SFX_GAP_MS), so two of the crew on two windows both squeak and one held
+## trimmer doesn't buzz-saw the snips together.
+func _work_sound(task: String, at: Vector3) -> void:
+	var id := str(TASK_SOUNDS.get(task, ""))
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if id == "" or sfx == null:
+		return
+	var patch := Vector2i(floori(at.x / 2.0), floori(at.z / 2.0))
+	var key := "%s:%d:%d" % [task, patch.x, patch.y]
+	var now := Time.get_ticks_msec()
+	if now < int(_sound_next.get(key, 0)):
+		return
+	_sound_next[key] = now + int(Constants.TASK_SFX_GAP_MS.get(id, Constants.SFX_DEFAULT_GAP_MS))
+	if _sound_next.size() > 64:
+		for old: String in _sound_next.keys():
+			if int(_sound_next[old]) < now:
+				_sound_next.erase(old)
+	sfx.call("play_at", id, at, 0.0, true, 1 + posmod(patch.x, 1000) * 1000 + posmod(patch.y, 1000))
 
 
 # ---------------------------------------------------------------- meshes

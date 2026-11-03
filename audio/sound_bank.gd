@@ -19,10 +19,10 @@ const DIR := "res://assets/audio/sfx/"
 
 const SOUNDS: Dictionary = {
 	# Footsteps.
-	"step": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
-	"step_leaves": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
-	"step_grass": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
-	"step_hard": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"step": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.FOLEY_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0, "unit_size": Constants.FOLEY_STEP_UNIT_SIZE, "max_distance": Constants.FOLEY_STEP_MAX_DISTANCE, "near_db": 0.0, "muffle_db": -8.0, "shuffle": true},
+	"step_leaves": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.FOLEY_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0, "unit_size": Constants.FOLEY_STEP_UNIT_SIZE, "max_distance": Constants.FOLEY_STEP_MAX_DISTANCE, "near_db": 0.0, "muffle_db": -8.0, "shuffle": true},
+	"step_grass": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.FOLEY_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0, "unit_size": Constants.FOLEY_STEP_UNIT_SIZE, "max_distance": Constants.FOLEY_STEP_MAX_DISTANCE, "near_db": 0.0, "muffle_db": -8.0, "shuffle": true},
+	"step_hard": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.FOLEY_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0, "unit_size": Constants.FOLEY_STEP_UNIT_SIZE, "max_distance": Constants.FOLEY_STEP_MAX_DISTANCE, "near_db": 0.0, "muffle_db": -8.0, "shuffle": true},
 	# Work and slapstick.
 	"rake": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	"bag": {"variants": 2, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
@@ -42,9 +42,9 @@ const SOUNDS: Dictionary = {
 	"leaf_settle": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": Constants.LEAF_SFX_MIX_DB["leaf_settle"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
 	"pile_whump": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": Constants.LEAF_SFX_MIX_DB["pile_whump"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
 	"leaf_kick": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": Constants.LEAF_SFX_MIX_DB["leaf_kick"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	# Registered and generated only: audio:6's footsteps pick them with LeafAudio.step_id.
-	"step_leaves_deep": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "shuffle": true},
-	"step_leaves_pile": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "shuffle": true},
+	# Deeper leaves underfoot: audio/player_foley.gd picks them with LeafAudio.step_id.
+	"step_leaves_deep": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.FOLEY_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.FOLEY_STEP_UNIT_SIZE, "max_distance": Constants.FOLEY_STEP_MAX_DISTANCE, "near_db": 0.0, "muffle_db": -8.0, "shuffle": true},
+	"step_leaves_pile": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.FOLEY_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.FOLEY_STEP_UNIT_SIZE, "max_distance": Constants.FOLEY_STEP_MAX_DISTANCE, "near_db": 0.0, "muffle_db": -8.0, "shuffle": true},
 	"bonk": {"variants": 2, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	"thud": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": 0.0},
 	"whoosh": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
@@ -147,6 +147,42 @@ const SOUNDS: Dictionary = {
 	"dog": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 2.0, "db": -4.0},
 	"car_pass": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 5.0, "db": 0.0},
 	"wind_loop": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 10.0, "db": 0.0},
+	# ---- audio:6 (tools/sfx_foley.py). The neighborhood by night and the store's
+	# lot (audio/ambience.gd): crickets, an owl, Homie Depot's hum and PA, a cart,
+	# a neighbor's mower a few yards over.
+	"crickets_loop": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 8.0, "db": 0.0},
+	"owl": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 2.0, "db": -2.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
+	"store_hum_loop": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 6.0, "db": 0.0},
+	"pa_chime": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 3.2, "db": -2.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
+	"cart_rattle": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.6, "db": -2.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
+	"distant_mower": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 8.0, "db": 0.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_FAR_MAX_DISTANCE},
+	# ---- audio:6 foley (tools/sfx_foley.py): what a body does, from replicated
+	# state (audio/player_foley.gd), heard where it happens.
+	"paint_splat": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"splash": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": 0.0},
+	"land_thump": {"variants": 2, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"grab_yoink": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": -3.0},
+	"throw_big": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.9, "db": 0.0},
+	"punch_windup": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 1.5, "db": 0.0},
+	"foot_pop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# What a prop does (audio/prop_foley.gd): a ladder set up and knocked down, a
+	# hose hooked up, a bag into the wheelbarrow, a pickup off the ground (never
+	# a draw from a pocket: critic C12), a TurfMasters sign's first pull.
+	"ladder_clack": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"ladder_crash": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": 0.0},
+	"hose_click": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"bag_plop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.7, "db": 0.0},
+	"pickup_light": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.3, "db": 0.0},
+	"pickup_heavy": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
+	"sign_pull": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.7, "db": 0.0},
+	# Task work at the spot (levels/lots/task_looks.gd TASK_SOUNDS), throttled per
+	# 2 m patch (Constants.TASK_SFX_GAP_MS).
+	"litter_crinkle": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.TASK_SFX_GAP_MS["litter_crinkle"], "voice": false, "loop": false, "max_seconds": 0.4, "db": 0.0, "shuffle": true},
+	"weed_pluck": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.TASK_SFX_GAP_MS["weed_pluck"], "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0, "shuffle": true},
+	"gutter_gloop": {"variants": 2, "bus": &"Sfx", "gap_ms": Constants.TASK_SFX_GAP_MS["gutter_gloop"], "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0, "shuffle": true},
+	"squeegee": {"variants": 2, "bus": &"Sfx", "gap_ms": Constants.TASK_SFX_GAP_MS["squeegee"], "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0, "shuffle": true},
+	"snip": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.TASK_SFX_GAP_MS["snip"], "voice": false, "loop": false, "max_seconds": 0.4, "db": 0.0, "shuffle": true},
+	"splash_small": {"variants": 2, "bus": &"Sfx", "gap_ms": Constants.TASK_SFX_GAP_MS["splash_small"], "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0, "shuffle": true},
 	# ---- R2:1 the stage (tools/sfx_r2_stage.py): the iris closing or opening (ui/iris.gd).
 	"iris_swish": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": -3.0},
 	# The old 8-bar tune (until the soundtrack replaces it).

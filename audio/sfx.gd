@@ -120,6 +120,13 @@ func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:
 	_start_now(player)
 
 
+## A loop a caller plays on its own player (a punch wind-up's whir) starting at
+## at: logged like a play_at, so the log, tests and the playtest recorder see it.
+func note_loop(id: String, at: Vector3) -> void:
+	if _accept(id):
+		_note_placed(id, "at", at, "")
+
+
 ## A sound set to loop forever, for engines, sprays, wind, and music. The files
 ## are made seamless by tools/make_loops.py. Takes a bank id or a res:// path.
 ## Each caller gets its own copy; the sample data itself is shared.

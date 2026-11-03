@@ -145,6 +145,12 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 		var sound: Node = load("res://audio/tool_sound.gd").new()
 		sound.name = "ToolSound"
 		prop.add_child(sound)
+	# Every prop sounds like itself when handled: picked up, set up, knocked over.
+	if prop.get_node_or_null("PropFoley") == null:
+		var foley: Node = load("res://audio/prop_foley.gd").new()
+		foley.name = "PropFoley"
+		foley.set("prop", prop)
+		prop.add_child(foley)
 
 
 ## The rake lies flat when nobody has it. In hand it is posed by its holder's swing

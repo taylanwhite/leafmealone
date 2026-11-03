@@ -633,7 +633,8 @@ func _rpc_mower_fx(what: String, at: Vector3) -> void:
 		return
 	var looks := get_tree().get_first_node_in_group("task_looks")
 	if looks != null:
-		looks.call("work_fx", "pick_litter" if what == "clank" else ("mow_lawn" if what == "chop" else "clean_gutters"), at + Vector3.UP * 0.3)
+		# Only the burst: the mower's hits have their own sounds (above).
+		looks.call("work_fx", "pick_litter" if what == "clank" else ("mow_lawn" if what == "chop" else "clean_gutters"), at + Vector3.UP * 0.3, false)
 
 
 ## Someone's foot went under the mower: 1 is a nasty cut, 2 it came clean off.
