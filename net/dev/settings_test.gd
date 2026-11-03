@@ -756,7 +756,7 @@ func _strings() -> bool:
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var phone := get_tree().get_first_node_in_group("phone")
 	if phone != null:
-		var line := phone.call("_text", _Strings.UI["goal_texts"], 14, Color.WHITE) as Label
+		var line := phone.call("_text", _Strings.UI["phone_close"], 14, Color.WHITE) as Label
 		if not line.text.contains("[J]"):
 			ok = _fail("strings", "a phone line reads '%s'" % line.text)
 		line.free()
@@ -767,9 +767,10 @@ func _strings() -> bool:
 	panel.visible = false
 	if not push_text.contains("[K]"):
 		ok = _fail("strings", "the voice panel's push to talk reads '%s'" % push_text)
-	var goal := _Strings.keyed(_Strings.UI["goal_dip_roller"])
+	# x1:text: the goal lines name no keys any more; an interact prompt does.
+	var goal := _Prompt.text_for({"text": _Strings.UI["prompt_dip"]})
 	if not goal.contains("[R]"):
-		ok = _fail("strings", "the dry roller goal reads '%s'" % goal)
+		ok = _fail("strings", "the dip prompt reads '%s'" % goal)
 	# The scenes' words come from Strings now (ui_root.tscn, world.tscn).
 	if (ui.get("_leave") as Button).text != _Strings.UI["pause_leave"] or (ui.get_node("%HostButton") as Button).text != _Strings.UI["menu_host_steam"]:
 		ok = _fail("strings", "the menu buttons read '%s' and '%s'" % [(ui.get("_leave") as Button).text, (ui.get_node("%HostButton") as Button).text])

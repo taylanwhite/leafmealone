@@ -1382,9 +1382,6 @@ const PROP_LEASH_METERS: float = 45.0
 ## Chefty not at Homie Depot at bedtime: Marty tows it back for this much ($),
 ## split across the crew like wages.
 const CHEFTY_TOW_FEE: int = 20
-## The goal line says "go to" instead of "get in Chefty" within this many meters
-## of the yard's curb.
-const GOAL_WALK_METERS: float = 45.0
 ## The beacon over the job's curb (levels/lots/site_marker.gd): how tall and wide
 ## (m), and it fades out between these distances (m) as you get close.
 const SITE_BEACON_HEIGHT: float = 30.0
@@ -2295,8 +2292,8 @@ const HOTBAR_SELECT_SECONDS: float = 0.12
 const HOTBAR_SHAKE_SECONDS: float = 0.25
 const HOTBAR_SHAKE_PX: float = 6.0
 const HOTBAR_SHAKE_HZ: float = 22.0
-## How long a refusal's toast stays up, and the emptied-pockets notice (s).
-const HOTBAR_TOAST_SECONDS: float = 1.8
+## How long the emptied-pockets notice stays up (s). A refusal has no toast
+## since x1:text, only the shake.
 const HOTBAR_NOTICE_SECONDS: float = 3.0
 ## Arms full: the slots shrink to this and fade to this, and the hands card
 ## slides up over this long (s).
@@ -4346,3 +4343,27 @@ const R2C_HUD_FIT_STEP: float = 0.02
 ## split, and the width found gets this many px of slack (rounding).
 const R2C_HUD_BALANCE_FLOOR: float = 0.8
 const R2C_HUD_BALANCE_PAD: float = 2.0
+# ---- x1:text (the plain-text sweep, docs/GAME.md "Writing for players")
+## The homeowner waves you over (npcs/homeowner.gd) once Chefty has bags in it
+## and they haven't been asked yet: the world's "come get paid" in place of a
+## goal line. While you're between TALK_REACH and this far away (m) from them,
+## the first wave comes soon (NOTICE_SECONDS), the next this many seconds (s) later, and each
+## gap after that is BACKOFF times the last, up to MAX_SECONDS (recorded at a
+## flat 6 s it was a wave every 7 s through minutes of raking: nagging). A new
+## bag landing in Chefty starts the gaps over: they noticed.
+const HOMEOWNER_BECKON_SECONDS: float = 6.0
+const HOMEOWNER_BECKON_METERS: float = 30.0
+const HOMEOWNER_BECKON_BACKOFF: float = 2.0
+const HOMEOWNER_BECKON_MAX_SECONDS: float = 48.0
+## A bag counts in Chefty's value while it's still flying in (props/truck_bed_load.gd
+## thumps it down on landing), so the wave it sets off waits this long (s): the
+## babble came half a second before the thump in rec_x1fix_beckon4_1p.
+const HOMEOWNER_BECKON_NOTICE_SECONDS: float = 1.2
+## A free player hears the radio about a teammate at Annex B (ui/quip_player.gd):
+## the first this long (s) after this player starts listening (the visit's start,
+## or when they come out of the room or join), then every gap (s) while
+## anyone they know is still inside, at most this many per visit. Then one line
+## when each teammate's form goes through.
+const ANNEX_DISPATCH_FIRST: float = 30.0
+const ANNEX_DISPATCH_GAP: float = 40.0
+const ANNEX_DISPATCH_MAX: int = 4
