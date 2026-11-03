@@ -90,6 +90,14 @@ func _ready() -> void:
 		_add(preload("res://net/dev/drive_test.gd").new(), "DriveTest")
 	if bool(options.get("balance_test")):
 		_add(preload("res://net/dev/balance_test.gd").new(), "BalanceTest")
+	# The R1 raking tests are loaded by path: each chunk adds its own file, and a
+	# run asking for one that isn't built yet just says so (the probe reports it).
+	if bool(options.get("rake_net_test")):
+		_add_by_path("res://net/dev/rake_net_test.gd", "RakeNetTest")
+	if bool(options.get("leaf_motion_test")):
+		_add_by_path("res://net/dev/leaf_motion_test.gd", "LeafMotionTest")
+	if bool(options.get("rake_stroke_test")):
+		_add_by_path("res://net/dev/rake_stroke_test.gd", "RakeStrokeTest")
 	if bool(options.get("open_shop")):
 		# For screenshots of the shop window: bots never walk up to the counter.
 		# --open-shop=<shop>[:<tab>] picks the shop and tab (Homie Depot's first tab by default).
@@ -222,6 +230,18 @@ func _force_run_event() -> void:
 		return
 	print("[Dev] forcing a run event")
 	director.call("force_event")
+
+
+## A test node from a script that may not exist yet (the R1 raking tests).
+func _add_by_path(path: String, node_name: String) -> void:
+	if not ResourceLoader.exists(path):
+		print("[Dev] %s not built" % node_name)
+		return
+	var script := load(path) as Script
+	if script == null:
+		print("[Dev] %s not built" % node_name)
+		return
+	_add(script.new() as Node, node_name)
 
 
 func _add(node: Node, node_name: String) -> void:
