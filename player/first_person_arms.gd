@@ -58,6 +58,8 @@ var _stretch: float = 1.0
 var _follow_left: float = 0.0
 var _follow_from: Array = [Vector3.ZERO, Vector3.ZERO]
 var _was_winding: bool = false
+## What was just put in a pocket, while it's on its way (hotbar chunk D).
+var _stowing: Node = null
 
 
 func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
@@ -118,9 +120,10 @@ func _process(delta: float) -> void:
 	_time += delta
 	var targets := _targets(delta)
 	var snap: bool = targets["snap"]
+	var rate := float(targets.get("follow", FOLLOW))
 	for side: int in 2:
 		var want: Vector3 = targets["hands"][side]
-		_hands[side] = want if snap else _hands[side].lerp(want, 1.0 - exp(-FOLLOW * delta))
+		_hands[side] = want if snap else _hands[side].lerp(want, 1.0 - exp(-rate * delta))
 	_solve()
 
 
@@ -129,6 +132,7 @@ func _targets(delta: float) -> Dictionary:
 	_stretch = 1.0
 	var hands: Array[Vector3] = [REST[0], REST[1]]
 	var snap := false
+	var follow := FOLLOW
 	var held := _player.call("_held_prop") as Node
 	# A leaf bag already flying from your hands (a client draws its own toss
 	# before the host hears of it) is out of them.
@@ -138,7 +142,10 @@ func _targets(delta: float) -> Dictionary:
 	_phase += speed * delta * 2.4
 	# Grabbing something: a quick reach toward it, then the hands settle on it.
 	if held != _last_held:
-		if held != null:
+		# Put away into a pocket: the hands carry it there (hotbar chunk D).
+		_stowing = _last_held if held == null and _last_held != null and is_instance_valid(_last_held) and _PropLooks.is_stowing(_last_held) else null
+		if held != null and not _PropLooks.is_drawing(held):
+			# Picked up off the ground (a draw from a pocket has its own reach, below).
 			_reach_left = REACH_SECONDS
 			_reach_at = to_local((held as Node3D).global_position)
 		elif _last_held != null and is_instance_valid(_last_held) and str(_last_held.get("kind")) == "leaf_bag" and _was_winding:
@@ -218,6 +225,17 @@ func _targets(delta: float) -> Dictionary:
 		snap = true
 	elif held != null:
 		snap = _on_item(held, hands)
+		if _PropLooks.is_drawing(held):
+			# The draw (hotbar chunk D): it comes up from the hip; the hands reach
+			# down for it and pull it up, a beat behind its grips.
+			snap = false
+			follow = Constants.HOTBAR_FP_DRAW_FOLLOW
+	elif _stowing != null and _PropLooks.is_stowing(_stowing):
+		# Putting it away: the hands take it down to the hip, then come back up.
+		_on_item(_stowing, hands)
+		_stretch = 1.0
+		snap = false
+		follow = Constants.HOTBAR_FP_DRAW_FOLLOW
 	elif _reach_left > 0.0:
 		var t := _reach_left / REACH_SECONDS
 		hands[1] = REST[1].lerp(_reach_at, sin(t * PI))
@@ -245,7 +263,7 @@ func _targets(delta: float) -> Dictionary:
 		var t := clampf(float(_body.get("_gesture_time")) / 0.5, 0.0, 1.0)
 		hands[1] = Vector3(0.15, -0.35, -0.5).lerp(Vector3(0.4, -0.05, 0.05), sin(t * PI))
 		snap = false
-	return {"hands": hands, "snap": snap}
+	return {"hands": hands, "snap": snap, "follow": follow}
 
 
 ## Hands on whatever's held, on the same grips everyone else sees your body hold

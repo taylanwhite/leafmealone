@@ -123,6 +123,7 @@ func _run() -> void:
 	var goal := str(preload("res://ui/job_goal.gd").goal(get_tree(), _id()))
 	var want_goal := str(_Strings.UI["goal_draw_rake"]) % _Strings.keyed("{key:slot_1}")
 	_step("13c goal line with the rake pocketed: '%s'" % goal, goal == want_goal)
+	await _check_stowed(rake)
 
 	# 6. Key 3, then tap G: the trimmer is set down in front, solid, out of its slot.
 	await _tap(&"slot_3")
@@ -483,6 +484,70 @@ func _look_bounds(prop: Node3D) -> AABB:
 func _distance_to_box(point: Vector3, box: AABB) -> float:
 	var inside := point.clamp(box.position, box.end)
 	return point.distance_to(inside)
+
+
+# ---------------------------------------------------------------- stowed looks and the draw (step 14, chunk D)
+
+## Bare hands, five things pocketed: the rake is worn across your back (its
+## model's middle within 0.6 m of the back, on the head layer your own camera
+## skips), it goes out of sight while you're in a pile and back after; key 1
+## draws it, and its look glides into its pose in hand (no more than 0.65 m in a
+## 1/60 s: it leaves fast and settles; a pop would be the whole metre and a half) within HOTBAR_DRAW_SECONDS + 0.1 s; key 1 again puts it back.
+func _check_stowed(rake: Node3D) -> void:
+	var me := _me()
+	await _seconds(Constants.HOTBAR_STOW_SECONDS + 0.15)
+	var look := rake.get_node_or_null("Visual/Look") as Node3D
+	var bounds := _look_bounds(rake)
+	var back := _PropLooks.holder_frame(me) * Vector3(0.0, 1.15, 0.16)
+	var on_back := look != null and look.is_visible_in_tree() and bounds.size != Vector3.ZERO and bounds.get_center().distance_to(back) <= 0.6
+	var behind := (bounds.get_center() - me.global_position).dot(_PropLooks.holder_frame(me).basis.z) > 0.0
+	var own_layer := true
+	for node: Node in look.find_children("*", "VisualInstance3D", true, false):
+		own_layer = own_layer and (node as VisualInstance3D).layers == 1 << (preload("res://player/cartoon_body.gd").HEAD_LAYER - 1)
+	_step("14a rake on your back %s (%.2f m from it, behind %s), on the head layer %s" % [on_back, bounds.get_center().distance_to(back), behind, own_layer], on_back and behind and own_layer)
+	# Into a pile and out: the rake goes with the body.
+	me.call("set_pile", true)
+	await _ticks(4)
+	var hidden := not look.is_visible_in_tree()
+	me.call("set_pile", false)
+	var shown_again := await _wait_for(func() -> bool: return look.is_visible_in_tree(), 120)
+	_step("14b hidden in a pile %s, back on the body after %s" % [hidden, shown_again], hidden and shown_again)
+	await _seconds(1.5)
+	# The draw: track the middle of the rake's model each tick from the key press
+	# until it settles.
+	var path: Array[Vector3] = []
+	var stamps: Array[int] = []
+	_send(&"slot_1", true)
+	for _tick: int in 60:
+		await get_tree().physics_frame
+		path.append(_look_bounds(rake).get_center())
+		stamps.append(Time.get_ticks_usec())
+		if path.size() == 2:
+			_send(&"slot_1", false)
+	var drawn := _holds(rake)
+	var settled := path[path.size() - 1]
+	var tick := get_physics_process_delta_time()
+	var arrived := -1.0
+	var biggest := 0.0
+	# The rake comes off your back the way everyone sees it, even through your own
+	# eyes (the smaller tools come up from the hip there instead): one glide, no cut.
+	print("[HotbarTest] draw path, m from the settled pose: %s" % ", ".join(path.slice(0, 16).map(func(at: Vector3) -> String: return "%.2f" % at.distance_to(settled))))
+	# The glide runs on the clock (msec), so a slow tick on a loaded machine moves
+	# it further: a jump is judged per 1/60 s of real time between samples.
+	for index: int in path.size():
+		if index > 0:
+			var ticks := maxf(1.0, float(stamps[index] - stamps[index - 1]) / 1000000.0 * 60.0)
+			biggest = maxf(biggest, path[index].distance_to(path[index - 1]) / ticks)
+		if arrived < 0.0 and path[index].distance_to(settled) <= 0.05:
+			arrived = float(index + 1) * tick
+		elif arrived >= 0.0 and path[index].distance_to(settled) > 0.05:
+			arrived = -1.0
+	var travelled := path[0].distance_to(settled)
+	var in_time := arrived >= 0.0 and arrived <= Constants.HOTBAR_DRAW_SECONDS + 0.1
+	_step("14c drawn %s: glided %.2f m into the hands in %.2f s (by %.2f), biggest step %.2f m a tick" % [drawn, travelled, arrived, Constants.HOTBAR_DRAW_SECONDS + 0.1, biggest], drawn and in_time and travelled > 0.3 and biggest <= 0.65)
+	# Back to bare hands for the steps that follow.
+	await _tap(&"slot_1")
+	await _seconds(Constants.HOTBAR_STOW_SECONDS + 0.1)
 
 
 # ---------------------------------------------------------------- helpers

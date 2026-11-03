@@ -10,6 +10,7 @@ const _YardModels = preload("res://props/yard_models.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _CartoonBody = preload("res://player/cartoon_body.gd")
 ## The Visual node sits this high above the prop's base.
 const VISUAL_HEIGHT: float = 0.35
 ## Tools held up in front of the face and aimed with the view, and where they sit
@@ -60,6 +61,28 @@ const HOLDS: Dictionary = {
 }
 ## The pressure washer's wand grips, in the wand's space: [right, left].
 const WAND_GRIPS: Array[Vector3] = [Vector3(0.0, -0.11, 0.1), Vector3(-0.03, -0.02, -0.3)]
+## Pocketed things worn on the body (hotbar chunk D; docs/GAME.md "the hotbar").
+## Per kind: the CartoonBody part that carries it (pose_part: "torso" rides the
+## lean, the twist and the walk's bob; "hips" the stride), where the model's
+## origin sits in that part's space (x right, y up, -z ahead; both origins are at
+## the hips, the shirt's back is at z +0.16 and the shoulders 0.46 up the torso),
+## its turn (euler, radians) and its size. The rake is slung across the back with
+## its tines up over the right shoulder; the blower is worn like a backpack,
+## nozzle down; the trimmer hangs on the right hip, blade down; the roller sticks
+## out of the left back pocket; the hose is coiled on the left shoulder blade;
+## signs are stuck down the back of the pants, fanned out (fan: roll per sign
+## from the middle of the stack, spread: sideways per sign). A kind missing here
+## hangs at the left hip (STOWED_OTHER).
+const STOWED: Dictionary = {
+	"rake": {"part": "torso", "at": Vector3(0.24, 0.72, 0.23), "euler": Vector3(0.0, 0.0, 2.62), "scale": 0.8},
+	"leaf_blower": {"part": "torso", "at": Vector3(0.02, 0.36, 0.3), "euler": Vector3(-PI * 0.5, 0.0, 0.0), "scale": 0.8},
+	"hedge_trimmer": {"part": "hips", "at": Vector3(0.27, 0.06, 0.0), "euler": Vector3(-PI * 0.5, 0.0, 0.0), "scale": 0.85},
+	"paint_roller": {"part": "hips", "at": Vector3(-0.09, 0.16, 0.19), "euler": Vector3(PI * 0.5, 0.0, 0.25), "scale": 0.9},
+	"hose": {"part": "torso", "at": Vector3(-0.12, 0.12, 0.26), "euler": Vector3(0.0, PI * 0.5, 0.0), "scale": 0.7},
+	"turf_sign": {"part": "hips", "at": Vector3(0.0, -0.14, 0.09), "euler": Vector3(0.22, 0.0, 0.0), "scale": 0.75, "fan": 0.22, "spread": 0.05},
+	"gas_can": {"part": "hips", "at": Vector3(-0.29, -0.3, 0.0), "euler": Vector3(0.0, PI * 0.5, 0.0), "scale": 0.8},
+}
+const STOWED_OTHER: Dictionary = {"part": "hips", "at": Vector3(-0.28, -0.2, 0.02), "euler": Vector3.ZERO, "scale": 0.7}
 
 
 static func dress(prop: Node3D, kind: String, color: Color) -> void:
@@ -140,12 +163,21 @@ static func pose_rake(prop: Node3D, holder: Node3D, _raking: bool = false) -> vo
 		var tines := pose.get_node_or_null("Rake/Tines") as Node3D
 		if tines != null:
 			tines.rotation = Vector3.ZERO
+		_note_rest(prop, pose)
 		return
+	var actor := holder.name.to_int()
+	var progress := _blend_begin(prop, "hand:%d" % actor, holder)
 	if not pose.top_level:
 		pose.top_level = true
 		pose.reset_physics_interpolation()
-	var actor := holder.name.to_int()
-	RakeMotion.pose(prop, holder, RakeStroke.display(actor), actor)
+	# Drawn: the head comes off the back lifted and plants on the leaves (a
+	# negative dip lifts it; props/rake_motion.gd), the hands on the handle all the way.
+	RakeMotion.pose(prop, holder, RakeStroke.display(actor), actor, -draw_dip(prop))
+	var target := pose.global_transform
+	if progress < 1.0:
+		_carry_grips(pose, _blend_put(prop, pose, target, holder) * target.affine_inverse())
+	else:
+		prop.set_meta("pose_last", target)
 
 
 ## Which rake head a peer's upgrades give it: 0 the starter, 1 the Tune-Up, 2 The
@@ -180,6 +212,9 @@ static func pose_ladder_up(prop: Node3D, top: Vector3) -> void:
 	# The model lies along Z, 2.4 m long, centered: stretch Z to the length needed.
 	var basis := Basis(across, face, along * (up.length() / 2.4))
 	look.global_transform = Transform3D(basis, foot + up * 0.5)
+	# Taken down, it comes off the wall into the hands from here.
+	prop.set_meta("pose_mode", "rest")
+	prop.set_meta("pose_last", look.global_transform)
 
 
 ## Held tools face the way their holder faces; set down, they sit level.
@@ -200,13 +235,14 @@ static func pose_tool(prop: Node3D, holder: Node3D) -> void:
 		look.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, -VISUAL_HEIGHT, 0.0))
 		if wand != null:
 			wand.visible = false
+		_note_rest(prop, look)
 		return
 	var head := holder.get_node_or_null("Visual/Head") as Node3D
 	if head == null or not is_aimed(prop):
 		# Carried, not aimed: a hose that isn't hooked up is held by its reel.
 		var entry: Dictionary = HOLDS.get(kind, {})
 		if entry.has("at"):
-			_place_held(look, holder, entry)
+			_place_held(prop, look, holder, entry)
 			return
 		if look.top_level:
 			_unhold(look)
@@ -214,10 +250,13 @@ static func pose_tool(prop: Node3D, holder: Node3D) -> void:
 		look.global_rotation = Vector3(0.0, holder.global_rotation.y, 0.0)
 		if kind == "pressure_washer" and head != null:
 			_pose_wand(prop, holder, head)
+		prop.set_meta("pose_mode", "carry:%s" % holder.name)
+		prop.set_meta("pose_last", look.global_transform)
 		return
-	# Placed in world space, so the prop's smoothed Visual can't drag it off the hands.
-	look.top_level = true
-	look.global_transform = Transform3D(aim_basis(holder, kind == "hose"), head.global_transform * (HANDHELD[kind] as Vector3))
+	# Placed in world space, so the prop's smoothed Visual can't drag it off the
+	# hands; drawn, it glides there from wherever it was (_blend_put).
+	_blend_begin(prop, "hand:%s" % holder.name, holder)
+	_blend_put(prop, look, Transform3D(aim_basis(holder, kind == "hose"), head.global_transform * (HANDHELD[kind] as Vector3)), holder)
 
 
 ## Held up in front of the face and pointed where the holder looks (HANDHELD), as
@@ -239,8 +278,10 @@ static func pose_held(prop: Node3D, holder: Node3D) -> void:
 		if look.top_level:
 			_unhold(look)
 			look.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, -VISUAL_HEIGHT, 0.0))
+		if holder == null:
+			_note_rest(prop, look)
 		return
-	_place_held(look, holder, entry)
+	_place_held(prop, look, holder, entry)
 
 
 ## A HOLDS entry's pose in the holder's body space: at, turned by yaw, then
@@ -268,11 +309,9 @@ static func holder_frame(holder: Node3D) -> Transform3D:
 	return Transform3D(Basis.looking_at(ahead.normalized(), Vector3.UP), frame.origin)
 
 
-static func _place_held(look: Node3D, holder: Node3D, entry: Dictionary) -> void:
-	if not look.top_level:
-		look.top_level = true
-		look.reset_physics_interpolation()
-	look.global_transform = holder_frame(holder) * hold_transform(entry)
+static func _place_held(prop: Node3D, look: Node3D, holder: Node3D, entry: Dictionary) -> void:
+	_blend_begin(prop, "hand:%s" % holder.name, holder)
+	_blend_put(prop, look, holder_frame(holder) * hold_transform(entry), holder)
 
 
 ## Back under the prop's Visual (the caller sets the resting transform).
@@ -280,6 +319,309 @@ static func _unhold(look: Node3D) -> void:
 	if look.top_level:
 		look.top_level = false
 		look.reset_physics_interpolation()
+
+
+# ---------------------------------------------------------------- stowed looks and the draw (hotbar chunk D)
+
+## The node that's posed: the rake's Pose (its model hangs off it), else the Look.
+static func posed_node(prop: Node3D) -> Node3D:
+	if str(prop.get("kind")) == "rake":
+		return prop.get_node_or_null("Visual/Look/Pose") as Node3D
+	return prop.get_node_or_null("Visual/Look") as Node3D
+
+
+## A pocketed prop worn on its holder's body (STOWED), every peer, from the
+## holder's animated CartoonBody, so it bobs, leans and strides with them. own:
+## it's this peer's player, so it goes on CartoonBody.HEAD_LAYER, which their
+## first-person camera skips (it would sit in their face); every other camera sees
+## it. Hidden with the body: in a hiding spot or a pile, asleep, sitting in a
+## seat, or not drawn at all (player.is_body_drawn). Going in, it travels from the
+## hands to its spot (_blend_put); through your own eyes it drops out of the
+## bottom of the view instead of swinging through your head.
+static func pose_stowed(prop: Node3D, holder: Node3D, own: bool) -> void:
+	var look := prop.get_node_or_null("Visual/Look") as Node3D
+	var node := posed_node(prop)
+	if look == null or node == null:
+		return
+	if str(prop.get("kind")) == "rake":
+		RakeMotion.unpublish(node)
+	var shown := holder != null and stowed_shown(holder)
+	look.visible = shown
+	if holder == null:
+		return
+	var mode := "stowed:%s" % holder.name
+	if str(prop.get_meta("pose_mode", "")).begins_with("hand") and str(prop.get_meta("pose_mode", "")) != mode:
+		# Just put away: the hands' spots on it as it was in hand (its look hasn't
+		# moved yet), in its own space, so they ride along while it goes.
+		var local: Array = []
+		var kind := str(prop.get("kind"))
+		var grips: Array[Vector3] = [Vector3.INF, Vector3.INF]
+		if kind != "rake":
+			grips = _hand_grips(prop, look, kind)
+		for grip: Vector3 in grips:
+			local.append(node.global_transform.affine_inverse() * grip if grip.is_finite() else Vector3.INF)
+		prop.set_meta("stow_grips", local)
+	var progress := _blend_begin(prop, mode, holder)
+	var target := stowed_transform(prop, holder)
+	var fp := own and _first_person(holder)
+	var going := progress < 1.0 and str(prop.get_meta("blend_was", "")).begins_with("hand")
+	var rake_from := Transform3D.IDENTITY
+	var live_rake := going and str(prop.get("kind")) == "rake"
+	if going:
+		var from := _blend_from(prop, holder)
+		if live_rake:
+			# The rake comes up off the leaves before it goes over the shoulder: the
+			# swing's own pose, lifted more and more (RakeMotion's draw_dip), with
+			# the hands on its handle the whole way.
+			var actor := holder.name.to_int()
+			RakeMotion.pose(prop, holder, RakeStroke.display(actor), actor, -Constants.HOTBAR_RAKE_DRAW_LIFT * sin(progress * PI * 0.5))
+			RakeMotion.unpublish(node)
+			from = node.global_transform
+			rake_from = from
+			_set_blend_from(prop, from, holder)
+		if fp and not live_rake:
+			# Through your own eyes: down and out of the view toward the hip. (The
+			# rake goes over your right shoulder as everyone sees it, outside the camera.)
+			target = Transform3D(from.basis, from.origin + holder_frame(holder).basis * Constants.HOTBAR_FP_DRAW_FROM)
+	var hid := _own_layers(look, own and not (fp and going))
+	var put := _blend_put(prop, node, target, holder)
+	if hid and fp:
+		# Off your screen at the hip, onto your back: a cut, never a sweep through the view.
+		node.reset_physics_interpolation()
+	if live_rake:
+		_carry_grips(node, put * rake_from.affine_inverse())
+
+
+## Whether a holder's stowed things show: their body is drawn and they aren't
+## hiding, asleep or sitting.
+static func stowed_shown(holder: Node3D) -> bool:
+	if not holder.is_visible_in_tree():
+		return false
+	if holder.has_method("is_body_drawn") and not bool(holder.call("is_body_drawn")):
+		return false
+	if holder.has_method("is_hidden") and bool(holder.call("is_hidden")):
+		return false
+	if holder.has_method("is_sleeping") and bool(holder.call("is_sleeping")):
+		return false
+	var body := holder.get_node_or_null("Visual/CartoonBody") as Node3D
+	if body == null or not body.is_visible_in_tree():
+		return false
+	return int(body.get("_sit_pose")) == 0
+
+
+## Where a pocketed prop sits on its holder's body, world space (STOWED).
+static func stowed_transform(prop: Node3D, holder: Node3D) -> Transform3D:
+	var entry: Dictionary = STOWED.get(str(prop.get("kind")), STOWED_OTHER)
+	var body := holder.get_node_or_null("Visual/CartoonBody")
+	var part: Node3D = body.call("pose_part", str(entry["part"])) if body != null else null
+	var frame := part.global_transform if part != null else holder_frame(holder) * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.82, 0.0))
+	var at: Vector3 = entry["at"]
+	var euler: Vector3 = entry["euler"]
+	if entry.has("fan"):
+		var place := stack_place(prop)
+		var offset := float(place.x) - float(place.y - 1) * 0.5
+		euler.z += float(entry["fan"]) * offset
+		at.x += float(entry["spread"]) * offset
+		# Each one a little further out, so the fan doesn't z-fight.
+		at.z += 0.012 * float(place.x)
+	return frame * Transform3D(Basis.from_euler(euler).scaled(Vector3.ONE * float(entry["scale"])), at)
+
+
+## A pocketed prop's place in its stack and the stack's size, as (index, count):
+## the props in the same slot of the same pocket, by name (Hotbar.slots_of's order).
+static func stack_place(prop: Node3D) -> Vector2i:
+	var owner_id := int(prop.get("pocketed_by"))
+	var slot := int(prop.get("pocket_slot"))
+	var names: Array[String] = []
+	for node: Node in prop.get_tree().get_nodes_in_group("props"):
+		if int(node.get("pocketed_by")) == owner_id and int(node.get("pocket_slot")) == slot and str(node.get("kind")) == str(prop.get("kind")) and not node.is_queued_for_deletion():
+			names.append(str(node.name))
+	names.sort()
+	return Vector2i(maxi(0, names.find(str(prop.name))), maxi(1, names.size()))
+
+
+## Out of a pocket (net_prop's pocketed_by setter, every peer): back on the
+## normal layers and shown. The next pose puts it in hand or on the ground.
+static func unstow(prop: Node3D) -> void:
+	var look := prop.get_node_or_null("Visual/Look") as Node3D
+	if look == null:
+		return
+	_own_layers(look, false)
+	look.visible = true
+
+
+## How far (m) a just-drawn rake's head still rides above where the swing puts
+## it: HOTBAR_RAKE_DRAW_LIFT at the draw, easing to nothing over
+## HOTBAR_DRAW_SECONDS from the drawn_msec stamp (net_prop's held_by setter). Only
+## for a draw out of a pocket; 0 otherwise. pose_rake passes it to RakeMotion as
+## a negative dip (a lift).
+static func draw_dip(prop: Node3D) -> float:
+	if not prop.has_meta("drawn_msec") or not bool(prop.get_meta("drawn_from_pocket", false)):
+		return 0.0
+	var t := float(Time.get_ticks_msec() - int(prop.get_meta("drawn_msec"))) / 1000.0 / Constants.HOTBAR_DRAW_SECONDS
+	if t >= 1.0 or t < 0.0:
+		return 0.0
+	return Constants.HOTBAR_RAKE_DRAW_LIFT * (1.0 - _ease_out(t))
+
+
+## Going into a pocket right now (every peer): pocketed out of someone's hands
+## within the last HOTBAR_STOW_SECONDS. The hands stay on it till it's put away.
+static func is_stowing(prop: Node) -> bool:
+	if prop == null or not is_instance_valid(prop) or int(prop.get("pocketed_by")) == 0:
+		return false
+	if not bool(prop.get_meta("stowed_from_hand", false)):
+		return false
+	return Time.get_ticks_msec() - int(prop.get_meta("stowed_msec", -100000)) < int(Constants.HOTBAR_STOW_SECONDS * 1000.0)
+
+
+## Being drawn right now: out of a pocket into the hands within the last
+## HOTBAR_DRAW_SECONDS.
+static func is_drawing(prop: Node) -> bool:
+	if prop == null or not is_instance_valid(prop) or int(prop.get("held_by")) == 0 or not bool(prop.get_meta("drawn_from_pocket", false)):
+		return false
+	return Time.get_ticks_msec() - int(prop.get_meta("drawn_msec", -100000)) < int(Constants.HOTBAR_DRAW_SECONDS * 1000.0)
+
+
+static func _first_person(holder: Node3D) -> bool:
+	var eyes := holder.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
+	return eyes != null and eyes.current
+
+
+## Starts a glide when what's posing the prop changes (mode: "hand:<peer>",
+## "stowed:<peer>", "rest"), from wherever it was drawn last (meta pose_last), and
+## returns how far along the current glide is, 0 to 1 (1: none). The clock starts
+## at the replicated change's stamp (drawn_msec / stowed_msec) when it's fresh, so a
+## late pose doesn't lengthen it.
+static func _blend_begin(prop: Node3D, mode: String, holder: Node3D = null) -> float:
+	var was := str(prop.get_meta("pose_mode", ""))
+	if was != mode:
+		prop.set_meta("pose_mode", mode)
+		prop.set_meta("blend_was", was)
+		var now := Time.get_ticks_msec()
+		var stowing := mode.begins_with("stowed")
+		var stamp := int(prop.get_meta("stowed_msec" if stowing else "drawn_msec", -100000))
+		var start := stamp if now - stamp >= 0 and now - stamp < Constants.HOTBAR_STAMP_FRESH_MS else now
+		var glide := was != "" and prop.has_meta("pose_last") and (stowing or mode.begins_with("hand") or was.begins_with("stowed"))
+		prop.set_meta("blend_msec", start if glide else -100000)
+		prop.set_meta("blend_secs", Constants.HOTBAR_STOW_SECONDS if stowing or mode == "rest" else Constants.HOTBAR_DRAW_SECONDS)
+		if glide:
+			# Off someone's body it moves with them; off the ground it starts where it lay.
+			var on_body := was.begins_with("hand") or was.begins_with("stowed") or was.begins_with("carry")
+			_set_blend_from(prop, prop.get_meta("pose_last"), holder if on_body else null)
+			prop.set_meta("blend_fp_from", mode.begins_with("hand") and was.begins_with("stowed"))
+	return _blend_progress(prop)
+
+
+## Where the current glide started. Kept in the holder's body frame when there
+## is a holder, so it walks along with them (a glide that started where they
+## stood would trail behind someone walking).
+static func _set_blend_from(prop: Node3D, world: Transform3D, holder: Node3D) -> void:
+	prop.set_meta("blend_from", holder_frame(holder).affine_inverse() * world if holder != null else world)
+	prop.set_meta("blend_from_body", holder != null)
+
+
+static func _blend_from(prop: Node3D, holder: Node3D) -> Transform3D:
+	var from: Transform3D = prop.get_meta("blend_from", Transform3D.IDENTITY)
+	if bool(prop.get_meta("blend_from_body", false)):
+		return holder_frame(holder) * from if holder != null else from
+	return from
+
+
+static func _blend_progress(prop: Node3D) -> float:
+	var seconds := maxf(float(prop.get_meta("blend_secs", Constants.HOTBAR_DRAW_SECONDS)), 0.001)
+	return clampf(float(Time.get_ticks_msec() - int(prop.get_meta("blend_msec", -100000))) / 1000.0 / seconds, 0.0, 1.0)
+
+
+## Puts the posed node at target in world space, part way along the current glide
+## from blend_from: eased (a draw is quick off the mark and settles; going away
+## eases in and out), bowed out from the holder's middle and up a little so it
+## travels round the body, not through it. A draw out of your own pocket seen
+## through your own eyes comes up from below the view at the hip (it was on your
+## back, behind the camera). Returns the transform it got.
+static func _blend_put(prop: Node3D, node: Node3D, target: Transform3D, holder: Node3D) -> Transform3D:
+	if not node.top_level:
+		node.top_level = true
+		node.reset_physics_interpolation()
+	var t := _blend_progress(prop)
+	var put := target
+	var cut := false
+	if t < 1.0 and prop.has_meta("blend_from"):
+		if bool(prop.get_meta("blend_fp_from", false)):
+			prop.set_meta("blend_fp_from", false)
+			if holder != null and holder.is_multiplayer_authority() and _first_person(holder) and str(prop.get("kind")) != "rake":
+				_set_blend_from(prop, Transform3D(target.basis, target.origin + holder_frame(holder).basis * Constants.HOTBAR_FP_DRAW_FROM), holder)
+				# From your back (never on your screen) to your hip: a cut, not a
+				# sweep through the camera between two ticks.
+				cut = true
+		var from := _blend_from(prop, holder)
+		var going := str(prop.get_meta("pose_mode", "")).begins_with("stowed")
+		# Off at once either way (a key press gets an answer the same frame);
+		# a draw settles into the hands, a stow a little more briskly onto the body.
+		var s := 1.0 - (1.0 - t) * (1.0 - t) if going else _ease_out(t)
+		put = from.interpolate_with(target, s)
+		if holder != null:
+			var out := put.origin - holder.global_position
+			out.y = 0.0
+			# Bowed along the travel (its eased share), so it never swings back out
+			# after it's nearly there.
+			var bow := sin(s * PI)
+			var arc := Constants.HOTBAR_DRAW_ARC
+			var rise := Constants.HOTBAR_DRAW_RISE
+			if str(prop.get("kind")) == "rake" and holder.is_multiplayer_authority() and _first_person(holder):
+				# Your own rake round your right side low and wide, never across your face.
+				arc = Constants.HOTBAR_FP_RAKE_ARC
+				rise = -Constants.HOTBAR_FP_RAKE_DROP
+			if out.length() > 0.01:
+				put.origin += out.normalized() * arc * bow
+			put.origin += Vector3.UP * rise * bow
+	node.global_transform = put
+	if cut:
+		node.reset_physics_interpolation()
+	prop.set_meta("pose_last", put)
+	return put
+
+
+## A prop at rest (on the ground, or a set-up ladder): remembered as drawn, and,
+## coming straight out of a pocket (emptied pockets), gliding from the body to
+## where it lies instead of popping there. The caller has set the resting pose.
+static func _note_rest(prop: Node3D, node: Node3D) -> void:
+	var progress := _blend_begin(prop, "rest")
+	if progress < 1.0 and str(prop.get_meta("blend_was", "")).begins_with("stowed"):
+		_blend_put(prop, node, node.global_transform, null)
+		return
+	prop.set_meta("pose_last", node.global_transform)
+
+
+## The rake's hand spots (Pose metas from RakeMotion) moved with its pose by fix,
+## so the hands stay on the handle while it glides.
+static func _carry_grips(pose: Node3D, fix: Transform3D) -> void:
+	for key: String in ["grip_right", "grip_left"]:
+		if pose.has_meta(key):
+			pose.set_meta(key, fix * (pose.get_meta(key) as Vector3))
+
+
+static func _ease_out(t: float) -> float:
+	var left := 1.0 - clampf(t, 0.0, 1.0)
+	return 1.0 - left * left * left
+
+
+## Every drawn part of a stowed look on this peer's HEAD_LAYER (own) or back on
+## the layers it was built with. Re-checked each tick: a hose's nozzle is added
+## later. True when it just went onto the head layer.
+static func _own_layers(look: Node3D, own: bool) -> bool:
+	var count := look.get_child_count()
+	var was := bool(look.get_meta("own_layers", false))
+	if was == own and int(look.get_meta("own_layers_children", -1)) == count:
+		return false
+	look.set_meta("own_layers", own)
+	look.set_meta("own_layers_children", count)
+	var head_layer := 1 << (_CartoonBody.HEAD_LAYER - 1)
+	for found: Node in look.find_children("*", "VisualInstance3D", true, false):
+		var part := found as VisualInstance3D
+		if not part.has_meta("built_layers"):
+			part.set_meta("built_layers", part.layers)
+		part.layers = head_layer if own else int(part.get_meta("built_layers"))
+	return own and not was
 
 
 ## Where the holder's hands go on a held prop, in world space: [right, left],
@@ -295,11 +637,32 @@ static func grip_points(prop: Node3D, holder: Node3D) -> Array[Vector3]:
 	var look := prop.get_node_or_null("Visual/Look") as Node3D
 	if look == null:
 		return free
+	if int(prop.get("pocketed_by")) != 0:
+		# Being put away, the hands go with it (the grips it had in hand, carried
+		# along with its glide); once it's away, they're free.
+		if not is_stowing(prop):
+			return free
+		if kind == "rake":
+			return RakeMotion.grips(prop, holder)
+		var node := posed_node(prop)
+		var local: Array = prop.get_meta("stow_grips", [])
+		if node == null or local.size() != 2:
+			return free
+		var carried: Array[Vector3] = []
+		for grip: Vector3 in local:
+			carried.append(node.global_transform * grip if grip.is_finite() else Vector3.INF)
+		return carried
+	return _hand_grips(prop, look, kind)
+
+
+## grip_points for a prop in hand, its look already posed.
+static func _hand_grips(prop: Node3D, look: Node3D, kind: String) -> Array[Vector3]:
+	var free: Array[Vector3] = [Vector3.INF, Vector3.INF]
 	match kind:
 		"rake":
 			# On the handle where the swing put them (props/rake_motion.gd): the left
 			# hand on top, the right one a span further down.
-			return RakeMotion.grips(prop, holder)
+			return RakeMotion.grips(prop)
 		"leaf_bag":
 			return [look.global_transform * BAG_RIM[0], look.global_transform * BAG_RIM[1]]
 		"pressure_washer":

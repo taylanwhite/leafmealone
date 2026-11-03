@@ -33,11 +33,36 @@ const _CarryView = preload("res://props/carry_view.gd")
 	set(value):
 		stored_bags = value
 		_refresh_label()
-## Peer id holding this prop in hand, or 0. Replicated.
-@export var held_by: int = 0
+## Peer id holding this prop in hand, or 0. Replicated. Every peer stamps when it
+## comes into someone's hands (meta drawn_msec, and drawn_from_pocket when it came
+## out of a pocket), which times the draw (props/prop_looks.gd draw_dip, _blend_put).
+@export var held_by: int = 0:
+	set(value):
+		if value != held_by:
+			var now := Time.get_ticks_msec()
+			if value != 0:
+				set_meta("drawn_msec", now)
+				set_meta("drawn_from_pocket", pocketed_by != 0 or now - int(get_meta("unpocketed_msec", -100000)) < Constants.HOTBAR_STAMP_FRESH_MS)
+			else:
+				set_meta("unheld_msec", now)
+		held_by = value
 ## Peer id with this prop in a pocket (not in hand), or 0 (net/components/hotbar.gd).
 ## Replicated. "Lying free in the world" is is_loose(), never held_by == 0 alone.
-@export var pocketed_by: int = 0
+## Every peer stamps when it goes in (meta stowed_msec, stowed_from_hand) and puts
+## its look back to normal when it comes out (prop_looks.gd unstow).
+@export var pocketed_by: int = 0:
+	set(value):
+		if value != pocketed_by:
+			var now := Time.get_ticks_msec()
+			if value != 0:
+				set_meta("stowed_msec", now)
+				set_meta("stowed_from_hand", held_by != 0 or now - int(get_meta("unheld_msec", -100000)) < Constants.HOTBAR_STAMP_FRESH_MS)
+			else:
+				set_meta("unpocketed_msec", now)
+		var was := pocketed_by
+		pocketed_by = value
+		if was != 0 and value == 0:
+			_PropLooks.unstow(self)
 ## Its hotbar slot while held or pocketed, -1 when it's in nobody's slot (loose,
 ## or a big item in both hands). Replicated.
 @export var pocket_slot: int = -1
@@ -179,14 +204,12 @@ func _physics_process(_delta: float) -> void:
 	# time this peer holds it.
 	if kind == "leaf_bag" and held_by != 0 and held_by == Net.local_peer_id() and get_node_or_null("CarryView") == null:
 		add_child(_CarryView.new())
-	# In someone's pocket: out of sight until the stowed looks (hotbar chunk D)
-	# pose it on their body.
-	%Visual.visible = pocketed_by == 0
 	if pocketed_by == 0:
 		_pose_look()
-	elif kind == "rake":
-		# A stowed rake isn't raking: its head stops counting for the leaves.
-		RakeMotion.unpublish(get_node_or_null("Visual/Look/Pose") as Node3D)
+	else:
+		# In someone's pocket: worn on their body (a stowed rake isn't raking, so its
+		# head stops counting for the leaves; pose_stowed unpublishes it).
+		_PropLooks.pose_stowed(self, _player(pocketed_by), pocketed_by == Net.local_peer_id())
 	if Net.is_host():
 		_host_step()
 	elif kind == "leaf_bag":
