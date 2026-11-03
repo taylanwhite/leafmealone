@@ -855,7 +855,11 @@ func _fade_tag() -> void:
 	var distance := camera.global_position.distance_to(tag.global_position)
 	# The tag steps aside (a quick fade) while he's saying something: the bark line
 	# sits where the tag does, and the two printed over each other.
-	_tag_hush = move_toward(_tag_hush, 0.0 if _bark_left > 0.0 else 1.0, get_process_delta_time() / Constants.CREW_TAG_HUSH_SECONDS)
+	# Hidden in a spot or a pile you see him, not his name drawn through the leaves
+	# (R2c hide: the tag gave away where he was when the world didn't).
+	var me := _player(Net.local_peer_id())
+	var hiding := me != null and me.has_method("is_hidden") and bool(me.call("is_hidden"))
+	_tag_hush = move_toward(_tag_hush, 0.0 if _bark_left > 0.0 or hiding else 1.0, get_process_delta_time() / Constants.CREW_TAG_HUSH_SECONDS)
 	var alpha := clampf((distance - Constants.CREW_TAG_FADE_NEAR) / 0.8, 0.0, 1.0) * clampf((Constants.CREW_TAG_FADE_FAR - distance) / 4.0, 0.0, 1.0) * _tag_hush
 	tag.modulate.a = alpha
 	tag.outline_modulate.a = alpha

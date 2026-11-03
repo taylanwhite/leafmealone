@@ -77,6 +77,11 @@ var _miss_at: float = -1000.0
 var _found_peer: int = 0
 ## Each occupant's turn speed, smoothed (rad/s), for the shiver.
 var _shiver_speed: Dictionary = {}
+## Every peer (R2c hide): the eye of the hider he's reaching for, and who that
+## is (0: nobody known), kept from the poke and the find so the haul can follow
+## them out after they've left the spot's list.
+var _grip_eye := Transform3D.IDENTITY
+var _grip_peer: int = 0
 
 
 func _ready() -> void:
@@ -424,11 +429,18 @@ func _found(crew: Node3D, at: float, late: float, stale: bool) -> void:
 				_wobble_time = 0.0
 				_burst(gap, 12, HEDGE_LEAF_COLORS, 2.6)
 				_sound("hedge_rustle", gap, -2.0))
-	if stale:
-		return
-	_sound(_open_sound(), gap)
 	var grabbed := _found_peer if _found_peer != 0 and is_inside(_found_peer) else occupant
-	var grab_at := peek_transform(maxi(side_of(grabbed), 0), maxi(slot_of(grabbed), 0)).origin
+	_grip_peer = grabbed
+	_grip_eye = peek_transform(maxi(side_of(grabbed), 0), maxi(slot_of(grabbed), 0))
+	var grab_at := _grip_eye.origin
+	# The contact sounds play as long as their moment is still on screen here, not
+	# only within BEAT_SKIP: a find that reaches a lagged peer 0.5 s late still has
+	# his hands closing and the haul to come (R2c hide: an observer under 150 ms
+	# lag heard neither the snatch nor the gotcha).
+	if late > Constants.HIDE_FOUND_REVEAL + Constants.HIDE_PULL_SECONDS:
+		return
+	if late < Constants.HIDE_FOUND_REVEAL:
+		_sound(_open_sound(), gap)
 	_later(maxf(0.0, Constants.HIDE_FOUND_REVEAL - Constants.HIDE_FOUND_GRAB_LEAD - late), func() -> void:
 		_sound("hide_grab", grab_at))
 
@@ -450,12 +462,42 @@ func _pose_peering_crew() -> void:
 		_peering_crew = null
 		return
 	var weights := peer_weights(Net.server_time(), _poke_at, _found_at, _miss_at)
+	var body := _peering_crew.get_node_or_null("Visual/CartoonBody") as Node3D
 	if weights.is_empty():
+		release_props(body)
 		_peering_crew = null
 		return
-	var body := _peering_crew.get_node_or_null("Visual/CartoonBody") as Node3D
 	if body != null:
-		peer_pose(body, spot_kind, float(weights["lean"]), float(weights["grab"]), float(weights["haul"]), Net.server_time() - _poke_at)
+		var hider := _player(_grip_peer) if _found_at > -999.0 and _grip_peer != 0 else null
+		peer_pose(body, spot_kind, float(weights["lean"]), float(weights["grab"]), float(weights["haul"]), Net.server_time() - _poke_at, grip_points(_grip_eye, hider, float(weights["haul"])), _grip_eye.origin)
+
+
+## Where a NICE BOY's two hands close on a hider (R2c hide): [right, left] in the
+## world. Grabbing, at the collar just under the hider's eye in the gap (eye is
+## the hider's view from inside: from in there his mitts come at the camera);
+## hauling, on the hider's own shoulders as they come out. Shared with the pile.
+static func grip_points(eye: Transform3D, hider: Node3D, haul: float) -> Array[Vector3]:
+	var out := -eye.basis.z
+	out.y = 0.0
+	out = out.normalized() if out.length() > 0.01 else Vector3.FORWARD
+	var across := Vector3(-out.z, 0.0, out.x)
+	var collar := eye.origin + out * Constants.HIDE_GRIP_OUT + Vector3.DOWN * Constants.HIDE_GRIP_DROP
+	var shoulders: Array[Node3D] = []
+	var torso: Node3D
+	var visual := hider.get_node_or_null("Visual/CartoonBody") as Node3D if hider != null else null
+	if visual != null and visual.has_method("pose_part"):
+		torso = visual.call("pose_part", "torso") as Node3D
+		shoulders = [visual.call("pose_part", "arm_r") as Node3D, visual.call("pose_part", "arm_l") as Node3D]
+	var points: Array[Vector3] = []
+	for index: int in 2:
+		var side := 1.0 if index == 0 else -1.0
+		# His right hand meets the hider's left shoulder: they face each other.
+		var at := collar - across * side * Constants.HIDE_GRIP_SPREAD
+		if haul > 0.0 and torso != null and shoulders.size() == 2 and shoulders[1 - index] != null:
+			var on_body := shoulders[1 - index].global_position + Vector3.DOWN * 0.04
+			at = at.lerp(on_body, _smooth(haul * 3.0))
+		points.append(at)
+	return points
 
 
 ## How far into peering, grabbing and hauling a NICE BOY is at server time now,
@@ -501,7 +543,7 @@ static func _smooth(t: float) -> float:
 ## isn't parented to the torso (player/cartoon_body.gd), so it's carried along the
 ## bend here, kept upright with the eyes on the gap. Absolute values, eased from
 ## whatever the body did this tick, so a frozen body (a hit-stop) never drifts.
-static func peer_pose(body: Node3D, kind: String, lean: float, grab: float, haul: float, t: float) -> void:
+static func peer_pose(body: Node3D, kind: String, lean: float, grab: float, haul: float, t: float, grips: Array[Vector3] = [], eye := Vector3.INF) -> void:
 	if body == null or not body.has_method("pose_part"):
 		return
 	var hips := body.call("pose_part", "hips") as Node3D
@@ -518,6 +560,25 @@ static func peer_pose(body: Node3D, kind: String, lean: float, grab: float, haul
 	if w <= 0.0:
 		return
 	var pose: Vector3 = Constants.HIDE_PEER_POSE.get(kind, Constants.HIDE_PEER_POSE["hedge"])
+	var neck := 0.78
+	if "_head_base_y" in body:
+		neck = float(body.get("_head_base_y")) - 0.82
+	if eye.is_finite() and kind != "pile":
+		# R2c hide: fitted to where he really stands, so his face meets the gap at
+		# the hider's eye height HIDE_PEER_FACE_GAP from it (from inside, a grin in
+		# the gap, not a face at the lens): he bends only as far as he must reach
+		# and drops his hips to bring his eyes down to theirs.
+		var reach_out := Vector2(eye.x - body.global_position.x, eye.z - body.global_position.z).length() - Constants.HIDE_PEER_FACE_GAP
+		var fit_tilt := -asin(clampf(reach_out / maxf(neck, 0.1), 0.0, 0.6))
+		var face_y := body.global_position.y + 0.82 + neck * cos(fit_tilt)
+		pose = Vector3(fit_tilt, clampf(face_y - eye.y, 0.0, Constants.HIDE_PEER_SQUAT_MAX), pose.z)
+	elif eye.is_finite():
+		# Over a pile: down on his haunches and bent right over, his face low over
+		# the hider's eye at the mound's face (R2c hide: upright, all a hider in the
+		# leaves saw was his belt).
+		var drop := body.global_position.y + 0.82 + neck - Constants.HIDE_PEER_SQUAT_MAX - (eye.y + Constants.HIDE_PEER_PILE_FACE_UP)
+		var bend_over := acos(clampf(1.0 - drop / maxf(neck, 0.1), cos(1.35), 1.0))
+		pose = Vector3(-bend_over, Constants.HIDE_PEER_SQUAT_MAX, pose.z)
 	# Hauling, he straightens and leans back on his heels.
 	var bend := lean * (1.0 - haul)
 	# Grabbing, he lunges his shoulders in after his hands.
@@ -530,9 +591,6 @@ static func peer_pose(body: Node3D, kind: String, lean: float, grab: float, haul
 		# A braced split stance: one foot forward, one back.
 		leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.42 * bend + 0.25 * haul, w)
 		leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.3 * bend - 0.2 * haul, w)
-	var neck := 0.78
-	if "_head_base_y" in body:
-		neck = float(body.get("_head_base_y")) - 0.82
 	if head != null and head.get_parent() == body:
 		var carried := Vector3(0.0, hips_y + neck * cos(tilt), neck * sin(tilt))
 		head.position = head.position.lerp(carried, w)
@@ -558,18 +616,70 @@ static func peer_pose(body: Node3D, kind: String, lean: float, grab: float, haul
 			# Both hands in the hedge, holding it apart.
 			r = Vector2(1.0, 0.62)
 			l = Vector2(1.0, -0.62)
-	# Both hands straight out at you (a hanging arm turns with the leaning torso,
-	# so level with the ground is a quarter turn plus the lean), a shoulder apart.
-	var grabbed_r := Vector2(PI * 0.5 - tilt + 0.08, 0.2)
-	var grabbed_l := Vector2(PI * 0.5 - tilt + 0.08, -0.2)
-	r = r.lerp(grabbed_r, grab)
-	l = l.lerp(grabbed_l, grab)
-	r = r.lerp(Vector2(2.0, 0.12), haul)
-	l = l.lerp(Vector2(2.0, -0.12), haul)
+	# Without a hider to reach for (the studio): both hands straight out ahead (a
+	# hanging arm turns with the leaning torso, so level is a quarter turn plus
+	# the lean), a shoulder apart.
+	if grips.size() < 2:
+		r = r.lerp(Vector2(PI * 0.5 - tilt + 0.08, 0.2), grab)
+		l = l.lerp(Vector2(PI * 0.5 - tilt + 0.08, -0.2), grab)
 	right.rotation.x = lerpf(right.rotation.x, r.x, w)
 	right.rotation.z = lerpf(right.rotation.z, r.y, w)
 	left.rotation.x = lerpf(left.rotation.x, l.x, w)
 	left.rotation.z = lerpf(left.rotation.z, l.y, w)
+	if grips.size() >= 2:
+		# R2c hide: his mitts go to the hider's collar in the gap (from inside they
+		# come straight at the camera) and stay on their shoulders through the haul.
+		var reach := _smooth(grab * 1.15)
+		_aim_arm(right, grips[0], reach * w)
+		_aim_arm(left, grips[1], reach * w)
+	# Hands free for the job: the megaphone or clipboard goes onto his belt as he
+	# leans in, and back into his hand as he lets go.
+	_stow(body, "megaphone", Transform3D(Basis(Vector3.RIGHT, -PI * 0.5), Vector3(0.24, -0.02, 0.02)), lean * w)
+	_stow(body, "clipboard", Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(-0.23, 0.06, 0.0)), lean * w)
+
+
+## Turns an arm (it hangs along its pivot's -Y) to reach a world point, the
+## hand getting there by stretching or foreshortening a little (weight 0..1).
+static func _aim_arm(arm: Node3D, target: Vector3, weight: float) -> void:
+	if weight <= 0.0 or not target.is_finite():
+		return
+	var parent := arm.get_parent() as Node3D
+	var local := parent.global_transform.affine_inverse() * target - arm.position
+	if local.length() < 0.01:
+		return
+	arm.quaternion = arm.quaternion.slerp(Quaternion(Vector3.DOWN, local.normalized()), clampf(weight, 0.0, 1.0))
+	var reach := clampf(local.length() / Constants.HOLD_ARM_REACH, Constants.HOLD_ARM_SHORTEST, Constants.HOLD_ARM_LONGEST)
+	arm.scale = Vector3(1.0, lerpf(arm.scale.y, reach, clampf(weight, 0.0, 1.0)), 1.0)
+
+
+## His megaphone and clipboard back in his hands, wherever peer_pose left them.
+static func release_props(body: Node3D) -> void:
+	if body == null or not body.has_method("pose_part"):
+		return
+	_stow(body, "megaphone", Transform3D.IDENTITY, 0.0)
+	_stow(body, "clipboard", Transform3D.IDENTITY, 0.0)
+
+
+## Carries a held prop between its hand and a spot on the belt (on_belt, in the
+## hips' space) by weight; back in the hand exactly where it was at 0.
+static func _stow(body: Node3D, part: String, on_belt: Transform3D, weight: float) -> void:
+	var prop := body.call("pose_part", part) as Node3D
+	var hips := body.call("pose_part", "hips") as Node3D
+	if prop == null or hips == null:
+		return
+	if not prop.has_meta(&"hand_rest"):
+		prop.set_meta(&"hand_rest", prop.position)
+	var rest: Vector3 = prop.get_meta(&"hand_rest")
+	if weight <= 0.001:
+		if prop.has_meta(&"stowed"):
+			prop.remove_meta(&"stowed")
+			prop.position = rest
+			prop.rotation = Vector3.ZERO
+		return
+	prop.set_meta(&"stowed", true)
+	var in_hand := (prop.get_parent() as Node3D).global_transform * Transform3D(Basis.IDENTITY, rest)
+	var belt := hips.global_transform * on_belt
+	prop.global_transform = in_hand.interpolate_with(belt, _smooth(weight))
 
 
 ## The dive in or the burst out: the door or lid opens and shuts around it, the
@@ -632,6 +742,8 @@ func _tremble(audible: bool, speed: float = Constants.HIDE_TREMBLE_TURN_RATE) ->
 func _poke(crew: Node3D, late: float) -> void:
 	_poking = maxf(0.0, Constants.HIDE_INSPECT_SECONDS - late)
 	_poke_kind = StringName(spot_kind)
+	_grip_peer = occupant
+	_grip_eye = peek_transform(maxi(side_of(occupant), 0), maxi(slot_of(occupant), 0))
 	match spot_kind:
 		"bin":
 			_later(Constants.HIDE_POKE_BIN_CRACK_AT, func() -> void:
@@ -651,7 +763,8 @@ func _poke(crew: Node3D, late: float) -> void:
 						_wobble = 1.2
 						_wobble_time = 0.0
 						_burst(inspect_point().lerp(top_point(), 0.6), 5, HEDGE_LEAF_COLORS, 1.4)
-						_sound("hedge_rustle", top_point(), -2.0))
+						# His hands shoving in at the gap: a hard crack, right at the hider's ears.
+						_sound("hedge_poke", _grip_eye.origin if _grip_peer != 0 else top_point(), -2.0))
 	crew_gesture(crew, {"bin": "lid_peer", "shed": "shed_knock"}.get(spot_kind, "inspect_poke") as String, "scribble")
 
 
@@ -942,6 +1055,10 @@ func _sound(id: String, at: Vector3, db: float = 0.0) -> void:
 	var me := Net.local_peer_id()
 	if is_inside(me) or int(_predicted.get(me, 0)) > Time.get_ticks_msec():
 		db += Constants.HIDE_OWN_SOUND_DB
+	# Inside, it happens at your ears: past the muffle, crisp (R2c hide).
+	if is_inside(me) and sfx.has_method("play_clear"):
+		sfx.call("play_clear", id, at, db)
+		return
 	sfx.call("play_at", id, at, db)
 
 

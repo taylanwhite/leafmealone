@@ -101,6 +101,30 @@ func play_at(id: String, at: Vector3, db := 0.0, wobble := true, source := 0, pi
 	_start_now(player)
 
 
+## play_at for a sound right around a hider's own ears (R2c hide: his hands in
+## your hedge, the lid over you, your own peek): on the Chatter bus, which the
+## hiding muffle never touches, so it lands crisp on the frame it happens instead
+## of buried under the low-pass.
+func play_clear(id: String, at: Vector3, db := 0.0) -> void:
+	var world := get_tree().get_first_node_in_group("world") as Node3D
+	if world == null:
+		play(id, db)
+		return
+	if not _accept(id):
+		return
+	_note_placed(id, "at", at, "", db)
+	if _silent():
+		return
+	var player := _player_3d(id, db, true)
+	if player == null:
+		return
+	player.bus = &"Chatter"
+	world.add_child(player)
+	player.global_position = at
+	player.play()
+	_start_now(player)
+
+
 ## A one-shot that rides along with node, like a truck pulling away.
 ## wobble false keeps the pitch exact, for a sound timed to an animation.
 func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:

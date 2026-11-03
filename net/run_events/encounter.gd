@@ -873,7 +873,9 @@ func _play_gotcha(peer_id: int, entry: Dictionary, now: float) -> void:
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if not played.has("grab"):
 		played["grab"] = true
-		if _plays_sound(at) and sfx != null and player != null:
+		# The contact sound plays while the grab is still on screen here, not only
+		# within BEAT_SKIP (R2c hide: a lagged observer never heard it).
+		if (_plays_sound(at) or t <= Constants.CATCH_HOLD_END) and sfx != null and player != null:
 			# Yours lands flat and loud on the contact frame; everyone else hears it
 			# where it happened.
 			if peer_id == Net.local_peer_id():

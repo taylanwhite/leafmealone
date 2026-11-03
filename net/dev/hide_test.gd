@@ -316,8 +316,15 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 	_place(client, hedge, side)
 	await _seconds(0.5)
 	_reports.erase("in")
+	# R2c hide: on this (other) peer the diver's head rides their body all the way
+	# into the hedge (it hangs off the player's Head node, not the torso).
+	var head_gap: Array[float] = [0.0, 0.0]
+	var sampling: Array[bool] = [true]
+	_sample_head_gap(client, head_gap, sampling)
 	_rpc_cue.rpc_id(mate, "enter", {})
 	var chase_in: Dictionary = await _report("in")
+	sampling[0] = false
+	_check("the diver's head stays on their shoulders", head_gap[1] >= 3.0 and head_gap[0] < 0.12, "worst gap %.2f m over %d drawn frames" % [head_gap[0], int(head_gap[1])])
 	# R2b hide: hidden during a chase, the music holds its "hide" section.
 	if bool(chase_in.get("has_music", false)):
 		_check("the chase music holds its hide section", bool(chase_in.get("music_hide", false)), "client: %s" % chase_in)
@@ -405,6 +412,23 @@ func _crew_step(hedge: Node3D, mate: int) -> void:
 	# from the spot, no lunge (R2 integration: the brain is held still here).
 	if encounter != null and encounter.has_method("host_windup") and StringName(found.get("outcome", &"")) == &"found":
 		encounter.call("host_windup", crew, int(found.get("peer", 0)), true)
+	# R2c hide: a find is a grab: by the time he pulls, his mitts are at the
+	# hider's collar in the gap (within reach of it: he stands close enough).
+	var eye: Transform3D = hedge.call("peek_transform", side, 0)
+	var grips: Array[Vector3] = load("res://props/hide_spot.gd").grip_points(eye, null, 0.0)
+	# The closest his right mitt comes to the collar between the grab closing and
+	# the pull starting (sampled every tick: a loaded machine's timer overshoots).
+	var crew_body := crew.get_node_or_null("Visual/CartoonBody")
+	var mitt := crew_body.call("pose_part", "prop_hand") as Node3D if crew_body != null else null
+	var reach := INF
+	var since := 0.0
+	while since < Constants.HIDE_FOUND_REVEAL and mitt != null:
+		await get_tree().physics_frame
+		since += get_physics_process_delta_time()
+		if since >= Constants.HIDE_FOUND_REVEAL - Constants.HIDE_FOUND_GRAB_LEAD:
+			reach = minf(reach, mitt.global_position.distance_to(grips[0]))
+	var stand := Vector2(crew.global_position.x - eye.origin.x, crew.global_position.z - eye.origin.z).length()
+	_check("his hands are on the hider when he pulls", reach < 0.3 and stand < Constants.HIDE_INSPECT_REACH + 0.2, "right mitt %.2f m from the collar, standing %.2f m from the gap" % [reach, stand])
 	var pull_report: Dictionary = await _report("pulled")
 	var caught := false
 	var waited := 0.0
@@ -668,6 +692,30 @@ func _rpc_report(step: String, report: Dictionary) -> void:
 # ---------------------------------------------------------------- helpers
 
 ## Stand a player just outside a spot's side, facing it (host-ordered teleport).
+## R2c hide: while sampling[0] holds, the worst distance (out[0]) between a remote
+## diver's drawn head and the collar of their drawn torso, over out[1] frames.
+func _sample_head_gap(player: Node3D, out: Array[float], sampling: Array[bool]) -> void:
+	while sampling[0] and is_inside_tree():
+		await get_tree().physics_frame
+		await get_tree().process_frame
+		if player == null or not is_instance_valid(player) or not bool(player.call("is_body_drawn")):
+			continue
+		var body := player.get_node_or_null("Visual/CartoonBody")
+		var head := player.get_node_or_null("Visual/Head") as Node3D
+		var view := player.get_node_or_null("HideView")
+		var posed := view != null and float(view.get("_remote_progress")) > 0.0
+		if body == null or head == null or not (posed or CartoonBodyGestures.has(str(body.call("current_gesture")))):
+			continue
+		var torso := body.call("pose_part", "torso") as Node3D
+		var neck := float(body.get("_head_base_y")) - 0.82
+		var collar := torso.global_position + torso.global_basis.orthonormalized() * Vector3(0.0, neck, 0.0)
+		out[0] = maxf(out[0], head.global_position.distance_to(collar))
+		out[1] += 1.0
+
+
+const CartoonBodyGestures: Array[String] = ["hedge_dive", "pile_cannonball", "bin_vault"]
+
+
 func _place(player: Node3D, spot: Node3D, side: int, along: float = 0.0) -> void:
 	var at: Vector3 = spot.call("entry_point", side, 0)
 	var out: Vector3 = spot.call("side_direction", side)

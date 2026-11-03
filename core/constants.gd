@@ -3604,3 +3604,73 @@ const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
 ## stepped by Jolt in its own float precision, missed that 29 times in 30 and
 ## bounced off the rail.
 const TOSS_SURE_SHARE: float = 0.04
+
+# ---- R2c hide
+# The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a
+# physical grab, heads riding the body's hide moves, the insides of a pile and a
+# bin, the shed's knot hole. Presentation tuning except where marked host.
+## Host: a NICE BOY stands this far out from the face he pokes (m): close enough
+## to reach in with both hands (it was HIDE_INSPECT_STAND, 1.2 m, which put him
+## in the picket fence a metre off the hedge).
+const HIDE_INSPECT_REACH: float = 0.68
+## Host: a found hider is set down this far along the face from its middle (m),
+## clear of him now that he stands closer (it was HIDE_FOUND_LAND_ALONG).
+const HIDE_FOUND_LAND_SIDE: float = 0.8
+## His hands close on the hider's collar this far out in front of their eye (m),
+## this far under it (m), this far either side of the middle (m).
+const HIDE_GRIP_OUT: float = 0.3
+const HIDE_GRIP_DROP: float = 0.13
+const HIDE_GRIP_SPREAD: float = 0.15
+## Bodies in spots: crouched this far down (m) in a hedge and in a bin, so diving in
+## sinks them under the crown or the rim before they stop being drawn, and climbing
+## or being hauled out comes up out of it.
+const HIDE_HEDGE_CROUCH: float = 0.6
+const HIDE_BIN_CROUCH: float = 0.85
+## The head rides the torso through the hide moves, easing on and off over this
+## long (s).
+const HIDE_HEAD_CARRY_EASE: float = 0.12
+## Other peers: a diver stops being drawn once this far along the arc (0..1), or
+## this long (s) past HIDE_ENTER_SECONDS whatever happens (and a climb-out's low
+## start lets go as late).
+const HIDE_REMOTE_DIVE_IN: float = 0.97
+const HIDE_REMOTE_DIVE_SLACK: float = 0.8
+## A pile's mound face is this far ahead of the hider (m); their eye looks out of
+## it this high (m), and its shell's opening is this wide and tall (half-angles,
+## rad), centred this far under the eye's level (rad): ground level.
+const HIDE_PILE_FACE: float = 0.72
+const HIDE_PILE_EYE_HEIGHT: float = 0.34
+const HIDE_PILE_SHELL_OPENING: Vector2 = Vector2(0.78, 0.24)
+const HIDE_PILE_SHELL_OPENING_DIP: float = 0.1
+## Shed: the door you're behind stops being drawn this far into the step in (share
+## of the eye's move), before it can swing across the view; the knot hole lets you
+## turn this far either way (rad) and look this far down and up (rad).
+const HIDE_SHED_DOOR_HIDE_AT: float = 0.4
+const HIDE_SHED_YAW_CLAMP: float = 0.35
+const HIDE_SHED_PITCH_CLAMP: Vector2 = Vector2(-0.22, 0.14)
+## Leaving a spot, its inside is swept open off the edges of the view over this
+## long (s), spreading this many times its size; it's only gone once the eye is
+## this far (m) clear of the spot's box, when the spot's outside comes back.
+const HIDE_SHELL_OPEN_SECONDS: float = 0.22
+const HIDE_SHELL_OPEN_SPREAD: float = 3.5
+const HIDE_SHELL_CLEAR: float = 0.25
+## Found: the inside is torn open over this share of HIDE_FOUND_REVEAL.
+const HIDE_FOUND_TEAR_SHARE: float = 0.65
+## Peeking from a hedge parts the leaves at the mouth by this much (x, y scale).
+const HIDE_PEEK_PART: Vector2 = Vector2(0.55, 0.45)
+## ...and the whole tangle spreads this much more (share of its size) as you peek.
+const HIDE_PEEK_SPREAD: float = 0.45
+## Peering in, his face stops this far (m) from the hider's eye (he bends only to
+## get there) and his hips drop at most this far (m) to bring his eyes to theirs.
+const HIDE_PEER_FACE_GAP: float = 0.74
+const HIDE_PEER_SQUAT_MAX: float = 0.45
+## A pile: the mound sits this far (m) down into the raked heap under the hider,
+## the eye this far (m) under the heap's surface at the mound's face; a NICE BOY
+## stands this much farther out (m) to bend over it, his face ending this far (m)
+## above the hider's eye.
+const HIDE_PILE_MOUND_SEAT: float = 0.3
+const HIDE_PILE_EYE_UNDER: float = 0.1
+## ...looking out where the heap is no taller than the eye, at most this far (m)
+## out from the hider.
+const HIDE_PILE_FACE_MAX: float = 2.0
+const HIDE_PILE_BEND_REACH: float = 0.7
+const HIDE_PEER_PILE_FACE_UP: float = 0.3

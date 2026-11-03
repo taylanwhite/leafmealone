@@ -1326,7 +1326,8 @@ func _rpc_pile_inspect(crew_index: int, at: float, phase: StringName) -> void:
 				for pat: int in 3:
 					get_tree().create_timer(0.3 + 0.45 * float(pat)).timeout.connect(func() -> void:
 						if is_instance_valid(sfx):
-							sfx.call("play_at", "peek_rustle", where, -2.0))
+							# Yours land right over your head: past the muffle (R2c hide).
+							sfx.call("play_clear" if is_multiplayer_authority() and in_pile and sfx.has_method("play_clear") else "play_at", "peek_rustle", where, -2.0))
 		&"near_miss":
 			load("res://props/hide_spot.gd").crew_gesture(crew, "shrug_notice", "scratch")
 		_:
