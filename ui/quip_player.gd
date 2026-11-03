@@ -151,14 +151,21 @@ var _known_caught: Dictionary = {}
 ## x1:text, the free teammate's radio. While crewmates are at Annex B and this
 ## player isn't, a RADIO line every so often says how it's going in there
 ## (Strings.ANNEX_QUIPS teammate_dispatch), and one more as each one's form goes
-## through (teammate_out). It is the one thing they can't see from the yard, so
+## through (teammate_out). A caught player whose own form went through is free
+## again and listens too. It is the one thing they can't see from the yard, so
 ## it gets words; it never says what to do. The annex's own "X is at Annex B"
 ## opens the visit (net/annex/annex.gd).
+## The annex elapsed when this player started listening (-1: not listening), and
+## the dispatches since then (they set the schedule).
 var _dispatch_visit: float = -1.0
 var _dispatches: int = 0
+## Dispatches heard this whole visit, across stints in and out of the room:
+## they pick the line (so none repeats) and hold the visit's cap.
+var _dispatch_heard: int = 0
 ## Teammates heard about this visit: peer id -> true once their "out" line played.
 var _dispatch_out: Dictionary = {}
-var _dispatch_seed: int = 0
+## The visit's seed (-1 between visits).
+var _dispatch_seed: int = -1
 
 
 func _watch_annex() -> void:
@@ -172,40 +179,61 @@ func _watch_annex() -> void:
 				_dispatch(&"teammate_out", int(peer_id), _dispatch_seed + int(peer_id))
 		_dispatch_out.clear()
 		_dispatch_visit = -1.0
+		_dispatch_heard = 0
+		_dispatch_seed = -1
 		return
+	var seed_value := int(annex.call("seed_value"))
+	if seed_value != _dispatch_seed:
+		# A new visit.
+		_dispatch_seed = seed_value
+		_dispatch_heard = 0
+		_dispatch_visit = -1.0
 	var roster: Array[int] = annex.call("roster")
 	var visitors: Array[int] = annex.call("visitors")
-	# Riders and visitors are in the room and can see for themselves.
-	if roster.is_empty() or roster.has(me) or visitors.has(me):
+	# Riders still inside and visitors are in the room and can see for
+	# themselves. A rider whose form went through is back outside, on the roster
+	# as "out", and hears about whoever is still in there like any free player.
+	var in_room := visitors.has(me) or (roster.has(me) and str(annex.call("stage_of", me)) != "out")
+	if roster.is_empty() or in_room:
 		_dispatch_out.clear()
+		_dispatch_visit = -1.0
 		return
 	var elapsed := float(annex.call("elapsed"))
-	if _dispatch_visit < 0.0 or elapsed < _dispatch_visit:
-		# A new visit (elapsed restarts with each one).
+	var fresh := _dispatch_visit < 0.0 or elapsed < _dispatch_visit
+	if fresh:
+		# This player starts listening now: at the start of a visit, or partway
+		# through one (back from the room, a late join). The schedule runs from
+		# here, so nothing that was "due" before they were listening plays at once.
 		_dispatch_visit = elapsed
 		_dispatches = 0
 		_dispatch_out.clear()
-	var seed_value := int(annex.call("seed_value"))
-	_dispatch_seed = seed_value
 	var inside: Array[int] = []
 	for peer_id: int in roster:
+		if peer_id == me:
+			continue
 		if str(annex.call("stage_of", peer_id)) == "out":
+			# Only a release this player didn't already know about gets a line:
+			# anyone already out when they started listening is old news.
 			if not bool(_dispatch_out.get(peer_id, false)):
 				_dispatch_out[peer_id] = true
-				_dispatch(&"teammate_out", peer_id, seed_value + peer_id)
+				if not fresh:
+					_dispatch(&"teammate_out", peer_id, seed_value + peer_id)
 		else:
 			_dispatch_out[peer_id] = false
 			inside.append(peer_id)
-	if inside.is_empty() or not dispatch_due(elapsed, _dispatches):
+	if inside.is_empty() or _dispatch_heard >= Constants.ANNEX_DISPATCH_MAX or not dispatch_due(elapsed - _dispatch_visit, _dispatches):
 		return
-	var who := inside[_dispatches % inside.size()]
+	var who := inside[_dispatch_heard % inside.size()]
 	_dispatches += 1
-	# Consecutive salts: pick_seeded wraps them round the pool, so no line repeats in a visit.
-	_dispatch(&"teammate_dispatch", who, seed_value + _dispatches)
+	_dispatch_heard += 1
+	# Consecutive salts over the whole visit: pick_seeded wraps them round the
+	# pool, so no line repeats in a visit, even across trips into the room.
+	_dispatch(&"teammate_dispatch", who, seed_value + _dispatch_heard)
 
 
 ## Whether the next dispatch is due, sent of them already played this visit and
-## elapsed seconds since it began: the first at ANNEX_DISPATCH_FIRST, then one
+## elapsed seconds since this player started listening (the visit's start, or
+## when they came out of the room or joined): the first at ANNEX_DISPATCH_FIRST, then one
 ## every ANNEX_DISPATCH_GAP, ANNEX_DISPATCH_MAX at most. (net/dev/cast_test.gd)
 static func dispatch_due(elapsed: float, sent: int) -> bool:
 	return sent < Constants.ANNEX_DISPATCH_MAX and elapsed >= Constants.ANNEX_DISPATCH_FIRST + Constants.ANNEX_DISPATCH_GAP * float(sent)

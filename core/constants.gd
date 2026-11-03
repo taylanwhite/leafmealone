@@ -3605,12 +3605,22 @@ const TOSS_SURE_SHARE: float = 0.04
 # ---- x1:text (the plain-text sweep, docs/GAME.md "Writing for players")
 ## The homeowner waves you over (npcs/homeowner.gd) once Chefty has bags in it
 ## and they haven't been asked yet: the world's "come get paid" in place of a
-## goal line. Every this many seconds (s), while you're between TALK_REACH and
-## this far away (m) from them.
+## goal line. While you're between TALK_REACH and this far away (m) from them,
+## the first wave comes soon (NOTICE_SECONDS), the next this many seconds (s) later, and each
+## gap after that is BACKOFF times the last, up to MAX_SECONDS (recorded at a
+## flat 6 s it was a wave every 7 s through minutes of raking: nagging). A new
+## bag landing in Chefty starts the gaps over: they noticed.
 const HOMEOWNER_BECKON_SECONDS: float = 6.0
 const HOMEOWNER_BECKON_METERS: float = 30.0
+const HOMEOWNER_BECKON_BACKOFF: float = 2.0
+const HOMEOWNER_BECKON_MAX_SECONDS: float = 48.0
+## A bag counts in Chefty's value while it's still flying in (props/truck_bed_load.gd
+## thumps it down on landing), so the wave it sets off waits this long (s): the
+## babble came half a second before the thump in rec_x1fix_beckon4_1p.
+const HOMEOWNER_BECKON_NOTICE_SECONDS: float = 1.2
 ## A free player hears the radio about a teammate at Annex B (ui/quip_player.gd):
-## the first this long (s) after the visit begins, then every gap (s) while
+## the first this long (s) after this player starts listening (the visit's start,
+## or when they come out of the room or join), then every gap (s) while
 ## anyone they know is still inside, at most this many per visit. Then one line
 ## when each teammate's form goes through.
 const ANNEX_DISPATCH_FIRST: float = 30.0

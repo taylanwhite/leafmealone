@@ -73,7 +73,6 @@ const UI: Dictionary = {
 	"prompt_format": "{key:%s}  %s",
 	"prompt_hide": "Hide",
 	"prompt_load_bag": "Load the bag",
-	"prompt_pick_up": "Pick up %s",
 	"prompt_pick_up_plain": "Pick up",
 	# x1:text: an interact prompt is the key and a verb. The thing it floats over
 	# is in front of you, so the prompt doesn't name it (docs/GAME.md "Writing for

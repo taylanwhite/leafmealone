@@ -208,21 +208,36 @@ func _process(delta: float) -> void:
 
 
 var _beckon_left: float = 0.0
+## The wait after the next wave (s): it grows each wave, and a new bag in Chefty
+## (more than _beckon_loaded's dollars) starts it over.
+var _beckon_gap: float = Constants.HOMEOWNER_BECKON_SECONDS
+var _beckon_loaded: int = 0
 
 
 ## Local, cosmetic (x1:text): bags in Chefty and nobody's asked to be paid yet,
-## so they wave you over now and then while you're on the yard but not at their
-## side. The goal line used to say "talk to the homeowner"; this is the world
-## saying it. Reads only what every peer has (Chefty's load, the phase).
+## so they wave you over while you're on the yard but not at their side: at
+## once, then less and less often (Constants.HOMEOWNER_BECKON_*), and soon again
+## when another bag lands. The goal line used to say "talk to the homeowner";
+## this is the world saying it. Reads only what every peer has (Chefty's load,
+## the phase).
 func _beckon(delta: float) -> void:
 	_beckon_left = maxf(0.0, _beckon_left - delta)
-	if _phase != Phase.WAITING or _beckon_left > 0.0 or bool(_body.call("is_gesturing")):
+	if _phase != Phase.WAITING:
+		return
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var loaded := int(chefty.call("bag_value")) if chefty != null else 0
+	if loaded > _beckon_loaded:
+		# Another bag: they noticed. The next wave comes soon, and the gaps start
+		# over from the quick one.
+		# The truck's value counts a tossed bag while it's still in the air, so the
+		# wave waits for it to land and be noticed.
+		_beckon_gap = Constants.HOMEOWNER_BECKON_SECONDS
+		_beckon_left = clampf(_beckon_left, Constants.HOMEOWNER_BECKON_NOTICE_SECONDS, Constants.HOMEOWNER_BECKON_SECONDS * 0.5)
+	_beckon_loaded = loaded
+	if loaded <= 0 or _beckon_left > 0.0 or bool(_body.call("is_gesturing")):
 		return
 	var lot := get_parent()
 	if lot != null and lot.has_method("is_paid") and bool(lot.call("is_paid")):
-		return
-	var chefty := get_tree().get_first_node_in_group("chefty")
-	if chefty == null or int(chefty.call("bag_value")) <= 0:
 		return
 	var me: Node3D = null
 	for node: Node in get_tree().get_nodes_in_group("players"):
@@ -233,7 +248,8 @@ func _beckon(delta: float) -> void:
 	var away := _flat_distance(me)
 	if away <= TALK_REACH or away > Constants.HOMEOWNER_BECKON_METERS:
 		return
-	_beckon_left = Constants.HOMEOWNER_BECKON_SECONDS
+	_beckon_left = _beckon_gap
+	_beckon_gap = minf(_beckon_gap * Constants.HOMEOWNER_BECKON_BACKOFF, Constants.HOMEOWNER_BECKON_MAX_SECONDS)
 	_body.call("gesture", "wave")
 	# The first wave gets a "yoo-hoo" babble, so you look up; after that the waves are quiet.
 	if not _beckoned:

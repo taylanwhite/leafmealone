@@ -1070,7 +1070,8 @@ func _grabbable_player() -> Node3D:
 	var best_distance := Constants.GRAB_PLAYER_REACH
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
-		if other == null or other == self or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")) or bool(other.call("is_sleeping")):
+		# A dev observer (net/dev/remote_play.gd) is invisible and not in the game.
+		if other == null or other == self or Net.is_watcher(other.name.to_int()) or bool(other.call("is_hidden")) or int(other.get("carried_by")) != 0 or int(other.get("carrying")) != 0 or bool(other.get("thrown")) or bool(other.call("is_sleeping")):
 			continue
 		var offset := other.global_position - global_position
 		var flat := Vector3(offset.x, 0.0, offset.z)
@@ -1569,9 +1570,8 @@ func interaction_hint() -> Dictionary:
 	var closest_kind := str(closest.get("kind"))
 	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
 		return {}
-	var prop_label := str(closest.get("label"))
-	var text: String = _Strings.UI["prompt_pick_up"] % prop_label if prop_label != "" else _Strings.UI["prompt_pick_up_plain"]
-	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
+	# x1:text: the key and the verb; the thing is right there under the prompt.
+	return {"text": _Strings.UI["prompt_pick_up_plain"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
 
 
 ## The nearest hiding spot with room that can be got into from here, measured
