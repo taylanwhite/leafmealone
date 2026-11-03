@@ -26,8 +26,8 @@ extends Node
 ##             schedule; the client's iris too when it has one), the van is freed
 ##             after it leaves, and nothing the client saw moved faster than
 ##             VAN_MAX_SCREEN_SPEED or more than 1 m a tick
-##   border    the client (in the cohort) is handed to the legacy Border Return at
-##             the Annex curb: a second on, unstaged and at its lane's start
+##   border    the client (in the cohort) is handed to Annex B at its curb: a
+##             second on, off the seat, in the BORDER zone, at the Annex set
 ##   dropoff   the return shuttle puts the rider on the curb, released, immune
 ##   driveon   called off while still pulling up, it drives on: no step backwards,
 ##             no jump
@@ -36,7 +36,8 @@ extends Node
 const _Trees = preload("res://props/trees.gd")
 const _RideScript: Script = preload("res://net/components/ride.gd")
 const _ShuttleScript = preload("res://net/run_events/shuttle.gd")
-const _LaneLayout = preload("res://border/lane_layout.gd")
+## border: how close to the BorderZone's middle the Annex keeps its riders (m).
+const BORDER_NEAR_METERS: float = 40.0
 const CLIENT_WAIT_SECONDS: float = 20.0
 const STEP_WAIT_SECONDS: float = 30.0
 const POSE_TOLERANCE: float = 0.05
@@ -332,25 +333,28 @@ func _step_ride(shuttle: Node) -> void:
 	_check("ride", moved != null and iris_ok and client_iris_ok and gone != null and speed <= Constants.VAN_MAX_SCREEN_SPEED + 0.5 and step <= STEP_MAX_METERS and crew_err <= SEAT_TOLERANCE, "zone move %s after the iris %s (client iris %s), freed after it left %s, client on-screen speed %.1f m/s, step %.2f m, crew off their seats %.3f m over %d samples" % [moved != null, iris_ok, "pending (no iris headless)" if iris_pending else str(client_iris_ok), gone != null, speed, step, crew_err, int(reply.get("crew_samples", 0))])
 
 
-## The legacy hand-off at the Annex curb: Border Return has the client, and a
-## second later they stand at their lane's start, off the van's seat (not held
-## at the curb by the seat anchor, nor clamped onto the exit).
+## The hand-off at Annex B's curb (R2 chunk 6 replaced Border Return): the Annex
+## has the client, and a second later they're off the van's seat, in the BORDER
+## zone and at the Annex set (walking in behind the Greeter, not held at the
+## curb by the seat anchor).
 func _check_border(shuttle: Node) -> void:
-	var crossing := get_tree().get_first_node_in_group("border_return")
-	if crossing == null:
-		_check("border", false, "no BorderReturn node")
+	var annex := get_tree().get_first_node_in_group("annex")
+	if annex == null:
+		_check("border", false, "no Annex node")
 		return
 	var begun: Variant = await _wait_for(func() -> Variant:
-		return true if (crossing.get("_roster") as Array).has(_client) else null, 45.0)
+		return true if (annex.call("roster") as Array).has(_client) else null, 45.0)
 	await get_tree().create_timer(1.0).timeout
 	var reply: Dictionary = await _ask("border", {})
 	var local: Vector3 = reply.get("local", Vector3.INF)
 	var seated := not (shuttle.call("seat_info", _client) as Dictionary).is_empty()
-	var at_start := local.z <= -_LaneLayout.HALF_LENGTH + 2.0
-	_check("border", begun != null and at_start and not bool(reply.get("staged", true)) and not seated, "Border Return has the client %s; a second on they stand at border-local %s (lane start z %.1f), staged %s, seated %s" % [begun != null, local, -_LaneLayout.HALF_LENGTH, reply.get("staged"), seated])
+	var at_annex := local.is_finite() and Vector2(local.x, local.z).length() < BORDER_NEAR_METERS
+	var zone_ok := Net.player_zone(_client) == Net.Zone.BORDER
+	_check("border", begun != null and at_annex and zone_ok and not seated, "the Annex has the client %s; a second on they stand at border-local %s (within %.0f m %s), zone BORDER %s, seated %s" % [begun != null, local, BORDER_NEAR_METERS, at_annex, zone_ok, seated])
 	# Home again, so the drop-off step starts from a clean slate.
 	if begun != null:
-		crossing.call("_send_home", _client)
+		annex.rpc("_rpc_end")
+		Net.move_player_to_zone(_client, Net.Zone.STORE)
 		await get_tree().create_timer(0.3).timeout
 
 

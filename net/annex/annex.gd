@@ -966,7 +966,10 @@ func _rpc_request_bell(window: String) -> void:
 		_add_override({"kind": "hurry_back", "w": window, "at": now, "until": maxf(_abs(float(state["until"])), now + Constants.ANNEX_RETURN_WALK + Constants.ANNEX_OPEN.x), "bell": true, "peer": peer_id})
 	elif s == _Schedule.S.ASLEEP:
 		_add_override({"kind": "wake", "w": window, "at": now, "until": maxf(_abs(float(state["until"])), now + Constants.ANNEX_WAKE_SECONDS + Constants.ANNEX_OPEN.x), "bell": true, "peer": peer_id})
-	elif s == _Schedule.S.OPEN or s == _Schedule.S.TELEGRAPH or s == _Schedule.S.LUNCH_BITE or s == _Schedule.S.RETURN:
+	elif s == _Schedule.S.OPEN or s == _Schedule.S.TELEGRAPH or s == _Schedule.S.LUNCH_BITE or s == _Schedule.S.RETURN or s == _Schedule.S.PEER_FORM:
+		# PEER_FORM too: chunk 5's bell sits on the counter, so whoever rings it is
+		# standing at his window, and a wrong form there has him shaking his head
+		# already; the bell still sends him to his cabinet (R2 integration).
 		# "One moment!": he turns to his filing cabinet; every third ring he turns back early.
 		var turn := Constants.ANNEX_BELL_EARLY_AT if _bell_count % Constants.ANNEX_BELL_EARLY_EVERY == 0 else Constants.ANNEX_BELL_TURN
 		_add_override({"kind": "cabinet", "w": window, "at": now, "until": now + turn, "bell": true, "peer": peer_id})
@@ -1275,8 +1278,7 @@ func _rpc_turnstile(peer_id: int, at: float, open: bool) -> void:
 		return
 	# Only the opener's own body passes: their own peer simulates it (_step_turnstile).
 	_turnstile_open_until = maxf(_turnstile_open_until, Net.server_time() + Constants.ANNEX_TURNSTILE_OPEN + Constants.ANNEX_TURNSTILE_PASS_SLACK)
-	if _form_view != null and is_instance_valid(_form_view):
-		_form_view.set("shown", false)
+	_set_form_shown(false)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -2072,7 +2074,11 @@ func _show_form() -> void:
 		return
 	add_child(_form_view)
 	var player := _player(me)
-	if _form_view.has_method("attach_first_person") and player != null:
+	# Chunk 5's form follows the view: lower left in first person, in the left
+	# hand over the shoulder.
+	if _form_view.has_method("attach_auto") and player != null:
+		_form_view.call("attach_auto", player)
+	elif _form_view.has_method("attach_first_person") and player != null:
 		_form_view.call("attach_first_person", player)
 	if _form_view.has_method("punch_card"):
 		_form_view.call("punch_card", int(form.get("visits", 1)))
@@ -2087,14 +2093,32 @@ func _update_form_view(at: float) -> void:
 	var form: Dictionary = _forms.get(Net.local_peer_id(), {})
 	if form.is_empty():
 		return
-	if "after_hours" in _form_view:
+	# Chunk 5's Form27B takes setters; the grey-box clipboard, properties.
+	if _form_view.has_method("set_after_hours"):
+		_form_view.call("set_after_hours", bool(form.get("after_hours", false)))
+	elif "after_hours" in _form_view:
 		_form_view.set("after_hours", bool(form.get("after_hours", false)))
 	if _form_view.has_method("set_progress"):
 		_form_view.call("set_progress", int(form["stamped"]), form["boxes"], bool(form["approved"]), at)
+	if _form_view.has_method("set_carbons_from"):
+		# Carbon copies are the boxes added at the end (FormState.carbon).
+		var carbons := int(form.get("carbons", 0))
+		_form_view.call("set_carbons_from", (form["boxes"] as PackedStringArray).size() - carbons if carbons > 0 else 999)
 	if _form_view.has_method("glow"):
 		_form_view.call("glow", bool(form["approved"]))
 	if bool(form.get("dropped", false)):
-		_form_view.set("shown", false)
+		_set_form_shown(false)
+
+
+## The form in hand goes away (into the tray): the grey box's clipboard eases out
+## with its shown flag; chunk 5's Form27B is simply hidden.
+func _set_form_shown(on: bool) -> void:
+	if _form_view == null or not is_instance_valid(_form_view):
+		return
+	if "shown" in _form_view:
+		_form_view.set("shown", on)
+	else:
+		_form_view.visible = on
 
 
 func _hide_form() -> void:
@@ -2106,8 +2130,11 @@ func _hide_form() -> void:
 func _show_receipt(lines: PackedStringArray, total: String, at: float) -> void:
 	var slip: Node3D = null
 	if ResourceLoader.exists(RECEIPT_SCRIPT):
+		# Chunk 5's ReceiptSlip is static (it extends RefCounted): show() builds the
+		# slip in the local player's view or hand and frees it when it's done.
 		var script: Script = load(RECEIPT_SCRIPT)
-		slip = script.new() as Node3D
+		script.call("show", lines, total, at, Constants.ANNEX_RECEIPT_SECONDS)
+		return
 	else:
 		slip = _Paper.make_receipt()
 	if slip == null:

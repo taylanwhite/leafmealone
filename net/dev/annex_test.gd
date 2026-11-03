@@ -242,13 +242,14 @@ func _run() -> void:
 	var through_before := int(_AnnexScript.stats["through"])
 	_stand(client, _spot(annex, "Forecourt"), 0.0)
 	var through := await _until(func() -> bool: return int(_AnnexScript.stats["through"]) > through_before, 3.0)
-	var home := await _until(func() -> bool: return Net.player_zone(client) != Net.Zone.BORDER, Constants.ANNEX_RETURN_WAIT + 4.0)
+	var home := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_RETURN_WAIT + 4.0)
 	_check("9 an approved form goes in the tray, the turnstile lets the rider through, and they go home", dropped and through and home, "dropped %s, through %s, zone %s" % [dropped, through, Net.Zone.keys()[Net.player_zone(client)]])
 	var stats := {"hid": 1, "window_d": 1, "carbon": 1}
 	var receipt_a := _Receipt.lines(9, stats, 81.0, 0.0)
 	_check("9 the receipt is deterministic, 4-6 lines and the time, $0.00", receipt_a == _Receipt.lines(9, stats, 81.0, 0.0) and receipt_a.size() >= 5 and receipt_a.size() <= 7 and _Receipt.total_line(stats).ends_with("$0.00"), "%s / %s" % [receipt_a, _Receipt.total_line(stats)])
 	var ended := await _until(func() -> bool: return not bool(annex.call("is_active")), Constants.ANNEX_RETURN_WAIT + 4.0)
 	_check("9 with everyone out and the visitor sent home, the Annex closes up", ended and Net.player_zone(host) != Net.Zone.BORDER, "active %s, host zone %s" % [annex.call("is_active"), Net.Zone.keys()[Net.player_zone(host)]])
+	await _clear_return_vans(client)
 	# 10. Closing time.
 	annex.call("begin", 2, [client], Net.server_time())
 	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + 3.0)
@@ -256,9 +257,10 @@ func _run() -> void:
 	annex.call("dev_retime", Constants.ANNEX_CAP_SECONDS - 1.5)
 	var after_hours := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary).get("after_hours", false)), 4.0)
 	var closed_out := await _until(func() -> bool: return int(_AnnexScript.stats["closing_outs"]) > outs_before, Constants.ANNEX_CLOSING_OUT + 4.0)
-	var gone := await _until(func() -> bool: return Net.player_zone(client) != Net.Zone.BORDER, Constants.ANNEX_RETURN_WAIT + 4.0)
+	var gone := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_RETURN_WAIT + 4.0)
 	_check("10 closing time approves everyone AFTER HOURS and gets them out", after_hours and closed_out and gone, "after hours %s, let out %s, zone %s" % [after_hours, closed_out, Net.Zone.keys()[Net.player_zone(client)]])
 	await _until(func() -> bool: return not bool(annex.call("is_active")), 4.0)
+	await _clear_return_vans(client)
 	# 10. Finishing as a group: the client is through and waits for the host,
 	# who drops while still inside; the client goes home anyway and the Annex ends.
 	annex.call("begin", 4, [client, host], Net.server_time())
@@ -273,7 +275,7 @@ func _run() -> void:
 	await get_tree().create_timer(Constants.ANNEX_RETURN_WAIT + 0.5).timeout
 	var held := Net.player_zone(client) == Net.Zone.BORDER
 	annex.call("_on_player_left", host)
-	var released := await _until(func() -> bool: return Net.player_zone(client) != Net.Zone.BORDER, Constants.ANNEX_RETURN_WAIT + 4.0)
+	var released := await _until(func() -> bool: return _going_home(client), Constants.ANNEX_RETURN_WAIT + 4.0)
 	var group_ended := await _until(func() -> bool: return not bool(annex.call("is_active")), 4.0)
 	_check("10 a finisher waiting for the group goes home when the last one inside drops", waiting and held and released and group_ended, "through %s, waited %s, home %s, ended %s" % [waiting, held, released, group_ended])
 	Net.move_player_to_zone(host, Net.Zone.STORE)
@@ -488,6 +490,28 @@ func _report(annex: Node) -> Dictionary:
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
 	return {}
+
+
+## On the way home: out of the BORDER zone, or (with chunk 4's Courtesy Shuttle)
+## aboard the return van at the forecourt curb, which drives them home out of
+## sight later (R2 integration).
+func _going_home(peer_id: int) -> bool:
+	if Net.player_zone(peer_id) != Net.Zone.BORDER:
+		return true
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	return shuttle != null and not (shuttle.call("seat_info", peer_id) as Dictionary).is_empty()
+
+
+## Between steps: a return van still carrying a rider home would move them out of
+## the BORDER zone in the middle of the next step; it's sent away and they're put
+## back at the store, the way they'd get home.
+func _clear_return_vans(peer_id: int) -> void:
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null and shuttle.has_method("dev_reset"):
+		shuttle.call("dev_reset")
+	if Net.player_zone(peer_id) == Net.Zone.BORDER:
+		Net.move_player_to_zone(peer_id, Net.Zone.STORE)
+	await get_tree().create_timer(0.4).timeout
 
 
 func _until(check: Callable, seconds: float) -> bool:

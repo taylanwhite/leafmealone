@@ -17,6 +17,8 @@ const CLIP_SECONDS: float = 3.0
 const CLIP_FPS: float = 10.0
 ## How long a NICE BOY gets to catch someone standing still in front of him.
 const CATCH_SECONDS: float = 8.0
+## Scenarios with a second player in them: alone, they must say so.
+const TWO_PLAYER_SCENARIOS: Array[String] = ["annex_visit", "cite_rescue", "van_unbuckle"]
 
 static var result: Dictionary = {}
 
@@ -119,11 +121,15 @@ func _run() -> void:
 		if not _scenarios.has_method(probe):
 			continue
 		out = await _scenarios.run(name)
-		if name == "annex_visit" and Net.peer_ids().size() < 2:
-			reached[name] = not bool(out.get("ok", true)) and str(out.get("error", "")).contains("second player")
-			print("[PlaytestToolsTest] annex_visit alone: %s" % out.get("error", "no error"))
+		# Moments with a friend in them (annex_visit, cite_rescue, van_unbuckle) must
+		# say they need one when there's nobody else (R2 integration: chunks 2 and 4
+		# added two more).
+		if name in TWO_PLAYER_SCENARIOS and Net.peer_ids().size() < 2:
+			var error := str(out.get("error", ""))
+			reached[name] = not bool(out.get("ok", true)) and (error.contains("second player") or error.contains("-Observer"))
+			print("[PlaytestToolsTest] %s alone: %s" % [name, out.get("error", "no error")])
 			if not reached[name]:
-				problems.append("annex_visit didn't say it needs a second player: %s" % out)
+				problems.append("%s didn't say it needs a second player: %s" % [name, out])
 			continue
 		reached[name] = _check(out, bool(_scenarios.call(probe)), "%s reached: %s" % [name, out.get("note", "")], problems)
 	# The old name still lands at the Annex for one wave.

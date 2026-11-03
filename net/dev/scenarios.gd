@@ -622,7 +622,9 @@ func _pile() -> Dictionary:
 	_place(pile, -PI * 0.5, -0.3)
 	_warn_with(_director(), HIDE_LEAD_SECONDS + 1.0)
 	await _ticks(4)
-	return {"moment": "pile", "note": "on a raked pile; tap interact to dive in, they arrive in %.1f s" % (HIDE_LEAD_SECONDS + 1.0), "phase": _phase(), "pile": _v(pile)}
+	# Set down from the teleport (a moment in the air, and E wouldn't dive yet).
+	await _wait_for(func() -> Variant: return true if me.is_on_floor() else null)
+	return {"moment": "pile", "note": "on a raked pile; tap interact to dive in, they arrive in %.1f s" % (HIDE_LEAD_SECONDS + 1.0), "phase": _phase(), "pile": _v(pile), "at": _v(me.global_position), "pile_here": bool(_field().call("is_pile_at", me.global_position)), "on_floor": me.is_on_floor()}
 
 
 func _reached_pile() -> bool:
@@ -683,8 +685,18 @@ func _hidden_in_hedge(seen: bool) -> Dictionary:
 	var me_id := Net.local_peer_id()
 	var safe: Dictionary = director.get("_safe_until")
 	safe[me_id] = Net.server_time() + 3.0
+	# R2: the call makes the crew, seated in the Courtesy Shuttle; this moment
+	# takes them off it and places them by hand (R2 integration).
+	if int(director.call("phase")) == 0:
+		director.call("force_event")
 	director.call("_begin_chase")
 	await _ticks(4)
+	var van := _van()
+	if van != null:
+		van.call("dev_reset")
+	for each: Node in get_tree().get_nodes_in_group("crew"):
+		if each.has_method("host_set_mode"):
+			each.call("host_set_mode", 0)
 	var crew := _crew()
 	if crew == null:
 		return {"error": "no NICE BOY spawned"}
@@ -748,7 +760,12 @@ func _inspect_soon(spot: Node3D, lead: float) -> void:
 		spot.call("host_inspect_begin", crew)
 		get_tree().create_timer(Constants.HIDE_INSPECT_SECONDS).timeout.connect(func() -> void:
 			if is_instance_valid(crew) and is_instance_valid(spot):
-				print("[Scenario] inspection: %s" % spot.call("host_inspect_resolve", crew))))
+				var outcome: Dictionary = spot.call("host_inspect_resolve", crew)
+				print("[Scenario] inspection: %s" % outcome)
+				# Found: the gotcha from the spot, as the crew brain hands it over.
+				var encounter := get_tree().get_first_node_in_group("nice_encounter")
+				if encounter != null and StringName(outcome.get("outcome", &"")) == &"found":
+					encounter.call("host_windup", crew, int(outcome.get("peer", 0)), true)))
 
 
 ## Walk a held-still NICE BOY to a point over seconds (the host's body replicates).

@@ -804,7 +804,9 @@ func _escape(music: Node) -> bool:
 		return false
 	var me_id := Net.local_peer_id()
 	Net.move_player_to_zone(me_id, Net.Zone.BORDER)
-	var cut := await _wait_mood(music, [&"annex_hold", &"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_FADE_URGENT_SECONDS + 0.2)
+	# Chunk 5's lobby muzak is an ordinary mood change (it waits out the mood hold),
+	# not the urgent cut the escape cue was.
+	var cut := await _wait_mood(music, [&"annex_hold", &"escape"], Constants.MUSIC_TICK_SECONDS + Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
 	var at_annex := str(music.call("current_mood"))
 	await get_tree().physics_frame
 	var made_before := _Director.stinger_log.count("st_made_it")
