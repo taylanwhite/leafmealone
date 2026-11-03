@@ -97,8 +97,28 @@ def lunge_whoosh() -> list[float]:
     died away by the hand landing, so the slap lands in a gap (R2b)."""
     rng = random.Random(4500)
     length = 0.22
-    swish = base.bandpass(base.noise(rng, length), lambda t: 600.0 + 2600.0 * (t / length) ** 1.2, 2.2)
-    return base.envelope(swish, 0.015, 0.12)
+    out = base.silence(length)
+    # R2c: a crisp fwip of khaki on the very first samples (the leave-the-crouch
+    # frame), then the swish starting already bright: its soft 600 Hz start was heard
+    # 180 ms late under the bark's tail in two takes of five.
+    base.mix_into(out, base.envelope(base.bandpass(base.noise(rng, 0.03), 2600.0, 1.5), 0.001, 0.02), 0.0, 0.9)
+    swish = base.bandpass(base.noise(rng, length), lambda t: 1500.0 + 2200.0 * (t / length) ** 1.2, 2.2)
+    base.mix_into(out, base.envelope(swish, 0.004, 0.12), 0.0, 1.0)
+    return out
+
+
+def windup_squeak() -> list[float]:
+    """The wind-up's crouch (R2c): sneaker rubber squealing on the path as he
+    sinks into the goalkeeper crouch, and a creak of khaki knees. It plays where he
+    is, so a wind-up out of view is still heard from his side (audit dodge-offscreen)."""
+    rng = random.Random(4550)
+    out = base.silence(0.3)
+    squeal = base.tone(0.16, lambda t: 1750.0 + 500.0 * math.sin(TAU * 9.0 * t) * (1.0 - t / 0.16), "sine")
+    base.mix_into(out, base.envelope(squeal, 0.003, 0.06), 0.0, 0.8)
+    base.mix_into(out, base.envelope(base.bandpass(base.noise(rng, 0.05), 3800.0, 2.5), 0.002, 0.03), 0.0, 0.35)
+    creak = base.tone(0.12, lambda t: 210.0 + 60.0 * (t / 0.12), "saw")
+    base.mix_into(out, base.envelope(base.lowpass(creak, 900.0), 0.01, 0.05), 0.12, 0.35)
+    return out
 
 
 def sticker_slap() -> list[float]:
@@ -161,6 +181,7 @@ SOUNDS = {
     "scribble": (scribble, 0, 0.45),
     "gotcha_grab": (gotcha_grab, 0, 0.95),
     "lunge_whoosh": (lunge_whoosh, 0, 0.55),
+    "windup_squeak": (windup_squeak, 0, 0.55),
     "sticker_slap": (sticker_slap, 0, 0.6),
     "paper_tear": (paper_tear, 0, 0.55),
     "itemize_pop": (itemize_pop, 0, 0.5),

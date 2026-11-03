@@ -51,7 +51,7 @@ const HEAD_CLEAR_METERS: float = 0.6
 ## For net/dev/probe.gd and stage_test: pushes and pops, frames with no current
 ## 3D camera while a session runs, and the largest per-frame move of this camera
 ## outside a blend start (a cut behind a closed iris doesn't count).
-static var log: Dictionary = {"pushes": 0, "pops": 0, "null_frames": 0, "max_step_m": 0.0, "cuts": 0, "frames": 0}
+static var log: Dictionary = {"pushes": 0, "pops": 0, "null_frames": 0, "max_step_m": 0.0, "cuts": 0, "frames": 0, "stale_reads": 0}
 
 ## The player whose view this is (set by player.gd).
 var player: Node3D
@@ -82,10 +82,52 @@ var _has_last: bool = false
 ## (the swing is paced along it).
 var _last_arc := Vector3.INF
 var _hidden_bodies: Array[Node3D] = []
+## R2c: the shot on top started with the eye in or right by your head (out of
+## first person, out of a hiding spot): your own body dissolves in as the eye
+## clears it (_apply_mask). How see-through it is now, and its meshes.
+var _from_inside: bool = false
+var _self_fade: float = 0.0
+var _self_meshes: Array[GeometryInstance3D] = []
+## R2c: bystanders and held things faded out of a shot with subjects:
+## node -> {"meshes": Array, "amount": 0..1}.
+var _faded: Dictionary = {}
 
 
 static func reset_log() -> void:
-	log = {"pushes": 0, "pops": 0, "null_frames": 0, "max_step_m": 0.0, "cuts": 0, "frames": 0}
+	log = {"pushes": 0, "pops": 0, "null_frames": 0, "max_step_m": 0.0, "cuts": 0, "frames": 0, "stale_reads": 0}
+
+
+## R2c: a part of someone drawn this far gone (0 solid, 1 gone): the stylized
+## material's screen-door dissolve (props/stylized.gd), else the geometry's own
+## transparency (a label, a tool with its own material).
+static func fade_geometry(geo: GeometryInstance3D, amount: float) -> void:
+	if geo == null:
+		return
+	if geo.has_meta(&"keep_material"):
+		geo.set_instance_shader_parameter(&"dissolve", amount)
+	else:
+		geo.transparency = amount
+
+
+## Where a node is drawn this frame (R2c stage). Its interpolated transform is the
+## physics interpolation's cache from the LAST rendered frame, so a node placed
+## somewhere new since then (the escort's follow anchor, last left beside the
+## head NICE BOY at Annex B, ~1,414 m from the yard) still reads where it was. A
+## shot pushed on that frame swept its eye from there, and the speed clamp then
+## kept the camera filming an empty field across the map for the whole escort
+## (audit r2b c1-escort-cam-teleport-flash, escort-cam-1400m-away). An
+## interpolated pose further than STAGE_CAM_STALE_METERS from the real one is a
+## stale cache, not motion (nothing the stage films moves that far in one tick):
+## the real pose wins, and the log counts it.
+static func drawn_pose(node: Node3D) -> Transform3D:
+	var real := node.global_transform
+	if not node.is_physics_interpolated_and_enabled():
+		return real
+	var drawn := node.get_global_transform_interpolated()
+	if drawn.origin.distance_to(real.origin) > Constants.STAGE_CAM_STALE_METERS:
+		log["stale_reads"] = int(log.get("stale_reads", 0)) + 1
+		return real
+	return drawn
 
 
 func _ready() -> void:
@@ -179,6 +221,10 @@ func _retop(blend_seconds: float) -> void:
 		_returning = true
 		return
 	var was_live := is_live()
+	_self_meshes.clear()
+	var head := player.get_node_or_null("Visual/Head") as Node3D if player != null else null
+	if head != null and outgoing.origin.distance_to(drawn_pose(head).origin) < Constants.STAGE_SELF_REVEAL_NEAR:
+		_from_inside = true
 	if next != _top:
 		_yaw = 0.0
 		_pitch = 0.0
@@ -193,7 +239,8 @@ func _retop(blend_seconds: float) -> void:
 		make_current()
 	if not was_live:
 		_last_origin = Vector3.INF
-	_apply_mask()
+	# _update places the eye, then masks from where it really is (R2c: masking
+	# first judged the swing out of your head from wherever this camera was left).
 	_update(0.0)
 
 
@@ -236,7 +283,7 @@ func _drawn_transform() -> Transform3D:
 		return global_transform
 	var base := base_camera()
 	if base != null and base.is_inside_tree():
-		return base.get_global_transform_interpolated()
+		return drawn_pose(base)
 	return global_transform
 
 
@@ -256,10 +303,66 @@ func _process(delta: float) -> void:
 	if _top != &"" and not is_instance_valid(_shots[_top].get("anchor")):
 		_shots.erase(_top)
 		_retop(Constants.STAGE_BLEND_DEFAULT)
+	_frame_out(delta)
 	if _top == &"" and not _returning:
 		_show_bodies()
 		return
 	_update(delta)
+
+
+## R2c: a shot with "subjects" (the gotcha two-shot: you and him) is about them
+## alone. Anyone else (another NICE BOY, a teammate, a hired hand, a homeowner)
+## who comes into its frame nearer than the subjects' far side fades out, and
+## so does whatever a subject is holding ("frame_out_held": the trimmer across
+## his chest); they fade back in once the shot lets go. The audit saw three NICE
+## BOYS in a row in the two-shot and a half-face cut by its left edge.
+func _frame_out(delta: float) -> void:
+	var shot: Dictionary = _shots.get(_top, {}) if _top != &"" else {}
+	var subjects: Array = shot.get("subjects", [])
+	var want: Dictionary = {}
+	if not subjects.is_empty() and current:
+		var eye := global_position
+		var reach := 0.0
+		for subject: Variant in subjects:
+			if is_instance_valid(subject):
+				reach = maxf(reach, eye.distance_to((subject as Node3D).global_position))
+		reach += Constants.STAGE_FRAME_OUT_BEYOND
+		for group: StringName in Constants.STAGE_FRAME_OUT_GROUPS:
+			for node: Node in get_tree().get_nodes_in_group(group):
+				if node == player or subjects.has(node) or not (node is Node3D) or want.has(node):
+					continue
+				var at := (node as Node3D).global_position
+				var visual := node.get_node_or_null("Visual") as Node3D
+				if visual != null:
+					at = visual.global_position
+				var in_frame := false
+				for height: float in [0.4, 1.2, 1.7]:
+					if is_position_in_frustum(at + Vector3.UP * height):
+						in_frame = true
+				if in_frame and eye.distance_to(at) < reach:
+					want[node] = true
+		if bool(shot.get("frame_out_held", false)):
+			for node: Node in get_tree().get_nodes_in_group("props"):
+				var holder := int(node.get("held_by")) if "held_by" in node else 0
+				for subject: Variant in subjects:
+					if holder != 0 and is_instance_valid(subject) and str((subject as Node).name) == str(holder):
+						want[node] = true
+	for node: Variant in want:
+		if not _faded.has(node):
+			_faded[node] = {"meshes": (node as Node).find_children("*", "GeometryInstance3D", true, false), "amount": 0.0}
+	var step := delta / maxf(Constants.STAGE_FRAME_OUT_SECONDS, 0.01)
+	for node: Variant in _faded.keys():
+		var entry: Dictionary = _faded[node]
+		if not is_instance_valid(node):
+			_faded.erase(node)
+			continue
+		var amount := move_toward(float(entry["amount"]), 1.0 if want.has(node) else 0.0, step)
+		entry["amount"] = amount
+		for mesh: Variant in entry["meshes"]:
+			if is_instance_valid(mesh):
+				fade_geometry(mesh as GeometryInstance3D, amount)
+		if amount <= 0.0:
+			_faded.erase(node)
 
 
 func _update(delta: float) -> void:
@@ -282,7 +385,7 @@ func _update(delta: float) -> void:
 		if base == null:
 			_finish_return()
 			return
-		target = base.get_global_transform_interpolated()
+		target = drawn_pose(base)
 		target_fov = base.fov
 	var was_t := _blend_t
 	if _blend_t < 1.0 and _blend_seconds > 0.0:
@@ -321,7 +424,7 @@ func _update(delta: float) -> void:
 func _pivot_of(shot: Dictionary) -> Vector3:
 	var pivot: Variant = shot.get("pivot")
 	if pivot is Node3D and is_instance_valid(pivot) and (pivot as Node3D).is_inside_tree():
-		return (pivot as Node3D).get_global_transform_interpolated().origin
+		return drawn_pose(pivot as Node3D).origin
 	if pivot is Vector3:
 		return pivot
 	return Vector3.INF
@@ -446,6 +549,8 @@ func _iris_closed() -> bool:
 func _finish_return() -> void:
 	_returning = false
 	_has_last = false
+	_from_inside = false
+	_set_self_fade(0.0)
 	_show_bodies()
 	var base := base_camera()
 	if not _rig_active():
@@ -465,7 +570,7 @@ func _rig_active() -> bool:
 
 func _shot_transform(shot: Dictionary, delta: float) -> Transform3D:
 	var anchor := shot["anchor"] as Node3D
-	var frame := anchor.get_global_transform_interpolated()
+	var frame := drawn_pose(anchor)
 	frame.basis = frame.basis.orthonormalized()
 	var offset: Transform3D = shot.get("offset", Transform3D.IDENTITY)
 	var eye := Transform3D()
@@ -521,10 +626,47 @@ func _apply_mask() -> void:
 	var head_bit := 1 << (_CartoonBody.HEAD_LAYER - 1)
 	var hide := _top != &"" and bool((_shots[_top] as Dictionary).get("hide_self", false))
 	var head := player.get_node_or_null("Visual/Head") as Node3D if player != null else null
-	if head != null and global_position.distance_to(head.get_global_transform_interpolated().origin) < HEAD_CLEAR_METERS:
+	var away := global_position.distance_to(drawn_pose(head).origin) if head != null else INF
+	if away < HEAD_CLEAR_METERS:
 		hide = true
+	# R2c: an eye that leaves your head (a swing out of first person, the hide's
+	# pull) or comes back into it brings your own body in and out as a dissolve
+	# by how far the eye is from your head: hidden until the eye has cleared it by
+	# STAGE_SELF_REVEAL_NEAR, whole by STAGE_SELF_REVEAL_FAR. Your own cap, beak
+	# and mitts used to fill a third of the frame as the swing passed them.
+	var fade := 0.0
+	if not hide and away < Constants.STAGE_SELF_REVEAL_FAR and (_returning or _from_inside):
+		fade = 1.0 - smoothstep(Constants.STAGE_SELF_REVEAL_NEAR, Constants.STAGE_SELF_REVEAL_FAR, away)
+		if fade >= 0.98:
+			hide = true
+	if _from_inside and (away >= Constants.STAGE_SELF_REVEAL_FAR or (_blend_t >= 1.0 and not _returning)):
+		# Cleared it (or a shot that stays close settled): whole from here on.
+		_from_inside = false
+	_set_self_fade(0.0 if hide else fade)
 	cull_mask = (0xFFFFF & ~head_bit) if hide else 0xFFFFF
 	_hide_near_bodies()
+
+
+## Your own body's meshes (HEAD_LAYER, under your Visual) drawn this transparent:
+## only this peer draws them on that layer, so nobody else's view changes.
+func _set_self_fade(amount: float) -> void:
+	if is_equal_approx(amount, _self_fade):
+		return
+	_self_fade = amount
+	if player == null:
+		return
+	if _self_meshes.is_empty() or not is_instance_valid(_self_meshes[0]):
+		_self_meshes.clear()
+		var visual := player.get_node_or_null("Visual")
+		if visual == null:
+			return
+		var head_bit := 1 << (_CartoonBody.HEAD_LAYER - 1)
+		for node: Node in visual.find_children("*", "GeometryInstance3D", true, false):
+			if ((node as GeometryInstance3D).layers & head_bit) != 0:
+				_self_meshes.append(node as GeometryInstance3D)
+	for mesh: GeometryInstance3D in _self_meshes:
+		if is_instance_valid(mesh):
+			fade_geometry(mesh, amount)
 
 
 ## R2b: anyone else's body (a teammate, a NICE BOY) with the eye inside or right

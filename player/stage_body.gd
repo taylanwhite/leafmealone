@@ -18,6 +18,7 @@ extends Node
 ## frame from the anchor's interpolated transform, so a synchronizer update
 ## landing mid-frame can't shake it.
 
+const _StageCam = preload("res://player/stage_cam.gd")
 const POSES: Array[StringName] = [&"stand", &"escorted", &"sit_buckled", &"walk_behind"]
 
 ## For net/dev/probe.gd and the tests: the largest per-tick move of a staged
@@ -44,6 +45,8 @@ var _release_t: float = 1.0
 ## Staged and not yet released. Separate from _anchor, which can be freed under
 ## us (a van left) and must still get a proper release.
 var _active: bool = false
+## R2c: someone the first placement's blend goes round, not through (the link).
+var _clear_of: Node3D
 
 
 static func reset_log() -> void:
@@ -55,10 +58,11 @@ func _ready() -> void:
 	process_priority = 110
 
 
-func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringName) -> void:
+func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringName, clear_of: Node3D = null) -> void:
 	if player == null or anchor == null:
 		return
 	var was_staged := is_staged()
+	_clear_of = clear_of
 	_active = true
 	_anchor = anchor
 	_offset = offset
@@ -165,7 +169,7 @@ func _process(delta: float) -> void:
 	if _active and not is_instance_valid(_anchor):
 		_release()
 	if is_staged():
-		_place_visual(_target(_anchor.get_global_transform_interpolated()))
+		_place_visual(_target(_StageCam.drawn_pose(_anchor)))
 	elif _release_t < 1.0:
 		_ease_release(delta)
 
@@ -218,7 +222,26 @@ func _blended(goal: Transform3D) -> Transform3D:
 	var eased := smoothstep(0.0, 1.0, _blend_t)
 	var out := _from.interpolate_with(goal, eased)
 	out.basis = out.basis.orthonormalized()
+	if _clear_of != null and is_instance_valid(_clear_of) and _clear_of.is_inside_tree():
+		out.origin = _round(_from.origin, goal.origin, eased)
 	return out
+
+
+## R2c: the blend goes round _clear_of (his drawn body), never through it: the
+## way from in front of him to his side was a straight line through his chest
+## (audit m2-escort-start-bodies-merge). Angle and distance about him blend
+## separately, the distance never under STAGE_BODY_CLEAR.
+func _round(from: Vector3, to: Vector3, u: float) -> Vector3:
+	var visual := _clear_of.get_node_or_null("Visual") as Node3D
+	var center := visual.global_position if visual != null else _clear_of.global_position
+	var ra := Vector2(from.x - center.x, from.z - center.z)
+	var rb := Vector2(to.x - center.x, to.z - center.z)
+	if ra.length() < 0.01 or rb.length() < 0.01:
+		return from.lerp(to, u)
+	var angle := ra.angle() + wrapf(rb.angle() - ra.angle(), -PI, PI) * u
+	var reach := maxf(lerpf(ra.length(), rb.length(), u), minf(Constants.STAGE_BODY_CLEAR, minf(ra.length(), rb.length())))
+	var flat := Vector2.from_angle(angle) * reach
+	return Vector3(center.x + flat.x, lerpf(from.y, to.y, u), center.z + flat.y)
 
 
 func _drawn_transform() -> Transform3D:

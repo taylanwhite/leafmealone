@@ -16,6 +16,10 @@ uniform float specular_value = 0.12;
 uniform float translucency = 0.0;
 // Paint or water on a person: set per instance (player/cartoon_body.gd set_coat).
 instance uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 0.0);
+// A screen-door dissolve, 0 solid to 1 gone, set per instance (R2c: the stage
+// fades your own body in as its camera leaves your head, and frames bystanders
+// out of the two-shot). It stays in the opaque pass: no sorting, no halo.
+instance uniform float dissolve = 0.0;
 // The season (core/seasons.gd): what swaying foliage shifts toward, and how far.
 global uniform vec4 season_foliage;
 // How much snow the season lays on upward faces (core/seasons.gd SNOW).
@@ -56,6 +60,13 @@ void vertex() {
 }
 
 void fragment() {
+	if (dissolve > 0.0) {
+		const float BAYER[16] = float[](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+		ivec2 cell = ivec2(mod(floor(FRAGCOORD.xy), 4.0));
+		if (dissolve > (BAYER[cell.y * 4 + cell.x] + 0.5) / 16.0) {
+			discard;
+		}
+	}
 	vec3 base = COLOR.rgb;
 	// Only what sways (crowns, grass) changes with the season; trunks and houses don't.
 	if (seasonal && season_foliage.a > 0.0 && sway > 0.25) {

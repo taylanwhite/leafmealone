@@ -425,6 +425,21 @@ The catch is the game's signature beat, so it is directed like a cartoon: every 
 - **The door.** "After you": you see him hand you up for a moment, then the daisy iris closes and opens on your seat. The camera never flies from the street through his head and the van wall into the cabin.
 - **Your cap** sits above your eyes now (its brim used to cut across them).
 
+### The catch's seams (R2c stage, 2026-11-03)
+
+The second motion audit (build 0.4.10) found every beat of the catch working and the joins between them broken. Decided by the agent (Taylan: depth before breadth, no hand-holding text). What to keep:
+
+- **The escort is always on screen.** The escort shot follows a marker that was last left wherever the head NICE BOY went (Annex B, 1,414 m from the yard); its first frame read that stale pose and the camera filmed an empty field for the whole walk. The stage's markers are now placed by hand, never interpolated, and the stage camera never trusts a drawn pose metres from the real one (docs/DECISIONS.md "R2c: stale poses").
+- **Your own body never fills your view.** As the camera leaves your eyes (the swing to the two-shot, the hide's pull) your own head, cap, beak and mitts stay hidden until the eye is 1.4 m clear of your head, then dissolve in (a screen-door dissolve, never a pop) by 2.3 m; the same in reverse on the way back into your eyes. Your own courtesy sticker is drawn for everyone but your own eyes and the van seat (the daisy filled the bottom of the view).
+- **The caught body acts.** Never one pose: hands half up palms out, shoulders up, a tremble you can see at 3 m, and every second or so a squirm against his grip (a twist away, an arm yanked back, a knee up). Your eyes stay on him in a nervous side-eye while your face stays toward the camera (you're cheated three-quarters on, about 50 degrees, so your face reads, not your profile); every third squirm you glance straight at the camera ("are you seeing this?"). His bark lands on you (a recoil, a startled blink), the sticker makes you flinch and look down at it. Walking arm in arm you drag a step now and then and look back at the yard you were working.
+- **The two-shot is about the two of you, and so is the walk.** Anyone else who comes into the frame nearer than the pair (another NICE BOY, a teammate, a hired hand, a homeowner, a passer-by) dissolves out of it, and in the two-shot so does the tool in your hands; they're back when the shot lets go. Everyone else's view is untouched: it's your memory of it.
+- **The link goes round him.** Stepping from in front of him to his side for the walk, your body goes round him, never through his chest.
+- **The escort camera finds a side.** When the van's flank or a hedge is between the follow camera and the pair, it eases round (up to about 60 degrees off behind) to where it can see them, never pressed against the van's side and wheel.
+- **A rescue is a payoff.** The bonk knocks him back off you a step: arms flung up, the clipboard flying, a stagger on wobbly legs, then a woozy sway with stars round his visor (1.8 s). You stumble 1.3 m clear and turn to whoever got you out, while your view eases back to your eyes (0.9 s). No words.
+- **Wind-ups you can't see, you hear.** His crouch squeaks on the path where he is (`windup_squeak`), so a wind-up behind you has a sound from his side before the lunge. The lunge's whoosh starts on a crisp fwip.
+- **Nobody flies into the van.** Handed to the van away from its door (a pinned escort, a catch with no NICE BOY free), you're seated behind your iris, and everyone else sees you fade out where you stand and fade back in seated; nobody slides 18 m into a cabin. At the door, the hand-up stays.
+- **The itemized row lies flat.** A long tool (the rake) tips over in the air and lands lying down in the row, never stood on its head.
+
 ### What's on screen during the encounter (R2b hud, 2026-11-03)
 
 Decided by the agent under Taylan's direction ("Let's not hold our players hand through everything... Our players are not idiots"). The moment carries itself; the screen gets out of its way. Numbers are `Constants.R2B_HUD_*`; no new words.

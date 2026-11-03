@@ -67,15 +67,36 @@ var _yaw_prev: Dictionary = {}
 var _yaw_max: float = 0.0
 var _yaw_where: String = ""
 var _yaw_skip: int = 0
+## The physics tick of a client's last per-frame yaw sample.
+var _yaw_tick: int = 0
+var _yaw_usec: int = 0
 
 
 func _ready() -> void:
 	result = {}
 	# After every NICE BOY's own tick, so each sample is that tick's pose.
 	process_physics_priority = 100
+	# R2c: and after everything that places a drawn pose in a frame (the smoother,
+	# a placement), so a client samples the pose that frame draws, never a
+	# network update applied to the body before the smoother has put the Visual
+	# back where it's drawn.
+	process_priority = 4096
 
 
 func _process(_delta: float) -> void:
+	if multiplayer.multiplayer_peer != null and not Net.is_host():
+		# R2c: a client draws a NICE BOY once per rendered frame (the smoother), so its
+		# turn is sampled per frame, per physics tick that frame covered.
+		# The smoother draws on the wall clock: a frame stalled past its ticks (the
+		# engine runs at most a few per frame) still moves the drawn pose by the
+		# wall time it covered.
+		var now_usec := Time.get_ticks_usec()
+		var wall := float(now_usec - _yaw_usec) / 1000000.0 if _yaw_usec > 0 else 0.0
+		_yaw_usec = now_usec
+		var ticks := maxi(Engine.get_physics_frames() - _yaw_tick, roundi(wall / get_physics_process_delta_time()))
+		_yaw_tick = Engine.get_physics_frames()
+		if ticks > 0:
+			_sample_yaw(ticks)
 	if _started or multiplayer.multiplayer_peer == null:
 		return
 	if Net.is_host():
@@ -88,18 +109,22 @@ func _process(_delta: float) -> void:
 func _physics_process(_delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
-	_sample_yaw()
-	if not Net.is_host():
+	if Net.is_host():
+		_sample_yaw(1)
+	else:
 		_client_sample()
 
 
 ## Measured from outside the steering: how far each NICE BOY's drawn yaw moved in
 ## one tick while he was on his own feet (no hop, lunge or stand placement), the
 ## hand-backs from those included. The host's body is the drawn one; a client
-## draws Visual (the network's pose, smoothed).
-func _sample_yaw() -> void:
+## draws Visual (the network's pose, smoothed) once per rendered frame: there the
+## turn since the last frame is shared over the physics ticks that frame covered
+## (R2c: sampled per tick, a frame that covered four ticks under load read as a
+## four-tick turn in one, the step 2 flake's 0.41-0.48 rad).
+func _sample_yaw(ticks: int) -> void:
 	var skip := _yaw_skip > 0
-	_yaw_skip = maxi(0, _yaw_skip - 1)
+	_yaw_skip = maxi(0, _yaw_skip - ticks)
 	var alive: Dictionary = {}
 	for member: Node in get_tree().get_nodes_in_group("nice_crew"):
 		if member.is_queued_for_deletion():
@@ -114,10 +139,10 @@ func _sample_yaw() -> void:
 			var last: Array = _yaw_prev[id]
 			# The test's own teleports (_put_crew) reach a client a lag later, as a jump.
 			if at.distance_to(last[1]) < 1.0:
-				var turn := absf(wrapf(yaw - float(last[0]), -PI, PI))
+				var turn := absf(wrapf(yaw - float(last[0]), -PI, PI)) / float(maxi(1, ticks))
 				if turn > _yaw_max:
 					_yaw_max = turn
-					_yaw_where = "%s mode %d at %.2f" % [member.name, int(member.get("mode")), Net.server_time()]
+					_yaw_where = "%s mode %d at %.2f over %d tick(s)" % [member.name, int(member.get("mode")), Net.server_time(), ticks]
 		_yaw_prev[id] = [yaw, at]
 		alive[id] = true
 	for id: Variant in _yaw_prev.keys():

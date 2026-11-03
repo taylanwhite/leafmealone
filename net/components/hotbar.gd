@@ -359,8 +359,40 @@ func _step_row() -> void:
 			var span := at + Vector3.UP * 0.15 - from
 			throw = Vector3(span.x / flight, (span.y + 0.5 * gravity * flight * flight) / flight, span.z / flight)
 		item.call("host_unown", from, throw)
+		_lay_flat(item as Node3D, at - from)
 		_rpc_itemized.rpc(from, int(entry["index"]))
 	row_log_size = _row_queue.size()
+
+
+## Host (R2c): a long tool goes into the row lying down, its long side across the
+## way it flies, not stood on its head (audit itemize-rake-upright: the rake
+## stood upright on the lawn with nothing holding it).
+func _lay_flat(item: Node3D, flight: Vector3) -> void:
+	if item == null:
+		return
+	var box := AABB()
+	var first := true
+	for node: Node in item.find_children("*", "VisualInstance3D", true, false):
+		var part := node as VisualInstance3D
+		var local := item.global_transform.affine_inverse() * part.global_transform * part.get_aabb()
+		box = local if first else box.merge(local)
+		first = false
+	if first:
+		return
+	var size := box.size
+	var longest := Vector3.AXIS_Y if size.y >= size.x and size.y >= size.z else (Vector3.AXIS_X if size.x >= size.z else Vector3.AXIS_Z)
+	var shortest := minf(size.x, minf(size.y, size.z))
+	if size[longest] < Constants.CATCH_ROW_LAY_FLAT_RATIO * maxf(shortest, 0.01):
+		return
+	var along := Vector3(flight.x, 0.0, flight.z)
+	along = along.cross(Vector3.UP).normalized() if along.length() > 0.01 else Vector3.RIGHT
+	var axis := Vector3.ZERO
+	axis[longest] = 1.0
+	# Tipped over in the air (a turn over the flight), never snapped flat in a frame.
+	var turn := Quaternion((item.global_basis * axis).normalized(), along)
+	var angle := turn.get_angle()
+	if angle > 0.01 and "angular_velocity" in item:
+		item.set("angular_velocity", turn.get_axis().normalized() * angle / maxf(Constants.CATCH_ITEM_FLIGHT, 0.1))
 
 
 ## Every peer: one item out of the row, with a tick that rises item by item.

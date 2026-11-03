@@ -3604,3 +3604,58 @@ const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
 ## stepped by Jolt in its own float precision, missed that 29 times in 30 and
 ## bounced off the rail.
 const TOSS_SURE_SHARE: float = 0.04
+
+
+# ---- R2c stage (the catch camera and bodies, docs/GAME.md "R2c: the catch's seams")
+## StageCam.drawn_pose: an interpolated pose this far (m) from the real one is the
+## physics interpolation's stale cache of a node placed somewhere new since the
+## last frame, never motion (the fastest thing the stage films, a van, moves well
+## under a meter a tick): the real pose is used.
+const STAGE_CAM_STALE_METERS: float = 3.0
+## StageCam: a shot that starts with the eye in your head (out of first person,
+## out of a hiding spot) dissolves your own body in as the eye clears it: hidden
+## until the eye is this far from your head (m), whole from STAGE_SELF_REVEAL_FAR.
+## The same on the way back in. At 0.7 m your cap filled a third of the frame,
+## at 1.2 m still a quarter (rec_r_gotcha_1p 120-126, before the dissolve).
+const STAGE_SELF_REVEAL_NEAR: float = 1.4
+const STAGE_SELF_REVEAL_FAR: float = 2.3
+## StageCam "subjects" (the gotcha two-shot): anyone else in these groups who
+## comes into the frame nearer than the subjects' far side plus this (m) fades
+## out over STAGE_FRAME_OUT_SECONDS, and back in when the shot lets go.
+const STAGE_FRAME_OUT_GROUPS: Array[StringName] = [&"players", &"nice_crew", &"crew_hands", &"homeowner", &"bonkable"]
+const STAGE_FRAME_OUT_BEYOND: float = 1.5
+const STAGE_FRAME_OUT_SECONDS: float = 0.25
+## The gotcha's stage cheat for the caught player (rad): turned this far from
+## facing him toward the camera (his own is CATCH_CHEAT_TURN), so your face reads
+## three-quarters on, not in profile; your eyes stay on him.
+const CATCH_VICTIM_CHEAT_TURN: float = 0.85
+## A friend's rescue (encounter.gd _rpc_freed, R2c): the NICE BOY is knocked back
+## at this speed (m/s; his stun's slide takes it to about 0.75 m) with stars for
+## RESCUE_DIZZY_SECONDS; the freed player stumbles this far (m) out of his reach
+## over RESCUE_STEP_SECONDS, turning to the rescuer, while their view eases back
+## to first person over RESCUE_CAM_BLEND (s).
+const RESCUE_KNOCKBACK_SPEED: float = 3.5
+const RESCUE_DIZZY_SECONDS: float = 1.8
+const RESCUE_STEP_METERS: float = 1.3
+const RESCUE_STEP_SECONDS: float = 0.5
+const RESCUE_CAM_BLEND: float = 0.9
+## StageBody (R2c): a staged body's first blend that goes round someone keeps at
+## least this far (m) from his middle (two bodies' half-widths).
+const STAGE_BODY_CLEAR: float = 0.55
+## Boarding (R2c): handed to the van further than this (m) from its door step, the
+## body fades out over BOARD_FADE_SECONDS where it stands and back in
+## BOARD_FADE_BACK s later, seated (the Shuttle's step up from there went through
+## the van's side or slid metres in a blink); the rider's iris shuts at once.
+const BOARD_NEAR_METERS: float = 1.6
+const BOARD_FADE_SECONDS: float = 0.15
+const BOARD_FADE_BACK: float = 1.15
+## The itemized row (net/components/hotbar.gd _lay_flat, R2c): a thing whose
+## longest side is this many times its shortest goes in lying down.
+const CATCH_ROW_LAY_FLAT_RATIO: float = 3.0
+## The escort's follow shot (R2c): the yaw offsets (rad) it may swing to, behind
+## the pair, to see them past the van or a hedge, and how fast it swings (rad/s).
+const ESCORT_CAM_BIASES: Array[float] = [0.0, 0.5, -0.5, 1.0, -1.0]
+const ESCORT_CAM_BIAS_RATE: float = 0.9
+## The escort's follow eye wants this much room (m) round it: closer to the van's
+## side or a hedge, it swings to another of ESCORT_CAM_BIASES.
+const ESCORT_CAM_ROOM: float = 1.2

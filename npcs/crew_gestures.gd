@@ -38,6 +38,9 @@ const POSES: Dictionary = {
 	# R2b: the landing look-round and the spotted double take (crew_member.gd).
 	"land_look": [0.9, false],
 	"spot_take": [0.85, false],
+	# R2c: a rescue's bonk lands on him (encounter.gd _rpc_freed): knocked back a
+	# step, arms flung up, the clipboard flying, a woozy wobble with stars.
+	"bonked": [1.5, false],
 }
 ## Blend in and out, in seconds.
 const BLEND_SECONDS: float = 0.12
@@ -353,6 +356,30 @@ static func _apply(parts: Dictionary, pose_name: String, t: float, t01: float, w
 			right.rotation.z = lerpf(right.rotation.z, -0.3 * tug, w)
 			var look := clampf((t01 - 0.25) / 0.75, 0.0, 1.0)
 			extras["face_y"] = 0.75 * sin(look * TAU) * w
+		"bonked":
+			# Hit: snapped back, arms flung up and out (0-0.18 s); then a stagger back
+			# on wobbly legs, arms windmilling for balance (to 0.9 s); then a woozy
+			# sway, head lolling round, a hand up to the visor (to 1.5 s).
+			var hit := sin(clampf(t / 0.18, 0.0, 1.0) * PI * 0.5)
+			var stagger := clampf((t - 0.12) / 0.78, 0.0, 1.0)
+			var woozy := clampf((t - 0.8) / 0.7, 0.0, 1.0)
+			var reel := hit * (1.0 - 0.6 * stagger)
+			torso.rotation.x = lerpf(torso.rotation.x, 0.5 * reel - 0.15 * woozy, w)
+			hips.position.y -= (0.1 * reel + 0.05 * sin(stagger * PI)) * w
+			var mill := sin(t * 15.0) * (1.0 - woozy)
+			right.rotation.z = lerpf(right.rotation.z, 2.3 * reel + 1.3 * mill * stagger + 0.4 * woozy, w)
+			left.rotation.z = lerpf(left.rotation.z, -2.3 * reel + 1.3 * mill * stagger - 0.3 * woozy, w)
+			right.rotation.x = lerpf(right.rotation.x, -0.5 * reel + 2.4 * woozy, w)
+			left.rotation.x = lerpf(left.rotation.x, -0.5 * reel + 0.4 * mill, w)
+			# Stepping back: the legs split and swap under him.
+			var step := sin(stagger * PI * 3.0) * (1.0 - woozy)
+			leg_l.rotation.x = lerpf(leg_l.rotation.x, -0.55 * step - 0.2 * reel, w)
+			leg_r.rotation.x = lerpf(leg_r.rotation.x, 0.45 * step + 0.15 * reel, w)
+			extras["hips_z"] = float(extras.get("hips_z", 0.0)) + 0.12 * sin(t * 9.0) * stagger * w
+			extras["face_z"] = float(extras.get("face_z", 0.0)) + 0.3 * sin(t * 7.0) * maxf(stagger, woozy) * w
+			extras["face_y"] = float(extras.get("face_y", 0.0)) + 0.35 * cos(t * 7.0) * woozy * w
+			if clipboard != null:
+				clipboard.rotation.x = lerpf(clipboard.rotation.x, -2.0 * reel, w)
 		"spot_take":
 			# The double take: a hop of surprise (0-0.15 s), then the arm shoots out
 			# at you, straight and level, leaning in behind it.
