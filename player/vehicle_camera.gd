@@ -16,7 +16,12 @@ extends Camera3D
 ## blocks it the boom pulls in, quickly but eased and never faster than
 ## CHEFTY_CAMERA_PULL_SPEED, starting a little before the blocker reaches the
 ## lens (the sweep's sphere is CHEFTY_CAMERA_CLEARANCE wide); when the way is
-## clear it lets back out slowly (CHEFTY_CAMERA_EASE_OUT). Pulled in, it looks
+## clear it lets back out slowly (CHEFTY_CAMERA_EASE_OUT). It also sweeps where
+## the boom is swinging to (looking round from the seat, a corner), so the pull-in
+## starts before the boom reaches a lamp post or a wall rather than sliding the
+## lens through it. Only a solid that gets between the truck and the lens faster
+## than that (backing into a wall) makes it cut in front of it (`cuts`). People
+## (a hired hand in the bed, a walker) never push it in. Pulled in, it looks
 ## farther ahead, over the hood, instead of down at the roof.
 ##
 ## A crown the lens still ends up inside (the truck itself under a low tree, or
@@ -38,8 +43,12 @@ var _exclude: Array[RID] = []
 var _exclude_for: int = 0
 ## Crowns faded out now: instance id -> {node, amount, want}.
 var _faded: Dictionary = {}
-## For tests: the last sweep's numbers (boom wanted, boom now, free length).
-var last := {"want": 0.0, "boom": 0.0, "length": 0.0, "blocked": false, "inside_crowns": 0}
+## The boom's sweep, made once.
+var _query: PhysicsShapeQueryParameters3D
+## For tests: the last sweep's numbers (boom allowed on its own ray, the target
+## with the swing ahead, boom now, free length), and how many times it had to cut.
+var last := {"want": 0.0, "target": 0.0, "boom": 0.0, "length": 0.0, "blocked": false, "inside_crowns": 0, "cuts": 0}
+var cuts: int = 0
 
 
 func _ready() -> void:
@@ -79,16 +88,35 @@ func _physics_process(delta: float) -> void:
 	var arm := _free - pivot
 	var length := arm.length()
 	var direction := arm / length if length > 0.001 else behind
-	var allowed := _clear_length(pivot, direction, length)
+	# x: clear of solids only; y: of solids and crowns.
+	var clear := _clear_length(pivot, direction, length)
+	var allowed := clear.y
+	# Ahead of the swing: the boom also checks where it is swinging to (halfway,
+	# and all the way to where it wants to be), so it starts pulling in before it
+	# reaches a lamp post or a wall instead of sliding in through it.
+	var target := allowed
+	var want_arm := want - pivot
+	if _placed and want_arm.length() > 0.001:
+		var want_dir := want_arm.normalized()
+		if want_dir.dot(direction) < Constants.CHEFTY_CAMERA_AHEAD_DOT:
+			target = minf(target, _clear_length(pivot, direction.slerp(want_dir, 0.5), length).y)
+			target = minf(target, _clear_length(pivot, want_dir, length).y)
 	if _boom < 0.0:
 		_boom = allowed
-	elif allowed < _boom:
-		var step := (_boom - allowed) * (1.0 - exp(-Constants.CHEFTY_CAMERA_PULL_RATE * delta))
+	elif target < _boom:
+		var step := (_boom - target) * (1.0 - exp(-Constants.CHEFTY_CAMERA_PULL_RATE * delta))
 		_boom -= minf(step, Constants.CHEFTY_CAMERA_PULL_SPEED * delta)
 	else:
-		_boom = minf(allowed, _boom + (allowed - _boom) * (1.0 - exp(-Constants.CHEFTY_CAMERA_EASE_OUT * delta)))
+		_boom = minf(target, _boom + (target - _boom) * (1.0 - exp(-Constants.CHEFTY_CAMERA_EASE_OUT * delta)))
+	# A solid came between the truck and the lens faster than any pull-in (a
+	# wall the truck backed up to): the view is the wall's, so cut in front of it
+	# rather than look at its inside. Never otherwise; a crown it ends up in fades.
+	if _boom > clear.x + Constants.CHEFTY_CAMERA_CLEARANCE + Constants.CHEFTY_CAMERA_RADIUS:
+		_boom = clear.x
+		reset_physics_interpolation()
+		cuts += 1
 	_boom = clampf(_boom, 0.0, length)
-	last = {"want": allowed, "boom": _boom, "length": length, "blocked": allowed < length - 0.01, "inside_crowns": _faded.size()}
+	last = {"want": allowed, "target": target, "boom": _boom, "length": length, "blocked": allowed < length - 0.01, "inside_crowns": _faded.size(), "cuts": cuts}
 	global_position = pivot + direction * _boom
 	if not _placed:
 		reset_physics_interpolation()
@@ -103,26 +131,74 @@ func _physics_process(delta: float) -> void:
 	_fade_crowns(delta)
 
 
-## How much of the boom (m, from the pivot) is clear of solids and crowns, less
-## the clearance kept in front of whatever blocks it.
-func _clear_length(pivot: Vector3, direction: Vector3, length: float) -> float:
+## How much of the boom (m, from the pivot) is clear, less the clearance kept in
+## front of whatever blocks it: x of the world's solids only, y of solids and
+## tree crowns.
+func _clear_length(pivot: Vector3, direction: Vector3, length: float) -> Vector2:
 	var reach := length + Constants.CHEFTY_CAMERA_CLEARANCE
 	var tip := pivot + direction * reach
-	var share := _ViewBlockers.sweep(pivot, tip, Constants.CHEFTY_CAMERA_RADIUS)
+	var crowns := _ViewBlockers.sweep(pivot, tip, Constants.CHEFTY_CAMERA_RADIUS)
+	var share := 1.0
 	var space := get_world_3d().direct_space_state if is_inside_tree() else null
 	if space != null:
-		var sphere := SphereShape3D.new()
-		sphere.radius = Constants.CHEFTY_CAMERA_RADIUS
-		var query := PhysicsShapeQueryParameters3D.new()
-		query.shape = sphere
-		query.transform = Transform3D(Basis.IDENTITY, pivot)
-		query.motion = tip - pivot
-		query.collision_mask = 1
-		query.exclude = _vehicle_bodies()
-		var fractions := space.cast_motion(query)
-		if fractions.size() == 2:
-			share = minf(share, float(fractions[0]))
-	return clampf(share * reach - Constants.CHEFTY_CAMERA_CLEARANCE, 0.0, length)
+		if _query == null:
+			var sphere := SphereShape3D.new()
+			sphere.radius = Constants.CHEFTY_CAMERA_RADIUS
+			_query = PhysicsShapeQueryParameters3D.new()
+			_query.shape = sphere
+			_query.collision_mask = 1
+		var skip: Array[RID] = _vehicle_bodies().duplicate()
+		# The sweep goes out from the pivot in legs: people never push the lens
+		# in (a hired hand in the bed, a walker on the sidewalk), and a thin solid
+		# (a lamp post, a power pole, a trunk) only does when it's at the lens's
+		# end of the boom; nearer the truck it just passes between, like a post
+		# going by the window, and the next leg starts past it.
+		var from := 0.0
+		for _try: int in 6:
+			_query.transform = Transform3D(Basis.IDENTITY, pivot + direction * from)
+			_query.motion = direction * (reach - from)
+			_query.exclude = skip
+			var fractions := space.cast_motion(_query)
+			if fractions.size() != 2 or float(fractions[1]) >= 1.0:
+				break
+			var contact := from + (reach - from) * float(fractions[0])
+			_query.transform = Transform3D(Basis.IDENTITY, pivot + direction * (from + (reach - from) * float(fractions[1])))
+			var hit := space.get_rest_info(_query)
+			var who: Object = instance_from_id(int(hit.get("collider_id", 0))) if not hit.is_empty() else null
+			if who is CharacterBody3D:
+				skip.append(hit["rid"])
+				continue
+			var thin := _thin_extent(who, int(hit.get("shape", 0)))
+			if thin > 0.0 and contact < length - Constants.CHEFTY_CAMERA_THIN_NEAR_LENS:
+				from = contact + thin + Constants.CHEFTY_CAMERA_RADIUS * 2.0 + 0.05
+				if from >= reach:
+					break
+				continue
+			share = contact / reach
+			break
+	var solids := clampf(share * reach - Constants.CHEFTY_CAMERA_CLEARANCE, 0.0, length)
+	return Vector2(solids, minf(solids, clampf(crowns * reach - Constants.CHEFTY_CAMERA_CLEARANCE, 0.0, length)))
+
+
+## How wide (m) the shape that was hit is across, when it's thin enough to look
+## past (Constants.CHEFTY_CAMERA_THIN_SOLID: posts, poles, trunks); 0 otherwise.
+static func _thin_extent(body: Object, shape_index: int) -> float:
+	var solid := body as CollisionObject3D
+	if solid == null:
+		return 0.0
+	var owner_id := solid.shape_find_owner(shape_index)
+	if owner_id < 0 or solid.shape_owner_get_shape_count(owner_id) == 0:
+		return 0.0
+	var shape := solid.shape_owner_get_shape(owner_id, 0)
+	var across := INF
+	if shape is CylinderShape3D:
+		across = (shape as CylinderShape3D).radius * 2.0
+	elif shape is CapsuleShape3D:
+		across = (shape as CapsuleShape3D).radius * 2.0
+	elif shape is BoxShape3D:
+		var size := (shape as BoxShape3D).size
+		across = maxf(size.x, size.z)
+	return across if across <= Constants.CHEFTY_CAMERA_THIN_SOLID else 0.0
 
 
 ## The truck's own collision bodies (its look's Solid, the chassis), found once.

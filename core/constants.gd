@@ -4387,10 +4387,18 @@ const VIEW_CROWN_WIDTH_SHARE: float = 0.85
 const CHEFTY_CAMERA_PIVOT_UP: float = 3.0
 const CHEFTY_CAMERA_RADIUS: float = 0.35
 const CHEFTY_CAMERA_CLEARANCE: float = 0.6
-const CHEFTY_CAMERA_PULL_RATE: float = 9.0
-const CHEFTY_CAMERA_PULL_SPEED: float = 16.0
+const CHEFTY_CAMERA_PULL_RATE: float = 12.0
+const CHEFTY_CAMERA_PULL_SPEED: float = 28.0
 const CHEFTY_CAMERA_EASE_OUT: float = 1.6
 const CHEFTY_CAMERA_PULLED_LOOK_AHEAD: float = 8.0
+## The boom also sweeps where it is swinging to once its way and the wanted
+## way differ by more than this (a dot product: about 1.4 degrees).
+const CHEFTY_CAMERA_AHEAD_DOT: float = 0.9997
+## A solid no wider than this (m: a lamp post, a power pole, a trunk) doesn't pull
+## the boom in unless it is within this far (m) of the lens's end of the boom;
+## nearer the truck it just passes between, like a post going by the window.
+const CHEFTY_CAMERA_THIN_SOLID: float = 1.0
+const CHEFTY_CAMERA_THIN_NEAR_LENS: float = 1.5
 ## A crown the lens is inside anyway fades (screen-door dissolve): grown by this
 ## pad (m) to start before the lens touches leaves, this much dissolve per unit
 ## of depth, at most this much, changing at this rate (per second).
@@ -4408,4 +4416,10 @@ const OUTSKIRTS_BACK_ROW_SPACING: float = 24.0
 const OUTSKIRTS_FURROW_SPACING: float = 1.6
 const OUTSKIRTS_BALES_PER_FIELD: int = 14
 const OUTSKIRTS_PROP_CHUNK: float = 128.0
+## Main Street's trees, each side of the avenue: this far apart (m).
+const OUTSKIRTS_BOULEVARD_SPACING: float = 17.0
 const TOWN_STREET_PROP_CHUNK: float = 256.0
+## The join frame (levels/build_queue.gd): when this long (ms) has passed since
+## the queue's last turn, the frame is already a long one (the job yard arriving
+## on a joiner) and the queue sits it out (never two frames running).
+const BUILD_SKIP_FRAME_OVER_MS: float = 60.0

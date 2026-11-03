@@ -2120,6 +2120,20 @@ const TOWN_SIGNS: Dictionary = {
 	"billboard_depot_line": "Everything for the yard except help.",
 	"depository_sign": "GUTTERFORD MUNICIPAL\nLEAF DEPOSITORY\nCapacity: Exceeded Since 1987",
 	"farm_sign": "FURROW FAMILY FARM\nHay · Pumpkins · Opinions",
+	# Main Street's storefronts round the square (driving:E2): [the sign, its small line].
+	"shop_diner": "RAKE & BAKE DINER\nPie of the day: also pecan",
+	"shop_gazette": "THE GUTTERFORD GAZETTE\nAll the news that fits in a gutter",
+	"shop_permits": "PERMITS & VARIANCES\nBack in 15 min",
+	"shop_barber": "BERT'S BARBER & NOTARY\nWalk-ins witnessed",
+	"shop_blower": "SECOND WIND\nBlower repair",
+	"shop_hoa": "HOA SATELLITE OFFICE\nComplaints: side door",
+	"shop_thrift": "TWICE-MOWED THRIFT\nGently used rakes",
+	"shop_bank": "FIRST BANK OF GUTTERFORD\nLoans for lawns",
+	"shop_laundry": "SUDS CITY LAUNDRY\nOpen till the dryers give up",
+	"shop_hardware": "HOLLIS HARDWARE\nWe have the other half",
+	"shop_vacant": "FOR LEASE\nAsk about our gutters",
+	"shop_insurance": "LEAFSURE\nAct-of-Autumn coverage",
+	"shop_tax": "DUSTY'S TAX & BAIT\nWe'll find something",
 }
 
 ## A hired hand takes Chefty's wheel (net/components/chefty_drive.gd, the

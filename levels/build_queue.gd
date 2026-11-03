@@ -39,6 +39,9 @@ var _open: bool = true
 ## runs in it, so that frame never pays for a step on top of the world itself
 ## (driving:E2's join frame).
 var _born_frame: int = -1
+## When the queue's last turn ended (usec), and whether it sat the last frame out.
+var _last_end: int = 0
+var _skipped: bool = false
 
 
 func _ready() -> void:
@@ -142,7 +145,17 @@ func flush() -> void:
 
 
 func _process(_delta: float) -> void:
-	if is_idle() or Engine.get_process_frames() == _born_frame:
+	var now := Time.get_ticks_usec()
+	# A frame already long before the queue's turn (the job yard arriving on a
+	# joiner, a player's body spawning: the network's poll runs first) gets no
+	# step on top (driving:E2's join frame), but never two frames running, so a
+	# slow machine still builds.
+	var heavy := _last_end > 0 and now - _last_end > int(Constants.BUILD_SKIP_FRAME_OVER_MS * 1000.0) and not _skipped
+	_skipped = heavy
+	_last_end = now
+	if is_idle() or Engine.get_process_frames() == _born_frame or heavy:
+		if heavy and not is_idle():
+			stats["skipped"] = int(stats.get("skipped", 0)) + 1
 		return
 	var started := Time.get_ticks_usec()
 	var budget := int(Constants.BUILD_MS_PER_FRAME * 1000.0)
@@ -151,7 +164,8 @@ func _process(_delta: float) -> void:
 		if Time.get_ticks_usec() - started >= budget:
 			break
 	stats["frames"] = int(stats["frames"]) + 1
-	stats["max_frame_ms"] = maxf(float(stats["max_frame_ms"]), float(Time.get_ticks_usec() - started) / 1000.0)
+	_last_end = Time.get_ticks_usec()
+	stats["max_frame_ms"] = maxf(float(stats["max_frame_ms"]), float(_last_end - started) / 1000.0)
 	if is_idle():
 		_done()
 

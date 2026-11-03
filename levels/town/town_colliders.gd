@@ -31,6 +31,8 @@ const _BuildQueue = preload("res://levels/build_queue.gd")
 const _Outskirts = preload("res://levels/town/outskirts.gd")
 const GROUND_THICKNESS: float = 0.2
 const LAMP_RADIUS: float = 0.15
+## The outskirts' tree trunks go in this many a build step.
+const OUTSKIRTS_SLICE: int = 50
 const LAMP_HEIGHT: float = 5.2
 const TRUNK_RADIUS: float = 0.35
 const TRUNK_HEIGHT: float = 3.0
@@ -71,10 +73,12 @@ func _ready() -> void:
 		_add_box("Landmark", solid[0], solid[1], Basis(Vector3.UP, float(solid[2])))
 	_lake_wall()
 	_ramp()
-	# The outskirts' poles, farm, water tower, billboard, leaf mountain and row
-	# trees (levels/town/outskirts.gd, driving:E2); the farmhouse costs a house plan.
-	for part: String in ["poles", "farm", "landmarks", "trees"]:
-		_BuildQueue.soon(self, _add_outskirts.bind(part), "town solids outskirts " + part)
+	# The outskirts' poles, farm, water tower, billboard, leaf mountain, row trees
+	# and Main Street's storefronts (levels/town/outskirts.gd, driving:E2); the
+	# farmhouse costs a house plan.
+	# The trees' trunks go in a slice a step (a couple of hundred of them).
+	for part: String in ["poles", "farm", "landmarks", "trees", "downtown"]:
+		_BuildQueue.soon(self, _add_outskirts.bind(part, -1), "town solids outskirts " + part)
 	for house_id: int in TownMap.house_count():
 		_slots[house_id] = []
 	var town := get_tree().get_first_node_in_group("town")
@@ -152,8 +156,17 @@ func _refresh_yards() -> void:
 		_BuildQueue.soon(self, _add_yard.bind(house_id, int(entry.get("seed", 0)), int(entry.get("size", 1)), key), "town solids yard")
 
 
-func _add_outskirts(part: String) -> void:
-	for solid: Array in _Outskirts.solids(part):
+## One part of the outskirts' solids; the trees' a slice of OUTSKIRTS_SLICE at
+## a time (slice -1 works out the rows and queues the slices, each a step).
+func _add_outskirts(part: String, slice: int = 0) -> void:
+	if part == "trees" and slice < 0:
+		for next: int in ceili(float(_Outskirts.row_trees().size()) / float(OUTSKIRTS_SLICE)):
+			_BuildQueue.soon(self, _add_outskirts.bind(part, next), "town solids outskirts trees")
+		return
+	var solids := _Outskirts.solids(part)
+	if part == "trees":
+		solids = solids.slice(slice * OUTSKIRTS_SLICE, (slice + 1) * OUTSKIRTS_SLICE)
+	for solid: Array in solids:
 		if str(solid[0]) == "cylinder":
 			var dims: Vector2 = solid[2]
 			_add_cylinder("Outskirts", solid[1], dims.x, dims.y)

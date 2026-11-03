@@ -1384,6 +1384,7 @@ func _state() -> Dictionary:
 			"builds": streamed.get("builds", 0), "max_build_ms": snappedf(float(streamed.get("max_build_ms", 0.0)), 0.1),
 			"max_frame_ms": snappedf(float(streamed.get("max_frame_ms", 0.0)), 0.1), "pending": streamed.get("pending", 0),
 			"draw_calls": streamed.get("draw_calls", 0), "draw_calls_max": streamed.get("draw_calls_max", 0),
+			"phase_ms": streamed.get("phase_ms", {}),
 			"queue": preload("res://levels/build_queue.gd").stats.duplicate(),
 		}
 	var director := get_tree().get_first_node_in_group("run_director")

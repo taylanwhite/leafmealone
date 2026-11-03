@@ -14,7 +14,10 @@ extends RefCounted
 ##   - Split-rail fences along the County Road, a power line on wooden poles
 ##     beside it and up Main Street's west side, with wires.
 ##   - Trees in rows: a cypress windbreak, broadleaf lines along field edges,
-##     and a line along the back fences between each pair of neighborhoods.
+##     a line along the back fences between each pair of neighborhoods, and Main
+##     Street's trees both sides of the avenue.
+##   - Main Street's downtown round the square: four blocks of storefronts
+##     (storefronts()), each one mesh and its sign.
 ##   - Landmarks you can steer by: the GUTTERFORD water tower by the square, a
 ##     two-faced billboard on the County Road (TurfMasters™ one way, Homie Depot
 ##     the other), and the Municipal Leaf Depository off Main Street, a fenced
@@ -65,7 +68,22 @@ const FENCE_SOUTH: float = 8.8
 ## Main Street's west side: the power line's x.
 const MAIN_POLES_X: float = 331.2
 
+## Main Street's storefronts (driving:E2): the wall colors, the awnings' stripes,
+## the glass, and where a store's front stands off Main Street's centerline (m).
+const WALLS: Array[Color] = [Color(0.62, 0.3, 0.24), Color(0.9, 0.85, 0.72), Color(0.55, 0.62, 0.5), Color(0.5, 0.58, 0.66), Color(0.82, 0.66, 0.32), Color(0.92, 0.91, 0.88), Color(0.48, 0.26, 0.22)]
+const AWNINGS: Array[Color] = [Color(0.72, 0.16, 0.14), Color(0.16, 0.42, 0.26), Color(0.18, 0.3, 0.55), Color(0.9, 0.5, 0.14), Color(0.35, 0.24, 0.42)]
+const GLASS := Color(0.2, 0.27, 0.33)
+const SHOP_TRIM := Color(0.95, 0.94, 0.9)
+const SHOP_FRONT_OFF: float = 13.0
+const SHOP_DEPTH: float = 12.0
+const SHOP_GAP: float = 0.6
+## One story's height (m), and the top of a one-story front's sign band.
+const STORY: float = 4.6
+const UPPER_STORY: float = 3.0
+
 static var _rows: Array = []
+static var _shops: Array = []
+static var _layout: Array = []
 
 
 # ---------------------------------------------------------------- the layout (data)
@@ -128,6 +146,68 @@ static func depository() -> Rect2:
 	return Rect2(400.0, 42.0, 70.0, 36.0)
 
 
+## Main Street's storefronts round the square, Gutterford's downtown: four
+## blocks, two each side, every store facing the street. [[block, front (x, z
+## of its middle at the ground), faces (+1 east, -1 west), width, stories, wall
+## index, awning index, sign key]]. A store a country or row tree would stand in
+## is left out (a gap in the row, like any downtown). Worked out once.
+static func storefronts() -> Array:
+	if not _shops.is_empty():
+		return _shops
+	var blockers: Array = TownMap.country_trees() + row_trees()
+	for shop: Array in storefronts_layout():
+		var rect := shop_rect(shop).grow(3.0)
+		var clear := true
+		for tree: Array in blockers:
+			var at: Vector3 = tree[0]
+			if rect.has_point(Vector2(at.x, at.z)):
+				clear = false
+				break
+		if clear:
+			_shops.append(shop)
+	return _shops
+
+
+## Every store the downtown blocks would hold, before any is left out for a tree.
+static func storefronts_layout() -> Array:
+	if not _layout.is_empty():
+		return _layout
+	var shops: Array = _layout
+	var west := TownMap.MAIN_X - SHOP_FRONT_OFF
+	var east := TownMap.MAIN_X + SHOP_FRONT_OFF
+	# [front x, faces, first z, [[width, stories, sign key], ...]]
+	var blocks: Array = [
+		[west, 1.0, -62.0, [[9.0, 2, "shop_gazette"], [11.0, 1, "shop_diner"], [8.0, 1, "shop_barber"], [10.0, 2, "shop_permits"]]],
+		[west, 1.0, 24.0, [[10.0, 1, "shop_hardware"], [8.0, 2, "shop_insurance"], [12.0, 1, "shop_laundry"], [9.0, 1, "shop_vacant"]]],
+		[east, -1.0, -58.0, [[12.0, 2, "shop_bank"], [9.0, 1, "shop_blower"], [10.0, 1, "shop_thrift"], [11.0, 2, "shop_hoa"]]],
+		[east, -1.0, 22.0, [[10.0, 1, "shop_tax"], [12.0, 2, "shop_vacant"]]],
+	]
+	var index := 0
+	for block_index: int in blocks.size():
+		var block: Array = blocks[block_index]
+		var z := float(block[2])
+		for entry: Array in block[3]:
+			var width := float(entry[0])
+			var front := Vector3(float(block[0]), 0.0, z + width * 0.5)
+			z += width + SHOP_GAP
+			index += 1
+			shops.append([block_index, front, float(block[1]), width, int(entry[1]), (index * 3) % WALLS.size(), index % AWNINGS.size(), str(entry[2])])
+	return shops
+
+
+## A storefront's footprint (x, z).
+static func shop_rect(shop: Array) -> Rect2:
+	var front: Vector3 = shop[1]
+	var faces := float(shop[2])
+	var width := float(shop[3])
+	var back := front.x - faces * SHOP_DEPTH
+	return Rect2(minf(front.x, back), front.z - width * 0.5, SHOP_DEPTH, width)
+
+
+static func shop_height(shop: Array) -> float:
+	return STORY + UPPER_STORY * float(int(shop[4]) - 1)
+
+
 ## The power lines: each a list of pole bases, in order.
 static func pole_lines() -> Array:
 	var county := PackedVector3Array()
@@ -173,6 +253,7 @@ static func row_trees() -> Array:
 		var end_x := minf(TownMap.street_end_x(a), TownMap.street_end_x(b)) - 6.0
 		var crowns: Array = ["orange", "red", "yellow", "rust", "turning"]
 		_row(out, rng, Vector3(TownMap.FIRST_SLOT_X + 12.0, 0.0, za), Vector3(end_x, 0.0, za), Constants.OUTSKIRTS_BACK_ROW_SPACING, "broadleaf", crowns, Vector2(8.0, 11.0))
+	_boulevard(out, rng)
 	# Not on top of a country tree.
 	var country := TownMap.country_trees()
 	for tree: Array in out:
@@ -184,6 +265,35 @@ static func row_trees() -> Array:
 		if clear:
 			_rows.append(tree)
 	return _rows
+
+
+## Main Street's trees: a row each side just past the sidewalk, the length of the
+## avenue, with gaps where a street, the square, a downtown block, the County
+## Road, the depository's drive or a landmark meets it. The west row stands back
+## of the power line and a little shorter, under its wires.
+static func _boulevard(out: Array, rng: RandomNumberGenerator) -> void:
+	var gaps: Array[Vector2] = [Vector2(TownMap.SQUARE.z - 32.0, TownMap.SQUARE.z + 10.0)]
+	for street_z: float in TownMap.STREET_Z:
+		gaps.append(Vector2(street_z - TownMap.STREET_WIDTH * 0.5 - 9.0, street_z + TownMap.STREET_WIDTH * 0.5 + 9.0))
+	var lot := depository()
+	gaps.append(Vector2(lot.get_center().y - 7.0, lot.get_center().y + 7.0))
+	gaps.append(Vector2(TownMap.FIELD_OFFICE.z - 14.0, TownMap.FIELD_OFFICE.z + 14.0))
+	var reach := TownMap.MAIN_WIDTH * 0.5 + TownMap.SIDEWALK
+	var crowns: Array = ["orange", "red", "yellow", "rust", "turning"]
+	for side: float in [-1.0, 1.0]:
+		var x := TownMap.MAIN_X + side * (reach + (2.4 if side > 0.0 else 6.2))
+		var heights := Vector2(7.5, 9.5) if side > 0.0 else Vector2(6.0, 7.0)
+		var z := TownMap.MAIN_Z.x + 12.0
+		while z < TownMap.MAIN_Z.y - 12.0:
+			var at := Vector3(x + rng.randf_range(-0.3, 0.3), 0.0, z + rng.randf_range(-1.0, 1.0))
+			z += Constants.OUTSKIRTS_BOULEVARD_SPACING
+			var blocked := gaps.any(func(gap: Vector2) -> bool: return at.z > gap.x and at.z < gap.y)
+			for shop: Array in storefronts_layout():
+				var front: Vector3 = shop[1]
+				if signf(front.x - TownMap.MAIN_X) == side and absf(front.z - at.z) < float(shop[3]) * 0.5 + 4.0:
+					blocked = true
+			if not blocked:
+				out.append([at, rng.randf_range(heights.x, heights.y), "broadleaf", str(crowns[rng.randi() % crowns.size()])])
 
 
 static func _row(out: Array, rng: RandomNumberGenerator, from: Vector3, to: Vector3, spacing: float, kind: String, crowns: Array, heights: Vector2) -> void:
@@ -199,7 +309,7 @@ static func _row(out: Array, rng: RandomNumberGenerator, from: Vector3, to: Vect
 ## Everything here that collides: [["box", center, size, yaw] or ["cylinder",
 ## center, Vector2(radius, height), 0.0]], world space. part picks a piece (the
 ## colliders build one part a step): "poles", "farm" (a house plan, cold the
-## first time), "landmarks", "trees"; "" is all of them.
+## first time), "landmarks", "trees", "downtown"; "" is all of them.
 static func solids(part: String = "") -> Array:
 	var out: Array = []
 	if part == "" or part == "poles":
@@ -211,6 +321,11 @@ static func solids(part: String = "") -> Array:
 	if part == "" or part == "trees":
 		for tree: Array in row_trees():
 			out.append(["cylinder", (tree[0] as Vector3) + Vector3(0.0, 1.5, 0.0), Vector2(0.35, 3.0), 0.0])
+	if part == "" or part == "downtown":
+		for shop: Array in storefronts():
+			var rect := shop_rect(shop)
+			var high := shop_height(shop)
+			out.append(["box", Vector3(rect.get_center().x, high * 0.5, rect.get_center().y), Vector3(rect.size.x, high, rect.size.y), 0.0])
 	return out
 
 
@@ -261,6 +376,9 @@ static func dress(root: Node3D) -> void:
 	_BuildQueue.later(holder, func() -> void: _water_tower(holder), "outskirts water tower")
 	_BuildQueue.later(holder, func() -> void: _billboard(holder), "outskirts billboard")
 	_BuildQueue.later(holder, func() -> void: _depository(holder), "outskirts depository")
+	# Main Street's storefronts, a block a step.
+	for block: int in 4:
+		_BuildQueue.later(holder, func() -> void: _downtown(holder, block), "outskirts downtown")
 	var trees_holder := Node3D.new()
 	trees_holder.name = "RowTrees"
 	holder.add_child(trees_holder)
@@ -413,6 +531,10 @@ static func _fences_and_poles(parent: Node3D) -> void:
 			var b := Vector3(middle + RUN * 0.5, 0.0, county_z(middle + RUN * 0.5) + out)
 			var yaw := atan2(-(b.z - a.z), b.x - a.x)
 			batch.call("add", "split_rail_run", Transform3D(Basis(Vector3.UP, yaw), (a + b) * 0.5), Color.WHITE, Vector3(RUN, 0.0, 0.0))
+	# Rural mailboxes on posts by the road, each one a farm out of sight.
+	for spot: Vector2 in [Vector2(96.0, -1.0), Vector2(140.0, -1.0), Vector2(262.0, -1.0), Vector2(122.0, 1.0), Vector2(188.0, 1.0)]:
+		var z := county_z(spot.x) + spot.y * (ROAD_HALF + 1.5)
+		batch.call("add", "mailbox_post", Transform3D(Basis(Vector3.UP, PI if spot.y < 0.0 else 0.0), Vector3(spot.x, 0.0, z)))
 	var wires := Node3D.new()
 	wires.name = "Wires"
 	holder.add_child(wires)
@@ -559,6 +681,120 @@ static func _depository(parent: Node3D) -> void:
 	_P.slab(board, Vector3(0.0, 2.3, 0.0), Vector3(4.8, 1.6, 0.06), Color(0.95, 0.95, 0.93))
 	_mesh(sign_root, board, "Board")
 	_text(sign_root, _Strings.TOWN_SIGNS["depository_sign"], Vector3(0.0, 2.4, 0.04), 30, Color(0.16, 0.3, 0.22))
+
+
+## One block of Main Street's storefronts: the concrete out to the sidewalk, each
+## store (one mesh: brick or clapboard box, parapet, glass, door, a striped
+## awning, the sign board, upper windows on a two-story), its sign and its
+## window lettering, and a bench or a news box out front.
+static func _downtown(parent: Node3D, block: int) -> void:
+	var shops: Array = storefronts().filter(func(shop: Array) -> bool: return int(shop[0]) == block)
+	if shops.is_empty():
+		return
+	var root := Node3D.new()
+	root.name = "Downtown%d" % block
+	parent.add_child(root)
+	# The concrete between the sidewalk and the fronts, as high as the sidewalk.
+	var low := INF
+	var high := -INF
+	for shop: Array in shops:
+		var rect := shop_rect(shop)
+		low = minf(low, rect.position.y)
+		high = maxf(high, rect.end.y)
+	var faces := float(shops[0][2])
+	# The sidewalk's outer edge on this block's side (a store facing east stands west of Main).
+	var walk := TownMap.MAIN_X - faces * (TownMap.MAIN_WIDTH * 0.5 + TownMap.SIDEWALK)
+	var front_x := float((shops[0][1] as Vector3).x)
+	var ground := _MeshKit.new()
+	ground.box(Vector3((walk + front_x) * 0.5, 0.02, (low + high) * 0.5), Vector3(absf(front_x - walk), 0.16, high - low + 1.0), Color(0.74, 0.73, 0.7))
+	_mesh(root, ground, "Walk", false)
+	var batch := _PropBatch.new(root, Constants.OUTSKIRTS_PROP_CHUNK)
+	for index: int in shops.size():
+		var shop: Array = shops[index]
+		var store := Node3D.new()
+		store.name = str(shop[7]).capitalize().replace(" ", "")
+		root.add_child(store)
+		store.position = shop[1]
+		# The store's +Z is its front, turned to face Main Street.
+		store.rotation.y = PI * 0.5 * faces
+		_storefront(store, shop)
+		var lines: PackedStringArray = str(_Strings.TOWN_SIGNS[str(shop[7])]).split("\n")
+		var width := float(shop[3])
+		var sign_y := STORY - 0.75
+		var title := _text(store, lines[0], Vector3(0.0, sign_y, 0.14), 72 if lines[0].length() < 14 else 56, SHOP_TRIM)
+		title.pixel_size = 0.006
+		if lines.size() > 1:
+			var lettering := _text(store, lines[1], Vector3(-width * 0.12, 2.15, 0.1), 22, Color(0.98, 0.95, 0.82))
+			lettering.outline_size = 0
+		# Out front: a bench, a news box, or nothing.
+		var out_front := Transform3D(Basis(Vector3.UP, store.rotation.y + PI), (shop[1] as Vector3) + Vector3(faces * 3.0, 0.1, 0.0))
+		match index % 3:
+			0:
+				batch.call("add", "bus_bench", out_front)
+			1:
+				batch.call("add", "newspaper_box", out_front.translated(Vector3(0.0, 0.0, width * 0.3)))
+	batch.call("commit")
+
+
+## A storefront in its own frame: front at z 0 facing +Z, back at -SHOP_DEPTH.
+static func _storefront(store: Node3D, shop: Array) -> void:
+	var width := float(shop[3])
+	var stories := int(shop[4])
+	var wall: Color = WALLS[int(shop[5])]
+	var awning: Color = AWNINGS[int(shop[6])]
+	var high := shop_height(shop)
+	var depth := SHOP_DEPTH
+	var kit := _MeshKit.new()
+	kit.box(Vector3(0.0, high * 0.5, -depth * 0.5), Vector3(width, high, depth), wall)
+	# Parapet and cornice.
+	kit.box(Vector3(0.0, high + 0.3, -depth * 0.5), Vector3(width + 0.25, 0.6, depth + 0.25), wall.darkened(0.18))
+	kit.box(Vector3(0.0, high + 0.62, 0.05), Vector3(width + 0.4, 0.16, 0.4), SHOP_TRIM)
+	kit.box(Vector3(0.0, STORY - 0.12, 0.06), Vector3(width + 0.1, 0.2, 0.25), SHOP_TRIM)
+	# Pilasters at the corners.
+	for side: float in [-1.0, 1.0]:
+		kit.box(Vector3(side * (width * 0.5 - 0.2), high * 0.5, 0.06), Vector3(0.42, high, 0.2), wall.darkened(0.1))
+	# The shop window, its kickplate and frame, and the door.
+	var glass_w := width * 0.58
+	var glass_x := -width * 0.12
+	kit.box(Vector3(glass_x, 1.55, 0.04), Vector3(glass_w, 2.1, 0.08), GLASS)
+	kit.box(Vector3(glass_x, 0.25, 0.08), Vector3(glass_w + 0.2, 0.5, 0.16), SHOP_TRIM.darkened(0.15))
+	kit.box(Vector3(glass_x, 2.66, 0.08), Vector3(glass_w + 0.2, 0.12, 0.16), SHOP_TRIM)
+	for mullion: float in [-0.5, 0.0, 0.5]:
+		kit.box(Vector3(glass_x + mullion * glass_w, 1.55, 0.09), Vector3(0.08, 2.1, 0.08), SHOP_TRIM)
+	var door_x := width * 0.32
+	kit.box(Vector3(door_x, 1.15, 0.05), Vector3(1.2, 2.4, 0.1), SHOP_TRIM)
+	kit.box(Vector3(door_x, 1.12, 0.09), Vector3(0.95, 2.2, 0.06), awning.darkened(0.35))
+	kit.box(Vector3(door_x, 1.4, 0.12), Vector3(0.6, 1.0, 0.04), GLASS)
+	# The awning: stripes, sloping down to the street, with a valance.
+	var stripes := maxi(4, int(width / 1.4))
+	var span := width * 0.86
+	for stripe: int in stripes:
+		var x := -span * 0.5 + span * (float(stripe) + 0.5) / float(stripes)
+		var color := awning if stripe % 2 == 0 else SHOP_TRIM
+		kit.box(Vector3(x, 3.02, 0.82), Vector3(span / float(stripes) + 0.01, 0.06, 1.7), color, Basis(Vector3.RIGHT, 0.32))
+		kit.box(Vector3(x, 2.62, 1.62), Vector3(span / float(stripes) + 0.01, 0.3, 0.05), color)
+	# The sign board.
+	kit.box(Vector3(0.0, STORY - 0.75, 0.06), Vector3(width * 0.84, 0.95, 0.14), awning.darkened(0.25))
+	# Down the sides: a downpipe at the front corner and a window or two a story,
+	# so a store seen side-on from a cross street isn't a blank box.
+	for side: float in [-1.0, 1.0]:
+		var face := side * (width * 0.5 + 0.03)
+		kit.box(Vector3(face + side * 0.06, high * 0.5, -0.6), Vector3(0.12, high, 0.12), wall.darkened(0.3))
+		for level: int in stories:
+			var y := 2.3 if level == 0 else STORY + UPPER_STORY * (float(level) - 0.45)
+			for along: float in [-depth * 0.35, -depth * 0.7]:
+				kit.box(Vector3(face, y, along), Vector3(0.08, 1.2, 1.0), GLASS)
+				kit.box(Vector3(face + side * 0.05, y - 0.66, along), Vector3(0.12, 0.1, 1.2), SHOP_TRIM)
+	# Upper windows.
+	for level: int in range(1, stories):
+		var y := STORY + UPPER_STORY * (float(level) - 0.45)
+		var count := maxi(2, int(width / 3.2))
+		for window: int in count:
+			var x := -width * 0.5 + width * (float(window) + 0.5) / float(count)
+			kit.box(Vector3(x, y, 0.04), Vector3(1.1, 1.5, 0.08), GLASS)
+			kit.box(Vector3(x, y - 0.82, 0.1), Vector3(1.3, 0.12, 0.2), SHOP_TRIM)
+			kit.box(Vector3(x, y + 0.8, 0.07), Vector3(1.25, 0.14, 0.12), SHOP_TRIM)
+	_mesh(store, kit, "Look")
 
 
 static func _text(parent: Node3D, text: String, at: Vector3, font_size: int, color: Color, yaw: float = 0.0) -> Label3D:
