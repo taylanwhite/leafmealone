@@ -369,6 +369,11 @@ func _on_player_joined(peer_id: int) -> void:
 	_bind_peer(peer_id)
 	_send_wallet(peer_id)
 	if peer_id != Net.local_peer_id():
+		# Everyone already here, to the newcomer only: their unlocks show on every
+		# peer (a crewmate's upgraded rake head, props/prop_looks.gd rake_tier).
+		for other: int in Net.peer_ids():
+			if other != peer_id and _peer_keys.has(other):
+				_rpc_wallet.rpc_id(peer_id, other, credits(other), _unlock_list(other), _lots_completed)
 		_rpc_progress.rpc_id(peer_id, _lots_completed, _ratings)
 		_rpc_rank.rpc_id(peer_id, _crew_xp, _pending_xp)
 

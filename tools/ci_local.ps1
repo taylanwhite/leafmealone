@@ -154,6 +154,15 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --rank=22 --hire-test'; Seconds = 70; Client = 65
 		Check = { param($h, $c) [bool]$h.hire_test.ok -and ([int]$c.crew_hands -eq 1) }
 	}
+	# The rake's swing (raking:4): bite timing, tap and release, the tines on the
+	# ground, both hands on the handle, a hired hand's own swing; the client half
+	# (Extra gives it the flag) checks the host's rake really swings over there.
+	rake_stroke = @{
+		Port = 7823
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --rank=22 --rake-stroke-test'; Seconds = 60; Client = 55
+		Extra = '--rake-stroke-test'
+		Check = { param($h, $c) [bool]$h.rake_stroke_test.ok -and $c -ne $null -and [bool]$c.rake_stroke_test.ok }
+	}
 	rival = @{
 		Port = 7807
 		Host = '--host --name=Tester --no-steam --rank=17 --rival-test'; Seconds = 20

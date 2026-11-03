@@ -2,19 +2,37 @@ extends Node
 
 ## Authority: owning peer sends the request. The leaf field decides what changes.
 ## Primary rakes. Secondary bags leaves, which is what currently counts as cleaned.
+##
+## The rake swings (docs/GAME.md, "Raking: the push-sweep"; equipment/rake_stroke.gd):
+## a press starts a 0.6 s swing whose two bites are the field strokes, on the
+## raker's own peer. Everyone else's copy of this node replays that swing from the
+## field's stroke events, so the rake, the leaves and the sound arrive together.
+## The look comes from props/rake_motion.gd, the leaves from leaves/, the sounds
+## from audio/ (raking:2, 3 and 5): nothing here draws or plays anything.
+
+## Emitted on the raker's own peer each time a swing bites (0 = the plant, 1 =
+## mid-drive), with the leaves it moved (0 when the field doesn't say).
+signal stroke_bite(bite: int, moved: int)
+## Emitted on everyone else's peer when a stroke event drives this player's swing.
+signal remote_bite(bite: int)
 
 ## Strength, width, and bag radius live in Constants (RAKE_*, HAND_RAKE_*, BAG_RADIUS),
 ## because the host checks them too. TODO(balance): move them into the workbook.
 const REACH: float = 1.5
 const _Strings = preload("res://ui/strings.gd")
+const _StrokeCam = preload("res://player/stroke_cam.gd")
 ## Hand raking: a stroke at most this often, so flailing doesn't turn into a fast rake.
 const HAND_STROKE_SECONDS: float = 0.35
+## Before raking:1's stroke events, a client matches the field's stroke_visual to
+## a raker whose rake reaches within this of it (m).
+const STAND_IN_MATCH: float = 0.8
 
 var _hand_wait: float = 0.0
 var _rake_wait: float = 0.0
 var _work_wait: float = 0.0
 var _spray: CPUParticles3D
 var _hooked_field: Node
+var _events_field: Node
 
 
 func _physics_process(delta: float) -> void:
@@ -22,24 +40,32 @@ func _physics_process(delta: float) -> void:
 	if player == null or multiplayer.multiplayer_peer == null:
 		return
 	if not player.is_multiplayer_authority():
+		# Someone else's swing, replayed from their stroke events.
+		RakeStroke.remote_step(player.name.to_int(), delta)
 		return
 	_hook_refusal()
 	_show_pile(player, delta)
 	_hand_wait = maxf(0.0, _hand_wait - delta)
 	_rake_wait = maxf(0.0, _rake_wait - delta)
 	_work_wait = maxf(0.0, _work_wait - delta)
+	var held: Node = player.call("_held_prop")
+	var has_rake := held != null and str(held.get("kind")) == "rake"
+	var held_kind := str(held.get("kind")) if held != null else ""
+	if has_rake:
+		_ensure_stroke_cam(player)
 	# Clicking around the phone or a window isn't working the yard.
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	if ui != null and ui.visible and bool(ui.call("any_window_open")):
 		_set_spray(player, "")
+		_swing(player, delta, false)
 		return
-	var held: Node = player.call("_held_prop")
-	var has_rake := held != null and str(held.get("kind")) == "rake"
-	var held_kind := str(held.get("kind")) if held != null else ""
 	_set_spray(player, held_kind if Input.is_action_pressed("primary") else "")
+	var up_high := bool(player.call("is_up_high"))
+	# The rake swings on a 0.6 s rhythm, two strokes a swing (rake_stroke.gd).
+	_swing(player, delta, has_rake and not up_high)
 	# Up a ladder or on the roof: left click works the gutters and the roof's
 	# leaves, by hand or with the leaf blower.
-	if bool(player.call("is_up_high")) and held_kind != "hose" and held_kind != "pressure_washer":
+	if up_high and held_kind != "hose" and held_kind != "pressure_washer":
 		if Input.is_action_pressed("primary") and _work_wait <= 0.0:
 			_work_wait = 0.15
 			var tasks := get_tree().get_first_node_in_group("job_tasks")
@@ -64,16 +90,136 @@ func _physics_process(delta: float) -> void:
 	if held != null and not has_rake:
 		return
 	if Input.is_action_pressed("primary"):
-		if has_rake:
-			# A stroke on a rhythm, not every tick: each one shoves leaves well forward.
-			if _rake_wait <= 0.0:
-				_rake_wait = Constants.RAKE_STROKE_SECONDS
-				_stroke(player, false, Constants.RAKE_STRENGTH, Constants.RAKE_WIDTH)
-		elif _hand_wait <= 0.0 and not bool(player.get("winding")) and not bool(player.call("wants_punch")):
+		# With the rake, _swing does the strokes.
+		if not has_rake and _hand_wait <= 0.0 and not bool(player.get("winding")) and not bool(player.call("wants_punch")):
 			_hand_wait = HAND_STROKE_SECONDS
 			_hand_rake(player)
 	elif Input.is_action_just_pressed("secondary"):
 		_stroke(player, true, 0.0, 0.0)
+
+
+## The raker's own swing, every tick (bots press the same buttons, so they swing
+## too). can_rake: the rake is in hand and in use; false cancels a swing that
+## hasn't bitten yet. Each bite is one field stroke, exactly today's request.
+func _swing(player: CharacterBody3D, delta: float, can_rake: bool) -> void:
+	var actor := player.name.to_int()
+	var pressed := can_rake and (Input.is_action_pressed("primary") or Input.is_action_just_pressed("primary"))
+	var fired := RakeStroke.local_step(actor, delta, pressed, not can_rake)
+	for bite: int in fired:
+		_rake_bite(player, bite)
+
+
+## One bite of the swing: a field stroke from where the rake reaches, the way you face.
+func _rake_bite(player: CharacterBody3D, bite: int) -> void:
+	var forward := -player.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length() < 0.001:
+		return
+	forward = forward.normalized()
+	var origin := player.global_position + forward * REACH + Vector3(0.0, 0.2, 0.0)
+	var field := _field_near(origin)
+	if field == null:
+		return
+	var actor := player.name.to_int()
+	var moved := 0
+	if field.has_signal("stroke_event"):
+		# raking:1: the bite and the swing's tempo ride along, and the field says
+		# how much it moved (predicted on a client).
+		var result: Variant = field.call("request_rake", origin, forward, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH, bite, RakeStroke.cycle_seconds(actor))
+		moved = int(result) if typeof(result) == TYPE_INT else 0
+	else:
+		# Before raking:1 the field doesn't say: the leaves under the head will do.
+		moved = int(float(field.call("units_within_world", origin, Constants.RAKE_WIDTH * 0.5)) * Constants.RAKE_LOAD_GUESS)
+		field.call("request_rake", origin, forward, Constants.RAKE_WIDTH, Constants.RAKE_STRENGTH)
+	RakeStroke.set_load(actor, moved)
+	stroke_bite.emit(bite, moved)
+
+
+## Where this player is in a swing, on every peer: 0..1, or -1 when not swinging.
+func stroke_phase() -> float:
+	var player := get_parent()
+	return RakeStroke.phase_of(player.name.to_int()) if player != null else -1.0
+
+
+## Every peer: hooks the current field's stroke events (each job is a new field)
+## and leans this player's body into their swing.
+func _process(_delta: float) -> void:
+	var player := get_parent() as Node3D
+	if player == null or multiplayer.multiplayer_peer == null:
+		return
+	_hook_events()
+	var body := player.get_node_or_null("Visual/CartoonBody")
+	if body == null or not body.has_method("set_work_pose"):
+		return
+	var held: Node = player.call("_held_prop") if player.has_method("_held_prop") else null
+	if held != null and str(held.get("kind")) == "rake":
+		var shown := RakeStroke.display(player.name.to_int())
+		body.call("set_work_pose", float(shown["lean"]), float(shown["twist"]), float(shown["hip"]))
+	else:
+		body.call("set_work_pose", 0.0, 0.0, 0.0)
+
+
+func _hook_events() -> void:
+	var field := _field_near(Vector3.ZERO)
+	if field == null or field == _events_field:
+		return
+	_events_field = field
+	if field.has_signal("stroke_event"):
+		field.connect("stroke_event", _on_stroke_event)
+	elif field.has_signal("stroke_visual"):
+		# Before raking:1 merges: the old stroke_visual (clients only, a position,
+		# only when leaves moved) stands in for the events.
+		field.connect("stroke_visual", _on_stroke_visual)
+
+
+## A stroke somebody made (contract C1). Only this player's, and only ones this
+## peer didn't make itself (its own swing already played them).
+func _on_stroke_event(ev: Dictionary) -> void:
+	var player := get_parent() as Node3D
+	if player == null or bool(ev.get("local", false)) or int(ev.get("actor", 0)) != player.name.to_int():
+		return
+	match str(ev.get("kind", "")):
+		"rake":
+			RakeStroke.on_event(int(ev["actor"]), ev)
+			remote_bite.emit(int(ev.get("bite", 0)))
+		"hand":
+			var body := player.get_node_or_null("Visual/CartoonBody")
+			if body != null and not bool(body.call("is_gesturing")):
+				body.call("gesture", "flail")
+
+
+## Stand-in for _on_stroke_event before raking:1: a stroke where this player's
+## rake reaches is theirs; mid-swing it's the second bite, else the first.
+func _on_stroke_visual(at: Vector3) -> void:
+	var player := get_parent() as CharacterBody3D
+	if player == null or player.is_multiplayer_authority():
+		return
+	var held: Node = player.call("_held_prop")
+	if held == null or str(held.get("kind")) != "rake":
+		return
+	var forward := -player.global_transform.basis.z
+	forward = Vector3(forward.x, 0.0, forward.z).normalized()
+	var expected := player.global_position + forward * REACH + Vector3(0.0, 0.2, 0.0)
+	if at.distance_to(expected) > STAND_IN_MATCH:
+		return
+	var actor := player.name.to_int()
+	var phase := RakeStroke.phase_of(actor)
+	var bite := 1 if phase >= 0.3 and phase < 0.95 else 0
+	RakeStroke.on_event(actor, {"kind": "rake", "actor": actor, "bite": bite, "tempo": 0.0})
+	remote_bite.emit(bite)
+
+
+## Your own first-person camera nods with the plant (player/stroke_cam.gd).
+func _ensure_stroke_cam(player: CharacterBody3D) -> void:
+	if not Constants.RAKE_CAM_ENABLED:
+		return
+	var camera := player.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
+	if camera == null or camera.has_node("StrokeCam"):
+		return
+	var cam: Node = _StrokeCam.new()
+	cam.name = "StrokeCam"
+	cam.set("actor", player.name.to_int())
+	camera.add_child(cam)
 
 
 ## Using a tool: the leaf blower puffs leaves along like a super rake; the rest
@@ -275,9 +421,8 @@ func _stroke(player: CharacterBody3D, bag: bool, strength: float, width: float) 
 		# Bag the pile, wherever the strokes pushed it, not a fixed spot.
 		field.call("request_collect", _pile_spot(player, field), Constants.BAG_RADIUS)
 	else:
+		# Hands and the blower; the leaves fly and sound from the field's events.
 		field.call("request_rake", origin, forward, width, strength)
-		_play_sfx("rake")
-	_burst(origin, forward, width > Constants.HAND_RAKE_WIDTH)
 
 
 ## A refused bag (too few leaves) gets a puzzled "eh?" from you; out of bags,
@@ -302,36 +447,6 @@ func _field_near(_origin: Vector3) -> Node:
 	if fields.is_empty():
 		return null
 	return fields[0] as Node
-
-
-## Leaves thrown up and forward the way you raked, more with the rake than by hand.
-func _burst(at: Vector3, forward: Vector3 = Vector3.UP, with_rake: bool = true) -> void:
-	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.18, 0.08, 0.12)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = [Color(0.85, 0.42, 0.17), Color(0.89, 0.71, 0.23), Color(0.64, 0.23, 0.14)][randi() % 3]
-	var particles := CPUParticles3D.new()
-	particles.one_shot = true
-	particles.explosiveness = 1.0
-	particles.amount = 18 if with_rake else 5
-	particles.lifetime = 0.45
-	particles.mesh = mesh
-	particles.material_override = material
-	particles.direction = (forward + Vector3(0.0, 1.2, 0.0)).normalized()
-	particles.spread = 35.0
-	particles.initial_velocity_min = 1.5
-	particles.initial_velocity_max = 3.5 if with_rake else 2.0
-	particles.gravity = Vector3(0, -5.0, 0)
-	particles.emitting = true
-	player_parent().add_child(particles)
-	particles.global_position = at
-	get_tree().create_timer(0.8).timeout.connect(particles.queue_free)
-
-
-func _play_sfx(sound_name: String) -> void:
-	var sfx := get_tree().get_first_node_in_group("sfx")
-	if sfx != null:
-		sfx.call("play", sound_name)
 
 
 func player_parent() -> Node:

@@ -15,12 +15,15 @@ const _YardModels = preload("res://props/yard_models.gd")
 ## BOARD: the job's paid, so they walk back to Chefty and climb in (driving chunk D).
 enum State { FIND, WALK, RAKE, BAG, HAUL, REST, BOARD }
 
-## Where the hand's rake sits under their Visual (+Z ahead): its tine collar
-## (the model's origin) just above the ground ahead, the handle tipped back up
-## into the "rake" gesture's hands. Layout, not tuning.
-const HAND_RAKE_AT := Vector3(0.0, 0.21, 1.05)
-const HAND_RAKE_TURN := Vector3(-0.72, 0.0, 0.0)
 const HAND_BAG_AT := Vector3(0.0, 0.55, 0.4)
+## The step after the pile (m) glides over the swing's way back, from this phase on.
+const STEP_AFTER_PILE: float = 0.18
+const GLIDE_FROM: float = 0.7
+## Before raking:1's stroke events, a client matches the field's stroke_visual to
+## this hand's rake reach within this (m).
+const STAND_IN_MATCH: float = 0.8
+## How fast a hand turns to face the way it rakes (rad/s).
+const TURN_SPEED: float = Constants.HIRE_TURN_SPEED
 
 ## Replicated: the name over their head, how they look, what their arms are doing.
 var hand_name: String = ""
@@ -33,12 +36,23 @@ var _state: int = State.FIND
 var _target := Vector3.ZERO
 var _rake_dir := Vector3.FORWARD
 var _strokes: int = 0
-var _stroke_wait: float = 0.0
 var _carrying_units: int = 0
 var _state_time: float = 0.0
 var _gravity: float = 9.8
 var _rng := RandomNumberGenerator.new()
 var _built: bool = false
+## Host: what's left of the step after the pile, glided over the swing's way back.
+var _glide_left: float = 0.0
+var _events_field: Node
+var _rake_shown: bool = false
+## Every peer: this hand's last STROKE_LOG_KEEP strokes as this peer saw them
+## ({phase, msec}), and how many it has seen in all, for tests.
+var stroke_log: Array = []
+var stroke_count: int = 0
+const STROKE_LOG_KEEP: int = 32
+
+## Host: emitted on each of this hand's strokes (the bite), for tests.
+signal raked(origin: Vector3)
 
 
 func _ready() -> void:
@@ -50,20 +64,97 @@ func _ready() -> void:
 		_LotNav.ensure(_lot_zone())
 
 
+## This hand in stroke events: Constants.RAKE_ACTOR_HAND_BASE + N for "HandN".
+func actor() -> int:
+	return Constants.RAKE_ACTOR_HAND_BASE + name.to_int()
+
+
 func _process(_delta: float) -> void:
 	# Spawn-synced properties land before _ready on clients; build the look once they have.
 	if not _built and hand_name != "":
 		_built = true
 		_dress_up()
+	_hook_events()
 	var body := get_node_or_null("Visual/CartoonBody")
-	if body != null and action == "rake" and not bool(body.call("is_gesturing")):
-		body.call("gesture", "rake")
 	var rake := get_node_or_null("Visual/HandRake") as Node3D
+	var holding := action != "carry"
 	if rake != null:
-		rake.visible = action != "carry"
+		rake.visible = holding
 	var bag := get_node_or_null("Visual/HandBag") as Node3D
 	if bag != null:
 		bag.visible = action == "carry"
+	if body == null:
+		return
+	# Hands on the rake's grips, leaning into the swing (props/rake_motion.gd).
+	var pose := rake.get_node_or_null("Pose") as Node3D if rake != null else null
+	if holding and pose != null:
+		var grips := RakeMotion.grips_of(pose)
+		body.call("set_hold", grips[0], grips[1])
+		var shown := RakeStroke.display(actor())
+		body.call("set_work_pose", float(shown["lean"]), float(shown["twist"]), float(shown["hip"]))
+	else:
+		body.call("set_hold", Vector3.INF, Vector3.INF)
+		body.call("set_work_pose", 0.0, 0.0, 0.0)
+
+
+## Every peer: the rake posed from this hand's swing, after the swing moved on.
+func _pose_rake() -> void:
+	var visual := get_node_or_null("Visual") as Node3D
+	var pose := get_node_or_null("Visual/HandRake/Pose") as Node3D
+	if visual == null or pose == null or action == "carry":
+		_rake_shown = false
+		RakeMotion.unpublish(pose)
+		return
+	RakeMotion.pose_frame(pose, hand_frame(visual), RakeStroke.display(actor()), actor(), 0.0, RakeMotion.shoulders_of(visual.get_node_or_null("CartoonBody")))
+	if not _rake_shown:
+		# Back in hand after hauling a bag: no streak from where it was last drawn.
+		pose.reset_physics_interpolation()
+		_rake_shown = true
+
+
+## Remembers a stroke for tests, keeping only the last STROKE_LOG_KEEP.
+func _log_stroke() -> void:
+	stroke_count += 1
+	stroke_log.append({"phase": RakeStroke.phase_of(actor()), "msec": Time.get_ticks_msec()})
+	if stroke_log.size() > STROKE_LOG_KEEP:
+		stroke_log.pop_front()
+
+
+## A hand's body frame for posing (feet, -Z ahead): their Visual faces +Z.
+static func hand_frame(visual: Node3D) -> Transform3D:
+	var ahead := visual.global_basis.z
+	ahead = Vector3(ahead.x, 0.0, ahead.z)
+	if ahead.length() < 0.001:
+		ahead = Vector3.FORWARD
+	return Transform3D(Basis.looking_at(ahead.normalized(), Vector3.UP), visual.global_position)
+
+
+## Clients: this hand's swing is replayed from its stroke events (the host runs it).
+func _hook_events() -> void:
+	if Net.is_host():
+		return
+	var field := get_tree().get_first_node_in_group("leaf_field")
+	if field == null or field == _events_field:
+		return
+	_events_field = field
+	if field.has_signal("stroke_event"):
+		field.connect("stroke_event", func(ev: Dictionary) -> void:
+			if str(ev.get("kind", "")) == "crew_rake" and int(ev.get("actor", 0)) == actor():
+				_remote_stroke(ev)
+		)
+	elif field.has_signal("stroke_visual"):
+		# Before raking:1: the old stroke_visual where this hand's rake reaches.
+		field.connect("stroke_visual", func(at: Vector3) -> void:
+			var ahead := global_basis.z
+			ahead = Vector3(ahead.x, 0.0, ahead.z).normalized()
+			if action == "rake" and at.distance_to(global_position + ahead * 0.9) < STAND_IN_MATCH:
+				_remote_stroke({"kind": "crew_rake", "actor": actor(), "bite": 0, "tempo": 0.0})
+		)
+
+
+func _remote_stroke(ev: Dictionary) -> void:
+	RakeStroke.on_event(actor(), ev)
+	_log_stroke()
 
 
 func _dress_up() -> void:
@@ -93,15 +184,19 @@ func _dress_up() -> void:
 
 
 ## The hired hand's own rake, under their Visual (which faces +Z here; the body is
-## turned to match): tines on the ground ahead, the handle running back up into
-## the hands of the "rake" gesture. Also used by the studio (tools/studio, "gestures").
+## turned to match): a Pose posed by their swing (props/rake_motion.gd), standing
+## ready until then. Also used by the studio (tools/studio, "gestures").
 static func add_hand_rake(visual: Node3D) -> Node3D:
-	var rake := _YardModels.node("rake")
+	var rake := Node3D.new()
 	rake.name = "HandRake"
 	visual.add_child(rake)
-	rake.position = HAND_RAKE_AT
-	rake.rotation = HAND_RAKE_TURN
-	rake.scale = Vector3.ONE * 0.8
+	var pose := Node3D.new()
+	pose.name = "Pose"
+	rake.add_child(pose)
+	RakeMotion.dress(pose, 0)
+	if visual.is_inside_tree():
+		RakeMotion.pose_frame(pose, hand_frame(visual), RakeStroke.idle(), 0)
+		pose.reset_physics_interpolation()
 	return rake
 
 
@@ -125,7 +220,21 @@ func on_bonked(_push: Vector3, _tier: String) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not Net.is_host():
+		RakeStroke.remote_step(actor(), delta)
+		_pose_rake()
 		return
+	_physics_host(delta)
+	# Not raking: let a swing in progress finish, then stand ready.
+	if _state != State.RAKE:
+		RakeStroke.crew_step(actor(), delta, _cycle(), false)
+	_pose_rake()
+
+
+func _cycle() -> float:
+	return Constants.HIRE_STROKE_SECONDS / maxf(skill, 0.3)
+
+
+func _physics_host(delta: float) -> void:
 	_state_time += delta
 	match _state:
 		State.FIND:
@@ -201,24 +310,42 @@ func _find_work() -> void:
 	_begin(State.WALK)
 
 
-## A stroke every so often, inching forward behind the pile.
+## A swing every HIRE_STROKE_SECONDS / skill, one stroke at its bite
+## (Constants.RAKE_CREW_BITES), inching forward behind the pile on the way back.
 func _rake(delta: float) -> void:
-	_stop(delta)
-	rotation.y = atan2(_rake_dir.x, _rake_dir.z)
-	_stroke_wait -= delta
-	if _stroke_wait > 0.0:
-		return
-	_stroke_wait = Constants.HIRE_STROKE_SECONDS / maxf(skill, 0.3)
-	var field := get_tree().get_first_node_in_group("leaf_field")
-	if field == null:
-		_begin(State.FIND)
-		return
-	var origin := global_position + _rake_dir * 0.9
-	field.call("host_hand_rake", origin, _rake_dir, skill)
-	_strokes += 1
-	# Step after the pile.
-	global_position += _rake_dir * 0.18
-	if _strokes >= Constants.HIRE_STROKES_PER_PILE:
+	# Turn to face the pile's way (not an instant about-face), then start swinging.
+	var facing := atan2(_rake_dir.x, _rake_dir.z)
+	rotation.y = rotate_toward(rotation.y, facing, TURN_SPEED * delta)
+	var cycle := _cycle()
+	var turned := absf(angle_difference(rotation.y, facing)) < 0.15
+	var working := _strokes < Constants.HIRE_STROKES_PER_PILE and (turned or RakeStroke.phase_of(actor()) >= 0.0)
+	if RakeStroke.crew_step(actor(), delta, cycle, working):
+		var field := get_tree().get_first_node_in_group("leaf_field")
+		if field == null:
+			_begin(State.FIND)
+			return
+		var origin := global_position + _rake_dir * 0.9
+		if field.has_signal("stroke_event"):
+			field.call("host_hand_rake", origin, _rake_dir, skill, actor())
+		else:
+			field.call("host_hand_rake", origin, _rake_dir, skill)
+		_strokes += 1
+		_glide_left = STEP_AFTER_PILE
+		_log_stroke()
+		raked.emit(origin)
+	# The step after the pile, glided over the swing's way back (never a jump).
+	var phase := RakeStroke.phase_of(actor())
+	if _glide_left > 0.0 and (phase >= GLIDE_FROM or phase < 0.0):
+		var step := minf(_glide_left, STEP_AFTER_PILE * (delta / cycle) / (1.0 - GLIDE_FROM))
+		_glide_left -= step
+		velocity.x = _rake_dir.x * step / maxf(delta, 0.0001)
+		velocity.z = _rake_dir.z * step / maxf(delta, 0.0001)
+		_fall(delta)
+		move_and_slide()
+	else:
+		_stop(delta)
+	# The last swing finished and its step taken: bag the pile.
+	if _strokes >= Constants.HIRE_STROKES_PER_PILE and phase < 0.0 and _glide_left <= 0.0:
 		_begin(State.BAG)
 
 
@@ -228,7 +355,7 @@ func _bag() -> void:
 		_begin(State.FIND)
 		return
 	var pile := global_position + _rake_dir * (0.9 + 0.5 * 3.0)
-	var units := int(field.call("host_hand_collect", pile))
+	var units := int(field.call("host_hand_collect", pile, actor())) if field.has_signal("stroke_event") else int(field.call("host_hand_collect", pile))
 	if units <= 0:
 		_begin(State.FIND)
 		return

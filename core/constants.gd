@@ -1549,6 +1549,129 @@ const HOLD_ARM_LONGEST: float = 1.15
 ## probe's grip_ok, hotbar_test step 9).
 const HOLD_GRIP_REACH: float = 0.62
 
+# ---- raking: rake stroke (R1 chunk 4)
+# One push-sweep swing everyone sees (equipment/rake_stroke.gd, props/rake_motion.gd;
+# docs/GAME.md "Raking: the push-sweep"). Phases are fractions of one swing.
+## Field strokes per swing: a swing lasts RAKE_STROKE_SECONDS x this (0.6 s), so
+## holding the button keeps today's 3.33 strokes a second.
+const RAKE_SWING_STROKES: int = 2
+## OQ-R1-1: "push" (leaves go away from you, the field's rule). Only the head path
+## would change for "pull".
+const RAKE_SWING_STYLE: String = "push"
+## When each field stroke bites, as a fraction of the swing (0.12 s and 0.30 s).
+const RAKE_SWING_BITES: Array[float] = [0.2, 0.5]
+## The plant (tines touch down), the end of the drive, and the end of the flick.
+const RAKE_SWING_PHASES: Dictionary = {"plant": 0.2, "drive_end": 0.7, "flick_end": 0.85}
+## A hired hand's swing (HIRE_STROKE_SECONDS / skill long) bites once, here.
+const RAKE_CREW_BITES: Array[float] = [0.25]
+## How far ahead of the feet the tines plant, and where the drive ends (m). The
+## hands hold the 1.6 m handle near its top, so the plant can't come closer than
+## this without the hands going up past the face; the far end needs the lunge.
+const RAKE_HEAD_NEAR: float = 1.25
+const RAKE_HEAD_FAR: float = 1.95
+## The head sits a little to the right of center (a right-handed hold), drifts
+## sideways at most this much during a drive, alternating sides swing to swing,
+## and is never further than RAKE_HEAD_LATERAL off center (m).
+const RAKE_HEAD_BASE_X: float = 0.12
+const RAKE_HEAD_DRIFT: float = 0.13
+const RAKE_HEAD_LATERAL: float = 0.25
+## How far the head turns off straight ahead with the drift (rad, 15 degrees).
+const RAKE_HEAD_YAW_MAX: float = 0.26
+## The return arc's height, the wrist flick's extra height at the end of the drive,
+## and how far the head follows through forward in the flick (m).
+const RAKE_HEAD_LIFT: float = 0.11
+const RAKE_HEAD_FLICK: float = 0.12
+const RAKE_HEAD_FOLLOW: float = 0.06
+## The tines are kinked this far toe-down from the handle (rad), and bend back by up
+## to RAKE_TINE_FLEX x load while they push leaves; the flick tips them up.
+const RAKE_HEAD_TOE_DOWN: float = 0.45
+const RAKE_TINE_FLEX: float = 0.3
+const RAKE_TINE_FLICK: float = 0.35
+## Leaves moved by one stroke that count as a full load (look only, never timing).
+const RAKE_LOAD_FULL: float = 5000.0
+## The hands on the handle: the upper (left) hand near the top, the lower (right)
+## one this far below it, or as close as RAKE_HAND_SPAN_MIN when the arm can't
+## reach. The upper hand aims for the chest with the head close in and out over
+## the belly at full stretch, in the holder's body space (x right, y up, -z ahead),
+## before the lunge; it slides at most RAKE_HAND_SLIDE_MAX down from the top.
+const RAKE_HAND_SPAN: float = 0.48
+const RAKE_HAND_SPAN_MIN: float = 0.35
+const RAKE_HAND_NEAR: Vector3 = Vector3(0.16, 1.3, -0.3)
+const RAKE_HAND_FAR: Vector3 = Vector3(0.12, 1.0, -0.6)
+const RAKE_HAND_SLIDE_MAX: float = 0.3
+## Your own rake while you look through your eyes (your body is hidden then, and
+## the camera doesn't lunge): both hands at the handle's top, this far apart, and
+## your first-person arms may stretch to this times their length to hold on.
+const RAKE_HAND_SPAN_FP: float = 0.3
+const RAKE_FP_ARM_STRETCH: float = 1.9
+## Where the handle aims then, in body space: just past your right shoulder.
+const RAKE_FP_HANDLE_AIM: Vector3 = Vector3(0.3, 1.25, 0.0)
+## The handle slides this far through the hands over a drive (m).
+const RAKE_HANDLE_SLIDE: float = 0.1
+## The body leans into the shove (torso x, negative is forward), twists with the
+## drift, sticks its hips back as the tines plant (m) and then lunges forward
+## into the drive, the left foot stepping out (m).
+const RAKE_LEAN_X: float = -0.36
+const RAKE_TWIST_Y: float = 0.2
+const RAKE_HIP_SHIFT: float = 0.06
+const RAKE_LUNGE: float = 0.3
+## First person: the camera nods down this far at the plant (in 0.06 s, back over
+## 0.25 s), rolls a touch with the drift, and narrows the view during the drive.
+const RAKE_CAM_DIP_DEG: float = 1.6
+const RAKE_CAM_ROLL_DEG: float = 0.5
+const RAKE_CAM_FOV_KICK: float = -1.0
+const RAKE_CAM_ENABLED: bool = true
+## Rake heads by tier (starter, Tune-Up, The Leafinator): width (m) and tines.
+const RAKE_HEAD_WIDTHS: Array[float] = [0.95, 1.15, 1.35]
+const RAKE_TINES: Array[int] = [15, 17, 19]
+## Hired hand "HandN" is actor RAKE_ACTOR_HAND_BASE + N in stroke events.
+const RAKE_ACTOR_HAND_BASE: int = 1000
+## Someone else's swing: blend into a re-phased swing over this long, and back to
+## standing still after a swing nobody followed up (s).
+const RAKE_PLANT_BLEND: float = 0.06
+const RAKE_REMOTE_IDLE_BLEND: float = 0.15
+## The swing's feel (equipment/rake_stroke.gd sample): the share of the full lean
+## kept between drives, and while just holding the rake; the share of the drift and
+## twist already in by the plant; the share of RAKE_HEAD_YAW_MAX the head turns.
+const RAKE_READY_LEAN: float = 0.5
+const RAKE_IDLE_LEAN: float = 0.25
+const RAKE_PLANT_DRIFT_SHARE: float = 0.3
+const RAKE_YAW_SHARE: float = 0.6
+## The tines' bounce at the plant (rad) over this first share of the drive.
+const RAKE_PLANT_BOUNCE: float = 0.06
+const RAKE_PLANT_BOUNCE_SPAN: float = 0.15
+## The body leads the head into the drive: its lean and lunge run this many times
+## faster than the head's travel.
+const RAKE_BODY_LEAD: float = 1.4
+## A full load bends the back this much more (rad of lean per load).
+const RAKE_LOAD_LEAN: float = 0.05
+## The camera nod at the plant: down within this many seconds, back up by the second.
+const RAKE_CAM_DIP_IN: float = 0.06
+const RAKE_CAM_DIP_OUT: float = 0.31
+## The flick lasts this many times the drive_end-to-flick_end span, and lets a full
+## load's tines spring forward by this (rad).
+const RAKE_FLICK_STRETCH: float = 1.6
+const RAKE_FLICK_FLEX: float = -0.05
+## The body in the work pose (player/cartoon_body.gd set_work_pose): the hips turn
+## this share of the twist the other way, the shoulders this share of it with; the
+## front foot steps out this share of the lunge; the face tilts down this share of
+## the lean.
+const WORK_HIP_COUNTER: float = 0.1
+const WORK_TWIST_SHARE: float = 1.1
+const WORK_FRONT_STEP: float = 0.6
+const WORK_FACE_TILT: float = 0.6
+## How far a hand can be from its shoulder before the lower hand slides up the
+## handle (props/rake_motion.gd, m).
+const RAKE_HAND_REACH: float = 0.58
+## Your rake's grips in first person, nudged in head space so the mitts sit on the
+## handle rather than inside it (player/first_person_arms.gd, m).
+const RAKE_FP_GRIP_OFFSET: Vector3 = Vector3(0.0, 0.025, 0.0)
+## How fast a hired hand turns to face the way it rakes (rad/s).
+const HIRE_TURN_SPEED: float = 7.0
+## Before raking:1 the field doesn't say how much a stroke moved: the leaves under
+## the head times this stand in for it (equipment/rake.gd, look only).
+const RAKE_LOAD_GUESS: float = 1.5
+
 # ---- hotbar hud
 # The bar along the bottom of the screen (ui/hotbar_hud.gd; docs/GAME.md "the
 # hotbar"). Pixels are at the 1280x720 design size. The bar owns the bottom

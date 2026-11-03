@@ -203,6 +203,10 @@ func _build(root: Node3D) -> void:
 				{"from": Vector3(0.45, 1.85, 1.45), "at": Vector3(0.0, 1.62, 0.0), "fov": 38.0},
 				{"from": Vector3(1.1, 2.6, 1.3), "at": Vector3(0.0, 1.4, 0.0), "fov": 40.0},
 			])
+		"rake_stroke":
+			# One rake swing frozen at its phases (raking chunk 4).
+			if ResourceLoader.exists("res://tools/studio/rake_stroke_subject.gd"):
+				load("res://tools/studio/rake_stroke_subject.gd").build(root, _options)
 		"holds":
 			_holds(root)
 		"gestures":
