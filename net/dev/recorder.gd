@@ -490,10 +490,11 @@ func _hook_signals() -> void:
 		if _hooked.has(field.get_instance_id()):
 			continue
 		_hooked[field.get_instance_id()] = true
-		if field.has_signal("stroke_visual"):
-			field.connect("stroke_visual", func(at: Vector3) -> void:
+		if field.has_signal("stroke_event"):
+			# Every stroke, once per peer, in the frame its leaves change (contract C1).
+			field.connect("stroke_event", func(ev: Dictionary) -> void:
 				if recording:
-					_event("stroke_visual", {"at": _v(at)})
+					_event("stroke", {"kind": str(ev.get("kind", "")), "actor": int(ev.get("actor", 0)), "bite": int(ev.get("bite", 0)), "moved": int(ev.get("moved", 0)), "local": bool(ev.get("local", false)), "at": _v(ev.get("at", Vector3.ZERO))})
 			)
 		if field.has_signal("chunk_changed"):
 			field.connect("chunk_changed", func(chunk_index: int) -> void:

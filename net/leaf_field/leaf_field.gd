@@ -14,8 +14,6 @@ extends Node3D
 ## OQ-004: cleaned_fraction() counts leaf units removed by collect, not leaves merely raked into a pile.
 
 signal chunk_changed(chunk_index: int)
-## Kept for the 0.4.5 renderer's burst, on clients, until raking:2 and raking:3 merge.
-signal stroke_visual(at: Vector3)
 ## One stroke, once per peer (keys in net/leaf_field/stroke_event.gd, contract C1).
 signal stroke_event(ev: Dictionary)
 ## The whole field was replaced: hard (a new lot, a join) snaps, soft (a resync
@@ -823,8 +821,6 @@ func _rpc_stroke_event(packed: PackedByteArray) -> void:
 			stroke_event.emit(ev)
 	else:
 		stroke_event.emit(ev)
-	if int(ev["moved"]) > 0:
-		stroke_visual.emit(ev["at"])
 
 
 ## Host, at a send tick, before _send_tick counts it: every mower's mulch since the

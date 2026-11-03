@@ -19,9 +19,6 @@ const HAND_BAG_AT := Vector3(0.0, 0.55, 0.4)
 ## The step after the pile (m) glides over the swing's way back, from this phase on.
 const STEP_AFTER_PILE: float = 0.18
 const GLIDE_FROM: float = 0.7
-## Before raking:1's stroke events, a client matches the field's stroke_visual to
-## this hand's rake reach within this (m).
-const STAND_IN_MATCH: float = 0.8
 ## How fast a hand turns to face the way it rakes (rad/s).
 const TURN_SPEED: float = Constants.HIRE_TURN_SPEED
 
@@ -141,14 +138,6 @@ func _hook_events() -> void:
 		field.connect("stroke_event", func(ev: Dictionary) -> void:
 			if str(ev.get("kind", "")) == "crew_rake" and int(ev.get("actor", 0)) == actor():
 				_remote_stroke(ev)
-		)
-	elif field.has_signal("stroke_visual"):
-		# Before raking:1: the old stroke_visual where this hand's rake reaches.
-		field.connect("stroke_visual", func(at: Vector3) -> void:
-			var ahead := global_basis.z
-			ahead = Vector3(ahead.x, 0.0, ahead.z).normalized()
-			if action == "rake" and at.distance_to(global_position + ahead * 0.9) < STAND_IN_MATCH:
-				_remote_stroke({"kind": "crew_rake", "actor": actor(), "bite": 0, "tempo": 0.0})
 		)
 
 

@@ -23,9 +23,6 @@ const _Strings = preload("res://ui/strings.gd")
 const _StrokeCam = preload("res://player/stroke_cam.gd")
 ## Hand raking: a stroke at most this often, so flailing doesn't turn into a fast rake.
 const HAND_STROKE_SECONDS: float = 0.35
-## Before raking:1's stroke events, a client matches the field's stroke_visual to
-## a raker whose rake reaches within this of it (m).
-const STAND_IN_MATCH: float = 0.8
 
 var _hand_wait: float = 0.0
 var _rake_wait: float = 0.0
@@ -166,10 +163,6 @@ func _hook_events() -> void:
 	_events_field = field
 	if field.has_signal("stroke_event"):
 		field.connect("stroke_event", _on_stroke_event)
-	elif field.has_signal("stroke_visual"):
-		# Before raking:1 merges: the old stroke_visual (clients only, a position,
-		# only when leaves moved) stands in for the events.
-		field.connect("stroke_visual", _on_stroke_visual)
 
 
 ## A stroke somebody made (contract C1). Only this player's, and only ones this
@@ -186,27 +179,6 @@ func _on_stroke_event(ev: Dictionary) -> void:
 			var body := player.get_node_or_null("Visual/CartoonBody")
 			if body != null and not bool(body.call("is_gesturing")):
 				body.call("gesture", "flail")
-
-
-## Stand-in for _on_stroke_event before raking:1: a stroke where this player's
-## rake reaches is theirs; mid-swing it's the second bite, else the first.
-func _on_stroke_visual(at: Vector3) -> void:
-	var player := get_parent() as CharacterBody3D
-	if player == null or player.is_multiplayer_authority():
-		return
-	var held: Node = player.call("_held_prop")
-	if held == null or str(held.get("kind")) != "rake":
-		return
-	var forward := -player.global_transform.basis.z
-	forward = Vector3(forward.x, 0.0, forward.z).normalized()
-	var expected := player.global_position + forward * REACH + Vector3(0.0, 0.2, 0.0)
-	if at.distance_to(expected) > STAND_IN_MATCH:
-		return
-	var actor := player.name.to_int()
-	var phase := RakeStroke.phase_of(actor)
-	var bite := 1 if phase >= 0.3 and phase < 0.95 else 0
-	RakeStroke.on_event(actor, {"kind": "rake", "actor": actor, "bite": bite, "tempo": 0.0})
-	remote_bite.emit(bite)
 
 
 ## Your own first-person camera nods with the plant (player/stroke_cam.gd).
