@@ -97,6 +97,8 @@ func _physics_process(delta: float) -> void:
 			_hand_wait = HAND_STROKE_SECONDS
 			_hand_rake(player)
 	elif Input.is_action_just_pressed("secondary"):
+		if _pile_enough and _pile_label != null and _pile_label.visible:
+			bagged_once = true
 		_stroke(player, true, 0.0, 0.0)
 
 
@@ -336,6 +338,10 @@ func _pile_spot(player: CharacterBody3D, field: Node) -> Vector3:
 ## The local player with the rake sees what the pile ahead would bag for, over
 ## the pile itself: gold once it's big enough to bag, gray while it's too thin.
 var _pile_label: Label3D
+## Has this machine's player bagged a pile yet (pressed bag on a gold one)? Then
+## the pile's label drops the bag key for the rest of this run of the game.
+static var bagged_once: bool = false
+var _pile_enough: bool = false
 var _pile_wait: float = 0.0
 
 
@@ -369,7 +375,12 @@ func _show_pile(player: CharacterBody3D, delta: float) -> void:
 		return
 	_pile_label.visible = true
 	_pile_label.global_position = spot + Vector3(0.0, 0.5, 0.0)
-	_pile_label.text = _Strings.keyed(_Strings.UI["pile_value"] % int(field.call("dollars_for", units))) if enough else _Strings.UI["pile_thin"]
+	# x1:text: the price, grey until it's a pile, gold once it bags. The bag key
+	# rides along until this player's first bag of the session.
+	var dollars := int(field.call("dollars_for", units))
+	_pile_enough = enough
+	var with_key := enough and not bagged_once
+	_pile_label.text = _Strings.keyed(_Strings.UI["pile_value"] % dollars) if with_key else _Strings.UI["pile_cash"] % dollars
 	_pile_label.modulate = Color(1.0, 0.85, 0.3) if enough else Color(0.8, 0.8, 0.8, 0.8)
 
 
@@ -403,7 +414,7 @@ func _stroke(player: CharacterBody3D, bag: bool, strength: float, width: float) 
 
 
 ## A refused bag (too few leaves) gets a puzzled "eh?" from you; out of bags,
-## you're also told where to get more.
+## "Out of bags." too, since the supply shows nowhere on the yard (x1:text).
 ## Each job loads a new lot and leaf field, so hook whichever one is current.
 func _hook_refusal() -> void:
 	var field := _field_near(Vector3.ZERO)

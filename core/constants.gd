@@ -1377,9 +1377,6 @@ const PROP_LEASH_METERS: float = 45.0
 ## Chefty not at Homie Depot at bedtime: Marty tows it back for this much ($),
 ## split across the crew like wages.
 const CHEFTY_TOW_FEE: int = 20
-## The goal line says "go to" instead of "get in Chefty" within this many meters
-## of the yard's curb.
-const GOAL_WALK_METERS: float = 45.0
 ## The beacon over the job's curb (levels/lots/site_marker.gd): how tall and wide
 ## (m), and it fades out between these distances (m) as you get close.
 const SITE_BEACON_HEIGHT: float = 30.0
@@ -2290,8 +2287,8 @@ const HOTBAR_SELECT_SECONDS: float = 0.12
 const HOTBAR_SHAKE_SECONDS: float = 0.25
 const HOTBAR_SHAKE_PX: float = 6.0
 const HOTBAR_SHAKE_HZ: float = 22.0
-## How long a refusal's toast stays up, and the emptied-pockets notice (s).
-const HOTBAR_TOAST_SECONDS: float = 1.8
+## How long the emptied-pockets notice stays up (s). A refusal has no toast
+## since x1:text, only the shake.
 const HOTBAR_NOTICE_SECONDS: float = 3.0
 ## Arms full: the slots shrink to this and fade to this, and the hands card
 ## slides up over this long (s).
@@ -3604,3 +3601,18 @@ const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
 ## stepped by Jolt in its own float precision, missed that 29 times in 30 and
 ## bounced off the rail.
 const TOSS_SURE_SHARE: float = 0.04
+
+# ---- x1:text (the plain-text sweep, docs/GAME.md "Writing for players")
+## The homeowner waves you over (npcs/homeowner.gd) once Chefty has bags in it
+## and they haven't been asked yet: the world's "come get paid" in place of a
+## goal line. Every this many seconds (s), while you're between TALK_REACH and
+## this far away (m) from them.
+const HOMEOWNER_BECKON_SECONDS: float = 6.0
+const HOMEOWNER_BECKON_METERS: float = 30.0
+## A free player hears the radio about a teammate at Annex B (ui/quip_player.gd):
+## the first this long (s) after the visit begins, then every gap (s) while
+## anyone they know is still inside, at most this many per visit. Then one line
+## when each teammate's form goes through.
+const ANNEX_DISPATCH_FIRST: float = 30.0
+const ANNEX_DISPATCH_GAP: float = 40.0
+const ANNEX_DISPATCH_MAX: int = 4

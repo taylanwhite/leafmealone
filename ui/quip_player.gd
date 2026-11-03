@@ -71,6 +71,7 @@ func _process(_delta: float) -> void:
 		_clear_heat()
 	_watch_director()
 	_watch_cleanup()
+	_watch_annex()
 
 
 func _on_zone(peer_id: int, zone: Net.Zone) -> void:
@@ -145,6 +146,85 @@ func _watch_director() -> void:
 
 
 var _known_caught: Dictionary = {}
+
+
+## x1:text, the free teammate's radio. While crewmates are at Annex B and this
+## player isn't, a RADIO line every so often says how it's going in there
+## (Strings.ANNEX_QUIPS teammate_dispatch), and one more as each one's form goes
+## through (teammate_out). It is the one thing they can't see from the yard, so
+## it gets words; it never says what to do. The annex's own "X is at Annex B"
+## opens the visit (net/annex/annex.gd).
+var _dispatch_visit: float = -1.0
+var _dispatches: int = 0
+## Teammates heard about this visit: peer id -> true once their "out" line played.
+var _dispatch_out: Dictionary = {}
+var _dispatch_seed: int = 0
+
+
+func _watch_annex() -> void:
+	var annex := get_tree().get_first_node_in_group("annex")
+	var me := Net.local_peer_id()
+	if annex == null or not bool(annex.call("is_active")):
+		# The visit ended (closing time lets everyone out at once, with no "out"
+		# stage this player sees): whoever was still inside is on the way home.
+		for peer_id: Variant in _dispatch_out:
+			if not bool(_dispatch_out[peer_id]):
+				_dispatch(&"teammate_out", int(peer_id), _dispatch_seed + int(peer_id))
+		_dispatch_out.clear()
+		_dispatch_visit = -1.0
+		return
+	var roster: Array[int] = annex.call("roster")
+	var visitors: Array[int] = annex.call("visitors")
+	# Riders and visitors are in the room and can see for themselves.
+	if roster.is_empty() or roster.has(me) or visitors.has(me):
+		_dispatch_out.clear()
+		return
+	var elapsed := float(annex.call("elapsed"))
+	if _dispatch_visit < 0.0 or elapsed < _dispatch_visit:
+		# A new visit (elapsed restarts with each one).
+		_dispatch_visit = elapsed
+		_dispatches = 0
+		_dispatch_out.clear()
+	var seed_value := int(annex.call("seed_value"))
+	_dispatch_seed = seed_value
+	var inside: Array[int] = []
+	for peer_id: int in roster:
+		if str(annex.call("stage_of", peer_id)) == "out":
+			if not bool(_dispatch_out.get(peer_id, false)):
+				_dispatch_out[peer_id] = true
+				_dispatch(&"teammate_out", peer_id, seed_value + peer_id)
+		else:
+			_dispatch_out[peer_id] = false
+			inside.append(peer_id)
+	if inside.is_empty() or not dispatch_due(elapsed, _dispatches):
+		return
+	var who := inside[_dispatches % inside.size()]
+	_dispatches += 1
+	# Consecutive salts: pick_seeded wraps them round the pool, so no line repeats in a visit.
+	_dispatch(&"teammate_dispatch", who, seed_value + _dispatches)
+
+
+## Whether the next dispatch is due, sent of them already played this visit and
+## elapsed seconds since it began: the first at ANNEX_DISPATCH_FIRST, then one
+## every ANNEX_DISPATCH_GAP, ANNEX_DISPATCH_MAX at most. (net/dev/cast_test.gd)
+static func dispatch_due(elapsed: float, sent: int) -> bool:
+	return sent < Constants.ANNEX_DISPATCH_MAX and elapsed >= Constants.ANNEX_DISPATCH_FIRST + Constants.ANNEX_DISPATCH_GAP * float(sent)
+
+
+## One radio line about peer_id, picked from the visit's seed so every free
+## player hears the same one.
+func _dispatch(kind: StringName, peer_id: int, salt: int) -> void:
+	var shown := Net.player_name(peer_id)
+	var pool: Array = _Strings.ANNEX_QUIPS.get(String(kind), [])
+	if shown == "" or pool.is_empty() or _HudMode.cinematic(get_tree(), Net.local_peer_id()):
+		return
+	var stack := get_tree().get_first_node_in_group("caption_stack")
+	if stack != null:
+		stack.call("push", &"radio", _Strings.pick_seeded(pool, salt) % shown, Constants.QUIP_CAPTION_SECONDS, 1)
+	# The run cues' radio crackle (ui/run_cues.gd), not a babble: it's the radio.
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "radio")
 
 
 ## A crewmate was caught: "They took Pat." with their real name, but only for a

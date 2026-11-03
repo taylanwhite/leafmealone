@@ -204,6 +204,44 @@ func _process(delta: float) -> void:
 		if _body.call("current_gesture") != "offer":
 			_body.call("gesture", "offer")
 		_cash.position.y = 1.05 + sin(Time.get_ticks_msec() * 0.005) * 0.03
+	_beckon(delta)
+
+
+var _beckon_left: float = 0.0
+
+
+## Local, cosmetic (x1:text): bags in Chefty and nobody's asked to be paid yet,
+## so they wave you over now and then while you're on the yard but not at their
+## side. The goal line used to say "talk to the homeowner"; this is the world
+## saying it. Reads only what every peer has (Chefty's load, the phase).
+func _beckon(delta: float) -> void:
+	_beckon_left = maxf(0.0, _beckon_left - delta)
+	if _phase != Phase.WAITING or _beckon_left > 0.0 or bool(_body.call("is_gesturing")):
+		return
+	var lot := get_parent()
+	if lot != null and lot.has_method("is_paid") and bool(lot.call("is_paid")):
+		return
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty == null or int(chefty.call("bag_value")) <= 0:
+		return
+	var me: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			me = node as Node3D
+	if me == null or Net.player_zone(Net.local_peer_id()) != Net.Zone.LOT:
+		return
+	var away := _flat_distance(me)
+	if away <= TALK_REACH or away > Constants.HOMEOWNER_BECKON_METERS:
+		return
+	_beckon_left = Constants.HOMEOWNER_BECKON_SECONDS
+	_body.call("gesture", "wave")
+	# The first wave gets a "yoo-hoo" babble, so you look up; after that the waves are quiet.
+	if not _beckoned:
+		_beckoned = true
+		_speak("babble")
+
+
+var _beckoned: bool = false
 
 
 # ---------------------------------------------------------------- host
