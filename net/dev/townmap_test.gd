@@ -21,6 +21,7 @@ const _JobBoard = preload("res://levels/job_board.gd")
 const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
 const _Streamer = preload("res://levels/town/town_streamer.gd")
+const _Outskirts = preload("res://levels/town/outskirts.gd")
 ## No single step of the world's build may take longer than this (ms, headless):
 ## steps are one tree, one body, one parcel's solids. A stall is a frame, and a
 ## frame past ENet's patience drops a joining player (driving chunk E).
@@ -279,6 +280,7 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 	var back := int(colliders.call("house_shapes_enabled"))
 	_verdict(off == enabled - 1 and back == enabled, "a slot's house turns off and on (%d, then %d)" % [off, back], problems)
 	var space := (world as Node3D).get_world_3d().direct_space_state
+	_check_outskirts(space, problems)
 	var query := PhysicsRayQueryParameters3D.create(Vector3(200.0, 5.0, 200.0), Vector3(200.0, -5.0, 200.0), 1)
 	var hit := space.intersect_ray(query)
 	_verdict(not hit.is_empty() and absf(float((hit["position"] as Vector3).y) + 0.02) < 0.05, "the town's ground is solid out in the country (%s)" % hit.get("position", "nothing"), problems)
@@ -291,6 +293,64 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 		_verdict(reach <= sand + 0.01, "the town's grass stops at the border's sand (z %.1f, sand from %.1f)" % [reach, sand], problems)
 	else:
 		_verdict(false, "the town's ground and the border zone exist", problems)
+
+
+## Driving chunk E2: the outskirts (levels/town/outskirts.gd) and Main Street's
+## storefronts are there, solid, and in nobody's way: every solid off the roads
+## and off every yard and house across the street; Main Street has a downtown
+## both sides of the square; a ray down onto a storefront's roof hits it.
+func _check_outskirts(space: PhysicsDirectSpaceState3D, problems: Array[String]) -> void:
+	var solids := _Outskirts.solids()
+	var shops := _Outskirts.storefronts()
+	var lots: Array[Rect2] = []
+	for house_id: int in TownMap.house_count():
+		lots.append(TownMap.yard_rect(house_id))
+	for slot: Dictionary in TownMap.dressing_slots():
+		lots.append(TownMap.dressing_rect(slot))
+	var in_way: Array[String] = []
+	for solid: Array in solids:
+		var center: Vector3 = solid[1]
+		var half := Vector2(0.0, 0.0)
+		if str(solid[0]) == "cylinder":
+			half = Vector2.ONE * float((solid[2] as Vector2).x)
+		else:
+			var size: Vector3 = solid[2]
+			# Turned boxes: their widest reach either way.
+			half = Vector2.ONE * Vector2(size.x, size.z).length() * 0.5 if absf(float(solid[3])) > 0.01 else Vector2(size.x, size.z) * 0.5
+		var rect := Rect2(Vector2(center.x, center.z) - half, half * 2.0)
+		if _rect_on_road(rect) or lots.any(func(lot: Rect2) -> bool: return lot.intersects(rect)):
+			in_way.append("%s at (%.0f, %.0f)" % [solid[0], center.x, center.z])
+	var sides := {}
+	for shop: Array in shops:
+		sides["%s%s" % ["w" if float(shop[2]) > 0.0 else "e", "n" if (shop[1] as Vector3).z < TownMap.SQUARE.z else "s"]] = true
+	var roof_hit := false
+	if not shops.is_empty():
+		var rect := _Outskirts.shop_rect(shops[0])
+		var top := _Outskirts.shop_height(shops[0])
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(rect.get_center().x, top + 5.0, rect.get_center().y), Vector3(rect.get_center().x, 0.5, rect.get_center().y), 1))
+		roof_hit = not hit.is_empty() and absf(float((hit["position"] as Vector3).y) - top) < 0.1
+	_verdict(in_way.is_empty() and shops.size() >= 10 and sides.size() == 4 and roof_hit, "outskirts: %d solids, in the way: %s; %d storefronts on %d of Main Street's 4 block sides, a roof solid %s" % [solids.size(), in_way, shops.size(), sides.size(), roof_hit], problems)
+	_check_pumpkins(problems)
+
+
+## The pumpkin patch follows the season live: its pumpkins are a "seasonal"
+## holder that hides outside autumn and comes back in it (each holder is put
+## back to the season this peer shows afterwards).
+func _check_pumpkins(problems: Array[String]) -> void:
+	var holders: Array[Node3D] = []
+	for node: Node in get_tree().get_nodes_in_group("seasonal"):
+		if node is _Outskirts.InSeason:
+			holders.append(node as Node3D)
+	var follows := not holders.is_empty()
+	for holder: Node3D in holders:
+		var now_shown := holder.visible == (Seasons.current() == _Outskirts.PUMPKIN_SEASON)
+		holder.call("apply_season", 1)
+		var winter := holder.visible
+		holder.call("apply_season", _Outskirts.PUMPKIN_SEASON)
+		var autumn := holder.visible
+		holder.call("apply_season", Seasons.current())
+		follows = follows and now_shown and not winter and autumn
+	_verdict(follows, "the pumpkin patch follows the season (%d seasonal holders: shown now as the season says, gone in winter, back in autumn)" % holders.size(), problems)
 
 
 ## Driving chunk E: the world's build is spread over frames (levels/build_queue.gd):

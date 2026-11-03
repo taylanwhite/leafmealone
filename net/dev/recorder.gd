@@ -113,7 +113,8 @@ const FONT := {
 	"!": "010010010000010", "#": "010111010111010", ">": "100010001010100", "<": "001010100010001",
 }
 ## Event kinds that mark a tile red (something is wrong) or yellow (a sound).
-const RED_FLAGS: Array[String] = ["pop", "cam_snap", "cam_frozen", "view_frozen"]
+const RED_FLAGS: Array[String] = ["pop", "cam_snap", "cam_frozen", "view_frozen", "cam_inside"]
+const _ViewBlockers = preload("res://props/view_blockers.gd")
 
 ## Emitted on the main thread when a stopped take is fully written.
 signal written(report: Dictionary)
@@ -177,6 +178,8 @@ var _last_cam: Camera3D
 var _last_cam_xf := Transform3D()
 var _cam_still_since: float = -1.0
 var _cam_frozen_flagged: bool = false
+## What the lens was inside last frame (_lens_inside), so each entry is one event.
+var _cam_inside: String = ""
 var _last_look_at: float = -100.0
 var _look_sum := Vector2.ZERO
 var _poll: Dictionary = {}
@@ -797,8 +800,33 @@ func _watch_motion(delta: float) -> void:
 	else:
 		_cam_still_since = -1.0
 		_cam_frozen_flagged = false
+	# driving:E2: the lens inside a tree crown or a solid (a house, the truck), each
+	# time it goes in.
+	var inside := _lens_inside(xf.origin)
+	if inside != "" and inside != _cam_inside:
+		_event("cam_inside", {"camera": _node_label(camera), "in": inside, "at": _v(xf.origin)})
+	_cam_inside = inside
 	_last_cam = camera
 	_last_cam_xf = xf
+
+
+## What the lens at `at` is inside: "crown <tree>", "solid <body>" or "".
+func _lens_inside(at: Vector3) -> String:
+	for hit: Array in _ViewBlockers.inside(at, 0.0):
+		if float(hit[1]) > 0.15:
+			return "crown %s" % _node_label(hit[0])
+	var world := get_viewport().world_3d
+	if world == null:
+		return ""
+	var query := PhysicsPointQueryParameters3D.new()
+	query.position = at
+	query.collision_mask = 1 | Constants.VEHICLE_LAYER
+	for hit: Dictionary in world.direct_space_state.intersect_point(query, 4):
+		var body: Variant = hit.get("collider")
+		if body is CharacterBody3D or body is Area3D:
+			continue
+		return "solid %s" % _node_label(body as Node)
+	return ""
 
 
 func _camera_state() -> Dictionary:

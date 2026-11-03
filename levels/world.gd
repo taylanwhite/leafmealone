@@ -265,7 +265,8 @@ func _add_cots() -> void:
 		cot.set("index", index)
 		$StoreZone.add_child(cot)
 		cot.position = Constants.COT_SPOTS[index]
-	_Cot.dress_camp($StoreZone, Constants.COT_SPOTS)
+	var store := $StoreZone as Node3D
+	_BuildQueue.later(store, func() -> void: _Cot.dress_camp(store, Constants.COT_SPOTS), "cot camp")
 
 
 ## An invisible wall around the pad, so a bump cannot walk or jump off it.

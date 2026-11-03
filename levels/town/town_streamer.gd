@@ -10,14 +10,16 @@ extends Node3D
 ## STREAMING. The slots are cut into chunks of Constants.STREAM_SLOTS_PER_CHUNK
 ## along one side of one street. Every STREAM_TICK_SECONDS, from the camera (or
 ## set_focus_override for tests), each chunk picks a level by the distance to
-## its nearest parcel: LOD 0 (LotBuilder "near": the full house and yard, no
-## small clutter) under STREAM_LOD0_METERS, LOD 1 ("far": a far house, lawn and
+## its nearest parcel: LOD 0 (LotBuilder "full": the house and yard down to the
+## gnomes, as the job yard has them) under STREAM_LOD0_METERS, LOD 1 ("far": a far house, lawn and
 ## trees) under STREAM_LOD1_METERS, the SKYLINE (one merged box mesh per chunk,
 ## from LotBuilder.skyline_boxes) under STREAM_CULL_METERS, and nothing past
 ## that. A level only changes STREAM_HYSTERESIS_METERS past its line.
 ##
-## NO POPS. A level is built off the tree, one parcel a frame under
-## STREAM_BUILD_MS_PER_FRAME (nearest chunk first), and added in one add_child.
+## NO POPS. A level is built off the tree under STREAM_BUILD_MS_PER_FRAME
+## (nearest chunk first), each parcel over several steps (driving:E2: its plan,
+## its new tree and prop meshes, its house, the rest, its leaves; stats
+## "phase_ms" has the slowest of each), and added in one add_child.
 ## The level it replaces stays up until then (never a pop to empty), and the two
 ## cross-fade over STREAM_FADE_SECONDS (GeometryInstance3D.transparency). The
 ## level next to the shown one is kept, so turning back doesn't rebuild.
@@ -33,6 +35,8 @@ extends Node3D
 ## (BorderZone) is never streamed: it is its own set, always there.
 
 const _LotBuilder = preload("res://levels/town/lot_builder.gd")
+const _Trees = preload("res://props/trees.gd")
+const _PropCatalog = preload("res://props/prop_catalog.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
@@ -45,7 +49,7 @@ const LOD_SKYLINE: int = 2
 const LOD_NONE: int = 3
 const LOD_NAMES: Array[String] = ["Near", "Far", "Skyline", "None"]
 ## LotBuilder detail per parcel level.
-const DETAIL: Array[String] = ["near", "far"]
+const DETAIL: Array[String] = ["full", "far"]
 ## Fallen leaf colors on a messy lawn (the yard's own leaves are props/yard_models.gd
 ## LEAVES; these add a dry brown so a drift isn't one flat orange).
 const LEAF_COLORS: Array[Color] = [Color(0.9, 0.48, 0.15), Color(0.93, 0.72, 0.22), Color(0.75, 0.25, 0.14), Color(0.58, 0.34, 0.16)]
@@ -75,6 +79,8 @@ var _fades: Array = []
 var _boxes: Dictionary = {}
 ## When the last frame started (Time.get_ticks_usec), for stats max_frame_ms.
 var _frame_at: int = 0
+## Whether the last frame was sat out (BUILD_SKIP_FRAME_OVER_MS).
+var _sat_out: bool = false
 
 
 func _ready() -> void:
@@ -177,16 +183,23 @@ func _process(delta: float) -> void:
 		# The whole frame's length (wall clock) while a level is being built
 		# (docs/DECISIONS.md perf numbers).
 		var now := Time.get_ticks_usec()
+		var long := _frame_at > 0 and now - _frame_at > int(Constants.BUILD_SKIP_FRAME_OVER_MS * 1000.0)
 		if not _job.is_empty() and _frame_at > 0:
 			stats["max_frame_ms"] = maxf(float(stats.get("max_frame_ms", 0.0)), float(now - _frame_at) / 1000.0)
 		_frame_at = now
-		_build_some()
+		# A frame that was already long (a yard arriving, a body spawning) gets no
+		# build step on top, never two frames running (driving:E2).
+		if long and not _sat_out:
+			_sat_out = true
+		else:
+			_sat_out = false
+			_build_some()
 		_step_fades(delta)
 
 
 func _exit_tree() -> void:
 	if _draw and int(stats.get("builds", 0)) > 0:
-		print("[Streamer] %d builds, slowest %.1f ms; longest frame while building %.1f ms; %d swaps; draw calls up to %d" % [int(stats["builds"]), float(stats["max_build_ms"]), float(stats.get("max_frame_ms", 0.0)), int(stats["swaps"]), int(stats.get("draw_calls_max", 0))])
+		print("[Streamer] %d builds, slowest %.1f ms; longest frame while building %.1f ms; %d swaps; draw calls up to %d; slowest by step %s" % [int(stats["builds"]), float(stats["max_build_ms"]), float(stats.get("max_frame_ms", 0.0)), int(stats["swaps"]), int(stats.get("draw_calls_max", 0)), stats.get("phase_ms", {})])
 
 
 # ---------------------------------------------------------------- chunks
@@ -279,8 +292,7 @@ func _drop_levels(chunk_index: int) -> void:
 	(chunk["nodes"] as Dictionary).clear()
 	chunk["shown"] = LOD_NONE
 	if not _job.is_empty() and int(_job["chunk"]) == chunk_index:
-		(_job["holder"] as Node3D).free()
-		_job = {}
+		_drop_job()
 
 
 func _chunk_ready(chunk: Dictionary) -> bool:
@@ -375,10 +387,20 @@ func _settle(at: Vector3) -> void:
 		var chunk: Dictionary = _chunks[int(_job["chunk"])]
 		if int(chunk["want"]) == int(_job["level"]):
 			return
-		(_job["holder"] as Node3D).free()
-		_job = {}
+		_drop_job()
 	if best >= 0:
 		_start(best, int((_chunks[best] as Dictionary)["want"]))
+
+
+## Lets go of the level being built, and the house built ahead for it.
+func _drop_job() -> void:
+	if _job.is_empty():
+		return
+	(_job["holder"] as Node3D).free()
+	var house: Variant = _job.get("house", null)
+	if house != null and is_instance_valid(house) and not (house as Node).is_inside_tree():
+		(house as Node).free()
+	_job = {}
 
 
 ## Starts building a chunk's level off the tree.
@@ -395,14 +417,31 @@ func _build_some() -> void:
 	var budget := int(Constants.STREAM_BUILD_MS_PER_FRAME * 1000.0)
 	while not _job.is_empty():
 		var step_started := Time.get_ticks_usec()
+		var label := _step_label()
 		var done := _build_step()
 		var spent := float(Time.get_ticks_usec() - step_started) / 1000.0
 		stats["builds"] = int(stats["builds"]) + 1
 		stats["max_build_ms"] = maxf(float(stats["max_build_ms"]), spent)
+		# The slowest step of each kind (driving:E2: LOD 0 "full" is spread over them).
+		var by_phase: Dictionary = stats.get("phase_ms", {})
+		by_phase[label] = maxf(float(by_phase.get(label, 0.0)), snappedf(spent, 0.1))
+		stats["phase_ms"] = by_phase
 		if done:
 			_finish_job()
 		if Time.get_ticks_usec() - started >= budget:
 			break
+
+
+## What the next _build_step will do, for stats: "skyline", or the level's
+## initial and the parcel's phase ("near plan", "far parcel", "near dress", ...).
+func _step_label() -> String:
+	var level := int(_job["level"])
+	if level == LOD_SKYLINE:
+		return "skyline"
+	var phase := str(_job.get("phase", "plan"))
+	if phase == "parcel" and _job.has("dress"):
+		phase = "dress"
+	return "%s %s" % [LOD_NAMES[level].to_lower(), phase]
 
 
 ## Builds the next piece of the job. True when the level is complete.
@@ -421,6 +460,56 @@ func _build_step() -> bool:
 		_fill_skyline(holder, chunk)
 		return true
 	var slot: Dictionary = slots[next]
+	var req := parcel_request(str(slot["hood"]), int(slot["seed"]), int(slot["size"]), int(slot["hood_index"]), bool(slot["across"]))
+	req["detail"] = DETAIL[level]
+	req["name"] = str(slot["key"])
+	# One parcel over several steps (driving:E2), so no frame pays for a whole
+	# one: its plan (the house's numbers, cold the first time), the tree meshes and
+	# prop meshes it will use that aren't built yet, its house, the rest of it
+	# (from the same plan), then its leaves.
+	var phase := str(_job.get("phase", "plan"))
+	if phase == "plan":
+		_job["plan"] = _LotBuilder.plan(req)
+		_job["tree"] = 0
+		_job["phase"] = "trees"
+		return false
+	if phase == "trees":
+		# One tree mesh a step (near, then far): a cold one is the whole cost of
+		# its step, and warm ones are cache hits, so _build_some's budget decides
+		# how many go in a frame.
+		var trees: Array = (_job["plan"] as Dictionary)["trees"]
+		var index := int(_job["tree"])
+		if index < trees.size() * 2:
+			var tree: Array = trees[int(index / 2.0)]
+			_Trees.mesh_for(str(tree[1]), str(tree[2]), int(tree[4]), -1, index % 2 == 1)
+			index += 1
+		_job["tree"] = index
+		if index >= trees.size() * 2:
+			_job["phase"] = "props"
+			_job["prop"] = 0
+		return false
+	if phase == "props":
+		# The catalog meshes the parcel's props will use, built ahead (cached),
+		# within the budget: cold, they're most of a full parcel's cost.
+		var props: Array = (_job["plan"] as Dictionary)["props"]
+		var prop_started := Time.get_ticks_usec()
+		var at := int(_job["prop"])
+		while at < props.size():
+			var entry: Dictionary = props[at]
+			if not bool(entry.get("complex", false)):
+				_PropCatalog.mesh(entry["kind"], entry.get("color", Color.WHITE), entry.get("size", Vector3.ONE))
+			at += 1
+			if Time.get_ticks_usec() - prop_started > int(Constants.STREAM_BUILD_MS_PER_FRAME * 1000.0):
+				break
+		_job["prop"] = at
+		if at >= props.size():
+			_job["phase"] = "house"
+		return false
+	if phase == "house":
+		req["plan"] = _job["plan"]
+		_job["house"] = _LotBuilder.house_for(req)
+		_job["phase"] = "parcel"
+		return false
 	if _job.has("dress"):
 		# A yard's own step after its parcel's: the leaves and the sign (a
 		# waiting homeowner once the level is in the tree, _finish_job, since a
@@ -432,10 +521,15 @@ func _build_step() -> bool:
 			var said: Dictionary = _reflect.get(int(slot["house_id"]), {})
 			_replace(dressed, "RivalSign", _rival_sign(int(slot["seed"])) if bool(said.get("poached", false)) else null)
 		_job["next"] = next + 1
+		_job["phase"] = "plan"
 		return next + 1 >= slots.size()
-	var req := parcel_request(str(slot["hood"]), int(slot["seed"]), int(slot["size"]), int(slot["hood_index"]), bool(slot["across"]))
-	req["detail"] = DETAIL[level]
-	req["name"] = str(slot["key"])
+	var house: Variant = _job.get("house", null)
+	if house != null and is_instance_valid(house):
+		req["house_node"] = house
+	if _job.has("plan"):
+		req["plan"] = _job["plan"]
+	_job.erase("house")
+	_job.erase("plan")
 	var parcel := _LotBuilder.build(holder, slot["xform"], req)
 	# Read again when the level goes in (_finish_job): the job site may come or go
 	# while the rest of the chunk builds.
@@ -444,6 +538,7 @@ func _build_step() -> bool:
 		_job["dress"] = parcel
 		return false
 	_job["next"] = next + 1
+	_job["phase"] = "plan"
 	return next + 1 >= slots.size()
 
 
@@ -483,8 +578,7 @@ func build_level_now(house_id: int, level: int, between: Callable = Callable()) 
 	var at: Array = _yard_slot.get(house_id, [])
 	if at.is_empty() or level > LOD_SKYLINE or not _chunk_ready(_chunks[int(at[0])]):
 		return null
-	if not _job.is_empty():
-		(_job["holder"] as Node3D).free()
+	_drop_job()
 	_start(int(at[0]), level)
 	var first := true
 	while not _job.is_empty():

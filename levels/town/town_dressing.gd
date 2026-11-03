@@ -27,6 +27,10 @@ const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Colliders = preload("res://levels/town/town_colliders.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
+const _StreetBuilder = preload("res://levels/town/street_builder.gd")
+const _HoodStyles = preload("res://levels/town/hood_styles.gd")
+const _PropBatch = preload("res://props/prop_batch.gd")
+const _Outskirts = preload("res://levels/town/outskirts.gd")
 
 const GRASS := Color(0.42, 0.52, 0.3)
 const ASPHALT := Color(0.3, 0.3, 0.32)
@@ -64,6 +68,8 @@ static func dress(world: Node3D) -> Node3D:
 	_BuildQueue.later(root, func() -> void: _curbside(root), "town curbside")
 	_BuildQueue.later(root, func() -> void: _cars(root), "town cars")
 	_country_trees(root)
+	# The farmland, landmarks and tree rows between it all (driving:E2).
+	_Outskirts.dress(root)
 	_BuildQueue.later(root, func() -> void: _store_extras(root, world.get_node_or_null("StoreZone") as Node3D), "town store extras")
 	_walkers(root)
 	for at: Vector3 in [Vector3(0.0, 0.0, 0.0), Vector3(560.0, 0.0, -250.0), Vector3(560.0, 0.0, 250.0)]:
@@ -99,6 +105,8 @@ static func _roads(root: Node3D) -> void:
 	var holder := Node3D.new()
 	holder.name = "Roads"
 	root.add_child(holder)
+	# The streets' storm drains, a few big chunks for the whole town.
+	var batch := _PropBatch.new(holder, Constants.TOWN_STREET_PROP_CHUNK)
 	var nodes := TownMap.road_nodes()
 	# How far a road stops short of each junction, so crossings don't stack.
 	var trims := {}
@@ -118,7 +126,11 @@ static func _roads(root: Node3D) -> void:
 		var main := str(edge[3]) == "main"
 		var cut_a := float(trims.get(edge[0], 0.0)) if main else (TownMap.MAIN_WIDTH * 0.5 + TownMap.SIDEWALK if str(edge[0]).ends_with("_jct") else 0.0)
 		var cut_b := float(trims.get(edge[1], 0.0)) if main else (TownMap.MAIN_WIDTH * 0.5 + TownMap.SIDEWALK if str(edge[1]) == "square" else 0.0)
-		_Neighborhood.road(holder, a + along * cut_a, b - along * cut_b, float(edge[2]), bool(edge[4]))
+		if str(edge[3]) == "street":
+			_street(holder, str(edge[0]).trim_suffix("_jct"), a + along * cut_a, b - along * cut_b, batch)
+		else:
+			_Neighborhood.road(holder, a + along * cut_a, b - along * cut_b, float(edge[2]), bool(edge[4]))
+	batch.call("commit")
 	# The crossings: plain asphalt, and the sidewalk carried on across the side
 	# opposite the road that joins.
 	for id: Variant in trims:
@@ -134,6 +146,29 @@ static func _roads(root: Node3D) -> void:
 	for hood_index: int in _Hoods.HOODS.size():
 		var end_x := TownMap.street_end_x(hood_index)
 		_LowPoly.paint(_LowPoly.box(holder, Vector3(0.3, 0.2, TownMap.STREET_WIDTH + TownMap.SIDEWALK * 2.0), Vector3(end_x + 0.15, 0.0, TownMap.STREET_Z[hood_index]), CONCRETE.darkened(0.08)), "concrete")
+
+
+## A neighborhood's street in its own style (levels/town/street_builder.gd,
+## driving:E2): its curbs (Mansion Hill's granite), its sidewalks (pavers on Oak
+## Hollow and Mansion Hill), a grass strip where the style has one, its lane
+## lines, storm drains. Held to the town's contract wherever the style differs,
+## since the town's solids, footsteps and curb grinds are laid out from TownMap:
+## always asphalt, always a curb and a sidewalk both sides (concrete where the
+## style has none), no lamps (TownMap.lamp_spots has the town's, with colliders),
+## no power poles and no speed bumps (neither has a solid here).
+static func _street(holder: Node3D, hood: String, from: Vector3, to: Vector3, batch: RefCounted) -> void:
+	var look: Dictionary = _HoodStyles.style(hood).duplicate()
+	var street: Dictionary = (look.get("street", {}) as Dictionary).duplicate()
+	street["surface"] = "road"
+	if str(street.get("curb", "none")) == "none":
+		street["curb"] = "concrete"
+	if str(street.get("sidewalk", "none")) == "none":
+		street["sidewalk"] = "concrete"
+	look["street"] = street
+	_StreetBuilder.segment(holder, from, to, look, {
+		"batch": batch, "width": TownMap.STREET_WIDTH, "lamps": false, "poles": false,
+		"speed_bumps_from_x": INF, "hood": hood,
+	})
 
 
 ## The town square: a plaza by the County Road junction with the welcome sign

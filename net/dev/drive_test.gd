@@ -23,12 +23,22 @@ extends Node
 ##   j-l. the autopilot (driving chunk C2, _autopilot_steps): a real depart()
 ##      drive to a yard's curb, a hired hand chauffeuring and pulling over, and
 ##      a warped depart() home.
+##   m-o2. the crash comedy (driving chunk C3, _crash_steps): a crash into a
+##      parked car, the Chefty Net, Marty's Body Shop, run-overs, knock-overs.
+##   p-r. the chase camera never inside anything (driving chunk E2, _camera_steps;
+##      they were m-o on E2's branch, renamed at the W8 merge): swung past a
+##      post, a tree planted behind the truck, a wall backed into.
 ## The client's prediction (how far its predicted Chefty was from the host's
 ## after the same input, "drive".prediction_error_max_m), the riders both peers
 ## see, and the client's snapshot gaps are checked by CI from the probe reports.
 ## Each step prints a [DriveTest] line.
 
 const _Vehicles = preload("res://props/vehicles.gd")
+const _Trees = preload("res://props/trees.gd")
+const _ViewBlockers = preload("res://props/view_blockers.gd")
+## m-n: the chase camera's lens never moves farther than this in one frame (the
+## recorder's cam_snap line, net/dev/recorder.gd CAM_SNAP_METERS).
+const CAMERA_STEP_MAX: float = 1.2
 
 static var result: Dictionary = {}
 
@@ -222,6 +232,8 @@ func _run(world: Node) -> void:
 	_verdict(director != null and seated_before >= 2 and int(chefty.call("seat_of", client)) < 0, "i. caught in bed seat %d: now in seat %d" % [seated_before, int(chefty.call("seat_of", client))], problems)
 	await _autopilot_steps(world, chefty, host, problems)
 	await _crash_steps(world, chefty, host, problems)
+
+	await _camera_steps(chefty, host, problems)
 	# Give the client's report time to see the same seats and zone.
 	await get_tree().create_timer(1.0).timeout
 	_finish(problems.is_empty(), problems)
@@ -612,6 +624,156 @@ func _take_wheel(chefty: Node, host: int, at: Vector3, yaw: float) -> void:
 		waited += 1.0
 	chefty.call("dev_place", at, yaw)
 	await get_tree().create_timer(0.3).timeout
+
+## Driving chunk E2: Chefty's chase camera (player/vehicle_camera.gd) never sits
+## inside anything. The host at the wheel, Chefty parked on the County Road with
+## Big Sal in the bed (a person: never pushes the lens in):
+##   p. the boom swings round (the seat's look, eased like a hand on a mouse)
+##      past a pillar standing in its way: it pulls in before the pillar and
+##      never goes through it or into it, never moves more than CAMERA_STEP_MAX
+##      in a frame, never cuts, and eases back out once it's gone. Then past a
+##      lamp post in the same spot: thin, it passes between, the boom stays out.
+##   q. the boom swings the other way into a tree's crown (a crown has no
+##      collider; props/view_blockers.gd): it pulls in in front of it, the lens
+##      never in it, no cut; the tree goes and the boom eases back out.
+##   r. a wall gets between the truck and the lens at once (backed into): one
+##      cut, and the lens is in front of the wall.
+func _camera_steps(chefty: Node, host: int, problems: Array[String]) -> void:
+	var me := _player(host)
+	if int(chefty.call("seat_of", host)) >= 0:
+		chefty.call("request_exit")
+		await get_tree().create_timer(0.5).timeout
+	var spot := Vector3(110.0, 0.0, 0.0)
+	spot.z = lerpf(TownMap.DEPOT_JUNCTION.z, TownMap.COUNTY_BEND.z, (spot.x - TownMap.DEPOT_JUNCTION.x) / (TownMap.COUNTY_BEND.x - TownMap.DEPOT_JUNCTION.x))
+	var yaw := -PI * 0.5
+	chefty.call("dev_place", spot, yaw)
+	await get_tree().create_timer(0.3).timeout
+	var waited := 0.0
+	while int(chefty.call("driver")) != host and waited < 6.0:
+		var door: Vector3 = (chefty.call("body_transform") as Transform3D) * _Vehicles.CHEFTY_DRIVER_DOOR
+		me.call("send_teleport", Transform3D(Basis.IDENTITY, door + Vector3(0.0, 0.1, 0.0)))
+		await get_tree().create_timer(0.5).timeout
+		chefty.call("request_enter", 0)
+		await get_tree().create_timer(0.5).timeout
+		waited += 1.0
+	var camera := me.get_node_or_null("VehicleCamera") as Camera3D if me != null else null
+	if int(chefty.call("driver")) != host or camera == null:
+		_verdict(false, "p. the host at the wheel with the chase camera (driver %d, camera %s)" % [int(chefty.call("driver")), camera != null], problems)
+		return
+	# Let it settle behind the truck.
+	await get_tree().create_timer(1.0).timeout
+	var holder := Node3D.new()
+	holder.name = "CameraTestProps"
+	get_tree().get_first_node_in_group("world").add_child(holder)
+	var body: Transform3D = chefty.call("body_transform")
+	var pivot := body.origin + Vector3.UP * Constants.CHEFTY_CAMERA_PIVOT_UP
+	var full := float((camera.get("last") as Dictionary)["length"])
+	var cuts_before := int(camera.get("cuts"))
+	# m. A pillar (as wide as a house's corner), where the boom points once the
+	# look has turned 0.8 rad: it pulls in before it and never goes through.
+	# Then a lamp post in the same spot: thin, it just passes between.
+	var swing := yaw + 0.8
+	var post_at := pivot + Vector3(sin(swing), 0.0, cos(swing)) * 4.5
+	post_at.y = 0.0
+	var pillar_shape := BoxShape3D.new()
+	pillar_shape.size = Vector3(1.4, 6.0, 1.4)
+	for thin: bool in [false, true]:
+		var post: StaticBody3D
+		var half := 0.7
+		if thin:
+			var cylinder := CylinderShape3D.new()
+			cylinder.radius = 0.15
+			cylinder.height = 6.0
+			post = _test_solid(holder, cylinder, post_at + Vector3(0.0, 3.0, 0.0))
+			half = 0.15
+		else:
+			post = _test_solid(holder, pillar_shape, post_at + Vector3(0.0, 3.0, 0.0))
+			post.rotation.y = swing
+		var track := {"max_step": 0.0, "through": false, "inside": false, "last": camera.global_position, "min_boom": INF}
+		await _swing(me, camera, 0.0, 1.6, 1.5, track, func(lens: Vector3) -> void:
+			var flat := _flat_segment_distance(Vector2(post_at.x, post_at.z), Vector2(pivot.x, pivot.z), Vector2(lens.x, lens.z))
+			if flat < half * 0.9 and lens.y < 6.0:
+				track["through"] = true
+			if Vector2(lens.x - post_at.x, lens.z - post_at.z).length() < half + 0.05:
+				track["inside"] = true)
+		await _swing(me, camera, 1.6, 1.6, 1.0, track, Callable())
+		var pulled := float(track["min_boom"])
+		post.queue_free()
+		await _swing(me, camera, 1.6, 0.0, 1.5, track, Callable())
+		await get_tree().create_timer(2.5).timeout
+		var back := float((camera.get("last") as Dictionary)["boom"])
+		var shape_ok := pulled > full - 0.5 if thin else (pulled < full - 1.5 and not bool(track["through"]))
+		_verdict(shape_ok and not bool(track["inside"]) and float(track["max_step"]) < CAMERA_STEP_MAX and int(camera.get("cuts")) == cuts_before and back > full * 0.9,
+			"p. the boom swung past a %s: pulled in to %.1f of %.1f m, through it %s, into it %s, biggest step %.2f m, cuts %d, eased back out to %.1f m" % ["lamp post (passes between)" if thin else "pillar", pulled, full, track["through"], track["inside"], float(track["max_step"]), int(camera.get("cuts")) - cuts_before, back], problems)
+	# n. A tree on the other side, the boom swung round into its crown.
+	var other := yaw - 0.8
+	var tree_at := pivot - Vector3.UP * pivot.y + Vector3(sin(other), 0.0, cos(other)) * 6.0
+	var tree := _Trees.spawn(holder, tree_at, 7.0, "broadleaf", "orange", 0, false, 0.0)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var track := {"max_step": 0.0, "last": camera.global_position, "min_boom": INF, "in_crown": 0}
+	await _swing(me, camera, 0.0, -1.6, 1.5, track, func(lens: Vector3) -> void:
+		if not _ViewBlockers.inside(lens, 0.0).is_empty():
+			track["in_crown"] = int(track["in_crown"]) + 1)
+	await _swing(me, camera, -1.6, -1.6, 1.0, track, Callable())
+	var registered := _ViewBlockers.inside(tree_at + Vector3.UP * 5.0, 0.0).size() > 0
+	var crown_boom := float(track["min_boom"])
+	tree.queue_free()
+	await _swing(me, camera, -1.6, 0.0, 1.5, track, Callable())
+	await get_tree().create_timer(2.5).timeout
+	var after_tree := float((camera.get("last") as Dictionary)["boom"])
+	_verdict(registered and crown_boom < full - 1.5 and int(track["in_crown"]) == 0 and float(track["max_step"]) < CAMERA_STEP_MAX and int(camera.get("cuts")) == cuts_before and after_tree > full * 0.9,
+		"q. the boom swung into a tree (its crown registered %s): pulled in to %.1f m, frames in the crown %d, biggest step %.2f m, cuts %d, back out to %.1f m" % [registered, crown_boom, int(track["in_crown"]), float(track["max_step"]), int(camera.get("cuts")) - cuts_before, after_tree], problems)
+	# o. A wall between the truck and the lens, all at once.
+	var behind := Vector3(sin(yaw), 0.0, cos(yaw))
+	var wall_shape := BoxShape3D.new()
+	wall_shape.size = Vector3(8.0, 8.0, 0.4)
+	var wall := _test_solid(holder, wall_shape, pivot - Vector3.UP * pivot.y + behind * 4.0 + Vector3.UP * 4.0)
+	wall.rotation.y = yaw
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var lens := camera.global_position
+	var lens_out := Vector2(lens.x - pivot.x, lens.z - pivot.z).length()
+	var cut := int(camera.get("cuts")) - cuts_before
+	_verdict(cut == 1 and lens_out < 4.0 - 0.2, "r. a wall backed into: %d cut, the lens %.1f m out (the wall at 4.0 m)" % [cut, lens_out], problems)
+	holder.queue_free()
+	chefty.call("request_exit")
+	await get_tree().create_timer(0.5).timeout
+
+
+## Turns the host's seat look from one angle to another over seconds, a frame at
+## a time, calling check(lens) each frame and keeping track of the biggest
+## frame-to-frame step of the lens and the shortest boom.
+func _swing(me: Node, camera: Camera3D, from: float, to: float, seconds: float, track: Dictionary, check: Callable) -> void:
+	var clock := 0.0
+	while clock < seconds:
+		await get_tree().physics_frame
+		clock += get_physics_process_delta_time()
+		me.set("seat_look", lerpf(from, to, smoothstep(0.0, 1.0, clock / seconds)))
+		var lens := camera.global_position
+		track["max_step"] = maxf(float(track["max_step"]), lens.distance_to(track["last"]))
+		track["last"] = lens
+		track["min_boom"] = minf(float(track["min_boom"]), float((camera.get("last") as Dictionary)["boom"]))
+		if check.is_valid():
+			check.call(lens)
+
+
+func _test_solid(holder: Node3D, shape: Shape3D, at: Vector3) -> StaticBody3D:
+	var solid := StaticBody3D.new()
+	solid.collision_layer = 1
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	solid.add_child(collision)
+	holder.add_child(solid)
+	solid.global_position = at
+	return solid
+
+
+static func _flat_segment_distance(point: Vector2, a: Vector2, b: Vector2) -> float:
+	var along := b - a
+	var t := clampf((point - a).dot(along) / maxf(along.length_squared(), 0.0001), 0.0, 1.0)
+	return point.distance_to(a + along * t)
 
 
 ## Whether a hand is drawn riding in Chefty: at the wheel (seat 0) or, with

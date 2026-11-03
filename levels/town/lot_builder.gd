@@ -43,6 +43,9 @@ extends RefCounted
 ##   labels     how many of its violation flags show their words
 ##   house      the yard's house numbers (LotGenerator.house_spec), when known
 ##   name       the root's name (default "Parcel_<seed>")
+##   house_node the House house_for(req) made ahead of time (taken in, not rebuilt)
+##   plan       plan(req), worked out ahead of time (the same req without plan
+##              and house_node; build and house_for then skip working it out)
 ##
 ## The returned root (script levels/town/parcel.gd, group "seasonal") has metas
 ## parcel_rect (Rect2, local), house_spec (Dictionary), house_at (Vector3),
@@ -87,7 +90,7 @@ const POOL_SIZE := Vector3(8.0, 0.0, 4.0)
 
 ## Builds the parcel req describes under parent at xform. Returns its root.
 static func build(parent: Node3D, xform: Transform3D, req: Dictionary) -> Node3D:
-	var p := plan(req)
+	var p: Dictionary = req["plan"] if req.has("plan") else plan(req)
 	var r: Dictionary = p["req"]
 	var look := _HoodStyles.style(str(r["hood"]))
 	var root: Node3D = _Parcel.new()
@@ -121,7 +124,16 @@ static func build(parent: Node3D, xform: Transform3D, req: Dictionary) -> Node3D
 	if not bool(r["vacant"]):
 		var house_req: Dictionary = (p["house_req"] as Dictionary).duplicate()
 		house_req["detail"] = "far" if detail == "far" else "full"
-		house = _HouseBuilder.build(root, p["house_at"], house_req)
+		var given: Node3D = req.get("house_node", null)
+		if given != null and is_instance_valid(given):
+			# Built ahead by house_for (a streamer spreading one parcel over frames).
+			if given.get_parent() != null:
+				given.get_parent().remove_child(given)
+			root.add_child(given)
+			given.position = p["house_at"]
+			house = given
+		else:
+			house = _HouseBuilder.build(root, p["house_at"], house_req)
 		house.add_to_group("art_signature:house_%s" % str(house_req["archetype"]))
 		if MOBILE_HOMES.has(str(house_req["archetype"])):
 			house.add_to_group("art_signature:mobile_home")
@@ -165,6 +177,23 @@ static func build(parent: Node3D, xform: Transform3D, req: Dictionary) -> Node3D
 	root.set_meta("art_hash", int(p["hash"]))
 	root.set_meta("signature", p["signature"])
 	return root
+
+
+## The house build() would make for req, made now and not in any tree (null for a
+## vacant parcel), for build()'s house_node: the drivable town's streamer builds
+## the house in one frame and the rest of the parcel in the next (driving:E2).
+static func house_for(req: Dictionary) -> Node3D:
+	var p: Dictionary = req["plan"] if req.has("plan") else plan(req)
+	var r: Dictionary = p["req"]
+	if bool(r["vacant"]):
+		return null
+	var house_req: Dictionary = (p["house_req"] as Dictionary).duplicate()
+	house_req["detail"] = "far" if str(r["detail"]) == "far" else "full"
+	var holder := Node3D.new()
+	var house := _HouseBuilder.build(holder, p["house_at"], house_req)
+	holder.remove_child(house)
+	holder.free()
+	return house
 
 
 ## The boxes a drivable town gives this parcel colliders, parcel space:

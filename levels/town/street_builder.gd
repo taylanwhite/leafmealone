@@ -28,6 +28,8 @@ extends RefCounted
 ##     Constants.ART_SPEED_BUMP_FROM_X); the style decides whether there are any
 ##   hood (net/town/neighborhoods.gd id): street names on the sign post
 ##   lamps (false: none, for a segment whose sides are dressed elsewhere)
+##   poles (false: no power poles even if the style has them; the drivable town,
+##     whose solids don't know them)
 ## Metas on the returned root: "lamps" (PackedVector3Array, parent space: each
 ## lamp's base), "poles" (the same for power poles), "length", "curbs"
 ## ([[from, to]] parent space), "width".
@@ -108,7 +110,7 @@ static func segment(parent: Node3D, from: Vector3, to: Vector3, style: Dictionar
 	var poles := PackedVector3Array()
 	var lamp := str(street.get("lamp", "none"))
 	var spacing := maxf(float(street.get("lamp_spacing", 24.0)), 6.0)
-	var with_poles := bool(street.get("poles", false))
+	var with_poles := bool(opts.get("poles", street.get("poles", false)))
 	var band := CURB + SIDEWALK if sidewalk != "none" else 1.2
 	# Lamps both sides, staggered; poles both sides, in step, wires between them.
 	for side: float in [-1.0, 1.0]:
