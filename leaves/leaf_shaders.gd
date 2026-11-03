@@ -89,6 +89,9 @@ shader_type spatial;
 render_mode diffuse_lambert_wrap, specular_schlick_ggx, cull_disabled, world_vertex_coords;
 //DEFINES
 //COMMON
+// A hider's own lens in a leaf heap (player/hide_view.gd, R2c hide): leaves
+// within w meters of xyz fold away into their middles (w 0: off).
+global uniform vec4 leaf_clear;
 
 uniform float translucency = 0.45;
 // Winter's wet sheen, 0..1 (the leaf view sets it by season).
@@ -117,9 +120,14 @@ void vertex() {
 	vec3 ground = leaf_height(origin.xz);
 	VERTEX.y += ground.x + dot(VERTEX.xz - origin.xz, ground.yz);
 	NORMAL = normalize(vec3(NORMAL.x - ground.y * NORMAL.y, NORMAL.y, NORMAL.z - ground.z * NORMAL.y));
+	origin.y += ground.x;
 #endif
 	if (INSTANCE_CUSTOM.a > 0.6) {
 		VERTEX.y += masks.y * loose_lift * (INSTANCE_CUSTOM.a - 0.6) * 2.5 * gust(TIME, origin.xz);
+	}
+	if (leaf_clear.w > 0.0) {
+		float keep = smoothstep(leaf_clear.w * 0.7, leaf_clear.w, distance(origin, leaf_clear.xyz));
+		VERTEX = origin + (VERTEX - origin) * keep;
 	}
 	world_up = NORMAL.y;
 }

@@ -11,6 +11,17 @@ Read `AGENTS.md` first; it holds the architecture and multiplayer rules, and the
 - **Four players**, not eight (`Constants.MAX_PLAYERS`).
 - **Early access.** No ending is needed yet; the game needs a 10 to 20 hour progression arc and a loop that keeps people coming back.
 - Tuning numbers still live in `core/constants.gd` or `core/balance.gd`, never inline. New tuning goes in `constants.gd`; `balance.gd` stays generated from the workbook.
+- **The end sequence is Form 27-B at Satellite Annex B** (R2, `net/annex/`), which replaced Border Return's lane crossing; the Border zone's slot holds the Annex.
+
+## Writing for players
+
+Taylan (2026-11-02): "Let's not hold our players hand through everything. Text like that screams it was made by AI. Our players are not idiots." The full rule and the first-session walk-through are in `docs/GAME.md`, "Writing for players". In short:
+
+- Keep prices, names, requests, things the player can't see from where they stand (where the job is, where a teammate was taken), and flavor lines with personality.
+- Cut status and refusals that restate what the world shows (no "Chefty's full", "Out of gas", "Pockets full"), control tutorials the player finds by pressing keys, and step-by-step goal lines. Let sound, animation and the world say it.
+- An interact prompt is a keycap and a verb ("[E] Talk"), never the name of what's in front of you.
+- At most one short first-time cue, and only for a control nothing else shows (today: the bag key on a pile's price, until the first bag).
+- When in doubt, cut the text.
 
 ## Tools on this machine
 
@@ -34,7 +45,7 @@ Every change gets run, and you report what you ran.
 - **Script errors after edits:** `& $G --headless --path . --quit` and read stderr. Run `--import` once after adding files or classes.
 - **Looking at the game:** windowed runs with `--screenshot=<dir> --tour` (see `net/dev/capture.gd`), or the studio: `& $G --path . res://tools/studio/studio.tscn -- --subject=<name> --out=build/art/<name>.png`. Read the PNGs with the Read tool. Look for clipping, z-fighting, floating or sunk objects, and wrong lighting.
 - **Playtesting a moment** (anything a player does or sees happen; the full guide and the detail checklist are `docs/PLAYTEST.md`): a still can't show motion, so record it.
-  1. `tools\play.ps1 -Start -Observer -Scenario <moment>`: a windowed host on a fixed step, already at the moment (`rake_fresh`, `rake_pile`, `raid_warn`, `raid_arrive`, `caught`, `hide`, `van_ride`, `border_return`, `store`, `drive`), and a second window watching it.
+  1. `tools\play.ps1 -Start -Observer -Scenario <moment>`: a windowed host on a fixed step, already at the moment (`rake_fresh`, `rake_pile`, `raid_warn`, `raid_arrive`, `caught`, `hide`, `van_ride`, `annex`, `store`, `drive`; `scenario list` has them all), and a second window watching it.
   2. `tools\play.ps1 -Instance observer 'follow host 4 1.6 80; record_start 30 x_3p'`, then `tools\play.ps1 'record_start 30 x_1p; hold primary 1.3; wait 0.5; record_stop'` (or `'record 4 30 x_1p'` while it plays out), then `tools\play.ps1 -Instance observer record_stop`.
   3. Read `build\play\rec_x_1p\sheet.png` (frames stamped with number and game time), `audio.png` (thumbnails, waveform, bands, picture change, every sound and event on one time axis), `events.json` (per frame: player, camera, HUD text, what fired; flags for pops, snaps and frozen views), `sync.json` (each sound's lag), and the observer's copies; `tools\frames.ps1 <rec dir> "40..46"` puts frames side by side.
   4. Walk the checklist in `docs/PLAYTEST.md` with frame numbers, then `tools\play.ps1 -Stop` (it closes only this worktree's windows).

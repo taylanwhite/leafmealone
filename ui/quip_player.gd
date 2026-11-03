@@ -19,6 +19,7 @@ const BAND_GAP: float = 16.0
 const BAND_MIN_WIDTH: float = 340.0
 const _Hotbar = preload("res://ui/hotbar_hud.gd")
 const _HudMode = preload("res://ui/hud_mode.gd")
+const _TextFit = preload("res://ui/text_fit.gd")
 const BACKDROP_COLOR := Color(0.0, 0.0, 0.0, 0.55)
 const BACKDROP_RADIUS: int = 10
 const BACKDROP_MARGIN := Vector2(14.0, 8.0)
@@ -61,7 +62,7 @@ func _ready() -> void:
 		Campaign.payout_ready.connect(_on_payout)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _label.visible and Time.get_ticks_msec() / 1000.0 > _hide_at:
 		_label.visible = false
 	# R2b: a corner quip already up when the moment takes you goes with the HUD.
@@ -69,8 +70,69 @@ func _process(_delta: float) -> void:
 		_label.visible = false
 	if _label.visible:
 		_clear_heat()
+		_clear_goal(delta)
+	_play_waiting()
 	_watch_director()
 	_watch_cleanup()
+	_watch_annex()
+
+
+## R2c: a corner quip whose trigger came while the moment had you (a store
+## arrival while you're still buckled in) waits for the yard HUD to be back,
+## then plays, unless it's been waiting longer than R2C_HUD_QUIP_WAIT_MAX.
+## Only the latest waits. (R2b dropped them for good.)
+var _waiting_trigger: String = ""
+var _waiting_since: float = 0.0
+
+
+func _play_waiting() -> void:
+	if _waiting_trigger == "":
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _waiting_since > Constants.R2C_HUD_QUIP_WAIT_MAX:
+		_waiting_trigger = ""
+		return
+	if _HudMode.cinematic(get_tree(), Net.local_peer_id()):
+		return
+	var ui := get_parent()
+	if ui != null and ui.has_method("yard_hud_alpha") and float(ui.call("yard_hud_alpha")) < 0.99:
+		return
+	var trigger := _waiting_trigger
+	_waiting_trigger = ""
+	_try(trigger)
+
+
+## The quip that would wait (for tests): its trigger, or "".
+func waiting_trigger() -> String:
+	return _waiting_trigger
+
+
+## R2c: the corner quip and the goal line never print over each other: when the
+## quip (pushed right by the heat meter) would share the goal line's band, it
+## glides up to sit above the goal line, and back down once it's gone.
+func _clear_goal(delta: float) -> void:
+	var view := _label.get_viewport_rect().size
+	var rest := view.y - CORNER_OFFSET.y
+	var bottom := rest
+	var goal := get_parent().get_node_or_null("JobGoal") as Control if get_parent() != null else null
+	if goal != null and goal.is_visible_in_tree() and goal.modulate.a > 0.05 and goal.size.x > 0.0:
+		var g := goal.get_global_rect().grow(Constants.R2C_HUD_QUIP_GOAL_GAP)
+		# Its size from its offsets and its text (on the frame its text is set the
+		# Label hasn't grown to it yet).
+		var mine := _label.get_global_rect()
+		var tall := maxf(mine.size.y, _label.get_combined_minimum_size().y)
+		var at_rest := Rect2(mine.position.x, rest - tall, _label.offset_right - _label.offset_left, tall)
+		if at_rest.intersects(g):
+			bottom = minf(rest, g.position.y)
+	var target := bottom - view.y
+	var height := _label.offset_bottom - _label.offset_top
+	var now := _label.offset_bottom
+	if absf(now - target) < 0.5:
+		now = target
+	else:
+		now = lerpf(now, target, 1.0 - exp(-Constants.R2C_HUD_QUIP_GLIDE * delta))
+	_label.offset_bottom = now
+	_label.offset_top = now - height
 
 
 func _on_zone(peer_id: int, zone: Net.Zone) -> void:
@@ -145,6 +207,113 @@ func _watch_director() -> void:
 
 
 var _known_caught: Dictionary = {}
+
+
+## x1:text, the free teammate's radio. While crewmates are at Annex B and this
+## player isn't, a RADIO line every so often says how it's going in there
+## (Strings.ANNEX_QUIPS teammate_dispatch), and one more as each one's form goes
+## through (teammate_out). A caught player whose own form went through is free
+## again and listens too. It is the one thing they can't see from the yard, so
+## it gets words; it never says what to do. The annex's own "X is at Annex B"
+## opens the visit (net/annex/annex.gd).
+## The annex elapsed when this player started listening (-1: not listening), and
+## the dispatches since then (they set the schedule).
+var _dispatch_visit: float = -1.0
+var _dispatches: int = 0
+## Dispatches heard this whole visit, across stints in and out of the room:
+## they pick the line (so none repeats) and hold the visit's cap.
+var _dispatch_heard: int = 0
+## Teammates heard about this visit: peer id -> true once their "out" line played.
+var _dispatch_out: Dictionary = {}
+## The visit's seed (-1 between visits).
+var _dispatch_seed: int = -1
+
+
+func _watch_annex() -> void:
+	var annex := get_tree().get_first_node_in_group("annex")
+	var me := Net.local_peer_id()
+	if annex == null or not bool(annex.call("is_active")):
+		# The visit ended (closing time lets everyone out at once, with no "out"
+		# stage this player sees): whoever was still inside is on the way home.
+		for peer_id: Variant in _dispatch_out:
+			if not bool(_dispatch_out[peer_id]):
+				_dispatch(&"teammate_out", int(peer_id), _dispatch_seed + int(peer_id))
+		_dispatch_out.clear()
+		_dispatch_visit = -1.0
+		_dispatch_heard = 0
+		_dispatch_seed = -1
+		return
+	var seed_value := int(annex.call("seed_value"))
+	if seed_value != _dispatch_seed:
+		# A new visit.
+		_dispatch_seed = seed_value
+		_dispatch_heard = 0
+		_dispatch_visit = -1.0
+	var roster: Array[int] = annex.call("roster")
+	var visitors: Array[int] = annex.call("visitors")
+	# Riders still inside and visitors are in the room and can see for
+	# themselves. A rider whose form went through is back outside, on the roster
+	# as "out", and hears about whoever is still in there like any free player.
+	var in_room := visitors.has(me) or (roster.has(me) and str(annex.call("stage_of", me)) != "out")
+	if roster.is_empty() or in_room:
+		_dispatch_out.clear()
+		_dispatch_visit = -1.0
+		return
+	var elapsed := float(annex.call("elapsed"))
+	var fresh := _dispatch_visit < 0.0 or elapsed < _dispatch_visit
+	if fresh:
+		# This player starts listening now: at the start of a visit, or partway
+		# through one (back from the room, a late join). The schedule runs from
+		# here, so nothing that was "due" before they were listening plays at once.
+		_dispatch_visit = elapsed
+		_dispatches = 0
+		_dispatch_out.clear()
+	var inside: Array[int] = []
+	for peer_id: int in roster:
+		if peer_id == me:
+			continue
+		if str(annex.call("stage_of", peer_id)) == "out":
+			# Only a release this player didn't already know about gets a line:
+			# anyone already out when they started listening is old news.
+			if not bool(_dispatch_out.get(peer_id, false)):
+				_dispatch_out[peer_id] = true
+				if not fresh:
+					_dispatch(&"teammate_out", peer_id, seed_value + peer_id)
+		else:
+			_dispatch_out[peer_id] = false
+			inside.append(peer_id)
+	if inside.is_empty() or _dispatch_heard >= Constants.ANNEX_DISPATCH_MAX or not dispatch_due(elapsed - _dispatch_visit, _dispatches):
+		return
+	var who := inside[_dispatch_heard % inside.size()]
+	_dispatches += 1
+	_dispatch_heard += 1
+	# Consecutive salts over the whole visit: pick_seeded wraps them round the
+	# pool, so no line repeats in a visit, even across trips into the room.
+	_dispatch(&"teammate_dispatch", who, seed_value + _dispatch_heard)
+
+
+## Whether the next dispatch is due, sent of them already played this visit and
+## elapsed seconds since this player started listening (the visit's start, or
+## when they came out of the room or joined): the first at ANNEX_DISPATCH_FIRST, then one
+## every ANNEX_DISPATCH_GAP, ANNEX_DISPATCH_MAX at most. (net/dev/cast_test.gd)
+static func dispatch_due(elapsed: float, sent: int) -> bool:
+	return sent < Constants.ANNEX_DISPATCH_MAX and elapsed >= Constants.ANNEX_DISPATCH_FIRST + Constants.ANNEX_DISPATCH_GAP * float(sent)
+
+
+## One radio line about peer_id, picked from the visit's seed so every free
+## player hears the same one.
+func _dispatch(kind: StringName, peer_id: int, salt: int) -> void:
+	var shown := Net.player_name(peer_id)
+	var pool: Array = _Strings.ANNEX_QUIPS.get(String(kind), [])
+	if shown == "" or pool.is_empty() or _HudMode.cinematic(get_tree(), Net.local_peer_id()):
+		return
+	var stack := get_tree().get_first_node_in_group("caption_stack")
+	if stack != null:
+		stack.call("push", &"radio", _Strings.pick_seeded(pool, salt) % shown, Constants.QUIP_CAPTION_SECONDS, 1)
+	# The run cues' radio crackle (ui/run_cues.gd), not a babble: it's the radio.
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play", "radio")
 
 
 ## A crewmate was caught: "They took Pat." with their real name, but only for a
@@ -232,10 +401,11 @@ static func _max_session(id: String) -> int:
 
 func _try(trigger: String, on_stack: bool = false) -> void:
 	# R2b: no corner quip while the moment has you (held, in the van, at the
-	# Annex). The quip is dropped, on purpose: it was about that moment (a store
-	# arrival while you're still buckled in) and would be stale later. Its play
-	# count isn't spent, so the row can still play on a later trigger.
+	# Annex). R2c: it waits for the moment to end (_play_waiting) instead of being
+	# dropped for good; its play count isn't spent until it plays.
 	if not on_stack and _HudMode.cinematic(get_tree(), Net.local_peer_id()):
+		_waiting_trigger = trigger
+		_waiting_since = Time.get_ticks_msec() / 1000.0
 		return
 	for row: Dictionary in _Strings.LINES:
 		if str(row["trigger"]) != trigger:
@@ -264,6 +434,12 @@ func show_caption(line: String) -> void:
 	_hide_at = Time.get_ticks_msec() / 1000.0 + Constants.QUIP_CAPTION_SECONDS
 	_style_caption()
 	_label.visible = captions_on()
+	if _label.visible:
+		# Placed clear of the heat meter and the goal line from its first frame.
+		_label.offset_bottom = -CORNER_OFFSET.y
+		_label.offset_top = _label.offset_bottom
+		_clear_heat()
+		_clear_goal(1000.0)
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
 		sfx.call("play", "babble")
@@ -367,6 +543,10 @@ func _fit_width() -> void:
 	var left_of_bar := view_width * 0.5 - _Hotbar.slots_half_width() - BAND_GAP - _label.offset_left
 	room = minf(room, maxf(left_of_bar, BAND_MIN_WIDTH))
 	_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_label.offset_right = _label.offset_left + maxf(1.0, minf(natural, minf(MAX_WIDTH, room)))
+	var width := maxf(1.0, minf(natural, minf(MAX_WIDTH, room)))
+	# R2c: a wrapped quip's rows come out even, not a long row and a lone word.
+	if natural > width and _label.text != "":
+		width = _TextFit.balanced_width(font, _label.text, size, maxf(1.0, width - padding - 2.0)) + padding + 2.0
+	_label.offset_right = _label.offset_left + width
 	# Back to no height, so it settles at the new text's height, growing upward.
 	_label.offset_top = _label.offset_bottom

@@ -4,7 +4,7 @@ This repo is Leaf Me Alone, an online co-op comedy game. It started with two dev
 
 ## What the game is
 
-Players take impossible leaf-cleanup jobs, ride a truck from a store to job lots, rake absurd amounts of leaves for pay, buy better tools, and scramble when a fictional enforcement crew shows up. Captured players play a shared lane-crossing mode to get back. `docs/GAME.md` summarizes the design, and the workbook in `design/` is the source of truth for it.
+Players take impossible leaf-cleanup jobs, ride a truck from a store to job lots, rake absurd amounts of leaves for pay, buy better tools, and scramble when a fictional enforcement crew shows up. Captured players ride the NICE BOYS' Courtesy Shuttle to Satellite Annex B and talk their way out with Form 27-B, in triplicate (it replaced the old lane-crossing Border Return in R2). `docs/GAME.md` summarizes the design, and the workbook in `design/` is the source of truth for it.
 
 ## Stack and platforms
 
@@ -27,8 +27,8 @@ Players take impossible leaf-cleanup jobs, ride a truck from a store to job lots
 
 | Lane | Default owner | Owns |
 | --- | --- | --- |
-| NET | Taylan | `net/` (the `Net` and `Campaign` autoloads, transports, Steam, zones, shared clock, leaf field data and replication, net components, rides, run event director, captures and cohorts, Border Return timing, saves, voice, debug overlay, smoke test), `tools/` |
-| PLAY | Taylan's brother (Taylan for now, see `docs/DECISIONS.md` 2026-10-18) | `player/`, `equipment/` (rake, bags, and other in-game tools), `leaves/` (leaf rendering and effects), `props/`, `levels/` (the world and all lots), `npcs/` (crew behavior), `border/` (lane layouts and hazards as data), `ui/` |
+| NET | Taylan | `net/` (the `Net` and `Campaign` autoloads, transports, Steam, zones, shared clock, leaf field data and replication, net components, rides, run event director, captures and cohorts, the Courtesy Shuttle and Satellite Annex B (`net/run_events/`, `net/annex/`), saves, voice, debug overlay, smoke test), `tools/` |
+| PLAY | Taylan's brother (Taylan for now, see `docs/DECISIONS.md` 2026-10-18) | `player/`, `equipment/` (rake, bags, and other in-game tools), `leaves/` (leaf rendering and effects), `props/`, `levels/` (the world and all lots), `npcs/` (crew behavior, the Annex staff), `ui/` |
 | SHARED | Both | `project.godot`, `export_presets.cfg`, `core/`, `assets/`, `design/`, `docs/`, `AGENTS.md`, `.cursor/rules/` |
 
 Rules for shared files:
@@ -49,7 +49,7 @@ These are the non-negotiables. The full patterns are in `docs/NETCODE.md`, which
 - Each player's own character movement is owned by that player's peer.
 - Clients never change shared state directly. They call a `request_*` RPC on the host, the host validates and applies it, and the result replicates out.
 - Every networked node is spawned by a MultiplayerSpawner on the host. Never instance a networked scene on a client.
-- Which zone a player is in is decided by the host through `Net`. Moving between the store, the lot, and the border is a host-ordered teleport.
+- Which zone a player is in is decided by the host through `Net`. Moving between the store, the lot, the town and Annex B (the Border zone) is a host-ordered teleport.
 - Anything that must look identical on every peer is either host-owned and replicated, or a pure function of a seed and `Net.server_time()`. Never step a shared simulation frame by frame on every peer.
 - Leaves are a host-owned grid, never individual nodes or physics bodies.
 - Randomness that affects gameplay runs on the host only.

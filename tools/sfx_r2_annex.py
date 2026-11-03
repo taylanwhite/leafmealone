@@ -55,15 +55,21 @@ def stamp_kachunk(variant: int) -> list:
     out = base.silence(0.42)
     gap = (0.055, 0.07, 0.045)[variant - 1]
     pitch = (1.0, 0.86, 1.1)[variant - 1]
-    base.mix_into(out, _click(rng, 0.03, 2100.0 * pitch, 2.5, 160.0), 0.0, 0.55)
-    base.mix_into(out, base.decay(base.tone(0.03, 1750.0 * pitch, "triangle"), 140.0), 0.0, 0.25)
+    # R2c annex: the hit is sample 0. It is played on the frame the block meets
+    # the pad, and the CHUNK used to come `gap` after a soft KA (46-82 ms late in
+    # the recordings). Now the block, the felt and the desk land first with the
+    # handle's clack on top, and the handle's spring snaps back (the KA) after.
+    clack = _click(rng, 0.03, 2100.0 * pitch, 2.5, 160.0)
     chunk = _thump(0.32, 150.0 * pitch, 52.0 * pitch, 32.0, 14.0)
     felt = base.lowpass(base.decay(base.noise(rng, 0.2), 30.0), 900.0)
     knock = base.decay(base.tone(0.12, 310.0 * pitch, "triangle"), 38.0)
-    base.mix_into(out, chunk, gap, 1.0)
-    base.mix_into(out, felt, gap, 0.7)
-    base.mix_into(out, knock, gap, 0.35)
-    return base.envelope(out, 0.001, 0.05)
+    base.mix_into(out, chunk, 0.0, 1.0)
+    base.mix_into(out, felt, 0.0, 0.7)
+    base.mix_into(out, knock, 0.0, 0.35)
+    base.mix_into(out, clack, 0.0, 0.5)
+    base.mix_into(out, base.decay(base.tone(0.03, 1750.0 * pitch, "triangle"), 140.0), gap, 0.22)
+    base.mix_into(out, _click(rng, 0.02, 2600.0 * pitch, 3.0, 220.0), gap, 0.3)
+    return base.envelope(out, 0.0008, 0.05)
 
 
 def stamp_smudge() -> list:
