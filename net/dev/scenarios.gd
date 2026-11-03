@@ -12,8 +12,8 @@ extends Node
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, spotted, lunge,
 ## dodge, gotcha, cite_rescue, escort, hide, hide_bin, hide_shed, pile, peek,
 ## inspect_near, inspect_found, border_return, van_ride, van_seated, van_unbuckle,
-## van_straggler, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
-## annex_window_d, annex_visit (needs a second player), annex_closing, store,
+## van_straggler, van_straggler_far, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
+## annex_window_d, annex_turnstile, annex_visit (needs a second player), annex_closing, store,
 ## drive (that one needs --town-map), toss, toss_full, toss_close, rustys (needs
 ## Rusty's open: --rank=5 or more), lunch_money,
 ## snak_o_matic (at the food truck's hatch or the vending machine, at noon,
@@ -29,7 +29,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_turnstile", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -42,6 +42,8 @@ const STRAGGLER_WATCH := Vector3(3.6, 0.0, 9.0)
 const STRAGGLER_LAND_SECONDS: float = 2.4
 const STRAGGLER_OUT := Vector3(7.0, 0.0, 3.0)
 const STRAGGLER_STUN_SECONDS: float = 30.0
+## van_straggler_far: he's this far (m) out past the back of the house instead.
+const STRAGGLER_BEHIND_HOUSE: float = 2.5
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
@@ -106,6 +108,8 @@ const RESCUE_ANGLE_DEGREES: float = 22.0
 ## marker's space: right of center toward the stamp, at the counter's lip), and
 ## annex_bigstamp: the visitor's spot in front of the Head NICE BOY's desk.
 const HEIST_STAND := Vector3(0.24, 0.0, 0.42)
+## annex_turnstile: you stand this far (m) short of the turnstile, facing out.
+const TURNSTILE_STAND: float = 1.2
 ## Roughly where a player's eyes are above their feet, for aiming a placement's look.
 const EYE_HEIGHT: float = 1.6
 ## The moments with a friend in them (a second player who plays).
@@ -220,6 +224,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _annex_visit()
 		"annex_closing":
 			out = await _annex_closing()
+		"annex_turnstile":
+			out = await _annex_turnstile()
 		"van_ride":
 			out = await _van_ride()
 		"van_seated":
@@ -228,6 +234,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _van_unbuckle()
 		"van_straggler":
 			out = await _van_straggler()
+		"van_straggler_far":
+			out = await _van_straggler(true)
 		"dropoff":
 			out = await _dropoff()
 		"store":
@@ -1117,7 +1125,7 @@ func _reached_van_unbuckle() -> bool:
 ## The van leaving with one NICE BOY still out on the lawn: it creeps on with its
 ## back doors open and he jogs after it and hops onto the bumper. You watch
 ## from behind it.
-func _van_straggler() -> Dictionary:
+func _van_straggler(far: bool = false) -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
@@ -1129,10 +1137,11 @@ func _van_straggler() -> Dictionary:
 	await get_tree().create_timer(STRAGGLER_LAND_SECONDS).timeout
 	var pose: Transform3D = van.call("trip_pose", trip, Net.server_time())
 	# Out on the lawn, too far to climb back in before it goes (R2b van: landed at
-	# the door, he was recalled straight back in and the van never crept).
+	# the door, he was recalled straight back in and the van never crept). Far: out
+	# behind the house, his way back round it (R2c van review).
 	var straggler := _world().get_node_or_null("Npcs/Crew2") as Node3D
 	if straggler != null:
-		straggler.global_position = pose * STRAGGLER_OUT
+		straggler.global_position = _behind_house(pose.origin) if far else pose * STRAGGLER_OUT
 		straggler.set("_stun_left", STRAGGLER_STUN_SECONDS)
 	var stand := pose * STRAGGLER_WATCH
 	_place(Vector3(stand.x, pose.origin.y + 0.1, stand.z), _yaw_toward(stand, pose * Vector3(0.0, 0.0, 3.0)), -0.1)
@@ -1140,6 +1149,39 @@ func _van_straggler() -> Dictionary:
 	van.call("host_depart", Net.server_time() + 1.0)
 	await _ticks(2)
 	return {"note": "the van pulls out in 1 s with Crew2 still out; it creeps, he hops on the bumper", "trip": trip}
+
+
+## On the ground just behind the yard's house, seen from the street at street:
+## the far side of its walls, STRAGGLER_BEHIND_HOUSE m past them, on the navmesh.
+func _behind_house(street: Vector3) -> Vector3:
+	var house := _world().find_child("HouseBody", true, false) as Node3D
+	if house == null:
+		return street
+	var box := AABB()
+	var first := true
+	for child: Node in house.get_children():
+		var shape := child as CollisionShape3D
+		if shape == null or not (shape.shape is BoxShape3D):
+			continue
+		var size: Vector3 = (shape.shape as BoxShape3D).size
+		var part := AABB(shape.global_position - size * 0.5, size)
+		box = part if first else box.merge(part)
+		first = false
+	if first:
+		return street
+	var middle := box.get_center()
+	var away := Vector3(middle.x - street.x, 0.0, middle.z - street.z).normalized()
+	var reach := absf(away.x) * box.size.x * 0.5 + absf(away.z) * box.size.z * 0.5
+	var spot := middle + away * (reach + STRAGGLER_BEHIND_HOUSE)
+	spot.y = street.y
+	var map: RID = house.get_world_3d().navigation_map
+	if map.is_valid() and NavigationServer3D.map_get_iteration_id(map) > 0:
+		spot = NavigationServer3D.map_get_closest_point(map, spot)
+	return spot
+
+
+func _reached_van_straggler_far() -> bool:
+	return _reached_van_straggler()
 
 
 func _reached_van_straggler() -> bool:
@@ -1175,6 +1217,11 @@ func _annex() -> Dictionary:
 	var started: Dictionary = await _annex_start([Net.local_peer_id()])
 	if started.has("error"):
 		return started
+	return await _annex_after_start()
+
+
+## A visit already begun: a step back from your first box's window.
+func _annex_after_start() -> Dictionary:
 	var annex := _annex_node()
 	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
 	var window := str(preload("res://net/annex/form_state.gd").next_window(form))
@@ -1287,6 +1334,35 @@ func _reached_annex_bigstamp() -> bool:
 	return int((annex.call("window_now", "head") as Dictionary)["state"]) == _Sched.S.AWAY and int(annex.call("big_stamp_holder")) == 0
 
 
+## Done: your form approved and in the tray, a step short of the turnstile, facing
+## out to the forecourt and the ride home waiting up the curb (R2c van review: walk
+## it by hand, not with the bot).
+func _annex_turnstile() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	form["stamped"] = (form["boxes"] as PackedStringArray).size()
+	form["approved"] = true
+	form["dropped"] = true
+	annex.call("dev_set_form", Net.local_peer_id(), form)
+	var gate := _annex_point("Turnstile")
+	var out := _annex_point("Forecourt")
+	if gate == Vector3.INF or out == Vector3.INF:
+		return {"error": "no turnstile"}
+	var outward := Vector3(out.x - gate.x, 0.0, out.z - gate.z).normalized()
+	_stand_facing(gate - outward * TURNSTILE_STAND, gate + outward * 4.0)
+	await _ticks(3)
+	return {"moment": "annex_turnstile", "note": "walk forward through the turnstile"}
+
+
+func _reached_annex_turnstile() -> bool:
+	if not _reached_annex():
+		return false
+	return bool((_annex_node().call("form_of", Net.local_peer_id()) as Dictionary).get("approved", false))
+
+
 ## Window D's blinds go up in 2 s; you're halfway across the room.
 func _annex_window_d() -> Dictionary:
 	var started: Dictionary = await _annex()
@@ -1340,7 +1416,18 @@ func _reached_annex_visit() -> bool:
 
 ## Closing time in 10 s: the clock races, the lights flicker.
 func _annex_closing() -> Dictionary:
-	var started: Dictionary = await _annex()
+	# With a friend (tools\play.ps1 -Friend) they're inside too, so closing time lets
+	# two out at once (R2c van: both used to land on one spot of the forecourt).
+	var friend := _friend_id()
+	if friend != 0:
+		var both: Dictionary = await _annex_start([Net.local_peer_id(), friend])
+		if both.has("error"):
+			return both
+	var started: Dictionary = {}
+	if friend == 0:
+		started = await _annex()
+	else:
+		started = await _annex_after_start()
 	if started.has("error"):
 		return started
 	var annex := _annex_node()
@@ -1366,6 +1453,10 @@ func _annex_start(riders: Array) -> Dictionary:
 		await _ticks(2)
 	director.set("_hazard_seed", ANNEX_SEED)
 	annex.call("begin", ANNEX_TRIP, riders, Net.server_time())
+	# The ride home waits up the curb, as it does once a real visit is under way.
+	var van := _van()
+	if van != null and van.has_method("dev_return_van"):
+		van.call("dev_return_van")
 	var first := int(riders[0])
 	var inside: Variant = await _wait_for(func() -> Variant:
 		return true if str(annex.call("stage_of", first)) == "inside" else null)

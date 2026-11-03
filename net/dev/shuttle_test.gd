@@ -18,10 +18,15 @@ extends Node
 ##   seats     a boarded client sits; seats == boarded on both peers
 ##   unbuckle  refused next to a NICE BOY who can see you, refused while the driver
 ##             checks his mirror, and done unseen: the rider steps out, released
+##   unbuckle_beside (R2c van) the freed rider lands shoulder to shoulder with
+##             the rescuer, not in front of them
 ##   rescue    the host buckled in, the client holds the door on its own Shuttle
 ##             (start and finish over the lag): the host steps out, immune
 ##   straggler the van leaving with the crew out creeps with its back doors open
 ##             and a NICE BOY hops onto the bumper
+##   straggler_aboard (R2c van) it drives off only with him on the bumper and
+##             its back doors shut
+##   straggler_pace (R2c van review) his run is a navmesh way taken at a run
 ##   ride      the rider's zone moves only after their iris has closed (the host's
 ##             schedule; the client's iris too when it has one), the van is freed
 ##             after it leaves, and nothing the client saw moved faster than
@@ -53,6 +58,12 @@ const STEP_MAX_METERS: float = 1.0
 const ROAD_HALF_WIDTH: float = 1.15
 const ROAD_CHECK_X: float = 125.0
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
+## unbuckle_beside (R2c van): the freed rider lands level with the rescuer from the
+## van (m, across) and this far from them along it (m).
+const UNBUCKLE_LEVEL: float = 0.5
+const UNBUCKLE_APART := Vector2(0.6, 1.4)
+## straggler_aboard (R2c van): how close to the bumper's step the straggler rides (m).
+const STRAGGLER_ON_BUMPER: float = 0.35
 
 static var result: Dictionary = {}
 
@@ -262,6 +273,14 @@ func _step_unbuckle(shuttle: Node) -> void:
 	var director := _director()
 	var safe := float((director.get("_safe_until") as Dictionary).get(_client, 0.0)) > Net.server_time()
 	_check("unbuckle", guarded == "guard" and mirror_seen == "mirror" and done == 1 and out != null and safe, "guard refusal '%s', mirror refusal '%s', unbuckled %d, out %s, immune %s" % [guarded, mirror_seen, done, out != null, safe])
+	# R2c van: the freed rider lands beside the rescuer, level with them from the
+	# van (shoulder to shoulder), never in front of their face.
+	var freed := _player(_client)
+	if freed != null:
+		var local_me := pose.affine_inverse() * me.global_position
+		var local_freed := pose.affine_inverse() * freed.global_position
+		var apart := Vector2(local_freed.x - local_me.x, local_freed.z - local_me.z)
+		_check("unbuckle_beside", absf(apart.x) <= UNBUCKLE_LEVEL and absf(apart.y) >= UNBUCKLE_APART.x and absf(apart.y) <= UNBUCKLE_APART.y, "the freed rider is %.2f m out from the rescuer (want <= %.2f) and %.2f m along the van (want %.2f-%.2f)" % [apart.x, UNBUCKLE_LEVEL, absf(apart.y), UNBUCKLE_APART.x, UNBUCKLE_APART.y])
 
 
 ## The other way round, through the network: the host buckled in, the client at
@@ -312,6 +331,25 @@ func _step_straggler(shuttle: Node) -> void:
 	var back := shuttle.get_node_or_null("Trip%d/VanLook/Shell/BackDoors" % trip)
 	var doors_open := back != null and float(back.get("openness")) > 0.5
 	_check("straggler", crept != null and hopped != null and doors_open, "crept %s, a NICE BOY on the bumper %s, back doors open %s" % [crept != null, hopped != null, doors_open])
+	# R2c van: he really is on the bumper when it drives off (he used to be left
+	# standing in the road), the back doors shut behind him, and the drive waited
+	# for his hop.
+	var departed: Variant = await _wait_for(func() -> Variant:
+		return true if str(shuttle.call("leg_name", trip)) in ["depart", "hidden"] else null, 12.0)
+	await get_tree().create_timer(0.5).timeout
+	var rear := shuttle.get_node_or_null("Trip%d/VanLook/RearStep" % trip) as Node3D
+	var on_bumper := -1.0
+	var up := 0.0
+	if rear != null and is_instance_valid(crew):
+		on_bumper = Vector2(crew.global_position.x - rear.global_position.x, crew.global_position.z - rear.global_position.z).length()
+		up = crew.global_position.y - (shuttle.call("trip_pose", trip, Net.server_time()) as Transform3D).origin.y
+	var shut := back != null and float(back.get("openness")) < 0.05
+	_check("straggler_aboard", departed != null and on_bumper >= 0.0 and on_bumper <= STRAGGLER_ON_BUMPER and up > 0.5 and shut, "drove off %s with him %.2f m from the bumper step (want <= %.2f), %.2f m up, back doors shut %s" % [departed != null, on_bumper, STRAGGLER_ON_BUMPER, up, shut])
+	# R2c van review: his run is a way along the navmesh at a run, not a straight
+	# line at whatever speed a fixed time needed.
+	var stats: Dictionary = shuttle.get("stats")
+	var pace := float(stats.get("straggler_speed", -1.0))
+	_check("straggler_pace", int(stats.get("straggler_points", 0)) >= 2 and pace > 0.0 and pace <= Constants.VAN_STRAGGLER_RUN_SPEED + 0.05, "his way has %d points, run at %.2f m/s (want <= %.2f)" % [int(stats.get("straggler_points", 0)), pace, Constants.VAN_STRAGGLER_RUN_SPEED])
 
 
 func _step_ride(shuttle: Node) -> void:

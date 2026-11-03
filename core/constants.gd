@@ -3009,7 +3009,9 @@ const VAN_PARK_SLIDE_MAX: float = 12.0
 ## levels/dressing/neighborhood.gd), the near lane it drives in (z), the lane change
 ## between them (m), and the spacing of a route's ground-checked points (m).
 ## R2b van: it used to park in the far lane, so riders stepped down into the road.
-const VAN_CURB_Z: float = 24.05
+## R2c van: 0.25 m further out, so its door-side wheels and mirror stand clear of
+## the curb (the street starts at 22.6; it's 1.29 m from its middle to its side).
+const VAN_CURB_Z: float = 24.3
 const VAN_LANE_Z: float = 24.85
 const VAN_MERGE_METERS: float = 14.0
 const VAN_ROUTE_STEP: float = 2.0
@@ -3126,7 +3128,8 @@ const CREW_TAG_HUSH_SECONDS: float = 0.15
 const VAN_HEADING_LOOK: float = 2.0
 ## The Courtesy Shuttle parks at Annex B with its door step on the curb marker: the
 ## van's middle this far (m) from it, into the street (props/nice_van.gd DoorStep).
-const VAN_ANNEX_DOOR_TO_CURB: float = 1.75
+## R2c van: from 1.75, which put its side 0.24 m over Annex B's sidewalk.
+const VAN_ANNEX_DOOR_TO_CURB: float = 2.3
 
 # ---- R2b van
 # The Courtesy Shuttle finished (docs/GAME.md "The Courtesy Shuttle, door to door",
@@ -3147,7 +3150,8 @@ const VAN_HONK_EARLIEST: float = 1.0
 const VAN_HONK_BEFORE_BRAKE: float = 0.4
 ## ... and in view within this (m), near enough to make it out and hear it.
 const VAN_HONK_NEAR: float = 50.0
-const VAN_BRAKE_DB: float = -10.0
+## R2c van review: from -10 (on the borrowed skid, 13 dB under its own engine).
+const VAN_BRAKE_DB: float = 0.0
 ## The putt-putt (it opens on a clutch clunk) starts this long (s) before it moves.
 const VAN_PULL_SOUND_LEAD: float = 0.03
 ## The ride: the cab shot starts this long (s) after it pulls out, the pothole this
@@ -3193,6 +3197,83 @@ const VAN_ENGINE_SMOOTH: float = 12.0
 ## Its pitch keeps climbing a little past cruise (a drive-on downhill): speed's
 ## share of VAN_CRUISE is capped here.
 const VAN_ENGINE_SHARE_MAX: float = 1.2
+
+# ---- R2c van (the Courtesy Shuttle's seams; docs/GAME.md "The Courtesy Shuttle, seams")
+## The straggler: a NICE BOY still on the lawn when the van pulls out sprints after
+## it (m/s; it creeps at VAN_CREEP_SPEED) along the yard's navmesh, round the house
+## and the hedges, never longer than VAN_STRAGGLER_RUN_MAX s (a very long way off,
+## he runs faster), ending VAN_STRAGGLER_BEHIND m behind the bumper, where the back
+## doors swinging shut just clear him; then he hops on. The van creeps for as long
+## as his run takes. He gets up to speed, and pulls up at the end, over
+## VAN_STRAGGLER_RAMP s, and looks VAN_STRAGGLER_LOOKAHEAD m along his way, so he
+## turns into a corner instead of snapping round it.
+const VAN_STRAGGLER_RUN_SPEED: float = 6.5
+const VAN_STRAGGLER_RUN_MIN: float = 0.6
+const VAN_STRAGGLER_RUN_MAX: float = 10.0
+const VAN_STRAGGLER_BEHIND: float = 1.15
+const VAN_STRAGGLER_RAMP: float = 0.35
+const VAN_STRAGGLER_LOOKAHEAD: float = 1.2
+## ... he's never at the bumper sooner than this after the back doors swung open and
+## shut again (they swing through where he'd stand); the creep's closing speed is
+## never taken as less than VAN_STRAGGLER_MIN_CLOSING m/s.
+const VAN_STRAGGLER_DOOR_MARGIN: float = 0.1
+const VAN_STRAGGLER_MIN_CLOSING: float = 1.0
+## An unbuckled friend steps down this far beside their rescuer (along the van),
+## shoulder to shoulder, inside the open side's span (z in the van's space). R2c van
+## review: from 0.9, where the step down still brushed past the rescuer's cap.
+const VAN_UNBUCKLE_BESIDE: float = 1.15
+const VAN_DOORWAY_Z := Vector2(-1.4, 2.5)
+## Stepping down out of a seat, they shuffle along the aisle to where they'll
+## land first, curving out through the door past this x (van space; the seats are
+## at -0.78, the doorway at 1.16), with this little hop (m) as they step down.
+const VAN_STEP_OUT_TURN_X: float = 0.7
+const VAN_STEP_OUT_LIFT: float = 0.2
+## Annex B's ride home parks this far up the curb from the turnstile (m), so the
+## way out of the turnstile is open pavement and the receipt beat plays there:
+## its nose (3.1 m ahead of its middle) is well clear of the walk straight out to
+## the street, off at the edge of your view (R2c van review: at 4.5 its nose sat
+## in the turnstile's line and you walked along its open side).
+const VAN_RETURN_CURB_SHIFT: float = 9.0
+## Walk up to its open door (within this of its step, m) during that beat and you
+## step up into your seat there and then, no iris.
+const VAN_RETURN_STEP_REACH: float = 1.7
+## ... and it comes down the street from this far off, deep in the haze, while
+## the riders are inside.
+const VAN_ANNEX_RETURN_FROM: float = 150.0
+## Riders' iris opens for the last this-many seconds of a long way in to Annex B
+## (taken only when someone there could watch the van come).
+const VAN_ANNEX_PULL_UP: float = 4.0
+## The cohort all aboard the ride home, it goes this soon after the last one sits
+## (RETURN_WAIT is the wait when the cohort doesn't ride together).
+const VAN_RETURN_GO: float = 1.0
+## Let out at closing time, the receipt starts printing this long after the door
+## swung shut over the lobby: as it opens again on the seat.
+const VAN_CLOSING_RECEIPT_AFTER: float = 1.3
+## ... and the door iris opens by itself this long after it started to shut if no
+## seat has taken them (it never stays shut).
+const VAN_CLOSING_IRIS_CAP: float = 4.0
+## Where a rider steps down: a spot with nothing standing within this much of it
+## (a lamp post, a mailbox, a hydrant), slid along the curb up to
+## VAN_EXIT_SLIDE_MAX m to find one (R2c van: the step-down at the yard landed
+## with a lamp post in the lens).
+const VAN_EXIT_CLEAR: float = 0.85
+const VAN_EXIT_SLIDE_MAX: float = 2.4
+## ... in steps of this (m), the clearance a cylinder this tall (m) standing this
+## high off the ground (m: over the curb's lip, under a lamp's arm).
+const VAN_EXIT_SLIDE_STEP: float = 0.3
+const VAN_EXIT_CLEAR_HEIGHT: float = 1.6
+const VAN_EXIT_CLEAR_LIFT: float = 0.3
+## The Courtesy Flare stands this far ahead of the raid van's park point (its
+## half length, the cones' ring and a step), in the road where it stops.
+const VAN_FLARE_AHEAD: float = 5.4
+## Annex B's street runs this much (m) past its 40 m pad, half each way.
+const VAN_ANNEX_STREET_EXTRA: float = 340.0
+## The brakes' last squeal, this long before it stops at the curb, this loud (dB).
+const VAN_BRAKE_SETTLE_BEFORE: float = 0.5
+const VAN_BRAKE_SETTLE_DB: float = -6.0
+## Its brakes (audio's van_brake) keep full volume out to this far (m), as the
+## engine does (VAN_ENGINE_UNIT_SIZE): a squeal carries.
+const VAN_BRAKE_UNIT_SIZE: float = 16.0
 
 # ---- toss: polish
 # Your own leaf bag through your own eyes (props/carry_view.gd, docs/GAME.md

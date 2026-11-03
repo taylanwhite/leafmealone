@@ -1104,6 +1104,11 @@ func _follow_target() -> Node3D:
 		"crew", "nice_boy", "crew1":
 			var crew := get_tree().get_nodes_in_group("crew")
 			node = crew[0] if not crew.is_empty() else null
+		"crew2", "crew3", "crew4":
+			# One NICE BOY by name (van_straggler_far's straggler is Crew2).
+			for each: Node in get_tree().get_nodes_in_group("crew"):
+				if str(each.name).to_lower() == who:
+					node = each
 		"van":
 			# The Courtesy Shuttle's van (net/run_events/shuttle.gd): the raid's, else any trip's.
 			var shuttle := get_tree().get_first_node_in_group("nice_shuttle")

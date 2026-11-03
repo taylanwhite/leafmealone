@@ -92,9 +92,20 @@ const DOOR_PANEL_LENGTH: float = 1.7
 const DOOR_WINDOW_Y := Vector2(1.86, 2.62)
 ## The water cooler's middle on the floor (x, z): the cabin's front-left corner.
 const COOLER_AT := Vector2(-0.86, 0.12)
-## The riders' cab shot: the eye, and what it looks at (the daisy, a touch low).
-const FRESHENER_CAM := Vector3(0.05, 2.66, -0.4)
-const FRESHENER_LOOK := Vector3(0.0, 2.42, -2.3)
+## The riders' cab shot: the eye, and what it looks at (the daisy and the road).
+## Leaning in between the front seats: the driver's and shotgun's heads at the
+## edges, the daisy above the road in the middle (R2c van review: from up under
+## the ceiling at (0.05, 2.78, -0.2), a full cab's two heads filled the lower half).
+const FRESHENER_CAM := Vector3(0.0, 2.55, -1.25)
+const FRESHENER_LOOK := Vector3(0.0, 2.5, -4.0)
+## The open side's invisible wall (R2c van): a slab this thick and tall, its
+## middle at x and y, over the doorway's span (Constants.VAN_DOORWAY_Z) and this
+## much past each end, onto the door frame.
+const DOORWAY_X: float = 1.16
+const DOORWAY_Y: float = 1.6
+const DOORWAY_THICK: float = 0.12
+const DOORWAY_HEIGHT: float = 2.6
+const DOORWAY_OVERLAP: float = 0.45
 ## The engine's sound comes from here, under the hood.
 const ENGINE_AT := Vector3(0.0, 1.0, -2.6)
 ## The back doors' hinges (x) and how far they swing open (radians).
@@ -193,6 +204,20 @@ static func build(parent: Node3D, paint: Color = PAINT) -> Node3D:
 		[Vector3(0.0, 1.95, 3.0), Vector3(2.3, 2.0, 0.16)],
 		[Vector3(0.0, 3.0, 0.5), Vector3(2.4, 0.2, 5.2)],
 	])
+	# The open side, kept shut to anyone walking (R2c van: through Annex B's
+	# turnstile you walked straight into its aisle and stood there). Riders and
+	# the crew get in and out on staged anchors, which go through it.
+	var doorway := AnimatableBody3D.new()
+	doorway.name = "Doorway"
+	doorway.sync_to_physics = false
+	var gap := CollisionShape3D.new()
+	var gap_box := BoxShape3D.new()
+	var span: Vector2 = Constants.VAN_DOORWAY_Z
+	gap_box.size = Vector3(DOORWAY_THICK, DOORWAY_HEIGHT, span.y - span.x + DOORWAY_OVERLAP * 2.0)
+	gap.shape = gap_box
+	gap.position = Vector3(DOORWAY_X, DOORWAY_Y, (span.x + span.y) * 0.5)
+	doorway.add_child(gap)
+	look.add_child(doorway)
 	var motion := Motion.new()
 	motion.name = "Motion"
 	motion.setup(look, lights)

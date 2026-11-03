@@ -839,7 +839,9 @@ func _footsteps() -> void:
 		_last_visual = Vector3.INF
 		return
 	var at := visual.global_position
-	if _last_visual.is_finite() and (mode != Mode.SEATED):
+	# Riding the van (on a seat or the back bumper), the van moves him, not his feet
+	# (R2c van: a straggler on the bumper "walked" all the way down the street).
+	if _last_visual.is_finite() and mode != Mode.SEATED and mode != Mode.HOP_IN:
 		var moved := Vector2(at.x - _last_visual.x, at.z - _last_visual.z).length()
 		if moved < 2.0:
 			_step_distance += moved
