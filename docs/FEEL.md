@@ -73,7 +73,7 @@ Built (shops chunk 4, 2026-11-02; docs/GAME.md "2026-11-01, shops"):
 - **Hours:** each shop has an hours sign that keeps itself current, Rusty and Dot go home when they close, the counter prompt turns into "Closed. Opens 7 AM", and the catalog window drops a shutter. Marty never leaves.
 - **Physical stock:** Homie Depot's garden shelves (`props/shelf_stock.gd`) hold the real catalog: the next tool tier you can buy with its price tag, a box per supply left today, a tarp and "Rank: ..." over what your rank can't buy yet. E on a shelf opens the catalog on that item.
 - **The catalog window** (`ui/shop_window.gd`) has a tab per department, scrolls, shows tier pips and the next tier's button, x1 and x5 buttons for supplies, and the host's answer as a toast.
-- Phone ordering and the vending machine are shops chunks 8 and 6.
+- Built (shops chunk 6): Lunch Money, Dot's food truck with a hatch that opens with her hours, and the Snak-o-Matic vending machine on the store's front wall (props/vehicles.gd build_food_truck, props/vending_machine.gd, levels/dressing/shop_sites.gd); a snack is handed over and eaten on screen (player/snack_eater.gd). Phone ordering is shops chunk 8.
 
 ## Order to build in
 

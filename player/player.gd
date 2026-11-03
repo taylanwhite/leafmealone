@@ -20,6 +20,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 const _FirstPersonArms = preload("res://player/first_person_arms.gd")
+const _SnackEater = preload("res://player/snack_eater.gd")
 const _PropLooks = preload("res://props/prop_looks.gd")
 const _Pockets = preload("res://player/pockets.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
@@ -69,6 +70,8 @@ var _last_anim: AnimState = AnimState.IDLE
 var _on_seat: bool = false
 ## _dress_up has already waited once for this player's name.
 var _dress_waited: bool = false
+## World/Shops, looked up once (snack_buff).
+var _shops_node: Node
 var _step_wait: float = 0.0
 ## Bonked by a thrown item: no control for this long. Knocked flat if the item was heavy.
 var _stun_left: float = 0.0
@@ -1693,7 +1696,7 @@ func _simulate(delta: float) -> void:
 		speed = CROUCH_SPEED
 	elif Settings.is_held(&"sprint"):
 		speed = SPRINT_SPEED
-	speed *= carry_speed_scale()
+	speed *= carry_speed_scale() * snack_buff("speed")
 	if foot_hurt >= 2:
 		speed = minf(speed, WALK_SPEED) * Constants.HOP_SPEED_SHARE
 	elif limping:
@@ -1731,16 +1734,18 @@ func _step_wind_up(delta: float) -> void:
 	var held := _held_prop()
 	var pressing := Input.is_action_pressed("drop") and (held != null or carrying != 0) and _stun_left <= 0.0 and _hidden_spot == null and not in_vehicle()
 	if pressing:
+		# Burnt coffee: you hold on longer before you strain, and before you faint.
+		var hold := snack_buff("strain")
 		if _wind_up < 0.0:
 			_wind_up = 0.0
-			_next_strain = Constants.THROW_STRAIN_SECONDS
+			_next_strain = Constants.THROW_STRAIN_SECONDS * hold
 		_wind_up += delta
-		straining = _wind_up >= Constants.THROW_STRAIN_SECONDS
+		straining = _wind_up >= Constants.THROW_STRAIN_SECONDS * hold
 		if straining:
 			if _wind_up >= _next_strain:
 				_next_strain = _wind_up + 1.3
 				say_to_all("vo_strain")
-		if _wind_up >= Constants.THROW_FAINT_SECONDS:
+		if _wind_up >= Constants.THROW_FAINT_SECONDS * hold:
 			_faint()
 		return
 	if _wind_up < 0.0:
@@ -1814,7 +1819,19 @@ func carry_speed_scale() -> float:
 		kg += float(pockets().call("pocket_weight_kg")) * Constants.POCKET_WEIGHT_SHARE
 	if kg <= 0.0:
 		return 1.0
-	return maxf(Constants.CARRY_SPEED_FLOOR, 1.0 - kg * Constants.CARRY_SLOWDOWN_PER_KG)
+	# A hot dog in you: heavy things slow you half as much.
+	return maxf(Constants.CARRY_SPEED_FLOOR, 1.0 - kg * Constants.CARRY_SLOWDOWN_PER_KG * snack_buff("carry"))
+
+
+## What this player's snacks do to one effect ("speed", "carry", "strain",
+## "stroke"; Constants.BUFFS), 1.0 with none. Read from World/Shops, which every
+## peer has, so the owner moves by it and everyone agrees on it.
+func snack_buff(effect: String) -> float:
+	if _shops_node == null or not is_instance_valid(_shops_node):
+		_shops_node = get_tree().get_first_node_in_group("shops") if is_inside_tree() else null
+		if _shops_node == null:
+			return 1.0
+	return float(_shops_node.call("buff", name.to_int(), effect))
 
 
 ## Hit by a thrown item (net/components/net_prop.gd tells every peer). Everyone
@@ -1863,8 +1880,10 @@ func _step_stunned(delta: float) -> void:
 ## A thrown prop can spike velocity. Cap it, and put the player back if they leave the pad.
 func _stay_on_the_pad() -> void:
 	var flat := Vector2(velocity.x, velocity.z)
-	if flat.length() > SPRINT_SPEED:
-		flat = flat.normalized() * SPRINT_SPEED
+	# Turbo Juice runs you a little past a sprint, and no further.
+	var cap := SPRINT_SPEED * maxf(snack_buff("speed"), 1.0)
+	if flat.length() > cap:
+		flat = flat.normalized() * cap
 		velocity.x = flat.x
 		velocity.z = flat.y
 	if velocity.y > JUMP_VELOCITY:
@@ -2003,6 +2022,13 @@ func _dress_up() -> void:
 	life.body = body
 	life.role = "player"
 	body.add_child(life)
+	# Eating a snack and wearing what it does (Lunch Money, the Snak-o-Matic),
+	# after the body each tick; every peer, from World/Shops' snapshot.
+	var eater := _SnackEater.new()
+	eater.name = "SnackEater"
+	eater.player = self
+	eater.body = body
+	body.add_child(eater)
 	%BodyMesh.visible = false
 	var old_head := %Head.get_node_or_null("HeadMesh") as Node3D
 	if old_head != null:

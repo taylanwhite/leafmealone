@@ -226,6 +226,8 @@ func _build_hud_rows() -> void:
 	_chefty_row = _Icons.row("brand_chefty", _chefty_label, _Icons.SIZE_HUD)
 	_chefty_row.visible = false
 	_hud_rows.add_child(_chefty_row)
+	# Your snacks' buffs as icons, draining as they run (ui/buff_hud.gd, shops chunk 6).
+	_hud_rows.add_child(preload("res://ui/buff_hud.gd").new())
 	_status = _hud_label()
 	_status.visible = false
 	_hud_rows.add_child(_status)

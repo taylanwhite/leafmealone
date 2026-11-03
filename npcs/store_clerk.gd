@@ -65,6 +65,10 @@ var _local_was_near: bool = false
 var _greeted_day: int = -1
 ## The local player was taken to Annex B (Zone.BORDER) and the keeper hasn't said the after-raid line yet.
 var _was_raided: bool = false
+## Dot's hand-over: the snack in her hand, how long it stays, and the newest one handed.
+var _handing: Node3D
+var _handing_left: float = 0.0
+var _handed_at: float = -1.0
 
 
 func _ready() -> void:
@@ -233,6 +237,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	_watch_snacks(delta)
 	visible = is_present()
 	if not visible:
 		_caption_left = 0.0
@@ -321,3 +326,43 @@ func _shops() -> Node:
 
 func _flat_distance(a: Vector3, b: Vector3) -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
+# ---- Lunch Money (shops chunk 6): Dot hands each snack out through the hatch.
+
+## Dot, on every peer: a snack bought from her (World/Shops.snacks, replicated)
+## comes out in her hand with the offer gesture and leaves it as the buyer's
+## hand comes up (Constants.SNACK_HANDOVER_SECONDS; player/snack_eater.gd
+## starts eating then).
+func _watch_snacks(delta: float) -> void:
+	if _handing != null:
+		_handing_left -= delta
+		if _handing_left <= 0.0:
+			_handing.queue_free()
+			_handing = null
+	if keeper != "dot":
+		return
+	var shops := _shops()
+	if shops == null:
+		return
+	var all: Dictionary = shops.get("snacks")
+	for peer_id: Variant in all:
+		var snack: Dictionary = all[peer_id]
+		var at := float(snack.get("at", 0.0))
+		if at <= _handed_at or str(Catalog.item(str(snack.get("item", ""))).get("shop", "")) != shop_id:
+			continue
+		_handed_at = at
+		if Net.server_time() - at < float(Constants.SNACK_HANDOVER_SECONDS.get(shop_id, 0.0)):
+			_hand_over(str(snack.get("item", "")), at)
+
+
+func _hand_over(item: String, at: float) -> void:
+	_body.call("gesture", "offer")
+	var hand := _body.call("pose_part", "prop_hand") as Node3D
+	if hand == null:
+		return
+	if _handing != null:
+		_handing.queue_free()
+	_handing = preload("res://props/shop_models.gd").food(item)
+	hand.add_child(_handing)
+	_handing_left = float(Constants.SNACK_HANDOVER_SECONDS.get(shop_id, 0.0)) - (Net.server_time() - at)

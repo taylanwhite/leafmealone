@@ -16,6 +16,11 @@ extends Node
 ## Constants.SHOP_SITES, and _near_site is the one place that reads it for a
 ## buy, so the drivable town only has to move the data.
 ##
+## Snacks (shops chunk 6): a snack's buff carries a server-time expiry, Turbo
+## chains into the crash, the Snak-o-Matic's eat and sandwich rolls are the
+## host's, and each player's last snack (snacks) rides in the snapshot so every
+## peer plays the hand-over and the eating (player/snack_eater.gd).
+##
 ## Later shop chunks add selling junk (request_sell, appraise), deliveries
 ## (request_order), the closet and Chefty paint (request_equip,
 ## request_apply_truck) on top of this node.
@@ -70,6 +75,11 @@ var used_today: Array = []
 var junk_left: Array = []
 ## How much money the Snak-o-Matic has eaten, all time.
 var vending_eaten: int = 0
+## The last snack each player ate: {peer id: {item, buff, at}} (at is the server
+## time it was handed over; buff is what it gave, so a sandwich's roll shows).
+## Every peer plays the eating from it (player/snack_eater.gd), so a bite needs
+## no RPC of its own. Not saved; cleared at sleep with the buffs.
+var snacks: Dictionary = {}
 
 var _rng := RandomNumberGenerator.new()
 var _buff_wait: float = 0.0
@@ -209,6 +219,23 @@ func buff(peer_id: int, effect: String) -> float:
 func has_buff(peer_id: int, buff_id: String) -> bool:
 	var mine: Dictionary = buffs.get(peer_id, {})
 	return mine.has(buff_id) and float(mine[buff_id]) > Net.server_time()
+
+
+## A player's buffs still running, as {buff id: seconds left}, soonest last.
+func buffs_left(peer_id: int) -> Dictionary:
+	var out := {}
+	var now := Net.server_time()
+	var mine: Dictionary = buffs.get(peer_id, {})
+	for buff_id: Variant in mine:
+		var left := float(mine[buff_id]) - now
+		if left > 0.0:
+			out[str(buff_id)] = left
+	return out
+
+
+## The last snack this player ate ({item, buff, at}), or {} for none today.
+func snack_of(peer_id: int) -> Dictionary:
+	return snacks.get(peer_id, {}) as Dictionary
 
 
 ## A player's hat and shirt item ids ("" for their own from dress_from_seed).
@@ -412,7 +439,8 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 			var per := float(Constants.SUPPLY_PER_ITEM.get(item, 0))
 			_set_supply(str(entry.get("supply", "")), supply(str(entry.get("supply", ""))) + per * float(qty))
 		"snack":
-			_give_buff(peer_id, str(entry.get("buff", "")))
+			var given := _give_buff(peer_id, str(entry.get("buff", "")))
+			snacks[peer_id] = {"item": item, "buff": given, "at": Net.server_time()}
 	return "ok"
 
 
@@ -432,17 +460,27 @@ func _wear(peer_id: int, slot: String, item: String) -> void:
 
 
 ## Host: a snack's buff starts now ("sandwich" rolls full or queasy). Turbo
-## replaces a crash still running.
-func _give_buff(peer_id: int, buff_id: String) -> void:
+## replaces a crash still running. Returns the buff given ("" for none).
+func _give_buff(peer_id: int, buff_id: String) -> String:
 	if buff_id == "sandwich":
 		buff_id = "queasy" if _rng.randf() < Constants.VENDING_QUEASY_CHANCE else "full"
 	if not Constants.BUFFS.has(buff_id):
-		return
+		return ""
 	var mine: Dictionary = (buffs.get(peer_id, {}) as Dictionary).duplicate()
 	var then := str((Constants.BUFFS[buff_id] as Dictionary).get("then", ""))
 	mine.erase(then)
 	mine[buff_id] = Net.server_time() + float((Constants.BUFFS[buff_id] as Dictionary)["seconds"])
 	buffs[peer_id] = mine
+	return buff_id
+
+
+## Host, dev and tests: a player's buffs (and last snack) gone at once.
+func dev_clear_buffs(peer_id: int) -> void:
+	if not Net.is_host():
+		return
+	buffs.erase(peer_id)
+	snacks.erase(peer_id)
+	_broadcast()
 
 
 ## Host: drop buffs that ran out, starting the one each chains into (turbo,
@@ -476,6 +514,7 @@ func _on_day_started(day: int) -> void:
 		return
 	_restock(day)
 	buffs.clear()
+	snacks.clear()
 	var bags := supply("lawn_bags") + supply("big_bags")
 	if bags < float(Constants.EMERGENCY_BAGS):
 		_set_supply("lawn_bags", supply("lawn_bags") + float(Constants.EMERGENCY_BAGS) - bags)
@@ -629,6 +668,7 @@ func _extra() -> Dictionary:
 		"arrived_today": arrived_today,
 		"stock_day": stock_day,
 		"vending_eaten": vending_eaten,
+		"snacks": snacks,
 	}
 
 
@@ -638,8 +678,9 @@ func _on_player_joined(peer_id: int) -> void:
 
 
 func _on_player_left(peer_id: int) -> void:
-	if Net.is_host() and buffs.has(peer_id):
+	if Net.is_host() and (buffs.has(peer_id) or snacks.has(peer_id)):
 		buffs.erase(peer_id)
+		snacks.erase(peer_id)
 		_broadcast()
 
 
@@ -682,6 +723,7 @@ func _rpc_state(all_stock: Dictionary, all_supplies: Dictionary, all_orders: Arr
 	arrived_today = extra.get("arrived_today", [])
 	stock_day = int(extra.get("stock_day", 0))
 	vending_eaten = int(extra.get("vending_eaten", 0))
+	snacks = extra.get("snacks", {})
 	for peer_id: int in Net.peer_ids():
 		var key := Campaign.key_of(peer_id)
 		if JSON.stringify(old_looks.get(key, {})) != JSON.stringify(looks.get(key, {})):

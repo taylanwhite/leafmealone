@@ -20,8 +20,10 @@ extends Node
 ## tags (shelves), the catalog window buying at the counter (window), the
 ## keepers and hours signs at 10 PM and noon (keepers), and the ladder's reach
 ## per tier (in tier_math); the probe's shelf_units proves the client's shelves
-## match. Later shop chunks add steps (junk, snacks, looks, deliveries). Each
-## step prints a [ShopTest] line.
+## match. Shops chunk 6 adds the Snak-o-Matic at 10 PM (vending), Lunch Money
+## at noon with every snack's effect and look (snack), and the client's own
+## machine buy through the RPC (client_snack). Later shop chunks add steps
+## (junk, looks, deliveries). Each step prints a [ShopTest] line.
 
 const _Shops = preload("res://net/shops/shops.gd")
 const _Strings = preload("res://ui/strings.gd")
@@ -30,6 +32,8 @@ const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _Heat = preload("res://net/run_events/heat.gd")
 ## What the client buys, so the host can tell its buy from its own.
 const CLIENT_HAT: String = "hat_beanie"
+## And what it buys at the Snak-o-Matic (shops chunk 6).
+const CLIENT_SNACK: String = "vend_turbo"
 ## The host's starting cash for the client: the hat, the gift, and change.
 const CLIENT_CASH: int = 500
 ## How long either side waits for the other (the client's buy, a result).
@@ -103,9 +107,16 @@ func _run() -> void:
 	var gift: int = Constants.PAY_CREWMATE_STEPS[0]
 	var hat_price := Catalog.price(CLIENT_HAT)
 	var client_wait := 0.0
-	while client_wait < WAIT_SECONDS and not (str((shops.call("look_of", mate) as Dictionary).get("hat", "")) == CLIENT_HAT and Campaign.credits(me) - host_cash >= gift):
+	var eaten_before := int(shops.get("vending_eaten"))
+	# The client also buys a warm Turbo Juice at the Snak-o-Matic (shops chunk 6):
+	# it lands as its snack, or the machine keeps the money.
+	var client_snacked := func() -> bool: return not (shops.call("snack_of", mate) as Dictionary).is_empty() or int(shops.get("vending_eaten")) > eaten_before
+	while client_wait < WAIT_SECONDS and not (str((shops.call("look_of", mate) as Dictionary).get("hat", "")) == CLIENT_HAT and Campaign.credits(me) - host_cash >= gift and client_snacked.call()):
 		await get_tree().create_timer(0.25).timeout
 		client_wait += 0.25
+	_step("client_snack", client_snacked.call(), "the client's vend_turbo landed as %s, the machine ate %d" % [str(shops.call("snack_of", mate)), int(shops.get("vending_eaten")) - eaten_before])
+	# Its cash for the snack, so the hat-and-gift sum below still adds up.
+	mate_cash -= Catalog.price(CLIENT_SNACK)
 	var mate_hat := str((shops.call("look_of", mate) as Dictionary).get("hat", ""))
 	var mate_paid := mate_cash - Campaign.credits(mate)
 	var host_got := Campaign.credits(me) - host_cash
@@ -192,15 +203,20 @@ func _run() -> void:
 		and _Shops.hour_text(21.0) == "9 PM" and _Shops.hour_text(7.0) == "7 AM" and _Shops.hour_text(24.5) == "12 AM" \
 		and _fishing_texts()
 	var keepers_late: Array[String] = await _check_keepers(shops, 22.0)
+	var closed_free := Campaign.credits(me) == cash
+	# vending (shops chunk 6): the Snak-o-Matic sells at 10 PM, when the rest is shut.
+	_step("vending", await _check_vending(shops, me))
 	clock.call("set_hour_for_tests", 12.0)
 	await get_tree().create_timer(0.2).timeout
 	var keepers_noon: Array[String] = await _check_keepers(shops, 12.0)
+	# snack (shops chunk 6): Lunch Money at noon; what each snack does, and how it shows.
+	_step("snack", await _check_snack(shops, me))
 	var keeper_problems := keepers_late + keepers_noon
 	for problem: String in keeper_problems:
 		print("[ShopTest]   %s" % problem)
 	_step("keepers", keeper_problems.is_empty(), "%d problems at 10 PM and noon" % keeper_problems.size())
 	var reopened := bool(shops.call("is_open", "homie_depot"))
-	_step("hours", closed == "closed" and shut and Campaign.credits(me) == cash and rules and reopened and opens == "tomorrow, 7 AM",
+	_step("hours", closed == "closed" and shut and closed_free and rules and reopened and opens == "tomorrow, 7 AM",
 		"at 10 PM: %s (opens %s); open again at noon %s; the open_at rules %s" % [closed, opens, reopened, rules])
 
 	# give: exactly $20 to the crewmate; odd amounts and yourself are refused.
@@ -567,6 +583,145 @@ func _card_button(cards: Node, item: String, qty: int) -> Button:
 	return null
 
 
+## vending (shops chunk 6), at 10 PM with Homie Depot shut: the gas-station-
+## adjacent sandwich at the Snak-o-Matic is charged once, at the marked-up
+## vending price, and either lands (its stock drops, a front snack falls in the
+## machine, the buyer is full or queasy and their body eats it: three bites,
+## then a belly pat or a burp) or the machine keeps the money (vending_eaten up,
+## stock and buffs untouched, a snack stuck on its coil, its screen says thanks).
+func _check_vending(shops: Node, me: int) -> bool:
+	var problems: Array[String] = []
+	await _stand_at("snak_o_matic")
+	var machine := get_tree().get_first_node_in_group("vending_machines")
+	if machine == null:
+		print("[ShopTest]   no Snak-o-Matic in the store")
+		return false
+	var cash := Campaign.credits(me)
+	var eaten := int(shops.get("vending_eaten"))
+	var left := int(shops.call("stock_left", "snak_o_matic", "vend_sandwich"))
+	var price := Catalog.price("vend_sandwich")
+	var code := str(shops.call("request_buy", "snak_o_matic", "vend_sandwich", 1))
+	var paid := cash - Campaign.credits(me)
+	if paid != price or price <= int(Constants.SHOP_PRICES["vend_sandwich"]):
+		problems.append("paid $%d of the vending price $%d (base $%d)" % [paid, price, int(Constants.SHOP_PRICES["vend_sandwich"])])
+	await get_tree().create_timer(1.0).timeout
+	var shelf_count := int(machine.call("front_count"))
+	var stocked := 0
+	for item: Variant in (shops.get("stock") as Dictionary).get("snak_o_matic", {}):
+		stocked += int((shops.get("stock") as Dictionary)["snak_o_matic"][item])
+	if code == "ok":
+		var snack: Dictionary = shops.call("snack_of", me)
+		var buff := str(snack.get("buff", ""))
+		if str(snack.get("item", "")) != "vend_sandwich" or not (buff == "full" or buff == "queasy") or not bool(shops.call("has_buff", me, buff)):
+			problems.append("the sandwich landed as %s" % str(snack))
+		if int(shops.call("stock_left", "snak_o_matic", "vend_sandwich")) != left - 1 or int(shops.get("vending_eaten")) != eaten:
+			problems.append("stock %d -> %d, eaten %d -> %d" % [left, int(shops.call("stock_left", "snak_o_matic", "vend_sandwich")), eaten, int(shops.get("vending_eaten"))])
+		if shelf_count != stocked:
+			problems.append("the machine shows %d snacks for %d in stock" % [shelf_count, stocked])
+		if not await _ate(_me(), "eat", 4.0):
+			problems.append("the body never ate it")
+		var after := "gesture belly_pat" if buff == "full" else "burp"
+		var eater := _me().get_node_or_null("Visual/CartoonBody/SnackEater")
+		var waited := 0.0
+		while waited < 4.0 and eater != null and not (eater.get("log_lines") as Array).has(after):
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		var lines: Array = eater.get("log_lines") if eater != null else []
+		if lines.count("munch") != Constants.SNACK_EAT_BITES.size() or not lines.has(after):
+			problems.append("eating went %s" % str(lines))
+	elif code == "eaten":
+		if int(shops.get("vending_eaten")) != eaten + 1 or int(shops.call("stock_left", "snak_o_matic", "vend_sandwich")) != left or bool(shops.call("has_buff", me, "full")) or bool(shops.call("has_buff", me, "queasy")):
+			problems.append("eaten, but eaten %d -> %d, stock %d" % [eaten, int(shops.get("vending_eaten")), int(shops.call("stock_left", "snak_o_matic", "vend_sandwich"))])
+		if str(machine.get("last_trigger")) != "eaten" or machine.get("_stuck") == null:
+			problems.append("the machine's screen says %s (%s), stuck %s" % [machine.get("last_line"), machine.get("last_trigger"), machine.get("_stuck") != null])
+	else:
+		problems.append("the Snak-o-Matic said %s at 10 PM" % code)
+	print("[ShopTest]   vending: %s, paid $%d" % [code, paid])
+	for problem: String in problems:
+		print("[ShopTest]   %s" % problem)
+	shops.call("dev_clear_buffs", me)
+	return problems.is_empty()
+
+
+## snack (shops chunk 6), at noon at Lunch Money: Turbo Juice gives the turbo
+## buff with a future expiry: legs x1.2 and the rake's swing x0.8 (RakeStroke,
+## the one tempo hook), its icon on the HUD, and the body drinks it and
+## shudders; when it runs out it chains into the crash (legs x0.75), which
+## yawns as it hits. A hot dog is full (heavy things slow you half as much),
+## eaten in three bites and a belly pat; burnt coffee holds a strain 1.6x as long.
+func _check_snack(shops: Node, me: int) -> bool:
+	var problems: Array[String] = []
+	await _stand_at("lunch_money")
+	var body := _me()
+	var cash := Campaign.credits(me)
+	var code := str(shops.call("request_buy", "lunch_money", "turbo_juice", 1))
+	var mine: Dictionary = (shops.get("buffs") as Dictionary).get(me, {})
+	var ends := float(mine.get("turbo", 0.0))
+	var base := Constants.RAKE_STROKE_SECONDS * float(Constants.RAKE_SWING_STROKES)
+	if code != "ok" or ends < Net.server_time() + float(Constants.BUFFS["turbo"]["seconds"]) - 5.0:
+		problems.append("turbo juice: %s, turbo runs out at %.1f (now %.1f)" % [code, ends, Net.server_time()])
+	if not is_equal_approx(float(shops.call("buff", me, "speed")), 1.2) or not is_equal_approx(float(body.call("snack_buff", "speed")), 1.2) \
+		or not is_equal_approx(RakeStroke.cycle_seconds(me), base * 0.8):
+		problems.append("turbo: speed x%.2f (legs x%.2f), a swing %.3f s of %.3f" % [float(shops.call("buff", me, "speed")), float(body.call("snack_buff", "speed")), RakeStroke.cycle_seconds(me), base])
+	await _ticks(2)
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var row := ui.get_node_or_null("HudRows/BuffRow") if ui != null else null
+	if row == null or not (row.get("shown") as Array).has("turbo"):
+		problems.append("the HUD shows %s" % (str(row.get("shown")) if row != null else "no buff row"))
+	if not await _ate(body, "drink", 4.0):
+		problems.append("the turbo juice was never drunk")
+	var eater := body.get_node_or_null("Visual/CartoonBody/SnackEater")
+	var waited := 0.0
+	while waited < 4.0 and eater != null and not (eater.get("log_lines") as Array).has("gesture turbo_shake"):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if eater == null or not (eater.get("log_lines") as Array).has("slurp") or not (eater.get("log_lines") as Array).has("gesture turbo_shake"):
+		problems.append("drinking went %s" % (str(eater.get("log_lines")) if eater != null else "no eater"))
+	# The turbo runs out (as the host's clock would see it then): the crash follows on.
+	shops.call("_expire_buffs", ends + 0.5)
+	mine = (shops.get("buffs") as Dictionary).get(me, {})
+	if mine.has("turbo") or not is_equal_approx(float(mine.get("crash", 0.0)), ends + float(Constants.BUFFS["crash"]["seconds"])) \
+		or not is_equal_approx(float(shops.call("buff", me, "speed")), 0.75):
+		problems.append("after turbo: %s, speed x%.2f" % [str(mine), float(shops.call("buff", me, "speed"))])
+	# A crash that hits now yawns.
+	(shops.get("buffs") as Dictionary)[me] = {"crash": Net.server_time() + float(Constants.BUFFS["crash"]["seconds"])}
+	shops.call("_broadcast")
+	waited = 0.0
+	while waited < 2.0 and not (eater.get("log_lines") as Array).has("yawn"):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if not (eater.get("log_lines") as Array).has("yawn"):
+		problems.append("the crash never yawned")
+	shops.call("dev_clear_buffs", me)
+	# A hot dog: full; three bites and a pat on the belly.
+	code = str(shops.call("request_buy", "lunch_money", "hot_dog", 1))
+	if code != "ok" or not is_equal_approx(float(body.call("snack_buff", "carry")), 0.5):
+		problems.append("hot dog: %s, carry x%.2f" % [code, float(body.call("snack_buff", "carry"))])
+	waited = 0.0
+	var before := (eater.get("log_lines") as Array).count("munch")
+	while waited < 5.0 and not ((eater.get("log_lines") as Array).count("munch") >= before + Constants.SNACK_EAT_BITES.size() and (eater.get("log_lines") as Array).has("gesture belly_pat")):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	if (eater.get("log_lines") as Array).count("munch") < before + Constants.SNACK_EAT_BITES.size() or not (eater.get("log_lines") as Array).has("gesture belly_pat"):
+		problems.append("the hot dog went %s" % str(eater.get("log_lines")))
+	# Burnt coffee: hold on longer.
+	code = str(shops.call("request_buy", "lunch_money", "coffee", 1))
+	if code != "ok" or not is_equal_approx(float(body.call("snack_buff", "strain")), float(Constants.BUFFS["coffee"]["strain"])):
+		problems.append("coffee: %s, strain x%.2f" % [code, float(body.call("snack_buff", "strain"))])
+	var spent := cash - Campaign.credits(me)
+	var prices := Catalog.price("turbo_juice") + Catalog.price("hot_dog") + Catalog.price("coffee")
+	if spent != prices:
+		problems.append("paid $%d for $%d of snacks" % [spent, prices])
+	for problem: String in problems:
+		print("[ShopTest]   %s" % problem)
+	# Clean: the reports compare buffs, and these would run out on their own clock.
+	await get_tree().create_timer(0.3).timeout
+	shops.call("dev_clear_buffs", me)
+	# Back at Homie Depot's counter, where the steps after this one buy.
+	await _stand_at("homie_depot")
+	return problems.is_empty()
+
+
 ## keepers at an hour (shops chunk 4): each shop's keeper (npcs/store_clerk.gd)
 ## is behind the counter exactly while their shop is open, except Marty, who
 ## never leaves; at Homie Depot's counter the prompt is "Shop" while it's open
@@ -749,7 +904,64 @@ func _run_client() -> void:
 	var gave: Array = _results[2] if _results.size() > 2 else []
 	_step("client_give", odd == ["give_invalid", "give", 0] and gave == ["ok", "give", gift] and cash - Campaign.credits(me) == gift,
 		"odd gift %s, $%d gift %s, paid $%d" % [str(odd), gift, str(gave), cash - Campaign.credits(me)])
+	_step("client_snack", await _run_client_snack(shops, me))
 	_finish("")
+
+
+## The client's snack (shops chunk 6): at the Snak-o-Matic it buys a warm Turbo
+## Juice through _rpc_request_buy. The machine either sells it (the turbo buff
+## comes back in the snapshot, this player's legs and rake both take it, and
+## its body drinks it) or keeps the money ("eaten": charged, no buff, a snack
+## stuck on its coil). Either way it's charged exactly the vending price once.
+func _run_client_snack(shops: Node, me: int) -> bool:
+	await _stand_at("snak_o_matic")
+	await get_tree().create_timer(0.5).timeout
+	var cash := Campaign.credits(me)
+	var before := _results.size()
+	shops.call("request_buy", "snak_o_matic", CLIENT_SNACK, 1)
+	await _await_results(before + 1)
+	var answer: Array = _results[before] if _results.size() > before else []
+	var code := str(answer[0]) if answer.size() > 0 else ""
+	var waited := 0.0
+	var price := Catalog.price(CLIENT_SNACK)
+	while waited < 3.0 and cash - Campaign.credits(me) != price:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var paid := cash - Campaign.credits(me)
+	var ok := false
+	var detail := ""
+	if code == "ok":
+		waited = 0.0
+		while waited < 3.0 and not is_equal_approx(float(shops.call("buff", me, "speed")), 1.2):
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
+		var body := _me()
+		var legs := float(body.call("snack_buff", "speed")) if body != null else 0.0
+		var base := Constants.RAKE_STROKE_SECONDS * float(Constants.RAKE_SWING_STROKES)
+		var swing := RakeStroke.cycle_seconds(me)
+		var drank := await _ate(body, "drink", 4.0)
+		ok = is_equal_approx(legs, 1.2) and is_equal_approx(swing, base * 0.8) and drank
+		detail = "turbo: legs x%.2f, a swing %.2f s of %.2f, drank it %s" % [legs, swing, base, drank]
+	elif code == "eaten":
+		ok = is_equal_approx(float(shops.call("buff", me, "speed")), 1.0)
+		detail = "the machine kept it, no buff %s" % ok
+	print("[ShopTest]   client snack: %s, paid $%d of $%d, %s" % [code, paid, price, detail])
+	return ok and paid == price and answer.size() == 3 and int(answer[2]) == price
+
+
+## Whether this player's body plays the snack gesture (player/snack_eater.gd's
+## log) within seconds.
+func _ate(body: Node, gesture_name: String, seconds: float) -> bool:
+	var eater := body.get_node_or_null("Visual/CartoonBody/SnackEater") if body != null else null
+	if eater == null:
+		return false
+	var waited := 0.0
+	while waited < seconds:
+		if (eater.get("log_lines") as Array).has("gesture " + gesture_name):
+			return true
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	return false
 
 
 ## The client's yard half (the host's client_yard step): out of bags, its bag

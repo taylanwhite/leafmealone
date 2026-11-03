@@ -678,6 +678,93 @@ def bed_thump() -> list[float]:
 SOUNDS["bed_thump"] = (bed_thump, 0, 0.8)
 
 
+# ---- shops chunk 6: snacks (player/snack_eater.gd) and the Snak-o-Matic (props/vending_machine.gd)
+def munch(variant: int) -> list[float]:
+    """A bite: a crisp crunch of bun or bread, the teeth's little click, and a
+    closed-mouth 'mm' under it. Short, so three of them land on three bites."""
+    rng = random.Random(1300 + variant)
+    out = silence(0.32)
+    crunch = bandpass(noise(rng, 0.09), 2600.0 + variant * 300.0, 1.4)
+    mix_into(out, decay(crunch, 32.0), 0.0, 1.0)
+    for index in range(4):
+        grain = envelope(bandpass(noise(rng, 0.025), rng.uniform(1800.0, 3800.0), 3.0), 0.002, 0.015)
+        mix_into(out, grain, 0.03 + index * 0.025 + rng.uniform(0.0, 0.012), 0.55 - index * 0.1)
+    mix_into(out, decay(tone(0.03, 1900.0, "triangle"), 160.0), 0.0, 0.25)
+    nom = lowpass(vowel("u", 0.16, glide(170.0 + variant * 10.0, 150.0, 0.14), (0.0, 0.0)), 700.0)
+    mix_into(out, envelope(nom, 0.02, 0.08), 0.05, 0.55)
+    return out
+
+
+def slurp() -> list[float]:
+    """A long noisy slurp through the lid, bubbling as it climbs, then a
+    satisfied 'ahhh' off the lip."""
+    rng = random.Random(1310)
+    out = silence(1.5)
+    seconds = 0.88
+    suck = bandpass(noise(rng, seconds), lambda t: 700.0 + 1900.0 * (t / seconds) ** 0.8, 3.5)
+    bubbles = [0.55 + 0.45 * math.sin(TAU * (19.0 + 9.0 * index / RATE) * index / RATE) for index in range(len(suck))]
+    mix_into(out, envelope([a * b for a, b in zip(suck, bubbles)], 0.05, 0.08), 0.0, 1.0)
+    ahh = vowel("a", 0.42, glide(250.0, 175.0, 0.4, 0.8), (5.0, 0.02))
+    mix_into(out, envelope(ahh, 0.03, 0.2), seconds + 0.06, 0.75)
+    mix_into(out, breath(rng, 0.3, 1200.0), seconds + 0.06, 0.35)
+    return out
+
+
+def vend_clunk() -> list[float]:
+    """A snack hitting the bottom of the machine: a hollow sheet-metal clunk,
+    a ring that dies fast, and a rattle in the flap."""
+    rng = random.Random(1320)
+    out = silence(0.7)
+    body = lowpass(decay(tone(0.4, glide(118.0, 72.0, 0.12), "triangle"), 14.0), 900.0)
+    mix_into(out, body, 0.0, 1.0)
+    for freq, gain in ((387.0, 0.4), (1013.0, 0.22), (1690.0, 0.12)):
+        mix_into(out, decay(tone(0.5, freq), 18.0), 0.0, gain)
+    mix_into(out, decay(lowpass(noise(rng, 0.06), 1500.0), 70.0), 0.0, 0.8)
+    for index in range(3):
+        mix_into(out, decay(bandpass(noise(rng, 0.03), 2400.0, 3.0), 90.0), 0.08 + index * 0.05 + rng.uniform(0.0, 0.015), 0.3 - index * 0.07)
+    return out
+
+
+def vend_eat() -> list[float]:
+    """The machine keeps your money: the sad trombone, 'wah, wah, wah, waaahhh'."""
+    out = silence(2.1)
+    notes = ((0.0, 0.3, 233.1), (0.36, 0.3, 220.0), (0.72, 0.3, 207.7))
+    for at, length, freq in notes:
+        mix_into(out, brass(length, glide(freq * 1.02, freq, 0.06)), at, 0.9)
+    mix_into(out, brass(1.15, glide(196.0, 174.6, 1.0), (6.5, 0.045)), 1.08, 1.0)
+    return out
+
+
+def vo_yawn() -> list[float]:
+    """The Turbo crash: a huge yawn, 'haaaAAaawmm', rising, then sagging off."""
+    rng = random.Random(1330)
+    out = silence(1.5)
+    mix_into(out, breath(rng, 0.2, 900.0), 0.0, 0.45)
+    pitch = lambda t: 190.0 + 120.0 * math.sin(math.pi * min(1.0, t / 0.6)) - 70.0 * max(0.0, t - 0.6)
+    mix_into(out, envelope(vowel("a", 1.05, pitch, (4.0, 0.02)), 0.12, 0.35), 0.1, 1.0)
+    mix_into(out, envelope(lowpass(vowel("u", 0.25, glide(150.0, 120.0, 0.2), (0.0, 0.0)), 600.0), 0.03, 0.15), 1.1, 0.6)
+    return out
+
+
+def vo_burp() -> list[float]:
+    """Queasy: one deep, rippling burp."""
+    rng = random.Random(1340)
+    seconds = 0.5
+    croak = vowel("o", seconds, glide(105.0, 82.0, seconds), (0.0, 0.0))
+    ripple = [value * (0.6 + 0.4 * math.sin(TAU * 31.0 * index / RATE)) for index, value in enumerate(croak)]
+    out = envelope(lowpass(ripple, 1300.0), 0.02, 0.18)
+    mix_into(out, decay(lowpass(noise(rng, 0.06), 600.0), 40.0), 0.0, 0.4)
+    return out
+
+
+SOUNDS["munch"] = (munch, 3, 0.8)
+SOUNDS["slurp"] = (slurp, 0, 0.55)
+SOUNDS["vend_clunk"] = (vend_clunk, 0, 0.75)
+SOUNDS["vend_eat"] = (vend_eat, 0, 0.6)
+SOUNDS["vo_yawn"] = (vo_yawn, 0, 0.65)
+SOUNDS["vo_burp"] = (vo_burp, 0, 0.7)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

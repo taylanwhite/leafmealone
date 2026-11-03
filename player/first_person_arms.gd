@@ -39,6 +39,13 @@ const RAKE_FP_OFFSET := Constants.RAKE_FP_GRIP_OFFSET
 const FOLLOW_THROUGH: Array[Vector3] = [Constants.FP_ARMS_FOLLOW_REACH * Vector3(-1.0, 1.0, 1.0), Constants.FP_ARMS_FOLLOW_REACH]
 const FOLLOW_PEAK := Constants.FP_ARMS_FOLLOW_PEAK
 const BAG_ARM_STRETCH := Constants.FP_BAG_ARM_STRETCH
+const _SnackGestures = preload("res://player/snack_gestures.gd")
+## Eating in first person (shops chunk 6): where the right hand holds a snack in
+## front of your mouth (low in the view), how far a bite brings it in, and how
+## a sip lifts and brings in the cup (head space, m).
+const FP_MOUTH := Vector3(0.07, -0.17, -0.3)
+const FP_BITE := Vector3(-0.01, 0.02, 0.09)
+const FP_SIP := Vector3(-0.03, 0.07, 0.1)
 
 var _player: CharacterBody3D
 var _body: Node3D
@@ -85,6 +92,12 @@ func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
 	_solve()
 
 
+## Where a hand is now, in head space (0 left, 1 right): what a held snack
+## follows (player/snack_eater.gd).
+func hand_point(side: int) -> Vector3:
+	return _hands[clampi(side, 0, 1)]
+
+
 func _part(mesh: Mesh) -> MeshInstance3D:
 	var view := _Stylized.instance(mesh, {"roughness": 0.85, "specular": 0.15})
 	view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -122,6 +135,12 @@ func _process(delta: float) -> void:
 		var want: Vector3 = targets["hands"][side]
 		_hands[side] = want if snap else _hands[side].lerp(want, 1.0 - exp(-FOLLOW * delta))
 	_solve()
+	# A snack in hand (player/snack_eater.gd sets where it sits from the hand):
+	# moved here, after the hand, so it never trails it by a frame.
+	var snack := get_node_or_null("SnackFP") as Node3D
+	if snack != null and snack.has_meta("from_hand"):
+		var from_hand: Transform3D = snack.get_meta("from_hand")
+		snack.transform = Transform3D(from_hand.basis, _hands[1] + from_hand.origin)
 
 
 ## Where each hand wants to be, in head space, for what the player is doing now.
@@ -240,6 +259,19 @@ func _targets(delta: float) -> Dictionary:
 		for side: int in 2:
 			var along := sin(_phase + float(side) * PI)
 			hands[side] = REST[side] + Vector3(0.0, 0.03 * absf(along), along * swing)
+	# A snack (player/snack_eater.gd): the right hand brings it up into view and
+	# to your mouth, on the same clock as everyone's view of your body.
+	if gesture == "eat" or gesture == "drink":
+		var s := float(_body.get("_gesture_time"))
+		var length := float(_SnackGestures.SECONDS[gesture])
+		var up := _SnackGestures.lift(s, length)
+		var at_mouth := FP_MOUTH
+		if gesture == "eat":
+			at_mouth += FP_BITE * _SnackGestures.bite_nod(s)
+		else:
+			at_mouth += FP_SIP * _SnackGestures.sip_tip(s)
+		hands[1] = REST[1].lerp(at_mouth, up)
+		snap = true
 	# A mower cord pull yanks the right hand back, whatever else is going on.
 	if gesture == "startle" and held != null and str(held.get("kind")) == "lawn_mower":
 		var t := clampf(float(_body.get("_gesture_time")) / 0.5, 0.0, 1.0)

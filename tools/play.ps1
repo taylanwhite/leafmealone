@@ -250,7 +250,9 @@ if ($Start) {
 	}
 	if ($Observer) {
 		$obsArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', '--name=Observer', '--observer')
-		if ($Extra -ne '' -and $Extra -match '--sim-') { $obsArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--sim-' }) }
+		# The --sim- flags, and --rank= (the crew's rank is crew-wide: a watcher at a
+		# lower rank sees shops shut that the host has open).
+		if ($Extra -ne '' -and $Extra -match '--(sim-|rank=)') { $obsArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=)' }) }
 		$pids['observer'] = Start-Instance 'observer' $obsArgs '660,120'
 		$started += 'observer'
 		Save-Session $pids $Port $Fps
@@ -261,7 +263,7 @@ if ($Start) {
 		# A plain client that plays: no --observer, so it isn't parked, ghosted or kept
 		# safe; the scenarios that need a friend put it on the yard themselves.
 		$friendArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', '--name=Friend')
-		if ($Extra -ne '' -and $Extra -match '--sim-') { $friendArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--sim-' }) }
+		if ($Extra -ne '' -and $Extra -match '--(sim-|rank=)') { $friendArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=)' }) }
 		$pids['friend'] = Start-Instance 'friend' $friendArgs '340,380'
 		$started += 'friend'
 		Save-Session $pids $Port $Fps

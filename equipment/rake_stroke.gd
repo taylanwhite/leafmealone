@@ -33,10 +33,20 @@ const IDLE_LEAN: float = Constants.RAKE_IDLE_LEAN
 static var _actors: Dictionary = {}
 
 
-## How long one swing takes for this peer (s). shops:6: the stroke buff goes here
-## (x Shops.buff(peer, "stroke")), the one tempo hook.
-static func cycle_seconds(_peer: int) -> float:
-	return Constants.RAKE_STROKE_SECONDS * float(Constants.RAKE_SWING_STROKES)
+## How long one swing takes for this player (s): the stroke times the strokes a
+## swing, times their snack's stroke buff (Shops.buff(peer, "stroke"): Turbo
+## Juice swings 20% quicker). The one tempo hook: the raking retune (R1b, ~1.3x
+## slower a job on purpose) stays, a buff only scales it. 0 (and hired hands'
+## actor ids, which are no peer) take no buff.
+static func cycle_seconds(peer: int) -> float:
+	var base := Constants.RAKE_STROKE_SECONDS * float(Constants.RAKE_SWING_STROKES)
+	if peer <= 0:
+		return base
+	var tree := Engine.get_main_loop() as SceneTree
+	var shops := tree.get_first_node_in_group("shops") if tree != null else null
+	if shops == null:
+		return base
+	return base * float(shops.call("buff", peer, "stroke"))
 
 
 ## The phase each field stroke bites at, for this kind of swing.
