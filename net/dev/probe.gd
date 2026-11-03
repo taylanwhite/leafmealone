@@ -452,6 +452,27 @@ func _shops() -> Dictionary:
 		"truck": JSON.stringify(shops.get("truck"), "", true),
 		"crew_owned": owned,
 		"buffs": buff_ids,
+		"rusty": _rusty(shops),
+	}
+
+
+## Rusty's day as this peer sees it (shops chunk 5): his mood, the used tools on
+## his rack (and what its pallets show here), and the junk in Chefty's bed.
+func _rusty(shops: Node) -> Dictionary:
+	var rack: Array = (shops.get("used_today") as Array).duplicate()
+	rack.sort()
+	var shown: Array = []
+	var stand := get_tree().get_first_node_in_group("rusty_rack")
+	if stand != null:
+		for index: int in (stand.get("slots") as Array).size():
+			shown.append(str((stand.call("slot_state", "used_slot_%d" % index) as Dictionary).get("item", "")))
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	return {
+		"mood": snappedf(float(shops.get("rusty_mood")), 0.01),
+		"used_today": rack,
+		"rack": shown,
+		"haggled": (shops.get("haggled") as Dictionary).size(),
+		"junk_in_bed": int(chefty.call("junk_count")) if chefty != null and chefty.has_method("junk_count") else -1,
 	}
 
 

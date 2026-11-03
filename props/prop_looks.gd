@@ -10,6 +10,7 @@ const _YardModels = preload("res://props/yard_models.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _ShopModels = preload("res://props/shop_models.gd")
 ## The Visual node sits this high above the prop's base.
 const VISUAL_HEIGHT: float = 0.35
 ## Tools held up in front of the face and aimed with the view, and where they sit
@@ -70,14 +71,17 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 	# the prop is ready). A tier dresses the tool: chrome for Mk II, black and gold
 	# for Mk III, rust and tape for a used one (props/yard_models.gd tier trim).
 	var tier := int(prop.get("tier")) if "tier" in prop else 1
+	# Junk wears its type, which is its label (shops chunk 5), and may arrive after the kind.
+	var junk_type := str(prop.get("label")) if kind == "junk" else ""
 	var old := visual.get_node_or_null("Look")
 	if old != null:
-		if str(old.get_meta("kind", "")) == kind and int(old.get_meta("tier", 1)) == tier:
+		if str(old.get_meta("kind", "")) == kind and int(old.get_meta("tier", 1)) == tier and str(old.get_meta("junk", "")) == junk_type:
 			return
 		old.free()
 	var look := Node3D.new()
 	look.set_meta("kind", kind)
 	look.set_meta("tier", tier)
+	look.set_meta("junk", junk_type)
 	look.name = "Look"
 	look.position.y = -VISUAL_HEIGHT
 	visual.add_child(look)
@@ -94,6 +98,11 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 			_rake(look)
 		"turf_sign":
 			_turf_sign(look)
+		"junk":
+			# Rusty's junk (props/shop_models.gd); the collision box fits each type.
+			if _ShopModels.is_junk(junk_type):
+				look.add_child(_ShopModels.junk(junk_type))
+				_fit_junk_box(prop, junk_type)
 		_:
 			# Tools and anything else props/yard_models.gd knows how to build.
 			look.add_child(_YardModels.node(kind, color, Vector3(0.7, 0.7, 0.7), {"roughness": 0.55, "specular": 0.3}, tier))
@@ -234,13 +243,59 @@ static func pose_held(prop: Node3D, holder: Node3D) -> void:
 	var look := prop.get_node_or_null("Visual/Look") as Node3D
 	if look == null:
 		return
-	var entry: Dictionary = HOLDS.get(str(prop.get("kind")), {})
+	var entry := hold_of(prop)
 	if holder == null or not entry.has("at"):
+		var rest := Transform3D(Basis.IDENTITY, Vector3(0.0, -VISUAL_HEIGHT, 0.0))
 		if look.top_level:
+			var from := look.global_transform
 			_unhold(look)
-			look.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, -VISUAL_HEIGHT, 0.0))
+			look.transform = rest
+			# Junk is set down, not teleported: its look eases from your arms to
+			# where the body landed (shops chunk 5; a toilet popping onto the
+			# scale in one frame read as a glitch).
+			if str(prop.get("kind")) == "junk":
+				look.set_meta("ease_from", from)
+				look.set_meta("ease_left", Constants.JUNK_SET_DOWN_SECONDS)
+		if look.has_meta("ease_left"):
+			var left := float(look.get_meta("ease_left")) - prop.get_physics_process_delta_time()
+			var target := (look.get_parent() as Node3D).global_transform * rest
+			if left <= 0.0:
+				look.remove_meta("ease_left")
+				look.remove_meta("ease_from")
+				look.transform = rest
+			else:
+				look.set_meta("ease_left", left)
+				var share := smoothstep(0.0, 1.0, 1.0 - left / Constants.JUNK_SET_DOWN_SECONDS)
+				look.global_transform = (look.get_meta("ease_from") as Transform3D).interpolate_with(target, share)
 		return
+	if look.has_meta("ease_left"):
+		look.remove_meta("ease_left")
+		look.remove_meta("ease_from")
 	_place_held(look, holder, entry)
+
+
+## How a prop is held: its HOLDS entry, or for junk its type's
+## (props/shop_models.gd JUNK_HOLDS: a toilet isn't carried like a flamingo).
+## {} for a kind with no hold.
+static func hold_of(prop: Node) -> Dictionary:
+	var kind := str(prop.get("kind"))
+	if kind == "junk":
+		return _ShopModels.JUNK_HOLDS.get(str(prop.get("label")), {}) as Dictionary
+	return HOLDS.get(kind, {}) as Dictionary
+
+
+## A junk prop's collision box fits its type (props/shop_models.gd JUNK_BOX),
+## its base on the ground at the prop's origin like the model's. Its own shape,
+## so the scene's shared one is left alone.
+static func _fit_junk_box(prop: Node3D, junk_type: String) -> void:
+	var collision := prop.get_node_or_null("Collision") as CollisionShape3D
+	if collision == null:
+		return
+	var size: Vector3 = _ShopModels.JUNK_BOX[junk_type]
+	var box := BoxShape3D.new()
+	box.size = size
+	collision.shape = box
+	collision.position = Vector3(0.0, size.y * 0.5, 0.0)
 
 
 ## A HOLDS entry's pose in the holder's body space: at, turned by yaw, then
@@ -310,8 +365,8 @@ static func grip_points(prop: Node3D, holder: Node3D) -> Array[Vector3]:
 	var grips: Array = []
 	if TOOL_GRIPS.has(kind) and is_aimed(prop):
 		grips = TOOL_GRIPS[kind]
-	elif HOLDS.has(kind):
-		grips = (HOLDS[kind] as Dictionary)["grips"]
+	elif not hold_of(prop).is_empty():
+		grips = hold_of(prop)["grips"]
 	else:
 		return free
 	var points: Array[Vector3] = []

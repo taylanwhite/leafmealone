@@ -174,7 +174,8 @@ func _buzz() -> void:
 
 func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 	# Paying a crewmate isn't a purchase (shops has its own sound for that).
-	if code == "ok" and item_id != "give":
+	# A sale to Rusty rings the register too (shops chunk 5).
+	if (code == "ok" or code == "sold") and item_id != "give":
 		_sound("register")
 
 

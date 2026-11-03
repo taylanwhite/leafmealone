@@ -60,6 +60,8 @@ const SOUNDS: Dictionary = {
 	# buyer's own ears), and the keeper's cash drawer slamming after it (npcs/store_clerk.gd).
 	"register": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": -2.0},
 	"cash_drawer": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# Rusty's (shops chunk 5): his long "hmmm?" over a haggle (npcs/store_clerk.gd think).
+	"haggle_hmm": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": true, "loop": false, "max_seconds": 1.5, "db": 0.0},
 	# Vehicles.
 	"truck": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 4.0, "db": 0.0},
 	"van": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 4.0, "db": 0.0},

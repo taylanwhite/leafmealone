@@ -9,6 +9,7 @@ const _BedToss = preload("res://net/components/bed_toss.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _CarryView = preload("res://props/carry_view.gd")
+const _JunkBed = preload("res://net/components/junk_bed.gd")
 
 ## Authority: host
 ## Clients freeze the body and display the replicated transform. The carrier's own client
@@ -140,6 +141,9 @@ var _refused_at: float = -100.0
 ## Host: the thrower a tossed bag passes through on its way out, and for how long.
 var _cleared_from: Node = null
 var _cleared_left: float = 0.0
+## Host, junk: its fall speed last tick and when it last landed (the landing thud).
+var _junk_last_fall: float = 0.0
+var _junk_landed_ms: int = 0
 ## Host: when a long toss last got the crew's reaction.
 static var _long_quip_at: float = -100.0
 
@@ -268,8 +272,9 @@ func _pose_look() -> void:
 		_PropLooks.pose_ladder_up(self, ladder_top)
 	elif Constants.TOOL_PRICES.has(kind):
 		_PropLooks.pose_tool(self, _player(held_by) if held_by != 0 else null)
-	elif _PropLooks.HOLDS.has(kind):
-		# The gnome, trash can, sign and wheelbarrow: held the way the HOLDS table says.
+	elif not _PropLooks.hold_of(self).is_empty():
+		# The gnome, trash can, sign and wheelbarrow (and junk, by its type): held
+		# the way the HOLDS table says.
 		_PropLooks.pose_held(self, _player(held_by) if held_by != 0 else null)
 
 
@@ -345,6 +350,9 @@ func weight_kg() -> float:
 		return minf(base + float(value) * Constants.LEAF_BAG_KG_PER_DOLLAR, Constants.LEAF_BAG_MAX_KG)
 	if kind == "wheelbarrow":
 		return base + float(stored_bags) * Constants.WHEELBARROW_KG_PER_BAG
+	if kind == "junk":
+		# A toilet is heavy and a flamingo is light (shops chunk 5).
+		return float((Constants.JUNK_TYPES.get(label, {}) as Dictionary).get("kg", base))
 	return base
 
 
@@ -954,7 +962,7 @@ func _host_step() -> void:
 		if kind == "leaf_bag":
 			global_rotation = Vector3(0.0, player.global_rotation.y, 0.0)
 		elif _held_the_holds_way():
-			global_rotation = Vector3(0.0, player.global_rotation.y + float((_PropLooks.HOLDS[kind] as Dictionary).get("yaw", 0.0)), 0.0)
+			global_rotation = Vector3(0.0, player.global_rotation.y + float(_PropLooks.hold_of(self).get("yaw", 0.0)), 0.0)
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
 		# A mower being pushed mows whatever it rolls over, once it's running.
@@ -983,6 +991,7 @@ func _host_step() -> void:
 		# Thrown and come to rest: a NICE BOY close by comes to have a look (R2 chunk 2).
 		get_tree().call_group("nice_crew", "on_prop_landed", global_position, _thrower)
 	_try_load_bag()
+	_try_load_junk()
 	_try_unload_wheelbarrow()
 
 
@@ -1363,6 +1372,26 @@ func _load_truck(peer_id: int) -> void:
 			hotbar.call("host_settle", peer_id)
 		linear_velocity = Vector3.UP * Constants.BED_HAND_IN_LIFT
 		_bed_catch(truck)
+	elif kind == "junk":
+		# Heaved over the side: out of your hands in a short hop that lands it on
+		# the bed floor, where it's loaded once it settles (_try_load_junk).
+		var player := _player(peer_id)
+		held_by = 0
+		pocket_slot = -1
+		_toss_feet = Vector3.INF
+		var hotbar := _hotbar()
+		if hotbar != null:
+			hotbar.call("host_settle", peer_id)
+		_set_solid(true)
+		if player != null:
+			add_collision_exception_with(player)
+			_cleared_from = player
+			_cleared_left = Constants.BAG_TOSS_CLEAR_SECONDS
+		var bed: Transform3D = truck.call("bed_transform")
+		linear_velocity = _JunkBed.heave_velocity(global_position, bed)
+		angular_velocity = Vector3(randf_range(-1.0, 1.0), randf_range(-1.5, 1.5), randf_range(-1.0, 1.0))
+		_airborne = true
+		_thrower = peer_id
 	elif kind == "wheelbarrow" and stored_bags > 0:
 		var taken := int(truck.call("accept_bags", stored_bags, stored_value))
 		if taken > 0:
@@ -1405,6 +1434,60 @@ func _try_load_bag() -> void:
 	if closest == null or not bool(closest.call("receive_bag", value)):
 		return
 	queue_free()
+
+
+## Host: junk lying in Chefty's bed is loaded (net/components/junk_bed.gd, shops
+## chunk 5): once it has settled on the bed floor it becomes part of the load,
+## drawn exactly where it came to rest, so nothing jumps. A bed already holding
+## Constants.TRUCK_JUNK_CAPACITY tips the next one back out over the side.
+func _try_load_junk() -> void:
+	if kind != "junk" or not is_loose():
+		return
+	# It hit something (falling fast one tick, stopped the next): everyone hears it land.
+	var falling := linear_velocity.y
+	var now_ms := Time.get_ticks_msec()
+	if _junk_last_fall < -Constants.JUNK_LAND_SPEED and falling > _junk_last_fall * 0.4 and now_ms - _junk_landed_ms > 250:
+		_junk_landed_ms = now_ms
+		_rpc_junk_land.rpc(global_position, weight_kg())
+	_junk_last_fall = falling
+	if linear_velocity.length() > Constants.JUNK_BED_REST_SPEED:
+		return
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if truck == null or not truck.has_method("accept_junk") or not bool(truck.call("in_bed", global_position + Vector3.UP * 0.1)):
+		return
+	if bool(truck.call("accept_junk", self)):
+		return
+	# Full: over the nearest side wall, away from the bed's middle.
+	var now := Net.server_time()
+	if now - _refused_at < Constants.BED_REFUSE_EVERY_SECONDS:
+		return
+	_refused_at = now
+	var bed: Transform3D = truck.call("bed_transform")
+	var away := global_position - bed * _BedToss.BED_MIDDLE
+	away = Vector3(away.x, 0.0, away.z)
+	if away.length() < 0.1:
+		away = bed.basis.x
+	linear_velocity = away.normalized() * Constants.BED_REFUSE_PUSH + Vector3.UP * Constants.JUNK_BED_REFUSE_LIFT
+	_airborne = true
+
+
+## Every peer: a piece of junk landed (on the ground, in Chefty's bed, on
+## Rusty's scale): a thud, deeper and louder the heavier it is.
+@rpc("authority", "call_local", "reliable")
+func _rpc_junk_land(at: Vector3, kg: float) -> void:
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx == null:
+		return
+	var heavy := kg >= float(Constants.BONK_TIER_KG["medium"])
+	sfx.call("play_at", "thud" if heavy else "bonk", at, Constants.JUNK_LAND_DB if heavy else Constants.JUNK_LAND_LIGHT_DB)
+
+
+## What a player calls this, for the pickup prompt: junk by its type's name
+## ("Toilet"), anything else by its label.
+func display_name() -> String:
+	if kind == "junk":
+		return str(_Strings.SHOP_UI.get("junk_" + label, label))
+	return label
 
 
 ## The middle of the bag's bottom face however it has tumbled (its box is
@@ -1686,7 +1769,7 @@ func _refresh_label() -> void:
 ## A held kind placed by props/prop_looks.gd HOLDS (its entry has "at"), and not
 ## a tool, which pose_tool places.
 func _held_the_holds_way() -> bool:
-	return not Constants.TOOL_PRICES.has(kind) and _PropLooks.HOLDS.has(kind) and (_PropLooks.HOLDS[kind] as Dictionary).has("at")
+	return not Constants.TOOL_PRICES.has(kind) and _PropLooks.hold_of(self).has("at")
 
 
 func _hold_position(player: CharacterBody3D) -> Vector3:
@@ -1697,7 +1780,7 @@ func _hold_position(player: CharacterBody3D) -> Vector3:
 		# Where its look is held (prop_looks.gd pose_held), in the holder's body
 		# space: the body rides with it, so a set-down starts from the hands.
 		var level := Basis(Vector3.UP, player.global_rotation.y)
-		return player.global_position + level * ((_PropLooks.HOLDS[kind] as Dictionary)["at"] as Vector3)
+		return player.global_position + level * (_PropLooks.hold_of(self)["at"] as Vector3)
 	match kind:
 		"lawn_mower":
 			# Pushed along the ground in front.

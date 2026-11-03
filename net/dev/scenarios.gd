@@ -14,7 +14,8 @@ extends Node
 ## inspect_near, inspect_found, border_return, van_ride, van_seated, van_unbuckle,
 ## van_straggler, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
 ## annex_window_d, annex_visit (needs a second player), annex_closing, store,
-## drive (that one needs --town-map), toss, toss_full, toss_close.
+## drive (that one needs --town-map), toss, toss_full, toss_close, rustys (needs
+## Rusty's open: --rank=5 or more).
 ## border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
@@ -23,7 +24,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -74,6 +75,8 @@ const TOSS_STAND_METERS: float = 4.0
 const TOSS_CLOSE_METERS: float = 2.0
 const TOSS_PITCH: float = 0.12
 const TOSS_BAG_VALUE: int = 14
+## rustys: how long after the scenario Chefty unloads its junk (s).
+const RUSTYS_UNLOAD_LEAD: float = 1.5
 ## Waits for a state, in seconds, before a scenario gives up.
 const SETTLE_SECONDS: float = 15.0
 ## After a reset the director rolls no raid of its own for this long (a scenario
@@ -221,6 +224,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _toss(true)
 		"toss_close":
 			out = await _toss(false, TOSS_CLOSE_METERS)
+		"rustys":
+			out = await _rustys()
 	out["scenario"] = scenario
 	if not out.has("ok"):
 		out["ok"] = not out.has("error")
@@ -1345,6 +1350,48 @@ func _store() -> Dictionary:
 		return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE else null)
 	await _ticks(3)
 	return {"zone": _zone()} if there != null else {"error": "never got to the store"}
+
+
+## Back at Homie Depot with junk for Rusty's (shops chunk 5): Chefty on the
+## TruckPad with a toilet, a tire and a flamingo in its bed (dropped in, they
+## land and are loaded), you by the tailgate looking at it, and it unloads in
+## RUSTYS_UNLOAD_LEAD seconds: the junk hops out over the tailgate. Rusty's
+## yard is across the lot, open (the clock goes to noon if it isn't).
+func _rustys() -> Dictionary:
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops == null or not bool(shops.call("is_unlocked", "rustys")):
+		return {"error": "Rusty's isn't open at this rank: start with -Extra '--rank=5' or more"}
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if not bool(shops.call("is_open", "rustys")):
+		if bool(preload("res://net/shops/shops.gd")._fishing("rustys", int(clock.get("day")))):
+			clock.call("force_sleep")
+			await get_tree().create_timer(0.6).timeout
+		clock.call("set_hour_for_tests", 12.0)
+		await get_tree().create_timer(0.3).timeout
+	var problem: Dictionary = await _store()
+	if problem.has("error"):
+		return problem
+	var chefty := get_tree().get_first_node_in_group("chefty") as Node3D
+	if chefty == null or not chefty.has_method("accept_junk"):
+		return {"error": "no Chefty with a bed for junk"}
+	var bed: Transform3D = chefty.call("bed_transform")
+	var world := _world()
+	var spots: Array[Vector3] = [Vector3(-0.45, 1.5, 1.6), Vector3(0.45, 1.5, 0.4), Vector3(-0.3, 1.5, -0.6)]
+	var types: Array[String] = ["toilet", "tire", "flamingo"]
+	for index: int in types.size():
+		if int(chefty.call("junk_count")) >= types.size():
+			break
+		var junk := world.call("spawn_junk", types[index], bed * spots[index], -1) as Node3D
+		if junk != null:
+			junk.rotation.y = bed.basis.get_euler().y + float(index) * 0.7
+	await _wait_for(func() -> Variant: return true if int(chefty.call("junk_count")) >= types.size() else null)
+	# Behind the tailgate, off to the side the junk won't land on, looking at it.
+	var stand := bed * Vector3(1.9, 0.0, 6.2)
+	_place(Vector3(stand.x, bed.origin.y + 0.1, stand.z), _yaw_toward(stand, bed * Vector3(0.0, 0.0, 3.4)), -0.12)
+	get_tree().create_timer(RUSTYS_UNLOAD_LEAD).timeout.connect(func() -> void:
+		if is_instance_valid(chefty):
+			chefty.call("unload_junk"))
+	return {"note": "junk in Chefty's bed on the TruckPad; it hops out over the tailgate in %.1f s. Rusty's is across the lot, open" % RUSTYS_UNLOAD_LEAD, "junk": int(chefty.call("junk_count")), "scale": _v(shops.call("scale_point"))}
 
 
 ## In Chefty's driver's seat, parked at Homie Depot (the connected town only).

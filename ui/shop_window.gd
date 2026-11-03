@@ -79,6 +79,10 @@ var _clock_wait: float = 0.0
 var _was_open: bool = true
 var _shown_line: String = ""
 var _focus_card: Control
+## The Sell tab: the junk on the scale when it was last drawn (by name), and the
+## offers held at their old price while Rusty hums a haggle over {name: {offer, until}}.
+var _scale_seen: PackedStringArray = PackedStringArray()
+var _haggle_hold: Dictionary = {}
 
 
 func _ready() -> void:
@@ -231,9 +235,15 @@ func _process(delta: float) -> void:
 	_clock_wait += delta
 	if _clock_wait >= CLOCK_CHECK_SECONDS:
 		_clock_wait = 0.0
-		if _is_open() != _was_open:
+		# Junk lands on (or is carried off) Rusty's scale by physics, not by a
+		# Shops change: the Sell tab looks; and a haggle's price shows once he's
+		# done humming it over.
+		if _is_open() != _was_open or (tab == "sell" and _scale_names() != _scale_seen):
 			_refresh()
-		_update_keeper_line()
+	# Every frame: Rusty's answer to a haggle and its new price land together.
+	if _hold_expired():
+		_refresh()
+	_update_keeper_line()
 
 
 # ---------------------------------------------------------------- what's on the tab
@@ -250,9 +260,17 @@ func _items() -> Array[Dictionary]:
 			out.append({"id": Catalog.tool_item(tool, next_tier(owned)), "tool": tool, "owned_tier": owned, "maxed": maxed})
 		return out
 	if tab == "sell":
-		# Rusty's scale (shops chunk 5).
+		# What's on Rusty's scale right now, each with his offer (shops chunk 5).
+		var shops := _shops()
+		if shops != null:
+			for prop: Node3D in shops.call("junk_on_scale"):
+				out.append({"id": str(shops.call("junk_item", prop)), "junk": prop})
 		return out
+	var shops := _shops()
 	for id: String in Catalog.items_for(shop_id, tab):
+		# Rusty's rack: only today's used tools (Shops.used_today), one of each.
+		if str(Catalog.item(id).get("kind", "")) == "used_tool" and shops != null and not (shops.get("used_today") as Array).has(str(Catalog.item(id).get("tool", ""))):
+			continue
 		out.append({"id": id})
 	return out
 
@@ -324,11 +342,12 @@ func _refresh() -> void:
 	_focus_card = null
 	var items := _items()
 	for data: Dictionary in items:
-		var card := _card(data, wallet, shops, open)
+		var card := _junk_card(data, shops, open) if data.has("junk") else _card(data, wallet, shops, open)
 		_cards.add_child(card)
 		if focus_item != "" and _is_focus(data):
 			_focus_card = card
-	_empty.text = str(_Strings.SHOP_UI["shop_scale_empty"] if tab == "sell" else _Strings.SHOP_UI["shop_tab_empty"])
+	_empty.text = str(_Strings.SHOP_UI["shop_scale_empty"] if tab == "sell" else (_Strings.SHOP_UI["shop_used_empty"] if tab == "used" else _Strings.SHOP_UI["shop_tab_empty"]))
+	_scale_seen = _scale_names()
 	_empty.visible = items.is_empty() and open
 	_shutter.visible = not open or not _unlocked()
 	_scroll.visible = not _shutter.visible
@@ -493,6 +512,17 @@ func _press(what: String, id: String, qty: int) -> void:
 		bought.emit(StringName(id))
 		return
 	match what:
+		"sell", "haggle":
+			var prop := _junk_by_name(id)
+			if prop == null:
+				return
+			if what == "haggle":
+				# He hums it over first; the new price shows when he answers.
+				_haggle_hold[str(prop.name)] = {"offer": int(shops.call("appraise", prop)), "until": _now() + Constants.RUSTY_HAGGLE_THINK_SECONDS}
+				var keeper := _keeper()
+				if keeper != null and keeper.has_method("think"):
+					keeper.call("think")
+			shops.call("request_sell", prop.get_path(), what == "haggle")
 		"buy":
 			shops.call("request_buy", shop_id, id, qty)
 		"equip":
@@ -505,6 +535,16 @@ func _press(what: String, id: String, qty: int) -> void:
 ## to a real sale, and fresh cards.
 func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 	if not visible or item_id == "give":
+		return
+	# Rusty answers a sale or a haggle himself (npcs/store_clerk.gd), no toast:
+	# the cash, the register and his line say it.
+	if code == "sold" or code == "haggle_won" or code == "haggle_lost":
+		var keeper := _keeper()
+		if keeper != null and code == "sold" and keeper.has_method("on_sale"):
+			keeper.call("on_sale", "sold")
+		elif keeper != null and keeper.has_method("haggle_verdict"):
+			keeper.call("haggle_verdict", code)
+		_refresh()
 		return
 	var line := str(_Strings.SHOP_UI.get("shop_result_" + code, code))
 	if code == "ok":
@@ -524,6 +564,99 @@ func show_toast(line: String, good: bool) -> void:
 ## The text of the toast on show ("" once it's gone), for tests.
 func toast_text() -> String:
 	return _toast.text if _toast_left > 0.0 else ""
+
+
+# ---------------------------------------------------------------- Rusty's Sell tab
+
+## A card for a piece of junk on Rusty's scale: its picture and name, his offer
+## today, and Take it / Haggle (one haggle a piece; after it, only Take).
+func _junk_card(data: Dictionary, shops: Node, open: bool) -> Control:
+	var id := str(data["id"])
+	var prop := data["junk"] as Node3D
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(CARD_WIDTH, 0)
+	card.add_theme_stylebox_override("panel", _tight(CARD, 12, INK.lightened(0.6), 2))
+	card.set_meta("item", id)
+	card.set_meta("item_id", id)
+	card.set_meta("junk", str(prop.name))
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 4)
+	card.add_child(column)
+	column.add_child(_picture(id, {"kind": "junk"}, {}))
+	var name_label := _text(str(_Strings.SHOP_UI.get(id, id)), 18, INK)
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_label.custom_minimum_size = Vector2(CARD_WIDTH - 36.0, 0.0)
+	column.add_child(name_label)
+	var offer := int(shops.call("appraise", prop)) if shops != null else 0
+	var held: Dictionary = _haggle_hold.get(str(prop.name), {})
+	var thinking := not held.is_empty() and _now() < float(held["until"])
+	if thinking:
+		offer = int(held["offer"])
+	var haggled := shops != null and bool(shops.call("was_haggled", prop))
+	# The price goes green after a haggle he lost, red after one you did.
+	var tint := ORANGE.darkened(0.15)
+	if haggled and not thinking:
+		tint = GOOD if float((shops.get("haggled") as Dictionary).get(str(prop.name), 1.0)) > 1.0 else BAD
+	column.add_child(_text(str(_Strings.SHOP_UI["shop_price_tag"]) % offer, 22, tint))
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 6)
+	column.add_child(buttons)
+	var actions: Array = [["sell", str(_Strings.SHOP_UI["shop_take_price"]) % offer, open and not thinking]]
+	if not haggled:
+		actions.append(["haggle", str(_Strings.SHOP_UI["shop_haggle"]), open and not thinking])
+	for action: Array in actions:
+		var button := _small_button(str(action[1]), ORANGE if bool(action[2]) else INK.lightened(0.5))
+		button.disabled = not bool(action[2])
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.set_meta("action", str(action[0]))
+		var what := str(action[0])
+		var junk_name := str(prop.name)
+		button.pressed.connect(func() -> void: _press(what, junk_name, 1))
+		buttons.add_child(button)
+	return card
+
+
+## The names of the junk on the scale now (the Sell tab redraws when they change).
+func _scale_names() -> PackedStringArray:
+	var out := PackedStringArray()
+	var shops := _shops()
+	if shops == null or tab != "sell":
+		return out
+	for prop: Node3D in shops.call("junk_on_scale"):
+		out.append(str(prop.name))
+	return out
+
+
+## Whether a haggle's held price just ran out (Rusty's done humming).
+func _hold_expired() -> bool:
+	var now := _now()
+	for key: Variant in _haggle_hold.keys():
+		if now >= float((_haggle_hold[key] as Dictionary)["until"]):
+			_haggle_hold.erase(key)
+			return true
+	return false
+
+
+func _junk_by_name(prop_name: String) -> Node3D:
+	var shops := _shops()
+	if shops == null:
+		return null
+	for prop: Node3D in shops.call("junk_on_scale"):
+		if str(prop.name) == prop_name:
+			return prop
+	return null
+
+
+## This shop's keeper (npcs/store_clerk.gd), or null.
+func _keeper() -> Node:
+	for keeper: Node in get_tree().get_nodes_in_group("shopkeepers"):
+		if str(keeper.get("shop_id")) == shop_id:
+			return keeper
+	return null
+
+
+func _now() -> float:
+	return Time.get_ticks_msec() / 1000.0
 
 
 # ---------------------------------------------------------------- pieces

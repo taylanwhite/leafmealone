@@ -35,11 +35,12 @@ const TRIGGERS: Array[String] = ["greet", "morning", "night", "open", "buy", "af
 const APRON := Color(0.93, 0.47, 0.13)
 ## How each keeper looks: shirt, pants, skin (CartoonBody.SKIN_TONES index), hat
 ## style and color; and whether they stay behind the counter after closing.
-## Rusty is all denim overalls and a rust-red cap; Dot wears the white Lunch
+## Rusty wears denim overalls over a red flannel, a rust-red cap and a big gray
+## beard (beard and overalls are parts added over the body); Dot wears the white Lunch
 ## Money top and a yellow cap (her paper hat comes with the hats, shops chunk 7).
 const KEEPERS: Dictionary = {
 	"marty": {"shirt": APRON, "pants": Color(0.28, 0.3, 0.38), "skin": 2, "hat": "cap", "hat_color": Color(0.74, 0.38, 0.1), "after_hours": true},
-	"rusty": {"shirt": Color(0.3, 0.42, 0.62), "pants": Color(0.26, 0.36, 0.55), "skin": 1, "hat": "cap", "hat_color": Color(0.55, 0.22, 0.12), "after_hours": false},
+	"rusty": {"shirt": Color(0.62, 0.24, 0.17), "pants": Color(0.26, 0.36, 0.55), "skin": 1, "hat": "cap", "hat_color": Color(0.55, 0.22, 0.12), "after_hours": false, "beard": Color(0.68, 0.65, 0.6), "overalls": Color(0.27, 0.39, 0.58)},
 	"dot": {"shirt": Color(0.96, 0.95, 0.9), "pants": Color(0.2, 0.2, 0.24), "skin": 3, "hat": "cap", "hat_color": Color(0.98, 0.8, 0.2), "after_hours": false},
 }
 ## The caption's size on screen at the normal caption size (Settings.caption_scale()).
@@ -65,6 +66,10 @@ var _local_was_near: bool = false
 var _greeted_day: int = -1
 ## The local player was taken to Annex B (Zone.BORDER) and the keeper hasn't said the after-raid line yet.
 var _was_raided: bool = false
+## A haggle being hummed over: until when (seconds, ticks clock), and the answer
+## to give when it's done ("" for none yet).
+var _thinking_until: float = 0.0
+var _verdict: String = ""
 
 
 func _ready() -> void:
@@ -83,8 +88,12 @@ func _ready() -> void:
 	_body.set("skin", _CartoonBody.SKIN_TONES[int(look["skin"])])
 	_body.set("hat_style", look["hat"])
 	_body.set("hat_color", look["hat_color"])
+	# A beard goes gray all over: the hair under the cap matches it.
+	if look.has("beard"):
+		_body.set("hair", look["beard"])
 	add_child(_body)
 	_body.call("build")
+	_dress_extras(look)
 	var life := _CharacterLife.new()
 	life.name = "Life"
 	life.root = self
@@ -167,10 +176,51 @@ func say_line(trigger: String) -> void:
 	chatter()
 
 
+## Say this line (a caption over the head, with babble), whatever its pool.
+## Rusty's word on the junk that lands on his scale comes through here.
+func say(line: String) -> void:
+	if line == "":
+		return
+	last_trigger = "say"
+	last_line = line
+	_caption.text = line
+	_caption_left = Constants.CLERK_CAPTION_SECONDS
+	chatter()
+
+
+## Rusty considers a haggle: a long "hmmm?" and a scratch of the beard. The
+## answer (haggle_verdict) comes when he's done thinking.
+func think() -> void:
+	_thinking_until = Time.get_ticks_msec() / 1000.0 + Constants.RUSTY_HAGGLE_THINK_SECONDS
+	_verdict = ""
+	_caption_left = 0.0
+	_body.call("gesture", "scratch")
+	if Net.is_automated() or not is_inside_tree():
+		return
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play_at", "haggle_hmm", global_position + Vector3(0.0, 1.6, 0.0))
+
+
+## How a haggle went ("haggle_won" or "haggle_lost"): said once he's done
+## thinking (at once if he wasn't), and a sale's line for "sold".
+func haggle_verdict(trigger: String) -> void:
+	if Time.get_ticks_msec() / 1000.0 < _thinking_until:
+		_verdict = trigger
+		return
+	say_line(trigger)
+
+
+## Whether he's still humming a haggle over.
+func is_thinking() -> bool:
+	return Time.get_ticks_msec() / 1000.0 < _thinking_until
+
+
 ## A sale the host confirmed at this keeper's shop: the "buy" line, and the
 ## cash drawer slamming shut right after the register (audio/cue_hooks.gd).
-func on_sale() -> void:
-	say_line("buy")
+## trigger: "buy", or "sold" for junk Rusty bought off you.
+func on_sale(trigger: String = "buy") -> void:
+	say_line(trigger)
 	if Net.is_automated() or not is_inside_tree():
 		return
 	get_tree().create_timer(Constants.SHOP_DRAWER_DELAY_SECONDS).timeout.connect(func() -> void:
@@ -234,6 +284,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	visible = is_present()
+	if _verdict != "" and not is_thinking():
+		var trigger := _verdict
+		_verdict = ""
+		say_line(trigger)
 	if not visible:
 		_caption_left = 0.0
 		_local_was_near = false
@@ -271,6 +325,47 @@ func _greet() -> void:
 func _on_zone_changed(peer_id: int, zone: int) -> void:
 	if peer_id == Net.local_peer_id() and zone == Net.Zone.BORDER:
 		_was_raided = true
+
+
+## The parts a look adds over the body: Rusty's beard (on the face, a moustache
+## on the mouth so it moves when he talks) and his overalls' bib and straps.
+## Blob detail 1 and thin tubes, per the body's triangle budget (critic C20).
+func _dress_extras(look: Dictionary) -> void:
+	var kit_script := preload("res://props/mesh_kit.gd")
+	var stylized := preload("res://props/stylized.gd")
+	var smooth := {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0}
+	if look.has("beard"):
+		var beard: Color = look["beard"]
+		var face := _body.call("pose_part", "face") as Node3D
+		var mouth := _body.call("pose_part", "mouth") as Node3D
+		if face != null:
+			var kit = kit_script.new()
+			kit.blob(Vector3(0.0, -0.2, -0.13), Vector3(0.2, 0.13, 0.13), beard, {"detail": 1, "lumps": 0.18, "lump_scale": 2.2, "outward": true, "flat": false, "jitter": 0.0, "seed": 12})
+			for side: float in [-1.0, 1.0]:
+				kit.blob(Vector3(side * 0.2, -0.07, -0.08), Vector3(0.06, 0.12, 0.09), beard, {"detail": 1, "lumps": 0.12, "outward": true, "flat": false, "jitter": 0.0})
+			var part: MeshInstance3D = stylized.instance(kit.commit(), {"roughness": 0.9, "specular": 0.05})
+			part.name = "Beard"
+			face.add_child(part)
+		if mouth != null:
+			var kit = kit_script.new()
+			for side: float in [-1.0, 1.0]:
+				kit.blob(Vector3(side * 0.045, 0.025, -0.012), Vector3(0.055, 0.022, 0.02), beard.darkened(0.08), smooth)
+			var part: MeshInstance3D = stylized.instance(kit.commit(), {"roughness": 0.9, "specular": 0.05})
+			part.name = "Moustache"
+			mouth.add_child(part)
+	if look.has("overalls"):
+		var denim: Color = look["overalls"]
+		var torso := _body.call("pose_part", "torso") as Node3D
+		if torso != null:
+			var kit = kit_script.new()
+			kit.blob(Vector3(0.0, 0.2, -0.152), Vector3(0.16, 0.2, 0.035), denim, smooth)
+			kit.blob(Vector3(0.0, 0.24, -0.186), Vector3(0.055, 0.04, 0.006), denim.darkened(0.2), smooth)
+			for side: float in [-1.0, 1.0]:
+				kit.tube(PackedVector3Array([Vector3(side * 0.11, 0.31, -0.16), Vector3(side * 0.13, 0.45, -0.1), Vector3(side * 0.13, 0.5, 0.02), Vector3(side * 0.12, 0.4, 0.14), Vector3(side * 0.09, 0.25, 0.155)]), PackedFloat32Array([0.024, 0.024, 0.024, 0.024, 0.024]), denim, 4, {"jitter": 0.0})
+				kit.blob(Vector3(side * 0.11, 0.31, -0.17), Vector3(0.018, 0.018, 0.008), Color(0.85, 0.75, 0.4), smooth)
+			var part: MeshInstance3D = stylized.instance(kit.commit(), {"roughness": 0.85, "specular": 0.1})
+			part.name = "Overalls"
+			torso.add_child(part)
 
 
 func _unlocked() -> bool:

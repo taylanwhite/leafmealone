@@ -74,6 +74,9 @@ var vending_eaten: int = 0
 var _rng := RandomNumberGenerator.new()
 var _buff_wait: float = 0.0
 var _broadcast_queued: bool = false
+## Host: whether Rusty's was open (feature:salvage) when last looked, so his
+## welcome text goes out once, the day the crew's rank opens it.
+var _salvage_open: bool = false
 
 
 func _ready() -> void:
@@ -95,6 +98,12 @@ func _ready() -> void:
 	if stock_day != _today():
 		_restock(_today())
 	Campaign.add_save_hook(_save_section)
+	# Rusty's (shops chunk 5): his text when his yard opens, and last session's
+	# unsold junk back by the TruckPad once the world is up.
+	_salvage_open = Campaign.is_feature_on("salvage")
+	Campaign.rank_changed.connect(_check_salvage_opened)
+	if not junk_left.is_empty():
+		_respawn_junk_left.call_deferred()
 	# Clients ask for the state from their own _ready (the world may not be on
 	# them yet), and late joiners get it on Net.player_joined.
 	changed.emit()
@@ -233,7 +242,7 @@ func owns(peer_id: int, item: String) -> bool:
 	if kind == "truck_cosmetic":
 		return item == DEFAULT_PAINT or crew_owned.has(item)
 	if entry.has("tool") and entry.has("tier"):
-		# Owning a better one counts: nobody buys a used blower over their Mk II.
+		# Owning one as good counts: nobody buys a used blower over their Mk II.
 		return Campaign.tool_tier(peer_id, str(entry["tool"])) >= int(entry["tier"])
 	if Catalog.is_owned_kind(item):
 		return Campaign.peer_has_unlock(peer_id, StringName(item))
@@ -300,6 +309,165 @@ func host_give(from_peer: int, to_peer: int, amount: int) -> String:
 		Campaign.save_now()
 	_send_result(from_peer, code, "give", amount if code == "ok" else 0)
 	return code
+
+
+# ---------------------------------------------------------------- Rusty's (shops chunk 5)
+
+## Where Rusty's scale stands, in the world (its platform's middle, on the ground).
+func scale_point() -> Vector3:
+	var site: Dictionary = Constants.SHOP_SITES.get("rustys", {})
+	var zone := _site_zone(site)
+	if zone == null or not site.has("scale"):
+		return Vector3.INF
+	return zone.to_global(site["scale"] as Vector3)
+
+
+## Whether a piece of junk lies on Rusty's scale: loose, within JUNK_SCALE_RADIUS
+## of its middle, and down on the platform (not flying over it). Every peer can
+## tell from the replicated positions.
+func on_scale(prop: Node) -> bool:
+	var junk := prop as Node3D
+	if junk == null or str(junk.get("kind")) != "junk" or junk.is_queued_for_deletion():
+		return false
+	if junk.has_method("is_loose") and not bool(junk.call("is_loose")):
+		return false
+	var middle := scale_point()
+	if not middle.is_finite():
+		return false
+	var at := junk.global_position
+	return Vector2(at.x - middle.x, at.z - middle.z).length() <= Constants.JUNK_SCALE_RADIUS and at.y - middle.y <= Constants.JUNK_ON_SCALE_HEIGHT
+
+
+## Every piece of junk on Rusty's scale, nearest the middle first.
+func junk_on_scale() -> Array[Node3D]:
+	var out: Array[Node3D] = []
+	if not is_inside_tree():
+		return out
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if on_scale(node):
+			out.append(node as Node3D)
+	var middle := scale_point()
+	out.sort_custom(func(a: Node3D, b: Node3D) -> bool: return a.global_position.distance_to(middle) < b.global_position.distance_to(middle))
+	return out
+
+
+## What Rusty offers for a piece of junk today: its base value times his mood,
+## times what a haggle did to it.
+func appraise(prop: Node) -> int:
+	if prop == null or str(prop.get("kind")) != "junk":
+		return 0
+	return maxi(roundi(float(prop.get("value")) * rusty_mood * float(haggled.get(str(prop.name), 1.0))), 1)
+
+
+## Whether this piece was haggled over already (one try each; the answer sticks).
+func was_haggled(prop: Node) -> bool:
+	return prop != null and haggled.has(str(prop.name))
+
+
+## The catalog-style id a piece of junk sells as ("junk_toilet"), the jackpot
+## flamingo as "junk_flamingo_vintage": Strings.SHOP_UI names it.
+static func junk_item(prop: Node) -> String:
+	var type := str(prop.get("label"))
+	if type == "flamingo" and int(prop.get("value")) >= int(Constants.JUNK_JACKPOT["value"]):
+		return "junk_flamingo_vintage"
+	return "junk_" + type
+
+
+## The local player sells a piece of junk on Rusty's scale (haggle false), or
+## haggles over it first (true: once per piece, it sticks). Returns the result
+## code on the host; on a client "" and the answer comes as the result signal:
+## "sold" (amount: what you got), "haggle_won" / "haggle_lost" (amount: the new
+## offer), or a refusal ("closed", "far", "locked", "off_scale", "haggled", "unknown").
+func request_sell(prop_path: NodePath, haggle: bool = false) -> String:
+	if Net.is_host():
+		return host_sell(Net.local_peer_id(), prop_path, haggle)
+	_rpc_request_sell.rpc_id(1, prop_path, haggle)
+	return ""
+
+
+## Host: a player sells (or haggles over) a piece of junk on Rusty's scale.
+func host_sell(peer_id: int, prop_path: NodePath, haggle: bool) -> String:
+	if not Net.is_host():
+		return ""
+	var prop := get_node_or_null(prop_path)
+	var item := junk_item(prop) if prop != null and str(prop.get("kind")) == "junk" else "junk"
+	var code := ""
+	var amount := 0
+	if not is_unlocked("rustys"):
+		code = "locked"
+	elif not is_open("rustys"):
+		code = "closed"
+	elif not _near_site(peer_id, "rustys"):
+		code = "far"
+	elif prop == null or str(prop.get("kind")) != "junk" or prop.is_queued_for_deletion():
+		code = "unknown"
+	elif not on_scale(prop):
+		code = "off_scale"
+	elif haggle:
+		if was_haggled(prop):
+			code = "haggled"
+		else:
+			var won := _rng.randf() < Constants.HAGGLE_WIN_CHANCE
+			haggled[str(prop.name)] = 1.0 + Constants.HAGGLE_WIN if won else 1.0 - Constants.HAGGLE_LOSE
+			code = "haggle_won" if won else "haggle_lost"
+			amount = appraise(prop)
+			_broadcast()
+	else:
+		amount = appraise(prop)
+		Campaign.pay(peer_id, amount)
+		haggled.erase(str(prop.name))
+		prop.queue_free()
+		code = "sold"
+		Campaign.save_now()
+		_broadcast()
+	_send_result(peer_id, code, item, amount)
+	return code
+
+
+## Host: the crew's rank just opened Rusty's: he texts (once; a save that has it
+## open already never hears it again).
+func _check_salvage_opened() -> void:
+	if not Net.is_host():
+		return
+	var open := Campaign.is_feature_on("salvage")
+	if open and not _salvage_open:
+		var town := get_tree().get_first_node_in_group("town")
+		if town != null:
+			town.call("_text", str(_Strings.SHOP_UI["text_from_rusty"]), "rusty", str(_Strings.SHOP_UI["text_rusty_welcome"]), -1)
+	_salvage_open = open
+
+
+## Host, saving: the junk nobody sold, at the store or still in Chefty's bed
+## ([{type, value}]); the yards' own junk goes with the yard.
+func _unsold_junk() -> Array:
+	var out: Array = []
+	if not is_inside_tree():
+		return junk_left
+	for node: Node in get_tree().get_nodes_in_group("junk"):
+		if node.is_queued_for_deletion() or node.is_in_group("job_tools"):
+			continue
+		var at := (node as Node3D).global_position
+		if Constants.STORE_AREA.has_point(Vector2(at.x, at.z)):
+			out.append({"type": str(node.get("label")), "value": int(node.get("value"))})
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var bed := chefty.get_node_or_null("Body/JunkBed") if chefty != null else null
+	if bed != null:
+		for entry: Dictionary in bed.get("junk") as Array:
+			out.append({"type": str(entry["type"]), "value": int(entry["value"])})
+	return out
+
+
+## Host, on load: last session's unsold junk in a row by the TruckPad.
+func _respawn_junk_left() -> void:
+	var world := get_tree().get_first_node_in_group("world")
+	var zone := world.get_node_or_null("StoreZone") as Node3D if world != null else null
+	if zone == null or not world.has_method("spawn_junk"):
+		return
+	for index: int in junk_left.size():
+		var entry: Dictionary = junk_left[index] if typeof(junk_left[index]) == TYPE_DICTIONARY else {}
+		var spot: Vector3 = Constants.JUNK_LEFT_ROW + Vector3(-float(index % 4) * Constants.JUNK_SPACING, 0.0, float(index / 4) * Constants.JUNK_SPACING)
+		world.call("spawn_junk", str(entry.get("type", "")), zone.to_global(spot), int(entry.get("value", -1)))
+	junk_left = []
 
 
 ## Host: take from a crew supply. False (and nothing taken) when there isn't enough.
@@ -378,6 +546,9 @@ func _check_buy(peer_id: int, shop: String, item: String, qty: int) -> String:
 	var left := stock_left(shop, item)
 	if left >= 0 and left < qty:
 		return "sold_out"
+	# Rusty's rack only has today's used tools, one of each.
+	if kind == "used_tool" and not used_today.has(str(entry.get("tool", ""))):
+		return "sold_out"
 	if not Campaign.is_for_sale(StringName(item)):
 		return "locked"
 	if owns(peer_id, item):
@@ -397,8 +568,11 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 		vending_eaten += 1
 		return "eaten"
 	match kind:
-		"tool", "tier", "used_tool", "upgrade":
+		"tool", "tier", "upgrade":
 			Campaign.grant_unlock(peer_id, item)
+		"used_tool":
+			Campaign.grant_unlock(peer_id, item)
+			used_today.erase(str(entry.get("tool", "")))
 		"cosmetic":
 			Campaign.grant_unlock(peer_id, item)
 			# Bought means worn: you walk out in the new hat.
@@ -491,6 +665,25 @@ func _restock(day: int) -> void:
 	stock_day = day
 	arrived_today.clear()
 	haggled.clear()
+	_roll_rusty(day)
+
+
+## Host: Rusty's mood today (Constants.RUSTY_MOOD, his chalkboard says it) and
+## the used tools on his rack (USED_TOOLS_PER_DAY of the tools the crew's rank
+## sells), from the town's seed and the day, so a day replays the same.
+func _roll_rusty(day: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	var town := get_tree().get_first_node_in_group("town") if is_inside_tree() else null
+	rng.seed = hash([int(town.get("town_seed")) if town != null else 0, day, "rusty"])
+	rusty_mood = snappedf(rng.randf_range(Constants.RUSTY_MOOD.x, Constants.RUSTY_MOOD.y), 0.01)
+	var candidates: Array[String] = []
+	for tool: String in Catalog.TOOLS:
+		if Campaign.is_for_sale(StringName(Catalog.tool_item(tool, Catalog.TIER_USED))):
+			candidates.append(tool)
+	used_today = []
+	var count := mini(rng.randi_range(Constants.USED_TOOLS_PER_DAY.x, Constants.USED_TOOLS_PER_DAY.y), candidates.size())
+	for _pick: int in count:
+		used_today.append(candidates.pop_at(rng.randi() % candidates.size()))
 
 
 func _set_supply(id: String, amount: float) -> void:
@@ -547,7 +740,7 @@ func _save_section() -> Dictionary:
 		"crew_owned": crew_owned,
 		"rusty_mood": rusty_mood,
 		"used_today": used_today,
-		"junk_left": junk_left,
+		"junk_left": _unsold_junk(),
 		"vending_eaten": vending_eaten,
 	}}
 
@@ -653,6 +846,12 @@ func _rpc_request_state() -> void:
 func _rpc_request_buy(shop: String, item: String, qty: int) -> void:
 	if Net.is_host():
 		host_buy(multiplayer.get_remote_sender_id(), shop, item, qty)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_sell(prop_path: NodePath, haggle: bool) -> void:
+	if Net.is_host():
+		host_sell(multiplayer.get_remote_sender_id(), prop_path, haggle)
 
 
 @rpc("any_peer", "call_remote", "reliable")

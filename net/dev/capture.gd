@@ -50,6 +50,11 @@ const TOUR: Dictionary = {
 		["shelves", Vector3(7.0, 1.7, -10.0), Vector3(10.0, 0.9, -13.2)],
 		["shelves_aisle", Vector3(11.6, 1.6, -9.2), Vector3(13.0, 0.9, -14.0)],
 		["rustys_counter", Vector3(11.5, 1.7, -2.5), Vector3(15.4, 1.0, -5.2)],
+		# Rusty's yard (shops chunk 5): from the lot, the scale up close, the gate, the rack.
+		["rustys", Vector3(6.5, 4.5, 6.5), Vector3(16.0, 0.5, -2.0)],
+		["rustys_scale", Vector3(12.4, 1.6, 0.6), Vector3(14.8, 1.0, 0.5)],
+		["rustys_gate", Vector3(8.0, 1.7, -2.0), Vector3(12.5, 1.0, -2.0)],
+		["rustys_rack", Vector3(15.5, 1.7, 0.6), Vector3(18.6, 0.5, 0.5)],
 		["lunch_money_stall", Vector3(8.5, 1.7, 12.5), Vector3(4.8, 0.9, 15.8)],
 		["back_room", Vector3(-6.5, 1.8, -15.5), Vector3(-10.5, 0.6, -18.4)],
 	],

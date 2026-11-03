@@ -642,7 +642,8 @@ const SHOP_SITES: Dictionary = {
 	"rustys": {
 		"zone": "StoreZone", "counter": Vector3(15.2, 0.0, -4.5), "keeper": Vector3(16.4, 0.0, -4.5),
 		"yaw": -PI / 2.0, "area": Rect2(12.5, -8.0, 7.5, 12.0),
-		"scale": Vector3(14.2, 0.0, -1.8), "rack": Vector3(18.6, 0.0, 0.5),
+		# The scale stands well off the counter, so E at the counter never grabs the junk on it.
+		"scale": Vector3(14.4, 0.0, 0.5), "rack": Vector3(18.6, 0.0, 0.5),
 	},
 	"lunch_money": {
 		"zone": "StoreZone", "truck": Vector3(3.0, 0.0, 15.6), "counter": Vector3(5.2, 0.0, 15.4),
@@ -3604,3 +3605,45 @@ const CHEFTY_STAND_IN_MAX_SECONDS: float = 0.4
 ## stepped by Jolt in its own float precision, missed that 29 times in 30 and
 ## bounced off the rail.
 const TOSS_SURE_SHARE: float = 0.04
+
+# ---- shops: Rusty's (shops chunk 5; docs/GAME.md "Rusty's Salvage & Pawn")
+## Junk in Chefty's bed (net/components/junk_bed.gd): it's loaded once it has
+## settled on the bed floor (moving slower than this, m/s); a bed already full of
+## junk tips the next piece back out with this much lift (m/s).
+const JUNK_BED_REST_SPEED: float = 0.6
+const JUNK_BED_REFUSE_LIFT: float = 3.5
+## E by the bed with junk in your arms heaves it in, landing this long later (s).
+const JUNK_HEAVE_SECONDS: float = 0.55
+## Set down, a piece of junk's look eases from your arms onto where it landed over this long (s).
+const JUNK_SET_DOWN_SECONDS: float = 0.22
+## Unloading at the store: one piece hops out every this many seconds, straight
+## up at this speed (m/s), landing this far behind the bed's origin (m, bed
+## space +Z, past the tailgate), and passing through the truck's walls for the
+## start of its hop (s).
+const JUNK_UNLOAD_GAP_SECONDS: float = 0.45
+const JUNK_UNLOAD_LIFT: float = 4.5
+const JUNK_UNLOAD_LAND_Z: float = 4.6
+const JUNK_UNLOAD_THROUGH_SECONDS: float = 0.9
+## ... and spreads out sideways this many times as far again as it lay from the
+## bed's middle line, so the pieces don't land in one heap.
+const JUNK_UNLOAD_SPREAD: float = 0.9
+## A piece of junk falling faster than this (m/s) that stops is a landing: a
+## thud for the heavy ones, a lighter knock for the rest (dB).
+const JUNK_LAND_SPEED: float = 2.0
+const JUNK_LAND_DB: float = -3.0
+const JUNK_LAND_LIGHT_DB: float = -9.0
+## How far apart junk lies in a yard and in the row by the TruckPad (m), and
+## where that row starts (StoreZone space): last session's unsold junk, back.
+const JUNK_SPACING: float = 1.6
+const JUNK_LEFT_ROW := Vector3(5.6, 0.02, 11.2)
+## How high above the scale's base a piece may sit and still count as on it (m).
+const JUNK_ON_SCALE_HEIGHT: float = 0.6
+## Rusty's dial scale reads full at this many kg; its needle swings like a
+## spring: stiffness (1/s^2) and damping (1/s).
+const RUSTY_SCALE_FULL_KG: float = 60.0
+const RUSTY_SCALE_STIFFNESS: float = 55.0
+const RUSTY_SCALE_DAMPING: float = 5.0
+## A haggle: Rusty hums it over this long (s) before he answers.
+const RUSTY_HAGGLE_THINK_SECONDS: float = 1.1
+## His gate swings open or shut over this long (s) as the yard opens and closes.
+const RUSTY_GATE_SWING_SECONDS: float = 1.4

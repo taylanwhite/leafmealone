@@ -20,14 +20,20 @@ extends Node
 ## tags (shelves), the catalog window buying at the counter (window), the
 ## keepers and hours signs at 10 PM and noon (keepers), and the ladder's reach
 ## per tier (in tier_math); the probe's shelf_units proves the client's shelves
-## match. Later shop chunks add steps (junk, snacks, looks, deliveries). Each
-## step prints a [ShopTest] line.
+## match. Shops chunk 5 adds Rusty's: his day (mood and rack), junk landing in
+## Chefty's bed and hopping out at the tailgate (junk_bed), selling off his scale
+## (sell: the needle reads the weight, the offer is the value times his mood),
+## a haggle that sticks (haggle), and the client selling and buying a used tool
+## off his rack through the RPCs (used_buy, the client's client_rusty). Later
+## shop chunks add steps (snacks, looks, deliveries). Each step prints a
+## [ShopTest] line.
 
 const _Shops = preload("res://net/shops/shops.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _Heat = preload("res://net/run_events/heat.gd")
+const _ShopModels = preload("res://props/shop_models.gd")
 ## What the client buys, so the host can tell its buy from its own.
 const CLIENT_HAT: String = "hat_beanie"
 ## The host's starting cash for the client: the hat, the gift, and change.
@@ -43,6 +49,10 @@ const RUN_DRY_SECONDS: float = 4.0
 const CLIENT_REFUEL_FROM: float = 50.0
 ## How long the client waits for one answer on the yard (a refusal, a fill).
 const CLIENT_ANSWER_SECONDS: float = 4.0
+## How long the client waits for the host's Rusty's cue after its own buys.
+const CLIENT_RUSTY_WAIT_SECONDS: float = 70.0
+## How long junk gets to land, settle, load or hop out (s).
+const JUNK_SETTLE_SECONDS: float = 5.0
 
 static var result: Dictionary = {}
 
@@ -52,6 +62,9 @@ var _steps: Dictionary = {}
 var _results: Array = []
 ## Client: the host's cue for the yard half (_rpc_client_yard).
 var _yard_cue: Dictionary = {}
+## Client: the host's cue for Rusty's (_rpc_client_rusty): the used tool to buy
+## and the junk on the scale to sell.
+var _rusty_cue: Dictionary = {}
 
 
 func _process(_delta: float) -> void:
@@ -217,6 +230,9 @@ func _run() -> void:
 	var hat := str(shops.call("request_buy", "homie_depot", "hat_bucket", 1))
 	var worn := str((shops.call("look_of", me) as Dictionary).get("hat", ""))
 	_step("wear", hat == "ok" and worn == "hat_bucket" and Campaign.peer_has_unlock(me, &"hat_bucket"), "%s, wearing %s" % [hat, worn])
+
+	# Rusty's (shops chunk 5).
+	await _check_rustys(shops, me, mate)
 
 	# save: the section is written, and reads back into the same state.
 	Campaign.save_now()
@@ -749,6 +765,7 @@ func _run_client() -> void:
 	var gave: Array = _results[2] if _results.size() > 2 else []
 	_step("client_give", odd == ["give_invalid", "give", 0] and gave == ["ok", "give", gift] and cash - Campaign.credits(me) == gift,
 		"odd gift %s, $%d gift %s, paid $%d" % [str(odd), gift, str(gave), cash - Campaign.credits(me)])
+	await _run_client_rusty(shops, me)
 	_finish("")
 
 
@@ -937,3 +954,179 @@ func _me() -> Node3D:
 		if node.name == str(Net.local_peer_id()):
 			return node as Node3D
 	return null
+
+
+# ---------------------------------------------------------------- Rusty's (shops chunk 5)
+
+## Rusty's, at noon: his day (rusty_day), a toilet landing in Chefty's bed and
+## hopping back out at the tailgate (junk_bed), onto his scale and sold (sell),
+## a flamingo haggled over (haggle), and the client selling a boombox and buying
+## a used tool off his rack through the RPCs (used_buy).
+func _check_rustys(shops: Node, me: int, mate: int) -> void:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if _Shops._fishing("rustys", int(clock.get("day"))):
+		clock.call("force_sleep")
+		await get_tree().create_timer(0.6).timeout
+		clock.call("set_hour_for_tests", 12.0)
+		await get_tree().create_timer(0.2).timeout
+	var world := get_tree().get_first_node_in_group("world")
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	# rusty_day: his mood in range, today's rack, open, and the gate stands open.
+	var mood := float(shops.get("rusty_mood"))
+	var rack: Array = (shops.get("used_today") as Array).duplicate()
+	var gate := world.get_node_or_null("StoreZone/ShopSite_rustys/RustysGate")
+	await get_tree().create_timer(Constants.RUSTY_GATE_SWING_SECONDS + 0.6).timeout
+	var day_ok := mood >= Constants.RUSTY_MOOD.x and mood <= Constants.RUSTY_MOOD.y and rack.size() >= Constants.USED_TOOLS_PER_DAY.x \
+		and rack.size() <= Constants.USED_TOOLS_PER_DAY.y and bool(shops.call("is_open", "rustys")) and bool(shops.call("is_unlocked", "rustys")) \
+		and gate != null and float(gate.call("shut_amount")) < 0.05
+	_step("rusty_day", day_ok, "mood %.2f, rack %s, open %s, gate shut %.2f" % [mood, str(rack), shops.call("is_open", "rustys"), float(gate.call("shut_amount")) if gate != null else -1.0])
+
+	# junk_bed: dropped into Chefty's bed it lands, settles and is loaded where it
+	# lies (the prop goes, its model stays); unloaded, it hops out over the tailgate.
+	var bed: Transform3D = chefty.call("bed_transform")
+	var toilet := world.call("spawn_junk", "toilet", bed * Vector3(0.3, 1.6, 0.9), 30) as Node3D
+	var toilet_name := str(toilet.name) if toilet != null else ""
+	await _wait_until(func() -> bool: return int(chefty.call("junk_count")) == 1, JUNK_SETTLE_SECONDS)
+	await _ticks(2)
+	var junk_bed := chefty.get_node_or_null("Body/JunkBed")
+	var loaded := int(chefty.call("junk_count")) == 1 and not is_instance_valid(toilet) and junk_bed != null and junk_bed.get_child_count() == 1
+	var drawn_at := (junk_bed.get_child(0) as Node3D).global_position if loaded else Vector3.INF
+	chefty.call("unload_junk")
+	var landing := bed * Vector3(0.0, 0.0, Constants.JUNK_UNLOAD_LAND_Z)
+	# (Lambdas capture by value: the found prop goes in an array.)
+	var found: Array = [null]
+	await _wait_until(func() -> bool:
+		found[0] = _nearest_junk(landing, 3.0)
+		return int(chefty.call("junk_count")) == 0 and found[0] != null and (found[0] as RigidBody3D).linear_velocity.length() < 0.3, JUNK_SETTLE_SECONDS)
+	var out_prop := found[0] as Node3D
+	var landed := out_prop != null and out_prop.global_position.y < bed.origin.y + 0.5 and int(chefty.call("junk_count")) == 0 and junk_bed.get_child_count() == 0
+	_step("junk_bed", toilet_name != "" and loaded and landed,
+		"loaded %s (drawn at %s), unloaded and landed %s at %s, %.2f m from where it should" % [loaded, str(drawn_at), landed, str(out_prop.global_position) if out_prop != null else "-", out_prop.global_position.distance_to(landing) if out_prop != null else -1.0])
+
+	# sell: on the scale the needle reads its weight and Rusty offers its value
+	# times his mood; Take it pays exactly that and the toilet goes.
+	await _stand_at("rustys")
+	var middle: Vector3 = shops.call("scale_point")
+	var dial := world.get_node_or_null("StoreZone/ShopSite_rustys/ScaleDial")
+	var sold_ok := false
+	var detail := "no toilet came out"
+	if out_prop != null:
+		_put(out_prop, middle + Vector3(0.0, 0.15, 0.0))
+		await get_tree().create_timer(1.6).timeout
+		var on := bool(shops.call("on_scale", out_prop))
+		var offer := int(shops.call("appraise", out_prop))
+		var weighed := float(dial.get("kg")) if dial != null else -1.0
+		var needle := float(dial.call("needle_angle")) if dial != null else -9.0
+		var want_needle := lerpf(-_ShopModels.DIAL_SWEEP, _ShopModels.DIAL_SWEEP, 28.0 / Constants.RUSTY_SCALE_FULL_KG)
+		var cash := Campaign.credits(me)
+		var code := str(shops.call("request_sell", out_prop.get_path(), false))
+		await _ticks(2)
+		sold_ok = on and offer == roundi(30.0 * mood) and is_equal_approx(weighed, 28.0) and absf(needle - want_needle) < 0.12 \
+			and code == "sold" and Campaign.credits(me) - cash == offer and not is_instance_valid(out_prop)
+		detail = "on the scale %s, %.1f kg, needle %.2f (want %.2f), offer $%d (want $%d), %s, paid $%d" % [on, weighed, needle, want_needle, offer, roundi(30.0 * mood), code, Campaign.credits(me) - cash]
+	_step("sell", sold_ok, detail)
+
+	# haggle: once a piece; it moves the offer up 30% or down 25% for good, and
+	# the sale pays the new price. Junk off the scale isn't bought.
+	var bird := world.call("spawn_junk", "flamingo", middle + Vector3(0.0, 0.1, 0.0), 8) as Node3D
+	await get_tree().create_timer(1.0).timeout
+	var haggle := str(shops.call("request_sell", bird.get_path(), true))
+	var factor := float((shops.get("haggled") as Dictionary).get(str(bird.name), 1.0))
+	var offer_after := int(shops.call("appraise", bird))
+	var again := str(shops.call("request_sell", bird.get_path(), true))
+	var cash_before := Campaign.credits(me)
+	var sold := str(shops.call("request_sell", bird.get_path(), false))
+	var tire := world.call("spawn_junk", "tire", middle + Vector3(-4.0, 0.05, 0.0), 9) as Node3D
+	await get_tree().create_timer(0.5).timeout
+	var off := str(shops.call("request_sell", tire.get_path(), false))
+	tire.queue_free()
+	var right_factor := (haggle == "haggle_won" and is_equal_approx(factor, 1.0 + Constants.HAGGLE_WIN)) or (haggle == "haggle_lost" and is_equal_approx(factor, 1.0 - Constants.HAGGLE_LOSE))
+	_step("haggle", right_factor and offer_after == maxi(roundi(8.0 * mood * factor), 1) and again == "haggled" and sold == "sold" \
+		and Campaign.credits(me) - cash_before == offer_after and off == "off_scale",
+		"%s (x%.2f, offer $%d), again %s, sold %s for $%d, a tire off the scale %s" % [haggle, factor, offer_after, again, sold, Campaign.credits(me) - cash_before, off])
+
+	# used_buy: the host owns every tool (--all-tools), so Rusty's used one is
+	# "owned"; the client, with no tools, sells a boombox off the scale and buys
+	# it off his rack through the RPCs, and the rack (here and there) empties.
+	var used_item := Catalog.tool_item(str(rack[0]), Catalog.TIER_USED) if not rack.is_empty() else ""
+	var mine := str(shops.call("request_buy", "rustys", used_item, 1)) if used_item != "" else "-"
+	var box := world.call("spawn_junk", "boombox", middle + Vector3(0.0, 0.1, 0.0), 20) as Node3D
+	await get_tree().create_timer(1.0).timeout
+	var box_offer := int(shops.call("appraise", box))
+	Campaign.pay(mate, Catalog.price(used_item) + 50)
+	var mate_cash := Campaign.credits(mate)
+	_rpc_client_rusty.rpc_id(mate, used_item, box.get_path())
+	# By path: a lambda can't hold on to a node that gets freed.
+	var box_path := box.get_path()
+	await _wait_until(func() -> bool: return Campaign.peer_has_unlock(mate, StringName(used_item)) and get_node_or_null(box_path) == null, WAIT_SECONDS)
+	var bought := Campaign.peer_has_unlock(mate, StringName(used_item)) and not (shops.get("used_today") as Array).has(str(rack[0]))
+	var net_cash := Campaign.credits(mate) - mate_cash
+	var rack_stand := get_tree().get_first_node_in_group("rusty_rack")
+	var rack_slot: Dictionary = rack_stand.call("slot_state", "used_slot_%d" % (rack.size() - 1)) if rack_stand != null else {}
+	_step("used_buy", used_item != "" and mine == "owned" and bought and not is_instance_valid(box) and net_cash == box_offer - Catalog.price(used_item) \
+		and Campaign.tool_tier(mate, str(rack[0])) == Catalog.TIER_USED and rack_slot.get("look", "") == "empty",
+		"the host's %s: %s; the client bought it %s, net $%d (sold the boombox for $%d, paid $%d), its tier %d, the rack's last pallet %s" % [used_item, mine, bought, net_cash, box_offer, Catalog.price(used_item), Campaign.tool_tier(mate, str(rack[0])) if not rack.is_empty() else -2, rack_slot.get("look", "?")])
+
+
+## The host's cue for the client's Rusty's half: sell what's on the scale, then
+## buy this used tool off the rack.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_client_rusty(item: String, junk_path: NodePath) -> void:
+	_rusty_cue = {"item": item, "junk": junk_path}
+
+
+## The client at Rusty's: walks up to his counter, sells the boombox on the scale
+## (_rpc_request_sell answered "sold") and buys the used tool (_rpc_request_buy
+## answered "ok"), through the real client path.
+func _run_client_rusty(shops: Node, me: int) -> void:
+	var waited := 0.0
+	while _rusty_cue.is_empty() and waited < CLIENT_RUSTY_WAIT_SECONDS:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+	if _rusty_cue.is_empty():
+		_step("client_rusty", false, "the host never sent Rusty's cue")
+		return
+	await _stand_at("rustys")
+	await get_tree().create_timer(0.6).timeout
+	var junk := get_node_or_null(_rusty_cue["junk"] as NodePath)
+	var offer := int(shops.call("appraise", junk)) if junk != null else -1
+	var count := _results.size()
+	var asked := str(shops.call("request_sell", _rusty_cue["junk"] as NodePath, false))
+	await _await_results(count + 1)
+	var sale: Array = _results[count] if _results.size() > count else []
+	var item := str(_rusty_cue["item"])
+	shops.call("request_buy", "rustys", item, 1)
+	await _await_results(count + 2)
+	var buy: Array = _results[count + 1] if _results.size() > count + 1 else []
+	await _wait_until(func() -> bool: return Campaign.peer_has_unlock(me, StringName(item)), 3.0)
+	_step("client_rusty", asked == "" and sale == ["sold", "junk_boombox", offer] and buy == ["ok", item, Catalog.price(item)] and Campaign.peer_has_unlock(me, StringName(item)),
+		"sold %s (offer $%d), bought %s" % [str(sale), offer, str(buy)])
+
+
+## The junk prop nearest a point, within reach, or null.
+func _nearest_junk(at: Vector3, reach: float) -> Node3D:
+	var best: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("junk"):
+		if node.is_queued_for_deletion():
+			continue
+		var distance := (node as Node3D).global_position.distance_to(at)
+		if distance < reach:
+			reach = distance
+			best = node as Node3D
+	return best
+
+
+## Host: put a prop down here, still.
+func _put(prop: Node3D, at: Vector3) -> void:
+	prop.global_position = at
+	if prop is RigidBody3D:
+		(prop as RigidBody3D).linear_velocity = Vector3.ZERO
+		(prop as RigidBody3D).angular_velocity = Vector3.ZERO
+
+
+## Wait until check says so, or seconds pass.
+func _wait_until(check: Callable, seconds: float) -> void:
+	var waited := 0.0
+	while waited < seconds and not bool(check.call()):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1

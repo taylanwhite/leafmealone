@@ -925,13 +925,14 @@ func _nearest_hand_task() -> Dictionary:
 	return {}
 
 
-## E by Chefty with a bag tosses it in; with a loaded wheelbarrow, dumps it.
+## E by Chefty with a bag (or a piece of junk for Rusty's) tosses it in; with a
+## loaded wheelbarrow, dumps it.
 func _load_truck() -> bool:
 	var held := _held_prop()
 	if held == null or not bool(held.call("near_truck")):
 		return false
 	var held_kind := str(held.get("kind"))
-	if held_kind != "leaf_bag" and not (held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0):
+	if held_kind != "leaf_bag" and held_kind != "junk" and not (held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0):
 		return false
 	held.call("request_load_truck")
 	return true
@@ -1548,8 +1549,8 @@ func interaction_hint() -> Dictionary:
 	var held := _held_prop()
 	if held != null and bool(held.call("near_truck")):
 		var held_kind := str(held.get("kind"))
-		# E heaves a bag in over the side, unlabeled: a bag by the truck says it.
-		if held_kind == "leaf_bag":
+		# E heaves a bag (or junk) in over the side, unlabeled: a bag by the truck says it.
+		if held_kind == "leaf_bag" or held_kind == "junk":
 			return {}
 		if held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0:
 			return {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0)}
@@ -1569,7 +1570,8 @@ func interaction_hint() -> Dictionary:
 	var closest_kind := str(closest.get("kind"))
 	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
 		return {"text": _Strings.UI["prompt_pockets_full"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "plain": true}
-	var prop_label := str(closest.get("label"))
+	# Junk says what it is ("Pick up Toilet"); everything else by its label.
+	var prop_label := str(closest.call("display_name")) if closest.has_method("display_name") else str(closest.get("label"))
 	var text: String = _Strings.UI["prompt_pick_up"] % prop_label if prop_label != "" else _Strings.UI["prompt_pick_up_plain"]
 	return {"text": text, "at": closest.global_position + Vector3(0.0, 1.2, 0.0)}
 

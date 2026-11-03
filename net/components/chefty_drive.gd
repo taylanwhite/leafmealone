@@ -47,6 +47,7 @@ const _SoundBank = preload("res://audio/sound_bank.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
+const _JunkBed = preload("res://net/components/junk_bed.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
@@ -180,6 +181,8 @@ var _horn_player: AudioStreamPlayer3D
 var _horn_held: float = 0.0
 ## The bags drawn in the bed (props/truck_bed_load.gd).
 var _bed_load: Node3D
+## The junk in the bed for Rusty's (net/components/junk_bed.gd).
+var _junk_bed: Node3D
 
 
 func _ready() -> void:
@@ -249,6 +252,8 @@ func _build() -> void:
 	_label = label
 	_bed_load = _BedLoad.new()
 	_body.add_child(_bed_load)
+	_junk_bed = _JunkBed.new()
+	_body.add_child(_junk_bed)
 	# The chauffeur's quip, over the cab while it lasts.
 	var quip := Label3D.new()
 	quip.name = "Quip"
@@ -454,6 +459,22 @@ func bag_value() -> int:
 
 func bag_count() -> int:
 	return _job_bags + _spent_bags
+
+
+## Host: a piece of junk lying in the bed is loaded (junk_bed.gd). False when full.
+func accept_junk(prop: Node3D) -> bool:
+	return _junk_bed != null and bool(_junk_bed.call("accept", prop))
+
+
+func junk_count() -> int:
+	return int(_junk_bed.call("count")) if _junk_bed != null else 0
+
+
+## Host: the junk hops out over the tailgate, one piece at a time (parked on
+## Homie Depot's lot, gap-specs critic C22).
+func unload_junk() -> void:
+	if _junk_bed != null:
+		_junk_bed.call("unload")
 
 
 ## Host only: the job is paid, so its bags come off the truck.
@@ -1120,6 +1141,9 @@ func _note_parking() -> void:
 	if _was_moving and not moving:
 		parked.emit(_chassis.global_position)
 		_check_arrival(_chassis.global_position)
+		# Parked at the store: the junk in the bed is for Rusty's.
+		if Constants.STORE_AREA.has_point(Vector2(_chassis.global_position.x, _chassis.global_position.z)):
+			unload_junk()
 	_was_moving = moving
 
 
@@ -1752,6 +1776,8 @@ func _rpc_request_state() -> void:
 		return
 	_watchers[multiplayer.get_remote_sender_id()] = true
 	_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), _riders, driver(), _job_bags, _job_value, _spent_bags, _dents, _horn, _trip, _trip_zone, _trip_label, _chassis.global_position, float(_state["yaw"]))
+	if _junk_bed != null:
+		_junk_bed.call("send_to", multiplayer.get_remote_sender_id())
 
 
 ## A late joiner learns who sits where, what's in the bed, whether the autopilot
