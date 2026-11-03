@@ -34,6 +34,11 @@ const FOLLOW: float = 16.0
 const REACH_SECONDS: float = 0.4
 ## The rake's grips in first person, moved up and ahead (head space, m).
 const RAKE_FP_OFFSET := Constants.RAKE_FP_GRIP_OFFSET
+## A lob's follow-through (Constants.FP_ARMS_FOLLOW_*): where the hands reach,
+## [left, right], and the share of it spent getting there.
+const FOLLOW_THROUGH: Array[Vector3] = [Constants.FP_ARMS_FOLLOW_REACH * Vector3(-1.0, 1.0, 1.0), Constants.FP_ARMS_FOLLOW_REACH]
+const FOLLOW_PEAK := Constants.FP_ARMS_FOLLOW_PEAK
+const BAG_ARM_STRETCH := Constants.FP_BAG_ARM_STRETCH
 
 var _player: CharacterBody3D
 var _body: Node3D
@@ -48,6 +53,11 @@ var _reach_at := Vector3.ZERO
 var _time: float = 0.0
 ## How far past their length the arms may reach this frame (1 = not at all).
 var _stretch: float = 1.0
+## The follow-through after a lob (Constants.FP_ARMS_FOLLOW_SECONDS): time
+## left, where the hands let go, whether a wind-up was on last frame.
+var _follow_left: float = 0.0
+var _follow_from: Array = [Vector3.ZERO, Vector3.ZERO]
+var _was_winding: bool = false
 
 
 func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
@@ -120,6 +130,10 @@ func _targets(delta: float) -> Dictionary:
 	var hands: Array[Vector3] = [REST[0], REST[1]]
 	var snap := false
 	var held := _player.call("_held_prop") as Node
+	# A leaf bag already flying from your hands (a client draws its own toss
+	# before the host hears of it) is out of them.
+	if held != null and str(held.get("kind")) == "leaf_bag" and held.has_method("fp_carried") and not bool(held.call("fp_carried")):
+		held = null
 	var speed := Vector2(_player.velocity.x, _player.velocity.z).length()
 	_phase += speed * delta * 2.4
 	# Grabbing something: a quick reach toward it, then the hands settle on it.
@@ -127,8 +141,14 @@ func _targets(delta: float) -> Dictionary:
 		if held != null:
 			_reach_left = REACH_SECONDS
 			_reach_at = to_local((held as Node3D).global_position)
+		elif _last_held != null and is_instance_valid(_last_held) and str(_last_held.get("kind")) == "leaf_bag" and _was_winding:
+			# Lobbed: both hands carry on up and out after it, then come back down.
+			_follow_left = Constants.FP_ARMS_FOLLOW_SECONDS
+			_follow_from = [_hands[0], _hands[1]]
 		_last_held = held
 	_reach_left = maxf(0.0, _reach_left - delta)
+	_follow_left = maxf(0.0, _follow_left - delta)
+	_was_winding = float(_player.get("_wind_up")) >= Constants.THROW_TAP_SECONDS
 	var gesture := str(_body.call("current_gesture")) if _body != null else ""
 	var anim: int = _player.get("anim_state")
 	var wind_up := float(_player.get("_wind_up"))
@@ -172,15 +192,29 @@ func _targets(delta: float) -> Dictionary:
 		# Hand over hand up the rungs.
 		for side: int in 2:
 			hands[side] = Vector3(signf(float(side) - 0.5) * 0.22, 0.08 + 0.16 * sin(_time * 5.0 + float(side) * PI), -0.42)
+	elif _follow_left > 0.0 and held == null:
+		# The follow-through of a lob: from where they let go, up and out in front
+		# (anticipation done, this is the release), then back down to your sides.
+		var t := 1.0 - _follow_left / Constants.FP_ARMS_FOLLOW_SECONDS
+		for side: int in 2:
+			var peak := FOLLOW_THROUGH[side]
+			if t < FOLLOW_PEAK:
+				var rise := t / FOLLOW_PEAK
+				hands[side] = (_follow_from[side] as Vector3).lerp(peak, 1.0 - (1.0 - rise) * (1.0 - rise))
+			else:
+				hands[side] = peak.lerp(REST[side], smoothstep(0.0, 1.0, (t - FOLLOW_PEAK) / (1.0 - FOLLOW_PEAK)))
+		snap = true
 	elif wind_up >= 0.0 and held != null:
 		# Wound up: the hands stay on the thing, hitch it up, and shake more the
-		# longer you hold it, until you strain and it's a full tremble.
+		# longer you hold it, until you strain and it's a full tremble. A leaf bag
+		# dips and trembles itself (props/carry_view.gd), and the hands stay on it.
 		var t := clampf(wind_up / Constants.THROW_CHARGE_SECONDS, 0.0, 1.0)
 		var strain := 1.0 if bool(_player.get("straining")) else 0.0
 		var shake := Vector3(sin(_time * 37.0), cos(_time * 41.0), sin(_time * 29.0)) * (0.004 + 0.012 * t + 0.03 * strain)
 		_on_item(held, hands)
-		for side: int in 2:
-			hands[side] += Vector3(0.0, 0.08 * t, 0.06 * t) + shake
+		if str(held.get("kind")) != "leaf_bag":
+			for side: int in 2:
+				hands[side] += Vector3(0.0, 0.08 * t, 0.06 * t) + shake
 		snap = true
 	elif held != null:
 		snap = _on_item(held, hands)
@@ -242,6 +276,9 @@ func _on_item(held: Node, hands: Array[Vector3]) -> bool:
 		for side: int in 2:
 			hands[side] += RAKE_FP_OFFSET
 		_stretch = Constants.RAKE_FP_ARM_STRETCH
+		return true
+	if kind == "leaf_bag":
+		_stretch = BAG_ARM_STRETCH
 		return true
 	# Pushed and shouldered things rock with each step, and the hands follow
 	# them smoothly instead of exactly.

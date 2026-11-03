@@ -46,6 +46,7 @@ const _Sfx = preload("res://audio/sfx.gd")
 const _SoundBank = preload("res://audio/sound_bank.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
+const _NearLabel = preload("res://ui/near_label.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
@@ -225,7 +226,8 @@ func _build() -> void:
 	var solid := _look.get_node_or_null("Solid") as PhysicsBody3D
 	if solid != null:
 		_chassis.add_collision_exception_with(solid)
-	var label := Label3D.new()
+	# Its name and load shrink and fade up close (ui/near_label.gd).
+	var label: Label3D = _NearLabel.new()
 	label.name = "Label"
 	label.font_size = 72
 	label.outline_size = 12

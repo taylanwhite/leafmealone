@@ -19,13 +19,29 @@ extends Node
 ##          the rail, never through the wall (bed_toss.gd cut_depth)
 ##   H9.    the same for every start beside the truck into every kind of spot,
 ##          worked out (bed_toss.gd settle_plan): no glide cuts into the truck
+##   H10.   through the host's own eyes (props/carry_view.gd): the bag was drawn
+##          in its hands, every toss left them without a jump, and, measured off
+##          the drawn meshes projected through the camera every tick from the
+##          release to the landing, no thrown bag covered more of the screen
+##          than one in the hands, nor more than FP_FLIGHT_SHARE_LIMIT once off
+##          on its flight (nothing thrown swallows the view)
 ## The client half (the same flag, CI's Extra) throws its two bags, watches its
-## own drawn bag for jumps, and sees the catches, landings and the full bounce.
+## own drawn bag for jumps, sees the catches, landings and the full bounce, and
+## makes the same H10 measurement of its own predicted tosses.
 ## --toss-survey prints a table of throws from 2, 4 and 6 m instead.
 
 const _BedToss = preload("res://net/components/bed_toss.gd")
 const _TossArc = preload("res://ui/toss_arc.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
+const _CarryView = preload("res://props/carry_view.gd")
+## H10: the most a drawn bag may move in one tick through your own eyes (m);
+## how many times as much of the screen a thrown bag may cover as one in your
+## hands (it leaves from there, rising a touch toward the middle of the view on
+## the release ease: measured up to 1.03; with no cap it's 2.3, in your face);
+## and the most it may cover once the ease is over and it's on its flight.
+const FP_STEP_LIMIT_M: float = 0.35
+const FP_SHARE_GROWTH: float = 1.1
+const FP_FLIGHT_SHARE_LIMIT: float = 0.2
 ## A bag's drawn look moving farther than this in one frame is a jump (m).
 const JUMP_LIMIT_M: float = 0.6
 ## How far off its stack spot a bag may be drawn when the load's bag replaces it (m).
@@ -90,11 +106,28 @@ func _run_host() -> void:
 	_check("H8 E from 3 m off the side heaves it over the rail: %s" % JSON.stringify(h8c), _caught_ok(h8c) and _over_rail(h8c))
 	var h7: Dictionary = await _toss_full()
 	_check("H7 a full Chefty bats it back out: %s" % JSON.stringify(h7), not bool(h7["counted"]) and bool(h7["refused"]) and bool(h7["still_there"]) and not bool(h7["in_bed"]))
+	var view: Dictionary = _CarryView.stats
+	_check("H10 your own bag through your own eyes: %s" % JSON.stringify(view), _own_eyes_ok(view, 5))
 	result["stats"] = _BedToss.stats.duplicate()
+	result["view"] = view.duplicate()
 	result["checks"] = _checks
 	result["ok"] = _ok
 	result["done"] = true
 	print("[TossTest] all ok: %s" % _ok)
+
+
+## H10 (and the client's own): the bag was drawn in the hands, at least `throws`
+## left them, none jumped, and what the camera really got (carry_view.gd
+## seen_from, every tick from the release to the landing): no thrown bag ever
+## covered more than FP_SHARE_GROWTH times the screen one in your hands did
+## (nothing thrown swallows the view), nor more than FP_FLIGHT_SHARE_LIMIT once
+## it was off on its flight.
+func _own_eyes_ok(view: Dictionary, throws: int) -> bool:
+	return int(view["held_ticks"]) > 0 and int(view["throws"]) >= throws and int(view["thrown_ticks"]) > 0 \
+		and float(view["max_step_m"]) < FP_STEP_LIMIT_M \
+		and float(view["held_share"]) > 0.0 \
+		and float(view["thrown_share"]) <= float(view["held_share"]) * FP_SHARE_GROWTH \
+		and float(view["flight_share"]) <= FP_FLIGHT_SHARE_LIMIT
 
 
 func _check(line: String, passed: bool) -> void:
@@ -470,6 +503,13 @@ func _run_client() -> void:
 	var ok := throws.size() == CLIENT_SPOTS.size() and int(_BedToss.stats["full_seen"]) > 0 and max_jump < JUMP_LIMIT_M
 	for row: Dictionary in throws:
 		ok = ok and bool(row.get("caught_seen", false)) and bool(row.get("landed_seen", false)) and float(row.get("pop_m", 1.0)) < POP_LIMIT_M
+	# Its own predicted tosses through its own eyes (fp_carried flips on the
+	# prediction and the settle here, not on the host's say-so).
+	var view: Dictionary = _CarryView.stats
+	var eyes_ok := _own_eyes_ok(view, CLIENT_SPOTS.size())
+	print("[TossTest] client %s its own bag through its own eyes: %s" % ["ok" if eyes_ok else "FAIL", JSON.stringify(view)])
+	ok = ok and eyes_ok
+	result["view"] = view.duplicate()
 	result["throws"] = throws
 	result["stats"] = _BedToss.stats.duplicate()
 	result["ok"] = ok
