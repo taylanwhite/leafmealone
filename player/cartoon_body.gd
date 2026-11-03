@@ -677,10 +677,12 @@ func _build_head(root: Node3D) -> void:
 		# Caps and hair sit clear of the head everywhere they cover it, and their
 		# lumps only push outward, so the scalp never pokes through.
 		"cap":
+			# The crown's front edge and the brim sit above the eyes (R2b: they used
+			# to cut straight across them, the eyes peeking out on top of the brim).
 			var cap := _MeshKit.new()
-			cap.blob(Vector3(0.0, 0.1, 0.01), Vector3(0.285, 0.21, 0.285), hat_color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
-			cap.blob(Vector3(0.0, 0.07, -0.29), Vector3(0.17, 0.018, 0.12), hat_color.darkened(0.1), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
-			cap.blob(Vector3(0.0, 0.31, 0.01), Vector3(0.03, 0.015, 0.03), hat_color.darkened(0.15), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+			cap.blob(Vector3(0.0, 0.2, 0.01), Vector3(0.285, 0.16, 0.285), hat_color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+			cap.blob(Vector3(0.0, 0.135, -0.29), Vector3(0.17, 0.018, 0.12), hat_color.darkened(0.1), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
+			cap.blob(Vector3(0.0, 0.36, 0.01), Vector3(0.03, 0.015, 0.03), hat_color.darkened(0.15), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
 			# Hair peeking out at the back and sides.
 			cap.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 2, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
 			_on_head_layer(_kit_part(face, cap.commit(), Vector3.ZERO))

@@ -63,6 +63,8 @@ var _walk_goal := Vector3.INF
 var _walk_speed: float = 0.0
 ## Host: last time this NICE BOY saw, heard or inspected anyone (the director's give-up).
 var last_contact_at: float = 0.0
+## Host: when he last landed out of the van (R2b: he looks round before his eyes count).
+var landed_at: float = -1000.0
 var _next_bark_at: float = 0.0
 var _bonked_by: int = 0
 ## Every peer: a pose placed from data, not the network. {"kind": "lunge" | "stand"
@@ -244,6 +246,8 @@ func host_set_mode(new_mode: int, peer_id: int = 0, arg: Vector3 = Vector3.ZERO)
 		return
 	if new_mode == Mode.SPOT:
 		stats["spots"] = int(stats["spots"]) + 1
+	if mode == Mode.HOP_OUT and new_mode != Mode.HOP_OUT:
+		landed_at = Net.server_time()
 	mode = new_mode
 	mode_at = Net.server_time()
 	mode_peer = peer_id
@@ -317,15 +321,38 @@ func _shuttle_seats() -> bool:
 ## Every peer, from net/run_events/encounter.gd's wind-up RPC: from where, which
 ## way, and when the hand lands. He winds up there and lunges along dir.
 func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float = Constants.CREW_LUNGE_DISTANCE) -> void:
-	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "travel": travel, "blend_from": _drawn_transform(), "since": _now()}
-	var sfx := get_tree().get_first_node_in_group("sfx")
-	if sfx != null and not from_spot:
-		sfx.call("play_on", "lunge_whoosh", self, -6.0)
+	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "travel": travel, "blend_from": _drawn_transform(), "since": _now(), "whooshed": from_spot}
+	# The crouch from this frame on every peer, whenever the mode replicates (R2b:
+	# the pose followed the mode, which reached a client late or not before the lunge).
+	var poser := get_node_or_null("Visual/CartoonBody/Poser")
+	if poser != null and not from_spot:
+		poser.call("hold", "lunge_windup")
 
 
-## Every peer: stand here facing yaw (the gotcha and the cite), blending in.
-func play_stand(at: Vector3, yaw: float, blend: float) -> void:
-	_placed = {"kind": "stand", "at": at, "yaw": yaw, "blend": blend, "blend_from": _drawn_transform(), "since": _now()}
+## Every peer: stand here facing yaw (the gotcha and the cite), blending in over
+## blend seconds that start delay seconds from now (R2b: held still through the
+## hit-stop first).
+func play_stand(at: Vector3, yaw: float, blend: float, delay: float = 0.0) -> void:
+	_placed = {"kind": "stand", "at": at, "yaw": yaw, "blend": blend, "blend_from": _drawn_transform(), "since": _now() + maxf(0.0, delay)}
+
+
+## Every peer, each frame of a lunge placement: the lunge pose and the whoosh at
+## the moment he leaves the crouch, not at its start.
+func _step_lunge_beats() -> void:
+	if str(_placed.get("kind", "")) != "lunge" or bool(_placed.get("spot", false)):
+		return
+	var lunge_at := float(_placed["contact"]) - Constants.CREW_LUNGE_SECONDS
+	if _now() < lunge_at or bool(_placed.get("lunging", false)):
+		return
+	_placed["lunging"] = true
+	var poser := get_node_or_null("Visual/CartoonBody/Poser")
+	if poser != null:
+		poser.call("hold", "lunge")
+	if not bool(_placed.get("whooshed", false)) and _now() - lunge_at < 0.15:
+		_placed["whooshed"] = true
+		var sfx := get_tree().get_first_node_in_group("sfx")
+		if sfx != null:
+			sfx.call("play_on", "lunge_whoosh", self, -4.0)
 
 
 ## Every peer: back to the network's pose (the host's body is where the placement left it).
@@ -728,6 +755,7 @@ static func fallback_seat(index: int) -> Transform3D:
 func _process(delta: float) -> void:
 	if not Net.is_host() and not _placed.is_empty():
 		_place()
+	_step_lunge_beats()
 	var body := get_node_or_null("Visual/CartoonBody")
 	var poser := get_node_or_null("Visual/CartoonBody/Poser")
 	if mode != _shown_mode:
@@ -775,12 +803,16 @@ func _show_mode(body: Node, poser: Node) -> void:
 					if is_inside_tree():
 						sfx.call("play_on", "hop_land", self))
 		Mode.SPOT:
-			poser.call("hold", "")
-			# Head snap, whistle, point.
+			# The double take (R2b): a hop of surprise, the head snaps round, then the
+			# arm shoots out at you and holds there through the freeze, with the
+			# whistle. Big enough to read from across the yard.
 			body.set("face_turn", 0.0)
-			body.call("gesture", "point")
+			poser.call("hold", "spot_take", Constants.CREW_SPOT_FREEZE + Constants.CREW_SPOT_HOLD_EXTRA, late)
 			if sfx != null and fresh:
 				sfx.call("play_on", "whistle", self)
+		Mode.NOISE, Mode.PATROL when was == Mode.HOP_OUT:
+			# Down from the van: straighten the visor, look left, look right.
+			poser.call("hold", "land_look", Constants.CREW_LAND_LOOK_SECONDS, late)
 		Mode.WINDUP:
 			poser.call("hold", "lunge_windup")
 		Mode.LUNGE:

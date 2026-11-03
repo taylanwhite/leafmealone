@@ -918,13 +918,13 @@ const CREW_NOISE_SEEK_SECONDS: float = 10.0
 const CREW_PATROL_REPICK: float = 6.0
 const CREW_PATROL_RADIUS: float = 6.0
 ## Spotted: he freezes this long (head snap, whistle, point, bark) before the chase.
-const CREW_SPOT_FREEZE: float = 0.35
+const CREW_SPOT_FREEZE: float = 0.6
 ## The lunge: within range and inside the front cone (degrees) he winds up for
 ## CREW_LUNGE_WINDUP s, stretched by up to CREW_LUNGE_WINDUP_LAG_MAX for the
 ## target's half round trip, then covers CREW_LUNGE_DISTANCE m in CREW_LUNGE_SECONDS.
 const CREW_LUNGE_RANGE: float = 2.6
 const CREW_LUNGE_CONE_DEG: float = 60.0
-const CREW_LUNGE_WINDUP: float = 0.35
+const CREW_LUNGE_WINDUP: float = 0.4
 const CREW_LUNGE_WINDUP_LAG_MAX: float = 0.15
 const CREW_LUNGE_DISTANCE: float = 2.2
 const CREW_LUNGE_SECONDS: float = 0.25
@@ -969,17 +969,18 @@ const CREW_VAN_CURB_X: float = 2.0
 ## The gotcha, from the moment his hand lands (s): the hit-stop, the camera's
 ## ease into the two-shot, the held grin, the bark, then the cite.
 const CATCH_HITSTOP: float = 0.12
-const CATCH_CAM_BLEND: float = 0.35
+const CATCH_CAM_BLEND: float = 0.6
 const CATCH_HOLD_END: float = 0.95
 const CATCH_BARK_AT: float = 0.95
 const CATCH_CITE_AT: float = 1.0
 const CATCH_CITE_SECONDS: float = 2.0
-## The two-shot: low, side-on, this far from the pair (m), pushing in by this share.
-const CATCH_CAM_DISTANCE: float = 2.6
-const CATCH_CAM_HEIGHT: float = 1.25
+## The two-shot: low, side-on, this far from the pair (m), looking at this height
+## between them (m; the eye sits CATCH_CAM_EYE_DROP lower), pushing in by this share.
+const CATCH_CAM_DISTANCE: float = 3.0
+const CATCH_CAM_HEIGHT: float = 1.38
 const CATCH_PUSH_IN: float = 0.03
 ## Its field of view (degrees): tighter than the player's, so the two faces fill it.
-const CATCH_CAM_FOV: float = 55.0
+const CATCH_CAM_FOV: float = 40.0
 ## Mashing jump during the cite: each press buys this much (s), up to the max, at
 ## most this many presses a second.
 const CATCH_WRIGGLE_ADD: float = 0.15
@@ -1062,7 +1063,7 @@ const CREW_HEARD_PENALTY: float = 5.0
 ## grab for the held grin; he stands this far from you (m), hand on your shoulder;
 ## the sticker slaps on this long after the page tears (s).
 const CATCH_GRIN_AT: float = 0.45
-const CATCH_GOTCHA_GAP: float = 0.78
+const CATCH_GOTCHA_GAP: float = 1.05
 const CATCH_SLAP_AFTER: float = 0.35
 ## The music dips this far (dB) under your own gotcha.
 const CATCH_MUSIC_DUCK_DB: float = -14.0
@@ -3202,3 +3203,76 @@ const RAKE_FIELD_BERM_REACH: int = 6
 ## a bag as a hand bagged before (tools/rake_pace.gd: 4,550 units, 0.4.7 4,430-4,550;
 ## 4,213-4,231 since the soft edge keeps part of a heap, and 0.45-0.65 all bag less).
 const HIRE_STEP_AFTER_STROKE: float = 0.55
+
+# ---- R2b stage
+# The catch on camera and in the bodies (docs/GAME.md "The catch, staged (R2b)";
+# player/stage_cam.gd, player/stage_sweep.gd, player/caught_pose.gd,
+# net/run_events/encounter.gd, npcs/crew_member.gd). Presentation and the escort's
+# route; the verdicts and their timing are R2's.
+## The two-shot cheats both bodies toward the camera: each turns this far (rad)
+## from facing the other, so both faces read side-on. The eye sits this far (m)
+## under the look point between them: a low shot looking a little up.
+const CATCH_CHEAT_TURN: float = 0.5
+const CATCH_CAM_EYE_DROP: float = 0.14
+## Your own grab sound, played flat at you (dB over its bank level).
+const CATCH_GRAB_DB: float = 3.0
+## StageCam with a pivot (a shot about someone): the eye stays this far (m, a
+## sphere's radius) clear of the world and vehicles, pulls in at once when
+## something is in the way and eases back out at this speed (m/s).
+const STAGE_CAM_RADIUS: float = 0.22
+const STAGE_CAM_RELEASE_SPEED: float = 2.5
+## ... and never moves faster than this relative to its pivot (m/s) or turns
+## faster than this (rad/s), whatever its anchor does, outside a closed iris.
+const STAGE_CAM_MAX_SPEED: float = 7.0
+const STAGE_CAM_MAX_TURN: float = 3.5
+## Someone else's body this close (m) to the stage camera isn't drawn for you
+## (R2:1 skips only your own head): a camera passing a head never fills the
+## screen with the inside of a face.
+const STAGE_CAM_BODY_CLEAR: float = 0.6
+## The escort's follow shot eases its turn toward where the pair walks at this
+## rate (1/s), never faster than ESCORT_CAM_TURN.
+const ESCORT_CAM_TURN_EASE: float = 1.6
+## The escort's route to the van door: when the straight way out is walled (a
+## hedge, a fence), a way round is looked for at these distances from the door
+## (m), every ESCORT_ROUTE_STEP_DEG degrees. Making less than ESCORT_STUCK_METERS
+## of progress in ESCORT_STUCK_SECONDS counts as stuck: he looks for another way;
+## stuck this long in all (s), he hands you over at the door from where you are.
+const ESCORT_ROUTE_RADII: Array[float] = [2.5, 5.0, 8.0, 11.0]
+const ESCORT_ROUTE_STEP_DEG: float = 15.0
+const ESCORT_STUCK_SECONDS: float = 0.5
+const ESCORT_STUCK_METERS: float = 0.25
+const ESCORT_STUCK_HANDOFF: float = 2.5
+## Boarding: you see him hand you up for this long (s) before the iris closes
+## (the seat view opens behind it).
+const BOARD_IRIS_DELAY: float = 0.45
+## Out of the van, he straightens his visor and looks left and right for this
+## long (s) before his eyes count; then the spot is its own beat (CREW_SPOT_FREEZE).
+const CREW_LAND_LOOK_SECONDS: float = 0.9
+## His spot_take point holds this much longer (s) than the freeze, so the arm is
+## still out as he starts after you.
+const CREW_SPOT_HOLD_EXTRA: float = 0.25
+## A shot's pivot (the pair it's about) is followed no faster than this (m/s,
+## above the escort's late pace): an anchor read from a stale pose glides in, it
+## never carries the camera with it in one frame (outside a closed iris).
+const STAGE_CAM_PIVOT_MAX_SPEED: float = 6.0
+## A swing out of first person rises this far (m) at its middle, over a shoulder
+## rather than past the back of a head.
+const STAGE_CAM_ARC_LIFT: float = 0.3
+## The escort's route search: the pair's sweep is a sphere this big (m) this high
+## (m) off the lawn, aiming this far (m) short of the door (the van's side is
+## right there). A waypoint within ESCORT_ROUTE_RETRY_APART of one already tried,
+## or closer to him than ESCORT_ROUTE_MIN_STEP, isn't a way round; one within
+## ESCORT_ROUTE_NAV_SNAP of the navmesh counts as on it; within
+## ESCORT_ROUTE_REACHED of it, it's reached.
+const ESCORT_ROUTE_SWEEP_RADIUS: float = 0.32
+const ESCORT_ROUTE_LIFT: float = 0.7
+const ESCORT_ROUTE_DOOR_STANDOFF: float = 0.6
+const ESCORT_ROUTE_RETRY_APART: float = 1.5
+const ESCORT_ROUTE_MIN_STEP: float = 1.0
+const ESCORT_ROUTE_NAV_SNAP: float = 0.6
+const ESCORT_ROUTE_REACHED: float = 0.8
+## The escort's follow shot swings in from the two-shot over this long (s).
+const ESCORT_CAM_BLEND_IN: float = 1.1
+## The escort anchor's interpolated pose is trusted within this far (m) of its
+## real one; past it (a stale pose from before a teleport), the real one wins.
+const ESCORT_ANCHOR_TRUST_M: float = 1.0

@@ -79,8 +79,12 @@ def gotcha_grab() -> list[float]:
     a chirp of the whistle."""
     rng = random.Random(4400)
     out = base.silence(0.42)
-    slap = base.envelope(base.lowpass(base.noise(rng, 0.07), 2400.0), 0.001, 0.05)
-    base.mix_into(out, slap, 0.0, 1.0)
+    # R2b: a hard, bright crack on the very first sample (the contact frame has to
+    # be heard through the whoosh and the music), then the meaty slap under it.
+    crack = base.envelope(base.highpass(base.noise(rng, 0.012), 1800.0), 0.0005, 0.009)
+    base.mix_into(out, crack, 0.0, 1.0)
+    slap = base.envelope(base.lowpass(base.noise(rng, 0.07), 4200.0), 0.0008, 0.05)
+    base.mix_into(out, slap, 0.0, 0.9)
     base.mix_into(out, base.blip(0.14, 260.0, 120.0, 28.0), 0.0, 0.8)
     chirp = base.tone(0.11, lambda t: 3100.0 * (1.0 + 0.04 * math.sin(TAU * 36.0 * t)), "sine")
     base.mix_into(out, base.envelope(chirp, 0.003, 0.04), 0.004, 0.55)
@@ -88,18 +92,22 @@ def gotcha_grab() -> list[float]:
 
 
 def lunge_whoosh() -> list[float]:
-    """The lunge: a short, rising swish of a clipboard arm and a big khaki stride."""
+    """The lunge: a short, rising swish of a clipboard arm and a big khaki stride.
+    It plays as he leaves the crouch (CREW_LUNGE_SECONDS before contact) and has
+    died away by the hand landing, so the slap lands in a gap (R2b)."""
     rng = random.Random(4500)
-    length = 0.3
+    length = 0.22
     swish = base.bandpass(base.noise(rng, length), lambda t: 600.0 + 2600.0 * (t / length) ** 1.2, 2.2)
-    return base.envelope(swish, 0.02, 0.1)
+    return base.envelope(swish, 0.015, 0.12)
 
 
 def sticker_slap() -> list[float]:
     """A sticker slapped flat on a chest: a papery thwap and a little crinkle."""
     rng = random.Random(4600)
     out = base.silence(0.3)
-    base.mix_into(out, base.envelope(base.lowpass(base.noise(rng, 0.05), 1800.0), 0.001, 0.04), 0.0, 1.0)
+    # R2b: a crisp front edge, so the slap is heard on the frame the sticker lands.
+    base.mix_into(out, base.envelope(base.highpass(base.noise(rng, 0.01), 2000.0), 0.0005, 0.008), 0.0, 0.8)
+    base.mix_into(out, base.envelope(base.lowpass(base.noise(rng, 0.05), 3000.0), 0.0008, 0.04), 0.0, 1.0)
     base.mix_into(out, base.blip(0.08, 340.0, 200.0, 40.0), 0.0, 0.5)
     base.mix_into(out, base.envelope(base.highpass(base.noise(rng, 0.09), 4200.0), 0.004, 0.06), 0.07, 0.3)
     return out
@@ -151,7 +159,7 @@ SOUNDS = {
     "bark": (bark, 3, 0.62),
     "whistle": (whistle, 0, 0.6),
     "scribble": (scribble, 0, 0.45),
-    "gotcha_grab": (gotcha_grab, 0, 0.8),
+    "gotcha_grab": (gotcha_grab, 0, 0.95),
     "lunge_whoosh": (lunge_whoosh, 0, 0.55),
     "sticker_slap": (sticker_slap, 0, 0.6),
     "paper_tear": (paper_tear, 0, 0.55),

@@ -39,6 +39,7 @@ static var result: Dictionary = {}
 
 const _Encounter = preload("res://net/run_events/encounter.gd")
 const _Crew = preload("res://npcs/crew_member.gd")
+const _Sweep = preload("res://player/stage_sweep.gd")
 ## No grabbing the host's player, ever (it's the one throwing things).
 const HOST_SAFE_SECONDS: float = 100000.0
 const CLIENT_WAIT_SECONDS: float = 20.0
@@ -182,7 +183,11 @@ func _run() -> void:
 	await _wait(func() -> bool: return not _report.is_empty(), 4.0)
 	var client_windup: Dictionary = _report.get("windup", {})
 	var lead := float(client_windup.get("at", 0.0)) - float(client_windup.get("seen", 0.0))
-	_step("3 the wind-up reached the client %.2f s before contact (>= 0.25; the host sent it %.2f s before)" % [lead, float(host_windup.get("at", 0.0)) - float(host_windup.get("seen", 0.0))], lead >= 0.25)
+	# R2b: the whole crouch plays before the lunge (contact is the wind-up plus the
+	# lunge away), so even a resent RPC under 2% loss leaves the client a crouch to see.
+	var host_lead := float(host_windup.get("at", 0.0)) - float(host_windup.get("seen", 0.0))
+	_step("3 the wind-up reached the client %.2f s before contact (>= %.2f, the lunge plus some crouch; the host sent it %.2f s before)" % [lead, Constants.CREW_LUNGE_SECONDS + 0.05, host_lead], lead >= Constants.CREW_LUNGE_SECONDS + 0.05)
+	_step("3 the host's contact is the full wind-up and the lunge away (%.2f s, want >= %.2f)" % [host_lead, Constants.CREW_LUNGE_WINDUP + Constants.CREW_LUNGE_SECONDS], host_lead >= Constants.CREW_LUNGE_WINDUP + Constants.CREW_LUNGE_SECONDS - 0.02)
 	_step("3 contact_at is the same on both (%.3f vs %.3f)" % [float(host_windup.get("at", -1.0)), float(client_windup.get("at", -2.0))], absf(float(host_windup.get("at", -1.0)) - float(client_windup.get("at", -2.0))) < 0.001)
 	var caught_lag := float(_report.get("caught_seen", 99.0)) - float(host_catch.get("at", 0.0))
 	_step("3 GOTCHA on the client (stage %d) and is_captured %.2f s after contact (<= 0.3)" % [int(_report.get("stage", 0)), caught_lag], int(_report.get("stage", 0)) >= _Encounter.Stage.GOTCHA and caught_lag <= 0.3)
@@ -219,6 +224,21 @@ func _run() -> void:
 		_put_crew(catcher, client_body.global_position + Vector3(0.0, 0.0, -1.1), client_body.global_position)
 	await _ticks(3)
 	director.call("force_capture", _client)
+	# R2b: the gotcha's staging: arm's length apart, both turned toward the camera.
+	await get_tree().create_timer(Constants.CATCH_HITSTOP + Constants.CATCH_CAM_BLEND + 0.25).timeout
+	var holding := _holder(_client)
+	if holding != null and int(encounter.call("stage_of", _client)) in [_Encounter.Stage.GOTCHA, _Encounter.Stage.CITE]:
+		var apart := Vector2(holding.global_position.x - client_body.global_position.x, holding.global_position.z - client_body.global_position.z).length()
+		var args: Dictionary = (encounter.get("_stages") as Dictionary).get(_client, {}).get("args", {})
+		var staging: Dictionary = _Encounter._staging(args.get("victim", client_body.global_position), args.get("crew_at", holding.global_position), float(args.get("cam_yaw", 0.0)))
+		var crew_face: Vector3 = holding.call("facing")
+		var victim_face := -client_body.global_basis.z
+		victim_face.y = 0.0
+		var to_cam: Vector3 = staging["to_cam"]
+		var turned := crew_face.dot(to_cam) > 0.2 and victim_face.normalized().dot(to_cam) > 0.2
+		_step("5 the gotcha stands them %.2f m apart (want %.2f), both turned toward the two-shot (%s)" % [apart, Constants.CATCH_GOTCHA_GAP, turned], absf(apart - Constants.CATCH_GOTCHA_GAP) < 0.15 and turned)
+	else:
+		_step("5 the gotcha's staging: no holder (%s) or past the cite (stage %d)" % [holding != null, int(encounter.call("stage_of", _client))], false)
 	var escorting: bool = await _wait(func() -> bool: return int(encounter.call("stage_of", _client)) == _Encounter.Stage.ESCORT and Net.server_time() > encounter.call("stage_at", _client) + 0.5, 8.0)
 	_step("5 caught again (no lunge) and walked off arm in arm", escorting)
 	var trash := _prop("trash")
@@ -300,6 +320,7 @@ func _run() -> void:
 	# host's at once; a client's sidestep reaches the host a lag later, which the
 	# wind-up's lead already pays for).
 	await _dodge_steps(director, encounter)
+	await _route_step(encounter)
 	# 9. A raid nobody's caught in.
 	director.call("dev_reset")
 	await get_tree().create_timer(1.0).timeout
@@ -363,6 +384,42 @@ func _run() -> void:
 	var client_turn := float(_report.get("yaw_max", 9.0))
 	_step("2 on the client the largest one-tick turn drawn was %.3f rad (at most %.3f; %s)" % [client_turn, most * 3.0, str(_report.get("yaw_where", ""))], client_turn <= most * 3.0)
 	_finish()
+
+
+## 8d (R2b): the escort's way to the van door goes round a wall put across the
+## straight line, through a point with a clear line on to the door.
+func _route_step(encounter: Node) -> void:
+	var walker: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("nice_crew"):
+		walker = node as Node3D
+		break
+	var door: Vector3 = encounter.call("_door_point") if walker != null else Vector3.INF
+	if walker == null or not door.is_finite():
+		_step("8d a NICE BOY and a door to route to", false)
+		return
+	var line := door - walker.global_position
+	line.y = 0.0
+	if line.length() < 4.0:
+		_note("8d skipped: he's already %.1f m from the door" % line.length())
+		return
+	var mid := walker.global_position + line * 0.5
+	var wall := StaticBody3D.new()
+	wall.collision_layer = 1
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(4.0, 2.5, 0.4)
+	shape.shape = box
+	wall.add_child(shape)
+	add_child(wall)
+	wall.global_transform = Transform3D(Basis.looking_at(line.normalized(), Vector3.UP), mid + Vector3.UP * 1.25)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var via: Vector3 = encounter.call("_plan_route", walker, door, [])
+	var world := walker.get_world_3d()
+	var exclude := _Sweep.passable(get_tree())
+	var onward := via.is_finite() and _Sweep.clear(world, via + Vector3.UP * 0.7, door + Vector3.UP * 0.7 + (via - door).normalized() * 0.6, 0.3, exclude)
+	wall.queue_free()
+	_step("8d with a wall across the way out, the escort goes by %s, clear on to the door (%s)" % [via, onward], via.is_finite() and onward)
 
 
 ## 8b and 8c: a sidestep whiffs (WHIFF on both peers, grace refuses the next grab);
@@ -473,7 +530,7 @@ func _client_sample() -> void:
 				_sampled["seat_samples"] = int(_sampled["seat_samples"]) + 1
 	var encounter := _encounter()
 	var player := _own()
-	if encounter != null and player != null and int(encounter.call("stage_of", me)) == _Encounter.Stage.ESCORT and Net.server_time() > float(encounter.call("stage_at", me)) + 0.4:
+	if encounter != null and player != null and int(encounter.call("stage_of", me)) == _Encounter.Stage.ESCORT and Net.server_time() > float(encounter.call("stage_at", me)) + Constants.ESCORT_LINK_BLEND + 0.1:
 		var anchor: Node3D = encounter.call("escort_anchor", me)
 		if anchor != null:
 			_sampled["anchor_max"] = maxf(float(_sampled["anchor_max"]), Vector2(player.global_position.x - anchor.global_position.x, player.global_position.z - anchor.global_position.z).length())

@@ -35,6 +35,9 @@ const POSES: Dictionary = {
 	"wave_off": [1.2, false],
 	"driver_wheel": [0.0, true],
 	"sit_bench": [0.0, true],
+	# R2b: the landing look-round and the spotted double take (crew_member.gd).
+	"land_look": [0.9, false],
+	"spot_take": [0.85, false],
 }
 ## Blend in and out, in seconds.
 const BLEND_SECONDS: float = 0.12
@@ -148,6 +151,8 @@ func _physics_process(delta: float) -> void:
 	(parts["hips"] as Node3D).rotation.z = float(extras.get("hips_z", 0.0))
 	if parts["face"] != null:
 		(parts["face"] as Node3D).rotation.z = float(extras.get("face_z", 0.0))
+		if extras.has("face_y"):
+			(parts["face"] as Node3D).rotation.y += float(extras["face_y"])
 
 
 static func _t01(t: float, length: float) -> float:
@@ -207,22 +212,30 @@ static func _apply(parts: Dictionary, pose_name: String, t: float, t01: float, w
 			extras["hips_z"] = float(extras.get("hips_z", 0.0)) + 0.06 * sin(phase * 2.0) * w
 		"lunge_windup":
 			# Knees bent, weight back, clipboard raised like a net, the grabbing hand
-			# drawn back: the "Ah-ah-ah!" crouch. A little quiver of effort.
-			var quiver := 0.03 * sin(t * 42.0)
-			hips.position.y -= 0.14 * w
-			torso.rotation.x = lerpf(torso.rotation.x, 0.18 + quiver, w)
-			leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.55, w)
-			leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.25, w)
-			left.rotation.x = lerpf(left.rotation.x, 2.2, w)
-			left.rotation.z = lerpf(left.rotation.z, -0.35, w)
-			right.rotation.x = lerpf(right.rotation.x, -0.7, w)
-			right.rotation.z = lerpf(right.rotation.z, 0.5 + quiver, w)
+			# drawn back: the "Ah-ah-ah!" crouch. It sinks all the way in over the
+			# first third of the wind-up (R2b: deep enough to read from first person
+			# at 2.6 m, so there's time to sidestep), with a quiver of effort.
+			# From the front it reads as a goalkeeper about to pounce: low, feet
+			# wide, both arms out wide and forward, hands open.
+			var sink := smoothstep(0.0, 0.14, t)
+			var quiver := 0.05 * sin(t * 42.0) * sink
+			hips.position.y -= 0.16 * w * sink
+			torso.rotation.x = lerpf(torso.rotation.x, -0.22 + quiver * 0.5, w)
+			leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.25, w)
+			leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.15, w)
+			leg_l.rotation.z = lerpf(leg_l.rotation.z, -0.28 * sink, w)
+			leg_r.rotation.z = lerpf(leg_r.rotation.z, 0.28 * sink, w)
+			left.rotation.x = lerpf(left.rotation.x, 0.55, w)
+			left.rotation.z = lerpf(left.rotation.z, -1.15 - quiver, w)
+			right.rotation.x = lerpf(right.rotation.x, 0.55, w)
+			right.rotation.z = lerpf(right.rotation.z, 1.15 + quiver, w)
 			if face != null:
 				face.rotation.x -= 0.12 * w
 		"lunge":
-			# All in: lean way forward, the grabbing arm straight out, legs split.
+			# All in: lean forward, the grabbing arm straight out, legs split. Not so
+			# far that his face ends up in yours (R2b: he stops at arm's length).
 			hips.position.y -= 0.08 * w
-			torso.rotation.x = lerpf(torso.rotation.x, -0.6, w)
+			torso.rotation.x = lerpf(torso.rotation.x, -0.3, w)
 			right.rotation.x = lerpf(right.rotation.x, 1.65, w)
 			right.rotation.z = lerpf(right.rotation.z, 0.05, w)
 			left.rotation.x = lerpf(left.rotation.x, -0.9, w)
@@ -332,3 +345,23 @@ static func _apply(parts: Dictionary, pose_name: String, t: float, t01: float, w
 			# Hands on the knees, sitting up straight, ready for duty.
 			right.rotation.x = lerpf(right.rotation.x, 0.8, w)
 			left.rotation.x = lerpf(left.rotation.x, 0.8, w)
+		"land_look":
+			# Down from the van: a tug at the visor's brim, then the head turns left,
+			# right, and back to front. t01 runs over the whole look.
+			var tug := sin(clampf(t01 / 0.35, 0.0, 1.0) * PI)
+			right.rotation.x = lerpf(right.rotation.x, 2.6 * tug, w)
+			right.rotation.z = lerpf(right.rotation.z, -0.3 * tug, w)
+			var look := clampf((t01 - 0.25) / 0.75, 0.0, 1.0)
+			extras["face_y"] = 0.75 * sin(look * TAU) * w
+		"spot_take":
+			# The double take: a hop of surprise (0-0.15 s), then the arm shoots out
+			# at you, straight and level, leaning in behind it.
+			var hop := sin(clampf(t / 0.15, 0.0, 1.0) * PI)
+			var out := smoothstep(0.08, 0.2, t)
+			hips.position.y += 0.08 * hop * w
+			torso.rotation.x = lerpf(torso.rotation.x, 0.2 * hop - 0.12 * out, w)
+			right.rotation.x = lerpf(right.rotation.x, 1.55 * out, w)
+			right.rotation.z = lerpf(right.rotation.z, 0.04, w)
+			left.rotation.z = lerpf(left.rotation.z, -0.5 * hop - 0.15, w)
+			if parts["megaphone"] != null:
+				(parts["megaphone"] as Node3D).rotation.x = -right.rotation.x * w
