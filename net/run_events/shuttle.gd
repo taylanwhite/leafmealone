@@ -3418,7 +3418,10 @@ func _crew_local(trip: Trip, index: int, now: float) -> Array:
 	# In the aisle he faces the way he goes (to his seat, or to the door), side-on
 	# to the riders, never walking at them face first.
 	var door_z := Constants.VAN_CREW_DOOR_Z.x if seat.origin.z < 0.0 else Constants.VAN_CREW_DOOR_Z.y
-	var sill := Transform3D(step.basis, Vector3(0.95, 1.01, door_z))
+	var sill_at := Vector3(0.95, 1.01, door_z)
+	# Up onto the sill already turning toward his seat (side-on to the riders), not
+	# square to the bench: from the seats that read as walking at you (lagged take).
+	var sill := Transform3D(_facing(seat.origin - sill_at, step.basis), sill_at)
 	var aisle_at := Vector3(Constants.VAN_CREW_AISLE_X, 1.01, door_z + Constants.VAN_CREW_AISLE_ALONG if seat.origin.z > 0.0 else door_z)
 	var aisle := Transform3D(_facing(seat.origin - aisle_at, step.basis), aisle_at)
 	var door_step := step
