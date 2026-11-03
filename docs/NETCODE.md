@@ -450,3 +450,26 @@ A hitch is a gap between position updates from a moving player that is longer th
 ## Debug overlay
 
 F3 toggles a small overlay (owned by NET) that shows the transport, session state, local peer id, whether this instance is the host, each player's name, peer id, zone, and ping where the transport exposes it, the clock offset estimate, the frame rate, bandwidth in and out, and the number of synchronized nodes. Every networking bug report should include a screenshot of it.
+
+## R2: the catch (Encounter and director)
+
+The NICE BOYS encounter (gap-specs/nice_boys.json). Host-authoritative; every cosmetic timeline is a pure function of replicated state and `Net.server_time()`. All reliable on channel 0, so they arrive in order across nodes; consumers still check state (a crew `mode` can arrive through the Synchronizer before or after the Encounter's RPC: the camera, control lock and staging key off the Encounter's stage, the gestures off the crew's mode). Chunk 4 (Shuttle) and chunk 6 (Annex) append their tables below.
+
+| Node | RPC / property | Direction | What |
+| --- | --- | --- | --- |
+| RunDirector | `_rpc_phase(phase, started_at, status)` | host -> all | QUIET 0, WARNING 1, CHASE 2, DEPARTING 3 |
+| RunDirector | `_rpc_request_state()` / `_rpc_state(state)` | client -> host -> that client | late join: phase, cohort, Encounter / Shuttle / Annex snapshots |
+| RunDirector | `_rpc_legacy_ride(riders, seed)` | host -> all | until chunk 4: the old ride's van for the riders |
+| RunDirector | `_rpc_drop_rider(peer)` | host -> all | kept |
+| Encounter | `_rpc_windup(grab_id, crew, peer, from, dir, contact_at, from_spot, travel)` | host -> all | the wind-up and lunge, played from these args everywhere |
+| Encounter | `_rpc_whiff(grab_id, peer_id, crew_index, at)` | host -> all | missed or spoiled (carries who, so the host's own call and a late joiner find them) |
+| Encounter | `_rpc_catch(grab_id, crew, peer, at, victim, crew_at)` | host -> all | caught: cohort, hold anchors, the gotcha timeline |
+| Encounter | `_rpc_request_wriggle()` | owner -> host | at most `CATCH_WRIGGLE_RATE`/s |
+| Encounter | `_rpc_cite_end(peer, end_at)` | host -> all | the cite runs longer |
+| Encounter | `_rpc_stage(peer, stage, at, crew, args)` | host -> all | ESCORT, BOARDING, SEATED, RIDING, ANNEX, RETURNING, FREE |
+| Encounter | `_rpc_freed(peer, by_peer, cause, at)` | host -> all | bonk, unbuckle, wriggle, gone |
+| CrewMember | `mode`, `mode_at`, `mode_peer`, `mode_arg` | Synchronizer, ON_CHANGE, spawn | what each NICE BOY is doing |
+| CrewMember | `_rpc_bark(kind, index)` | host -> all | a bark line |
+| Hotbar | `_rpc_itemized(at, index)` | host -> all | one item out of the itemized row (its tick) |
+
+Lag: the wind-up's lead (0.35 s + up to 0.15 s of the target's half round trip) doubles as network lead, so a 150 ms client sees all of it; reach is judged in the host's view plus `CREW_GRAB_SLACK`. The gotcha and the escort place both bodies from anchors on every peer (chunk 1's `set_staged` for the player; the crew's own placement), so the pair never tears apart. Disconnects: a target mid-windup cancels the grab; a caught player who leaves frees the NICE BOY back to the chase (`_rpc_freed(..., "gone")`).

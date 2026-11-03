@@ -219,6 +219,9 @@ func write_report() -> void:
 		"leaf_ledger": _leaf_ledger(),
 		"vehicle_view": preload("res://net/components/vehicle_view.gd").stats.duplicate(),
 		"heat": _heat(),
+		# R2 chunk 2: the catches this peer saw, and the encounter test's result.
+		"encounter": preload("res://net/run_events/encounter.gd").stats.duplicate(),
+		"encounter_test": preload("res://net/dev/encounter_test.gd").result.duplicate(),
 		"board": _board(),
 		"rating": {"stars": Campaign.rating(), "reviews": Campaign.rating_count()},
 		"lot_layout": _lot_layout(),

@@ -125,13 +125,12 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 				_flash = 1.0
 
 
-## Nobody caught in the raid that just ended (the director's own count when it
-## keeps one, R2 chunk 2; else the cohort id hasn't moved since they arrived).
-## Not the cohort's size: a teammate still at the crossing from an earlier raid
-## is in it, and on clients nobody leaves it until they're seen home.
+## Nobody caught in the raid that just ended: the cohort id (one more per catch,
+## on every peer) hasn't moved since they arrived. Not the cohort's size: a
+## teammate still at the Annex from an earlier raid is in it. Not the director's
+## last_raid_caught(): that count is the host's alone, and a client would hear
+## "All clear" after every raid (R2 integration).
 static func _nobody_taken(director: Node, cohort_at_arrival: int) -> bool:
-	if director.has_method("last_raid_caught"):
-		return int(director.call("last_raid_caught")) == 0
 	if cohort_at_arrival < 0:
 		return false
 	return _cohort_id_of(director) == cohort_at_arrival

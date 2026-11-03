@@ -49,6 +49,12 @@ func _physics_process(delta: float) -> void:
 	if _jump_held:
 		Input.action_release(&"jump")
 		_jump_held = false
+	# R2: each chunk's raid behavior, the first that takes control wins (crew,
+	# hiding, the van, the Annex); then the older counterplay below.
+	for tick: StringName in [&"_r2_crew_tick", &"_r2_hide_tick", &"_r2_van_tick", &"_r2_annex_tick"]:
+		if has_method(tick) and bool(call(tick, delta)):
+			_job.call("stop")
+			return
 	if _during_run_event(player):
 		_job.call("stop")
 		return
@@ -165,3 +171,54 @@ func _own_player() -> Node:
 		if node.name == own_name:
 			return node
 	return null
+
+
+# ---- R2:2 the catch (net/run_events/encounter.gd): a caught bot mashes jump
+# through the cite; a free bot with something in hand goes for a NICE BOY who has
+# hold of a friend half the time (decided once per catch) and throws it at him.
+var _r2_rescue_roll: Dictionary = {}
+var _r2_next_wriggle: float = 0.0
+
+
+func _r2_crew_tick(_delta: float) -> bool:
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	var player := _own_player() as Node3D
+	if encounter == null or player == null:
+		return false
+	var me := Net.local_peer_id()
+	var stage := int(encounter.call("stage_of", me))
+	if stage == 2 or stage == 3:
+		if _elapsed >= _r2_next_wriggle:
+			_r2_next_wriggle = _elapsed + _rng.randf_range(0.15, 0.4)
+			Input.action_press(&"jump")
+			_jump_held = true
+		return true
+	if stage >= 2 and stage <= 6:
+		return true
+	for crew: Node in get_tree().get_nodes_in_group("nice_crew"):
+		var holder := crew as Node3D
+		var held_peer := int(crew.get("mode_peer"))
+		var mode := int(crew.get("mode"))
+		if holder == null or held_peer == me or (mode != 11 and mode != 12):
+			continue
+		var key := "%s:%d" % [crew.name, held_peer]
+		if not _r2_rescue_roll.has(key):
+			_r2_rescue_roll[key] = _rng.randf() < 0.5
+		if not bool(_r2_rescue_roll[key]):
+			continue
+		var held: Node = null
+		for node: Node in get_tree().get_nodes_in_group("props"):
+			if int(node.get("held_by")) == me:
+				held = node
+		if held == null:
+			continue
+		_face(player, holder.global_position)
+		var distance := player.global_position.distance_to(holder.global_position)
+		if distance > 6.0:
+			Input.action_press(&"sprint")
+			return true
+		var toward := holder.global_position + Vector3.UP * 0.9 - player.global_position
+		held.call("request_throw", toward.normalized(), 1.2)
+		_r2_rescue_roll[key] = false
+		return true
+	return false

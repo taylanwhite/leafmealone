@@ -9,19 +9,24 @@ extends Node
 ## run(); the playtest tools test (net/dev/playtest_tools_test.gd) checks each
 ## one reaches its state.
 ##
-## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, hide,
-## border_return, van_ride, store, drive (that one needs --town-map), toss,
-## toss_full, toss_close.
+## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, spotted, lunge,
+## dodge, gotcha, cite_rescue, escort, hide, border_return, van_ride, store, drive
+## (that one needs --town-map), toss, toss_full, toss_close.
 
 const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "hide", "border_return", "van_ride", "store", "drive", "toss", "toss_full", "toss_close"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "border_return", "van_ride", "store", "drive", "toss", "toss_full", "toss_close"]
 ## raid_arrive: how long before the NICE BOYS show up.
 const ARRIVE_LEAD_SECONDS: float = 2.0
 ## hide: how long the warning still has to run, time enough to get in.
 const HIDE_LEAD_SECONDS: float = 3.5
-## caught: how far in front of the head NICE BOY you stand.
-const CAUGHT_GAP_METERS: float = 5.0
+## caught: how far from the head NICE BOY you stand once he's out (his lunge
+## starts about 1.5 s in: the hop, the spot, two steps).
+const CAUGHT_LUNGE_METERS: float = 4.0
+## spotted: far enough to see the spot and the speed-walk.
+const SPOTTED_METERS: float = 12.0
+## dodge: the wind-up starts this long after the scenario.
+const DODGE_LEAD_SECONDS: float = 1.0
 ## raid_arrive: where you watch the arrival from, meters from the arrival point.
 const WATCH_ARRIVAL_METERS: float = 11.0
 ## rake_fresh, rake_pile: an untouched strip of leaves this long, and the rake
@@ -95,6 +100,18 @@ func run(scenario: String) -> Dictionary:
 			out = await _raid_arrive()
 		"caught":
 			out = await _caught()
+		"spotted":
+			out = await _spotted()
+		"lunge":
+			out = await _lunge()
+		"dodge":
+			out = await _dodge()
+		"gotcha":
+			out = await _gotcha()
+		"cite_rescue":
+			out = await _cite_rescue()
+		"escort":
+			out = await _escort()
 		"hide":
 			out = await _hide()
 		"border_return":
@@ -236,41 +253,237 @@ func _reached_raid_warn() -> bool:
 	return facing.dot(to_park) > 0.8
 
 
-## The warning is nearly over: they arrive in ARRIVE_LEAD_SECONDS, and you're
-## standing where you can watch the arrival point.
+## The warning is nearly over: the van has pulled up and its door opens in
+## ARRIVE_LEAD_SECONDS, right in front of you, and the NICE BOYS climb out.
 func _raid_arrive() -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
 	var director := _director()
-	var arrival: Vector3 = director.call("crew_arrival_point")
+	var door: Vector3 = director.call("crew_arrival_point")
 	var lot := _lot_zone()
-	var toward := Vector3(arrival.x - lot.global_position.x, 0.0, arrival.z - lot.global_position.z).normalized()
-	var stand := arrival - toward * WATCH_ARRIVAL_METERS
-	_place(Vector3(stand.x, lot.global_position.y + 0.1, stand.z), _yaw_toward(stand, arrival), -0.05)
+	var toward := Vector3(door.x - lot.global_position.x, 0.0, door.z - lot.global_position.z).normalized()
+	var stand := door - toward * WATCH_ARRIVAL_METERS
+	_place(Vector3(stand.x, lot.global_position.y + 0.1, stand.z), _yaw_toward(stand, door), -0.05)
 	_warn_with(director, ARRIVE_LEAD_SECONDS)
 	await _ticks(2)
-	return {"note": "they arrive in %.1f s at the point you're facing (the game has no van pulling up: they appear there)" % ARRIVE_LEAD_SECONDS, "phase": _phase(), "arrives_in": snappedf(float(director.call("arrival_time")) - Net.server_time(), 0.01), "arrival": _v(arrival)}
+	return {"moment": "raid_arrive", "note": "the van's door opens in %.1f s in front of you; they hop out one by one" % ARRIVE_LEAD_SECONDS, "phase": _phase(), "arrives_in": snappedf(float(director.call("arrival_time")) - Net.server_time(), 0.01), "arrival": _v(door)}
 
 
-## The chase is on and the head NICE BOY is a few steps away, coming for you.
+func _reached_raid_arrive() -> bool:
+	return _phase() == "WARNING" and not get_tree().get_nodes_in_group("nice_crew").is_empty()
+
+
+## The chase is on and the head NICE BOY has just hopped down, a few steps from
+## you: his lunge starts in about 1.5 s. Stand still to be caught.
 func _caught() -> Dictionary:
+	var out: Dictionary = await _crew_out(0.2)
+	if out.has("error"):
+		return out
+	var crew := _crew()
+	var stand := _in_front_of(crew, CAUGHT_LUNGE_METERS)
+	_place(stand, _yaw_toward(stand, crew.global_position), -0.05)
+	await _ticks(2)
+	return {"moment": "caught", "note": "%s is %.1f m away; stand still and he lunges in about 1.5 s" % [crew.name, CAUGHT_LUNGE_METERS], "phase": _phase(), "crew": str(crew.name)}
+
+
+func _reached_caught() -> bool:
+	return _phase() == "CHASE" and _crew() != null
+
+
+## Out on the lawn in plain view, a dozen meters off: they spot you (the freeze,
+## the whistle, the point) and come speed-walking.
+func _spotted() -> Dictionary:
+	var out: Dictionary = await _crew_out(0.2)
+	if out.has("error"):
+		return out
+	var crew := _crew()
+	var stand := _in_front_of(crew, SPOTTED_METERS)
+	_place(stand, _yaw_toward(stand, crew.global_position), -0.05)
+	await _ticks(2)
+	return {"moment": "spotted", "note": "%s is %.0f m away and about to spot you" % [crew.name, SPOTTED_METERS], "phase": _phase()}
+
+
+func _reached_spotted() -> bool:
+	return _phase() == "CHASE" and _crew() != null
+
+
+## Close and in front of him once he's out: the wind-up, then the lunge.
+func _lunge() -> Dictionary:
+	var out: Dictionary = await _crew_out(0.2)
+	if out.has("error"):
+		return out
+	var crew := _crew()
+	var stand := _in_front_of(crew, Constants.CREW_LUNGE_RANGE + 0.4)
+	_place(stand, _yaw_toward(stand, crew.global_position), -0.05)
+	await _ticks(2)
+	return {"moment": "lunge", "note": "%s is %.1f m away, facing you; he winds up as soon as he's on his feet" % [crew.name, Constants.CREW_LUNGE_RANGE + 0.4], "phase": _phase()}
+
+
+func _reached_lunge() -> bool:
+	return _phase() == "CHASE" and _crew() != null
+
+
+## A NICE BOY right at your left shoulder winds up in DODGE_LEAD_SECONDS: step
+## aside (strafe right) during the wind-up and he sprawls.
+func _dodge() -> Dictionary:
+	var out: Dictionary = await _crew_out(-1.0)
+	if out.has("error"):
+		return out
+	var me := _me()
+	var crew := _crew()
+	var lot := _lot_zone()
+	var stand := lot.global_position + Vector3(2.0, 0.1, 6.0)
+	_place(stand, 0.0, -0.05)
+	var left := -me.global_basis.x
+	_put_crew(crew, stand + left * (Constants.CREW_LUNGE_RANGE - 0.5), stand)
+	_safe_for(DODGE_LEAD_SECONDS)
+	await _ticks(2)
+	get_tree().create_timer(DODGE_LEAD_SECONDS).timeout.connect(func() -> void:
+		var encounter := get_tree().get_first_node_in_group("nice_encounter")
+		if encounter != null and is_instance_valid(crew):
+			encounter.call("host_windup", crew, Net.local_peer_id(), false))
+	return {"moment": "dodge", "note": "%s is at your left; he winds up in %.1f s: strafe right during it" % [crew.name, DODGE_LEAD_SECONDS], "phase": _phase()}
+
+
+func _reached_dodge() -> bool:
+	return _phase() == "CHASE" and _crew() != null
+
+
+## Caught right now, no lunge: the gotcha from its first frame.
+func _gotcha() -> Dictionary:
+	var out: Dictionary = await _crew_out(-1.0)
+	if out.has("error"):
+		return out
+	var crew := _crew()
+	var lot := _lot_zone()
+	var stand := lot.global_position + Vector3(2.0, 0.1, 6.0)
+	_place(stand, 0.0, -0.05)
+	_put_crew(crew, stand + Vector3(0.0, 0.0, -1.2), stand)
+	await _ticks(3)
+	_director().call("force_capture", Net.local_peer_id())
+	await _ticks(1)
+	return {"moment": "gotcha", "note": "caught by %s now: the hit-stop, the two-shot, the grin, the cite" % crew.name, "phase": _phase()}
+
+
+func _reached_gotcha() -> bool:
+	return _stage(Net.local_peer_id()) >= 2
+
+
+## The other player is being cited a couple of meters away and you're holding a
+## gnome: throw it (or punch him) and they're free. Needs a second player.
+func _cite_rescue() -> Dictionary:
+	var out: Dictionary = await _crew_out(-1.0)
+	if out.has("error"):
+		return out
+	var friend := _other_player()
+	if friend == null:
+		return {"error": "cite_rescue needs a second player (start with -Observer, or a client)"}
+	var crew := _crew()
+	var lot := _lot_zone()
+	var spot := lot.global_position + Vector3(0.0, 0.1, 6.0)
+	friend.call("send_teleport", Transform3D(Basis.IDENTITY, spot))
+	_put_crew(crew, spot + Vector3(0.0, 0.0, -1.2), spot)
+	var stand := spot + Vector3(3.2, 0.0, 1.0)
+	_place(stand, _yaw_toward(stand, crew.global_position), -0.1)
+	_safe_for(20.0)
+	await get_tree().create_timer(0.4).timeout
+	_director().call("force_capture", int(str(friend.name)))
+	var held: String = await _hold("gnome")
+	_place(stand, _yaw_toward(stand, crew.global_position), -0.1)
+	return {"moment": "cite_rescue", "note": "%s is being cited in front of you; you hold '%s': throw it at %s" % [Net.player_name(int(str(friend.name))), held, crew.name], "phase": _phase()}
+
+
+func _reached_cite_rescue() -> bool:
+	var friend := _other_player()
+	return friend != null and _stage(int(str(friend.name))) >= 2
+
+
+## Cited and on the way: arm in arm to the van.
+func _escort() -> Dictionary:
+	var out: Dictionary = await _gotcha()
+	if out.has("error"):
+		return out
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	var cite := encounter.get("_cite_end") as Dictionary
+	cite[Net.local_peer_id()] = Net.server_time() + 0.4
+	var walking: Variant = await _wait_for(func() -> Variant:
+		return true if _stage(Net.local_peer_id()) == 4 else null)
+	if walking == null:
+		return {"error": "the escort never started"}
+	return {"moment": "escort", "note": "arm in arm with %s to the van" % _crew().name, "phase": _phase()}
+
+
+func _reached_escort() -> bool:
+	return _stage(Net.local_peer_id()) >= 4
+
+
+## A raid with the crew out of the van and on the lawn (lead >= 0: CHASE starts
+## that long from now and they're still climbing out; < 0: wait until they're all out).
+func _crew_out(lead: float) -> Dictionary:
 	var problem: String = await _to_lot()
 	if problem != "":
 		return {"error": problem}
 	var director := _director()
-	director.call("_begin_chase")
-	await _ticks(3)
-	var crew := _crew()
-	if crew == null:
-		return {"error": "no NICE BOY spawned"}
-	var lot := _lot_zone()
-	var toward_lot := Vector3(lot.global_position.x - crew.global_position.x, 0.0, lot.global_position.z - crew.global_position.z).normalized()
-	var stand := crew.global_position + toward_lot * CAUGHT_GAP_METERS
-	_place(Vector3(stand.x, crew.global_position.y + 0.1, stand.z), _yaw_toward(stand, crew.global_position), -0.05)
-	await _ticks(2)
-	return {"note": "%s is %.0f m away and coming; stand still to be caught, sprint to get away" % [crew.name, CAUGHT_GAP_METERS], "phase": _phase(), "crew": str(crew.name)}
+	_warn_with(director, maxf(0.05, lead))
+	var ready: Variant = await _wait_for(func() -> Variant:
+		if _phase() != "CHASE" or _crew() == null:
+			return null
+		if lead >= 0.0:
+			return true
+		for crew: Node in get_tree().get_nodes_in_group("nice_crew"):
+			if _in_van(crew):
+				return null
+		return true)
+	if ready == null:
+		return {"error": "the NICE BOYS never got out of the van"}
+	return {}
 
+
+## Where to stand: meters in front of the van's door, toward the yard.
+func _in_front_of(crew: Node3D, meters: float) -> Vector3:
+	var lot := _lot_zone()
+	var door: Vector3 = _director().call("crew_arrival_point")
+	var toward := Vector3(lot.global_position.x - door.x, 0.0, lot.global_position.z - door.z).normalized()
+	var from := crew.global_position if _crew_on_feet(crew) else door
+	var at := from + toward * meters
+	return Vector3(at.x, lot.global_position.y + 0.1, at.z)
+
+
+func _crew_on_feet(crew: Node3D) -> bool:
+	return not _in_van(crew)
+
+
+## Seated, hopping out or climbing in (npcs/crew_member.gd SEATED, HOP_OUT, HOP_IN).
+func _in_van(crew: Node) -> bool:
+	return [15, 16, 17].has(int(crew.get("mode")))
+
+
+## The host moves a NICE BOY (and settles his smoothing everywhere), facing a point.
+func _put_crew(crew: Node3D, at: Vector3, facing: Vector3) -> void:
+	crew.global_position = at
+	var look := facing - at
+	crew.rotation.y = atan2(look.x, look.z)
+	crew.set("_speed_now", 0.0)
+	crew.reset_physics_interpolation()
+
+
+## No grabs on you for this long (so the scenario's own grab is the one that comes).
+func _safe_for(seconds: float) -> void:
+	var safe: Dictionary = _director().get("_safe_until")
+	safe[Net.local_peer_id()] = Net.server_time() + seconds
+
+
+func _stage(peer_id: int) -> int:
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	return int(encounter.call("stage_of", peer_id)) if encounter != null else 0
+
+
+func _other_player() -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name != str(Net.local_peer_id()):
+			return node as Node3D
+	return null
 
 ## A hiding spot right in front of you, the warning counting down.
 func _hide() -> Dictionary:
@@ -385,14 +598,12 @@ func reset() -> void:
 		if vehicle.has_method("seat_of") and int(vehicle.call("seat_of", me_id)) >= 0 and vehicle.has_method("request_exit"):
 			vehicle.call("request_exit")
 	if director != null:
-		director.set("_batching", false)
 		if bool(director.call("is_captured", me_id)) or _van() != null:
 			# Off the van and out of the cohort, on every peer (the director's own message).
 			director.rpc("_rpc_drop_rider", me_id)
-		if int(director.call("phase")) != 0:
-			director.call("_dismiss_crew")
-		var safe: Dictionary = director.get("_safe_until")
-		safe.erase(me_id)
+		# No raid, no catches, no crew (R2 chunk 2: the director's own reset).
+		director.call("dev_reset")
+		await _ticks(2)
 	if crossing != null and (crossing.get("_roster") as Array).has(me_id):
 		crossing.call("_send_home", me_id)
 	# A van still on its way (empty now) finishes its trip, or it can't leave again
@@ -493,6 +704,9 @@ func _yaw_toward(from: Vector3, to: Vector3) -> float:
 ## The warning, through the director's own phase message to every peer, started
 ## as if the call came in a while ago: the crew arrives in lead seconds.
 func _warn_with(director: Node, lead: float) -> void:
+	# The call itself makes the crew (seated in the van); then it's backdated.
+	if int(director.call("phase")) == 0:
+		director.call("_begin_warning")
 	director.rpc("_rpc_phase", 1, Net.server_time() - (Constants.RUN_WARNING_SECONDS - lead), _Strings.UI["status_crew_coming"])
 
 
@@ -545,7 +759,7 @@ func _crew() -> Node3D:
 
 
 func _phase() -> String:
-	return ["QUIET", "WARNING", "CHASE"][clampi(int(_director().call("phase")), 0, 2)]
+	return ["QUIET", "WARNING", "CHASE", "DEPARTING"][clampi(int(_director().call("phase")), 0, 3)]
 
 
 func _zone() -> String:

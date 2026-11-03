@@ -51,12 +51,13 @@ func _physics_process(_delta: float) -> void:
 		return
 	var origin := body.global_position
 	# Turning on the spot counts too (a hired hand stops, then faces its pile; a
-	# player turns while raking in place): only a body that neither moved nor turned
-	# is skipped.
-	if origin.distance_squared_to(_last_recorded) < 0.0000001 and body.global_basis.is_equal_approx(_last_basis) and not _samples.is_empty():
+	# player turns while raking in place; a NICE BOY turning on a spot or a stand):
+	# only a body that neither moved nor turned is skipped.
+	var basis := body.global_basis
+	if origin.distance_squared_to(_last_recorded) < 0.0000001 and basis.is_equal_approx(_last_basis) and not _samples.is_empty():
 		return
 	_last_recorded = origin
-	_last_basis = body.global_basis
+	_last_basis = basis
 	var now := _now()
 	if not _samples.is_empty():
 		var previous: Dictionary = _samples[_samples.size() - 1]

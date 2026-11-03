@@ -125,6 +125,13 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --brawl-test'; Seconds = 50; Client = 45
 		Check = { param($h, $c) [bool]$h.brawl_test.ok }
 	}
+	encounter = @{
+		# R2 chunk 2: the NICE BOYS' catch. The client half reports what it saw.
+		Port = 7827
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --encounter-test'; Seconds = 170; Client = 160
+		Extra = '--sim-lag=150 --sim-loss=2 --encounter-test'
+		Check = { param($h, $c) [bool]$h.encounter_test.ok }
+	}
 	day = @{
 		Port = 7803
 		Host = '--host --name=Tester --no-steam --day-test'; Seconds = 30; Client = 26

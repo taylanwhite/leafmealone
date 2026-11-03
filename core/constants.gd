@@ -26,8 +26,6 @@ const TRUCK_BAG_CAPACITY: int = 50
 const BAG_LOAD_RADIUS: float = 1.8
 const TRUCK_UNLOAD_RADIUS: float = 4.0
 
-## OQ-025: captures this many seconds apart share one van. Not in the workbook yet.
-const CAPTURE_BATCH_SECONDS: float = 3.0
 ## TODO(balance): forgiving capture distance, crew speed, and how long the warning shows.
 const CAPTURE_RADIUS: float = 2.0
 const CREW_SPEED: float = 5.5
@@ -880,6 +878,205 @@ const HOMEOWNER_BILL_LINE_CHANCE: float = 0.7
 ## How long the homeowner's goodbye (HOMEOWNER_LINES.paid) stays up after the cash
 ## is grabbed. Longer than the old "Thanks!", so it can be read.
 const HOMEOWNER_PAID_CAPTION_SECONDS: float = 3.5
+
+
+# ---- nice boys: crew and the catch (R2 chunk 2)
+## npcs/crew_member.gd, npcs/crew_brain.gd, net/run_events/encounter.gd and the
+## director (docs/GAME.md "The NICE BOYS encounter (R2)"). TODO(balance): none of
+## these are in the workbook.
+## Steering: how fast a NICE BOY speeds up, slows down (m/s per second) and turns
+## (rad/s). No one-frame about-faces.
+const CREW_ACCEL: float = 9.0
+const CREW_DECEL: float = 14.0
+const CREW_TURN_RATE: float = 6.5
+## Walking speeds by what he's doing (m/s). Players sprint at 8: the crew wins by
+## spreading out and listening, not by running anyone down.
+const CREW_SPEED_PATROL: float = 2.8
+const CREW_SPEED_SEARCH: float = 3.2
+const CREW_SPEED_CHASE: float = 5.5
+const CREW_SPEED_ESCORT: float = 3.2
+const CREW_SPEED_RECALL: float = 5.5
+## An escort that has taken this long (s) speeds up to CREW_SPEED_ESCORT_LATE.
+const CREW_ESCORT_MAX: float = 14.0
+const CREW_SPEED_ESCORT_LATE: float = 4.0
+## Senses: a cone (degrees, meters, to the chest), an all-round near sense, and
+## hearing a running tool within CREW_HEAR_METERS.
+const CREW_VIEW_DEG: float = 110.0
+const CREW_VIEW_RANGE: float = 26.0
+const CREW_NEAR_SENSE: float = 3.0
+const CREW_HEAR_METERS: float = 16.0
+## A tool that ran within this long (s) still gives its user away.
+const CREW_HEAR_FRESH_SECONDS: float = 0.75
+## For the first CREW_NOISE_SEEK_SECONDS of a chase, unspotted crew walk to the noise.
+const CREW_NOISE_SEEK_SECONDS: float = 10.0
+## Patrol re-picks a point every CREW_PATROL_REPICK s within CREW_PATROL_RADIUS m
+## of a lot player, by sector (crew index -> front yard, left, right).
+const CREW_PATROL_REPICK: float = 6.0
+const CREW_PATROL_RADIUS: float = 6.0
+## Spotted: he freezes this long (head snap, whistle, point, bark) before the chase.
+const CREW_SPOT_FREEZE: float = 0.35
+## The lunge: within range and inside the front cone (degrees) he winds up for
+## CREW_LUNGE_WINDUP s, stretched by up to CREW_LUNGE_WINDUP_LAG_MAX for the
+## target's half round trip, then covers CREW_LUNGE_DISTANCE m in CREW_LUNGE_SECONDS.
+const CREW_LUNGE_RANGE: float = 2.6
+const CREW_LUNGE_CONE_DEG: float = 60.0
+const CREW_LUNGE_WINDUP: float = 0.35
+const CREW_LUNGE_WINDUP_LAG_MAX: float = 0.15
+const CREW_LUNGE_DISTANCE: float = 2.2
+const CREW_LUNGE_SECONDS: float = 0.25
+## Every peer eases him into the wind-up's spot over this long (s): a client drew
+## him a little behind the host, and that gap closes during the crouch.
+const CREW_WINDUP_BLEND: float = 0.3
+## Of the lunge's reach, this much is his arm (m): his body travels the rest, at
+## most, and never closer than arm's length to where you stood.
+const CREW_LUNGE_ARM: float = 0.75
+## The host's verdict at contact: the target's chest within reach plus slack of
+## the hand's path as every peer draws it (from his start to from + dir x (body
+## travel + CREW_LUNGE_ARM), up 1.2), in the host's view.
+const CREW_GRAB_REACH: float = 0.95
+const CREW_GRAB_SLACK: float = 0.35
+## A found hider is grabbed this long (s) after the inspection says so (no lunge).
+const CREW_FOUND_CONTACT: float = 0.3
+## A whiff: he sprawls this long, and the target can't be grabbed for the grace.
+const CREW_WHIFF_SECONDS: float = 0.9
+const CREW_WHIFF_GRACE: float = 1.0
+## Nobody seen and nothing inspected for this long (s): they give up and pack up.
+const CREW_GIVE_UP_UNSEEN: float = 30.0
+## A thrown thing that lands this close (m) without hitting him: he walks over and
+## peers at it for CREW_INVESTIGATE_SECONDS.
+const CREW_INVESTIGATE_RADIUS: float = 4.0
+const CREW_INVESTIGATE_SECONDS: float = 4.0
+## Hop out of / into the van (the fallback when no Shuttle drives it): one NICE BOY
+## every CREW_HOP_GAP s, CREW_HOP_SECONDS each, from the seat to the curb.
+const CREW_HOP_GAP: float = 0.5
+const CREW_HOP_SECONDS: float = 1.15
+## Seats in the cast:5 van (props/nice_van.gd VanLook space: x right, -z the nose,
+## floor at y 1.0) for the fallback without chunk 4's CrewSeats markers: the
+## driver, then the left bench and the back bench. [position, yaw].
+const CREW_VAN_SEATS: Array = [
+	[Vector3(-0.5, 0.95, -1.98), 0.0],
+	[Vector3(-0.78, 1.0, 0.75), -PI * 0.5],
+	[Vector3(-0.78, 1.0, 1.85), -PI * 0.5],
+	[Vector3(0.45, 1.0, 2.52), 0.0],
+]
+## Where a NICE BOY steps out: the sill of the open side, then the curb beside it.
+const CREW_VAN_SILL_X: float = 1.12
+const CREW_VAN_CURB_X: float = 2.0
+## The gotcha, from the moment his hand lands (s): the hit-stop, the camera's
+## ease into the two-shot, the held grin, the bark, then the cite.
+const CATCH_HITSTOP: float = 0.12
+const CATCH_CAM_BLEND: float = 0.35
+const CATCH_HOLD_END: float = 0.95
+const CATCH_BARK_AT: float = 0.95
+const CATCH_CITE_AT: float = 1.0
+const CATCH_CITE_SECONDS: float = 2.0
+## The two-shot: low, side-on, this far from the pair (m), pushing in by this share.
+const CATCH_CAM_DISTANCE: float = 2.6
+const CATCH_CAM_HEIGHT: float = 1.25
+const CATCH_PUSH_IN: float = 0.03
+## Its field of view (degrees): tighter than the player's, so the two faces fill it.
+const CATCH_CAM_FOV: float = 55.0
+## Mashing jump during the cite: each press buys this much (s), up to the max, at
+## most this many presses a second.
+const CATCH_WRIGGLE_ADD: float = 0.15
+const CATCH_WRIGGLE_MAX: float = 1.5
+const CATCH_WRIGGLE_RATE: float = 8.0
+## The itemized row: one item every CATCH_ITEM_GAP s, CATCH_ROW_SPACING m apart.
+const CATCH_ITEM_GAP: float = 0.12
+const CATCH_ROW_SPACING: float = 0.6
+## Each one arcs out of your hands onto its spot in this long (s).
+const CATCH_ITEM_FLIGHT: float = 0.42
+## From the end of the cite to the arm link and the stroll to the van (s).
+const CATCH_ESCORT_AFTER: float = 0.6
+## The escorted player walks arm in arm on his right, in his own space (x right, +z ahead).
+const ESCORT_SIDE_OFFSET := Vector3(-0.62, 0.0, 0.0)
+## Stepping to his side for the arm link (and off it at the van door), in seconds.
+const ESCORT_LINK_BLEND: float = 0.55
+## The follow shot during the escort: behind and above (m), orbit (degrees).
+const ESCORT_CAM_BACK: float = 4.0
+const ESCORT_CAM_UP: float = 2.2
+const ESCORT_CAM_ORBIT_DEG: float = 40.0
+## How fast the follow shot turns to where the pair walks (rad/s).
+const ESCORT_CAM_TURN: float = 1.4
+## A friend's bonk during the cite or the escort: he's stunned this long, and the
+## freed player can't be grabbed for RESCUE_IMMUNITY s.
+const RESCUE_STUN: float = 2.5
+const RESCUE_IMMUNITY: float = 5.0
+## The van waits VAN_HOLD_SECONDS after the first rider is seated (never past
+## VAN_HOLD_MAX), longer only while an escort is walking in; the crew then has
+## CREW_RECALL_MAX s to climb back in before it goes.
+const VAN_HOLD_SECONDS: float = 12.0
+const VAN_HOLD_MAX: float = 20.0
+const CREW_RECALL_MAX: float = 8.0
+## After a raid nobody was caught in, the heat drops to this (not HEAT_AFTER_RAID).
+const HEAT_AFTER_EVADED: float = 35.0
+## XP for freeing a friend (bonk, unbuckle, co-sign).
+const XP_RESCUE: int = 25
+## Heat's per-player noise memory (s): where each one's tool last ran.
+const HEAT_NOISE_WINDOW: float = 30.0
+## Name tags: a fixed on-screen size (pixel_size, at most CREW_TAG_MAX_PX), faded
+## out closer than CREW_TAG_FADE_NEAR m and farther than CREW_TAG_FADE_FAR m.
+const CREW_TAG_PIXEL_SIZE: float = 0.0009
+const CREW_TAG_MAX_PX: float = 0.0014
+const CREW_TAG_FADE_NEAR: float = 1.4
+const CREW_TAG_FADE_FAR: float = 22.0
+## Barks: one NICE BOY speaks at most every CREW_BARK_MIN_GAP s, not before
+## CREW_BARK_FIRST_DELAY s after he spawns; the line hangs over him for
+## CREW_BARK_SECONDS, and the subtitle reaches players within CREW_BARK_HEAR_METERS.
+const CREW_BARK_MIN_GAP: float = 3.5
+const CREW_BARK_FIRST_DELAY: float = 1.0
+const CREW_BARK_SECONDS: float = 2.2
+const CREW_BARK_HEAR_METERS: float = 28.0
+## The line over his head: a fixed on-screen size (pixel_size).
+const CREW_BARK_PIXEL_SIZE: float = 0.0012
+## Sound gaps (ms, audio/sound_bank.gd): several NICE BOYS' steps overlap, and the
+## itemized row pops every CATCH_ITEM_GAP.
+const CREW_STEP_GAP_MS: int = 70
+const ITEMIZE_POP_GAP_MS: int = 40
+## A NICE BOY's stride (m per footstep sound) and how much louder (dB) his steps get
+## than a player's: heavy cartoon sneakers.
+const CREW_STRIDE_METERS: float = 0.85
+## The bark's pitch range per NICE BOY (each one keeps his own voice).
+const CREW_VOICE_PITCH := Vector2(0.92, 1.12)
+## The brain (npcs/crew_brain.gd): out of sight this long (s), a chased player is
+## lost; close enough to a waypoint (m) to pick the next; patrol points stay this
+## far inside the lot's edge (m), within CREW_PATROL_SECTOR_SPREAD m of his sector
+## (by crew index: the front yard, the left, the right, lot space).
+const CREW_LOST_AFTER: float = 0.8
+const CREW_WAYPOINT_REACHED: float = 1.5
+const CREW_PATROL_HALF_EXTENT: float = 16.0
+const CREW_PATROL_SECTORS: Array[Vector3] = [Vector3(0.0, 0.0, 9.0), Vector3(-10.0, 0.0, -2.0), Vector3(10.0, 0.0, -2.0)]
+const CREW_PATROL_SECTOR_SPREAD: float = 6.0
+## After an investigation he goes back to searching if he saw someone within this
+## long (s), else to patrol; a search bark comes with this share of new waypoints.
+const CREW_SEARCH_MEMORY: float = 20.0
+const CREW_SEARCH_BARK_CHANCE: float = 0.3
+## Hearing a tool counts as this much farther (m) than seeing someone, picking
+## whom to go for.
+const CREW_HEARD_PENALTY: float = 5.0
+## The gotcha (net/run_events/encounter.gd), from the hand landing (s): he swaps the
+## grab for the held grin; he stands this far from you (m), hand on your shoulder;
+## the sticker slaps on this long after the page tears (s).
+const CATCH_GRIN_AT: float = 0.45
+const CATCH_GOTCHA_GAP: float = 0.78
+const CATCH_SLAP_AFTER: float = 0.35
+## The music dips this far (dB) under your own gotcha.
+const CATCH_MUSIC_DUCK_DB: float = -14.0
+## Close enough to the van door (m) to hand you over; he goes back to the chase
+## this long (s) after.
+const CATCH_DOOR_REACH: float = 1.1
+const CATCH_DOOR_HANDOFF_SECONDS: float = 1.2
+## An escort still walking this long (s) past CREW_ESCORT_MAX (pinned on a fence,
+## off the navmesh) gives up walking: you're handed to the door from where you are.
+const CREW_ESCORT_GIVE_UP: float = 10.0
+## The director: the first hop-out this long (s) after the chase starts; a NICE BOY
+## this close to the door (m) climbs in; without a Shuttle the recall gets this many
+## times CREW_RECALL_MAX (the old van's door is a longer walk); the fallback van is
+## gone once it's this far from where it parked (m).
+const CREW_HOP_FIRST_DELAY: float = 0.3
+const CREW_BOARD_REACH: float = 1.0
+const CREW_RECALL_FALLBACK_SCALE: float = 2.0
+const VAN_GONE_METERS: float = 90.0
 
 
 # ---- driving

@@ -216,8 +216,8 @@ func _stun_try(crew: Node3D) -> bool:
 	# not the grab, is what's tested.
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
-		var safe: Dictionary = director.get("_safe_until")
-		safe[Net.local_peer_id()] = Net.server_time() + 4.0
+		# The director's own immunity (release_peer), as after a rescue.
+		director.call("release_peer", Net.local_peer_id(), 4.0)
 	# Stand off at the yard's open front; they come running, and the can meets them.
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
 	var stand := lot.global_position + Vector3(0.0, 0.1, 12.0)
