@@ -7,12 +7,20 @@ extends Node
 ## sounds have variants and every play gets a slight pitch wobble, so repeats
 ## don't sound like the same file over and over.
 ##   play(id, db)                    2D, heard the same everywhere (UI, HUD cues)
-##   play_at(id, at, db, wobble)     positional, heard only near where it happened
+##   play_at(id, at, db, wobble, source, pitch)
+##                                   positional, heard only near where it happened;
+##                                   source keys the gap throttle (two players'
+##                                   rakes don't silence each other; 0 = the id
+##                                   alone), pitch multiplies the wobble
 ##   play_on(id, node, db, wobble)   positional and moving with node (a truck)
+## The bank can give an id its own wobble, volume jitter, reach and a shuffle bag
+## of variants (audio/sound_bank.gd). Its child LeafAudio (audio/leaf_audio.gd)
+## plays the rake and leaf sounds from the leaf field's stroke events.
 ## Headless runs (tests, bots) make no players, but every play is still logged
 ## (log), and the positional ones also land in placed, with where they played.
 
 const _Bank = preload("res://audio/sound_bank.gd")
+const _LeafAudio = preload("res://audio/leaf_audio.gd")
 ## How many recent plays log keeps.
 const LOG_SIZE: int = 200
 
@@ -22,7 +30,8 @@ static var log: Array[String] = []
 static var unknown: Array[String] = []
 ## The recent positional plays, oldest first, kept even headless so tests can
 ## tell a positional sound from a 2D one: {"id", "kind" ("at" or "on"), "at"
-## (where it played), "node" (the path it rides on, "" for "at")}.
+## (where it played), "node" (the path it rides on, "" for "at"), "db" and
+## "pitch" (what the caller asked for, before the bank's own)}.
 static var placed: Array[Dictionary] = []
 ## Dev only: the playtest recorder's hook (net/dev/recorder.gd), called the
 ## moment a play is accepted, so the recorder files it under the frame it
@@ -32,10 +41,15 @@ static var on_play: Callable = Callable()
 
 var _next_msec: Dictionary = {}
 var _last_variant: Dictionary = {}
+## id -> the variants (0-based) still in its shuffle bag.
+var _bags: Dictionary = {}
 
 
 func _ready() -> void:
 	add_to_group("sfx")
+	var leaf_audio := _LeafAudio.new()
+	leaf_audio.name = "LeafAudio"
+	add_child(leaf_audio)
 
 
 func _exit_tree() -> void:
@@ -56,26 +70,29 @@ func play(id: String, db := 0.0) -> void:
 	var player := AudioStreamPlayer.new()
 	player.stream = stream
 	player.bus = _Bank.bus(id)
-	player.volume_db = _Bank.db(id) + db
-	player.pitch_scale = randf_range(Constants.SFX_PITCH_WOBBLE.x, Constants.SFX_PITCH_WOBBLE.y)
+	player.volume_db = _Bank.db(id) + db + _jitter(id)
+	var range_ := _Bank.wobble(id)
+	player.pitch_scale = randf_range(range_.x, range_.y)
 	player.finished.connect(player.queue_free)
 	add_child(player)
 	player.play()
 
 
-## A one-shot heard from where it happened (Constants.SFX_MAX_DISTANCE reach).
-## Without a world (the menu) it plays 2D instead.
-func play_at(id: String, at: Vector3, db := 0.0, wobble := true) -> void:
+## A one-shot heard from where it happened (the bank's reach, by default
+## Constants.SFX_MAX_DISTANCE). Without a world (the menu) it plays 2D instead.
+## source keys the gap throttle with the id (a raker's peer id, say), so one
+## source's repeats are held to the id's gap and other sources still play.
+func play_at(id: String, at: Vector3, db := 0.0, wobble := true, source := 0, pitch := 1.0) -> void:
 	var world := get_tree().get_first_node_in_group("world") as Node3D
 	if world == null:
 		play(id, db)
 		return
-	if not _accept(id):
+	if not _accept(id, source):
 		return
-	_note_placed(id, "at", at, "")
+	_note_placed(id, "at", at, "", db, pitch)
 	if _silent():
 		return
-	var player := _player_3d(id, db, wobble)
+	var player := _player_3d(id, db, wobble, pitch)
 	if player == null:
 		return
 	world.add_child(player)
@@ -91,7 +108,7 @@ func play_on(id: String, node: Node3D, db := 0.0, wobble := true) -> void:
 		return
 	if not _accept(id):
 		return
-	_note_placed(id, "on", node.global_position, str(node.get_path()))
+	_note_placed(id, "on", node.global_position, str(node.get_path()), db)
 	if _silent():
 		return
 	var player := _player_3d(id, db, wobble)
@@ -118,14 +135,16 @@ static func looped(id_or_path: String) -> AudioStream:
 	return copy
 
 
-## Logs the play unless the id played too recently. False when throttled.
-func _accept(id: String) -> bool:
+## Logs the play unless the id played too recently (from this source, when one
+## is given). False when throttled.
+func _accept(id: String, source := 0) -> bool:
 	if not _Bank.has(id):
 		_note_unknown(id)
 	var now := Time.get_ticks_msec()
-	if int(_next_msec.get(id, 0)) > now:
+	var key := id if source == 0 else "%s:%d" % [id, source]
+	if int(_next_msec.get(key, 0)) > now:
 		return false
-	_next_msec[id] = now + _Bank.gap_ms(id)
+	_next_msec[key] = now + _Bank.gap_ms(id)
 	log.append(id)
 	if log.size() > LOG_SIZE:
 		log.pop_front()
@@ -134,8 +153,8 @@ func _accept(id: String) -> bool:
 	return true
 
 
-static func _note_placed(id: String, kind: String, at: Vector3, node_path: String) -> void:
-	placed.append({"id": id, "kind": kind, "at": at, "node": node_path})
+static func _note_placed(id: String, kind: String, at: Vector3, node_path: String, db := 0.0, pitch := 1.0) -> void:
+	placed.append({"id": id, "kind": kind, "at": at, "node": node_path, "db": db, "pitch": pitch})
 	if placed.size() > LOG_SIZE:
 		placed.pop_front()
 	if on_play.is_valid():
@@ -153,18 +172,13 @@ static func _note_unknown(id: String) -> void:
 		push_warning("[Sfx] '%s' is not in audio/sound_bank.gd" % id)
 
 
-func _player_3d(id: String, db: float, wobble: bool) -> AudioStreamPlayer3D:
+func _player_3d(id: String, db: float, wobble: bool, pitch := 1.0) -> AudioStreamPlayer3D:
 	var stream := _stream(id)
 	if stream == null:
 		return null
 	var player := AudioStreamPlayer3D.new()
 	player.stream = stream
-	player.bus = _Bank.bus(id)
-	player.volume_db = _Bank.db(id) + db
-	player.unit_size = Constants.SFX_UNIT_SIZE
-	player.max_distance = Constants.SFX_MAX_DISTANCE
-	if wobble:
-		player.pitch_scale = randf_range(Constants.SFX_PITCH_WOBBLE.x, Constants.SFX_PITCH_WOBBLE.y)
+	configure_3d(player, id, db, wobble, pitch)
 	player.finished.connect(player.queue_free)
 	# Let go of the stream if the world goes first, or it outlives the engine at quit.
 	player.tree_exiting.connect(func() -> void:
@@ -174,16 +188,55 @@ func _player_3d(id: String, db: float, wobble: bool) -> AudioStreamPlayer3D:
 	return player
 
 
+## Sets a positional player up for id from the bank: its bus, volume (plus db
+## and the id's jitter), reach, and pitch (pitch times the id's wobble). Static
+## and stream-free so --audio-test can check it headless.
+static func configure_3d(player: AudioStreamPlayer3D, id: String, db: float, wobble: bool, pitch := 1.0) -> void:
+	player.bus = _Bank.bus(id)
+	player.volume_db = _Bank.db(id) + db + _jitter(id)
+	player.unit_size = _Bank.unit_size(id)
+	player.max_distance = _Bank.max_distance(id)
+	var range_ := _Bank.wobble(id)
+	player.pitch_scale = maxf(0.05, pitch * (randf_range(range_.x, range_.y) if wobble else 1.0))
+
+
 ## A random variant's stream, never the same one twice in a row. Ids missing
 ## from the bank still play if <id>.wav exists.
 func _stream(id: String) -> AudioStream:
 	var paths := _Bank.files(id)
 	var pick := 0
 	if paths.size() > 1:
-		pick = randi_range(0, paths.size() - 1)
-		if pick == int(_last_variant.get(id, -1)):
-			pick = (pick + 1) % paths.size()
+		if _Bank.shuffle(id):
+			pick = pick_variant(id, paths.size())
+		else:
+			pick = randi_range(0, paths.size() - 1)
+			if pick == int(_last_variant.get(id, -1)):
+				pick = (pick + 1) % paths.size()
 		_last_variant[id] = pick
 	if not ResourceLoader.exists(paths[pick]):
 		return null
 	return load(paths[pick]) as AudioStream
+
+
+## The next variant (0-based) from id's shuffle bag: every variant once per
+## refill, in a random order, and never the one just played across a refill.
+func pick_variant(id: String, count: int) -> int:
+	var bag: Array = _bags.get(id, [])
+	if bag.is_empty():
+		for index: int in count:
+			bag.append(index)
+		bag.shuffle()
+		# The bag is drawn from the back: keep the one just played off the top.
+		var last := int(_last_variant.get(id, -1))
+		if count > 1 and int(bag.back()) == last:
+			bag.push_front(bag.pop_back())
+	var pick := int(bag.pop_back())
+	_bags[id] = bag
+	_last_variant[id] = pick
+	return pick
+
+
+## A random volume nudge within the id's db_jitter (0 for most ids).
+static func _jitter(id: String) -> float:
+	var j := _Bank.db_jitter(id)
+	return randf_range(-j, j) if j > 0.0 else 0.0

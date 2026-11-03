@@ -142,6 +142,7 @@ func _run() -> void:
 	_check("register", await _register())
 	_check("ride_truck", await _ride(music))
 	_check("positional", await _positional())
+	_check("leaf_audio", await _leaf_audio(sfx))
 	_check("hot", await _hot(music))
 	_check("raid", await _raid(music))
 	_check("day_end", await _day_end(music))
@@ -423,7 +424,10 @@ func _positional() -> bool:
 	var props_before := get_tree().get_nodes_in_group("props").size()
 	_SfxScript.placed.clear()
 	world.call("_spawn_bag", at, 5)
-	var bag_heard: bool = _SfxScript.log.back() == "bag" and _placed_at("bag", at)
+	# World ties its own bags until the field tells its strokes; then LeafAudio
+	# ties them, after the open and the stuffing (leaf_audio's bag_host).
+	var world_ties := not LeafAudio.owns_bag_tie(get_tree().get_first_node_in_group("leaf_field"))
+	var bag_heard: bool = (_SfxScript.log.back() == "bag" and _placed_at("bag", at)) if world_ties else _placed("bag").is_empty()
 	await get_tree().create_timer(0.3).timeout
 	var props := get_tree().get_nodes_in_group("props")
 	if props.size() <= props_before:
@@ -869,3 +873,207 @@ func _me() -> Node3D:
 		if node.name == str(Net.local_peer_id()):
 			return node as Node3D
 	return null
+
+
+# ---------------------------------------------------------------- leaf_audio (gap R1, raking:5)
+
+## The rake and leaf sounds (audio/leaf_audio.gd), driven with synthetic stroke
+## events (the field's own stroke_event is raking:1's; this needs none of it):
+## the leaf layer's tier follows the leaves moved and is silent under
+## LEAF_SFX_MIN_UNITS; a plant lands behind the stroke and a bare stroke scrapes
+## rake_empty; hands scoop; the blower and mulch are silent; the bag plays open,
+## then stuff, then the tie (the tie only off the host, all three for a crew bag);
+## two rakers in the same frame both play while one raker twice is held to the
+## gap; landings are capped per second and whump once per area per
+## PILE_WHUMP_GAP; the shuffle bag deals every variant once per refill; step_id.
+func _leaf_audio(sfx: Node) -> bool:
+	var leaf := get_tree().get_first_node_in_group("leaf_audio")
+	if leaf == null or leaf.get_parent() != sfx:
+		print("[AudioTest] leaf_audio: no LeafAudio under Sfx")
+		return false
+	var me := _me()
+	var base := me.global_position + Vector3(0.0, 0.1, 0.0)
+	var fwd := Vector3(0.0, 0.0, -1.0)
+	_SfxScript.log.clear()
+	var stroke := func(kind: String, actor: int, moved: int, bite: int, at: Vector3) -> Dictionary:
+		return {"kind": kind, "actor": actor, "moved": moved, "bite": bite, "at": at, "dir": fwd, "tempo": 0.6, "seq": 0, "local": false}
+	var checks := {}
+	# Tiers by leaves moved (mid-drive bites: no plant), and nothing under the floor.
+	var tiers := [[1000, "rake_leaves_light"], [3000, "rake_leaves_med"], [6000, "rake_leaves_heavy"]]
+	var tiers_ok := true
+	for index: int in tiers.size():
+		var at := base + Vector3(2.0 * index, 0.0, 0.0)
+		var id := str(tiers[index][1])
+		var before := _SfxScript.log.count(id)
+		leaf.call("handle", stroke.call("rake", 9001 + index, int(tiers[index][0]), 1, at))
+		tiers_ok = tiers_ok and _SfxScript.log.count(id) == before + 1 and _placed_at(id, at)
+	var leaf_ids: Array[String] = ["rake_leaves_light", "rake_leaves_med", "rake_leaves_heavy"]
+	var leaves_before := _count_ids(leaf_ids)
+	leaf.call("handle", stroke.call("rake", 9004, Constants.LEAF_SFX_MIN_UNITS - 1, 1, base))
+	checks["tiers"] = tiers_ok
+	checks["min_units"] = _count_ids(leaf_ids) == leaves_before
+	# A plant on bare grass: plant behind the stroke now, rake_empty a beat later.
+	var plant_at := base + Vector3(0.0, 0.0, 4.0)
+	var scrapes := _SfxScript.log.count("rake_scrape")
+	leaf.call("handle", stroke.call("rake", 9005, 0, 0, plant_at))
+	var planted := _placed_at("rake_plant", plant_at - fwd * Constants.LEAF_SFX_PLANT_BACK)
+	await get_tree().create_timer(0.12).timeout
+	checks["empty"] = planted and _SfxScript.log.count("rake_empty") == 1 and _SfxScript.log.count("rake_scrape") == scrapes
+	# A real bite scrapes instead, and the mid-drive bite flicks at the end of the drive.
+	leaf.call("handle", stroke.call("rake", 9006, 3000, 0, plant_at))
+	leaf.call("handle", stroke.call("rake", 9006, 3000, 1, plant_at))
+	await get_tree().create_timer(0.2 * 0.6 + 0.08).timeout
+	checks["scrape_flick"] = _SfxScript.log.count("rake_scrape") == scrapes + 1 and _placed_at("leaf_flick", plant_at + fwd * Constants.LEAF_SFX_FLICK_AHEAD)
+	# Hands scoop; the blower and the mower are someone else's sound.
+	leaf.call("handle", stroke.call("hand", 9007, 400, 0, base))
+	checks["hand"] = _SfxScript.log.count("hand_scoop") == 1
+	var everything: Array[String] = ["rake_plant", "rake_scrape", "rake_empty", "rake_leaves_light", "rake_leaves_med", "rake_leaves_heavy", "leaf_flick", "hand_scoop", "bag_open", "bag_stuff", "leaf_kick"]
+	var all_before := _count_ids(everything)
+	leaf.call("handle", stroke.call("blower", 9008, 3000, 0, base))
+	leaf.call("handle", stroke.call("mulch", 0, 3000, 0, base))
+	await get_tree().create_timer(0.1).timeout
+	checks["blower_mulch_silent"] = _count_ids(everything) == all_before
+	# The bag, the same on every peer: open now, stuff, then the tie, in that order.
+	var bag_at := base + Vector3(-3.0, 0.0, 0.0)
+	var ties := _SfxScript.log.count("bag")
+	leaf.call("handle", stroke.call("bag", 9009, 4000, 0, bag_at))
+	var opened := _SfxScript.log.count("bag_open") == 1 and _SfxScript.log.count("bag_stuff") == 0
+	await get_tree().create_timer(Constants.BAG_STUFF_DELAY + 0.06).timeout
+	var stuffed := _SfxScript.log.count("bag_stuff") == 1 and _SfxScript.log.count("bag") == ties
+	await get_tree().create_timer(Constants.BAG_TIE_DELAY - Constants.BAG_STUFF_DELAY + 0.06).timeout
+	var tied := _SfxScript.log.count("bag") == ties + 1 and _placed_at("bag", bag_at)
+	checks["bag_order"] = opened and stuffed and tied
+	checks["bag_host"] = await _bag_host_order(leaf, stroke.call("bag", 9010, 4000, 0, bag_at + Vector3(0.0, 0.0, -2.0)))
+	# A hired hand's bag: all three, the tie last, like anyone's.
+	var crew_from := _SfxScript.log.size()
+	leaf.call("handle", stroke.call("crew_bag", 1001, 4000, 0, bag_at + Vector3(0.0, 0.0, 2.0)))
+	await get_tree().create_timer(Constants.BAG_TIE_DELAY + 0.1).timeout
+	checks["bag_crew"] = _in_order(_SfxScript.log.slice(crew_from), ["bag_open", "bag_stuff", "bag"])
+	# Two rakers in one frame both play; one raker twice inside the gap plays once.
+	var meds := _SfxScript.log.count("rake_leaves_med")
+	leaf.call("handle", stroke.call("rake", 9011, 3000, 1, base))
+	leaf.call("handle", stroke.call("rake", 9012, 3000, 1, base))
+	leaf.call("handle", stroke.call("rake", 9011, 3000, 1, base))
+	checks["per_source"] = _SfxScript.log.count("rake_leaves_med") == meds + 2
+	# Landings: under the minimum nothing; at most LEAF_SETTLE_PER_SECOND a second;
+	# a whump per 2 m area, again only after PILE_WHUMP_GAP.
+	await get_tree().create_timer(1.05).timeout
+	leaf.call("on_settled", base, Constants.LEAF_SETTLE_MIN - 1, false)
+	var quiet := _SfxScript.log.count("leaf_settle") == 0
+	for index: int in 6:
+		leaf.call("on_settled", base + Vector3(3.0 * index, 0.0, 9.0), 10, false)
+	var capped := _SfxScript.log.count("leaf_settle") == Constants.LEAF_SETTLE_PER_SECOND
+	# In the middle of a whump area, so pile_a and pile_a + 0.2 m share one
+	# wherever the player happens to stand.
+	var pile_a := base + Vector3(0.3, 0.0, 15.0)
+	pile_a.x = (floorf(pile_a.x / Constants.PILE_WHUMP_AREA) + 0.5) * Constants.PILE_WHUMP_AREA
+	pile_a.z = (floorf(pile_a.z / Constants.PILE_WHUMP_AREA) + 0.5) * Constants.PILE_WHUMP_AREA
+	leaf.call("on_settled", pile_a, 12, true)
+	leaf.call("on_settled", pile_a + Vector3(0.2, 0.0, 0.0), 12, true)
+	leaf.call("on_settled", pile_a + Vector3(6.0, 0.0, 0.0), 12, true)
+	var whumps_now := _SfxScript.log.count("pile_whump")
+	await get_tree().create_timer(Constants.PILE_WHUMP_GAP + 0.05).timeout
+	leaf.call("on_settled", pile_a, 12, true)
+	checks["settle_cap"] = quiet and capped
+	checks["whump_gap"] = whumps_now == 2 and _SfxScript.log.count("pile_whump") == 3
+	leaf.call("on_kick", base, 8)
+	leaf.call("handle", stroke.call("scatter", 0, 2000, 0, base + Vector3(5.0, 0.0, 5.0)))
+	checks["kick"] = _SfxScript.log.count("leaf_kick") == 2
+	# The shuffle bag: each variant once per refill, never twice in a row across one.
+	var picks: Array[int] = []
+	for _index: int in 18:
+		picks.append(int(sfx.call("pick_variant", "leaf_audio_test", 6)))
+	var shuffled := true
+	for start: int in [0, 6, 12]:
+		var hand := picks.slice(start, start + 6)
+		hand.sort()
+		for k: int in 6:
+			shuffled = shuffled and hand[k] == k
+	for index: int in range(1, picks.size()):
+		shuffled = shuffled and picks[index] != picks[index - 1]
+	checks["shuffle"] = shuffled
+	checks["step_id"] = LeafAudio.step_id(10) == "step_leaves" and LeafAudio.step_id(100) == "step_leaves_deep" and LeafAudio.step_id(220) == "step_leaves_pile"
+	checks["bank_keys"] = _Bank.shuffle("rake_scrape") and not _Bank.shuffle("bonk") and is_equal_approx(_Bank.unit_size("rake_plant"), Constants.RAKE_SFX_UNIT_SIZE) and is_equal_approx(_Bank.unit_size("bonk"), Constants.SFX_UNIT_SIZE) and _Bank.wobble("bonk") == Constants.SFX_PITCH_WOBBLE
+	# The scrape's pitch follows the swing (stretched over half of it, clamped),
+	# and the play carries it to Sfx.
+	var pitch_ok := is_equal_approx(LeafAudio.scrape_pitch(0.6), 1.0) and is_equal_approx(LeafAudio.scrape_pitch(0.2), Constants.RAKE_SCRAPE_PITCH.y) and is_equal_approx(LeafAudio.scrape_pitch(2.0), Constants.RAKE_SCRAPE_PITCH.x)
+	var quick := stroke.call("rake", 9013, 3000, 0, base + Vector3(0.0, 0.0, -4.0)) as Dictionary
+	quick["tempo"] = 0.55
+	leaf.call("handle", quick)
+	await get_tree().create_timer(0.1).timeout
+	var scrape := _placed("rake_scrape")
+	checks["scrape_pitch"] = pitch_ok and not scrape.is_empty() and is_equal_approx(float(scrape["pitch"]), LeafAudio.scrape_pitch(0.55)) and float(scrape["pitch"]) > 1.05
+	# What a real (windowed) play would build: the bank's reach, the asked pitch
+	# times the id's wobble, the asked volume within the id's jitter.
+	checks["player_3d"] = _player_3d_ok("rake_plant", -4.0, 1.1) and _player_3d_ok("bonk", 0.0, 1.0)
+	var ok := true
+	for value: Variant in checks.values():
+		ok = ok and bool(value)
+	print("[AudioTest] leaf_audio %s; picks %s" % [checks, picks])
+	return ok
+
+
+## The host's own bag, run the way raking:1's field runs it: _apply_collect asks
+## world._spawn_bag for the bag, and only after that is the stroke told. Once the
+## field tells strokes, world leaves the tie to LeafAudio, so the host hears
+## open, stuff, tie like everyone else (one tie, last). The field is a stand-in
+## that tells strokes (in no group, so nothing else on the lot sees it), handed
+## straight to world._spawn_bag_for; the lot's own field is untouched.
+func _bag_host_order(leaf: Node, ev: Dictionary) -> bool:
+	var world := get_tree().get_first_node_in_group("world")
+	var field := _StandInField.new()
+	add_child(field)
+	var owns := LeafAudio.owns_bag_tie(field) and not LeafAudio.owns_bag_tie(null) and not LeafAudio.owns_bag_tie(self)
+	var from := _SfxScript.log.size()
+	world.call("_spawn_bag_for", field, ev["at"], 5)
+	leaf.call("handle", ev)
+	await get_tree().create_timer(Constants.BAG_TIE_DELAY + 0.1).timeout
+	field.free()
+	var heard := _SfxScript.log.slice(from)
+	var ok := owns and heard.count("bag") == 1 and _in_order(heard, ["bag_open", "bag_stuff", "bag"])
+	print("[AudioTest] bag_host: LeafAudio owns the tie %s, heard %s" % [owns, heard])
+	return ok
+
+
+## A leaf field for bag_host: it tells strokes and prices bags, which is all
+## world._spawn_bag_for and LeafAudio.owns_bag_tie ask of one.
+class _StandInField extends Node:
+	@warning_ignore("unused_signal")
+	signal stroke_event(ev: Dictionary)
+
+	func dollars_for(_units: int) -> int:
+		return 0
+
+
+## True when every id is in heard, each first heard after the one before it.
+func _in_order(heard: Array, ids: Array) -> bool:
+	var last := -1
+	for id: Variant in ids:
+		var index := heard.find(id)
+		if index <= last:
+			return false
+		last = index
+	return true
+
+
+## Sfx.configure_3d (what _player_3d builds a positional player with) gives id
+## the bank's reach, pitch times its wobble, and db within its jitter.
+func _player_3d_ok(id: String, db: float, pitch: float) -> bool:
+	var player := AudioStreamPlayer3D.new()
+	_SfxScript.configure_3d(player, id, db, false, pitch)
+	var flat := is_equal_approx(player.pitch_scale, pitch)
+	var loud := absf(player.volume_db - (_Bank.db(id) + db)) <= _Bank.db_jitter(id) + 0.01
+	var reach := is_equal_approx(player.unit_size, _Bank.unit_size(id)) and is_equal_approx(player.max_distance, _Bank.max_distance(id))
+	var range_ := _Bank.wobble(id)
+	_SfxScript.configure_3d(player, id, db, true, pitch)
+	var wobbled := player.pitch_scale >= pitch * range_.x - 0.001 and player.pitch_scale <= pitch * range_.y + 0.001
+	var bus_ok := player.bus == _Bank.bus(id)
+	player.free()
+	return flat and loud and reach and wobbled and bus_ok
+
+
+func _count_ids(ids: Array[String]) -> int:
+	var total := 0
+	for id: String in ids:
+		total += _SfxScript.log.count(id)
+	return total
