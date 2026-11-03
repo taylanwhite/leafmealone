@@ -26,7 +26,6 @@ const RAKE_REST_SECONDS: float = 25.0
 const RAKE_DEFER_SECONDS: float = 20.0
 const RAKE_DEFER_METERS: float = 15.0
 
-const _Hotbar = preload("res://net/components/hotbar.gd")
 ## Walking at something for this long without getting 0.5 m closer is stuck (s).
 const STUCK_SECONDS: float = 3.0
 const STUCK_RUNS_BEFORE_NEW_PILE: int = 3
@@ -197,7 +196,7 @@ func _find_work(player: Node3D, tree: SceneTree) -> bool:
 	# Something of ours in a pocket (a dive into a hedge pockets what you hold):
 	# take it back out, or the crew's only rake sits in a bot's pocket all day
 	# (tools:crew, "Press [1] for the rake" on a bot that thought its hands were empty).
-	var pocket := _pocketed_work(player)
+	var pocket := _pocketed_work(player) if share_rake else -1
 	if pocket >= 0:
 		wants_walk = false
 		_tap(StringName("slot_%d" % (pocket + 1)))
@@ -273,9 +272,12 @@ func _mine_to_take(player: Node3D, rake: Node3D) -> bool:
 	return true
 
 
-## The pocket (0-based) holding a rake or a leaf bag of ours, or -1.
+## The pocket (0-based) holding a rake or a leaf bag of ours, or -1. hotbar.gd is
+## loaded here, not preloaded as a constant: with the preload every peer of the
+## event soak (host and bots, all running this script) crashed with an access
+## violation on quit, after writing its report; without it, none did.
 func _pocketed_work(player: Node3D) -> int:
-	var slots: Array = _Hotbar.slots_of(player.get_tree(), Net.local_peer_id())
+	var slots: Array = load("res://net/components/hotbar.gd").slots_of(player.get_tree(), Net.local_peer_id())
 	for index: int in slots.size():
 		var slot: Array = slots[index]
 		if not slot.is_empty() and slot[0] != null and str((slot[0] as Node).get("kind")) in ["rake", "leaf_bag"]:
