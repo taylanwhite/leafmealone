@@ -14,6 +14,7 @@
 | assets/audio/sfx/bag_2.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/truck.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/van.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/van_honk.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/warning.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/radio.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/arrive.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |

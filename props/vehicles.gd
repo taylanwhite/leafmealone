@@ -5,12 +5,17 @@ extends RefCounted
 ## Seats sit two across at bed height (y 1.0) from z -1.2 back, so riders are
 ## always visible: Chefty is a cab-over truck with an open bed, and the van has
 ## its right side cut away so the captured players can be counted at a glance
-## (docs/ART.md). Chefty carries the Chefty logo (DEC-006). The van is the
-## fictional crew's and has no lettering or insignia until the crew is designed
-## (OQ-012).
+## (docs/ART.md). Chefty carries the Chefty logo (DEC-006). The van is the NICE
+## BOYS' Courtesy Shuttle, designed (OQ-012 closed): its model, livery and motion
+## live in props/nice_van.gd, which build_van() hands over to.
 
 const _LowPoly = preload("res://props/low_poly.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
+const _NiceVan = preload("res://props/nice_van.gd")
+## The van's cream paint, its Courtesy Lavender band, and its amber dome.
+const VAN_PAINT := _NiceVan.PAINT
+const VAN_BAND := _NiceVan.BAND
+const BEACON_AMBER := _NiceVan.BEACON_AMBER
 const _Stylized = preload("res://props/stylized.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 const _WaterSources = preload("res://net/work/water_sources.gd")
@@ -81,23 +86,11 @@ static func build_truck(parent: Node3D, opts: Variant = {}) -> Node3D:
 	return look
 
 
-## The crew van: a long rounded body with a roof, a solid left side, and an
-## open right side.
-static func build_van(parent: Node3D, color: Color) -> Node3D:
-	var look := _root(parent, "VanLook")
-	var key := "van|%s" % color.to_html()
-	if not _cache.has(key):
-		_cache[key] = _van_mesh(color)
-	look.add_child(_Stylized.instance(_cache[key], PAINT))
-	_solid(look, [
-		[Vector3(0.0, 0.65, 0.0), Vector3(2.3, 0.8, 6.4)],
-		[Vector3(0.0, 1.9, -2.55), Vector3(2.3, 1.8, 1.4)],
-		[Vector3(-1.12, 1.95, 0.5), Vector3(0.16, 2.0, 5.2)],
-		[Vector3(0.0, 1.95, 3.0), Vector3(2.3, 2.0, 0.16)],
-		[Vector3(0.0, 3.0, 0.5), Vector3(2.4, 0.2, 5.2)],
-	])
-	_lights(look, -3.42, 1.2, 3.02)
-	return look
+## The NICE BOYS' van, the Courtesy Shuttle (props/nice_van.gd): a "VanLook" with
+## its livery, rolling wheels, the five collision boxes, and an open right side.
+## color is the body paint (VAN_PAINT); the lavender band is always theirs.
+static func build_van(parent: Node3D, color: Color = VAN_PAINT) -> Node3D:
+	return _NiceVan.build(parent, color)
 
 
 static func _truck_mesh(color: Color, interior: bool = false) -> ArrayMesh:
@@ -214,32 +207,6 @@ static func wheel_grips(look: Node3D) -> Array[Vector3]:
 		return [Vector3.INF, Vector3.INF]
 	var r := STEERING_WHEEL_RADIUS
 	return [wheel.global_transform * Vector3(r * 0.94, r * 0.3, 0.0), wheel.global_transform * Vector3(-r * 0.94, r * 0.3, 0.0)]
-
-
-static func _van_mesh(color: Color) -> ArrayMesh:
-	var kit := _MeshKit.new()
-	var dark := color.darkened(0.3)
-	kit.rbox(Vector3(0.0, 0.72, 0.0), Vector3(1.12, 0.3, 3.15), color, 6.0)
-	kit.rbox(Vector3(0.0, 0.42, 0.0), Vector3(0.9, 0.14, 2.9), GRILLE, 6.0)
-	kit.rbox(Vector3(0.0, 1.9, -2.55), Vector3(1.12, 0.9, 0.7), color, 5.0)
-	kit.rbox(Vector3(0.0, 1.15, -3.2), Vector3(1.1, 0.26, 0.2), color, 4.0)
-	kit.rbox(Vector3(0.0, 2.3, -3.2), Vector3(0.98, 0.35, 0.07), GLASS, 6.0, {"shade": false})
-	kit.rbox(Vector3(0.0, 3.0, 0.5), Vector3(1.18, 0.09, 2.6), color, 6.0)
-	kit.rbox(Vector3(-1.12, 1.95, 0.5), Vector3(0.07, 1.0, 2.6), color, 6.0)
-	kit.rbox(Vector3(0.0, 1.95, 3.0), Vector3(1.12, 1.0, 0.07), color, 6.0)
-	for z: float in [-1.85, 2.9]:
-		kit.rbox(Vector3(1.12, 1.95, z), Vector3(0.08, 1.0, 0.08), dark, 4.0)
-	# One amber stripe so it reads as a vehicle from far away, not as any agency's livery.
-	kit.rbox(Vector3(-1.2, 1.6, 0.5), Vector3(0.015, 0.11, 2.5), Color(0.95, 0.62, 0.15), 6.0, {"shade": false})
-	for side: float in [-1.0, 1.0]:
-		kit.rbox(Vector3(side * 1.1, 2.3, -2.5), Vector3(0.05, 0.3, 0.45), GLASS, 6.0, {"shade": false})
-		for z: float in [-2.1, 2.1]:
-			kit.rbox(Vector3(side * 1.1, 0.95, z), Vector3(0.16, 0.2, 0.62), dark, 4.0)
-			kit.wheel(Vector3(side * 1.08, 0.46, z), 0.46, 0.38, TIRE, CHROME.darkened(0.2))
-	kit.rbox(Vector3(0.0, 1.15, -3.42), Vector3(0.62, 0.17, 0.03), GRILLE, 6.0, {"shade": false})
-	kit.rbox(Vector3(0.0, 0.74, -3.45), Vector3(1.2, 0.12, 0.1), GRILLE, 4.0)
-	kit.rbox(Vector3(0.0, 0.74, 3.15), Vector3(1.18, 0.11, 0.1), GRILLE, 4.0)
-	return kit.commit()
 
 
 ## Collision boxes ([center, size] each) that move with the vehicle.

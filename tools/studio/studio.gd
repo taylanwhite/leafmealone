@@ -181,11 +181,10 @@ func _build(root: Node3D) -> void:
 				{"from": Vector3(-2.6, 2.4, 2.0), "at": Vector3(-0.6, 1.7, 1.4), "fov": 40.0},
 				{"from": Vector3(0.5, 7.0, 1.0), "at": Vector3(0.0, 1.0, 0.0), "fov": 45.0},
 			])
-		"van":
-			var van := Node3D.new()
-			root.add_child(van)
-			van.rotation.y = PI * 0.8
-			preload("res://props/vehicles.gd").build_van(van, Color(0.16, 0.17, 0.2))
+		"van", "van_detail":
+			_van(root, _subject == "van_detail")
+		"beacon":
+			_beacon(root)
 		"nice_boys":
 			_nice_boys(root)
 		"nice_boy":
@@ -391,6 +390,57 @@ func _nice_boys(root: Node3D) -> void:
 		{"from": Vector3(-0.6, 1.6, 2.6), "at": Vector3(-0.65, 1.2, 0.0), "fov": 45.0},
 		{"from": Vector3(0.0, 1.5, 2.2), "at": Vector3(0.0, 1.15, 0.0), "fov": 45.0},
 		{"from": Vector3(-5.5, 1.6, -2.5), "at": Vector3(0.0, 1.0, 0.0), "fov": 40.0},
+	])
+
+
+## The NICE BOYS' Courtesy Shuttle (props/nice_van.gd) with --riders=N (default 2)
+## players standing on its seats the way net/components/ride.gd seats them, to
+## check they can be counted through the open side. "van": the open side three
+## quarters, the left side's livery, the back, and from above. "van_detail": the
+## nose and cab, the interior through the open side, the back's lettering close,
+## and the roof's dome and loudspeaker.
+func _van(root: Node3D, detail: bool) -> void:
+	var van := Node3D.new()
+	van.name = "Van"
+	root.add_child(van)
+	preload("res://props/vehicles.gd").build_van(van, preload("res://props/vehicles.gd").VAN_PAINT)
+	for index: int in clampi(int(_options.get("riders", "2")), 0, 4):
+		var body: Node3D = _CartoonBody.new()
+		body.call("dress_from_seed", 5 + index * 9)
+		van.add_child(body)
+		# The ride's seats: two across, from z -1.2 back (ride.gd setup_as_van).
+		body.position = Vector3(-0.5 + float(index % 2), 1.0, -1.2 + float(index / 2))
+		body.rotation.y = -PI * 0.5 + float(index) * 0.3
+		body.call("build")
+	if detail:
+		root.set_meta("views", [
+			{"from": Vector3(-3.2, 2.2, -7.5), "at": Vector3(0.0, 1.6, -2.6), "fov": 42.0},
+			{"from": Vector3(4.2, 2.1, -0.6), "at": Vector3(0.0, 1.8, 0.2), "fov": 55.0},
+			{"from": Vector3(1.5, 2.0, 7.2), "at": Vector3(0.0, 1.7, 3.0), "fov": 38.0},
+			{"from": Vector3(2.6, 5.0, -4.6), "at": Vector3(0.0, 3.0, -0.6), "fov": 42.0},
+		])
+	else:
+		root.set_meta("views", [
+			{"from": Vector3(8.5, 3.6, -7.5), "at": Vector3(0.0, 1.5, 0.0), "fov": 40.0},
+			{"from": Vector3(-10.5, 2.6, 3.5), "at": Vector3(0.0, 1.6, 0.4), "fov": 40.0},
+			{"from": Vector3(-5.0, 3.0, 9.5), "at": Vector3(0.0, 1.5, 0.5), "fov": 40.0},
+			{"from": Vector3(6.0, 12.0, 4.0), "at": Vector3(0.0, 1.0, 0.0), "fov": 45.0},
+		])
+
+
+## The arrival beacon, the Courtesy Flare (npcs/arrival_beacon.gd), at --urgency
+## (default 0.6), with its notices partway down: the whole column, the seal up top,
+## the cones, and the label.
+func _beacon(root: Node3D) -> void:
+	var beacon: Node3D = preload("res://npcs/arrival_beacon.gd").new()
+	root.add_child(beacon)
+	beacon.call("set_urgency", float(_options.get("urgency", "0.6")))
+	beacon.call("advance", float(_options.get("time", "1.7")))
+	root.set_meta("views", [
+		{"from": Vector3(9.0, 6.0, 22.0), "at": Vector3(0.0, 7.5, 0.0), "fov": 50.0},
+		{"from": Vector3(2.0, 15.6, 5.0), "at": Vector3(0.0, 15.2, 0.0), "fov": 45.0},
+		{"from": Vector3(3.2, 1.6, 4.0), "at": Vector3(0.0, 0.4, 0.0), "fov": 50.0},
+		{"from": Vector3(-6.0, 4.0, 9.0), "at": Vector3(0.0, 3.0, 0.0), "fov": 55.0},
 	])
 
 
