@@ -70,6 +70,9 @@ static func show_for(player: Node3D, lines: PackedStringArray, total_line: Strin
 		slip.position = Constants.ANNEX_RECEIPT_HOLD + Vector3(0.0, slip.length() * 0.5, 0.0)
 		slip.rotation = Vector3(Constants.ANNEX_RECEIPT_TILT, 0.0, 0.0)
 		slip.set_on_top(true)
+		# Your hands hold it by its bottom corners (R2c annex: it hung in the air
+		# between them).
+		slip.holder = player
 	else:
 		var body := player.get_node_or_null("Visual/CartoonBody") as Node3D
 		var arms: Array = body.get("_arms") if body != null and "_arms" in body else []
@@ -97,6 +100,9 @@ class Slip extends Node3D:
 	var _ticks: int = 0
 	var _rest_position := Vector3.ZERO
 	var _rest_rotation := Vector3.ZERO
+	## The first-person player whose hands hold it (player/first_person_arms.gd
+	## reads their fp_hands meta), or null.
+	var holder: Node3D = null
 
 	func build(lines: PackedStringArray, total_line: String, at: float, seconds: float) -> void:
 		_start = at
@@ -216,8 +222,29 @@ class Slip extends Node3D:
 		position = _rest_position + Vector3(0.22 * away, -0.32 * away, 0.04 * away)
 		rotation = _rest_rotation + Vector3(-0.5 * away, 0.0, -0.7 * away)
 		visible = t >= 0.0
+		_hold_corners(t >= 0.0 and pocket < 1.0, pocket > 0.0)
 		if pocket >= 1.0:
 			queue_free()
+
+	## Both hands pinch the slip's bottom corners as it feeds up and while it's
+	## read; pocketing it, the right hand takes it away and the left lets go.
+	func _hold_corners(on: bool, pocketing: bool) -> void:
+		if holder == null or not is_instance_valid(holder):
+			return
+		if not on:
+			if holder.has_meta(&"fp_hands"):
+				holder.remove_meta(&"fp_hands")
+			holder = null
+			return
+		var bottom := -_length - 0.012
+		var hands := {"right": _strip.global_transform * Vector3(WIDTH * 0.42, bottom, 0.0)}
+		if not pocketing:
+			hands["left"] = _strip.global_transform * Vector3(-WIDTH * 0.42, bottom, 0.0)
+		holder.set_meta(&"fp_hands", hands)
+
+	func _exit_tree() -> void:
+		if holder != null and is_instance_valid(holder) and holder.has_meta(&"fp_hands"):
+			holder.remove_meta(&"fp_hands")
 
 
 ## The slip's print: centered lines in the printer's small type, each shrunk

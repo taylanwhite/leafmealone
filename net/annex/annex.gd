@@ -116,6 +116,8 @@ var _dwell: float = 0.0
 var _retry: float = 0.0
 var _hold_kind: String = ""
 var _hold_window: String = ""
+## The window whose stamp your hand has out (R2c annex), until it's back.
+var _borrow_window: String = ""
 var _urgent_shown: bool = false
 var _rows_off: int = 0
 var _doors: Array[Node] = []
@@ -976,6 +978,10 @@ func _rpc_request_serve(window: String, client_t: float) -> void:
 		# leaves you be until you've stepped away (R2b: it looped every 1.6 s).
 		if str((_wrong_seen.get(peer_id, {}) as Dictionary).get("w", "")) == window:
 			return
+		# Only a clerk at his window can shake his head at you (R2c annex: one on his
+		# break lit his lamp, folded his BACK IN 5 card and babbled from the nook).
+		if not bool(_Schedule.effective(_seed, window, _t_at(at), _overrides)["looking"]):
+			return
 		_wrong_seen[peer_id] = {"w": window}
 		_wrong_until[peer_id] = now + Constants.ANNEX_WRONG_WINDOW
 		stats["wrong_windows"] = int(stats["wrong_windows"]) + 1
@@ -1036,10 +1042,12 @@ func _rpc_request_bell(window: String) -> void:
 	var state := _Schedule.effective(_seed, window, t, _overrides)
 	var s := int(state["state"])
 	if s == _Schedule.S.BREAK or s == _Schedule.S.JAM:
-		_add_override({"kind": "hurry_back", "w": window, "at": now, "until": maxf(_abs(float(state["until"])), now + Constants.ANNEX_RETURN_WALK + Constants.ANNEX_OPEN.x), "bell": true, "peer": peer_id})
+		# From the copier it's the long way back (R2c annex).
+		var walk := Constants.ANNEX_JAM_RETURN_WALK if s == _Schedule.S.JAM else Constants.ANNEX_RETURN_WALK
+		_add_override({"kind": "hurry_back", "w": window, "at": now, "until": maxf(_abs(float(state["until"])), now + walk + Constants.ANNEX_OPEN.x), "bell": true, "peer": peer_id, "walk": walk})
 	elif s == _Schedule.S.ASLEEP:
 		_add_override({"kind": "wake", "w": window, "at": now, "until": maxf(_abs(float(state["until"])), now + Constants.ANNEX_WAKE_SECONDS + Constants.ANNEX_OPEN.x), "bell": true, "peer": peer_id})
-	elif s == _Schedule.S.OPEN or s == _Schedule.S.TELEGRAPH or s == _Schedule.S.LUNCH_BITE or s == _Schedule.S.RETURN or s == _Schedule.S.PEER_FORM:
+	elif s == _Schedule.S.OPEN or s == _Schedule.S.TELEGRAPH or s == _Schedule.S.LUNCH_BITE or s == _Schedule.S.PEER_FORM:
 		# PEER_FORM too: chunk 5's bell sits on the counter, so whoever rings it is
 		# standing at his window, and a wrong form there has him shaking his head
 		# already; the bell still sends him to his cabinet (R2 integration).
@@ -1073,6 +1081,9 @@ func _rpc_request_desk() -> void:
 		return
 	var head := _Schedule.effective(_seed, "head", _t(), _overrides)
 	if int(head["state"]) != _Schedule.S.DESK or _big_holder != 0:
+		return
+	# Back in his chair first (R2c annex: he approved from the water cooler).
+	if _t() - float(head["since"]) < Constants.ANNEX_HEAD_SETTLE:
 		return
 	var now := Net.server_time()
 	# He reads it, raises the big stamp, hesitates, slams: the form's APPROVED,
@@ -1352,7 +1363,15 @@ func _rpc_form(peer_id: int, form: Dictionary, at: float, source: String) -> voi
 func _rpc_stamped(peer_id: int, window: String, at: float, ok: bool) -> void:
 	var piece := _set_node("Windows/%s" % window)
 	if piece != null and piece.has_method("set_state"):
-		piece.call("set_state", &"stamp_down", at)
+		var slam: Dictionary = {}
+		if piece.has_method("borrow"):
+			# It comes down on the form in their hand: yours already there; anyone
+			# else's shoots out of the hatch to them as it slams (R2c annex).
+			if peer_id != Net.local_peer_id() or not bool(piece.call("borrowed")):
+				var body := _player(peer_id)
+				piece.call("borrow", func() -> Vector3: return body.global_transform * Vector3(-0.18, 1.0, -0.42) if is_instance_valid(body) else Vector3.INF, at, true, false)
+			slam["lift"] = Constants.ANNEX_BORROW_SLAM_LIFT
+		piece.call("set_state", &"stamp_down", at, slam)
 	if peer_id == Net.local_peer_id():
 		# Done: letting go of interact now doesn't slam it a second time (R2b).
 		_hold_kind = ""
@@ -1907,11 +1926,19 @@ func _show_state(window: String, state: Dictionary) -> void:
 				if copier != null and copier.has_method("set_state"):
 					copier.call("set_state", &"jam", since)
 				_sound_at("copier_beep", spot)
+			var copier_node := _set_node("Copier") as Node3D
+			if s == _Schedule.S.JAM and spot != Vector3.INF and copier_node != null:
+				# Beside the copier, not where the Head NICE BOY stands at it.
+				spot += copier_node.global_basis * Vector3(0.7, 0.0, 0.0)
 			if spot != Vector3.INF:
 				play_args["to"] = spot
 			play_args["path"] = _gate_path(window, true)
+			# There part way in, then the coffee (R2c annex: he arrived late, if at all).
+			play_args["arrive_in"] = (float(state["until"]) - float(state["since"])) * Constants.CLERK_BREAK_ARRIVE_SHARE
 		_Schedule.S.RETURN:
 			play_args["path"] = _gate_path(window, false)
+			# Seated when RETURN ends and the lamp comes on (R2c annex).
+			play_args["seconds"] = float(state["until"]) - float(state["since"])
 		_Schedule.S.LEAN:
 			var toward := str(args.get("toward", "A"))
 			play_args["dir"] = _window_spot(toward, "ClerkSeat") - _window_spot(window, "ClerkSeat")
@@ -2014,10 +2041,12 @@ func _show_head(s: int, since: float, args: Dictionary) -> void:
 			# He reads it first (ANNEX_HEAD_READ), then the big stamp goes up.
 			_staff_play("HeadNiceBoy", &"head_windup_slam", since, {"read": Constants.ANNEX_HEAD_READ})
 			var raise := since + Constants.ANNEX_HEAD_READ
+			# The stamp is his to raise: it goes where his hands take it (npcs/clerk.gd
+			# _approve_pose), and only its KA-CHUNK and toot are its own (R2c annex).
 			_later(raise, func() -> void:
 				var stamp := _set_node("HeadDesk/BigStamp")
 				if stamp != null and stamp.has_method("set_state") and _big_holder == 0:
-					stamp.call("set_state", &"slam", raise))
+					stamp.call("set_state", &"slam", raise, {"puppet": true}))
 		_Schedule.S.SPOTTED:
 			_staff_play("HeadNiceBoy", &"gasp_whistle", since, {})
 			_sound_at("whistle", _staff_pos("HeadNiceBoy"))
@@ -2132,9 +2161,13 @@ func _local_input(delta: float) -> void:
 	var me := _player(me_id)
 	if me == null or Net.player_zone(me_id) != Net.Zone.BORDER:
 		_end_hold()
+		if me != null and _borrow_window != "":
+			_borrow_window = ""
+			me.remove_meta(&"fp_hands")
 		return
 	var pos := me.global_position
 	_retry -= delta
+	_hand_on_stamp(me)
 	var form: Dictionary = _forms.get(me_id, {})
 	if _inside(me_id) and not form.is_empty() and not bool(form.get("approved", false)):
 		# Standing on a counter spot asks to be served (the wrong one gets a head shake).
@@ -2217,6 +2250,10 @@ func _press_interact(me: Node3D) -> bool:
 			var piece := _set_node("Windows/%s" % _hold_window)
 			if piece != null and piece.has_method("set_state"):
 				piece.call("set_state", &"stamp_lifted", Net.server_time())
+			# Your hand reaches through the hatch, drags it over and lifts it to
+			# your form (R2c annex: it inked from 1.5 m away with no hand on it).
+			if piece != null and piece.has_method("borrow"):
+				piece.call("borrow", _form_slam_point, Net.server_time(), false, true)
 			_rpc_request_self_stamp.rpc_id(1, _hold_window, true, Net.server_time())
 			return true
 		"bell":
@@ -2233,6 +2270,39 @@ func _press_interact(me: Node3D) -> bool:
 			_rpc_request_leave.rpc_id(1)
 			return true
 	return false
+
+
+## Where a stamp you hold comes down: on the form in your hand, a little toward
+## you (INF with no form shown).
+func _form_slam_point() -> Vector3:
+	if _form_view == null or not is_instance_valid(_form_view) or not _form_view.is_visible_in_tree():
+		return Vector3.INF
+	return _form_view.global_transform * Vector3(0.03, -0.02, -0.04)
+
+
+## Your first-person right hand on a window stamp you've taken out of its hatch
+## (player/first_person_arms.gd reads the meta), and off it once it's back.
+func _hand_on_stamp(me: Node3D) -> void:
+	var held: Node3D = null
+	for window: String in SERVING:
+		var piece := _set_node("Windows/%s" % window)
+		if piece != null and piece.has_method("borrowed") and bool(piece.call("borrowed")) and (window == _hold_window or window == _borrow_window):
+			held = piece as Node3D
+			_borrow_window = window
+	var big := _set_node("HeadDesk/BigStamp") as Node3D
+	if held != null:
+		me.set_meta(&"fp_hands", {"right": held.call("stamp_knob") as Vector3 + Vector3.UP * 0.03, "stretch": Constants.ANNEX_BORROW_STRETCH})
+	elif _big_holder == Net.local_peer_id() and big != null:
+		# The big stamp is two-handed (R2c annex: it hovered between your hands):
+		# one on each end of its block, through the swing and the slam.
+		var block := big.global_position + Vector3.UP * 0.05
+		var side := me.global_basis.x * 0.15
+		me.set_meta(&"fp_hands", {"left": block - side, "right": block + side, "stretch": Constants.ANNEX_BORROW_STRETCH})
+		_borrow_window = "big"
+	elif _borrow_window != "":
+		_borrow_window = ""
+		if me.has_meta(&"fp_hands"):
+			me.remove_meta(&"fp_hands")
 
 
 func _end_hold() -> void:
@@ -2257,7 +2327,9 @@ func _interact_target(pos: Vector3) -> Dictionary:
 	var rider := _inside(me_id)
 	var visitor := _visitors.has(me_id)
 	for window: String in SERVING:
-		if rider:
+		var piece := _set_node("Windows/%s" % window)
+		# A stamp already in your hand has no keycap over it (R2c annex).
+		if rider and not (piece != null and piece.has_method("borrowed") and bool(piece.call("borrowed"))):
 			var stamp := _window_spot(window, "StampPad")
 			var d := _flat(pos, stamp) if stamp != Vector3.INF else INF
 			if d <= Constants.ANNEX_STAMP_REACH and d < best_d:
@@ -2267,13 +2339,19 @@ func _interact_target(pos: Vector3) -> Dictionary:
 		var db := _flat(pos, bell) if bell != Vector3.INF else INF
 		if db <= Constants.ANNEX_BELL_REACH and db < best_d:
 			best_d = db
-			best = {"kind": "bell", "window": window, "at": bell + Vector3(0.0, 1.35, -0.6)}
+			# The keycap sits on the bell (R2c annex: 1.35 m over it, it floated at
+			# the top edge of the screen over nothing).
+			best = {"kind": "bell", "window": window, "at": bell + Vector3(0.0, Constants.R2B_HUD_STAMP_PROMPT_LIFT, 0.0)}
 	var pad := _set_point("HeadDesk/Pad")
-	if pad != Vector3.INF and (_big_holder == 0 or _big_holder == me_id):
+	# His stamp is only yours to lift while he's away (R2c annex: its keycap hung
+	# beside the pad while he raised it himself).
+	var head_away := not bool(_Schedule.effective(_seed, "head", _t(), _overrides)["looking"])
+	if pad != Vector3.INF and ((_big_holder == 0 and head_away) or _big_holder == me_id):
 		var dp := _flat(pos, pad)
 		if dp <= Constants.ANNEX_DESK_REACH and dp < best_d:
 			best_d = dp
-			best = {"kind": "big_stamp", "at": pad + Vector3(0.0, 0.5, 0.0)}
+			# Just over its knob on the pad, or on the empty pad to put it back.
+			best = {"kind": "big_stamp", "at": pad + Vector3(0.0, Constants.R2B_HUD_STAMP_PROMPT_LIFT + (0.0 if _big_holder == me_id else 0.25), 0.0)}
 	if visitor:
 		var sheet := _set_point("CoSignSheet")
 		var ds := _flat(pos, sheet) if sheet != Vector3.INF else INF
@@ -2356,7 +2434,11 @@ func _show_form(rise_at: float = -1.0) -> void:
 	if _form_view.has_method("fast_pass"):
 		_form_view.call("fast_pass", bool(form.get("fast_pass", false)))
 	if _form_view.has_method("rise") and rise_at > Net.server_time() - Constants.ANNEX_FORM_RISE:
-		_form_view.call("rise", rise_at)
+		# It comes from the Greeter's hands, his very clipboard (R2c annex: ours
+		# rose from the screen's bottom while he kept his).
+		var greeter := _set_node("Staff/Greeter")
+		var from: Node3D = greeter.call("held_prop", "form") if greeter != null and greeter.has_method("held_prop") else null
+		_form_view.call("rise", rise_at, from)
 	_update_form_view(maxf(Net.server_time(), rise_at + Constants.ANNEX_FORM_RISE))
 
 

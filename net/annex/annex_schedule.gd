@@ -32,7 +32,8 @@ const INFO: Dictionary = {
 	S.TELEGRAPH: [true, false, &"telegraph_stretch"],
 	S.PHONE: [false, false, &"phone"],
 	S.BREAK: [false, false, &"on_break"],
-	S.RETURN: [true, false, &"hurry_back"],
+	# Walking back he isn't at his stamp (R2c annex): not looking.
+	S.RETURN: [false, false, &"hurry_back"],
 	S.ASLEEP: [false, false, &"asleep"],
 	S.LUNCH_BITE: [true, false, &"lunch_bite"],
 	S.LUNCH_TURNED: [false, false, &"lunch_turned"],
@@ -121,7 +122,7 @@ static func effective(seed_value: int, window: String, t: float, overrides: Arra
 			&"lean":
 				return _entry(S.LEAN, at, until, o)
 			&"hurry_back":
-				var back := at + Constants.ANNEX_RETURN_WALK
+				var back := at + float(o.get("walk", Constants.ANNEX_RETURN_WALK))
 				return _entry(S.RETURN, at, back, o) if t < back else _entry(S.OPEN, back, until, o)
 			&"wake":
 				var up := at + Constants.ANNEX_WAKE_SECONDS
@@ -296,8 +297,9 @@ static func _off_block(window: String, quirk: String, rng: RandomNumberGenerator
 	var break_ok := opened / maxf(opened + off + Constants.ANNEX_TELEGRAPH + rest * Constants.ANNEX_ASLEEP_SCALE, 0.001) >= Constants.ANNEX_MIN_OPEN_SHARE + 0.05
 	var take_break := break_ok and rng.randf() < 0.5
 	if quirk == "jam" and not bool(jammed[window]) and opened >= Constants.ANNEX_JAM_SECONDS * 0.9:
-		block.append([S.JAM, Constants.ANNEX_JAM_SECONDS - Constants.ANNEX_RETURN_WALK, {"spot": 0}])
-		block.append([S.RETURN, Constants.ANNEX_RETURN_WALK])
+		# The copier is out in the lobby, through the staff door: a long walk back.
+		block.append([S.JAM, Constants.ANNEX_JAM_SECONDS - Constants.ANNEX_JAM_RETURN_WALK, {"spot": 0}])
+		block.append([S.RETURN, Constants.ANNEX_JAM_RETURN_WALK])
 		return block
 	if take_break:
 		if quirk == "asleep":

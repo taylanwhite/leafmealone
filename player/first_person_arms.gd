@@ -245,6 +245,18 @@ func _targets(delta: float) -> Dictionary:
 		var t := clampf(float(_body.get("_gesture_time")) / 0.5, 0.0, 1.0)
 		hands[1] = Vector3(0.15, -0.35, -0.5).lerp(Vector3(0.4, -0.05, 0.05), sin(t * PI))
 		snap = false
+	# Something in the world has your hand (R2c annex: a borrowed window stamp, a
+	# receipt held by its corners): the player's meta fp_hands, world points
+	# {"left", "right"} and how far the arm may stretch to reach them.
+	if _player.has_meta(&"fp_hands"):
+		var hold: Variant = _player.get_meta(&"fp_hands")
+		if hold is Dictionary:
+			for side: int in 2:
+				var point: Variant = (hold as Dictionary).get("left" if side == 0 else "right", null)
+				if point is Vector3 and (point as Vector3).is_finite():
+					hands[side] = to_local(point as Vector3)
+			_stretch = maxf(_stretch, float((hold as Dictionary).get("stretch", 1.0)))
+			snap = false
 	return {"hands": hands, "snap": snap}
 
 

@@ -12,7 +12,7 @@ extends Node
 ## Names: rake_fresh, rake_pile, raid_warn, raid_arrive, caught, spotted, lunge,
 ## dodge, gotcha, cite_rescue, escort, hide, hide_bin, hide_shed, pile, peek,
 ## inspect_near, inspect_found, border_return, van_ride, van_seated, van_unbuckle,
-## van_straggler, dropoff, annex, annex_break, annex_heist, annex_bigstamp,
+## van_straggler, dropoff, annex, annex_break, annex_heist, annex_bigstamp, annex_desk,
 ## annex_window_d, annex_visit (needs a second player), annex_closing, store,
 ## drive (that one needs --town-map), toss, toss_full, toss_close.
 ## border_return is the old name of annex (kept for one wave).
@@ -23,7 +23,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_visit", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -195,6 +195,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _annex_heist()
 		"annex_bigstamp":
 			out = await _annex_bigstamp()
+		"annex_desk":
+			out = await _annex_desk()
 		"annex_window_d":
 			out = await _annex_window_d()
 		"annex_visit":
@@ -1195,6 +1197,36 @@ func _reached_annex_bigstamp() -> bool:
 		return false
 	var annex := _annex_node()
 	return int((annex.call("window_now", "head") as Dictionary)["state"]) == _Sched.S.AWAY and int(annex.call("big_stamp_holder")) == 0
+
+
+## annex_desk (R2c annex): a full form, you at the desk's visitor spot, and the
+## Head NICE BOY at the cooler or the copier with 2 s of his break left: he walks
+## back, sits, then stands, reads it and slams APPROVED, NICELY with his own hands.
+func _annex_desk() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var at := _find_state(annex, "head", [_Sched.S.AWAY], [])
+	if at < 0.0:
+		return {"error": "the Head NICE BOY never leaves his desk"}
+	var away := _Sched.window_state(int(annex.call("seed_value")), "head", at + 0.01)
+	annex.call("dev_retime", float(away["until"]) - 2.0)
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	form["stamped"] = (form["boxes"] as PackedStringArray).size()
+	annex.call("dev_set_form", Net.local_peer_id(), form)
+	var spot := _annex_point("HeadDesk/DeskSpot")
+	_stand_facing(spot if spot != Vector3.INF else _annex_point("HeadDesk"), _annex_point("HeadDesk/Pad"))
+	await _ticks(3)
+	return {"moment": "annex_desk", "note": "a full form at his desk; he's back in 2 s"}
+
+
+func _reached_annex_desk() -> bool:
+	if not _reached_annex() or not _on_annex_floor():
+		return false
+	var annex := _annex_node()
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	return not form.is_empty() and int(form["stamped"]) >= (form["boxes"] as PackedStringArray).size()
 
 
 ## Window D's blinds go up in 2 s; you're halfway across the room.

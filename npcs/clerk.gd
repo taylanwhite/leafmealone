@@ -83,6 +83,14 @@ var _rng := RandomNumberGenerator.new()
 ## The eased head turn, and the sidestep round a person in the way (R2b).
 var _face_turn: float = 0.0
 var _avoid := Vector3.ZERO
+## R2c annex: where the body stands before any stand-off (the route's point, or
+## where he stopped); position is this plus _avoid.
+var _base := Vector3.ZERO
+## Walking home first because the state wants him at his seat or post.
+var _homing: bool = false
+## A walk's speed fitted to arrive in time (m/s), or negative for the state's own.
+var _speed_override: float = -1.0
+var _sheet_on: bool = false
 ## Tools only (the studio's lineups): hold the pose this many seconds into the
 ## state instead of following the clock. Negative follows the clock.
 var hold_t: float = -1.0
@@ -120,6 +128,27 @@ func _dress(index: int) -> void:
 	body.call("build")
 	_rng.seed = hash(node_name_for_seed(index))
 	_build_props()
+	# At his desk the Head NICE BOY's hands are for the big stamp: the raid's
+	# megaphone stays in the van (R2c annex: it blocked his face at the slam).
+	var megaphone := body.get("_megaphone") as Node3D
+	if megaphone != null:
+		megaphone.visible = false
+	add_to_group("annex_staff")
+	# Solid to players (R2c annex: you walked into a NICE BOY's head): a capsule on
+	# the pad-wall layer, which people mask and thrown things and rays don't.
+	var solid := AnimatableBody3D.new()
+	solid.name = "Solid"
+	solid.sync_to_physics = false
+	solid.collision_layer = Constants.PAD_WALL_LAYER
+	solid.collision_mask = 0
+	var shape := CollisionShape3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = Constants.CLERK_SOLID_RADIUS
+	capsule.height = Constants.CLERK_SOLID_HEIGHT
+	shape.shape = capsule
+	shape.position = Vector3(0.0, Constants.CLERK_SOLID_HEIGHT * 0.5, 0.0)
+	solid.add_child(shape)
+	add_child(solid)
 	# Pose after the body animates each tick (it resets the arms every tick).
 	process_physics_priority = 10
 
@@ -134,6 +163,8 @@ func set_home(at: Vector3, yaw: float) -> void:
 	_home_yaw = yaw
 	_yaw = yaw
 	position = at
+	_base = at
+	_avoid = Vector3.ZERO
 	rotation.y = yaw
 
 
@@ -148,11 +179,21 @@ func play(next: StringName, at: float, play_args: Dictionary = {}) -> void:
 	args = play_args
 	_route = PackedVector3Array()
 	_arrive_yaw = INF
+	_homing = false
+	_speed_override = -1.0
 	match next:
 		&"walk_to", &"on_break", &"walk_hand_out":
 			_walk(_target(args.get("to", null)), args.get("face", null))
+			# A break's walk out arrives part way into it (R2c: at the plain walk
+			# he was still on his way when his window reopened).
+			if args.has("arrive_in"):
+				_fit_speed(float(args["arrive_in"]))
 		&"hurry_back":
 			_walk(_home_pos, _home_yaw)
+			# Seated by the end of RETURN, whatever the way back (R2c: the lamp lit
+			# over an empty stool while he was still walking).
+			if args.has("seconds"):
+				_fit_speed(float(args["seconds"]) - SIT_SECONDS - 0.1)
 		&"greeter_lead":
 			_walk_path("GreeterPath", bool(args.get("reverse", false)))
 		&"janitor_mop":
@@ -163,6 +204,12 @@ func play(next: StringName, at: float, play_args: Dictionary = {}) -> void:
 			# A step aside to hand the clipboard over face to face (R2b).
 			if args.has("to"):
 				_walk(_target(args["to"]), args.get("face", null))
+	# A state that wants him at his seat (or the Head NICE BOY at his desk) while
+	# he's somewhere else walks him there first (R2c: the desk approval played at
+	# the water cooler, an OPEN window's clerk stood frozen in mid-walk).
+	if _route.is_empty() and _wants_home(next) and Vector2(_base.x - _home_pos.x, _base.z - _home_pos.z).length() > 0.15:
+		_walk(_home_pos, _home_yaw)
+		_homing = true
 	if args.has("bark"):
 		_pending_bark = {"kind": str(args["bark"]), "at": at}
 	if next == &"asleep":
@@ -201,14 +248,34 @@ func _target(value: Variant) -> Vector3:
 	return _home_pos
 
 
+## States that want a clerk on his stool, or the Head NICE BOY at his desk.
+func _wants_home(next: StringName) -> bool:
+	if role != "clerk" and role != "head":
+		return false
+	return SEATED.has(next) or next == &"head_windup_slam" or next == &"telegraph_stretch"
+
+
+## How far a seated body drops: a clerk's tall stool, the Head NICE BOY's chair.
+func _sit_drop() -> float:
+	return Constants.CLERK_STOOL_DROP if role == "clerk" else SIT_DROP
+
+
+## A walk just started gets the speed that covers it in `seconds` (after
+## standing up), between a plain walk and a rush.
+func _fit_speed(seconds: float) -> void:
+	var avail := seconds - _walk_delay
+	if avail > 0.05 and _route_length > 0.01:
+		_speed_override = clampf(_route_length / avail, Constants.CLERK_WALK_SPEED, Constants.CLERK_RUSH_MAX)
+
+
 ## Walk from where this one stands to `to` (parent space), the set's route
 ## through the staff door when the counter wall is in the way.
 func _walk(to: Vector3, face: Variant) -> void:
-	_route_from = position
+	_route_from = _base
 	_walk_delay = SIT_SECONDS if _sit > 0.5 else 0.0
 	var points := PackedVector3Array([to])
 	if annex_set != null and annex_set.has_method("route") and get_parent() != null:
-		var from_set := annex_set.to_local((get_parent() as Node3D).to_global(position))
+		var from_set := annex_set.to_local((get_parent() as Node3D).to_global(_base))
 		var to_set := annex_set.to_local((get_parent() as Node3D).to_global(to))
 		points = PackedVector3Array()
 		for point: Vector3 in annex_set.call("route", from_set, to_set) as PackedVector3Array:
@@ -224,7 +291,7 @@ func _walk(to: Vector3, face: Variant) -> void:
 
 func _walk_path(path_name: String, reverse: bool) -> void:
 	var path := annex_set.get_node_or_null(path_name) as Path3D if annex_set != null else null
-	_route_from = position
+	_route_from = _base
 	_walk_delay = SIT_SECONDS if _sit > 0.5 else 0.0
 	_route = PackedVector3Array()
 	if path == null or path.curve == null:
@@ -285,14 +352,17 @@ func _physics_process(delta: float) -> void:
 	body.set("face_turn", _face_turn)
 
 
-## Staff step round people (R2b): walking (or mopping) within CLERK_STAND_OFF of
-## a player, a staff body eases sideways out of their way, and back onto its
-## line once past. Cosmetic: the host never reads these bodies.
+## Staff step round people (R2b) and each other (R2c annex): anyone standing or
+## walking (not seated) within CLERK_STAND_OFF of a player eases sideways out of
+## their way, and two standing staff within CLERK_STAFF_GAP ease apart, each half
+## the way (R2c: the Head NICE BOY stood fused with a clerk at the cooler). Back
+## onto their line once clear. Their capsule (Solid) stops a player walking in.
+## Cosmetic: the host never reads these bodies.
 func _stand_off(delta: float) -> void:
 	var push := Vector3.ZERO
-	if not _route.is_empty() and not _route_done() and is_inside_tree():
-		var parent := get_parent() as Node3D
-		var me := parent.to_global(position) if parent != null else position
+	var parent := get_parent() as Node3D
+	if _sit < 0.5 and is_inside_tree() and parent != null:
+		var me := parent.to_global(_base)
 		for node: Node in get_tree().get_nodes_in_group("players"):
 			var person := node as Node3D
 			if person == null or not person.is_visible_in_tree():
@@ -302,13 +372,20 @@ func _stand_off(delta: float) -> void:
 			var d := away.length()
 			if d < Constants.CLERK_STAND_OFF and d > 0.01:
 				push += away / d * (Constants.CLERK_STAND_OFF - d)
-		if parent != null:
-			push = parent.global_basis.inverse() * push
-	_avoid = _avoid.lerp(push, 1.0 - exp(-delta * Constants.CLERK_STAND_OFF_EASE))
-	# _locomote sets the position afresh every tick while there's a route, so
-	# this never adds up; standing still, nothing moves him.
-	if not _route.is_empty():
-		position += Vector3(_avoid.x, 0.0, _avoid.z)
+		for node: Node in get_tree().get_nodes_in_group("annex_staff"):
+			var other := node as Node3D
+			if other == self or other == null or float(other.get("_sit")) >= 0.5 or not other.is_visible_in_tree():
+				continue
+			var away := me - other.global_position
+			away.y = 0.0
+			var d := away.length()
+			if d < Constants.CLERK_STAFF_GAP:
+				# Exactly on top of each other: part by name, the same on every peer.
+				var dir := away / d if d > 0.01 else Vector3.RIGHT * (1.0 if str(name) < str(other.name) else -1.0)
+				push += dir * (Constants.CLERK_STAFF_GAP - d) * 0.5
+		push = parent.global_basis.inverse() * push
+	_avoid = _avoid.lerp(Vector3(push.x, 0.0, push.z), 1.0 - exp(-delta * Constants.CLERK_STAND_OFF_EASE))
+	position = _base + _avoid
 
 
 # ---------------------------------------------------------------- moving
@@ -319,11 +396,15 @@ func _locomote(t: float, delta: float) -> void:
 		var speed := Constants.CLERK_HURRY_SPEED if state == &"hurry_back" else Constants.CLERK_WALK_SPEED
 		if state == &"janitor_mop":
 			speed = Constants.CLERK_WALK_SPEED * 0.45
+		if _homing:
+			speed = Constants.CLERK_HOME_SPEED
+		if _speed_override > 0.0:
+			speed = _speed_override
 		# Ease into the walk and stand up first (the stool), then go.
 		var travelled := maxf(0.0, t - _walk_delay) * speed
 		travelled = minf(travelled, _route_length)
 		var at: Array = _along(travelled)
-		position = Vector3((at[0] as Vector3).x, _home_pos.y, (at[0] as Vector3).z)
+		_base = Vector3((at[0] as Vector3).x, _home_pos.y, (at[0] as Vector3).z)
 		var arrived: bool = at[2]
 		var want: float = at[1]
 		if arrived and _arrive_yaw != INF:
@@ -337,7 +418,7 @@ func _locomote(t: float, delta: float) -> void:
 			for index: int in range(_route.size() - 2, -1, -1):
 				back.append(_route[index])
 			back.append(_route_from)
-			_route_from = position
+			_route_from = _base
 			_route = back
 			_walk_delay = 0.0
 			state_at = _Props.now()
@@ -367,9 +448,9 @@ func _turn_target(t: float) -> float:
 		&"notice", &"walk_hand_out", &"take_stamp_back":
 			var at: Variant = args.get("at", args.get("from", null))
 			if at is Vector3:
-				var toward: Vector3 = (get_parent() as Node3D).to_local(at) - position
+				var toward: Vector3 = (get_parent() as Node3D).to_local(at) - _base
 				return atan2(toward.x, toward.z)
-	if position.distance_to(_home_pos) < 0.3:
+	if _base.distance_to(_home_pos) < 0.3:
 		return _home_yaw
 	return _yaw
 
@@ -383,10 +464,11 @@ func _dir_arg() -> Vector3:
 
 ## Sitting down and standing up take SIT_SECONDS, never a frame.
 func _seat(delta: float) -> void:
-	var want := 1.0 if SEATED.has(state) and _route.is_empty() and position.distance_to(_home_pos) < 0.08 and (role == "clerk" or role == "head") else 0.0
+	# Arrived (a walk home's route stays on the list) counts as there (R2c: a clerk
+	# back from his break used to stay standing until the next state).
+	var walking := not _route.is_empty() and not _route_done()
+	var want := 1.0 if SEATED.has(state) and not walking and _base.distance_to(_home_pos) < 0.08 and (role == "clerk" or role == "head") else 0.0
 	if state == &"telegraph_stretch":
-		want = 0.0
-	if not _route.is_empty():
 		want = 0.0
 	_sit = want if _snap_seat else move_toward(_sit, want, delta / SIT_SECONDS)
 	_snap_seat = false
@@ -394,8 +476,8 @@ func _seat(delta: float) -> void:
 	var hips := body.get("_hips") as Node3D
 	var head := body.get("_head_root") as Node3D
 	var legs: Array = body.get("_legs")
-	hips.position.y -= SIT_DROP * k
-	head.position.y -= SIT_DROP * k
+	hips.position.y -= _sit_drop() * k
+	head.position.y -= _sit_drop() * k
 	for leg: Node3D in legs:
 		leg.rotation.x = lerpf(leg.rotation.x, SIT_LEGS, k)
 
@@ -409,7 +491,7 @@ func _arm(side: int) -> Node3D:
 
 
 ## Swing an arm (0 right, 1 left) to point its hand at a world point.
-func _aim(side: int, target: Vector3, weight: float) -> void:
+func _aim(side: int, target: Vector3, weight: float, max_reach: float = 1.08) -> void:
 	var arm := _arm(side)
 	var parent := arm.get_parent() as Node3D
 	var local := parent.global_transform.affine_inverse() * target - arm.position
@@ -418,7 +500,7 @@ func _aim(side: int, target: Vector3, weight: float) -> void:
 	var k := clampf(weight, 0.0, 1.0)
 	arm.quaternion = arm.quaternion.slerp(Quaternion(Vector3.DOWN, local.normalized()), k)
 	# The arm has no elbow: a near target shortens it so the hand lands there.
-	var reach := clampf(local.length() / ARM_LENGTH, 0.62, 1.08)
+	var reach := clampf(local.length() / ARM_LENGTH, 0.62, max_reach)
 	arm.scale = Vector3(1.0, lerpf(1.0, reach, k), 1.0)
 
 
@@ -456,11 +538,20 @@ func _pose(t: float, _delta: float) -> void:
 	if _zs != null:
 		_zs.visible = false
 	var sat := smoothstep(0.0, 1.0, _sit)
-	var head_y := 1.6 - SIT_DROP * sat
+	var head_y := 1.6 - _sit_drop() * sat
+	body.position = Vector3.ZERO
 	var clipboard := body.get("_clipboard") as Node3D
 	if clipboard != null:
 		# The clipboard never leaves the left hand (nothing pops); the janitor has a mop instead.
 		clipboard.visible = role != "janitor"
+	if role == "head" and _sheet_on and state != &"head_windup_slam":
+		_sheet_on = false
+		var big := _big_stamp()
+		if big != null:
+			big.call("set_sheet", false, false)
+	if _homing and not _route_done():
+		# On his way back to his seat: just walking, the state's pose once there.
+		return
 	match state:
 		&"idle":
 			body.set("face_turn", sin(t * 0.35) * 0.35 * clampf(sin(t * 0.13) * 3.0, 0.0, 1.0))
@@ -640,28 +731,7 @@ func _pose(t: float, _delta: float) -> void:
 			if state == &"closing_rush" and t > 2.4:
 				body.set("face_turn", sin(t * 5.0) * 0.4)
 		&"head_windup_slam":
-			# First he reads it (args.read seconds, R2b): the form held up, a squint.
-			var read := float(args.get("read", 0.0))
-			if t < read:
-				torso.rotation.x -= 0.2 * fade
-				face.rotation.x -= 0.15 * fade
-				body.set("squinting", t > 0.25)
-				_aim(0, _ahead(0.1, 1.15, 0.42), fade)
-				_aim(1, _ahead(-0.1, 1.15, 0.42), fade)
-				_show_prop("paper", true)
-				if t > read * 0.6:
-					body.set("face_turn", 0.18 * sin(t * 6.0))
-			else:
-				var since_read := t - read
-				var stamp := annex_set.get_node_or_null("HeadDesk/BigStamp") as Node3D if annex_set != null else null
-				var held := stamp.global_position + Vector3.UP * 0.32 if stamp != null else _ahead(0.0, 1.9, 0.4)
-				var grab := clampf(since_read / 0.15, 0.0, 1.0)
-				_aim(0, held + global_basis * Vector3(-0.05, 0.0, 0.0), grab)
-				_aim(1, held + global_basis * Vector3(0.05, 0.0, 0.0), grab)
-				face.rotation.x += 0.2
-				if since_read > Constants.ANNEX_BIG_STAMP_LIFT_SECONDS and since_read < Constants.ANNEX_BIG_STAMP_LIFT_SECONDS + Constants.ANNEX_BIG_STAMP_HESITATE:
-					body.set("mood", "angry")
-					body.set("face_turn", 0.12 * sin(t * 18.0))
+			_approve_pose(t, fade, torso, face)
 		&"gasp_whistle":
 			if t < 0.4:
 				var gasp := sin(t / 0.4 * PI)
@@ -706,7 +776,8 @@ func _pose(t: float, _delta: float) -> void:
 			var reach := ease_reach(t, maxf(handoff - 0.35, 0.0), 0.35, handoff + 0.5)
 			_aim(0, _ahead(0.12, 1.15, 0.3 + reach * 0.4), maxf(fade, reach))
 			_aim(1, _ahead(-0.12, 1.15, 0.3 + reach * 0.4), maxf(fade, reach))
-			_show_prop("form", t < handoff + 0.05)
+			# Gone from his hands on the frame yours takes it from there (R2c annex).
+			_show_prop("form", t < handoff)
 			body.set("mood", "raised")
 			if t > handoff + 0.1 and t < handoff + 0.6:
 				body.set("face_turn", 0.0)
@@ -721,6 +792,85 @@ func _pose(t: float, _delta: float) -> void:
 			_mop(t, true)
 
 
+func _big_stamp() -> Node3D:
+	return annex_set.get_node_or_null("HeadDesk/BigStamp") as Node3D if annex_set != null else null
+
+
+## The Head NICE BOY approves a form (R2c annex: the stamp used to rise and slam
+## by itself at an empty desk). He stands and steps to his desk's edge, reads the
+## form held up, lays it on the pad and takes the big stamp's knob in both hands,
+## raises it over the desk, holds his breath, slams it down on the form (the
+## KA-CHUNK is the stamp's own cue, on this same frame), holds it there, lets go.
+## The stamp goes where his hands put it, every frame; the sheet on the pad is
+## the form he laid down, APPROVED, NICELY on it after the slam.
+func _approve_pose(t: float, fade: float, torso: Node3D, face: Node3D) -> void:
+	var read := float(args.get("read", 0.0))
+	var lift := Constants.ANNEX_BIG_STAMP_LIFT_SECONDS
+	var hesitate := Constants.ANNEX_BIG_STAMP_HESITATE
+	var hit := read + lift + hesitate + Constants.ANNEX_BIG_STAMP_SLAM_SECONDS
+	var release := hit + Constants.ANNEX_HEAD_SLAM_HOLD
+	# The step to the desk and, once he's let go, back.
+	var step := smoothstep(0.0, 0.4, t) * (1.0 - smoothstep(release + 0.2, release + 0.6, t))
+	body.position = Vector3(0.0, 0.0, Constants.ANNEX_HEAD_DESK_STEP * step)
+	var stamp := _big_stamp()
+	var home := _base.distance_to(_home_pos) < 0.3
+	var lay := read * Constants.ANNEX_HEAD_LAY_AT
+	if t < lay or stamp == null or not home:
+		# Reading it, held up, a squint.
+		torso.rotation.x -= 0.2 * fade
+		face.rotation.x -= 0.15 * fade
+		body.set("squinting", t > 0.25)
+		_aim(0, _ahead(0.1, 1.15, 0.42 + 0.3 * step), fade)
+		_aim(1, _ahead(-0.1, 1.15, 0.42 + 0.3 * step), fade)
+		_show_prop("paper", true)
+		if t > lay * 0.6:
+			body.set("face_turn", 0.18 * sin(t * 6.0))
+		return
+	var desk := stamp.get_parent() as Node3D
+	var rest := desk.to_global(stamp.call("rest") as Vector3)
+	var toward := global_position - rest
+	toward.y = 0.0
+	toward = toward.normalized() if toward.length() > 0.01 else Vector3.ZERO
+	# Up over his right shoulder, block at his brow: his face (the grin, then the
+	# held breath) stays clear of it from the visitor spot.
+	var right := global_basis * Vector3(-1.0, 0.0, 0.0)
+	var top := rest + toward * Constants.ANNEX_HEAD_RAISE_BACK + right * Constants.ANNEX_HEAD_RAISE_SIDE + Vector3.UP * Constants.ANNEX_HEAD_RAISE
+	var at := rest
+	var since := t - read
+	if since >= 0.0 and since < lift:
+		at = rest.lerp(top, 1.0 - pow(1.0 - since / lift, 2.0))
+	elif since >= lift and since < lift + hesitate:
+		# The held breath: up there, trembling with it.
+		at = top + Vector3(0.012 * sin(t * 47.0), 0.01 * sin(t * 31.0), 0.0)
+		body.set("mood", "angry")
+		body.set("face_turn", 0.12 * sin(t * 18.0))
+	elif t >= read + lift + hesitate and t < hit:
+		var k := (t - read - lift - hesitate) / Constants.ANNEX_BIG_STAMP_SLAM_SECONDS
+		at = top.lerp(rest, k * k)
+	elif t >= hit:
+		# The squash on contact, settling.
+		var settle := t - hit
+		at = rest + Vector3.UP * (-0.008 * exp(-settle * 18.0) * cos(settle * 40.0))
+	# Puppeted only while the stamp is his to slam (a slam set going at the raise).
+	if since >= -0.05 and t < release + 0.05:
+		stamp.global_position = at
+	_sheet_on = t < release + 0.5
+	stamp.call("set_sheet", _sheet_on, t >= hit)
+	# Both hands on the block's ends (a big stamp is two-handed) from the lay down
+	# to the release, then back to his sides.
+	var block := at + Vector3.UP * 0.03
+	var grip := smoothstep(lay, read, t) * (1.0 - smoothstep(release, release + 0.25, t))
+	var side := right * 0.09
+	# A cartoon's arms stretch to keep hold of it up there.
+	_aim(0, block + side, grip, Constants.ANNEX_HEAD_ARM_STRETCH)
+	_aim(1, block - side, grip, Constants.ANNEX_HEAD_ARM_STRETCH)
+	# Leaning over the desk to reach it, up with it, and his weight into the slam.
+	var low := clampf(1.0 - (at.y - rest.y) / Constants.ANNEX_HEAD_RAISE, 0.0, 1.0)
+	var lunge := 1.0 - smoothstep(0.0, 0.25, absf(t - hit)) if t > read + lift + hesitate - 0.05 else 0.0
+	torso.rotation.x -= (0.3 * low + 0.2 * lunge) * grip
+	face.rotation.x += 0.15 * grip
+
+
 ## True the first time it's asked for this moment (one sound per state change).
 func _once(what: String) -> bool:
 	var key := "%.3f|%s" % [state_at, what]
@@ -733,7 +883,7 @@ func _once(what: String) -> bool:
 
 
 func _route_done() -> bool:
-	return _route.is_empty() or position.distance_to(_route[_route.size() - 1]) < 0.02
+	return _route.is_empty() or _base.distance_to(_route[_route.size() - 1]) < 0.02
 
 
 ## 0 -> 1 over (rise_at, rise_at + rise), back to 0 by back_at.
@@ -838,6 +988,12 @@ func _prop(arm: Node3D, prop_name: String, shape: Callable) -> Node3D:
 	view.position = Vector3(0.0, -0.53, -0.02)
 	view.visible = false
 	return view
+
+
+## A thing in his hand by name ("form", "paper", ...), shown or not: where the
+## Greeter's clipboard is when it leaves his hands for yours.
+func held_prop(prop_name: String) -> Node3D:
+	return _hand_props.get(prop_name) as Node3D
 
 
 func _show_prop(prop_name: String, on: bool) -> void:

@@ -65,6 +65,14 @@ const SIDEWALK_END: float = 12.0
 const STREET_END: float = 20.0
 const PLANTER_X: float = 2.0
 const LIGHT_ROW_Z: Array[float] = [-5.45, -2.7, 0.3, 3.3]
+## The staff nook behind the counter wall between windows B and C (R2c annex):
+## a kettle on a little counter, a mini fridge, and where each clerk stands.
+const NOOK_KETTLE := Vector3(-2.15, 0.0, -6.27)
+const NOOK_FRIDGE := Vector3(-1.2, 0.0, -6.25)
+const NOOK_SPOTS: Array[Vector3] = [Vector3(-2.5, 0.0, -5.82), Vector3(-1.9, 0.0, -5.72), Vector3(-1.3, 0.0, -5.82)]
+## A walk between the staff door and the lobby's east wall goes round the west
+## side of the Head NICE BOY's desk and its visitor spot: these corners (x, z).
+const DESK_BYPASS: Array[Vector2] = [Vector2(5.0, -3.1), Vector2(5.0, -0.8)]
 const LAVENDER := Color(0.72, 0.66, 0.86)
 const INSIDE_WALL := Color(0.84, 0.8, 0.7)
 const WAINSCOT := Color(0.55, 0.5, 0.66)
@@ -154,19 +162,41 @@ func route(from: Vector3, to: Vector3) -> PackedVector3Array:
 	var out := PackedVector3Array()
 	var behind_from := from.z < COUNTER_Z
 	var behind_to := to.z < COUNTER_Z
-	if behind_from != behind_to:
+	# R2c annex: behind the counter they walk the corridor behind the stools (the
+	# old line ran through every seated colleague), and out in the lobby round the
+	# desk's visitor side, never through the desk or whoever stands at it.
+	var corridor := COUNTER_Z - Constants.CLERK_CORRIDOR_BACK
+	if behind_from and behind_to:
+		if absf(from.x - to.x) > 0.3:
+			out.append(Vector3(from.x, 0.0, corridor))
+			out.append(Vector3(to.x, 0.0, corridor))
+	elif behind_from != behind_to:
 		var door_x := (STAFF_DOOR_X.x + STAFF_DOOR_X.y) * 0.5
-		var staff_side := Vector3(door_x, 0.0, COUNTER_Z - 0.9)
+		var staff_side := Vector3(door_x, 0.0, corridor)
 		var lobby_side := Vector3(door_x, 0.0, COUNTER_Z + 0.9)
+		var bypass := _desk_bypass(to if behind_from else from)
 		if behind_from:
-			out.append(Vector3(from.x, 0.0, staff_side.z))
+			out.append(Vector3(from.x, 0.0, corridor))
 			out.append(staff_side)
 			out.append(lobby_side)
+			out.append_array(bypass)
 		else:
+			bypass.reverse()
+			out.append_array(bypass)
 			out.append(lobby_side)
 			out.append(staff_side)
-			out.append(Vector3(to.x, 0.0, staff_side.z))
+			out.append(Vector3(to.x, 0.0, corridor))
 	out.append(to)
+	return out
+
+
+## The corners round the desk's west side for a walk between the staff door and
+## a lobby point beyond the desk (the east wall's copier, cooler, coffee), door end first.
+func _desk_bypass(lobby_end: Vector3) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if lobby_end.x > DESK_BYPASS[0].x and lobby_end.z > DESK_BYPASS[0].y:
+		for corner: Vector2 in DESK_BYPASS:
+			out.append(Vector3(corner.x, 0.0, corner.y))
 	return out
 
 
@@ -434,6 +464,17 @@ func _room(shell: RefCounted, furniture: RefCounted) -> void:
 	furniture.call("box", Vector3(-1.9, 1.6, -d + 0.03), Vector3(2.4, 1.0, 0.04), Color(0.7, 0.55, 0.35))
 	for note: int in 7:
 		furniture.call("box", Vector3(-2.9 + float(note) * 0.32, 1.55 + 0.18 * float(note % 3 - 1), -d + 0.055), Vector3(0.18, 0.22, 0.01), [Color(1.0, 0.92, 0.45), Color(0.75, 0.9, 1.0), Color(1.0, 0.75, 0.8)][note % 3])
+	# The staff nook (R2c annex): a little counter with the kettle, a coffee pot
+	# and the mugs, a mini fridge humming beside it. Breaks happen here.
+	var nook_z := -d + 0.21
+	furniture.call("box", Vector3(NOOK_KETTLE.x, 0.45, nook_z), Vector3(1.1, 0.9, 0.42), WOOD.darkened(0.15))
+	furniture.call("box", Vector3(NOOK_KETTLE.x, 0.915, nook_z), Vector3(1.14, 0.03, 0.44), Color(0.9, 0.88, 0.82))
+	furniture.call("blob", Vector3(NOOK_KETTLE.x - 0.28, 1.02, nook_z), Vector3(0.09, 0.08, 0.09), STEEL.lightened(0.2), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
+	furniture.call("box", Vector3(NOOK_KETTLE.x + 0.05, 1.03, nook_z + 0.04), Vector3(0.16, 0.2, 0.14), DARK)
+	for mug: int in 3:
+		furniture.call("cone", Vector3(NOOK_KETTLE.x + 0.28 + float(mug) * 0.1, 0.93, nook_z + 0.08 - float(mug % 2) * 0.1), 0.035, 0.08, [Color(0.95, 0.94, 0.9), Color(0.85, 0.82, 0.95), Color(0.95, 0.9, 0.75)][mug], 8)
+	furniture.call("box", Vector3(NOOK_FRIDGE.x, 0.42, NOOK_FRIDGE.z), Vector3(0.5, 0.84, 0.45), Color(0.93, 0.93, 0.9))
+	furniture.call("box", Vector3(NOOK_FRIDGE.x + 0.18, 0.55, NOOK_FRIDGE.z + 0.23), Vector3(0.03, 0.22, 0.02), STEEL)
 
 
 ## The lobby: the waiting chairs facing the windows, ficus trees, the greeter's
@@ -514,6 +555,13 @@ func _colliders() -> void:
 		[Vector3(1.2, 1.05, 0.6), Vector3(-6.5, 0.525, 4.5)],
 		[Vector3(4.9, 0.9, 0.7), Vector3(-4.0, 0.45, 2.0)],
 		[Vector3(4.9, 0.9, 0.7), Vector3(-4.0, 0.45, 3.1)],
+		# The ficus pots (R2c annex: you could walk into the leaves).
+		[Vector3(0.6, 1.4, 0.6), Vector3(-8.3, 0.7, 5.7)],
+		[Vector3(0.6, 1.4, 0.6), Vector3(-8.3, 0.7, -3.7)],
+		[Vector3(0.6, 1.4, 0.6), Vector3(1.1, 0.7, 5.7)],
+		[Vector3(0.6, 1.4, 0.6), Vector3(8.3, 0.7, 5.6)],
+		# The staff nook's counter and fridge.
+		[Vector3(1.1, 0.95, 0.42), Vector3(NOOK_KETTLE.x, 0.475, -Constants.ANNEX_SIZE.z * 0.5 + 0.21)],
 	]
 	# The front wall, round the entrance and the exit.
 	var front_z := d + t * 0.5
@@ -560,15 +608,17 @@ func _windows() -> void:
 		var window: Node3D = _Props.service_window(id, looks[id])
 		holder.add_child(window)
 		window.position = Vector3(WINDOW_X[index], 0.0, COUNTER_Z)
-		# Break spots: where this window's clerk goes on a break (by the cooler,
-		# the coffee machine, the copier; a little apart per window).
-		var spots: Array[Vector3] = [
-			Vector3(7.7, 0.0, -0.4), Vector3(7.65, 0.0, 2.6), Vector3(7.5, 0.0, 1.2),
-		]
+		# Break spots (R2c annex): the staff nook behind the counter between B and
+		# C, the kettle and the mini fridge, each window's clerk his own place
+		# there (they used to cross the whole lobby to the cooler, arrive after
+		# their window had reopened, and stand inside one another). Spot 0 faces
+		# the kettle, 1 the fridge, 2 turns to chat; D's man never takes one.
+		var place := NOOK_SPOTS[mini(index, NOOK_SPOTS.size() - 1)]
 		for spot: int in 3:
 			var marker := window.get_node("BreakSpot%d" % spot) as Node3D
-			marker.global_position = to_global(spots[spot] + Vector3(0.0, 0.0, 0.32 * float(index) - 0.5))
-			marker.global_rotation.y = PI * 0.5
+			marker.global_position = to_global(place)
+			var look: Vector3 = [NOOK_KETTLE, NOOK_FRIDGE, Vector3(NOOK_KETTLE.x, 0.0, place.z + 1.0)][spot]
+			marker.global_rotation.y = atan2(look.x - place.x, look.z - place.z)
 	# Window D is shut: blinds down, lamp off, its clock on the sill.
 	var d_window := holder.get_node("D")
 	d_window.call("set_state", &"blind_down", -1000.0)
@@ -624,7 +674,7 @@ func _desk() -> void:
 	kit.box(Vector3(0.95, 0.5, 0.0), Vector3(0.55, 0.1, 0.55), Color(0.3, 0.12, 0.16))
 	kit.box(Vector3(1.22, 0.95, 0.0), Vector3(0.1, 0.85, 0.55), Color(0.3, 0.12, 0.16))
 	# The velvet pad, the nameplate's block, the IN tray, a framed photo of a stamp.
-	kit.box(Vector3(0.0, 0.8, 0.45), Vector3(0.5, 0.025, 0.4), Color(0.62, 0.12, 0.2))
+	kit.box(Vector3(Constants.ANNEX_BIG_PAD.x, 0.8, Constants.ANNEX_BIG_PAD.z), Vector3(0.5, 0.025, 0.4), Color(0.62, 0.12, 0.2))
 	kit.box(Vector3(-0.35, 0.83, -0.2), Vector3(0.08, 0.08, 0.6), Color(0.88, 0.7, 0.28))
 	kit.box(Vector3(0.1, 0.8, -0.55), Vector3(0.4, 0.03, 0.32), STEEL)
 	kit.box(Vector3(0.25, 0.92, -0.2), Vector3(0.04, 0.22, 0.18), DARK, Basis(Vector3.FORWARD, 0.15))
@@ -634,10 +684,12 @@ func _desk() -> void:
 	desk.add_child(view)
 	_sign(_Strings.ANNEX_SIGNS["head_desk"], Vector3(-0.395, 0.83, -0.2), 26, DARK, 0.0035, desk, -PI * 0.5)
 	_spot(desk, "DeskSpot", Vector3(-1.15, 0.0, 0.2), -PI * 0.5)
-	_spot(desk, "Pad", Vector3(0.0, 0.815, 0.45))
+	# The pad on his side of the desk (R2c): standing at its edge, both his hands
+	# reach the stamp; from his chair they used to fall half a metre short.
+	_spot(desk, "Pad", Constants.ANNEX_BIG_PAD)
 	var stamp: Node3D = _Props.big_stamp()
 	desk.add_child(stamp)
-	stamp.call("set_rest", Vector3(0.0, 0.815, 0.45))
+	stamp.call("set_rest", Constants.ANNEX_BIG_PAD)
 	var body := StaticBody3D.new()
 	body.name = "Body"
 	desk.add_child(body)
