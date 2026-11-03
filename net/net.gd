@@ -32,6 +32,9 @@ var _hosting: bool = false
 var _args: _CommandLineScript = _CommandLineScript.new()
 var _local_name: String = ""
 var _players: Dictionary = {}
+## Host-local, dev only: peers that only watch (the playtest observer,
+## net/dev/remote_play.gd). Never replicated; see set_watcher().
+var _watchers: Dictionary = {}
 var _clock: _ClockSyncScript = _ClockSyncScript.new()
 var _ping_wait: float = 1.0
 var _steam: Node
@@ -208,13 +211,30 @@ func player_zone(peer_id: int) -> Zone:
 	return _players[peer_id]["zone"] as Zone
 
 
-## Peer ids currently in one zone.
+## Peer ids currently in one zone: the crew there. A watcher (set_watcher) is
+## left out, so it never boards a ride, keeps a raid rolling or counts as
+## someone on the yard; its own zone (player_zone) still says where it is.
 func players_in_zone(zone: Zone) -> Array[int]:
 	var ids: Array[int] = []
 	for peer_id: int in peer_ids():
-		if player_zone(peer_id) == zone:
+		if player_zone(peer_id) == zone and not _watchers.has(peer_id):
 			ids.append(peer_id)
 	return ids
+
+
+## Host, dev only (net/dev/remote_play.gd's observer): this peer only watches.
+## It keeps a zone (so its HUD, cues and recorder are a player's there) but is
+## left out of the zone rosters (players_in_zone) and of anything that asks
+## is_watcher(), so watching changes nothing it films. Host-local, not on the wire.
+func set_watcher(peer_id: int, watching: bool) -> void:
+	if watching:
+		_watchers[peer_id] = true
+	else:
+		_watchers.erase(peer_id)
+
+
+func is_watcher(peer_id: int) -> bool:
+	return _watchers.has(peer_id)
 
 
 ## Host only. Update the registry and tell every peer, including the owner, to teleport.
@@ -575,6 +595,7 @@ func _teleport_owner(peer_id: int, zone: Zone, spawn_marker: String) -> void:
 func _shutdown(reason: String) -> void:
 	_hosting = false
 	_players.clear()
+	_watchers.clear()
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer.close()
 		multiplayer.multiplayer_peer = null
@@ -605,6 +626,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not _hosting or not _players.has(peer_id):
 		return
 	_players.erase(peer_id)
+	_watchers.erase(peer_id)
 	_rpc_player_removed.rpc(peer_id)
 	print("[Net] peer %d left" % peer_id)
 	player_left.emit(peer_id)

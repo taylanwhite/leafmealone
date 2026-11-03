@@ -10,10 +10,6 @@ extends Label3D
 ## whichever camera is drawing, and only changes its own scale and transparency,
 ## so whoever owns it can still show, hide and move it.
 
-## How small it may get (a share of its own size), so it never vanishes into a dot
-## before the fade takes it.
-const MIN_SCALE: float = 0.2
-
 var max_screen: float = Constants.CHEFTY_LABEL_MAX_SCREEN
 var gone_m: float = Constants.CHEFTY_LABEL_GONE_M
 var full_m: float = Constants.CHEFTY_LABEL_FULL_M
@@ -44,7 +40,7 @@ func fit(camera: Camera3D) -> float:
 	if camera.projection == Camera3D.PROJECTION_PERSPECTIVE:
 		var view_height := 2.0 * away * tan(deg_to_rad(camera.fov) * 0.5)
 		var line := float(font_size) * _base_pixel
-		size = clampf(max_screen * view_height / maxf(line, 0.001), MIN_SCALE, 1.0)
+		size = clampf(max_screen * view_height / maxf(line, 0.001), Constants.CHEFTY_LABEL_MIN_SCALE, 1.0)
 	# Only when it really changes: a new pixel size rebuilds the text's mesh.
 	if absf(pixel_size - _base_pixel * size) > _base_pixel * 0.01:
 		pixel_size = _base_pixel * size

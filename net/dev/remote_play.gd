@@ -436,7 +436,9 @@ func _park_observer() -> void:
 ## yard plays are the ones a player there gets, and the recorder's zone line says
 ## so. Its body is a ghost: drawn by nobody and solid to nobody on the host and on
 ## the observer (_ghost), so it never turns up in a shot or in anyone's way, and
-## it is never someone the NICE BOYS can take (the director's own safe list), so
+## it is never someone the NICE BOYS can take (the director's own safe list). It
+## is a watcher (Net.set_watcher): left out of the zone rosters, so it never
+## boards Chefty home, keeps a raid rolling or witnesses a long toss, and
 ## watching changes nothing it films. Riding (TRANSIT) or crossing (BORDER) the
 ## host leaves it at the store, as before: the van and Border Return have rosters
 ## of their own. Not in the connected town, where zones follow where people stand.
@@ -451,6 +453,8 @@ func _shadow_observers() -> void:
 	for peer_id: int in Net.peer_ids():
 		if peer_id == 1 or Net.player_name(peer_id) != OBSERVER_NAME:
 			continue
+		if not Net.is_watcher(peer_id):
+			Net.set_watcher(peer_id, true)
 		if director != null:
 			var safe: Dictionary = director.get("_safe_until")
 			safe[peer_id] = OBSERVER_SAFE_UNTIL

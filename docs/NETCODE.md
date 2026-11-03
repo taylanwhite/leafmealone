@@ -50,7 +50,9 @@ func current_state() -> State
 
 # Zones (see "Zones")
 func player_zone(peer_id: int) -> Zone
-func players_in_zone(zone: Zone) -> Array[int]
+func players_in_zone(zone: Zone) -> Array[int]  # the crew there: watchers left out
+func set_watcher(peer_id: int, watching: bool) -> void  # host only, dev: the playtest observer; host-local
+func is_watcher(peer_id: int) -> bool
 func move_player_to_zone(peer_id: int, zone: Zone, spawn_marker: StringName = &"", teleport: bool = true) -> void  # host only
 func set_player_zone(peer_id: int, zone: Zone) -> void  # host only: re-label, no teleport
 

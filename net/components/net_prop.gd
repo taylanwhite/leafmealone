@@ -1442,7 +1442,7 @@ func _long_toss_reaction() -> Array:
 	var zone := Net.player_zone(_thrower)
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var peer := node.name.to_int()
-		if peer == _thrower or peer <= 0 or Net.player_zone(peer) != zone:
+		if peer == _thrower or peer <= 0 or Net.player_zone(peer) != zone or Net.is_watcher(peer):
 			continue
 		if (node as Node3D).global_position.distance_to(global_position) <= Constants.BED_LONG_TOSS_WITNESS_METERS:
 			others.append(peer)

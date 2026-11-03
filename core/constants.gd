@@ -2153,6 +2153,9 @@ const FP_BAG_WIND_TILT: float = 0.2
 const FP_BAG_WIND_SECONDS: float = 0.35
 const FP_BAG_SHAKE: float = 0.006
 const FP_BAG_STRAIN_SHAKE: float = 0.02
+## The tremble's wobble on each view axis (x, y, z): rad of shake phase per second
+## of game time, unlike each other so it never settles into a loop you can see.
+const FP_BAG_SHAKE_RATE := Vector3(37.0, 41.0, 29.0)
 ## Let go, it leaves your hands for the real flight over this long (s), and
 ## while it's up near your eye line it never looks wider than this (rad, its
 ## full width seen from your eyes): it shrinks the way something flung away
@@ -2170,6 +2173,8 @@ const FP_THROW_CAP_END_SECONDS: float = 1.4
 const FP_THROW_CAP_HIGH_M: float = 0.15
 const FP_THROW_CAP_LOW_M: float = 0.55
 const FP_THROW_SETTLE_DONE: float = 0.8
+## The cap starts letting go this share of the glide before FP_THROW_SETTLE_DONE.
+const FP_THROW_SETTLE_FADE: float = 0.3
 ## How far a bag reaches from its middle (m), for how big it looks.
 const FP_BAG_RADIUS: float = 0.42
 ## Your arms follow through after a toss: up and out in front (the right hand
@@ -2187,6 +2192,9 @@ const FP_BAG_ARM_STRETCH: float = 1.5
 const CHEFTY_LABEL_MAX_SCREEN: float = 0.034
 const CHEFTY_LABEL_GONE_M: float = 3.0
 const CHEFTY_LABEL_FULL_M: float = 4.3
+## It shrinks no smaller than this share of its own size, so it never vanishes
+## into a dot before the fade takes it.
+const CHEFTY_LABEL_MIN_SCALE: float = 0.2
 ## The toss arc's dots leave out anything closer to your eyes than this (m):
 ## a hop over Chefty's side climbs right past your face.
 const TOSS_ARC_NEAR_M: float = 1.1

@@ -31,12 +31,16 @@ enum Mode { IDLE, HELD, THROWN }
 ## Where the look sits on the Visual node when nobody moves it (prop_looks.gd dress).
 const REST := Vector3(0.0, -_PropLooks.VISUAL_HEIGHT, 0.0)
 
-## What happened on this peer, for the toss test (H10): ticks a bag was drawn
-## in your hands, throws drawn, the widest a thrown bag looked from your eyes
-## (rad) while it was up by your eye line (where the cap holds), the nearest its
-## middle came to them then (m), and the biggest jump of the drawn bag from one
-## tick to the next (m).
-static var stats: Dictionary = {"held_ticks": 0, "throws": 0, "max_angle_high": 0.0, "min_eye_high_m": INF, "max_step_m": 0.0}
+## What happened on this peer, for the toss test (H10, and its client half):
+## ticks a bag was drawn in your hands, throws drawn, the biggest jump of the
+## drawn bag from one tick to the next (m), and what the drawn mesh really
+## covered on your screen (seen_from: its box on screen, clipped to the view, as
+## a share of the view; 1 when it straddles your eyes): the most a bag in your
+## hands covered once it was framed, the most a thrown one covered at any tick
+## from the release to the landing (and how many seconds after the release, and
+## its middle's height above your eyes, m), the most after the hand-off ease,
+## and the widest it looked then (rad, corner to corner from your eyes).
+static var stats: Dictionary = {"held_ticks": 0, "throws": 0, "max_step_m": 0.0, "held_share": 0.0, "thrown_share": 0.0, "thrown_share_at": [], "flight_share": 0.0, "flight_wide": 0.0, "thrown_ticks": 0}
 
 var _prop: Node3D
 var _mode: int = Mode.IDLE
@@ -49,6 +53,9 @@ var _time: float = 0.0
 var _drawn := Transform3D()
 var _from := Transform3D()
 var _from_rest := Transform3D()
+## The look's meshes' box in the look's own space (for stats), once found.
+var _extent := AABB()
+var _extent_found: bool = false
 
 
 func _enter_tree() -> void:
@@ -87,6 +94,9 @@ func _physics_process(delta: float) -> void:
 		var framed := held_transform(eyes.global_transform, smoothstep(0.0, 1.0, _wind), _shake(player))
 		_draw(look, rest.interpolate_with(framed, smoothstep(0.0, 1.0, _enter)))
 		stats["held_ticks"] = int(stats["held_ticks"]) + 1
+		if _enter >= 1.0:
+			var held := seen_from(eyes, look.global_transform, _look_extent(look))
+			stats["held_share"] = maxf(float(stats["held_share"]), held.x)
 		return
 	if _mode == Mode.HELD:
 		# Out of your hands this tick: from here on it eases onto the bag's own path.
@@ -102,12 +112,78 @@ func _physics_process(delta: float) -> void:
 		return
 	var drawn := thrown_transform(rest, _from, _from_rest, _age, settle, eyes.global_position)
 	_draw(look, drawn)
-	var middle := drawn * _BedToss.LOOK_MIDDLE
-	var eye := eyes.global_position
-	if _age >= Constants.FP_THROW_CAP_IN_SECONDS and _age <= Constants.FP_THROW_CAP_HOLD_SECONDS and middle.y >= eye.y - Constants.FP_THROW_CAP_HIGH_M and settle < Constants.FP_THROW_SETTLE_DONE - 0.3:
-		var seen := 2.0 * atan(Constants.FP_BAG_RADIUS * drawn.basis.get_scale().x / maxf(eye.distance_to(middle), 0.01))
-		stats["max_angle_high"] = maxf(float(stats["max_angle_high"]), seen)
-		stats["min_eye_high_m"] = minf(float(stats["min_eye_high_m"]), eye.distance_to(middle))
+	# What the camera really gets, every tick from the release to the landing, at
+	# every height: the look's meshes as drawn, projected through these eyes.
+	var seen := seen_from(eyes, look.global_transform, _look_extent(look))
+	stats["thrown_ticks"] = int(stats["thrown_ticks"]) + 1
+	if seen.x > float(stats["thrown_share"]):
+		stats["thrown_share"] = seen.x
+		stats["thrown_share_at"] = [snappedf(_age, 0.001), snappedf((drawn * _BedToss.LOOK_MIDDLE).y - eyes.global_position.y, 0.01)]
+	if _age > Constants.FP_THROW_EASE_SECONDS:
+		stats["flight_share"] = maxf(float(stats["flight_share"]), seen.x)
+		stats["flight_wide"] = maxf(float(stats["flight_wide"]), seen.y)
+
+
+## How much of camera's view a look drawn at `at` covers, with its meshes in
+## `extent` (its own space): x, the box projected to the screen (cut off at the
+## camera's near plane, so a bag passing overhead counts only the part in front
+## of you), the rectangle around it clipped to the view, as a share of the
+## view's area (1 with the camera inside the box); y, the widest it looks from
+## the camera (rad, the biggest angle between two corners; PI inside it).
+static func seen_from(camera: Camera3D, at: Transform3D, extent: AABB) -> Vector2:
+	var eye := camera.global_position
+	if extent.has_point(at.affine_inverse() * eye):
+		return Vector2(1.0, PI)
+	var view := camera.get_viewport().get_visible_rect().size
+	var to_camera := camera.global_transform.affine_inverse()
+	var near := -camera.near * 1.01
+	var points: Array[Vector3] = []
+	var wide := 0.0
+	for index: int in 8:
+		points.append(to_camera * (at * extent.get_endpoint(index)))
+		for other: int in index:
+			wide = maxf(wide, points[index].angle_to(points[other]))
+	# What's in front of the near plane: the corners there, and where the box's
+	# edges cross it.
+	var low := Vector2(INF, INF)
+	var high := Vector2(-INF, -INF)
+	var seen := 0
+	for index: int in 8:
+		var corner := points[index]
+		if corner.z <= near:
+			var on_screen := camera.unproject_position(camera.global_transform * corner)
+			low = low.min(on_screen)
+			high = high.max(on_screen)
+			seen += 1
+		for bit: int in 3:
+			var other := index ^ (1 << bit)
+			if other < index:
+				continue
+			var end := points[other]
+			if (corner.z <= near) != (end.z <= near):
+				var cut := corner.lerp(end, (near - corner.z) / (end.z - corner.z))
+				var on_screen := camera.unproject_position(camera.global_transform * cut)
+				low = low.min(on_screen)
+				high = high.max(on_screen)
+				seen += 1
+	if seen == 0 or view.x <= 0.0 or view.y <= 0.0:
+		return Vector2(0.0, wide)
+	low = low.clamp(Vector2.ZERO, view)
+	high = high.clamp(Vector2.ZERO, view)
+	return Vector2((high.x - low.x) * (high.y - low.y) / (view.x * view.y), wide)
+
+
+## The look's meshes' box in the look's own space (the bag model never changes).
+func _look_extent(look: Node3D) -> AABB:
+	if _extent_found:
+		return _extent
+	var inverse := look.global_transform.affine_inverse()
+	for node: Node in look.find_children("*", "MeshInstance3D", true, false):
+		var mesh := node as MeshInstance3D
+		var box := (inverse * mesh.global_transform) * mesh.get_aabb()
+		_extent = box if not _extent_found else _extent.merge(box)
+		_extent_found = true
+	return _extent
 
 
 ## The carried bag's look (world) for eyes at `view`: framed in the lower third,
@@ -141,7 +217,7 @@ static func thrown_transform(rest: Transform3D, from: Transform3D, from_rest: Tr
 	# bag is in your hands or at your feet, and looks it.
 	weight *= smoothstep(eye.y - Constants.FP_THROW_CAP_LOW_M, eye.y - Constants.FP_THROW_CAP_HIGH_M, middle.y)
 	if settle >= 0.0:
-		weight *= 1.0 - smoothstep(Constants.FP_THROW_SETTLE_DONE - 0.3, Constants.FP_THROW_SETTLE_DONE, settle)
+		weight *= 1.0 - smoothstep(Constants.FP_THROW_SETTLE_DONE - Constants.FP_THROW_SETTLE_FADE, Constants.FP_THROW_SETTLE_DONE, settle)
 	var size := lerpf(1.0, fits, weight)
 	return Transform3D(turn * Basis.from_scale(Vector3.ONE * size), middle - turn * (_BedToss.LOOK_MIDDLE * size))
 
@@ -183,7 +259,8 @@ func _shake(player: Node) -> Vector3:
 		return Vector3.ZERO
 	var share := clampf(wound / Constants.THROW_CHARGE_SECONDS, 0.0, 1.0)
 	var amount := Constants.FP_BAG_SHAKE * share + (Constants.FP_BAG_STRAIN_SHAKE if bool(player.get("straining")) else 0.0)
-	return Vector3(sin(_time * 37.0), cos(_time * 41.0), sin(_time * 29.0)) * amount
+	var rate := Constants.FP_BAG_SHAKE_RATE
+	return Vector3(sin(_time * rate.x), cos(_time * rate.y), sin(_time * rate.z)) * amount
 
 
 func _local_player() -> Node3D:
