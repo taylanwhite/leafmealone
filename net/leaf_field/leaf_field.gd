@@ -23,8 +23,9 @@ signal field_reset(hard: bool)
 ## Deferred, once per frame, for each chunk whose bytes on this peer really changed
 ## since the last time (host applies, predictions, recomposes, batches, snapshots).
 signal leaves_changed(chunk_index: int)
-## units is how much leaf density went into the bag, which sets its value.
-signal bag_requested(at: Vector3, units: int)
+## units is how much leaf density went into the bag, which sets its value;
+## peer_id bagged it (world.gd sets the bag down in front of them).
+signal bag_requested(at: Vector3, units: int, peer_id: int)
 ## Why a bag didn't happen: "thin" (rake a pile first) or "no_bags" (the crew's
 ## out of lawn and contractor bags; Shops' supplies).
 signal bag_refused(peer_id: int, reason: String)
@@ -559,7 +560,7 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float, seq: int = 0)
 	if not _take_bag(supply_id):
 		_refuse_bag(peer_id, "no_bags", seq)
 		return 0
-	var removed := _apply_collect(origin, scoop, true)
+	var removed := _apply_collect(origin, scoop, true, peer_id)
 	if removed <= 0:
 		return 0
 	# R2:3 bagging the pile someone's hiding in turns them out.
@@ -569,7 +570,7 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float, seq: int = 0)
 	return removed
 
 
-func _apply_collect(origin: Vector3, radius: float, count_removed: bool) -> int:
+func _apply_collect(origin: Vector3, radius: float, count_removed: bool, peer_id: int = 0) -> int:
 	var center := _cell_at(origin)
 	var radius_cells := int(ceil(radius / cell_size)) + 1
 	var removed := 0
@@ -586,7 +587,7 @@ func _apply_collect(origin: Vector3, radius: float, count_removed: bool) -> int:
 	if count_removed:
 		_removed_units += float(removed) * _unit_scale
 		if removed >= INITIAL_DENSITY:
-			bag_requested.emit(origin, removed)
+			bag_requested.emit(origin, removed, peer_id)
 	return removed
 
 

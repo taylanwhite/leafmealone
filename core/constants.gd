@@ -5055,6 +5055,16 @@ const E_LOOK_MISS: float = 0.42
 ## GRAB_PLAYER_REACH) and only while the look passes this close to their body (m).
 const E_GRAB_REACH: float = 1.3
 const E_GRAB_LOOK_MISS: float = 0.3
+## Where on a teammate's body (m over their feet: knees, chest, head) the look
+## may pass to count as looking at them.
+const E_GRAB_LOOK_HEIGHTS: Array[float] = [0.5, 1.0, 1.5]
+## How much farther than its reach (m) a thing may be from your eye and still
+## be looked at (the eye is up at head height, the reach is measured flat):
+## a teammate or a pick-up, and the junk at Chefty's tailgate.
+const E_LOOK_REACH_SLACK: float = 1.6
+const E_LOOK_JUNK_SLACK: float = 1.0
+## A pick-up's foot (m over its origin), the lowest point a look may catch it.
+const E_LOOK_PROP_FOOT: float = 0.1
 ## Lying on a cot (player.gd _step_sleep, cartoon_body.gd sleep pose): the
 ## body's feet go this far (m) along the cot from its middle toward its foot,
 ## the climb on takes this long (s), the body tips back this far (radians) and
@@ -5073,6 +5083,24 @@ const SLEEP_ON_COT_NEAR: float = 0.45
 const SLEEP_CLIMB_HOP: float = 0.18
 const SLEEP_GET_UP_SIDE: float = 0.75
 const SLEEP_LOOK_SHARE: float = 0.6
+## Getting up (the step off the cot, and the body sitting up) takes this share
+## of the climb on: up is quicker than down.
+const SLEEP_GET_UP_SHARE: float = 0.8
+const SLEEP_SIT_UP_SHARE: float = 0.7
+## Lying there, the eyes' pitch stays between these (radians: just off the
+## canvas toward your feet .. back over the pillow).
+const SLEEP_HEAD_PITCH_MIN: float = 0.2
+const SLEEP_HEAD_PITCH_MAX: float = 2.6
+## The sleep pose (cartoon_body.gd): arms folded on the belly (shoulder pitch
+## and the inward swing, radians), legs together with the feet this far apart
+## (radians), the toes pointed up (radians), and the eyes shut to this share
+## once the body is past this far down.
+const SLEEP_ARM_PITCH: float = -0.62
+const SLEEP_ARM_IN: float = -0.32
+const SLEEP_LEG_SPLAY: float = 0.05
+const SLEEP_TOE_PITCH: float = -0.5
+const SLEEP_EYES_SHUT: float = 0.06
+const SLEEP_EYES_SHUT_FROM: float = 0.6
 ## Sleeping breath: this many breaths a second, the chest rising this share.
 const SLEEP_BREATHE_RATE: float = 0.28
 const SLEEP_BREATHE_DEPTH: float = 0.05
@@ -5082,6 +5110,16 @@ const SLEEP_BREATHE_DEPTH: float = 0.05
 const BAG_SPAWN_AHEAD_MIN: float = 1.35
 const BAG_GROW_SECONDS: float = 0.32
 const BAG_GROW_FROM: float = 0.3
+## With no bagger named (tests), the nearest player within this far (m, flat)
+## of the pile stands in; a pile's middle is this high (m) over the ground; the
+## bag sets down this far (m) over the ground; and a bagger standing within this
+## far (m) of the pile's middle pushes it out the way they face.
+const BAG_SPAWN_NEAREST_REACH: float = 4.05
+const BAG_SPAWN_PILE_HEIGHT: float = 0.2
+const BAG_SPAWN_GROUND_LIFT: float = 0.02
+const BAG_SPAWN_ON_TOP: float = 0.2
+## The grow overshoots full size by this share at its middle, as it fills.
+const BAG_GROW_OVERSHOOT: float = 0.08
 ## Leaves stop at the yard's fence (leaf_field.gd): a stroke's berm never lands
 ## past a fence line; what doesn't fit banks up on the yard side.
 ## The wheelbarrow rights itself (net_prop.gd): tipped more than this (radians)

@@ -96,7 +96,10 @@ func _run_host() -> void:
 		await _seconds(0.25)
 		waited_report += 0.25
 	var client: Dictionary = _steps.get("client", {})
-	_check("client: lying, its eye looks up from the pillow over the canvas", bool(client.get("ok", false)), str(client))
+	_check("client: lying, its eye looks up from the pillow over the canvas; the mouse turns the head, not the body", bool(client.get("ok", false)), str(client))
+	await _cot_press()
+	# Last, since it drives off.
+	await _board_press()
 	_finish(_ok)
 
 
@@ -191,6 +194,16 @@ func _hedge() -> void:
 	var choice: Dictionary = me.call("e_choice")
 	var hint: Dictionary = me.call("interaction_hint")
 	_check("hedge: no raid, a bag in reach by the hedge: E picks up the bag, and that's the prompt (NB-07)", bag != null and StringName(choice["do"]) == &"pick_up" and choice["target"] == bag and str(hint.get("text", "")) == _Strings.UI["prompt_pick_up_plain"], "%s %s '%s'" % [choice["do"], choice["target"], hint.get("text", "")])
+	# A real press, through _input: the bag comes up, and you're not in the hedge.
+	if bag != null:
+		await _press_e()
+		await _seconds(0.3)
+		var held := int(bag.get("held_by")) == 1
+		var dove := me.get("_hidden_spot") != null or bool(me.call("_hide_moving"))
+		_check("hedge: pressing E by the hedge picks the bag up and doesn't dive in", held and not dove, "held_by %d, dove %s" % [int(bag.get("held_by")), dove])
+		if held:
+			bag.call("request_drop")
+			await _seconds(0.3)
 	var director := get_tree().get_first_node_in_group("run_director")
 	director.call("_rpc_phase", 1, Net.server_time(), "")
 	await _seconds(0.1)
@@ -249,6 +262,20 @@ func _bag() -> void:
 	var full := look != null and is_equal_approx(look.scale.x, 1.0)
 	_check("bag: it sits a step ahead on the ground, and grows from the pile (crew-16)", flat.length() >= Constants.BAG_SPAWN_AHEAD_MIN - 0.05 and low and in_front and small and full, "%.2f m ahead, low %s, in front %s, small %s, full %s" % [flat.length(), low, in_front, small, full])
 	bag.queue_free()
+	# Two on one pile: the Target just past it, closer to it than the bagger.
+	# The bag still goes a step in front of whoever bagged it, not at their feet.
+	var pile := me.global_position + ahead.normalized() * 1.5 + Vector3(0.0, 0.2, 0.0)
+	_teleport(_other(), Vector3(pile.x, me.global_position.y, pile.z) + ahead.normalized() * 0.6, 0.0)
+	await _seconds(0.8)
+	world.call("_spawn_bag_for", field, pile, int(Constants.MIN_BAG_CELLS * 80.0), 1)
+	await get_tree().process_frame
+	var shared := _nearest_bag(pile)
+	if shared == null:
+		_check("bag: a fresh bag with a teammate at the pile", false, "")
+		return
+	var out := Vector2(shared.global_position.x - me.global_position.x, shared.global_position.z - me.global_position.z)
+	_check("bag: with a teammate nearer the pile, it still lands a step in front of the bagger", out.length() >= Constants.BAG_SPAWN_AHEAD_MIN - 0.05 and out.normalized().dot(Vector2(ahead.x, ahead.z).normalized()) > 0.7, "%.2f m ahead of the bagger, Target %.2f m from the pile" % [out.length(), Vector2(_other().global_position.x - pile.x, _other().global_position.z - pile.z).length()])
+	shared.queue_free()
 
 
 func _barrow() -> void:
@@ -320,14 +347,99 @@ func _sleep() -> void:
 	var tag_gone := _tag_hidden(other)
 	var face_up := (body as Node3D).rotation.x > 1.3
 	_check("sleep: the host draws the Target lying on its cot, tag hidden (crew-06)", lying > 0.95 and on_cot and tag_gone and face_up, "lie %.2f, %.2f m off the spot, tag gone %s, tipped %.2f" % [lying, other.global_position.distance_to(spot.origin), tag_gone, (body as Node3D).rotation.x])
-	# The client checks its own view, then the host wakes it.
-	await _seconds(1.0)
+	# The client checks its own view and turns its head on the pillow: the body
+	# stays on the cot's line for the host (it used to swing off the cot).
+	var spot_yaw := spot.basis.get_euler().y
+	var worst := 0.0
+	var sampled := 0.0
+	while sampled < 2.0:
+		await get_tree().physics_frame
+		sampled += get_physics_process_delta_time()
+		worst = maxf(worst, absf(angle_difference(spot_yaw, other.rotation.y)))
+	var still_on := other.global_position.distance_to(spot.origin) < 0.15
+	_check("sleep: the Target turning its head keeps its body on the cot's line", worst < 0.05 and still_on, "body off the cot's line by up to %.3f rad, on the spot %s" % [worst, still_on])
 	clock.call("_handle_sleep", peer, false)
 	await _seconds(Constants.SLEEP_CLIMB_SECONDS * 0.8 + 1.0)
 	var off := other.global_position
 	var foot := spot.origin
 	var stepped := Vector2(off.x - foot.x, off.z - foot.z).length() > Constants.SLEEP_GET_UP_SIDE * 0.7 and absf(off.y - cot.global_position.y) < 0.2
 	_check("sleep: woken, the Target steps down off the cot's foot and stands", stepped and float(body.get("lie")) < 0.05, "at %s (foot %s), lie %.2f" % [off, foot, float(body.get("lie"))])
+
+
+## A real E between two cots, nearer the one that isn't first to answer: the
+## first cot passes (it isn't the nearest), the press falls through to the
+## nearest, and you lie down on it.
+func _cot_press() -> void:
+	var me := _me()
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var first: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("prompt_sources"):
+		if node.is_in_group("cots"):
+			first = node as Node3D
+			break
+	var near: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("cots"):
+		var cot := node as Node3D
+		if cot != first and first != null and cot.global_position.distance_to(first.global_position) < 2.9 and (near == null or cot.global_position.distance_to(first.global_position) < near.global_position.distance_to(first.global_position)):
+			near = cot
+	if first == null or near == null:
+		_check("cot press: two cots side by side", false, "first %s, near %s" % [first, near])
+		return
+	_teleport(_other(), near.global_position + Vector3(6.0, 0.0, 6.0), 0.0)
+	var stand := near.global_position.lerp(first.global_position, 0.47)
+	stand.y = me.global_position.y
+	_place(me, stand, _yaw_toward(stand, near.global_position), 0.0)
+	await _seconds(0.6)
+	var choice: Dictionary = me.call("e_choice")
+	await _press_e()
+	await _seconds(0.4)
+	var lying := bool(clock.call("is_sleeping", 1))
+	var on := int(clock.call("cot_of", 1)) == int(near.get("index"))
+	_check("cot press: E between two cots lies you down on the nearer one, even when the other answers first", lying and on, "E chose %s (%s), asleep %s, cot %d (nearest %d)" % [choice["do"], choice["target"], lying, int(clock.call("cot_of", 1)), int(near.get("index"))])
+	clock.call("_handle_sleep", 1, false)
+	await _seconds(Constants.SLEEP_CLIMB_SECONDS + 0.6)
+
+
+## A real E at Chefty's pad with the Target right beside you: Chefty heads out,
+## and nobody gets picked up (the W8 crew session's Board/Grab mix-up).
+func _board_press() -> void:
+	var me := _me()
+	var other := _other()
+	var post: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("prompt_sources"):
+		if str(node.get("action_name")) == "depart":
+			post = node as Node3D
+	var chefty := get_tree().get_first_node_in_group("world").get_node_or_null("Rides/Chefty")
+	if post == null or chefty == null:
+		_check("board press: Chefty and its pad", false, "")
+		return
+	var stand := Vector3(post.global_position.x, me.global_position.y, post.global_position.z)
+	_place(me, stand, 0.0, 0.0)
+	_teleport(other, stand + Vector3(0.85, 0.0, 0.0), 0.0)
+	await _seconds(0.8)
+	await _press_e()
+	var waited := 0.0
+	while waited < 1.5 and not bool(chefty.call("is_riding")):
+		await _seconds(0.1)
+		waited += 0.1
+	var riding := bool(chefty.call("is_riding"))
+	var grabbed := int(me.get("carrying")) != 0 or int(other.get("carried_by")) != 0
+	_check("board press: E at the pad with a teammate beside you boards Chefty, nobody grabbed", riding and not grabbed, "riding %s, grabbed %s" % [riding, grabbed])
+
+
+## E, pressed and let go through the input pipeline like a player's key.
+func _press_e() -> void:
+	var down := InputEventAction.new()
+	down.action = &"interact"
+	down.pressed = true
+	Input.parse_input_event(down)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var up := InputEventAction.new()
+	up.action = &"interact"
+	up.pressed = false
+	Input.parse_input_event(up)
+	await get_tree().physics_frame
 
 
 func _finish(ok: bool) -> void:
@@ -368,6 +480,23 @@ func _run_client() -> void:
 		var looks_up := head != null and (-head.global_basis.z).y > 0.8
 		ok = eye_low and looks_up
 		detail = "eye %.2f m over the canvas, look %s" % [head.global_position.y - cot_y if head != null else -1.0, -head.global_basis.z if head != null else Vector3.ZERO]
+		# The mouse turns the head on the pillow, not the body on the cot.
+		if head != null:
+			var cot: Node3D = me.call("_my_cot", clock)
+			var spot_yaw := (me.call("sleep_spot", cot) as Transform3D).basis.get_euler().y if cot != null else float(me.get("body_yaw"))
+			var before := -head.global_basis.z
+			var turning := 0.0
+			while turning < 0.8:
+				me.set("_look", Vector2(-40.0, 0.0))
+				await get_tree().physics_frame
+				turning += get_physics_process_delta_time()
+			await _seconds(0.2)
+			var after := -head.global_basis.z
+			var body_off := absf(angle_difference(spot_yaw, float(me.get("body_yaw"))))
+			var turned := before.angle_to(after)
+			var still_up := after.y > 0.5
+			ok = ok and body_off < 0.01 and turned > 0.4 and still_up
+			detail += "; turned the head %.2f rad (look %s), body off the cot's line %.3f" % [turned, after, body_off]
 		break
 	print("[HandsTest] client: %s (%s)" % [ok, detail])
 	result["ok"] = ok

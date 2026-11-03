@@ -220,7 +220,7 @@ func _grow() -> void:
 	if look == null:
 		return
 	var share := 1.0 - _grow_left / Constants.BAG_GROW_SECONDS
-	var size := lerpf(Constants.BAG_GROW_FROM, 1.0, ease(share, 0.4)) + sin(share * PI) * 0.08
+	var size := lerpf(Constants.BAG_GROW_FROM, 1.0, ease(share, 0.4)) + sin(share * PI) * Constants.BAG_GROW_OVERSHOOT
 	look.scale = Vector3(size, size, size) if _grow_left > 0.0 else Vector3.ONE
 
 

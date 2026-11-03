@@ -594,7 +594,7 @@ func _step_sleep(delta: float) -> bool:
 			_sleep_cot = null
 		if _wake_to.is_finite():
 			velocity = Vector3.ZERO
-			_sleep_climb = minf(1.0, _sleep_climb + delta / (Constants.SLEEP_CLIMB_SECONDS * 0.8))
+			_sleep_climb = minf(1.0, _sleep_climb + delta / (Constants.SLEEP_CLIMB_SECONDS * Constants.SLEEP_GET_UP_SHARE))
 			var up := smoothstep(0.0, 1.0, _sleep_climb)
 			global_position = _sleep_from.origin.lerp(_wake_to, up)
 			if _sleep_climb >= 1.0:
@@ -608,6 +608,7 @@ func _step_sleep(delta: float) -> bool:
 		_stow_hands()
 		_sleep_from = Transform3D(Basis(Vector3.UP, body_yaw), global_position)
 		_sleep_climb = 0.0
+		_sleep_look = 0.0
 	_sleep_cot = cot
 	velocity = Vector3.ZERO
 	if cot != null:
@@ -623,8 +624,12 @@ func _step_sleep(delta: float) -> bool:
 			body_yaw = lerp_angle(_sleep_from.basis.get_euler().y, spot_yaw, share)
 		else:
 			global_position = spot.origin
-			# Lying there you can turn your head a little, not spin on the canvas.
-			body_yaw = spot_yaw + clampf(angle_difference(spot_yaw, body_yaw), -Constants.SLEEP_YAW_CLAMP, Constants.SLEEP_YAW_CLAMP)
+			# Lying there the mouse turns your head on the pillow, never the body:
+			# the body pivots at the heels, so turning it swung the whole sleeper
+			# off the cot for everyone (review of crew-06). The turn is this
+			# peer's own (_apply_presentation); the body stays on the cot's line.
+			_sleep_look = clampf(_sleep_look + angle_difference(spot_yaw, body_yaw), -Constants.SLEEP_YAW_CLAMP, Constants.SLEEP_YAW_CLAMP)
+			body_yaw = spot_yaw
 	for action: StringName in [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump"]:
 		if Input.is_action_just_pressed(action) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 			clock.call("request_sleep", false)
@@ -633,6 +638,11 @@ func _step_sleep(delta: float) -> bool:
 
 var _sleep_from := Transform3D()
 var _sleep_climb: float = 0.0
+## Owner only: how far (radians, + left) the sleeper's head is turned on the
+## pillow. Not replicated: to everyone else a sleeper's face looks straight up.
+var _sleep_look: float = 0.0
+## Whether _apply_presentation left the head turned (so it puts it back once).
+var _sleep_head_turned: bool = false
 var _sleep_cot: Node3D
 ## Getting up: where the step off the cot ends (INF when not getting up).
 var _wake_to := Vector3.INF
@@ -1247,8 +1257,8 @@ func _grabbable_player() -> Node3D:
 		# Looking at them: the line of sight passes within reach of their body
 		# somewhere between the knees and the top of the head.
 		var miss := INF
-		for height: float in [0.5, 1.0, 1.5]:
-			miss = minf(miss, _look_miss(other.global_position + Vector3(0.0, height, 0.0), Constants.E_GRAB_REACH + 1.6))
+		for height: float in Constants.E_GRAB_LOOK_HEIGHTS:
+			miss = minf(miss, _look_miss(other.global_position + Vector3(0.0, height, 0.0), Constants.E_GRAB_REACH + Constants.E_LOOK_REACH_SLACK))
 		if miss > Constants.E_GRAB_LOOK_MISS:
 			continue
 		best = other
@@ -1812,7 +1822,7 @@ func e_choice() -> Dictionary:
 	if mate != null:
 		return {"do": &"grab_player", "hint": {"text": _Strings.UI["prompt_grab"], "at": mate.global_position + Vector3(0.0, 2.0, 0.0), "source": mate}, "target": mate}
 	var junk_bed := _junk_tailgate()
-	if junk_bed != null and _look_miss(junk_bed.call("tailgate_point") as Vector3, Constants.PICKUP_REACH + 1.0) <= Constants.E_LOOK_MISS:
+	if junk_bed != null and _look_miss(junk_bed.call("tailgate_point") as Vector3, Constants.PICKUP_REACH + Constants.E_LOOK_JUNK_SLACK) <= Constants.E_LOOK_MISS:
 		return _junk_choice(junk_bed)
 	var looked := _looked_at_pickup() if can_pick else null
 	if looked != null:
@@ -1964,8 +1974,8 @@ func _looked_at_pickup() -> Node3D:
 		# Anywhere from its foot to its top counts (a wheelbarrow's handles, a bag's neck).
 		var middle := prop.global_position + Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0)
 		var miss := INF
-		for height: float in [0.1, _PropLooks.VISUAL_HEIGHT, _PropLooks.VISUAL_HEIGHT * 2.0]:
-			miss = minf(miss, _look_miss(prop.global_position + Vector3(0.0, height, 0.0), Constants.PICKUP_REACH + 1.6))
+		for height: float in [Constants.E_LOOK_PROP_FOOT, _PropLooks.VISUAL_HEIGHT, _PropLooks.VISUAL_HEIGHT * 2.0]:
+			miss = minf(miss, _look_miss(prop.global_position + Vector3(0.0, height, 0.0), Constants.PICKUP_REACH + Constants.E_LOOK_REACH_SLACK))
 		if miss > Constants.E_LOOK_MISS:
 			continue
 		var distance := middle.distance_to(global_position)
@@ -2405,7 +2415,18 @@ func _apply_presentation() -> void:
 	var lying := float(get_node("Visual/CartoonBody").get("lie")) if has_node("Visual/CartoonBody") else 0.0
 	if lying > 0.0 and fallen <= 0.01:
 		var resting := smoothstep(0.0, 1.0, lying)
-		%Head.rotation.x = lerpf(head_pitch, clampf(Constants.SLEEP_LIE_ANGLE + head_pitch * Constants.SLEEP_LOOK_SHARE, 0.2, 2.6), resting)
+		var pitch := lerpf(head_pitch, clampf(Constants.SLEEP_LIE_ANGLE + head_pitch * Constants.SLEEP_LOOK_SHARE, Constants.SLEEP_HEAD_PITCH_MIN, Constants.SLEEP_HEAD_PITCH_MAX), resting)
+		%Head.rotation.x = pitch
+		# Your own head rolls on the pillow toward your shoulder (about the
+		# spine, which lies along the body's +Z), eased in and out with the pose.
+		if is_multiplayer_authority() and (_sleep_look != 0.0 or _sleep_head_turned):
+			%Head.basis = Basis(Vector3.BACK, _sleep_look * resting) * Basis(Vector3.RIGHT, pitch)
+			_sleep_head_turned = _sleep_look != 0.0
+	elif _sleep_head_turned:
+		_sleep_head_turned = false
+		_sleep_look = 0.0
+		%Head.rotation.y = 0.0
+		%Head.rotation.z = 0.0
 	# Some jumps get a little "hup". anim_state and velocity replicate, so everyone hears it.
 	if anim_state == AnimState.AIR and _last_anim != AnimState.AIR and velocity.y > 1.0 and randf() < HUP_CHANCE:
 		say("vo_hup")

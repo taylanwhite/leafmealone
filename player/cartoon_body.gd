@@ -1089,6 +1089,8 @@ func _physics_process(delta: float) -> void:
 ## has), with on true once the body is on its cot. 0 standing .. 1 lying.
 var lie: float = 0.0
 var _lie_on: bool = false
+## The lift (m) _apply_fall has added to position.y, so it takes back only that.
+var _lie_lift: float = 0.0
 
 
 func lie_down(on: bool) -> void:
@@ -1109,26 +1111,30 @@ func sit(pose: int = 1) -> void:
 ## Lying on the back, limbs splayed, head and all, and stars circling while dizzy.
 func _apply_fall(delta: float) -> void:
 	# Lying down eases back over the climb onto the cot; getting up is quicker.
-	lie = move_toward(lie, 1.0 if _lie_on else 0.0, delta / (Constants.SLEEP_CLIMB_SECONDS if _lie_on else Constants.SLEEP_CLIMB_SECONDS * 0.7))
+	lie = move_toward(lie, 1.0 if _lie_on else 0.0, delta / (Constants.SLEEP_CLIMB_SECONDS if _lie_on else Constants.SLEEP_CLIMB_SECONDS * Constants.SLEEP_SIT_UP_SHARE))
 	var resting := smoothstep(0.0, 1.0, lie)
 	var angle := maxf(fallen * FALL_ANGLE, resting * Constants.SLEEP_LIE_ANGLE)
 	rotation.x = angle
-	# On the canvas, not in it: the back is behind the pivot at the heels.
+	# On the canvas, not in it: the back is behind the pivot at the heels. The
+	# lift is added to wherever else put the body (a seat in Chefty's bed, the
+	# studio), never written over it, and is 0 except while lying down.
 	var lift := resting * Constants.SLEEP_LIE_LIFT
-	position.y = lift
+	if lift != _lie_lift:
+		position.y += lift - _lie_lift
+		_lie_lift = lift
 	if _head_root != self and _head_root.get_parent() != self:
 		_head_root.position = Vector3(0.0, _head_stand_y * cos(angle) + lift, _head_stand_y * sin(angle))
 	if resting > 0.01 and fallen <= 0.01:
 		# Legs straight and together, hands folded on the belly, the chest rising slow.
 		for index: int in _legs.size():
 			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, 0.0, resting)
-			_legs[index].rotation.z = lerpf(_legs[index].rotation.z, 0.05 * (1.0 if index == 0 else -1.0), resting)
+			_legs[index].rotation.z = lerpf(_legs[index].rotation.z, Constants.SLEEP_LEG_SPLAY * (1.0 if index == 0 else -1.0), resting)
 			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, 0.0, resting)
-			_shoes[index].rotation.x = lerpf(_shoes[index].rotation.x, -0.5, resting)
+			_shoes[index].rotation.x = lerpf(_shoes[index].rotation.x, Constants.SLEEP_TOE_PITCH, resting)
 		for index: int in _arms.size():
 			var side := -1.0 if index == 0 else 1.0
-			_arms[index].rotation.x = lerpf(_arms[index].rotation.x, -0.62, resting)
-			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, side * -0.32, resting)
+			_arms[index].rotation.x = lerpf(_arms[index].rotation.x, Constants.SLEEP_ARM_PITCH, resting)
+			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, side * Constants.SLEEP_ARM_IN, resting)
 		var breath := sin(_time * TAU * Constants.SLEEP_BREATHE_RATE) * Constants.SLEEP_BREATHE_DEPTH * resting
 		_torso.scale.z *= 1.0 + breath
 		# The face looks straight up off the pillow, whichever way the eyes (the
@@ -1238,8 +1244,8 @@ func _animate_face(delta: float) -> void:
 	if _gesture == "startle":
 		eye_open = 1.3
 	# Asleep: shut.
-	if lie > 0.6:
-		eye_open = 0.06
+	if lie > Constants.SLEEP_EYES_SHUT_FROM:
+		eye_open = Constants.SLEEP_EYES_SHUT
 	for eye: Node3D in _eyes:
 		eye.scale.y = lerpf(eye.scale.y, eye_open, clampf(delta * 25.0, 0.0, 1.0))
 	_aim_pupils(delta)

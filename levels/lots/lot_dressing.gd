@@ -16,6 +16,17 @@ const DOOR := Color(0.32, 0.22, 0.16)
 const TRIM := Color(0.93, 0.91, 0.86)
 const SHUTTER := Color(0.22, 0.38, 0.3)
 const TRUNK := Color(0.42, 0.3, 0.2)
+## The picket fence (_fences): this far in from the lot's middle along the back
+## and both sides, the sides running to this z at the front gate.
+const FENCE_INSET: float = 19.4
+const FENCE_FRONT_Z: float = 12.5
+## The same fence as lines for the leaf field (_fence_the_leaves): the back run
+## reaches a metre past the corner so the corner closes.
+const FENCE_RUNS: Array = [
+	[Vector3(-FENCE_INSET - 1.0, 0.0, -FENCE_INSET), Vector3(FENCE_INSET, 0.0, -FENCE_INSET)],
+	[Vector3(-FENCE_INSET, 0.0, -FENCE_INSET), Vector3(-FENCE_INSET, 0.0, FENCE_FRONT_Z)],
+	[Vector3(FENCE_INSET, 0.0, -FENCE_INSET), Vector3(FENCE_INSET, 0.0, FENCE_FRONT_Z)],
+]
 
 ## House body center and size, matching the House node in lot_01.tscn.
 @export var house_center := Vector3(-8.0, 2.5, -6.0)
@@ -99,14 +110,15 @@ func _replace_boxes() -> void:
 ## A low picket fence just inside the back and side edges, open at the front gate.
 func _fences() -> void:
 	for x: float in range(-19, 20, 1):
-		_picket(Vector3(x, 0.0, -19.4))
-	for z: float in range(-18, 13, 1):
-		_picket(Vector3(-19.4, 0.0, z))
-		_picket(Vector3(19.4, 0.0, z))
-	for z: float in [-19.4]:
-		_LowPoly.box(self, Vector3(39.0, 0.08, 0.06), Vector3(0.0, 0.55, z), PICKET)
-	for x: float in [-19.4, 19.4]:
-		_LowPoly.box(self, Vector3(0.06, 0.08, 31.0), Vector3(x, 0.55, -3.0), PICKET)
+		_picket(Vector3(x, 0.0, -FENCE_INSET))
+	for z: float in range(-18, int(FENCE_FRONT_Z) + 1, 1):
+		_picket(Vector3(-FENCE_INSET, 0.0, z))
+		_picket(Vector3(FENCE_INSET, 0.0, z))
+	_LowPoly.box(self, Vector3(FENCE_INSET * 2.0 + 0.2, 0.08, 0.06), Vector3(0.0, 0.55, -FENCE_INSET), PICKET)
+	# The side rails run from the first picket off the back rail to the front.
+	var rail_from := -FENCE_INSET + 0.9
+	for x: float in [-FENCE_INSET, FENCE_INSET]:
+		_LowPoly.box(self, Vector3(0.06, 0.08, FENCE_FRONT_Z - rail_from), Vector3(x, 0.55, (FENCE_FRONT_Z + rail_from) * 0.5), PICKET)
 
 
 ## Raked leaves bank up against the pickets instead of going through them
@@ -116,7 +128,7 @@ func _fence_the_leaves() -> void:
 	if field == null:
 		return
 	var lines: Array = []
-	for run: Array in [[Vector3(-20.4, 0.0, -19.4), Vector3(19.4, 0.0, -19.4)], [Vector3(-19.4, 0.0, -19.4), Vector3(-19.4, 0.0, 12.5)], [Vector3(19.4, 0.0, -19.4), Vector3(19.4, 0.0, 12.5)]]:
+	for run: Array in FENCE_RUNS:
 		var a := field.to_local(to_global(run[0] as Vector3))
 		var b := field.to_local(to_global(run[1] as Vector3))
 		lines.append([Vector2(a.x, a.z), Vector2(b.x, b.z)])
