@@ -996,7 +996,39 @@ func _spawn_bag_for(field: Node, at: Vector3, units: int) -> void:
 	if not LeafAudio.owns_bag_tie(field):
 		_play_sfx("bag", at)
 	%RuntimeProps.add_child(bag, true)
-	bag.global_position = at + Vector3(0.0, 0.6, 0.0)
+	# crew-16: the bag sits on the ground where the pile was (it grows there,
+	# net_prop.gd), and at least a step in front of whoever bagged it, so it's in
+	# view, not dropped at their feet under the hotbar. A test's bag (no leaves)
+	# goes exactly where it was asked for.
+	var spot := at + Vector3(0.0, 0.6, 0.0)
+	if units > 0:
+		spot = _bag_spot(at)
+	bag.global_position = spot
+
+
+## Where a fresh bag of leaves goes: on the ground at the pile, pushed out to
+## BAG_SPAWN_AHEAD_MIN from the nearest player (the one who bagged it).
+func _bag_spot(at: Vector3) -> Vector3:
+	var bagger: Node3D = null
+	var nearest := Constants.BAG_SPAWN_AHEAD_MIN * 3.0
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var player := node as Node3D
+		if player == null or Net.is_watcher(player.name.to_int()):
+			continue
+		var flat := Vector2(at.x - player.global_position.x, at.z - player.global_position.z).length()
+		if flat < nearest:
+			nearest = flat
+			bagger = player
+	var ground := at.y - 0.2
+	if bagger == null:
+		return Vector3(at.x, ground + 0.02, at.z)
+	ground = bagger.global_position.y
+	var out := Vector3(at.x - bagger.global_position.x, 0.0, at.z - bagger.global_position.z)
+	if out.length() < 0.2:
+		out = -bagger.global_basis.z
+		out.y = 0.0
+	out = out.normalized() * maxf(out.length(), Constants.BAG_SPAWN_AHEAD_MIN)
+	return Vector3(bagger.global_position.x + out.x, ground + 0.02, bagger.global_position.z + out.z)
 
 
 func _spawn_peer(peer_id: int) -> void:

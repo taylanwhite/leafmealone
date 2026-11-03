@@ -315,11 +315,12 @@ static func current_hint(tree: SceneTree) -> Dictionary:
 	# the prompt is about where your own body stands).
 	if _HudMode.overlays_held(tree, Net.local_peer_id()) or not own_view(tree):
 		return {}
+	# The local player decides, the places in "prompt_sources" included
+	# (player.gd e_choice, p1-hands): what it shows is what E does, and nothing
+	# it left unsaid shows up from a place behind it.
 	for node: Node in tree.get_nodes_in_group("players"):
 		if node.name == str(Net.local_peer_id()) and node.has_method("interaction_hint"):
-			var hint: Dictionary = node.call("interaction_hint")
-			if not hint.is_empty():
-				return hint
+			return node.call("interaction_hint")
 	for source: Node in tree.get_nodes_in_group("prompt_sources"):
 		var hint: Dictionary = source.call("prompt")
 		if not hint.is_empty():

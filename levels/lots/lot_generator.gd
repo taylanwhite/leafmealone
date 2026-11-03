@@ -64,6 +64,13 @@ const BED_EDGES: Dictionary = {
 }
 ## The fence kinds the yard's paintable fence can be (hood_styles.gd "job_fence").
 const FENCE_KINDS: Array[String] = ["picket", "weathered_picket", "vinyl", "split_rail", "privacy", "iron"]
+## The fence's runs (from, to, the yard side), in this node's space: the back
+## and both sides, open at the front. The leaf field stops raked leaves at them.
+const FENCE_RUNS: Array = [
+	[Vector3(-19.4, 0.0, -19.4), Vector3(19.4, 0.0, -19.4), Vector3.BACK],
+	[Vector3(-19.4, 0.0, -18.4), Vector3(-19.4, 0.0, 14.0), Vector3.RIGHT],
+	[Vector3(19.4, 0.0, -18.4), Vector3(19.4, 0.0, 14.0), Vector3.LEFT],
+]
 
 ## The neighborhood the yard is in (net/town/neighborhoods.gd id; "" looks like
 ## maple_row). Set by job_lot before generate(), like mess.
@@ -686,12 +693,7 @@ func _fences() -> void:
 	var faded: Color = look.get("faded", _TaskLooks.FADED_PAINT)
 	var surface := str(look.get("surface", "planks"))
 	_art_notes.append(["fence", kind, fresh.to_html(), faded.to_html(), surface])
-	var runs: Array = [
-		[Vector3(-19.4, 0.0, -19.4), Vector3(19.4, 0.0, -19.4), Vector3.BACK],
-		[Vector3(-19.4, 0.0, -18.4), Vector3(-19.4, 0.0, 14.0), Vector3.RIGHT],
-		[Vector3(19.4, 0.0, -18.4), Vector3(19.4, 0.0, 14.0), Vector3.LEFT],
-	]
-	for run: Array in runs:
+	for run: Array in FENCE_RUNS:
 		var from: Vector3 = run[0]
 		var to: Vector3 = run[1]
 		var inward: Vector3 = run[2]
@@ -943,6 +945,17 @@ func _shape_leaves(lot: Node3D) -> void:
 		var at: Vector3 = (field as Node3D).to_local(to_global(tree.position))
 		sources.append({"at": Vector2(at.x, at.z), "crown": str(tree.get("crown")), "kind": str(tree.get("kind")), "variant": int(tree.get("variant"))})
 	field.set_meta("leaf_sources", sources)
+	# The fence along the back and sides (_fences): raked leaves bank up against
+	# it instead of being pushed through it (NB-08), in the field's space.
+	var fence_lines: Array = []
+	for run: Array in FENCE_RUNS:
+		# Each run reaches back a metre past its start, so the corners close.
+		var from: Vector3 = run[0]
+		var to: Vector3 = run[1]
+		var a: Vector3 = (field as Node3D).to_local(to_global(from - (to - from).normalized()))
+		var b: Vector3 = (field as Node3D).to_local(to_global(to))
+		fence_lines.append([Vector2(a.x, a.z), Vector2(b.x, b.z)])
+	field.set_meta("fence_lines", fence_lines)
 	field.call("shape_initial", func(world: Vector3) -> float:
 		var local := lot.to_local(world)
 		if house.grow(-0.4).has_point(Vector2(local.x, local.z)):

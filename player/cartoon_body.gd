@@ -1083,6 +1083,22 @@ func _physics_process(delta: float) -> void:
 	_apply_work_head()
 
 
+## Asleep on a cot (crew-06): lying on the back on the canvas, legs together,
+## hands folded on the belly, eyes shut, breathing slow. player.gd calls it
+## every frame on every peer from the day clock's sleepers (which every peer
+## has), with on true once the body is on its cot. 0 standing .. 1 lying.
+var lie: float = 0.0
+var _lie_on: bool = false
+
+
+func lie_down(on: bool) -> void:
+	if on and not _lie_on and _gesture != "":
+		# Whatever the hands were doing stops: nobody waves lying down.
+		_gesture = ""
+		_gesture_time = 0.0
+	_lie_on = on
+
+
 ## In a seat: 1 sitting (Chefty's cab: hips down, legs out front), 2 riding
 ## standing (the bed: still, no walk cycle), 0 back on your feet. player.gd calls
 ## it every frame on every peer, from the riders the vehicle replicates.
@@ -1092,10 +1108,34 @@ func sit(pose: int = 1) -> void:
 
 ## Lying on the back, limbs splayed, head and all, and stars circling while dizzy.
 func _apply_fall(delta: float) -> void:
-	var angle := fallen * FALL_ANGLE
+	# Lying down eases back over the climb onto the cot; getting up is quicker.
+	lie = move_toward(lie, 1.0 if _lie_on else 0.0, delta / (Constants.SLEEP_CLIMB_SECONDS if _lie_on else Constants.SLEEP_CLIMB_SECONDS * 0.7))
+	var resting := smoothstep(0.0, 1.0, lie)
+	var angle := maxf(fallen * FALL_ANGLE, resting * Constants.SLEEP_LIE_ANGLE)
 	rotation.x = angle
+	# On the canvas, not in it: the back is behind the pivot at the heels.
+	var lift := resting * Constants.SLEEP_LIE_LIFT
+	position.y = lift
 	if _head_root != self and _head_root.get_parent() != self:
-		_head_root.position = Vector3(0.0, _head_stand_y * cos(angle), _head_stand_y * sin(angle))
+		_head_root.position = Vector3(0.0, _head_stand_y * cos(angle) + lift, _head_stand_y * sin(angle))
+	if resting > 0.01 and fallen <= 0.01:
+		# Legs straight and together, hands folded on the belly, the chest rising slow.
+		for index: int in _legs.size():
+			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, 0.0, resting)
+			_legs[index].rotation.z = lerpf(_legs[index].rotation.z, 0.05 * (1.0 if index == 0 else -1.0), resting)
+			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, 0.0, resting)
+			_shoes[index].rotation.x = lerpf(_shoes[index].rotation.x, -0.5, resting)
+		for index: int in _arms.size():
+			var side := -1.0 if index == 0 else 1.0
+			_arms[index].rotation.x = lerpf(_arms[index].rotation.x, -0.62, resting)
+			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, side * -0.32, resting)
+		var breath := sin(_time * TAU * Constants.SLEEP_BREATHE_RATE) * Constants.SLEEP_BREATHE_DEPTH * resting
+		_torso.scale.z *= 1.0 + breath
+		# The face looks straight up off the pillow, whichever way the eyes (the
+		# owner's camera) turn.
+		if _face != null and _head_root != null:
+			_face.rotation.x = lerpf(_face.rotation.x, Constants.SLEEP_LIE_ANGLE - _head_root.rotation.x, resting)
+			_face.rotation.y = lerpf(_face.rotation.y, 0.0, resting)
 	if fallen > 0.01:
 		for index: int in _legs.size():
 			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, -0.3 + 0.15 * float(index), fallen)
@@ -1113,7 +1153,7 @@ func _apply_fall(delta: float) -> void:
 		if _stars.visible:
 			_stars.rotation.y += delta * 6.0
 			var top := _head_root.global_position if _head_root != null else global_position + Vector3.UP * 1.6
-			_stars.global_position = top + Vector3(0.0, 0.42, 0.0)
+			_stars.global_position = top + Vector3(0.0, Constants.STARS_OWN_RISE if _own_head else 0.42, 0.0)
 
 
 ## A mower's work: a cut foot gets a fat bandage over the shoe; a lost foot leaves
@@ -1174,11 +1214,12 @@ func dizzy(seconds: float) -> void:
 			kit.blob(at, Vector3(0.07, 0.07, 0.025), Color(1.0, 0.85, 0.25), {"detail": 1, "lumps": 0.6, "lump_scale": 5.0, "outward": true, "flat": true, "jitter": 0.0, "shade": false, "seed": index})
 		var view := _Stylized.instance(kit.commit(), {"roughness": 0.4, "specular": 0.4})
 		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		# Your own stars circle your own head, where your first-person eye is: on
-		# its layer, or they fill the view as yellow blobs (driving C3: a crash
-		# thrown out of Chefty's bed lands you staring up through them).
+		# Your own stars circle your own head, where your first-person eye is: at
+		# full size they filled the view as yellow blobs (driving C3, p1-hands). So
+		# your own copy is a small ring just over the eye: flat on your back it
+		# frames the sky; on your feet it circles above the top of the view.
 		if _own_head:
-			view.layers = 1 << (HEAD_LAYER - 1)
+			_stars.scale = Vector3.ONE * Constants.STARS_OWN_SCALE
 		_stars.add_child(view)
 	_stars_left = seconds
 
@@ -1196,6 +1237,9 @@ func _animate_face(delta: float) -> void:
 		eye_open = 0.15
 	if _gesture == "startle":
 		eye_open = 1.3
+	# Asleep: shut.
+	if lie > 0.6:
+		eye_open = 0.06
 	for eye: Node3D in _eyes:
 		eye.scale.y = lerpf(eye.scale.y, eye_open, clampf(delta * 25.0, 0.0, 1.0))
 	_aim_pupils(delta)

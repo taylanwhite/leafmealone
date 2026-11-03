@@ -5045,3 +5045,51 @@ const TOWN_STREET_PROP_CHUNK: float = 256.0
 ## the queue's last turn, the frame is already a long one (the job yard arriving
 ## on a joiner) and the queue sits it out (never two frames running).
 const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
+
+# ---- p1-hands (crew playtest 1: what your hands do; docs/GAME.md "What E does",
+# player/player.gd e_choice, the sleep pose, the bag, the fence, the wheelbarrow)
+## E acts on a thing you're looking at when your line of sight passes this
+## close to it (m, square to the look; a prop's middle, the junk's tailgate).
+const E_LOOK_MISS: float = 0.42
+## A teammate is grabbed only from this close (m, flat; the host accepts up to
+## GRAB_PLAYER_REACH) and only while the look passes this close to their body (m).
+const E_GRAB_REACH: float = 1.3
+const E_GRAB_LOOK_MISS: float = 0.3
+## Lying on a cot (player.gd _step_sleep, cartoon_body.gd sleep pose): the
+## body's feet go this far (m) along the cot from its middle toward its foot,
+## the climb on takes this long (s), the body tips back this far (radians) and
+## rides this high (m) over the canvas so its back lies on it, not in it. The
+## head may turn this far (radians) either way from the cot's line, and a
+## sleeper is drawn lying down once within this far (m) of the cot.
+const SLEEP_FOOT_OFFSET: float = 0.8
+const SLEEP_CLIMB_SECONDS: float = 0.55
+const SLEEP_LIE_ANGLE: float = 1.52
+const SLEEP_LIE_LIFT: float = 0.13
+const SLEEP_YAW_CLAMP: float = 0.7
+const SLEEP_ON_COT_NEAR: float = 0.45
+## The climb on hops this high (m) at its middle; getting up steps off the cot's
+## foot this far (m) past the heels; lying there, the eyes turn this share of
+## the mouse's pitch.
+const SLEEP_CLIMB_HOP: float = 0.18
+const SLEEP_GET_UP_SIDE: float = 0.75
+const SLEEP_LOOK_SHARE: float = 0.6
+## Sleeping breath: this many breaths a second, the chest rising this share.
+const SLEEP_BREATHE_RATE: float = 0.28
+const SLEEP_BREATHE_DEPTH: float = 0.05
+## A fresh bag (world.gd _spawn_bag_for) sits at least this far (m, flat) in
+## front of whoever bagged it, so it lands in view, not under the hotbar, and
+## grows from the pile to full size over this long (s), from this share of it.
+const BAG_SPAWN_AHEAD_MIN: float = 1.35
+const BAG_GROW_SECONDS: float = 0.32
+const BAG_GROW_FROM: float = 0.3
+## Leaves stop at the yard's fence (leaf_field.gd): a stroke's berm never lands
+## past a fence line; what doesn't fit banks up on the yard side.
+## The wheelbarrow rights itself (net_prop.gd): tipped more than this (radians)
+## and at rest, it rolls back upright at this rate (1/s).
+const WHEELBARROW_STEADY_TILT: float = 0.04
+const WHEELBARROW_RIGHTING_RATE: float = 5.0
+## Your own dizzy stars in first person (cartoon_body.gd dizzy): this much of
+## their size, this much closer round and this much lower over the eye (m),
+## so they ring the top of the view instead of filling it.
+const STARS_OWN_SCALE: float = 0.4
+const STARS_OWN_RISE: float = 0.5

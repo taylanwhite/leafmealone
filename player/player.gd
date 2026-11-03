@@ -28,6 +28,7 @@ const _Hotbar = preload("res://net/components/hotbar.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _Seated = preload("res://player/seated.gd")
 const _Hats = preload("res://player/hats.gd")
+const _HudMode = preload("res://ui/hud_mode.gd")
 
 const _Skate = preload("res://player/skate.gd")
 const _SkateView = preload("res://player/skate_view.gd")
@@ -111,6 +112,12 @@ var _limp_left: float = 0.0
 var _wind_up: float = -1.0
 var _coat_left: float = 0.0
 var _punch_wind: float = -1.0
+## What the left click held now went down as (crew-04): &"punch", &"hands" (a
+## hand-raking stroke), &"spent" (it spun you out), or &"" while it's up.
+var _press_kind: StringName = &""
+## A test's left click for the punch (net/dev/hands_test.gd; a headless run has
+## no captured mouse): -1 the real one, 0 up, 1 held.
+var dev_primary: int = -1
 var _punch_cool: float = 0.0
 var _swing_left: float = 0.0
 var _struggle: int = 0
@@ -211,35 +218,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("honk") and _honk():
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _water_hookup():
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _refuel():
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _toggle_climb():
-		get_viewport().set_input_as_handled()
+	# E is decided in _input (e_choice), ahead of everything else that listens for
+	# it, so only the thing whose prompt is showing answers.
 	elif event.is_action_pressed("take") and _take_ladder():
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("jump") and _ladder != null:
 		_climb_target = 0.0
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _toggle_hiding():
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _load_truck():
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _hand_task():
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _grab_player():
-		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("primary") and _whack():
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _grab_nearby():
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _unload_junk():
-		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("interact") and _Seated.try_enter(self):
-		get_viewport().set_input_as_handled()
 	# G (drop) is wound up and released in _wind_up, on physics ticks.
-		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		_look += motion.relative
@@ -288,7 +276,7 @@ func _physics_process(delta: float) -> void:
 			_Seated.step(self, delta)
 		elif _hidden_spot != null or in_pile or _hide_moving():
 			velocity = Vector3.ZERO
-		elif _step_sleep():
+		elif _step_sleep(delta):
 			pass
 		elif carried_by != 0:
 			_step_carried(delta)
@@ -558,6 +546,9 @@ func _input(event: InputEvent) -> void:
 		elif not _locks.is_empty() and not control_allows("look"):
 			get_viewport().set_input_as_handled()
 		return
+	if event.is_action_pressed("interact") and not event.is_echo() and _press_e(event):
+		get_viewport().set_input_as_handled()
+		return
 	if _locks.is_empty():
 		return
 	# A window or the pause menu has the mouse: its buttons get every click and
@@ -586,28 +577,97 @@ func is_sleeping() -> bool:
 	return clock != null and bool(clock.call("is_sleeping", name.to_int()))
 
 
-func _step_sleep() -> bool:
+func _step_sleep(delta: float) -> bool:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var asleep := clock != null and bool(clock.call("is_sleeping", name.to_int()))
 	if not asleep:
 		if _was_sleeping:
 			_was_sleeping = false
-			%FirstPerson.position.y = 0.0
+			# Up off the canvas: a step down off the cot's foot while the body sits
+			# up (cartoon_body.gd), never standing on the canvas or dropping through it.
+			if _sleep_cot != null and is_instance_valid(_sleep_cot):
+				var side := _sleep_cot.global_basis.x
+				side.y = 0.0
+				_sleep_from = Transform3D(Basis(Vector3.UP, body_yaw), global_position)
+				_wake_to = Vector3(global_position.x, _sleep_cot.global_position.y, global_position.z) + side.normalized() * Constants.SLEEP_GET_UP_SIDE
+				_sleep_climb = 0.0
+			_sleep_cot = null
+		if _wake_to.is_finite():
+			velocity = Vector3.ZERO
+			_sleep_climb = minf(1.0, _sleep_climb + delta / (Constants.SLEEP_CLIMB_SECONDS * 0.8))
+			var up := smoothstep(0.0, 1.0, _sleep_climb)
+			global_position = _sleep_from.origin.lerp(_wake_to, up)
+			if _sleep_climb >= 1.0:
+				_wake_to = Vector3.INF
+			return true
 		return false
+	var cot := _my_cot(clock)
 	if not _was_sleeping:
 		_was_sleeping = true
+		_wake_to = Vector3.INF
 		_stow_hands()
-		var spot := int(clock.call("cot_of", name.to_int()))
-		for cot: Node in get_tree().get_nodes_in_group("cots"):
-			if int(cot.get("index")) == spot:
-				global_position = (cot.call("bed_transform") as Transform3D).origin
-				reset_physics_interpolation()
+		_sleep_from = Transform3D(Basis(Vector3.UP, body_yaw), global_position)
+		_sleep_climb = 0.0
+	_sleep_cot = cot
 	velocity = Vector3.ZERO
-	%FirstPerson.position.y = -0.9
+	if cot != null:
+		# Climbed onto the cot over a moment (a little hop up onto the canvas),
+		# turned so the head goes down on the pillow: everyone sees it, nobody
+		# sees a teleport (crew-06).
+		var spot := sleep_spot(cot)
+		var spot_yaw := spot.basis.get_euler().y
+		_sleep_climb = minf(1.0, _sleep_climb + delta / Constants.SLEEP_CLIMB_SECONDS)
+		var share := smoothstep(0.0, 1.0, _sleep_climb)
+		if _sleep_climb < 1.0:
+			global_position = _sleep_from.origin.lerp(spot.origin, share) + Vector3.UP * sin(PI * share) * Constants.SLEEP_CLIMB_HOP
+			body_yaw = lerp_angle(_sleep_from.basis.get_euler().y, spot_yaw, share)
+		else:
+			global_position = spot.origin
+			# Lying there you can turn your head a little, not spin on the canvas.
+			body_yaw = spot_yaw + clampf(angle_difference(spot_yaw, body_yaw), -Constants.SLEEP_YAW_CLAMP, Constants.SLEEP_YAW_CLAMP)
 	for action: StringName in [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump"]:
 		if Input.is_action_just_pressed(action) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 			clock.call("request_sleep", false)
 	return true
+
+
+var _sleep_from := Transform3D()
+var _sleep_climb: float = 0.0
+var _sleep_cot: Node3D
+## Getting up: where the step off the cot ends (INF when not getting up).
+var _wake_to := Vector3.INF
+
+
+func _my_cot(clock: Node) -> Node3D:
+	if clock == null:
+		return null
+	var spot := int(clock.call("cot_of", name.to_int()))
+	for cot: Node in get_tree().get_nodes_in_group("cots"):
+		if int(cot.get("index")) == spot:
+			return cot as Node3D
+	return null
+
+
+## Where a sleeper lies on a cot, the same on every peer: the heels toward the
+## cot's foot (+x, the rolled blanket), turned so lying back puts the head on
+## the pillow (-x). The origin is the heels on the canvas.
+static func sleep_spot(cot: Node3D) -> Transform3D:
+	var bed: Transform3D = cot.call("bed_transform")
+	var along := bed.basis.x
+	along.y = 0.0
+	along = along.normalized()
+	# Lying back tips the head toward the body's +Z: point it at the pillow.
+	var yaw := atan2(-along.x, -along.z)
+	return Transform3D(Basis(Vector3.UP, yaw), bed.origin + along * Constants.SLEEP_FOOT_OFFSET)
+
+
+## Every peer: lying on the cot now (asleep, and close enough to it to have
+## climbed on), so the body lies down there and not where it stood.
+func is_lying_on_cot() -> bool:
+	if not is_sleeping():
+		return false
+	var cot := _my_cot(get_tree().get_first_node_in_group("day_clock"))
+	return cot != null and global_position.distance_to(sleep_spot(cot).origin) <= Constants.SLEEP_ON_COT_NEAR
 
 
 ## Called on every peer by the host's hide spot (net/components/hide_spot.gd):
@@ -1063,7 +1123,17 @@ func _step_punch(delta: float) -> void:
 	_punch_cool = maxf(0.0, _punch_cool - delta)
 	_swing_left = maxf(0.0, _swing_left - delta)
 	var can := not on_board and _held_prop() == null and carrying == 0 and carried_by == 0 and _stun_left <= 0.0 and not in_pile and _hidden_spot == null and _ladder == null and _ride == null and not in_vehicle() and not is_up_high() and not is_sleeping()
-	var pressing := can and _punch_cool <= 0.0 and Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var held_down := Input.is_action_pressed("primary") and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if dev_primary >= 0:
+		held_down = dev_primary == 1
+	# What this click is, from the moment it went down (crew-04): a punch when
+	# someone was in front or there's no yard to rake by hand, else a hand stroke.
+	# A stroke that runs out of leaves just stops; it never turns into a wind-up.
+	if not held_down:
+		_press_kind = &""
+	elif _press_kind == &"":
+		_press_kind = &"punch" if can and _punch_opens_here() else &"hands"
+	var pressing := can and _punch_cool <= 0.0 and held_down and _press_kind != &"spent"
 	# Empty hands on leaves rake by hand (equipment/rake.gd). A wind-up only
 	# starts there when someone is in front to hit; once started it keeps going.
 	if pressing and _punch_wind < 0.0 and not wants_punch():
@@ -1092,23 +1162,34 @@ func _step_punch(delta: float) -> void:
 	say_to_all("vo_heave" if tier == "heavy" else "vo_hup")
 
 
-## Whether left click with empty hands means a punch rather than hand raking:
-## always off the leaves, and on them only with someone in reach in front.
+## Whether left click with empty hands means a punch rather than hand raking
+## (crew-04): a click that went down as a punch stays one, and otherwise only
+## someone in reach in front turns it into one. On a yard, bare ground with no
+## leaves is still hand raking (a scrape that moves nothing), never a wind-up.
 func wants_punch() -> bool:
-	if _punch_wind >= 0.0:
+	if _punch_wind >= 0.0 or _press_kind == &"punch" or _press_kind == &"spent":
 		return true
-	var field := get_tree().get_first_node_in_group("leaf_field")
-	if field == null or Net.player_zone(name.to_int()) != Net.Zone.LOT:
+	return _person_ahead()
+
+
+## Whether a click going down now is a punch: someone to hit, or nowhere to
+## rake by hand (off a job yard).
+func _punch_opens_here() -> bool:
+	if _person_ahead():
 		return true
-	if int(field.call("units_within_world", global_position - global_basis.z * 0.9, 0.9)) <= 0:
-		return true
+	return get_tree().get_first_node_in_group("leaf_field") == null or Net.player_zone(name.to_int()) != Net.Zone.LOT
+
+
+func _person_ahead() -> bool:
 	var brawl := get_tree().get_first_node_in_group("brawl")
 	return brawl != null and brawl.call("person_in_front", self, Constants.PUNCH_REACH, name.to_int()) != null
 
 
-## Wound up so long the world spun: down you go for a moment.
+## Wound up so long the world spun: down you go for a moment. The click that
+## did it is spent: holding on doesn't wind up again (crew-04).
 func _spin_out() -> void:
 	_punch_wind = -1.0
+	_press_kind = &"spent"
 	winding = false
 	_punch_cool = 1.0
 	_stun_left = Constants.FAINT_SECONDS * 0.8
@@ -1146,14 +1227,14 @@ func _grab_player() -> bool:
 	return true
 
 
-## The nearest other player within reach and in front, with empty hands, or null.
+## The other player you're looking right at, up close, with empty hands, or
+## null (p1-hands: a friend walking beside you, or standing at Chefty's
+## tailgate with you, is not an offer to pick them up).
 func _grabbable_player() -> Node3D:
 	if _held_prop() != null or carried_by != 0 or carrying != 0 or _stun_left > 0.0 or in_pile or _hidden_spot != null or is_sleeping():
 		return null
-	var forward := -global_basis.z
-	forward.y = 0.0
 	var best: Node3D = null
-	var best_distance := Constants.GRAB_PLAYER_REACH
+	var best_distance := Constants.E_GRAB_REACH
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
 		# A dev observer (net/dev/remote_play.gd) is invisible and not in the game.
@@ -1161,7 +1242,14 @@ func _grabbable_player() -> Node3D:
 			continue
 		var offset := other.global_position - global_position
 		var flat := Vector3(offset.x, 0.0, offset.z)
-		if absf(offset.y) > 1.5 or flat.length() > best_distance or flat.normalized().dot(forward.normalized()) < 0.3:
+		if absf(offset.y) > 1.5 or flat.length() > best_distance:
+			continue
+		# Looking at them: the line of sight passes within reach of their body
+		# somewhere between the knees and the top of the head.
+		var miss := INF
+		for height: float in [0.5, 1.0, 1.5]:
+			miss = minf(miss, _look_miss(other.global_position + Vector3(0.0, height, 0.0), Constants.E_GRAB_REACH + 1.6))
+		if miss > Constants.E_GRAB_LOOK_MISS:
 			continue
 		best = other
 		best_distance = flat.length()
@@ -1505,6 +1593,9 @@ func _process(_delta: float) -> void:
 		set_body_drawn(bool(view.call("body_should_draw")))
 		view.call("present", _delta)
 	var body_now := get_node_or_null("Visual/CartoonBody")
+	# Asleep on a cot: lying down on it, for everyone (crew-06).
+	if body_now != null:
+		body_now.call("lie_down", is_lying_on_cot())
 	# Everyone sees this player's hands on what they hold (the grips their own
 	# first-person arms use too), except when they're flat on their back.
 	if body_now != null:
@@ -1572,6 +1663,8 @@ func _rpc_teleport(at: Transform3D) -> void:
 
 ## Host-ordered teleport. Runs on the owning peer only.
 func apply_network_teleport(at: Transform3D) -> void:
+	# A host-ordered move ends any step off a cot (_step_sleep).
+	_wake_to = Vector3.INF
 	global_position = at.origin
 	_fall_peak = at.origin.y
 	_airborne = false
@@ -1630,92 +1723,256 @@ func _best_pickup() -> Node3D:
 	return best
 
 
-## What E would do right now, for the prompt in ui/interaction_prompt.gd, in the
-## same order _unhandled_input tries them. Empty when E does nothing here.
+## What E would do right now, for the prompt in ui/interaction_prompt.gd: the
+## same decision E itself acts on (e_choice), so E never does a thing whose
+## prompt isn't showing. Empty when E does nothing here, or does something the
+## world already shows (climbing out of a hedge, heaving a bag into Chefty).
 func interaction_hint() -> Dictionary:
-	# Seated in Chefty the drive HUD shows the seat's keys (ui/drive_hud.gd).
-	if in_vehicle():
-		return {}
-	# A fresh notice (out of bags, out of gas) beats every other prompt for a moment.
-	if _notice_text != "" and Time.get_ticks_msec() < _notice_until:
+	var choice := e_choice()
+	var hint: Dictionary = choice["hint"]
+	# A fresh notice (out of bags) shows only while E has nothing else to say.
+	if hint.is_empty() and StringName(choice["do"]) == &"none" and _notice_text != "" and Time.get_ticks_msec() < _notice_until:
 		return {"text": _notice_text, "at": global_position + Vector3(0.0, 2.2, 0.0), "plain": true}
+	return hint
+
+
+## E, decided once (p1-hands, docs/GAME.md "What E does"): {do, hint, target}.
+## do is what E does (&"none" when nothing), hint the prompt that says so ({}
+## when the world already says it), target what it acts on. In order:
+##   1. what has you or your hands: hidden (E climbs out), the paint bucket, the
+##      water, the gas can, a ladder, carrying a teammate (put down), held by one;
+##   2. in a raid, the nearest hiding spot or a pile underfoot;
+##   3. what your hands are full of: a bag or junk into Chefty, a loaded
+##      wheelbarrow dumped, a bag into the wheelbarrow;
+##   4. what you're looking right at: a teammate close enough to grab, the junk
+##      at Chefty's tailgate, a thing to pick up;
+##   5. a leaf bag in reach (the work comes first);
+##   6. what the place is for: Board at Chefty's pad, Talk by the homeowner, a
+##      cot, a window, a shelf (anything in the "prompt_sources" group);
+##   7. whatever else is in reach: a thing to pick up, litter, a weed, the junk,
+##      a seat;
+##   8. outside a raid, a hiding spot or a pile, last of all.
+func e_choice() -> Dictionary:
+	var none := {"do": &"none", "hint": {}, "target": null}
+	# Seated in Chefty the seat has E (player/seated.gd); the drive HUD shows its keys.
+	if in_vehicle():
+		return none
 	# Hidden, or on the way in or out: E gets you out, which you already know.
 	if _hidden_spot != null or in_pile or _hide_moving():
-		return {}
-	var paint_held := _held_prop()
-	if paint_held != null and str(paint_held.get("kind")) == "paint_roller" and _nearest_bucket() != null:
-		return {"text": _Strings.UI["prompt_dip"], "at": _nearest_bucket().global_position + Vector3(0.0, 0.6, 0.0), "source": _nearest_bucket()}
-	var water_held := _held_prop()
-	if water_held != null and (str(water_held.get("kind")) == "hose" or str(water_held.get("kind")) == "pressure_washer"):
+		return {"do": &"hide_toggle", "hint": {}, "target": null}
+	var held := _held_prop()
+	var held_kind := str(held.get("kind")) if held != null else ""
+	if held_kind == "paint_roller" and _nearest_bucket() != null:
+		var bucket := _nearest_bucket()
+		return {"do": &"water", "hint": {"text": _Strings.UI["prompt_dip"], "at": bucket.global_position + Vector3(0.0, 0.6, 0.0), "source": bucket}, "target": held}
+	if held_kind == "hose" or held_kind == "pressure_washer":
 		var source := _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH)
 		if source != null:
 			var key := "prompt_refill"
-			if str(water_held.get("kind")) == "hose":
-				key = "prompt_unhook" if str(water_held.get("hose_source")) == str(source.get_meta("kind")) else "prompt_hook_" + str(source.get_meta("kind"))
-			return {"text": _Strings.UI[key], "at": source.global_position + Vector3(0.0, 0.9, 0.0), "source": source}
-	# The gas can in hand by a gas tool that isn't full: fill it up (ahead of
-	# picking anything up, gap-specs critic C29).
-	var can_held := _held_prop()
-	if can_held != null and str(can_held.get("kind")) == "gas_can":
-		var thirsty := can_held.call("refuel_target") as Node3D
+			if held_kind == "hose":
+				key = "prompt_unhook" if str(held.get("hose_source")) == str(source.get_meta("kind")) else "prompt_hook_" + str(source.get_meta("kind"))
+			return {"do": &"water", "hint": {"text": _Strings.UI[key], "at": source.global_position + Vector3(0.0, 0.9, 0.0), "source": source}, "target": held}
+	# The gas can by a gas tool that isn't full: fill it up (gap-specs critic C29).
+	if held_kind == "gas_can":
+		var thirsty := held.call("refuel_target") as Node3D
 		if thirsty != null:
-			return {"text": _Strings.SHOP_UI["prompt_refuel"] % int(float(thirsty.get("fuel"))), "at": thirsty.global_position + Vector3(0.0, 0.9, 0.0), "source": thirsty}
+			return {"do": &"refuel", "hint": {"text": _Strings.SHOP_UI["prompt_refuel"] % int(float(thirsty.get("fuel"))), "at": thirsty.global_position + Vector3(0.0, 0.9, 0.0), "source": thirsty}, "target": held}
 	if _ladder != null:
-		return {"text": _Strings.UI["prompt_climb_down"], "at": global_position + Vector3(0.0, 2.2, 0.0) - global_basis.z * 0.6}
+		return {"do": &"climb", "hint": {"text": _Strings.UI["prompt_climb_down"], "at": global_position + Vector3(0.0, 2.2, 0.0) - global_basis.z * 0.6}, "target": null}
 	var ladder := _nearest_ladder()
-	if ladder != null and _held_prop() == null or (ladder != null and str(_held_prop().get("kind")) == "leaf_blower"):
-		return {"text": _Strings.UI["prompt_climb_up"], "at": ladder.global_position + Vector3(0.0, 1.8, 0.0), "source": ladder}
+	if ladder != null and (held == null or held_kind == "leaf_blower"):
+		return {"do": &"climb", "hint": {"text": _Strings.UI["prompt_climb_up"], "at": ladder.global_position + Vector3(0.0, 1.8, 0.0), "source": ladder}, "target": null}
 	var ladder_top := _nearest_ladder_top()
 	if ladder_top != null:
-		return {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0), "source": ladder_top}
+		return {"do": &"climb", "hint": {"text": _Strings.UI["prompt_climb_down"], "at": (ladder_top.get("ladder_top") as Vector3) + Vector3(0.0, 0.8, 0.0), "source": ladder_top}, "target": null}
 	# Carried: you can see you are, and mashing to wriggle is what anyone tries.
 	if carried_by != 0:
-		return {}
+		return {"do": &"held", "hint": {}, "target": null}
 	if carrying != 0:
-		return {"text": _Strings.UI["prompt_put_down_player"] % Net.player_name(carrying), "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}
-	var grabbable := _grabbable_player()
-	if grabbable != null:
-		return {"text": _Strings.UI["prompt_grab_player"] % Net.player_name(grabbable.name.to_int()), "at": grabbable.global_position + Vector3(0.0, 2.0, 0.0), "source": grabbable}
-	var spot := _nearest_free_spot()
-	if spot != null:
-		return {"text": _Strings.UI["prompt_hide"], "at": spot.call("prompt_point", global_position) as Vector3, "source": spot}
-	if _on_pile():
-		return {"text": _Strings.UI["prompt_pile_dive"], "at": global_position + Vector3(0.0, 0.5, 0.0) - global_basis.z * 0.8}
+		return {"do": &"put_down", "hint": {"text": _Strings.UI["prompt_put_down"], "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}, "target": null}
+	var raid := _raid_on()
+	if raid:
+		var hide := _hide_choice()
+		if not hide.is_empty():
+			return hide
+	# Hands full: what they're full of goes where it goes. A bag (or junk) heaved
+	# in over Chefty's side needs no words: the bag in your arms by the bed says it.
+	if held != null and bool(held.call("near_truck")):
+		if held_kind == "leaf_bag" or held_kind == "junk":
+			return {"do": &"load_truck", "hint": {}, "target": held}
+		if held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0:
+			return {"do": &"load_truck", "hint": {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0), "source": held}, "target": held}
+	if held_kind == "leaf_bag":
+		var barrow := _nearest_kind("wheelbarrow", 2.4) as Node3D
+		if barrow != null:
+			return {"do": &"load_barrow", "hint": {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0), "source": barrow}, "target": barrow}
+	var can_pick := _hands_can_pick_up()
+	# Looking right at it.
+	var mate := _grabbable_player()
+	if mate != null:
+		return {"do": &"grab_player", "hint": {"text": _Strings.UI["prompt_grab"], "at": mate.global_position + Vector3(0.0, 2.0, 0.0), "source": mate}, "target": mate}
+	var junk_bed := _junk_tailgate()
+	if junk_bed != null and _look_miss(junk_bed.call("tailgate_point") as Vector3, Constants.PICKUP_REACH + 1.0) <= Constants.E_LOOK_MISS:
+		return _junk_choice(junk_bed)
+	var looked := _looked_at_pickup() if can_pick else null
+	if looked != null:
+		return _pickup_choice(looked)
+	var best := _best_pickup() if can_pick else null
+	# A leaf bag in reach: the work comes before the place.
+	if best != null and str(best.get("kind")) == "leaf_bag":
+		return _pickup_choice(best)
+	# What the place is for.
+	for source: Node in get_tree().get_nodes_in_group("prompt_sources"):
+		var hint: Dictionary = source.call("prompt")
+		if not hint.is_empty():
+			return {"do": &"source", "hint": hint, "target": source}
+	if best != null:
+		return _pickup_choice(best)
 	var hand := _nearest_hand_task()
 	if not hand.is_empty():
 		var key := {"pick_litter": "prompt_pick_litter", "pull_weeds": "prompt_pull_weed", "skim_pool": "prompt_skim_pool"}.get(str(hand["task"]), "prompt_pick_litter") as String
-		return {"text": _Strings.UI[key], "at": (hand["at"] as Vector3) + Vector3(0.0, 0.6, 0.0), "source": "%s:%d" % [hand["task"], int(hand["index"])]}
-	var held := _held_prop()
-	if held != null and bool(held.call("near_truck")):
-		var held_kind := str(held.get("kind"))
-		# E heaves a bag (or junk) in over the side, unlabeled: a bag by the truck says it.
-		if held_kind == "leaf_bag" or held_kind == "junk":
-			return {}
-		if held_kind == "wheelbarrow" and int(held.get("stored_bags")) > 0:
-			return {"text": _Strings.UI["prompt_dump_truck"], "at": held.global_position + Vector3(0.0, 1.0, 0.0), "source": held}
-	if held != null and str(held.get("kind")) == "leaf_bag":
-		var barrow := _nearest_kind("wheelbarrow", 2.4) as Node3D
-		if barrow != null:
-			return {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0), "source": barrow}
-	# Picking things up beats getting in: by the tailgate there are bags to load.
-	var closest := _best_pickup() if _hands_can_pick_up() else null
-	if closest == null:
-		var junk_bed := _junk_tailgate()
-		if junk_bed != null:
-			return {"text": _Strings.SHOP_UI["prompt_unload_junk"], "at": (junk_bed.call("tailgate_point") as Vector3) + Vector3(0.0, 1.5, 0.0)}
-		var seat_hint := _Seated.hint(self)
-		if not seat_hint.is_empty():
-			return seat_hint
-		# Nothing to do with E: say what's wrong with the tool in hand, if anything.
-		return _supply_hint()
-	# A pocket item with every pocket full (and no stack of its kind to join): no
-	# prompt. Press E anyway and the full bar shakes (x1:text).
-	var closest_kind := str(closest.get("kind"))
-	if _Hotbar.is_pocketable(closest_kind) and not _Hotbar.has_room(get_tree(), name.to_int(), closest_kind):
-		return {}
-	# x1:text: the key and the verb; the thing is right there under the prompt
-	# (junk too: the toilet is plainly a toilet).
-	return {"text": _Strings.UI["prompt_pick_up_plain"], "at": closest.global_position + Vector3(0.0, 1.2, 0.0), "source": closest}
+		return {"do": &"hand_task", "hint": {"text": _Strings.UI[key], "at": (hand["at"] as Vector3) + Vector3(0.0, 0.6, 0.0), "source": "%s:%d" % [hand["task"], int(hand["index"])]}, "target": hand}
+	if junk_bed != null:
+		return _junk_choice(junk_bed)
+	var seat_hint := _Seated.hint(self)
+	if not seat_hint.is_empty():
+		return {"do": &"seat", "hint": seat_hint, "target": null}
+	# Outside a raid a hedge is a hedge: diving in comes last, and never with
+	# something big in your arms (NB-07: E for the bag beside it dove in).
+	if not raid and can_pick:
+		var hide := _hide_choice()
+		if not hide.is_empty():
+			return hide
+	# Nothing to do with E: say what's wrong with the tool in hand, if anything.
+	var supply := _supply_hint()
+	return {"do": &"none", "hint": supply, "target": null}
+
+
+## E, acted on (from _input, ahead of every other listener). True when E was
+## this player's to act on; false leaves it to whatever else listens (the
+## Shuttle's unbuckle, Annex B's windows, a seat).
+func _press_e(event: InputEvent) -> bool:
+	if not is_multiplayer_authority() or in_vehicle():
+		return false
+	if not _locks.is_empty() and not control_allows("interact"):
+		return false
+	# A window, the pause menu or a text box has the keys.
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null and ui.has_method("any_window_open") and bool(ui.call("any_window_open")):
+		return false
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is TextEdit:
+		return false
+	# The moment has you (caught, the van, Annex B): no prompts, and E is the
+	# moment's (ui/hud_mode.gd).
+	if _HudMode.reason(get_tree(), name.to_int()) != &"":
+		return false
+	# Unbuckling a friend from the Courtesy Shuttle is the Shuttle's (shuttle.gd).
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle")
+	if shuttle != null and shuttle.has_method("_unbuckle_target") and not (shuttle.call("_unbuckle_target") as Dictionary).is_empty():
+		return false
+	var choice := e_choice()
+	var target: Variant = choice["target"]
+	match StringName(choice["do"]):
+		&"hide_toggle", &"hide":
+			_toggle_hiding()
+		&"water":
+			_water_hookup()
+		&"refuel":
+			_refuel()
+		&"climb":
+			_toggle_climb()
+		&"held":
+			pass
+		&"put_down", &"grab_player":
+			_grab_player()
+		&"load_truck":
+			(target as Node).call("request_load_truck")
+		&"load_barrow":
+			(target as Node).call("request_load_held")
+		&"pick_up":
+			(target as Node).call("request_grab")
+		&"unload_junk":
+			(target as Node).call("request_unload")
+		&"source":
+			# The source answers E itself, the way it always has; only it hears this
+			# one. If it passed (a cot that isn't the nearest), the rest hear it.
+			(target as Node).call("_unhandled_input", event)
+			return get_viewport().is_input_handled()
+		&"hand_task":
+			_hand_task()
+		&"seat":
+			_Seated.try_enter(self)
+		_:
+			return false
+	return true
+
+
+## The nearest hiding spot with room, or the pile underfoot, as an E choice; {} for neither.
+func _hide_choice() -> Dictionary:
+	var spot := _nearest_free_spot()
+	if spot != null:
+		return {"do": &"hide", "hint": {"text": _Strings.UI["prompt_hide"], "at": spot.call("prompt_point", global_position) as Vector3, "source": spot}, "target": spot}
+	if _on_pile():
+		return {"do": &"hide", "hint": {"text": _Strings.UI["prompt_pile_dive"], "at": global_position + Vector3(0.0, 0.5, 0.0) - global_basis.z * 0.8}, "target": null}
+	return {}
+
+
+func _junk_choice(bed: Node) -> Dictionary:
+	return {"do": &"unload_junk", "hint": {"text": _Strings.SHOP_UI["prompt_unload_junk"], "at": (bed.call("tailgate_point") as Vector3) + Vector3(0.0, 1.5, 0.0)}, "target": bed}
+
+
+## Picking a thing up, as an E choice. A pocket item with every pocket full (and
+## no stack of its kind to join) shows no prompt: E shakes the full bar (x1:text).
+func _pickup_choice(prop: Node3D) -> Dictionary:
+	var kind_of := str(prop.get("kind"))
+	if _Hotbar.is_pocketable(kind_of) and not _Hotbar.has_room(get_tree(), name.to_int(), kind_of):
+		return {"do": &"pick_up", "hint": {}, "target": prop}
+	# x1:text: the key and the verb; the thing is right there under the prompt.
+	return {"do": &"pick_up", "hint": {"text": _Strings.UI["prompt_pick_up_plain"], "at": prop.global_position + Vector3(0.0, 1.2, 0.0), "source": prop}, "target": prop}
+
+
+## The NICE BOYS are warning, chasing or leaving (net/run_events/director.gd), as this peer knows it.
+func _raid_on() -> bool:
+	var director := get_tree().get_first_node_in_group("run_director")
+	return director != null and director.has_method("phase") and int(director.call("phase")) != 0
+
+
+## How far your line of sight passes from a point (m, square to the look), or
+## INF when it's behind you or farther than reach from your eye.
+func _look_miss(point: Vector3, reach: float) -> float:
+	var head := get_node_or_null("Visual/Head") as Node3D
+	var eye := head.global_position if head != null else global_position + Vector3(0.0, 1.6, 0.0)
+	var aim := -(head.global_basis.z if head != null else global_basis.z).normalized()
+	var to := point - eye
+	var along := to.dot(aim)
+	if along <= 0.0 or to.length() > reach:
+		return INF
+	return (to - aim * along).length()
+
+
+## The thing in reach you're looking right at (the nearest along your look), or null.
+func _looked_at_pickup() -> Node3D:
+	var best: Node3D = null
+	var best_distance := INF
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or not bool(prop.call("is_loose")) or bool(prop.call("is_flying")):
+			continue
+		if prop.global_position.distance_to(global_position) >= Constants.PICKUP_REACH:
+			continue
+		# Anywhere from its foot to its top counts (a wheelbarrow's handles, a bag's neck).
+		var middle := prop.global_position + Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0)
+		var miss := INF
+		for height: float in [0.1, _PropLooks.VISUAL_HEIGHT, _PropLooks.VISUAL_HEIGHT * 2.0]:
+			miss = minf(miss, _look_miss(prop.global_position + Vector3(0.0, height, 0.0), Constants.PICKUP_REACH + 1.6))
+		if miss > Constants.E_LOOK_MISS:
+			continue
+		var distance := middle.distance_to(global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = prop
+	return best
 
 
 ## The nearest hiding spot with room that can be got into from here, measured
@@ -2143,6 +2400,12 @@ func _apply_presentation() -> void:
 	# Knocked flat, the head lies back with the body and stares at the sky.
 	var fallen := float(get_node("Visual/CartoonBody").get("fallen")) if has_node("Visual/CartoonBody") else 0.0
 	%Head.rotation.x = lerpf(head_pitch, 0.0, fallen) + fallen * 1.35
+	# Lying on a cot the eyes look up at the tarp, and the mouse still turns them
+	# (down toward your feet, back over the pillow).
+	var lying := float(get_node("Visual/CartoonBody").get("lie")) if has_node("Visual/CartoonBody") else 0.0
+	if lying > 0.0 and fallen <= 0.01:
+		var resting := smoothstep(0.0, 1.0, lying)
+		%Head.rotation.x = lerpf(head_pitch, clampf(Constants.SLEEP_LIE_ANGLE + head_pitch * Constants.SLEEP_LOOK_SHARE, 0.2, 2.6), resting)
 	# Some jumps get a little "hup". anim_state and velocity replicate, so everyone hears it.
 	if anim_state == AnimState.AIR and _last_anim != AnimState.AIR and velocity.y > 1.0 and randf() < HUP_CHANCE:
 		say("vo_hup")

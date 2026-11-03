@@ -182,6 +182,15 @@ $Tests = [ordered]@{
 		Extra = '--rake-stroke-test'
 		Check = { param($h, $c) [bool]$h.rake_stroke_test.ok -and $c -ne $null -and [bool]$c.rake_stroke_test.ok }
 	}
+	# What your hands do (p1-hands, net/dev/hands_test.gd): the punch on the yard,
+	# E's choice (Board over a teammate, Talk over a wheelbarrow, a bag over a
+	# hedge), the fence, the bag, the wheelbarrow, your stars, the sleep pose.
+	hands = @{
+		Port = 7841
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --start-hour=19 --hands-test'; Seconds = 90; Client = 85
+		Extra = '--hands-test'
+		Check = { param($h, $c) [bool]$h.hands_test.ok -and $c -ne $null -and [bool]$c.hands_test.ok }
+	}
 	rival = @{
 		Port = 7807
 		Host = '--host --name=Tester --no-steam --rank=17 --rival-test'; Seconds = 20

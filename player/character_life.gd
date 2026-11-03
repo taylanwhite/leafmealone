@@ -63,6 +63,12 @@ func _process(delta: float) -> void:
 		return
 	if not body.is_visible_in_tree():
 		return
+	# Asleep on a cot (p1-hands): no glances, waves or fidgets.
+	var lying: Variant = body.get("lie")
+	if lying != null and float(lying) > 0.05:
+		body.set("look_at_point", Vector3.INF)
+		body.set("face_turn", 0.0)
+		return
 	var speed := float(body.call("speed"))
 	_lead_eyes(delta)
 	_pick_glance(delta)

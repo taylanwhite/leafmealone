@@ -26,6 +26,7 @@ func _ready() -> void:
 	_house()
 	_replace_boxes()
 	_fences()
+	_fence_the_leaves()
 	# Clear of the homeowner and the truck by the front gate.
 	var crowns: Array[String] = ["orange", "red", "yellow"]
 	var spots: Array[Vector3] = [Vector3(-17.0, 0.0, 3.0), Vector3(11.0, 0.0, 15.0), Vector3(17.0, 0.0, -6.0)]
@@ -106,6 +107,20 @@ func _fences() -> void:
 		_LowPoly.box(self, Vector3(39.0, 0.08, 0.06), Vector3(0.0, 0.55, z), PICKET)
 	for x: float in [-19.4, 19.4]:
 		_LowPoly.box(self, Vector3(0.06, 0.08, 31.0), Vector3(x, 0.55, -3.0), PICKET)
+
+
+## Raked leaves bank up against the pickets instead of going through them
+## (NB-08; net/leaf_field/leaf_field.gd reads the lines, in its own space).
+func _fence_the_leaves() -> void:
+	var field := get_parent().get_node_or_null("LeafField") as Node3D if get_parent() != null else null
+	if field == null:
+		return
+	var lines: Array = []
+	for run: Array in [[Vector3(-20.4, 0.0, -19.4), Vector3(19.4, 0.0, -19.4)], [Vector3(-19.4, 0.0, -19.4), Vector3(-19.4, 0.0, 12.5)], [Vector3(19.4, 0.0, -19.4), Vector3(19.4, 0.0, 12.5)]]:
+		var a := field.to_local(to_global(run[0] as Vector3))
+		var b := field.to_local(to_global(run[1] as Vector3))
+		lines.append([Vector2(a.x, a.z), Vector2(b.x, b.z)])
+	field.set_meta("fence_lines", lines)
 
 
 func _picket(at: Vector3) -> void:
