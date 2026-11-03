@@ -28,19 +28,20 @@ const SOUNDS: Dictionary = {
 	"bag": {"variants": 2, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	# ---- raking: the rake and the leaves (R1 chunk 5, tools/sfx_leaves.py), played by
 	# audio/leaf_audio.gd from the leaf field's stroke events, at the head, keyed per raker.
-	"rake_plant": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.14, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"rake_scrape": {"variants": 8, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"rake_empty": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.18, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"rake_leaves_light": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"rake_leaves_med": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.42, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"rake_leaves_heavy": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.55, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"leaf_flick": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.22, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"hand_scoop": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.25, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"bag_open": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.25, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"bag_stuff": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.60, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"leaf_settle": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"pile_whump": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
-	"leaf_kick": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"rake_plant": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.14, "db": Constants.LEAF_SFX_MIX_DB["rake_plant"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"rake_scrape": {"variants": 8, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": Constants.LEAF_SFX_MIX_DB["rake_scrape"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"rake_empty": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.18, "db": Constants.LEAF_SFX_MIX_DB["rake_empty"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"rake_leaves_light": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": Constants.LEAF_SFX_MIX_DB["rake_leaves_light"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"rake_leaves_med": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.42, "db": Constants.LEAF_SFX_MIX_DB["rake_leaves_med"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"rake_leaves_heavy": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.55, "db": Constants.LEAF_SFX_MIX_DB["rake_leaves_heavy"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"leaf_flick": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.22, "db": Constants.LEAF_SFX_MIX_DB["leaf_flick"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"hand_scoop": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.25, "db": Constants.LEAF_SFX_MIX_DB["hand_scoop"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"bag_open": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.25, "db": Constants.LEAF_SFX_MIX_DB["bag_open"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"bag_stuff": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.60, "db": Constants.LEAF_SFX_MIX_DB["bag_stuff"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"bag_tie": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.36, "db": Constants.LEAF_SFX_MIX_DB["bag_tie"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"leaf_settle": {"variants": 6, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": Constants.LEAF_SFX_MIX_DB["leaf_settle"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"pile_whump": {"variants": 3, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": Constants.LEAF_SFX_MIX_DB["pile_whump"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
+	"leaf_kick": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.LEAF_SFX_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.30, "db": Constants.LEAF_SFX_MIX_DB["leaf_kick"], "near_db": Constants.RAKE_SFX_NEAR_DB, "muffle_db": Constants.RAKE_SFX_MUFFLE_DB, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "unit_size": Constants.RAKE_SFX_UNIT_SIZE, "max_distance": Constants.RAKE_SFX_MAX_DISTANCE, "shuffle": true},
 	# Registered and generated only: audio:6's footsteps pick them with LeafAudio.step_id.
 	"step_leaves_deep": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "shuffle": true},
 	"step_leaves_pile": {"variants": 4, "bus": &"Sfx", "gap_ms": Constants.SFX_STEP_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.35, "db": 0.0, "wobble": Constants.RAKE_SFX_WOBBLE, "db_jitter": Constants.RAKE_SFX_DB_JITTER, "shuffle": true},
@@ -227,6 +228,9 @@ static func is_loop(id: String) -> bool:
 ##   unit_size     full volume inside this many meters (default Constants.SFX_UNIT_SIZE)
 ##   max_distance  silent past this many meters (default Constants.SFX_MAX_DISTANCE)
 ##   shuffle       variants come from a shuffle bag: each once per refill (default false)
+##   near_db       up close, at most this many dB over its own volume (default:
+##                 Godot's max_db, 3 dB over nothing, whatever the volume)
+##   muffle_db     the distance low-pass's depth (default: Godot's -24 dB)
 
 ## The pitch range of one play, as a multiple of normal.
 static func wobble(id: String) -> Vector2:
@@ -251,6 +255,27 @@ static func max_distance(id: String) -> float:
 
 static func shuffle(id: String) -> bool:
 	return bool(entry(id).get("shuffle", false))
+
+
+## near_db: up close a positional play of id is at most this many dB over its own
+## volume (Sfx.configure_3d sets max_db to volume + this). Without it Godot's
+## max_db (3 dB) caps volume and distance gain together, flattening its trims.
+static func has_near_db(id: String) -> bool:
+	return entry(id).has("near_db")
+
+
+static func near_db(id: String) -> float:
+	return float(entry(id).get("near_db", 0.0))
+
+
+## muffle_db: the most Godot's distance low-pass (attenuation_filter_db, -24 by
+## default) takes off id's highs.
+static func has_muffle_db(id: String) -> bool:
+	return entry(id).has("muffle_db")
+
+
+static func muffle_db(id: String) -> float:
+	return float(entry(id).get("muffle_db", -24.0))
 
 
 ## A character noise (vo_*, babble, dog, bird): it moves a mouth.

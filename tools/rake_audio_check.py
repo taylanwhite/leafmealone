@@ -15,11 +15,14 @@ Every id in tools/sfx_leaves.py's SOUNDS_RMS is checked (exit 1 on a violation):
   plant, scrape weight: at least 8% of the energy under 300 Hz
   rake_scrape   the scrape falls in pitch: the spectral centroid of its last
                 third is below that of its first third
+  the bag       (R1b) bag_open, each beat of bag_stuff and bag_tie, at their
+                short-term peaks (50 ms RMS) plus the game's trims
+                (Constants.LEAF_SFX_MIX_DB), land within BAG_EVEN_DB of each other
 --png         a spectrogram per id (every variant stacked, log frequency 40 Hz
               to 18 kHz, 2.5 ms columns) into build/r1/audio/<id>.png, plus the
               previews below, for the Read tool
 --preview     composites of how the game layers them (audio/leaf_audio.gd's
-              timings), into build/r1/audio/preview_*.wav for Taylan's ears:
+              timings and trims), into build/r1/audio/preview_*.wav for Taylan's ears:
               one full swing on a fresh carpet, three swings held, a swing on
               bare grass, a heavy shove into a pile, the bag sequence
 These are measurements, not taste: Taylan listening is the acceptance gate.
@@ -53,6 +56,7 @@ PLANT_PEAK_MS = 5.0
 LOW_SHARE_MIN = 0.08
 LOW_SHARE_HZ = 300.0
 LEAF_TIERS = ("rake_leaves_light", "rake_leaves_med", "rake_leaves_heavy")
+BAG_EVEN_DB = 3.0
 
 
 def load(name: str) -> tuple[list[float], int, int]:
@@ -89,6 +93,61 @@ def transients(x: list[float], rate: int) -> int:
             count += 1
         above_before = above
     return count
+
+
+def loudness_peaks(x: list[float], rate: int) -> list[float]:
+    """The short-term level (dB) of each beat of a sound: the RMS of 50 ms windows
+    every 10 ms, and the peaks of that curve at least 120 ms apart and within
+    12 dB of the loudest, loudest first. What an ear calls 'how loud each hit is',
+    near enough to compare sounds that follow each other."""
+    size, hop = int(0.05 * rate), int(0.01 * rate)
+    curve = [ac.db(ac.rms(x[i:i + size])) for i in range(0, max(1, len(x) - size + 1), hop)]
+    if not curve:
+        return []
+    top = max(curve)
+    peaks = []
+    for i, v in enumerate(curve):
+        if v < top - 12.0:
+            continue
+        if v >= max(curve[max(0, i - 12):i + 13]):
+            if all(abs(i - j) >= 12 for j, _ in peaks):
+                peaks.append((i, v))
+    return [v for _, v in sorted(peaks, key=lambda p: -p[1])]
+
+
+def mix_db() -> dict:
+    """Constants.LEAF_SFX_MIX_DB from core/constants.gd: each id's trim in the game."""
+    text = (ROOT / "core" / "constants.gd").read_text(encoding="utf-8")
+    start = text.index("const LEAF_SFX_MIX_DB")
+    body = text[text.index("{", start):text.index("}", start)]
+    out = {}
+    for part in body.replace("\n", " ").split(","):
+        if ":" in part:
+            key, value = part.split(":", 1)
+            out[key.strip().strip('{"\t ')] = float(value.strip())
+    return out
+
+
+def bag_beats() -> list[str]:
+    """The bag sequence even (R1b): open, each shove of the stuffing, and the tie,
+    at their game trims, within BAG_EVEN_DB of each other (variant averages)."""
+    trims = mix_db()
+    levels = {}
+    for sound_id, beats in (("bag_open", 1), ("bag_stuff", 2), ("bag_tie", 1)):
+        _builder, variants, _target, _max = sfx_leaves.SOUNDS_RMS[sound_id]
+        per = []
+        for variant in range(1, variants + 1):
+            x, rate, _clipped = load("%s_%d" % (sound_id, variant))
+            per.append(sorted(loudness_peaks(x, rate)[:beats]))
+        for beat in range(beats):
+            name = sound_id if beats == 1 else "%s beat %d" % (sound_id, beat + 1)
+            values = [p[beat] for p in per if len(p) > beat]
+            levels[name] = sum(values) / max(1, len(values)) + trims.get(sound_id, 0.0)
+    print("bag beats (50 ms peak + trim): " + ", ".join("%s %.1f" % (k, v) for k, v in levels.items()))
+    spread = max(levels.values()) - min(levels.values())
+    if spread > BAG_EVEN_DB:
+        return ["the bag's beats spread %.1f dB (over %.0f): %s" % (spread, BAG_EVEN_DB, levels)]
+    return []
 
 
 def power_spectrum(x: list[float], size: int = 4096) -> list[float]:
@@ -237,57 +296,64 @@ def _place(out: list[float], x: list[float], at: float, db: float, rate: int, pi
 
 
 def previews(rate: int) -> dict[str, tuple[list[float], list[tuple[float, str]]]]:
-    """How audio/leaf_audio.gd layers one swing (0.6 s, bites at 0.12 and 0.30)
-    and a bag, using variant 1, 2, 3 ... as the shuffle bag would."""
+    """How audio/leaf_audio.gd layers one swing (0.6 s: bites at 0.12 and 0.30 s,
+    the plant at the first bite, the scrape over the drive from it, the flick at
+    the drive's end, 0.42 s) and a bag, at the game's trims (LEAF_SFX_MIX_DB),
+    using variant 1, 2, 3 ... as the shuffle bag would."""
+    trims = mix_db()
+
     def clip(name: str) -> list[float]:
         return load(name)[0]
+
+    def put(out: list[float], name: str, at: float, db: float = 0.0) -> None:
+        _place(out, clip(name), at, db + trims.get(name.rsplit("_", 1)[0], 0.0), rate)
 
     out = {}
     tempo = 0.6
     bite_a, bite_b = 0.2 * tempo, 0.5 * tempo
-    flick = bite_b + 0.2 * tempo
+    flick = 0.7 * tempo
     # One swing on a fresh carpet (a medium shove per bite).
     swing = [0.0] * int(1.0 * rate)
-    _place(swing, clip("rake_plant_1"), bite_a, 0.0, rate)
-    _place(swing, clip("rake_scrape_1"), bite_a + 0.015, 0.0, rate)
-    _place(swing, clip("rake_leaves_med_1"), bite_a, -3.0, rate)
-    _place(swing, clip("rake_leaves_med_2"), bite_b, -3.0, rate)
-    _place(swing, clip("leaf_flick_1"), flick, 0.0, rate)
-    _place(swing, clip("leaf_settle_1"), flick + 0.25, -6.0, rate)
+    put(swing, "rake_plant_1", bite_a)
+    put(swing, "rake_scrape_1", bite_a)
+    put(swing, "rake_leaves_med_1", bite_a, -3.0)
+    put(swing, "rake_leaves_med_2", bite_b, -3.0)
+    put(swing, "leaf_flick_1", flick)
+    put(swing, "leaf_settle_1", flick + 0.25, -6.0)
     out["preview_swing"] = (swing, [(bite_a, "A"), (bite_b, "B"), (flick, "FLICK")])
     # Three swings held.
     held = [0.0] * int(2.2 * rate)
     marks = []
     for k in range(3):
         t0 = k * tempo
-        _place(held, clip("rake_plant_%d" % (k + 1)), t0 + bite_a, 0.0, rate)
-        _place(held, clip("rake_scrape_%d" % (k + 1)), t0 + bite_a + 0.015, 0.0, rate)
-        _place(held, clip("rake_leaves_med_%d" % (2 * k + 1)), t0 + bite_a, -2.0, rate)
-        _place(held, clip("rake_leaves_med_%d" % (2 * k + 2)), t0 + bite_b, -2.0, rate)
-        _place(held, clip("leaf_flick_%d" % (k + 1)), t0 + flick, 0.0, rate)
-        _place(held, clip("leaf_settle_%d" % (k + 1)), t0 + flick + 0.25, -6.0, rate)
+        put(held, "rake_plant_%d" % (k + 1), t0 + bite_a)
+        put(held, "rake_scrape_%d" % (k + 1), t0 + bite_a)
+        put(held, "rake_leaves_med_%d" % (2 * k + 1), t0 + bite_a, -2.0)
+        put(held, "rake_leaves_med_%d" % (2 * k + 2), t0 + bite_b, -2.0)
+        put(held, "leaf_flick_%d" % (k + 1), t0 + flick)
+        put(held, "leaf_settle_%d" % (k + 1), t0 + flick + 0.25, -6.0)
         marks.append((t0 + bite_a, "A%d" % (k + 1)))
     out["preview_held"] = (held, marks)
     # Bare grass: plant and the empty swish, nothing flies.
     bare = [0.0] * int(0.8 * rate)
-    _place(bare, clip("rake_plant_2"), bite_a, 0.0, rate)
-    _place(bare, clip("rake_empty_1"), bite_a + 0.015, 0.0, rate)
+    put(bare, "rake_plant_2", bite_a)
+    put(bare, "rake_empty_1", bite_a)
     out["preview_bare"] = (bare, [(bite_a, "A")])
     # A heavy shove into a pile, and the whump of it landing.
     pile = [0.0] * int(1.1 * rate)
-    _place(pile, clip("rake_plant_3"), bite_a, 0.0, rate)
-    _place(pile, clip("rake_scrape_4"), bite_a + 0.015, 0.0, rate)
-    _place(pile, clip("rake_leaves_heavy_1"), bite_a, 0.0, rate)
-    _place(pile, clip("rake_leaves_heavy_2"), bite_b, 0.0, rate)
-    _place(pile, clip("leaf_flick_2"), flick, 0.0, rate)
-    _place(pile, clip("pile_whump_1"), flick + 0.2, 0.0, rate)
+    put(pile, "rake_plant_3", bite_a)
+    put(pile, "rake_scrape_4", bite_a)
+    put(pile, "rake_leaves_heavy_1", bite_a)
+    put(pile, "rake_leaves_heavy_2", bite_b)
+    put(pile, "leaf_flick_2", flick)
+    put(pile, "pile_whump_1", flick + 0.2)
     out["preview_pile"] = (pile, [(bite_a, "A"), (bite_b, "B"), (flick + 0.2, "WHUMP")])
-    # The bag: open now, stuff at +0.15, the tie at +0.45 (Constants.BAG_*_DELAY).
-    bag = [0.0] * int(1.1 * rate)
-    _place(bag, clip("bag_open_1"), 0.0, 0.0, rate)
-    _place(bag, clip("bag_stuff_1"), 0.15, 0.0, rate)
-    _place(bag, clip("bag_1"), 0.45, -4.0, rate)
-    out["preview_bag"] = (bag, [(0.0, "OPEN"), (0.15, "STUFF"), (0.45, "TIE")])
+    # The bag: open now, stuff at +0.15, the tie at +0.7 (Constants.BAG_*_DELAY).
+    bag = [0.0] * int(1.2 * rate)
+    put(bag, "bag_open_1", 0.0)
+    put(bag, "bag_stuff_1", 0.15)
+    put(bag, "bag_tie_1", 0.7)
+    out["preview_bag"] = (bag, [(0.0, "OPEN"), (0.15, "STUFF"), (0.7, "TIE")])
     return out
 
 
@@ -319,7 +385,9 @@ def check_id(sound_id: str, want_png: bool) -> list[str]:
         seconds = len(x) / rate
         level = ac.db(ac.rms(x))
         peak = ac.db(max(abs(v) for v in x))
-        notes = ["%.3f s" % seconds, "RMS %.1f" % level, "peak %.1f" % peak]
+        beats = loudness_peaks(x, rate)
+        notes = ["%.3f s" % seconds, "RMS %.1f" % level, "peak %.1f" % peak,
+                 "50 ms peak %.1f" % (beats[0] if beats else -99.0)]
         if seconds > max_seconds + 1e-4:
             violations.append("%s is %.3f s, over its %.2f s" % (name, seconds, max_seconds))
         if abs(level - target) > RMS_TOLERANCE_DB:
@@ -383,6 +451,8 @@ def main() -> int:
             violations.append("%s is not in tools/sfx_leaves.py SOUNDS_RMS" % sound_id)
             continue
         violations += check_id(sound_id, options.png)
+    if all(sound_id in wanted for sound_id in ("bag_open", "bag_stuff", "bag_tie")):
+        violations += bag_beats()
     if options.preview or (options.png and not options.ids):
         for name, (x, marks) in previews(44100).items():
             wav = OUT_DIR / (name + ".wav")
