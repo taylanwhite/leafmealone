@@ -138,9 +138,9 @@ func _physics_process(_delta: float) -> void:
 ## Every peer: the look follows its holder's hands (props/prop_looks.gd).
 func _pose_look() -> void:
 	if kind == "rake":
-		var holder := _player(held_by) if held_by != 0 else null
-		var raking := held_by == Net.local_peer_id() and Input.is_action_pressed("primary")
-		_PropLooks.pose_rake(self, holder, raking)
+		# Everyone poses it from the holder's swing (equipment/rake_stroke.gd), not
+		# from this peer's own input.
+		_PropLooks.pose_rake(self, _player(held_by) if held_by != 0 else null, false)
 	elif kind == "ladder" and ladder_top != Vector3.ZERO:
 		_PropLooks.pose_ladder_up(self, ladder_top)
 	elif Constants.TOOL_PRICES.has(kind):

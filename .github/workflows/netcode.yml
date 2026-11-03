@@ -225,6 +225,18 @@ jobs:
           grep "HireTest" build/soak/ci-hire/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-hire/host.json')); t=json.load(open('build/soak/ci-hire/target.json')); sys.exit(0 if h['hire_test'].get('ok') and t['crew_hands'] == 1 else 1)"
 
+      - name: Rake stroke test (bite timing, remote swing, release, crew hand)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-rake_stroke
+          "$GODOT" --headless --path . -- --host --port=7823 --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --rank=22 --rake-stroke-test --measure="$PWD/build/soak/ci-rake_stroke/host.json" --run-seconds=60 > build/soak/ci-rake_stroke/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7823 --name=Target --no-steam --rake-stroke-test --measure="$PWD/build/soak/ci-rake_stroke/target.json" --run-seconds=55 > build/soak/ci-rake_stroke/target.log 2>&1
+          wait
+          grep "RakeStrokeTest" build/soak/ci-rake_stroke/host.log build/soak/ci-rake_stroke/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-rake_stroke/host.json')); t=json.load(open('build/soak/ci-rake_stroke/target.json')); sys.exit(0 if h['rake_stroke_test'].get('ok') and t['rake_stroke_test'].get('ok') else 1)"
+
       - name: Rival and seasons test (TurfMasters poach, signs, winning back; seasons by day)
         if: matrix.part == 'features'
         run: |

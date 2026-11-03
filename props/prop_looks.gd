@@ -20,14 +20,6 @@ const HANDHELD: Dictionary = {
 	"hedge_trimmer": Vector3(0.2, -0.34, -0.42),
 	"paint_roller": Vector3(0.22, -0.17, -0.45),
 }
-## The rake in hand: its top hand in the holder's head space, how far ahead of
-## their feet its head rests and how high (so the curled tine tips touch the
-## ground), the top of its rubber grip up the handle, and the gap to the other hand.
-const RAKE_GRIP: Vector3 = Vector3(0.05, -0.25, -0.34)
-const RAKE_REACH: float = 1.45
-const RAKE_HEAD_Y: float = 0.26
-const RAKE_TOP: float = 1.58
-const RAKE_HAND_GAP: float = 0.1
 ## A carried leaf bag hangs by its rolled top from both hands: the middle of the
 ## hands in the holder's head space, and the hand spots on the rim in the bag's
 ## own space [right, left] (yard_models.gd: rim 0.74-0.8 up, radius 0.25; +Z toward the holder).
@@ -123,40 +115,52 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 		prop.add_child(sound)
 
 
-## The rake lies flat when nobody has it. In hand it angles down in front of the
-## holder with the tines on the leaves, and sweeps while its holder rakes.
-static func pose_rake(prop: Node3D, holder: Node3D, raking: bool) -> void:
+## The rake lies flat when nobody has it. In hand it is posed by its holder's swing
+## (equipment/rake_stroke.gd, props/rake_motion.gd) on every peer: tines on the
+## leaves, the handle up to both hands. The bool is unused (hotbar:D keeps the
+## signature); nothing here reads the local input any more.
+static func pose_rake(prop: Node3D, holder: Node3D, _raking: bool = false) -> void:
 	var look := prop.get_node_or_null("Visual/Look") as Node3D
 	if look == null or str(look.get_meta("kind", "")) != "rake":
 		return
 	var pose := look.get_node_or_null("Pose") as Node3D
 	if pose == null:
 		return
+	if holder != null:
+		prop.set_meta("last_holder", holder.name.to_int())
+	RakeMotion.dress(pose, rake_tier(int(prop.get_meta("last_holder", 0))))
 	if holder == null:
-		pose.top_level = false
+		if pose.top_level:
+			pose.top_level = false
+			pose.reset_physics_interpolation()
 		look.rotation = Vector3.ZERO
 		pose.rotation = Vector3(0.0, 0.0, PI * 0.5)
 		pose.position = Vector3(0.0, 0.1, 0.0)
+		var tines := pose.get_node_or_null("Rake/Tines") as Node3D
+		if tines != null:
+			tines.rotation = Vector3.ZERO
 		return
-	# Reach out, then drag back, once per stroke.
-	var phase := fmod(Time.get_ticks_msec() / 1000.0, Constants.RAKE_STROKE_SECONDS) / Constants.RAKE_STROKE_SECONDS
-	var stroke := (0.5 - phase) if raking else 0.0
-	var forward := -holder.global_basis.z
-	forward = Vector3(forward.x, 0.0, forward.z).normalized()
-	var right := holder.global_basis.x
-	# The head (the Pose origin) rests on the ground ahead, tines on the leaves...
-	var foot := holder.global_position + forward * (RAKE_REACH + 0.3 * stroke) + right * RAKE_GRIP.x + Vector3(0.0, RAKE_HEAD_Y, 0.0)
-	# ...and the handle (the model's +Y) runs back up into the holder's hands.
-	var head := holder.get_node_or_null("Visual/Head") as Node3D
-	var hands := RAKE_GRIP + Vector3(0.0, 0.0, -0.08 * stroke)
-	var grip := head.global_transform * hands if head != null else holder.global_position + Vector3(0.0, 1.6, 0.0) + holder.global_basis * hands
-	var up := (grip - foot).normalized()
-	# Turned to face the holder, so the curled tine tips hook back toward them.
-	var back := up.cross(right).normalized()
-	# Placed in world space, so a smoothed or offset Visual can't drag it around.
-	pose.top_level = true
-	pose.global_transform = Transform3D(Basis(up.cross(back), up, back), foot)
-	pose.set_meta("grip", minf(grip.distance_to(foot), RAKE_TOP))
+	if not pose.top_level:
+		pose.top_level = true
+		pose.reset_physics_interpolation()
+	var actor := holder.name.to_int()
+	RakeMotion.pose(prop, holder, RakeStroke.display(actor), actor)
+
+
+## Which rake head a peer's upgrades give it: 0 the starter, 1 the Tune-Up, 2 The
+## Leafinator (Campaign RAKE_UPGRADE, RAKE_UPGRADE_2).
+## Looked up at run time, so tools that load this script without the autoloads
+## (--script checks) still compile it.
+static func rake_tier(peer_id: int) -> int:
+	var tree := Engine.get_main_loop() as SceneTree
+	var campaign := tree.root.get_node_or_null("Campaign") if tree != null else null
+	if peer_id == 0 or campaign == null:
+		return 0
+	if bool(campaign.call("peer_has_unlock", peer_id, &"rake_tier_2")):
+		return 2
+	if bool(campaign.call("peer_has_unlock", peer_id, &"rake_tier_1")):
+		return 1
+	return 0
 
 
 ## A ladder set up against the house: standing from its foot (the prop) up to
@@ -292,13 +296,9 @@ static func grip_points(prop: Node3D, holder: Node3D) -> Array[Vector3]:
 		return free
 	match kind:
 		"rake":
-			# On the handle pose_rake runs up into RAKE_GRIP: the left hand at the top,
-			# the right a little way down it.
-			var pose := look.get_node_or_null("Pose") as Node3D
-			if pose == null or not pose.top_level:
-				return free
-			var along := float(pose.get_meta("grip", RAKE_TOP))
-			return [pose.global_transform * Vector3(0.0, along - RAKE_HAND_GAP, 0.0), pose.global_transform * Vector3(0.0, along, 0.0)]
+			# On the handle where the swing put them (props/rake_motion.gd): the left
+			# hand on top, the right one a span further down.
+			return RakeMotion.grips(prop, holder)
 		"leaf_bag":
 			return [look.global_transform * BAG_RIM[0], look.global_transform * BAG_RIM[1]]
 		"pressure_washer":
@@ -437,9 +437,11 @@ static func _leaf_bag(look: Node3D) -> void:
 	look.add_child(_YardModels.node("leaf_bag"))
 
 
-## The job's one rake, built standing with its head at the Pose origin.
-static func _rake(look: Node3D) -> void:
+## The job's one rake, built standing with its head at the Pose origin, with the
+## tier's head (props/yard_models.gd rake: wider, more tines, starter green,
+## Tune-Up orange, Leafinator chrome). pose_rake rebuilds it only when the tier changes.
+static func _rake(look: Node3D, tier: int = 0) -> void:
 	var pose := Node3D.new()
 	pose.name = "Pose"
 	look.add_child(pose)
-	pose.add_child(_YardModels.node("rake", Color.WHITE, Vector3.ONE, {"roughness": 0.6, "specular": 0.3}))
+	RakeMotion.dress(pose, tier)

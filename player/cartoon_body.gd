@@ -127,6 +127,14 @@ const SIT_HIPS: float = 0.48
 const SIT_LEGS: float = 1.42
 ## 0 on your feet, 1 sitting, 2 riding standing up (a truck's bed: no walk cycle).
 var _sit_pose: int = 0
+## set_work_pose: what was asked (lean, twist, hip) and what's shown, and how fast
+## it follows; the neck's height above the hips, for the head to ride the lean.
+var _work_target := Vector3.ZERO
+var _work := Vector3.ZERO
+const WORK_SMOOTH_SECONDS: float = 0.015
+const WORK_NECK: float = 0.55
+## Hip to sole, for the lunge's step.
+const WORK_LEG: float = 0.76
 ## Share of a player's look up and down that the visible head shows.
 const HEAD_TILT_SHARE: float = 0.35
 const GESTURE_SECONDS: Dictionary = {
@@ -253,6 +261,65 @@ func set_hold(right: Vector3, left: Vector3) -> void:
 	var into := _hold_frame().affine_inverse()
 	_hold_targets[0] = into * right if right.is_finite() else Vector3.INF
 	_hold_targets[1] = into * left if left.is_finite() else Vector3.INF
+
+
+## Working a tool (the rake's swing, equipment/rake_stroke.gd): lean the torso by
+## lean_x (negative is forward), twist it by twist_y, push the hips back by hip
+## (m), and look down at the work. Smoothed over WORK_SMOOTH_SECONDS; call it every
+## frame (zeros to stand up straight). The head rides along with the torso, except
+## your own head while you look through it in first person (the camera nods on its
+## own, player/stroke_cam.gd).
+func set_work_pose(lean_x: float, twist_y: float, hip: float) -> void:
+	_work_target = Vector3(lean_x, twist_y, hip)
+
+
+## The current, smoothed work pose: (lean, twist, hip). For tests.
+func work_pose() -> Vector3:
+	return _work
+
+
+func _apply_work(delta: float) -> void:
+	_work = _work.lerp(_work_target, 1.0 - exp(-delta / WORK_SMOOTH_SECONDS))
+	if _work.length_squared() < 0.0000001 and _work_target == Vector3.ZERO:
+		_work = Vector3.ZERO
+		_hips.rotation.y = 0.0
+		_hips.position.z = 0.0
+		return
+	_torso.rotation.x += _work.x
+	# The hips turn a little against the shoulders.
+	_hips.rotation.y = -0.1 * _work.y
+	_torso.rotation.y = _work.y * 1.1
+	_hips.position.z = _work.z
+	if _work.z < 0.0 and _legs.size() == 2:
+		# A lunge: the hips go forward, the right foot stays put and the left one
+		# steps out ahead of them, and the hips sink a little between the two.
+		var lunge := -_work.z
+		var back := -asin(clampf(lunge / WORK_LEG, -0.9, 0.9))
+		var front := asin(clampf(0.6 * lunge / WORK_LEG, -0.9, 0.9))
+		_legs[1].rotation.x += back
+		_legs[0].rotation.x += front
+		_hips.position.y -= WORK_LEG * (1.0 - cos(back))
+	# Eyes on the tines.
+	_face.rotation.x -= absf(_work.x) * 0.6
+
+
+## The head follows the leaning torso (it isn't parented to it), unless it's your
+## own head and you're looking through it.
+func _apply_work_head() -> void:
+	if _head_root == self:
+		return
+	var offset := Vector3(0.0, WORK_NECK * (cos(_work.x) - 1.0), WORK_NECK * sin(_work.x) + _work.z)
+	if _own_head:
+		for child: Node in _head_root.get_children():
+			if child is Camera3D and (child as Camera3D).current:
+				offset = Vector3.ZERO
+	if _head_root.get_parent() == self:
+		# An NPC's own head pivot: its height is set every tick, its depth only here.
+		_head_root.position.z = offset.z
+		_head_root.position.y += offset.y
+	else:
+		# A player's Head: _apply_fall placed it this tick.
+		_head_root.position += offset
 
 
 ## Where an arm hangs from, in world space: side 0 the right shoulder, 1 the left
@@ -472,10 +539,12 @@ func _physics_process(delta: float) -> void:
 	_torso.rotation.z = lerpf(_torso.rotation.z, lean, clampf(delta * 8.0, 0.0, 1.0))
 	_show_bandage()
 	_show_foot()
+	_apply_work(delta)
 	_animate_gesture(delta)
 	_apply_hold(delta)
 	_animate_face(delta)
 	_apply_fall(delta)
+	_apply_work_head()
 
 
 ## In a seat: 1 sitting (Chefty's cab: hips down, legs out front), 2 riding

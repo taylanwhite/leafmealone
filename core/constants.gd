@@ -389,7 +389,7 @@ const HIRE_SPEED: float = 3.2
 ## Seasons (core/seasons.gd): days in each, autumn first.
 const SEASON_DAYS: int = 7
 
-## The rival, TurfMasters™ (net/town/town.gd), once the rank brings them to town:
+## The rival, TurfMastersÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ (net/town/town.gd), once the rank brings them to town:
 ## the chance each morning they poach a client below this relationship, the chance
 ## a great job wins one back, signs in a yard (at most), and XP per sign pulled.
 const RIVAL_POACH_CHANCE: float = 0.35
@@ -429,7 +429,7 @@ const TOWN_RELATIONSHIP_MISSED: float = 3.0
 ## TOWN_REFERRAL_AT.
 const TOWN_LEAD_REFERRAL_SHARE: float = 0.75
 ## XP for meeting a client by referral (or Marty's lead), and for winning one
-## back from TurfMasters™.
+## back from TurfMastersÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢.
 const XP_REFERRAL: int = 25
 const XP_WON_BACK: int = 25
 
@@ -674,7 +674,7 @@ const HOMEOWNER_PERSONALITY_LINE_CHANCE: float = 0.65
 ## When the crew owes the homeowner only for water, how often they mention it
 ## (Strings.HOMEOWNER_LINES.bill_water).
 const HOMEOWNER_WATER_LINE_CHANCE: float = 0.5
-## How often TurfMasters™ text a taunt after poaching a client, and a complaint
+## How often TurfMastersÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ text a taunt after poaching a client, and a complaint
 ## when one of their signs is pulled (net/town/town.gd).
 const RIVAL_TAUNT_CHANCE: float = 0.5
 const RIVAL_SIGN_TEXT_CHANCE: float = 0.35
@@ -1191,6 +1191,88 @@ const HOLD_ARM_LONGEST: float = 1.15
 ## A grip farther than this from its shoulder (m) doesn't count as held (the
 ## probe's grip_ok, hotbar_test step 9).
 const HOLD_GRIP_REACH: float = 0.62
+
+# ---- raking: rake stroke (R1 chunk 4)
+# One push-sweep swing everyone sees (equipment/rake_stroke.gd, props/rake_motion.gd;
+# docs/GAME.md "Raking: the push-sweep"). Phases are fractions of one swing.
+## Field strokes per swing: a swing lasts RAKE_STROKE_SECONDS x this (0.6 s), so
+## holding the button keeps today's 3.33 strokes a second.
+const RAKE_SWING_STROKES: int = 2
+## OQ-R1-1: "push" (leaves go away from you, the field's rule). Only the head path
+## would change for "pull".
+const RAKE_SWING_STYLE: String = "push"
+## When each field stroke bites, as a fraction of the swing (0.12 s and 0.30 s).
+const RAKE_SWING_BITES: Array[float] = [0.2, 0.5]
+## The plant (tines touch down), the end of the drive, and the end of the flick.
+const RAKE_SWING_PHASES: Dictionary = {"plant": 0.2, "drive_end": 0.7, "flick_end": 0.85}
+## A hired hand's swing (HIRE_STROKE_SECONDS / skill long) bites once, here.
+const RAKE_CREW_BITES: Array[float] = [0.25]
+## How far ahead of the feet the tines plant, and where the drive ends (m). The
+## hands hold the 1.6 m handle near its top, so the plant can't come closer than
+## this without the hands going up past the face; the far end needs the lunge.
+const RAKE_HEAD_NEAR: float = 1.25
+const RAKE_HEAD_FAR: float = 1.95
+## The head sits a little to the right of center (a right-handed hold), drifts
+## sideways at most this much during a drive, alternating sides swing to swing,
+## and is never further than RAKE_HEAD_LATERAL off center (m).
+const RAKE_HEAD_BASE_X: float = 0.12
+const RAKE_HEAD_DRIFT: float = 0.13
+const RAKE_HEAD_LATERAL: float = 0.25
+## How far the head turns off straight ahead with the drift (rad, 15 degrees).
+const RAKE_HEAD_YAW_MAX: float = 0.26
+## The return arc's height, the wrist flick's extra height at the end of the drive,
+## and how far the head follows through forward in the flick (m).
+const RAKE_HEAD_LIFT: float = 0.11
+const RAKE_HEAD_FLICK: float = 0.12
+const RAKE_HEAD_FOLLOW: float = 0.06
+## The tines are kinked this far toe-down from the handle (rad), and bend back by up
+## to RAKE_TINE_FLEX x load while they push leaves; the flick tips them up.
+const RAKE_HEAD_TOE_DOWN: float = 0.45
+const RAKE_TINE_FLEX: float = 0.3
+const RAKE_TINE_FLICK: float = 0.35
+## Leaves moved by one stroke that count as a full load (look only, never timing).
+const RAKE_LOAD_FULL: float = 5000.0
+## The hands on the handle: the upper (left) hand near the top, the lower (right)
+## one this far below it, or as close as RAKE_HAND_SPAN_MIN when the arm can't
+## reach. The upper hand aims for the chest with the head close in and out over
+## the belly at full stretch, in the holder's body space (x right, y up, -z ahead),
+## before the lunge; it slides at most RAKE_HAND_SLIDE_MAX down from the top.
+const RAKE_HAND_SPAN: float = 0.48
+const RAKE_HAND_SPAN_MIN: float = 0.35
+const RAKE_HAND_NEAR: Vector3 = Vector3(0.16, 1.3, -0.3)
+const RAKE_HAND_FAR: Vector3 = Vector3(0.12, 1.0, -0.6)
+const RAKE_HAND_SLIDE_MAX: float = 0.3
+## Your own rake while you look through your eyes (your body is hidden then, and
+## the camera doesn't lunge): both hands at the handle's top, this far apart, and
+## your first-person arms may stretch to this times their length to hold on.
+const RAKE_HAND_SPAN_FP: float = 0.3
+const RAKE_FP_ARM_STRETCH: float = 1.9
+## Where the handle aims then, in body space: just past your right shoulder.
+const RAKE_FP_HANDLE_AIM: Vector3 = Vector3(0.3, 1.25, 0.0)
+## The handle slides this far through the hands over a drive (m).
+const RAKE_HANDLE_SLIDE: float = 0.1
+## The body leans into the shove (torso x, negative is forward), twists with the
+## drift, sticks its hips back as the tines plant (m) and then lunges forward
+## into the drive, the left foot stepping out (m).
+const RAKE_LEAN_X: float = -0.36
+const RAKE_TWIST_Y: float = 0.2
+const RAKE_HIP_SHIFT: float = 0.06
+const RAKE_LUNGE: float = 0.3
+## First person: the camera nods down this far at the plant (in 0.06 s, back over
+## 0.25 s), rolls a touch with the drift, and narrows the view during the drive.
+const RAKE_CAM_DIP_DEG: float = 1.6
+const RAKE_CAM_ROLL_DEG: float = 0.5
+const RAKE_CAM_FOV_KICK: float = -1.0
+const RAKE_CAM_ENABLED: bool = true
+## Rake heads by tier (starter, Tune-Up, The Leafinator): width (m) and tines.
+const RAKE_HEAD_WIDTHS: Array[float] = [0.95, 1.15, 1.35]
+const RAKE_TINES: Array[int] = [15, 17, 19]
+## Hired hand "HandN" is actor RAKE_ACTOR_HAND_BASE + N in stroke events.
+const RAKE_ACTOR_HAND_BASE: int = 1000
+## Someone else's swing: blend into a re-phased swing over this long, and back to
+## standing still after a swing nobody followed up (s).
+const RAKE_PLANT_BLEND: float = 0.06
+const RAKE_REMOTE_IDLE_BLEND: float = 0.15
 
 # ---- hotbar hud
 # The bar along the bottom of the screen (ui/hotbar_hud.gd; docs/GAME.md "the

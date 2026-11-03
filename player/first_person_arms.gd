@@ -32,6 +32,8 @@ const SWING: float = 0.1
 const FOLLOW: float = 16.0
 ## A quick reach when you grab something, in seconds.
 const REACH_SECONDS: float = 0.4
+## The rake's grips in first person, moved up and ahead (head space, m).
+const RAKE_FP_OFFSET := Vector3(0.0, 0.025, 0.0)
 
 var _player: CharacterBody3D
 var _body: Node3D
@@ -44,6 +46,8 @@ var _last_held: Node = null
 var _reach_left: float = 0.0
 var _reach_at := Vector3.ZERO
 var _time: float = 0.0
+## How far past their length the arms may reach this frame (1 = not at all).
+var _stretch: float = 1.0
 
 
 func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
@@ -112,6 +116,7 @@ func _process(delta: float) -> void:
 
 ## Where each hand wants to be, in head space, for what the player is doing now.
 func _targets(delta: float) -> Dictionary:
+	_stretch = 1.0
 	var hands: Array[Vector3] = [REST[0], REST[1]]
 	var snap := false
 	var held := _player.call("_held_prop") as Node
@@ -230,6 +235,14 @@ func _on_item(held: Node, hands: Array[Vector3]) -> bool:
 	for side: int in 2:
 		if not grips[side].is_finite():
 			hands[1 - side] = REST[1 - side] + Vector3(0.0, 0.0, sin(_phase + float(side) * PI) * SWING * 0.5)
+	if kind == "rake":
+		# The rake's grips (props/rake_motion.gd: in first person both hands at the
+		# handle's top, aimed past your right shoulder), a hair up so the mitts sit on
+		# the handle rather than inside it; the arms stretch to keep hold in the drive.
+		for side: int in 2:
+			hands[side] += RAKE_FP_OFFSET
+		_stretch = Constants.RAKE_FP_ARM_STRETCH
+		return true
 	# Pushed and shouldered things rock with each step, and the hands follow
 	# them smoothly instead of exactly.
 	if kind in ["lawn_mower", "wheelbarrow", "ladder"]:
@@ -250,6 +263,13 @@ func _solve() -> void:
 		var target := _hands[side]
 		# Never behind the camera's near plane, or the hand pops in and out.
 		target.z = minf(target.z, -0.12)
+		# Holding the rake out at the end of a shove: the arm reaches further (the
+		# whole arm slides out from below the view, a cartoon's stretch).
+		var reach := UPPER + FORE - 0.02
+		var excess := (target - start).length() - reach
+		if _stretch > 1.0 and excess > 0.0:
+			start += (target - start).normalized() * minf(excess, reach * (_stretch - 1.0))
+		shoulder.position = start
 		var to_hand := target - start
 		var length := clampf(to_hand.length(), 0.08, UPPER + FORE - 0.02)
 		var along := to_hand.normalized() if to_hand.length() > 0.001 else Vector3.FORWARD
