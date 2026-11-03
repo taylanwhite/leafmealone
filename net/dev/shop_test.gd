@@ -43,6 +43,7 @@ const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _Heat = preload("res://net/run_events/heat.gd")
 const _ShopModels = preload("res://props/shop_models.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
+const _Hats = preload("res://player/hats.gd")
 ## What the client buys, so the host can tell its buy from its own.
 const CLIENT_HAT: String = "hat_beanie"
 ## And what it buys at the Snak-o-Matic (shops chunk 6).
@@ -268,6 +269,12 @@ func _run() -> void:
 	var hat := str(shops.call("request_buy", "homie_depot", "hat_bucket", 1))
 	var worn := str((shops.call("look_of", me) as Dictionary).get("hat", ""))
 	_step("wear", hat == "ok" and worn == "hat_bucket" and Campaign.peer_has_unlock(me, &"hat_bucket"), "%s, wearing %s" % [hat, worn])
+	# Cosmetics (shops chunk 7): the hats themselves, a look going on a body in
+	# place, the closet's swaps, and Chefty's paint and decal.
+	await _stand_at("homie_depot")
+	_step("hats", _check_hats())
+	_step("cosmetics", await _check_cosmetics(shops, me, mate))
+	_step("truck", await _check_truck(shops, me))
 
 	# Rusty's (shops chunk 5).
 	await _check_rustys(shops, me, mate)
@@ -276,9 +283,165 @@ func _run() -> void:
 	Campaign.save_now()
 	_step("save", _check_save(shops, me))
 	await _check_junk_left(shops)
+	# A stand-in truck, after everything the client waits on (it adds ~2.4 s).
+	_step("paint_pull_away", await _check_paint_pull_away())
 	# Let the last snapshot reach the client before the reports.
 	await get_tree().create_timer(1.0).timeout
 	_finish("")
+
+
+## hats (shops chunk 7): every hat item names a style player/hats.gd builds,
+## each one stays under its triangle budget, and none comes down in front of the
+## eyes (R2b: the old cap's brim cut across them).
+func _check_hats() -> bool:
+	var problems: Array[String] = []
+	for id: String in Catalog.ITEMS:
+		var entry: Dictionary = Catalog.ITEMS[id]
+		if str(entry.get("slot", "")) == "hat" and not _Hats.has_style(str(entry.get("style", ""))):
+			problems.append("%s wears an unknown style %s" % [id, str(entry.get("style", ""))])
+	for style: String in _Hats.STYLES:
+		var count := _Hats.triangles(style)
+		var lowest := _Hats.lowest_over_eyes(style)
+		if count > _Hats.MAX_TRIANGLES:
+			problems.append("%s costs %d triangles" % [style, count])
+		if lowest <= _Hats.EYE_TOP:
+			problems.append("%s comes down to %.3f in front of the eyes" % [style, lowest])
+		print("[ShopTest]   hat %s: %d triangles, lowest over the eyes %.3f" % [style, count, lowest])
+	for problem: String in problems:
+		print("[ShopTest]   %s" % problem)
+	return problems.is_empty()
+
+
+## cosmetics (shops chunk 7): the host's bought bucket hat is on its body, the
+## client's beanie on the client's body here; a shirt dye and the hi-vis vest go
+## on the same body in place (same node, same arm pivots), every hat part on
+## the own-head layer (never at the first-person lens); the closet takes the
+## hat off and puts it back; a hat you don't own is refused.
+func _check_cosmetics(shops: Node, me: int, mate: int) -> bool:
+	var ok := true
+	await get_tree().create_timer(0.3).timeout
+	var body := _player_node(me).get_node_or_null("Visual/CartoonBody") if _player_node(me) != null else null
+	var mate_body := _player_node(mate).get_node_or_null("Visual/CartoonBody") if _player_node(mate) != null else null
+	if body == null or mate_body == null:
+		print("[ShopTest]   no bodies (host %s, client %s)" % [body != null, mate_body != null])
+		return false
+	var bucket := str(body.get("hat_style")) == "bucket"
+	var beanie := str(mate_body.get("hat_style")) == "beanie"
+	var arm_before := body.call("pose_part", "arm_r") as Node3D
+	var shirt := str(shops.call("request_buy", "homie_depot", "shirt_3", 1))
+	await get_tree().create_timer(0.2).timeout
+	var dyed := (body.get("shirt") as Color).is_equal_approx(Constants.SHIRT_DYES[3]) and str((shops.call("look_of", me) as Dictionary).get("shirt", "")) == "shirt_3"
+	var same_body: bool = _player_node(me).get_node_or_null("Visual/CartoonBody") == body and (body.call("pose_part", "arm_r") as Node3D) == arm_before
+	var vest := str(shops.call("request_buy", "homie_depot", "shirt_hivis", 1))
+	await get_tree().create_timer(0.2).timeout
+	var vested := str(body.get("vest")) == "hivis" and body.find_child("Vest", true, false) != null
+	# Off to the hat your name gives you, then back on (the closet's Wear).
+	var off := str(shops.call("request_equip", "hat", ""))
+	await get_tree().create_timer(0.1).timeout
+	var bare := str(body.get("hat_style")) in ["cap", "hair"] and str((shops.call("look_of", me) as Dictionary).get("hat", "")) == ""
+	var not_mine := str(shops.call("request_equip", "hat", "hat_cowboy"))
+	var on := str(shops.call("request_equip", "hat", "hat_bucket"))
+	await get_tree().create_timer(0.1).timeout
+	var back := str(body.get("hat_style")) == "bucket"
+	# It drops on, then sits: nothing left mid-air.
+	var waited := 0.0
+	while waited < 2.0 and bool(body.call("dressing")):
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	# The hat is on the head, which is the player's Head node, not under the body.
+	var hat := _player_node(me).find_child("Hat", true, false) as Node3D
+	var head_bit := 1 << (preload("res://player/cartoon_body.gd").HEAD_LAYER - 1)
+	var on_head_layer := hat != null
+	if hat != null:
+		for node: Node in hat.find_children("*", "MeshInstance3D", true, false):
+			on_head_layer = on_head_layer and (node as MeshInstance3D).layers == head_bit
+	var sat := hat != null and hat.transform.is_equal_approx(_Hats.build("bucket", Color.BLACK)["at"])
+	ok = bucket and beanie and shirt == "ok" and dyed and same_body and vest == "ok" and vested and off == "worn" and bare \
+		and not_mine == "not_owned" and on == "worn" and back and on_head_layer and sat
+	print("[ShopTest] cosmetics: %s (bucket on the host %s, beanie on the client %s; shirt %s dyed %s same body %s; vest %s on %s; off %s bare %s; cowboy %s; back on %s %s; on the own-head layer %s, sat %s)" % [ok, bucket, beanie, shirt, dyed, same_body, vest, vested, off, bare, not_mine, on, back, on_head_layer, sat])
+	return ok
+
+
+## truck (shops chunk 7): Mint paint bought goes on Chefty (with the show, as
+## it's standing still), googly eyes too, with their pupils; the factory red and
+## no decal go back on from the counter; paint the crew doesn't own is refused.
+## It ends mint with googly eyes, for the client's report to match.
+func _check_truck(shops: Node, me: int) -> bool:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var paint := chefty.get_node_or_null("Paint") if chefty != null else null
+	if paint == null:
+		print("[ShopTest]   no Chefty paint (%s)" % [chefty != null])
+		return false
+	var shows := int(paint.get("repaints"))
+	var mint := str(shops.call("request_buy", "homie_depot", "paint_mint", 1))
+	var mint_on := await _truck_shows(paint, Constants.CHEFTY_PAINTS["paint_mint"], "")
+	var googly := str(shops.call("request_buy", "homie_depot", "decal_googly", 1))
+	var googly_on := await _truck_shows(paint, Constants.CHEFTY_PAINTS["paint_mint"], "decal_googly")
+	var look := chefty.get_node_or_null("Body/TruckLook")
+	var pupils := look != null and look.get_node_or_null("GooglyEye0/Pupil") != null and look.get_node_or_null("GooglyEye1/Pupil") != null and look.get_node_or_null("Decal") != null
+	var red := str(shops.call("request_apply_truck", "paint_classic"))
+	var peel := str(shops.call("request_apply_truck", ""))
+	var plain := await _truck_shows(paint, Constants.CHEFTY_PAINTS["paint_classic"], "")
+	look = chefty.get_node_or_null("Body/TruckLook")
+	var no_decal := look != null and look.get_node_or_null("Decal") == null and look.get_node_or_null("GooglyEye0") == null
+	var gold := str(shops.call("request_apply_truck", "paint_gold"))
+	var again := str(shops.call("request_apply_truck", "paint_mint"))
+	var eyes := str(shops.call("request_apply_truck", "decal_googly"))
+	var last := await _truck_shows(paint, Constants.CHEFTY_PAINTS["paint_mint"], "decal_googly")
+	var played := int(paint.get("repaints")) - shows
+	var ok := mint == "ok" and mint_on and googly == "ok" and googly_on and pupils and red == "applied" and peel == "applied" \
+		and plain and no_decal and gold == "not_owned" and again == "applied" and eyes == "applied" and last and played >= 3 \
+		and (shops.get("crew_owned") as Array).has("paint_mint")
+	print("[ShopTest] truck: %s (mint %s on %s; googly %s on %s, pupils %s; red %s, peeled %s, plain %s no decal %s; gold %s; mint and eyes again %s %s %s; %d repaints shown)" % [ok, mint, mint_on, googly, googly_on, pupils, red, peel, plain, no_decal, gold, again, eyes, last, played])
+	return ok
+
+
+## paint_pull_away (critic C22, W8 review): a truck that drives off inside the
+## paint cloud, before the swap, keeps its old paint (the cloud is left behind),
+## and the show plays again once it parks. On a stand-in truck, so the real
+## Chefty's look stays what the client's report expects.
+func _check_paint_pull_away() -> bool:
+	var stand_in_script := GDScript.new()
+	stand_in_script.source_code = "extends Node3D\nvar moving := false\nvar applied := 0\nfunc is_moving() -> bool:\n\treturn moving\nfunc apply_paint(_color: Color, _decal: String) -> void:\n\tapplied += 1\n"
+	stand_in_script.reload()
+	var truck := Node3D.new()
+	truck.set_script(stand_in_script)
+	var body := Node3D.new()
+	body.name = "Body"
+	truck.add_child(body)
+	var paint: Node = preload("res://net/components/chefty_paint.gd").new()
+	paint.set("vehicle", truck)
+	paint.set("shown", {"color": Constants.CHEFTY_PAINTS["paint_classic"], "decal": ""})
+	paint.set("_wanted", {"color": Constants.CHEFTY_PAINTS["paint_mint"], "decal": ""})
+	truck.add_child(paint)
+	add_child(truck)
+	await get_tree().create_timer(0.1).timeout
+	var started := int(paint.get("repaints")) == 1
+	# Pulls away at once, inside the cloud.
+	truck.set("moving", true)
+	await get_tree().create_timer(Constants.REPAINT_SECONDS + 0.4).timeout
+	var kept := int(truck.get("applied")) == 0 and not bool(paint.call("is_settled"))
+	var no_new_show := int(paint.get("repaints")) == 1
+	# Parks: sprayed again, and it goes on this time.
+	truck.set("moving", false)
+	await get_tree().create_timer(Constants.REPAINT_SWAP_AT + 0.3).timeout
+	var sprayed := int(paint.get("repaints")) == 2 and int(truck.get("applied")) == 1
+	truck.queue_free()
+	var ok := started and kept and no_new_show and sprayed
+	print("[ShopTest] paint_pull_away: %s (show started %s; driving off kept the old paint %s, no show on the road %s; parked and sprayed %s)" % [ok, started, kept, no_new_show, sprayed])
+	return ok
+
+
+## Waits (up to 4 s) for Chefty to show this paint and decal, settled.
+func _truck_shows(paint: Node, color: Color, decal: String) -> bool:
+	var waited := 0.0
+	while waited < 4.0:
+		var shown: Dictionary = paint.get("shown")
+		if bool(paint.call("is_settled")) and not shown.is_empty() and (shown["color"] as Color).is_equal_approx(color) and str(shown["decal"]) == decal:
+			return true
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	return false
 
 
 ## bags: every pile bagged takes one bag from the crew's supply; out of bags,
@@ -707,6 +870,12 @@ func _check_snack(shops: Node, me: int) -> bool:
 	await _ticks(2)
 	var ui := get_tree().get_first_node_in_group("game_ui")
 	var row := ui.get_node_or_null("HudRows/BuffRow") if ui != null else null
+	# The row redraws on process frames: on a loaded machine two physics ticks
+	# can pass inside one of them, so give it a few frames (W8: it read []).
+	for _frame: int in 10:
+		if row == null or (row.get("shown") as Array).has("turbo"):
+			break
+		await get_tree().process_frame
 	if row == null or not (row.get("shown") as Array).has("turbo"):
 		problems.append("the HUD shows %s" % (str(row.get("shown")) if row != null else "no buff row"))
 	if not await _ate(body, "drink", 4.0):
@@ -918,6 +1087,14 @@ func _run_client() -> void:
 	await get_tree().create_timer(0.6).timeout
 	await _stand_at("homie_depot")
 	await get_tree().create_timer(0.5).timeout
+	# Before anyone paints it (the host's truck step comes later): this peer's
+	# Chefty already shows the look it joined to, quietly, so the first paint job
+	# gets its cloud here too (W8: the first snapshot never said truck_changed
+	# for a factory-red truck, and the observer's Chefty swapped in one frame).
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var paint := chefty.get_node_or_null("Paint") if chefty != null else null
+	var joined_look: Dictionary = paint.get("shown") if paint != null else {}
+	_step("client_truck_look", paint != null and not joined_look.is_empty() and int(paint.get("repaints")) == 0, "shows %s, %d repaints" % [str(joined_look), int(paint.get("repaints")) if paint != null else -1])
 
 	var cash := Campaign.credits(me)
 	var asked := str(shops.call("request_buy", "homie_depot", CLIENT_HAT, 1))
@@ -949,7 +1126,41 @@ func _run_client() -> void:
 	# only comes once the host has done Rusty's own steps (W7 integration).
 	_step("client_snack", await _run_client_snack(shops, me))
 	await _run_client_rusty(shops, me)
+	_step("client_equip", await _run_client_equip(shops, me))
 	_finish("")
+
+
+## The client's closet (shops chunk 7): it takes its beanie off and puts it back
+## on through _rpc_request_equip; each answer is "worn", and its own body here
+## shows the hat it should.
+func _run_client_equip(shops: Node, me: int) -> bool:
+	var before := _results.size()
+	var asked := str(shops.call("request_equip", "hat", ""))
+	await _await_results(before + 1)
+	var waited := 0.0
+	var body := _player_node(me).get_node_or_null("Visual/CartoonBody") if _player_node(me) != null else null
+	while waited < 2.0 and body != null and str(body.get("hat_style")) == "beanie":
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var bare := body != null and str(body.get("hat_style")) != "beanie"
+	shops.call("request_equip", "hat", CLIENT_HAT)
+	await _await_results(before + 2)
+	waited = 0.0
+	while waited < 2.0 and body != null and str(body.get("hat_style")) != "beanie":
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	var off: Array = _results[before] if _results.size() > before else []
+	var on: Array = _results[before + 1] if _results.size() > before + 1 else []
+	var back := body != null and str(body.get("hat_style")) == "beanie"
+	# The host's truck step is done by now: this peer's Chefty sprayed its new
+	# look on with the show too (W8: a client that never learned the first look
+	# swapped the next one in a frame), and ends mint with googly eyes.
+	var paint := get_tree().get_first_node_in_group("chefty").get_node_or_null("Paint") if get_tree().get_first_node_in_group("chefty") != null else null
+	var sprayed := paint != null and int(paint.get("repaints")) >= 1
+	var shown: Dictionary = paint.get("shown") if paint != null else {}
+	var mint := not shown.is_empty() and (shown["color"] as Color).is_equal_approx(Constants.CHEFTY_PAINTS["paint_mint"]) and str(shown["decal"]) == "decal_googly"
+	print("[ShopTest] client_equip: off %s %s bare %s, on %s back %s; Chefty here sprayed %s (%d repaints), mint with googly eyes %s" % [asked, str(off), bare, str(on), back, sprayed, int(paint.get("repaints")) if paint != null else -1, mint])
+	return asked == "" and off.size() > 0 and str(off[0]) == "worn" and bare and on.size() > 0 and str(on[0]) == "worn" and back and sprayed and mint
 
 
 ## The client's snack (shops chunk 6): at the Snak-o-Matic it buys a warm Turbo

@@ -219,6 +219,26 @@ const RECIPES: Dictionary = {
 	"buff_crash": {"kind": "flat", "px": 128, "draw": "draw_crash"},
 	"buff_coffee": {"kind": "flat", "px": 128, "draw": "draw_coffee_cup"},
 	"buff_queasy": {"kind": "flat", "px": 128, "draw": "draw_sandwich", "queasy": true},
+	# ---- workwear and Chefty's paint (shops chunk 7): the shop window's cards and
+	# the phone's Closet; "shirt" and "paint_swatch" are white, tinted by the caller
+	"hat_hd_cap": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_hd_cap", "yaw": 200.0},
+	"hat_beanie": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_beanie", "yaw": 200.0},
+	"hat_bucket": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_bucket", "yaw": 200.0},
+	"hat_hard": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_hard", "yaw": 200.0},
+	"hat_cowboy": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_cowboy", "yaw": 200.0},
+	"hat_chef": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_chef", "yaw": 200.0},
+	"hat_crown": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_crown", "yaw": 200.0},
+	"hat_cone": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_cone", "yaw": 200.0},
+	"hat_propeller": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_propeller", "yaw": 200.0},
+	"hat_viking": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_viking", "yaw": 200.0},
+	"hat_trucker": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "hat_trucker", "yaw": 200.0},
+	"shirt": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "shirt", "yaw": 180.0, "tilt": Vector3(-50.0, 0.0, 0.0)},
+	"paint_swatch": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "paint_swatch", "yaw": 200.0},
+	"decal_stripes": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_stripes", "yaw": 180.0},
+	"decal_googly": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_googly", "yaw": 180.0},
+	"decal_flames": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_flames", "yaw": 180.0},
+	"decal_leaves": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_leaves", "yaw": 180.0},
+	"decal_rust": {"kind": "model", "px": 256, "build": "build_cosmetic", "cosmetic": "decal_rust", "yaw": 180.0},
 	# ---- keycaps (64 tall; "wide" ones 128 wide) and mouse glyphs: every key a
 	# player can rebind to (critic C5)
 	"key_a": {"kind": "key", "px": 64, "draw": "draw_key", "label": "A"},
@@ -355,6 +375,30 @@ static func build_turf_sign(root: Node3D, _recipe: Dictionary) -> void:
 
 
 ## Chefty, logo and all (DEC-006).
+## Workwear and Chefty's paint (shops chunk 7, props/cosmetic_models.gd): a hat
+## on its own (player/hats.gd, its propeller too), a folded white shirt and a
+## white-label paint can (the shop window tints both), a decal's sample card.
+static func build_cosmetic(root: Node3D, recipe: Dictionary) -> void:
+	var hats := preload("res://player/hats.gd")
+	var models := preload("res://props/cosmetic_models.gd")
+	var what := str(recipe.get("cosmetic", ""))
+	var mesh: ArrayMesh = null
+	if what.begins_with("hat_"):
+		var hat: Dictionary = hats.build(what.trim_prefix("hat_"), Color(0.3, 0.22, 0.16))
+		var parts: Array = [[hat["mesh"], Transform3D.IDENTITY]]
+		if hat["spin"] != null:
+			parts.append([hat["spin"], Transform3D(Basis(Vector3.UP, 0.6), hat["spin_at"])])
+		mesh = hats.merged(parts)
+	elif what == "shirt":
+		mesh = models.folded_shirt(WHITE, false)
+	elif what == "paint_swatch":
+		mesh = models.paint_can(WHITE)
+	else:
+		mesh = models.decal_card(what)
+	if mesh != null:
+		root.add_child(_Stylized.instance(mesh, MODEL_LOOK))
+
+
 static func build_chefty(root: Node3D, _recipe: Dictionary) -> void:
 	_Vehicles.build_truck(root, CHEFTY_RED)
 

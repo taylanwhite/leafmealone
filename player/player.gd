@@ -27,6 +27,7 @@ const _Pockets = preload("res://player/pockets.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _Seated = preload("res://player/seated.gd")
+const _Hats = preload("res://player/hats.gd")
 ## Share of jumps that get a "hup". Every jump would get old fast.
 const HUP_CHANCE: float = 0.6
 
@@ -71,6 +72,10 @@ var _last_anim: AnimState = AnimState.IDLE
 var _on_seat: bool = false
 ## _dress_up has already waited once for this player's name.
 var _dress_waited: bool = false
+## The seed the body's own look comes from (the name), and when it was dressed
+## (shops chunk 7: a look that lands right after is put on without the show).
+var _dress_seed: int = 0
+var _dressed_msec: int = 0
 ## World/Shops, looked up once (snack_buff).
 var _shops_node: Node
 var _step_wait: float = 0.0
@@ -2092,7 +2097,16 @@ func _dress_up() -> void:
 		return
 	var body := _CartoonBody.new()
 	body.name = "CartoonBody"
-	body.dress_from_seed(hash(shown) if shown != "" else name.to_int())
+	_dress_seed = hash(shown) if shown != "" else name.to_int()
+	body.dress_from_seed(_dress_seed)
+	# What they bought over what their name gives them (shops chunk 7): their
+	# hat and shirt, from World/Shops' replicated looks.
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops != null:
+		_Hats.wear(body, shops.call("look_of", name.to_int()))
+		if not shops.is_connected("looks_changed", _on_looks_changed):
+			shops.connect("looks_changed", _on_looks_changed)
+	_dressed_msec = Time.get_ticks_msec()
 	$Visual.add_child(body)
 	body.build(%Head, is_multiplayer_authority())
 	var life := _CharacterLife.new()
@@ -2133,6 +2147,28 @@ func _dress_up() -> void:
 			arms.name = "Arms"
 			%Head.add_child(arms)
 			arms.setup(self, body, %FirstPerson)
+
+
+## Someone's look changed (World/Shops looks_changed, every peer; shops chunk 7):
+## if it's this player, the body puts on the new hat and shirt in place
+## (CartoonBody.rebuild keeps the pivots, the arms' holds and everything hung on
+## it) and, for your own, the first-person sleeves follow the shirt. A body only
+## just dressed (a late joiner's first snapshot) changes without the show.
+func _on_looks_changed(peer_id: int) -> void:
+	if peer_id != name.to_int():
+		return
+	var body := $Visual.get_node_or_null("CartoonBody")
+	var shops := get_tree().get_first_node_in_group("shops")
+	if body == null or shops == null:
+		return
+	body.call("dress_from_seed", _dress_seed)
+	_Hats.wear(body, shops.call("look_of", peer_id))
+	var animate := Time.get_ticks_msec() - _dressed_msec > int(Constants.DRESS_ANIMATE_AFTER_SECONDS * 1000.0) \
+		and not bool(shops.get("first_snapshot"))
+	body.call("rebuild", %Head, is_multiplayer_authority(), animate)
+	var arms := %Head.get_node_or_null("Arms")
+	if arms != null and arms.has_method("recolor"):
+		arms.call("recolor", body.get("shirt"))
 
 
 ## A silly character noise (docs/ART.md, "Audio") from this player's head, in

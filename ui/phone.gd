@@ -24,7 +24,9 @@ const ORANGE := Color(0.93, 0.47, 0.13)
 const GREEN := Color(0.2, 0.6, 0.3)
 const BUBBLE := Color(0.88, 0.9, 0.95)
 const BUBBLE_JOB := Color(1.0, 0.92, 0.8)
-const APPS: Array[String] = ["texts", "clients", "map", "crew"]
+## gap-specs/critic.md fixes the order: texts, clients, map, crew, deliveries
+## (shops chunk 8), closet (shops chunk 7).
+const APPS: Array[String] = ["texts", "clients", "map", "crew", "closet"]
 const HEART := Color(0.85, 0.25, 0.3)
 ## How wide a line of words is on the screen; a text's words leave room for its avatar.
 const LINE_WIDTH: float = 300.0
@@ -128,13 +130,14 @@ func _ready() -> void:
 func _hook_world() -> void:
 	# The town and the board come and go with the session: hook the ones there
 	# now, and every one added later.
-	for existing: Node in [get_tree().get_first_node_in_group("town"), get_tree().get_first_node_in_group("job_board"), get_tree().get_first_node_in_group("hires")]:
+	for existing: Node in [get_tree().get_first_node_in_group("town"), get_tree().get_first_node_in_group("job_board"), get_tree().get_first_node_in_group("hires"), get_tree().get_first_node_in_group("shops")]:
 		if existing != null:
 			_watch(existing)
 	get_tree().node_added.connect(func(node: Node) -> void:
-		if node.name == "Town" or node.name == "JobBoard" or node.name == "Hires":
+		if node.name == "Town" or node.name == "JobBoard" or node.name == "Hires" or node.name == "Shops":
 			_watch(node)
 	)
+	Campaign.unlocks_changed.connect(_mark_dirty)
 	Campaign.rank_changed.connect(_mark_dirty)
 
 
@@ -276,9 +279,66 @@ func _rebuild() -> void:
 			_map(town)
 		"crew":
 			_crew()
+		"closet":
+			_closet()
 
 
 # ---------------------------------------------------------------- apps
+
+## Closet (shops chunk 7): the hats and shirts you own, each with Wear, and your
+## own look (what your name gives you) to go back to. Wearing one asks the host
+## (Shops.request_equip); everyone sees it go on.
+func _closet() -> void:
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops == null:
+		return
+	var me := Net.local_peer_id()
+	var look: Dictionary = shops.call("look_of", me)
+	# What you have on is the greyed-out Wearing button in its row; no summary
+	# line restating it (W8).
+	var any := false
+	for slot: String in ["hat", "shirt"]:
+		var owned: Array[String] = []
+		for id: String in Catalog.ITEMS:
+			var entry: Dictionary = Catalog.ITEMS[id]
+			if str(entry.get("kind", "")) == "cosmetic" and str(entry.get("slot", "")) == slot and bool(shops.call("owns", me, id)):
+				owned.append(id)
+		if owned.is_empty():
+			continue
+		any = true
+		_list.add_child(_text(str(_Strings.SHOP_UI["closet_hats" if slot == "hat" else "closet_shirts"]), 15, ORANGE))
+		owned.push_front("")
+		for id: String in owned:
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 8)
+			row.set_meta("closet_item", id)
+			if id != "":
+				var icon_id := _Icons.for_shop_item(StringName(id))
+				var picture := _Icons.rect(icon_id, STAT_PX * 1.5)
+				if icon_id == "shirt":
+					picture.modulate = Constants.SHIRT_DYES[clampi(int(Catalog.item(id).get("shirt", 0)), 0, Constants.SHIRT_DYES.size() - 1)] if typeof(Catalog.item(id).get("shirt", 0)) == TYPE_INT else Constants.HIVIS_NEON
+				row.add_child(picture)
+			var label := _text(_Strings.shop_item_name(id) if id != "" else str(_Strings.SHOP_UI["closet_own_look"]), 15, INK)
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(label)
+			var wearing := str(look.get(slot, "")) == id
+			var wear := Button.new()
+			wear.focus_mode = Control.FOCUS_NONE
+			wear.text = str(_Strings.SHOP_UI["shop_wearing"] if wearing else _Strings.SHOP_UI["closet_wear"])
+			wear.disabled = wearing
+			var item := id
+			var which := slot
+			wear.pressed.connect(func() -> void:
+				_Look.sfx(self, "ui_pop")
+				shops.call("request_equip", which, item)
+			)
+			row.add_child(wear)
+			_list.add_child(row)
+	if not any:
+		var empty := _text(str(_Strings.SHOP_UI["closet_empty"]), 15, SOFT)
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		empty.custom_minimum_size.x = LINE_WIDTH
+		_list.add_child(empty)
 
 func _texts(town: Node) -> void:
 	if town == null or (town.get("texts") as Array).is_empty():

@@ -14,6 +14,10 @@ extends Node3D
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _Stylized = preload("res://props/stylized.gd")
 const _NiceSeal = preload("res://props/nice_seal.gd")
+const _Hats = preload("res://player/hats.gd")
+## player/dress_gestures.gd registers itself with this script, so it's loaded on
+## first use rather than preloaded (the two would preload each other).
+const DRESS_GESTURES_PATH: String = "res://player/dress_gestures.gd"
 const STATE_CROUCH: int = 3
 const STATE_AIR: int = 4
 const STATE_KNOCKED: int = 5
@@ -41,8 +45,14 @@ const HEAD_LAYER: int = 2
 @export var shirt := SHIRTS[0]
 @export var pants := PANTS[0]
 @export var hair := HAIR[0]
-## "cap", "hair", "visor" (a sun visor, hair poking out on top; the NICE BOYS), or "none".
+## "cap", "hair", "visor" (a sun visor, hair poking out on top; the NICE BOYS),
+## "none", or one of the shops' hats (player/hats.gd STYLES: "hd_cap", "beanie",
+## "bucket", "hard", "cowboy", "chef", "crown", "cone", "propeller", "viking",
+## "trucker"; shops chunk 7).
 @export var hat_style := "hair"
+## Something worn over the shirt: "" for nothing, "hivis" (Homie Depot's hi-vis
+## vest: neon, two reflective bands, shoulder straps; shops chunk 7).
+@export var vest := ""
 @export var hat_color := Color(0.2, 0.2, 0.22)
 ## Sunglasses over the eyes (the NICE BOYS wear them), in shades_style.
 @export var shades := false
@@ -184,6 +194,27 @@ static var _warned: Dictionary = {}
 var _anim_speed: float = 1.0
 var _prop_hand: Node3D
 var _prop_hand_l: Node3D
+## What the clothes are drawn with, so rebuild() swaps just those (shops chunk 7):
+## the shirt on the torso, each arm's sleeve [left, right] (the _arms order), the
+## vest, the hat's parts on the face (a shop hat, its hair under it, and the
+## propeller's blades), and what the hat and shirt were when drawn.
+var _torso_view: MeshInstance3D
+var _arm_views: Array[MeshInstance3D] = []
+var _vest_view: MeshInstance3D
+var _hat_parts: Array[Node3D] = []
+var _hat_view: Node3D
+var _spin: Node3D
+var _drawn_hat: String = ""
+var _drawn_shirt := Color(0, 0, 0, 0)
+var _drawn_vest: String = ""
+## Hats on their way off (flying up and back, shrinking), each {node, t, from};
+## the new hat's drop (seconds into it, -1 when sat), and the shirt's puff.
+var _hats_off: Array[Dictionary] = []
+var _hat_drop: float = -1.0
+var _hat_rest := Transform3D.IDENTITY
+var _shirt_puff: float = -1.0
+## The old hair (or cap) kept on under a hat still in the air.
+var _hair_until_landed: Array[Node3D] = []
 ## The named parts an outfit adds, by outfit (the test looks for every one).
 const OUTFIT_PARTS: Dictionary = {
 	"nice_boy": ["Socks", "Collar", "Lanyard", "Badge", "Insignia", "FannyPack", "VisorSeal", "Clipboard"],
@@ -234,7 +265,8 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 	var shoe := Color(0.18, 0.14, 0.12) if outfit == "" else SNEAKER
 	# Pelvis on the hips, the shirt's hem hanging over it from the torso.
 	_kit_part(_hips, _blob_mesh(Vector3(0.0, -0.02, 0.0), Vector3(0.19, 0.13, 0.15), pants), Vector3.ZERO)
-	_kit_part(_torso, _torso_mesh(shirt), Vector3.ZERO)
+	_torso_view = _kit_part(_torso, _torso_mesh(shirt), Vector3.ZERO)
+	_drawn_shirt = shirt
 	for side: float in [-1.0, 1.0]:
 		# The thigh hangs from the hip, the shin (and the shoe) from the knee, so the
 		# knees can bend (docs/GAME.md, "Raking feel: the look").
@@ -259,12 +291,15 @@ func build(head_parent: Node3D = null, own_head: bool = false) -> void:
 		arm.rotation.z = side * 0.12
 		# Your own arms swing right through your first-person view during gestures,
 		# so like your head they are hidden from your own camera.
-		_on_head_layer(_kit_part(arm, _arm_mesh(side), Vector3.ZERO))
+		var sleeve := _kit_part(arm, _arm_mesh(side), Vector3.ZERO)
+		_on_head_layer(sleeve)
+		_arm_views.append(sleeve)
 		_arms.append(arm)
 	_head_root = head_parent if head_parent != null else _pivot(self, Vector3(0.0, 1.6, 0.0))
 	_head_base_y = _head_root.position.y
 	_head_stand_y = _head_base_y
 	_build_head(_head_root)
+	_build_vest()
 	if outfit != "":
 		_build_outfit()
 	# Your own body, not just your head: looking down in first person, the torso
@@ -692,9 +727,41 @@ func _build_head(root: Node3D) -> void:
 			glasses.blob(Vector3(side * 0.095, 0.06, -0.255), Vector3(0.075, 0.05, 0.015), PUPIL, {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
 		glasses.box(Vector3(0.0, 0.07, -0.258), Vector3(0.06, 0.015, 0.012), PUPIL)
 		_on_head_layer(_kit_part(face, glasses.commit(), Vector3.ZERO, {"roughness": 0.15, "specular": 0.8}))
+	_build_hat(face)
+
+
+## What's on the head: hair, a cap, the NICE BOYS' visor, or a shop hat
+## (player/hats.gd) with the hair that peeks out under it. Every part goes in
+## _hat_parts, so rebuild() can take it off again; the shop hat itself is
+## _hat_view, its own node, so it can drop on and fly off.
+func _build_hat(face: Node3D) -> void:
+	_hat_parts.clear()
+	_hat_view = null
+	_spin = null
+	_drawn_hat = hat_style
+	if _Hats.has_style(hat_style):
+		var hat := _Hats.build(hat_style, hair)
+		var hair_view := _kit_part(face, hat["hair"], Vector3.ZERO)
+		hair_view.name = "HatHair"
+		_on_head_layer(hair_view)
+		_hat_parts.append(hair_view)
+		var holder := Node3D.new()
+		holder.name = "Hat"
+		face.add_child(holder)
+		holder.transform = hat["at"]
+		_hat_rest = hat["at"]
+		_on_head_layer(_kit_part(holder, hat["mesh"], Vector3.ZERO))
+		if hat["spin"] != null:
+			_spin = _pivot(holder, hat["spin_at"])
+			_spin.name = "Propeller"
+			_on_head_layer(_kit_part(_spin, hat["spin"], Vector3.ZERO, {"roughness": 0.4, "specular": 0.4}))
+		_hat_view = holder
+		_hat_parts.append(holder)
+		return
+	var part: MeshInstance3D = null
 	match hat_style:
 		"visor":
-			_on_head_layer(_kit_part(face, _visor_mesh(), Vector3.ZERO))
+			part = _kit_part(face, _visor_mesh(), Vector3.ZERO)
 		# Caps and hair sit clear of the head everywhere they cover it, and their
 		# lumps only push outward, so the scalp never pokes through.
 		"cap":
@@ -704,16 +771,194 @@ func _build_head(root: Node3D) -> void:
 			cap.blob(Vector3(0.0, 0.2, 0.01), Vector3(0.285, 0.16, 0.285), hat_color, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
 			cap.blob(Vector3(0.0, 0.135, -0.29), Vector3(0.17, 0.018, 0.12), hat_color.darkened(0.1), {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
 			cap.blob(Vector3(0.0, 0.36, 0.01), Vector3(0.03, 0.015, 0.03), hat_color.darkened(0.15), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0})
-			# Hair peeking out at the back and sides.
-			cap.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 2, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
-			_on_head_layer(_kit_part(face, cap.commit(), Vector3.ZERO))
+			part = _kit_part(face, cap.commit(), Vector3.ZERO)
+			# Hair peeking out at the back and sides: its own part, so it stays on
+			# the head while the cap flies off or drops on (W8 review: it rode down
+			# with the cap, a wig in mid-air).
+			var under := _MeshKit.new()
+			under.blob(Vector3(0.0, -0.02, 0.12), Vector3(0.25, 0.12, 0.17), hair, {"detail": 2, "lumps": 0.15, "lump_scale": 3.0, "outward": true, "flat": false, "jitter": 0.0})
+			var cap_hair := _kit_part(face, under.commit(), Vector3.ZERO)
+			cap_hair.name = "CapHair"
+			_on_head_layer(cap_hair)
+			_hat_parts.append(cap_hair)
 		"hair":
 			var mop := _MeshKit.new()
 			mop.blob(Vector3(0.0, 0.14, 0.06), Vector3(0.28, 0.19, 0.27), hair, {"detail": 3, "lumps": 0.16, "lump_scale": 2.6, "outward": true, "flat": false, "jitter": 0.0, "seed": int(hair.r * 100.0)})
 			# A fringe of tufts over the forehead, above the brows.
 			for tuft: int in 3:
 				mop.blob(Vector3((float(tuft) - 1.0) * 0.1, 0.235, -0.17), Vector3(0.075, 0.05, 0.065), hair, {"detail": 2, "lumps": 0.0, "flat": false, "jitter": 0.0})
-			_on_head_layer(_kit_part(face, mop.commit(), Vector3.ZERO))
+			part = _kit_part(face, mop.commit(), Vector3.ZERO)
+	if part != null:
+		part.name = "HatHair"
+		_on_head_layer(part)
+		_hat_parts.append(part)
+		# Your own cap drops back on like a bought hat (taking a hat off in the
+		# closet); hair and the NICE BOYS' visor are just there.
+		if hat_style == "cap":
+			_hat_view = part
+			_hat_rest = part.transform
+
+
+## The hi-vis vest over the shirt, on the torso (it leans and breathes with it).
+func _build_vest() -> void:
+	_drawn_vest = vest
+	if _vest_view != null:
+		_vest_view.queue_free()
+		_vest_view = null
+	if vest != "hivis" or _torso == null:
+		return
+	_vest_view = _kit_part(_torso, _vest_mesh(), Vector3.ZERO, {"roughness": 0.6, "specular": 0.3})
+	_vest_view.name = "Vest"
+	_on_head_layer(_vest_view)
+
+
+## Put on what the body's properties say now (shirt, vest, hat_style; set them
+## first), keeping every pivot, the head, the arms that set_hold aims and
+## anything else hung on the body (shops chunk 7, gap-specs/critic.md C20). Only
+## the clothes' meshes change. head_parent and own_head are build()'s, for a body
+## not built yet. With animate, a new hat drops on (the old one flies off) and a
+## new shirt puffs, with the hands coming up to it; without, it just changes
+## (a late joiner seeing everyone's look for the first time).
+func rebuild(head_parent: Node3D = null, own_head: bool = _own_head, animate: bool = true) -> void:
+	if _hips == null:
+		build(head_parent, own_head)
+		return
+	_own_head = own_head
+	var shirt_changed := not _drawn_shirt.is_equal_approx(shirt) or _drawn_vest != vest
+	var hat_changed := _drawn_hat != hat_style
+	if shirt_changed:
+		_drawn_shirt = shirt
+		if _torso_view != null:
+			_torso_view.mesh = _torso_mesh(shirt)
+		for index: int in _arm_views.size():
+			_arm_views[index].mesh = _arm_mesh(-1.0 if index == 0 else 1.0)
+		_build_vest()
+		if animate:
+			_shirt_puff = 0.0
+	if hat_changed and _face != null:
+		var going_to_hat := _Hats.has_style(hat_style) or hat_style == "cap"
+		for node: Node3D in _hair_until_landed:
+			if is_instance_valid(node):
+				node.queue_free()
+		_hair_until_landed.clear()
+		for part: Node3D in _hat_parts:
+			# Out of the way of the new parts' names ("Hat", "HatHair") while it goes.
+			part.name = "Going" + str(part.name)
+			if animate and part == _hat_view:
+				_hats_off.append({"node": part, "t": 0.0, "from": part.transform})
+			elif animate and going_to_hat:
+				# Hair (or an old cap) stays till the new hat lands on it, or it
+				# would vanish while the hat is still in the air.
+				_hair_until_landed.append(part)
+			else:
+				part.queue_free()
+		_build_hat(_face)
+		if _hat_view != null and animate:
+			_hat_drop = 0.0
+			_hat_view.transform = _hat_dropped(0.0)
+			for part: Node3D in _hat_parts:
+				if part != _hat_view and not _hair_until_landed.is_empty():
+					part.visible = false
+		else:
+			_hat_drop = -1.0
+	if animate and (hat_changed or shirt_changed):
+		(load(DRESS_GESTURES_PATH) as Script).call("register")
+		gesture("hat_on" if hat_changed else "shirt_tug")
+	if outfit != "":
+		for part_name: String in OUTFIT_PARTS.get(outfit, []):
+			for node: Node in find_children(part_name, "MeshInstance3D", true, false):
+				node.queue_free()
+		_clipboard = null
+		_megaphone = null
+		_build_outfit()
+
+
+## Whether a hat is still dropping on or flying off (for tests and recordings).
+func dressing() -> bool:
+	return _hat_drop >= 0.0 or not _hats_off.is_empty() or _shirt_puff >= 0.0
+
+
+## The new hat's place t seconds into its drop: above the head, falling faster
+## and faster (anticipation is the hands coming up), landing squashed, springing back.
+func _hat_dropped(t: float) -> Transform3D:
+	var up := _hat_rest.basis.y.normalized()
+	# The head's front (its -Z): the new hat starts a little ahead of the head,
+	# out of the old one's way as that flies off up and back.
+	var ahead := -_hat_rest.basis.z.normalized()
+	var fall := clampf((t - Constants.HAT_DROP_DELAY) / maxf(Constants.HAT_DROP_SECONDS, 0.001), 0.0, 1.0)
+	var height := Constants.HAT_DROP_HEIGHT * (1.0 - fall * fall)
+	var forward := Constants.HAT_DROP_AHEAD * (1.0 - fall * fall)
+	# It grows in where it waits, instead of popping in full size.
+	var grow := clampf(t / maxf(Constants.HAT_DROP_DELAY, 0.001), 0.0, 1.0)
+	var squash := Vector3.ONE * lerpf(Constants.HAT_DROP_GROW_FROM, 1.0, grow * (2.0 - grow))
+	var landed := t - Constants.HAT_DROP_DELAY - Constants.HAT_DROP_SECONDS
+	if landed >= 0.0:
+		var s := clampf(landed / maxf(Constants.HAT_SETTLE_SECONDS, 0.001), 0.0, 1.0)
+		# A damped wobble from the squash back to round.
+		var wobble := exp(-5.0 * s) * cos(s * PI * 2.5) * (1.0 - s)
+		squash = Vector3.ONE.lerp(Constants.HAT_SQUASH, wobble)
+	return Transform3D(_hat_rest.basis.scaled(squash), _hat_rest.origin + up * height + ahead * forward)
+
+
+## The clothes' motion each tick: hats flying off and dropping on, the shirt's
+## puff, and the propeller (it spins faster the faster you go).
+func _animate_dress(delta: float) -> void:
+	for index: int in range(_hats_off.size() - 1, -1, -1):
+		var going := _hats_off[index]
+		var node := going["node"] as Node3D
+		going["t"] = float(going["t"]) + delta
+		var s := clampf(float(going["t"]) / maxf(Constants.HAT_FLY_SECONDS, 0.001), 0.0, 1.0)
+		if node == null or not is_instance_valid(node) or s >= 1.0:
+			if node != null and is_instance_valid(node):
+				node.queue_free()
+			_hats_off.remove_at(index)
+			continue
+		var from: Transform3D = going["from"]
+		# Flicked off back over the head in a low arc, tipping back and shrinking
+		# away (low, so the new hat dropping from above never meets it).
+		var arc := Vector3(0.0, sin(s * PI) * Constants.HAT_FLY_RISE, s * Constants.HAT_FLY_BACK)
+		var turn := Basis(Vector3.RIGHT, s * 1.9) * Basis(Vector3.BACK, s * 0.6)
+		node.transform = Transform3D(turn * from.basis.scaled(Vector3.ONE * (1.0 - s * s * 0.9)), from.origin + arc)
+	if _hat_drop >= 0.0 and _hat_view != null and is_instance_valid(_hat_view):
+		var before := _hat_drop
+		_hat_drop += delta
+		var lands := Constants.HAT_DROP_DELAY + Constants.HAT_DROP_SECONDS
+		if before < lands and _hat_drop >= lands:
+			_hat_landed()
+		_hat_view.transform = _hat_dropped(_hat_drop)
+		if _hat_drop >= lands + Constants.HAT_SETTLE_SECONDS:
+			_hat_view.transform = _hat_rest
+			_hat_drop = -1.0
+	if _shirt_puff >= 0.0:
+		_shirt_puff += delta
+		if _shirt_puff >= Constants.SHIRT_PUFF_SECONDS:
+			_shirt_puff = -1.0
+	if _spin != null and is_instance_valid(_spin):
+		_spin.rotation.y += delta * (Constants.PROPELLER_IDLE_SPIN + _speed * Constants.PROPELLER_SPIN_PER_SPEED)
+
+
+## The new hat lands on the head: a soft fwump from it, on every peer.
+func _hat_landed() -> void:
+	for node: Node3D in _hair_until_landed:
+		if is_instance_valid(node):
+			node.queue_free()
+	if not _hair_until_landed.is_empty():
+		for part: Node3D in _hat_parts:
+			part.visible = true
+	_hair_until_landed.clear()
+	if not is_inside_tree() or _face == null:
+		return
+	var sfx := get_tree().get_first_node_in_group("sfx")
+	if sfx != null:
+		sfx.call("play_on", "hat_on", _face)
+
+
+## The torso's puff right now (1 when none).
+func _puff() -> float:
+	if _shirt_puff < 0.0:
+		return 1.0
+	var s := clampf(_shirt_puff / maxf(Constants.SHIRT_PUFF_SECONDS, 0.001), 0.0, 1.0)
+	return 1.0 + Constants.SHIRT_PUFF * sin(s * PI) * (1.0 - s * 0.5)
 
 
 ## Animates on physics ticks: the head carries a player's camera, and physics
@@ -800,7 +1045,7 @@ func _physics_process(delta: float) -> void:
 	_head_stand_y = lerpf(_head_stand_y, _head_base_y - drop + bounce * 0.6 - _squash * 0.06, clampf(delta * 12.0, 0.0, 1.0))
 	_head_root.position.y = _head_stand_y
 	_torso.rotation.x = -0.12 * walk
-	_torso.scale = Vector3(1.0 + _squash * 0.15, 1.0 + breathe - _squash * 0.12, 1.0 + _squash * 0.15)
+	_torso.scale = Vector3(1.0 + _squash * 0.15, 1.0 + breathe - _squash * 0.12, 1.0 + _squash * 0.15) * _puff()
 	for index: int in _legs.size():
 		if crouching:
 			# Squatting on bent knees, the feet under the hips.
@@ -829,6 +1074,7 @@ func _physics_process(delta: float) -> void:
 	_torso.rotation.z = lerpf(_torso.rotation.z, lean, clampf(delta * 8.0, 0.0, 1.0))
 	_show_bandage()
 	_show_foot()
+	_animate_dress(delta)
 	_apply_work(delta)
 	_animate_gesture(delta)
 	_apply_hold(delta)
@@ -1156,6 +1402,24 @@ func _torso_mesh(color: Color) -> ArrayMesh:
 	kit.tube(PackedVector3Array([Vector3(0, 0.5, 0), Vector3(0, 0.58, 0)]), PackedFloat32Array([0.12, 0.1]), color.darkened(0.12), 12, {"jitter": 0.0})
 	var mesh := kit.commit()
 	return _squashed(mesh, Vector3(1.0, 1.0, 0.8))
+
+
+## The hi-vis vest: a neon shell just over the shirt from the hem to the chest,
+## open at the collar, two silver reflective bands, straps over the shoulders and
+## a zip down the front. Squashed front to back like the torso it covers.
+func _vest_mesh() -> ArrayMesh:
+	var neon := Constants.HIVIS_NEON
+	var silver := Color(0.86, 0.88, 0.9)
+	var kit := _MeshKit.new()
+	kit.tube(PackedVector3Array([Vector3(0, -0.05, 0), Vector3(0, 0.08, 0), Vector3(0, 0.3, 0), Vector3(0, 0.42, 0)]),
+		PackedFloat32Array([0.217, 0.212, 0.217, 0.2]), neon, 14, {"jitter": 0.0, "cap": false, "wobble": 0.0})
+	for band: Vector2 in [Vector2(0.06, 0.1), Vector2(0.24, 0.28)]:
+		kit.tube(PackedVector3Array([Vector3(0, band.x, 0), Vector3(0, band.y, 0)]), PackedFloat32Array([0.221, 0.222]), silver, 14, {"jitter": 0.0, "cap": false, "wobble": 0.0})
+	for side: float in [-1.0, 1.0]:
+		kit.tube(PackedVector3Array([Vector3(side * 0.12, 0.38, -0.2), Vector3(side * 0.14, 0.48, -0.11), Vector3(side * 0.145, 0.52, 0.0), Vector3(side * 0.14, 0.48, 0.11), Vector3(side * 0.12, 0.38, 0.2)]),
+			PackedFloat32Array([0.032]), neon, 6, {"jitter": 0.0})
+	kit.box(Vector3(0.0, 0.17, -0.214), Vector3(0.012, 0.42, 0.006), Color(0.3, 0.32, 0.3))
+	return _squashed(kit.commit(), Vector3(1.0, 1.0, 0.8))
 
 
 ## Sleeve, forearm, and a mitten hand with a thumb, hanging from the shoulder.

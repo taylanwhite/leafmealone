@@ -40,6 +40,7 @@ const FOLLOW_THROUGH: Array[Vector3] = [Constants.FP_ARMS_FOLLOW_REACH * Vector3
 const FOLLOW_PEAK := Constants.FP_ARMS_FOLLOW_PEAK
 const BAG_ARM_STRETCH := Constants.FP_BAG_ARM_STRETCH
 const _SnackGestures = preload("res://player/snack_gestures.gd")
+const _DressGestures = preload("res://player/dress_gestures.gd")
 ## Eating in first person (shops chunk 6): where the right hand holds a snack in
 ## front of your mouth (low in the view), how far a bite brings it in, and how
 ## a sip lifts and brings in the cup (head space, m).
@@ -51,6 +52,9 @@ const FP_SIP := Vector3(-0.03, 0.07, 0.1)
 ## sits (y, so it's in view), and how far the arm may stretch to get there.
 const FP_REACH := Vector3(0.06, -0.2, 0.5)
 const FP_REACH_STRETCH: float = 1.2
+## The render layer the arms are drawn on (the cartoon body's own head is
+## CartoonBody.HEAD_LAYER, 2). Every camera but the mirror's draws it.
+const ARMS_LAYER: int = 3
 
 var _player: CharacterBody3D
 var _body: Node3D
@@ -92,6 +96,7 @@ func setup(player: CharacterBody3D, body: Node3D, camera: Camera3D) -> void:
 		shoulder.position = SHOULDERS[side]
 		add_child(shoulder)
 		var upper := _part(_upper_mesh(shirt))
+		upper.name = "Sleeve"
 		shoulder.add_child(upper)
 		var elbow := Node3D.new()
 		elbow.name = "Elbow"
@@ -116,9 +121,21 @@ func _snack_side() -> int:
 	return int(_body.get_meta("snack_side", 1)) if _body != null else 1
 
 
+## A new shirt (shops chunk 7, a dye bought or worn from the closet): the sleeves
+## you see in first person change with it.
+func recolor(shirt: Color) -> void:
+	for shoulder: Node3D in _shoulders:
+		var sleeve := shoulder.get_node_or_null("Sleeve") as MeshInstance3D
+		if sleeve != null:
+			sleeve.mesh = _upper_mesh(shirt)
+
+
 func _part(mesh: Mesh) -> MeshInstance3D:
 	var view := _Stylized.instance(mesh, {"roughness": 0.85, "specular": 0.15})
 	view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# On their own layer, which only cameras that want them draw (Homie Depot's
+	# mirror shows your body, not these; levels/dressing/wardrobe.gd).
+	view.layers = 1 << (ARMS_LAYER - 1)
 	return view
 
 
@@ -284,6 +301,20 @@ func _targets(delta: float) -> Dictionary:
 	elif gesture == "cheer":
 		for side: int in 2:
 			hands[side] = Vector3(signf(float(side) - 0.5) * 0.3, 0.28 + 0.05 * sin(_time * 8.0 + float(side)), -0.3)
+	elif gesture == "hat_on" or gesture == "shirt_tug":
+		# Something new going on (shops chunk 7, player/dress_gestures.gd, on the
+		# same clock as everyone's view of your body): for a hat both hands sweep
+		# up and out past the top corners of the view to the brim and give it a tug
+		# down (W8: straight up at 0.12 m they filled the view on the way); for a
+		# shirt they come in to the hem at the bottom edge of the view and tug it
+		# twice (W8: any lower and they just vanished).
+		var s := float(_body.get("_gesture_time"))
+		var lift := _DressGestures.fp_amount(gesture, s)
+		var tug := _DressGestures.fp_tug(gesture, s)
+		for hand_side: int in 2:
+			var out := signf(float(hand_side) - 0.5)
+			var to := Vector3(out * 0.34, 0.38 - 0.07 * tug, -0.3) if gesture == "hat_on" else Vector3(out * 0.13, -0.33 - 0.07 * tug, -0.42)
+			hands[hand_side] = REST[hand_side].lerp(to, lift)
 	elif gesture == "flail" or gesture == "stumble":
 		for side: int in 2:
 			hands[side] = REST[side] + Vector3(sin(_time * 14.0 + float(side) * 3.0) * 0.15, 0.25 + cos(_time * 12.0 + float(side)) * 0.12, 0.0)

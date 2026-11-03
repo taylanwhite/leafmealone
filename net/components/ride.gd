@@ -15,6 +15,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
+const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 
 var _riding: bool = false
 ## The bags drawn in the bed (props/truck_bed_load.gd), Chefty only.
@@ -260,6 +261,10 @@ func _build() -> void:
 		_body.add_child(_bed_load)
 		_junk_bed = _JunkBed.new()
 		_body.add_child(_junk_bed)
+		# The crew's paint job and decal (shops chunk 7).
+		var paint := _CheftyPaint.new()
+		paint.vehicle = self
+		add_child(paint)
 	var seats := Node3D.new()
 	seats.name = "Seats"
 	_body.add_child(seats)
@@ -270,6 +275,15 @@ func _build() -> void:
 		seat.position = Vector3(-0.5 + float(index % 2), 1.0, -1.2 + float(index / 2))
 		seats.add_child(seat)
 	_place(0.0)
+
+
+## Chefty's paint and decal (shops chunk 7; chefty_paint.gd calls it only while
+## it's parked): the look is built again; the seats, the bed's load and the
+## label stay.
+func apply_paint(color: Color, decal: String) -> void:
+	_vehicle_color = color
+	if _body != null:
+		_Vehicles.build_truck(_body, {"color": color, "decal": decal})
 
 
 func _seat_local_player() -> void:

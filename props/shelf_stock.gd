@@ -21,6 +21,7 @@ extends Node3D
 
 const _YardModels = preload("res://props/yard_models.gd")
 const _ShopModels = preload("res://props/shop_models.gd")
+const _CosmeticModels = preload("res://props/cosmetic_models.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
 ## The garden center's slots, in the store zone's space: three shelving units
@@ -62,6 +63,19 @@ const TAG_LOCKED := Color(0.4, 0.42, 0.46)
 
 ## Which shop's stock this is.
 var shop_id: String = "homie_depot"
+## The group it joins ("" for the defaults: shelf_stock, or rusty_rack for a
+## used rack). Homie Depot's hat rack and paint counter are "wardrobe_stock"
+## (shops chunk 7), so the garden shelves stay the one "shelf_stock".
+var stock_group: String = ""
+## How big the price tags' letters are (m per pixel): the hat rack and the paint
+## counter's slots are small, so theirs are too.
+var tag_pixel: float = TAG_PIXEL
+## Where one shared "Rank: ..." sign goes (this node's space) instead of a tag on
+## every locked slot (the paint counter, locked whole until Bag Hauler III), or
+## INF for a tag on each.
+var lock_tag_at := Vector3.INF
+## Which way that sign faces (yaw; a Label3D reads from +Z).
+var lock_tag_yaw: float = 0.0
 ## The catalog tabs it shows, and the slots they fill (set before adding it).
 var tabs: Array[String] = SHELF_TABS.duplicate()
 var slots: Array[Dictionary] = SHELF_SLOTS.duplicate(true)
@@ -78,7 +92,7 @@ var _entries: Array[Dictionary] = []
 func _ready() -> void:
 	add_to_group("prompt_sources")
 	# Rusty's rack is its own group: "shelf_stock" is Homie Depot's garden shelves.
-	add_to_group("rusty_rack" if used_rack else "shelf_stock")
+	add_to_group(stock_group if stock_group != "" else ("rusty_rack" if used_rack else "shelf_stock"))
 	var index := 0
 	for tab: String in tabs:
 		for id: String in _slot_items(tab):
@@ -114,12 +128,37 @@ func _slot_items(tab: String) -> PackedStringArray:
 ## Redraws the slots whose state changed (cheap to call often: Shops sends a
 ## snapshot whenever a bag is used).
 func refresh() -> void:
+	var locked_rank := ""
 	for entry: Dictionary in _entries:
 		var state := slot_state(str(entry["item"]))
+		if lock_tag_at.is_finite() and str(state["look"]) == "locked":
+			if locked_rank == "":
+				locked_rank = str(state["tag"])
+			state["tag"] = ""
 		if state == entry["state"]:
 			continue
 		entry["state"] = state
 		_draw_slot(entry, state)
+	if lock_tag_at.is_finite():
+		_shared_lock_tag(locked_rank)
+
+
+## The one "Rank: ..." sign for the locked slots (lock_tag_at), hidden with none.
+func _shared_lock_tag(text: String) -> void:
+	var tag := get_node_or_null("LockTag") as Label3D
+	if tag == null:
+		tag = Label3D.new()
+		tag.name = "LockTag"
+		tag.font_size = 40
+		tag.pixel_size = tag_pixel * 1.4
+		tag.outline_size = 12
+		tag.modulate = TAG_PRICE
+		tag.outline_modulate = TAG_LOCKED
+		add_child(tag)
+		tag.position = lock_tag_at
+		tag.rotation.y = lock_tag_yaw
+	tag.text = text
+	tag.visible = text != ""
 
 
 ## What a slot shows for the local player: {item: the catalog id on show (the
@@ -155,7 +194,14 @@ func slot_state(item: String) -> Dictionary:
 		var rank := _Ranks.title(_Ranks.tier_of(Catalog.gate_of(shown)))
 		return {"item": shown, "tier": tier, "units": units, "tag": str(_Strings.SHOP_UI["shop_rank_tag"]) % rank, "look": "locked"}
 	if shops != null and bool(shops.call("owns", me, shown)):
-		return {"item": shown, "tier": tier, "units": units, "tag": str(_Strings.SHOP_UI["shop_owned_tag"]), "look": "owned"}
+		var owned_tag := str(_Strings.SHOP_UI["shop_owned_tag"])
+		# What you have on (your own hat isn't in your view), and what's on Chefty.
+		var slot := str(entry.get("slot", ""))
+		if str(entry.get("kind", "")) == "cosmetic" and str((shops.call("look_of", me) as Dictionary).get(slot, "")) == shown:
+			owned_tag = str(_Strings.SHOP_UI["shop_wearing"]).to_upper()
+		elif str(entry.get("kind", "")) == "truck_cosmetic" and str((shops.get("truck") as Dictionary).get(slot, "")) == shown:
+			owned_tag = str(_Strings.SHOP_UI["shop_applied"]).to_upper()
+		return {"item": shown, "tier": tier, "units": units, "tag": owned_tag, "look": "owned"}
 	var clock := get_tree().get_first_node_in_group("day_clock") if is_inside_tree() else null
 	if clock != null and not Catalog.is_in_season(shown, int(clock.call("season"))):
 		return {"item": shown, "tier": tier, "units": 0, "tag": str(_Strings.SHOP_UI["shop_out_of_season"]), "look": "season"}
@@ -290,8 +336,9 @@ func _draw_slot(entry: Dictionary, state: Dictionary) -> void:
 	var tag := Label3D.new()
 	tag.name = "Tag"
 	tag.text = str(state["tag"])
+	tag.visible = tag.text != ""
 	tag.font_size = 40
-	tag.pixel_size = TAG_PIXEL
+	tag.pixel_size = tag_pixel
 	tag.outline_size = 12
 	tag.modulate = TAG_PRICE
 	tag.outline_modulate = {"owned": TAG_OWNED, "sold_out": TAG_SOLD_OUT, "locked": TAG_LOCKED, "season": TAG_LOCKED}.get(look, TAG_EDGE)
@@ -308,13 +355,17 @@ func _draw_one(holder: Node3D, item: String, tier: int, size: Vector3) -> void:
 	if view == null:
 		return
 	var box := view.get_aabb()
-	var along := box.size.z > box.size.x * 1.3
+	var along := box.size.z > box.size.x * 1.3 and not view.has_meta("display_scale")
 	# Facing the aisle (-X here) turns a -Z model a quarter turn; a long one lies along Z.
 	view.rotation.y = 0.0 if along else PI * 0.5
 	var across := box.size.x if along else box.size.z
 	var lengthwise := box.size.z if along else box.size.x
 	var fit := minf(minf(size.x * FILL / maxf(across, 0.01), size.z * FILL / maxf(lengthwise, 0.01)), size.y * FILL / maxf(box.size.y, 0.01))
 	fit = minf(fit, 1.0)
+	# A hat on its display head stands at one size, so a cowboy hat's brim isn't
+	# shrunk to a beanie's (props/cosmetic_models.gd).
+	if view.has_meta("display_scale"):
+		fit = float(view.get_meta("display_scale"))
 	view.scale = Vector3.ONE * fit
 	# Sit it on the shelf, centered.
 	var center := box.get_center()
@@ -355,6 +406,10 @@ func _draw_units(holder: Node3D, item: String, units: int, size: Vector3) -> voi
 ## The mesh for a catalog item: its yard model (tools at their tier) or one of
 ## the shop models.
 func _model(item: String, tier: int) -> MeshInstance3D:
+	# Workwear and Chefty's paint (shops chunk 7): a hat on a display head, a
+	# folded shirt, a paint can, a decal's sample card.
+	if _CosmeticModels.has(item):
+		return _CosmeticModels.node(item)
 	var model := str(Catalog.item(item).get("model", ""))
 	if model == "":
 		return null

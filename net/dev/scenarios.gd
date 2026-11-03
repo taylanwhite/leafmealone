@@ -30,7 +30,7 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "two_caught", "two_caught_far"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -267,6 +267,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _snack_holding(scenario)
 		"snack_crash", "snack_queasy":
 			out = await _snack_effect(scenario)
+		"hat_rack", "mirror", "paint_counter":
+			out = await _wardrobe(scenario)
 		"two_caught":
 			out = await _two_caught()
 		"two_caught_far":
@@ -2040,6 +2042,42 @@ func _snack_shop(shop: String) -> Dictionary:
 	_stand_facing(Vector3(stand.x, zone.global_position.y, stand.z), look)
 	await _ticks(3)
 	return {"zone": _zone(), "cash": Campaign.credits(me)}
+
+## hat_rack, mirror, paint_counter (shops chunk 7): at the store at noon with
+## SNACK_CASH x 20 in your pocket, standing at Homie Depot's hat rack facing it,
+## in front of its mirror facing it, or at the paint counter facing Chefty on its
+## pad. Press E on something and buy it, or wear it from the closet (Tab).
+func _wardrobe(scenario: String) -> Dictionary:
+	var out: Dictionary = await _store()
+	if out.has("error"):
+		return out
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock != null and clock.has_method("set_hour_for_tests"):
+		clock.call("set_hour_for_tests", SNACK_HOUR)
+	var me := Net.local_peer_id()
+	if Campaign.credits(me) < SNACK_CASH * 20:
+		Campaign.pay(me, SNACK_CASH * 20 - Campaign.credits(me))
+	var zone := _world().get_node("StoreZone") as Node3D
+	var wall := Constants.WARDROBE_WALL_X
+	var stand := Vector3(wall + 1.0, 0.0, Constants.HAT_RACK_Z)
+	var look := Vector3(wall, 1.4, Constants.HAT_RACK_Z)
+	match scenario:
+		"mirror":
+			stand = Constants.MIRROR_AT + Vector3(0.0, 0.0, -1.7)
+			look = Constants.MIRROR_AT + Vector3(0.0, 1.45, 0.0)
+		"paint_counter":
+			stand = Constants.PAINT_COUNTER_AT + Vector3(0.0, 0.0, -1.05)
+			look = Constants.CHEFTY_PARK_SPOT + Vector3(0.0, 1.2, 0.0)
+			# The drivable Chefty (the connected town, --town-map) on its pad behind
+			# the counter, so the paint goes on where you can see it.
+			var chefty := get_tree().get_first_node_in_group("chefty")
+			if chefty != null and chefty.has_method("dev_place"):
+				chefty.call("dev_place", Constants.CHEFTY_PARK_SPOT, Constants.CHEFTY_PARK_YAW)
+	var at := zone.to_global(stand)
+	_stand_facing(Vector3(at.x, zone.global_position.y, at.z), zone.to_global(look))
+	await _ticks(3)
+	return {"zone": _zone(), "cash": Campaign.credits(me)}
+
 
 ## lunch_money_rake, snak_o_matic_can (shops chunk 6): the same, with the rake
 ## in your hands (a snack goes in the right; the rake stays in the left) or the
