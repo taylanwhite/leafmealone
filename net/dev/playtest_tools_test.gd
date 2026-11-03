@@ -31,6 +31,17 @@ const FRIEND_WAIT_SECONDS: float = 30.0
 ## The client: at least this many of the host's resets must reach it, each
 ## leaving its caption stack empty (the three two-player moments and their resets).
 const CLIENT_MIN_RESETS: int = 3
+## tools:crew: the crew bot this test launches (tools/play.ps1 -Bots names them
+## Bot1..Bot3), how long it gets to boot and join, how long to take up the rake
+## and rake, and how many of its strokes must move leaves.
+const CREW_BOT_NAME: String = "Bot1"
+const CREW_JOIN_SECONDS: float = 45.0
+const CREW_WORK_SECONDS: float = 70.0
+const CREW_MIN_STROKES: int = 3
+## The host steps this far back (m) from the rake it set down and stands there
+## with empty hands: inside bot_job.gd's RAKE_DEFER_METERS, so the bot leaves the
+## rake to the host for RAKE_DEFER_SECONDS and then takes it up.
+const CREW_STEP_BACK: float = 8.0
 
 static var result: Dictionary = {}
 
@@ -229,9 +240,89 @@ func _run() -> void:
 	if not reached["follow_peer_id"]:
 		problems.append("follow by peer id reads %s, not %d" % [follow_word, me])
 
+	# tools:crew: a bot teammate (tools/play.ps1 -Bots) joins and works the job.
+	var crew := await _check_crew_bot(problems)
+
 	# Leave the session as it was: no raid, nobody in the crossing.
 	await _scenarios.reset()
-	_finish(problems.is_empty(), {"scenarios": reached, "recording": recording, "friend": with_friend}, problems)
+	_finish(problems.is_empty(), {"scenarios": reached, "recording": recording, "friend": with_friend, "crew": crew}, problems)
+
+
+## tools:crew: a crew bot is its own Godot process, launched the way tools/play.ps1
+## -Bots launches one (--bot-crew, the session's port, named Bot1). It must join
+## this session and work the job: walk to the rake the host just set down on
+## untouched leaves, take it up, and rake (strokes of its own that move leaves).
+## The bot is killed afterwards; its --run-seconds is a ceiling if this run dies.
+func _check_crew_bot(problems: Array[String]) -> Dictionary:
+	var out: Dictionary = await _scenarios.run("rake_fresh")
+	var rake: Node = _own_player().call("_held_prop") if bool(out.get("ok", false)) else null
+	if rake == null:
+		problems.append("crew: rake_fresh gave no rake to set down")
+		return {"ok": false}
+	rake.call("request_drop")
+	# Then step back along the strip: a crew bot leaves a rake to a person nearby
+	# for a while (net/dev/bot_job.gd _mine_to_take), then takes it up.
+	await get_tree().create_timer(0.5).timeout
+	var me := _own_player()
+	me.global_position -= Vector3(-me.global_basis.z.x, 0.0, -me.global_basis.z.z).normalized() * CREW_STEP_BACK
+	var log_path := ProjectSettings.globalize_path("user://playtest_crew_bot_%d.log" % Net.listen_port())
+	var args := PackedStringArray(["--headless", "--path", ProjectSettings.globalize_path("res://"), "--log-file", log_path, "--",
+		"--join=127.0.0.1", "--port=%d" % Net.listen_port(), "--no-steam", "--name=" + CREW_BOT_NAME, "--bot", "--bot-crew",
+		"--run-seconds=%d" % int(CREW_JOIN_SECONDS + CREW_WORK_SECONDS + 20.0)])
+	var pid := OS.create_process(OS.get_executable_path(), args)
+	var report := {"pid_ok": pid > 0, "joined_after": -1.0, "took_rake_after": -1.0, "rake_strokes": 0, "moved": 0}
+	if pid <= 0:
+		problems.append("crew: couldn't launch a bot process")
+		report["ok"] = false
+		return report
+	var bot := 0
+	var waited := 0.0
+	while bot == 0 and waited < CREW_JOIN_SECONDS:
+		await get_tree().create_timer(0.25).timeout
+		waited += 0.25
+		for peer_id: int in Net.peer_ids():
+			if Net.player_name(peer_id) == CREW_BOT_NAME:
+				bot = peer_id
+	report["joined_after"] = waited if bot != 0 else -1.0
+	var tally := {"strokes": 0, "moved": 0}
+	var on_stroke := func(ev: Dictionary) -> void:
+		if int(ev.get("actor", 0)) == bot and str(ev.get("kind")) == "rake" and int(ev.get("moved", 0)) > 0:
+			tally["strokes"] = int(tally["strokes"]) + 1
+			tally["moved"] = int(tally["moved"]) + int(ev.get("moved", 0))
+	_field().connect("stroke_event", on_stroke)
+	var worked := 0.0
+	while bot != 0 and worked < CREW_WORK_SECONDS and int(tally["strokes"]) < CREW_MIN_STROKES:
+		await get_tree().create_timer(0.25).timeout
+		worked += 0.25
+		if float(report["took_rake_after"]) < 0.0 and is_instance_valid(rake) and int(rake.get("held_by")) == bot:
+			report["took_rake_after"] = worked
+		if fmod(worked, 5.0) < 0.01:
+			print("[PlaytestToolsTest] crew bot at %.0f s: %s" % [worked, _crew_bot_where(bot, rake)])
+	report["last_seen"] = _crew_bot_where(bot, rake)
+	_field().disconnect("stroke_event", on_stroke)
+	OS.kill(pid)
+	report["rake_strokes"] = tally["strokes"]
+	report["moved"] = tally["moved"]
+	# The bot said it plays as one of the crew (its --bot-crew reached net/dev/bot.gd).
+	var said := FileAccess.get_file_as_string(log_path).contains("as a crew member")
+	report["crew_mode"] = said
+	var ok := bot != 0 and float(report["took_rake_after"]) >= 0.0 and int(tally["strokes"]) >= CREW_MIN_STROKES and said
+	report["ok"] = ok
+	print("[PlaytestToolsTest] crew bot: %s %s" % ["ok" if ok else "FAIL", report])
+	if not ok:
+		problems.append("crew bot: %s (log %s)" % [report, log_path])
+	return report
+
+
+## Where the crew bot and the rake are, for the report.
+func _crew_bot_where(bot: int, rake: Node) -> String:
+	var body: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(bot):
+			body = node as Node3D
+	var at := body.global_position if body != null else Vector3.INF
+	var rake_at := (rake as Node3D).global_position if is_instance_valid(rake) else Vector3.INF
+	return "zone %s at %s, rake at %s held by %d loose %s" % [Net.Zone.keys()[Net.player_zone(bot)] if bot != 0 else "-", at.snappedf(0.1), rake_at.snappedf(0.1), int(rake.get("held_by")) if is_instance_valid(rake) else -1, bool(rake.call("is_loose")) if is_instance_valid(rake) else false]
 
 
 ## Seconds until a NICE BOY winds up at you (the Encounter's WINDUP or a grab

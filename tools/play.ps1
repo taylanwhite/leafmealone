@@ -202,7 +202,7 @@ function Complete-Recordings($result) {
 	}
 }
 
-function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position, [string]$size = $Resolution, [bool]$headless = $false) {
+function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position, [string]$size = $Resolution, [bool]$headless = $false, [bool]$fixedStep = $true) {
 	Stop-Instance $name
 	$dir = Get-InstanceDir $name
 	New-Item -ItemType Directory -Force $dir | Out-Null
@@ -217,9 +217,12 @@ function Start-Instance([string]$name, [string[]]$gameArgs, [string]$position, [
 	Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'session.json' } | Remove-Item -Force
 	$engine = @('--path', "`"$Root`"", '--resolution', $size, '--position', $position)
 	if ($headless) { $engine = @('--headless') + $engine }
-	if ($Fps -gt 0) { $engine += @('--fixed-fps', "$Fps") }
+	# Bots keep real time instead (-Bots): a starved bot window on a fixed step plays in
+	# slow motion and its body reaches everyone else in bursts.
+	$stepped = $Fps -gt 0 -and $fixedStep
+	if ($stepped) { $engine += @('--fixed-fps', "$Fps") }
 	$all = $engine + @('--') + $gameArgs + @("--remote-play=`"$dir`"")
-	if ($Fps -gt 0) { $all += "--fixed-step=$Fps" }
+	if ($stepped) { $all += "--fixed-step=$Fps" }
 	if ($Mute) { $all += '--mute-audio' }
 	# The log goes through Godot's own --log-file: redirecting the output here would hand
 	# the game this shell's handles, and a caller piping this script would then wait for
@@ -317,7 +320,7 @@ if ($Start) {
 			$botArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', "--name=Bot$n", '--bot', '--bot-crew') + $botFlags
 			if (-not $Mute) { $botArgs += '--mute-audio' }
 			# Small windows in a row along the bottom right, out of the host's way.
-			$pids["bot$n"] = Start-Instance "bot$n" $botArgs "$(1300 + ($n - 1) * 40),$(560 + ($n - 1) * 150)" '480x270' ([bool]$BotsHeadless)
+			$pids["bot$n"] = Start-Instance "bot$n" $botArgs "$(1300 + ($n - 1) * 40),$(560 + ($n - 1) * 150)" '480x270' ([bool]$BotsHeadless) $false
 			$started += "bot$n"
 			Save-Session $pids $Port $Fps
 			$r = Send-Command "bot$n" '[["wait",0.5]]'

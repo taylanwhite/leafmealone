@@ -152,7 +152,9 @@ func _face(player: Node3D, point: Vector3) -> void:
 		# Eased like a hand on a mouse (bot_job.gd CREW_TURN_RATE).
 		var have := float(player.get("body_yaw"))
 		var step := _BotJob.CREW_TURN_RATE * player.get_physics_process_delta_time()
-		want = have + clampf(wrapf(want - have, -PI, PI), -step, step)
+		var error := wrapf(want - have, -PI, PI)
+		_job.set("turn_left", error)
+		want = have + clampf(error, -step, step)
 	player.set("body_yaw", want)
 
 
@@ -517,11 +519,15 @@ func _annex_point(path: String) -> Vector3:
 # on the yard it works the job (net/dev/bot_job.gd, sharing the rake); after
 # payday Chefty takes it home with everyone. Raids, the van and the Annex are the
 # R2 ticks above, as for any bot.
-## How far from the truck pad a crew bot waits (m), and its slot's angle step.
-const CREW_WAIT_RADIUS: float = 4.0
-const CREW_WAIT_ARC: float = 1.1
+## Where crew bots wait for the ride, in Chefty's own space (m; +Z is behind the
+## tailgate): Bot1 by the passenger side, Bot2 by the driver's, Bot3 by the cab.
+## All well inside levels/boarding.gd's BOARD_RADIUS_METERS of the pad.
+const CREW_WAIT_SLOTS: Array[Vector3] = [Vector3(2.4, 0.0, 0.8), Vector3(-2.4, 0.0, 0.8), Vector3(2.4, 0.0, -1.6)]
 ## Close enough to its waiting spot (m).
 const CREW_ARRIVE_METERS: float = 0.7
+## A crew bot walks only while what it's turning to is within this (rad) of
+## straight ahead; past it, it stops and turns first.
+const CREW_WALK_TURN: float = 0.6
 ## Between idle glances and shuffles (s).
 const CREW_IDLE_MIN: float = 3.0
 const CREW_IDLE_MAX: float = 8.0
@@ -540,6 +546,7 @@ var _crew_side: StringName = &"move_left"
 
 func _crew_tick(player: Node3D, delta: float) -> void:
 	Input.action_release(&"crouch")
+	_job.set("turn_left", 0.0)
 	var zone := Net.player_zone(Net.local_peer_id())
 	if zone == Net.Zone.LOT or zone == Net.Zone.TOWN:
 		if _job.call("step", player, delta):
@@ -586,24 +593,36 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 			look_at = player.global_position + Vector3(_rng.randf_range(-5.0, 5.0), 0.0, _rng.randf_range(-5.0, 5.0))
 		_face(player, look_at)
 		if _rng.randf() < 0.3:
-			_crew_shuffle = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
+			_crew_shuffle = Vector3(_rng.randf_range(-0.5, 0.5), 0.0, _rng.randf_range(-0.5, 0.5))
 
 
-## Where this bot waits for the ride: round the truck pad, a slot per bot number,
-## on the side away from the store's front so the crew stands together by the bed.
+## Where this bot waits for the ride: beside Chefty's bed, a slot per bot number
+## (CREW_WAIT_SLOTS, in the truck's own space), never behind the tailgate where
+## people walk up to board (tools:crew: waiting round the pad, Bot1 stood on the
+## spot the host walked to and the host's eye ended up in its head). Round the
+## truck pad while Chefty's away.
 func _crew_wait_spot() -> Vector3:
+	var truck := get_tree().get_first_node_in_group("chefty") as Node3D
+	var slot: Vector3 = CREW_WAIT_SLOTS[(_crew_number - 1) % CREW_WAIT_SLOTS.size()]
+	if truck != null and truck.has_method("bed_transform") and not bool(truck.call("is_riding")):
+		var bed: Transform3D = truck.call("bed_transform")
+		var at := bed * slot
+		return Vector3(at.x, bed.origin.y, at.z) + _crew_shuffle
 	var world := get_tree().get_first_node_in_group("world")
 	var pad := world.get_node_or_null("StoreZone/TruckPad") as Node3D if world != null else null
 	if pad == null:
 		return Vector3.INF
-	var angle := PI + float(_crew_number) * CREW_WAIT_ARC
-	return pad.global_position + Vector3(sin(angle), 0.0, cos(angle)) * CREW_WAIT_RADIUS + _crew_shuffle
+	return pad.global_transform * slot + _crew_shuffle
 
 
 ## Holds or lets go of move_forward, and sidesteps when walking gets nowhere (a
 ## doorframe, a shelf end, a teammate in the way), the way people do.
 func _crew_walk(player: Node3D, walking: bool, delta: float) -> void:
-	if not walking:
+	# Turn first, then go: walking while still turning hard circled a spot it
+	# could never reach (tools:crew: Bot2 orbited its waiting spot for a minute,
+	# at 5 rad/s and a walk its turn circle was wider than the spot).
+	var turning := absf(float(_job.get("turn_left"))) > CREW_WALK_TURN
+	if not walking or turning:
 		Input.action_release(&"move_forward")
 		for action: StringName in STRAFE_ACTIONS:
 			Input.action_release(action)

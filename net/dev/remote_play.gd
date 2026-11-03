@@ -48,6 +48,14 @@ extends Node
 ##   ["goto", x, z, timeout]       turn and walk there (move_forward) until within
 ##                                 half a meter; or ["goto", path] for a node under
 ##                                 World (e.g. BorderZone/AnnexSet/Windows/B/Counter)
+##                                 or a name a player would walk to (tools:crew):
+##                                 a teammate ("goto Bot2"), "chefty" (behind its
+##                                 tailgate), a group ("job_board", "homeowner") or
+##                                 the nearest loose thing of a kind ("rake",
+##                                 "leaf_bag"); by name it stops at arm's length
+##                                 (GOTO_NAMED_STOP), not inside the thing.
+## The result's "crew" lists everyone else (not the observer) as this window knows
+## them: zone, position and what they hold, so a script can wait on a teammate.
 ## A "look" bigger than LOOK_EASE_ABOVE pixels is eased over several frames (a
 ## hand on a mouse), so the recorder's cam_snap flags mean the game, not the agent.
 ## Actions are the names in project.godot's input map (move_forward, interact,
@@ -123,6 +131,9 @@ const LOOK_EASE_ABOVE: float = 100.0
 const LOOK_PIXELS_PER_FRAME: float = 30.0
 ## goto: arrived within this (m); walks while facing within this (radians).
 const GOTO_ARRIVE_METERS: float = 0.5
+## A goto by a name (a teammate, "job_board", "rake") stops this far short (m):
+## in reach of E, not standing in it.
+const GOTO_NAMED_STOP: float = 1.3
 const GOTO_WALK_RADIANS: float = 0.5
 ## until, goto: the default timeout (s).
 const UNTIL_SECONDS: float = 15.0
@@ -222,7 +233,6 @@ func _process(delta: float) -> void:
 	_update_spectator(delta)
 	_park_observer()
 	_shadow_observers()
-	_ghost_observers()
 	_poll -= delta
 	if _busy or _poll > 0.0:
 		return
@@ -293,7 +303,18 @@ func _run(id: int, steps: Array) -> void:
 					# goto x z [timeout], or goto path [timeout]
 					var named := step.size() > 1 and typeof(step[1]) == TYPE_STRING
 					var timeout_at := 2 if named else 3
-					var went: String = await _goto(spot, float(step[timeout_at]) if step.size() > timeout_at else UNTIL_SECONDS)
+					# A name (not a node path under World) stops at arm's length.
+					var world := get_tree().get_first_node_in_group("world")
+					var by_name := named and (world == null or world.get_node_or_null(NodePath(str(step[1]))) == null)
+					# "chefty" is already a place to stand (behind the tailgate, inside
+					# the store's boarding area), not a thing to stop short of.
+					by_name = by_name and str(step[1]).to_lower() != "chefty"
+					var went: String = await _goto(spot, float(step[timeout_at]) if step.size() > timeout_at else UNTIL_SECONDS, GOTO_NAMED_STOP if by_name else GOTO_ARRIVE_METERS)
+					var truck := get_tree().get_first_node_in_group("chefty") as Node3D
+					if named and str(step[1]).to_lower() == "chefty" and truck != null:
+						# Then look at the truck, as anyone boarding does: walking up
+						# beside a friend left you facing them, and E picked them up.
+						await _face(truck.call("body_position") if truck.has_method("body_position") else truck.global_position)
 					if went != "":
 						errors.append(went)
 			"click":
@@ -527,9 +548,24 @@ func named_point(word: String) -> Vector3:
 		var truck := get_tree().get_first_node_in_group("chefty")
 		if truck == null:
 			return Vector3.INF
-		# Behind the tailgate, where people stand to load it and to board it.
+		# Behind the tailgate, where people stand to load it and to board it: the
+		# place there furthest from everyone else, so two players sent there don't
+		# end up standing in each other (bodies pass through each other).
 		var bed: Transform3D = truck.call("bed_transform") if truck.has_method("bed_transform") else (truck as Node3D).global_transform
-		return bed * Vector3(0.0, 0.0, 3.2)
+		var best := bed * Vector3(0.0, 0.0, 2.9)
+		var roomiest := -1.0
+		for side: float in [0.0, -1.1, 1.1]:
+			var spot := bed * Vector3(side, 0.0, 2.9)
+			var room := INF
+			for peer_id: int in Net.peer_ids():
+				var body := _player_node(peer_id)
+				if peer_id == Net.local_peer_id() or body == null or Net.player_name(peer_id) == OBSERVER_NAME:
+					continue
+				room = minf(room, Vector2(body.global_position.x - spot.x, body.global_position.z - spot.z).length())
+			if room > roomiest + 0.3:
+				roomiest = room
+				best = spot
+		return best
 	var first := get_tree().get_first_node_in_group(word) as Node3D
 	if first != null:
 		return first.global_position
@@ -568,7 +604,7 @@ func _face(to: Vector3) -> void:
 
 ## Walk to a point the way a player would: turn with the mouse, hold
 ## move_forward while roughly facing it. "" when there, else why not.
-func _goto(to: Vector3, timeout: float) -> String:
+func _goto(to: Vector3, timeout: float, arrive: float = GOTO_ARRIVE_METERS) -> String:
 	var me := _player_node(Net.local_peer_id())
 	if me == null:
 		return "goto: no player"
@@ -578,7 +614,7 @@ func _goto(to: Vector3, timeout: float) -> String:
 	var outcome := ""
 	while true:
 		var left := Vector2(to.x - me.global_position.x, to.z - me.global_position.z).length()
-		if left <= GOTO_ARRIVE_METERS:
+		if left <= arrive:
 			break
 		if waited > timeout:
 			outcome = "goto: still %.1f m away after %.1f s" % [left, timeout]
@@ -1224,18 +1260,6 @@ func _shadow_observers() -> void:
 		_ghost(_player_node(peer_id))
 		if Net.player_zone(peer_id) != target:
 			Net.move_player_to_zone(peer_id, target)
-
-
-## Every other remote-play window (the Friend, the bots: tools:crew): the
-## observer's body is a ghost here too. Only the host and the observer itself
-## hid it, so the Friend found a yellow-shirted "Observer" standing on the yard
-## in every take, waving, and could grab it.
-func _ghost_observers() -> void:
-	if Net.is_host() or bool(Net.dev_options().get("observer")) or Net.current_state() != Net.State.IN_SESSION:
-		return
-	for peer_id: int in Net.peer_ids():
-		if peer_id != Net.local_peer_id() and Net.player_name(peer_id) == OBSERVER_NAME:
-			_ghost(_player_node(peer_id))
 
 
 ## An observer's own body, here: not drawn (its name tag goes with it) and not

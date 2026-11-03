@@ -295,7 +295,7 @@ $Tests = [ordered]@{
 		# under --fixed-fps and its --run-seconds ceiling ends it early. The client runs the
 		# test node too: the host's resets must clear its screen. A run the friend never
 		# joined fails (friend), not passes on the "needs a second player" refusals.
-		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --playtest-tools-test'; Seconds = 170; Client = 165
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --playtest-tools-test'; Seconds = 300; Client = 295
 		Extra = '--fixed-step=30 --playtest-tools-test'
 		Check = { param($h, $c) [bool]$h.playtest_tools_test.ok -and [bool]$h.playtest_tools_test.friend -and $c -ne $null -and [bool]$c.playtest_tools_test.ok }
 	}
