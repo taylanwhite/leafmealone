@@ -61,7 +61,7 @@ func _run() -> void:
 	reached["rake_pile"] = _check(out, _held() == "rake" and bool(out.get("is_pile", false)), "holding %s, a pile of %s units ahead" % [_held(), str(out.get("pile_units", 0))], problems)
 
 	out = await _scenarios.run("raid_warn")
-	reached["raid_warn"] = _check(out, _phase(director) == 1, "phase %d" % _phase(director), problems)
+	reached["raid_warn"] = _check(out, _phase(director) == 1 and bool(_scenarios.call("_reached_raid_warn")), "phase %d, facing the curb %s" % [_phase(director), _scenarios.call("_reached_raid_warn")], problems)
 
 	# raid_arrive, recorded: the arrival must show up in the log, on evenly spaced frames.
 	out = await _scenarios.run("raid_arrive")

@@ -143,6 +143,16 @@ const GESTURE_SECONDS: Dictionary = {
 	"offer": 0.6, "windmill": 0.8, "punch": 0.45, "rake": 1.1,
 	"point": 0.9, "scribble": 1.4,
 }
+## Gestures other files add (R2: npcs/crew_gestures.gd, player/hide_gestures.gd,
+## props/van_gestures.gd, npcs/clerk.gd) through register_gesture, by name:
+## {"seconds": float, "pose": Callable(body, t01, delta)}. Class-wide, so one
+## registration serves every body.
+static var _registered: Dictionary = {}
+static var _warned: Dictionary = {}
+## Per-character animation speed (set_anim_speed): 0 holds the walk, the gesture
+## and the face still, for a hit-stop. Never Engine.time_scale.
+var _anim_speed: float = 1.0
+var _prop_hand: Node3D
 ## The named parts an outfit adds, by outfit (the test looks for every one).
 const OUTFIT_PARTS: Dictionary = {
 	"nice_boy": ["Socks", "Collar", "Lanyard", "Badge", "Insignia", "FannyPack", "VisorSeal", "Clipboard"],
@@ -235,10 +245,86 @@ func set_coat(color: Color, amount: float) -> void:
 ## "point", "scribble" (writing on the outfit's clipboard), ... A new one replaces
 ## the current one.
 func gesture(gesture_name: String) -> void:
+	if not has_gesture(gesture_name):
+		# A name nobody registered (its chunk isn't merged yet): nothing, said once.
+		if not _warned.has(gesture_name):
+			_warned[gesture_name] = true
+			push_warning("[CartoonBody] no gesture named %s" % gesture_name)
+		return
 	_gesture = gesture_name
 	_gesture_time = 0.0
-	_gesture_length = float(GESTURE_SECONDS.get(gesture_name, 1.5))
+	if _registered.has(gesture_name):
+		_gesture_length = float((_registered[gesture_name] as Dictionary)["seconds"])
+	else:
+		_gesture_length = float(GESTURE_SECONDS.get(gesture_name, 1.5))
 	_rest_props()
+
+
+## Add a gesture by name for every body (R2 contract C4). pose_fn(body, t01,
+## delta) runs each tick of the gesture, after the walk and before the holds,
+## and poses the body through pose_part(); t01 runs 0 to 1 over `seconds`.
+static func register_gesture(gesture_name: String, seconds: float, pose_fn: Callable) -> void:
+	_registered[gesture_name] = {"seconds": maxf(0.01, seconds), "pose": pose_fn}
+
+
+static func has_gesture(gesture_name: String) -> bool:
+	return GESTURE_SECONDS.has(gesture_name) or _registered.has(gesture_name)
+
+
+## The pivots gestures pose, by name: hips, torso, head, face, mouth, arm_l,
+## arm_r, leg_l, leg_r, eye_l, eye_r, brow_l, brow_r, clipboard, megaphone,
+## prop_hand (a point in the right hand to hang a prop off). null when the body
+## has no such part (a clipboard on a plain player) or isn't built yet.
+func pose_part(part_name: String) -> Node3D:
+	if _hips == null:
+		return null
+	match part_name:
+		"hips":
+			return _hips
+		"torso":
+			return _torso
+		"head":
+			return _head_root
+		"face":
+			return _face
+		"mouth":
+			return _mouth
+		"arm_l":
+			return _arms[0]
+		"arm_r":
+			return _arms[1]
+		"leg_l":
+			return _legs[0]
+		"leg_r":
+			return _legs[1]
+		"eye_l":
+			return _eyes[0] if _eyes.size() > 0 else null
+		"eye_r":
+			return _eyes[1] if _eyes.size() > 1 else null
+		"brow_l":
+			return _brows[0] if _brows.size() > 0 else null
+		"brow_r":
+			return _brows[1] if _brows.size() > 1 else null
+		"clipboard":
+			return _clipboard
+		"megaphone":
+			return _megaphone
+		"prop_hand":
+			if _prop_hand == null:
+				_prop_hand = _pivot(_arms[1], Vector3(0.0, -0.55, -0.02))
+				_prop_hand.name = "PropHand"
+			return _prop_hand
+	return null
+
+
+## Per-character animation speed: 1 normal, 0 frozen mid-pose (a hit-stop). The
+## world keeps its own time; only this body holds still.
+func set_anim_speed(scale_by: float) -> void:
+	_anim_speed = maxf(0.0, scale_by)
+
+
+func anim_speed() -> float:
+	return _anim_speed
 
 
 ## Held props back in their resting grip (a gesture may have tilted them).
@@ -450,6 +536,11 @@ func _build_head(root: Node3D) -> void:
 func _physics_process(delta: float) -> void:
 	if _hips == null:
 		return
+	# A hit-stop holds this body still (set_anim_speed); time runs on for the world.
+	if _anim_speed <= 0.0:
+		_last_position = global_position
+		return
+	delta *= _anim_speed
 	_time += delta
 	var now := global_position
 	if _last_position != Vector3.INF and delta > 0.0:
@@ -726,6 +817,10 @@ func _animate_gesture(delta: float) -> void:
 	var fade := clampf(minf(t * 5.0, (_gesture_length - t) * 5.0), 0.0, 1.0)
 	var right := _arms[1]
 	var left := _arms[0]
+	if not GESTURE_SECONDS.has(_gesture) and _registered.has(_gesture):
+		var pose_fn: Callable = (_registered[_gesture] as Dictionary)["pose"]
+		if pose_fn.is_valid():
+			pose_fn.call(self, clampf(t / _gesture_length, 0.0, 1.0), delta)
 	match _gesture:
 		"wave":
 			right.rotation.z = lerpf(right.rotation.z, 2.6 + 0.35 * sin(t * 14.0), fade)

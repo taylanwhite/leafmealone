@@ -241,6 +241,11 @@ func _add_cases(cases: Array) -> void:
 	for heat: float in [0.0, 25.0, 50.0, 75.0, 100.0]:
 		for progress: int in [0, 1, 3, 6, 10, 30]:
 			_case(cases, "Economy.run_roll_chance", [heat, progress], _Economy.run_roll_chance(heat, progress))
+	# balance:E0 (R2 chunk 1): the per-lot chance and its per-roll share.
+	for heat: float in [0.0, 50.0, 94.0, 100.0]:
+		for lots: int in [0, 3, 10]:
+			_case(cases, "Economy.run_lot_chance", [heat, lots], _Economy.run_lot_chance(heat, lots))
+			_case(cases, "Economy.run_roll_chance", [heat, lots], _Economy.run_roll_chance(heat, lots))
 
 
 # ---------------------------------------------------------------- invariants
@@ -269,6 +274,16 @@ func _check_invariants(invariants: Array) -> void:
 		if tier > LAST_TOOL_TIER:
 			late.append("%s (tier %d)" % [tool, tier])
 	_check(invariants, "every tool unlocks by tier %d" % LAST_TOOL_TIER, late.is_empty(), late)
+	# balance:E0: a lot's worth of rolls adds up to the per-lot chance, and one roll is smaller.
+	var e0_rolls := Constants.RAID_LOT_MINUTES * 60.0 / Constants.HEAT_ROLL_SECONDS
+	var e0_off: Array[String] = []
+	for heat: float in [0.0, 50.0, 94.0, 100.0]:
+		for lots: int in [0, 3, 10]:
+			var p_lot := _Economy.run_lot_chance(heat, lots)
+			var p_roll := _Economy.run_roll_chance(heat, lots)
+			if absf((1.0 - pow(1.0 - p_roll, e0_rolls)) - p_lot) > 0.0001 or (p_lot > 0.0 and p_roll >= p_lot):
+				e0_off.append("heat %d lots %d: lot %.4f roll %.4f" % [heat, lots, p_lot, p_roll])
+	_check(invariants, "a lot's raid rolls compound to the per-lot chance (balance:E0)", e0_off.is_empty(), e0_off)
 	# Every neighborhood a rank opens exists.
 	var hood_ids: Array[String] = []
 	for hood: Dictionary in _Hoods.HOODS:

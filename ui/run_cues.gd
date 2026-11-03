@@ -2,24 +2,30 @@ extends CanvasLayer
 
 ## Authority: local, cosmetic only. Warning and foreshadow cues for each run
 ## event phase. Everything is timed from the phase's server-time start, so every
-## peer on the lot hears the radio, sees the countdown, and gets the arrival at
-## the same moment without extra network traffic. Only players on the lot get
-## them. OQ-009, OQ-010: the cues are one replaceable presenter.
+## peer on the lot hears the radio and sees the flare at the same moment without
+## extra network traffic. Only players on the lot get them. OQ-009, OQ-010: the
+## cues are one replaceable presenter.
+##
+## R2 (docs/GAME.md, "The NICE BOYS encounter"): no countdown digits and no
+## "they're here, run" line. The radio crackle, the flare at the curb where the
+## van will park, the horn and the van pulling up are the warning; the arrival is
+## the van itself. The radio line goes through the caption stack
+## (ui/caption_stack.gd) and follows the player's caption settings. "All clear"
+## only plays when nobody was taken.
 
 const _Strings = preload("res://ui/strings.gd")
 const _BeaconScript = preload("res://npcs/arrival_beacon.gd")
 const _QuipPlayer = preload("res://ui/quip_player.gd")
-## Seconds before arrival that the countdown shows and ticks.
-const COUNTDOWN_SECONDS: int = 5
-## The cue caption's font size at the normal caption size; Settings.caption_scale()
-## multiplies it (presentation, like quip_player's FONT_SIZE). The radio, arrival
-## and all-clear lines are captions and follow interface.captions; the countdown,
-## vignette, beacon and sounds are the warning itself and always show.
-const CAPTION_FONT_SIZE: int = 28
+## The cue caption's font size at the normal caption size (the stack sizes it by
+## Settings.caption_scale(); kept here for the tests that compare sizes).
+const CAPTION_FONT_SIZE: int = 22
 const CAPTION_SECONDS: float = 3.5
 const WARNING_TINT := Color(1.0, 0.62, 0.12)
 const CHASE_TINT := Color(0.95, 0.22, 0.16)
 const CLEAR_TINT := Color(0.35, 0.85, 0.45)
+## The edge vignette's strongest pulse (presentation): a tint at the edges of
+## your eyes, not a red screen.
+const VIGNETTE_PEAK: float = 0.12
 const VIGNETTE_SHADER := """
 shader_type canvas_item;
 uniform vec4 tint : source_color = vec4(1.0);
@@ -36,14 +42,15 @@ static var log: Array[Dictionary] = []
 
 var _vignette: ColorRect
 var _material: ShaderMaterial
-var _caption: Label
-var _countdown: Label
 var _seen_started: float = -1.0
 var _seen_phase: int = 0
-var _caption_left: float = 0.0
 var _flash: float = 0.0
-var _last_tick: int = -1
 var _beacon: Node3D
+## The director's cohort_id when the NICE BOYS arrived (-1 before any raid):
+## it moves only when they take somebody, on every peer.
+var _raid_cohort_id: int = -1
+## The caption stack line the radio is on (0 = none).
+var _caption_id: int = 0
 
 
 func _ready() -> void:
@@ -57,43 +64,11 @@ func _ready() -> void:
 	_material.shader = shader
 	_vignette.material = _material
 	add_child(_vignette)
-	_caption = _label(CAPTION_FONT_SIZE, Control.PRESET_CENTER_TOP, 90.0)
-	_caption.name = "CueCaption"
-	_countdown = _label(96, Control.PRESET_CENTER, -140.0)
-	_style_caption()
-	Settings.changed.connect(_on_settings_changed)
-
-
-func _on_settings_changed(section: StringName, _key: StringName, _value: Variant) -> void:
-	if section == &"interface":
-		_style_caption()
-
-
-## Size and backdrop from Settings, like the quip caption (ui/quip_player.gd).
-func _style_caption() -> void:
-	_caption.add_theme_font_size_override("font_size", roundi(CAPTION_FONT_SIZE * Settings.caption_scale()))
-	_QuipPlayer.apply_backdrop(_caption)
-
-
-func _label(size: int, preset: Control.LayoutPreset, offset_y: float) -> Label:
-	var label := Label.new()
-	label.set_anchors_and_offsets_preset(preset)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	label.position.y += offset_y
-	label.add_theme_font_size_override("font_size", size)
-	label.add_theme_color_override("font_outline_color", Color.BLACK)
-	label.add_theme_constant_override("outline_size", 10)
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(label)
-	return label
 
 
 func _process(delta: float) -> void:
 	var director := get_tree().get_first_node_in_group("run_director")
 	var on_lot := Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
-	_caption_left = maxf(0.0, _caption_left - delta)
-	_caption.visible = _caption_left > 0.0 and _QuipPlayer.captions_on()
 	if director == null or Net.current_state() != Net.State.IN_SESSION:
 		_set_strength(0.0)
 		return
@@ -106,24 +81,19 @@ func _process(delta: float) -> void:
 		# Quiet to quiet is just the first frame, not a cue.
 		if on_lot and not (phase == 0 and previous == 0):
 			_enter_phase(director, phase, previous, started)
-	# A cue shown this frame is visible from this frame.
-	_caption.visible = _caption_left > 0.0 and _QuipPlayer.captions_on()
 	_flash = maxf(0.0, _flash - delta * 1.6)
 	if not on_lot:
-		_countdown.visible = false
 		_set_strength(0.0)
 		_clear_beacon()
 		return
 	match phase:
 		1:
 			_warning_frame(float(director.call("arrival_time")))
-		2:
-			_countdown.visible = false
+		2, 3:
 			_material.set_shader_parameter("tint", CHASE_TINT)
-			_set_strength(0.1 + 0.06 * sin(Time.get_ticks_msec() * 0.006) + _flash * 0.5)
+			_set_strength(VIGNETTE_PEAK * (0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.006)) + _flash * 0.18)
 		_:
-			_countdown.visible = false
-			_set_strength(_flash * 0.35)
+			_set_strength(_flash * 0.3)
 
 
 func _enter_phase(director: Node, phase: int, previous: int, started: float) -> void:
@@ -133,24 +103,42 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 			_play("warning")
 			_play("radio")
 			_show_caption(cue_line("radio", started))
-			_last_tick = -1
 			_clear_beacon()
 			_beacon = _BeaconScript.new()
 			_beacon.name = "ArrivalBeacon"
 			get_tree().get_first_node_in_group("world").add_child(_beacon)
-			_beacon.global_position = director.call("crew_arrival_point")
+			# The flare goes up where the van will really park.
+			_beacon.global_position = director.call("van_park_point")
 		2:
+			_raid_cohort_id = _cohort_id_of(director)
 			_clear_beacon()
 			_play("arrive")
-			_show_caption(cue_line("arrived", started))
 			_flash = 1.0
+		3:
+			pass
 		_:
 			_clear_beacon()
-			if previous == 2:
+			if (previous == 2 or previous == 3) and _nobody_taken(director, _raid_cohort_id):
 				_play("clear")
 				_show_caption(cue_line("clear", started))
 				_material.set_shader_parameter("tint", CLEAR_TINT)
 				_flash = 1.0
+
+
+## Nobody caught in the raid that just ended (the director's own count when it
+## keeps one, R2 chunk 2; else the cohort id hasn't moved since they arrived).
+## Not the cohort's size: a teammate still at the crossing from an earlier raid
+## is in it, and on clients nobody leaves it until they're seen home.
+static func _nobody_taken(director: Node, cohort_at_arrival: int) -> bool:
+	if director.has_method("last_raid_caught"):
+		return int(director.call("last_raid_caught")) == 0
+	if cohort_at_arrival < 0:
+		return false
+	return _cohort_id_of(director) == cohort_at_arrival
+
+
+static func _cohort_id_of(director: Node) -> int:
+	return int(director.call("cohort_id")) if director.has_method("cohort_id") else 0
 
 
 func _warning_frame(arrival: float) -> void:
@@ -160,14 +148,7 @@ func _warning_frame(arrival: float) -> void:
 	var rate := lerpf(2.0, 9.0, progress)
 	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * rate)
 	_material.set_shader_parameter("tint", WARNING_TINT)
-	_set_strength((0.12 + 0.38 * progress) * pulse)
-	var whole := int(ceil(left))
-	_countdown.visible = whole >= 1 and whole <= COUNTDOWN_SECONDS
-	if _countdown.visible:
-		_countdown.text = _Strings.UI["cue_countdown"] % whole
-		if whole != _last_tick:
-			_last_tick = whole
-			_play("tick")
+	_set_strength(VIGNETTE_PEAK * (0.35 + 0.65 * progress) * pulse)
 	if _beacon != null:
 		_beacon.call("set_urgency", progress)
 
@@ -178,9 +159,14 @@ static func cue_line(kind: String, started: float) -> String:
 	return _Strings.pick_seeded(_Strings.CUE_LINES.get(kind, []), int(started * 1000.0))
 
 
+## A radio line on the caption stack (captions off: it isn't shown).
 func _show_caption(text: String) -> void:
-	_caption.text = text
-	_caption_left = CAPTION_SECONDS
+	var stack := get_tree().get_first_node_in_group("caption_stack")
+	if stack == null:
+		return
+	if _caption_id != 0:
+		stack.call("drop", _caption_id)
+	_caption_id = int(stack.call("push", &"radio", text, CAPTION_SECONDS, 1))
 
 
 func _set_strength(value: float) -> void:

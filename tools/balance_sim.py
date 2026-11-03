@@ -77,7 +77,7 @@ NEEDED = {
         "YARD_TREE_SPREAD", "TASK_TOOLS", "TASK_PAY", "TOOL_PRICES", "SHOP_PRICES", "TOOL_TIER_PRICE",
         "VENDING_PRICE_SCALE", "TRUCK_BAG_CAPACITY", "HEAT_NOISE_PER_SECOND", "HEAT_COOL_PER_SECOND",
         "HEAT_COOL_PER_JOB", "HEAT_AFTER_RAID", "HEAT_ROLL_SECONDS", "HEAT_CHANCE_AT_MAX",
-        "HEAT_RAID_AT", "RUN_PROGRESS_FRACTION", "HIRE_SIGNING_FEE", "HIRE_DAILY_WAGE", "HIRE_SKILL",
+        "HEAT_RAID_AT", "RAID_LOT_MINUTES", "RUN_PROGRESS_FRACTION", "HIRE_SIGNING_FEE", "HIRE_DAILY_WAGE", "HIRE_SKILL",
         "SEASON_DAYS", "RIVAL_POACH_CHANCE", "RIVAL_POACH_BELOW", "RIVAL_WIN_BACK_CHANCE",
         "RIVAL_MAX_SIGNS", "SHOP_HOURS", "SPIGOT_HOOKUP_FEE", "SPIGOT_FEE_PER_SECOND", "PAD_HALF",
         "TOWN_MAP_DEFAULT", "ARC_HOURS", "RANK_PACE_HOURS", "ARC_SOLO_RATIO_MAX",
@@ -482,6 +482,12 @@ class Economy:
         return float(table[int(clampf(players, 1, len(table))) - 1])
 
     def run_roll_chance(self, heat, lots_completed):
+        # balance:E0 (R2 chunk 1): the per-lot chance spread over a lot's rolls.
+        C = self.C
+        p_lot = self.run_lot_chance(heat, lots_completed)
+        return 1.0 - math.pow(1.0 - p_lot, C["HEAT_ROLL_SECONDS"] / (C["RAID_LOT_MINUTES"] * 60.0))
+
+    def run_lot_chance(self, heat, lots_completed):
         B, C = self.B, self.C
         chance = B["RUN_EVENT_BASE_CHANCE"]
         chance += B["RUN_CHANCE_ESCALATION_PER_TIER"] * float(lots_completed)
@@ -1103,7 +1109,7 @@ class Run:
                 raids += 1
                 self.last_event = at
                 caught = sum(1 for _ in range(self.n) if self.rng.random() < raid["capture_chance"])
-                lost += (raid["chase_minutes"] + caught * raid["border_return_minutes"] / self.n) * 60.0
+                lost += (raid["chase_minutes"] + caught * (raid["transport_minutes"] + raid["annex_minutes"]) / self.n) * 60.0
                 self.heat = min(self.heat, C["HEAT_AFTER_RAID"])
         return lost / 60.0, raids
 
@@ -1726,6 +1732,7 @@ def mirror_functions(tables: dict) -> dict:
         "Economy.crew_patience_scale": econ.crew_patience_scale,
         "Economy.xp_crew_scale": econ.xp_crew_scale,
         "Economy.run_roll_chance": econ.run_roll_chance,
+        "Economy.run_lot_chance": econ.run_lot_chance,
         "Ranks.xp_for_tier": ranks.xp_for_tier,
         "Ranks.xp_to_reach": ranks.xp_to_reach,
         "Ranks.tier_for_xp": ranks.tier_for_xp,

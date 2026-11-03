@@ -83,6 +83,7 @@ const DEV_ARGS: Array[String] = [
 	"--ride-at=5", "--run-event-at=10", "--fill-pockets", "--drive-test", "--settings-test",
 	"--playtest-tools-test", "--port=7777", "--port=9150", "--frobnicate",
 ]
+const _CaptionStack = preload("res://ui/caption_stack.gd")
 ## Hard-coded key names a player-facing string may not carry (settings:4, check
 ## 16): "left click", "(Tab)", "Hold G", "E to ...", "A and D", "[E]". Keys are
 ## {key:<action>} tokens, so they follow rebinding.
@@ -821,15 +822,22 @@ func _captions() -> bool:
 	var big := roundi(_QuipPlayer.FONT_SIZE * Constants.CAPTION_SCALES[2])
 	if caption.get_theme_font_size("font_size") != big or not caption.has_theme_stylebox_override("normal"):
 		ok = _fail("captions", "large with backdrop: size %d (want %d), backdrop %s" % [caption.get_theme_font_size("font_size"), big, caption.has_theme_stylebox_override("normal")])
-	# The run-event radio, arrival and all-clear captions follow the same settings.
+	# The run-event radio and all-clear captions (on the caption stack since R2)
+	# follow the same settings.
 	var cues := ui.get_node_or_null("RunCues")
-	var cue := cues.get_node_or_null("CueCaption") as Label if cues != null else null
-	if cue == null:
-		ok = _fail("captions", "no UIRoot/RunCues/CueCaption")
+	var stack := ui.get_node_or_null("CaptionStack")
+	var cue: Label = null
+	if cues == null or stack == null:
+		ok = _fail("captions", "no UIRoot/RunCues or UIRoot/CaptionStack")
 	else:
 		cues.call("_show_caption", "RADIO: testing, testing.")
 		await get_tree().process_frame
-		var cue_big := roundi(_RunCues.CAPTION_FONT_SIZE * Constants.CAPTION_SCALES[2])
+		cue = stack.call("line_label", int(cues.get("_caption_id"))) as Label
+		var cue_big := roundi(float(_CaptionStack.FONT_SIZES[&"radio"]) * Constants.CAPTION_SCALES[2])
+		if cue == null:
+			ok = _fail("captions", "the radio line isn't on the caption stack")
+			cue = Label.new()
+			add_child(cue)
 		if not cue.visible or cue.get_theme_font_size("font_size") != cue_big or not cue.has_theme_stylebox_override("normal"):
 			ok = _fail("captions", "cue caption large with backdrop: visible %s, size %d (want %d), backdrop %s" % [cue.visible, cue.get_theme_font_size("font_size"), cue_big, cue.has_theme_stylebox_override("normal")])
 	var screen := caption.get_viewport_rect()
@@ -855,7 +863,8 @@ func _captions() -> bool:
 	if cue != null:
 		cues.call("_show_caption", "RADIO: nobody reads this either.")
 		await get_tree().process_frame
-		if cue.visible:
+		cue = stack.call("line_label", int(cues.get("_caption_id"))) as Label
+		if cue != null and cue.visible and cue.modulate.a > 0.0:
 			ok = _fail("captions", "cue caption shows with captions off")
 	# A homeowner's caption: hidden while off, then the large size once on.
 	var homeowner := _Homeowner.new()
@@ -875,10 +884,10 @@ func _captions() -> bool:
 	await get_tree().process_frame
 	if caption.get_theme_font_size("font_size") != _QuipPlayer.FONT_SIZE or caption.has_theme_stylebox_override("normal"):
 		ok = _fail("captions", "reset left size %d, backdrop %s" % [caption.get_theme_font_size("font_size"), caption.has_theme_stylebox_override("normal")])
-	if cue != null:
-		if cue.get_theme_font_size("font_size") != _RunCues.CAPTION_FONT_SIZE or cue.has_theme_stylebox_override("normal"):
+	if cue != null and is_instance_valid(cue):
+		if cue.get_theme_font_size("font_size") != int(_CaptionStack.FONT_SIZES[&"radio"]) or cue.has_theme_stylebox_override("normal"):
 			ok = _fail("captions", "reset left the cue caption at size %d, backdrop %s" % [cue.get_theme_font_size("font_size"), cue.has_theme_stylebox_override("normal")])
-		cues.set("_caption_left", 0.0)
+		stack.call("drop", int(cues.get("_caption_id")))
 	caption.visible = false
 	return ok
 

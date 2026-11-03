@@ -168,6 +168,16 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --rank=17 --rival-test'; Seconds = 20
 		Check = { param($h, $c) [bool]$h.rival_test.ok }
 	}
+	# R2's stage (gap-specs/nice_boys.json chunk 1): StageCam pushes, blends and pops with
+	# a current camera on every frame, a client's body staged from the host's RPC stays on
+	# its anchor on both peers at 150 ms and lets go without a jump, control locks, the
+	# caption stack's layout, the iris and registered gestures. Both peers run the node.
+	stage = @{
+		Port = 7826
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --stage-test'; Seconds = 60; Client = 55
+		Extra = '--sim-lag=150 --stage-test'
+		Check = { param($h, $c) [bool]$h.stage_test.ok -and $c -ne $null -and [bool]$c.stage_test.ok }
+	}
 	# The string audit and the crew's look on the host, then the same NICE BOYS (outfits,
 	# name tags, and from cast:6 barks) on the client. Day 7, not the client's default
 	# day 1, and a full crew of 3 (the test adds the heat), so the comparison covers

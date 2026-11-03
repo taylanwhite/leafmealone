@@ -291,6 +291,17 @@ jobs:
           grep "RivalTest" build/soak/ci-rival/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-rival/host.json'))['rival_test']; sys.exit(0 if r.get('ok') else 1)"
 
+      - name: Stage test (R2 stage camera never leaves a frame without a camera, staged bodies stay on their anchor on both peers at 150 ms, control locks, caption stack layout, iris, gestures)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-stage
+          "$GODOT" --headless --path . -- --host --port=7826 --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --stage-test --sim-lag=150 --stage-test --measure="$PWD/build/soak/ci-stage/host.json" --run-seconds=60 > build/soak/ci-stage/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7826 --name=Target --no-steam --sim-lag=150 --stage-test --measure="$PWD/build/soak/ci-stage/target.json" --run-seconds=55 > build/soak/ci-stage/target.log 2>&1
+          wait
+          grep "StageTest" build/soak/ci-stage/host.log build/soak/ci-stage/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-stage/host.json')); t=json.load(open('build/soak/ci-stage/target.json')); sys.exit(0 if h['stage_test'].get('ok') and t['stage_test'].get('ok') else 1)"
       - name: Cast test (string table audit, humor guardrail, line coverage, the NICE BOYS' look, outfits and name tags match on a client)
         if: matrix.part == 'features'
         run: |

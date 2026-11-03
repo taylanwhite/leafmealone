@@ -806,6 +806,48 @@ const PAY_CREWMATE_STEPS: Array[int] = [20, 100]
 const SHOP_MAX_QTY: int = 25
 
 
+# ---- nice boys: stage (R2 chunk 1)
+## The beat clock (net/run_events/beat.gd): a staged moment without its own
+## anticipation is sent this far ahead of now, so every peer plays it on time;
+## one that arrives later than BEAT_SKIP is snapped to its end pose, silently.
+const BEAT_LEAD: float = 0.15
+const BEAT_SKIP: float = 0.5
+## StageCam (player/stage_cam.gd): the blend in and out when a shot names none,
+## in seconds.
+const STAGE_BLEND_DEFAULT: float = 0.35
+## A staged body (player/stage_body.gd) moving more than this in one physics
+## tick is a pop; the probe counts them.
+const STAGE_MAX_STEP_METERS: float = 0.5
+## Released, another peer's view of a staged body eases back onto the network
+## pose over this long, which still trails the owner by the link's delay.
+const STAGE_RELEASE_BLEND: float = 0.3
+## What each control lock (player.set_control_lock) still lets through. Held
+## back otherwise: moving, jump, sprint, crouch, the pockets, interact, primary,
+## secondary, drop and take. look_deg limits how far you can turn from where the
+## lock started (only when no stage shot has the view; a shot clamps its own).
+const STAGE_LOCK_ALLOW: Dictionary = {
+	&"nice_cite": {"jump": true, "look": true, "look_deg": 40.0},
+	&"escort": {"look": true},
+	&"van_seat": {"primary": true, "look": true},
+	&"stage_walk": {"look": true},
+	&"annex_closing": {},
+}
+## The iris (ui/iris.gd): closing and opening seconds, and the shortest it stays
+## shut, so a cut behind it is never a flicker.
+const IRIS_CLOSE: float = 0.35
+const IRIS_OPEN: float = 0.35
+const IRIS_HOLD_MIN: float = 0.4
+## The caption stack (ui/caption_stack.gd) shows at most this many lines at once.
+const CAPTION_STACK_MAX: int = 3
+## A teammate this close (with a line of sight) saw the catch and needs no line
+## about it (ui/quip_player.gd).
+const TEAMMATE_SEEN_METERS: float = 25.0
+## balance:E0, pulled forward by R2 (core/economy.gd run_roll_chance): the raid
+## formula's chance is per lot of about this many minutes, spread over the
+## director's HEAT_ROLL_SECONDS rolls.
+const RAID_LOT_MINUTES: float = 8.0
+
+
 # ---- cast
 ## The cast's lines (ui/strings.gd, docs/GAME.md "2026-11-01, the cast").
 ## A workbook quip (ui/quip_player.gd) waits this long before it can play again.

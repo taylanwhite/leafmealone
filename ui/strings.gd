@@ -712,7 +712,8 @@ const LINES: Array[Dictionary] = [
 	{
 		"id": "Q-006",
 		"trigger": "teammate_captured",
-		"line": "They took Pat. Pat had the good rake.",
+		# R2: the real name, from TEAMMATE_CAPTURED (ui/quip_player.gd).
+		"line": "They took %s. %s had the good rake.",
 		"max_session": 1,
 	},
 	{
@@ -1577,19 +1578,15 @@ const TEXT_LINES: Dictionary = {
 	],
 }
 
-## Run-event captions (ui/run_cues.gd). Picked with pick_seeded() from the phase's
-## start time, so every peer shows the same line.
+## Run-event captions (ui/run_cues.gd), through the caption stack. Picked with
+## pick_seeded() from the phase's start time, so every peer shows the same line.
+## R2: no arrival line; the van pulling up says it.
 const CUE_LINES: Dictionary = {
 	"radio": [
 		"RADIO: the NICE BOYS are on the way to this address",
 		"RADIO: Courtesy Patrol to all units, we have a yard situation at this address.",
 		"RADIO: Somebody reported excessive raking at this address.",
 		"RADIO: The NICE BOYS are on the way. They packed extra clipboards.",
-	],
-	"arrived": [
-		"The NICE BOYS are here. Run. Hide. Break line of sight.",
-		"The NICE BOYS are here. Hide in a pile, throw a gnome, be anywhere else.",
-		"The NICE BOYS are here. Don't let them see you get into a pile.",
 	],
 	"clear": [
 		"All clear",
@@ -1598,6 +1595,14 @@ const CUE_LINES: Dictionary = {
 		"All clear. They'll be back. They have a quota.",
 	],
 }
+
+## R2:1 Workbook quip Q-006, with the real name (both %s are the caught player's
+## name). Only for a crewmate who didn't see it happen (ui/quip_player.gd).
+const TEAMMATE_CAPTURED: Array[String] = [
+	"They took %s. %s had the good rake.",
+	"The NICE BOYS have %s. Somebody hold %s's spot in line.",
+	"%s has been invited to a Courtesy Conversation. %s did not RSVP.",
+]
 
 ## What the NICE BOYS call out (npcs/crew_member.gd barks), by what they're doing.
 ## The host picks the kind and the line; the caption carries the joke, the audio
@@ -1757,6 +1762,8 @@ const SEASON_ARRIVALS: Array[String] = [
 ## A pool with no entry here takes [0, 3]. A single string (a UI key) is checked
 ## only when it has an exact entry.
 const FORMAT_ARGS: Dictionary = {
+	# R2:1
+	"TEAMMATE_CAPTURED": [2, 3],
 	"TEXT_LINES/request": [1, 3],
 	"TEXT_LINES/clerk_intro": [0, 1],
 	"TEXT_LINES/referral_named": [1, 3],

@@ -142,6 +142,7 @@ func _ready() -> void:
 		pockets_node.name = "Pockets"
 		add_child(pockets_node)
 	_dress_up()
+	_build_stage()
 	_apply_presentation()
 
 
@@ -153,6 +154,12 @@ func pockets() -> Node:
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_multiplayer_authority():
 		return
+	# A control lock still holds its actions back when _input let them through
+	# to an open window that didn't want them.
+	if not _locks.is_empty():
+		for action: StringName in _STAGE_HELD_ACTIONS:
+			if event.is_action(action) and not control_allows(String(action)):
+				return
 	# In a drivable vehicle's seat, E, F and the camera key are the seat's.
 	if _Seated.handle_input(self, event):
 		get_viewport().set_input_as_handled()
@@ -200,6 +207,7 @@ func _physics_process(delta: float) -> void:
 		_pending_bonk = []
 		_apply_bonk(bonk[0], bonk[1])
 	if is_multiplayer_authority():
+		if _stage_hold(delta): return
 		_step_wind_up(delta)
 		_step_punch(delta)
 		if thrown:
@@ -274,7 +282,7 @@ func _seat_on_ride() -> void:
 
 ## For net/components/net_smoother.gd: while true, the smoother leaves the visual alone.
 func is_riding_visual() -> bool:
-	return _on_seat
+	return _on_seat or is_staged()
 
 
 func _current_seat() -> Transform3D:
@@ -331,6 +339,186 @@ func _on_zone_changed(peer_id: int, zone: Net.Zone) -> void:
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and bool(director.call("is_captured", peer_id)):
 		say("vo_yelp")
+
+
+# ---- R2:1 the stage (docs/DECISIONS.md, R2): one stage camera, staged bodies,
+# control locks. Other chunks call these; nothing here decides gameplay.
+const _StageCam = preload("res://player/stage_cam.gd")
+const _StageBody = preload("res://player/stage_body.gd")
+## Why this player can't move right now (set_control_lock): reason -> true.
+var _locks: Dictionary = {}
+## The yaw a lock with a look limit started from.
+var _lock_yaw: float = 0.0
+## The pose a stage gave the body (set_body_pose).
+var _stage_pose: StringName = &"stand"
+
+
+## StageBody on every peer; StageCam under CameraRig on the owner only.
+func _build_stage() -> void:
+	if get_node_or_null("StageBody") == null:
+		var stage_body := _StageBody.new()
+		stage_body.name = "StageBody"
+		stage_body.player = self
+		add_child(stage_body)
+	if is_multiplayer_authority() and %CameraRig.get_node_or_null("StageCam") == null:
+		var cam := _StageCam.new()
+		cam.name = "StageCam"
+		cam.player = self
+		%CameraRig.add_child(cam)
+
+
+## Push a stage shot (player/stage_cam.gd has the shot keys). Owner only; a no-op elsewhere.
+func stage_push(id: StringName, shot: Dictionary) -> void:
+	var cam := stage_cam()
+	if cam != null:
+		cam.call("push", id, shot)
+
+
+func stage_pop(id: StringName, blend_out := -1.0) -> void:
+	var cam := stage_cam()
+	if cam != null:
+		cam.call("pop", id, blend_out)
+
+
+## The shot on top, or &"" when your own camera has the view.
+func stage_top() -> StringName:
+	var cam := stage_cam()
+	return StringName(cam.call("top")) if cam != null else &""
+
+
+## The stage camera (owner only), else null.
+func stage_cam() -> Camera3D:
+	return %CameraRig.get_node_or_null("StageCam") as Camera3D
+
+
+## Every peer, from the caller's reliable RPC: the body follows anchor * offset
+## (player/stage_body.gd), blending in over `blend` seconds, in `pose`.
+func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringName) -> void:
+	var stage_body := get_node_or_null("StageBody")
+	if stage_body != null:
+		stage_body.call("set_staged", anchor, offset, blend, pose)
+
+
+func clear_staged() -> void:
+	var stage_body := get_node_or_null("StageBody")
+	if stage_body != null:
+		stage_body.call("clear_staged")
+
+
+func is_staged() -> bool:
+	var stage_body := get_node_or_null("StageBody")
+	return stage_body != null and bool(stage_body.call("is_staged"))
+
+
+## Lock this player's controls for a reason (Constants.STAGE_LOCK_ALLOW lists
+## what each still lets through: a wriggle, a knock on the glass, looking).
+## Locks stack; controls come back when the last one goes.
+func set_control_lock(reason: StringName, on: bool) -> void:
+	if on:
+		if _locks.is_empty():
+			_lock_yaw = body_yaw
+		_locks[reason] = true
+	else:
+		_locks.erase(reason)
+
+
+func is_control_locked() -> bool:
+	return not _locks.is_empty()
+
+
+func control_locks() -> Array:
+	return _locks.keys()
+
+
+## Whether every lock on now lets `what` through ("jump", "primary", "look").
+func control_allows(what: String) -> bool:
+	for reason: StringName in _locks:
+		var allow: Dictionary = Constants.STAGE_LOCK_ALLOW.get(reason, {})
+		if not bool(allow.get(what, false)):
+			return false
+	return true
+
+
+## How far a lock lets you turn from where it started, in radians (INF = free).
+func _lock_look_limit() -> float:
+	var limit := INF
+	for reason: StringName in _locks:
+		var allow: Dictionary = Constants.STAGE_LOCK_ALLOW.get(reason, {})
+		if allow.has("look_deg"):
+			limit = minf(limit, deg_to_rad(float(allow["look_deg"])))
+	return limit
+
+
+## The body's pose for a stage: &"stand", &"escorted", &"sit_buckled", &"walk_behind".
+func set_body_pose(pose: StringName) -> void:
+	_stage_pose = pose
+	var body := get_node_or_null("Visual/CartoonBody")
+	if body != null:
+		body.set("mood", "worried" if pose == &"escorted" else "neutral")
+
+
+## Owner, each physics tick: while staged or locked, nothing moves the body but
+## the stage (and gravity, when merely locked). Returns true to skip the rest.
+func _stage_hold(delta: float) -> bool:
+	var staged := is_staged()
+	if not staged and _locks.is_empty():
+		return false
+	for action: StringName in _STAGE_HELD_ACTIONS:
+		if Input.is_action_pressed(action) and not control_allows(String(action)):
+			Input.action_release(action)
+	if not staged:
+		if control_allows("look"):
+			_apply_look()
+			var limit := _lock_look_limit()
+			if limit < INF:
+				body_yaw = _lock_yaw + clampf(wrapf(body_yaw - _lock_yaw, -PI, PI), -limit, limit)
+		else:
+			_look = Vector2.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		velocity.y = 0.0 if is_on_floor() else velocity.y - _gravity * delta
+		move_and_slide()
+		anim_state = AnimState.IDLE if is_on_floor() else AnimState.AIR
+	else:
+		_look = Vector2.ZERO
+		velocity = Vector3.ZERO
+		anim_state = AnimState.IDLE
+	_apply_presentation()
+	return true
+
+
+## The actions a control lock holds back unless the lock allows them.
+const _STAGE_HELD_ACTIONS: Array[StringName] = [&"move_forward", &"move_back", &"move_left", &"move_right", &"jump", &"sprint", &"crouch", &"interact", &"primary", &"secondary", &"drop", &"take", &"honk", &"slot_1", &"slot_2", &"slot_3", &"slot_4", &"slot_5", &"slot_next", &"slot_prev"]
+
+
+## Before anyone else's input handling: a stage shot takes the mouse look, and a
+## control lock swallows what it holds back.
+func _input(event: InputEvent) -> void:
+	if not is_multiplayer_authority():
+		return
+	var cam := stage_cam()
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if cam != null and StringName(cam.call("top")) != &"":
+			cam.call("add_look", (event as InputEventMouseMotion).relative)
+			get_viewport().set_input_as_handled()
+		elif not _locks.is_empty() and not control_allows("look"):
+			get_viewport().set_input_as_handled()
+		return
+	if _locks.is_empty():
+		return
+	# A window or the pause menu has the mouse: its buttons get every click and
+	# key (Node._input runs before the GUI). _stage_hold still releases anything
+	# held, so nothing leaks into the world.
+	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		return
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	if ui != null and ui.has_method("any_window_open") and bool(ui.call("any_window_open")):
+		return
+	for action: StringName in _STAGE_HELD_ACTIONS:
+		if event.is_action(action) and not control_allows(String(action)):
+			Input.action_release(action)
+			get_viewport().set_input_as_handled()
+			return
 
 
 ## Lying on a cot (net/day/day_clock.gd decides who sleeps): still, eyes low,
@@ -978,7 +1166,7 @@ func _process(_delta: float) -> void:
 	if body_now != null:
 		var held := _held_prop() as Node3D
 		# Sitting in Chefty's cab, standing in its bed, hands on the wheel if driving.
-		body_now.call("sit", _Seated.pose_for(self))
+		body_now.call("sit", 1 if _stage_pose == &"sit_buckled" and is_staged() else _Seated.pose_for(self))
 		var wheel := _Seated.wheel_grips(self)
 		if not wheel.is_empty():
 			body_now.call("set_hold", wheel[0], wheel[1])
