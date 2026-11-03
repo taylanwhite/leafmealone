@@ -102,6 +102,14 @@ func _place(stand: Vector3, there: Vector3, target: Node3D) -> void:
 	_move_to(stand, -PI * 0.5)
 	target.call("send_teleport", Transform3D(Basis(Vector3.UP, PI * 0.5), there))
 	await _ticks(8)
+	# The teleport runs on their machine and comes back in their state stream; on a
+	# loaded machine that takes longer than 8 ticks, and a punch thrown before the
+	# host sees them arrive hits the spot they left.
+	var waited := 0.0
+	while waited < 3.0 and Vector2(target.global_position.x - there.x, target.global_position.z - there.z).length() > 0.3:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+	await _ticks(4)
 
 
 func _moved(target: Node3D, from: Vector3, seconds: float) -> float:
