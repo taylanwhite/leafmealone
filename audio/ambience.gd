@@ -498,7 +498,7 @@ func _resync(voice: Dictionary, emitter: Node3D) -> void:
 	var want := _loop_position(emitter, player.stream)
 	var length := maxf(float(emitter.get_meta("ambient_sync")), 0.01)
 	var off := fposmod(player.get_playback_position() - want + length * 0.5, length) - length * 0.5
-	if absf(off) > 0.06:
+	if absf(off) > Constants.AMBIENCE_EMITTER_RESYNC_SECONDS:
 		player.seek(want)
 
 
@@ -526,7 +526,7 @@ func _step_voices(delta: float, at: Vector3) -> void:
 ## The houses near enough to be a one-shot's porch.
 func _scan_porches(at: Vector3) -> void:
 	_porches.clear()
-	var reach := Constants.AMBIENCE_PORCH_RANGE.y + 12.0
+	var reach := Constants.AMBIENCE_PORCH_RANGE.y + Constants.AMBIENCE_PORCH_SCAN_MARGIN
 	for node: Node in get_tree().get_nodes_in_group("porches"):
 		var house := node as Node3D
 		if house != null and house.is_inside_tree() and house.global_position.distance_to(at) < reach:
@@ -580,7 +580,7 @@ func _shot_point(from: String, at: Vector3) -> Vector3:
 				if distance < best_distance:
 					best_distance = distance
 					var out := (shore.global_transform.basis * (shore.get_meta("ambient_out") as Vector3)).normalized()
-					var along := out.cross(Vector3.UP).normalized() * randf_range(-25.0, 25.0)
+					var along := out.cross(Vector3.UP).normalized() * randf_range(-Constants.AMBIENCE_LOON_ALONG, Constants.AMBIENCE_LOON_ALONG)
 					best = edge + out * _between(Constants.AMBIENCE_LOON_OUT) + along + Vector3(0.0, 0.4, 0.0)
 			return best
 	return Vector3.INF

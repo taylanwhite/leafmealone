@@ -27,7 +27,8 @@ extends Node
 ## - A10 every hood's TWICE_SEED yard built twice: the same art and layout hash
 ## - A11 Maple Row's big yard in all four seasons (and Lakeside in winter): four
 ##   art hashes, Seasons.current() each time, winter's decor, bare trees and
-##   frozen lake, spring's blossoms, autumn's pumpkins, A13 on the block and the
+##   frozen lake, spring's blossoms, autumn's pumpkins, summer's running lawn
+##   sprinklers (each on its own beat, art:9), A13 on the block and the
 ##   yard in every season (leafy crowns over the street), and the job house's own
 ##   decor (pumpkins on its steps and mums pots inside its beds, a wreath on its
 ##   door, a tulip bed per bed, a pool float and a pinwheel; never string lights)
@@ -56,7 +57,9 @@ extends Node
 ##   (audio/ambience.gd hood_wants), the sprinklers' window, their head's sweep
 ##   meeting itself and sprinkler_tick_loop's length matching it, porch lights off
 ##   by day, all on at 8 PM, some left on at 2 AM, and no walker out at 1 AM
-## - A17 a walker on a route straight through the host steps round them
+## - A17 a walker on a route straight through the host steps round them; one
+##   mid-sidestep when a van's keep-clear zone appears stops, then rejoins the
+##   route with no jump; one at home comes out only where its walk is out of view
 
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const _BlockBuilder = preload("res://levels/town/block_builder.gd")
@@ -587,6 +590,8 @@ func _seasons(world: Node) -> Array:
 			2:
 				if not crowns.has("blossom_pink") and not crowns.has("blossom_white"):
 					out.append("A11 %s: no blossoms (%s)" % [label, ",".join(PackedStringArray(crowns.keys()))])
+			3:
+				out.append_array(_summer_sprinklers(lot, label))
 		out.append_array(_job_decor(lot.get_node("Dressing") as Node3D, season, "A11 " + label))
 		# The leafy seasons' crowns too (CI's main sweep runs in winter).
 		out.append_array(_lane(lot, lot.get_node("Block") as Node3D, label))
@@ -821,7 +826,9 @@ func _ambience(lot: Node3D, hood: String, label: String) -> Array[String]:
 			out.append("A15 %s: emitter %s plays %s, not a loop in the bank" % [label, node.name, id])
 			continue
 		counts[id] = int(counts.get(id, 0)) + 1
-		if id == "sprinkler_tick_loop":
+		# Only Oak Hollow's (the HOA's) tick in step on one spot; a summer lawn's
+		# own sprinkler elsewhere keeps its own beat (A11 checks those).
+		if id == "sprinkler_tick_loop" and hood == "oak_hollow":
 			if not is_zero_approx(float(node.get_meta("ambient_phase", -1.0))):
 				out.append("A15 %s: an Oak Hollow sprinkler out of step (phase %s)" % [label, node.get_meta("ambient_phase", "none")])
 			var parcel := _parcel_of(node)
@@ -840,6 +847,30 @@ func _ambience(lot: Node3D, hood: String, label: String) -> Array[String]:
 		if node.is_in_group("porches") and node.get_node_or_null("Look") != null and node.get_node_or_null("PorchLight") == null and not _is_far(node):
 			out.append("A15 %s: %s has no porch light" % [label, node.get_path()])
 			break
+	return out
+
+
+## A11's summer yard (art:9): its neighbors' lawns have their own running
+## sprinklers on the summer schedule, each a loop in the bank, phased within the
+## head's loop and not all on one beat (only Oak Hollow's tick in step).
+func _summer_sprinklers(lot: Node3D, label: String) -> Array[String]:
+	var out: Array[String] = []
+	var phases := {}
+	var count := 0
+	for node: Node in lot.find_children("SprinklerJet", "Node3D", true, false):
+		if str(node.get("schedule")) != "summer":
+			continue
+		count += 1
+		if not node.is_in_group("ambient_emitters") or str(node.get_meta("ambient", "")) != "sprinkler_tick_loop":
+			out.append("A11 %s: a summer sprinkler is no sprinkler_tick_loop emitter" % label)
+		var phase := float(node.get_meta("ambient_phase", -1.0))
+		if phase < 0.0 or phase >= _SprinklerJet.loop_seconds():
+			out.append("A11 %s: a summer sprinkler's phase %.3f is outside the head's loop" % [label, phase])
+		phases[snappedf(phase, 0.001)] = true
+	if count < 1:
+		out.append("A11 %s: no running summer sprinkler on a neighbor's lawn" % label)
+	elif count > 2 and phases.size() < 2:
+		out.append("A11 %s: %d summer sprinklers all on one beat" % [label, count])
 	return out
 
 
@@ -949,10 +980,126 @@ func _walker_dodge(world: Node) -> Array[String]:
 		offset_most = maxf(offset_most, absf(offset))
 		var spot := on_route + across * offset
 		nearest = minf(nearest, Vector2(spot.x - at.x, spot.z - at.z).length())
+	out.append_array(_walker_van_rejoin(holder, me))
+	out.append_array(_walker_comes_out(holder))
 	holder.queue_free()
 	if nearest < Constants.PEDESTRIAN_CLEAR_PLAYER - 0.15:
 		out.append("A17 a walker passed %.2f m from a player standing on its route (keeps %.2f)" % [nearest, Constants.PEDESTRIAN_CLEAR_PLAYER])
 	if offset_most > Constants.PEDESTRIAN_SIDESTEP_MAX + 0.01:
 		out.append("A17 a walker stepped %.2f m off its route" % offset_most)
 	print("[ArtTest] A17 a walker passing a player kept %.2f m, stepping %.2f m aside" % [nearest, offset_most])
+	return out
+
+
+## Stands in for a NICE van at the curb (group nice_shuttle): its keep-clear zone.
+class _FakeVan extends Node:
+	var zone: Array = []
+
+	func keep_clear(_time: float) -> Array:
+		return [zone]
+
+
+## A17 a walker mid-sidestep when a van's keep-clear zone appears stops where
+## they stand, and walks back onto the route once it's gone without a jump.
+func _walker_van_rejoin(holder: Node3D, me: Node3D) -> Array[String]:
+	var out: Array[String] = []
+	var walker: Node3D = _Pedestrian.new()
+	# Well clear of the player, so only the van matters.
+	var at := me.global_position + Vector3(0.0, 0.0, 30.0)
+	walker.set("route_from", at + Vector3(-12.0, 0.0, 0.0))
+	walker.set("route_to", at + Vector3(12.0, 0.0, 0.0))
+	walker.set("speed", 1.3)
+	walker.set("seed_value", 4343)
+	holder.add_child(walker)
+	var across := Vector3(0.0, 0.0, 1.0)
+	var on_route: Vector3 = walker.call("_route_at", Net.server_time())
+	var length := 24.0
+	var walked := fposmod(Net.server_time() * 1.3 + float(walker.get("phase")), length * 2.0)
+	var heading := Vector3.RIGHT * (1.0 if walked < length else -1.0)
+	# Stepped 1.5 m aside, and the van's zone takes the route just ahead.
+	walker.set("_offset", 1.5)
+	walker.position = on_route + across * 1.5
+	var van := _FakeVan.new()
+	van.zone = [holder.global_transform * (on_route + heading * 1.2), 1.3]
+	# The world's own van steps out of the group while this runs (no frame passes
+	# till it's back), so the walker asks this one.
+	var real := get_tree().get_nodes_in_group("nice_shuttle")
+	for node: Node in real:
+		node.remove_from_group("nice_shuttle")
+	van.add_to_group("nice_shuttle")
+	holder.add_child(van)
+	var step := 1.0 / 30.0
+	var held := false
+	for index: int in 30:
+		walker.call("_place", step)
+		held = held or bool(walker.get("_held"))
+	if not held:
+		out.append("A17 a walker by a van's keep-clear zone never stopped")
+	van.remove_from_group("nice_shuttle")
+	van.queue_free()
+	var last := walker.position
+	var jump := 0.0
+	var rejoined := false
+	for index: int in 240:
+		walker.call("_place", step)
+		jump = maxf(jump, walker.position.distance_to(last))
+		last = walker.position
+		rejoined = rejoined or not bool(walker.get("_free"))
+	walker.queue_free()
+	for node: Node in real:
+		node.add_to_group("nice_shuttle")
+	if not rejoined:
+		out.append("A17 a walker held by a van never got back on their route")
+	# Walking back is speed * 1.6 m/s; the route itself moves at speed.
+	if jump > 1.3 * 1.6 * step + 0.2:
+		out.append("A17 a walker rejoining their route after a van jumped %.2f m in one tick" % jump)
+	print("[ArtTest] A17 a walker held by a van rejoined their route, biggest step %.3f m" % jump)
+	return out
+
+
+## A17 a walker at home comes back out only where today's walk has them out of
+## the camera's view, not where they stood when they went home.
+func _walker_comes_out(holder: Node3D) -> Array[String]:
+	var out: Array[String] = []
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return out
+	var hour := 12.0
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock != null:
+		hour = float(clock.call("hour"))
+	var walker: Node3D = _Pedestrian.new()
+	var ahead := -camera.global_basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized() if ahead.length() > 0.01 else Vector3.FORWARD
+	var side := ahead.cross(Vector3.UP).normalized()
+	# A short route 10 m ahead of the lens, in full view, and a seed out now.
+	var seen := holder.global_transform.affine_inverse() * (camera.global_position + ahead * 10.0 - Vector3(0.0, 1.6, 0.0))
+	walker.set("route_from", seen - side * 0.5)
+	walker.set("route_to", seen + side * 0.5)
+	var seed_value := 7000
+	while not _Pedestrian.out_at(seed_value, hour) and seed_value < 7100:
+		seed_value += 1
+	walker.set("seed_value", seed_value)
+	holder.add_child(walker)
+	# Home, standing (hidden) far behind the camera where they went in.
+	walker.set("_out", false)
+	walker.visible = false
+	walker.global_position = camera.global_position - ahead * 150.0
+	if not bool(camera.is_position_in_frustum(holder.global_transform * seen + Vector3(0.0, 1.0, 0.0))):
+		walker.queue_free()
+		print("[ArtTest] A17 come-out check skipped: the test spot isn't in view")
+		return out
+	walker.call("_keep_hours")
+	if bool(walker.get("_out")):
+		out.append("A17 a walker came out of their house in full view of the camera")
+	# Their walk behind the lens: now they may come out.
+	var unseen := holder.global_transform.affine_inverse() * (camera.global_position - ahead * 20.0)
+	walker.set("route_from", unseen - side * 0.5)
+	walker.set("route_to", unseen + side * 0.5)
+	walker.call("_keep_hours")
+	if not bool(walker.get("_out")):
+		out.append("A17 a walker never came out with their walk out of view")
+	walker.queue_free()
+	print("[ArtTest] A17 a walker at home came out only out of view")
 	return out

@@ -94,7 +94,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_hours_check -= delta
 	if _hours_check <= 0.0:
-		_hours_check = 0.5
+		_hours_check = Constants.PEDESTRIAN_HOURS_CHECK_SECONDS
 		_keep_hours()
 	if not _out:
 		return
@@ -113,7 +113,12 @@ static func out_at(seed_number: int, hour: float) -> bool:
 func _keep_hours() -> void:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var want := out_at(seed_value, float(clock.call("hour")) if clock != null else Constants.DAY_SKY_ART_HOUR)
-	if want == _out or not _unseen():
+	if want == _out:
+		return
+	# Going home: where they stand. Coming out: where today's walk has them now
+	# (a hidden walker still stands where they went home, maybe far from it).
+	var at := _world(_route_at(Net.server_time())) if want else global_position
+	if not _unseen_at(at):
 		return
 	_out = want
 	visible = want
@@ -122,18 +127,20 @@ func _keep_hours() -> void:
 		_free = false
 		_held = false
 		_offset = 0.0
+		_offset_speed = 0.0
 		_place(0.0)
 		reset_physics_interpolation()
 	else:
 		remove_from_group("bonkable")
 
 
-func _unseen() -> bool:
+## No camera here sees someone standing at (world space).
+func _unseen_at(at: Vector3) -> bool:
 	var viewport := get_viewport()
 	var camera := viewport.get_camera_3d() if viewport != null else null
 	if camera == null:
 		return true
-	var middle := global_position + Vector3(0.0, 1.0, 0.0)
+	var middle := at + Vector3(0.0, 1.0, 0.0)
 	return camera.global_position.distance_to(middle) > Constants.PEDESTRIAN_UNSEEN_DISTANCE or not camera.is_position_in_frustum(middle)
 
 
@@ -160,11 +167,11 @@ func _dodge(on_route: Vector3, heading: Vector3, across: Vector3, delta: float) 
 				# Round whichever side is nearer: away from where they stand.
 				target = side - clear if gap > 0.0 else side + clear
 				urgent = Vector2(ahead, gap).length() < clear
-		elif absf(gap) < clear + 0.5:
+		elif absf(gap) < clear + Constants.PEDESTRIAN_HOLD_BAND:
 			hold = true
 	var speed := Constants.PEDESTRIAN_RETURN_SPEED
 	if nearest < INF:
-		speed = Constants.PEDESTRIAN_SIDESTEP_SPEED * (2.5 if urgent else 1.0)
+		speed = Constants.PEDESTRIAN_SIDESTEP_SPEED * (Constants.PEDESTRIAN_URGENT_SIDESTEP if urgent else 1.0)
 	elif hold:
 		target = _offset
 	target = clampf(target, -Constants.PEDESTRIAN_SIDESTEP_MAX, Constants.PEDESTRIAN_SIDESTEP_MAX)
@@ -214,6 +221,7 @@ func on_bonked(push: Vector3, tier: String) -> void:
 		_free = true
 		_free_at = position
 		_offset = 0.0
+		_offset_speed = 0.0
 	_slide = Vector3(push.x, 0.0, push.z)
 	_say("vo_oof" if tier != "light" else "vo_eh")
 
@@ -252,8 +260,12 @@ func _place(delta: float) -> void:
 		if _keep_inside(_world(next), keep) and not _keep_inside(global_position, keep):
 			_held = true
 			if not _free:
+				# Off the route where they stand (sidestep and all); the walk back
+				# rejoins the plain route, so the sidestep ends here, not in a jump later.
 				_free = true
 				_free_at = position
+				_offset = 0.0
+				_offset_speed = 0.0
 			anim_state = STATE_IDLE
 			position = _free_at
 			return

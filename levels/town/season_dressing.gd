@@ -121,8 +121,12 @@ static func decorate(parcel: Node3D, spec: Dictionary, style: Dictionary, season
 				# own time; Oak Hollow's lawns have the HOA's, and only that one.
 				var lawn := _spot(yard, rng)
 				if not Constants.SPRINKLER_HOODS.has(str(style.get("id", ""))):
+					# Its own beat: a hashed share of the head's loop (the jet is loaded,
+					# not preloaded: it names Net, which a --script run has no autoload for).
+					var loop := float(load(_PropCatalog.SPRINKLER_JET).call("loop_seconds"))
+					var beat := float(posmod(hash([seed_value, "sprinkler"]), 10000)) / 10000.0
 					_place(root, "sprinkler", Transform3D(Basis(Vector3.UP, float(posmod(seed_value, 628)) * 0.01), lawn), season,
-						{"running": "summer", "phase": float(posmod(hash([seed_value, "sprinkler"]), 5200)) * 0.001})
+						{"running": "summer", "phase": beat * loop})
 				if rng.randf() < 0.4:
 					batch.add("beach_umbrella", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), _spot(yard, rng)))
 			for pool: Vector3 in spec.get("pools", []):

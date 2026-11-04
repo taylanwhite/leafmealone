@@ -6454,8 +6454,16 @@ const AMBIENCE_EMITTER_MUFFLE_DB: float = -8.0
 ## Porch and back-yard one-shots come from a house this near (m) and no nearer.
 const AMBIENCE_PORCH_RANGE: Vector2 = Vector2(9.0, 45.0)
 const AMBIENCE_PORCH_UNIT_SIZE: float = 6.0
-## The loon calls from this far out over the water from the shore (m).
+## The porch list is redone for houses this much beyond AMBIENCE_PORCH_RANGE.y (m),
+## so walking a few steps doesn't leave the far porches out until the next scan.
+const AMBIENCE_PORCH_SCAN_MARGIN: float = 12.0
+## A synced loop (meta ambient_sync) is re-seeked when it drifts this far (s)
+## from where the server clock has it.
+const AMBIENCE_EMITTER_RESYNC_SECONDS: float = 0.06
+## The loon calls from this far out over the water from the shore (m), and up to
+## this far either way along it.
 const AMBIENCE_LOON_OUT: Vector2 = Vector2(25.0, 55.0)
+const AMBIENCE_LOON_ALONG: float = 25.0
 ## Each neighborhood's own one-shots (tools/sfx_hood.py): which hoods, the gap
 ## between two (s), the hours of the clock they happen in (7 to 26; 26 is 2 AM),
 ## and where from ("porch": a house's porch, "yard": behind a house, "water": out
@@ -6529,3 +6537,10 @@ const PEDESTRIAN_SIDESTEP_SPEED: float = 1.0
 const PEDESTRIAN_RETURN_SPEED: float = 0.6
 ## The farthest off the route they'll step (m).
 const PEDESTRIAN_SIDESTEP_MAX: float = 2.6
+## Someone right in front of them: they sidestep this many times faster.
+const PEDESTRIAN_URGENT_SIDESTEP: float = 2.5
+## Passing someone, they hold their line while within this much (m) beyond the
+## clearance, rather than drifting back into them.
+const PEDESTRIAN_HOLD_BAND: float = 0.5
+## How often they check whether it's time to go home or come out (s).
+const PEDESTRIAN_HOURS_CHECK_SECONDS: float = 0.5
