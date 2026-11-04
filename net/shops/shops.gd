@@ -26,9 +26,28 @@ extends Node
 ## are the crew's (request_apply_truck). Every peer draws the looks and the truck
 ## from the snapshot: player.gd rebuilds a body on looks_changed, and
 ## net/components/chefty_paint.gd repaints Chefty on truck_changed once it stands
-## still. Deliveries (request_order) are shops chunk 8.
+## still.
+##
+## Deliveries (shops chunk 8): from Mulch Mule II the phone's Orders app buys
+## Homie Depot's tools and supplies from anywhere (request_order) for the price
+## plus Constants.DELIVERY_FEE and DELIVERY_FEE_SHARE. An order is due
+## DELIVERY_HOURS of clock later (placed after closing: 9 AM the next day); the
+## host lands it in _process: a honk from the van at the dock behind the lobby
+## wall, then the order comes out of the hatch in that wall into the back room
+## (_rpc_delivered): supplies as crates on the pallet (arrived_today, drawn by
+## levels/dressing/delivery_pallet.gd), tools as themselves, real kit props
+## (net/kit/kit.gd) lobbed in front of the cage. Never an unlock. Then a text.
+## Pay a crewmate (request_give) moves PAY_CREWMATE_STEPS dollars between
+## wallets; every peer hears of it (_rpc_gave, the gave signal) and
+## player/cash_toss.gd flies the bill from the payer's hand to the payee.
 
 signal changed
+## Every peer: an order just landed in the back room (_rpc_delivered). crates:
+## the crate item ids lobbed onto the pallet, in order; tools: how many tools come
+## over the wall after them. The pallet plays the honk and the tosses from it.
+signal delivered(crates: Array, tools: int)
+## Every peer: one player paid another (host_give, _rpc_gave).
+signal gave(from_peer: int, to_peer: int, amount: int)
 signal looks_changed(peer_id: int)
 signal truck_changed
 ## Local: the host's answer to this peer's request ("ok", "closed", "far",
@@ -37,12 +56,15 @@ signal truck_changed
 ## "give"; "worn" and "applied" for a hat or shirt put on and a paint or decal
 ## put on Chefty, "not_owned" when it isn't yours to put on;
 ## ui/strings.gd SHOP_UI shop_result_<code>). amount is the dollars
-## taken. The one confirmed-purchase hook for sound and keeper chatter.
+## taken. The one confirmed-purchase hook for sound and keeper chatter. A
+## phone order answers "ordered" (amount: what it cost, fees and all), or
+## "full" with DELIVERY_MAX_OPEN orders already on the way.
 signal result(code: String, item_id: String, amount: int)
 
 const _Strings = preload("res://ui/strings.gd")
 const _Seasons = preload("res://core/seasons.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _KitRules = preload("res://core/kit_rules.gd")
 ## The save section's own version, for migrations (Campaign.SAVE_VERSION stays 1).
 const SECTION_VERSION: int = 1
 ## The crew's supplies. Gas is gallons (a float); the rest are counts.
@@ -98,6 +120,7 @@ var snacks: Dictionary = {}
 
 var _rng := RandomNumberGenerator.new()
 var _buff_wait: float = 0.0
+var _order_wait: float = 0.0
 var _broadcast_queued: bool = false
 ## Host: whether Rusty's was open (feature:salvage) when last looked, so his
 ## welcome text goes out once, the day the crew's rank opens it.
@@ -140,7 +163,14 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	if not Net.is_host() or buffs.is_empty():
+	if not Net.is_host():
+		return
+	if not orders.is_empty():
+		_order_wait += delta
+		if _order_wait >= Constants.DELIVERY_CHECK_SECONDS:
+			_order_wait = 0.0
+			_land_due_orders()
+	if buffs.is_empty():
 		return
 	_buff_wait += delta
 	if _buff_wait < BUFF_CHECK_SECONDS:
@@ -345,6 +375,16 @@ func request_give(to_peer: int, amount: int) -> String:
 	return ""
 
 
+## The local player orders qty of a Homie Depot tool or supply by phone (shops
+## chunk 8). Returns the code on the host ("ordered" or a refusal); on a client
+## "" and the answer comes as the result signal.
+func request_order(item: String, qty: int = 1) -> String:
+	if Net.is_host():
+		return host_order(Net.local_peer_id(), item, qty)
+	_rpc_request_order.rpc_id(1, item, qty)
+	return ""
+
+
 # ---------------------------------------------------------------- host
 
 ## Host: a player buys. Checks, charges, applies, saves, tells everyone, and
@@ -423,8 +463,247 @@ func host_give(from_peer: int, to_peer: int, amount: int) -> String:
 		Campaign.pay(to_peer, amount)
 		Campaign.save_now()
 	_send_result(from_peer, code, "give", amount if code == "ok" else 0)
+	if code == "ok":
+		# Everyone sees the bill change hands (player/cash_toss.gd).
+		if multiplayer.multiplayer_peer == null:
+			_rpc_gave(from_peer, to_peer, amount)
+		else:
+			_rpc_gave.rpc(from_peer, to_peer, amount)
 	return code
 
+
+# ---------------------------------------------------------------- deliveries (shops chunk 8)
+
+## Whether the phone sells this: Homie Depot's tools (each a thing for the
+## crew's kit) and its supplies. Never an upgrade, a look or anything owned.
+static func orderable(item: String) -> bool:
+	var entry := Catalog.item(item)
+	if str(entry.get("shop", "")) != "homie_depot" or Catalog.price(item) < 0:
+		return false
+	return Catalog.is_kit(item) or str(entry.get("kind", "")) == "consumable"
+
+
+## What qty of an item costs delivered: the price, the flat fee, and the share.
+static func order_price(item: String, qty: int = 1) -> int:
+	var goods := Catalog.price(item) * maxi(qty, 1)
+	return goods + Constants.DELIVERY_FEE + roundi(float(goods) * Constants.DELIVERY_FEE_SHARE)
+
+
+## When an order placed at this clock hour on this day lands: [day, clock
+## minutes] (minutes from midnight, so 9 AM is 540). Homie Depot open: in
+## DELIVERY_HOURS; closed: DELIVERY_AFTER_HOURS_ARRIVE, today if it hasn't
+## opened yet, else tomorrow.
+static func arrival_at(hour: float, day: int) -> Array:
+	var hours: Vector2 = Constants.SHOP_HOURS["homie_depot"]
+	var morning := Constants.DELIVERY_AFTER_HOURS_ARRIVE * 60.0
+	if open_at("homie_depot", hour, day):
+		# On the quarter hour, like the clock on the HUD says it.
+		var due := (hour + Constants.DELIVERY_HOURS) * 60.0
+		return [day, ceilf(due / Constants.DELIVERY_ROUND_MINUTES - 0.001) * Constants.DELIVERY_ROUND_MINUTES]
+	if hour < hours.x:
+		return [day, morning]
+	return [day + 1, morning]
+
+
+## Whether an order is due at this clock hour on this day.
+static func order_due(order: Dictionary, hour: float, day: int) -> bool:
+	var arrive_day := int(order.get("arrive_day", 0))
+	return day > arrive_day or (day == arrive_day and hour * 60.0 >= float(order.get("arrive_minutes", 0.0)) - 0.001)
+
+
+## "2:30 PM", or "tomorrow, 9 AM", for an order's arrival as seen on `today`.
+static func arrival_text(order: Dictionary, today: int) -> String:
+	var minutes := int(round(float(order.get("arrive_minutes", 0.0))))
+	var hours := (minutes / 60) % 24
+	var face := hours % 12
+	if face == 0:
+		face = 12
+	var mins := minutes % 60
+	var text := str(_Strings.SHOP_UI["deliveries_time_am" if hours < 12 else "deliveries_time_pm"]) % [face, mins]
+	if int(order.get("arrive_day", today)) > today:
+		return str(_Strings.SHOP_UI["shop_opens_tomorrow"]) % text
+	return text
+
+
+## Why this player can't order this now ("" when they can, cash aside). The
+## phone greys a row out with it; the host checks it again (host_order).
+func order_blocker(peer_id: int, item: String, qty: int = 1) -> String:
+	if not Campaign.is_feature_on("deliveries"):
+		return "locked"
+	if not orderable(item):
+		return "unknown"
+	if qty < 1 or qty > Constants.SHOP_MAX_QTY or (Catalog.is_kit(item) and qty != 1):
+		return "unknown"
+	var clock := _clock()
+	if clock != null and not Catalog.is_in_season(item, int(clock.call("season"))):
+		return "season"
+	if not Campaign.is_for_sale(StringName(item)):
+		return "locked"
+	var left := stock_left("homie_depot", item)
+	if left >= 0 and left < qty:
+		return "sold_out"
+	if orders.size() >= Constants.DELIVERY_MAX_OPEN:
+		return "full"
+	if peer_id > 0 and Campaign.credits(peer_id) < order_price(item, qty):
+		return "short"
+	return ""
+
+
+## Host: a player orders by phone. Checks, charges, takes it off Homie Depot's
+## shelf (it's the same stock), books the van, saves, tells everyone, answers.
+func host_order(peer_id: int, item: String, qty: int) -> String:
+	if not Net.is_host():
+		return ""
+	var code := order_blocker(-1, item, qty)
+	var amount := 0
+	if code == "":
+		var price := order_price(item, qty)
+		if not Campaign.charge(peer_id, price):
+			code = "short"
+		else:
+			amount = price
+			code = "ordered"
+			_take_stock("homie_depot", item, qty)
+			var clock := _clock()
+			var hour := float(clock.call("hour")) if clock != null else float(Constants.SHOP_HOURS["homie_depot"].x)
+			var due := arrival_at(hour, _today())
+			orders.append({"item": item, "qty": qty, "arrive_day": int(due[0]), "arrive_minutes": float(due[1]), "by": Campaign.key_of(peer_id)})
+			Campaign.save_now()
+			_broadcast()
+	_send_result(peer_id, code, item, amount)
+	return code
+
+
+## Host: every order that's due lands now, all in one drop.
+func _land_due_orders() -> void:
+	var clock := _clock()
+	if clock == null:
+		return
+	var hour := float(clock.call("hour"))
+	var day := int(clock.get("day"))
+	var due: Array = []
+	var waiting: Array = []
+	for order: Variant in orders:
+		if typeof(order) == TYPE_DICTIONARY and order_due(order, hour, day):
+			due.append(order)
+		elif typeof(order) == TYPE_DICTIONARY:
+			waiting.append(order)
+	if due.is_empty():
+		return
+	orders = waiting
+	host_land(due)
+
+
+## Host: these orders land in the back room. Supplies go into the crew's supply
+## at once and onto the pallet as crates; tools come out of the hatch one by one
+## as kit props, after the crates (the same schedule delivery_pallet.gd plays). A
+## text says what came. Also dev: an order landed by hand.
+func host_land(due: Array) -> void:
+	if not Net.is_host() or due.is_empty():
+		return
+	var crates: Array = []
+	var tools: Array = []
+	var names: Array = []
+	for order: Dictionary in due:
+		var item := str(order.get("item", ""))
+		var qty := maxi(int(order.get("qty", 1)), 1)
+		var entry := Catalog.item(item)
+		if entry.is_empty():
+			continue
+		if Catalog.is_kit(item):
+			for _unit: int in qty:
+				tools.append({"kind": str(entry["tool"]), "tier": int(entry["tier"])})
+			names.append(_KitRules.sentence_name(str(entry["tool"]), int(entry["tier"])))
+		else:
+			var supply_id := str(entry.get("supply", ""))
+			add_supply(supply_id, float(Constants.SUPPLY_PER_ITEM.get(item, 0)) * float(qty))
+			for _unit: int in mini(qty, Constants.DELIVERY_CRATES_PER_ORDER):
+				crates.append(item)
+			var named := _Strings.shop_item_name(item)
+			# Mid-sentence: "2 × gas can", like the kit's "rake".
+			if named.length() > 1 and named.substr(1, 1) == named.substr(1, 1).to_lower():
+				named = named.substr(0, 1).to_lower() + named.substr(1)
+			names.append(str(_Strings.SHOP_UI["deliveries_qty"]) % [qty, named] if qty > 1 else named)
+	# The crates the pallet has room for (the rest are "in the back").
+	var room := maxi(Constants.DELIVERY_CRATES_MAX - arrived_today.size(), 0)
+	var shown := crates.slice(0, room)
+	arrived_today.append_array(crates)
+	# The honk and the tosses first, then the snapshot: every peer hears of the
+	# new crates before it sees them, so it lobs them in instead of popping them.
+	if multiplayer.multiplayer_peer == null:
+		_rpc_delivered(shown, tools.size())
+	else:
+		_rpc_delivered.rpc(shown, tools.size())
+	# Each tool gets its own spot, worked out now: the one before it is still in the air when it goes.
+	var first_spot := _delivery_kit_index()
+	for index: int in tools.size():
+		var tool: Dictionary = tools[index]
+		var delay := Constants.DELIVERY_TOSS_DELAY + float(shown.size() + index) * Constants.DELIVERY_TOSS_GAP
+		get_tree().create_timer(delay).timeout.connect(_toss_tool.bind(str(tool["kind"]), int(tool["tier"]), first_spot + index))
+	var town := get_tree().get_first_node_in_group("town")
+	if town != null and not names.is_empty():
+		town.call("_text", str(_Strings.SHOP_UI["text_from_deliveries"]), "delivery", str(_Strings.SHOP_UI["text_delivery"]) % _KitRules.sentence_list(names), -1)
+	Campaign.save_now()
+	_broadcast()
+
+
+## Host: one ordered tool comes out of the back room's hatch, lobbed high over
+## the cage onto the next free spot in front of it: a real kit prop thrown on an
+## arc (net/kit/kit.gd), turning a little as it flies.
+func _toss_tool(kind: String, tier: int, spot: int) -> void:
+	var kit := get_tree().get_first_node_in_group("kit") if is_inside_tree() else null
+	if kit == null or not Net.is_host():
+		return
+	var land := delivery_kit_point(spot)
+	var from := delivery_point(Constants.DELIVERY_HATCH + Vector3(Constants.DELIVERY_TOOL_START_OUT, 0.0, 0.0))
+	var fuel := Constants.KIT_USED_FUEL if tier == Catalog.TIER_USED else Constants.KIT_NEW_FUEL
+	# As it lies on the ground (a kit prop's rest pose), so it comes through the
+	# hatch flat and lands flat.
+	var prop := kit.call("spawn_item", kind, tier, fuel, Transform3D(Basis(), from)) as RigidBody3D
+	if prop == null:
+		return
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * prop.gravity_scale
+	var seconds := Constants.DELIVERY_TOOL_FLIGHT
+	prop.linear_velocity = (land - from) / seconds + Vector3.UP * 0.5 * gravity * seconds
+	# A lazy turn about up as it flies; tumbling end over end, a rake could land
+	# on its head and stand there.
+	prop.angular_velocity = Vector3(0.0, Constants.DELIVERY_TOOL_SPIN, 0.0)
+	# The order left the list when it landed: the tool is in the save from now on.
+	Campaign.save_now()
+
+
+## A point given from the back room's pallet (StoreZone's axes), in the world.
+func delivery_point(offset: Vector3) -> Vector3:
+	var site: Dictionary = Constants.SHOP_SITES.get("back_room", {})
+	var zone := _site_zone(site)
+	var local := (site.get("counter", Vector3.ZERO) as Vector3) + offset
+	return zone.to_global(local) if zone != null else local
+
+
+## The world point the index-th delivered tool lands on (DELIVERY_KIT_*).
+func delivery_kit_point(index: int) -> Vector3:
+	var site: Dictionary = Constants.SHOP_SITES.get("back_room", {})
+	var zone := _site_zone(site)
+	var local := (site.get("counter", Vector3.ZERO) as Vector3) + Constants.DELIVERY_KIT_FIRST + Constants.DELIVERY_KIT_STEP * float(clampi(index, 0, Constants.DELIVERY_KIT_MAX - 1))
+	if index >= Constants.DELIVERY_KIT_MAX:
+		local += Vector3.UP * Constants.DELIVERY_KIT_STACK_STEP * float(index - Constants.DELIVERY_KIT_MAX + 1)
+	return zone.to_global(local) if zone != null else local
+
+
+## The next free spot in front of the cage: one past the kit already lying there.
+func _delivery_kit_index() -> int:
+	var used := 0
+	var first := delivery_kit_point(0)
+	var last := delivery_kit_point(Constants.DELIVERY_KIT_MAX - 1)
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if not _KitRules.is_kit(node) or not bool(node.call("is_loose")) or node.is_queued_for_deletion():
+			continue
+		var at := (node as Node3D).global_position
+		# Near the line of spots (a tool lies across it, long side along x).
+		var along := Geometry3D.get_closest_point_to_segment(at, first, last)
+		if Vector2(at.x - along.x, at.z - along.z).length() < 1.0:
+			used += 1
+	return used
 
 # ---------------------------------------------------------------- Rusty's (shops chunk 5)
 
@@ -1023,7 +1302,16 @@ func _read_section(saved: Dictionary) -> void:
 		for item: String in shelf:
 			if saved_shelf.has(item):
 				shelf[item] = maxi(int(saved_shelf[item]), 0)
-	orders = (saved.get("orders", []) as Array).duplicate(true) if typeof(saved.get("orders")) == TYPE_ARRAY else []
+	# Orders still on the way (shops chunk 8), retyped: JSON brings ints back as floats.
+	orders = []
+	for order: Variant in (saved.get("orders", []) as Array if typeof(saved.get("orders")) == TYPE_ARRAY else []):
+		if typeof(order) != TYPE_DICTIONARY or not orderable(str((order as Dictionary).get("item", ""))):
+			continue
+		orders.append({
+			"item": str(order["item"]), "qty": maxi(int((order as Dictionary).get("qty", 1)), 1),
+			"arrive_day": int((order as Dictionary).get("arrive_day", 0)), "arrive_minutes": float((order as Dictionary).get("arrive_minutes", 0.0)),
+			"by": str((order as Dictionary).get("by", "")),
+		})
 	looks = {}
 	if typeof(saved.get("looks")) == TYPE_DICTIONARY:
 		for key: Variant in (saved["looks"] as Dictionary):
@@ -1122,6 +1410,25 @@ func _rpc_request_apply_truck(item: String) -> void:
 func _rpc_request_give(to_peer: int, amount: int) -> void:
 	if Net.is_host():
 		host_give(multiplayer.get_remote_sender_id(), to_peer, amount)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_request_order(item: String, qty: int) -> void:
+	if Net.is_host():
+		host_order(multiplayer.get_remote_sender_id(), item, qty)
+
+
+## Every peer: an order landed (host_land). Sent before the snapshot that
+## carries the crates, so the pallet lobs them in rather than drawing them.
+@rpc("authority", "call_local", "reliable")
+func _rpc_delivered(crates: Array, tools: int) -> void:
+	delivered.emit(crates, tools)
+
+
+## Every peer: a crewmate paid another (host_give).
+@rpc("authority", "call_local", "reliable")
+func _rpc_gave(from_peer: int, to_peer: int, amount: int) -> void:
+	gave.emit(from_peer, to_peer, amount)
 
 
 @rpc("authority", "call_local", "reliable")

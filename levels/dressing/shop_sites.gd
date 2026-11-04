@@ -7,7 +7,8 @@ extends RefCounted
 ## site gets its keeper (npcs/store_clerk.gd, at the site's keeper spot) and an
 ## hours sign that keeps itself current: OPEN 7 AM - 9 PM, CLOSED · Opens ...,
 ## GONE FISHIN' on Rusty's day off, or COMING SOON with the rank that opens it.
-## The back room gets the delivery pallet's base (the crates are shops chunk 8).
+## The back room gets the delivery pallet in its cage, and on it today's
+## deliveries (levels/dressing/delivery_pallet.gd, shops chunk 8).
 ##
 ## Rusty's Salvage & Pawn (shops chunk 5) is a fenced gravel yard: his shack,
 ## a plank counter on two oil drums, the chalkboard with his mood today, the dial
@@ -29,6 +30,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _YardExtras = preload("res://props/yard_extras.gd")
 const _ShelfStock = preload("res://props/shelf_stock.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
+const _DeliveryPallet = preload("res://levels/dressing/delivery_pallet.gd")
 const BOARD := Color(0.17, 0.22, 0.2)
 const FRAME := Color(0.55, 0.38, 0.22)
 const ORANGE := Color(0.95, 0.5, 0.15)
@@ -348,6 +350,13 @@ static func _pallet_base(root: Node3D, at: Vector3) -> void:
 		_solid(root, at + corner + Vector3(0.0, 0.8, 0.0), Vector3(0.08, 1.6, 0.08))
 	var words := _LowPoly.text_sign(root, str(_Strings.SHOP_UI["back_room_sign"]), at + Vector3(-1.38, 2.1, 0.0), 64, Color(0.95, 0.94, 0.9), PI * 0.5)
 	words.outline_size = 10
+	# The pallet's deck is solid too (shops chunk 8): what lands on it stands on it.
+	_solid(root, at + Vector3(0.0, Constants.DELIVERY_PALLET_TOP * 0.5, 0.0), Vector3(1.24, Constants.DELIVERY_PALLET_TOP, 1.0))
+	# Today's deliveries, lobbed in over the back wall (shops chunk 8).
+	var crates := _DeliveryPallet.new()
+	crates.name = "DeliveryPallet"
+	crates.position = at
+	root.add_child(crates)
 
 
 ## An invisible box collider (the meshes above are kit meshes with none).
