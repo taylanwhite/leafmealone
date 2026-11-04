@@ -31,6 +31,9 @@ var _stuck: float = 0.0
 ## How long it has been stopped near, but not at, the stop.
 var _settle: float = 0.0
 var done: bool = false
+## The speed it cruises at between corners (m/s): AUTOPILOT_CRUISE, or the NICE
+## BOYS' van flat out in a chase (driving:F).
+var cruise: float = Constants.AUTOPILOT_CRUISE
 
 
 ## Whether depart() and the chauffeur skip the driving: automated runs (the smoke
@@ -214,7 +217,7 @@ func next_input(state: Dictionary, pos: Vector3, dt: float) -> Dictionary:
 ## well off the route, and never slower than a creep until the stop.
 func _wanted_speed(left: float, to_stop: float, angle: float) -> float:
 	var decel := Constants.AUTOPILOT_BRAKE_DECEL
-	var want := Constants.AUTOPILOT_CRUISE
+	var want := cruise
 	want = minf(want, sqrt(2.0 * decel * maxf(minf(left, to_stop + Constants.AUTOPILOT_LANE_LEAD) - Constants.AUTOPILOT_STOP_RADIUS * Constants.AUTOPILOT_STOP_AIM_SHARE, 0.0)))
 	var scan := Constants.AUTOPILOT_CORNER_SCAN
 	for index: int in range(1, route.size() - 1):

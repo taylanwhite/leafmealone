@@ -13,7 +13,7 @@ nice_boys_chase ("The NICE BOYS") and escape_run ("Clean Getaway", the
 escape/end-sequence cue: Border Return today, the Field Office escape later;
 the music director's "crossing" mood is an alias of its "escape" mood).
 Stingers: st_rank_up, st_season, st_morning, st_new_client, st_job_paid,
-st_busted, st_made_it.
+st_busted, st_made_it, st_lost_em (driving:F).
 
 Musical guardrail (docs/ART.md, "Audio"): no Latin-American or regional genre
 signifiers. Tension here is funk, keystone-cop slapstick and arcade chiptune;
@@ -597,8 +597,23 @@ def st_made_it():
     ], 0.8)
 
 
+def st_lost_em():
+    """'Lost 'Em': the NICE BOYS' van gives up the chase (driving:F,
+    net/run_events/pursuit.gd). A cocky brass stab, ba-da-BAP, a kazoo blowing a
+    raspberry down at the van in the mirror, and a tuba bwomp under it."""
+    return _stinger("st_lost_em", "Lost 'Em", 126.0, "F major", 4508, "F6", [
+        m.melody("brass", "C5:1 r:1 F5:1 A5:1 C6:5! r:7", gain=0.62, pan=0.1, verb=0.22),
+        m.comp("brass", "....x----.......", center=62, gain=0.38, pan=-0.15, verb=0.22),
+        m.drum("snare", "xxx.x...........", gain=0.38),
+        m.drum("crash", "....x...........", gain=0.28),
+        m.hits("tuba", [("0:4", "F2", 3, 0.75), ("0:12", "C2", 4, 0.6)], gain=0.45, pan=-0.1, verb=0.1),
+        m.melody("kazoo", "r:9 A5:2 ~E5:2 ~C5:3,", gain=0.3, pan=-0.25, verb=0.18),
+    ], 0.9)
+
+
 SONG_BUILDERS = (hot_yard, nice_boys_incoming, nice_boys_chase, escape_run, annex_hold,
-                 st_rank_up, st_season, st_morning, st_new_client, st_job_paid, st_busted, st_made_it)
+                 st_rank_up, st_season, st_morning, st_new_client, st_job_paid, st_busted, st_made_it,
+                 st_lost_em)
 
 
 def register(module, songs: dict) -> None:

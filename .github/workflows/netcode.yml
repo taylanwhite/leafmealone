@@ -427,6 +427,18 @@ jobs:
           grep "SkateTest" build/soak/ci-skate/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-skate/host.json')); t=json.load(open('build/soak/ci-skate/target.json')); s=t.get('skate_seen',{}).get('1',{}); sys.exit(0 if h['skate_test'].get('ok') and s.get('mounted') and s.get('wipeout') and s.get('max_trick',0) >= 2 else 1)"
 
+      - name: Pursuit test (the NICE BOYS chase the crew's truck through the town, pull it over, get rammed and lose it)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-pursuit
+          "$GODOT" --headless --path . -- --host --port=7818 --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --heat=30 --start-hour=10 --pursuit-test --sim-lag=100 --measure="$PWD/build/soak/ci-pursuit/host.json" --run-seconds=170 > build/soak/ci-pursuit/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7818 --name=Target --no-steam --sim-lag=100 --measure="$PWD/build/soak/ci-pursuit/target.json" --run-seconds=165 > build/soak/ci-pursuit/target.log 2>&1
+          wait
+          grep "PursuitTest" build/soak/ci-pursuit/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-pursuit/host.json')); t=json.load(open('build/soak/ci-pursuit/target.json')); s=t.get('shuttle',{}); sys.exit(0 if h['pursuit_test'].get('ok') and t.get('pursuit',{}).get('seen_active',0) >= 1 and 'chase' in s.get('legs_seen',[]) and s.get('track_samples',0) > 60 and s.get('max_speed_on_screen',99) < 35 else 1)"
+
       - name: Shuttle test (the NICE BOYS' Courtesy Shuttle over 150 ms of lag, one van per trip, seats, unbuckling, a straggler, the ride and the drop-off)
         if: matrix.part == 'features'
         run: |

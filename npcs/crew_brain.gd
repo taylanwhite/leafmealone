@@ -313,6 +313,11 @@ func _open_seen_spot(crew: Node3D, director: Node, encounter: Node) -> Dictionar
 
 
 func _lot_center(crew: Node3D) -> Vector3:
+	# Where the chase is: the yard, or where the van pulled the crew's truck over
+	# in the town (driving:F).
+	var director := crew.get_tree().get_first_node_in_group("run_director")
+	if director != null and director.has_method("chase_center"):
+		return director.call("chase_center")
 	var world := crew.get_tree().get_first_node_in_group("world")
 	var lot := world.get_node_or_null("LotZone") as Node3D if world != null else null
 	return lot.global_position if lot != null else crew.global_position

@@ -290,6 +290,9 @@ static func pick_mood(state: Dictionary, current: StringName) -> StringName:
 		return &"escape" if bool(state.get("annex_urgent", false)) else &"annex_hold"
 	if zone == Net.Zone.LOT and phase == PHASE_CHASE:
 		return &"chase"
+	# driving:F: the van on your tail through the town keeps the chase going.
+	if bool(state.get("pursuit", false)):
+		return &"chase"
 	if zone == Net.Zone.LOT and phase == PHASE_WARNING:
 		return &"warning"
 	if bool(state.get("sleeping", false)) or bool(state.get("summary_open", false)):
@@ -335,6 +338,10 @@ func gather_state() -> Dictionary:
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
 		state["phase"] = int(director.call("phase"))
+		# Out on the street (not caught) while the NICE BOYS chase the crew's truck.
+		var pursuit: Node = director.call("pursuit") if director.has_method("pursuit") else null
+		var caught := director.has_method("is_captured") and bool(director.call("is_captured", me))
+		state["pursuit"] = pursuit != null and bool(pursuit.call("is_active")) and not caught and int(state["zone"]) == Net.Zone.TOWN
 	var summary := get_tree().get_first_node_in_group("day_summary") as CanvasItem
 	state["summary_open"] = summary != null and summary.visible
 	var annex := get_tree().get_first_node_in_group("annex")

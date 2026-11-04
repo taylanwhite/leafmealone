@@ -283,6 +283,8 @@ func write_report() -> void:
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
 		"skate_test": preload("res://net/dev/skate_test.gd").result.duplicate(true),
 		"skate_seen": preload("res://player/skate.gd").seen.duplicate(true),
+		"pursuit_test": preload("res://net/dev/pursuit_test.gd").result.duplicate(true),
+		"pursuit": preload("res://net/run_events/pursuit.gd").stats.duplicate(true),
 		"playtest_tools_test": preload("res://net/dev/playtest_tools_test.gd").result.duplicate(true),
 		"toss_test": preload("res://net/dev/toss_test.gd").result.duplicate(true),
 		"annex": _annex(),

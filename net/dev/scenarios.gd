@@ -17,7 +17,9 @@ extends Node
 ## second player), annex_closing, store,
 ## drive (that one needs --town-map), crash and crash_big (the same, lined up on a
 ## parked car with bags and the other players in the bed), knock (a mailbox ahead,
-## the friend past it), plow (at the job yard's leafy lawn), toss, toss_full, toss_close, rustys (needs
+## the friend past it), plow (at the job yard's leafy lawn), pursuit (the NICE BOYS
+## called on the yard, you at Chefty's wheel across the street, everyone else in
+## the bed: run for it), toss, toss_full, toss_close, rustys (needs
 ## Rusty's open: --rank=5 or more), lunch_money,
 ## snak_o_matic (at the food truck's hatch or the vending machine, at noon,
 ## with lunch money in your pocket; shops chunk 6), snack_crash (the Turbo Juice
@@ -50,10 +52,16 @@ const KNOCK_SIDE: float = 1.2
 ## plow: where Chefty starts and the friend watches from (the job yard's space).
 const PLOW_FROM := Vector3(-19.0, 0.0, 8.0)
 const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
+## pursuit (driving:F): the raid's warning left (s), and where Chefty waits (the
+## yard's space): a little west of the driveway in the street's far lane, facing
+## west toward Main Street, so the van pulls up at the curb alongside, not across
+## its nose.
+const PURSUIT_LEAD: float = 3.0
+const PURSUIT_FROM := Vector3(-15.0, 0.0, 29.2)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand", "pursuit"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -301,6 +309,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _knock()
 		"plow":
 			out = await _plow()
+		"pursuit":
+			out = await _pursuit()
 
 		"skate":
 			out = await _skate()
@@ -1986,6 +1996,47 @@ func _crash(big: bool) -> Dictionary:
 	chefty.call("accept_bags", CRASH_BAGS, CRASH_BAGS * CRASH_BAG_VALUE)
 	await get_tree().create_timer(0.4).timeout
 	return {"note": "a parked car %.0f m ahead; hold move_forward to hit it" % (CRASH_BIG_RUN_UP if big else CRASH_RUN_UP), "riders": riders, "bags": int(chefty.call("bag_count")), "zone": _zone()}
+
+
+## pursuit (driving:F): the NICE BOYS called on the job yard (the test site's
+## house) with PURSUIT_LEAD of warning left: you at Chefty's wheel in the street
+## in front of it, facing west toward Main Street, and everyone else who plays (a friend, bots; never the observer) in the bed, catchable.
+## Their van pulls up at the curb behind you and they climb out: hold
+## move_forward to make a run for it, stop to be pulled over, ram the van, head
+## for Homie Depot (drive x z).
+func _pursuit() -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var world := _world()
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var house := TownMap.test_site_house()
+	if get_tree().get_first_node_in_group("job_lot") == null:
+		world.call("place_job_site", TownMap.yard_transform(house), house)
+		world.call("_load_job_lot")
+	await _wait_for(func() -> Variant: return true if get_tree().get_first_node_in_group("job_lot") != null else null)
+	var lane := TownMap.yard_transform(house) * PURSUIT_FROM
+	# Facing west, down the street toward Main Street (VehicleSim yaw: 0 faces -Z).
+	chefty.call("dev_place", lane, PI * 0.5)
+	await _ticks(2)
+	var me_id := Net.local_peer_id()
+	# Nobody kept safe from the last moment: everyone aboard is fair game.
+	var safe: Dictionary = _director().get("_safe_until")
+	safe.clear()
+	var seat := _Vehicles.CHEFTY_CAB_SEATS
+	var riders: Array[String] = []
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me_id or Net.is_watcher(peer_id) or Net.player_name(peer_id) == OBSERVER_NAME or seat >= Constants.CHEFTY_SEATS:
+			continue
+		if bool(chefty.call("dev_seat", peer_id, seat)):
+			Net.set_player_zone(peer_id, Net.Zone.TOWN)
+			riders.append(Net.player_name(peer_id))
+			seat += 1
+	Net.set_player_zone(me_id, Net.Zone.TOWN)
+	await get_tree().create_timer(0.3).timeout
+	_warn_with(_director(), PURSUIT_LEAD)
+	await _ticks(2)
+	return {"note": "they pull up behind you in %.0f s; hold move_forward to run for it" % PURSUIT_LEAD, "riders": riders, "phase": _phase(), "zone": _zone()}
 
 
 ## plow (driving C3): at the wheel at the edge of the job yard (the test site's

@@ -24,6 +24,8 @@ const _Strings = preload("res://ui/strings.gd")
 const _Encounter = preload("res://net/run_events/encounter.gd")
 const _Crew = preload("res://npcs/crew_member.gd")
 const _NiceVan = preload("res://props/nice_van.gd")
+## driving:F: the chase through the town when the crew's truck flees the raid.
+const _Pursuit = preload("res://net/run_events/pursuit.gd")
 ## From the lot zone's origin, where the van parks: the street's far lane in front
 ## of the yard, wheels on the ground. It pulls up there (van_arrival.gd) and leaves
 ## from there with whoever was caught.
@@ -66,6 +68,11 @@ var _first_seat_at: float = -1.0
 var _depart_started: float = 0.0
 var _hops: Array[Dictionary] = []
 var _encounter: Node
+## driving:F: World/RunDirector/Pursuit, and (host) whether the raid ending now
+## is the van giving up a chase (the heat settles at HEAT_AFTER_ESCAPE, and the
+## pursuit already paid XP_ESCAPE).
+var _pursuit: Node
+var _pursuit_escape: bool = false
 
 
 func _ready() -> void:
@@ -78,6 +85,9 @@ func _ready() -> void:
 	_encounter.name = "Encounter"
 	add_child(_encounter)
 	_encounter.connect("peer_caught", func(peer_id: int) -> void: peer_caught.emit(peer_id))
+	_pursuit = _Pursuit.new()
+	_pursuit.name = "Pursuit"
+	add_child(_pursuit)
 	# The van, on every peer: chunk 4's Shuttle when it exists, else cast:5's pull-up.
 	var van_script: Script = load(SHUTTLE_PATH) if ResourceLoader.exists(SHUTTLE_PATH) else load(VAN_ARRIVAL_PATH)
 	var van: Node = van_script.new()
@@ -163,7 +173,75 @@ func can_capture(peer_id: int) -> bool:
 	var stage := int(_encounter.call("stage_of", peer_id)) if _encounter != null else 0
 	if stage != _Encounter.Stage.NONE and stage != _Encounter.Stage.WINDUP:
 		return false
-	return Net.player_zone(peer_id) == Net.Zone.LOT
+	var zone := Net.player_zone(peer_id)
+	if zone == Net.Zone.LOT:
+		return true
+	# driving:F: in the connected town the street round the chase counts too (the
+	# yard's curb, or where the van pulled the crew's truck over), out to
+	# CREW_LEASH_METERS; farther off, you got away.
+	return zone == Net.Zone.TOWN and _near_chase(peer_id)
+
+
+## Host: someone the NICE BOYS could still be after (never caught or freed with
+## immunity, not mid-catch, in the session), wherever they are: the pursuit's
+## test for who's in the crew's truck worth chasing (driving:F).
+func pursuable(peer_id: int) -> bool:
+	if peer_id <= 0 or not Net.peer_ids().has(peer_id) or Net.is_watcher(peer_id) or _cohort.has(peer_id):
+		return false
+	if float(_safe_until.get(peer_id, 0.0)) > Net.server_time():
+		return false
+	var stage := int(_encounter.call("stage_of", peer_id)) if _encounter != null else 0
+	return stage == _Encounter.Stage.NONE or stage == _Encounter.Stage.WINDUP
+
+
+## The middle of the chase: the job yard, or where the van pulled the crew's
+## truck over (driving:F; npcs/crew_brain.gd patrols round it).
+func chase_center() -> Vector3:
+	if _pursuit != null:
+		var pulled: Vector3 = _pursuit.call("pull_point")
+		if pulled.is_finite():
+			return pulled
+	var lot := get_parent().get_node_or_null("LotZone") as Node3D
+	return lot.global_position if lot != null else Vector3.ZERO
+
+
+## The pursuit (World/RunDirector/Pursuit).
+func pursuit() -> Node:
+	return _pursuit
+
+
+## Host, from the pursuit: the van gave up the chase; when this raid ends the heat
+## settles at HEAT_AFTER_ESCAPE (the escape XP is already paid).
+func note_pursuit_escape() -> void:
+	_pursuit_escape = true
+
+
+## Where a NICE BOY on his way back to the van's door walks next: out in the open
+## beside it first when the van's parked out in the town (the pursuit's door_way).
+func _door_way(crew: Node3D, door: Vector3) -> Vector3:
+	return _pursuit.call("door_way", crew.global_position, door) if _pursuit != null else door
+
+
+## Within CREW_LEASH_METERS of the chase's middle, in the connected town.
+func _near_chase(peer_id: int) -> bool:
+	if not TownMap.enabled(get_tree()):
+		return false
+	var player := _player(peer_id)
+	if player == null:
+		return false
+	var center := chase_center()
+	return Vector2(player.global_position.x - center.x, player.global_position.z - center.z).length() <= Constants.CREW_LEASH_METERS
+
+
+## Host: anyone the crew could be after near the chase: on the yard, or (the
+## connected town) on the street within the leash.
+func _anyone_near_chase() -> bool:
+	if not Net.players_in_zone(Net.Zone.LOT).is_empty():
+		return true
+	for peer_id: int in Net.players_in_zone(Net.Zone.TOWN):
+		if not _cohort.has(peer_id) and _near_chase(peer_id):
+			return true
+	return false
 
 
 func cohort_roster() -> Array:
@@ -278,7 +356,10 @@ func note_capture(peer_id: int) -> void:
 func _process(delta: float) -> void:
 	if not Net.is_host():
 		return
-	var anyone_on_lot := not Net.players_in_zone(Net.Zone.LOT).is_empty()
+	# The yard, and in the connected town the street round it (driving:F); while a
+	# pursuit is on, the crew is busy with the truck and nobody's left the yard yet.
+	var pursuing := _pursuit != null and bool(_pursuit.call("host_busy"))
+	var anyone_on_lot := pursuing or _anyone_near_chase()
 	if anyone_on_lot:
 		_empty_lot_for = 0.0
 	else:
@@ -292,7 +373,9 @@ func _process(delta: float) -> void:
 				_begin_chase()
 		Phase.CHASE:
 			_step_hops()
-			_step_chase()
+			# The pursuit times its own end (a getaway, or the pull-over wrapped up).
+			if not pursuing:
+				_step_chase()
 		Phase.DEPARTING:
 			_step_hops()
 			_step_departing()
@@ -393,6 +476,9 @@ func _step_chase() -> void:
 	for peer_id: int in Net.players_in_zone(Net.Zone.LOT):
 		if not _cohort.has(peer_id):
 			free_on_lot += 1
+	for peer_id: int in Net.players_in_zone(Net.Zone.TOWN):
+		if not _cohort.has(peer_id) and _near_chase(peer_id):
+			free_on_lot += 1
 	if _first_seat_at >= 0.0:
 		var held := now - _first_seat_at
 		if (held >= Constants.VAN_HOLD_SECONDS and not busy) or held >= Constants.VAN_HOLD_MAX or (free_on_lot == 0 and not busy):
@@ -455,7 +541,7 @@ func _step_departing() -> void:
 			else:
 				crew.call("host_set_mode", _Crew.Mode.HOP_IN)
 		else:
-			crew.call("host_walk", door, Constants.CREW_SPEED_RECALL)
+			crew.call("host_walk", _door_way(crew as Node3D, door), Constants.CREW_SPEED_RECALL)
 	var limit := Constants.CREW_RECALL_MAX * (1.0 if _shuttle() != null else Constants.CREW_RECALL_FALLBACK_SCALE)
 	if (aboard or now - _depart_started >= limit) and not _escorting():
 		_depart()
@@ -518,7 +604,7 @@ func _step_quiet() -> void:
 			crew.call("host_walk", Vector3.INF, 0.0)
 			shuttle.call("host_crew_board", crew)
 		else:
-			crew.call("host_walk", door, Constants.CREW_SPEED_RECALL)
+			crew.call("host_walk", _door_way(crew as Node3D, door), Constants.CREW_SPEED_RECALL)
 
 
 ## The raid is over: the heat settles, the escape XP, and QUIET (the van drives off).
@@ -526,12 +612,18 @@ func _end_raid() -> void:
 	var was_raid := _phase == Phase.CHASE or _phase == Phase.DEPARTING
 	_last_raid_caught = _raid_caught
 	var heat := get_tree().get_first_node_in_group("heat")
+	var escaped := _pursuit_escape
+	_pursuit_escape = false
 	if was_raid and heat != null:
-		if _raid_caught > 0:
+		if escaped:
+			# They lost the van (driving:F): it settles here, up or down; they know
+			# the truck now.
+			heat.call("add", Constants.HEAT_AFTER_ESCAPE - float(heat.get("heat")), "pursuit_escape")
+		elif _raid_caught > 0:
 			heat.call("after_raid")
 		elif heat.has_method("set_after_evaded"):
 			heat.call("set_after_evaded", Constants.HEAT_AFTER_EVADED)
-	if was_raid and _raid_caught == 0:
+	if was_raid and _raid_caught == 0 and not escaped:
 		# Spotted and never caught: that's an escape.
 		for peer_id: int in _spotted:
 			if not Net.peer_ids().has(peer_id):
@@ -633,6 +725,9 @@ func dev_reset() -> void:
 	_hops.clear()
 	_safe_until.clear()
 	_raid_caught = 0
+	_pursuit_escape = false
+	if _pursuit != null:
+		_pursuit.call("dev_reset")
 	if _phase != Phase.QUIET:
 		_set_phase(Phase.QUIET, "")
 
@@ -696,6 +791,7 @@ func _rpc_request_state() -> void:
 		"encounter": _encounter.call("snapshot"),
 		"shuttle": shuttle.call("snapshot") if shuttle != null and shuttle.has_method("snapshot") else {},
 		"annex": annex.call("snapshot") if annex != null and annex.has_method("snapshot") else {},
+		"pursuit": _pursuit.call("snapshot") if _pursuit != null else {},
 	}
 	_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), state)
 
@@ -717,3 +813,5 @@ func _rpc_state(state: Dictionary) -> void:
 	var annex := get_tree().get_first_node_in_group("annex")
 	if annex != null and annex.has_method("apply_snapshot") and not (state.get("annex", {}) as Dictionary).is_empty():
 		annex.call("apply_snapshot", state["annex"])
+	if _pursuit != null and not (state.get("pursuit", {}) as Dictionary).is_empty():
+		_pursuit.call("apply_snapshot", state["pursuit"])

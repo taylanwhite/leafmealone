@@ -282,6 +282,10 @@ const SOUNDS: Dictionary = {
 	"cot_creak": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0, "max_distance": Constants.COT_CREAK_MAX_DISTANCE},
 	"task_done": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": -1.0},
 	"heat_whoop": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# ---- driving:F: the NICE BOYS' van in a chase (net/run_events/shuttle.gd _chase_cues):
+	# the kazoo siren out of its loudspeaker, and its engine flat out (pitched by speed).
+	"kazoo_siren": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 2.0, "db": 0.0},
+	"nice_van_loop": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 3.0, "db": 0.0},
 	# Registered and generated only: audio:6's player foley plays it while someone sleeps.
 	"snore_loop": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 5.0, "db": -4.0},
 }
