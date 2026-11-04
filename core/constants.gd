@@ -5817,3 +5817,14 @@ const CHEFTY_LOST_TICKS_MIN: int = 2
 ## under the synchronizers' 0.033 s replication interval, so updates a loaded
 ## peer reads in consecutive ticks still take their interval each.
 const SMOOTHER_MIN_SPACING: float = 0.03
+## The gotcha two-shot's side (encounter.gd _clear_side) also keeps clear of the
+## things the physics can't see (street lamps and scenery trees have no
+## collider): a sight line from either face to the eye passes no post nearer
+## than its radius plus this (m), and no post stands within STAGE_POST_LENS_CLEAR
+## of the eye (one there fills half the frame: rec_fx_raid_1p 244-284).
+const STAGE_POST_SIGHT_CLEAR: float = 0.3
+const STAGE_POST_LENS_CLEAR: float = 1.1
+## A street lamp's post radius (m) for that test, and a scenery tree's trunk as a
+## share of its height (an evergreen's skirt goes by VAN_TREE_SPREAD.x instead).
+const STAGE_LAMP_POST_RADIUS: float = 0.12
+const STAGE_TRUNK_SHARE: float = 0.045

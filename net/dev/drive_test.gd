@@ -7,7 +7,9 @@ extends Node
 ##      (a scripted "enter" from _rpc_dev_script) and the host's player hops in
 ##      the bed; the host sees the client driving and itself in a bed seat.
 ##   b. 4 s of full throttle from the client: Chefty (the host's, the truth)
-##      went at least 25 m along +X and reached at least 12 m/s.
+##      went at least 25 m along +X and reached at least 12 m/s. Halfway the
+##      client skips 15 ticks, so its count resyncs to the host's acks (CI:
+##      afterwards its count leads the ack by the round trip in ticks).
 ##   c. 2 s of steering right: the heading turned at least 0.6 rad.
 ##   d. stopped with the brakes and the handbrake.
 ##   e. the client holds the horn for a second: the host saw it go on, then off.
@@ -112,7 +114,11 @@ func _run(world: Node) -> void:
 	# b. Full throttle along County Road 9.
 	var start: Dictionary = chefty.call("sim_pose")
 	var top := 0.0
-	chefty.call("dev_script", client, [{"seconds": 4.0, "throttle": 1.0}])
+	# Halfway, the client loses a quarter second of ticks (as if its frames ran
+	# past Godot's catch-up limit): the host stands in, its acks run ahead of the
+	# client's count, and the client resyncs (CI gates resync_ahead against the
+	# round trip in ticks, resync_lead).
+	chefty.call("dev_script", client, [{"seconds": 2.0, "throttle": 1.0}, {"do": "lose_ticks", "ticks": 15}, {"seconds": 2.0, "throttle": 1.0}])
 	var clock := 0.0
 	while clock < 4.5:
 		await get_tree().physics_frame

@@ -3,6 +3,8 @@ extends Node
 ## Authority: host drives, the Target client watches and reports. --encounter-test
 ## (R2 chunk 2; docs/GAME.md "The NICE BOYS encounter (R2)") checks the catch from
 ## the van to the escort, under --sim-lag=150 --sim-loss=2 on both peers:
+##   0. (fx-net) the two-shot's side keeps a street lamp out of both faces' sight
+##      lines (_post_side_step)
 ##   1. force_event: the crew is made at once, SEATED, and on the client never more
 ##      than 1.5 m from its seat in the van once the van is in sight (PENDING_SHUTTLE:
 ##      the cast:5 van's fallback seats until chunk 4's Shuttle seats them)
@@ -44,6 +46,7 @@ const _Encounter = preload("res://net/run_events/encounter.gd")
 const _Crew = preload("res://npcs/crew_member.gd")
 const _Sweep = preload("res://player/stage_sweep.gd")
 const _StageCam = preload("res://player/stage_cam.gd")
+const _PropCatalog = preload("res://props/prop_catalog.gd")
 ## No grabbing the host's player, ever (it's the one throwing things).
 const HOST_SAFE_SECONDS: float = 100000.0
 const CLIENT_WAIT_SECONDS: float = 20.0
@@ -193,6 +196,7 @@ func _run() -> void:
 	# Two NICE BOYS (one for the catches, one to watch).
 	heat.call("add", Constants.HEAT_PER_EXTRA_CREW * 1.5 - float(heat.get("heat")), "test")
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	_post_side_step(encounter, lot)
 	_move_to(lot.global_position + Vector3(-8.0, 0.1, 10.0), 0.0)
 	_teleport(_client, lot.global_position + Vector3(4.0, 0.1, 6.0))
 	# 1. Seated at the call.
@@ -477,6 +481,33 @@ func _run() -> void:
 
 ## 8d (R2b): the escort's way to the van door goes round a wall put across the
 ## straight line, through a point with a clear line on to the door.
+## 0 (fx-net). The two-shot's side keeps a street lamp (no collider) out of the
+## sight lines: a pair in the air far off the map (clear of everything) with a lamp
+## standing between the caught one's face and the first side tried. The pick is
+## another side, both faces seen past every post, none by the lens.
+func _post_side_step(encounter: Node, lot: Node3D) -> void:
+	# Far off the map, so no real tree or lamp is near.
+	var ground := lot.global_position + Vector3(5000.0, 30.0, 0.0)
+	var victim := ground + Vector3(0.65, 0.0, 0.0)
+	var crew_at := ground - Vector3(0.65, 0.0, 0.0)
+	var look_up := Vector3.UP * Constants.CATCH_CAM_HEIGHT
+	var mid := ground + look_up
+	var side := Vector3.RIGHT.cross(Vector3.UP).normalized()
+	# On the line from the caught face (x 0.65) to the first eye tried (+Z, 3 m).
+	var lamp := _PropCatalog.place(lot.get_parent() as Node3D, "lamp_acorn")
+	lamp.global_position = ground + Vector3(0.26, -30.0, 1.8)
+	var faces := [victim + look_up, crew_at + look_up]
+	var yaw := float(encounter.call("_clear_side", mid, side, Constants.CATCH_CAM_DISTANCE, faces))
+	var to_cam := Vector3(sin(yaw), 0.0, cos(yaw))
+	var eye := mid + to_cam * Constants.CATCH_CAM_DISTANCE
+	var posts := _Sweep.posts(get_tree(), mid, Constants.CATCH_CAM_DISTANCE + 2.0)
+	var seen := _Sweep.lens_clear(posts, eye, Constants.STAGE_POST_LENS_CLEAR)
+	for face: Vector3 in faces:
+		seen = seen and _Sweep.posts_clear(posts, face, eye, Constants.STAGE_POST_SIGHT_CLEAR)
+	lamp.free()
+	_step("0 a lamp post in the first side's sight line: the two-shot looks from yaw %.2f, both faces clear of %d posts (%s)" % [yaw, posts.size(), seen], posts.size() >= 1 and seen and to_cam.z < 0.5)
+
+
 func _route_step(encounter: Node) -> void:
 	var walker: Node3D = null
 	for node: Node in get_tree().get_nodes_in_group("nice_crew"):

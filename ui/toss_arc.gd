@@ -135,8 +135,6 @@ func _process(delta: float) -> void:
 	stats["last_caught"] = warm
 
 
-## The hop over the side into the next spot in the load, as dots (the glide
-## net_prop.gd _step_settle draws), in the same shape flight() gives.
 ## The arc for a bag let go after this wind-up (s), as the preview draws it:
 ## {path: {points, end}, warm: gold (a sure catch with room in the bed)}. The
 ## first dot is first_step s along. toss_test asks it on the tick it lets go
@@ -177,6 +175,8 @@ func held_bag(player: Node) -> Node:
 	return _held_bag(player)
 
 
+## The hop over the side into the next spot in the load, as dots (the glide
+## net_prop.gd _step_settle draws), in the same shape flight() gives.
 func _hop_path(truck: Node, from: Vector3, vel: Vector3, step: float) -> Dictionary:
 	var bed: Transform3D = truck.call("bed_transform")
 	var slot := _BedLoad.slot(int(truck.call("bag_count")))

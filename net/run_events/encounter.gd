@@ -217,7 +217,8 @@ func host_windup(crew: Node, peer_id: int, from_spot: bool = false) -> bool:
 		var line := crew_at - stand
 		line.y = 0.0
 		var across := line.cross(Vector3.UP).normalized() if line.length() > 0.05 else dir.cross(Vector3.UP).normalized()
-		var cam_yaw := _clear_side((stand + crew_at) * 0.5 + Vector3.UP * Constants.CATCH_CAM_HEIGHT, across, Constants.CATCH_CAM_DISTANCE)
+		var look_up := Vector3.UP * Constants.CATCH_CAM_HEIGHT
+		var cam_yaw := _clear_side((stand + crew_at) * 0.5 + look_up, across, Constants.CATCH_CAM_DISTANCE, [stand + look_up, crew_at + look_up])
 		haul = {"stand": stand, "crew_at": crew_at, "cam_yaw": cam_yaw, "face": points["face"]}
 		_down_staging[peer_id] = haul
 	else:
@@ -323,7 +324,8 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 	# The host picks where the two-shot looks from (open lawn, no wall, no truck),
 	# so every peer turns both bodies toward the same camera.
 	var mid := (victim + crew_at) * 0.5
-	var cam_yaw := float(staged_down["cam_yaw"]) if down else _clear_side(mid + Vector3.UP * Constants.CATCH_CAM_HEIGHT, dir.cross(Vector3.UP).normalized(), Constants.CATCH_CAM_DISTANCE)
+	var look_up := Vector3.UP * Constants.CATCH_CAM_HEIGHT
+	var cam_yaw := float(staged_down["cam_yaw"]) if down else _clear_side(mid + look_up, dir.cross(Vector3.UP).normalized(), Constants.CATCH_CAM_DISTANCE, [victim + look_up, crew_at + look_up])
 	_rpc_catch.rpc(grab_id, int(crew.call("crew_index")), peer_id, at, victim, crew_at, cam_yaw, down)
 
 
@@ -1413,9 +1415,13 @@ func _hauling(peer_id: int) -> bool:
 ## first, the yard side before the street side (the curb is lined with trees and
 ## trucks, the yard is open lawn), then swung up to 50 degrees toward either of
 ## them, until a sphere swept from between them out past the eye touches nothing:
-## no wall, no hedge, no Chefty, no van (player/stage_sweep.gd). With nowhere
-## clear, the one with the most room.
-func _clear_side(mid: Vector3, side: Vector3, distance: float) -> float:
+## no wall, no hedge, no Chefty, no van (player/stage_sweep.gd). fx-net: and the
+## eye sees both faces (`faces`, at the look height): no sweep from either face
+## to the eye touches anything, no street lamp or tree trunk (no collider: the
+## sweep can't see them) stands in either sight line or right by the lens. A
+## catch beside a lamp post filmed the post across half the frame for the whole
+## gotcha (rec_fx_raid_1p 244-284). With nowhere clear, the one with the most room.
+func _clear_side(mid: Vector3, side: Vector3, distance: float, faces: Array = []) -> float:
 	var world := get_viewport().world_3d if get_viewport() != null else null
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
 	var first := 1.0
@@ -1430,10 +1436,20 @@ func _clear_side(mid: Vector3, side: Vector3, distance: float) -> float:
 	var best := tries[0]
 	if world != null:
 		var exclude := _Sweep.passable(get_tree())
+		var posts := _Sweep.posts(get_tree(), mid, distance + 2.0)
 		var best_reach := -1.0
 		for to_cam: Vector3 in tries:
 			var eye := mid + to_cam * (distance + 0.4) - Vector3.UP * Constants.CATCH_CAM_EYE_DROP
 			var reach := _Sweep.reach(world, mid, eye, Constants.STAGE_CAM_RADIUS + 0.1, exclude)
+			# Where the eye really sits (it only pushes in from there).
+			var lens := mid + to_cam * distance - Vector3.UP * Constants.CATCH_CAM_EYE_DROP
+			var seen := _Sweep.lens_clear(posts, lens, Constants.STAGE_POST_LENS_CLEAR) and _Sweep.posts_clear(posts, mid, lens, Constants.STAGE_POST_SIGHT_CLEAR)
+			for face: Variant in faces:
+				reach = minf(reach, _Sweep.reach(world, face as Vector3, eye, Constants.STAGE_CAM_RADIUS, exclude))
+				seen = seen and _Sweep.posts_clear(posts, face as Vector3, lens, Constants.STAGE_POST_SIGHT_CLEAR)
+			if not seen:
+				# Never picked over a clear one, but better than a wall in the face.
+				reach *= 0.5
 			if reach >= 0.999:
 				best = to_cam
 				break
