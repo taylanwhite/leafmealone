@@ -397,13 +397,23 @@ func _drawn_transform() -> Transform3D:
 	return visual.global_transform if visual != null else global_transform
 
 
-## The smoother left the Visual somewhere behind the body: put it back on it.
+## The placement let go. The host's Visual goes back on its body (the placement
+## left the body there). A client's stays where the placement drew it, and its
+## NetSmoother carries on from there (resume_from_drawn): put back on the body,
+## which is the replicated pose a lag behind, he jumped and turned at once on
+## every client (fx-net: 0.98 rad in one tick as a placement ended and he took
+## up the chase, encounter_test step 2).
 func _settle_visual() -> void:
 	var visual := get_node_or_null("Visual") as Node3D
-	if visual != null:
-		visual.top_level = false
+	if visual == null:
+		return
+	var drawn := visual.global_transform
+	visual.top_level = false
+	if not Net.is_host() and get_node_or_null("NetSmoother") != null:
+		visual.global_transform = drawn
+	else:
 		visual.transform = Transform3D.IDENTITY
-		visual.reset_physics_interpolation()
+	visual.reset_physics_interpolation()
 
 
 func _set_solid(solid: bool) -> void:
