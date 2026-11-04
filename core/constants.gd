@@ -1774,11 +1774,14 @@ const SETTINGS_SAVE_DELAY: float = 0.4
 ## Caption size multipliers: small, medium, large (interface.caption_size is an index).
 const CAPTION_SCALES: Array[float] = [0.8, 1.0, 1.3]
 ## Shadow quality levels 0 (off) to 4 (ultra): the directional shadow atlas size,
-## the sun's shadow distance in meters, and the soft-shadow filter quality.
-## Level 3 (High) is exactly levels/shared_look.gd's sun.
+## the sun's shadow distance in meters, and the soft-shadow filter quality
+## (RenderingServer.ShadowQuality: 0 hard, 1 soft very low, 2 soft low, 3 soft medium).
+## Level 3 (High) is exactly levels/shared_look.gd's sun and the engine's defaults.
+## Low is hard-edged (settings:2): the cheapest filter, and its edges stay clean
+## under FSR, where the very-low soft filter's grain was sharpened into speckle.
 const SHADOW_LEVELS: Array[Dictionary] = [
 	{},
-	{"atlas": 2048, "distance": 50.0, "soft": 1},
+	{"atlas": 2048, "distance": 50.0, "soft": 0},
 	{"atlas": 4096, "distance": 70.0, "soft": 1},
 	{"atlas": 4096, "distance": 90.0, "soft": 2},
 	{"atlas": 8192, "distance": 120.0, "soft": 3},
@@ -1793,19 +1796,23 @@ const GRASS_LEVELS: Array[Dictionary] = [
 	{"density": 1.0, "range": 45.0},
 	{"density": 1.0, "range": 62.0},
 ]
-## Outline line width in pixels for video.outline 0 (off), 1 (on), 2 (bold).
-const OUTLINE_WIDTHS: Array[float] = [0.0, 1.0, 1.6]
+## Outline line width in pixels for video.outline 0 (off), 1 (on), 2 (bold). The
+## pass samples depth that many pixels out (nearest), so a width rounds to whole
+## pixels: Bold is 3 (settings:2: 1.6 sampled 2 px out and read the same as On).
+const OUTLINE_WIDTHS: Array[float] = [0.0, 1.0, 3.0]
 ## RenderingServer SSAO quality used whenever ambient occlusion is on.
 const SSAO_QUALITY_HIGH: int = 2
 ## The quality presets. Each sets these video keys; changing any one of them
 ## afterwards turns video.preset to "custom". "high" is the shipped look.
-## aa: 0 off, 1 FXAA, 2 MSAA 2x, 3 MSAA 4x (settings:2 may swap Ultra to FXAA
-## if MSAA fights the outline shader).
+## aa: 0 off, 1 FXAA, 2 MSAA 2x, 3 MSAA 4x. upscaler: 0 bilinear, 1 FSR 1.0.
+## Low renders at 75% and upscales with FSR (settings:2: bilinear at 75% smeared
+## Chefty's lettering and the grass; FSR keeps them crisp for next to nothing).
+## Ultra's MSAA 4x leaves the depth outline intact (checked in windowed shots).
 const GRAPHICS_PRESETS: Dictionary = {
-	"low": {"shadows": 1, "ssao": false, "glow": false, "outline": 1, "grass": 1, "aa": 0, "render_scale": 0.75},
-	"medium": {"shadows": 2, "ssao": false, "glow": true, "outline": 1, "grass": 2, "aa": 1, "render_scale": 1.0},
-	"high": {"shadows": 3, "ssao": true, "glow": true, "outline": 1, "grass": 3, "aa": 0, "render_scale": 1.0},
-	"ultra": {"shadows": 4, "ssao": true, "glow": true, "outline": 1, "grass": 4, "aa": 3, "render_scale": 1.0},
+	"low": {"shadows": 1, "ssao": false, "glow": false, "outline": 1, "grass": 1, "aa": 0, "render_scale": 0.75, "upscaler": 1},
+	"medium": {"shadows": 2, "ssao": false, "glow": true, "outline": 1, "grass": 2, "aa": 1, "render_scale": 1.0, "upscaler": 0},
+	"high": {"shadows": 3, "ssao": true, "glow": true, "outline": 1, "grass": 3, "aa": 0, "render_scale": 1.0, "upscaler": 0},
+	"ultra": {"shadows": 4, "ssao": true, "glow": true, "outline": 1, "grass": 4, "aa": 3, "render_scale": 1.0, "upscaler": 0},
 }
 ## Actions that are held down rather than tapped. The mouse wheel has no held
 ## state, so it can never be bound to one of these. A feature adding a held

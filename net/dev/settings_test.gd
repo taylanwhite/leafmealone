@@ -48,8 +48,17 @@ extends Node
 ##   captions     (settings:4) the quip caption and a homeowner's follow caption
 ##                size, backdrop and on/off (off still babbles); at 125% UI scale
 ##                the caption and the lobby stay on screen
-## The checks for graphics (settings:2) join later. Each step prints a
-## [SettingsTest] line.
+##   graphics     (settings:2, check 13) a preset reaches the world and the engine:
+##                Low gives the sun 50 m of hard shadow on a 2048 atlas, no ambient
+##                occlusion or glow, a third of the lawn grass and 75% render scale
+##                upscaled by FSR;
+##                grass off hides every lawn chunk (a chunk grown later too), the
+##                outline goes off and bold, anti-aliasing and the frame cap reach
+##                the viewport and the engine, brightness reaches the picture
+##                through the hour's light, one hand-changed option makes the preset
+##                custom, High puts the shipped look back exactly, and a display
+##                mode in a test run is recorded but never applied
+## Each step prints a [SettingsTest] line.
 ## The test deletes its settings file at the start and the end.
 
 const _Buses = preload("res://audio/buses.gd")
@@ -84,6 +93,7 @@ const DEV_ARGS: Array[String] = [
 	"--playtest-tools-test", "--port=7777", "--port=9150", "--frobnicate",
 ]
 const _CaptionStack = preload("res://ui/caption_stack.gd")
+const _Grass = preload("res://props/grass.gd")
 ## Hard-coded key names a player-facing string may not carry (settings:4, check
 ## 16): "left click", "(Tab)", "Hold G", "E to ...", "A and D", "[E]". Keys are
 ## {key:<action>} tokens, so they follow rebinding.
@@ -146,6 +156,7 @@ func _run() -> void:
 	_check("migration", _migration())
 	_check("corrupt", _corrupt(defaults))
 	_check("interface", _interface())
+	_check("graphics", await _graphics())
 	_check("window", await _window())
 	_check("strings", await _strings())
 	_check("captions", await _captions())
@@ -571,6 +582,143 @@ func _interface() -> bool:
 	Settings.reset_section("controls")
 	Settings.reset_section("video")
 	return ok
+
+
+## Check 13 (settings:2): graphics quality.
+func _graphics() -> bool:
+	var ok := true
+	var world := get_tree().get_first_node_in_group("world") as Node3D
+	var sun := world.get_node_or_null("Sun") as DirectionalLight3D
+	var environment := (world.get_node_or_null("WorldEnvironment") as WorldEnvironment).environment
+	var outline := world.get_node_or_null("OutlinePass") as MeshInstance3D
+	var viewport := get_tree().root
+	if sun == null or environment == null or outline == null:
+		return _fail("graphics", "no sun, environment or outline pass")
+	var lawns := _lawns(world)
+	if lawns.is_empty():
+		return _fail("graphics", "no lawn_grass chunks")
+	# High, as built: the shipped look, untouched.
+	var high_ok := _is_high(sun, environment, outline, lawns, viewport)
+	if high_ok != "":
+		ok = _fail("graphics", "the default isn't the shipped look: %s" % high_ok)
+	Settings.apply_preset("low")
+	if not is_equal_approx(sun.directional_shadow_max_distance, 50.0) or not sun.shadow_enabled or environment.ssao_enabled or environment.glow_enabled:
+		ok = _fail("graphics", "low: shadow %s m (on %s), ssao %s, glow %s" % [sun.directional_shadow_max_distance, sun.shadow_enabled, environment.ssao_enabled, environment.glow_enabled])
+	for view: MultiMeshInstance3D in lawns:
+		var want := int(float(view.get_meta("full_count")) * 0.35)
+		if view.multimesh.visible_instance_count != want or not view.visible or not is_equal_approx(view.visibility_range_end, 28.0):
+			ok = _fail("graphics", "low: a lawn chunk shows %d of %d (want %d), range %.0f" % [view.multimesh.visible_instance_count, view.get_meta("full_count"), want, view.visibility_range_end])
+			break
+	if not is_equal_approx(viewport.scaling_3d_scale, 0.75) or viewport.scaling_3d_mode != Viewport.SCALING_3D_MODE_FSR or int(Settings.last_render.get("shadow_atlas", 0)) != 2048 or int(Settings.last_render.get("shadow_soft", -1)) != 0:
+		ok = _fail("graphics", "low: render scale %.2f (mode %d), atlas %s, soft %s" % [viewport.scaling_3d_scale, viewport.scaling_3d_mode, Settings.last_render.get("shadow_atlas"), Settings.last_render.get("shadow_soft")])
+	# A lawn grown after the preset (the town streams them in) comes in thinned.
+	var late := Node3D.new()
+	late.name = "SettingsTestLawn"
+	world.add_child(late)
+	var spots: Array[Transform3D] = []
+	var colors: Array[Color] = []
+	for index: int in 20:
+		spots.append(Transform3D(Basis(), Vector3(float(index), 0.0, 0.0)))
+		colors.append(Color.WHITE)
+	_Grass._add_chunk(late, _Grass.tuft_mesh(0.4, 5), spots, colors, null)
+	var late_view := late.get_child(0) as MultiMeshInstance3D if late.get_child_count() > 0 else null
+	if late_view == null or not late_view.is_in_group("lawn_grass") or late_view.multimesh.visible_instance_count != int(20 * 0.35):
+		ok = _fail("graphics", "a lawn grown later isn't thinned: %s" % (late_view.multimesh.visible_instance_count if late_view != null else "no chunk"))
+	Settings.set_value("video", "grass", 0, false)
+	for view: MultiMeshInstance3D in _lawns(world) + ([late_view] if late_view != null else []):
+		if view.visible:
+			ok = _fail("graphics", "grass off left a lawn chunk showing")
+			break
+	late.queue_free()
+	Settings.set_value("video", "outline", 0, false)
+	if outline.visible:
+		ok = _fail("graphics", "outlines off left the pass on")
+	Settings.set_value("video", "outline", 2, false)
+	var width := float((outline.material_override as ShaderMaterial).get_shader_parameter("line_width"))
+	if not outline.visible or not is_equal_approx(width, Constants.OUTLINE_WIDTHS[2]):
+		ok = _fail("graphics", "bold outlines: visible %s, width %.2f" % [outline.visible, width])
+	Settings.set_value("video", "shadows", 0, false)
+	if sun.shadow_enabled:
+		ok = _fail("graphics", "shadows off left the sun casting")
+	Settings.set_value("video", "shadows", 4, false)
+	if not sun.shadow_enabled or not is_equal_approx(sun.directional_shadow_max_distance, 120.0) or int(Settings.last_render.get("shadow_atlas", 0)) != 8192:
+		ok = _fail("graphics", "ultra shadows: %s m, atlas %s" % [sun.directional_shadow_max_distance, Settings.last_render.get("shadow_atlas")])
+	if str(Settings.get_value("video", "preset")) != "custom":
+		ok = _fail("graphics", "hand-changed shadows left the preset %s" % Settings.get_value("video", "preset"))
+	# Anti-aliasing, the upscaler and the frame cap reach the viewport and the engine.
+	var engine_cap := Engine.max_fps
+	Settings.set_value("video", "aa", 3, false)
+	var msaa := viewport.msaa_3d == Viewport.MSAA_4X and viewport.screen_space_aa == Viewport.SCREEN_SPACE_AA_DISABLED
+	Settings.set_value("video", "aa", 1, false)
+	var fxaa := viewport.msaa_3d == Viewport.MSAA_DISABLED and viewport.screen_space_aa == Viewport.SCREEN_SPACE_AA_FXAA
+	Settings.set_value("video", "upscaler", 0, false)
+	var fsr := viewport.scaling_3d_mode == Viewport.SCALING_3D_MODE_BILINEAR
+	Settings.set_value("video", "max_fps", 2, false)
+	var capped := Engine.max_fps == 60
+	Settings.set_value("video", "max_fps", 0, false)
+	var uncapped := Engine.max_fps == engine_cap
+	if not (msaa and fxaa and fsr and capped and uncapped):
+		ok = _fail("graphics", "msaa %s, fxaa %s, bilinear %s, cap %s, uncapped %s" % [msaa, fxaa, fsr, capped, uncapped])
+	# Brightness goes through the hour's light, so the Annex's dim stays on top of it.
+	Settings.set_value("video", "brightness", 1.2, false)
+	for frame: int in 3:
+		await get_tree().process_frame
+	if environment.adjustment_enabled and not is_equal_approx(environment.adjustment_brightness, 1.2):
+		ok = _fail("graphics", "brightness 1.2 shows as %.2f" % environment.adjustment_brightness)
+	# A test run records a display mode but never changes the window.
+	var window_before := DisplayServer.window_get_mode()
+	Settings.set_value("video", "window_mode", 1, false)
+	await get_tree().process_frame
+	if int(Settings.last_display.get("window_mode", -1)) != 1 or bool(Settings.last_display.get("applied", true)) or DisplayServer.window_get_mode() != window_before:
+		ok = _fail("graphics", "display in a test run: %s, window mode %d" % [Settings.last_display, DisplayServer.window_get_mode()])
+	# The preset alone (no reset) takes Low's FSR, 75% and thin grass back to the
+	# shipped look; brightness isn't a preset key, so it goes back by hand first.
+	Settings.set_value("video", "brightness", 1.0, false)
+	Settings.apply_preset("low")
+	Settings.apply_preset("high")
+	for frame: int in 3:
+		await get_tree().process_frame
+	high_ok = _is_high(sun, environment, outline, _lawns(world), viewport)
+	if high_ok != "":
+		ok = _fail("graphics", "the high preset after low didn't put the shipped look back: %s" % high_ok)
+	Settings.reset_section("video")
+	for frame: int in 3:
+		await get_tree().process_frame
+	high_ok = _is_high(sun, environment, outline, _lawns(world), viewport)
+	if high_ok != "":
+		ok = _fail("graphics", "resetting video didn't put the shipped look back: %s" % high_ok)
+	print("[SettingsTest] graphics: %d lawn chunks, last render %s" % [lawns.size(), Settings.last_render])
+	return ok
+
+
+## "" when everything is the shipped look (levels/shared_look.gd, props/grass.gd
+## as built, the outline at 1 px, no scaling or anti-aliasing), else what isn't.
+func _is_high(sun: DirectionalLight3D, environment: Environment, outline: MeshInstance3D, lawns: Array[MultiMeshInstance3D], viewport: Viewport) -> String:
+	if not sun.shadow_enabled or not is_equal_approx(sun.directional_shadow_max_distance, 90.0):
+		return "sun shadows %s at %.0f m" % [sun.shadow_enabled, sun.directional_shadow_max_distance]
+	if not environment.ssao_enabled or not environment.glow_enabled:
+		return "ssao %s, glow %s" % [environment.ssao_enabled, environment.glow_enabled]
+	if environment.adjustment_enabled and not is_equal_approx(environment.adjustment_brightness, 1.0):
+		return "brightness %.2f" % environment.adjustment_brightness
+	var width := float((outline.material_override as ShaderMaterial).get_shader_parameter("line_width"))
+	if not outline.visible or not is_equal_approx(width, 1.0):
+		return "outline %s at %.2f px" % [outline.visible, width]
+	for view: MultiMeshInstance3D in lawns:
+		if not view.visible or view.multimesh.visible_instance_count != -1 or not is_equal_approx(view.visibility_range_end, 45.0):
+			return "a lawn chunk shows %d, range %.0f" % [view.multimesh.visible_instance_count, view.visibility_range_end]
+	if not is_equal_approx(viewport.scaling_3d_scale, 1.0) or viewport.msaa_3d != Viewport.MSAA_DISABLED or viewport.screen_space_aa != Viewport.SCREEN_SPACE_AA_DISABLED or viewport.scaling_3d_mode != Viewport.SCALING_3D_MODE_BILINEAR:
+		return "render scale %.2f, msaa %d, ssaa %d" % [viewport.scaling_3d_scale, viewport.msaa_3d, viewport.screen_space_aa]
+	if int(Settings.last_render.get("shadow_atlas", 0)) != 4096 or int(Settings.last_render.get("shadow_soft", 0)) != 2:
+		return "atlas %s, soft %s" % [Settings.last_render.get("shadow_atlas"), Settings.last_render.get("shadow_soft")]
+	return ""
+
+
+func _lawns(world: Node) -> Array[MultiMeshInstance3D]:
+	var out: Array[MultiMeshInstance3D] = []
+	for node: Node in get_tree().get_nodes_in_group("lawn_grass"):
+		if node is MultiMeshInstance3D and world.is_ancestor_of(node) and node.is_inside_tree():
+			out.append(node as MultiMeshInstance3D)
+	return out
 
 
 func _window() -> bool:

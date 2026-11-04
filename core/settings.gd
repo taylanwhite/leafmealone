@@ -12,9 +12,9 @@ extends Node
 ## a config file of its own. Bindings are codes: "key:<physical keycode>",
 ## "mouse:<button index>" (4 to 7 are the wheel), or "" for an empty slot.
 ##
-## settings:2 (gap-specs/settings.json) adds the render and display application;
-## until then the video keys are stored, validated and handed to
-## levels/graphics_quality.gd when that script exists.
+## Video (settings:2): the engine's render options and the display are applied
+## here (_apply_render, _apply_display); the world's look goes through
+## levels/graphics_quality.gd. A dev or test run never changes the window.
 
 signal changed(section: StringName, key: StringName, value: Variant)
 signal bindings_changed()
@@ -22,7 +22,8 @@ signal bindings_changed()
 const FILE_VERSION: int = 1
 const REAL_PATH := "user://settings.cfg"
 const TEST_PATH := "user://settings_test_%d.cfg"
-const GRAPHICS_QUALITY_PATH := "res://levels/graphics_quality.gd"
+const MAIN_SCENE := "res://core/main.tscn"
+const _GraphicsQuality = preload("res://levels/graphics_quality.gd")
 const _Buses = preload("res://audio/buses.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _InputLabels = preload("res://core/input_labels.gd")
@@ -95,10 +96,20 @@ const MUTE_BELOW: float = 0.001
 const ALL_DEVICES: int = -1
 ## The wheel's mouse buttons, which have no held state.
 const WHEEL_BUTTONS: Array[int] = [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT]
+## The video keys each part of the picture reads (a change applies only its part).
+const RENDER_KEYS: Array[String] = ["render_scale", "upscaler", "aa", "shadows", "max_fps"]
+const DISPLAY_KEYS: Array[String] = ["window_mode", "vsync"]
+const WORLD_KEYS: Array[String] = ["shadows", "ssao", "glow", "outline", "grass", "brightness"]
+## video.aa 0 off, 1 FXAA, 2 MSAA 2x, 3 MSAA 4x: the 3D MSAA each asks for.
+const AA_MSAA: Array[Viewport.MSAA] = [Viewport.MSAA_DISABLED, Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X]
+## video.window_mode 0 windowed, 1 borderless fullscreen, 2 exclusive fullscreen.
+const WINDOW_MODES: Array[DisplayServer.WindowMode] = [DisplayServer.WINDOW_MODE_WINDOWED, DisplayServer.WINDOW_MODE_FULLSCREEN, DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN]
+## video.vsync 0 off, 1 on, 2 adaptive.
+const VSYNC_MODES: Array[DisplayServer.VSyncMode] = [DisplayServer.VSYNC_DISABLED, DisplayServer.VSYNC_ENABLED, DisplayServer.VSYNC_ADAPTIVE]
 
-## What the render settings last asked the engine for (settings:2 fills it), for tests.
+## What the render settings last asked the engine for, for tests.
 var last_render: Dictionary = {}
-## The display mode and vsync last asked for, and whether they were applied (settings:2).
+## The display mode and vsync last asked for, and whether they were applied.
 var last_display: Dictionary = {}
 
 var _values: Dictionary = {}
@@ -112,10 +123,13 @@ var _default_slots: Dictionary = {}
 var _latched: Dictionary = {"sprint": false, "crouch": false}
 var _dirty: bool = false
 var _save_timer: Timer
+## Engine.max_fps before any frame cap (the command line's, or 0).
+var _engine_max_fps: int = 0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	_engine_max_fps = Engine.max_fps
 	_Buses.ensure()
 	_snapshot_defaults()
 	_save_timer = Timer.new()
@@ -747,7 +761,7 @@ func _apply(section: String, key: String) -> void:
 			elif key == "toggle_crouch":
 				_latched["crouch"] = false
 		"video":
-			_apply_video()
+			_apply_video_key(key)
 		"interface":
 			if key == "ui_scale":
 				_apply_interface()
@@ -774,14 +788,103 @@ func _apply_voice_mode() -> void:
 	Net.set_voice_mode(int(get_value("audio", "voice_mode")) as Net.VoiceMode)
 
 
-## The world's look (sun shadows, ambient occlusion, glow, grass, outlines)
-## comes from levels/graphics_quality.gd, made by settings:2.
+## Every video key: the engine's render options, the display, and the worlds.
 func _apply_video() -> void:
-	if not ResourceLoader.exists(GRAPHICS_QUALITY_PATH) or not is_inside_tree():
+	_apply_render()
+	_apply_display()
+	_apply_worlds()
+
+
+## One video key: only what it touches.
+func _apply_video_key(key: String) -> void:
+	if RENDER_KEYS.has(key):
+		_apply_render()
+	if DISPLAY_KEYS.has(key):
+		_apply_display()
+	if WORLD_KEYS.has(key):
+		_apply_worlds()
+
+
+## The world's look (sun shadows, ambient occlusion, glow, brightness, grass,
+## outlines) is levels/graphics_quality.gd's, the one place quality reaches a world.
+func _apply_worlds() -> void:
+	if not is_inside_tree():
 		return
-	var quality: Script = load(GRAPHICS_QUALITY_PATH)
 	for world: Node in get_tree().get_nodes_in_group("world"):
-		quality.call("apply", world)
+		_GraphicsQuality.apply(world)
+
+
+## The root viewport's render scale, upscaler and anti-aliasing, the sun's shadow
+## atlas and its softness, ambient occlusion's quality, and the frame cap. These
+## RenderingServer setters have no getters (and do nothing headless), so what was
+## asked for is kept in last_render for tests.
+func _apply_render() -> void:
+	if not is_inside_tree():
+		return
+	var viewport := get_tree().root
+	var aa := int(get_value("video", "aa"))
+	var upscaler := int(get_value("video", "upscaler"))
+	viewport.scaling_3d_scale = float(get_value("video", "render_scale"))
+	viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if upscaler == 1 else Viewport.SCALING_3D_MODE_BILINEAR
+	viewport.msaa_3d = AA_MSAA[aa]
+	viewport.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA if aa == 1 else Viewport.SCREEN_SPACE_AA_DISABLED
+	var shadows := clampi(int(get_value("video", "shadows")), 0, Constants.SHADOW_LEVELS.size() - 1)
+	# Off keeps the last atlas: the sun simply casts none (graphics_quality).
+	var level: Dictionary = Constants.SHADOW_LEVELS[shadows] if shadows > 0 else Constants.SHADOW_LEVELS[Constants.SHADOW_LEVELS.size() - 2]
+	var atlas := int(level["atlas"])
+	var soft := int(level["soft"])
+	if int(last_render.get("shadow_atlas", -1)) != atlas:
+		RenderingServer.directional_shadow_atlas_set_size(atlas, true)
+	if int(last_render.get("shadow_soft", -1)) != soft:
+		RenderingServer.directional_soft_shadow_filter_set_quality(soft as RenderingServer.ShadowQuality)
+	if int(last_render.get("ssao_quality", -1)) != Constants.SSAO_QUALITY_HIGH:
+		# The project's own ambient occlusion settings, at the quality the game uses.
+		RenderingServer.environment_set_ssao_quality(Constants.SSAO_QUALITY_HIGH as RenderingServer.EnvironmentSSAOQuality,
+			bool(ProjectSettings.get_setting("rendering/environment/ssao/half_size", true)),
+			float(ProjectSettings.get_setting("rendering/environment/ssao/adaptive_target", 0.5)),
+			int(ProjectSettings.get_setting("rendering/environment/ssao/blur_passes", 2)),
+			float(ProjectSettings.get_setting("rendering/environment/ssao/fadeout_from", 50.0)),
+			float(ProjectSettings.get_setting("rendering/environment/ssao/fadeout_to", 300.0)))
+	var cap := Constants.FPS_CAPS[clampi(int(get_value("video", "max_fps")), 0, Constants.FPS_CAPS.size() - 1)]
+	# Unlimited is whatever the engine started with (a --max-fps on the command line stays).
+	Engine.max_fps = cap if cap > 0 else _engine_max_fps
+	last_render = {
+		"render_scale": viewport.scaling_3d_scale, "scaling_mode": viewport.scaling_3d_mode,
+		"msaa": viewport.msaa_3d, "fxaa": viewport.screen_space_aa == Viewport.SCREEN_SPACE_AA_FXAA,
+		"shadow_atlas": atlas, "shadow_soft": soft, "ssao_quality": Constants.SSAO_QUALITY_HIGH, "max_fps": cap,
+	}
+
+
+## Window mode and vsync. Only a player's own game changes the window: never
+## headless, never a dev, test, bot or screenshot run (which use the test file),
+## and only in res://core/main.tscn, so the studio and tools keep their windows.
+## last_display says what was asked for and whether it was applied.
+func _apply_display() -> void:
+	var mode := int(get_value("video", "window_mode"))
+	var vsync := int(get_value("video", "vsync"))
+	last_display = {"window_mode": mode, "vsync": vsync, "applied": false}
+	if DisplayServer.get_name() == "headless" or path() != REAL_PATH:
+		return
+	# Deferred: at startup the autoload is ready before the main scene is.
+	_write_display.call_deferred(mode, vsync)
+
+
+func _write_display(mode: int, vsync: int) -> void:
+	if int(get_value("video", "window_mode")) != mode or int(get_value("video", "vsync")) != vsync:
+		return
+	var scene := get_tree().current_scene if is_inside_tree() else null
+	if scene == null or scene.scene_file_path != MAIN_SCENE:
+		return
+	var want: DisplayServer.WindowMode = WINDOW_MODES[clampi(mode, 0, WINDOW_MODES.size() - 1)]
+	var now := DisplayServer.window_get_mode()
+	# A maximized (or minimized) window is still "Windowed": leave it be.
+	var windowed_now := now in [DisplayServer.WINDOW_MODE_WINDOWED, DisplayServer.WINDOW_MODE_MAXIMIZED, DisplayServer.WINDOW_MODE_MINIMIZED]
+	if not (want == DisplayServer.WINDOW_MODE_WINDOWED and windowed_now) and now != want:
+		DisplayServer.window_set_mode(want)
+	var sync: DisplayServer.VSyncMode = VSYNC_MODES[clampi(vsync, 0, VSYNC_MODES.size() - 1)]
+	if DisplayServer.window_get_vsync_mode() != sync:
+		DisplayServer.window_set_vsync_mode(sync)
+	last_display["applied"] = true
 
 
 func _apply_interface() -> void:

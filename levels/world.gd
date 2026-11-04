@@ -116,6 +116,8 @@ func _ready() -> void:
 	# (_dress hands it to the BuildQueue), and every mesh it adds is restyled as
 	# it lands, like everything built after _ready always was.
 	_SharedLook.call("apply", self)
+	# The player's video quality on that look (settings:2): High leaves it as is.
+	preload("res://levels/graphics_quality.gd").apply(self)
 	# The hour's light on that look: sun, sky, moon, stars and lamps (levels/day_sky.gd).
 	var day_sky := preload("res://levels/day_sky.gd").new()
 	day_sky.name = "DaySky"
