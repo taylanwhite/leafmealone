@@ -9,8 +9,13 @@ extends Node
 ##                low-pass muffles and unmuffles
 ##   sfx_node     Sfx lives at UIRoot/Audio/Sfx in group "sfx"
 ##   sfx_api      play and play_at log, the bank's gap throttles, unknown ids are caught
-##   ride_truck   Chefty's departure sound is a play_on the truck's body (Sfx.placed),
-##                and the ride reaches the lot
+##   ride_truck   Chefty's departure slams its tailgate on the truck's body
+##                (Sfx.placed) and its engine (audio/vehicle_sound.gd) cranks; the
+##                ride reaches the lot and pulls up with one skid and the cab door
+##   vehicle_mix  (chunk 7) the engine's idle-to-rev crossfade, throttle, gears, profiles
+##   engine_late_join  (chunk 7) a primed engine (a late joiner's) runs without a crank
+##   board_sound  (chunk 7) audio/board_sound.gd under a stand-in board pops and
+##                lands by itself, cuts the roll in the air, grinds
 ##   positional   a bag, a throw and a heavy bonk on the lot are play_at where they
 ##                happened (Sfx.placed), not 2D
 ##   no_unknown   nothing asked Sfx for an unregistered id during the whole run
@@ -56,6 +61,8 @@ const _Strings = preload("res://ui/strings.gd")
 const _Ranks = preload("res://core/ranks.gd")
 const _UiSounds = preload("res://audio/ui_sounds.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
+const _VehicleSound = preload("res://audio/vehicle_sound.gd")
+const _BoardSound = preload("res://audio/board_sound.gd")
 ## ui_sounds: a peer id nobody has, put on a cot for its creak.
 const TEST_COT_PEER: int = 424242
 ## A looping track's file may be this far from its bars' length (seconds).
@@ -152,6 +159,10 @@ func _run() -> void:
 	_check("register", await _register())
 	_check("ride_truck", await _ride(music))
 	_check("positional", await _positional())
+	# Audio chunk 7: the engine's mix and the board component.
+	_check("vehicle_mix", _vehicle_mix())
+	_check("engine_late_join", await _engine_late_join())
+	_check("board_sound", await _board_sound())
 	# Audio chunk 6: footsteps, the body, props, task work, ambience, the horn.
 	var foley: Dictionary = await preload("res://net/dev/foley_check.gd").run(self)
 	for key: String in foley:
@@ -403,15 +414,21 @@ func _ride(music: Node) -> bool:
 		_check("ride_to_lot", false)
 		return false
 	var body := chefty.get("_body") as Node3D
-	var before := _SfxScript.log.count("truck")
+	var engine := body.get_node_or_null("VehicleSound") if body != null else null
+	var counts := func() -> Array: return [_SfxScript.log.count("door_slam"), _SfxScript.log.count("engine_start"), _SfxScript.log.count("skid")]
+	var before: Array = counts.call()
 	var mood_before := str(music.call("current_mood"))
 	_SfxScript.placed.clear()
 	chefty.call("depart", Net.players_in_zone(Net.Zone.STORE), Net.Zone.LOT)
 	await get_tree().create_timer(0.3).timeout
-	# It has to ride on the truck's body, not play 2D or stay at the curb.
-	var entry := _placed("truck")
+	# Audio chunk 7: the tailgate shuts on the truck's body (not 2D, not left at the
+	# curb), and the engine (audio/vehicle_sound.gd under the body) cranks.
+	var entry := _placed("door_slam")
 	var on_body: bool = body != null and not entry.is_empty() and entry["kind"] == "on" and entry["node"] == str(body.get_path())
-	var heard: bool = _SfxScript.log.count("truck") > before and on_body
+	var crank := _placed("engine_start")
+	var cranked: bool = engine != null and not crank.is_empty() and crank["node"] == str(engine.get_path()) and _SfxScript.log.count("engine_start") > int(before[1])
+	var heard: bool = _SfxScript.log.count("door_slam") > int(before[0]) and on_body and cranked
+	var running := engine != null and bool(engine.call("is_running"))
 	var waited := 0.0
 	var moods_in_transit: Array[String] = []
 	while Net.player_zone(Net.local_peer_id()) != Net.Zone.LOT and waited < RIDE_TIMEOUT_SECONDS:
@@ -422,13 +439,128 @@ func _ride(music: Node) -> bool:
 		await get_tree().create_timer(0.25).timeout
 		waited += 0.25
 	var arrived := Net.player_zone(Net.local_peer_id()) == Net.Zone.LOT
-	print("[AudioTest] Chefty's truck sound %s rides on %s" % [entry, str(body.get_path()) if body != null else "no body"])
-	print("[AudioTest] Chefty's truck sound on departure %s, arrived on the lot %s after %.1f s" % [heard, arrived, waited])
+	# Pulling up: one screech into the curb (not a squeal every half second) and the cab door.
+	await get_tree().create_timer(0.3).timeout
+	var after: Array = counts.call()
+	var pulled_up := int(after[2]) == int(before[2]) + 1 and int(after[0]) == int(before[0]) + 2
+	print("[AudioTest] Chefty's door %s rides on %s; the engine cranked %s (%s) and runs %s" % [entry, str(body.get_path()) if body != null else "no body", cranked, crank, running])
+	print("[AudioTest] Chefty on departure %s, arrived on the lot %s after %.1f s; door, crank, skid before %s after %s, pulled up %s" % [heard, arrived, waited, before, after, pulled_up])
+	heard = heard and running and pulled_up
 	var held := moods_in_transit.size() == 1 and moods_in_transit[0] == mood_before
 	var to_work := arrived and await _wait_mood(music, [&"work_morning"], Constants.MUSIC_MOOD_HOLD_SECONDS + MOOD_SLACK_SECONDS)
 	print("[AudioTest] the music in transit %s (was %s), then %s on the lot" % [moods_in_transit, mood_before, music.call("current_mood")])
 	_check("ride_to_lot", held and to_work)
 	return heard and arrived
+
+
+## audio/vehicle_sound.gd's mix, by the numbers: idle over rev at a standstill,
+## rev alone at speed, the floored pedal leaning into the rev in place, the rev's
+## pitch at the top of its range at top speed and dropping a step at each gear
+## change, and the van lower than Chefty.
+func _vehicle_mix() -> bool:
+	var top := Constants.CHEFTY_TOP_SPEED
+	var still := _VehicleSound.mix(0.0, 0.0, top, &"chefty")
+	var revving := _VehicleSound.mix(0.0, 1.0, top, &"chefty")
+	var flat_out := _VehicleSound.mix(top, 1.0, top, &"chefty")
+	var gears := int(_VehicleSound.profile_of(&"chefty")["gears"])
+	var before_shift := _VehicleSound.mix(top / float(gears) - 0.05, 0.0, top, &"chefty")
+	var after_shift := _VehicleSound.mix(top / float(gears) + 0.05, 0.0, top, &"chefty")
+	var van := _VehicleSound.mix(top * 0.5, 0.0, top, &"van")
+	var chefty := _VehicleSound.mix(top * 0.5, 0.0, top, &"chefty")
+	var rev_top: float = (Constants.ENGINE_PROFILES["chefty"]["rev_pitch"] as Vector2).y
+	var checks := {
+		"idle_at_rest": float(still["idle_db"]) > float(still["rev_db"]) + 20.0,
+		"rev_at_speed": float(flat_out["rev_db"]) > float(flat_out["idle_db"]) + 20.0,
+		"throttle_leans": float(revving["rev_db"]) > float(still["rev_db"]) and float(revving["rev_pitch"]) > float(still["rev_pitch"]),
+		"top_pitch": is_equal_approx(float(flat_out["rev_pitch"]), rev_top + Constants.ENGINE_THROTTLE_PITCH),
+		"gear_step": float(after_shift["rev_pitch"]) < float(before_shift["rev_pitch"]),
+		"van_lower": float(van["rev_pitch"]) < float(chefty["rev_pitch"]),
+	}
+	print("[AudioTest] vehicle_mix %s; at rest %s, flat out %s" % [checks, still, flat_out])
+	return checks.values().all(func(value: Variant) -> bool: return bool(value))
+
+
+## A late joiner told of a honk-and-wait (ride.gd _rpc_boarding_state) after its
+## VehicleSound first saw the engine off: prime_running() means the engine just
+## runs, no crank. A second engine that isn't primed does crank on the same
+## change (first the primed one, so a crank gap can't hide the control's).
+func _engine_late_join() -> bool:
+	var state := {"on": false}
+	var me := _me()
+	var engines: Array[Node3D] = []
+	for primed: bool in [true, false]:
+		var engine := _VehicleSound.new() as Node3D
+		engine.name = "AudioTestEngine"
+		engine.set("state_source", func() -> Dictionary: return state)
+		add_child(engine)
+		engine.global_position = me.global_position if me != null else Vector3.ZERO
+		engines.append(engine)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var cranks := _SfxScript.log.count("engine_start")
+	engines[0].call("prime_running")
+	state["on"] = true
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var after := _SfxScript.log.count("engine_start")
+	var crank := _placed("engine_start")
+	var primed_quiet: bool = crank.is_empty() or crank["node"] != str(engines[0].get_path())
+	var control_cranked: bool = after == cranks + 1 and not crank.is_empty() and crank["node"] == str(engines[1].get_path())
+	var running: bool = bool(engines[0].call("is_running")) and bool(engines[1].call("is_running"))
+	for engine: Node3D in engines:
+		engine.queue_free()
+	print("[AudioTest] engine_late_join: primed engine quiet %s, unprimed one cranked %s (cranks %d -> %d), both running %s" % [primed_quiet, control_cranked, cranks, after, running])
+	return primed_quiet and control_cranked and running
+
+
+## audio/board_sound.gd on its own, the way a board that only attaches it gets it:
+## under a stand-in whose board_state() leaves the ground and comes back, its pop
+## and landing reach Sfx (logged, headless or not) by themselves; the roll is cut
+## in the air and while grinding and gets louder with speed.
+func _board_sound() -> bool:
+	var script := GDScript.new()
+	script.source_code = "extends Node3D\nvar state := {\"on_board\": true, \"speed\": 4.0, \"on_ground\": true, \"grinding\": false}\nfunc board_state() -> Dictionary:\n\treturn state\n"
+	script.reload()
+	var stub := Node3D.new()
+	stub.set_script(script)
+	stub.name = "AudioTestBoard"
+	var me := _me()
+	add_child(stub)
+	stub.global_position = me.global_position if me != null else Vector3.ZERO
+	var board := _BoardSound.new()
+	board.name = "BoardSound"
+	stub.add_child(board)
+	var state: Dictionary = stub.get("state")
+	var pops := _SfxScript.log.count("board_pop")
+	var lands := _SfxScript.log.count("board_land")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var rolling := float(board.call("current_mix")["roll_db"]) > Constants.BOARD_SILENT_DB
+	state["on_ground"] = false
+	# process_frame fires before that frame's _process: two, so the board has seen it.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var popped := _SfxScript.log.count("board_pop") == pops + 1
+	var air_cut := float(board.call("current_mix")["roll_db"]) <= Constants.BOARD_SILENT_DB
+	await get_tree().create_timer(0.3).timeout
+	state["on_ground"] = true
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var landed := _SfxScript.log.count("board_land") == lands + 1
+	var land_entry := _placed("board_land")
+	var on_board: bool = not land_entry.is_empty() and land_entry["node"] == str(board.get_path())
+	state["grinding"] = true
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var grind_mix: Dictionary = board.call("current_mix")
+	var grinds := float(grind_mix["grind_db"]) > Constants.BOARD_SILENT_DB and float(grind_mix["roll_db"]) <= Constants.BOARD_SILENT_DB
+	stub.queue_free()
+	var slow := _BoardSound.mix({"on_board": true, "speed": 1.0, "on_ground": true})
+	var fast := _BoardSound.mix({"on_board": true, "speed": Constants.SKATE_MAX_PUSH_SPEED, "on_ground": true})
+	var off := _BoardSound.mix({"on_board": false, "speed": 5.0, "on_ground": true})
+	var by_speed := float(fast["roll_db"]) > float(slow["roll_db"]) and float(fast["roll_pitch"]) > float(slow["roll_pitch"]) and float(off["roll_db"]) <= Constants.BOARD_SILENT_DB
+	print("[AudioTest] board_sound: rolling %s, pop %s, roll cut in the air %s, land %s on the board %s, grind %s, by speed %s" % [rolling, popped, air_cut, landed, on_board, grinds, by_speed])
+	return rolling and popped and air_cut and landed and on_board and grinds and by_speed
 
 
 func _positional() -> bool:

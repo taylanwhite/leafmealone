@@ -18,6 +18,7 @@ const _JunkBed = preload("res://net/components/junk_bed.gd")
 const _ToolBed = preload("res://net/components/tool_bed.gd")
 const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 const _StepDown = preload("res://net/components/step_down.gd")
+const _VehicleSound = preload("res://audio/vehicle_sound.gd")
 
 var _riding: bool = false
 ## The bags drawn in the bed (props/truck_bed_load.gd), Chefty only.
@@ -74,6 +75,14 @@ var _asked_to_go: bool = false
 var _jump_held: bool = false
 ## Host: a boarder hopped out (world.gd keeps them from being sat right back down).
 signal hopped_out(peer_id: int)
+
+## Every peer: the engine (audio/vehicle_sound.gd, audio chunk 7) under the body,
+## reading _engine_state(): it runs from just after the boarding honk
+## (_engine_on_at, this peer's game clock), through the ride, and idles until
+## _engine_off_at after it parks.
+var _engine: Node3D
+var _engine_on_at: float = INF
+var _engine_off_at: float = -INF
 
 
 func _ready() -> void:
@@ -387,8 +396,10 @@ func _rpc_boarding(destination_zone: int, leave_at_time: float, wait: float) -> 
 	_exits.clear()
 	_last_call_played = false
 	_asked_to_go = false
-	# The honk is the whole announcement: Chefty's going, get in.
+	# The honk is the whole announcement: Chefty's going, get in. Then the engine
+	# cranks and idles while they climb in.
 	_honk()
+	_engine_on_at = _local_now() + Constants.ENGINE_START_AFTER_HONK
 
 
 @rpc("authority", "call_local", "reliable")
@@ -471,6 +482,10 @@ func _rpc_boarding_state(destination_zone: int, leave_at_time: float, left: floa
 	_destination = destination_zone
 	_leave_at = leave_at_time
 	_local_leave = _local_now() + left
+	# The engine has been idling since before this peer came: no crank for it.
+	_engine_on_at = _local_now()
+	if _engine != null:
+		_engine.call("prime_running")
 	_riders = riders
 	_last_call_played = left <= Constants.CHEFTY_BOARD_LAST_CALL_SECONDS
 
@@ -676,6 +691,13 @@ func _build() -> void:
 	label.position = Vector3(0.0, 3.4, 0.0)
 	_body.add_child(label)
 	_label = label
+	_engine = _VehicleSound.new()
+	_engine.name = "VehicleSound"
+	_engine.set("state_source", _engine_state)
+	_engine.set("top_speed", Constants.ENGINE_RIDE_TOP_SPEED)
+	# One screech into the curb, not a squeal per half second.
+	_engine.set("skid_repeat", 0.0)
+	_body.add_child(_engine)
 	if name == "Chefty":
 		_bed_load = _BedLoad.new()
 		_body.add_child(_bed_load)
@@ -747,8 +769,9 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	_refresh_label()
 	var sfx := get_tree().get_first_node_in_group("sfx")
 	if sfx != null:
-		# It pulls away with the body, so riders hear it and the curb hears it go.
-		sfx.call("play_on", "truck", _body if _body != null else self)
+		# The tailgate shuts on the body as it pulls away; the engine (running since
+		# the honk, or cranking now) goes up through the gears with it.
+		sfx.call("play_on", "door_slam", _body if _body != null else self)
 
 
 func _refresh_label() -> void:
@@ -821,6 +844,24 @@ func _land() -> void:
 			node.call("clear_riding")
 	_step_riders_down(riders)
 	_refresh_label()
+	# Pulled up at the curb: the brakes and the cab door, then a few seconds of idle.
+	_engine_off_at = _local_now() + Constants.ENGINE_IDLE_LINGER_SECONDS
+	if _engine != null:
+		_engine.call("arrive")
+
+
+## Every peer: what the engine is doing (audio/vehicle_sound.gd reads it; the
+## speed it reads off the body's own movement). The throttle is down while the
+## ride speeds up and off as it eases in; the last stretch is the hard braking.
+func _engine_state() -> Dictionary:
+	var now := _local_now()
+	var along := clampf((Net.server_time() - _start_time) / maxf(_duration, 0.1), 0.0, 1.0) if _riding else 1.0
+	var driving := _riding or _catchup_t >= 0.0
+	return {
+		"on": driving or (_boarding and now >= _engine_on_at) or now < _engine_off_at,
+		"throttle": 1.0 if _riding and along < 0.5 else 0.0,
+		"skidding": (_riding and along >= Constants.ENGINE_RIDE_SKID_FROM) or _catchup_t >= 0.5,
+	}
 
 
 ## Every peer, on arrival: each rider's landing spot from their seat (bed left,

@@ -6055,3 +6055,64 @@ const VAN_RAM_BUMP: float = 2.0
 const VAN_RAM_BUMP_WINDOW: float = 0.5
 ## Where the kazoo siren sits on the van (van space, m: on the roof by the dome).
 const VAN_SIREN_AT := Vector3(0.0, 3.3, 0.3)
+
+# ---- audio:7 vehicles and the board (audio/vehicle_sound.gd, audio/board_sound.gd;
+# docs/DECISIONS.md "Audio: the engine and the board are components")
+
+## Each vehicle's engine: the idle loop's volume (dB) and its pitch from a
+## standstill to where the rev loop has taken over, the rev loop's volume and
+## pitch from a crawl to top speed, how many gears the rev climbs through, and
+## its reach (full volume inside unit_size m, gone past max_distance m).
+const ENGINE_PROFILES: Dictionary = {
+	"chefty": {"idle_db": -13.0, "idle_pitch": Vector2(1.0, 1.3), "rev_db": Vector2(-14.0, -6.0), "rev_pitch": Vector2(0.8, 1.6), "gears": 3, "unit_size": 8.0, "max_distance": 70.0},
+	"van": {"idle_db": -7.0, "idle_pitch": Vector2(0.8, 1.05), "rev_db": Vector2(-9.0, 0.0), "rev_pitch": Vector2(0.65, 1.25), "gears": 2, "unit_size": 16.0, "max_distance": 120.0},
+}
+## The share of top speed by which the rev loop has fully taken over from the
+## idle, and how far a floored pedal pushes that crossfade on its own (revving
+## at the lights), plus its extra pitch.
+const ENGINE_REV_FULL_SHARE: float = 0.35
+const ENGINE_THROTTLE_SHARE: float = 0.15
+const ENGINE_THROTTLE_PITCH: float = 0.08
+## Inside one gear the rev sweeps this share of its pitch range (the rest follows
+## speed), so it drops a step at each shift: vrrRM, vrrRRM, vrrRRRM.
+const ENGINE_GEAR_SPAN: float = 0.5
+## How fast the loops' volume and pitch follow (per second), and how fast the
+## speed read off a moving body settles; a body that moved faster than this
+## (m/s) was put somewhere, not driven.
+const ENGINE_SMOOTH: float = 8.0
+const ENGINE_SPEED_SMOOTH: float = 10.0
+const ENGINE_TELEPORT_SPEED: float = 300.0
+## Switching off: the idle sags to this share of its pitch while it fades, over this long (s).
+const ENGINE_STOP_SECONDS: float = 0.7
+const ENGINE_STOP_PITCH: float = 0.55
+## No second engine_start within this long of the last (s); the loops come in
+## this long after the crank starts, where it coughs and catches.
+const ENGINE_START_GAP_SECONDS: float = 2.0
+const ENGINE_START_CATCH_SECONDS: float = 0.62
+## Aboard (sitting in it), the engine is at full volume within this many meters
+## and not muffled by distance: it's your truck, wherever the camera hangs.
+const ENGINE_ABOARD_UNIT_SIZE: float = 20.0
+## Where the engine sits on a truck's body (its hood; -Z is forward).
+const ENGINE_SOUND_AT := Vector3(0.0, 1.0, -2.2)
+## Chefty's legacy ride (net/components/ride.gd): the engine starts this long
+## after the honk that calls the crew in (the honk has the stage first), keeps
+## idling this long after it parks, and reads its speed against this top (m/s;
+## the 8 s ride peaks near 190). It screeches from this far through the trip
+## (smoothstep: the last stretch is the hard braking), and arrive() screeches
+## unless a skid played within ENGINE_ARRIVE_SKID_GAP seconds.
+const ENGINE_START_AFTER_HONK: float = 1.1
+const ENGINE_IDLE_LINGER_SECONDS: float = 4.0
+const ENGINE_RIDE_TOP_SPEED: float = 160.0
+const ENGINE_RIDE_SKID_FROM: float = 0.92
+const ENGINE_ARRIVE_SKID_GAP: float = 1.0
+
+## The board (audio/board_sound.gd): the roll is heard from this speed (m/s);
+## the roll and grind fade in and out this fast (per second: quick enough that
+## leaving the ground cuts the roll on the frame, slow enough not to click), and
+## are stopped under BOARD_SILENT_DB. A landing's volume from a hop to a big air
+## (dB), and how long in the air (s) counts as big.
+const BOARD_ROLL_MIN_SPEED: float = 0.3
+const BOARD_LOOP_FADE: float = 30.0
+const BOARD_SILENT_DB: float = -60.0
+const BOARD_LAND_DB := Vector2(-7.0, 0.0)
+const BOARD_LAND_FULL_AIR: float = 0.6

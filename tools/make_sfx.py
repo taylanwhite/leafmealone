@@ -343,6 +343,34 @@ def skid() -> list[float]:
     return envelope([a * 0.8 + b * 0.35 for a, b in zip(squeal, hiss)], 0.02, 0.3)
 
 
+def engine_start() -> list[float]:
+    """Chefty waking up (audio chunk 7, audio/vehicle_sound.gd): the starter
+    grinds 'rr-rr-rrr', the engine coughs a little backfire, then catches and
+    putts down into engine_idle's beat, fading as the loop takes over."""
+    rng = random.Random(74)
+    out = silence(1.5)
+    at = 0.0
+    for index, seconds in enumerate((0.15, 0.13, 0.17)):
+        crank = tone(seconds, glide(100.0 + index * 10.0, 72.0, seconds), "saw", (24.0, 0.08))
+        crank = bandpass(crank, 650.0, 1.1)
+        grit = bandpass(noise(rng, seconds), 2300.0, 1.4)
+        mix_into(out, envelope([a * 0.85 + b * 0.25 for a, b in zip(crank, grit)], 0.01, 0.04), at, 0.75)
+        at += seconds + 0.05
+    # The cough: a pop with a puff of exhaust.
+    mix_into(out, blip(0.14, 280.0, 60.0, 26.0), at, 1.0)
+    mix_into(out, decay(lowpass(noise(rng, 0.12), 1600.0), 35.0), at, 1.1)
+    at += 0.13
+    # Catching: quick putts slowing to the idle's 14 a second, dying away under it.
+    start = at
+    while at < 1.45:
+        progress = (at - start) / (1.45 - start)
+        level = 0.95 * (1.0 - progress) ** 1.4
+        mix_into(out, blip(0.06, 150.0, 82.0, 55.0), at, level * 0.8)
+        mix_into(out, decay(lowpass(noise(rng, 0.05), 750.0), 70.0), at, level)
+        at += 1.0 / (24.0 - 10.0 * progress)
+    return out
+
+
 def van_brake() -> list[float]:
     """The Courtesy Shuttle's brakes as it pulls up: a rubbery bite you hear land
     (a short bright chirp at full level from the first few ms), then a squeal that
@@ -669,6 +697,8 @@ SOUNDS = {
     "truck_horn": (truck_horn, 0, 0.75),
     "door_slam": (door_slam, 0, 0.7),
     "skid": (skid, 0, 0.45),
+    # ---- audio:7 (audio/vehicle_sound.gd)
+    "engine_start": (engine_start, 0, 0.7),
     # ---- R2c van: the Courtesy Shuttle's own brakes (net/run_events/shuttle.gd)
     "van_brake": (van_brake, 0, 0.8),
     # ---- hotbar (player/pockets.gd)
