@@ -222,17 +222,27 @@ func _run() -> void:
 	var speed := float(me.call("carry_speed_scale"))
 	_step("10 speed %.4f, expected %.4f" % [speed, expected], absf(speed - expected) <= 0.001 and speed < 1.0)
 
-	# 11. Leaving the yard mid-job leaves everything there; a capture empties pockets too.
+	# 11. Leaving the yard mid-job leaves the job's things there (p2-kit: the crew's
+	# kit, the rake and the tools, rides along in your pockets); a capture empties
+	# pockets too.
 	if not Campaign.is_job_open():
 		Campaign.mark_job_open()
 	var mine := _Hotbar.items_of(get_tree(), _id())
+	var kept: Array[Node] = []
+	kept.assign(mine.filter(func(item: Node) -> bool: return Constants.KIT_KINDS.has(str(item.get("kind")))))
+	var dropped: Array[Node] = []
+	dropped.assign(mine.filter(func(item: Node) -> bool: return not Constants.KIT_KINDS.has(str(item.get("kind")))))
 	_notices.clear()
 	Net.move_player_to_zone(_id(), Net.Zone.STORE)
-	var left_ok := await _wait_for(func() -> bool: return _all_loose_on_pad(mine) and _notices.has("left"), 60)
-	_step("11a left the yard with %d things: all loose on the yard and told %s" % [mine.size(), left_ok], left_ok and mine.size() >= 5)
+	var left_ok := await _wait_for(func() -> bool: return _all_loose_on_pad(dropped) and _notices.has("left"), 60)
+	var kit_rode := kept.all(func(item: Node) -> bool: return is_instance_valid(item) and int(item.get("pocketed_by")) == _id())
+	_step("11a left the yard with %d things: the %d job things loose on the yard and told %s, the %d kit still in pockets %s" % [mine.size(), dropped.size(), left_ok, kept.size(), kit_rode], left_ok and kit_rode and mine.size() >= 5 and kept.size() >= 3 and not dropped.is_empty())
 	var left_toast := str(_hud().get("toast_text")) if _hud() != null else ""
 	_step("13f HUD: told '%s'" % left_toast, left_toast == _Strings.keyed(str(_Strings.UI["hotbar_left"])))
 	Net.move_player_to_zone(_id(), Net.Zone.LOT)
+	# The kit that rode along out on the lawn again, where the rest was left (the
+	# last spot on the yard), so the catch below has just two things.
+	get_tree().get_first_node_in_group("hotbar").call("host_empty_pockets", _id(), "gone")
 	await _seconds(0.6)
 	await _go_to(Vector3(-4.0, 0.1, 6.0), 0.0)
 	await _grab(rake)

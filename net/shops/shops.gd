@@ -294,9 +294,10 @@ func owns(peer_id: int, item: String) -> bool:
 	# Chefty's gear is the crew's, like its paint (driving chunk C3).
 	if kind == "truck_gear":
 		return crew_owned.has(item)
-	if entry.has("tool") and entry.has("tier"):
-		# Owning one as good counts: nobody buys a used blower over their Mk II.
-		return Campaign.tool_tier(peer_id, str(entry["tool"])) >= int(entry["tier"])
+	# p2-kit: a tool is a thing you can always buy another of (the crew's kit,
+	# net/kit/kit.gd), never "owned".
+	if Catalog.is_kit(item):
+		return false
 	if Catalog.is_owned_kind(item):
 		return Campaign.peer_has_unlock(peer_id, StringName(item))
 	return false
@@ -728,7 +729,7 @@ func _check_buy(peer_id: int, shop: String, item: String, qty: int) -> String:
 	if entry.is_empty() or str(entry.get("shop", "")) != shop or Catalog.price(item) < 0:
 		return "unknown"
 	var kind := str(entry.get("kind", ""))
-	var only_one := Catalog.is_owned_kind(item) or kind == "snack"
+	var only_one := Catalog.is_owned_kind(item) or kind == "snack" or Catalog.is_kit(item)
 	if qty < 1 or qty > Constants.SHOP_MAX_QTY or (only_one and qty != 1):
 		return "unknown"
 	var clock := _clock()
@@ -752,7 +753,7 @@ func _check_buy(peer_id: int, shop: String, item: String, qty: int) -> String:
 		if qty != dents:
 			return "unknown"
 	var needs: Array = entry.get("needs", [])
-	if not needs.is_empty() and not needs.any(func(need: Variant) -> bool: return owns(peer_id, str(need))):
+	if not Catalog.is_kit(item) and not needs.is_empty() and not needs.any(func(need: Variant) -> bool: return owns(peer_id, str(need))):
 		return "needs"
 	return ""
 
@@ -766,11 +767,18 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 		vending_eaten += 1
 		vending_stuck.append(item)
 		return "eaten"
+	if Catalog.is_kit(item):
+		# p2-kit: buying makes a thing (net/kit/kit.gd): in your hands, or by the
+		# front door for the big ones. The crew's, whoever paid.
+		var kit := get_tree().get_first_node_in_group("kit")
+		if kit != null:
+			kit.call("host_deliver", peer_id, str(entry["tool"]), int(entry["tier"]))
 	match kind:
-		"tool", "tier", "upgrade":
+		"tool", "tier":
+			pass
+		"upgrade":
 			Campaign.grant_unlock(peer_id, item)
 		"used_tool":
-			Campaign.grant_unlock(peer_id, item)
 			# Off its pallet: an empty spot ("") where it stood, so the rest of the
 			# day's tools stay on their own pallets.
 			var at := used_today.find(str(entry.get("tool", "")))
@@ -917,7 +925,8 @@ func _roll_rusty(day: int) -> void:
 	rng.seed = hash([int(town.get("town_seed")) if town != null else 0, day, "rusty"])
 	rusty_mood = snappedf(rng.randf_range(Constants.RUSTY_MOOD.x, Constants.RUSTY_MOOD.y), 0.01)
 	var candidates: Array[String] = []
-	for tool: String in Catalog.TOOLS:
+	# p2-kit: a used rake, whenever he has one (the rake's sold from the start).
+	for tool: String in Catalog.kit_tools():
 		if Campaign.is_for_sale(StringName(Catalog.tool_item(tool, Catalog.TIER_USED))):
 			candidates.append(tool)
 	used_today = []

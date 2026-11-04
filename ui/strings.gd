@@ -536,14 +536,14 @@ const UNLOCK_NAMES: Dictionary = {
 	"feature:barn": "a barn for the crew",
 	"feature:warehouse": "a warehouse for the crew",
 	"feature:lawnfather": "the endless rank: The Lawnfather",
-	"shop:rake_tier_1": "the rake tune-up at Homie Depot",
+	"shop:rake_tier_1": "the Rake Mk II at Homie Depot",
 	"shop:wheelbarrow_tier_1": "the bigger wheelbarrow at Homie Depot",
 	# ---- shops
 	"feature:salvage": "Rusty's Salvage & Pawn opens (he buys junk)",
 	"feature:lunch_money": "Lunch Money, a food truck, parks at Homie Depot",
 	"feature:deliveries": "deliveries: order from Homie Depot on your phone",
 	"feature:truck_paint": "paint jobs and decals for Chefty",
-	"shop:rake_tier_2": "The Leafinator rake at Homie Depot",
+	"shop:rake_tier_2": "The Leafinator (Rake Mk III) at Homie Depot",
 	"shop:big_bags": "contractor bags at Homie Depot",
 	"shop:paint_gold": "GOLD paint for Chefty at Homie Depot",
 	"shop:hat_crown": "the Lawnfather's crown at Homie Depot",
@@ -847,11 +847,16 @@ const SHOP_UI: Dictionary = {
 	"item_blurb_hedge_trimmer_used": "Rattles like a shopping cart. Still trims.",
 	"item_blurb_pressure_washer_used": "Loud enough to hear from the next hood. Mostly washes.",
 	"item_blurb_paint_roller_used": "Pre-painted. Several colors. None of them yours.",
-	# Upgrades.
-	"item_rake_tier_1": "Rake tune-up",
-	"item_blurb_rake_tier_1": "Raking moves more leaves per stroke.",
+	# Rakes (p2-kit: the rake is bought, one each; the better ones are rakes too).
+	"item_rake": "Rake",
+	"item_blurb_rake": "Leaves don't rake themselves. Believe us, we waited.",
+	"item_rake_used": "Used rake",
+	"item_blurb_rake_used": "Three tines are straight. The rest have opinions.",
+	"item_rake_tier_1": "Rake Mk II",
+	"item_blurb_rake_tier_1": "A wider head with real springs in the tines. Moves more leaves per stroke.",
 	"item_rake_tier_2": "The Leafinator",
-	"item_blurb_rake_tier_2": "The rake tune-up, again, harder. Rake Mk III. Not street legal.",
+	"item_blurb_rake_tier_2": "Rake Mk III. Widest head in the store. Not street legal.",
+	# Upgrades.
 	"item_wheelbarrow_tier_1": "Bigger wheelbarrow",
 	"item_blurb_wheelbarrow_tier_1": "Holds twice the bags. Tips over twice as dramatically.",
 	# Supplies (for the whole crew).
@@ -1043,6 +1048,13 @@ const SHOP_UI: Dictionary = {
 	# E at Chefty's tailgate with junk in the bed (shops chunk 5, gap-specs critic C22).
 	# A keycap and a verb (x1:text): the junk is right there in the bed.
 	"prompt_unload_junk": "Unload",
+	# p2-kit: a keycap and a verb. Taking a tool off Chefty's rack (or out of its
+	# bed), and putting the one in your hands on it.
+	"prompt_take_kit": "Take",
+	"prompt_load_kit": "Load",
+	# Who texts you that your kit is back at the store (KIT_FOUND_TEXTS).
+	"text_from_neighbor": "Unknown number",
+	"kit_list_and": "%s and %s",
 	"prompt_vending": "Snack",
 	# The crew's bag supply can't be seen anywhere on the yard, so a rake that
 	# won't bag says why (x1:text: not where to get more). An empty gas tool
@@ -1603,7 +1615,7 @@ const TEXT_LINES: Dictionary = {
 	},
 	# From Marty (UI clerk_name): the first morning's welcome, and leads he passes on.
 	"clerk_intro": [
-		"Welcome to the crew. Three of your neighbors want their leaves gone, and the board by the checkout knows where they live. The cots by the side wall are yours after 6 PM. Don't tell the manager. I'm the manager.",
+		"Welcome to the crew. Three of your neighbors want their leaves gone, and the board by the checkout knows where they live. Rakes are by the door, $%d. Leaves don't rake themselves. The cots by the side wall are yours after 6 PM. Don't tell the manager. I'm the manager.",
 	],
 	"clerk_lead": [
 		"Somebody came by the store asking for a leaf crew. I gave them your number. You're welcome.",
@@ -1974,6 +1986,16 @@ const PERSONALITY_BLURBS: Dictionary = {
 	"penny_pincher": "Has a coupon for you. Expired.",
 }
 
+## p2-kit: kit left lying at a yard is by Homie Depot's front door the next
+## morning, and a neighbor texts about it (net/kit/kit.gd). %s is what it was
+## ("rake", "rake and leaf blower"). From SHOP_UI text_from_neighbor.
+const KIT_FOUND_TEXTS: Array[String] = [
+	"Found your %s in my hydrangeas. Walked it over to Homie Depot's front door. -Barb",
+	"Your %s spent the night on my lawn. It's by Homie Depot's door now. It has seen things. -Gary",
+	"Somebody left a %s in my yard. I returned it to Homie Depot. You owe me a walk. -Denise",
+	"Your %s is at Homie Depot's front door. The HOA has been notified. The HOA is me. -Phil",
+]
+
 ## The seasons' names and the day summary's line when one turns, in core/seasons.gd
 ## order (autumn, winter, spring, summer).
 const SEASON_NAMES: Array[String] = ["Autumn", "Winter", "Spring", "Summer"]
@@ -1993,7 +2015,9 @@ const FORMAT_ARGS: Dictionary = {
 	# R2:1
 	"TEAMMATE_CAPTURED": [2, 3],
 	"TEXT_LINES/request": [1, 3],
-	"TEXT_LINES/clerk_intro": [0, 1],
+	"TEXT_LINES/clerk_intro": [1, 1],
+	# p2-kit: the morning text about kit left at a yard; %s is what was left.
+	"KIT_FOUND_TEXTS": [1, 3],
 	"TEXT_LINES/referral_named": [1, 3],
 	"TEXT_LINES/referral_body": [3, 3],
 	"TEXT_LINES/won_back_named": [1, 3],

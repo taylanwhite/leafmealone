@@ -15,6 +15,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
+const _ToolBed = preload("res://net/components/tool_bed.gd")
 const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 const _StepDown = preload("res://net/components/step_down.gd")
 
@@ -23,6 +24,8 @@ var _riding: bool = false
 var _bed_load: Node3D
 ## The junk in the bed for Rusty's (net/components/junk_bed.gd), Chefty only.
 var _junk_bed: Node3D
+## The crew's kit aboard, on the rack and the bed floor (net/components/tool_bed.gd), Chefty only.
+var _tool_bed: Node3D
 var _start_time: float = 0.0
 var _duration: float = RIDE_DURATION_SECONDS
 var _destination: int = 0
@@ -562,6 +565,11 @@ func junk_count() -> int:
 	return int(_junk_bed.call("count")) if _junk_bed != null else 0
 
 
+## The crew's kit aboard (net/components/tool_bed.gd), or null (the van).
+func tool_bed() -> Node3D:
+	return _tool_bed
+
+
 ## Host: the junk hops out over the tailgate, one piece at a time (at the store).
 func unload_junk() -> void:
 	if _junk_bed != null:
@@ -673,6 +681,8 @@ func _build() -> void:
 		_body.add_child(_bed_load)
 		_junk_bed = _JunkBed.new()
 		_body.add_child(_junk_bed)
+		_tool_bed = _ToolBed.new()
+		_body.add_child(_tool_bed)
 		# The crew's paint job and decal (shops chunk 7).
 		var paint := _CheftyPaint.new()
 		paint.vehicle = self
@@ -758,6 +768,8 @@ func _rpc_request_state() -> void:
 			_rpc_boarding_state.rpc_id(multiplayer.get_remote_sender_id(), _destination, _leave_at, _leave_at - Net.server_time(), _riders)
 		if _junk_bed != null:
 			_junk_bed.call("send_to", multiplayer.get_remote_sender_id())
+		if _tool_bed != null:
+			_tool_bed.call("send_to", multiplayer.get_remote_sender_id())
 
 
 ## A late joiner learns where Chefty is parked and what it is carrying.

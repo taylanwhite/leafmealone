@@ -15,6 +15,7 @@ signal rank_changed
 
 const _Ranks = preload("res://core/ranks.gd")
 const _Economy = preload("res://core/economy.gd")
+const _KitRules = preload("res://core/kit_rules.gd")
 ## The player's real save. Only a player's session (no dev, test or automation
 ## flag; net/command_line.gd is_dev_session()) ever reads or writes it.
 const SAVE_PATH := "user://saves/campaign.json"
@@ -83,6 +84,9 @@ func credits(peer_id: int) -> int:
 		key = _key_for(peer_id)
 	if key == "":
 		return 0
+	# Not in the bank yet: what they'll have when they are (p2-kit, STARTING_CASH).
+	if not _bank.has(key) and Net.is_host():
+		return Constants.STARTING_CASH
 	return int((_bank.get(key, {}) as Dictionary).get("credits", 0))
 
 
@@ -108,14 +112,11 @@ func wheelbarrow_capacity() -> int:
 	return Constants.WHEELBARROW_BAG_CAPACITY
 
 
-## Workbook throughput multiplier for this player's rake. 1 until they buy the
-## tune-up; The Leafinator (rake_tier_2) applies it again.
+## Workbook throughput multiplier for the rake in this player's hands (p2-kit:
+## the rake's own tier, core/kit_rules.gd; 1 with a plain rake or none).
 func rake_multiplier(peer_id: int) -> float:
-	if peer_has_unlock(peer_id, RAKE_UPGRADE_2):
-		return Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER * Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER
-	if peer_has_unlock(peer_id, RAKE_UPGRADE):
-		return Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER
-	return 1.0
+	var rake := _KitRules.held_rake(get_tree(), peer_id)
+	return _KitRules.rake_multiplier(int(rake.get("tier"))) if rake != null else 1.0
 
 
 ## The crew's rating: the average of the homeowners' recent reviews, 0 to 5 stars,
@@ -449,6 +450,10 @@ func _on_player_joined(peer_id: int) -> void:
 		# Everyone already here, to the newcomer only: their unlocks show on every
 		# peer (a crewmate's upgraded rake head, props/prop_looks.gd rake_tier).
 		for other: int in Net.peer_ids():
+			# Everyone here is in the bank (p2-kit: with their starting cash), the
+			# host included, so the newcomer has every wallet.
+			if other != peer_id and Net.player_name(other) != "":
+				_bind_peer(other)
 			if other != peer_id and _peer_keys.has(other):
 				_rpc_wallet.rpc_id(peer_id, other, credits(other), _unlock_list(other), _lots_completed)
 		_rpc_progress.rpc_id(peer_id, _lots_completed, _ratings)
@@ -475,16 +480,38 @@ func price_of(item_id: StringName) -> int:
 	return Catalog.price(String(item_id))
 
 
-## Host: every tool someone in this session owns, at any tier (a used one
-## counts). The crew brings them all to the job.
+## Every tool the crew owns, at any tier (a used one counts), wherever it is:
+## in Chefty's bed, in someone's pockets, by the store's door or left at a yard
+## (p2-kit, net/kit/kit.gd; every peer has the kit's summary). The task tools
+## only (Catalog.TOOLS): the rake opens no task. A job that needs the mower you
+## left at the store is your problem.
 func crew_tools() -> PackedStringArray:
 	var tools := PackedStringArray()
-	for peer_id: int in Net.peer_ids():
-		_bind_peer(peer_id)
-		for tool_id: String in Constants.TOOL_PRICES:
-			if tool_tier(peer_id, tool_id) >= Catalog.TIER_USED and not tools.has(tool_id):
-				tools.append(tool_id)
+	for tool_id: String in Catalog.TOOLS:
+		if crew_tool_tier(tool_id) >= Catalog.TIER_USED:
+			tools.append(tool_id)
 	return tools
+
+
+## Host, once (net/kit/kit.gd _migrate, an old save): the tool unlocks leave
+## every player's list, now that the tools are things by the store's door.
+func forget_tool_unlocks() -> void:
+	if not Net.is_host():
+		return
+	for key: Variant in _bank:
+		var record: Dictionary = _bank[key]
+		var kept: Array = []
+		for entry: Variant in record.get("unlocks", []):
+			if not Catalog.is_kit(str(entry)):
+				kept.append(entry)
+		record["unlocks"] = kept
+		_bank[key] = record
+	unlocks_changed.emit()
+
+
+## The crew's kit node (World/Kit), or null outside a world.
+func _kit() -> Node:
+	return get_tree().get_first_node_in_group("kit") if is_inside_tree() else null
 
 
 # ---- shops: the public wallet API. Every system that moves money or grants an
@@ -530,13 +557,11 @@ func grant_unlock(peer_id: int, unlock_id: String) -> void:
 	unlocks_changed.emit()
 
 
-## The best tier of a tool this player owns: Catalog.TIER_NONE (-1), TIER_USED
-## (0), TIER_STOCK (1), TIER_MK2 (2), or TIER_MK3 (3).
-func tool_tier(peer_id: int, tool: String) -> int:
-	for tier: int in [Catalog.TIER_MK3, Catalog.TIER_MK2, Catalog.TIER_STOCK, Catalog.TIER_USED]:
-		if peer_has_unlock(peer_id, StringName(Catalog.tool_item(tool, tier))):
-			return tier
-	return Catalog.TIER_NONE
+## The best tier of a tool this player can use: Catalog.TIER_NONE (-1), TIER_USED
+## (0), TIER_STOCK (1), TIER_MK2 (2), or TIER_MK3 (3). p2-kit: tools are the
+## crew's (who paid doesn't matter), so this is crew_tool_tier.
+func tool_tier(_peer_id: int, tool: String) -> int:
+	return crew_tool_tier(tool)
 
 
 ## The save key a player's cash and unlocks are kept under ("steam:<id>" or
@@ -546,29 +571,20 @@ func key_of(peer_id: int) -> String:
 	return _key_for(peer_id)
 
 
-## The best tier of a tool anyone in this session owns: the crew brings the best one.
+## The best tier of a tool the crew owns, anywhere (net/kit/kit.gd), or
+## Catalog.TIER_NONE.
 func crew_tool_tier(tool: String) -> int:
-	var best := Catalog.TIER_NONE
-	for peer_id: int in Net.peer_ids():
-		best = maxi(best, tool_tier(peer_id, tool))
-	return best
+	var kit := _kit()
+	return int(kit.call("best_tier", tool)) if kit != null else Catalog.TIER_NONE
 
 
-## Dev and tests only: give this peer every tool, as if bought.
-func dev_grant_all_tools(peer_id: int) -> void:
-	if not Net.is_host():
-		return
-	_bind_peer(peer_id)
-	var key: String = _peer_keys[peer_id]
-	var record: Dictionary = _bank[key]
-	var unlocks: Array = record.get("unlocks", [])
-	for tool_id: String in Constants.TOOL_PRICES:
-		if not unlocks.has(tool_id):
-			unlocks.append(tool_id)
-	record["unlocks"] = unlocks
-	_bank[key] = record
-	_send_wallet(peer_id)
-	unlocks_changed.emit()
+## Dev and tests only: one of every tool and a rake for the crew, made at once
+## (p2-kit: in Chefty's bed, or laid out by the truck on a yard the session
+## started on; net/kit/kit.gd dev_add_all).
+func dev_grant_all_tools(_peer_id: int) -> void:
+	var kit := _kit()
+	if Net.is_host() and kit != null:
+		kit.call("dev_add_all")
 
 
 ## The old Homie Depot counter: stock tools and upgrades only. Tiers, supplies,
@@ -576,7 +592,8 @@ func dev_grant_all_tools(peer_id: int) -> void:
 func _handle_purchase(peer_id: int, item_id: StringName) -> void:
 	var id := String(item_id)
 	var kind := str(Catalog.item(id).get("kind", ""))
-	if kind != "tool" and kind != "upgrade":
+	# Tools are physical since p2-kit: only the Shops node (and its store) makes them.
+	if kind != "upgrade":
 		return
 	var price := price_of(item_id)
 	if price < 0 or not is_for_sale(item_id):
@@ -646,7 +663,9 @@ func _bind_peer(peer_id: int) -> void:
 	var key := _key_for(peer_id)
 	_peer_keys[peer_id] = key
 	if not _bank.has(key):
-		_bank[key] = {"credits": 0, "unlocks": []}
+		# p2-kit (Taylan, 2026-11-03): "Everyone spawns in with $50." A new
+		# campaign's players, and anyone joining a save for the first time.
+		_bank[key] = {"credits": Constants.STARTING_CASH if Net.is_host() else 0, "unlocks": []}
 
 
 func _key_for(peer_id: int) -> String:

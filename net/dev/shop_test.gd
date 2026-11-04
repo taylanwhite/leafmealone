@@ -165,21 +165,27 @@ func _run() -> void:
 	_step("client_buy", mate_hat == CLIENT_HAT and Campaign.peer_has_unlock(mate, StringName(CLIENT_HAT)) and mate_paid == hat_price + gift and host_got == gift,
 		"client wears %s, paid $%d (hat $%d + $%d gift), host got $%d, after %.1f s" % [mate_hat, mate_paid, hat_price, gift, host_got, client_wait])
 
-	# buy_tier: a Mk II for exactly its price, and the crew brings it.
+	# buy_tier: a Mk II for exactly its price, a thing of its own (p2-kit: made in
+	# the buyer's hands), and the crew has one.
 	Campaign.pay(me, 9000)
 	var cash := Campaign.credits(me)
 	var code := str(shops.call("request_buy", "homie_depot", "leaf_blower_mk2", 1))
 	var paid := cash - Campaign.credits(me)
+	var mk2 := _carried(me, "leaf_blower", Catalog.TIER_MK2)
 	_step("buy_tier", code == "ok" and paid == Catalog.price("leaf_blower_mk2") \
-		and Campaign.peer_has_unlock(me, &"leaf_blower_mk2") and Campaign.crew_tool_tier("leaf_blower") == Catalog.TIER_MK2,
-		"code %s, paid $%d, crew blower tier %d" % [code, paid, Campaign.crew_tool_tier("leaf_blower")])
+		and mk2 and not Campaign.peer_has_unlock(me, &"leaf_blower_mk2") and Campaign.crew_tool_tier("leaf_blower") == Catalog.TIER_MK2,
+		"code %s, paid $%d, carried %s, crew blower tier %d" % [code, paid, mk2, Campaign.crew_tool_tier("leaf_blower")])
 	cash = Campaign.credits(me)
 	var mk3 := str(shops.call("request_buy", "homie_depot", "leaf_blower_mk3", 1))
 	var roller := str(shops.call("request_buy", "homie_depot", "paint_roller_mk3", 1))
-	var again := str(shops.call("request_buy", "homie_depot", "leaf_blower", 1))
 	var elsewhere := str(shops.call("request_buy", "homie_depot", "hot_dog", 1))
-	_step("refusals", mk3 == "locked" and roller == "locked" and again == "owned" and elsewhere == "unknown" and Campaign.credits(me) == cash,
+	var refused_free := Campaign.credits(me) == cash
+	# A stock blower over a Mk II is just another blower (p2-kit: tools are
+	# never "owned"; the crew can have as many as it pays for).
+	var again := str(shops.call("request_buy", "homie_depot", "leaf_blower", 1))
+	_step("refusals", mk3 == "locked" and roller == "locked" and again == "ok" and elsewhere == "unknown" and refused_free and cash - Campaign.credits(me) == Catalog.price("leaf_blower"),
 		"Mk III %s, roller Mk III %s, a stock blower over a Mk II %s, a hot dog at Homie Depot %s" % [mk3, roller, again, elsewhere])
+	cash = Campaign.credits(me)
 
 	# far: twelve-ish meters from every shop.
 	var far_spot := Vector3(-2.0, 0.0, 6.0)
@@ -227,7 +233,7 @@ func _run() -> void:
 	clock.call("force_sleep")
 	await get_tree().create_timer(0.6).timeout
 	var texts: Array = town.get("texts") if town != null else []
-	var marty := texts.size() > texts_before and str((texts[texts.size() - 1] as Dictionary).get("text", "")) == str(_Strings.SHOP_UI["text_emergency_bags"])
+	var marty := texts.slice(texts_before).any(func(text: Variant) -> bool: return str((text as Dictionary).get("text", "")) == str(_Strings.SHOP_UI["text_emergency_bags"]))
 	var restocked := JSON.stringify(shops.get("stock"), "", true) == JSON.stringify(Constants.SHOP_DAILY_STOCK, "", true)
 	var topped := is_equal_approx(float(shops.call("supply", "lawn_bags")), float(Constants.EMERGENCY_BAGS))
 	_step("day_rollover", restocked and int(shops.get("stock_day")) == day_before + 1 and int(clock.get("day")) == day_before + 1 \
@@ -519,8 +525,11 @@ func _check_gas(shops: Node) -> void:
 			gas_tools += 1
 	var in_can := _ToolTiers.can_gallons(can)
 	var spent := float(Constants.STARTER_SUPPLIES["gas"]) - float(shops.call("supply", "gas"))
+	# p2-kit: the tools are the crew's own kit with their own tanks (the dev kit's
+	# full; Chefty tops up the ones in its bed as it leaves the store,
+	# kit_test); only the gas can takes the crew's spare gas to a job.
 	var loaded := is_equal_approx(float(mower.get("fuel")), 100.0) and int(mower.get("tier")) == Catalog.TIER_STOCK \
-		and is_equal_approx(spent, Constants.GAS_PER_TANK * float(gas_tools) + in_can) and in_can > 0.0
+		and is_equal_approx(spent, in_can) and in_can > 0.0
 	# Grab the mower, leave it a splash of gas, and start it.
 	await _stand_world(mower.global_position + Vector3(0.0, 0.1, 1.2))
 	mower.call("request_grab")
@@ -693,10 +702,10 @@ func _check_shelves(shops: Node) -> bool:
 		problems.append("gas cans (%d left) show %s" % [gas_left, str(gas)])
 	if _drawn_units(shelf, "gas_can") != int(gas.get("units", -1)):
 		problems.append("the gas can slot draws %d boxes for %d" % [_drawn_units(shelf, "gas_can"), int(gas.get("units", -1))])
-	# The host owns a Mk II blower (buy_tier): the Mk III is next, and rank 22 is short of it.
+	# p2-kit: a tool's slot shows the best tier the rank sells (rank 22: the
+	# blower's Mk II, its Mk III not yet), with its price; never OWNED.
 	var blower: Dictionary = shelf.call("slot_state", "leaf_blower")
-	var rank := _Ranks.title(_Ranks.tier_of(Catalog.gate_of("leaf_blower_mk3")))
-	if str(blower.get("item")) != "leaf_blower_mk3" or str(blower.get("look")) != "locked" or str(blower.get("tag")) != str(_Strings.SHOP_UI["shop_rank_tag"]) % rank:
+	if str(blower.get("item")) != "leaf_blower_mk2" or str(blower.get("look")) != "price" or str(blower.get("tag")) != str(_Strings.SHOP_UI["shop_price_tag"]) % Catalog.price("leaf_blower_mk2"):
 		problems.append("the blower slot shows %s" % str(blower))
 	var trimmer: Dictionary = shelf.call("slot_state", "hedge_trimmer")
 	if str(trimmer.get("item")) != "hedge_trimmer_mk2" or str(trimmer.get("tag")) != str(_Strings.SHOP_UI["shop_price_tag"]) % Catalog.price("hedge_trimmer_mk2"):
@@ -777,12 +786,15 @@ func _check_window(shops: Node, me: int) -> void:
 			problems.append("the x1 gas can: paid $%d, gas +%.1f, %d left of %d, shelf %d boxes, toast \"%s\"" % [cash - Campaign.credits(me), float(shops.call("supply", "gas")) - gas, int(shops.call("stock_left", "homie_depot", "gas_can")), left, units, toast])
 	window.call("show_tab", "tools")
 	await _ticks(1)
+	# p2-kit: the rake first, then each tool's tiers on sale (rank 22: stock and
+	# Mk II, the rake's Mk III too), each a card you can buy as many of as you like.
 	var items: Array = window.call("_items")
-	if cards.get_child_count() != Catalog.TOOLS.size() or items.size() != Catalog.TOOLS.size() or str((items[0] as Dictionary).get("id")) != "leaf_blower_mk3":
-		problems.append("the tools tab: %d cards, first %s" % [cards.get_child_count(), str((items[0] as Dictionary).get("id")) if not items.is_empty() else "-"])
-	var locked := _card_button(cards, "leaf_blower_mk3", 1)
-	if locked == null or not locked.disabled:
-		problems.append("the locked Mk III blower can be clicked")
+	var ids: Array = items.map(func(item: Variant) -> String: return str((item as Dictionary).get("id")))
+	if cards.get_child_count() != items.size() or ids.is_empty() or str(ids[0]) != "rake" or not ids.has("leaf_blower_mk2") or ids.has("leaf_blower_mk3") or not ids.has("rake_tier_2"):
+		problems.append("the tools tab: %d cards, %s" % [cards.get_child_count(), str(ids)])
+	var mk2_buy := _card_button(cards, "leaf_blower_mk2", 1)
+	if mk2_buy == null or mk2_buy.disabled:
+		problems.append("the Mk II blower can't be bought again")
 	window.call("close_window")
 	for problem: String in problems:
 		print("[ShopTest]   %s" % problem)
@@ -1041,7 +1053,28 @@ func _job_prop(kind: String) -> Node3D:
 	for node: Node in get_tree().get_nodes_in_group("job_tools"):
 		if str(node.get("kind")) == kind and not node.is_queued_for_deletion():
 			return node as Node3D
+	# p2-kit: the tools are the crew's kit, laid out by the truck for a yard start.
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == kind and not node.is_queued_for_deletion() and Constants.KIT_KINDS.has(kind):
+			return node as Node3D
 	return null
+
+
+## Whether this peer carries (hands or pockets) a kit tool of this kind and tier.
+func _carried(peer_id: int, kind: String, tier: int) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == kind and int(node.get("tier")) == tier and (int(node.get("held_by")) == peer_id or int(node.get("pocketed_by")) == peer_id):
+			return true
+	return false
+
+
+## How many of this kind at this tier the crew owns, as this peer knows it.
+func _kit_tier_count(kind: String, tier: int) -> int:
+	var kit := get_tree().get_first_node_in_group("kit")
+	if kit == null:
+		return 0
+	var summary: Dictionary = kit.call("_now")
+	return (summary.get(kind, []) as Array).count(tier)
 
 
 ## The host stands here, in world space.
@@ -1372,8 +1405,11 @@ func _check_save(shops: Node, me: int) -> bool:
 		keys = keys and section.has(field)
 	var saved_look: Variant = (section.get("looks", {}) as Dictionary).get(key, {})
 	var hat := str((saved_look as Dictionary).get("hat", "")) if typeof(saved_look) == TYPE_DICTIONARY else ""
-	print("[ShopTest]   every key %s, reads back the same %s (supplies %s, the %.2f gal out on the job saved %s), hat %s, Mk II saved %s" % [keys, same, supplies_same, out_there, gas_kept, hat, unlocks.has("leaf_blower_mk2")])
-	return keys and same and hat == "hat_bucket" and unlocks.has("leaf_blower_mk2")
+	# p2-kit: the Mk II blower is in the kit section, a thing with a tier.
+	var kit_items: Array = ((data as Dictionary).get("kit", {}) as Dictionary).get("items", [])
+	var mk2_saved := kit_items.any(func(item: Variant) -> bool: return str((item as Dictionary).get("kind")) == "leaf_blower" and int((item as Dictionary).get("tier")) == Catalog.TIER_MK2) and not unlocks.has("leaf_blower_mk2")
+	print("[ShopTest]   every key %s, reads back the same %s (supplies %s, the %.2f gal out on the job saved %s), hat %s, Mk II saved %s" % [keys, same, supplies_same, out_there, gas_kept, hat, mk2_saved])
+	return keys and same and hat == "hat_bucket" and mk2_saved
 
 
 ## junk_left: the save keeps the junk nobody sold (shops chunk 5): the flamingo
@@ -1491,7 +1527,8 @@ func _check_lobby(shops: Node, me: int) -> bool:
 	await _stand_local(outside)
 	var out := str(shops.call("request_buy", "homie_depot", LOBBY_TOOL, 1))
 	print("[ShopTest] lobby: at the %s endcap %s: %s; on the lot at %s: %s" % [LOBBY_TOOL, front, inside, outside, out])
-	return inside == "owned" and out == "far" and Campaign.credits(me) == cash
+	# p2-kit: another one is always for sale.
+	return inside == "ok" and out == "far" and cash - Campaign.credits(me) == Catalog.price(LOBBY_TOOL)
 
 
 ## The host stands at a shop's counter, on the customer's side.
@@ -1725,7 +1762,9 @@ func _check_rustys(shops: Node, me: int, mate: int) -> void:
 	# day's tools stay on their own pallets (here and there). The client also
 	# checks its copy of Chefty's bed (the flamingo heaved in above).
 	var used_item := Catalog.tool_item(str(rack[0]), Catalog.TIER_USED) if not rack.is_empty() else ""
-	var mine := str(shops.call("request_buy", "rustys", used_item, 1)) if used_item != "" else "-"
+	# p2-kit: a crew with every tool still isn't "owning" Rusty's used one.
+	var mine := "for sale" if used_item != "" and not bool(shops.call("owns", me, used_item)) else "owned"
+	var used_before := _kit_tier_count(str(rack[0]), Catalog.TIER_USED) if not rack.is_empty() else 0
 	var box := world.call("spawn_junk", "boombox", middle + Vector3(0.0, 0.1, 0.0), 20) as Node3D
 	await get_tree().create_timer(1.0).timeout
 	var box_offer := int(shops.call("appraise", box))
@@ -1734,16 +1773,16 @@ func _check_rustys(shops: Node, me: int, mate: int) -> void:
 	_rpc_client_rusty.rpc_id(mate, used_item, box.get_path(), int(chefty.call("junk_count")))
 	# By path: a lambda can't hold on to a node that gets freed.
 	var box_path := box.get_path()
-	await _wait_until(func() -> bool: return Campaign.peer_has_unlock(mate, StringName(used_item)) and get_node_or_null(box_path) == null, WAIT_SECONDS)
-	var bought := Campaign.peer_has_unlock(mate, StringName(used_item)) and not (shops.get("used_today") as Array).has(str(rack[0]))
+	await _wait_until(func() -> bool: return _kit_tier_count(str(rack[0]), Catalog.TIER_USED) > used_before and get_node_or_null(box_path) == null, WAIT_SECONDS)
+	var bought: bool = _kit_tier_count(str(rack[0]), Catalog.TIER_USED) > used_before and (_carried(mate, str(rack[0]), Catalog.TIER_USED) or str(Constants.ITEM_CARRY.get(str(rack[0]), "")) != "pocket") and not (shops.get("used_today") as Array).has(str(rack[0]))
 	var net_cash := Campaign.credits(mate) - mate_cash
 	var rack_stand := get_tree().get_first_node_in_group("rusty_rack")
 	var sold_slot: Dictionary = rack_stand.call("slot_state", "used_slot_0") if rack_stand != null else {}
 	# The next pallet still shows its own tool (it doesn't slide over to the empty one).
 	var next_slot: Dictionary = rack_stand.call("slot_state", "used_slot_1") if rack_stand != null and rack.size() > 1 else {}
 	var others_stay := rack.size() < 2 or str(next_slot.get("item", "")) == Catalog.tool_item(str(rack[1]), Catalog.TIER_USED)
-	_step("used_buy", used_item != "" and mine == "owned" and bought and not is_instance_valid(box) and net_cash == box_offer - Catalog.price(used_item) \
-		and Campaign.tool_tier(mate, str(rack[0])) == Catalog.TIER_USED and sold_slot.get("look", "") == "empty" and others_stay,
+	_step("used_buy", used_item != "" and mine == "for sale" and bought and not is_instance_valid(box) and net_cash == box_offer - Catalog.price(used_item) \
+		and sold_slot.get("look", "") == "empty" and others_stay,
 		"the host's %s: %s; the client bought it %s, net $%d (sold the boombox for $%d, paid $%d), its tier %d, its pallet %s, the next pallet %s (rack %s)" % [used_item, mine, bought, net_cash, box_offer, Catalog.price(used_item), Campaign.tool_tier(mate, str(rack[0])) if not rack.is_empty() else -2, sold_slot.get("look", "?"), next_slot.get("item", "-"), str(shops.get("used_today"))])
 
 
@@ -1783,7 +1822,8 @@ func _run_client_rusty(shops: Node, me: int) -> void:
 	shops.call("request_buy", "rustys", item, 1)
 	await _await_results(count + 2)
 	var buy: Array = _results[count + 1] if _results.size() > count + 1 else []
-	await _wait_until(func() -> bool: return Campaign.peer_has_unlock(me, StringName(item)), 3.0)
+	var tool := str(Catalog.item(item).get("tool", ""))
+	await _wait_until(func() -> bool: return _kit_tier_count(tool, Catalog.TIER_USED) > 0, 3.0)
 	# Chefty's bed here holds what the host's does (JunkBed._rpc_junk), drawn.
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	var junk_bed := chefty.get_node_or_null("Body/JunkBed") if chefty != null else null
@@ -1791,7 +1831,7 @@ func _run_client_rusty(shops: Node, me: int) -> void:
 	var drawn := junk_bed.get_child_count() if junk_bed != null else -1
 	var bed_same := here == int(_rusty_cue.get("bed", -2)) and drawn == here
 	_rpc_client_rusty_done.rpc_id(1)
-	_step("client_rusty", asked == "" and sale == ["sold", "junk_boombox", offer] and buy == ["ok", item, Catalog.price(item)] and Campaign.peer_has_unlock(me, StringName(item)) and bed_same,
+	_step("client_rusty", asked == "" and sale == ["sold", "junk_boombox", offer] and buy == ["ok", item, Catalog.price(item)] and _kit_tier_count(tool, Catalog.TIER_USED) > 0 and bed_same,
 		"sold %s (offer $%d), bought %s, Chefty's bed here %d (%d drawn), the host's %d" % [str(sale), offer, str(buy), here, drawn, int(_rusty_cue.get("bed", -2))])
 
 

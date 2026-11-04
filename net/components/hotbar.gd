@@ -288,6 +288,12 @@ func host_stow_hands(peer_id: int) -> void:
 ## on the lawn says it.
 func host_empty_pockets(peer_id: int, reason: String, row_origin: Vector3 = Vector3.INF, row_dir: Vector3 = Vector3.ZERO) -> void:
 	var items := items_of(get_tree(), peer_id)
+	if reason == "left":
+		# p2-kit: the crew's kit rides with you (a rake in your pocket goes home
+		# with you); only the job's own things stay on the yard.
+		items = items.filter(func(item: Node) -> bool: return not Constants.KIT_KINDS.has(str(item.get("kind"))))
+		if items.is_empty():
+			return
 	_selected[peer_id] = -1
 	if items.is_empty():
 		return
@@ -308,6 +314,9 @@ func host_empty_pockets(peer_id: int, reason: String, row_origin: Vector3 = Vect
 	if reason != "gone":
 		_send_selected(peer_id, -1)
 		_send_notice(peer_id, reason)
+	if reason == "left":
+		# The kit that rode along goes in its pocket (bare hands now).
+		host_settle(peer_id)
 
 
 ## The itemized row: what's in hand first, then the pockets by slot.

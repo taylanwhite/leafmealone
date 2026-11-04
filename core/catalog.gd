@@ -15,7 +15,7 @@ extends RefCounted
 
 ##               | gear (yours to keep, never a job tool: the skateboard)
 ##   tool, tier  for tools: which tool, and 0 used / 1 stock / 2 Mk II / 3 Mk III
-##   needs       ids; owning any one of them is required first
+##   needs       ids; owning any one of them is required first (nothing uses it since p2-kit)
 ##   supply      the crew supply a consumable adds to (Constants.SUPPLY_PER_ITEM says how much)
 ##   buff        the buff a snack gives (Constants.BUFFS); "sandwich" rolls full or queasy
 ##   slot        cosmetics: hat | shirt | paint | decal
@@ -35,8 +35,10 @@ const TIER_STOCK: int = 1
 const TIER_MK2: int = 2
 const TIER_MK3: int = 3
 
-## Kinds a player owns once bought (they go in the player's unlock list).
-const OWNED_KINDS: Array[String] = ["tool", "tier", "upgrade", "used_tool", "cosmetic", "truck_cosmetic", "truck_gear", "gear"]
+## Kinds a player owns once bought (they go in the player's unlock list). Tools
+## are not among them since p2-kit: a bought tool is a thing the crew owns, made
+## on the spot (net/kit/kit.gd), and you can always buy another (is_kit).
+const OWNED_KINDS: Array[String] = ["upgrade", "cosmetic", "truck_cosmetic", "truck_gear", "gear"]
 
 const SHOPS: Dictionary = {
 	"homie_depot": {"keeper": "marty", "tabs": ["tools", "upgrades", "supplies", "workwear", "truck", "gear"]},
@@ -48,9 +50,18 @@ const SHOPS: Dictionary = {
 const TOOLS: Array[String] = [
 	"leaf_blower", "lawn_mower", "ladder", "hose", "hedge_trimmer", "pressure_washer", "paint_roller",
 ]
+## p2-kit: the rake is sold like a tool (its tiers are rakes you buy, not
+## upgrades to whoever holds one), but it opens no task, so it stays out of
+## TOOLS (and TOOL_PRICES): its prices are SHOP_PRICES. Its tier ids keep the
+## old upgrade ids, so Ranks.UNLOCKS and old saves still name them.
+const RAKE_ITEMS: Array[String] = ["rake_used", "rake", "rake_tier_1", "rake_tier_2"]
 
 const ITEMS: Dictionary = {
 	# ---- Homie Depot: tools. Stock tools keep their old ids, so old saves keep them.
+	# p2-kit: the rake first, by the door; Mk II and Mk III are the old Tune-Up and Leafinator.
+	"rake": {"shop": "homie_depot", "tab": "tools", "kind": "tool", "tool": "rake", "tier": 1, "model": "rake"},
+	"rake_tier_1": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "rake", "tier": 2, "model": "rake"},
+	"rake_tier_2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "rake", "tier": 3, "model": "rake"},
 	"leaf_blower": {"shop": "homie_depot", "tab": "tools", "kind": "tool", "tool": "leaf_blower", "tier": 1, "model": "leaf_blower"},
 	"lawn_mower": {"shop": "homie_depot", "tab": "tools", "kind": "tool", "tool": "lawn_mower", "tier": 1, "model": "lawn_mower"},
 	"ladder": {"shop": "homie_depot", "tab": "tools", "kind": "tool", "tool": "ladder", "tier": 1, "model": "ladder"},
@@ -58,24 +69,22 @@ const ITEMS: Dictionary = {
 	"hedge_trimmer": {"shop": "homie_depot", "tab": "tools", "kind": "tool", "tool": "hedge_trimmer", "tier": 1, "model": "hedge_trimmer"},
 	"pressure_washer": {"shop": "homie_depot", "tab": "tools", "kind": "tool", "tool": "pressure_washer", "tier": 1, "model": "pressure_washer"},
 	"paint_roller": {"shop": "homie_depot", "tab": "tools", "kind": "tool", "tool": "paint_roller", "tier": 1, "model": "paint_roller"},
-	# Mk II: needs the tool (new or used). Mk III: needs any lower tier.
-	"leaf_blower_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "leaf_blower", "tier": 2, "needs": ["leaf_blower", "leaf_blower_used"], "model": "leaf_blower"},
-	"lawn_mower_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "lawn_mower", "tier": 2, "needs": ["lawn_mower", "lawn_mower_used"], "model": "lawn_mower"},
-	"ladder_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "ladder", "tier": 2, "needs": ["ladder", "ladder_used"], "model": "ladder"},
-	"hose_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hose", "tier": 2, "needs": ["hose", "hose_used"], "model": "hose"},
-	"hedge_trimmer_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hedge_trimmer", "tier": 2, "needs": ["hedge_trimmer", "hedge_trimmer_used"], "model": "hedge_trimmer"},
-	"pressure_washer_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "pressure_washer", "tier": 2, "needs": ["pressure_washer", "pressure_washer_used"], "model": "pressure_washer"},
-	"paint_roller_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "paint_roller", "tier": 2, "needs": ["paint_roller", "paint_roller_used"], "model": "paint_roller"},
-	"leaf_blower_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "leaf_blower", "tier": 3, "needs": ["leaf_blower", "leaf_blower_used", "leaf_blower_mk2"], "model": "leaf_blower"},
-	"lawn_mower_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "lawn_mower", "tier": 3, "needs": ["lawn_mower", "lawn_mower_used", "lawn_mower_mk2"], "model": "lawn_mower"},
-	"ladder_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "ladder", "tier": 3, "needs": ["ladder", "ladder_used", "ladder_mk2"], "model": "ladder"},
-	"hose_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hose", "tier": 3, "needs": ["hose", "hose_used", "hose_mk2"], "model": "hose"},
-	"hedge_trimmer_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hedge_trimmer", "tier": 3, "needs": ["hedge_trimmer", "hedge_trimmer_used", "hedge_trimmer_mk2"], "model": "hedge_trimmer"},
-	"pressure_washer_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "pressure_washer", "tier": 3, "needs": ["pressure_washer", "pressure_washer_used", "pressure_washer_mk2"], "model": "pressure_washer"},
-	"paint_roller_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "paint_roller", "tier": 3, "needs": ["paint_roller", "paint_roller_used", "paint_roller_mk2"], "model": "paint_roller"},
+	# Mk II and Mk III: better tools of their own (p2-kit: each is a new one, no trade-in).
+	"leaf_blower_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "leaf_blower", "tier": 2, "model": "leaf_blower"},
+	"lawn_mower_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "lawn_mower", "tier": 2, "model": "lawn_mower"},
+	"ladder_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "ladder", "tier": 2, "model": "ladder"},
+	"hose_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hose", "tier": 2, "model": "hose"},
+	"hedge_trimmer_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hedge_trimmer", "tier": 2, "model": "hedge_trimmer"},
+	"pressure_washer_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "pressure_washer", "tier": 2, "model": "pressure_washer"},
+	"paint_roller_mk2": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "paint_roller", "tier": 2, "model": "paint_roller"},
+	"leaf_blower_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "leaf_blower", "tier": 3, "model": "leaf_blower"},
+	"lawn_mower_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "lawn_mower", "tier": 3, "model": "lawn_mower"},
+	"ladder_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "ladder", "tier": 3, "model": "ladder"},
+	"hose_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hose", "tier": 3, "model": "hose"},
+	"hedge_trimmer_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "hedge_trimmer", "tier": 3, "model": "hedge_trimmer"},
+	"pressure_washer_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "pressure_washer", "tier": 3, "model": "pressure_washer"},
+	"paint_roller_mk3": {"shop": "homie_depot", "tab": "tools", "kind": "tier", "tool": "paint_roller", "tier": 3, "model": "paint_roller"},
 	# ---- Homie Depot: upgrades.
-	"rake_tier_1": {"shop": "homie_depot", "tab": "upgrades", "kind": "upgrade", "model": "rake"},
-	"rake_tier_2": {"shop": "homie_depot", "tab": "upgrades", "kind": "upgrade", "needs": ["rake_tier_1"], "model": "rake"},
 	"wheelbarrow_tier_1": {"shop": "homie_depot", "tab": "upgrades", "kind": "upgrade", "model": "wheelbarrow"},
 	# ---- Homie Depot: supplies, for the whole crew.
 	"lawn_bags": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "lawn_bags", "model": "bag_roll"},
@@ -120,6 +129,7 @@ const ITEMS: Dictionary = {
 	# ---- Homie Depot: gear (driving G1). Personal, bought once, never a job tool.
 	"skateboard": {"shop": "homie_depot", "tab": "gear", "kind": "gear", "model": "skateboard"},
 	# ---- Rusty's Salvage & Pawn: used tools (on sale once the tool is), and oddities.
+	"rake_used": {"shop": "rustys", "tab": "used", "kind": "used_tool", "tool": "rake", "tier": 0, "gate": "shop:rake", "model": "rake"},
 	"leaf_blower_used": {"shop": "rustys", "tab": "used", "kind": "used_tool", "tool": "leaf_blower", "tier": 0, "gate": "shop:leaf_blower", "model": "leaf_blower"},
 	"lawn_mower_used": {"shop": "rustys", "tab": "used", "kind": "used_tool", "tool": "lawn_mower", "tier": 0, "gate": "shop:lawn_mower", "model": "lawn_mower"},
 	"ladder_used": {"shop": "rustys", "tab": "used", "kind": "used_tool", "tool": "ladder", "tier": 0, "gate": "shop:ladder", "model": "ladder"},
@@ -170,14 +180,15 @@ static func price(id: String) -> int:
 	if entry.is_empty():
 		return -1
 	var base := -1.0
-	if entry.has("tool") and entry.has("tier"):
+	if Constants.SHOP_PRICES.has(id):
+		# Everything priced by id (the rake and its tiers among them, p2-kit).
+		base = float(Constants.SHOP_PRICES[id])
+	elif entry.has("tool") and entry.has("tier"):
 		var tool := str(entry["tool"])
 		var tier := int(entry["tier"])
 		if not Constants.TOOL_PRICES.has(tool) or tier < 0 or tier >= Constants.TOOL_TIER_PRICE.size():
 			return -1
 		base = float(Constants.TOOL_PRICES[tool]) * Constants.TOOL_TIER_PRICE[tier]
-	elif Constants.SHOP_PRICES.has(id):
-		base = float(Constants.SHOP_PRICES[id])
 	else:
 		return -1
 	if str(entry.get("shop", "")) == "snak_o_matic":
@@ -201,6 +212,8 @@ static func shop_gate(shop: String) -> String:
 
 ## The item id for a tool at a tier: "hose_used", "hose", "hose_mk2", "hose_mk3".
 static func tool_item(tool: String, tier: int) -> String:
+	if tool == "rake":
+		return RAKE_ITEMS[tier] if tier >= TIER_USED and tier <= TIER_MK3 else ""
 	match tier:
 		TIER_USED:
 			return tool + "_used"
@@ -223,6 +236,20 @@ static func is_in_season(id: String, season: Variant) -> bool:
 	if typeof(season) == TYPE_INT:
 		season_id = Seasons.IDS[posmod(int(season), Seasons.IDS.size())]
 	return seasons.has(season_id)
+
+
+## Whether buying this makes a physical thing for the crew's kit (a tool at a
+## tier, a used one, a rake: net/kit/kit.gd), rather than something owned.
+static func is_kit(id: String) -> bool:
+	var entry := item(id)
+	return entry.has("tool") and entry.has("tier") and Constants.KIT_KINDS.has(str(entry["tool"]))
+
+
+## The kit kinds in the order shops and shelves show them: the rake, then TOOLS.
+static func kit_tools() -> PackedStringArray:
+	var out := PackedStringArray(["rake"])
+	out.append_array(PackedStringArray(TOOLS))
+	return out
 
 
 ## Whether owning this item puts it in the player's unlock list.

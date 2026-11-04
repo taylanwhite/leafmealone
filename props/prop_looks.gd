@@ -166,7 +166,8 @@ static func pose_rake(prop: Node3D, holder: Node3D, _raking: bool = false) -> vo
 		return
 	if holder != null:
 		prop.set_meta("last_holder", holder.name.to_int())
-	RakeMotion.dress(pose, rake_tier(int(prop.get_meta("last_holder", 0))))
+	# p2-kit: the head is the rake's own (its tier), whoever holds it.
+	RakeMotion.dress(pose, rake_head(int(prop.get("tier"))))
 	if holder == null:
 		RakeMotion.unpublish(pose)
 		if pose.top_level:
@@ -195,20 +196,12 @@ static func pose_rake(prop: Node3D, holder: Node3D, _raking: bool = false) -> vo
 		prop.set_meta("pose_last", target)
 
 
-## Which rake head a peer's upgrades give it: 0 the starter, 1 the Tune-Up, 2 The
-## Leafinator (Campaign RAKE_UPGRADE, RAKE_UPGRADE_2).
-## Looked up at run time, so tools that load this script without the autoloads
-## (--script checks) still compile it.
-static func rake_tier(peer_id: int) -> int:
-	var tree := Engine.get_main_loop() as SceneTree
-	var campaign := tree.root.get_node_or_null("Campaign") if tree != null else null
-	if peer_id == 0 or campaign == null:
-		return 0
-	if bool(campaign.call("peer_has_unlock", peer_id, &"rake_tier_2")):
-		return 2
-	if bool(campaign.call("peer_has_unlock", peer_id, &"rake_tier_1")):
-		return 1
-	return 0
+## Which rake head a rake of this tier has (p2-kit: the tier is the rake's, not
+## its holder's upgrades): 0 the plain head (used and stock), 1 the Mk II's, 2
+## The Leafinator's (Constants.KIT_RAKE_HEAD_BY_TIER, RAKE_HEAD_WIDTHS).
+static func rake_head(tier: int) -> int:
+	var heads := Constants.KIT_RAKE_HEAD_BY_TIER
+	return heads[clampi(tier, 0, heads.size() - 1)]
 
 
 ## A ladder set up against the house: standing from its foot (the prop) up to

@@ -386,7 +386,9 @@ func _new_town() -> void:
 		houses[house_id]["relationship"] = Constants.TOWN_START_RELATIONSHIP
 	requests.clear()
 	texts.clear()
-	_text(_Strings.UI["clerk_name"], "intro", _Strings.pick(_Strings.TEXT_LINES["clerk_intro"], _line_rng(["intro"])), -1)
+	# p2-kit: Marty says where the rakes are and what one costs (the only way the
+	# crew hears it before they find the bin by the door).
+	_text(_Strings.UI["clerk_name"], "intro", _Strings.pick(_Strings.TEXT_LINES["clerk_intro"], _line_rng(["intro"])) % Catalog.price("rake"), -1)
 	# On day one everybody you know wants you.
 	for house_id: Variant in starters.slice(0, Constants.TOWN_STARTING_CLIENTS):
 		_add_request(int(house_id), rng)

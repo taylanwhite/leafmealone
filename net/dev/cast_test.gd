@@ -860,7 +860,7 @@ func _wiring() -> void:
 			var text: Dictionary = entry
 			var kind := str(text.get("kind", ""))
 			if kind == "intro":
-				intro = str(text.get("from", "")) == _Strings.UI["clerk_name"] and (_Strings.TEXT_LINES["clerk_intro"] as Array).has(str(text.get("text", "")))
+				intro = str(text.get("from", "")) == _Strings.UI["clerk_name"] and (_Strings.TEXT_LINES["clerk_intro"] as Array).map(func(line: Variant) -> String: return str(line) % Catalog.price("rake")).has(str(text.get("text", "")))
 			elif kind == "request":
 				requests += 1
 				var house_id := int(text.get("house", -1))

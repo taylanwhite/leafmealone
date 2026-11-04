@@ -27,6 +27,12 @@ const RAKE_REST_SECONDS: float = 25.0
 const RAKE_DEFER_SECONDS: float = 20.0
 const RAKE_DEFER_METERS: float = 15.0
 
+## p2-kit: where a bot stands to take a rake off Chefty's rack (truck space, x
+## to its side of the truck, z beside the cab's back), and how close is close enough (m).
+const RACK_SIDE_X: float = 1.9
+const RACK_SIDE_Z: float = -1.5
+const TAKE_FROM_METERS: float = 0.9
+
 ## Walking at something for this long without getting 0.5 m closer is stuck (s).
 const STUCK_SECONDS: float = 3.0
 const STUCK_RUNS_BEFORE_NEW_PILE: int = 3
@@ -208,6 +214,24 @@ func _find_work(player: Node3D, tree: SceneTree) -> bool:
 		var rake := _free_rake(tree)
 		if rake != null and _mine_to_take(player, rake):
 			target = rake
+	# p2-kit: no rake lying free, but one on Chefty's rack: take it off the rack,
+	# once every person on the yard without a rake has had theirs (people first).
+	if target == null and _elapsed >= _rake_rest_until and share_rake and _bed_rake_is_mine(player, tree):
+		var bed := _tool_bed(tree)
+		var side := _rack_side(player, tree)
+		Input.action_release(&"primary")
+		_hand_raking = false
+		if _flat_distance(player.global_position, side) <= TAKE_FROM_METERS:
+			wants_walk = false
+			_face(player, bed.global_position)
+			if _press_wait <= 0.0 and _release_next == &"":
+				_press_wait = 1.0
+				var index := _bed_rake_index(bed)
+				if index >= 0:
+					bed.call("request_take", index)
+		else:
+			_face(player, _steer(player, side))
+		return true
 	if target != null:
 		_hand_raking = false
 		Input.action_release(&"primary")
@@ -377,6 +401,59 @@ func _loose_bags(tree: SceneTree) -> Array:
 		if str(node.get("kind")) == "leaf_bag" and bool(node.call("is_loose")):
 			bags.append(node)
 	return bags
+
+
+## p2-kit: whether a rake on Chefty's rack is this bot's to take: more rakes
+## aboard than the people on the yard who have none (a person walking up to
+## the rack gets theirs first), and no other bot nearer the truck.
+func _bed_rake_is_mine(player: Node3D, tree: SceneTree) -> bool:
+	var bed := _tool_bed(tree)
+	if bed == null or int(bed.call("count_of", "rake")) <= 0:
+		return false
+	var truck := tree.get_first_node_in_group("chefty")
+	if truck != null and (bool(truck.call("is_riding")) or (truck.has_method("is_moving") and bool(truck.call("is_moving")))):
+		return false
+	var rakeless_people := 0
+	var mine := _flat_distance(player.global_position, bed.global_position)
+	for node: Node in tree.get_nodes_in_group("players"):
+		var other := node as Node3D
+		var peer_id := int(str(node.name))
+		if other == null or other == player or Net.player_zone(peer_id) != Net.Zone.LOT or Net.is_watcher(peer_id) or Net.player_name(peer_id) == "Observer":
+			continue
+		var carries := false
+		for prop: Node in tree.get_nodes_in_group("props"):
+			if str(prop.get("kind")) == "rake" and (int(prop.get("held_by")) == peer_id or int(prop.get("pocketed_by")) == peer_id):
+				carries = true
+				break
+		if carries:
+			continue
+		if not Net.player_name(peer_id).begins_with("Bot"):
+			rakeless_people += 1
+		elif _flat_distance(other.global_position, bed.global_position) < mine:
+			return false
+	return int(bed.call("count_of", "rake")) > rakeless_people
+
+
+func _tool_bed(tree: SceneTree) -> Node3D:
+	var truck := tree.get_first_node_in_group("chefty")
+	return truck.call("tool_bed") as Node3D if truck != null and truck.has_method("tool_bed") else null
+
+
+## The first rake on the rack (its index in the bed's list), or -1.
+func _bed_rake_index(bed: Node) -> int:
+	var tools: Array = bed.get("tools")
+	for index: int in tools.size():
+		if str((tools[index] as Dictionary)["kind"]) == "rake":
+			return index
+	return -1
+
+
+## Where a bot stands to reach the rack: beside the cab, on its own side of the truck.
+func _rack_side(player: Node3D, tree: SceneTree) -> Vector3:
+	var truck := tree.get_first_node_in_group("chefty")
+	var bed: Transform3D = truck.call("bed_transform")
+	var local := bed.affine_inverse() * player.global_position
+	return bed * Vector3(RACK_SIDE_X * (1.0 if local.x >= 0.0 else -1.0), 0.0, RACK_SIDE_Z)
 
 
 func _free_rake(tree: SceneTree) -> Node3D:

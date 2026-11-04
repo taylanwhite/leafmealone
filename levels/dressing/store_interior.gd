@@ -49,6 +49,10 @@ const ENDCAP_LEFT_Z: float = -5.65
 const ENDCAP_RIGHT_Z: float = 1.65
 ## A ShelfSlot on an endcap: depth across, height, width along (m).
 const SLOT_SIZE := Vector3(0.62, 1.1, 1.0)
+## p2-kit: the rake bin inside the doors, right of the mat, clear of the lane.
+const RAKE_BIN_AT := Vector3(-11.1, 0.02, 1.85)
+const RAKE_BIN_SIZE := Vector3(0.6, 1.4, 0.6)
+const RAKE_BIN_TAG_PIXEL: float = 0.006
 ## The walk-in lane between the endcaps, from the doors to the back fixtures.
 const LANE := Rect2(-17.4, -5.2, 7.4, 6.4)
 ## Where the shell's front wall stands (store_dressing.gd FRONT_X); the room
@@ -184,6 +188,20 @@ static func _endcaps(lobby: Node3D) -> void:
 			lobby.add_child(marker)
 			slots.append({"at": marker.position, "size": SLOT_SIZE, "face": face})
 			index += 1
+	# p2-kit: the rake bin, just inside the doors on the right ("Rakes are by the
+	# door", Marty's day-one text): the first thing a new crew can buy, and the
+	# first thing it walks past. Its own stock, one slot, the plain rake.
+	var bin := _ShelfStock.new()
+	bin.name = "RakeBin"
+	bin.set("shop_id", "homie_depot")
+	bin.set("tabs", ["tools"] as Array[String])
+	bin.set("items", PackedStringArray(["rake"]))
+	bin.set("slots", [{"at": RAKE_BIN_AT, "size": RAKE_BIN_SIZE, "face": 0.0, "bin": true, "tag_y": RAKE_BIN_SIZE.y * 0.45}] as Array[Dictionary])
+	# Its own group: "lobby_stock" is the endcaps' (art_test A14 reads that one).
+	bin.set("stock_group", "rake_bin")
+	# A bigger tag than the endcaps': the price a new crew reads first.
+	bin.set("tag_pixel", RAKE_BIN_TAG_PIXEL)
+	lobby.add_child(bin)
 	var stock := _ShelfStock.new()
 	stock.name = "LobbyStock"
 	stock.set("shop_id", "homie_depot")

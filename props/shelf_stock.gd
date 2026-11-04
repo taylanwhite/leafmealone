@@ -81,6 +81,11 @@ var tabs: Array[String] = SHELF_TABS.duplicate()
 var slots: Array[Dictionary] = SHELF_SLOTS.duplicate(true)
 ## Rusty's rack: the slots show today's used tools, in order, whatever they are.
 var used_rack: bool = false
+## p2-kit: these items, one a slot, instead of the tabs' (the rake bin by the doors).
+var items: PackedStringArray = []
+## How much smaller a locked slot's "Rank: ..." tag is than a price tag (p2-kit:
+## what you can buy leads; what you can't is a teaser).
+const LOCKED_TAG_SCALE: float = 0.7
 ## The slot ids a used rack fills: "used_slot_<n>".
 const USED_SLOT: String = "used_slot_"
 
@@ -120,6 +125,8 @@ func _slot_items(tab: String) -> PackedStringArray:
 		for index: int in slots.size():
 			out.append(USED_SLOT + str(index))
 		return out
+	if not items.is_empty():
+		return items
 	if tab == "tools":
 		return PackedStringArray(Catalog.TOOLS)
 	return Catalog.items_for(shop_id, tab)
@@ -178,12 +185,16 @@ func slot_state(item: String) -> Dictionary:
 			return {"item": "", "tier": Catalog.TIER_USED, "units": 0, "tag": "", "look": "empty"}
 		shown = Catalog.tool_item(str(rack[index]), Catalog.TIER_USED)
 		tier = Catalog.TIER_USED
-	elif Catalog.TOOLS.has(item):
-		var owned := Campaign.tool_tier(me, item)
-		tier = Catalog.TIER_STOCK if owned < Catalog.TIER_STOCK and owned != Catalog.TIER_USED else mini(maxi(owned + 1, Catalog.TIER_MK2), Catalog.TIER_MK3)
+	elif Catalog.kit_tools().has(item):
+		# p2-kit: the best tier on sale stands out (a tool is a thing you can
+		# always buy another of, never OWNED); none on sale yet, the stock one under
+		# its tarp.
+		tier = Catalog.TIER_STOCK
+		# The rake bin always shows the plain rake: the one a crew short of rakes wants.
+		for better: int in ([] if item == "rake" else [Catalog.TIER_MK2, Catalog.TIER_MK3]):
+			if Campaign.is_for_sale(StringName(Catalog.tool_item(item, better))):
+				tier = better
 		shown = Catalog.tool_item(item, tier)
-		if owned >= Catalog.TIER_MK3:
-			return {"item": shown, "tier": tier, "units": 1, "tag": str(_Strings.SHOP_UI["shop_owned_tag"]), "look": "owned"}
 	var entry := Catalog.item(shown)
 	var shops := _shops()
 	var units := 1
@@ -331,6 +342,8 @@ func _draw_slot(entry: Dictionary, state: Dictionary) -> void:
 		var units := int(state["units"])
 		if str(Catalog.item(item).get("kind", "")) == "consumable":
 			_draw_units(holder, item, units, size)
+		elif bool(slot.get("bin", false)):
+			_draw_bin(holder, item, size)
 		elif units > 0:
 			_draw_one(holder, item, int(state["tier"]), size)
 	var tag := Label3D.new()
@@ -338,15 +351,15 @@ func _draw_slot(entry: Dictionary, state: Dictionary) -> void:
 	tag.text = str(state["tag"])
 	tag.visible = tag.text != ""
 	tag.font_size = 40
-	tag.pixel_size = tag_pixel
+	tag.pixel_size = tag_pixel * (LOCKED_TAG_SCALE if look == "locked" else 1.0)
 	tag.outline_size = 12
-	tag.modulate = TAG_PRICE
+	tag.modulate = TAG_PRICE if look != "locked" else TAG_PRICE.darkened(0.15)
 	tag.outline_modulate = {"owned": TAG_OWNED, "sold_out": TAG_SOLD_OUT, "locked": TAG_LOCKED, "season": TAG_LOCKED}.get(look, TAG_EDGE)
 	# No wider than its slot (the lobby's endcaps are narrow): a long tag wraps.
 	tag.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tag.width = size.z / TAG_PIXEL
-	# On the shelf's front lip, facing the aisle.
-	tag.position = Vector3(-size.x * 0.5 - 0.07, -0.04, 0.0)
+	# On the shelf's front lip, facing the aisle (a bin's on its rim).
+	tag.position = Vector3(-size.x * 0.5 - 0.07, float(slot.get("tag_y", -0.04)), 0.0)
 	tag.rotation.y = -PI * 0.5
 	holder.add_child(tag)
 
@@ -377,6 +390,49 @@ func _draw_one(holder: Node3D, item: String, tier: int, size: Vector3) -> void:
 		offset = Vector3(center.z, 0.0, -center.x)
 	view.position = Vector3(-offset.x * fit, -box.position.y * fit + 0.005, -offset.z * fit)
 	holder.add_child(view)
+
+
+## p2-kit: the rake bin by the doors: an orange Homie Depot bucket with a
+## handful of rakes standing in it, heads up, each leaning its own way.
+const BIN_RAKES: int = 5
+const BIN_ORANGE := Color(0.95, 0.5, 0.15)
+## The rake model's grip end, its top (props/yard_models.gd _rake: the handle to 1.62 m).
+const BIN_GRIP_Y: float = 1.62
+
+
+func _draw_bin(holder: Node3D, item: String, size: Vector3) -> void:
+	var bucket := MeshInstance3D.new()
+	bucket.name = "Bucket"
+	var cylinder := CylinderMesh.new()
+	var radius := minf(size.x, size.z) * 0.42
+	cylinder.top_radius = radius
+	cylinder.bottom_radius = radius * 0.86
+	cylinder.height = size.y * 0.42
+	cylinder.radial_segments = 14
+	bucket.mesh = cylinder
+	var paint := StandardMaterial3D.new()
+	paint.albedo_color = BIN_ORANGE
+	paint.roughness = 0.6
+	bucket.material_override = paint
+	bucket.position = Vector3(0.0, cylinder.height * 0.5, 0.0)
+	holder.add_child(bucket)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(item)
+	for index: int in BIN_RAKES:
+		var view := _model(item, Catalog.TIER_STOCK)
+		if view == null:
+			return
+		var angle := TAU * float(index) / float(BIN_RAKES) + rng.randf_range(-0.3, 0.3)
+		var outward := Vector3(cos(angle), 0.0, sin(angle))
+		# Handle down in the bucket, head up (turned over about its length), each
+		# head tipped out from the middle so the fans don't cross.
+		var lean := Basis(Vector3.UP.cross(outward).normalized(), rng.randf_range(0.07, 0.13))
+		view.basis = lean * Basis(Vector3.UP, angle + rng.randf_range(-0.4, 0.4)) * Basis(Vector3.FORWARD, PI)
+		# The grip end (the model's top, y BIN_GRIP_Y, turned under) rests on the
+		# bucket's floor, near its middle.
+		var grip := outward * radius * 0.3 + Vector3.UP * 0.03
+		view.position = grip - view.basis * Vector3(0.0, BIN_GRIP_Y, 0.0)
+		holder.add_child(view)
 
 
 ## One box per unit left, in two rows along the shelf: the front row fills

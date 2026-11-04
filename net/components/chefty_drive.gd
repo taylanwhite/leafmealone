@@ -55,6 +55,7 @@ const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
+const _ToolBed = preload("res://net/components/tool_bed.gd")
 const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 
 const _CheftyCrash = preload("res://net/components/chefty_crash.gd")
@@ -196,6 +197,8 @@ var _horn_held: float = 0.0
 var _bed_load: Node3D
 ## The junk in the bed for Rusty's (net/components/junk_bed.gd).
 var _junk_bed: Node3D
+## The crew's kit aboard (net/components/tool_bed.gd, p2-kit).
+var _tool_bed: Node3D
 ## The crash comedy (net/components/chefty_crash.gd, driving chunk C3).
 var _crash: Node
 ## p1-dash: Chefty's ground velocity as this peer draws it (the host: the
@@ -283,6 +286,8 @@ func _build() -> void:
 	_body.add_child(_bed_load)
 	_junk_bed = _JunkBed.new()
 	_body.add_child(_junk_bed)
+	_tool_bed = _ToolBed.new()
+	_body.add_child(_tool_bed)
 	# The chauffeur's quip, over the cab while it lasts.
 	var quip := Label3D.new()
 	quip.name = "Quip"
@@ -644,6 +649,11 @@ func accept_junk(prop: Node3D) -> bool:
 
 func junk_count() -> int:
 	return int(_junk_bed.call("count")) if _junk_bed != null else 0
+
+
+## The crew's kit aboard (net/components/tool_bed.gd).
+func tool_bed() -> Node3D:
+	return _tool_bed
 
 
 ## Host: the junk hops out over the tailgate, one piece at a time (parked on
@@ -2174,6 +2184,8 @@ func _rpc_request_state() -> void:
 	_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), _riders, driver(), _job_bags, _job_value, _spent_bags, _dents, _horn, _trip, _trip_zone, _trip_label, _chassis.global_position, float(_state["yaw"]))
 	if _junk_bed != null:
 		_junk_bed.call("send_to", multiplayer.get_remote_sender_id())
+	if _tool_bed != null:
+		_tool_bed.call("send_to", multiplayer.get_remote_sender_id())
 	_rpc_odometer.rpc_id(multiplayer.get_remote_sender_id(), _odometer_m)
 
 
