@@ -567,7 +567,7 @@ func host_order(peer_id: int, item: String, qty: int) -> String:
 			var clock := _clock()
 			var hour := float(clock.call("hour")) if clock != null else float(Constants.SHOP_HOURS["homie_depot"].x)
 			var due := arrival_at(hour, _today())
-			orders.append({"item": item, "qty": qty, "arrive_day": int(due[0]), "arrive_minutes": float(due[1]), "by": Campaign.key_of(peer_id)})
+			orders.append({"item": item, "qty": qty, "arrive_day": int(due[0]), "arrive_minutes": float(due[1]), "by_key": Campaign.key_of(peer_id)})
 			Campaign.save_now()
 			_broadcast()
 	_send_result(peer_id, code, item, amount)
@@ -604,6 +604,7 @@ func host_land(due: Array) -> void:
 	var crates: Array = []
 	var tools: Array = []
 	var names: Array = []
+	var kit := get_tree().get_first_node_in_group("kit")
 	for order: Dictionary in due:
 		var item := str(order.get("item", ""))
 		var qty := maxi(int(order.get("qty", 1)), 1)
@@ -611,8 +612,17 @@ func host_land(due: Array) -> void:
 		if entry.is_empty():
 			continue
 		if Catalog.is_kit(item):
+			# Nowhere to make the tool yet: the order stays open and lands next time.
+			if kit == null:
+				orders.append(order)
+				continue
+			# The tool exists from this moment, hidden in the back room behind the
+			# hatch, so the save that follows has it (a quit before it's thrown
+			# finds it by the front door next session, as any kit at the store).
 			for _unit: int in qty:
-				tools.append({"kind": str(entry["tool"]), "tier": int(entry["tier"])})
+				var prop := _hidden_tool(kit, str(entry["tool"]), int(entry["tier"]))
+				if prop != null:
+					tools.append(prop)
 			names.append(_KitRules.sentence_name(str(entry["tool"]), int(entry["tier"])))
 		else:
 			var supply_id := str(entry.get("supply", ""))
@@ -624,6 +634,10 @@ func host_land(due: Array) -> void:
 			if named.length() > 1 and named.substr(1, 1) == named.substr(1, 1).to_lower():
 				named = named.substr(0, 1).to_lower() + named.substr(1)
 			names.append(str(_Strings.SHOP_UI["deliveries_qty"]) % [qty, named] if qty > 1 else named)
+	if crates.is_empty() and tools.is_empty():
+		Campaign.save_now()
+		_broadcast()
+		return
 	# The crates the pallet has room for (the rest are "in the back").
 	var room := maxi(Constants.DELIVERY_CRATES_MAX - arrived_today.size(), 0)
 	var shown := crates.slice(0, room)
@@ -637,9 +651,8 @@ func host_land(due: Array) -> void:
 	# Each tool gets its own spot, worked out now: the one before it is still in the air when it goes.
 	var first_spot := _delivery_kit_index()
 	for index: int in tools.size():
-		var tool: Dictionary = tools[index]
 		var delay := Constants.DELIVERY_TOSS_DELAY + float(shown.size() + index) * Constants.DELIVERY_TOSS_GAP
-		get_tree().create_timer(delay).timeout.connect(_toss_tool.bind(str(tool["kind"]), int(tool["tier"]), first_spot + index))
+		get_tree().create_timer(delay).timeout.connect(_toss_tool.bind(tools[index], first_spot + index))
 	var town := get_tree().get_first_node_in_group("town")
 	if town != null and not names.is_empty():
 		town.call("_text", str(_Strings.SHOP_UI["text_from_deliveries"]), "delivery", str(_Strings.SHOP_UI["text_delivery"]) % _KitRules.sentence_list(names), -1)
@@ -647,29 +660,117 @@ func host_land(due: Array) -> void:
 	_broadcast()
 
 
-## Host: one ordered tool comes out of the back room's hatch, lobbed high over
-## the cage onto the next free spot in front of it: a real kit prop thrown on an
-## arc (net/kit/kit.gd), turning a little as it flies.
-func _toss_tool(kind: String, tier: int, spot: int) -> void:
-	var kit := get_tree().get_first_node_in_group("kit") if is_inside_tree() else null
-	if kit == null or not Net.is_host():
-		return
-	var land := delivery_kit_point(spot)
-	var from := delivery_point(Constants.DELIVERY_HATCH + Vector3(Constants.DELIVERY_TOOL_START_OUT, 0.0, 0.0))
+## Host: an ordered tool, made where nobody can see it: inside the building,
+## behind the hatch, held still and not solid until it's thrown (_toss_tool).
+func _hidden_tool(kit: Node, kind: String, tier: int) -> RigidBody3D:
 	var fuel := Constants.KIT_USED_FUEL if tier == Catalog.TIER_USED else Constants.KIT_NEW_FUEL
-	# As it lies on the ground (a kit prop's rest pose), so it comes through the
-	# hatch flat and lands flat.
-	var prop := kit.call("spawn_item", kind, tier, fuel, Transform3D(Basis(), from)) as RigidBody3D
-	if prop == null:
+	var at := delivery_point(Constants.DELIVERY_HATCH + Vector3(-Constants.DELIVERY_TOOL_HIDE_BACK, 0.0, 0.0))
+	var prop := kit.call("spawn_item", kind, tier, fuel, Transform3D(_zone_yaw(), at)) as RigidBody3D
+	if prop != null:
+		prop.call("host_hold_for_take", true)
+	return prop
+
+
+## Host: one ordered tool comes out of the back room's hatch onto the next free
+## spot in front of the cage. Someone inside shoves it out along a straight line
+## tipped up through the hatch's middle, lengthwise, so every part of it leaves
+## through the hatch (a rake is 1.6 m; it used to fly up with its handle still in
+## the wall: rec_deliv3_3p frames 111-122), and the moment its tail is clear it
+## carries on along a lob over the cage, levelling out to land flat. It is
+## moved by hand the whole way (held, not solid), then let go on the ground with
+## a thud; replicated position and rotation draw it on every peer.
+func _toss_tool(prop: RigidBody3D, spot: int) -> void:
+	if not is_instance_valid(prop) or prop.is_queued_for_deletion() or not Net.is_host() or not bool(prop.call("is_loose")):
 		return
-	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * prop.gravity_scale
-	var seconds := Constants.DELIVERY_TOOL_FLIGHT
-	prop.linear_velocity = (land - from) / seconds + Vector3.UP * 0.5 * gravity * seconds
-	# A lazy turn about up as it flies; tumbling end over end, a rake could land
-	# on its head and stand there.
-	prop.angular_velocity = Vector3(0.0, Constants.DELIVERY_TOOL_SPIN, 0.0)
-	# The order left the list when it landed: the tool is in the save from now on.
-	Campaign.save_now()
+	var kit_lift := Constants.DELIVERY_KIT_FIRST.y - Constants.DELIVERY_TOOL_LAND_LIFT
+	var land := delivery_kit_point(spot) + Vector3.DOWN * kit_lift
+	var hatch := delivery_point(Constants.DELIVERY_HATCH)
+	var flat := Vector3(land.x - hatch.x, 0.0, land.z - hatch.z).normalized()
+	var pitch := Constants.DELIVERY_TOOL_PITCH
+	var line := flat * cos(pitch) + Vector3.UP * sin(pitch)
+	# The tool's length along its long side, front (the end that goes first) and
+	# back, from its origin, as it lies; turned so that side points out.
+	var shape := _tool_bounds(prop)
+	var turn := Basis.IDENTITY
+	if shape.size.z > shape.size.x:
+		# Its long side is its own Z (the ladder): a quarter turn puts it on X.
+		turn = Basis(Vector3.UP, PI * 0.5)
+		shape = Transform3D(turn, Vector3.ZERO) * shape
+	var front := shape.end.x
+	var back := -shape.position.x
+	# Lying with that side (+X) along the way out, then tipped up by the pitch
+	# about the level axis across it.
+	var lying := Basis(Vector3.UP, atan2(-flat.z, flat.x)) * turn
+	var side := flat.cross(Vector3.UP).normalized()
+	var tipped := Basis(side, pitch) * lying
+	# The line runs through the hatch's middle at the tool's middle height.
+	var mid := hatch + Vector3.DOWN * shape.get_center().y
+	var start := -front - Constants.DELIVERY_TOOL_HIDE_MARGIN
+	var clear := back + Constants.DELIVERY_TOOL_HIDE_MARGIN
+	var release := mid + line * clear
+	var gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8))
+	var reach := Vector2(land.x - release.x, land.z - release.z).length()
+	var drop := land.y - release.y
+	# The lob that leaves at the shove's angle and lands on the spot; the shove
+	# goes at the lob's speed, so the two are one movement.
+	var lob_seconds := sqrt(maxf(2.0 * (reach * tan(pitch) - drop) / gravity, 0.04))
+	var speed := reach / (lob_seconds * cos(pitch))
+	var shove_seconds := (clear - start) / maxf(speed, 0.1)
+	var across := Vector3(land.x - release.x, 0.0, land.z - release.z) / lob_seconds
+	var rise := speed * sin(pitch)
+	prop.global_transform = Transform3D(tipped, mid + line * start)
+	prop.reset_physics_interpolation()
+	var spin := Constants.DELIVERY_TOOL_SPIN
+	var flight := prop.create_tween().set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+	flight.tween_method(func(s: float) -> void:
+		if is_instance_valid(prop):
+			prop.global_transform = Transform3D(tipped, mid + line * s)
+	, start, clear, shove_seconds)
+	flight.tween_method(func(t: float) -> void:
+		if not is_instance_valid(prop):
+			return
+		var time := t * lob_seconds
+		var at := release + across * time + Vector3.UP * (rise * time - 0.5 * gravity * time * time)
+		# It levels out as it goes (flat by the time it lands), turning a little about up.
+		var level := smoothstep(0.0, 1.0, t)
+		var yawed := Basis(Vector3.UP, spin * time) * lying
+		prop.global_transform = Transform3D(Basis(side.rotated(Vector3.UP, spin * time), pitch * (1.0 - level)) * yawed, at)
+	, 0.0, 1.0, lob_seconds)
+	flight.tween_callback(_tool_landed.bind(prop))
+
+
+## Host: a delivered tool touches down: let go on its spot, flat, with a thud.
+func _tool_landed(prop: RigidBody3D) -> void:
+	if not is_instance_valid(prop):
+		return
+	prop.call("host_hold_for_take", false)
+	prop.linear_velocity = Vector3.DOWN * Constants.DELIVERY_TOOL_LAND_SPEED
+	prop.angular_velocity = Vector3.ZERO
+	if multiplayer.multiplayer_peer == null:
+		_rpc_tool_landed(prop.global_position)
+	else:
+		_rpc_tool_landed.rpc(prop.global_position)
+
+
+## A tool's drawn shape as it lies (its look's box, in its own axes), from its origin.
+func _tool_bounds(prop: Node3D) -> AABB:
+	var to_local := prop.global_transform.affine_inverse()
+	var box := AABB()
+	var first := true
+	for node: Node in prop.find_children("*", "VisualInstance3D", true, false):
+		var shown := node as VisualInstance3D
+		if not shown.is_visible_in_tree():
+			continue
+		var part := (to_local * shown.global_transform) * shown.get_aabb()
+		box = part if first else box.merge(part)
+		first = false
+	return box if not first else AABB(Vector3(-0.4, 0.0, -0.2), Vector3(0.8, 0.4, 0.4))
+
+
+## The store zone's turn about up (the back room's axes), as a basis.
+func _zone_yaw() -> Basis:
+	var zone := _site_zone(Constants.SHOP_SITES.get("back_room", {}))
+	return Basis(Vector3.UP, zone.global_rotation.y) if zone != null else Basis.IDENTITY
 
 
 ## A point given from the back room's pallet (StoreZone's axes), in the world.
@@ -1310,7 +1411,7 @@ func _read_section(saved: Dictionary) -> void:
 		orders.append({
 			"item": str(order["item"]), "qty": maxi(int((order as Dictionary).get("qty", 1)), 1),
 			"arrive_day": int((order as Dictionary).get("arrive_day", 0)), "arrive_minutes": float((order as Dictionary).get("arrive_minutes", 0.0)),
-			"by": str((order as Dictionary).get("by", "")),
+			"by_key": str((order as Dictionary).get("by_key", "")),
 		})
 	looks = {}
 	if typeof(saved.get("looks")) == TYPE_DICTIONARY:
@@ -1426,6 +1527,19 @@ func _rpc_delivered(crates: Array, tools: int) -> void:
 
 
 ## Every peer: a crewmate paid another (host_give).
+## Every peer: a delivered tool touched down here. A client draws props a beat
+## behind the host (NetSmoother's delay), so it waits that beat before the thud,
+## or the sound lands before the rake does (rec_deliv9_3p: 3-4 frames early).
+@rpc("authority", "call_local", "reliable")
+func _rpc_tool_landed(at: Vector3) -> void:
+	var wait := 0.0 if Net.is_host() else Constants.DELIVERY_TOOL_THUD_CLIENT_DELAY
+	if wait > 0.0:
+		await get_tree().create_timer(wait).timeout
+	var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
+	if sfx != null:
+		sfx.call("play_at", "thud", at, Constants.JUNK_LAND_DB)
+
+
 @rpc("authority", "call_local", "reliable")
 func _rpc_gave(from_peer: int, to_peer: int, amount: int) -> void:
 	gave.emit(from_peer, to_peer, amount)

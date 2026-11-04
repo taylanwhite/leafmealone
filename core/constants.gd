@@ -5808,19 +5808,32 @@ const DELIVERY_SHUTTER_DELAY: float = 0.45
 const DELIVERY_SHUTTER_SECONDS: float = 0.35
 ## Then someone inside shoves the order out through it: the first thing goes this
 ## long after the honk (s), the rest this far apart; a crate is in the air this
-## long (s), a tool (lobbed high, over the cage and the stack) this long.
+## long (s); a tool is through the hatch well within this long (s; the shutter
+## waits for it).
 const DELIVERY_TOSS_DELAY: float = 1.1
 const DELIVERY_TOSS_GAP: float = 0.45
 const DELIVERY_TOSS_SECONDS: float = 0.55
 const DELIVERY_TOOL_FLIGHT: float = 1.1
 ## A tool turns about up this fast as it flies (radians/s).
-const DELIVERY_TOOL_SPIN: float = 0.8
+const DELIVERY_TOOL_SPIN: float = 0.5
+## An ordered tool waits this far behind the hatch (m, inside the building, out of
+## sight) from the moment it lands until it's thrown; it's shoved out lengthwise
+## along a line tipped up this much (radians) through the hatch's middle, from
+## this far behind the wall's face (m) until its tail is this far out of it, then
+## lobbed on. It's let go this high over its spot (m), dropping at this speed (m/s).
+const DELIVERY_TOOL_HIDE_BACK: float = 2.7
+const DELIVERY_TOOL_PITCH: float = 0.7
+const DELIVERY_TOOL_HIDE_MARGIN: float = 0.08
+const DELIVERY_TOOL_LAND_LIFT: float = 0.04
+const DELIVERY_TOOL_LAND_SPEED: float = 0.6
+## Its thud waits this long on a client (s): NetSmoother draws props about this
+## far behind the host, so the sound lands with the rake you see.
+const DELIVERY_TOOL_THUD_CLIENT_DELAY: float = 0.1
 ## Orders land on the quarter hour (minutes), like the HUD clock reads.
 const DELIVERY_ROUND_MINUTES: float = 15.0
-## A crate starts this far back inside the hatch (hidden in the dark), a tool
-## this far out of its mouth (clear of the wall), along the way out (m).
+## A crate starts this far back inside the hatch (hidden in the dark), along the
+## way out (m).
 const DELIVERY_CRATE_START_BACK: float = 0.3
-const DELIVERY_TOOL_START_OUT: float = 0.3
 ## The shutter comes back down this long after the last thing lands (s).
 const DELIVERY_SHUTTER_HOLD: float = 0.5
 ## The crates on the pallet (supplies; tools come as themselves): two a layer,
@@ -5860,3 +5873,13 @@ const PAY_NOTICE_FADE: float = 1.0
 ## across a lot) and how many flutter turns it makes in the air.
 const PAY_BILL_SIZE := Vector2(0.24, 0.11)
 const PAY_BILL_SPINS: float = 1.5
+## The bill's arc peaks early (the lift is sin(PI * t^SKEW); under 1 moves the
+## top forward), so it drops into the hands rather than arriving at head height.
+const PAY_TOSS_ARC_SKEW: float = 0.6
+## Through the payee's eyes, their hand is all the way out by this share of the
+## flight; once caught, the bill folds into it over this long (s) as it drops.
+const PAY_CATCH_REACH_SHARE: float = 0.6
+const PAY_CATCH_HOLD: float = 0.22
+## Where that first-person hand catches it, in head space (m: right, up, ahead):
+## low and a little right in the view, at arm's length.
+const PAY_FP_CATCH_AT := Vector3(0.12, -0.24, -0.55)

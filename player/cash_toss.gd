@@ -22,8 +22,8 @@ const FLICK_RELEASE: float = 0.4
 ## A bill's colors: the paper and its printed middle.
 const BILL_GREEN := Color(0.45, 0.66, 0.4)
 const BILL_INK := Color(0.24, 0.42, 0.24)
-## Where on the payee the bill goes (m above their feet): about the hands' height
-## when they reach for it.
+## About the hands' height when they reach for it (m above their feet): where the
+## bill goes when a body has no hands to aim at, and where a flick is aimed.
 const CATCH_HEIGHT: float = 1.15
 
 static var _registered: bool = false
@@ -55,6 +55,16 @@ static func toss(tree: SceneTree, from_peer: int, to_peer: int) -> bool:
 	var payee_body := payee.get_node_or_null("Visual/CartoonBody")
 	if payer_body != null:
 		payer_body.call("gesture", "flick_cash")
+	# Through your own eyes the flick is your first-person hand going out toward
+	# them and back (the bill leaves it on the way).
+	var payer_arms := _fp_arms(payer)
+	if payer_arms != null:
+		tree.create_tween().tween_method(func(t: float) -> void:
+			if is_instance_valid(payee) and is_instance_valid(payer_arms):
+				_reach(payer_arms, payee.global_position + Vector3.UP * CATCH_HEIGHT, sin(PI * t))
+			if t >= 1.0 and is_instance_valid(payer_arms):
+				payer_arms.set("reach_weight", 0.0)
+		, 0.0, 1.0, FLICK_SECONDS)
 	var lead := Constants.PAY_TOSS_LEAD
 	tree.create_timer(lead).timeout.connect(func() -> void:
 		if not is_instance_valid(payer) or not is_instance_valid(payee):
@@ -65,10 +75,14 @@ static func toss(tree: SceneTree, from_peer: int, to_peer: int) -> bool:
 
 
 ## The bill, from the payer's right hand to the payee's: a lob over the
-## straight line, fluttering end over end, following the payee if they move.
+## straight line, fluttering end over end, into the payee's hands wherever they
+## are by then. Through the payee's own eyes it's their first-person hand that
+## comes out for it and takes it, low in the view (the body you see others
+## catch with isn't drawn for you: rec_pay2_friend frame 49 had the bill fly into
+## the camera); through the payer's, it leaves their first-person hand.
 static func _fly(tree: SceneTree, payer: Node3D, payer_body: Node, payee: Node3D, payee_body: Node) -> void:
-	var hand := payer_body.call("pose_part", "prop_hand") as Node3D if payer_body != null else null
-	var from := hand.global_position if hand != null else payer.global_position + Vector3.UP * 1.3
+	var payer_arms := _fp_arms(payer)
+	var from := _hand_point(payer, payer_body, payer_arms, false)
 	var bill := _Stylized.instance(_bill(), {"roughness": 0.9, "specular": 0.05})
 	bill.name = "CashBill"
 	var parent := payer.get_parent()
@@ -77,6 +91,7 @@ static func _fly(tree: SceneTree, payer: Node3D, payer_body: Node, payee: Node3D
 	# The payee's hands come up as it's on its way.
 	if payee_body != null:
 		payee_body.call("gesture", "catch_cash")
+	var payee_arms := _fp_arms(payee)
 	_sound(tree, "cash_flick", from)
 	flown += 1
 	var seconds := Constants.PAY_TOSS_SECONDS
@@ -85,19 +100,83 @@ static func _fly(tree: SceneTree, payer: Node3D, payer_body: Node, payee: Node3D
 	flight.tween_method(func(t: float) -> void:
 		if not is_instance_valid(payee):
 			return
-		var to := payee.global_position + Vector3.UP * CATCH_HEIGHT
-		# Eased out a touch: it slows as it drops into the hands.
-		var along := 1.0 - pow(1.0 - t, 1.5)
-		var at := from.lerp(to, along) + Vector3.UP * Constants.PAY_TOSS_ARC * sin(PI * t)
-		bill.global_position = at
-		bill.basis = Basis(spin_axis, TAU * Constants.PAY_BILL_SPINS * t) * Basis(Vector3.UP, 0.4 * sin(t * 9.0))
+		# Your own hand comes up to a catching spot low in front of you (not at the
+		# bill: chasing it, the hand and the bill climbed out of the top of the view
+		# together, rec_pay3_friend 39-48), and the bill comes down into it.
+		var own_view := payee_arms != null and payee_arms.visible
+		if own_view:
+			_reach(payee_arms, payee_arms.to_global(Constants.PAY_FP_CATCH_AT), smoothstep(0.0, Constants.PAY_CATCH_REACH_SHARE, t))
+		var to := _hand_point(payee, payee_body, payee_arms, true)
+		# Eased out a touch: it slows as it drops into the hands (not through your
+		# own eyes, where that held it big just over your head). The lift dies off
+		# faster than it grows, so it comes down into them, not across at head height.
+		var along := t if own_view else 1.0 - pow(1.0 - t, 1.5)
+		var lift := Constants.PAY_TOSS_ARC * sin(PI * pow(t, Constants.PAY_TOSS_ARC_SKEW))
+		bill.global_position = from.lerp(to, along) + Vector3.UP * lift
+		var settle := smoothstep(0.75, 1.0, t)
+		var flutter := Basis(spin_axis, TAU * Constants.PAY_BILL_SPINS * t) * Basis(Vector3.UP, 0.4 * sin(t * 9.0))
+		bill.basis = Basis(flutter.get_rotation_quaternion().slerp(_held_basis(payee, payee_arms).get_rotation_quaternion(), settle))
 	, 0.0, 1.0, seconds)
+	# Caught: the pocket sound on contact, the bill folds away into the hand as
+	# the hand drops back.
 	flight.tween_callback(func() -> void:
 		if is_instance_valid(payee):
-			_sound(tree, "pocket", payee.global_position + Vector3.UP * CATCH_HEIGHT)
+			_sound(tree, "pocket", bill.global_position)
 			caught += 1
+	)
+	flight.tween_method(func(t: float) -> void:
+		if not is_instance_valid(payee):
+			return
+		bill.global_position = _hand_point(payee, payee_body, payee_arms, true)
+		bill.basis = _held_basis(payee, payee_arms).scaled(Vector3.ONE * maxf(1.0 - t, 0.01))
+		if payee_arms != null:
+			_reach(payee_arms, bill.global_position, 1.0 - t)
+	, 0.0, 1.0, Constants.PAY_CATCH_HOLD)
+	flight.tween_callback(func() -> void:
+		if payee_arms != null and is_instance_valid(payee_arms):
+			payee_arms.set("reach_weight", 0.0)
+			payee_arms.set("reach_at", Vector3.INF)
 		bill.queue_free()
 	)
+
+
+## Where a player's catching (or flicking) hand is, in the world: your own
+## first-person hand when it's you looking (arms drawn), else the body's hands
+## (both, cupped, for a catch; the right for a flick).
+static func _hand_point(player: Node3D, body: Node, arms: Node3D, catching: bool) -> Vector3:
+	if arms != null and arms.visible:
+		return arms.to_global(arms.call("hand_point", 1) as Vector3)
+	var right := body.call("pose_part", "prop_hand") as Node3D if body != null else null
+	if right == null:
+		return player.global_position + Vector3.UP * CATCH_HEIGHT
+	if not catching:
+		return right.global_position
+	var left := body.call("pose_part", "prop_hand_l") as Node3D
+	return right.global_position if left == null else right.global_position.lerp(left.global_position, 0.5)
+
+
+## The way a bill lies in the hand that has it: flat, across the palm.
+static func _held_basis(player: Node3D, arms: Node3D) -> Basis:
+	if arms != null and arms.visible:
+		return arms.global_basis.orthonormalized()
+	return Basis(Vector3.UP, player.global_rotation.y)
+
+
+## Your first-person arms (only on your own peer), or null.
+static func _fp_arms(player: Node3D) -> Node3D:
+	if player == null or not player.is_multiplayer_authority():
+		return null
+	var arms := player.get_node_or_null("%Head/Arms") as Node3D
+	return arms if arms != null and arms.has_method("hand_point") else null
+
+
+## A first-person hand out toward a point (first_person_arms.gd's reach).
+static func _reach(arms: Node3D, at: Vector3, weight: float) -> void:
+	if not is_instance_valid(arms):
+		return
+	arms.set("reach_side", 1)
+	arms.set("reach_at", at)
+	arms.set("reach_weight", clampf(weight, 0.0, 1.0))
 
 
 ## A paper bill: a thin green slip with a darker middle, flat in XZ.

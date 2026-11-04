@@ -1940,7 +1940,7 @@ func _check_delivery(shops: Node, me: int, mate: int) -> void:
 		and upgrade == "unknown" and hat == "unknown" and full == "full" and Campaign.credits(me) == before_full \
 		and orders.size() == Constants.DELIVERY_MAX_OPEN and is_equal_approx(float(shops.call("supply", "gas")), gas) \
 		and int(shops.call("stock_left", "homie_depot", "gas_can")) == gas_stock - 2 \
-		and str((orders[0] as Dictionary).get("by", "")) == Campaign.key_of(me),
+		and str((orders[0] as Dictionary).get("by_key", "")) == Campaign.key_of(me),
 		"gas %s ($%d), rake %s, bags %s, paid $%d of $%d; upgrade %s, hat %s, a fourth %s; %d open" % [gas_code, gas_paid, rake_code, bags_code, paid, expected, upgrade, hat, full, orders.size()])
 
 	# Not before it's due: 1:50 PM.
@@ -1960,11 +1960,17 @@ func _check_delivery(shops: Node, me: int, mate: int) -> void:
 	await _wait_until(func() -> bool: return (shops.get("orders") as Array).is_empty(), Constants.DELIVERY_CHECK_SECONDS * 3.0)
 	var landed_gas := float(shops.call("supply", "gas")) - gas
 	var landed_bags := float(shops.call("supply", "lawn_bags")) - bags
+	# The rake exists the moment the order lands (hidden behind the hatch), so a
+	# save from now on has it, before it's thrown.
+	var made_at_landing := _kit_tier_count("rake", Catalog.TIER_STOCK) > rakes_before
+	var tool_thuds := _SfxScript.log.count("thud")
 	var want_crates := mini(2, Constants.DELIVERY_CRATES_PER_ORDER) + 1
-	await _wait_until(func() -> bool: return pallet != null and int(pallet.call("crate_count")) >= crates_before + want_crates and _kit_tier_count("rake", Catalog.TIER_STOCK) > rakes_before, DELIVERY_LAND_SECONDS)
+	await _wait_until(func() -> bool: return pallet != null and int(pallet.call("crate_count")) >= crates_before + want_crates and _delivered_rake(shops) != null, DELIVERY_LAND_SECONDS)
 	# Let the rake come to rest.
 	await get_tree().create_timer(1.5).timeout
 	var rake := _delivered_rake(shops)
+	# It lands flat, on a thud: lying as a loose rake lies, never stood on end.
+	var flat := rake != null and (rake as Node3D).global_basis.y.dot(Vector3.UP) > 0.95 and _SfxScript.log.count("thud") > tool_thuds
 	var texts: Array = town.get("texts") if town != null else []
 	var texted := texts.slice(texts_before).any(func(text: Variant) -> bool: return str((text as Dictionary).get("from", "")) == str(_Strings.SHOP_UI["text_from_deliveries"]) and str((text as Dictionary).get("kind", "")) == "delivery")
 	var crates := int(pallet.call("crate_count")) - crates_before if pallet != null else -1
@@ -1974,14 +1980,14 @@ func _check_delivery(shops: Node, me: int, mate: int) -> void:
 	_step("delivery", early == Constants.DELIVERY_MAX_OPEN and (shops.get("orders") as Array).is_empty() \
 		and is_equal_approx(landed_gas, 2.0 * float(Constants.SUPPLY_PER_ITEM["gas_can"])) and is_equal_approx(landed_bags, float(Constants.SUPPLY_PER_ITEM["lawn_bags"])) \
 		and heard == [[want_crates, 1]] and crates == want_crates and tossed == want_crates and arrived >= want_crates \
-		and rake != null and texted and sounded,
-		"sounds %s; open at 1:50 PM %d; landed gas +%.1f, bags +%d; heard %s; crates %d (tossed %d), arrived_today %d; the rake %s; texted %s" % [sounded, early, landed_gas, int(landed_bags), str(heard), crates, tossed, arrived, str(rake.global_position) if rake != null else "missing", texted])
+		and rake != null and made_at_landing and flat and texted and sounded,
+		"sounds %s; open at 1:50 PM %d; landed gas +%.1f, bags +%d; heard %s; crates %d (tossed %d), arrived_today %d; the rake %s (made at landing %s, flat with a thud %s); texted %s" % [sounded, early, landed_gas, int(landed_bags), str(heard), crates, tossed, arrived, str(rake.global_position) if rake != null else "missing", made_at_landing, flat, texted])
 
 	# client_order: the client orders a roll of bags through the RPC.
 	var mate_cash := Campaign.credits(mate)
 	_rpc_client_order.rpc_id(mate)
-	await _wait_until(func() -> bool: return (shops.get("orders") as Array).any(func(order: Variant) -> bool: return str((order as Dictionary).get("by", "")) == Campaign.key_of(mate)), WAIT_SECONDS)
-	var theirs := (shops.get("orders") as Array).filter(func(order: Variant) -> bool: return str((order as Dictionary).get("by", "")) == Campaign.key_of(mate))
+	await _wait_until(func() -> bool: return (shops.get("orders") as Array).any(func(order: Variant) -> bool: return str((order as Dictionary).get("by_key", "")) == Campaign.key_of(mate)), WAIT_SECONDS)
+	var theirs := (shops.get("orders") as Array).filter(func(order: Variant) -> bool: return str((order as Dictionary).get("by_key", "")) == Campaign.key_of(mate))
 	_step("client_order", theirs.size() == 1 and mate_cash - Campaign.credits(mate) == _Shops.order_price("lawn_bags", 1),
 		"%d orders by the client, it paid $%d" % [theirs.size(), mate_cash - Campaign.credits(mate)])
 

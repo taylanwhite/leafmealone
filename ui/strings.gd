@@ -226,7 +226,7 @@ const UI: Dictionary = {
 	"phone_tab_crew": "Crew",
 	"phone_tab_deliveries": "Orders",
 	"phone_tab_closet": "Closet",
-	"phone_close":"Put it away  {key:phone}",
+	"phone_close": "Put it away  {key:phone}",
 	"phone_no_texts": "No texts yet.",
 	"phone_take_job": "Take it",
 	"phone_job_up_next": "Up next",
@@ -1096,7 +1096,7 @@ const SHOP_UI: Dictionary = {
 	"text_from_deliveries": "Homie Depot Deliveries",
 	"text_emergency_bags": "Found a few bags behind the paint mixer. Don't tell the manager.",
 	"text_rusty_welcome": "Heard you're working the Acres. Bring me their junk. I pay cash. Mostly.",
-	"text_delivery": "Your order's on the pallet in the back room: %s. Nobody signed for it. Nobody ever does.",
+	"text_delivery": "Your order's in the back room: %s. Nobody signed for it. Nobody ever does.",
 	# The shop window (gap shops chunk 4): the next tier's button on a tool card,
 	# its tier pips, and the lines over the cards.
 	"shop_tier_buy_1": "Buy",
