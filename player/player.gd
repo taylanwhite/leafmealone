@@ -286,6 +286,8 @@ func _physics_process(delta: float) -> void:
 			_apply_look()
 		if seated_in_vehicle:
 			_Seated.step(self, delta)
+		elif is_stepping_down():
+			_step_down(delta)
 		elif _hidden_spot != null or in_pile or _hide_moving():
 			velocity = Vector3.ZERO
 		elif _step_sleep():
@@ -299,6 +301,14 @@ func _physics_process(delta: float) -> void:
 		elif _ride != null and _seat_index >= 0 and _ride.has_method("seat_transform"):
 			var seat: Transform3D = _ride.call("seat_transform", _seat_index)
 			global_position = seat.origin
+			_follow_seat_yaw(seat)
+		elif _on_seat and _seat_ride != null and _seat_ride.has_method("seat_transform"):
+			# Still on a ride's seat after the zone changed (a client's truck easing
+			# into the curb, ride.gd _step_catchup): no walking off it mid-drive.
+			var held_seat: Transform3D = _seat_ride.call("seat_transform", _seat_slot)
+			global_position = held_seat.origin
+			velocity = Vector3.ZERO
+			_follow_seat_yaw(held_seat)
 		elif on_board:
 			skate().call("step", delta)
 		elif not _step_hydrant(delta):
@@ -319,6 +329,8 @@ func _seat_on_ride() -> void:
 	var was_on_seat := _on_seat
 	_on_seat = seat != Transform3D()
 	if was_on_seat != _on_seat:
+		if not is_multiplayer_authority():
+			_pin_visual(_on_seat)
 		reset_physics_interpolation()
 	if is_multiplayer_authority() and (was_ride != _seat_ride or was_slot != _seat_slot) and ((was_ride != null and was_ride.is_in_group("vehicles")) or (_seat_ride != null and _seat_ride.is_in_group("vehicles"))):
 		_Seated.on_seat_changed(self, _on_seat, _seat_slot)
@@ -375,6 +387,7 @@ func wheel_grips() -> Array:
 func set_riding(ride: Node3D, seat_index: int) -> void:
 	_ride = ride
 	_seat_index = seat_index
+	_ride_seat_yaw = NAN
 	velocity = Vector3.ZERO
 
 
@@ -448,6 +461,8 @@ func stage_cam() -> Camera3D:
 ## (player/stage_body.gd), blending in over `blend` seconds, in `pose`. clear_of
 ## (R2c): someone the blend goes round, never through (the escort's link).
 func set_staged(anchor: Node3D, offset: Transform3D, blend: float, pose: StringName, clear_of: Node3D = null) -> void:
+	# A stage takes the body from wherever a hop off a seat had it.
+	_step_t = -1.0
 	var stage_body := get_node_or_null("StageBody")
 	if stage_body != null:
 		stage_body.call("set_staged", anchor, offset, blend, pose, clear_of)
@@ -884,7 +899,7 @@ func _track_fall(delta: float) -> void:
 		_limp_left -= delta
 		if _limp_left <= 0.0:
 			limping = false
-	if _ladder != null or _on_seat or _hidden_spot != null or _hide_moving():
+	if _ladder != null or _on_seat or _hidden_spot != null or _hide_moving() or is_stepping_down():
 		_airborne = false
 		_fall_peak = global_position.y
 		return
@@ -1570,6 +1585,42 @@ func _rpc_teleport(at: Transform3D) -> void:
 	apply_network_teleport(at)
 
 
+## Host: off a seat and down onto at, a hop from where they are (step_down_to),
+## never a teleport (p1-arrive: getting out of Chefty popped you 1.9 m).
+func send_step_down(at: Transform3D, wait: float = 0.0) -> void:
+	if not Net.is_host():
+		return
+	if name.to_int() == Net.local_peer_id():
+		step_down_to(at, wait)
+	else:
+		_rpc_step_down.rpc_id(name.to_int(), at, wait)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_step_down(at: Transform3D, wait: float) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	step_down_to(at, wait)
+
+
+## Host (net/components/personal_space.gd): ease this player along push (m/s,
+## flat) for a moment, out of someone they're standing inside.
+func send_nudge(push: Vector3) -> void:
+	if not Net.is_host():
+		return
+	if name.to_int() == Net.local_peer_id():
+		nudge(push)
+	else:
+		_rpc_nudge.rpc_id(name.to_int(), push)
+
+
+@rpc("any_peer", "call_remote", "unreliable_ordered")
+func _rpc_nudge(push: Vector3) -> void:
+	if multiplayer.get_remote_sender_id() != 1:
+		return
+	nudge(push)
+
+
 ## Host-ordered teleport. Runs on the owning peer only.
 func apply_network_teleport(at: Transform3D) -> void:
 	global_position = at.origin
@@ -1848,6 +1899,7 @@ func _simulate(delta: float) -> void:
 	else:
 		velocity.x = direction.x * speed
 		velocity.z = direction.z * speed
+	_apply_nudge(delta)
 	move_and_slide()
 	_update_anim(crouching, direction)
 	_stay_on_the_pad()
@@ -2321,3 +2373,153 @@ func _attach_voice() -> void:
 	voice.bus = preload("res://audio/buses.gd").VOICE
 	%Head.add_child(voice)
 	Net.attach_voice_output(name.to_int(), voice)
+
+
+# ---- p1-arrive: stepping off a seat, and room to stand (docs/GAME.md "Stepping
+# off Chefty"). Both are the owner's own movement, so every peer sees them through
+# the synchronizer like any walk: nothing staged, no RPC per frame.
+## The hop off a seat: from and to (world), how far along (0..1; -1 when not
+## stepping), and how much of the turn to the landing's facing is done (radians).
+var _step_from := Transform3D()
+var _step_to := Transform3D()
+var _step_t: float = -1.0
+var _step_turned: float = 0.0
+## Seconds before this rider's hop starts (riders get off one after another).
+var _hop_wait: float = 0.0
+## A legacy ride's seat yaw last tick (NAN: just sat down, so face the seat's way).
+var _ride_seat_yaw: float = NAN
+## Room to stand: the host's last nudge (m/s, flat) and how long it still lasts.
+var _nudge := Vector3.ZERO
+var _nudge_left: float = 0.0
+
+
+## Owner: off whatever you're on, down onto at: the knees bend, a hop over the
+## rail (or out of the door) and a landing, turning to at's facing on the way,
+## from exactly where you are now, so it never pops on any screen. Further than
+## STEP_DOWN_MAX_METERS is a teleport instead.
+func step_down_to(at: Transform3D, wait: float = 0.0) -> void:
+	if not is_multiplayer_authority():
+		return
+	if global_position.distance_to(at.origin) > Constants.STEP_DOWN_MAX_METERS:
+		apply_network_teleport(at)
+		return
+	_step_from = Transform3D(Basis(Vector3.UP, body_yaw), global_position)
+	_step_to = at
+	_step_t = 0.0
+	_hop_wait = maxf(wait, 0.0)
+	_step_turned = 0.0
+	_nudge_left = 0.0
+	velocity = Vector3.ZERO
+
+
+## Owner: mid-hop off a seat (step_down_to).
+func is_stepping_down() -> bool:
+	return _step_t >= 0.0
+
+
+## Where the hop has the body at k (0..1): still while the knees bend, then a low
+## arc from the crouch to the ground, then the knees take the landing in place.
+static func step_down_point(from: Vector3, to: Vector3, k: float) -> Vector3:
+	var crouch := Constants.STEP_DOWN_CROUCH_SHARE
+	var land := 1.0 - Constants.STEP_DOWN_LAND_SHARE
+	var dip := Constants.STEP_DOWN_CROUCH
+	if k <= crouch:
+		return from + Vector3.DOWN * dip * sin(k / crouch * PI * 0.5)
+	if k >= land:
+		return to
+	var u := (k - crouch) / (land - crouch)
+	var start := from + Vector3.DOWN * dip
+	var at := start.lerp(to, u)
+	# Up off the knees and over the rail, then down: a curve through a point
+	# STEP_DOWN_HOP x 2 over the higher end (a bit like a thrown thing's arc); out
+	# of a low seat (the cab's bench) it's barely a hop, more a step out.
+	var drop := clampf(absf(start.y - to.y), 0.25, 1.0)
+	var over := maxf(start.y, to.y) + Constants.STEP_DOWN_HOP * 2.0 * drop * drop
+	at.y = (1.0 - u) * (1.0 - u) * start.y + 2.0 * u * (1.0 - u) * over + u * u * to.y
+	return at
+
+
+func _step_down(delta: float) -> void:
+	if carried_by != 0 or thrown:
+		_step_t = -1.0
+		return
+	velocity = Vector3.ZERO
+	# Your turn yet (the crew gets off one after another, by seat)?
+	if _hop_wait > 0.0:
+		_hop_wait -= delta
+		anim_state = AnimState.IDLE
+		_step_from.origin = global_position
+		return
+	var before := global_position
+	_step_t = minf(_step_t + delta / Constants.STEP_DOWN_SECONDS, 1.0)
+	var k := _step_t
+	global_position = step_down_point(_step_from.origin, _step_to.origin, k)
+	# The turn to the landing's facing, on top of any looking around meanwhile.
+	var total := angle_difference(_step_from.basis.get_euler().y, _step_to.basis.get_euler().y)
+	var turned := total * smoothstep(0.0, 1.0, minf(k / Constants.STEP_DOWN_TURN_DONE, 1.0))
+	body_yaw += turned - _step_turned
+	_step_turned = turned
+	# What the body does (every peer draws it from anim_state and velocity): the
+	# knees bend, it flies, the knees take the landing, it stands.
+	var crouch := Constants.STEP_DOWN_CROUCH_SHARE
+	var land := 1.0 - Constants.STEP_DOWN_LAND_SHARE
+	if k < crouch or (k >= land and k < land + Constants.STEP_DOWN_LAND_SHARE * 0.6):
+		anim_state = AnimState.CROUCH
+	elif k < land:
+		anim_state = AnimState.AIR
+	else:
+		anim_state = AnimState.IDLE
+	velocity = (global_position - before) / maxf(delta, 0.0001)
+	velocity.y = maxf(velocity.y, -Constants.STEP_DOWN_MAX_FALL)
+	if _step_t >= 1.0:
+		_step_t = -1.0
+		velocity = Vector3.ZERO
+		_fall_peak = global_position.y
+		_airborne = false
+
+
+## Owner, a legacy ride: you start facing the way your seat does (out over the
+## side), and turn with the truck from there; looking around still turns you.
+func _follow_seat_yaw(seat: Transform3D) -> void:
+	var yaw := seat.basis.orthonormalized().get_euler().y
+	if is_nan(_ride_seat_yaw):
+		body_yaw = yaw
+	else:
+		body_yaw += angle_difference(_ride_seat_yaw, yaw)
+	_ride_seat_yaw = yaw
+
+
+## Another peer's view of a rider: while seated the Visual is top_level, so the
+## body's replicated pose landing mid-frame (it trails the seat by the link's
+## delay) can't drag the drawn rider off the seat. At the drop-off that drag drew
+## a rider up to 5 m past the truck for a frame, then pulled them back (play and
+## --arrive-test, p1-arrive). Off the seat, the smoother carries on from exactly
+## where they're drawn (net_smoother.gd resume_from_drawn).
+func _pin_visual(on: bool) -> void:
+	var visual := get_node_or_null("Visual") as Node3D
+	if visual == null or visual.top_level == on:
+		return
+	var drawn := visual.global_transform
+	visual.top_level = on
+	visual.global_transform = drawn
+	if not on:
+		var smoother := get_node_or_null("NetSmoother")
+		if smoother != null and smoother.has_method("resume_from_drawn"):
+			smoother.call("resume_from_drawn")
+
+
+## Owner (personal_space.gd through send_nudge): slide along push for a moment.
+func nudge(push: Vector3) -> void:
+	if not is_multiplayer_authority() or is_stepping_down():
+		return
+	_nudge = Vector3(push.x, 0.0, push.z)
+	_nudge_left = Constants.PERSONAL_SPACE_NUDGE_SECONDS
+
+
+## _simulate: a nudge adds to whatever the player's own keys do, and walls still stop it.
+func _apply_nudge(delta: float) -> void:
+	if _nudge_left <= 0.0:
+		return
+	_nudge_left -= delta
+	velocity.x += _nudge.x
+	velocity.z += _nudge.z

@@ -5045,3 +5045,95 @@ const TOWN_STREET_PROP_CHUNK: float = 256.0
 ## the queue's last turn, the frame is already a long one (the job yard arriving
 ## on a joiner) and the queue sits it out (never two frames running).
 const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
+
+# ---- p1-arrive: stepping off a seat, and room to stand (docs/GAME.md "Stepping
+# off Chefty"; net/components/step_down.gd, player.gd step_down_to, personal_space.gd)
+## The legacy Chefty's bed places (net/components/ride.gd), in the truck's space
+## (the cab is at -Z), by seat: on opposite rails, facing out over the side, so
+## two riders stand back to back (lagduo-7: side by side, the friend's head
+## filled half your view the whole ride). 0 left, 1 right, 2 left by the
+## tailgate, 3 right by the cab.
+const CHEFTY_RIDE_SEATS: Array[Vector3] = [
+	Vector3(-0.62, 1.0, 0.35), Vector3(0.62, 1.0, 0.35),
+	Vector3(-0.62, 1.0, 1.75), Vector3(0.62, 1.0, -0.75),
+]
+## Each seat's facing (yaw about +Y, in the truck's space): +90 deg looks out the
+## left side, -90 deg out the right.
+const CHEFTY_RIDE_SEAT_YAWS: Array[float] = [1.5708, -1.5708, 1.5708, -1.5708]
+## Where each legacy seat's rider lands when Chefty arrives (truck space, the
+## ground): bed left, bed right, the tailgate, by the cab's shotgun door.
+const CHEFTY_STEP_DOWN_SLOTS: Array[Vector3] = [
+	Vector3(-1.85, 0.0, 0.35), Vector3(1.85, 0.0, 0.35),
+	Vector3(0.0, 0.0, 3.6), Vector3(1.85, 0.0, -2.0),
+]
+## A rider whose own spot is blocked (a lamp post, a hedge, a parked car) or
+## taken takes the first of these that's clear, in order.
+const CHEFTY_STEP_DOWN_SPARE: Array[Vector3] = [
+	Vector3(-1.85, 0.0, -2.0), Vector3(-1.85, 0.0, 1.9), Vector3(1.85, 0.0, 1.9),
+	Vector3(-1.1, 0.0, 3.7), Vector3(1.1, 0.0, 3.7), Vector3(0.0, 0.0, 4.9),
+]
+## A client whose truck is still short of the curb when the host says it arrived
+## (its clock trails the host's) drives the rest first (ride.gd _step_catchup):
+## more than this many meters left, at about this average speed (m/s), taking
+## between these many seconds.
+const CHEFTY_RIDE_CATCHUP_MIN_METERS: float = 0.05
+const CHEFTY_RIDE_CATCHUP_SPEED: float = 35.0
+const CHEFTY_RIDE_CATCHUP_SECONDS := Vector2(0.2, 1.2)
+## Two landing spots closer than this (m) count as one.
+const STEP_DOWN_SPACING: float = 1.1
+## The space a landing spot needs (radius, height in m), checked against the
+## world's solids only (props move, so peers could disagree about them).
+const STEP_DOWN_CAPSULE := Vector2(0.4, 1.6)
+## You never land facing a solid closer than this (m; nb3, the lamp post at arm's
+## length): the facing turns by these steps (radians) until it's clear.
+const STEP_DOWN_FACE_CLEAR: float = 1.6
+const STEP_DOWN_FACE_TURNS: Array[float] = [0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 1.8, -1.8]
+## The middle of the view that has to be clear: this far either side (radians).
+const STEP_DOWN_FACE_CONE: float = 0.45
+## A drawn prop with no collider (a lamp post, a hydrant, a mailbox: world.gd
+## arrival_obstacles) is never closer than this (m, to its edge) to where you
+## land (play: the host landed with a pole at 0.6 m and a hydrant at his foot);
+## one lower than this (m) over the ground (a doormat, chalk) doesn't count.
+const STEP_DOWN_POST_ROOM: float = 1.0
+const STEP_DOWN_PROP_MIN_HEIGHT: float = 0.3
+## How far round the truck (m) those props are gathered.
+const STEP_DOWN_PROP_REACH: float = 10.0
+## You land facing at most this far (radians) off straight away from the truck,
+## turned toward what you'd look at (the house, the store's doors).
+const STEP_DOWN_FACE_FROM_TRUCK: float = 0.9
+## At Homie Depot you land looking at the store's doors (StoreZone space).
+const ARRIVE_LOOK_STORE := Vector3(-10.0, 0.0, -2.0)
+## The hop off a seat (player.gd step_down_to): how long it takes (s); the knees
+## bend for the first share (anticipation), the body flies, and the last share
+## is the landing (contact, knees taking it, then standing).
+const STEP_DOWN_SECONDS: float = 0.85
+const STEP_DOWN_CROUCH_SHARE: float = 0.16
+const STEP_DOWN_LAND_SHARE: float = 0.22
+## How far the knees take the body down first (m), and the hop: its curve bends
+## through a point twice this (m) over the higher of the seat and the ground.
+const STEP_DOWN_CROUCH: float = 0.08
+const STEP_DOWN_HOP: float = 0.3
+## The turn to the landing's facing is done this early in the hop (1 = at the end).
+const STEP_DOWN_TURN_DONE: float = 0.75
+## Riders get off one after another: each seat this much (s) after the one before.
+const STEP_DOWN_STAGGER: float = 0.15
+## Further than this (m) isn't a step down, it's a teleport (the legacy crossing).
+const STEP_DOWN_MAX_METERS: float = 7.0
+## The falling speed the hop reports (m/s, replicated) is held under the hard
+## landing's thump (LAND_THUMP_SPEED): stepping off a truck is a soft landing.
+const STEP_DOWN_MAX_FALL: float = 4.5
+## A landing from the air between this and LAND_THUMP_SPEED (m/s) is a soft one:
+## the ground's footstep, a little louder (dB over FOLEY_STEP_DB).
+const FOLEY_SOFT_LAND_SPEED: float = 2.0
+const FOLEY_SOFT_LAND_DB: float = 3.0
+## Bailing out of a moving Chefty: you leave from your seat (no hop to the door
+## first, which was a 1.9 m pop) and get this much sideways speed (m/s) away from it.
+const CHEFTY_BAIL_SIDE: float = 3.5
+## Room to stand (net/components/personal_space.gd, host): two players on foot
+## closer than this (m) for longer than this (s) are eased apart at this speed
+## (m/s), checked this often (s); each nudge lasts this long on the owner (s).
+const PERSONAL_SPACE_RADIUS: float = 0.45
+const PERSONAL_SPACE_AFTER: float = 0.3
+const PERSONAL_SPACE_SPEED: float = 1.6
+const PERSONAL_SPACE_TICK: float = 0.1
+const PERSONAL_SPACE_NUDGE_SECONDS: float = 0.15

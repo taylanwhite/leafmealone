@@ -278,6 +278,16 @@ $Tests = [ordered]@{
 	# is refused by a guard and the mirror and done unseen, a straggler hops on the
 	# bumper, the rider moves zone behind the iris, the van is freed, the drop-off
 	# leaves the rider on the curb, and Rides/Van is gone. Both peers run the node.
+	# Stepping off Chefty (p1-arrive, net/dev/arrive_test.gd): host and client ride to the
+	# yard and back; seated back to back on opposite rails, each hops down to their own
+	# spot by the truck, facing the house or the store, with no pop on either peer;
+	# then two players put on one spot are eased apart. Both peers run the node.
+	arrive = @{
+		Port = 7832
+		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --arrive-test'; Seconds = 70; Client = 65
+		Extra = '--sim-lag=150 --arrive-test'
+		Check = { param($h, $c) [bool]$h.arrive_test.ok -and $c -ne $null -and [bool]$c.arrive_test.ok }
+	}
 	shuttle = @{
 		Port = 7829
 		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --shuttle-test'; Seconds = 150; Client = 145

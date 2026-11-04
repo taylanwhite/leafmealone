@@ -245,6 +245,9 @@ func _run() -> void:
 	# Spotted: the client holds it when he comes back to his desk and sees it.
 	_reset_form(annex, client, 2)
 	_retime_head(annex, _Schedule.S.AWAY, 5.0)
+	# The host steps off the pad for the client: put on one spot, room to stand
+	# (net/components/personal_space.gd) eased them both off it.
+	_place_host(pad, 2.2)
 	_stand(client, pad, 0.7)
 	await get_tree().create_timer(0.6).timeout
 	annex.call("dev_client", client, "big", ["grab", 0])

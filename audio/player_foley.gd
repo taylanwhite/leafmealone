@@ -205,6 +205,9 @@ func _landing(delta: float) -> void:
 		return
 	if _air_seconds >= Constants.FOLEY_LAND_MIN_AIR_SECONDS and _fall_speed > Constants.LAND_THUMP_SPEED and int(player.get("carried_by")) == 0:
 		_play("land_thump", body.global_position + Vector3.UP * 0.1, 0.0, _peer())
+	elif _air_seconds >= Constants.FOLEY_LAND_MIN_AIR_SECONDS and _fall_speed > Constants.FOLEY_SOFT_LAND_SPEED and int(player.get("carried_by")) == 0:
+		# A hop down (off Chefty's bed, a jump): both feet on whatever's underfoot.
+		_play(surface_id(player, body.global_position), body.global_position + Vector3.UP * 0.05, Constants.FOLEY_STEP_DB + Constants.FOLEY_SOFT_LAND_DB, _peer())
 	_air_seconds = 0.0
 	_fall_speed = 0.0
 

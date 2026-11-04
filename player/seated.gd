@@ -40,7 +40,9 @@ static func step(player: CharacterBody3D, _delta: float) -> void:
 	var seat_look := clampf(float(player.get("seat_look")) - look.x * turn.x, -Constants.CHEFTY_SEAT_LOOK_YAW, Constants.CHEFTY_SEAT_LOOK_YAW)
 	player.set("seat_look", seat_look)
 	player.set("head_pitch", clampf(float(player.get("head_pitch")) - look.y * turn.y, -PITCH_LIMIT, PITCH_LIMIT))
-	player.set("body_yaw", float(vehicle.call("yaw")) + seat_look)
+	# The seat's own facing (a bed rider looks out over the side, p1-arrive), then the head's turn.
+	var seat_facing := float(vehicle.call("seat_yaw", int(player.call("seat_slot")))) if vehicle.has_method("seat_yaw") else 0.0
+	player.set("body_yaw", float(vehicle.call("yaw")) + seat_facing + seat_look)
 	var head := player.get_node_or_null("Visual/Head") as Node3D
 	if head != null:
 		head.rotation.y = seat_look
