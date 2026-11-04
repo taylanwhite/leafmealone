@@ -1719,6 +1719,13 @@ const CUE_LINES: Dictionary = {
 		"All clear. Somebody's filling out a LOT of forms about you.",
 		"All clear. They'll be back. They have a quota.",
 	],
+	# driving:F: the van gave up the chase (net/run_events/pursuit.gd): with a brass stab.
+	"lost": [
+		"Lost 'em!",
+		"Lost 'em! They're filing a report about it.",
+		"Lost 'em! The van's doing a very legal U-turn.",
+		"Lost 'em! They know the truck now, though.",
+	],
 }
 
 ## R2:1 Workbook quip Q-006, with the real name (both %s are the caught player's
@@ -1902,6 +1909,22 @@ const CREW_BARKS: Dictionary = {
 		"What's this? Evidence? Evidence!",
 		"Somebody littered! Somebody's in trouble!",
 		"Oh, a clue. I love a clue.",
+	],
+	# driving:F: the crew truck takes off and they give chase (net/run_events/pursuit.gd),
+	# over the megaphone from the van's window.
+	"pursuit": [
+		"To the van! Buckle up! Safety first, then pursuit!",
+		"Follow that truck! At or below the posted limit!",
+		"Pull over! Use your blinker! Then pull over!",
+		"We have your plate! Half of it! It says CHEF!",
+		"Fleeing is a Form 9! We're out of Form 9s!",
+	],
+	# The truck's stopped and they climb out round it.
+	"pullover": [
+		"License, registration, and a smile, please!",
+		"Stay in the vehicle! We're coming to you! Slowly!",
+		"Do you know how nicely you were going? Not very!",
+		"Hands where I can see them! On the rake is fine!",
 	],
 }
 

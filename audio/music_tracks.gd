@@ -19,7 +19,7 @@ extends RefCounted
 ##               same place (annex_hold and escape_run)
 ## Only tracks that exist are listed. The calm moods' music came in audio chunk
 ## 4a (it retired the old 8-bar stand-in loop); the tension tracks and the rest
-## of the stingers in 4b (all but st_lost_em).
+## of the stingers in 4b (st_lost_em with driving:F).
 ##
 ## MOODS: mood -> {tracks, rests, urgent, priority, stand_in?}, or {alias: mood}
 ##   tracks    played in turn, never the same one twice in a row when there are two
@@ -61,6 +61,8 @@ const TRACKS: Dictionary = {
 	"st_job_paid": {"file": "res://assets/audio/music/st_job_paid.ogg", "bpm": 120.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_job_paid", "db": 0.0},
 	"st_busted": {"file": "res://assets/audio/music/st_busted.ogg", "bpm": 92.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_busted", "db": 0.0},
 	"st_made_it": {"file": "res://assets/audio/music/st_made_it.ogg", "bpm": 132.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_made_it", "db": 0.0},
+	# driving:F: the NICE BOYS' van gives up the chase (net/run_events/pursuit.gd, ui/run_cues.gd).
+	"st_lost_em": {"file": "res://assets/audio/music/st_lost_em.ogg", "bpm": 126.0, "bars": 1, "intro_bars": 0, "loop": false, "stinger": true, "title_key": "track_st_lost_em", "db": 0.0},
 }
 
 const MOODS: Dictionary = {
@@ -86,7 +88,7 @@ const MOODS: Dictionary = {
 }
 
 ## Every stinger the game fires (MusicDirector.stinger), whether its file exists
-## yet or not. All but st_lost_em (driving's pursuit, still to come) have one.
+## yet or not. All of them have one (st_lost_em came with driving:F's pursuit).
 const STINGER_IDS: Array[String] = [
 	"st_day_end", "st_rank_up", "st_season", "st_morning", "st_new_client",
 	"st_job_paid", "st_busted", "st_made_it", "st_lost_em",

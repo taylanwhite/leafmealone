@@ -940,6 +940,10 @@ class Motion extends Node:
 	## Speed now (m/s along its nose) and the last acceleration; read by tests.
 	var speed: float = 0.0
 	var accel: float = 0.0
+	## Chasing (driving:F, the Courtesy Shuttle sets it): the dome pulses fast and
+	## bright and throws its light far, the lights in a fleeing truck's mirror.
+	var urgent: bool = false
+	var _dome_range: float = -1.0
 
 	func setup(look: Node3D, tails: Array[StandardMaterial3D]) -> void:
 		_look = look
@@ -1032,9 +1036,14 @@ class Motion extends Node:
 	func _process(_delta: float) -> void:
 		if _dome == null:
 			return
-		var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * TAU * Constants.VAN_DOME_PULSE_HZ)
-		_dome.emission_energy_multiplier = lerpf(0.9, 3.2, pulse)
-		_dome_light.light_energy = lerpf(0.3, 1.4, pulse)
+		var hz := Constants.VAN_DOME_CHASE_HZ if urgent else Constants.VAN_DOME_PULSE_HZ
+		var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.001 * TAU * hz)
+		var boost := Constants.VAN_DOME_CHASE_ENERGY if urgent else 1.0
+		_dome.emission_energy_multiplier = lerpf(0.9, 3.2 * boost, pulse)
+		_dome_light.light_energy = lerpf(0.3, 1.4 * boost, pulse)
+		if _dome_range < 0.0:
+			_dome_range = _dome_light.omni_range
+		_dome_light.omni_range = Constants.VAN_DOME_CHASE_RANGE if urgent else _dome_range
 		for tail: StandardMaterial3D in _tails:
 			tail.emission_energy_multiplier = lerpf(Constants.VAN_TAIL_GLOW, Constants.VAN_BRAKE_GLOW, _braking)
 

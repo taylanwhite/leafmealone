@@ -5793,3 +5793,142 @@ const KIT_DROP_AHEAD: float = 0.7
 const KIT_DROP_LIFT: float = 0.4
 ## Past KIT_DOOR_MAX, more kit by the door stacks on the last spot this much higher each (m).
 const KIT_DOOR_STACK_STEP: float = 0.3
+
+
+# ---- driving:F (the NICE BOYS in town: the pursuit, the pull-over, the ram and the
+# getaway; net/run_events/pursuit.gd, the Courtesy Shuttle's CHASE leg in
+# net/run_events/shuttle.gd; docs/GAME.md "The pursuit")
+## In the connected town a player off the yard can still be caught this close (m)
+## to the job site, or to where the van pulled Chefty over.
+const CREW_LEASH_METERS: float = 35.0
+## Chefty going this fast (m/s), this far from the site (CREW_LEASH_METERS), with
+## someone catchable aboard during the chase: the crew piles back in and the van gives chase.
+const PURSUIT_START_SPEED: float = 6.0
+## The van's sim (VehicleSim, the same arcade model as Chefty): top speed (m/s;
+## Chefty's is 19, and every dent costs it 3%), how hard it pulls and brakes
+## (m/s^2), its steering rate (rad/s at full lock), and its four hubs (x, z; the
+## van faces -Z like every vehicle).
+const NICE_VAN_TOP_SPEED: float = 17.0
+const NICE_VAN_ACCEL: float = 5.5
+const NICE_VAN_BRAKE: float = 11.0
+const NICE_VAN_STEER_RATE: float = 1.7
+const NICE_VAN_WHEELS: Array[Vector2] = [Vector2(-1.02, -2.1), Vector2(1.02, -2.1), Vector2(-1.02, 2.1), Vector2(1.02, 2.1)]
+## The van's chassis box (what the sim moves into walls) and its middle (van space).
+const NICE_VAN_CHASSIS_SIZE := Vector3(2.2, 1.5, 6.2)
+const NICE_VAN_CHASSIS_CENTER := Vector3(0.0, 1.15, 0.0)
+## It aims this far ahead of Chefty along Chefty's velocity (s), drives straight at
+## it inside this range (m) with a clear line, and otherwise takes the roads
+## (TownMap.route), planned again every PURSUIT_REPLAN_SECONDS.
+const PURSUIT_LEAD_SECONDS: float = 0.5
+const PURSUIT_DIRECT_METERS: float = 50.0
+const PURSUIT_REPLAN_SECONDS: float = 0.5
+## Chefty more than this far round from the van's nose (rad) while the van is slower
+## than PURSUIT_UTURN_SPEED (m/s): it swings a U-turn on full lock at this
+## throttle; stuck at it for PURSUIT_UTURN_STUCK (s), the autopilot backs it up.
+const PURSUIT_UTURN_ANGLE: float = 1.75
+const PURSUIT_UTURN_SPEED: float = 6.0
+const PURSUIT_UTURN_THROTTLE: float = 0.85
+const PURSUIT_UTURN_STUCK: float = 1.0
+## Chefty stopped (or slower than PULLOVER_SPEED): the van pulls in this far
+## behind it (m), and a crawl this slow (m/s) still counts as stopped.
+const PULLOVER_BEHIND: float = 7.5
+const PULLOVER_SPEED: float = 3.0
+## The pull-over: Chefty under PULLOVER_SPEED with the van within PULLOVER_RADIUS
+## (m, middle to middle) for PULLOVER_SECONDS (s): the van stops and they climb out.
+const PULLOVER_RADIUS: float = 9.0
+const PULLOVER_SECONDS: float = 2.0
+## Someone sitting in Chefty is pulled out when a NICE BOY gets this close (m,
+## on the ground, to their seat).
+const SEAT_GRAB_RADIUS: float = 2.5
+## Pulled over: Chefty driving off this fast (m/s) and this far from the van (m)
+## sends the crew back in and the chase on.
+const PULLOVER_DRIVE_OFF_METERS: float = 13.0
+## Pulled over, a NICE BOY walks up to the truck on the side whoever he's after gets
+## out on, this far (m) from its middle and this far behind their seat (so they hop
+## down in front of him), and has them out once he's within PULLOVER_STAND_REACH of
+## that spot; he catches them PULLOUT_CATCH_SLACK after their hop down (s).
+const PULLOVER_STAND_SIDE: float = 2.2
+const PULLOVER_STAND_BACK: float = 1.3
+const PULLOVER_STAND_REACH: float = 0.8
+const PULLOUT_CATCH_SLACK: float = 0.15
+## ...or, kept off that spot (the van, a post), once he's been within SEAT_GRAB_RADIUS
+## of the seat this long (s).
+const PULLOVER_REACH_WAIT: float = 1.2
+## The head NICE BOY yells out of the van's window at most this often (s) in a chase.
+const PURSUIT_BARK_SECONDS: float = 6.0
+## Pulled over with nobody left to catch near it for this long (s): they wrap it up.
+const PULLOVER_IDLE_SECONDS: float = 4.0
+## The crew has this long (s) to pile back into the van; still out after that, the
+## chase is off.
+const PURSUIT_BOARD_MAX: float = 9.0
+## The getaway: stay this far from the van (m) for this long (s), or outlast this
+## much chasing (s, pull-overs not counted), or reach Homie Depot's lot
+## (STORE_AREA: no niceness on premises).
+const PURSUIT_LOSE_DISTANCE: float = 150.0
+const PURSUIT_LOSE_SECONDS: float = 6.0
+const PURSUIT_MAX_SECONDS: float = 60.0
+## Lost them: the heat settles here, not at the raid's 15 ("they know your truck
+## now"), and the crew gets XP_ESCAPE once.
+const HEAT_AFTER_ESCAPE: float = 40.0
+## Ramming the van: Chefty closing on it faster than this (m/s) spins it out for
+## VAN_STUN_SECONDS and adds HEAT_VAN_RAM (assault on a vehicle of niceness). The
+## spin starts at VAN_SPIN_RATE (rad/s) and winds down over VAN_SPIN_SECONDS; the
+## van is shoved along Chefty's way at this share of the closing speed.
+const VAN_RAM_SPEED: float = 9.0
+const VAN_STUN_SECONDS: float = 3.0
+const HEAT_VAN_RAM: float = 15.0
+const VAN_SPIN_RATE: float = 9.0
+const VAN_SPIN_SECONDS: float = 1.5
+const VAN_RAM_PUSH_SHARE: float = 0.55
+## A crash of Chefty's counts as a ram when it hit within this much (m) of the van's box.
+const VAN_RAM_SLACK: float = 1.2
+## The van's pose during a chase reaches clients as samples (PURSUIT_SNAP_HZ),
+## drawn at least PURSUIT_VIEW_DELAY behind the host (more when the link is
+## slower: the arrival lag plus PURSUIT_VIEW_MARGIN, up to PURSUIT_VIEW_DELAY_MAX),
+## carried on along its last velocity for at most PURSUIT_VIEW_EXTRAPOLATE (s).
+## The host keeps PURSUIT_TRACK_SECONDS of them.
+const PURSUIT_SNAP_HZ: int = 30
+const PURSUIT_VIEW_DELAY: float = 0.1
+const PURSUIT_VIEW_MARGIN: float = 0.05
+const PURSUIT_VIEW_DELAY_MAX: float = 0.4
+const PURSUIT_VIEW_EXTRAPOLATE: float = 0.15
+const PURSUIT_TRACK_SECONDS: float = 4.0
+## The kazoo siren on the van while it chases (sound_bank kazoo_siren): how loud
+## (dB), how far it carries (m) and its unit size; the pursuit engine
+## (nice_van_loop) pitched from idle to flat out by speed share.
+const VAN_SIREN_DB: float = -2.0
+const VAN_SIREN_UNIT_SIZE: float = 18.0
+const VAN_SIREN_MAX_DISTANCE: float = 220.0
+const VAN_PURSUIT_ENGINE_DB := Vector2(-10.0, 0.0)
+const VAN_PURSUIT_ENGINE_PITCH := Vector2(0.75, 1.5)
+## The amber dome pulses this fast (Hz) and this much brighter while it chases (the
+## lights in Chefty's mirror; cast guardrail: one dome, never a bar).
+const VAN_DOME_CHASE_HZ: float = 3.2
+const VAN_DOME_CHASE_ENERGY: float = 2.2
+const VAN_DOME_CHASE_RANGE: float = 14.0
+## Off the yard's navmesh (farther than this from the yard's middle, m), a NICE BOY
+## walks straight at where he's going.
+const CREW_NAV_REACH: float = 32.0
+## Back to a van parked out in the town, a NICE BOY comes at its door from this far (m)
+## out beside it, never along its flank (already this share of it out beside the
+## door, he walks straight in).
+const CREW_DOOR_APPROACH_OUT: float = 1.6
+const CREW_DOOR_APPROACH_SHARE: float = 0.7
+## The head NICE BOY's first bark out of the window comes this long (s) after the
+## van pulls away.
+const PURSUIT_FIRST_BARK_DELAY: float = 1.0
+## A U-turn counts as stuck only after this long at it (s), and is over once Chefty
+## is within this share of PURSUIT_UTURN_ANGLE of the van's nose.
+const PURSUIT_UTURN_SETTLE: float = 0.6
+const PURSUIT_UTURN_DONE_SHARE: float = 0.5
+## The van's clear-line check (straight at Chefty or by the roads) is a ray at this
+## height (m, about a windshield).
+const PURSUIT_SIGHT_HEIGHT: float = 1.4
+## Rammed: the van keeps this share of its own speed before the shove, and its body
+## bucks this hard (NiceVan Motion.bump) if the hit reached this peer within
+## VAN_RAM_BUMP_WINDOW (s).
+const VAN_RAM_KEEP_SPEED_SHARE: float = 0.3
+const VAN_RAM_BUMP: float = 2.0
+const VAN_RAM_BUMP_WINDOW: float = 0.5
+## Where the kazoo siren sits on the van (van space, m: on the roof by the dome).
+const VAN_SIREN_AT := Vector3(0.0, 3.3, 0.3)

@@ -298,6 +298,58 @@ def horn_loop() -> list[float]:
     return seamless(out, 0.2)
 
 
+# ---------------------------------------------------------------- driving:F, the pursuit
+
+def kazoo_siren() -> list[float]:
+    """The NICE BOYS' van in a chase (net/run_events/shuttle.gd): a kazoo through
+    the loudspeaker horn, 'woo-WOOP, woo-WOOP', each note a buzzy rise that bends
+    over the top. Not a real siren's wail: a cartoon one, a little out of breath.
+    Two woops a loop, seamless."""
+    rng = random.Random(7310)
+    seconds = 1.1
+    out = s.silence(seconds + 0.12)
+    for index, at in enumerate((0.0, 0.55)):
+        length = 0.47
+        low, high = (470.0, 700.0) if index == 0 else (500.0, 740.0)
+
+        def pitch(t: float, low=low, high=high, length=length) -> float:
+            # Up fast, a bend over the top, a sag at the end.
+            u = t / length
+            if u < 0.45:
+                return low + (high - low) * (u / 0.45) ** 0.7
+            return high - (high - low) * 0.25 * ((u - 0.45) / 0.55) ** 1.4
+
+        buzz = s.tone(length, pitch, "saw", (11.0, 0.012))
+        # The kazoo's membrane: a nasal, buzzy band, and a hum's low body under it.
+        nasal = [a + 0.7 * b + 0.35 * c for a, b, c in zip(
+            s.bandpass(buzz, 650.0, 2.2), s.bandpass(buzz, 1450.0, 3.0), s.bandpass(buzz, 2900.0, 4.0))]
+        fuzz = s.bandpass(s.noise(rng, length), 2400.0, 1.6)
+        note = [a + 0.12 * b for a, b in zip(nasal, fuzz)]
+        s.mix_into(out, s.envelope(note, 0.025, 0.07), at, 1.0)
+    # Through a loudspeaker: the lows and the very highs gone.
+    out = s.highpass(s.lowpass(out, 4200.0), 330.0)
+    return seamless(out, 0.12)
+
+
+def nice_van_loop() -> list[float]:
+    """The Courtesy Shuttle flat out after the crew's truck: a strained minivan
+    engine, a hum with a ragged edge, a fan belt whining over it and the road's
+    rumble under. Pitched by speed in code. Seamless."""
+    rng = random.Random(7320)
+    seconds = 2.0
+    out = s.silence(seconds + 0.25)
+    span = seconds + 0.25
+    body = s.lowpass(s.tone(span, 88.0, "square", (6.0, 0.025)), 520.0)
+    s.mix_into(out, body, 0.0, 0.55)
+    rough = s.lowpass(s.tone(span, 176.0, "saw", (17.0, 0.02)), 900.0)
+    s.mix_into(out, rough, 0.0, 0.22)
+    belt = s.tone(span, 1180.0, "sine", (3.5, 0.02))
+    s.mix_into(out, belt, 0.0, 0.05)
+    road = s.lowpass(s.noise(rng, span), 380.0)
+    s.mix_into(out, road, 0.0, 0.5)
+    return seamless(out, 0.25)
+
+
 SOUNDS = {
     "mower_loop": (mower_loop, 0, 0.55),
     "blower_loop": (blower_loop, 0, 0.5),
@@ -316,6 +368,9 @@ SOUNDS = {
     # ---- driving (Chefty, net/components/chefty_drive.gd)
     "engine_idle": (engine_idle, 0, 0.5),
     "horn_loop": (horn_loop, 0, 0.6),
+    # ---- driving:F: the pursuit (net/run_events/shuttle.gd's CHASE leg)
+    "kazoo_siren": (kazoo_siren, 0, 0.6),
+    "nice_van_loop": (nice_van_loop, 0, 0.5),
 }
 
 

@@ -79,6 +79,11 @@ func _process(delta: float) -> void:
 	if director == null or Net.current_state() != Net.State.IN_SESSION:
 		_set_strength(0.0)
 		return
+	_hook_pursuit(director)
+	# driving:F: fleeing in the crew's truck with the van on your tail is still the
+	# chase: its pulse stays at the edges of your eyes.
+	if not on_lot and _in_pursuit(director):
+		on_lot = true
 	var phase := int(director.call("phase"))
 	var started := float(director.call("phase_started_at"))
 	if started != _seen_started or phase != _seen_phase:
@@ -134,6 +139,53 @@ func _enter_phase(director: Node, phase: int, previous: int, started: float) -> 
 				_show_caption(cue_line("clear", started))
 				_material.set_shader_parameter("tint", CLEAR_TINT)
 				_flash = 1.0
+
+
+## driving:F: the run director's pursuit, hooked once it exists.
+var _pursuit: Node
+
+
+func _hook_pursuit(director: Node) -> void:
+	if _pursuit != null and is_instance_valid(_pursuit):
+		return
+	_pursuit = director.call("pursuit") if director.has_method("pursuit") else null
+	if _pursuit != null and _pursuit.has_signal("changed"):
+		_pursuit.connect("changed", _on_pursuit_changed)
+
+
+## A chase is on, and this player is out on the street (not caught, not at the Annex).
+func _in_pursuit(director: Node) -> bool:
+	if _pursuit == null or not is_instance_valid(_pursuit) or not bool(_pursuit.call("is_active")):
+		return false
+	var me := Net.local_peer_id()
+	if director.has_method("is_captured") and bool(director.call("is_captured", me)):
+		return false
+	# Only a chase you're in: not one across town while you shop.
+	if not bool(_pursuit.call("involves", me)):
+		return false
+	return Net.player_zone(me) == Net.Zone.TOWN
+
+
+## They lost the van: "Lost 'em!" and the brass stab, for whoever got away (on the
+## street or at Homie Depot; the yard gets the raid's own "All clear").
+func _on_pursuit_changed(active: bool, reason: String) -> void:
+	if active or reason != "lost":
+		return
+	var me := Net.local_peer_id()
+	var zone := Net.player_zone(me)
+	var director := get_tree().get_first_node_in_group("run_director")
+	if director != null and director.has_method("is_captured") and bool(director.call("is_captured", me)):
+		return
+	if zone != Net.Zone.TOWN and zone != Net.Zone.STORE:
+		return
+	if _pursuit == null or not is_instance_valid(_pursuit) or not bool(_pursuit.call("involves", me)):
+		return
+	log.append({"phase": -1, "cue": "lost", "late_ms": 0.0})
+	var music := get_tree().get_first_node_in_group("music_director")
+	if music != null and music.has_method("stinger"):
+		music.call("stinger", &"st_lost_em")
+	var started := float(_pursuit.call("started_at")) if _pursuit != null and is_instance_valid(_pursuit) else 0.0
+	_show_caption(cue_line("lost", started))
 
 
 ## Nobody caught in the raid that just ended: the cohort id (one more per catch,

@@ -273,7 +273,9 @@ func _down_points(player: Node3D, from: Vector3) -> Dictionary:
 
 ## Host: caught, with no lunge (force_capture, a found hider after the inspection,
 ## a scenario). Without a crew member the player goes straight to the van door.
-func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void:
+## land (driving:F): where they're set down for the gotcha, pulled out of a seat
+## in the crew's truck onto the road beside it; INF is where they stand.
+func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0, land: Vector3 = Vector3.INF) -> void:
 	if not Net.is_host() or stage_of(peer_id) != Stage.NONE and stage_of(peer_id) != Stage.WINDUP:
 		return
 	var director := get_parent()
@@ -283,7 +285,7 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 	director.call("note_capture", peer_id)
 	var now := Net.server_time()
 	var at := now if grab_id != 0 else now + float(_k("BEAT_LEAD", 0.15))
-	var victim := player.global_position
+	var victim := player.global_position if not land.is_finite() else land
 	# Found in a hiding spot: they're set down at the spot's landing, whatever this
 	# peer's copy of their lift shows yet (R2b hide; net/components/hide_spot.gd _pull).
 	if player.has_meta(&"hide_pulled_to"):

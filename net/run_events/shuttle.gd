@@ -47,9 +47,14 @@ const _Trees = preload("res://props/trees.gd")
 const _Strings = preload("res://ui/strings.gd")
 const CREW_SCENE: PackedScene = preload("res://npcs/crew_member.tscn")
 
-enum Leg { ARRIVE, PARKED, DEPART, CREEP, HIDDEN, ANNEX_ARRIVE, ANNEX_PARKED, RETURN_DEPART, DROP_ARRIVE, DROP_PARKED, LEAVE }
-const LEG_NAMES: Array[String] = ["arrive", "parked", "depart", "creep", "hidden", "annex_arrive", "annex_parked", "return_depart", "drop_arrive", "drop_parked", "leave"]
-const MOVING: Array[int] = [Leg.ARRIVE, Leg.DEPART, Leg.CREEP, Leg.ANNEX_ARRIVE, Leg.RETURN_DEPART, Leg.DROP_ARRIVE, Leg.LEAVE]
+## CHASE (driving:F): the pursuit through the town. Not a planned route but the
+## host's own drive (VehicleSim, net/run_events/pursuit.gd steering): its pose is
+## the trip's track, samples the host sends PURSUIT_SNAP_HZ times a second,
+## drawn a little behind on clients (_track_pose). It starts and ends standing
+## (a PARKED leg either side), so the hand-over is never a jump.
+enum Leg { ARRIVE, PARKED, DEPART, CREEP, HIDDEN, ANNEX_ARRIVE, ANNEX_PARKED, RETURN_DEPART, DROP_ARRIVE, DROP_PARKED, LEAVE, CHASE }
+const LEG_NAMES: Array[String] = ["arrive", "parked", "depart", "creep", "hidden", "annex_arrive", "annex_parked", "return_depart", "drop_arrive", "drop_parked", "leave", "chase"]
+const MOVING: Array[int] = [Leg.ARRIVE, Leg.DEPART, Leg.CREEP, Leg.ANNEX_ARRIVE, Leg.RETURN_DEPART, Leg.DROP_ARRIVE, Leg.LEAVE, Leg.CHASE]
 ## The run director's phases (net/run_events/director.gd; DEPARTING comes with nice_boys:2).
 const PHASE_QUIET: int = 0
 const PHASE_WARNING: int = 1
@@ -164,6 +169,13 @@ class Trip extends RefCounted:
 	var depart_planned: bool = false
 	var last_seat_done: float = -1.0
 	var creep_started: float = -1.0
+	## driving:F, every peer: the chase's pose samples [t, pos, yaw, vel] in time
+	## order (the host's own, or the ones it sent), how late they arrive here (s,
+	## clients; -1 before the first), and the siren and pursuit engine on the van.
+	var track: Array = []
+	var track_lag: float = -1.0
+	var siren: AudioStreamPlayer3D
+	var chase_engine: AudioStreamPlayer3D
 
 
 func _enter_tree() -> void:
@@ -474,6 +486,293 @@ func host_release_return() -> void:
 	_rpc_info.rpc(trip.id, trip.info)
 
 
+# ---------------------------------------------------------------- the chase (driving:F, host)
+
+
+## Host: the raid van's own drive while it chases the crew's truck through the
+## town (net/run_events/pursuit.gd steers it): {trip, chassis, state, params,
+## spin_left, spin_dir, tick, stepped}, or {} with no chase yet.
+var _chase: Dictionary = {}
+
+
+## Host: the raid van gives chase from where it stands: the doors slide shut, then
+## the CHASE leg starts there, siren on. Returns the server time the van can move,
+## or -1 when there's no raid van standing at a curb.
+func host_chase_start() -> float:
+	var trip := _trip(_raid_trip)
+	if not Net.is_host() or trip == null or trip.ended or trip.depart_planned:
+		return -1.0
+	var at := Net.server_time() + Constants.VAN_PLAN_LEAD
+	var leg := _current_leg(trip, at)
+	if leg.is_empty() or int(leg["k"]) != Leg.PARKED:
+		return -1.0
+	var start := at
+	for which: String in ["side", "back"]:
+		if _door_open(trip, which, at):
+			_host_door(trip, which, false, at)
+			start = at + Constants.VAN_DOOR_SLIDE
+	_cut_legs(trip, start)
+	var pose := _pose(trip, start)
+	trip.legs.append({"k": Leg.CHASE, "t": start, "x": pose})
+	trip.info["siren"] = true
+	trip.info["lights"] = true
+	_send_plan(trip)
+	_chase_body(trip, pose)
+	stats["chases"] = int(stats.get("chases", 0)) + 1
+	return start
+
+
+## Host, every physics tick of a chase: one step of the van's sim on these
+## controls ({throttle, steer, handbrake, brake}; VehicleSim's). A spin-out
+## overrides them. Returns VehicleSim.step's result, or {} while the van isn't on
+## its CHASE leg (the doors still shutting, or parked).
+func host_chase_step(input: Dictionary, delta: float) -> Dictionary:
+	var trip := _chase_trip()
+	if trip == null:
+		return {}
+	var now := Net.server_time()
+	var leg := _current_leg(trip, now)
+	if leg.is_empty() or int(leg["k"]) != Leg.CHASE:
+		return {}
+	var chassis := _chase["chassis"] as CharacterBody3D
+	var state: Dictionary = _chase["state"]
+	var drive := input
+	var spin := float(_chase["spin_left"])
+	if spin > 0.0:
+		# Spun out: the wheel's no use, it slides on round, slower and slower.
+		spin = maxf(spin - delta, 0.0)
+		_chase["spin_left"] = spin
+		state["yaw_rate"] = float(_chase["spin_dir"]) * Constants.VAN_SPIN_RATE * (spin / Constants.VAN_SPIN_SECONDS)
+		drive = {"handbrake": true}
+	var result := VehicleSim.step(chassis, state, drive, _chase["params"], delta)
+	_chase["stepped"] = Engine.get_physics_frames()
+	_track_add(trip, now, chassis.global_position, float(state["yaw"]), state["vel"])
+	_chase["tick"] = int(_chase["tick"]) + 1
+	var every := maxi(1, int(round(float(Engine.physics_ticks_per_second) / float(Constants.PURSUIT_SNAP_HZ))))
+	if int(_chase["tick"]) % every == 0:
+		_rpc_track.rpc(trip.id, now, chassis.global_position, float(state["yaw"]), state["vel"])
+	return result
+
+
+## Host: the chasing van's sim now: {pos, yaw, vel, speed, driving (on its CHASE
+## leg)}, or {} with no chase.
+func host_chase_pose() -> Dictionary:
+	var trip := _chase_trip()
+	if trip == null:
+		return {}
+	var chassis := _chase["chassis"] as CharacterBody3D
+	var state: Dictionary = _chase["state"]
+	var vel: Vector3 = state["vel"]
+	var leg := _current_leg(trip, Net.server_time())
+	return {"pos": chassis.global_position, "yaw": float(state["yaw"]), "vel": vel, "speed": Vector2(vel.x, vel.z).length(),
+		"driving": not leg.is_empty() and int(leg["k"]) == Leg.CHASE, "spinning": float(_chase["spin_left"]) > 0.0}
+
+
+## Host: rammed. It spins out (dir +1 or -1, VAN_SPIN_SECONDS), shoved along push.
+func host_chase_spin(push: Vector3, dir: float) -> void:
+	var trip := _chase_trip()
+	if trip == null:
+		return
+	_chase["spin_left"] = Constants.VAN_SPIN_SECONDS
+	_chase["spin_dir"] = signf(dir) if dir != 0.0 else 1.0
+	var state: Dictionary = _chase["state"]
+	state["vel"] = (state["vel"] as Vector3) * Constants.VAN_RAM_KEEP_SPEED_SHARE + Vector3(push.x, 0.0, push.z)
+	_rpc_beat.rpc(trip.id, "ram", Net.server_time())
+	stats["spins"] = int(stats.get("spins", 0)) + 1
+
+
+## Host: the chasing van has stopped; it stands here from VAN_PLAN_LEAD on (a
+## PARKED leg, the curb it pulled over at). siren: whether it keeps wailing.
+func host_chase_park() -> bool:
+	var trip := _chase_trip()
+	if trip == null:
+		return false
+	var now := Net.server_time()
+	var leg := _current_leg(trip, now)
+	if leg.is_empty() or int(leg["k"]) != Leg.CHASE:
+		return false
+	var at := now + Constants.VAN_PLAN_LEAD
+	var chassis := _chase["chassis"] as CharacterBody3D
+	var pose := Transform3D(Basis(Vector3.UP, float((_chase["state"] as Dictionary)["yaw"])), chassis.global_position)
+	_cut_legs(trip, at)
+	trip.legs.append({"k": Leg.PARKED, "t": at, "x": pose})
+	trip.info["park"] = pose
+	trip.info["siren"] = false
+	_send_plan(trip)
+	return true
+
+
+## Host: the van's siren and its pulsing dome (the lights in Chefty's mirror).
+func host_chase_cues(siren: bool, lights: bool) -> void:
+	var trip := _trip(_raid_trip)
+	if not Net.is_host() or trip == null:
+		return
+	if bool(trip.info.get("siren", false)) == siren and bool(trip.info.get("lights", false)) == lights:
+		return
+	trip.info["siren"] = siren
+	trip.info["lights"] = lights
+	_rpc_info.rpc(trip.id, trip.info)
+
+
+## Host: the raid van's door step crew climb out at from now (staggered), the side
+## door opening first: the yard's arrival, and a pull-over's.
+func host_unload_crew(door_at: float) -> void:
+	var trip := _trip(_raid_trip)
+	if not Net.is_host() or trip == null:
+		return
+	_host_door(trip, "side", true, door_at)
+	var order := 0
+	var indices := trip.crew.keys()
+	indices.sort()
+	for index: Variant in indices:
+		var entry: Dictionary = trip.crew[index]
+		if int(entry["mode"]) == CREW_SEATED or (int(entry["mode"]) == CREW_HOP_IN and str(trip.crew_staged.get(int(index), "")) == "sit"):
+			var hop_at := door_at + Constants.VAN_DOOR_SLIDE * 0.6 + float(order) * Constants.CREW_UNLOAD_STAGGER
+			_rpc_crew_seat.rpc(trip.id, int(index), int(entry["seat"]), hop_at, CREW_HOP_OUT, Vector3(float(order), 0.0, 0.0))
+			order += 1
+
+
+## This NICE BOY is inside the raid van: sat, or climbing in and past its sill
+## (driving:F: the door can shut behind him while he finds his seat).
+func crew_aboard(index: int) -> bool:
+	var trip := _trip(_raid_trip)
+	if trip == null:
+		return false
+	var entry: Dictionary = trip.crew.get(index, {})
+	if entry.is_empty():
+		return false
+	var mode := int(entry["mode"])
+	if mode == CREW_SEATED:
+		return true
+	if mode != CREW_HOP_IN:
+		return false
+	var step := _local_marker(trip, "DoorStep")
+	var walk := _flat(step.origin - (entry["from"] as Vector3)) / Constants.VAN_CREW_WALK_SPEED
+	return Net.server_time() - float(entry["at"]) >= walk + Constants.VAN_HOP_SECONDS
+
+
+## The van's pose on the raid trip now (every peer: what's drawn here, or would be).
+func raid_pose() -> Transform3D:
+	var trip := _trip(_raid_trip)
+	return _pose(trip, Net.server_time()) if trip != null else Transform3D()
+
+
+## The raid trip's current leg name ("chase", "parked", ...), or "".
+func raid_leg() -> String:
+	return leg_name(_raid_trip)
+
+
+func _chase_trip() -> Trip:
+	if not Net.is_host() or _chase.is_empty():
+		return null
+	var trip := _trip(int(_chase["trip"]))
+	if trip == null or trip.ended or not is_instance_valid(_chase.get("chassis")):
+		return null
+	return trip
+
+
+## Host: the van's sim body for a chase, placed where it stands (the same one
+## again on a second leg of the same trip, after a pull-over).
+func _chase_body(trip: Trip, pose: Transform3D) -> void:
+	var chassis: CharacterBody3D = _chase.get("chassis") as CharacterBody3D if is_instance_valid(_chase.get("chassis")) else null
+	if chassis == null:
+		chassis = CharacterBody3D.new()
+		chassis.name = "ChaseChassis"
+		chassis.top_level = true
+		# It meets the town's solids (layer 1: houses, posts, parked cars, Chefty's
+		# own Solid) and nothing meets it.
+		chassis.collision_layer = 0
+		chassis.collision_mask = 1
+		chassis.motion_mode = CharacterBody3D.MOTION_MODE_FLOATING
+		chassis.wall_min_slide_angle = 0.0
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Constants.NICE_VAN_CHASSIS_SIZE
+		shape.shape = box
+		shape.position = Constants.NICE_VAN_CHASSIS_CENTER
+		chassis.add_child(shape)
+		add_child(chassis)
+	var forward := -pose.basis.z
+	var yaw := atan2(-forward.x, -forward.z)
+	chassis.global_transform = Transform3D(Basis(Vector3.UP, yaw), pose.origin)
+	var params := VehicleSim.chefty_params(0, false)
+	params["top_speed"] = Constants.NICE_VAN_TOP_SPEED
+	params["accel"] = Constants.NICE_VAN_ACCEL
+	params["brake"] = Constants.NICE_VAN_BRAKE
+	params["steer_rate"] = Constants.NICE_VAN_STEER_RATE
+	params["wheels"] = Constants.NICE_VAN_WHEELS
+	var exclude: Array = []
+	var solid := trip.look.get_node_or_null("Solid") as PhysicsBody3D if trip.look != null else null
+	if solid != null:
+		chassis.add_collision_exception_with(solid)
+		exclude.append(solid.get_rid())
+	params["exclude"] = exclude
+	_chase = {"trip": trip.id, "chassis": chassis, "state": VehicleSim.new_state(yaw), "params": params, "spin_left": 0.0, "spin_dir": 1.0, "tick": 0, "stepped": -1}
+
+
+## Host: a chase leg nobody stepped this tick (the pursuit let go of it) brakes.
+func _host_chase_idle() -> void:
+	if _chase.is_empty() or int(_chase.get("stepped", -1)) == Engine.get_physics_frames():
+		return
+	host_chase_step({"brake": true}, get_physics_process_delta_time())
+
+
+## Every peer: a pose sample of the chase, kept in time order for
+## PURSUIT_TRACK_SECONDS.
+func _track_add(trip: Trip, t: float, pos: Vector3, yaw: float, vel: Vector3) -> void:
+	if not trip.track.is_empty() and t <= float((trip.track[trip.track.size() - 1] as Array)[0]):
+		return
+	trip.track.append([t, pos, yaw, vel])
+	while trip.track.size() > 2 and t - float((trip.track[0] as Array)[0]) > Constants.PURSUIT_TRACK_SECONDS:
+		trip.track.pop_front()
+
+
+@rpc("authority", "call_remote", "unreliable_ordered")
+func _rpc_track(trip_id: int, t: float, pos: Vector3, yaw: float, vel: Vector3) -> void:
+	var trip := _trip(trip_id)
+	if trip == null:
+		return
+	# How late samples get here: a fast one shows the link's real delay at once,
+	# a slower run drifts the estimate up gently.
+	var seen := Net.server_time() - t
+	if trip.track_lag < 0.0 or seen < trip.track_lag:
+		trip.track_lag = maxf(seen, 0.0)
+	else:
+		trip.track_lag = lerpf(trip.track_lag, seen, 0.02)
+	_track_add(trip, t, pos, yaw, vel)
+	stats["track_samples"] = int(stats.get("track_samples", 0)) + 1
+
+
+## How far behind the host a client draws a chase (s).
+func _track_delay(trip: Trip) -> float:
+	if Net.is_host():
+		return 0.0
+	return clampf(maxf(Constants.PURSUIT_VIEW_DELAY, trip.track_lag + Constants.PURSUIT_VIEW_MARGIN), Constants.PURSUIT_VIEW_DELAY, Constants.PURSUIT_VIEW_DELAY_MAX)
+
+
+## A CHASE leg's pose at server time t: between the two samples around it (a
+## client a little behind the host, _track_delay), carried on along the newest's
+## velocity for at most PURSUIT_VIEW_EXTRAPOLATE, and where it started before the
+## first sample of this leg.
+func _track_pose(trip: Trip, leg: Dictionary, t: float) -> Transform3D:
+	var start := float(leg["t"])
+	t -= _track_delay(trip)
+	var track := trip.track
+	var index := track.size() - 1
+	while index >= 0 and float((track[index] as Array)[0]) > t:
+		index -= 1
+	if index < 0 or float((track[index] as Array)[0]) < start - 0.001:
+		return leg["x"] as Transform3D
+	var a: Array = track[index]
+	if index + 1 < track.size():
+		var b: Array = track[index + 1]
+		var span := maxf(float(b[0]) - float(a[0]), 0.0001)
+		var k := clampf((t - float(a[0])) / span, 0.0, 1.0)
+		return Transform3D(Basis(Vector3.UP, lerp_angle(float(a[2]), float(b[2]), k)), (a[1] as Vector3).lerp(b[1] as Vector3, k))
+	var ahead := clampf(t - float(a[0]), 0.0, Constants.PURSUIT_VIEW_EXTRAPOLATE)
+	return Transform3D(Basis(Vector3.UP, float(a[2])), (a[1] as Vector3) + (a[3] as Vector3) * ahead)
+
+
 ## The trips' state for a late joiner (C6: the director's _rpc_state carries it).
 func snapshot() -> Dictionary:
 	var trips: Array = []
@@ -740,7 +1039,16 @@ func dev_skip_ride(trip_id: int) -> void:
 func dev_reset() -> void:
 	if Net.is_host():
 		_dev_stragglers.clear()
+		_drop_chase()
 		_rpc_dev_reset.rpc()
+
+
+## Host: the chase's sim body goes (a reset, the trip over).
+func _drop_chase() -> void:
+	var chassis: Variant = _chase.get("chassis")
+	if chassis != null and is_instance_valid(chassis):
+		(chassis as Node).queue_free()
+	_chase = {}
 
 
 @rpc("authority", "call_local", "reliable")
@@ -829,6 +1137,7 @@ func _physics_process(delta: float) -> void:
 	if Net.is_host():
 		_host_tick(now)
 		_dev_straggle_tick(delta)
+		_host_chase_idle()
 	for trip: Trip in _trips.values().duplicate():
 		_draw_trip(trip, now, delta)
 	_local_rider_beats(now)
@@ -892,17 +1201,8 @@ func _on_phase(phase: int, started: float) -> void:
 			if trip != null:
 				var door_at := maxf(started, _arrive_end(trip))
 				door_at = maxf(door_at, Net.server_time() + Constants.VAN_PLAN_LEAD)
-				_host_door(trip, "side", true, door_at)
 				# The crew climb out one by one once the door's half open.
-				var order := 0
-				var indices := trip.crew.keys()
-				indices.sort()
-				for index: Variant in indices:
-					var entry: Dictionary = trip.crew[index]
-					if int(entry["mode"]) == CREW_SEATED:
-						var hop_at := door_at + Constants.VAN_DOOR_SLIDE * 0.6 + float(order) * Constants.CREW_UNLOAD_STAGGER
-						_rpc_crew_seat.rpc(trip.id, int(index), int(entry["seat"]), hop_at, CREW_HOP_OUT, Vector3(float(order), 0.0, 0.0))
-						order += 1
+				host_unload_crew(door_at)
 
 
 ## The raid van's own decisions while the pre-R2 director runs (it has no hold,
@@ -1508,6 +1808,8 @@ func _host_end_trip(trip: Trip) -> void:
 				crew.queue_free()
 	_rpc_end_trip.rpc(trip.id)
 	stats["freed_trips"] = int(stats["freed_trips"]) + 1
+	if int(_chase.get("trip", 0)) == trip.id:
+		_drop_chase()
 
 
 func _host_holds(now: float) -> void:
@@ -1648,7 +1950,9 @@ func _roll_in_legs(curb: Transform3D, start: float, min_length: float = 0.0) -> 
 ## there (HIDDEN). The door shuts first and the blinker ticks; a NICE BOY still out
 ## makes it creep first, back doors open.
 func _plan_departure(trip: Trip, at: float, kind: int) -> void:
-	_host_door(trip, "side", false, at)
+	# Already shut (a van that chased the crew's truck and gave up): no slide, no slam.
+	if _door_open(trip, "side", at):
+		_host_door(trip, "side", false, at)
 	var pull := at + Constants.VAN_DOOR_SLIDE + Constants.VAN_BLINKER_SECONDS
 	_rpc_beat.rpc(trip.id, "blinker", at + Constants.VAN_DOOR_SLIDE)
 	_rpc_beat.rpc(trip.id, "whistle", at)
@@ -2714,6 +3018,56 @@ func _engine(trip: Trip, leg: Dictionary, now: float, delta: float) -> void:
 	player.pitch_scale = lerpf(Constants.VAN_ENGINE_PITCH.x, Constants.VAN_ENGINE_PITCH.y, share)
 
 
+## driving:F, every peer: the kazoo siren while the plan says it wails, the
+## pursuit engine's roar while it chases (pitched by how fast this peer sees it
+## go), and the amber dome pulsing hard while the lights are on. Local.
+func _chase_cues(trip: Trip, kind: int, delta: float) -> void:
+	var motion := trip.look.get_node_or_null("Motion")
+	var lights := bool(trip.info.get("lights", false)) and not trip.ended
+	if motion != null and "urgent" in motion:
+		motion.set("urgent", lights)
+	var quiet := trip.hidden_local or trip.ended or Net.is_automated() or DisplayServer.get_name() == "headless"
+	var wail := bool(trip.info.get("siren", false)) and not quiet
+	trip.siren = _chase_loop(trip, trip.siren, "kazoo_siren", "Siren", wail)
+	if trip.siren != null and trip.siren.playing:
+		trip.siren.volume_db = _Bank.db("kazoo_siren") + Constants.VAN_SIREN_DB
+	var roaring := kind == Leg.CHASE and not quiet
+	trip.chase_engine = _chase_loop(trip, trip.chase_engine, "nice_van_loop", "ChaseEngine", roaring)
+	if trip.chase_engine != null and trip.chase_engine.playing:
+		var speed := absf(float(motion.get("speed"))) if motion != null else 0.0
+		var share := clampf(speed / Constants.NICE_VAN_TOP_SPEED, 0.0, 1.0)
+		var ease := 1.0 - exp(-Constants.VAN_ENGINE_SMOOTH * maxf(delta, 0.0))
+		var db := _Bank.db("nice_van_loop") + lerpf(Constants.VAN_PURSUIT_ENGINE_DB.x, Constants.VAN_PURSUIT_ENGINE_DB.y, share) + (Constants.VAN_ENGINE_RIDER_DB if _local_is_rider(trip) else 0.0)
+		trip.chase_engine.volume_db = lerpf(trip.chase_engine.volume_db, db, ease)
+		trip.chase_engine.pitch_scale = lerpf(trip.chase_engine.pitch_scale, lerpf(Constants.VAN_PURSUIT_ENGINE_PITCH.x, Constants.VAN_PURSUIT_ENGINE_PITCH.y, share), ease)
+
+
+## A looped sound on the van, made on first need and started or stopped by on.
+func _chase_loop(trip: Trip, player: AudioStreamPlayer3D, id: String, node_name: String, on: bool) -> AudioStreamPlayer3D:
+	if player != null and not is_instance_valid(player):
+		player = null
+	if not on:
+		if player != null and player.playing:
+			player.stop()
+		return player
+	if player == null:
+		var stream := _Sfx.looped(id)
+		if stream == null:
+			return null
+		player = AudioStreamPlayer3D.new()
+		player.name = node_name
+		player.stream = stream
+		player.bus = _Bank.bus(id)
+		player.unit_size = Constants.VAN_SIREN_UNIT_SIZE if id == "kazoo_siren" else Constants.VAN_ENGINE_UNIT_SIZE
+		player.max_distance = Constants.VAN_SIREN_MAX_DISTANCE if id == "kazoo_siren" else Constants.VAN_ENGINE_MAX_DISTANCE
+		player.volume_db = Constants.VAN_ENGINE_SILENT_DB if id != "kazoo_siren" else _Bank.db(id) + Constants.VAN_SIREN_DB
+		player.position = Constants.VAN_SIREN_AT if id == "kazoo_siren" else _NiceVan.ENGINE_AT
+		trip.look.add_child(player)
+	if not player.playing:
+		player.play()
+	return player
+
+
 ## The van's own driver: a NICE BOY who never gets out, sat at the wheel with a
 ## hand on it and a coffee in the other. Local and cosmetic.
 func _build_driver(look: Node3D) -> Node3D:
@@ -2764,6 +3118,18 @@ func _draw_trip(trip: Trip, now: float, delta: float) -> void:
 	# A jump (a leg in another place) waits until nobody here can see the van, or
 	# happens behind our own closed iris when we're riding it.
 	var jump := trip.placed and pose.origin.distance_to(trip.drawn.origin) > Constants.VAN_TELEPORT_METERS
+	if kind == Leg.CHASE and not Net.is_host() and not trip.track.is_empty():
+		# For the probe: a drawn chase that ran out of samples (it waits at the
+		# newest past PURSUIT_VIEW_EXTRAPOLATE), and how far behind the host it draws.
+		var newest := float((trip.track[trip.track.size() - 1] as Array)[0])
+		if newest >= float(leg["t"]) and now - _track_delay(trip) - newest > Constants.PURSUIT_VIEW_EXTRAPOLATE:
+			stats["track_hitches"] = int(stats.get("track_hitches", 0)) + 1
+		stats["track_delay_ms"] = _track_delay(trip) * 1000.0
+	if kind == Leg.CHASE:
+		# A chase is drawn where its track has it, never held where it was for a
+		# "jump" (a long hitch here can carry it past VAN_TELEPORT_METERS in a tick,
+		# and a held van would stay frozen while the chase drove on).
+		jump = false
 	# Someone here still watching it drive away when its plan moves on (the riders'
 	# next stop, the end of its road, the trip over): it keeps driving away down
 	# the road it was on until it's out of sight, never stopping dead in the
@@ -2800,8 +3166,9 @@ func _draw_trip(trip: Trip, now: float, delta: float) -> void:
 	# where it is drawn until the plan comes past, while anyone here could see it
 	# (p1-van, playtest nb6; a bot's view had the departing van flick back to the
 	# curb for half a second).
-	if not mine and trip.placed and not jump and seen_recently and not trip.ended:
-		var back := (pose.origin - trip.drawn.origin).dot(-trip.drawn.basis.z.normalized())
+	# (A chase can back up for real: a spin-out, a reverse off a wall.)
+	if not mine and trip.placed and not jump and seen_recently and not trip.ended and kind != Leg.CHASE:
+		var back :=(pose.origin - trip.drawn.origin).dot(-trip.drawn.basis.z.normalized())
 		if back < -Constants.VAN_BACKSTEP_TOLERANCE and pose.origin.distance_to(trip.drawn.origin) < Constants.VAN_TELEPORT_METERS:
 			pose = trip.drawn
 			stats["held_back"] = int(stats.get("held_back", 0)) + 1
@@ -2822,7 +3189,8 @@ func _draw_trip(trip: Trip, now: float, delta: float) -> void:
 	elif not hide_ok:
 		trip.hidden_local = false
 	trip.holder.visible = not trip.hidden_local
-	_set_solid(trip, kind in [Leg.PARKED, Leg.ANNEX_PARKED, Leg.DROP_PARKED, Leg.HIDDEN])
+	# Chasing it's solid too (driving:F): Chefty that rams it hits a van, not air.
+	_set_solid(trip, kind in [Leg.PARKED, Leg.ANNEX_PARKED, Leg.DROP_PARKED, Leg.HIDDEN, Leg.CHASE])
 	# What this peer saw it do: the fastest and the longest step while in view.
 	if trip.placed and not snap and seen and not trip.hidden_local and delta > 0.0:
 		var step := pose.origin.distance_to(trip.drawn.origin)
@@ -2841,6 +3209,7 @@ func _draw_trip(trip: Trip, now: float, delta: float) -> void:
 	_doors_and_lights(trip, now)
 	_sounds(trip, leg, now)
 	_engine(trip, leg, now, delta)
+	_chase_cues(trip, kind, delta)
 	_driver(trip, now, kind)
 	_place_riders(trip, now)
 	_place_crew(trip, now)
@@ -2932,6 +3301,14 @@ func _sounds(trip: Trip, leg: Dictionary, now: float) -> void:
 	for tick: int in int(Constants.VAN_BLINKER_SECONDS / 0.4) + 1:
 		_sound_once(trip, "blink%d_%.2f" % [tick, blink_at], "blinker_tick", now, blink_at + float(tick) * 0.4, -6.0)
 	_sound_once(trip, "honkback%.2f" % float(trip.info.get("beat_honk", -1000.0)), "van_honk", now, float(trip.info.get("beat_honk", -1000.0)))
+	# driving:F: rammed. The tires shriek as it spins and the body bucks on its springs.
+	var ram := float(trip.info.get("beat_ram", -1000.0))
+	_sound_once(trip, "ram%.2f" % ram, "van_brake", now, ram, Constants.VAN_BRAKE_DB)
+	if now >= ram and not trip.played.has("rambump%.2f" % ram):
+		trip.played["rambump%.2f" % ram] = true
+		var bucked := look.get_node_or_null("Motion")
+		if bucked != null and now - ram < Constants.VAN_RAM_BUMP_WINDOW:
+			bucked.call("bump", Constants.VAN_RAM_BUMP)
 	# The mirror's glint, the hold only.
 	var hold := _hold_leg(trip, now)
 	if not hold.is_empty():
@@ -3627,8 +4004,11 @@ func _sync_crew_mode(crew: Node, entry: Dictionary, state: String) -> void:
 		return
 	crew.call("host_set_mode", want)
 	if want == _CrewMember.Mode.NOISE and int(crew.call("crew_index")) == 1 and crew.has_method("bark"):
-		# The head NICE BOY says hello once he's on the curb.
-		crew.call("bark", "arrive", true)
+		# The head NICE BOY says hello once he's on the curb (pulling the crew's
+		# truck over, driving:F: the pull-over line instead).
+		var pursuit := get_tree().get_first_node_in_group("pursuit")
+		var pulled := pursuit != null and pursuit.has_method("pulling_over") and bool(pursuit.call("pulling_over"))
+		crew.call("bark", "pullover" if pulled else "arrive", true)
 
 
 func _stage_crew(crew: Node, anchor: Node3D, sitting: bool, first: bool) -> void:
@@ -3809,6 +4189,8 @@ func _pose(trip: Trip, t: float) -> Transform3D:
 		if trip.legs.is_empty():
 			return Transform3D()
 		leg = trip.legs[0]
+	if int(leg["k"]) == Leg.CHASE:
+		return _track_pose(trip, leg, t)
 	return leg_pose(leg, t)
 
 

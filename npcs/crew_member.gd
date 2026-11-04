@@ -21,7 +21,7 @@ extends CharacterBody3D
 enum Mode { PATROL, NOISE, SPOT, CHASE, INVESTIGATE, SEARCH, INSPECT, WINDUP, LUNGE, WHIFF, GOTCHA, CITE, ESCORT, DOOR, RECALL, SEATED, HOP_OUT, HOP_IN, STUNNED }
 
 ## The bark kinds (Strings.CREW_BARKS has a pool for each; cast_test checks).
-const BARK_KINDS: Array[String] = ["arrive", "spot", "chase", "lunge", "whiff", "lost", "search", "inspect", "near_miss", "pile", "caught", "cite_wriggle", "bonked", "escort", "door", "buckle", "recall", "ride", "wave", "capacity", "investigate", "inspect_hedge", "inspect_bin", "inspect_shed", "inspect_pile", "near_miss_hedge", "near_miss_bin", "near_miss_shed", "near_miss_pile"]
+const BARK_KINDS: Array[String] = ["arrive", "spot", "chase", "lunge", "whiff", "lost", "search", "inspect", "near_miss", "pile", "caught", "cite_wriggle", "bonked", "escort", "door", "buckle", "recall", "ride", "wave", "capacity", "investigate", "inspect_hedge", "inspect_bin", "inspect_shed", "inspect_pile", "near_miss_hedge", "near_miss_bin", "near_miss_shed", "near_miss_pile", "pursuit", "pullover"]
 ## The modes the brain decides; the rest belong to the Encounter, the van or the director.
 const BRAIN_MODES: Array[int] = [Mode.PATROL, Mode.NOISE, Mode.SPOT, Mode.CHASE, Mode.INVESTIGATE, Mode.SEARCH, Mode.INSPECT]
 ## Modes in which every peer places the body itself.
@@ -602,6 +602,11 @@ func _auto_stage() -> void:
 func _steer(goal: Vector3, speed: float, face: Vector3, delta: float) -> void:
 	var next := goal
 	var agent := get_node_or_null("NavigationAgent3D") as NavigationAgent3D
+	# Out in the connected town, off the yard's navmesh (a pull-over down the
+	# street, driving:F), he walks straight there: the mesh would take him back
+	# to the yard's edge first.
+	if agent != null and speed > 0.0 and not (_on_yard_nav(goal) and _on_yard_nav(global_position)):
+		agent = null
 	if agent != null and speed > 0.0:
 		agent.target_position = goal
 		var path := agent.get_current_navigation_path()
@@ -630,6 +635,15 @@ func _steer(goal: Vector3, speed: float, face: Vector3, delta: float) -> void:
 	else:
 		velocity.y -= _gravity * delta
 	move_and_slide()
+
+
+## Near enough the job yard for its navmesh to be the way there (always outside
+## the connected town).
+func _on_yard_nav(point: Vector3) -> bool:
+	if not TownMap.enabled(get_tree()):
+		return true
+	var lot := _lot_zone()
+	return lot == null or Vector2(point.x - lot.global_position.x, point.z - lot.global_position.z).length() <= Constants.CREW_NAV_REACH
 
 
 func _turn_toward(dir: Vector3, delta: float) -> void:
