@@ -3234,17 +3234,18 @@ const VAN_PULL_SOUND_LEAD: float = 0.03
 ## long (s) into it, and the dolly from the seat to it takes this long (s).
 const VAN_RIDE_MONTAGE_AT: float = 4.5
 const VAN_BUMP_AFTER_MONTAGE: float = 1.4
-const VAN_FRESHENER_BLEND: float = 1.2
+## p1-van: from 1.2, as the dolly now leans out into the aisle before it goes up it.
+const VAN_FRESHENER_BLEND: float = 1.6
 ## Stepping down: the seat camera hands to your own eyes over this long (s).
 const VAN_SEAT_POP_BLEND: float = 0.5
 ## Boarding the ride home behind your iris: it shuts this much (s) before you're
 ## seated, and opens this long (s) after.
 const VAN_BOARD_IRIS_MARGIN: float = 0.1
 const VAN_BOARD_IRIS_HOLD: float = 0.35
-## Riders step down this far (m) past the door step, out on the sidewalk, and this
-## far along the curb from it (m, each in turn), clear of the stacked door panels.
+## Riders step down this far (m) past the door step, out on the sidewalk, each
+## straight out from their own seat (p1-van; it used to be a slot along the curb
+## per turn, so the second one out walked the aisle past the first's eyes).
 const VAN_EXIT_OUT: float = 0.35
-const VAN_EXIT_ALONG: Array[float] = [-0.6, 0.15, -1.35, 0.9]
 ## Leaving a curb: the blinker ticks this long (s) after the door is shut.
 const VAN_LEAVE_BLINK: float = 0.8
 ## Driving away it never brakes: past the end of its planned road (VAN_HIDE_METERS
@@ -3299,10 +3300,13 @@ const VAN_STRAGGLER_MIN_CLOSING: float = 1.0
 ## review: from 0.9, where the step down still brushed past the rescuer's cap.
 const VAN_UNBUCKLE_BESIDE: float = 1.15
 const VAN_DOORWAY_Z := Vector2(-1.4, 2.5)
-## Stepping down out of a seat, they shuffle along the aisle to where they'll
-## land first, curving out through the door past this x (van space; the seats are
-## at -0.78, the doorway at 1.16), with this little hop (m) as they step down.
-const VAN_STEP_OUT_TURN_X: float = 0.7
+## Stepping down out of a seat, a rider who lands somewhere along the curb from
+## their seat (an unbuckle beside the rescuer, a spot slid clear of a lamp post)
+## shuffles along the aisle's far side first, curving out through the door past
+## this x (van space; the seats are at -0.78, the doorway at 1.16: p1-van, from 0.7,
+## so the shuffle passes the other riders' eyes 1.6 m off, not 1.4), with this
+## little hop (m) as they step down.
+const VAN_STEP_OUT_TURN_X: float = 0.9
 const VAN_STEP_OUT_LIFT: float = 0.2
 ## Annex B's ride home parks this far up the curb from the turnstile (m), so the
 ## way out of the turnstile is open pavement and the receipt beat plays there:
@@ -5270,3 +5274,71 @@ const STEP_DOWN_DOOR_CLEAR: float = 0.4
 ## already under way on the rider's peer is caught up, never jumped.
 const SMOOTHER_SEAT_HOLD_MAX: float = 3.0
 const SMOOTHER_RESUME_BLEND: float = 0.3
+
+# ---- p1-van (the Courtesy Shuttle with a crew aboard; docs/GAME.md "The Courtesy Shuttle, crewed")
+## The cab shot's dolly takes over from wherever you were looking in the seat over
+## this long (s), the lens closing in to the cab shot's FOV with it; the dolly
+## starts at your seat's eye and only leans out into the aisle in this time, so the
+## blend can't cut the corner back past the next rider's head.
+const VAN_DOLLY_BLEND_IN: float = 0.6
+## Which seat a rider gets (props/nice_van.gd RIDER_SEAT_Z, front to back): each
+## one walks along the curb to their own seat's spot and steps straight in, so a
+## seat with a rider either side costs this much (m of walk), and one past the
+## NICE BOY who brought you (he stands beside you at the door) this much more, so
+## nobody is walked through him (playtest r1).
+const VAN_SEAT_CROWD_COST: float = 3.0
+const VAN_SEAT_ESCORT_COST: float = 5.0
+## ... he counts as beside you within this (m).
+const VAN_SEAT_ESCORT_NEAR: float = 1.6
+## A walk to your seat's spot longer than this (m) is walked facing the way you
+## go; shorter, you shuffle along the door still facing the van.
+const VAN_SHUFFLE_FACE_METERS: float = 1.0
+## A step up from further than this (m) from its seat's spot isn't a shuffle
+## along the door (an escort hands you over at the door step): it goes straight.
+const VAN_STEP_SHUFFLE_MAX: float = 2.6
+## With nobody to walk past, the seats fill in this order: by the door first, then
+## the far ends, so two riders sit 1.4 m apart.
+const VAN_SEAT_ORDER: Array[int] = [2, 0, 3, 1]
+## Where you step down you face away from the van. A spot along the curb with no
+## lamp post, trunk, mailbox or person within this (m) inside this half-angle
+## (degrees) of that is taken first; failing one, you're turned the least of these
+## (degrees, either way) that clears it (playtest nb3: back in control facing a
+## pole at arm's length; a pole 1.8 m ahead still split the view, so 2 m).
+const VAN_EXIT_FACE_CLEAR: float = 2.0
+const VAN_EXIT_FACE_CONE: float = 45.0
+const VAN_EXIT_FACE_TURNS: Array[float] = [0.0, 30.0, -30.0, 55.0, -55.0, 80.0, -80.0]
+## ... and nobody (a teammate, a NICE BOY, a rider already given the next spot)
+## stands within this (m) of where you land: under the seats' spacing, so riders
+## sat side by side still step straight down side by side.
+const VAN_EXIT_PERSON_CLEAR: float = 0.65
+## A watcher's van driving away keeps carrying on down its road while it was in
+## view this recently (s): a frame where a trunk hides it no longer drops it back
+## onto the host's plan 20 m behind (playtest nb6).
+const VAN_GHOST_GRACE: float = 0.75
+## ... and the host's plan landing more than this (m) behind the van this peer is
+## drawing driving away is never taken while it's in view: it drives on.
+const VAN_GHOST_BEHIND: float = 0.5
+## A watcher's van that would be drawn more than this (m) behind where it was last
+## frame waits there for its plan instead (a van never backs up).
+const VAN_BACKSTEP_TOLERANCE: float = 0.02
+## The crew's way in and out of the side door (van space z): shotgun's at the
+## front of the opening, the back bench's just ahead of the stacked door panels,
+## and through the aisle at this x, on its door side, clear of the riders' bench;
+## the back bench's aisle point this far (m) on toward it from its way in.
+const VAN_CREW_DOOR_Z := Vector2(-1.55, 1.2)
+const VAN_CREW_AISLE_X: float = 0.75
+const VAN_CREW_AISLE_ALONG: float = 0.8
+## Someone out for a walk counts as standing everywhere their route has them
+## from the moment you unbuckle until this long (s) after your feet touch the
+## sidewalk, sampled this often (s): the step-down keeps clear of where a passer-by
+## is about to be, not where they were when the door opened (p1-van review: one
+## strolled into a landing rider's face from 0.5 m).
+const VAN_EXIT_PASSER_AFTER: float = 1.5
+const VAN_EXIT_PASSER_STEP: float = 0.25
+## A passer-by doesn't walk within this (m) of the sidewalk outside a NICE van's
+## side door while it stands at the curb, is this close (s) to stopping there, or
+## has the door open: they stop at the edge and watch, then catch up on their
+## walk once it's gone (npcs/pedestrian.gd, Shuttle.keep_clear). Past the door's
+## opening, so the one waiting is off to the side of every step-down's view.
+const VAN_PASSER_KEEP: float = 3.0
+const VAN_PASSER_LEAD: float = 3.0

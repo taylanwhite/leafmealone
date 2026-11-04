@@ -48,7 +48,7 @@ const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -136,7 +136,7 @@ const EYE_HEIGHT: float = 1.6
 ## the friend's catch yours comes (s).
 const TWO_CAUGHT_APART: float = 3.5
 const TWO_CAUGHT_GAP: float = 1.2
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far"]
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "van_two", "dropoff_two"]
 ## annex_heist_seen: where you watch a friend's self-stamp from (the window's
 ## space: beside its counter, a step along from where they'll stand, side-on to
 ## their hands).
@@ -267,6 +267,10 @@ func run(scenario: String) -> Dictionary:
 			out = await _van_straggler(true)
 		"dropoff":
 			out = await _dropoff()
+		"van_two":
+			out = await _van_two()
+		"dropoff_two":
+			out = await _dropoff_two()
 		"store":
 			out = await _store()
 		"drive":
@@ -1281,6 +1285,51 @@ func _reached_van_straggler_far() -> bool:
 func _reached_van_straggler() -> bool:
 	var van := _van()
 	return van != null and str(van.call("leg_name", int(van.call("raid_trip_id")))) in ["parked", "creep"]
+
+
+## p1-van, needs -Friend: you and the friend buckled into the parked van side by
+## side; it pulls out in VAN_RIDE_LEAD_SECONDS (the door, the drive, both riders'
+## cab shots, the iris). friend_first: the friend's seat is taken first.
+func _van_two() -> Dictionary:
+	var friend := _friend_id()
+	if friend == 0:
+		return {"error": "van_two needs a second player in the van: start with tools\\play.ps1 -Start -Friend"}
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	await _friend_to_lot(friend, SETTLE_SECONDS * 2.0)
+	var van := _van()
+	var trip := int(van.call("dev_park_now", true))
+	await _ticks(3)
+	van.call("dev_seat", trip, friend)
+	van.call("dev_seat", trip, Net.local_peer_id())
+	var sat: Variant = await _wait_for(func() -> Variant:
+		return true if bool((van.call("seat_info", Net.local_peer_id()) as Dictionary).get("settled", false)) and bool((van.call("seat_info", friend) as Dictionary).get("settled", false)) else null)
+	if sat == null:
+		return {"error": "never both sat down in the van"}
+	van.call("host_depart", Net.server_time() + VAN_RIDE_LEAD_SECONDS)
+	await _ticks(2)
+	return {"note": "you and %s in the van; it pulls out in %.0f s" % [Net.player_name(friend), VAN_RIDE_LEAD_SECONDS], "trip": trip, "friend": friend,
+		"seats": [(van.call("seat_info", Net.local_peer_id()) as Dictionary).get("seat"), (van.call("seat_info", friend) as Dictionary).get("seat")]}
+
+
+## p1-van, needs -Friend: you and the friend aboard the ride home, pulling up at
+## the yard's curb; it parks, the door slides, you each step down.
+func _dropoff_two() -> Dictionary:
+	var friend := _friend_id()
+	if friend == 0:
+		return {"error": "dropoff_two needs a second player aboard: start with tools\\play.ps1 -Start -Friend"}
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	await _friend_to_lot(friend, SETTLE_SECONDS * 2.0)
+	var van := _van()
+	var trip := int(van.call("dev_dropoff", [friend, Net.local_peer_id()]))
+	var sat: Variant = await _wait_for(func() -> Variant:
+		return true if not (van.call("seat_info", Net.local_peer_id()) as Dictionary).is_empty() else null)
+	if sat == null:
+		return {"error": "not aboard the return shuttle"}
+	return {"note": "you and %s aboard the return shuttle pulling up at the yard" % Net.player_name(friend), "trip": trip, "friend": friend}
 
 
 ## Riding home: the shuttle pulling up at the yard's curb, you aboard; it parks,

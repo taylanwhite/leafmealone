@@ -15,6 +15,7 @@ extends Node3D
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _CharacterLife = preload("res://player/character_life.gd")
 ## Matches player.gd's AnimState: IDLE, WALK, KNOCKED.
+const STATE_IDLE: int = 0
 const STATE_WALK: int = 1
 const STATE_KNOCKED: int = 5
 const ANGRY_SECONDS: float = 2.0
@@ -39,6 +40,9 @@ var _free_at := Vector3.ZERO
 var _slide := Vector3.ZERO
 var _down_left: float = 0.0
 var _angry_left: float = 0.0
+## Stopped short of a NICE van's door, watching (Shuttle.keep_clear); _free_at
+## holds where they stand, and they catch up on their route once it's gone.
+var _held: bool = false
 
 
 func _ready() -> void:
@@ -113,13 +117,37 @@ func _place(delta: float) -> void:
 	var length := maxf(route_from.distance_to(route_to), 0.1)
 	# Hurt feet slow them down, so they drift behind their route and catch up later.
 	var walked := fposmod(Net.server_time() * speed + phase, length * 2.0)
-	var along := walked if walked < length else length * 2.0 - walked
 	var heading := (route_to - route_from).normalized() * (1.0 if walked < length else -1.0)
-	var on_route := route_from + (route_to - route_from) * (along / length)
+	var on_route := _route_at(Net.server_time())
 	_down_left = maxf(0.0, _down_left - delta)
 	_angry_left = maxf(0.0, _angry_left - delta)
 	anim_state = STATE_KNOCKED if _down_left > 0.0 else STATE_WALK
 	_body.set("mood", "angry" if _angry_left > 0.0 else "neutral")
+	# A NICE van at the curb: they stop short of its door and watch the people
+	# stepping down, then catch up on their walk once it's gone (p1-van review).
+	var keep := _keep_clear()
+	if _held:
+		var watching := _keep_near(_world(_free_at), keep)
+		if not watching.is_empty():
+			anim_state = STATE_IDLE
+			position = _free_at
+			_face(_local(watching[0] as Vector3) - _free_at)
+			return
+		_held = false
+	if _down_left <= 0.0 and _slide.length() < 0.2 and not keep.is_empty():
+		var next := on_route
+		if _free:
+			var back := on_route - _free_at
+			back.y = 0.0
+			next = _free_at + back.normalized() * minf(back.length(), speed * 1.6 * delta) if back.length() > 0.001 else _free_at
+		if _keep_inside(_world(next), keep) and not _keep_inside(global_position, keep):
+			_held = true
+			if not _free:
+				_free = true
+				_free_at = position
+			anim_state = STATE_IDLE
+			position = _free_at
+			return
 	if not _free:
 		position = on_route
 		_face(heading)
@@ -140,6 +168,73 @@ func _place(delta: float) -> void:
 			_free_at += back.normalized() * minf(back.length(), speed * 1.6 * delta)
 			_face(back)
 	position = _free_at
+
+
+## Where their route has them at a server time (parent space).
+func _route_at(time: float) -> Vector3:
+	var length := maxf(route_from.distance_to(route_to), 0.1)
+	var walked := fposmod(time * speed + phase, length * 2.0)
+	var along := walked if walked < length else length * 2.0 - walked
+	return route_from + (route_to - route_from) * (along / length)
+
+
+## Where they'll be (world space) every step seconds from server time from_t to
+## to_t, for a van planning where its riders step down (net/run_events/shuttle.gd):
+## along their route, stopping short of a van's door as _place does (with the
+## sidewalk kept clear as it is now), or where they stand while off their route.
+func passing_points(from_t: float, to_t: float, step: float) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if _free or _held:
+		out.append(global_position)
+		return out
+	var keep := _keep_clear()
+	var at := global_position
+	var held := false
+	var t := Net.server_time()
+	while t <= to_t + 0.001:
+		if not held:
+			var next := _world(_route_at(t))
+			if _keep_inside(next, keep) and not _keep_inside(at, keep):
+				held = true
+			else:
+				at = next
+		if t >= from_t - 0.001:
+			out.append(at)
+		t += maxf(step, 0.05)
+	return out
+
+
+## The sidewalk kept clear around NICE vans now ([where, radius] pairs, world).
+func _keep_clear() -> Array:
+	var shuttle := get_tree().get_first_node_in_group("nice_shuttle") if is_inside_tree() else null
+	return shuttle.call("keep_clear", Net.server_time()) as Array if shuttle != null and shuttle.has_method("keep_clear") else []
+
+
+static func _keep_inside(at: Vector3, keep: Array) -> bool:
+	for zone: Array in keep:
+		var center := zone[0] as Vector3
+		if Vector2(at.x - center.x, at.z - center.z).length() < float(zone[1]):
+			return true
+	return false
+
+
+## The zone a passer-by stopped at the edge of, while it's still there.
+static func _keep_near(at: Vector3, keep: Array) -> Array:
+	for zone: Array in keep:
+		var center := zone[0] as Vector3
+		if Vector2(at.x - center.x, at.z - center.z).length() < float(zone[1]) + 0.5:
+			return zone
+	return []
+
+
+func _world(local: Vector3) -> Vector3:
+	var parent := get_parent() as Node3D
+	return parent.global_transform * local if parent != null and parent.is_inside_tree() else local
+
+
+func _local(world: Vector3) -> Vector3:
+	var parent := get_parent() as Node3D
+	return parent.global_transform.affine_inverse() * world if parent != null and parent.is_inside_tree() else world
 
 
 func _face(direction: Vector3) -> void:

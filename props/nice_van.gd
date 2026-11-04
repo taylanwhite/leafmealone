@@ -34,7 +34,8 @@ extends RefCounted
 ##   Shell/BackDoors   DoorL and DoorR on their hinges: swing(open, at)
 ##   Shell/SteeringWheel, Shell/Freshener (the daisy on its string), Shell/MirrorR
 ##                     (the door-side mirror's glint, shown by the shuttle)
-##   Shell/Seats/Seat0..3      rider seats on the left bench, facing the open side
+##   Shell/Seats/Seat0..3      rider seats on the left bench, facing the open side,
+##                             a shoulder apart (RIDER_SEAT_Z), front to back
 ##   Shell/CabinCam/Seat0..3   a rider's eyes from each seat, looking out
 ##   Shell/WindowFace/Seat0..3 where a knocking rider's face leans to
 ##   Shell/CrewSeats/Seat0..2  shotgun, then the back bench, facing forward
@@ -90,8 +91,10 @@ const DOOR_PANEL_OPEN_Z: float = 2.2
 const DOOR_PANEL_LENGTH: float = 1.7
 ## Each panel's window, sill to head (y).
 const DOOR_WINDOW_Y := Vector2(1.86, 2.62)
-## The water cooler's middle on the floor (x, z): the cabin's front-left corner.
-const COOLER_AT := Vector2(-0.86, 0.12)
+## The water cooler's middle on the floor (x, z): the cabin's back-left corner,
+## where the riders' bench meets the back bench (p1-van: the bench runs up to the
+## cab now, so four riders sit a shoulder apart instead of head to head).
+const COOLER_AT := Vector2(-0.82, 1.9)
 ## The riders' cab shot: the eye, and what it looks at (the daisy and the road).
 ## Leaning in between the front seats: the driver's and shotgun's heads at the
 ## edges, the daisy above the road in the middle (R2c van review: from up under
@@ -111,8 +114,29 @@ const ENGINE_AT := Vector3(0.0, 1.0, -2.6)
 ## The back doors' hinges (x) and how far they swing open (radians).
 const BACK_HINGE_X: float = 1.05
 const BACK_DOOR_OPEN: float = 1.9
-## The rider seats along the left bench (z), facing the open side.
-const RIDER_SEAT_Z: Array[float] = [0.72, 1.17, 1.62, 2.07]
+## The rider seats along the left bench (z), facing the open side. p1-van: 0.7 m
+## apart, all in front of the open doorway (the open door's panels stack over z
+## 1.35 and on), so each rider steps straight in and out at their own seat and
+## nobody passes in front of anyone's eyes; at 0.45 m apart (the old seats) two
+## riders' heads (0.54 m across) touched, and the stage camera's near-body cut hid
+## a neighbor whole ("vanishes into the seat", playtest r1).
+const RIDER_SEAT_Z: Array[float] = [-1.2, -0.5, 0.2, 0.9]
+## The open side between the B-pillar and the open door's stacked panels (z): where
+## anyone can step through it.
+const DOOR_OPENING_Z := Vector2(-1.75, 1.3)
+## The back bench's two crew seats (x), facing forward, well behind the riders.
+const CREW_BENCH_X: Array[float] = [0.1, 0.7]
+## The riders' bench along the left wall: from just behind the cab's seats to the
+## last rider (z).
+const BENCH_Z := Vector2(-1.52, 1.22)
+## The cab shot's dolly (p1-van, playtest nb1: a straight move from the seat to the
+## cab went through the next rider's head). It leans out over the aisle at the
+## rider's own seat first, turning to face the front, then glides up the aisle to
+## FRESHENER_CAM: a cubic Bezier through these two handles (x, y; the first at the
+## seat's z, the second at DOLLY_FRONT_Z).
+const DOLLY_OUT := Vector2(0.45, 2.5)
+const DOLLY_UP := Vector2(0.2, 2.56)
+const DOLLY_FRONT_Z: float = -0.55
 ## The steering wheel's hub, and its tilt back toward the driver.
 const WHEEL_HUB := Vector3(-0.5, 2.0, -2.06)
 const WHEEL_UP := Vector3(0.0, 0.866, 0.5)
@@ -234,6 +258,26 @@ static func marker(look: Node3D, path: String) -> Node3D:
 	return on_shell if on_shell != null else look.get_node_or_null(path) as Node3D
 
 
+## The riders' cab shot's dolly, in the Shell's space, u from 0 (the seat's eye,
+## seat_cam) to 1 (the cab shot, FRESHENER_CAM): out over the aisle at the seat
+## first, then up the aisle to the front (DOLLY_OUT, DOLLY_UP). It turns to face
+## the front over the first half, while it's leaning out, so it never looks along
+## the bench at the riders' faces as it goes.
+static func dolly_pose(seat_cam: Transform3D, u: float) -> Transform3D:
+	var k := clampf(u, 0.0, 1.0)
+	var front := Transform3D(Basis.looking_at(FRESHENER_LOOK - FRESHENER_CAM, Vector3.UP), FRESHENER_CAM)
+	var z := seat_cam.origin.z
+	var a := seat_cam.origin
+	var b := Vector3(DOLLY_OUT.x, DOLLY_OUT.y, z)
+	var c := Vector3(DOLLY_UP.x, DOLLY_UP.y, minf(DOLLY_FRONT_Z, z))
+	var d := FRESHENER_CAM
+	var m := 1.0 - k
+	var at := a * (m * m * m) + b * (3.0 * m * m * k) + c * (3.0 * m * k * k) + d * (k * k * k)
+	var turn := smoothstep(0.0, 0.6, k)
+	var basis := seat_cam.basis.orthonormalized().slerp(front.basis.orthonormalized(), turn)
+	return Transform3D(basis, at)
+
+
 ## The sliding door and the back doors (Door nodes that animate themselves from
 ## the shared clock), the steering wheel, the air freshener and the mirror glint.
 static func _moving_parts(shell: Node3D, meshes: Dictionary, glass_material: Material) -> void:
@@ -325,8 +369,8 @@ static func _markers(look: Node3D, shell: Node3D) -> void:
 	shell.add_child(crew)
 	# Shotgun in the cab, then two on the back bench facing forward.
 	_marker(crew, "Seat0", Transform3D(Basis.IDENTITY, Vector3(0.5, 1.0, -1.92)))
-	_marker(crew, "Seat1", Transform3D(Basis.IDENTITY, Vector3(-0.05, 1.01, 2.56)))
-	_marker(crew, "Seat2", Transform3D(Basis.IDENTITY, Vector3(0.55, 1.01, 2.56)))
+	_marker(crew, "Seat1", Transform3D(Basis.IDENTITY, Vector3(CREW_BENCH_X[0], 1.01, 2.56)))
+	_marker(crew, "Seat2", Transform3D(Basis.IDENTITY, Vector3(CREW_BENCH_X[1], 1.01, 2.56)))
 	_marker(shell, "DriverSeat", Transform3D(Basis.IDENTITY, Vector3(-0.5, 1.0, -1.92)))
 	# The cab from just behind the front seats, between the headrests: the driver
 	# at the wheel on the left, the daisy swinging in the middle, the road ahead
@@ -665,9 +709,11 @@ static func _cab_inside(kit: _MeshKit) -> void:
 ## the back, a water cooler, grab rails with loops, a ceiling light, and the Employee
 ## of the Month on the wall.
 static func _cabin_inside(kit: _MeshKit) -> void:
-	kit.box(Vector3(-0.82, 1.45, 1.4), Vector3(0.42, 0.12, 1.8), VINYL)
-	kit.box(Vector3(-0.82, 1.22, 1.4), Vector3(0.36, 0.38, 1.7), RUBBER)
-	kit.box(Vector3(-1.0, 1.86, 1.4), Vector3(0.08, 0.62, 1.8), VINYL.darkened(0.08))
+	var bench_mid := (BENCH_Z.x + BENCH_Z.y) * 0.5
+	var bench_long := BENCH_Z.y - BENCH_Z.x
+	kit.box(Vector3(-0.82, 1.45, bench_mid), Vector3(0.42, 0.12, bench_long), VINYL)
+	kit.box(Vector3(-0.82, 1.22, bench_mid), Vector3(0.36, 0.38, bench_long - 0.1), RUBBER)
+	kit.box(Vector3(-1.0, 1.86, bench_mid), Vector3(0.08, 0.62, bench_long), VINYL.darkened(0.08))
 	kit.box(Vector3(0.22, 1.45, 2.62), Vector3(1.66, 0.12, 0.42), VINYL)
 	kit.box(Vector3(0.22, 1.22, 2.62), Vector3(1.6, 0.38, 0.36), RUBBER)
 	kit.box(Vector3(0.22, 1.86, 2.88), Vector3(1.66, 0.62, 0.08), VINYL.darkened(0.08))
@@ -675,8 +721,9 @@ static func _cabin_inside(kit: _MeshKit) -> void:
 	# Grab rails along both sides of the ceiling, with lavender loops.
 	for x: float in [-0.92, 0.92]:
 		kit.tube(PackedVector3Array([Vector3(x, 2.79, -1.7), Vector3(x, 2.79, 2.7)]), PackedFloat32Array([0.018, 0.018]), CHROME, 6, {"jitter": 0.0})
-		# Between the riders' rows (z -1.2 and -0.2), not in their faces.
-		for z: float in [-0.7, 0.3, 1.3]:
+		# Between the riders' seats, not over their faces.
+		for index: int in RIDER_SEAT_Z.size() - 1:
+			var z := (RIDER_SEAT_Z[index] + RIDER_SEAT_Z[index + 1]) * 0.5
 			kit.tube(PackedVector3Array([Vector3(x, 2.79, z - 0.04), Vector3(x, 2.6, z - 0.07), Vector3(x, 2.53, z), Vector3(x, 2.6, z + 0.07), Vector3(x, 2.79, z + 0.04)]),
 				PackedFloat32Array([0.014, 0.014, 0.014, 0.014, 0.014]), VINYL.darkened(0.2), 5, {"jitter": 0.0, "cap": false})
 	# Employee of the Month: a white frame, a lavender card, a Daisy Seal.
