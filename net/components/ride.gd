@@ -317,7 +317,7 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 func _refresh_label() -> void:
 	if _label == null:
 		return
-	_label.text = _Strings.UI["ride_chefty_label"] % [_bags, Constants.TRUCK_BAG_CAPACITY, _bag_value]
+	_label.text = _Strings.UI["ride_chefty_label"] % [_bags, Constants.TRUCK_BAG_CAPACITY]
 	if _bed_load != null:
 		_bed_load.call("set_count", _bags)
 

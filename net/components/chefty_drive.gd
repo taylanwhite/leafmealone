@@ -838,9 +838,12 @@ func prompt_for(player: Node3D) -> Dictionary:
 ## Seated, the prompt for what a key does to whatever you're looking at with
 ## your own eyes (not the chase camera), for the interaction prompt (p1-dash: no
 ## key list on screen; docs/GAME.md "Chefty's dash"): {text, at, key, source} or {}.
-## - The hired hand: G lets the one riding along take the wheel ("You drive",
-##   over them in the bed), and pulls over the one driving ("Pull over", over
-##   them at the wheel).
+## Everything is across the cab: a seated head turns CHEFTY_SEAT_LOOK_YAW at
+## most, never round to the bed behind it.
+## - The empty driver's seat, from shotgun with a hired hand riding along: G
+##   gives the hand the wheel ("You drive"), next to F "Slide over" while Chefty's
+##   slow enough to move over.
+## - The hand at the wheel: G "Pull over".
 ## - The other cab seat, while Chefty's slow enough to move over: F "Slide over"
 ##   to it when it's empty, "Swap seats" when someone's in it.
 ## E (out, the way you got in; a bail at speed) and the bed's F shuffle say nothing.
@@ -848,30 +851,34 @@ func seat_hint(player: Node3D) -> Dictionary:
 	var peer_id := player.name.to_int()
 	var seat := seat_of(peer_id)
 	var eyes := player.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
-	if seat < 0 or eyes == null or not eyes.current:
+	if seat < 0 or not is_cab_seat(seat) or eyes == null or not eyes.current:
 		return {}
 	var view := eyes.global_transform
 	var up := body_transform().basis.y
 	var chauffeur := chauffeur_action(peer_id)
-	if chauffeur != "":
-		var hand_seat := -1
-		for entry: Dictionary in cosmetic_riders():
-			var at_wheel := int(entry["seat"]) == SEAT_DRIVER
-			if (chauffeur == "stop") == at_wheel:
-				hand_seat = int(entry["seat"])
-				break
-		if hand_seat >= 0:
-			var head := seat_transform(hand_seat).origin + up * _seat_head_up(hand_seat)
-			if _looked_at(view, head):
-				var key := "prompt_chauffeur" if chauffeur == "start" else "prompt_chauffeur_stop"
-				return {"text": _Strings.UI[key], "at": head + up * 0.4, "key": "drop", "source": "chefty_hand_%d" % hand_seat}
-	if is_cab_seat(seat) and _trip == Trip.NONE and ground_speed() < Constants.CHEFTY_SEAT_SWAP_MAX_SPEED:
-		var other := SEAT_SHOTGUN if seat == SEAT_DRIVER else SEAT_DRIVER
-		var target := seat_transform(other).origin + up * _seat_head_up(other)
-		if _looked_at(view, target):
-			var key := "prompt_slide_over" if _riders[other] == 0 else "prompt_swap_seat"
-			return {"text": _Strings.UI[key], "at": target + up * 0.3, "key": "take", "source": "chefty_seat_%d" % other}
-	return {}
+	var other := SEAT_SHOTGUN if seat == SEAT_DRIVER else SEAT_DRIVER
+	var target := seat_transform(other).origin + up * _seat_head_up(other)
+	if not _looked_at(view, target):
+		return {}
+	var source := "chefty_seat_%d" % other
+	if chauffeur == "stop":
+		if _wheel_hand().is_empty() or other != SEAT_DRIVER:
+			return {}
+		return {"text": _Strings.UI["prompt_chauffeur_stop"], "at": target + up * 0.4, "key": "drop", "source": source}
+	var slow := _trip == Trip.NONE and ground_speed() < Constants.CHEFTY_SEAT_SWAP_MAX_SPEED
+	# Over an empty seat the prompt sits where a head would; over a teammate, above it.
+	var at := target + up * (0.0 if _riders[other] == 0 else 0.3)
+	if chauffeur == "start":
+		# chauffeur_action only says "start" in shotgun with the wheel empty.
+		var give: String = _Strings.UI["prompt_chauffeur"]
+		if not slow:
+			return {"text": give, "at": at, "key": "drop", "source": source}
+		var both: String = _Strings.UI["prompt_pair"] % [_Strings.UI["prompt_slide_over"], _Strings.UI["prompt_format"] % ["drop", give]]
+		return {"text": both, "at": at, "key": "take", "source": source}
+	if not slow:
+		return {}
+	var key := "prompt_slide_over" if _riders[other] == 0 else "prompt_swap_seat"
+	return {"text": _Strings.UI[key], "at": at, "key": "take", "source": source}
 
 
 ## How high over a seat's marker a head is: sitting in the cab, standing in the bed.
@@ -1933,7 +1940,7 @@ func _play_on(id: String) -> void:
 func _refresh_label() -> void:
 	if _label == null:
 		return
-	_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY, _job_value]
+	_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY]
 	if _bed_load != null:
 		_bed_load.call("set_count", bag_count())
 
@@ -2050,7 +2057,7 @@ func _rpc_spill(job_bags: int, job_value: int, spent_bags: int) -> void:
 	if _bed_load != null and _bed_load.has_method("spill_to"):
 		_bed_load.call("spill_to", bag_count())
 	if _label != null:
-		_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY, _job_value]
+		_label.text = _Strings.UI["ride_chefty_label"] % [bag_count(), Constants.TRUCK_BAG_CAPACITY]
 	_crash.call("note_spill", bed_transform() * Vector3(0.0, 1.8, 0.7))
 
 

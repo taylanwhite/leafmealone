@@ -53,7 +53,7 @@ const UI: Dictionary = {
 	"lobby_not_ready": "not ready",
 	"error_host": "Could not host: %s",
 	"error_join": "Could not join: %s",
-	"ride_chefty_label": "Chefty\n%d/%d bags  $%d",
+	"ride_chefty_label": "Chefty\n%d/%d bags",
 	# A rider in the van with no name yet, by peer id.
 	"ride_rider_unnamed": "Player %d",
 	"phone_no_favorite": "no favorite job",
@@ -464,10 +464,13 @@ const UI: Dictionary = {
 	"end_steam_skipped": "Steam is off for this run",
 	# ---- end settings:4
 	# ---- driving: the autopilot and the chauffeur (driving chunk C2)
-	## G, over the hired hand you look at from the cab (p1-dash): the one riding in
-	## the bed takes the wheel, the one at it pulls over. F stays the seat swap.
+	## G, from shotgun (p1-dash): over the empty driver's seat with a hired hand
+	## riding along, the hand takes the wheel; over the hand at it, they pull over.
+	## F stays the seat swap.
 	"prompt_chauffeur": "You drive",
 	"prompt_chauffeur_stop": "Pull over",
+	## Two prompts over one thing, side by side: the first, then "{key:x}  the second".
+	"prompt_pair": "%s      %s",
 	# ---- driving: the job at the client's house (driving chunk D, ui/job_goal.gd,
 	# levels/lots/site_marker.gd)
 	## The chalk box the homeowner drew on the street, and the beacon over it.
@@ -1975,7 +1978,8 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/crew_tag_lead": [1, 1],
 	"UI/error_host": [1, 1],
 	"UI/error_join": [1, 1],
-	"UI/ride_chefty_label": [3, 1],
+	"UI/ride_chefty_label": [2, 1],
+	"UI/prompt_pair": [2, 1],
 	"SHOP_UI/shop_repair_price": [2, 1],
 	"SHOP_UI/shop_repair_price_one": [1, 1],
 

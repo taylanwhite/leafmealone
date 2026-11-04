@@ -28,7 +28,7 @@ extends Node
 ##   p-r. the chase camera never inside anything (driving chunk E2, _camera_steps;
 ##      they were m-o on E2's branch, renamed at the W8 merge): swung past a
 ##      post, a tree planted behind the truck, a wall backed into.
-##   s-w. the dash in the cab (p1-dash, _dash_steps): the needle and the odometer
+##   s-x. the dash in the cab (p1-dash, _dash_steps): the needle and the odometer
 ##      read the truck's real ground speed and travel, pinned against a wall is
 ##      standing still, the odometer saves, the check-engine lamp, the seat prompt.
 ## The client's prediction (how far its predicted Chefty was from the host's
@@ -768,6 +768,8 @@ func _camera_steps(chefty: Node, host: int, problems: Array[String]) -> void:
 ##   v. the check-engine lamp: lit with a dent, dark again after Marty's.
 ##   w. looking with your own eyes from the driver's seat at the empty shotgun
 ##      seat offers [F] Slide over (the take key); looking down the road, nothing.
+##   x. slid over to shotgun with a hired hand aboard: looking at the empty wheel
+##      offers [F] Slide over and [G] You drive (the chauffeur's start).
 func _dash_steps(chefty: Node, host: int, problems: Array[String]) -> void:
 	var me := _player(host)
 	var ui := get_tree().get_first_node_in_group("game_ui")
@@ -864,8 +866,39 @@ func _dash_steps(chefty: Node, host: int, problems: Array[String]) -> void:
 			offered = str(hint.get("text", ""))
 			key = str(hint.get("key", ""))
 	me.set("seat_look", 0.0)
-	_verdict(ahead_hint.is_empty() and offered == str(preload("res://ui/strings.gd").UI["prompt_slide_over"]) and key == "take",
+	var ui_text: Dictionary = preload("res://ui/strings.gd").UI
+	_verdict(ahead_hint.is_empty() and offered == str(ui_text["prompt_slide_over"]) and key == "take",
 		"w. from the wheel: looking ahead offers %s; turning to the empty shotgun seat (seat look %.2f) offers '%s' on the %s key" % [ahead_hint.get("text", "nothing"), look, offered, key], problems)
+	# x. Slid over to shotgun with a hand riding in the bed: the empty wheel offers
+	# F to slide back and G to give it to the hand (the bed is behind a seated
+	# head's reach, so the prompt can't be over the hand).
+	var hires := get_tree().get_first_node_in_group("hires")
+	if hires != null and (chefty.call("hands_aboard") as Array).is_empty():
+		hires.call("dev_add_hand", "Big Sal")
+		await get_tree().create_timer(0.5).timeout
+	chefty.call("request_swap")
+	waited = 0.0
+	while int(chefty.call("seat_of", host)) != 1 and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.3).timeout
+	if eyes != null:
+		eyes.make_current()
+	me.set("seat_look", 0.0)
+	var start := str(chefty.call("chauffeur_action", host))
+	var wheel_hint := {}
+	look = 0.0
+	while look < 2.0 and wheel_hint.is_empty():
+		look += 0.05
+		me.set("seat_look", look)
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		wheel_hint = me.call("interaction_hint")
+	me.set("seat_look", 0.0)
+	var wheel_text := str(wheel_hint.get("text", ""))
+	var gives := wheel_text.begins_with(str(ui_text["prompt_slide_over"])) and wheel_text.contains("{key:drop}") and wheel_text.ends_with(str(ui_text["prompt_chauffeur"])) and str(wheel_hint.get("key", "")) == "take"
+	_verdict(int(chefty.call("seat_of", host)) == 1 and start == "start" and gives,
+		"x. in shotgun (seat %d) with %d hand(s) aboard, G would '%s'; turning to the empty wheel (seat look %.2f) offers '%s' on the %s key" % [int(chefty.call("seat_of", host)), (chefty.call("hands_aboard") as Array).size(), start, look, wheel_text, wheel_hint.get("key", "")], problems)
 	chefty.call("request_exit")
 	await get_tree().create_timer(0.5).timeout
 
