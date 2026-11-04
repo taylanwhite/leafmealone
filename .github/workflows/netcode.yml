@@ -561,6 +561,18 @@ jobs:
           grep "DepartTest" build/soak/ci-depart/host.log build/soak/ci-depart/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-depart/host.json')); t=json.load(open('build/soak/ci-depart/target.json')); sys.exit(0 if h['depart_test'].get('ok') and t['depart_test'].get('ok') else 1)"
 
+      # p1-hands: what your hands do (net/dev/hands_test.gd).
+      - name: Hands test (the punch, E's choice, the bag, the fence, the wheelbarrow, the sleep pose)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-hands
+          "$GODOT" --headless --path . -- --host --port=7842 --name=Tester --no-steam --start-zone=lot --all-tools --job-seed=777 --yard-size=1 --start-hour=19 --hands-test --hands-test --measure="$PWD/build/soak/ci-hands/host.json" --run-seconds=90 > build/soak/ci-hands/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7842 --name=Target --no-steam --hands-test --measure="$PWD/build/soak/ci-hands/target.json" --run-seconds=85 > build/soak/ci-hands/target.log 2>&1
+          wait
+          grep "HandsTest" build/soak/ci-hands/host.log build/soak/ci-hands/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-hands/host.json')); t=json.load(open('build/soak/ci-hands/target.json')); sys.exit(0 if h['hands_test'].get('ok') and t['hands_test'].get('ok') else 1)"
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

@@ -193,11 +193,35 @@ func _ready() -> void:
 	if multiplayer.multiplayer_peer == null or Net.is_host():
 		contact_monitor = true
 		max_contacts_reported = 4
-	# A fresh bag pops its worth where it was filled.
+	# A fresh bag pops its worth where it was filled, and grows up out of the
+	# pile (crew-16: it used to appear full size in one frame).
 	if kind == "leaf_bag" and value > 0:
 		_MoneyPopup.pop(get_tree(), global_position + Vector3(0.0, 1.0, 0.0), value)
+		_grow_left = Constants.BAG_GROW_SECONDS
+		_grow()
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		freeze = true
+
+
+## A fresh bag's grow (every peer, cosmetic): seconds left, and the look it scales.
+var _grow_left: float = 0.0
+
+
+func _process(delta: float) -> void:
+	if _grow_left > 0.0:
+		_grow_left = maxf(0.0, _grow_left - delta)
+		_grow()
+
+
+## The bag's look scaled from its foot: BAG_GROW_FROM of full size up to full,
+## with a little overshoot as it fills.
+func _grow() -> void:
+	var look := get_node_or_null("Visual/Look") as Node3D
+	if look == null:
+		return
+	var share := 1.0 - _grow_left / Constants.BAG_GROW_SECONDS
+	var size := lerpf(Constants.BAG_GROW_FROM, 1.0, ease(share, 0.4)) + sin(share * PI) * Constants.BAG_GROW_OVERSHOOT
+	look.scale = Vector3(size, size, size) if _grow_left > 0.0 else Vector3.ONE
 
 
 func _physics_process(_delta: float) -> void:
@@ -1030,6 +1054,8 @@ func _host_step() -> void:
 					tasks.call("host_work", "mow_lawn", global_position, 0.75 * _ToolTiers.reach(mower_tier), get_physics_process_delta_time() * _ToolTiers.speed(mower_tier), held_by)
 			_mower_hits(player)
 		return
+	if kind == "wheelbarrow" and not _airborne:
+		_steady_upright()
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if not node is CharacterBody3D:
 			continue
@@ -1048,6 +1074,23 @@ func _host_step() -> void:
 	_try_load_bag()
 	_try_load_junk()
 	_try_unload_wheelbarrow()
+
+
+## Host (NB-14): a loose wheelbarrow never stays tipped. Bumped by someone
+## walking into it it holds steady on its wheel and legs, and once a throw's
+## flight is over it rolls back upright; only its turning about up is free.
+func _steady_upright() -> void:
+	var up := global_basis.y.normalized()
+	var tilt := up.angle_to(Vector3.UP)
+	if tilt <= Constants.WHEELBARROW_STEADY_TILT:
+		angular_velocity = Vector3(0.0, angular_velocity.y, 0.0)
+		return
+	var axis := up.cross(Vector3.UP)
+	if axis.length() < 0.001:
+		# Flat on its back: roll it over the way its handles point.
+		axis = global_basis.x
+	var turn := axis.normalized() * tilt * Constants.WHEELBARROW_RIGHTING_RATE
+	angular_velocity = Vector3(turn.x, angular_velocity.y, turn.z)
 
 
 func _handle_grab(peer_id: int) -> void:

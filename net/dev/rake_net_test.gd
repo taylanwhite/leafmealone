@@ -111,7 +111,7 @@ func _hook_field() -> void:
 	field.connect("field_reset", func(hard: bool) -> void: _resets.append(hard))
 	field.connect("leaves_changed", func(_chunk: int) -> void: _changed_frames[Engine.get_process_frames()] = true)
 	field.connect("bag_refused", func(_peer: int, reason: String) -> void: _refusals.append(reason))
-	field.connect("bag_requested", func(_at: Vector3, _units: int) -> void: _bags_requested += 1)
+	field.connect("bag_requested", func(_at: Vector3, _units: int, _peer_id: int) -> void: _bags_requested += 1)
 
 
 # ---- host

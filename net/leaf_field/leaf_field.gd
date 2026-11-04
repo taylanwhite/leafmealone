@@ -23,8 +23,9 @@ signal field_reset(hard: bool)
 ## Deferred, once per frame, for each chunk whose bytes on this peer really changed
 ## since the last time (host applies, predictions, recomposes, batches, snapshots).
 signal leaves_changed(chunk_index: int)
-## units is how much leaf density went into the bag, which sets its value.
-signal bag_requested(at: Vector3, units: int)
+## units is how much leaf density went into the bag, which sets its value;
+## peer_id bagged it (world.gd sets the bag down in front of them).
+signal bag_requested(at: Vector3, units: int, peer_id: int)
 ## Why a bag didn't happen: "thin" (rake a pile first) or "no_bags" (the crew's
 ## out of lawn and contractor bags; Shops' supplies).
 signal bag_refused(peer_id: int, reason: String)
@@ -559,7 +560,7 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float, seq: int = 0)
 	if not _take_bag(supply_id):
 		_refuse_bag(peer_id, "no_bags", seq)
 		return 0
-	var removed := _apply_collect(origin, scoop, true)
+	var removed := _apply_collect(origin, scoop, true, peer_id)
 	if removed <= 0:
 		return 0
 	# R2:3 bagging the pile someone's hiding in turns them out.
@@ -569,7 +570,7 @@ func _handle_collect(peer_id: int, origin: Vector3, radius: float, seq: int = 0)
 	return removed
 
 
-func _apply_collect(origin: Vector3, radius: float, count_removed: bool) -> int:
+func _apply_collect(origin: Vector3, radius: float, count_removed: bool, peer_id: int = 0) -> int:
 	var center := _cell_at(origin)
 	var radius_cells := int(ceil(radius / cell_size)) + 1
 	var removed := 0
@@ -586,7 +587,7 @@ func _apply_collect(origin: Vector3, radius: float, count_removed: bool) -> int:
 	if count_removed:
 		_removed_units += float(removed) * _unit_scale
 		if removed >= INITIAL_DENSITY:
-			bag_requested.emit(origin, removed)
+			bag_requested.emit(origin, removed, peer_id)
 	return removed
 
 
@@ -641,6 +642,7 @@ func _stroke_cells(origin: Vector3, direction: Vector3, width: float, strength: 
 	var berm_reach := maxi(Constants.RAKE_FIELD_BERM.size(), int(round(float(Constants.RAKE_FIELD_BERM_REACH) / Vector2(step).length())))
 	var here := _local_xz(origin)
 	# The cells the tine line crossed, by lane.
+	_fence_lines = get_meta("fence_lines", []) as Array
 	var corners: Array[Vector2] = [here - lane_dir * back - side * reach_side, here - lane_dir * back + side * reach_side,
 		here + lane_dir * front - side * reach_side, here + lane_dir * front + side * reach_side]
 	var lo := Vector2(INF, INF)
@@ -723,6 +725,13 @@ func _push_lane(crossed: Array, step: Vector2i, cap: int, throw_cells: int, berm
 		if want <= 0:
 			break
 		var cell := front_cell + step * (1 + throw_cells + index)
+		# NB-08: the yard's fence stops the push. Nothing lands past it; the rest
+		# stays at the tine line and banks up against the fence on the yard side.
+		if _crosses_fence(front_cell, cell):
+			carry = want
+			for later: int in range(index + 1, parts.size()):
+				carry += parts[later]
+			break
 		var put := want
 		if cell.x >= 0 and cell.y >= 0 and cell.x < grid_width and cell.y < grid_depth:
 			put = mini(want, 255 - int(_density[cell.x + cell.y * grid_width]))
@@ -740,6 +749,25 @@ func _push_lane(crossed: Array, step: Vector2i, cap: int, throw_cells: int, berm
 		if take - back_in > 0:
 			_add_density(int(crossed[index][0]), int(crossed[index][1]), -(take - back_in))
 	return landed
+
+
+## The yard's fence lines in this field's space ([from, to] Vector2 pairs, x and
+## z), from the "fence_lines" meta the yard's builder sets on every peer
+## (levels/lots/lot_generator.gd, lot_dressing.gd), read once per stroke.
+var _fence_lines: Array = []
+
+
+## Whether going from one cell's middle to another's passes through a fence line.
+func _crosses_fence(from_cell: Vector2i, to_cell: Vector2i) -> bool:
+	if _fence_lines.is_empty():
+		return false
+	var a := _cell_center(from_cell.x, from_cell.y)
+	var b := _cell_center(to_cell.x, to_cell.y)
+	for line: Variant in _fence_lines:
+		var pair := line as Array
+		if pair.size() >= 2 and Geometry2D.segment_intersects_segment(a, b, pair[0] as Vector2, pair[1] as Vector2) != null:
+			return true
+	return false
 
 
 ## What the tines leave in a cell they cross.

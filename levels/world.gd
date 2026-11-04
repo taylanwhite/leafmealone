@@ -1301,13 +1301,13 @@ func _on_player_left(peer_id: int) -> void:
 	_PlayerDirector.despawn(%Players, peer_id)
 
 
-func _spawn_bag(at: Vector3, units: int) -> void:
-	_spawn_bag_for(get_tree().get_first_node_in_group("leaf_field"), at, units)
+func _spawn_bag(at: Vector3, units: int, peer_id: int = 0) -> void:
+	_spawn_bag_for(get_tree().get_first_node_in_group("leaf_field"), at, units, peer_id)
 
 
 ## A bag of field's leaves (field prices it and decides who ties it; --audio-test
-## passes a stand-in field).
-func _spawn_bag_for(field: Node, at: Vector3, units: int) -> void:
+## passes a stand-in field). peer_id bagged it (0: nobody in particular).
+func _spawn_bag_for(field: Node, at: Vector3, units: int, peer_id: int = 0) -> void:
 	_bag_serial += 1
 	var bag := BAG_SCENE.instantiate()
 	bag.name = "Bag%d" % _bag_serial
@@ -1320,7 +1320,45 @@ func _spawn_bag_for(field: Node, at: Vector3, units: int) -> void:
 	if not LeafAudio.owns_bag_tie(field):
 		_play_sfx("bag", at)
 	%RuntimeProps.add_child(bag, true)
-	bag.global_position = at + Vector3(0.0, 0.6, 0.0)
+	# crew-16: the bag sits on the ground where the pile was (it grows there,
+	# net_prop.gd), and at least a step in front of whoever bagged it, so it's in
+	# view, not dropped at their feet under the hotbar. A test's bag (no leaves)
+	# goes exactly where it was asked for.
+	var spot := at + Vector3(0.0, 0.6, 0.0)
+	if units > 0:
+		spot = _bag_spot(at, peer_id)
+	bag.global_position = spot
+
+
+## Where a fresh bag of leaves goes: on the ground at the pile, pushed out to
+## BAG_SPAWN_AHEAD_MIN from whoever bagged it (peer_id), never from a teammate
+## who happens to stand closer to the pile. With no bagger given (tests), the
+## nearest player within BAG_SPAWN_NEAREST_REACH stands in.
+func _bag_spot(at: Vector3, peer_id: int = 0) -> Vector3:
+	var bagger: Node3D = null
+	var nearest := Constants.BAG_SPAWN_NEAREST_REACH
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var player := node as Node3D
+		if player == null or Net.is_watcher(player.name.to_int()):
+			continue
+		if peer_id != 0:
+			if player.name.to_int() == peer_id:
+				bagger = player
+				break
+			continue
+		var flat := Vector2(at.x - player.global_position.x, at.z - player.global_position.z).length()
+		if flat < nearest:
+			nearest = flat
+			bagger = player
+	if bagger == null:
+		return Vector3(at.x, at.y - Constants.BAG_SPAWN_PILE_HEIGHT + Constants.BAG_SPAWN_GROUND_LIFT, at.z)
+	var ground := bagger.global_position.y
+	var out := Vector3(at.x - bagger.global_position.x, 0.0, at.z - bagger.global_position.z)
+	if out.length() < Constants.BAG_SPAWN_ON_TOP:
+		out = -bagger.global_basis.z
+		out.y = 0.0
+	out = out.normalized() * maxf(out.length(), Constants.BAG_SPAWN_AHEAD_MIN)
+	return Vector3(bagger.global_position.x + out.x, ground + Constants.BAG_SPAWN_GROUND_LIFT, bagger.global_position.z + out.z)
 
 
 func _spawn_peer(peer_id: int) -> void:

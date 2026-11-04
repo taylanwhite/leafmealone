@@ -267,7 +267,9 @@ func _tags() -> Array[Dictionary]:
 		if plate == null:
 			continue
 		var riding := shuttle != null and shuttle.has_method("seat_info") and not (shuttle.call("seat_info", str(node.name).to_int()) as Dictionary).is_empty()
-		out.append({"tag": plate, "owner": node, "hide": riding})
+		# Asleep on a cot: no name over the pillow (crew-06).
+		var asleep := node.has_method("is_sleeping") and bool(node.call("is_sleeping"))
+		out.append({"tag": plate, "owner": node, "hide": riding or asleep})
 	for group: String in ["nice_crew", "crew_hands", SPEAKERS]:
 		for node: Node in get_tree().get_nodes_in_group(group):
 			var label := node.get_node_or_null("Visual/Label") as Label3D

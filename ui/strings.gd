@@ -89,6 +89,9 @@ const UI: Dictionary = {
 	"heat_warn_1": "Somebody's on the phone.",
 	"prompt_grab_player": "Grab %s",
 	"prompt_put_down_player": "Put %s down",
+	# p1-hands: a keycap and a verb (nb11); the teammate is right there under it.
+	"prompt_grab": "Grab",
+	"prompt_put_down": "Put down",
 	"board_title": "JOBS",
 	"board_house": "No. %d",
 	"board_size_0": "Small yard",
