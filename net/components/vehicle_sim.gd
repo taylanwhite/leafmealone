@@ -327,15 +327,16 @@ static func town_edge(pos: Vector3, yaw: float, vel: Vector3, dt: float) -> Arra
 		if leaves > 0.0:
 			var along := vel - normal * vel.dot(normal)
 			vel -= along * (1.0 - exp(-Constants.TOWN_EDGE_SIDE_DRAG * leaves * dt))
-		# Turned away from it: nose out toward the hedge, the truck swings back
-		# toward town (the hedge on its right turns it left).
+		# Turned away from it: driven nose first into the hedge, the truck swings
+		# back toward town (the hedge on its right turns it left; +yaw is a left
+		# turn). Only then: a truck leaving (nose toward town) or backing out is
+		# the driver's to steer; turning those dragged it along the hedge.
 		var forward := forward_of(yaw)
 		var facing := forward.dot(normal)
-		var speed := Vector2(vel.x, vel.z).length()
-		if absf(facing) > 0.1 and speed > 0.5:
-			var hedge_right := right_of(yaw).dot(normal) * signf(facing)
-			var away := 1.0 if hedge_right >= 0.0 else -1.0
-			turn = away * Constants.TOWN_EDGE_TURN_RATE * clampf(depth / Constants.TOWN_EDGE_BAND, 0.0, 1.0) * clampf(speed / 6.0, 0.0, 1.0) * dt
+		var ahead := vel.dot(forward)
+		if facing > 0.1 and ahead > 0.5:
+			var away := 1.0 if right_of(yaw).dot(normal) >= 0.0 else -1.0
+			turn = away * Constants.TOWN_EDGE_TURN_RATE * clampf(depth / Constants.TOWN_EDGE_BAND, 0.0, 1.0) * clampf(Vector2(vel.x, vel.z).length() / 6.0, 0.0, 1.0) * dt
 	# A closed road's barricade: driven through, a little speed lost to it.
 	for rect: Rect2 in barricade_rects():
 		if rect.has_point(Vector2(pos.x, pos.z)):

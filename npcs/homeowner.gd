@@ -1013,7 +1013,18 @@ func _round_talker(to: Vector3) -> Vector3:
 	if aim.length() < 0.2:
 		aim = Vector2(-(them - me).y, (them - me).x) * signf(side.dot(Vector2(-(them - me).y, (them - me).x)) + 0.001)
 	var bent := Vector3(aim.x, 0.0, aim.y).normalized()
-	return bent if bent.length() > 0.5 else straight
+	if bent.length() < 0.5:
+		return straight
+	# The bent leg is checked like the straight one (_walk only clears that): past
+	# her stage radius, or into the house, the yard fence or Chefty, she takes the
+	# straight way instead.
+	var round_to := Vector3(me.x + aim.x, position.y, me.y + aim.y)
+	if Vector2(round_to.x - _home.x, round_to.z - _home.z).length() > Constants.HOMEOWNER_STAGE_RADIUS:
+		return straight
+	var cleared := _clear_path(round_to)
+	if Vector2(cleared.x - round_to.x, cleared.z - round_to.z).length() > 0.05:
+		return straight
+	return bent
 
 
 ## goal pulled back short of the first solid thing (a fence, the house, Chefty)

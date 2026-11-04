@@ -22,8 +22,12 @@ extends Node
 ##             away from the hedge.
 ##   barricade Chefty driven through a ROAD CLOSED barricade keeps most of its
 ##             speed and doesn't crash; on foot the client stops at it.
+##             In its band (VehicleSim.town_edge stepped alone), a truck leaving
+##             toward town or backing out nose in isn't steered at all.
 ##   catch_up  a teammate's drawn body after a gap in their updates (a stalled
 ##             peer's burst) glides back onto the stream instead of jumping.
+##   bunched   a teammate's late update and the one bunched right behind it are
+##             drawn at the players' pace cap, not as a leap.
 ## Each step prints a [YardTest] line; CI needs both peers' ok.
 
 static var result: Dictionary = {}
@@ -113,7 +117,8 @@ func _run_host() -> void:
 		_finish(false)
 		return
 	await _seconds(1.0)
-	_catch_up()
+	await _catch_up()
+	await _bunched()
 	await _bin()
 	await _fence()
 	await _framed()
@@ -271,7 +276,52 @@ func _talk_spot(ho: Node3D, away: float) -> Vector3:
 	return Vector3.INF
 
 
+## The hedge's own steering, stepped as the sim steps it (VehicleSim.town_edge is
+## pure): in its band at the east hedge, nose in at an angle it turns the nose
+## away; driving off toward town, or backing out nose in, it doesn't steer at all
+## (it used to swing a leaving truck round to run along the hedge).
+func _hedge_leaving() -> void:
+	var face_x := Constants.TOWN_LINE_RECT.end.x - Constants.TOWN_LINE_WALL_INSIDE
+	var start := Vector3(face_x - 5.0, 0.5, 0.0)
+	var cases := {
+		"leaving at 45 deg": [PI * 0.25, 7.0],
+		"leaving straight": [PI * 0.5, 7.0],
+		"leaving at 27 deg off": [1.10, 7.0],
+		"backing out nose in": [-PI * 0.5 + 0.4, -4.0],
+	}
+	var drift: Array[String] = []
+	var still := true
+	for label: String in cases:
+		var yaw := float(cases[label][0])
+		var pose := _edge_steps(start, yaw, float(cases[label][1]), 1.5)
+		var turned := absf(wrapf(float(pose["yaw"]) - yaw, -PI, PI))
+		drift.append("%s %.3f rad" % [label, turned])
+		still = still and turned < 0.02
+	var nose_in := -PI * 0.5 + 0.5
+	var into := _edge_steps(start + Vector3(-3.0, 0.0, 0.0), nose_in, 7.0, 0.6)
+	var into_before := VehicleSim.forward_of(nose_in).dot(Vector3.RIGHT)
+	var into_after := VehicleSim.forward_of(float(into["yaw"])).dot(Vector3.RIGHT)
+	_check("hedge_leaving: in the hedge's band, leaving or backing out isn't steered; nose in, it's turned away", still and into_after < into_before - 0.05,
+		"%s; nose in %.2f -> %.2f" % [", ".join(drift), into_before, into_after])
+
+
+## VehicleSim.town_edge alone at 60 Hz for seconds: the truck at pos heading yaw,
+## moving at `along` m/s along its nose (negative: backing). {pos, yaw}.
+func _edge_steps(pos: Vector3, yaw: float, along: float, seconds: float) -> Dictionary:
+	var dt := 1.0 / 60.0
+	var vel := VehicleSim.forward_of(yaw) * along
+	for tick: int in int(seconds / dt):
+		var edge := VehicleSim.town_edge(pos, yaw, vel, dt)
+		vel = edge[0]
+		yaw = wrapf(yaw + float(edge[1]), -PI, PI)
+		# The driver holds their line: the speed kept along the (new) nose.
+		vel = VehicleSim.forward_of(yaw) * vel.dot(VehicleSim.forward_of(yaw))
+		pos += vel * dt
+	return {"pos": pos, "yaw": yaw}
+
+
 func _hedge() -> void:
+	_hedge_leaving()
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	if not await _drive(chefty):
 		_check("hedge: at Chefty's wheel", false, "couldn't get in")
@@ -392,6 +442,86 @@ func _catch_up() -> void:
 	var allowed := (float(after["stream"]) * Constants.SMOOTHER_CATCH_UP_SPEED_SHARE + Constants.SMOOTHER_CATCH_UP_SPEED_MIN) * 1.35
 	_check("catch_up: after a 0.35 s gap a teammate's body glides back onto the stream, never jumping", float(after["jump"]) > 0.8 and float(before["fastest"]) > allowed * 2.0 and float(after["fastest"]) <= allowed and float(after["behind"]) < 3.5 * 0.1 + 0.3,
 		"the stream jumped %.2f m; drawn as it came the body went %.1f m/s, caught up never faster than %.1f m/s (allowed %.1f), ended %.2f m behind" % [float(after["jump"]), float(before["fastest"]), float(after["fastest"]), allowed, float(after["behind"])])
+
+
+## A teammate's pace (the players' cap, NetSmoother.paced standing in for being
+## in "players"): walking at 3.5 m/s, a busy peer's update comes late and nearly
+## where the last one was, the next lands right behind it where they really are
+## (fx-yard rec_bin_1p 0.83 s, Bot2's 0.65 m pop). No gap long enough to count as
+## a hitch, so only the pace cap can hold it. Drawn as it came the body leaps
+## across that pair; paced it never goes faster than the cap allows.
+func _bunched() -> void:
+	var before: Dictionary = await _bunched_run(false)
+	var after: Dictionary = await _bunched_run(true)
+	var allowed := (3.5 * Constants.SMOOTHER_CATCH_UP_SPEED_SHARE + Constants.SMOOTHER_CATCH_UP_SPEED_MIN) * 1.35
+	_check("bunched: a teammate's late-then-bunched updates are drawn at their pace, not as a leap", int(after["bursts"]) >= 3 and float(before["fastest"]) > allowed and float(after["fastest"]) <= allowed and float(after["behind"]) < 3.5 * 0.1 + 0.3,
+		"%d bursts; drawn as they came the body went %.1f m/s, paced never faster than %.1f m/s (allowed %.1f), ended %.2f m behind" % [int(after["bursts"]), float(before["fastest"]), float(after["fastest"]), allowed, float(after["behind"])])
+
+
+func _bunched_run(on: bool) -> Dictionary:
+	var body := CharacterBody3D.new()
+	body.name = "YardTestPaced"
+	add_child(body)
+	body.set_multiplayer_authority(_other().name.to_int())
+	var visual := Node3D.new()
+	visual.name = "Visual"
+	body.add_child(visual)
+	var smoother := _NetSmoother.new()
+	smoother.visual_path = NodePath("../Visual")
+	smoother.catch_up_on = on
+	smoother.paced = true
+	body.add_child(smoother)
+	var speed := 3.5
+	var fastest := 0.0
+	var clock := 0.0
+	var last_sent := 0.0
+	var next_busy := 0.6
+	# 0 sending at 30 Hz, 1 waiting on a busy peer, 2 the late one is in.
+	var phase := 0
+	var late_tick := 0
+	var bursts := 0
+	var span_from := Vector3.INF
+	var span_at := 0.0
+	while clock < 2.8:
+		await get_tree().process_frame
+		var now := clock
+		if not span_from.is_finite():
+			span_from = visual.global_position
+			span_at = now
+		elif now - span_at >= 1.0 / 60.0:
+			fastest = maxf(fastest, visual.global_position.distance_to(span_from) / (now - span_at))
+			span_from = visual.global_position
+			span_at = now
+		clock += get_process_delta_time()
+		var send := Vector3.INF
+		match phase:
+			0:
+				if clock - last_sent >= 1.0 / 30.0:
+					send = Vector3(0.0, 0.0, -speed * clock)
+					last_sent = clock
+					if clock >= next_busy:
+						phase = 1
+			1:
+				# Under delay_seconds since the last one: not a hitch.
+				if clock - last_sent >= 0.085:
+					send = Vector3(0.0, 0.0, -speed * (last_sent + 0.01))
+					late_tick = Engine.get_physics_frames()
+					phase = 2
+			2:
+				# Once the smoother's tick has taken the late one in.
+				if Engine.get_physics_frames() > late_tick:
+					send = Vector3(0.0, 0.0, -speed * clock)
+					last_sent = clock
+					next_busy = clock + 0.5
+					bursts += 1
+					phase = 0
+		if send.is_finite():
+			body.velocity = Vector3(0.0, 0.0, -speed)
+			body.position = send
+	var out := {"fastest": fastest, "bursts": bursts, "behind": visual.global_position.distance_to(Vector3(0.0, 0.0, -speed * clock))}
+	body.queue_free()
+	await _ticks(2)
+	return out
 
 
 func _catch_up_run(on: bool) -> Dictionary:

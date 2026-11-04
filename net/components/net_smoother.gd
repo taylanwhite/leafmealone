@@ -156,7 +156,7 @@ func _process(delta: float) -> void:
 	# read as a sprint and throw the drawn body 0.65 m in a frame (fx-yard
 	# rec_bin_1p 0.83 s, Bot2 walking to Chefty). Across the ground only: a jump
 	# rises as it comes.
-	var player := catch_up_on and body.is_in_group("players")
+	var player := catch_up_on and (paced or body.is_in_group("players"))
 	if (_catch_up or player) and _has_drawn and _blend_at < 0.0 and not _held:
 		var off := Vector3(rendered.origin.x - _drawn_at.x, 0.0, rendered.origin.z - _drawn_at.z)
 		var speed := maxf(_last_change_speed, _window_speed()) if player and not _catch_up else _stream_speed()
@@ -222,6 +222,10 @@ var _rest := Transform3D.IDENTITY
 var _catch_up: bool = false
 ## Tests only: off draws the stream as it comes (yard_test's before and after).
 var catch_up_on: bool = true
+## Tests only: held to a player's pace without being in "players" (yard_test's
+## stand-in teammate; a fake in that group would be walked by everything that
+## looks for players).
+var paced: bool = false
 var _drawn_at := Vector3.ZERO
 var _has_drawn: bool = false
 ## The parent placed the visual itself last tick (a seat, a stage).
