@@ -295,6 +295,7 @@ func write_report() -> void:
 		"shuttle_test": _test_result_by_path("res://net/dev/shuttle_test.gd"),
 		"lens_test": _test_result_by_path("res://net/dev/lens_test.gd"),
 		"arrive_test": _test_result_by_path("res://net/dev/arrive_test.gd"),
+		"kit_test": _test_result_by_path("res://net/dev/kit_test.gd"),
 		"shuttle": _shuttle(),
 		"leaf_view": _leaf_view(),
 		"leaf_ledger": _leaf_ledger(),

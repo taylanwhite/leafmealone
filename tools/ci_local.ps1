@@ -62,7 +62,7 @@ if ($Jobs -le 0) {
 $Tests = [ordered]@{
 	job = @{
 		Port = 7794
-		Host = '--host --name=Tester --no-steam --job-test --job-seed=777 --yard-size=1'; Seconds = 75
+		Host = '--host --name=Tester --no-steam --job-test --starter-kit=1 --job-seed=777 --yard-size=1'; Seconds = 75
 		Check = { param($h, $c) [bool]$h.job_test.ok }
 	}
 	bonk = @{
@@ -281,6 +281,19 @@ $Tests = [ordered]@{
 		Port = 7817
 		Host = '--host --name=Tester --no-steam --town-map --start-hour=10 --skate-test'; Seconds = 60; Client = 55
 		Check = { param($h, $c) [bool]$h.skate_test.ok -and $c -ne $null -and [bool]$c.skate_seen.'1'.mounted -and [bool]$c.skate_seen.'1'.wipeout -and ([int]$c.skate_seen.'1'.max_trick -ge 2) }
+	}
+	# The crew's kit (p2-kit, net/dev/kit_test.gd) over 150 ms of lag: host and client
+	# each buy a rake with the starting $50 at the bin inside the doors, load it on
+	# Chefty's rack ("[E] Load"), ride to the yard (a low-tanked blower aboard is
+	# topped up as Chefty leaves), take it off the rack ("[E] Take") and rake; the
+	# host leaves its rake on the lawn, the client's rides home in its pocket; after
+	# a night it's by the store's front door with a neighbor's text; the save and an
+	# old save's tools. Both peers run the node.
+	kit = @{
+		Port = 7843
+		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --start-hour=10 --kit-test'; Seconds = 150; Client = 145
+		Extra = '--sim-lag=150 --kit-test'
+		Check = { param($h, $c) [bool]$h.kit_test.ok -and $c -ne $null -and [bool]$c.kit_test.ok }
 	}
 	# Stepping off Chefty (p1-arrive, net/dev/arrive_test.gd): host and client ride to the
 	# yard and back; seated back to back on opposite rails, each hops down to their own

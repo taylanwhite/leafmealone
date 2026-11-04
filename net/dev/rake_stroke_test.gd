@@ -225,9 +225,10 @@ func _run_host() -> void:
 	var cancel_ok := _bites.is_empty()
 	print("[RakeStrokeTest] dropped the rake before the plant: %d stroke(s): %s" % [_bites.size(), cancel_ok])
 	ok = ok and cancel_ok
-	# The host buys the Tune-Up: the client must draw its rake with the orange head
-	# (it knows the host's wallet from joining, net/campaign.gd _on_player_joined).
-	Campaign.grant_unlock(1, String(Campaign.RAKE_UPGRADE))
+	# The host's rake becomes a Mk II (p2-kit: the tier is the rake's own, replicated
+	# on the prop): the client must draw it with the Mk II's orange head.
+	if _prop("rake") != null:
+		_prop("rake").set("tier", Catalog.TIER_MK2)
 	# 6. A hired hand: its own swing, pace, actor and glide.
 	var hand_ok: bool = await _hand_check(me, lot, report)
 	ok = ok and hand_ok
@@ -565,7 +566,7 @@ func _run_client() -> void:
 		await _seconds(0.25)
 		waited += 0.25
 	var tier_ok := tier == 1
-	print("[RakeStrokeTest] client draws the host's Tune-Up rake: tier %d: %s" % [tier, tier_ok])
+	print("[RakeStrokeTest] client draws the host's Mk II rake: head %d: %s" % [tier, tier_ok])
 	ok = ok and tier_ok
 	result = {"ok": ok, "done": true, "remote": report, "hand": hand_report, "tier": tier}
 	print("[RakeStrokeTest] client all ok: %s" % ok)

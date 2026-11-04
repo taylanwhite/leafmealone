@@ -201,6 +201,10 @@ static func for_shop_item(item_id: StringName) -> String:
 		return for_tool(id) if Constants.TOOL_PRICES.has(id) else ""
 	match str(entry.get("kind", "")):
 		"tool", "tier", "used_tool":
+			# p2-kit: the rake is sold like a tool; its Mk II and Mk III keep the old
+			# upgrades' stickers (the rake with a "+"), the plain and used ones the rake.
+			if str(entry.get("tool", "")) == "rake":
+				return "upgrade_" + id if id.begins_with("rake_tier_") else "item_rake"
 			return for_tool(str(entry.get("tool", id)))
 		"upgrade":
 			return "upgrade_" + id

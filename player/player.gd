@@ -26,6 +26,7 @@ const _PropLooks = preload("res://props/prop_looks.gd")
 const _Pockets = preload("res://player/pockets.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _KitRules = preload("res://core/kit_rules.gd")
 const _Seated = preload("res://player/seated.gd")
 const _Hats = preload("res://player/hats.gd")
 const _HudMode = preload("res://ui/hud_mode.gd")
@@ -1870,6 +1871,10 @@ func e_choice() -> Dictionary:
 		return {"do": &"water", "hint": {"text": _Strings.UI["prompt_dip"], "at": bucket.global_position + Vector3(0.0, 0.6, 0.0), "source": bucket}, "target": held}
 	if held_kind == "hose" or held_kind == "pressure_washer":
 		var source := _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH)
+		# Chefty's own tap sits beside its bed: looking at the bed rather than the
+		# tap with a tool that fits aboard, E loads it (below) instead.
+		if source != null and str(source.get_meta("kind")) == "chefty" and _looking_to_load(held, held_kind, source.global_position):
+			source = null
 		if source != null:
 			var key := "prompt_refill"
 			if held_kind == "hose":
@@ -1898,6 +1903,15 @@ func e_choice() -> Dictionary:
 		var hide := _hide_choice()
 		if not hide.is_empty():
 			return hide
+	# p2-kit: the crew's kit on Chefty's rack. The one you look at is yours to
+	# take ("[E] Take", ahead of loading the one in your hands: the thing you
+	# look at wins); a tool in your hands by the bed goes on it ("[E] Load").
+	var tool_bed := _tool_bed()
+	var bed_look: Dictionary = tool_bed.call("looked_at", self) if tool_bed != null and (held == null or _KitRules.is_kit_kind(held_kind)) else {}
+	if not bed_look.is_empty():
+		return {"do": &"take_kit", "hint": {"text": _Strings.SHOP_UI["prompt_take_kit"], "at": (bed_look["at"] as Vector3) + Vector3(0.0, 0.45, 0.0), "source": "tool_bed/" + str(bed_look["slot"])}, "target": bed_look}
+	if held != null and _KitRules.is_kit_kind(held_kind) and tool_bed != null and bool(tool_bed.call("can_load_from", self)) and bool(tool_bed.call("has_room_for", held_kind)):
+		return {"do": &"load_truck", "hint": {"text": _Strings.SHOP_UI["prompt_load_kit"], "at": tool_bed.call("load_point") as Vector3, "source": "tool_bed/load"}, "target": held}
 	# Hands full: what they're full of goes where it goes. A bag (or junk) heaved
 	# in over Chefty's side needs no words: the bag in your arms by the bed says it.
 	if held != null and bool(held.call("near_truck")):
@@ -1991,6 +2005,10 @@ func _press_e(event: InputEvent) -> bool:
 			_grab_player()
 		&"load_truck":
 			(target as Node).call("request_load_truck")
+		&"take_kit":
+			var bed := _tool_bed()
+			if bed != null:
+				bed.call("request_take", int((target as Dictionary)["index"]))
 		&"load_barrow":
 			(target as Node).call("request_load_held")
 		&"pick_up":
@@ -2009,6 +2027,25 @@ func _press_e(event: InputEvent) -> bool:
 		_:
 			return false
 	return true
+
+
+## Chefty's kit aboard (net/components/tool_bed.gd), or null. Not while a ride
+## has you: the seat has E then.
+func _tool_bed() -> Node:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	return chefty.call("tool_bed") as Node if chefty != null and chefty.has_method("tool_bed") else null
+
+
+## Whether the kit tool in hand could go aboard now and the look is on Chefty's
+## bed more than on this point (its water tap): the load wins there.
+func _looking_to_load(held: Node, held_kind: String, tap: Vector3) -> bool:
+	var tool_bed := _tool_bed()
+	if held == null or tool_bed == null or not _KitRules.is_kit_kind(held_kind):
+		return false
+	if not bool(tool_bed.call("can_load_from", self)) or not bool(tool_bed.call("has_room_for", held_kind)):
+		return false
+	var reach := Constants.KIT_LOAD_REACH + Constants.E_LOOK_REACH_SLACK
+	return _look_miss(tool_bed.call("load_point") as Vector3, reach) < _look_miss(tap, reach)
 
 
 ## The nearest hiding spot with room, or the pile underfoot, as an E choice; {} for neither.

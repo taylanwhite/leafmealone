@@ -571,6 +571,9 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 	if zone == Net.Zone.LOT and honking != null and honking.has_method("is_boarding") and bool(honking.call("is_boarding")) and int(honking.call("boarding_destination")) == Net.Zone.STORE:
 		_job.call("stop")
 		Input.action_release(&"primary")
+		# p2-kit: its rake goes back on the rack before it climbs in.
+		if _kit_put_back(player, delta):
+			return
 		var spot := _crew_wait_spot()
 		if spot != Vector3.INF and int(honking.call("seat_of", Net.local_peer_id())) < 0:
 			_face(player, _crew_steer(player, spot))
@@ -621,6 +624,10 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 		return
 	if _crew_bedtime(player, delta):
 		return
+	# p2-kit: Day 1 shopping. A crew short of rakes: buy one with its own cash,
+	# carry it to Chefty and load it, then wait for the ride like everyone.
+	if _kit_shop(player, delta):
+		return
 	var spot := _crew_wait_spot()
 	if spot == Vector3.INF:
 		_crew_walk(player, false, delta)
@@ -646,6 +653,164 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 		_face(player, look_at)
 		if _rng.randf() < 0.3:
 			_crew_shuffle = Vector3(_rng.randf_range(-0.5, 0.5), 0.0, _rng.randf_range(-0.5, 0.5))
+
+
+# ---- p2-kit: crew bots buy their own rake and load it (docs/GAME.md "The crew's kit").
+## The way in to Homie Depot's lobby from the lot, then back out (StoreZone
+## space): outside the doors, then just inside them, then the rake bin.
+const KIT_DOOR_PATH: Array[Vector3] = [Vector3(-8.2, 0.0, -2.0), Vector3(-11.4, 0.0, -1.0)]
+## Close enough to a waypoint (m), and to the bin's front to buy.
+const KIT_WAYPOINT_METERS: float = 0.8
+const KIT_BUY_METERS: float = 0.9
+## Where a bot stands to load the bed (truck space): beside it, its own side.
+const KIT_LOAD_SIDE := Vector3(1.9, 0.0, -0.3)
+## How long a bot gives a buy (s) before it tries again.
+const KIT_BUY_WAIT: float = 3.0
+var _kit_leg: int = 0
+var _kit_bought_at: float = -100.0
+
+
+## True while shopping or loading (the bot is steering). Buys only when the crew
+## has fewer rakes than players, this bot carries none, has the cash, and the
+## store's open.
+func _kit_shop(player: Node3D, delta: float) -> bool:
+	var me := Net.local_peer_id()
+	var held: Node = player.call("_held_prop")
+	var mine := _carried_rake(me)
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var bed: Node = truck.call("tool_bed") if truck != null and truck.has_method("tool_bed") else null
+	if mine != null:
+		# Got one: to Chefty, and onto the rack.
+		if bed == null or bool(truck.call("is_riding")) or not bool(bed.call("has_room_for", "rake")):
+			return false
+		if held != mine:
+			# In a pocket: out into the hands first.
+			_kit_draw(mine)
+			_crew_walk(player, false, delta)
+			return true
+		if _kit_leg > 0:
+			if _kit_walk_path(player, delta, true):
+				return true
+		var side := (truck.call("bed_transform") as Transform3D) * KIT_LOAD_SIDE
+		if bool(bed.call("can_load_from", player)) and Vector2(side.x - player.global_position.x, side.z - player.global_position.z).length() < 1.2:
+			_crew_walk(player, false, delta)
+			_face(player, truck.call("body_position"))
+			if _elapsed >= _next_interact:
+				_next_interact = _elapsed + 1.0
+				mine.call("request_load_truck")
+			return true
+		_face(player, _crew_steer(player, side))
+		_crew_walk(player, true, delta)
+		return true
+	var kit := get_tree().get_first_node_in_group("kit")
+	var shops := get_tree().get_first_node_in_group("shops")
+	if kit == null or shops == null or held != null or not bool(shops.call("is_open", "homie_depot")):
+		_kit_leg = 0
+		return false
+	var crew := 0
+	for peer_id: int in Net.peer_ids():
+		if not Net.is_watcher(peer_id) and Net.player_name(peer_id) != "Observer":
+			crew += 1
+	if int(kit.call("count_of", "rake")) >= crew or Campaign.credits(me) < Catalog.price("rake"):
+		_kit_leg = 0
+		return false
+	var bin := get_tree().get_first_node_in_group("rake_bin")
+	var store := _store_zone()
+	if bin == null or store == null:
+		return false
+	# Through the doors, to the bin.
+	if _kit_leg < KIT_DOOR_PATH.size():
+		var point := store.to_global(KIT_DOOR_PATH[_kit_leg])
+		if Vector2(point.x - player.global_position.x, point.z - player.global_position.z).length() < KIT_WAYPOINT_METERS:
+			_kit_leg += 1
+		else:
+			_face(player, _crew_steer(player, point))
+			_crew_walk(player, true, delta)
+			return true
+	var front: Vector3 = bin.call("slot_front", 0)
+	if Vector2(front.x - player.global_position.x, front.z - player.global_position.z).length() > KIT_BUY_METERS:
+		_face(player, _crew_steer(player, front))
+		_crew_walk(player, true, delta)
+		return true
+	_crew_walk(player, false, delta)
+	_face(player, bin.global_position)
+	if _elapsed - _kit_bought_at > KIT_BUY_WAIT:
+		_kit_bought_at = _elapsed
+		shops.call("request_buy", "homie_depot", "rake", 1)
+	return true
+
+
+## Back out through the doors with the rake (true while still on the way).
+func _kit_walk_path(player: Node3D, delta: float, outward: bool) -> bool:
+	var store := _store_zone()
+	if store == null or not outward:
+		_kit_leg = 0
+		return false
+	var index := _kit_leg - 1
+	if index < 0:
+		return false
+	var point := store.to_global(KIT_DOOR_PATH[index])
+	if Vector2(point.x - player.global_position.x, point.z - player.global_position.z).length() < KIT_WAYPOINT_METERS:
+		_kit_leg -= 1
+		return _kit_leg > 0
+	_face(player, _crew_steer(player, point))
+	_crew_walk(player, true, delta)
+	return true
+
+
+## On the yard, Chefty honking to go home: a rake in hand or pocket goes back
+## on the rack first (true while it's doing that).
+func _kit_put_back(player: Node3D, delta: float) -> bool:
+	var mine := _carried_rake(Net.local_peer_id())
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var bed: Node = truck.call("tool_bed") if truck != null and truck.has_method("tool_bed") else null
+	if mine == null or bed == null or not bool(bed.call("has_room_for", "rake")) or int(truck.call("seat_of", Net.local_peer_id())) >= 0:
+		return false
+	var held: Node = player.call("_held_prop")
+	if held != mine:
+		if held != null:
+			return false
+		_kit_draw(mine)
+		_crew_walk(player, false, delta)
+		return true
+	var side := (truck.call("bed_transform") as Transform3D) * KIT_LOAD_SIDE
+	if bool(bed.call("can_load_from", player)) and Vector2(side.x - player.global_position.x, side.z - player.global_position.z).length() < 1.2:
+		_crew_walk(player, false, delta)
+		_face(player, truck.call("body_position"))
+		if _elapsed >= _next_interact:
+			_next_interact = _elapsed + 1.0
+			mine.call("request_load_truck")
+		return true
+	_face(player, _crew_steer(player, side))
+	Input.action_press(&"sprint")
+	_crew_walk(player, true, delta)
+	return true
+
+
+## Out of its pocket into the hands: that slot, asked for outright (a number key
+## pressed on the selected slot would put the hands away instead), once a second.
+func _kit_draw(item: Node) -> void:
+	var slot := int(item.get("pocket_slot"))
+	var hotbar := get_tree().get_first_node_in_group("hotbar")
+	if slot < 0 or hotbar == null or _elapsed < _next_interact:
+		return
+	_next_interact = _elapsed + 1.0
+	hotbar.call("request_select", slot)
+	var pockets := _own_player().get_node_or_null("Pockets") if _own_player() != null else null
+	if pockets != null and "selected" in pockets:
+		pockets.set("selected", slot)
+
+
+func _carried_rake(peer_id: int) -> Node:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == "rake" and (int(node.get("held_by")) == peer_id or int(node.get("pocketed_by")) == peer_id) and not node.is_queued_for_deletion():
+			return node
+	return null
+
+
+func _store_zone() -> Node3D:
+	var world := get_tree().get_first_node_in_group("world")
+	return world.get_node_or_null("StoreZone") as Node3D if world != null else null
 
 
 ## Where this bot waits for the ride: beside Chefty's bed, a slot per bot number

@@ -98,7 +98,7 @@ jobs:
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-job
-          "$GODOT" --headless --path . -- --host --port=7794 --name=Tester --no-steam --job-test --job-seed=777 --yard-size=1 --measure="$PWD/build/soak/ci-job/host.json" --run-seconds=75 | grep "JobTest" || true
+          "$GODOT" --headless --path . -- --host --port=7794 --name=Tester --no-steam --job-test --starter-kit=1 --job-seed=777 --yard-size=1 --measure="$PWD/build/soak/ci-job/host.json" --run-seconds=75 | grep "JobTest" || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-job/host.json'))['job_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
 
       - name: Bonk test (light, medium, and heavy throws at another player)
@@ -450,6 +450,18 @@ jobs:
           wait
           grep "ArriveTest" build/soak/ci-arrive/host.log build/soak/ci-arrive/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-arrive/host.json')); t=json.load(open('build/soak/ci-arrive/target.json')); sys.exit(0 if h['arrive_test'].get('ok') and t['arrive_test'].get('ok') else 1)"
+
+      - name: Kit test (p2-kit: buy a rake with the starting $50, load it on Chefty's rack, ride, take it off, rake, leave it at the yard, sleep, find it by the door; a client over 150 ms of lag)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-kit
+          "$GODOT" --headless --path . -- --host --port=7843 --name=Tester --no-steam --job-seed=777 --yard-size=1 --start-hour=10 --kit-test --sim-lag=150 --kit-test --measure="$PWD/build/soak/ci-kit/host.json" --run-seconds=150 > build/soak/ci-kit/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7843 --name=Target --no-steam --sim-lag=150 --kit-test --measure="$PWD/build/soak/ci-kit/target.json" --run-seconds=145 > build/soak/ci-kit/target.log 2>&1
+          wait
+          grep "KitTest" build/soak/ci-kit/host.log build/soak/ci-kit/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-kit/host.json')); t=json.load(open('build/soak/ci-kit/target.json')); sys.exit(0 if h['kit_test'].get('ok') and t['kit_test'].get('ok') else 1)"
 
       # The engine dumps its constants, a grid of economy formulas and the tables'
       # invariants (--balance-test, host only); tools/balance_sim.py then plays crews of

@@ -80,7 +80,7 @@ NEEDED = {
         "HEAT_RAID_AT", "RAID_LOT_MINUTES", "RUN_PROGRESS_FRACTION", "HIRE_SIGNING_FEE", "HIRE_DAILY_WAGE", "HIRE_SKILL",
         "SEASON_DAYS", "RIVAL_POACH_CHANCE", "RIVAL_POACH_BELOW", "RIVAL_WIN_BACK_CHANCE",
         "RIVAL_MAX_SIGNS", "SHOP_HOURS", "SPIGOT_HOOKUP_FEE", "SPIGOT_FEE_PER_SECOND", "PAD_HALF",
-        "TOWN_MAP_DEFAULT", "ARC_HOURS", "RANK_PACE_HOURS", "ARC_SOLO_RATIO_MAX",
+        "TOWN_MAP_DEFAULT", "ARC_HOURS", "RANK_PACE_HOURS", "ARC_SOLO_RATIO_MAX", "STARTING_CASH",
     ],
     "Balance": [
         "CREDITS_PER_1_PERCENT_LOT_CLEANUP", "RUN_EVENT_BASE_CHANCE", "RUN_CHANCE_ESCALATION_PER_TIER",
@@ -538,13 +538,14 @@ class Catalog:
         if entry is None:
             return -1
         C = self.C
-        if "tool" in entry and "tier" in entry:
+        if item_id in C["SHOP_PRICES"]:
+            # Priced by id first (p2-kit: the rake and its tiers).
+            base = float(C["SHOP_PRICES"][item_id])
+        elif "tool" in entry and "tier" in entry:
             tool, tier = entry["tool"], int(entry["tier"])
             if tool not in C["TOOL_PRICES"] or tier < 0 or tier >= len(C["TOOL_TIER_PRICE"]):
                 return -1
             base = float(C["TOOL_PRICES"][tool]) * C["TOOL_TIER_PRICE"][tier]
-        elif item_id in C["SHOP_PRICES"]:
-            base = float(C["SHOP_PRICES"][item_id])
         else:
             return -1
         if entry.get("shop", "") == "snak_o_matic":
@@ -608,7 +609,8 @@ class Run:
         self.xp = 0
         self.pending = 0
         self.tier = 0
-        self.wallets = [0] * players
+        # p2-kit: everyone starts with Constants.STARTING_CASH (and buys a rake with it, sinks.json).
+        self.wallets = [C["STARTING_CASH"]] * players
         self.owned = set()               # crew-shared sink ids
         self.owned_by = [set() for _ in range(players)]
         self.hands = []                  # {skill, wage, earned_today}

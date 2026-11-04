@@ -40,6 +40,7 @@ const REACH_METERS: float = 3.5
 const SEND_INTERVAL: float = 0.1
 const _Economy = preload("res://core/economy.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _Kit = preload("res://core/kit_rules.gd")
 ## Bag types, in the order they're used: contractor bags scoop wider
 ## (Constants.BIG_BAG_RADIUS_SCALE), then plain lawn bags. Shops supply ids.
 const BAG_SUPPLIES: Array[String] = ["big_bags", "lawn_bags"]
@@ -477,7 +478,9 @@ func _stroke_params(peer_id: int, width: float, strength: float) -> Dictionary:
 	var max_width := Constants.RAKE_WIDTH if has_rake else Constants.HAND_RAKE_WIDTH
 	var cells := Constants.RAKE_STROKE_CELLS if has_rake else 1
 	# The field strokes as wide as the head you see: a better rake's head is wider.
-	var head := rake_head_scale(peer_id) if has_rake else 1.0
+	var rake := held_prop(peer_id, "rake") if has_rake else null
+	var rake_tier := int(rake.get("tier")) if rake != null else Catalog.TIER_STOCK
+	var head := rake_head_scale(rake_tier) if has_rake else 1.0
 	max_width *= head
 	width = minf(width, Constants.RAKE_WIDTH) * head if has_rake else width
 	# A leaf blower shoves leaves much farther than any rake; a better one harder
@@ -498,24 +501,20 @@ func _stroke_params(peer_id: int, width: float, strength: float) -> Dictionary:
 	return {
 		"kind": kind,
 		"width": minf(width, max_width),
-		"strength": minf(strength, max_strength) * Campaign.rake_multiplier(peer_id),
+		"strength": minf(strength, max_strength) * (_Kit.rake_multiplier(rake_tier) if has_rake and blower == null else 1.0),
 		"cells": cells,
 		"blower": blower,
 	}
 
 
-## How much wider than the starter's this peer's rake head is
-## (Constants.RAKE_HEAD_WIDTHS: the Tune-Up's, The Leafinator's), from their
-## unlocks, which every peer has (props/prop_looks.gd rake_tier draws the same head).
-static func rake_head_scale(peer_id: int) -> float:
+## How much wider than the plain one a rake of this tier's head is
+## (Constants.RAKE_HEAD_WIDTHS: the Mk II's, The Leafinator's). p2-kit: the tier
+## is the rake's own (replicated on the prop, so the raking client predicts the
+## same; props/prop_looks.gd rake_head draws the same head).
+static func rake_head_scale(rake_tier: int) -> float:
 	var widths := Constants.RAKE_HEAD_WIDTHS
-	var tier := 0
-	if Campaign.peer_has_unlock(peer_id, &"rake_tier_2"):
-		tier = 2
-	elif Campaign.peer_has_unlock(peer_id, &"rake_tier_1"):
-		tier = 1
-	tier = clampi(tier, 0, widths.size() - 1)
-	return widths[tier] / widths[0]
+	var head := clampi(Constants.KIT_RAKE_HEAD_BY_TIER[clampi(rake_tier, 0, Constants.KIT_RAKE_HEAD_BY_TIER.size() - 1)], 0, widths.size() - 1)
+	return widths[head] / widths[0]
 
 
 func _handle_rake(peer_id: int, origin: Vector3, direction: Vector3, width: float, strength: float, seq: int = 0, bite: int = 0, tempo: float = 0.0) -> int:

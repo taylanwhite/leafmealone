@@ -88,18 +88,19 @@ func _ride_to_lot(out: Dictionary) -> bool:
 	return true
 
 
-## A new job: leaves untouched, an empty truck, a homeowner waiting, a free rake.
+## A new job: leaves untouched, an empty truck, a homeowner waiting, and (p2-kit)
+## the crew's rake on Chefty's rack (--starter-kit=1), the yard's own gone.
 func _fresh_job(out: Dictionary) -> bool:
 	var field := _field()
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	var owner_node := get_tree().get_first_node_in_group("homeowner")
-	var rake := _first_prop("rake")
-	if field == null or owner_node == null or rake == null:
-		return _fail(out, "the lot is missing its leaves, homeowner, or rake")
+	var bed := chefty.call("tool_bed") as Node if chefty != null and chefty.has_method("tool_bed") else null
+	if field == null or owner_node == null or bed == null or int(bed.call("count_of", "rake")) < 1 or _first_prop("rake") != null:
+		return _fail(out, "the lot is missing its leaves or homeowner, or the rake isn't on Chefty's rack (and only there)")
 	out["start_clean"] = float(field.call("cleaned_fraction"))
 	out["start_truck_value"] = int(chefty.call("bag_value"))
 	var waiting := int(owner_node.get("_phase")) == 0
-	var rake_free := int(rake.get("held_by")) == 0
+	var rake_free := true
 	_note("fresh job: %.0f%% clean, truck $%d, homeowner waiting %s, rake free %s" % [float(out["start_clean"]) * 100.0, out["start_truck_value"], waiting, rake_free])
 	if float(out["start_clean"]) > 0.01 or int(out["start_truck_value"]) != 0 or not waiting or not rake_free:
 		return _fail(out, "the job did not start fresh")
@@ -113,11 +114,18 @@ func _fresh_job(out: Dictionary) -> bool:
 
 
 func _grab_rake(out: Dictionary) -> bool:
-	var rake := _first_prop("rake")
-	_move_player_to(rake.global_position + Vector3(0.0, 0.0, 1.0))
+	# Off Chefty's rack, from beside the truck (net/components/tool_bed.gd).
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var bed := chefty.call("tool_bed") as Node
+	var spot := (chefty.call("bed_transform") as Transform3D) * Vector3(1.9, 0.0, -1.2)
+	_move_player_to(spot)
 	await _ticks(2)
-	rake.call("request_grab")
-	await _ticks(2)
+	var slot := ""
+	for entry: Dictionary in bed.get("tools") as Array:
+		if str(entry["kind"]) == "rake":
+			slot = str(entry["slot"])
+	bed.call("_host_take", Net.local_peer_id(), slot)
+	await _until(func() -> bool: return bool(_field().call("holds_rake", Net.local_peer_id())), 2.0)
 	out["holds_rake"] = bool(_field().call("holds_rake", Net.local_peer_id()))
 	if not bool(out["holds_rake"]):
 		return _fail(out, "could not grab the rake")
@@ -215,7 +223,13 @@ func _deliver(out: Dictionary) -> bool:
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	var rake := _first_prop("rake")
 	if rake != null and int(rake.get("held_by")) == Net.local_peer_id():
-		rake.call("request_drop")
+		# p2-kit: the rake goes back on Chefty's rack, for the next job.
+		_move_player_to((chefty.call("bed_transform") as Transform3D) * Vector3(1.9, 0.0, -0.4))
+		await _ticks(2)
+		rake.call("request_load_truck")
+		var bed := chefty.call("tool_bed") as Node
+		if not await _until(func() -> bool: return int(bed.call("count_of", "rake")) >= 1, 2.0):
+			return _fail(out, "could not put the rake back on Chefty's rack")
 	await _ticks(2)
 	_expect_quiet(out, "carry_loose")
 	var expected := 0

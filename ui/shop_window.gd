@@ -260,16 +260,26 @@ func _process(delta: float) -> void:
 
 # ---------------------------------------------------------------- what's on the tab
 
-## The cards on the tab on show, in order: one per tool on the tools tab (its
-## next tier), else one per catalog item. Each is {id, tool?, owned_tier?, maxed?}.
+## The cards on the tab on show, in order: on the tools tab, the rake first,
+## then each tool (p2-kit: every tier the crew's rank sells is its own card, a
+## thing you buy as many of as you like; a tool none of whose tiers is on sale
+## yet shows its stock card, locked), else one per catalog item. Each is {id,
+## tool?, owned_tier? (the best the crew has, for the pips), maxed?}.
 func _items() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	if tab == "tools":
-		var me := Net.local_peer_id()
-		for tool: String in Catalog.TOOLS:
-			var owned := Campaign.tool_tier(me, tool)
-			var maxed := owned >= Catalog.TIER_MK3
-			out.append({"id": Catalog.tool_item(tool, next_tier(owned)), "tool": tool, "owned_tier": owned, "maxed": maxed})
+		for tool: String in Catalog.kit_tools():
+			var owned := Campaign.crew_tool_tier(tool)
+			var any := false
+			for tier: int in [Catalog.TIER_STOCK, Catalog.TIER_MK2, Catalog.TIER_MK3]:
+				var id := Catalog.tool_item(tool, tier)
+				if id == "" or str(Catalog.item(id).get("shop", "")) != shop_id:
+					continue
+				if tier == Catalog.TIER_STOCK or Campaign.is_for_sale(StringName(id)):
+					out.append({"id": id, "tool": tool, "owned_tier": owned, "maxed": false})
+					any = true
+			if not any:
+				out.append({"id": Catalog.tool_item(tool, Catalog.TIER_STOCK), "tool": tool, "owned_tier": owned, "maxed": false})
 		return out
 	if tab == "sell":
 		# What's on Rusty's scale right now, each with his offer (shops chunk 5).
@@ -788,7 +798,10 @@ func _pips(owned: int) -> String:
 func _is_focus(data: Dictionary) -> bool:
 	if str(data["id"]) == focus_item:
 		return true
-	return data.has("tool") and str(Catalog.item(focus_item).get("tool", "")) == str(data["tool"])
+	# A tool's cards: the one for the tier asked about, or its first card.
+	if not data.has("tool") or str(Catalog.item(focus_item).get("tool", "")) != str(data["tool"]):
+		return false
+	return not _items().any(func(other: Dictionary) -> bool: return str(other["id"]) == focus_item) and str(data["id"]) == Catalog.tool_item(str(data["tool"]), Catalog.TIER_STOCK)
 
 
 func _scroll_to_focus() -> void:

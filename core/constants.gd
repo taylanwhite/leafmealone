@@ -681,8 +681,11 @@ const SHOP_REACH_SLACK: float = 1.5
 ## Prices for everything that isn't a tool tier (tools are TOOL_PRICES x
 ## TOOL_TIER_PRICE). Snak-o-Matic prices here are before VENDING_PRICE_SCALE.
 const SHOP_PRICES: Dictionary = {
-	# Upgrades. The first two match Balance.BASELINE_TIER_1_TOOL_COST.
+	# Upgrades. The first two match Balance.BASELINE_TIER_1_TOOL_COST. Since p2-kit
+	# rake_tier_1 and rake_tier_2 are rakes you buy (the Mk II and Mk III), next to
+	# the plain rake ($50 buys one with change for bags) and Rusty's bent one.
 	"rake_tier_1": 120, "wheelbarrow_tier_1": 120, "rake_tier_2": 1200,
+	"rake": 25, "rake_used": 12,
 	# Gear (driving G1): the Gutter Shredder, Marty's nephew's old board.
 	"skateboard": 60,
 	# Supplies.
@@ -1184,6 +1187,8 @@ const STORE_LAYOUT: Dictionary = {
 	# lot and SNOW-B-GONE, flower flats, kiddie pools and grills).
 	"seasonal_display": {"owner": "art", "rect": Rect2(-12.0, 6.4, 2.8, 6.4)},
 	"cart_corral_east": {"owner": "art", "rect": Rect2(8.6, -6.0, 1.8, 4.8), "at": Vector3(9.5, 0.0, -3.6), "yaw": 0.0},
+	# p2-kit: the crew's kit waits here, beside the entrance (KIT_DOOR_*).
+	"kit_door": {"owner": "shops", "rect": Rect2(-7.1, -0.3, 1.8, 6.2)},
 }
 
 # ---- driving: Chefty (driving chunk C1, net/components/chefty_drive.gd and
@@ -5708,3 +5713,76 @@ const TOWN_LINE_GATE_HALF: float = 2.6
 ## Depot Road's asphalt runs this far each way from the store (store_dressing.gd
 ## draws it past TownMap.DEPOT_Z), so its barricades stand past that.
 const TOWN_LINE_DEPOT_ASPHALT_END: float = 160.0
+
+# ---- p2-kit: crew equipment is physical (docs/GAME.md "The crew's kit";
+# net/kit/kit.gd, net/components/tool_bed.gd). Taylan, 2026-11-03: "You gotta buy
+# the equipment and load it up on the Chefty. Everyone spawns in with $50."
+## Every new player's cash: a new campaign, or a player joining a save for the
+## first time (Campaign._bind_peer). tools/balance_sim.py starts its wallets here too.
+const STARTING_CASH: int = 50
+## The kinds of prop that are crew kit: bought, owned by the crew, saved, and
+## carried to jobs in Chefty's bed or in pockets (the rake first, then the tools).
+const KIT_KINDS: Array[String] = [
+	"rake", "leaf_blower", "lawn_mower", "ladder", "hose", "hedge_trimmer", "pressure_washer", "paint_roller",
+]
+## A rake's raking strength by its tier (0 used, 1 stock, 2 Mk II, 3 Mk III):
+## Rusty's used rake is a little bent; Mk II and Mk III are the old Tune-Up and
+## The Leafinator's Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER, once and twice
+## (net/kit/kit.gd rake_multiplier). The head index RakeMotion draws, by tier.
+const KIT_USED_RAKE_SCALE: float = 0.85
+const KIT_RAKE_HEAD_BY_TIER: Array[int] = [0, 0, 1, 2]
+## Where kit waits by Homie Depot's front door (bought big tools roll out here;
+## anything left at a yard leans here the next morning), in StoreZone space:
+## the first spot and the step along the wall to the next (each lies along x),
+## and how many spots there are (more go on the last one). Inside STORE_LAYOUT's
+## "kit_door", beside the entrance.
+const KIT_DOOR_FIRST := Vector3(-6.2, 0.35, 0.1)
+const KIT_DOOR_STEP := Vector3(0.0, 0.0, 0.5)
+const KIT_DOOR_MAX: int = 12
+## Chefty's tool rack over the cab (truck space; the cab is at -Z): long tools lie
+## along the truck on two crossbars, on their sides, one per rack spot across x,
+## at this height (their lowest point); the ladder rides on top of them all.
+const KIT_RACK_SLOTS_X: Array[float] = [-0.84, -0.6, -0.36, -0.12, 0.12, 0.36, 0.6, 0.84]
+const KIT_RACK_Y: float = 2.64
+const KIT_RACK_Z: float = -1.95
+const KIT_RACK_BARS_Z: Array[float] = [-1.3, -2.6]
+const KIT_LADDER_ON_RACK := Vector3(0.0, 3.0, -1.6)
+## The bed's floor spots for the big pushed tools (mower, washer), truck space,
+## with their yaw: up the ramp by the tailgate, clear of the rail riders.
+const KIT_BED_FLOOR_SLOTS: Array[Vector3] = [Vector3(0.32, 1.05, 2.0), Vector3(-0.2, 1.05, 1.05)]
+const KIT_BED_FLOOR_YAW: float = PI
+## Loading a tool into the bed glides it from where it was to its spot over this
+## long (s), rising this much over the arc's middle (m).
+const KIT_LOAD_GLIDE_SECONDS: float = 0.45
+const KIT_LOAD_GLIDE_LIFT: float = 0.6
+## Taking one out: the tool you look at in the bed (within this reach of your eye,
+## and this close to your line of sight, m) comes into your hands after it's
+## been a prop for this long (s), so every peer sees it lift off its spot.
+const KIT_TAKE_REACH: float = 4.2
+const KIT_TAKE_LOOK_MISS: float = 0.5
+const KIT_TAKE_HANDOFF_SECONDS: float = 0.12
+## A tool lying still in the bed this slow (m/s) is put on the rack.
+const KIT_BED_REST_SPEED: float = 0.6
+## How near Chefty you hold a tool for "[E] Load" (m from the bed's middle).
+const KIT_LOAD_REACH: float = 3.0
+## Dev and tests: a session that starts on the yard (--start-zone=lot) finds this
+## many rakes lying where the yard's own rake used to (lot space), the first there
+## and the rest beside it; --starter-kit=N puts N rakes in Chefty's bed instead.
+const KIT_DEV_RAKE_AT := Vector3(-2.5, 0.2, 12.0)
+const KIT_DEV_RAKE_STEP := Vector3(0.0, 0.0, -1.0)
+## The legacy store's pad, grown by this much (m), still counts as at the store
+## (kit left there isn't swept to the door in the morning).
+const KIT_STORE_SLACK: float = 2.0
+## How full a bought gas tool's tank comes (%): Rusty's used ones half full,
+## Marty fills a new one.
+const KIT_USED_FUEL: float = 50.0
+const KIT_NEW_FUEL: float = 100.0
+## The host takes a "[E] Take" from this much farther (m) than the prompt's
+## reach (KIT_TAKE_REACH, measured from the eye), for lag and feet-vs-eye.
+const KIT_TAKE_HOST_SLACK: float = 1.5
+## A bought pocket tool with no pocket free lands this far ahead of the buyer (m)
+## and this high over their feet (m), so it drops in front of them.
+const KIT_DROP_AHEAD: float = 0.7
+const KIT_DROP_LIFT: float = 0.4
+## Past KIT_DOOR_MAX, more kit by the door stacks on the last spot this much higher each (m).
+const KIT_DOOR_STACK_STEP: float = 0.3

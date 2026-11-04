@@ -90,6 +90,10 @@ func _ready() -> void:
 	var shops := preload("res://net/shops/shops.gd").new()
 	shops.name = "Shops"
 	add_child(shops)
+	# The crew's kit: every rake and tool is a thing somewhere (net/kit/kit.gd, p2-kit).
+	var kit := preload("res://net/kit/kit.gd").new()
+	kit.name = "Kit"
+	add_child(kit)
 	_add_cots()
 	var board := preload("res://levels/job_board.gd").new()
 	board.name = "JobBoard"
@@ -134,9 +138,8 @@ func _ready() -> void:
 		var tracker := preload("res://net/town/zone_tracker.gd").new()
 		tracker.name = "ZoneTracker"
 		add_child(tracker)
-	# --all-tools: the host owns every tool this session, for tests and trying them out.
-	if bool(Net.dev_options().get("all_tools")):
-		Campaign.dev_grant_all_tools(Net.local_peer_id())
+	# --all-tools and --starter-kit (p2-kit): the dev kit is net/kit/kit.gd's, made
+	# once the yard and Chefty are up.
 	# With the town, the yard loads when Chefty sets off (the ride covers the
 	# build), so the board can change all day without swapping yards under anyone.
 	# Tests that start on the lot, or pin a seed, still get theirs right away.
@@ -664,6 +667,8 @@ func _free_lot() -> void:
 	if hires != null:
 		hires.call("despawn")
 	for child: Node in %LotSlot.get_children():
+		# p2-kit: kit left lying on the yard goes with it, by the store's door in the morning.
+		_kit_yard_freed(child as Node3D)
 		# Out of the slot now, so a new lot can take its name this frame.
 		%LotSlot.remove_child(child)
 		child.queue_free()
@@ -737,6 +742,7 @@ func reload_job_lot(picked: bool = false) -> void:
 	if town_map and not picked and not Campaign.is_job_open():
 		return
 	for child: Node in %LotSlot.get_children():
+		_kit_yard_freed(child as Node3D)
 		%LotSlot.remove_child(child)
 		child.queue_free()
 	_return_job_gas()
@@ -865,33 +871,19 @@ static func roll_junk_value(type: String, rng: RandomNumberGenerator) -> int:
 	return rng.randi_range(range_of.x, range_of.y)
 
 
-## Host only. One of each tool the crew owns rides along, laid out by the truck,
-## at the best tier anyone here owns. Chefty fills each gas tool's tank out of
-## the crew's gas on the way (Constants.GAS_PER_TANK each), and a red gas can
-## rides along with whatever spare gas there is (up to GAS_CAN_CARRY). Whatever
-## is left in the tanks and the can goes back into the supply after the job
+## Host only. p2-kit: the crew's tools are its own kit now, and come to a job
+## only in Chefty's bed or in pockets (net/kit/kit.gd; the bed tops their tanks
+## up as Chefty leaves the store). What still rides along with every job is the
+## red gas can, with whatever spare gas there is (up to GAS_CAN_CARRY), laid by
+## the truck; what's left in it goes back into the supply after the job
 ## (_return_job_gas), so the crew only pays for what it burned.
 func _spawn_job_tools() -> void:
 	var lot := %LotSlot.get_child(0) as Node3D if %LotSlot.get_child_count() > 0 else null
 	if lot == null:
 		return
 	var shops := get_node_or_null("Shops")
-	var index := 0
-	for tool_id: String in Campaign.crew_tools():
-		var tool := BAG_SCENE.instantiate()
-		var tier := Campaign.crew_tool_tier(tool_id)
-		tool.name = "Tool_%s_%d" % [tool_id, _lots_loaded]
-		tool.set("kind", tool_id)
-		tool.set("tier", tier)
-		tool.set("label", _ToolTiers.tool_name(tool_id, tier))
-		tool.set("color", Color(0.8, 0.8, 0.8))
-		if _ToolTiers.is_gas_tool(tool_id):
-			var filled := shops == null or bool(shops.call("consume", "gas", Constants.GAS_PER_TANK))
-			tool.set("fuel", 100.0 if filled else 0.0)
-		tool.add_to_group("job_tools")
-		%RuntimeProps.add_child(tool, true)
-		tool.global_position = _job_tool_spot(lot, index)
-		index += 1
+	# Past where --all-tools lays its tools out (net/kit/kit.gd _seed_dev).
+	var index := Catalog.TOOLS.size()
 	if shops == null:
 		return
 	var spare := minf(float(shops.call("supply", "gas")), Constants.GAS_CAN_CARRY)
@@ -907,6 +899,13 @@ func _spawn_job_tools() -> void:
 	can.add_to_group("gas_cans")
 	%RuntimeProps.add_child(can, true)
 	can.global_position = _job_tool_spot(lot, index)
+
+
+## Host: the crew's kit lying on this yard goes away with it (net/kit/kit.gd).
+func _kit_yard_freed(lot: Node3D) -> void:
+	var kit := get_node_or_null("Kit")
+	if kit != null and Net.is_host():
+		kit.call("host_yard_freed", lot)
 
 
 ## Where the index-th thing that rides along is laid out: rows of three by the truck.

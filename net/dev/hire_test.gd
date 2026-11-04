@@ -1,5 +1,7 @@
 extends Node
 
+const _KitRules = preload("res://core/kit_rules.gd")
+
 ## Authority: host. --hire-test checks hired hands (net/crew/hires.gd,
 ## npcs/crew_hand.gd): hiring takes the signing fee and fills a slot; on the
 ## yard the hand rakes a pile, bags it, and loads it into Chefty by itself; a
@@ -110,26 +112,24 @@ func _check_wallet(me: int) -> bool:
 	var no_consumable := Campaign.credits(me) == cash and not Campaign.peer_has_unlock(me, &"lawn_bags")
 	print("[HireTest] the counter won't sell a consumable as an unlock: %s" % no_consumable)
 	ok = ok and no_consumable
-	var fresh := not Campaign.peer_has_unlock(me, &"rake_tier_1") and not Campaign.peer_has_unlock(me, &"rake_tier_2")
-	Campaign.request_purchase(&"rake_tier_2")
-	var needs := fresh and Campaign.credits(me) == cash and not Campaign.peer_has_unlock(me, &"rake_tier_2")
-	print("[HireTest] The Leafinator is refused without the first rake tune-up: %s" % needs)
-	ok = ok and needs
-	Campaign.request_purchase(&"rake_tier_1")
-	Campaign.request_purchase(&"rake_tier_2")
+	# p2-kit: The Leafinator is a rake you buy (no tune-up first), made in your
+	# hands; its tier is the rake's, and it rakes at the workbook's growth twice.
+	var shops := get_tree().get_first_node_in_group("shops")
+	var code := str(shops.call("request_buy", "homie_depot", "rake_tier_2", 1))
 	var paid := cash - Campaign.credits(me)
 	var growth := Balance.TOOL_THROUGHPUT_GROWTH_MULTIPLIER
-	var rake := Campaign.peer_has_unlock(me, &"rake_tier_2") \
-		and paid == Campaign.price_of(&"rake_tier_1") + Campaign.price_of(&"rake_tier_2") \
+	var held := _KitRules.held_rake(get_tree(), me)
+	var rake := code == "ok" and held != null and int(held.get("tier")) == Catalog.TIER_MK3 \
+		and paid == Campaign.price_of(&"rake_tier_2") and not Campaign.peer_has_unlock(me, &"rake_tier_2") \
 		and is_equal_approx(Campaign.rake_multiplier(me), growth * growth)
-	print("[HireTest] bought both rake tiers for $%d, rake x%.2f: %s" % [paid, Campaign.rake_multiplier(me), rake])
+	print("[HireTest] bought The Leafinator (%s) for $%d, in hand %s, rake x%.2f: %s" % [code, paid, held != null, Campaign.rake_multiplier(me), rake])
 	ok = ok and rake
 	var none := Campaign.tool_tier(me, "leaf_blower") == Catalog.TIER_NONE
-	Campaign.grant_unlock(me, "leaf_blower_used")
+	get_tree().get_first_node_in_group("kit").call("host_deliver", me, "leaf_blower", Catalog.TIER_USED)
 	var used := none and Campaign.tool_tier(me, "leaf_blower") == Catalog.TIER_USED \
 		and Campaign.crew_tool_tier("leaf_blower") >= Catalog.TIER_USED \
 		and Campaign.crew_tools().has("leaf_blower")
-	print("[HireTest] a used leaf blower is tier %d and the crew brings it: %s" % [Campaign.tool_tier(me, "leaf_blower"), used])
+	print("[HireTest] a used leaf blower is tier %d and the crew owns it: %s" % [Campaign.tool_tier(me, "leaf_blower"), used])
 	ok = ok and used
 	var blower := float(Constants.TOOL_PRICES["leaf_blower"])
 	var prices := Catalog.price("leaf_blower_mk2") == roundi(blower * Constants.TOOL_TIER_PRICE[Catalog.TIER_MK2]) \
