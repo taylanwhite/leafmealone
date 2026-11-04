@@ -224,6 +224,7 @@ const UI: Dictionary = {
 	"phone_tab_clients": "Clients",
 	"phone_tab_map": "Map",
 	"phone_tab_crew": "Crew",
+	"phone_tab_deliveries": "Orders",
 	"phone_tab_closet": "Closet",
 	"phone_close": "Put it away  {key:phone}",
 	"phone_no_texts": "No texts yet.",
@@ -1069,7 +1070,16 @@ const SHOP_UI: Dictionary = {
 	"phone_tab_closet": "Closet",
 	"deliveries_title": "Homie Depot Deliveries",
 	"deliveries_locked": "Deliveries open at %s",
-	"deliveries_order": "Order ($%d incl. fees)",
+	# The row's button: the whole price, fees and all (the fee line says what's in it).
+	"deliveries_order": "$%d",
+	# An order's arrival on the clock ("2:30 PM"), and how many of a supply in the
+	# delivery text ("2 × gas can").
+	"deliveries_time_am": "%d:%02d AM",
+	"deliveries_time_pm": "%d:%02d PM",
+	"deliveries_qty": "%d × %s",
+	# The two shelves the Orders app sells from.
+	"deliveries_supplies": "Supplies",
+	"deliveries_tools": "Tools",
 	"deliveries_fees": "Price + $%d + %d%% (delivery fee, service fee, fee fee)",
 	"deliveries_eta": "%s  ·  arrives %s",
 	"deliveries_cap": "%d of %d orders on the way",
@@ -1078,7 +1088,8 @@ const SHOP_UI: Dictionary = {
 	"closet_title": "Closet",
 	"closet_empty": "Nothing in here but a lonely hanger. Buy a hat.",
 	"pay_crewmate_title": "Pay a crewmate",
-	"pay_crewmate_button": "$%d to %s",
+	# A Pay button beside a crewmate's name in the phone's Crew app.
+	"pay_crewmate_button": "$%d",
 	"pay_crewmate_sent": "You sent %s $%d",
 	"pay_crewmate_got": "%s sent you $%d",
 	# Texts.
@@ -1087,7 +1098,7 @@ const SHOP_UI: Dictionary = {
 	"text_from_deliveries": "Homie Depot Deliveries",
 	"text_emergency_bags": "Found a few bags behind the paint mixer. Don't tell the manager.",
 	"text_rusty_welcome": "Heard you're working the Acres. Bring me their junk. I pay cash. Mostly.",
-	"text_delivery": "Your order's on the pallet in the back room: %s. Nobody signed for it. Nobody ever does.",
+	"text_delivery": "Your order's in the back room: %s. Nobody signed for it. Nobody ever does.",
 	# The shop window (gap shops chunk 4): the next tier's button on a tool card,
 	# its tier pips, and the lines over the cards.
 	"shop_tier_buy_1": "Buy",

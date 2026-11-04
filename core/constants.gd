@@ -1146,7 +1146,9 @@ const STORE_LAYOUT: Dictionary = {
 	"job_board": {"owner": "store", "rect": Rect2(-6.0, -9.1, 2.8, 1.0)},
 	"lot_gate": {"owner": "store", "rect": Rect2(-2.0, -18.0, 4.0, 4.0)},
 	"crew_camp": {"owner": "store", "rect": Rect2(-9.2, -16.8, 2.4, 6.6)},
-	"back_room": {"owner": "shops", "rect": Rect2(-11.6, -19.4, 2.2, 2.2)},
+	# The delivery pallet's cage, and in front of it where ordered tools land
+	# (shops chunk 8, DELIVERY_KIT_*).
+	"back_room": {"owner": "shops", "rect": Rect2(-11.6, -19.4, 4.1, 2.5)},
 	"snak_o_matic": {"owner": "shops", "rect": Rect2(-12.0, 3.0, 3.0, 3.0)},
 	"garden_center": {"owner": "shops", "rect": SHOP_SITES["homie_depot"]["area"]},
 	"rustys": {"owner": "shops", "rect": SHOP_SITES["rustys"]["area"]},
@@ -6116,3 +6118,97 @@ const BOARD_LOOP_FADE: float = 30.0
 const BOARD_SILENT_DB: float = -60.0
 const BOARD_LAND_DB := Vector2(-7.0, 0.0)
 const BOARD_LAND_FULL_AIR: float = 0.6
+
+# ---- shops chunk 8: deliveries and pay a crewmate (net/shops/shops.gd,
+# levels/dressing/delivery_pallet.gd, player/cash_toss.gd, ui/phone.gd)
+## How often the host looks for orders that are due (s; a poll, not tuning).
+const DELIVERY_CHECK_SECONDS: float = 1.0
+## The delivery van backs up to the store's loading dock, out of sight behind the
+## lobby wall the pallet's cage stands against: where its honk comes from (from
+## the back room's pallet, StoreZone space) and how loud.
+const DELIVERY_HONK_FROM := Vector3(-5.0, 1.2, 0.0)
+const DELIVERY_HONK_DB: float = 0.0
+## The pass-through hatch in that wall, behind the cage: its middle (from the
+## pallet; the wall's cinder-block face is at about x -1.4), its width along the wall and height (m).
+## Its shutter rolls up this long after the honk (s), taking this long (s).
+const DELIVERY_HATCH := Vector3(-1.37, 0.95, 0.0)
+const DELIVERY_HATCH_SIZE := Vector2(0.9, 0.8)
+const DELIVERY_SHUTTER_DELAY: float = 0.45
+const DELIVERY_SHUTTER_SECONDS: float = 0.35
+## Then someone inside shoves the order out through it: the first thing goes this
+## long after the honk (s), the rest this far apart; a crate is in the air this
+## long (s); a tool is through the hatch well within this long (s; the shutter
+## waits for it).
+const DELIVERY_TOSS_DELAY: float = 1.1
+const DELIVERY_TOSS_GAP: float = 0.45
+const DELIVERY_TOSS_SECONDS: float = 0.55
+const DELIVERY_TOOL_FLIGHT: float = 1.1
+## A tool turns about up this fast as it flies (radians/s).
+const DELIVERY_TOOL_SPIN: float = 0.5
+## An ordered tool waits this far behind the hatch (m, inside the building, out of
+## sight) from the moment it lands until it's thrown; it's shoved out lengthwise
+## along a line tipped up this much (radians) through the hatch's middle, from
+## this far behind the wall's face (m) until its tail is this far out of it, then
+## lobbed on. It's let go this high over its spot (m), dropping at this speed (m/s).
+const DELIVERY_TOOL_HIDE_BACK: float = 2.7
+const DELIVERY_TOOL_PITCH: float = 0.7
+const DELIVERY_TOOL_HIDE_MARGIN: float = 0.08
+const DELIVERY_TOOL_LAND_LIFT: float = 0.04
+const DELIVERY_TOOL_LAND_SPEED: float = 0.6
+## Its thud waits this long on a client (s): NetSmoother draws props about this
+## far behind the host, so the sound lands with the rake you see.
+const DELIVERY_TOOL_THUD_CLIENT_DELAY: float = 0.1
+## Orders land on the quarter hour (minutes), like the HUD clock reads.
+const DELIVERY_ROUND_MINUTES: float = 15.0
+## A crate starts this far back inside the hatch (hidden in the dark), along the
+## way out (m).
+const DELIVERY_CRATE_START_BACK: float = 0.3
+## The shutter comes back down this long after the last thing lands (s).
+const DELIVERY_SHUTTER_HOLD: float = 0.5
+## The crates on the pallet (supplies; tools come as themselves): two a layer,
+## this far either side of the middle, layers this tall from the pallet's top,
+## and at most this many shown (a busy day's extra crates are "in the back").
+const DELIVERY_CRATE_SIDE: float = 0.31
+const DELIVERY_CRATE_LAYER: float = 0.5
+const DELIVERY_PALLET_TOP: float = 0.13
+const DELIVERY_CRATES_MAX: int = 6
+## How many crates one supply order puts on the pallet: one a unit, at most this many.
+const DELIVERY_CRATES_PER_ORDER: int = 2
+## A crate landing: how flat it squashes (y scale at contact), how long it takes
+## to spring back (s), how far it may turn off square (radians), and its thud.
+const DELIVERY_CRATE_SQUASH: float = 0.8
+const DELIVERY_CRATE_SETTLE: float = 0.24
+const DELIVERY_CRATE_YAW: float = 0.12
+const DELIVERY_THUD_DB: float = -2.0
+## Ordered tools land in front of the cage (its open side): the first spot (from
+## the pallet), the step to the next, how many spots before they stack, and how
+## much higher each stacked one goes (m).
+const DELIVERY_KIT_FIRST := Vector3(2.1, 0.45, -0.6)
+const DELIVERY_KIT_STEP := Vector3(0.0, 0.0, 0.5)
+const DELIVERY_KIT_MAX: int = 5
+const DELIVERY_KIT_STACK_STEP: float = 0.3
+## Pay a crewmate: the payer holds the bill out (the "offer" gesture) for this
+## long before it leaves the hand (s), it flies this long (s) on an arc this high
+## over the straight line (m), and only between crewmates this close (m); farther
+## apart it just lands in their wallet. The payee's "+$20 · Sam" line under the
+## wallet stays this long (s), fading over the last FADE.
+const PAY_TOSS_LEAD: float = 0.3
+const PAY_TOSS_SECONDS: float = 0.6
+const PAY_TOSS_ARC: float = 0.55
+const PAY_TOSS_MAX_METERS: float = 14.0
+const PAY_NOTICE_SECONDS: float = 4.0
+const PAY_NOTICE_FADE: float = 1.0
+## The paper bill: its size (m; a cartoon bill, half again a real one, so it reads
+## across a lot) and how many flutter turns it makes in the air.
+const PAY_BILL_SIZE := Vector2(0.24, 0.11)
+const PAY_BILL_SPINS: float = 1.5
+## The bill's arc peaks early (the lift is sin(PI * t^SKEW); under 1 moves the
+## top forward), so it drops into the hands rather than arriving at head height.
+const PAY_TOSS_ARC_SKEW: float = 0.6
+## Through the payee's eyes, their hand is all the way out by this share of the
+## flight; once caught, the bill folds into it over this long (s) as it drops.
+const PAY_CATCH_REACH_SHARE: float = 0.6
+const PAY_CATCH_HOLD: float = 0.22
+## Where that first-person hand catches it, in head space (m: right, up, ahead):
+## low and a little right in the view, at arm's length.
+const PAY_FP_CATCH_AT := Vector3(0.12, -0.24, -0.55)

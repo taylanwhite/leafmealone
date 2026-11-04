@@ -111,10 +111,17 @@ Tab takes out the phone, held in your hand in first person. Apps:
 - **Clients:** everyone you work for, with their relationship, standards,
   favorite work, and the days since their last job.
 - **Map:** the neighborhoods, which are open, and what each one needs to open.
-- **Crew:** rank, XP to the next tier, banked and pending XP, what the next tier
-  unlocks.
+- **Crew:** Pay a crewmate ($20 or $100 to anyone in the session, nearest
+  first; the bill flies across if they're close), then rank, XP to the next
+  tier, banked and pending XP, what the next tier unlocks, and the hired hands.
+- **Orders** (app id `deliveries`, built in shops chunk 8; opens at Mulch Mule
+  II): Homie Depot's supplies and tools from anywhere, price + $15 + 10%,
+  landing two clock hours later (9 AM if ordered after closing) on the back
+  room's pallet: crates for supplies, the tools themselves in front of the cage.
+  Three orders on the way at most.
+- **Closet** (shops chunk 7): the hats and shirts you own, with Wear.
 
-Later apps: Hires, Properties, Deliveries.
+Later apps: Hires (today inside Crew), Properties.
 
 ## 5. After the spine (step 4 of the plan)
 

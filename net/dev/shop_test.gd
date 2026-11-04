@@ -35,8 +35,14 @@ extends Node
 ## effect and look (snack), and the client's own machine buy through the RPC
 ## (client_snack). Art chunk 8 adds Homie Depot's walk-in lobby: a buy from its
 ## tool endcaps passes the reach check, and one just out on the lot doesn't
-## (lobby). Later shop chunks add steps (looks, deliveries). Each step
-## prints a [ShopTest] line.
+## (lobby). Shops chunk 8 adds the bill flying between crewmates who stand close
+## and not between ones who don't (pay_toss), and deliveries: the fees and the
+## clock (order_rules), ordering by phone from anywhere (order), the van landing
+## it in the back room at its time, crates lobbed onto the pallet and the tool
+## thrown in front of the cage (delivery), the client's order through the RPC
+## (client_order, the client's own client_order), and 9 AM for an order after
+## closing (after_hours); the save keeps what's on the way. Each step prints a
+## [ShopTest] line.
 
 const _Shops = preload("res://net/shops/shops.gd")
 const _Strings = preload("res://ui/strings.gd")
@@ -46,6 +52,8 @@ const _Heat = preload("res://net/run_events/heat.gd")
 const _ShopModels = preload("res://props/shop_models.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
 const _Hats = preload("res://player/hats.gd")
+const _CashToss = preload("res://player/cash_toss.gd")
+const _SfxScript = preload("res://audio/sfx.gd")
 ## What the client buys, so the host can tell its buy from its own.
 const CLIENT_HAT: String = "hat_beanie"
 ## And what it buys at the Snak-o-Matic (shops chunk 6).
@@ -280,6 +288,8 @@ func _run() -> void:
 	var selfish := str(shops.call("request_give", me, Constants.PAY_CREWMATE_STEPS[0]))
 	_step("give", gave == "ok" and moved and odd == "give_invalid" and selfish == "give_invalid" and Campaign.credits(mate) - theirs == Constants.PAY_CREWMATE_STEPS[0],
 		"gave $%d: %s; $37: %s; to yourself: %s" % [Constants.PAY_CREWMATE_STEPS[0], gave, odd, selfish])
+	_step("pay_toss", await _check_pay_toss(shops, mate))
+	await _stand_at("homie_depot")
 
 	# wear: a bought hat goes straight on.
 	var hat := str(shops.call("request_buy", "homie_depot", "hat_bucket", 1))
@@ -294,6 +304,10 @@ func _run() -> void:
 
 	# Rusty's (shops chunk 5).
 	await _check_rustys(shops, me, mate)
+
+	# Deliveries (shops chunk 8): the phone's orders land in the back room; the
+	# client orders through the RPC; one placed after closing books 9 AM.
+	await _check_delivery(shops, me, mate)
 
 	# save: the section is written, and reads back into the same state.
 	Campaign.save_now()
@@ -1175,6 +1189,7 @@ func _run_client() -> void:
 	_step("client_snack", await _run_client_snack(shops, me))
 	await _run_client_rusty(shops, me)
 	_step("client_equip", await _run_client_equip(shops, me))
+	await _run_client_order(shops)
 	_finish("")
 
 
@@ -1398,6 +1413,8 @@ func _check_save(shops: Node, me: int) -> bool:
 	var same := supplies_same and gas_kept \
 		and JSON.stringify(copy.get("stock"), "", true) == JSON.stringify(shops.get("stock"), "", true) \
 		and JSON.stringify(copy.get("looks"), "", true) == JSON.stringify(shops.get("looks"), "", true) \
+		and JSON.stringify(copy.get("orders"), "", true) == JSON.stringify(shops.get("orders"), "", true) \
+		and not (shops.get("orders") as Array).is_empty() \
 		and int(copy.get("stock_day")) == int(shops.get("stock_day"))
 	copy.free()
 	var keys := true
@@ -1862,3 +1879,185 @@ func _wait_until(check: Callable, seconds: float) -> void:
 	while waited < seconds and not bool(check.call()):
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
+
+# ---------------------------------------------------------------- deliveries (shops chunk 8)
+
+## How long an order's landing gets: the honk, every toss, and the last one's
+## flight and settle (s), with room for the 1 s order poll.
+const DELIVERY_LAND_SECONDS: float = 8.0
+## How long the client waits for the host's order cue after its own steps (s).
+const CLIENT_ORDER_WAIT_SECONDS: float = 90.0
+
+## Client: the host's cue to order by phone (_rpc_client_order).
+var _order_cue: bool = false
+
+
+## Deliveries, at noon (shops chunk 8):
+##   order_rules: the fees and the clock (order_price, arrival_at, order_due);
+##   order: two gas cans, a rake and a roll of bags by phone: each charged the
+##     price plus fees, off Homie Depot's shelf, nothing in hand yet; a hat or an
+##     upgrade can't be ordered, and a fourth order is "full" with cash untouched;
+##   delivery: not before it's due; at 2:30 PM the van lands it: the supplies go
+##     up, the crates come over the wall onto the pallet (tossed, not popped), the
+##     rake lands in front of the cage as a real kit prop, and the text comes;
+##   client_order: the client orders through _rpc_request_order;
+##   after_hours: an order at 10 PM books 9 AM tomorrow.
+func _check_delivery(shops: Node, me: int, mate: int) -> void:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var fee := 24 +Constants.DELIVERY_FEE + roundi(24.0 * Constants.DELIVERY_FEE_SHARE)
+	var rules: bool = _Shops.order_price("gas_can", 2) == fee \
+		and _Shops.arrival_at(10.0, 3) == [3, 720.0] and _Shops.arrival_at(22.0, 3) == [4, 540.0] \
+		and _Shops.order_due({"arrive_day": 3, "arrive_minutes": 720.0}, 12.0, 3) \
+		and not _Shops.order_due({"arrive_day": 3, "arrive_minutes": 720.0}, 11.9, 3) \
+		and _Shops.order_due({"arrive_day": 3, "arrive_minutes": 720.0}, 8.0, 4) \
+		and _Shops.orderable("rake") and _Shops.orderable("lawn_bags") and not _Shops.orderable("wheelbarrow_tier_1") \
+		and not _Shops.orderable("hat_bucket") and not _Shops.orderable("rake_used") and not _Shops.orderable("hot_dog")
+	_step("order_rules", rules, "gas x2 $%d, 10 AM -> %s, 10 PM -> %s" % [_Shops.order_price("gas_can", 2), str(_Shops.arrival_at(10.0, 3)), str(_Shops.arrival_at(22.0, 3))])
+
+	clock.call("set_hour_for_tests", 12.0)
+	await get_tree().create_timer(0.3).timeout
+	# Far from every shop: the phone works from anywhere.
+	await _stand_local(Vector3(-2.0, 0.0, 6.0))
+	Campaign.pay(me, 1000)
+	(shops.get("orders") as Array).clear()
+	var cash := Campaign.credits(me)
+	var gas := float(shops.call("supply", "gas"))
+	var bags := float(shops.call("supply", "lawn_bags"))
+	var gas_stock := int(shops.call("stock_left", "homie_depot", "gas_can"))
+	var gas_code := str(shops.call("request_order", "gas_can", 2))
+	var gas_paid := cash - Campaign.credits(me)
+	var rake_code := str(shops.call("request_order", "rake", 1))
+	var upgrade := str(shops.call("request_order", "wheelbarrow_tier_1", 1))
+	var hat := str(shops.call("request_order", "hat_bucket", 1))
+	var bags_code := str(shops.call("request_order", "lawn_bags", 1))
+	var before_full := Campaign.credits(me)
+	var full := str(shops.call("request_order", "gas_can", 1))
+	var orders: Array = shops.get("orders")
+	var paid := cash - Campaign.credits(me)
+	var expected := _Shops.order_price("gas_can", 2) + _Shops.order_price("rake", 1) + _Shops.order_price("lawn_bags", 1)
+	var rakes_before := _kit_tier_count("rake", Catalog.TIER_STOCK)
+	_step("order", gas_code == "ordered" and rake_code == "ordered" and bags_code == "ordered" and gas_paid == fee and paid == expected \
+		and upgrade == "unknown" and hat == "unknown" and full == "full" and Campaign.credits(me) == before_full \
+		and orders.size() == Constants.DELIVERY_MAX_OPEN and is_equal_approx(float(shops.call("supply", "gas")), gas) \
+		and int(shops.call("stock_left", "homie_depot", "gas_can")) == gas_stock - 2 \
+		and str((orders[0] as Dictionary).get("by_key", "")) == Campaign.key_of(me),
+		"gas %s ($%d), rake %s, bags %s, paid $%d of $%d; upgrade %s, hat %s, a fourth %s; %d open" % [gas_code, gas_paid, rake_code, bags_code, paid, expected, upgrade, hat, full, orders.size()])
+
+	# Not before it's due: 1:50 PM.
+	clock.call("set_hour_for_tests", 13.85)
+	await get_tree().create_timer(Constants.DELIVERY_CHECK_SECONDS + 0.5).timeout
+	var early := (shops.get("orders") as Array).size()
+	var town := get_tree().get_first_node_in_group("town")
+	var texts_before := (town.get("texts") as Array).size() if town != null else 0
+	var pallet := get_tree().get_first_node_in_group("delivery_pallet")
+	var crates_before := int(pallet.call("crate_count")) if pallet != null else -1
+	var tossed_before := int(pallet.get("tossed")) if pallet != null else -1
+	var honks := _SfxScript.log.count("delivery_honk")
+	var thuds := _SfxScript.log.count("crate_thud")
+	var heard: Array = []
+	shops.connect("delivered", func(crates: Array, tools: int) -> void: heard.append([crates.size(), tools]), CONNECT_ONE_SHOT)
+	clock.call("set_hour_for_tests", 14.5)
+	await _wait_until(func() -> bool: return (shops.get("orders") as Array).is_empty(), Constants.DELIVERY_CHECK_SECONDS * 3.0)
+	var landed_gas := float(shops.call("supply", "gas")) - gas
+	var landed_bags := float(shops.call("supply", "lawn_bags")) - bags
+	# The rake exists the moment the order lands (hidden behind the hatch), so a
+	# save from now on has it, before it's thrown.
+	var made_at_landing := _kit_tier_count("rake", Catalog.TIER_STOCK) > rakes_before
+	var tool_thuds := _SfxScript.log.count("thud")
+	var want_crates := mini(2, Constants.DELIVERY_CRATES_PER_ORDER) + 1
+	await _wait_until(func() -> bool: return pallet != null and int(pallet.call("crate_count")) >= crates_before + want_crates and _delivered_rake(shops) != null, DELIVERY_LAND_SECONDS)
+	# Let the rake come to rest.
+	await get_tree().create_timer(1.5).timeout
+	var rake := _delivered_rake(shops)
+	# It lands flat, on a thud: lying as a loose rake lies, never stood on end.
+	var flat := rake != null and (rake as Node3D).global_basis.y.dot(Vector3.UP) > 0.95 and _SfxScript.log.count("thud") > tool_thuds
+	var texts: Array = town.get("texts") if town != null else []
+	var texted := texts.slice(texts_before).any(func(text: Variant) -> bool: return str((text as Dictionary).get("from", "")) == str(_Strings.SHOP_UI["text_from_deliveries"]) and str((text as Dictionary).get("kind", "")) == "delivery")
+	var crates := int(pallet.call("crate_count")) - crates_before if pallet != null else -1
+	var tossed := int(pallet.get("tossed")) - tossed_before if pallet != null else -1
+	var arrived := (shops.get("arrived_today") as Array).size()
+	var sounded := _SfxScript.log.count("delivery_honk") > honks and _SfxScript.log.count("crate_thud") - thuds >= want_crates
+	_step("delivery", early == Constants.DELIVERY_MAX_OPEN and (shops.get("orders") as Array).is_empty() \
+		and is_equal_approx(landed_gas, 2.0 * float(Constants.SUPPLY_PER_ITEM["gas_can"])) and is_equal_approx(landed_bags, float(Constants.SUPPLY_PER_ITEM["lawn_bags"])) \
+		and heard == [[want_crates, 1]] and crates == want_crates and tossed == want_crates and arrived >= want_crates \
+		and rake != null and made_at_landing and flat and texted and sounded,
+		"sounds %s; open at 1:50 PM %d; landed gas +%.1f, bags +%d; heard %s; crates %d (tossed %d), arrived_today %d; the rake %s (made at landing %s, flat with a thud %s); texted %s" % [sounded, early, landed_gas, int(landed_bags), str(heard), crates, tossed, arrived, str(rake.global_position) if rake != null else "missing", made_at_landing, flat, texted])
+
+	# client_order: the client orders a roll of bags through the RPC.
+	var mate_cash := Campaign.credits(mate)
+	_rpc_client_order.rpc_id(mate)
+	await _wait_until(func() -> bool: return (shops.get("orders") as Array).any(func(order: Variant) -> bool: return str((order as Dictionary).get("by_key", "")) == Campaign.key_of(mate)), WAIT_SECONDS)
+	var theirs := (shops.get("orders") as Array).filter(func(order: Variant) -> bool: return str((order as Dictionary).get("by_key", "")) == Campaign.key_of(mate))
+	_step("client_order", theirs.size() == 1 and mate_cash - Campaign.credits(mate) == _Shops.order_price("lawn_bags", 1),
+		"%d orders by the client, it paid $%d" % [theirs.size(), mate_cash - Campaign.credits(mate)])
+
+	# after_hours: at 10 PM the van comes at 9 tomorrow (and stays booked for the save).
+	# In one frame, so the client's order (due at 4:30 PM) doesn't land meanwhile.
+	clock.call("set_hour_for_tests", 22.0)
+	var late := str(shops.call("request_order", "lawn_bags", 1))
+	var booked: Dictionary = (shops.get("orders") as Array).back() if not (shops.get("orders") as Array).is_empty() else {}
+	_step("after_hours", late == "ordered" and int(booked.get("arrive_day", -1)) == int(clock.get("day")) + 1 and is_equal_approx(float(booked.get("arrive_minutes", -1.0)), Constants.DELIVERY_AFTER_HOURS_ARRIVE * 60.0),
+		"%s, booked %s" % [late, str(booked)])
+	clock.call("set_hour_for_tests", 12.0)
+	await get_tree().create_timer(0.3).timeout
+	print("[ShopTest]   orders still on the way: %s" % str(shops.get("orders")))
+
+
+## The rake the van threw: a loose stock rake lying by the first spots in front
+## of the back room's cage, at rest on the ground (not in the cage, not stuck in the air).
+func _delivered_rake(shops: Node) -> Node3D:
+	var first: Vector3 = shops.call("delivery_kit_point", 0)
+	var last: Vector3 = shops.call("delivery_kit_point", Constants.DELIVERY_KIT_MAX - 1)
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) != "rake" or int(node.get("tier")) != Catalog.TIER_STOCK or not bool(node.call("is_loose")):
+			continue
+		var at := (node as Node3D).global_position
+		var along := Geometry3D.get_closest_point_to_segment(at, first, last)
+		if Vector2(at.x - along.x, at.z - along.z).length() < 1.2 and at.y < first.y + 0.5:
+			return node as Node3D
+	return null
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_client_order() -> void:
+	_order_cue = true
+
+
+## The client's order (shops chunk 8): once the host cues it, a roll of bags by
+## phone through _rpc_request_order, answered "ordered" with the whole price.
+func _run_client_order(shops: Node) -> void:
+	await _wait_until(func() -> bool: return _order_cue, CLIENT_ORDER_WAIT_SECONDS)
+	if not _order_cue:
+		_step("client_order", false, "the host never cued the order")
+		return
+	var count := _results.size()
+	var asked := str(shops.call("request_order", "lawn_bags", 1))
+	await _await_results(count + 1)
+	var answer: Array = _results[count] if _results.size() > count else []
+	_step("client_order", asked == "" and answer == ["ordered", "lawn_bags", _Shops.order_price("lawn_bags", 1)], "asked %s, answer %s" % [asked, str(answer)])
+
+## pay_toss (shops chunk 8): paying a crewmate a couple of meters away, the bill
+## flies from the payer's hand and is caught (player/cash_toss.gd, started on
+## every peer by Shops.gave); from across the lot it doesn't fly, the money just
+## moves.
+func _check_pay_toss(shops: Node, mate: int) -> bool:
+	var mate_body := _player_node(mate)
+	if mate_body == null:
+		print("[ShopTest]   no crewmate body here")
+		return false
+	await _stand_world(mate_body.global_position + Vector3(2.0, 0.0, 0.0))
+	var flown := _CashToss.flown
+	var caught := _CashToss.caught
+	var near := str(shops.call("request_give", mate, Constants.PAY_CREWMATE_STEPS[0]))
+	await get_tree().create_timer(Constants.PAY_TOSS_LEAD + 0.1).timeout
+	var bill_seen := mate_body.get_parent().get_node_or_null("CashBill") != null
+	await _wait_until(func() -> bool: return _CashToss.caught > caught, Constants.PAY_TOSS_SECONDS + 1.0)
+	var near_flew := _CashToss.flown == flown + 1 and _CashToss.caught == caught + 1
+	# From the far corner of the lot: no bill.
+	await _stand_local(Vector3(15.0, 0.0, 15.0))
+	var far_apart := _me().global_position.distance_to(mate_body.global_position)
+	var far := str(shops.call("request_give", mate, Constants.PAY_CREWMATE_STEPS[0]))
+	await get_tree().create_timer(Constants.PAY_TOSS_LEAD + Constants.PAY_TOSS_SECONDS + 0.2).timeout
+	var far_still := _CashToss.flown == flown + 1
+	print("[ShopTest]   near %s: flew %s (bill seen in the air %s); %.0f m apart %s: no bill %s" % [near, near_flew, bill_seen, far_apart, far, far_still])
+	return near == "ok" and near_flew and bill_seen and far == "ok" and far_apart > Constants.PAY_TOSS_MAX_METERS and far_still

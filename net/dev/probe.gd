@@ -519,6 +519,21 @@ func _shops() -> Dictionary:
 		"crew_owned": owned,
 		"buffs": buff_ids,
 		"rusty": _rusty(shops),
+		"deliveries": _deliveries(shops),
+	}
+
+
+## Deliveries as this peer sees them (shops chunk 8): the orders on the way,
+## today's arrivals, and the crates its own back-room pallet drew from them.
+func _deliveries(shops: Node) -> Dictionary:
+	var on_way: Array = []
+	for order: Variant in (shops.get("orders") as Array):
+		on_way.append("%s x%d day %d at %d" % [str((order as Dictionary).get("item", "")), int((order as Dictionary).get("qty", 0)), int((order as Dictionary).get("arrive_day", 0)), roundi(float((order as Dictionary).get("arrive_minutes", 0.0)))])
+	var pallet := get_tree().get_first_node_in_group("delivery_pallet")
+	return {
+		"orders": on_way,
+		"arrived": (shops.get("arrived_today") as Array).duplicate(),
+		"crates": int(pallet.call("crate_count")) if pallet != null else -1,
 	}
 
 

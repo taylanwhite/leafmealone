@@ -940,6 +940,57 @@ SOUNDS["hat_on"] = (hat_on, 0, 0.7)
 SOUNDS["spray_can"] = (spray_can, 0, 0.6)
 
 
+# ---- shops chunk 8: deliveries (levels/dressing/delivery_pallet.gd) and pay a crewmate (player/cash_toss.gd)
+def delivery_honk() -> list[float]:
+    """The delivery van at the loading dock behind the lobby wall: a bright, slightly sour
+    'bip-bip' (higher and pushier than Chefty's horn), then a short brass stab,
+    'bwamp', the van's way of saying it's not waiting."""
+    out = silence(1.1)
+    for start, freq in ((0.0, 466.0), (0.15, 466.0)):
+        raw = tone(0.1, glide(freq * 0.96, freq, 0.03), "square", (12.0, 0.01))
+        nasal = [a + 0.45 * b for a, b in zip(bandpass(raw, freq * 2.1, 1.4), bandpass(raw, freq * 4.3, 2.2))]
+        mix_into(out, envelope(nasal, 0.006, 0.03), start, 0.8)
+    # The stab: a low root and a fifth, short and punchy, with a little fall-off.
+    for freq, gain in ((196.0, 1.0), (294.0, 0.6), (98.0, 0.5)):
+        stab = brass(0.42, glide(freq * 1.03, freq * 0.97, 0.4), (6.0, 0.015))
+        mix_into(out, stab, 0.38, gain)
+    return out
+
+
+def crate_thud() -> list[float]:
+    """A wooden crate landing on a pallet: a hollow boxy knock, the planks'
+    short rattle, and a soft scuff of grit, over a low thump."""
+    rng = random.Random(1500)
+    out = silence(0.5)
+    mix_into(out, blip(0.3, 140.0, 62.0, 10.0), 0.0, 1.0)
+    knock = decay(tone(0.18, glide(330.0, 250.0, 0.05), "triangle"), 26.0)
+    mix_into(out, [a + 0.35 * b for a, b in zip(knock, decay(tone(0.18, 710.0), 40.0))], 0.0, 0.55)
+    for index in range(4):
+        rattle = decay(bandpass(noise(rng, 0.03), rng.uniform(1600.0, 2800.0), 4.0), 110.0)
+        mix_into(out, rattle, 0.012 + index * 0.022 + rng.uniform(0.0, 0.01), 0.35 - index * 0.06)
+    mix_into(out, decay(lowpass(noise(rng, 0.1), 1200.0), 40.0), 0.0, 0.4)
+    return out
+
+
+def cash_flick() -> list[float]:
+    """A bill flicked off the fingers: a crisp paper snap, then a quick
+    flutter as it flies."""
+    rng = random.Random(1510)
+    out = silence(0.4)
+    snap = decay(highpass(bandpass(noise(rng, 0.03), 4200.0, 1.2), 2500.0), 140.0)
+    mix_into(out, snap, 0.0, 1.0)
+    seconds = 0.28
+    flutter = bandpass(noise(rng, seconds), 3000.0, 1.8)
+    flaps = [0.5 + 0.5 * math.sin(TAU * 24.0 * index / RATE) for index in range(len(flutter))]
+    mix_into(out, envelope([a * b for a, b in zip(flutter, flaps)], 0.02, 0.16), 0.03, 0.4)
+    return out
+
+
+SOUNDS["delivery_honk"] = (delivery_honk, 0, 0.75)
+SOUNDS["crate_thud"] = (crate_thud, 0, 0.8)
+SOUNDS["cash_flick"] = (cash_flick, 0, 0.5)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

@@ -77,6 +77,12 @@ const SOUNDS: Dictionary = {
 	# Chefty's paint going on in a cloud (net/components/chefty_paint.gd).
 	"hat_on": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
 	"spray_can": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": 0.0},
+	# Shops (chunk 8): the delivery van honking at the dock behind the lobby wall, each crate
+	# landing on the back room's pallet (levels/dressing/delivery_pallet.gd), and
+	# a bill flicked to a crewmate (player/cash_toss.gd; it lands with "pocket").
+	"delivery_honk": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.2, "db": 0.0},
+	"crate_thud": {"variants": 0, "bus": &"Sfx", "gap_ms": 80, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},
+	"cash_flick": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.5, "db": 0.0},
 	# Vehicles.
 	"truck": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 4.0, "db": 0.0},
 	"van": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 4.0, "db": 0.0},

@@ -218,6 +218,11 @@ func _build_hud_rows() -> void:
 	add_child(_hud_rows)
 	_wallet_label = _hud_label()
 	_hud_rows.add_child(_Icons.row("cash", _wallet_label, _Icons.SIZE_HUD))
+	# Who just paid you, top left under these rows, or in their place at the store
+	# where they're hidden (shops chunk 8; it also starts the bill's flight).
+	var pay_notice := preload("res://ui/pay_notice.gd").new()
+	pay_notice.set("rows", _hud_rows)
+	add_child(pay_notice)
 	_cleanup_label = _hud_label()
 	_hud_rows.add_child(_Icons.row("cleanup", _cleanup_label, _Icons.SIZE_HUD))
 	_chefty_label = _hud_label()

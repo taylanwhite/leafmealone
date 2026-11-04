@@ -16,6 +16,7 @@ const _Ranks = preload("res://core/ranks.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Icons = preload("res://ui/icons.gd")
 const _Look = preload("res://ui/catalog_look.gd")
+const _Shops = preload("res://net/shops/shops.gd")
 const BEZEL := Color(0.1, 0.1, 0.12)
 const SCREEN := Color(0.96, 0.95, 0.92)
 const INK := Color(0.15, 0.15, 0.17)
@@ -25,16 +26,23 @@ const GREEN := Color(0.2, 0.6, 0.3)
 const BUBBLE := Color(0.88, 0.9, 0.95)
 const BUBBLE_JOB := Color(1.0, 0.92, 0.8)
 ## gap-specs/critic.md fixes the order: texts, clients, map, crew, deliveries
-## (shops chunk 8), closet (shops chunk 7).
-const APPS: Array[String] = ["texts", "clients", "map", "crew", "closet"]
+## (shops chunk 8, shown as "Orders"), closet (shops chunk 7).
+const APPS: Array[String] = ["texts", "clients", "map", "crew", "deliveries", "closet"]
+## Other names an app answers to (--open-phone=orders, the spec's old id).
+const APP_ALIASES: Dictionary = {"orders": "deliveries"}
 const HEART := Color(0.85, 0.25, 0.3)
 ## How wide a line of words is on the screen; a text's words leave room for its avatar.
 const LINE_WIDTH: float = 300.0
 const TEXT_WIDTH: float = LINE_WIDTH - _Icons.SIZE_AVATAR - 8.0
 ## Icon sizes inside the apps, in pixels of height.
 const HEADER_ICON_PX: float = 28.0
-const DOCK_TILE := Vector2(64, 64)
-const DOCK_FONT: int = 12
+## Six tiles across the screen's 328 px (shops chunk 8 made it six).
+const DOCK_TILE := Vector2(50, 62)
+const DOCK_GAP: int = 4
+const DOCK_FONT: int = 11
+## An Orders row's item picture, and the Pay row's buttons' width.
+const ORDER_ICON_PX: float = 26.0
+const PAY_BUTTON_WIDTH: float = 58.0
 const HEART_PX: float = 16.0
 const LIKES_PX: float = 18.0
 const PIN_PX: float = 28.0
@@ -101,7 +109,7 @@ func _ready() -> void:
 	_scroll.add_child(_list)
 	var dock := HBoxContainer.new()
 	dock.alignment = BoxContainer.ALIGNMENT_CENTER
-	dock.add_theme_constant_override("separation", 6)
+	dock.add_theme_constant_override("separation", DOCK_GAP)
 	column.add_child(dock)
 	for app: String in APPS:
 		# A home-screen tile: the app's icon over its name.
@@ -139,6 +147,10 @@ func _hook_world() -> void:
 	)
 	Campaign.unlocks_changed.connect(_mark_dirty)
 	Campaign.rank_changed.connect(_mark_dirty)
+	# Orders and Pay grey their buttons by your cash, and Pay lists who's here.
+	Campaign.credits_changed.connect(func(_peer_id: int, _credits: int) -> void: _dirty = true)
+	Net.player_joined.connect(func(_peer_id: int) -> void: _dirty = true)
+	Net.player_left.connect(func(_peer_id: int) -> void: _dirty = true)
 
 
 func _watch(node: Node) -> void:
@@ -251,6 +263,9 @@ func is_out() -> bool:
 
 
 func show_app(app: String) -> void:
+	app = str(APP_ALIASES.get(app, app))
+	if not APPS.has(app):
+		app = "texts"
 	_app = app
 	for key: String in _tabs:
 		(_tabs[key] as Button).button_pressed = key == app
@@ -283,6 +298,8 @@ func _rebuild() -> void:
 			_map(town)
 		"crew":
 			_crew()
+		"deliveries":
+			_deliveries()
 		"closet":
 			_closet()
 
@@ -343,6 +360,153 @@ func _closet() -> void:
 		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		empty.custom_minimum_size.x = LINE_WIDTH
 		_list.add_child(empty)
+
+## Orders (shops chunk 8, app id "deliveries"): Homie Depot's supplies and tools
+## by phone, at the price plus the fees. Locked until the crew's rank opens it.
+## What's on the way leads, with when it lands; then one row an item, its
+## picture, name and whole price as the button (greyed out when it can't be
+## ordered now: cash, the van full, sold out). The van lands it in the back room
+## (net/shops/shops.gd host_land).
+func _deliveries() -> void:
+	var shops := get_tree().get_first_node_in_group("shops")
+	if shops == null:
+		return
+	if not Campaign.is_feature_on("deliveries"):
+		var locked := _text(str(_Strings.SHOP_UI["deliveries_locked"]) % _Ranks.title(_Ranks.tier_of("feature:deliveries")), 15, SOFT)
+		locked.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		locked.custom_minimum_size.x = LINE_WIDTH - STAT_PX - 6.0
+		var row := _icon_line("app_deliveries", locked, STAT_PX)
+		(row.get_child(0) as Control).modulate = Color(1.0, 1.0, 1.0, 0.55)
+		_list.add_child(row)
+		return
+	var me := Net.local_peer_id()
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var today := int(clock.get("day")) if clock != null else 1
+	var orders: Array = shops.get("orders")
+	for entry: Variant in orders:
+		var order := entry as Dictionary
+		var item := str(order.get("item", ""))
+		var qty := int(order.get("qty", 1))
+		var named := _Strings.shop_item_name(item) if qty <= 1 else str(_Strings.SHOP_UI["deliveries_qty"]) % [qty, _Strings.shop_item_name(item)]
+		var line := _text(str(_Strings.SHOP_UI["deliveries_eta"]) % [named, _Shops.arrival_text(order, today)], 14, INK)
+		line.set_meta("order_item", item)
+		_list.add_child(_icon_line(_order_icon(item), line, ORDER_ICON_PX))
+	if orders.size() >= Constants.DELIVERY_MAX_OPEN:
+		var full := _text(str(_Strings.SHOP_UI["deliveries_full"]), 13, SOFT)
+		full.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		full.custom_minimum_size.x = LINE_WIDTH
+		_list.add_child(full)
+	if not orders.is_empty():
+		_list.add_child(HSeparator.new())
+	var fees := _text(str(_Strings.SHOP_UI["deliveries_fees"]) % [Constants.DELIVERY_FEE, roundi(Constants.DELIVERY_FEE_SHARE * 100.0)], 12, SOFT)
+	fees.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fees.custom_minimum_size.x = LINE_WIDTH
+	_list.add_child(fees)
+	var season := int(clock.call("season")) if clock != null else 0
+	for tab: String in ["supplies", "tools"]:
+		var ids: Array[String] = []
+		for id: String in Catalog.items_for("homie_depot", tab):
+			if _Shops.orderable(id) and Catalog.is_in_season(id, season) and Campaign.is_for_sale(StringName(id)):
+				ids.append(id)
+		if ids.is_empty():
+			continue
+		_list.add_child(_text(str(_Strings.SHOP_UI["deliveries_" + tab]), 15, ORANGE))
+		for id: String in ids:
+			_list.add_child(_order_row(shops, me, id))
+
+
+## One Orders row: the item's picture and name, and its delivered price as the
+## button that orders one.
+func _order_row(shops: Node, me: int, id: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.set_meta("order_row", id)
+	var picture := _Icons.rect(_order_icon(id), ORDER_ICON_PX)
+	picture.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(picture)
+	var label := _text(_Strings.shop_item_name(id), 15, INK)
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	label.clip_text = true
+	row.add_child(label)
+	var why := str(shops.call("order_blocker", me, id, 1))
+	var order := Button.new()
+	order.focus_mode = Control.FOCUS_NONE
+	order.custom_minimum_size.x = PAY_BUTTON_WIDTH
+	order.text = str(_Strings.SHOP_UI["shop_result_sold_out"]) if why == "sold_out" else str(_Strings.SHOP_UI["deliveries_order"]) % _Shops.order_price(id, 1)
+	order.disabled = why != ""
+	order.pressed.connect(func() -> void: shops.call("request_order", id, 1))
+	row.add_child(order)
+	return row
+
+
+## An Orders row's picture: the item's icon, or for a roll of bags with none
+## drawn yet (the supply_* family), a leaf bag.
+func _order_icon(id: String) -> String:
+	var icon := _Icons.for_shop_item(StringName(id))
+	if not _Icons.has(icon) and str(Catalog.item(id).get("supply", "")).ends_with("bags"):
+		return "item_leaf_bag"
+	return icon
+
+
+## Pay a crewmate (shops chunk 8), at the top of the Crew app: everyone else in
+## the session, nearest first, each with PAY_CREWMATE_STEPS buttons. The bill
+## flies to them if they're close (player/cash_toss.gd). Nothing with nobody else here.
+func _pay_row() -> void:
+	var shops := get_tree().get_first_node_in_group("shops")
+	var mates := _crewmates()
+	if shops == null or mates.is_empty():
+		return
+	_list.add_child(_text(str(_Strings.SHOP_UI["pay_crewmate_title"]), 15, ORANGE))
+	var cash := Campaign.credits(Net.local_peer_id())
+	for mate: int in mates:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		row.set_meta("pay_row", mate)
+		var label := _text(Net.player_name(mate), 15, INK)
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.clip_text = true
+		row.add_child(label)
+		for amount: int in Constants.PAY_CREWMATE_STEPS:
+			var pay := Button.new()
+			pay.focus_mode = Control.FOCUS_NONE
+			pay.custom_minimum_size.x = PAY_BUTTON_WIDTH
+			pay.text = str(_Strings.SHOP_UI["pay_crewmate_button"]) % amount
+			pay.disabled = cash < amount
+			pay.set_meta("pay_amount", amount)
+			var to := mate
+			var dollars := amount
+			pay.pressed.connect(func() -> void: shops.call("request_give", to, dollars))
+			row.add_child(pay)
+		_list.add_child(row)
+	_list.add_child(HSeparator.new())
+
+
+## Everyone else in the session (not a dev session's playtest observer), nearest first.
+func _crewmates() -> Array[int]:
+	var me := Net.local_peer_id()
+	var here := _body_of(me)
+	var out: Array[int] = []
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me or Net.player_name(peer_id) == Net.OBSERVER_NAME:
+			continue
+		out.append(peer_id)
+	if here != null:
+		out.sort_custom(func(a: int, b: int) -> bool:
+			var body_a := _body_of(a)
+			var body_b := _body_of(b)
+			var far_a := here.global_position.distance_to(body_a.global_position) if body_a != null else INF
+			var far_b := here.global_position.distance_to(body_b.global_position) if body_b != null else INF
+			return far_a < far_b
+		)
+	return out
+
+
+func _body_of(peer_id: int) -> Node3D:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id):
+			return node as Node3D
+	return null
+
 
 func _texts(town: Node) -> void:
 	if town == null or (town.get("texts") as Array).is_empty():
@@ -530,6 +694,7 @@ func _map(town: Node) -> void:
 
 
 func _crew() -> void:
+	_pay_row()
 	var tier := Campaign.crew_tier()
 	# The crew's rank badge, big, beside its title.
 	var title := _text(_Ranks.title(tier), 24, ORANGE)
