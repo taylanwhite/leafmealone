@@ -576,7 +576,7 @@ func host_chase_spin(push: Vector3, dir: float) -> void:
 	_chase["spin_left"] = Constants.VAN_SPIN_SECONDS
 	_chase["spin_dir"] = signf(dir) if dir != 0.0 else 1.0
 	var state: Dictionary = _chase["state"]
-	state["vel"] = (state["vel"] as Vector3) * 0.3 + Vector3(push.x, 0.0, push.z)
+	state["vel"] = (state["vel"] as Vector3) * Constants.VAN_RAM_KEEP_SPEED_SHARE + Vector3(push.x, 0.0, push.z)
 	_rpc_beat.rpc(trip.id, "ram", Net.server_time())
 	stats["spins"] = int(stats.get("spins", 0)) + 1
 
@@ -3061,7 +3061,7 @@ func _chase_loop(trip: Trip, player: AudioStreamPlayer3D, id: String, node_name:
 		player.unit_size = Constants.VAN_SIREN_UNIT_SIZE if id == "kazoo_siren" else Constants.VAN_ENGINE_UNIT_SIZE
 		player.max_distance = Constants.VAN_SIREN_MAX_DISTANCE if id == "kazoo_siren" else Constants.VAN_ENGINE_MAX_DISTANCE
 		player.volume_db = Constants.VAN_ENGINE_SILENT_DB if id != "kazoo_siren" else _Bank.db(id) + Constants.VAN_SIREN_DB
-		player.position = Vector3(0.0, 3.3, 0.3) if id == "kazoo_siren" else _NiceVan.ENGINE_AT
+		player.position = Constants.VAN_SIREN_AT if id == "kazoo_siren" else _NiceVan.ENGINE_AT
 		trip.look.add_child(player)
 	if not player.playing:
 		player.play()
@@ -3307,8 +3307,8 @@ func _sounds(trip: Trip, leg: Dictionary, now: float) -> void:
 	if now >= ram and not trip.played.has("rambump%.2f" % ram):
 		trip.played["rambump%.2f" % ram] = true
 		var bucked := look.get_node_or_null("Motion")
-		if bucked != null and now - ram < 0.5:
-			bucked.call("bump", 2.0)
+		if bucked != null and now - ram < Constants.VAN_RAM_BUMP_WINDOW:
+			bucked.call("bump", Constants.VAN_RAM_BUMP)
 	# The mirror's glint, the hold only.
 	var hold := _hold_leg(trip, now)
 	if not hold.is_empty():

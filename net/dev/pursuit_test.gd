@@ -17,7 +17,9 @@ extends Node
 ##      at HEAT_AFTER_ESCAPE, and the raid over (the van leaves with the client).
 ##   f. a second raid: the chase on, Chefty is put on Homie Depot's lot: an
 ##      instant getaway ("store").
-##   g. a third raid: the chase on, Chefty floored head-on into the van: a ram,
+##   h. a third raid: the chase on, the host stops and steps out with the van
+##      behind: no getaway (no escape, no XP); the van pulls in behind the truck.
+##   g. a fourth raid: the chase on, Chefty floored head-on into the van: a ram,
 ##      the van spins out, the heat up by HEAT_VAN_RAM.
 ## The client's view (it saw the chase start, drew the van's CHASE leg from the
 ## host's track) is checked by CI from the probe reports. Each step prints a
@@ -146,6 +148,35 @@ func _run(world: Node) -> void:
 	reasons = _Pursuit.stats["reasons"]
 	_verdict(store and str(reasons.back()) == "store", "f. a chase (%s) ended the moment Chefty was on Homie Depot's lot (%s)" % [chased_f, reasons], problems)
 	await _until(func() -> bool: return int(director.call("phase")) == 0, 15.0)
+	# h. Another raid: the chase on, the host stops and steps out with the van behind.
+	# Getting out is no getaway: no escape, no XP; the van comes on and pulls in
+	# behind the empty truck.
+	await _quiet_down(director, shuttle)
+	var ok_h: bool = await _seat_at_curb(chefty, host, 0, house)
+	var chased_h := false
+	var raided_h := false
+	if ok_h:
+		raided_h = await _raid(director, shuttle)
+	if raided_h:
+		chefty.call("dev_script", host, [{"seconds": DRIVE_OFF_SECONDS, "throttle": 1.0}, {"seconds": 2.0, "throttle": -1.0}, {"seconds": 6.0, "handbrake": true}])
+		chased_h = await _until(func() -> bool: return str(pursuit.call("state_name")) == "chasing" and str(shuttle.call("raid_leg")) == "chase", 18.0)
+	var stepped_out := false
+	var escaped_h := false
+	var pulled_h := false
+	var xp_before_h := Campaign.pending_xp()
+	var escapes_before_h := int(_Pursuit.stats["escapes"])
+	if chased_h:
+		await _until(func() -> bool: return float(chefty.call("ground_speed")) < 0.5, 10.0)
+		chefty.call("_handle_exit", host)
+		stepped_out = int(chefty.call("seat_of", host)) < 0
+		escaped_h = await _until(func() -> bool: return int(_Pursuit.stats["escapes"]) > escapes_before_h, 3.0)
+		pulled_h = await _until(func() -> bool: return str(pursuit.call("state_name")) == "pullover", 15.0)
+	_verdict(chased_h and stepped_out and not escaped_h and pulled_h and int(_Pursuit.stats["escapes"]) == escapes_before_h and Campaign.pending_xp() == xp_before_h,
+		"h. stepped out of the stopped truck mid-chase (chase %s, out %s): no getaway (%d escapes, +%d XP), the van pulled in behind it (%s)" % [chased_h, stepped_out, int(_Pursuit.stats["escapes"]) - escapes_before_h, Campaign.pending_xp() - xp_before_h, str(pursuit.call("state_name"))], problems)
+	# Kept safe from here, nobody's left to catch round the truck: they wrap it up.
+	_safe(director, host, 60.0)
+	await _until(func() -> bool: return int(director.call("phase")) == 0, 20.0)
+	_safe(director, host, 0.0)
 	# g. A third raid: ram the van.
 	await _quiet_down(director, shuttle)
 	var ok_g: bool = await _seat_at_curb(chefty, host, 0, house)
@@ -177,6 +208,14 @@ func _run(world: Node) -> void:
 	_verdict(rammed and int(_Pursuit.stats["spins"]) > spins_before and heat_after - heat_before >= Constants.HEAT_VAN_RAM - 0.5,
 		"g. rammed head-on (chase %s): %d ram(s), %d spin(s), heat %.1f -> %.1f" % [chased_g, int(_Pursuit.stats["rams"]) - rams_before, int(_Pursuit.stats["spins"]) - spins_before, heat_before, heat_after], problems)
 	chefty.call("dev_script", host, [{"seconds": 1.0, "throttle": -1.0}])
+	# Spun out, sat there dazed for VAN_STUN_SECONDS, then back after the truck.
+	var recovered := false
+	if rammed:
+		await get_tree().create_timer(Constants.VAN_STUN_SECONDS).timeout
+		recovered = await _until(func() -> bool:
+			var van: Dictionary = shuttle.call("host_chase_pose")
+			return str(pursuit.call("state_name")) != "chasing" or (not van.is_empty() and float(van["speed"]) > 1.0), 4.0)
+	_verdict(recovered, "g. the van got going again after its spin-out (state %s)" % str(pursuit.call("state_name")), problems)
 	_finish(problems.is_empty(), problems)
 
 

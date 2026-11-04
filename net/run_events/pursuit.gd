@@ -27,8 +27,11 @@ extends Node
 ## The getaway: Chefty more than PURSUIT_LOSE_DISTANCE from the van for
 ## PURSUIT_LOSE_SECONDS, PURSUIT_MAX_SECONDS of chasing, or Homie Depot's lot
 ## (STORE_AREA: no niceness on premises). It pays XP_ESCAPE once, sets the heat
-## to HEAT_AFTER_ESCAPE, and every peer gets "Lost 'em!" and the stinger
-## (ui/run_cues.gd). Ramming the moving van faster than VAN_RAM_SPEED spins it out
+## to HEAT_AFTER_ESCAPE, and whoever rode the truck in the chase gets "Lost 'em!"
+## and the stinger (ui/run_cues.gd). Getting out of the truck is not a getaway:
+## the van comes on, pulls in behind it and the crew climb out after whoever's on
+## foot round it; with nobody left near it the chase just ends ("done", no XP,
+## no heat change, no cue). Ramming the moving van faster than VAN_RAM_SPEED spins it out
 ## for VAN_STUN_SECONDS and adds HEAT_VAN_RAM (a ram of the parked one is the heat
 ## and Chefty's own crash).
 ##
@@ -55,6 +58,10 @@ static var stats: Dictionary = {}
 var _active: bool = false
 var _started_at: float = 0.0
 var _reason: String = ""
+## Every peer: who this chase is about (the host's list, sent with _rpc_pursuit):
+## whoever rode the crew's truck during it. Only they get the chase's mood, its
+## pulse and "Lost 'em!"; a teammate shopping across town hears none of it.
+var _involved := PackedInt32Array()
 
 ## Host.
 var _state: int = State.NONE
@@ -88,6 +95,8 @@ var _pullouts: Array[Dictionary] = []
 var _near_for: Dictionary = {}
 ## Host: how long the crew has been getting back in with nobody being escorted (s).
 var _board_wait: float = 0.0
+## Host: how the chase ends once the van, giving up, has stopped ("lost", "done").
+var _give_up_why: String = ""
 
 
 func _ready() -> void:
@@ -115,6 +124,17 @@ func started_at() -> float:
 ## How the last chase ended: "lost" (they got away), "done", "" (called off).
 func last_reason() -> String:
 	return _reason
+
+
+## Every peer: this chase is this player's (they rode the truck in it, or ride it
+## now). The last chase's riders still count after it ends, for its "Lost 'em!".
+func involves(peer_id: int) -> bool:
+	if _involved.has(peer_id):
+		return true
+	if not _active:
+		return false
+	var chefty := _chefty()
+	return chefty != null and int(chefty.call("seat_of", peer_id)) >= 0
 
 
 ## Host: the pursuit is busy with the raid (the director leaves its own timing be).
@@ -146,7 +166,7 @@ func dev_report() -> Dictionary:
 
 ## The chase for a late joiner (the director's state carries it).
 func snapshot() -> Dictionary:
-	return {"active": _active, "started_at": _started_at, "reason": _reason}
+	return {"active": _active, "started_at": _started_at, "reason": _reason, "involved": _involved}
 
 
 func apply_snapshot(data: Dictionary) -> void:
@@ -155,6 +175,7 @@ func apply_snapshot(data: Dictionary) -> void:
 	_active = bool(data.get("active", false))
 	_started_at = float(data.get("started_at", 0.0))
 	_reason = str(data.get("reason", ""))
+	_involved = PackedInt32Array(data.get("involved", PackedInt32Array()))
 
 
 ## Dev (the director's reset): no chase.
@@ -167,7 +188,7 @@ func dev_reset() -> void:
 	_pull_point = Vector3.INF
 	_state = State.NONE
 	if _active:
-		_rpc_pursuit.rpc(false, Net.server_time(), "")
+		_rpc_pursuit.rpc(false, Net.server_time(), "", PackedInt32Array())
 
 
 # ---------------------------------------------------------------- the host
@@ -193,6 +214,9 @@ func _physics_process(delta: float) -> void:
 	if shuttle == null or chefty == null:
 		_end("", false)
 		return
+	for peer_id: int in _catchable_riders(director):
+		if not _involved.has(peer_id):
+			_involved.append(peer_id)
 	match _state:
 		State.BOARDING:
 			_step_boarding(director, shuttle)
@@ -232,9 +256,10 @@ func _begin(director: Node) -> void:
 	_pull_point = Vector3.INF
 	_grabs.clear()
 	_auto = null
+	_involved = PackedInt32Array(_catchable_riders(director))
 	stats["starts"] = int(stats["starts"]) + 1
 	_log("pursuit_start", {"riders": _catchable_riders(director)})
-	_rpc_pursuit.rpc(true, Net.server_time(), "")
+	_rpc_pursuit.rpc(true, Net.server_time(), "", _involved)
 	_shuttle().call("host_chase_cues", false, true)
 	_recall_crew()
 
@@ -290,7 +315,7 @@ func _step_boarding(director: Node, shuttle: Node) -> void:
 		_auto.cruise = Constants.NICE_VAN_TOP_SPEED
 		_replan_left = 0.0
 		_slow_near_for = 0.0
-		_next_bark = start + 1.0
+		_next_bark = start + Constants.PURSUIT_FIRST_BARK_DELAY
 		stats["chases"] = int(stats["chases"]) + 1
 		shuttle.call("host_chase_cues", true, true)
 	elif _board_wait > Constants.PURSUIT_BOARD_MAX:
@@ -375,10 +400,10 @@ func _chase_input(shuttle: Node, chefty: Node, van: Dictionary, delta: float) ->
 	var aim := Vector3(target.x - van_at.x, 0.0, target.z - van_at.z)
 	var angle := atan2(forward.cross(aim.normalized()).y, forward.dot(aim.normalized())) if aim.length() > 0.5 else 0.0
 	if absf(angle) > Constants.PURSUIT_UTURN_ANGLE and float(van["speed"]) < Constants.PURSUIT_UTURN_SPEED and _uturn_stuck < Constants.PURSUIT_UTURN_STUCK:
-		_uturn_stuck = _uturn_stuck + delta if float(van["speed"]) < Constants.CHEFTY_PARK_SPEED and _uturn_for > 0.6 else 0.0
+		_uturn_stuck = _uturn_stuck + delta if float(van["speed"]) < Constants.CHEFTY_PARK_SPEED and _uturn_for > Constants.PURSUIT_UTURN_SETTLE else 0.0
 		_uturn_for += delta
 		return {"throttle": Constants.PURSUIT_UTURN_THROTTLE, "steer": -signf(angle) if angle != 0.0 else 1.0}
-	if absf(angle) < Constants.PURSUIT_UTURN_ANGLE * 0.5:
+	if absf(angle) < Constants.PURSUIT_UTURN_ANGLE * Constants.PURSUIT_UTURN_DONE_SHARE:
 		_uturn_stuck = 0.0
 		_uturn_for = 0.0
 	return input
@@ -479,7 +504,9 @@ func _step_grabs(director: Node, chefty: Node) -> void:
 		crew.call("host_walk", stand, Constants.CREW_SPEED_CHASE)
 		# Within reach of the seat: at his spot, or as close as he's getting to it (it's
 		# blocked: the van, a post) after PULLOVER_REACH_WAIT.
-		var close := _flat(crew_at, seat_at) <= Constants.SEAT_GRAB_RADIUS
+		# Nobody's pulled out of a truck that's rolling faster than anyone could step
+		# down from it: he keeps pace beside it until it stops (or it gets away).
+		var close := _flat(crew_at, seat_at) <= Constants.SEAT_GRAB_RADIUS and float(chefty.call("ground_speed")) <= Constants.CHEFTY_EXIT_MAX_SPEED
 		_near_for[index] = float(_near_for.get(index, 0.0)) + get_physics_process_delta_time() if close else 0.0
 		if close and (_flat(crew_at, stand) <= Constants.PULLOVER_STAND_REACH or float(_near_for[index]) >= Constants.PULLOVER_REACH_WAIT):
 			_near_for.erase(index)
@@ -498,7 +525,9 @@ func _grab(_director: Node, crew: Node, peer: int, chefty: Node) -> void:
 		return
 	chefty.call("_handle_exit", peer)
 	var exit: Dictionary = chefty.call("dev_last_exit", peer)
-	var land: Vector3 = exit.get("at", (crew as Node3D).global_position)
+	# A bail (it was rolling after all) flings them off the seat: the catch takes
+	# them wherever they come down, never back up at the seat.
+	var land: Vector3 = Vector3.INF if bool(exit.get("bail", false)) else exit.get("at", (crew as Node3D).global_position)
 	_pullouts.append({"peer": peer, "crew": index, "land": land, "at": Net.server_time() + Constants.STEP_DOWN_SECONDS + Constants.PULLOUT_CATCH_SLACK})
 	stats["seat_grabs"] = int(stats["seat_grabs"]) + 1
 	_log("pursuit_seat_grab", {"peer_id": peer})
@@ -541,7 +570,7 @@ func door_way(at: Vector3, door: Vector3) -> Vector3:
 	out = out.normalized()
 	var offset := at - door
 	offset.y = 0.0
-	if offset.dot(out) >= Constants.CREW_DOOR_APPROACH_OUT * 0.7 or offset.length() <= Constants.CREW_DOOR_APPROACH_OUT:
+	if offset.dot(out) >= Constants.CREW_DOOR_APPROACH_OUT * Constants.CREW_DOOR_APPROACH_SHARE or offset.length() <= Constants.CREW_DOOR_APPROACH_OUT:
 		return door
 	return door + out * Constants.CREW_DOOR_APPROACH_OUT
 
@@ -569,9 +598,14 @@ func _check_escape(director: Node, shuttle: Node, chefty: Node, delta: float) ->
 		return
 	var riders := _catchable_riders(director)
 	if _state == State.CHASING and riders.is_empty() and not _anyone_catchable_near(director):
-		# Nobody left in the truck worth chasing (they bailed out somewhere, or
-		# were caught): the van gives up on it.
-		_escape(director, shuttle, "empty")
+		# Nobody left in the truck. Getting out isn't getting away: with anyone they
+		# could catch still on foot round it, the van keeps coming, pulls in behind
+		# the truck (_chase_input aims there once it's stopped) and the crew climb out
+		# after them (the pull-over's leash is round the truck). Nobody near it (they
+		# ran off, or were caught): no getaway, no XP, the van just wraps it up.
+		_far_for = 0.0
+		if not _anyone_near_truck(director, chefty) or _chase_time >= Constants.PURSUIT_MAX_SECONDS:
+			_give_up("done")
 		return
 	var van: Transform3D = shuttle.call("raid_pose")
 	if _flat(van.origin, at) > Constants.PURSUIT_LOSE_DISTANCE:
@@ -601,8 +635,20 @@ func _escape(director: Node, shuttle: Node, why: String) -> void:
 	if heat != null:
 		heat.call("add", Constants.HEAT_AFTER_ESCAPE - float(heat.get("heat")), "pursuit_escape")
 	director.call("note_pursuit_escape")
-	shuttle.call("host_chase_cues", false, false)
-	_rpc_pursuit.rpc(false, Net.server_time(), "lost")
+	_rpc_pursuit.rpc(false, Net.server_time(), "lost", _involved)
+	_give_up("lost")
+
+
+## Host: the siren cuts and the van brakes to a stop (_step_giving_up), then the
+## chase ends with why ("lost": the getaway already paid; "done": nothing to pay).
+func _give_up(why: String) -> void:
+	_release_grabs()
+	var shuttle := _shuttle()
+	if shuttle != null:
+		shuttle.call("host_chase_cues", false, false)
+	_give_up_why = why
+	if _active and why != "lost":
+		_rpc_pursuit.rpc(false, Net.server_time(), why, _involved)
 	_set_state(State.GIVING_UP)
 	_pull_point = Vector3.INF
 	_parked_until = -1.0
@@ -622,7 +668,7 @@ func _step_giving_up(_director: Node, shuttle: Node, delta: float) -> void:
 				_parked_until = now + Constants.VAN_PLAN_LEAD
 		return
 	if now >= _parked_until:
-		_end("lost", true)
+		_end(_give_up_why, true)
 
 
 ## Host: the chase is over. depart: the director wraps up the raid now (the van
@@ -640,7 +686,7 @@ func _end(why: String, depart: bool) -> void:
 	if shuttle != null:
 		shuttle.call("host_chase_cues", false, false)
 	if _active:
-		_rpc_pursuit.rpc(false, Net.server_time(), why)
+		_rpc_pursuit.rpc(false, Net.server_time(), why, _involved)
 	if was != State.NONE:
 		_log("pursuit_end", {"why": why})
 	if depart:
@@ -723,6 +769,21 @@ func _anyone_catchable_near(director: Node) -> bool:
 	return false
 
 
+## Anyone the crew could still be after on foot within CREW_LEASH_METERS of the
+## crew's truck (they just got out of it).
+func _anyone_near_truck(director: Node, chefty: Node) -> bool:
+	var at: Vector3 = chefty.call("body_position")
+	for peer_id: int in Net.peer_ids():
+		if not bool(director.call("pursuable", peer_id)) or int(chefty.call("seat_of", peer_id)) >= 0:
+			continue
+		if Net.player_zone(peer_id) != Net.Zone.TOWN:
+			continue
+		var player: Node3D = director.call("_player", peer_id)
+		if player != null and _flat(player.global_position, at) <= Constants.CREW_LEASH_METERS:
+			return true
+	return false
+
+
 ## The job site: the yard's middle.
 func _site() -> Vector3:
 	var world := get_tree().get_first_node_in_group("world")
@@ -745,7 +806,7 @@ func _clear_line(shuttle: Node, chefty: Node, from: Vector3, to: Vector3) -> boo
 		var van_solid := (look as Node3D).get_node_or_null("Solid") as CollisionObject3D
 		if van_solid != null:
 			exclude.append(van_solid.get_rid())
-	var query := PhysicsRayQueryParameters3D.create(from + Vector3.UP * 1.4, to + Vector3.UP * 1.4, 1)
+	var query := PhysicsRayQueryParameters3D.create(from + Vector3.UP * Constants.PURSUIT_SIGHT_HEIGHT, to + Vector3.UP * Constants.PURSUIT_SIGHT_HEIGHT, 1)
 	query.exclude = exclude
 	return world.direct_space_state.intersect_ray(query).is_empty()
 
@@ -800,8 +861,9 @@ func _log(event_name: String, data: Dictionary) -> void:
 ## A chase on (active, from server time at) or over (reason: "lost" when they got
 ## away, "done" when the crew wrapped it up, "" called off).
 @rpc("authority", "call_local", "reliable")
-func _rpc_pursuit(active: bool, at: float, reason: String) -> void:
+func _rpc_pursuit(active: bool, at: float, reason: String, involved: PackedInt32Array) -> void:
 	_active = active
+	_involved = involved
 	if active:
 		_started_at = at
 		stats["seen_active"] = int(stats["seen_active"]) + 1

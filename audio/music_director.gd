@@ -338,10 +338,11 @@ func gather_state() -> Dictionary:
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null:
 		state["phase"] = int(director.call("phase"))
-		# Out on the street (not caught) while the NICE BOYS chase the crew's truck.
+		# Out on the street (not caught) while the NICE BOYS chase the crew's truck,
+		# and it's your chase (you rode the truck in it), not one across town.
 		var pursuit: Node = director.call("pursuit") if director.has_method("pursuit") else null
 		var caught := director.has_method("is_captured") and bool(director.call("is_captured", me))
-		state["pursuit"] = pursuit != null and bool(pursuit.call("is_active")) and not caught and int(state["zone"]) == Net.Zone.TOWN
+		state["pursuit"] = pursuit != null and bool(pursuit.call("is_active")) and not caught and int(state["zone"]) == Net.Zone.TOWN and bool(pursuit.call("involves", me))
 	var summary := get_tree().get_first_node_in_group("day_summary") as CanvasItem
 	state["summary_open"] = summary != null and summary.visible
 	var annex := get_tree().get_first_node_in_group("annex")

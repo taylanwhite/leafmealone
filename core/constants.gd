@@ -5903,5 +5903,25 @@ const VAN_DOME_CHASE_RANGE: float = 14.0
 ## walks straight at where he's going.
 const CREW_NAV_REACH: float = 32.0
 ## Back to a van parked out in the town, a NICE BOY comes at its door from this far (m)
-## out beside it, never along its flank.
+## out beside it, never along its flank (already this share of it out beside the
+## door, he walks straight in).
 const CREW_DOOR_APPROACH_OUT: float = 1.6
+const CREW_DOOR_APPROACH_SHARE: float = 0.7
+## The head NICE BOY's first bark out of the window comes this long (s) after the
+## van pulls away.
+const PURSUIT_FIRST_BARK_DELAY: float = 1.0
+## A U-turn counts as stuck only after this long at it (s), and is over once Chefty
+## is within this share of PURSUIT_UTURN_ANGLE of the van's nose.
+const PURSUIT_UTURN_SETTLE: float = 0.6
+const PURSUIT_UTURN_DONE_SHARE: float = 0.5
+## The van's clear-line check (straight at Chefty or by the roads) is a ray at this
+## height (m, about a windshield).
+const PURSUIT_SIGHT_HEIGHT: float = 1.4
+## Rammed: the van keeps this share of its own speed before the shove, and its body
+## bucks this hard (NiceVan Motion.bump) if the hit reached this peer within
+## VAN_RAM_BUMP_WINDOW (s).
+const VAN_RAM_KEEP_SPEED_SHARE: float = 0.3
+const VAN_RAM_BUMP: float = 2.0
+const VAN_RAM_BUMP_WINDOW: float = 0.5
+## Where the kazoo siren sits on the van (van space, m: on the roof by the dome).
+const VAN_SIREN_AT := Vector3(0.0, 3.3, 0.3)

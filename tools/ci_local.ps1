@@ -286,11 +286,12 @@ $Tests = [ordered]@{
 	# laggy link: the raid at the yard, the host drives off with the client in the
 	# bed, the van gives chase, pulls the truck over and pulls the client out, chases
 	# again and loses it far up County Road 9 (XP once, the heat at 40); a second
-	# raid ends on Homie Depot's lot, a third rams the van into a spin. The client saw
-	# the chase start and drew the van's chase from the host's track.
+	# raid ends on Homie Depot's lot, in a third the driver steps out of the stopped
+	# truck (no getaway: the van pulls in behind it), a fourth rams the van into a spin.
+	# The client saw the chase start and drew the van's chase from the host's track.
 	pursuit = @{
 		Port = 7818
-		Host = '--host --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --heat=30 --start-hour=10 --pursuit-test'; Seconds = 170; Client = 165
+		Host = '--host --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --heat=30 --start-hour=10 --pursuit-test'; Seconds = 200; Client = 195
 		Extra = '--sim-lag=100'
 		Check = { param($h, $c) [bool]$h.pursuit_test.ok -and $c -ne $null -and ([int]$c.pursuit.seen_active -ge 1) -and (@($c.shuttle.legs_seen) -contains 'chase') -and ([int]$c.shuttle.track_samples -gt 60) -and ([double]$c.shuttle.max_speed_on_screen -lt 35) }
 	}

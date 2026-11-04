@@ -160,6 +160,9 @@ func _in_pursuit(director: Node) -> bool:
 	var me := Net.local_peer_id()
 	if director.has_method("is_captured") and bool(director.call("is_captured", me)):
 		return false
+	# Only a chase you're in: not one across town while you shop.
+	if not bool(_pursuit.call("involves", me)):
+		return false
 	return Net.player_zone(me) == Net.Zone.TOWN
 
 
@@ -174,6 +177,8 @@ func _on_pursuit_changed(active: bool, reason: String) -> void:
 	if director != null and director.has_method("is_captured") and bool(director.call("is_captured", me)):
 		return
 	if zone != Net.Zone.TOWN and zone != Net.Zone.STORE:
+		return
+	if _pursuit == null or not is_instance_valid(_pursuit) or not bool(_pursuit.call("involves", me)):
 		return
 	log.append({"phase": -1, "cue": "lost", "late_ms": 0.0})
 	var music := get_tree().get_first_node_in_group("music_director")
