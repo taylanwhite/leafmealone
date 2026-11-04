@@ -307,6 +307,13 @@ func _get_paid(out: Dictionary) -> bool:
 	out["offered"] = int(owner_node.get("_amount"))
 	out["mood"] = str((owner_node.get("_settlement") as Dictionary).get("mood", ""))
 	owner_node.call("_handle_take", Net.local_peer_id())
+	# Then back to the truck as it honks, the way a player does: fx-chefty's
+	# Chefty waits for crew still out on the yard (up to
+	# CHEFTY_BOARD_STRAGGLER_WAIT) and leaves anyone past
+	# CHEFTY_BOARD_GATHER_REACH behind, and the homeowner stands farther off.
+	await _ticks(3)
+	var truck := get_tree().get_first_node_in_group("chefty")
+	_move_player_to((truck.call("bed_transform") as Transform3D) * Vector3(0.0, 0.5, 3.4))
 	# The job settles as Chefty pulls away, after its honk-and-wait.
 	var before := int(out["credits_before"])
 	await _until(func() -> bool: return Campaign.credits(Net.local_peer_id()) != before, Constants.CHEFTY_BOARD_WAIT_SECONDS + 3.0)
