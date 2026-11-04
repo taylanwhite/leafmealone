@@ -51,6 +51,10 @@ extends Node
 ##             straight back on the seat (the playtest's "two riders, one seat")
 ##   exit_face (p1-van) a pole at arm's length in front of the step-down spot:
 ##             you land turned away from it
+##   exit_owner (p1-van review) the same with the Homeowner (no collider) there, and
+##             a spot he stands on is never offered
+##   passer    (p1-van review) a passer-by walking at the parked van's open door
+##             stops short of it and waits
 ##   ghost     (p1-van) a watched van driving away past its road's end, out of
 ##             view for a few frames, never steps backwards
 
@@ -91,6 +95,12 @@ const SITTING_HEAD: float = 1.25
 const TEST_PEER: int = 99
 ## exit_face: a pole this far (m) straight out in front of the step-down spot.
 const POLE_AHEAD: float = 1.0
+## passer: starts this far (m) outside the kept-clear sidewalk, walks this fast
+## (m/s), watched this long (s): long enough to have walked well past the door.
+const _Pedestrian = preload("res://npcs/pedestrian.gd")
+const PASSER_START: float = 1.5
+const PASSER_SPEED: float = 2.5
+const PASSER_WATCH: float = 2.4
 ## ghost: watched this long (s) once its road ends, out of view over this window
 ## (s from then), and no frame steps back more than this (m).
 const GHOST_WATCH_SECONDS: float = 2.5
@@ -183,6 +193,7 @@ func _run() -> void:
 	await _step_dropoff(shuttle)
 	await _step_driveon(shuttle)
 	await _step_ghost(shuttle)
+	await _step_passer(shuttle)
 	_step_rides()
 	_finish(_problems.is_empty(), "")
 
@@ -687,6 +698,56 @@ func _step_exit_face(shuttle: Node) -> void:
 	var plain_off := rad_to_deg(Vector3(-sin(plain), 0.0, -cos(plain)).angle_to(out))
 	_check("exit_face", off >= Constants.VAN_EXIT_FACE_CONE - 0.5 and (plain_off <= 1.0 or not clear_spot), "nothing within reach %s: faces %.0f deg off straight out; a pole %.1f m ahead: turned %.0f deg away (want >= %.0f)" % [clear_spot, plain_off, POLE_AHEAD, off, Constants.VAN_EXIT_FACE_CONE])
 	await get_tree().physics_frame
+	# The Homeowner waiting at the curb (no collider, only his group): the same.
+	var owner_node := Node3D.new()
+	owner_node.add_to_group(&"homeowner")
+	get_tree().get_first_node_in_group("world").add_child(owner_node)
+	owner_node.global_position = exit + out * POLE_AHEAD
+	var away := float(shuttle.call("_exit_yaw", pose, exit))
+	var owner_off := rad_to_deg(Vector3(-sin(away), 0.0, -cos(away)).angle_to(out))
+	owner_node.global_position = exit
+	var spot_free := bool(shuttle.call("_exit_clear", shuttle.call("_trip", trip), exit, PackedVector3Array()))
+	owner_node.queue_free()
+	_check("exit_owner", owner_off >= Constants.VAN_EXIT_FACE_CONE - 0.5 and not spot_free, "the Homeowner %.1f m ahead: turned %.0f deg away (want >= %.0f); standing on the spot, it's still offered %s" % [POLE_AHEAD, owner_off, Constants.VAN_EXIT_FACE_CONE, spot_free])
+	await get_tree().physics_frame
+
+
+## A passer-by strolling along the sidewalk toward the parked van's open door
+## stops short of it and stands there (p1-van review: one walked into a rider's
+## face as they stepped down).
+func _step_passer(shuttle: Node) -> void:
+	var trip := int(shuttle.call("dev_park_now", true))
+	await get_tree().physics_frame
+	var pose: Transform3D = shuttle.call("trip_pose", trip, Net.server_time())
+	var keep := shuttle.call("keep_clear", Net.server_time()) as Array
+	if keep.is_empty():
+		_check("passer", false, "no sidewalk kept clear outside the parked van's open door")
+		return
+	var center := (keep[0] as Array)[0] as Vector3
+	var along := pose.basis.z
+	along.y = 0.0
+	along = along.normalized()
+	var world := get_tree().get_first_node_in_group("world") as Node3D
+	var to_local := world.global_transform.affine_inverse()
+	var walker := Node3D.new()
+	walker.set_script(_Pedestrian)
+	walker.set("route_from", to_local * (center - along * (Constants.VAN_PASSER_KEEP + PASSER_START)))
+	walker.set("route_to", to_local * (center + along * (Constants.VAN_PASSER_KEEP + PASSER_START)))
+	walker.set("speed", PASSER_SPEED)
+	# Starting at the route's near end, walking toward the door.
+	walker.set("phase", -Net.server_time() * PASSER_SPEED)
+	walker.set("seed_value", 7)
+	world.add_child(walker)
+	var nearest := INF
+	var started := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - started < int(PASSER_WATCH * 1000.0):
+		await get_tree().physics_frame
+		var at := walker.global_position
+		nearest = minf(nearest, Vector2(at.x - center.x, at.z - center.z).length())
+	var held := bool(walker.get("_held"))
+	walker.queue_free()
+	shuttle.call("dev_reset")
+	_check("passer", nearest >= Constants.VAN_PASSER_KEEP - 0.15 and held, "walking at the open door, a passer-by came %.2f m from it at the nearest (want >= %.2f) and stands waiting %s" % [nearest, Constants.VAN_PASSER_KEEP - 0.15, held])
 
 
 ## A watcher keeps seeing the van drive away (playtest nb6): past the end of its

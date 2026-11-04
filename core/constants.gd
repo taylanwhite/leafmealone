@@ -5103,3 +5103,17 @@ const VAN_BACKSTEP_TOLERANCE: float = 0.02
 const VAN_CREW_DOOR_Z := Vector2(-1.55, 1.2)
 const VAN_CREW_AISLE_X: float = 0.75
 const VAN_CREW_AISLE_ALONG: float = 0.8
+## Someone out for a walk counts as standing everywhere their route has them
+## from the moment you unbuckle until this long (s) after your feet touch the
+## sidewalk, sampled this often (s): the step-down keeps clear of where a passer-by
+## is about to be, not where they were when the door opened (p1-van review: one
+## strolled into a landing rider's face from 0.5 m).
+const VAN_EXIT_PASSER_AFTER: float = 1.5
+const VAN_EXIT_PASSER_STEP: float = 0.25
+## A passer-by doesn't walk within this (m) of the sidewalk outside a NICE van's
+## side door while it stands at the curb, is this close (s) to stopping there, or
+## has the door open: they stop at the edge and watch, then catch up on their
+## walk once it's gone (npcs/pedestrian.gd, Shuttle.keep_clear). Past the door's
+## opening, so the one waiting is off to the side of every step-down's view.
+const VAN_PASSER_KEEP: float = 3.0
+const VAN_PASSER_LEAD: float = 3.0

@@ -77,6 +77,11 @@ const CREW_RUN: int = 4
 ## Stage-cam shot priorities (C2).
 const SHOT_SEAT: StringName = &"van_seat"
 const SHOT_FRESHENER: StringName = &"freshener"
+## Who else stands about on foot that a step-down spot (and the way a rider lands
+## facing) keeps clear of, besides players and NICE BOYS: the Homeowner at the
+## yard, the Annex's staff at its curb, hired hands, passers-by (pedestrians are
+## the "bonkable" that isn't crew). None of the Node3D ones has a collider.
+const BYSTANDER_GROUPS: Array[StringName] = [&"homeowner", &"annex_staff", &"crew_hands", &"bonkable"]
 ## The ground a route is checked against: a ray this far above the road down this far.
 const GROUND_PROBE := Vector2(1.0, 3.0)
 
@@ -107,6 +112,10 @@ var dev_seen_override: int = -1
 ## Host, while a stop's riders are given their step-down spots: the spots already
 ## given, kept clear like anyone standing there (_bystanders).
 var _exit_others := PackedVector3Array()
+## Host, while one rider's step-down spot is chosen: when they unbuckle (server
+## time), so a passer-by counts where their route has them as that rider lands
+## (_bystanders); negative, where everyone stands now.
+var _exit_at: float = -1.0
 static var _has_staging: int = -1
 
 
@@ -228,6 +237,30 @@ func door_step_point() -> Vector3:
 	if not leg.is_empty() and int(leg["k"]) == Leg.CREEP:
 		return pose * _local_marker(trip, "RearStep").origin
 	return pose * _local_marker(trip, "DoorStep").origin
+
+
+## Every peer: the sidewalk a passer-by doesn't walk into at server time t, as
+## [where (world), radius (m)] pairs: outside the side door of every van standing
+## at a curb, about to (VAN_PASSER_LEAD), or with its side door open (p1-van
+## review: one strolled into a rider's face as they stepped down). Read by
+## npcs/pedestrian.gd, which stops at its edge and watches until it's gone. Built
+## only from what every peer has (the legs and the door events), so every peer's
+## passer-by stops at the same spot.
+func keep_clear(t: float) -> Array:
+	var out: Array = []
+	for trip: Trip in _trips.values():
+		var leg := _current_leg(trip, t)
+		if leg.is_empty():
+			continue
+		var at := t
+		if leg.has("segs"):
+			var stops_at := float(leg["t"]) + _segs_seconds(leg["segs"])
+			if stops_at - t > Constants.VAN_PASSER_LEAD and not _door_open(trip, "side", t):
+				continue
+			at = maxf(t, stops_at) if stops_at - t <= Constants.VAN_PASSER_LEAD else t
+		var local := _local_marker(trip, "DoorStep").origin + Vector3(Constants.VAN_EXIT_OUT, 0.0, 0.0)
+		out.append([_pose(trip, at) * local, Constants.VAN_PASSER_KEEP])
+	return out
 
 
 ## Host: spawns the raid's crew already seated in the van (which is out of
@@ -1142,6 +1175,7 @@ func _host_at_annex(trip: Trip, now: float) -> void:
 		_exit_others.clear()
 		for peer_id: int in riders:
 			var at := door_at + Constants.VAN_DOOR_SLIDE + float(order) * Constants.VAN_DROP_STAGGER
+			_exit_at = at
 			var exit := _exit_point(trip, pose, _seat_index(trip, peer_id))
 			landed[peer_id] = (pose.affine_inverse() * exit).z
 			_rpc_unseat.rpc(trip.id, peer_id, exit, at, _exit_yaw(pose, exit))
@@ -1149,6 +1183,7 @@ func _host_at_annex(trip: Trip, now: float) -> void:
 			last_down = at + Constants.VAN_BUCKLE_SECONDS * 0.6 + Constants.VAN_STEP_SECONDS
 			order += 1
 		_exit_others.clear()
+		_exit_at = -1.0
 		annex.call("begin", trip.id, _walk_in_order(riders, landed), last_down)
 		var forecourt := _annex_curb("ForecourtCurb")
 		var curb := _annex_curb("AnnexCurb")
@@ -1177,12 +1212,14 @@ func _host_drop(trip: Trip, leg: Dictionary, now: float) -> void:
 		_exit_others.clear()
 		for peer_id: int in _riding_peers(trip):
 			var at := start + Constants.VAN_DROP_DOOR_DELAY + Constants.VAN_DOOR_SLIDE + float(order) * Constants.VAN_DROP_STAGGER
+			_exit_at = at
 			var exit := _exit_point(trip, pose, _seat_index(trip, peer_id))
 			_rpc_unseat.rpc(trip.id, peer_id, exit, at, _exit_yaw(pose, exit))
 			_exit_others.append(exit)
 			trip.dropping[peer_id] = at + Constants.VAN_BUCKLE_SECONDS * 0.6 + Constants.VAN_STEP_SECONDS
 			order += 1
 		_exit_others.clear()
+		_exit_at = -1.0
 		var last_down := start + Constants.VAN_DROP_DOOR_DELAY + Constants.VAN_DOOR_SLIDE + float(order) * Constants.VAN_DROP_STAGGER + Constants.VAN_STEP_SECONDS
 		trip.dropping["leave_at"] = last_down + Constants.VAN_DROP_LEAVE_AFTER
 		_rpc_beat.rpc(trip.id, "wave", last_down + Constants.VAN_DROP_WAVE_AFTER)
@@ -1355,6 +1392,20 @@ func _bystanders() -> PackedVector3Array:
 			aboard = aboard or not _crew_entry(trip, crew).is_empty()
 		if crew is Node3D and not aboard:
 			out.append((crew as Node3D).global_position)
+	# Everyone else on foot at a curb (p1-van review: both riders stepped down into
+	# the Homeowner's face at the yard; he has no collider for the physics to find).
+	# A passer-by counts everywhere their route takes them while you step down and
+	# just after (the review's take: one strolled into the rider's face as the
+	# camera came back).
+	var sweep := Constants.VAN_BUCKLE_SECONDS * 0.6 + Constants.VAN_STEP_SECONDS + Constants.VAN_EXIT_PASSER_AFTER
+	for group: StringName in BYSTANDER_GROUPS:
+		for node: Node in get_tree().get_nodes_in_group(group):
+			if not node is Node3D or node.is_in_group(&"crew") or not (node as Node3D).is_visible_in_tree():
+				continue
+			if _exit_at < 0.0 or not node.has_method("passing_points"):
+				out.append((node as Node3D).global_position)
+				continue
+			out.append_array(node.call("passing_points", _exit_at, _exit_at + sweep, Constants.VAN_EXIT_PASSER_STEP))
 	return out
 
 
@@ -2317,7 +2368,10 @@ func _host_unbuckle(rescuer: int, target: int, start: bool) -> void:
 	var exit := pose * beside
 	exit.y = _ground_y(exit, pose.origin.y + 0.2)
 	var at := now + Constants.VAN_PLAN_LEAD * 0.5
-	_rpc_unseat.rpc(trip.id, target, exit, at, _exit_yaw(pose, exit))
+	_exit_at = at
+	var yaw := _exit_yaw(pose, exit)
+	_exit_at = -1.0
+	_rpc_unseat.rpc(trip.id, target, exit, at, yaw)
 	stats["unbuckles"] = int(stats["unbuckles"]) + 1
 	var heat := get_tree().get_first_node_in_group("heat")
 	if heat != null and heat.has_method("add"):
