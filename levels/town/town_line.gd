@@ -7,8 +7,14 @@ extends RefCounted
 ## to the horizon (crew playtest 1, lagduo-8).
 ##   - A farm hedgerow all the way round Constants.TOWN_LINE_RECT: a thick lumpy
 ##     hedge with field trees standing out of it, a split-rail fence along its
-##     inside, and a solid wall where it stands, so Chefty and anyone on foot
-##     stop at it like any hedge.
+##     inside, and a solid wall whose inside face stands just in front of the
+##     fence, so Chefty and anyone on foot stop at the rails like at any hedge
+##     (never through them). The wall breaks at each farm gate, which is solid
+##     itself, and a bush each side closes the hedge on the gate's posts.
+##   - Out past each Depot Road barricade, the outskirts' Depot Road farms
+##     (levels/town/outskirts.gd fields() and row_trees(): plowed, stubble and
+##     hay either side of the track, a windbreak across), so the view past a
+##     closure is farmland running into the haze, not empty grass.
 ##   - Every paved road that runs out toward it (Depot Road both ways, Main Street
 ##     both ways) ends at a ROAD CLOSED barricade: sawhorses, barrels, an amber
 ##     lamp and a sign with the town's excuse, then a gravel track on to a shut
@@ -37,9 +43,16 @@ const ORANGE := Color(0.95, 0.45, 0.1)
 const WHITE := Color(0.95, 0.94, 0.9)
 const GATE := Color(0.78, 0.72, 0.6)
 const AMBER := Color(1.0, 0.62, 0.15)
-## Fence runs this long (PropBatch groups by size), standing this far inside the hedge.
+## Fence runs this long (PropBatch groups by size), standing this far inside the
+## line: a hand behind the wall's inside face, so nothing reaches the rails (a
+## bumper sticks out past Chefty's collision shape a little).
 const RUN: float = 6.0
-const FENCE_IN: float = 3.4
+const FENCE_IN: float = Constants.TOWN_LINE_WALL_INSIDE - 0.4
+## A gate's posts stand this far out from its bars' ends; the wall stops at
+## the posts and the gate's own solid fills the gap.
+const POST_OUT: float = 0.2
+## The bushes that close the hedge on each gate post: their reach along the line.
+const GATE_BUSH: float = 2.6
 
 
 # ---------------------------------------------------------------- the layout (data)
@@ -81,23 +94,64 @@ static func barricade_at(closure: Dictionary) -> Vector3:
 
 
 ## Everything here that collides, world space: [["box", center, size, yaw]].
-## The hedge's four walls (overlapping at the corners), and each barricade.
+## The hedge's walls (overlapping at the corners, their inside face at the
+## fence, broken at each gate), each shut gate, and each barricade with its two
+## barrels.
 static func solids() -> Array:
 	var out: Array = []
 	var high := Constants.TOWN_LINE_WALL_HEIGHT
 	var deep := Constants.TOWN_LINE_WALL_DEPTH
+	var center := Constants.TOWN_LINE_RECT.get_center()
+	var gate_reach := Constants.TOWN_LINE_GATE_HALF + POST_OUT
 	for side: Array in sides():
 		var a: Vector2 = side[0]
 		var b: Vector2 = side[1]
-		var middle := (a + b) * 0.5
-		var along_x := absf(b.x - a.x) > absf(b.y - a.y)
-		var length := a.distance_to(b) + deep
-		var size := Vector3(length, high, deep) if along_x else Vector3(deep, high, length)
-		out.append(["box", Vector3(middle.x, high * 0.5, middle.y), size, 0.0])
+		var along := (b - a).normalized()
+		var along_x := absf(along.x) > absf(along.y)
+		var inward := Vector2(-along.y, along.x)
+		if inward.dot(center - (a + b) * 0.5) < 0.0:
+			inward = -inward
+		# The wall's middle stands off the line toward town by this much.
+		var shift := inward * (Constants.TOWN_LINE_WALL_INSIDE - deep * 0.5)
+		# The stretches between gates, as distances along a to b (past each corner by deep).
+		var cuts: Array[float] = [-deep]
+		for closure: Dictionary in closures():
+			var gate: Vector3 = closure["gate"]
+			var flat := Vector2(gate.x, gate.z)
+			var s := (flat - a).dot(along)
+			if absf((flat - a).dot(inward)) < 0.5 and s > 0.0 and s < a.distance_to(b):
+				cuts.append(s - gate_reach)
+				cuts.append(s + gate_reach)
+		cuts.sort()
+		cuts.append(a.distance_to(b) + deep)
+		for index: int in range(0, cuts.size(), 2):
+			var from := cuts[index]
+			var to := cuts[index + 1]
+			var middle := a + along * ((from + to) * 0.5) + shift
+			var size := Vector3(to - from, high, deep) if along_x else Vector3(deep, high, to - from)
+			out.append(["box", Vector3(middle.x, high * 0.5, middle.y), size, 0.0])
 	for closure: Dictionary in closures():
+		var gate: Vector3 = closure["gate"]
+		out.append(["box", gate + Vector3(0.0, 0.9, 0.0), Vector3(gate_reach * 2.0, 1.8, 0.4), 0.0])
 		var at := barricade_at(closure)
-		out.append(["box", at + Vector3(0.0, 0.6, 0.0), Vector3(float(closure["half"]) * 2.0, 1.2, 0.7), 0.0])
+		var half := float(closure["half"])
+		out.append(["box", at + Vector3(0.0, 0.6, 0.0), Vector3(half * 2.0, 1.2, 0.7), 0.0])
+		for spot: Vector3 in barrels(closure):
+			out.append(["box", spot + Vector3(0.0, 0.5, 0.0), Vector3(0.7, 1.0, 0.7), 0.0])
 	return out
+
+
+## Where a closure's two barrels stand (world, at the ground), each side of its
+## sawhorses, a little toward town.
+static func barrels(closure: Dictionary) -> Array[Vector3]:
+	var at := barricade_at(closure)
+	var out_dir: Vector3 = closure["out"]
+	var across := Vector3(1.0, 0.0, 0.0)
+	var half := float(closure["half"])
+	var spots: Array[Vector3] = []
+	for side: float in [-1.0, 1.0]:
+		spots.append(at + across * side * (half + 0.8) - out_dir * 0.3)
+	return spots
 
 
 ## Whether a point (x, z) is inside the line with this much room to spare.
@@ -166,7 +220,8 @@ static func _hedge(parent: Node3D, a: Vector2, b: Vector2, gaps: Array[Vector2],
 	var count := maxi(1, int(length / step))
 	for index: int in count + 1:
 		var spot := a + along * (float(index) * length / float(count)) + across * rng.randf_range(-0.5, 0.5)
-		if gaps.any(func(gap: Vector2) -> bool: return gap.distance_to(spot) < Constants.TOWN_LINE_GATE_HALF + 3.2):
+		# Clear of the gate and the bushes either side of it (the closure's own).
+		if gaps.any(func(gap: Vector2) -> bool: return gap.distance_to(spot) < Constants.TOWN_LINE_GATE_HALF + 2.0):
 			continue
 		var reach := rng.randf_range(2.3, 3.1)
 		var high := rng.randf_range(1.9, 2.6)
@@ -268,23 +323,32 @@ static func _closure(parent: Node3D, closure: Dictionary) -> void:
 	# Sawhorses across the road, a little ragged.
 	var width := half * 2.0
 	var horses := maxi(3, int(width / 3.4))
+	var first := Vector3.ZERO
 	for index: int in horses:
 		var x := -half + width * (float(index) + 0.5) / float(horses) + rng.randf_range(-0.2, 0.2)
 		var turn := Basis(Vector3.UP, rng.randf_range(-0.08, 0.08))
-		_sawhorse(kit, Vector3(x, 0.0, rng.randf_range(-0.15, 0.15)), turn, minf(2.6, width / float(horses) - 0.3))
-	for side: float in [-1.0, 1.0]:
-		_barrel(kit, Vector3(side * (half + 0.8), 0.0, 0.3))
-	# The sign on a stand, just off the middle.
+		var foot := Vector3(x, 0.0, rng.randf_range(-0.15, 0.15))
+		_sawhorse(kit, foot, turn, minf(2.6, width / float(horses) - 0.3))
+		if index == 0:
+			first = foot
+	# The barrels where solids() has them (world to this frame).
+	for spot: Vector3 in barrels(closure):
+		_barrel(kit, root.transform.affine_inverse() * spot)
+	# The sign on a stand, just off the middle, its legs behind the board.
 	var sign_x := -half * 0.35
 	for leg: float in [-1.0, 1.0]:
-		_P.bar(kit, Vector3(sign_x + leg * 0.75, 0.0, 0.25), Vector3(sign_x + leg * 0.75, 2.25, 0.05), 0.045, Color(0.35, 0.36, 0.37), 5)
+		_P.bar(kit, Vector3(sign_x + leg * 0.75, 0.0, -0.3), Vector3(sign_x + leg * 0.75, 2.25, -0.01), 0.045, Color(0.35, 0.36, 0.37), 5)
 	_P.slab(kit, Vector3(sign_x, 1.75, 0.08), Vector3(2.0, 1.15, 0.05), WHITE)
 	_P.slab(kit, Vector3(sign_x, 1.75, 0.06), Vector3(2.1, 1.25, 0.03), ORANGE)
-	# The farm gate in the hedge: two posts and five bars, shut across the track.
+	# The farm gate in the hedge: two posts and five bars, shut across the track,
+	# and a bush each side so the hedge closes on the posts.
 	var gate_z := -(to_gate - Constants.TOWN_LINE_BARRICADE_OUT)
 	var gate_half := Constants.TOWN_LINE_GATE_HALF
 	for side: float in [-1.0, 1.0]:
-		_P.post(kit, Vector3(side * (gate_half + 0.2), 0.0, gate_z), 1.7, 0.16, BARK, 6)
+		_P.post(kit, Vector3(side * (gate_half + POST_OUT), 0.0, gate_z), 1.7, 0.16, BARK, 6)
+		var high := rng.randf_range(2.1, 2.5)
+		var bush_at := Vector3(side * (gate_half + POST_OUT + GATE_BUSH * 0.5 - 0.1), high * 0.8, gate_z)
+		kit.blob(bush_at, Vector3(GATE_BUSH, high, rng.randf_range(1.7, 2.0)), HEDGE[rng.randi() % HEDGE.size()], {"seed": rng.randi(), "lumps": 0.3, "outward": true, "sway": 0.4, "jitter": 0.06})
 	for bar: int in 5:
 		var y := 0.35 + float(bar) * 0.27
 		_P.slab(kit, Vector3(0.0, y, gate_z), Vector3(gate_half * 2.0, 0.12, 0.06), GATE.darkened(float(bar % 2) * 0.06))
@@ -293,13 +357,14 @@ static func _closure(parent: Node3D, closure: Dictionary) -> void:
 	for side: float in [-1.0, 1.0]:
 		_P.slab(kit, Vector3(side * (gate_half - 0.1), 0.89, gate_z + 0.04), Vector3(0.12, 1.25, 0.06), GATE.darkened(0.08))
 	_view(root, kit, "Barricade", true)
-	var lamp := _LowPoly.glow(root, Vector3(0.22, 0.22, 0.22), Vector3(-half + width * 0.5 / float(horses), 1.32, 0.0), AMBER, 1.8)
+	# The amber lamp sits on the first sawhorse's board (its top at 1.14 m).
+	var lamp := _LowPoly.glow(root, Vector3(0.22, 0.22, 0.22), first + Vector3(0.0, 1.25, 0.0), AMBER, 1.8)
 	lamp.name = "Lamp"
 	(lamp as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var title := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed"], Vector3(sign_x, 2.0, 0.12), 64, Color(0.12, 0.1, 0.08))
+	var title := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed"], Vector3(sign_x, 2.0, 0.12), 50, Color(0.12, 0.1, 0.08))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.outline_size = 0
-	var line := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed_" + str(closure["key"])], Vector3(sign_x, 1.52, 0.12), 22, Color(0.12, 0.1, 0.08))
+	var line := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed_" + str(closure["key"])], Vector3(sign_x, 1.52, 0.12), 19, Color(0.12, 0.1, 0.08))
 	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	line.outline_size = 0
 

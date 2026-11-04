@@ -125,6 +125,19 @@ static func fields() -> Array:
 		[Rect2(152.0, 26.0, 48.0, 40.0), "patch", true],
 		[Rect2(215.0, 110.0, 90.0, 90.0), "plowed", true],
 		[Rect2(235.0, 240.0, 80.0, 110.0), "stubble", false],
+		# p1-world: the Depot Road farms, out past each ROAD CLOSED barricade to
+		# the town line's hedge (levels/town/town_line.gd), either side of the
+		# gravel track (x 25 to 29), a windbreak across between the near and far
+		# fields (row_trees()). North:
+		[Rect2(-122.0, -300.0, 140.0, 126.0), "plowed", false],
+		[Rect2(36.0, -300.0, 104.0, 126.0), "stubble", false],
+		[Rect2(-122.0, -494.0, 140.0, 160.0), "hay", true],
+		[Rect2(36.0, -494.0, 150.0, 160.0), "plowed", true],
+		# South:
+		[Rect2(-122.0, 174.0, 140.0, 126.0), "hay", false],
+		[Rect2(36.0, 174.0, 100.0, 126.0), "plowed", false],
+		[Rect2(-122.0, 334.0, 140.0, 160.0), "plowed", true],
+		[Rect2(36.0, 334.0, 150.0, 160.0), "hay", true],
 	]
 
 
@@ -257,6 +270,13 @@ static func row_trees() -> Array:
 	_row(out, rng, Vector3(229.0, 0.0, -136.0), Vector3(229.0, 0.0, -262.0), 12.0, "broadleaf", ["orange", "yellow"], Vector2(8.0, 10.5))
 	_row(out, rng, Vector3(60.0, 0.0, 118.0), Vector3(205.0, 0.0, 118.0), 12.0, "broadleaf", ["red", "rust", "orange"], Vector2(7.5, 10.0))
 	_row(out, rng, Vector3(226.0, 0.0, 238.0), Vector3(226.0, 0.0, 352.0), 11.0, "pine", ["green"], Vector2(9.0, 12.0))
+	# p1-world: the Depot Road farms' windbreaks, across between the near and
+	# far fields, open where the gravel track goes through (x 27).
+	for z: float in [-317.0, 317.0]:
+		var kind := "cypress" if z < 0.0 else "broadleaf"
+		var crowns: Array = ["green"] if z < 0.0 else ["orange", "red", "yellow", "rust"]
+		_row(out, rng, Vector3(-124.0, 0.0, z), Vector3(20.0, 0.0, z), 9.0, kind, crowns, Vector2(9.0, 12.0))
+		_row(out, rng, Vector3(34.0, 0.0, z), Vector3(214.0, 0.0, z), 9.0, kind, crowns, Vector2(9.0, 12.0))
 	# Along the back fences between each pair of neighborhoods: [hood a, hood b].
 	for pair: Array in [[0, 2], [1, 3], [2, 4], [3, 5]]:
 		var a := int(pair[0])

@@ -5111,9 +5111,13 @@ const DAY_SKY_STAR_SEED: int = 2718
 ## Gutterford's hedgerow runs round this rect (x, z), inside TownMap.TOWN_BOUNDS
 ## and outside every road, yard, house and the lake (townmap_test checks).
 const TOWN_LINE_RECT := Rect2(-135.0, -510.0, 1020.0, 1020.0)
-## The hedge's solid wall: how high and how deep (m), centered on the line.
+## The hedge's solid wall: how high and how deep (m), its inside face this far
+## inside the line (m). The split-rail fence stands a hand inside that face, so
+## whatever reaches the hedge stops just short of the rails, never through them.
+## The wall breaks at each farm gate, which is solid itself.
 const TOWN_LINE_WALL_HEIGHT: float = 4.0
-const TOWN_LINE_WALL_DEPTH: float = 3.0
+const TOWN_LINE_WALL_DEPTH: float = 3.4
+const TOWN_LINE_WALL_INSIDE: float = 1.9
 ## The hedge's lumps this far apart (m), drawn in stretches this long (m, one
 ## mesh each), with a field tree standing out of this share of the lumps, and
 ## drawn out to this far (m; the haze has it long before).

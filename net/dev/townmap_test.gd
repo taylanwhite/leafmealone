@@ -307,9 +307,9 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 ## and the four closed roads.
 func _check_town_line(world: Node, space: PhysicsDirectSpaceState3D, problems: Array[String]) -> void:
 	var line := Constants.TOWN_LINE_RECT
-	var room := Constants.TOWN_LINE_WALL_DEPTH * 0.5 + 2.0
+	var room := Constants.TOWN_LINE_WALL_INSIDE + 2.0
 	var bounds := Rect2(TownMap.TOWN_BOUNDS.position.x, TownMap.TOWN_BOUNDS.position.z, TownMap.TOWN_BOUNDS.size.x, TownMap.TOWN_BOUNDS.size.z)
-	var within := bounds.encloses(line.grow(Constants.TOWN_LINE_WALL_DEPTH * 0.5))
+	var within := bounds.encloses(line.grow(Constants.TOWN_LINE_WALL_DEPTH - Constants.TOWN_LINE_WALL_INSIDE))
 	var outside: Array[String] = []
 	var rects: Array = []
 	for house_id: int in TownMap.house_count():
@@ -338,11 +338,33 @@ func _check_town_line(world: Node, space: PhysicsDirectSpaceState3D, problems: A
 		var from := Vector3(on.x - out.x * 12.0, 1.2, on.y - out.y * 12.0)
 		var to := Vector3(on.x + out.x * 12.0, 1.2, on.y + out.y * 12.0)
 		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, 1))
-		var ok := not hit.is_empty() and Vector2((hit["position"] as Vector3).x, (hit["position"] as Vector3).z).distance_to(on) <= Constants.TOWN_LINE_WALL_DEPTH * 0.5 + 0.1
-		stopped.append("%s %s" % [on, ok])
+		# At the wall's inside face, short of the fence's rails (review p1-world:
+		# Chefty ended up skewered on a fence that stood in front of the wall).
+		var short := -1.0
+		if not hit.is_empty():
+			short = Vector2((hit["position"] as Vector3).x, (hit["position"] as Vector3).z).distance_to(on)
+		var ok := absf(short - Constants.TOWN_LINE_WALL_INSIDE) <= 0.1 and short > _TownLine.FENCE_IN + 0.1
+		stopped.append("%s %.2f %s" % [on, short, ok])
 		if not ok:
-			problems.append("the hedge at %s" % on)
-	_verdict(stopped.all(func(entry: String) -> bool: return entry.ends_with("true")), "a ray out across each side stops at the hedge (%s)" % [stopped], [] as Array[String])
+			problems.append("the hedge at %s (stops %.2f m inside the line, the fence at %.2f)" % [on, short, _TownLine.FENCE_IN])
+	_verdict(stopped.all(func(entry: String) -> bool: return entry.ends_with("true")), "a ray out across each side stops at the hedge, before the fence (%s)" % [stopped], [] as Array[String])
+	# Each gravel track's farm gate is shut: a ray out along the track from
+	# inside stops at the gate itself, not at a wall in front of it; one across
+	# each barrel stops at the barrel.
+	var gates: Array[String] = []
+	for closure: Dictionary in _TownLine.closures():
+		var gate: Vector3 = closure["gate"]
+		var out: Vector3 = closure["out"]
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(gate - out * 12.0 + Vector3.UP * 1.0, gate + out * 6.0 + Vector3.UP * 1.0, 1))
+		var at_gate := not hit.is_empty() and (hit["position"] as Vector3).distance_to(gate + Vector3.UP * 1.0) < 0.4
+		var barrels := 0
+		for spot: Vector3 in _TownLine.barrels(closure):
+			var across := space.intersect_ray(PhysicsRayQueryParameters3D.create(spot + Vector3(3.0 * signf(spot.x - gate.x), 0.5, 0.0), spot + Vector3.UP * 0.5, 1))
+			barrels += 1 if not across.is_empty() else 0
+		gates.append("%s %s/%d" % [closure["key"], at_gate, barrels])
+		if not at_gate or barrels != 2:
+			problems.append("closed road %s: the gate stops a ray %s, %d of 2 barrels solid" % [closure["key"], at_gate, barrels])
+	_verdict(gates.all(func(entry: String) -> bool: return entry.ends_with("true/2")), "each farm gate is shut and each barrel solid (%s)" % [gates], [] as Array[String])
 	var closed: Array[String] = []
 	var nodes := TownMap.road_nodes()
 	for closure: Dictionary in _TownLine.closures():
