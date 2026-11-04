@@ -77,7 +77,9 @@ func _run_host() -> void:
 	var choice: Dictionary = _own_player().call("e_choice")
 	var says := str((choice["hint"] as Dictionary).get("text", ""))
 	mine.call("request_load_truck")
-	var loaded := await _until(func() -> bool: return _bed_count("rake") >= 1 and not is_instance_valid(mine), WAIT_SECONDS)
+	# By path: a lambda can't hold on to a node that gets freed.
+	var mine_path := mine.get_path()
+	var loaded := await _until(func() -> bool: return _bed_count("rake") >= 1 and get_node_or_null(mine_path) == null, WAIT_SECONDS)
 	_step("c load", StringName(choice["do"]) == &"load_truck" and says == str(_Strings.SHOP_UI["prompt_load_kit"]) and loaded,
 		"E would %s ('%s'), on the rack %s" % [choice["do"], says, loaded])
 	# The client buys its own (its half: it shops once the host's is aboard), off its own cash.

@@ -54,6 +54,7 @@ extends Node
 ##                                 the nearest loose thing of a kind ("rake",
 ##                                 "leaf_bag"); by name it stops at arm's length
 ##                                 (GOTO_NAMED_STOP), not inside the thing.
+##   ["hour", h]                   (host) the day clock jumps to hour h (7 to 26) of today
 ##   ["call_raid"]                 (host) the NICE BOYS are called now through the
 ##                                 run director's own warning, nothing reset or
 ##                                 placed: a raid in a crew session (tools:crew)
@@ -333,6 +334,14 @@ func _run(id: int, steps: Array) -> void:
 						await _face(truck.call("body_position") if truck.has_method("body_position") else truck.global_position)
 					if went != "":
 						errors.append(went)
+			"hour":
+				# p2-kit playtests: the day clock jumps to this hour (7 to 26) of the same
+				# day, host only, so a crew session can reach the evening and sleep.
+				var day_clock := get_tree().get_first_node_in_group("day_clock")
+				if not Net.is_host() or day_clock == null or step.size() < 2:
+					errors.append("hour: host only, with an hour")
+				else:
+					day_clock.call("set_hour_for_tests", float(step[1]))
 			"call_raid":
 				# tools:crew: the NICE BOYS called now, the way the heat calls them
 				# (the director's warning, then the van), with nothing reset or

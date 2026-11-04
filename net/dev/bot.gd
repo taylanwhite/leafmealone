@@ -685,9 +685,7 @@ func _kit_shop(player: Node3D, delta: float) -> bool:
 			return false
 		if held != mine:
 			# In a pocket: out into the hands first.
-			var slot := int(mine.get("pocket_slot"))
-			if slot >= 0:
-				_job.call("_tap", StringName("slot_%d" % (slot + 1)))
+			_kit_draw(mine)
 			_crew_walk(player, false, delta)
 			return true
 		if _kit_leg > 0:
@@ -772,9 +770,7 @@ func _kit_put_back(player: Node3D, delta: float) -> bool:
 	if held != mine:
 		if held != null:
 			return false
-		var slot := int(mine.get("pocket_slot"))
-		if slot >= 0:
-			_job.call("_tap", StringName("slot_%d" % (slot + 1)))
+		_kit_draw(mine)
 		_crew_walk(player, false, delta)
 		return true
 	var side := (truck.call("bed_transform") as Transform3D) * KIT_LOAD_SIDE
@@ -789,6 +785,20 @@ func _kit_put_back(player: Node3D, delta: float) -> bool:
 	Input.action_press(&"sprint")
 	_crew_walk(player, true, delta)
 	return true
+
+
+## Out of its pocket into the hands: that slot, asked for outright (a number key
+## pressed on the selected slot would put the hands away instead), once a second.
+func _kit_draw(item: Node) -> void:
+	var slot := int(item.get("pocket_slot"))
+	var hotbar := get_tree().get_first_node_in_group("hotbar")
+	if slot < 0 or hotbar == null or _elapsed < _next_interact:
+		return
+	_next_interact = _elapsed + 1.0
+	hotbar.call("request_select", slot)
+	var pockets := _own_player().get_node_or_null("Pockets") if _own_player() != null else null
+	if pockets != null and "selected" in pockets:
+		pockets.set("selected", slot)
 
 
 func _carried_rake(peer_id: int) -> Node:

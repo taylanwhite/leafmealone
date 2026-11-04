@@ -5758,8 +5758,8 @@ const KIT_LOAD_GLIDE_LIFT: float = 0.6
 ## Taking one out: the tool you look at in the bed (within this reach of your eye,
 ## and this close to your line of sight, m) comes into your hands after it's
 ## been a prop for this long (s), so every peer sees it lift off its spot.
-const KIT_TAKE_REACH: float = 3.2
-const KIT_TAKE_LOOK_MISS: float = 0.45
+const KIT_TAKE_REACH: float = 4.2
+const KIT_TAKE_LOOK_MISS: float = 0.5
 const KIT_TAKE_HANDOFF_SECONDS: float = 0.12
 ## A tool lying still in the bed this slow (m/s) is put on the rack.
 const KIT_BED_REST_SPEED: float = 0.6

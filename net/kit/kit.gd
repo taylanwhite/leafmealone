@@ -126,8 +126,9 @@ func host_deliver(peer_id: int, kind: String, tier: int) -> Node3D:
 			# Straight into a pocket, then out into your hands: the draw.
 			prop.set("pocket_slot", slot)
 			prop.set("pocketed_by", peer_id)
-			_add(prop, at)
+			# Not solid from the start: it appears inside its owner.
 			prop.call("_set_solid", false)
+			_add(prop, at)
 			hotbar.call("host_select_silently", peer_id, slot)
 			hotbar.call("host_settle", peer_id)
 			return prop

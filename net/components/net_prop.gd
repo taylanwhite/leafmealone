@@ -202,6 +202,11 @@ func _ready() -> void:
 		_grow()
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		freeze = true
+	# Spawned already in someone's hands or pocket (a bought tool, p2-kit): never
+	# solid, not even for its first tick, or it shoves its owner off where they
+	# stand (rec_kit_buy_1p frame 30: 0.61 m in one frame).
+	if not is_loose():
+		_set_solid(false)
 
 
 ## A fresh bag's grow (every peer, cosmetic): seconds left, and the look it scales.
