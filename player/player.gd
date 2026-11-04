@@ -1307,6 +1307,14 @@ func set_pile(hidden: bool) -> void:
 		_rpc_pile_popped.rpc()
 
 
+## Every other peer (P1 catch, audit nb7): this player just threw themselves at a
+## pile, at server time `at`. The cannonball plays from then, not from the host's
+## word that they're in (which reached a watcher after they'd landed standing up).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_pile_dive(at: float) -> void:
+	_hide_view().call("on_pile_dive", at)
+
+
 ## Every other peer: this player just popped out of their pile (the burst and
 ## the sound play where they see them; the owner played its own).
 @rpc("authority", "call_remote", "reliable")
@@ -2022,6 +2030,17 @@ func _apply_bonk(push: Vector3, tier: String) -> void:
 	velocity = push
 	if _knocked and _held_prop() != null:
 		_release_held(false)
+
+
+## Owner (P1 catch, the haul-up, net/run_events/encounter.gd): hauled up off the
+## grass by a NICE BOY, the knock is over now; the body gets up from here.
+func end_knockdown() -> void:
+	if not is_multiplayer_authority():
+		return
+	_stun_left = 0.0
+	_knocked = false
+	if anim_state == AnimState.KNOCKED:
+		anim_state = AnimState.IDLE
 
 
 ## Stunned: sliding with the shove, no control, flat on your back if knocked.

@@ -19,6 +19,8 @@ extends Node
 ##      stays within 0.3 m of its anchor on both peers (PENDING_STAGE until chunk 1's
 ##      set_staged), a captured client's grab is refused, and a can on him frees them
 ##   6. a carried client caught: the carry ends both ways
+##  6b. P1 catch: the client knocked flat is hauled up: no lunge, the two-shot up
+##      before the hand lands, up off their back after (run in step 10's raid)
 ##   7. a can landing near a NICE BOY without hitting him: INVESTIGATE
 ##   8. barks: the client saw the same kinds and lines, in order; the name tag and
 ##      the bark line keep a fixed, clamped size on the client
@@ -29,8 +31,9 @@ extends Node
 ##      (no sprawl, no catch)
 ##   9. a raid with nobody caught: heat drops to HEAT_AFTER_EVADED, XP_ESCAPE to the
 ##      spotted, never-caught player
-##  10. the client disconnects mid-escort: the NICE BOY goes back to the chase and the
-##      stage is gone, with no errors
+##  10. caught with the client's clock estimate held SKEW_SECONDS behind the host's,
+##      its two-shot still comes up at once (P1 catch); then the client disconnects
+##      mid-escort: the NICE BOY goes back to the chase and the stage is gone, with no errors
 ## (A third peer joining mid-escort, the spec's late-join check, needs a second
 ## client, which ci_local runs don't start: covered by apply_snapshot's code path
 ## only. Noted in the result.)
@@ -45,6 +48,9 @@ const HOST_SAFE_SECONDS: float = 100000.0
 const CLIENT_WAIT_SECONDS: float = 20.0
 ## Step 9: how long the Courtesy Shuttle may take to drive out of the yard's sight.
 const VAN_GONE_SECONDS: float = 40.0
+## Step 5 (P1 catch): how far behind the host's clock the client's estimate is held
+## for the second catch (s; the playtest's starved window was 2.8 s behind).
+const SKEW_SECONDS: float = -2.5
 ## Steps that need another R2 chunk skip with a note while its API is missing.
 var PENDING_STAGE: bool = false
 var PENDING_SHUTTLE: bool = false
@@ -69,6 +75,10 @@ var _yaw_where: String = ""
 var _yaw_skip: int = 0
 ## The physics tick of a client's last per-frame yaw sample.
 var _yaw_tick: int = 0
+## Client (step 5, P1 catch): its clock estimate held this far off the host's (s),
+## from this base offset.
+var _skew_by: float = 0.0
+var _skew_base: float = 0.0
 
 
 func _ready() -> void:
@@ -372,6 +382,20 @@ func _run() -> void:
 					freed_early = true
 		return false, Constants.VAN_LEAVE_SECONDS + 4.0 if shuttle == null else VAN_GONE_SECONDS)
 	_step("9 the crew left with the van, seated all the way (freed once it's gone)", freed_crew and not freed_early)
+	# 6b, on a raid of its own (a haul ends a raid with only the client to catch).
+	director.call("dev_reset")
+	await get_tree().create_timer(1.0).timeout
+	director.call("force_event")
+	await _wait(func() -> bool:
+		if int(director.call("phase")) != 2:
+			return false
+		for member: Node in _crew_all():
+			if not bool(member.call("in_brain_mode")):
+				return false
+		return true, Constants.RUN_WARNING_SECONDS + 6.0)
+	await _haul_step(director, encounter, client_body)
+	director.call("dev_reset")
+	await get_tree().create_timer(1.0).timeout
 	# 10. Disconnect mid-escort.
 	director.call("force_event")
 	await _wait(func() -> bool:
@@ -387,7 +411,20 @@ func _run() -> void:
 	if catcher != null:
 		_put_crew(catcher, client_body.global_position + Vector3(0.0, 0.0, -1.1), client_body.global_position)
 	await _ticks(3)
+	# P1 catch (audit lagduo-2): a catch on a client whose clock estimate has
+	# drifted SKEW_SECONDS behind the host's (a starved window's fixed step did it in
+	# the playtest: the second catch after a rescue got no gotcha at all). It stays
+	# skewed: the client leaves at the end of this step.
+	_rpc_skew.rpc_id(_client, SKEW_SECONDS)
+	await get_tree().create_timer(0.3).timeout
 	director.call("force_capture", _client)
+	await get_tree().create_timer(Constants.CATCH_HITSTOP + Constants.CATCH_CAM_BLEND + 0.25).timeout
+	_report = {}
+	_rpc_ask_report.rpc_id(_client)
+	await _wait(func() -> bool: return not _report.is_empty(), 4.0)
+	var skew_top := str(_report.get("stage_top", ""))
+	_step("10 caught with the client's clock %.1f s behind the host's: its two-shot is up all the same (top '%s', stage %d, rebased %d)" % [SKEW_SECONDS, skew_top, int(_report.get("stage", 0)), int(_report.get("rebased", 0))],
+		skew_top == "gotcha" and int(_report.get("stage", 0)) in [_Encounter.Stage.GOTCHA, _Encounter.Stage.CITE] and int(_report.get("rebased", 0)) > 0)
 	await _wait(func() -> bool: return int(encounter.call("stage_of", _client)) == _Encounter.Stage.ESCORT, 8.0)
 	var walker := _holder(_client)
 	_rpc_leave.rpc_id(_client)
@@ -500,6 +537,50 @@ func _dodge_steps(director: Node, encounter: Node) -> void:
 	lunger.set("_stun_left", 0.0)
 
 
+## 6b (P1 catch, audit crew-13): the client knocked flat, a NICE BOY close by winds
+## up on them: no lunge, their two-shot is up before the hand lands (from the
+## ground), the catch is a haul-up, and they're off their back after it.
+func _haul_step(director: Node, encounter: Node, client_body: Node3D) -> void:
+	# Nobody else's grab first: the client is safe until the test's own wind-up.
+	_safe(_client, 30.0)
+	await get_tree().create_timer(1.0).timeout
+	var hauler := _nearest_crew(client_body.global_position)
+	if hauler == null:
+		_step("6b a NICE BOY to haul the client up", false)
+		return
+	await _wait(func() -> bool: return bool(hauler.call("in_brain_mode")) and not bool(hauler.call("is_stunned")), 4.0)
+	_rpc_knock.rpc_id(_client)
+	var down: bool = await _wait(func() -> bool: return _Encounter.is_down(client_body), 2.0)
+	var at := client_body.global_position
+	_put_crew(hauler, at + Vector3(1.8, 0.0, 0.0), at)
+	await _ticks(2)
+	(director.get("_safe_until") as Dictionary).erase(_client)
+	var hauls := int(_Encounter.stats["hauls"])
+	var wound := bool(encounter.call("host_windup", hauler, _client, false))
+	await get_tree().create_timer(Constants.CATCH_DOWN_REACH * 0.6).timeout
+	_report = {}
+	_rpc_ask_report.rpc_id(_client)
+	await _wait(func() -> bool: return not _report.is_empty(), 2.0)
+	var reach_top := str(_report.get("stage_top", ""))
+	var reaching := bool(_report.get("hauling", false))
+	var lunged := [false]
+	var caught: bool = await _wait(func() -> bool:
+		if int(hauler.get("mode")) == _Crew.Mode.LUNGE:
+			lunged[0] = true
+		return int(encounter.call("stage_of", _client)) >= _Encounter.Stage.GOTCHA, 3.0)
+	await get_tree().create_timer(Constants.CATCH_HITSTOP + 0.9).timeout
+	_report = {}
+	_rpc_ask_report.rpc_id(_client)
+	await _wait(func() -> bool: return not _report.is_empty(), 2.0)
+	var up := not bool(_report.get("down", true))
+	_step("6b knocked flat (%s) and wound up on (%s): the client's two-shot is up mid-reach (top '%s', reaching %s), no lunge (%s), a haul-up catch (%s, +%d), up off their back after (%s)" % [down, wound, reach_top, reaching, not lunged[0], caught, int(_Encounter.stats["hauls"]) - hauls, up],
+		down and wound and reach_top == "gotcha" and reaching and not lunged[0] and caught and int(_Encounter.stats["hauls"]) > hauls and up)
+	director.call("release_peer", _client, 3.0)
+	# He's back on his feet and free for whatever comes next.
+	await _wait(func() -> bool: return bool(hauler.call("in_brain_mode")) and not bool(hauler.call("is_stunned")), 6.0)
+	await get_tree().create_timer(0.5).timeout
+
+
 ## Throw the trash can at whoever holds this peer, from point blank; true once freed.
 func _bean(crew: Node3D, peer_id: int) -> bool:
 	if crew == null:
@@ -530,6 +611,7 @@ func _bean(crew: Node3D, peer_id: int) -> bool:
 # ---------------------------------------------------------------- the client
 
 func _client_sample() -> void:
+	_hold_skew()
 	var director := _director()
 	var me := Net.local_peer_id()
 	if director == null:
@@ -593,6 +675,12 @@ func _rpc_ask_report() -> void:
 		"barks": _Crew.bark_log.slice(maxi(0, _Crew.bark_log.size() - 12)),
 		"tags_ok": tags_ok,
 		"whiff_peers": whiff_peers, "whiff_seen": _sampled["whiff_seen"], "yaw_max": _yaw_max, "yaw_where": _yaw_where,
+		# P1 catch: the shot on this client's own screen, how many stage times it
+		# moved onto its own clock, and whether its body is down.
+		"stage_top": str(player.call("stage_top")) if player != null and player.has_method("stage_top") else "",
+		"rebased": int(_Encounter.stats["rebased"]),
+		"down": _Encounter.is_down(player),
+		"hauling": encounter != null and bool(encounter.call("_hauling", me)),
 	})
 
 
@@ -607,6 +695,57 @@ func _rpc_wriggle(on: bool) -> void:
 	_wriggling = on
 	if not on:
 		Input.action_release(&"jump")
+
+
+## Client: hold its clock estimate `by` seconds off the host's (0: let it go), the
+## way a starved window's drifts (net/clock_sync.gd: both its offsets, every tick,
+## over whatever the pings fold in).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_skew(by: float) -> void:
+	var clock: RefCounted = Net.get("_clock")
+	if clock == null:
+		return
+	var samples: Array = clock.get("_samples")
+	for sample: Variant in samples.duplicate():
+		if bool((sample as Dictionary).get("skew", false)):
+			samples.erase(sample)
+	if is_zero_approx(by):
+		if not is_zero_approx(_skew_by):
+			clock.set("_offset_seconds", _skew_base)
+			clock.set("_applied_offset", _skew_base)
+		_skew_by = 0.0
+		return
+	if is_zero_approx(_skew_by):
+		_skew_base = float(clock.call("offset_seconds"))
+	_skew_by = by
+	# A sample no ping beats (no round trip, and it never ages out): every pong
+	# folded in meanwhile keeps the skewed offset.
+	samples.append({"rtt": 0.0, "offset": _skew_base + by, "at": 1.0e12, "skew": true})
+	_hold_skew()
+
+
+func _hold_skew() -> void:
+	if is_zero_approx(_skew_by):
+		return
+	var clock: RefCounted = Net.get("_clock")
+	if clock != null:
+		clock.set("_offset_seconds", _skew_base + _skew_by)
+		clock.set("_applied_offset", _skew_base + _skew_by)
+
+
+## Client: the next ticks' turns are the test's own teleport, not the game's.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_yaw_skip(ticks: int) -> void:
+	_yaw_skip = maxi(_yaw_skip, ticks)
+	_yaw_prev.clear()
+
+
+## Client: knocked flat, as by a heavy throw (step 6b).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_knock() -> void:
+	var me := _own()
+	if me != null:
+		me.call("on_bonked", Vector3.ZERO, "heavy")
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -699,8 +838,11 @@ func _nearest_crew(at: Vector3) -> Node3D:
 
 
 func _put_crew(crew: Node3D, at: Vector3, facing: Vector3) -> void:
-	# The test's own teleport isn't a turn (and the client sees it a lag later).
+	# The test's own teleport isn't a turn (and the client sees it a lag later, its
+	# smoother drawing the jump over a few frames: P1 catch, the haul step's).
 	_yaw_skip = maxi(_yaw_skip, 30)
+	if _client != 0 and Net.peer_ids().has(_client):
+		_rpc_yaw_skip.rpc_id(_client, 45)
 	crew.global_position = at
 	var look := facing - at
 	crew.rotation.y = atan2(look.x, look.z)

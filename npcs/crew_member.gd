@@ -321,17 +321,19 @@ func _shuttle_seats() -> bool:
 
 ## Every peer, from net/run_events/encounter.gd's wind-up RPC: from where, which
 ## way, and when the hand lands. He winds up there and lunges along dir.
-func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float = Constants.CREW_LUNGE_DISTANCE) -> void:
-	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "travel": travel, "blend_from": _drawn_transform(), "since": _now(), "whooshed": from_spot}
+## down (P1 catch, the haul-up): on someone knocked flat there's no crouch and no
+## lunge; he steps over beside them for the whole lead and reaches down.
+func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float = Constants.CREW_LUNGE_DISTANCE, down: bool = false) -> void:
+	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "down": down, "travel": travel, "blend_from": _drawn_transform(), "since": _now(), "whooshed": from_spot or down}
 	# The crouch from this frame on every peer, whenever the mode replicates (R2b:
 	# the pose followed the mode, which reached a client late or not before the lunge).
 	var poser := get_node_or_null("Visual/CartoonBody/Poser")
 	if poser != null and not from_spot:
-		poser.call("hold", "lunge_windup")
+		poser.call("hold", "haul_reach" if down else "lunge_windup")
 	# R2c: the crouch squeaks where he is, so a wind-up out of view is heard from
 	# his side before the lunge (audit dodge-offscreen).
 	var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
-	if sfx != null and not from_spot and contact_at - _now() > Constants.CREW_LUNGE_SECONDS:
+	if sfx != null and not from_spot and not down and contact_at - _now() > Constants.CREW_LUNGE_SECONDS:
 		sfx.call("play_on", "windup_squeak", self)
 
 
@@ -345,7 +347,7 @@ func play_stand(at: Vector3, yaw: float, blend: float, delay: float = 0.0) -> vo
 ## Every peer, each frame of a lunge placement: the lunge pose and the whoosh at
 ## the moment he leaves the crouch, not at its start.
 func _step_lunge_beats() -> void:
-	if str(_placed.get("kind", "")) != "lunge" or bool(_placed.get("spot", false)):
+	if str(_placed.get("kind", "")) != "lunge" or bool(_placed.get("spot", false)) or bool(_placed.get("down", false)):
 		return
 	var lunge_at := float(_placed["contact"]) - Constants.CREW_LUNGE_SECONDS
 	if _now() < lunge_at or bool(_placed.get("lunging", false)):
@@ -652,9 +654,16 @@ func _place() -> void:
 			var contact := float(_placed["contact"])
 			var yaw := atan2(dir.x, dir.z)
 			var along := 0.0
-			if not bool(_placed.get("spot", false)):
+			var shaped := 0.0
+			if bool(_placed.get("down", false)):
+				# A few quick steps over beside them, eased in and out (the haul-up).
+				var since := float(_placed.get("since", now))
+				along = clampf((now - since) / maxf(contact - since, 0.05), 0.0, 1.0)
+				shaped = smoothstep(0.0, 1.0, along)
+			elif not bool(_placed.get("spot", false)):
 				along = clampf((now - (contact - Constants.CREW_LUNGE_SECONDS)) / Constants.CREW_LUNGE_SECONDS, 0.0, 1.0)
-			var at := from + dir * float(_placed.get("travel", Constants.CREW_LUNGE_DISTANCE)) * ease(along, 0.6)
+				shaped = ease(along, 0.6)
+			var at := from + dir * float(_placed.get("travel", Constants.CREW_LUNGE_DISTANCE)) * shaped
 			want = Transform3D(Basis(Vector3.UP, yaw), at)
 			want = _blend_in(want, Constants.CREW_WINDUP_BLEND, now)
 		"stand":
@@ -808,7 +817,8 @@ func _show_mode(body: Node, poser: Node) -> void:
 			# Down from the van: straighten the visor, look left, look right.
 			poser.call("hold", "land_look", Constants.CREW_LAND_LOOK_SECONDS, late)
 		Mode.WINDUP:
-			poser.call("hold", "lunge_windup")
+			# A haul-up (play_windup's down) bends to reach, never the pounce crouch.
+			poser.call("hold", "haul_reach" if bool(_placed.get("down", false)) else "lunge_windup")
 		Mode.LUNGE:
 			poser.call("hold", "lunge")
 		Mode.WHIFF:

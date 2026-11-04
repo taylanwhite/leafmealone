@@ -25,7 +25,10 @@ extends Node
 ## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can),
 ## two_caught and two_caught_far (both need a second player), skate (on the Gutter
 ## Shredder in Homie Depot's lot, lined up on Marty's ramp in the connected town),
-## skate_shop (at Homie Depot's counter with $100 each and no board yet).
+## skate_shop (at Homie Depot's counter with $100 each and no board yet), recatch
+## (needs -Friend: the friend freed by your rescue, then caught again once their
+## grace is up), downed (knocked flat, then lunged at) and annex_desk_late (an
+## approval that runs past the end of his desk time).
 ## border_return is the old name of annex (kept for one wave).
 
 const _Strings = preload("res://ui/strings.gd")
@@ -48,7 +51,7 @@ const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -136,7 +139,14 @@ const EYE_HEIGHT: float = 1.6
 ## the friend's catch yours comes (s).
 const TWO_CAUGHT_APART: float = 3.5
 const TWO_CAUGHT_GAP: float = 1.2
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far"]
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "recatch"]
+## recatch (P1 catch): how long after the friend's grace ends the NICE BOY winds up
+## on them if he hasn't already (s).
+const RECATCH_LEAD: float = 1.0
+## downed (P1 catch): how long after the heavy knock he winds up (s); you're still flat.
+const DOWNED_LEAD: float = 0.6
+## annex_desk_late (P1 catch): how long his desk time has left when you arrive (s).
+const DESK_LATE_LEAD: float = 1.6
 ## annex_heist_seen: where you watch a friend's self-stamp from (the window's
 ## space: beside its counter, a step along from where they'll stand, side-on to
 ## their hands).
@@ -147,6 +157,8 @@ const OBSERVER_NAME: String = "Observer"
 
 ## The --scenario=<name> one at launch has run (or there was none).
 var start_done: bool = false
+## recatch: the friend was freed by this run's rescue.
+var _recatch_freed: bool = false
 ## Its result, for remote play's first report.
 var start_result: Dictionary = {}
 ## The window the last annex_break / annex_heist set up, for its _reached_ check.
@@ -304,6 +316,12 @@ func run(scenario: String) -> Dictionary:
 			out = await _two_caught()
 		"two_caught_far":
 			out = await _two_caught(1)
+		"recatch":
+			out = await _recatch()
+		"downed":
+			out = await _downed()
+		"annex_desk_late":
+			out = await _annex_desk_late()
 	out["scenario"] = scenario
 	if not out.has("ok"):
 		out["ok"] = not out.has("error")
@@ -683,6 +701,60 @@ func _reached_two_caught() -> bool:
 
 func _reached_two_caught_far() -> bool:
 	return _reached_two_caught()
+
+
+## P1 catch (audit lagduo-2): the friend is cited and you free them (the rescue a
+## thrown gnome makes), then they stand still and the same NICE BOY comes back for
+## them once their grace runs out. The second catch must stage like the first:
+## the hit-stop, the two-shot, the iris at the van. He winds up RECATCH_LEAD s
+## after the grace ends if he hasn't already. Needs -Friend.
+func _recatch() -> Dictionary:
+	var out: Dictionary = await _cite_rescue()
+	if out.has("error"):
+		return out
+	var friend := int(out.get("friend", 0))
+	var crew := _crew()
+	var encounter := get_tree().get_first_node_in_group("nice_encounter")
+	if crew == null or encounter == null:
+		return {"error": "no NICE BOY to come back"}
+	_recatch_freed = bool(encounter.call("host_free", friend, Net.local_peer_id(), &"bonk"))
+	if not _recatch_freed:
+		return {"error": "the rescue didn't free %s (stage %d)" % [Net.player_name(friend), _stage(friend)]}
+	get_tree().create_timer(Constants.RESCUE_IMMUNITY + RECATCH_LEAD).timeout.connect(_windup_later.bind(crew.get_instance_id(), friend))
+	return {"moment": "recatch", "note": "%s is free; %s comes back for them in about %.0f s" % [Net.player_name(friend), crew.name, Constants.RESCUE_IMMUNITY + RECATCH_LEAD], "phase": _phase(), "friend": friend}
+
+
+func _reached_recatch() -> bool:
+	return _recatch_freed and _other_player() != null
+
+
+## P1 catch (audit crew-13): knocked flat by something heavy, stars and all, and a
+## NICE BOY right there winds up on you before you're up. He hauls you up into
+## the two-shot; nothing of him fills your lens.
+func _downed() -> Dictionary:
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	_safe_for(SETTLE_SECONDS * 2.0)
+	var out: Dictionary = await _crew_out(-1.0)
+	if out.has("error"):
+		return out
+	var crew := _crew()
+	var stand := _in_front_of(crew, Constants.CREW_LUNGE_RANGE - 0.6)
+	_place(stand, _yaw_toward(stand, crew.global_position), -0.05)
+	_put_crew(crew, crew.global_position, stand)
+	await _ticks(2)
+	var me := _me()
+	var push := stand - crew.global_position
+	push.y = 0.0
+	me.call("on_bonked", push.normalized() * 1.5, "heavy")
+	_safe_for(DOWNED_LEAD)
+	get_tree().create_timer(DOWNED_LEAD).timeout.connect(_windup_later.bind(crew.get_instance_id(), Net.local_peer_id()))
+	return {"moment": "downed", "note": "knocked flat; %s winds up on you in %.1f s" % [crew.name, DOWNED_LEAD], "phase": _phase()}
+
+
+func _reached_downed() -> bool:
+	return _phase() == "CHASE" and _crew() != null
 
 ## Cited and on the way: arm in arm to the van.
 func _escort() -> Dictionary:
@@ -1479,6 +1551,40 @@ func _annex_desk() -> Dictionary:
 	return {"moment": "annex_desk", "note": "a full form at his desk; he's back in 2 s"}
 
 
+## P1 catch (audit r2): a full form at his desk, him settled in his chair, and his
+## desk time up DESK_LATE_LEAD s from now: press E and his approval runs past
+## the moment he'd leave for the copier. He stays, sits back pleased, and only
+## then gets up and walks off from his chair.
+func _annex_desk_late() -> Dictionary:
+	var started: Dictionary = await _annex()
+	if started.has("error"):
+		return started
+	var annex := _annex_node()
+	var seed_value := int(annex.call("seed_value"))
+	var at := _find_state(annex, "head", [_Sched.S.DESK], [_Sched.S.AWAY])
+	while at >= 0.0:
+		var desk := _Sched.window_state(seed_value, "head", at + 0.01)
+		if float(desk["until"]) - float(desk["since"]) >= DESK_LATE_LEAD + Constants.ANNEX_HEAD_SETTLE + 0.5:
+			annex.call("dev_retime", float(desk["until"]) - DESK_LATE_LEAD)
+			break
+		at = float(desk["until"]) + 0.01
+		var next := _Sched.window_state(seed_value, "head", at)
+		at = float(next["until"]) + 0.01 if int(next["state"]) != _Sched.S.DESK else at
+	if at < 0.0:
+		return {"error": "no long desk stretch before he leaves"}
+	var form: Dictionary = annex.call("form_of", Net.local_peer_id())
+	form["stamped"] = (form["boxes"] as PackedStringArray).size()
+	annex.call("dev_set_form", Net.local_peer_id(), form)
+	var spot := _annex_point("HeadDesk/DeskSpot")
+	_stand_facing(spot if spot != Vector3.INF else _annex_point("HeadDesk"), _annex_point("HeadDesk/Pad"))
+	await _ticks(3)
+	return {"moment": "annex_desk_late", "note": "a full form at his desk; press E now: his desk time is up in %.1f s" % DESK_LATE_LEAD}
+
+
+func _reached_annex_desk_late() -> bool:
+	return _reached_annex_desk()
+
+
 func _reached_annex_desk() -> bool:
 	if not _reached_annex() or not _on_annex_floor():
 		return false
@@ -1928,6 +2034,7 @@ func reset(keep_friends: bool = false) -> void:
 	var director := _director()
 	var annex := _annex_node()
 	_placing("reset")
+	_recatch_freed = false
 	if me != null:
 		var spot := preload("res://net/components/hide_spot.gd").spot_of(get_tree(), me_id)
 		if spot != null:

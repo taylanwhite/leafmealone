@@ -162,6 +162,9 @@ var _remote_out_spot: Node3D
 var _remote_out_from := Vector3.INF
 var _remote_out_to := Vector3.INF
 var _remote_out_until: int = 0
+## Every peer but the owner (P1 catch, audit nb7): when (local msec) the owner's
+## announced cannonball began here, until the host's word that they're in.
+var _remote_pile_dive_ms: int = -1000000
 ## Owner: the spot the climb-out in progress left.
 var _exit_spot: Node3D
 ## Host only, for the pile: suspicion and the inspection.
@@ -417,6 +420,9 @@ func predict_pile_dive() -> void:
 	_start_move(Move.PILE_DIVE, Constants.HIDE_ENTER_SECONDS)
 	_gesture("pile_cannonball", "startle")
 	player.call("say_to_all", "vo_heave")
+	# Everyone else plays the same cannonball from now (P1 catch, audit nb7).
+	if player.multiplayer.multiplayer_peer != null:
+		player.rpc(&"_rpc_pile_dive", Net.server_time())
 	_duck_music()
 	_place_pile_anchor(ahead)
 	_push_pile_shot(Constants.HIDE_ENTER_SECONDS)
@@ -765,6 +771,13 @@ func on_pile(hidden: bool, fresh: bool = true) -> void:
 		_pile_poke_at = -1000.0
 		_pile_found_at = -1000.0
 		_pile_miss_at = -1000.0
+	# Its cannonball already playing here (on_pile_dive): this is the host's word
+	# that they're in, not a new dive to start.
+	var announced := hidden and not is_owner_view() and _remote_pile_diving()
+	if announced:
+		fresh = true
+	if not hidden:
+		_remote_pile_dive_ms = -1000000
 	if hidden and not fresh:
 		_pile_used_at = Net.server_time() - Constants.SUSPICION_RECENT_SECONDS
 		_in_at = _pile_used_at
@@ -772,6 +785,12 @@ func on_pile(hidden: bool, fresh: bool = true) -> void:
 		_last_yaw = INF
 		if not is_owner_view():
 			_place_pile_anchor(-player.global_basis.z)
+	elif announced:
+		_pile_used_at = Net.server_time()
+		_in_at = Net.server_time()
+		_pile_since_ms = _remote_pile_dive_ms
+		_remote_pile_dive_ms = -1000000
+		_last_yaw = INF
 	elif hidden:
 		_waiting_pile = false
 		_pile_used_at = Net.server_time()
@@ -802,6 +821,32 @@ func on_pile(hidden: bool, fresh: bool = true) -> void:
 		if is_owner_view() and _shot == &"":
 			_push_pile_shot(Constants.HIDE_CAM_BLEND)
 	_set_voice_muffled(hidden or _spot != null)
+
+
+## Every peer but the owner (player._rpc_pile_dive; P1 catch, audit nb7): the owner
+## threw themselves at a pile at server time `at`. The cannonball plays from then,
+## the mound grows over them as they sink, and the whump lands with them; the
+## host's word that they're in (in_pile) follows and changes nothing. No word
+## within HIDE_REMOTE_PILE_WAIT, they stand back up out of it.
+func on_pile_dive(at: float) -> void:
+	if is_owner_view() or bool(player.get("in_pile")):
+		return
+	var late := clampf(Net.server_time() - at, 0.0, Constants.HIDE_ENTER_SECONDS)
+	_remote_pile_dive_ms = Time.get_ticks_msec() - int(late * 1000.0)
+	_pile_since_ms = _remote_pile_dive_ms
+	_gesture("pile_cannonball", "startle")
+	_place_pile_anchor(-player.global_basis.z)
+	var landing := maxf(0.0, Constants.HIDE_ENTER_SECONDS * 0.6 - late)
+	get_tree().create_timer(landing).timeout.connect(func() -> void:
+		if is_instance_valid(self) and is_instance_valid(player) and (_remote_pile_diving() or bool(player.get("in_pile"))):
+			_play_at("pile_dive", player.global_position)
+			_burst_pile(player.global_position + Vector3(0.0, 0.3, 0.0)))
+
+
+## A cannonball announced by its owner still playing out here, before the host's
+## word (or with none, until it's given up on).
+func _remote_pile_diving() -> bool:
+	return not is_owner_view() and Time.get_ticks_msec() - _remote_pile_dive_ms < int((Constants.HIDE_ENTER_SECONDS + Constants.HIDE_REMOTE_PILE_WAIT) * 1000.0)
 
 
 ## Every peer, from player._rpc_pile_inspect: a NICE BOY's pats on this player's
@@ -860,7 +905,9 @@ func body_should_draw() -> bool:
 		# while they're in: the owner's climb-out reaches us before the host's word.
 		return Time.get_ticks_msec() < _hide_by_ms and _remote_dive_from.is_finite() and _remote_progress < Constants.HIDE_REMOTE_DIVE_IN
 	# The cannonball plays out (the replicated arc) and sinks into the leaves
-	# before they close over them.
+	# before they close over them, from when its owner threw it (P1 catch).
+	if not in_pile and _remote_pile_diving():
+		return _pile_t() < 0.85
 	return not in_pile or _pile_t() < 0.85
 
 
@@ -1766,7 +1813,9 @@ func is_voice_muffled() -> bool:
 ## breathing a little (every peer). It grows up around them as the cannonball
 ## lands and they sink into it, and the leaves close over the top.
 func _present_mound() -> void:
-	var in_pile := bool(player.get("in_pile"))
+	# A watcher's mound grows over the announced cannonball as it sinks, before the
+	# host's word that they're in (P1 catch, audit nb7: a full mound in one frame).
+	var in_pile := bool(player.get("in_pile")) or _remote_pile_diving()
 	var landing := 1.0
 	if is_owner_view():
 		landing = _move_t / _move_length if _move == Move.PILE_DIVE else 1.0

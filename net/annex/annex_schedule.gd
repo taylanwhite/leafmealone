@@ -24,6 +24,8 @@ enum S {
 	OPEN, TELEGRAPH, PHONE, BREAK, RETURN, ASLEEP, LUNCH_BITE, LUNCH_TURNED, JAM, CLOSED, D_OPEN,
 	SERVING, PEER_FORM, CABINET, LEAN, WAKE, NOTICE, VOLLEY, AFTER_HOURS,
 	DESK, AWAY, APPROVE, SPOTTED,
+	# P1 catch: sat back after an approval (effective's _head_after).
+	PLEASED,
 }
 
 ## Per state: [looking, serving (free to start a serve), the clerk body's play() state].
@@ -52,6 +54,7 @@ const INFO: Dictionary = {
 	S.AWAY: [false, false, &"walk_to"],
 	S.APPROVE: [true, false, &"head_windup_slam"],
 	S.SPOTTED: [true, false, &"gasp_whistle"],
+	S.PLEASED: [true, false, &"head_pleased"],
 }
 
 const QUIRKS: Array[StringName] = [&"asleep", &"redirect", &"lunch", &"jam"]
@@ -139,7 +142,33 @@ static func effective(seed_value: int, window: String, t: float, overrides: Arra
 				return _entry(S.SPOTTED, at, until, o)
 			&"shut":
 				return _entry(S.CLOSED, at, until, o)
+	if window == "head":
+		return _head_after(seed_value, t, overrides)
 	return window_state(seed_value, window, t)
+
+
+## The Head NICE BOY once an approval is over (P1 catch, audit r2: he blinked out
+## of his chair right after slamming APPROVED, because the day's AWAY had begun
+## during the approval and its walk was drawn from its old start, already half
+## way to the copier). He sits back, pleased, ANNEX_HEAD_PLEASED s (PLEASED), and
+## a walk off that came due meanwhile starts from his chair after that.
+static func _head_after(seed_value: int, t: float, overrides: Array) -> Dictionary:
+	var raw := window_state(seed_value, "head", t)
+	var ended := -INF
+	for index: int in range(overrides.size() - 1, -1, -1):
+		var o: Dictionary = overrides[index]
+		if str(o.get("w", "")) != "head" or str(o.get("kind", "")) != "approve":
+			continue
+		var until := float(o.get("until", 0.0))
+		if until <= t:
+			ended = maxf(ended, until)
+	if not is_finite(ended) or t >= ended + Constants.ANNEX_HEAD_PLEASED + Constants.ANNEX_HEAD_AWAY.y:
+		return raw
+	if t < ended + Constants.ANNEX_HEAD_PLEASED:
+		return _entry(S.PLEASED, ended, ended + Constants.ANNEX_HEAD_PLEASED, {})
+	if int(raw["state"]) == S.AWAY and float(raw["since"]) < ended + Constants.ANNEX_HEAD_PLEASED:
+		return _entry(S.AWAY, ended + Constants.ANNEX_HEAD_PLEASED, float(raw["until"]), raw["args"])
+	return raw
 
 
 ## A determinism fingerprint: n samples of every window and the head.

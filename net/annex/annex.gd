@@ -297,6 +297,16 @@ func _rpc_retime(start_at: float, close_at: float) -> void:
 	var shift := start_at - _start_at
 	_start_at = start_at
 	_close_at = close_at
+	# P1 catch (annex_test step 7 flake): a jump back in the Annex's day leaves the
+	# host's interruptions from later in it lying in the new future, and they played
+	# again as the clock reached them (a ghost approval, a ghost walk to the holder).
+	# A retime starts the day over from there: nothing from after it happened.
+	var t_now := Net.server_time() - start_at
+	var kept: Array = []
+	for entry: Variant in _overrides:
+		if float((entry as Dictionary).get("at", 0.0)) <= t_now:
+			kept.append(entry)
+	_overrides = kept
 	for key: Variant in _stages.keys():
 		var entry: Dictionary = _stages[key]
 		entry["joined_at"] = float(entry.get("joined_at", start_at)) + shift
@@ -621,7 +631,7 @@ func _host_tick(delta: float) -> void:
 	# The walk-in ends: the clipboard.
 	for peer_id: int in _roster:
 		var stage: Dictionary = _stages.get(peer_id, {})
-		if str(stage.get("stage", "")) == STAGE_WALK and now >= float(stage.get("joined_at", 0.0)) + Constants.ANNEX_GREETER_WALK:
+		if str(stage.get("stage", "")) == STAGE_WALK and now >= float(stage.get("joined_at", 0.0)) + Constants.ANNEX_GREETER_WALK and _walked_in(peer_id, now - float(stage.get("joined_at", 0.0))):
 			_rpc_stage.rpc(peer_id, STAGE_INSIDE, now)
 	_serve_queues(now, t)
 	_step_holds(now, t)
@@ -1931,9 +1941,65 @@ func _place_walk_anchor(anchor: Node3D) -> void:
 
 
 func _physics_process(_delta: float) -> void:
+	_keep_walking()
 	for anchor: Variant in _walk_anchors.values():
 		if is_instance_valid(anchor):
 			_place_walk_anchor(anchor as Node3D)
+
+
+## Every peer (P1 catch, audit r3): every rider still in the walk-in is on it. A
+## second rider stepping down from the Shuttle after the walk began was let go by
+## the van's own unstaging (or wasn't there yet when it began) and stood on the
+## forecourt, then got the clipboard out there. Off their walk, they're put back
+## on it, a fresh one from where they stand behind the Greeter's line.
+func _keep_walking() -> void:
+	if not _active:
+		return
+	var now := Net.server_time()
+	for peer_id: int in _roster:
+		if stage_of(peer_id) != STAGE_WALK:
+			continue
+		var joined := float((_stages.get(peer_id, {}) as Dictionary).get("joined_at", now))
+		if now < joined + Constants.ANNEX_WALK_STAGE_DELAY:
+			continue
+		var body := _player(peer_id)
+		if body == null or Net.player_zone(peer_id) != Net.Zone.BORDER:
+			continue
+		var anchor: Node3D = _walk_anchors.get(peer_id, null)
+		if anchor != null and is_instance_valid(anchor) and _on_anchor(body, anchor):
+			continue
+		# Held by something else (still in a van seat, on the van's step down): it
+		# lets go first.
+		var stage_body := body.get_node_or_null("StageBody")
+		if stage_body == null or bool(stage_body.call("is_staged")):
+			continue
+		if anchor != null:
+			_walk_anchors.erase(peer_id)
+			if is_instance_valid(anchor):
+				anchor.queue_free()
+		# Late: their own walk from the start of the line, from now.
+		_start_walk(peer_id, joined if now - joined < Constants.ANNEX_WALK_STAGE_DELAY * 2.0 else now)
+
+
+## Host (P1 catch, audit r3): a rider is through the doors (the clipboard comes)
+## once their body is at the threshold, or ANNEX_WALK_LATE_MAX after the walk
+## should have ended, whatever held them up.
+func _walked_in(peer_id: int, walked: float) -> bool:
+	if walked >= Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX:
+		return true
+	var body := _player(peer_id)
+	var threshold := _set_point("Threshold")
+	if body == null or threshold == Vector3.INF:
+		return true
+	# Where the rider's own peer has them (the owner stages its own body on the
+	# walk and the position replicates): this peer's drawn copy may still be easing
+	# in from wherever it last drew them.
+	return _flat(body.global_position, threshold) <= Constants.ANNEX_INSIDE_REACH
+
+
+func _on_anchor(body: Node3D, anchor: Node3D) -> bool:
+	var stage_body := body.get_node_or_null("StageBody")
+	return stage_body != null and stage_body.has_method("staged_anchor") and stage_body.call("staged_anchor") == anchor
 
 
 ## The room, every frame: each window's clerk, lamp and blind from its effective
@@ -2179,6 +2245,9 @@ func _show_head(s: int, since: float, args: Dictionary) -> void:
 				var stamp := _set_node("HeadDesk/BigStamp")
 				if stamp != null and stamp.has_method("set_state") and _big_holder == 0:
 					stamp.call("set_state", &"slam", raise, {"puppet": true}))
+		_Schedule.S.PLEASED:
+			# P1 catch (audit r2): the slam's done; he stays, sits back and admires it.
+			_staff_play("HeadNiceBoy", &"head_pleased", since, {})
 		_Schedule.S.SPOTTED:
 			_staff_play("HeadNiceBoy", &"gasp_whistle", since, {})
 			_sound_at("whistle", _staff_pos("HeadNiceBoy"))
@@ -2544,7 +2613,38 @@ func prompt() -> Dictionary:
 	var target := _interact_target(me.global_position)
 	if target.is_empty():
 		return {}
+	# P1 catch (audit nb10): a keycap whose point is behind the clipboard in your
+	# hand would be drawn on the form's first box: it waits until you can see it.
+	if _behind_form(target["at"] as Vector3):
+		return {}
 	return {"text": "{key:interact}", "plain": true, "at": target["at"]}
+
+
+## Whether a world point is drawn behind the local player's Form 27-B on screen
+## (its on-screen box, grown by a keycap's half size).
+func _behind_form(point: Vector3) -> bool:
+	if _form_view == null or not is_instance_valid(_form_view) or not _form_view.is_visible_in_tree():
+		return false
+	var camera := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if camera == null or not _Overheads.in_front(camera, point):
+		return false
+	var box := Rect2()
+	var has := false
+	for node: Node in [_form_view] + _form_view.find_children("*", "GeometryInstance3D", true, false):
+		var geo := node as GeometryInstance3D
+		if geo == null or not geo.is_visible_in_tree():
+			continue
+		var aabb := geo.get_aabb()
+		for corner: int in 8:
+			var world := geo.global_transform * aabb.get_endpoint(corner)
+			if not _Overheads.in_front(camera, world):
+				continue
+			var at := camera.unproject_position(world)
+			box = box.expand(at) if has else Rect2(at, Vector2.ZERO)
+			has = true
+	if not has:
+		return false
+	return box.grow(Constants.ANNEX_FORM_PROMPT_PAD).has_point(camera.unproject_position(point))
 
 
 ## While holding the big stamp, a friend within reach in front of you.

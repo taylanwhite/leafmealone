@@ -92,7 +92,9 @@ func _run() -> void:
 	if heat != null:
 		heat.set("heat", Constants.ANNEX_BOXES_BY_HEAT[1] + 10.0)
 	annex.call("begin", 1, [client], Net.server_time())
-	var inside := await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + 3.0)
+	# P1 catch: the clipboard waits for the rider's body at the threshold (their own
+	# peer walks them in), at most ANNEX_WALK_LATE_MAX past the walk.
+	var inside := await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX + 2.0)
 	await get_tree().create_timer(SETTLE).timeout
 	annex.call("dev_client", client, "report", [])
 	report = await _report(annex)
@@ -321,7 +323,7 @@ func _run() -> void:
 	await _clear_return_vans(client)
 	# 10. Closing time.
 	annex.call("begin", 2, [client], Net.server_time())
-	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + 3.0)
+	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX + 2.0)
 	var outs_before := int(_AnnexScript.stats["closing_outs"])
 	annex.call("dev_retime", Constants.ANNEX_CAP_SECONDS - 1.5)
 	var after_hours := await _until(func() -> bool: return bool((annex.call("form_of", client) as Dictionary).get("after_hours", false)), 4.0)
@@ -333,7 +335,7 @@ func _run() -> void:
 	# 10. Finishing as a group: the client is through and waits for the host,
 	# who drops while still inside; the client goes home anyway and the Annex ends.
 	annex.call("begin", 4, [client, host], Net.server_time())
-	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside" and str(annex.call("stage_of", host)) == "inside", Constants.ANNEX_GREETER_WALK + 3.0)
+	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside" and str(annex.call("stage_of", host)) == "inside", Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX + 2.0)
 	var group_form: Dictionary = annex.call("form_of", client)
 	group_form["stamped"] = (group_form["boxes"] as PackedStringArray).size()
 	group_form["approved"] = true
@@ -362,7 +364,7 @@ func _run() -> void:
 	var back: Dictionary = Campaign.call("annex_from_save", section)
 	_check("12 the annex save section reads back the same", not section.is_empty() and back.get("visits", {}) == section.get("visits", {}) and is_equal_approx(float(back["best_s"]), float(section["best_s"])) and int(Campaign.call("annex_visits", client)) >= 2, "%s" % section)
 	annex.call("begin", 3, [client], Net.server_time())
-	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + 3.0)
+	await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX + 2.0)
 	var copy: Node = _AnnexScript.new()
 	copy.name = "AnnexCopy"
 	add_child(copy)

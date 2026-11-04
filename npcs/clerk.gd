@@ -39,13 +39,14 @@ const STATES: Array[StringName] = [
 	&"turn_to_cabinet", &"twitch_turn_back", &"notice", &"add_carbon", &"volley",
 	&"head_windup_slam", &"gasp_whistle", &"walk_hand_out", &"take_stamp_back",
 	&"greeter_lead", &"greeter_offer", &"greeter_punch_card", &"janitor_mop", &"closing_rush",
+	&"head_pleased",
 ]
 ## States in which a clerk or the Head NICE BOY sits (the rest stand or walk).
 const SEATED: Array[StringName] = [
 	&"counter_idle", &"wave_up", &"take_form", &"stamp", &"hand_back", &"peer_form",
 	&"head_shake_point", &"phone", &"asleep", &"wake", &"lunch_bite", &"lunch_turned",
 	&"lean_toward", &"turn_to_cabinet", &"twitch_turn_back", &"notice", &"add_carbon",
-	&"volley", &"closing_rush",
+	&"volley", &"closing_rush", &"head_pleased",
 ]
 ## How far a seated body drops (CartoonBody: standing hips 0.82, seated 0.48).
 const SIT_DROP: float = 0.34
@@ -789,6 +790,16 @@ func _pose(t: float, _delta: float) -> void:
 				var whistle_id := "whistle"
 				if _Bank.has(whistle_id):
 					_play_sfx(whistle_id, global_position + Vector3.UP * 1.5)
+		&"head_pleased":
+			# P1 catch (audit r2): APPROVED, slammed. He sits back in his chair, hands
+			# laced behind his head, chin up, a slow satisfied nod at his own work.
+			var settle := smoothstep(0.0, 0.5, t)
+			torso.rotation.x += 0.16 * settle
+			face.rotation.x -= (0.1 + 0.04 * sin(t * 3.2)) * settle
+			_aim(0, _ahead(0.14, head_y + 0.02, -0.12), settle * fade)
+			_aim(1, _ahead(-0.14, head_y + 0.02, -0.12), settle * fade)
+			body.set("mood", "raised")
+			body.set("face_turn", 0.15 * sin(t * 0.8) * settle)
 		&"walk_hand_out":
 			_aim(0, _ahead(0.15, 1.0, 0.7), 0.9)
 			body.set("mood", "angry")

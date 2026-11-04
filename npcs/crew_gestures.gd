@@ -9,7 +9,8 @@ extends Node
 ## Poses, by name (POSES): speedwalk (a gait overlay: stiff, elbow-pumping),
 ## lunge_windup, lunge, collar_grab, grin_hold, cite_scribble (loops), tear_page,
 ## slap_sticker, arm_link and escort_hum (the escort, loops), hop_out, hop_in,
-## whiff_sprawl, investigate_peer, wave_off, driver_wheel, sit_bench.
+## whiff_sprawl, investigate_peer, wave_off, driver_wheel, sit_bench, haul_reach
+## and haul_up (the haul-up of someone knocked flat).
 ##
 ## crew_member.gd picks the pose from its replicated mode on every peer. When
 ## player/cartoon_body.gd has chunk 1's register_gesture, register_all() also puts
@@ -41,6 +42,11 @@ const POSES: Dictionary = {
 	# R2c: a rescue's bonk lands on him (encounter.gd _rpc_freed): knocked back a
 	# step, arms flung up, the clipboard flying, a woozy wobble with stars.
 	"bonked": [1.5, false],
+	# P1 catch (audit crew-13): someone knocked flat isn't pounced on. He bends over
+	# them reaching for the collar (held through the steps over), then heaves them up
+	# off the grass (a shot at the thaw, encounter.gd _play_gotcha).
+	"haul_reach": [0.0, false],
+	"haul_up": [0.6, false],
 }
 ## Blend in and out, in seconds.
 const BLEND_SECONDS: float = 0.12
@@ -245,6 +251,34 @@ static func _apply(parts: Dictionary, pose_name: String, t: float, t01: float, w
 			left.rotation.z = lerpf(left.rotation.z, -0.4, w)
 			leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.75, w)
 			leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.7, w)
+		"haul_reach":
+			# Leaning over someone on the ground, the grabbing hand down at their
+			# collar, the clipboard hand out for balance. (The head doesn't ride a
+			# deep bend: the lean stays in the shoulders, like the lunge's.)
+			var bend := smoothstep(0.0, 0.25, t)
+			torso.rotation.x = lerpf(torso.rotation.x, -0.3 * bend, w)
+			right.rotation.x = lerpf(right.rotation.x, 0.45 + 0.2 * bend, w)
+			right.rotation.z = lerpf(right.rotation.z, 0.12, w)
+			left.rotation.x = lerpf(left.rotation.x, 0.35, w)
+			left.rotation.z = lerpf(left.rotation.z, -0.75, w)
+			leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.25 * bend, w)
+			leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.25 * bend, w)
+			if face != null:
+				face.rotation.x += 0.25 * w * bend
+		"haul_up":
+			# Heave: the arm yanks up and back as he leans back with the weight of
+			# you, then he stands tall, pleased with himself.
+			var heave := smoothstep(0.05, 0.6, t01)
+			var strain := sin(clampf((t01 - 0.05) / 0.6, 0.0, 1.0) * PI)
+			torso.rotation.x = lerpf(torso.rotation.x, lerpf(-0.3, 0.0, heave) + 0.16 * strain, w)
+			right.rotation.x = lerpf(right.rotation.x, lerpf(0.65, 1.5, heave), w)
+			right.rotation.z = lerpf(right.rotation.z, -0.2 * heave, w)
+			left.rotation.x = lerpf(left.rotation.x, 0.35 + 0.55 * heave, w)
+			left.rotation.z = lerpf(left.rotation.z, lerpf(-0.75, 0.4, heave), w)
+			leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.25 * (1.0 - heave) + 0.12 * strain, w)
+			leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.25 * (1.0 - heave) - 0.12 * strain, w)
+			if face != null:
+				face.rotation.x += lerpf(0.25, -0.08, heave) * w
 		"collar_grab", "grin_hold":
 			# The hand on your shoulder, the clipboard tucked at his chest, standing
 			# tall. grin_hold adds a pleased little head tilt and a bob of breath.

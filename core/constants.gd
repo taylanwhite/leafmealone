@@ -5045,3 +5045,45 @@ const TOWN_STREET_PROP_CHUNK: float = 256.0
 ## the queue's last turn, the frame is already a long one (the job yard arriving
 ## on a joiner) and the queue sits it out (never two frames running).
 const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
+
+# ---- P1 catch (fix wave P1: the second catch, the haul-up, the Annex desk and walk-in,
+# the pile dive seen by others; docs/GAME.md "P1: the catch, again")
+## A stage message's time (encounter.gd _rebased) trusted on a client within this
+## much (s) of when it should land on the client's own clock; further off (a clock
+## estimate gone stale in a starved window, a hitch) the moment starts on arrival.
+const STAGE_CLOCK_TRUST: float = 0.35
+## The haul-up (a NICE BOY on someone knocked flat): no lunge, he steps in beside
+## them and reaches down, the hand landing this long (s) after he starts.
+const CATCH_DOWN_REACH: float = 0.5
+## Where he ends up: beside the fallen body's hips (m to the side of where they
+## went down), never over the head that tipped back behind them.
+const CATCH_DOWN_SIDE: float = 0.75
+## How far back from the feet the head of someone knocked flat lies (m).
+const CATCH_DOWN_HEAD_BACK: float = 1.1
+## The haul-up's two-shot starts from the ground: its look point this much lower
+## (m) and its eye this much lower while you lie there, rising to the usual
+## two-shot over this long (s) after the hit-stop as he heaves you up.
+const CATCH_DOWN_LOOK_DROP: float = 0.75
+const CATCH_DOWN_EYE_DROP: float = 0.45
+const CATCH_DOWN_RISE: float = 0.6
+## Boarding with nothing staged (your own eyes): the view holds still where it is
+## while the iris shuts at once, then cuts to the seat behind it.
+const BOARD_HOLD_PRIORITY: int = 45
+## ...taken over this short a blend (s) from exactly where it is: no cut, no move.
+const BOARD_HOLD_BLEND: float = 0.05
+## Annex B (audit r2): after he slams APPROVED the Head NICE BOY sits back in his
+## chair, pleased with himself, this long (s) before any walk off; the walk starts
+## from his chair then, never part way along.
+const ANNEX_HEAD_PLEASED: float = 2.4
+## Annex B's walk-in (audit r3): a rider is let inside (the clipboard) only once
+## their body is this near the threshold (m, flat), or this long (s) after the walk
+## should have ended, whatever happened to it.
+const ANNEX_INSIDE_REACH: float = 2.2
+const ANNEX_WALK_LATE_MAX: float = 6.0
+## Annex B (audit nb10): a keycap this near (px) the clipboard in your hand on screen
+## is behind it, and waits until it isn't.
+const ANNEX_FORM_PROMPT_PAD: float = 18.0
+## The pile dive seen by others (audit nb7): a cannonball announced by its owner is
+## played this long (s) past the dive's own length waiting on the host's word that
+## they're in; no word by then, the body stands back up out of the leaves.
+const HIDE_REMOTE_PILE_WAIT: float = 0.9

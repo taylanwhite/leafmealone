@@ -45,9 +45,11 @@ const _Sweep = preload("res://player/stage_sweep.gd")
 const _CaughtPose = preload("res://player/caught_pose.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _StageCam = preload("res://player/stage_cam.gd")
+## player.gd AnimState.KNOCKED: flat on the back.
+const _KNOCKED: int = 5
 
 ## Totals for this process, for net/dev/probe.gd and the encounter test.
-static var stats: Dictionary = {"windups": 0, "catches": 0, "whiffs": 0, "frees": 0, "wriggles": 0, "escorts": 0, "seated": 0}
+static var stats: Dictionary = {"windups": 0, "catches": 0, "whiffs": 0, "frees": 0, "wriggles": 0, "escorts": 0, "seated": 0, "rebased": 0, "hauls": 0, "board_holds": 0}
 ## What this peer saw, in order: {"event", "peer", "at", "seen"} (seen: this peer's
 ## server time when it arrived), for the encounter test's timing checks.
 static var log: Array[Dictionary] = []
@@ -89,6 +91,15 @@ var _routes: Dictionary = {}
 var _boarding: Dictionary = {}
 var _scribble_next: float = 0.0
 var _constants: Dictionary = {}
+## Client: how far this peer moved each caught player's catch on its own clock
+## (_rebased), so the host's later times for that catch (a wriggle's new cite end)
+## move with it.
+var _skew: Dictionary = {}
+## Host: a haul-up's staging decided at its wind-up (where he ends up beside the
+## body, where the two-shot looks from), used again by the catch, per peer.
+var _down_staging: Dictionary = {}
+## The local player's still view while boarding with nothing staged (P1 catch).
+var _board_hold: Node3D
 
 
 func _ready() -> void:
@@ -174,23 +185,70 @@ func host_windup(crew: Node, peer_id: int, from_spot: bool = false) -> bool:
 		if int(grab["crew"]) == index:
 			return false
 	var now := Net.server_time()
+	# P1 catch (audit crew-13): someone knocked flat isn't lunged at (his arm and
+	# belly filled their lens from above). He steps in beside their hips and reaches
+	# down: the haul-up. Their two-shot starts now, from the ground.
+	var down := not from_spot and is_down(player)
 	# The whole crouch, then the lunge: contact is the wind-up AND the lunge away
 	# (R2b: it used to be the wind-up alone, so the lunge ate all but 0.1 s of it).
 	var lead := Constants.CREW_FOUND_CONTACT if from_spot else Constants.CREW_LUNGE_WINDUP + Constants.CREW_LUNGE_SECONDS + minf(_rtt_seconds(peer_id) * 0.5, Constants.CREW_LUNGE_WINDUP_LAG_MAX)
+	if down:
+		lead = Constants.CATCH_DOWN_REACH
 	var from := (crew as Node3D).global_position
 	var toward := player.global_position - from
 	toward.y = 0.0
 	var dir := toward.normalized() if toward.length() > 0.05 else (crew.call("facing") as Vector3)
-	var grab_id := _next_grab
-	_next_grab += 1
-	crew.call("host_set_mode", _Crew.Mode.WINDUP, peer_id, dir)
-	if not from_spot:
-		crew.call("bark", "lunge", true)
 	# His body travels until the hand lands: never into your face (he stops a
 	# shoulder's width short of where you stood).
 	var travel := clampf(toward.length() - Constants.CATCH_GOTCHA_GAP, 0.0, Constants.CREW_LUNGE_DISTANCE - Constants.CREW_LUNGE_ARM)
-	_rpc_windup.rpc(grab_id, index, peer_id, from, dir, now + lead, from_spot, travel)
+	var cam_yaw := 0.0
+	if down:
+		var beside := _down_spot(player, from)
+		var step := beside - from
+		step.y = 0.0
+		if step.length() > 0.05:
+			dir = step.normalized()
+		travel = minf(step.length(), Constants.CREW_LUNGE_DISTANCE)
+		var crew_at := from + dir * travel
+		var mid := (player.global_position + crew_at) * 0.5
+		# Side on to the two of them as they'll stand (him beside your hips), not to
+		# his steps over: both faces read.
+		var line := crew_at - player.global_position
+		line.y = 0.0
+		var across := line.cross(Vector3.UP).normalized() if line.length() > 0.05 else dir.cross(Vector3.UP).normalized()
+		cam_yaw = _clear_side(mid + Vector3.UP * Constants.CATCH_CAM_HEIGHT, across, Constants.CATCH_CAM_DISTANCE)
+		_down_staging[peer_id] = {"crew_at": crew_at, "cam_yaw": cam_yaw}
+	else:
+		_down_staging.erase(peer_id)
+	var grab_id := _next_grab
+	_next_grab += 1
+	crew.call("host_set_mode", _Crew.Mode.WINDUP, peer_id, dir)
+	if not from_spot and not down:
+		crew.call("bark", "lunge", true)
+	_rpc_windup.rpc(grab_id, index, peer_id, from, dir, now + lead, from_spot, travel, down, cam_yaw)
 	return true
+
+
+## Knocked flat right now (a heavy bonk, a fall, a punch's dizzy): on the ground,
+## stars and all (player.gd AnimState.KNOCKED, replicated from the owner).
+static func is_down(player: Node) -> bool:
+	return player != null and "anim_state" in player and int(player.get("anim_state")) == _KNOCKED
+
+
+## Host: where he stands to haul someone up: beside their hips, on his own side
+## of them, never over the head that tipped back behind their feet.
+func _down_spot(player: Node3D, from: Vector3) -> Vector3:
+	var at := player.global_position
+	var back := player.global_basis.z
+	back.y = 0.0
+	back = back.normalized() if back.length() > 0.01 else Vector3.BACK
+	var hips := at + back * (Constants.CATCH_DOWN_HEAD_BACK * 0.4)
+	var side := back.cross(Vector3.UP).normalized()
+	if side.dot(from - hips) < 0.0:
+		side = -side
+	var spot := hips + side * Constants.CATCH_DOWN_SIDE
+	spot.y = from.y
+	return spot
 
 
 ## Host: caught, with no lunge (force_capture, a found hider after the inspection,
@@ -213,8 +271,10 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 		if pulled is Array and (pulled as Array).size() == 2 and now <= float(pulled[1]) + Constants.HIDE_PULLED_TO_TRUST:
 			victim = pulled[0]
 		player.remove_meta(&"hide_pulled_to")
+	var staged_down: Dictionary = _down_staging.get(peer_id, {}) if grab_id != 0 else {}
+	_down_staging.erase(peer_id)
 	if crew == null:
-		_rpc_catch.rpc(grab_id, 0, peer_id, at, victim, Vector3.INF, 0.0)
+		_rpc_catch.rpc(grab_id, 0, peer_id, at, victim, Vector3.INF, 0.0, false)
 		# Straight to the door: the itemized row where they stood, then the van.
 		_host_itemize(peer_id, victim, Vector3.FORWARD)
 		_host_at_door(peer_id)
@@ -224,6 +284,11 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 	var dir := toward.normalized() if toward.length() > 0.05 else (crew.call("facing") as Vector3)
 	var crew_at := victim - dir * Constants.CATCH_GOTCHA_GAP
 	crew_at.y = (crew as Node3D).global_position.y
+	var down := not staged_down.is_empty()
+	if down:
+		# The haul-up: he's where his reach-down took him, and the two-shot that
+		# started from the ground keeps looking from where it did.
+		crew_at = staged_down["crew_at"]
 	crew.call("host_set_mode", _Crew.Mode.GOTCHA, peer_id, victim)
 	crew.call("host_walk", Vector3.INF, 0.0)
 	_cite_end[peer_id] = at + Constants.CATCH_CITE_AT + Constants.CATCH_CITE_SECONDS
@@ -231,8 +296,8 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 	# The host picks where the two-shot looks from (open lawn, no wall, no truck),
 	# so every peer turns both bodies toward the same camera.
 	var mid := (victim + crew_at) * 0.5
-	var cam_yaw := _clear_side(mid + Vector3.UP * Constants.CATCH_CAM_HEIGHT, dir.cross(Vector3.UP).normalized(), Constants.CATCH_CAM_DISTANCE)
-	_rpc_catch.rpc(grab_id, int(crew.call("crew_index")), peer_id, at, victim, crew_at, cam_yaw)
+	var cam_yaw := float(staged_down["cam_yaw"]) if down else _clear_side(mid + Vector3.UP * Constants.CATCH_CAM_HEIGHT, dir.cross(Vector3.UP).normalized(), Constants.CATCH_CAM_DISTANCE)
+	_rpc_catch.rpc(grab_id, int(crew.call("crew_index")), peer_id, at, victim, crew_at, cam_yaw, down)
 
 
 ## Host: let a caught player go (a friend's bonk or punch during the cite or the
@@ -322,7 +387,8 @@ func _host_grabs() -> void:
 			_host_whiff(grab_id, false)
 			continue
 		var spot := bool(grab["spot"])
-		if not spot and not bool(grab["lunged"]) and now >= float(grab["contact"]) - Constants.CREW_LUNGE_SECONDS:
+		var down := bool(grab.get("down", false))
+		if not spot and not down and not bool(grab["lunged"]) and now >= float(grab["contact"]) - Constants.CREW_LUNGE_SECONDS:
 			grab["lunged"] = true
 			crew.call("host_set_mode", _Crew.Mode.LUNGE, int(grab["peer"]), grab["dir"])
 		if now < float(grab["contact"]):
@@ -331,7 +397,8 @@ func _host_grabs() -> void:
 		var player := _player(peer_id)
 		var director := get_parent()
 		var can := player != null and bool(director.call("can_capture", peer_id))
-		if can and not spot:
+		# Flat on the ground there's no stepping out of it: no verdict on a haul-up.
+		if can and not spot and not down:
 			can = _hand_reaches(grab, player.global_position)
 		if can:
 			_grabs.erase(grab_id)
@@ -363,6 +430,7 @@ func _host_whiff(grab_id: int, sheepish: bool) -> void:
 	_grabs.erase(grab_id)
 	var crew := _crew(int(grab["crew"]))
 	var peer_id := int(grab["peer"])
+	_down_staging.erase(peer_id)
 	_grace_until[peer_id] = Net.server_time() + Constants.CREW_WHIFF_GRACE
 	if crew != null and sheepish:
 		crew.call("host_set_mode", _Crew.Mode.WHIFF, peer_id)
@@ -629,6 +697,8 @@ func _host_wriggle(peer_id: int) -> void:
 ## Every peer: the cite runs longer; he rubs the line out and starts again, you twist.
 @rpc("authority", "call_local", "reliable")
 func _rpc_cite_end(peer_id: int, end_at: float) -> void:
+	# Moved with the catch it belongs to on this peer's clock (_rebased).
+	end_at += float(_skew.get(peer_id, 0.0))
 	_cite_end[peer_id] = end_at
 	_log("wriggle", peer_id, end_at)
 	var victim_body := _body_of(_player(peer_id))
@@ -647,15 +717,26 @@ func _rpc_cite_end(peer_id: int, end_at: float) -> void:
 # ---------------------------------------------------------------- RPCs (every peer)
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_windup(grab_id: int, crew_index: int, peer_id: int, from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float) -> void:
-	_grabs[grab_id] = {"crew": crew_index, "peer": peer_id, "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "lunged": false, "travel": travel}
+func _rpc_windup(grab_id: int, crew_index: int, peer_id: int, from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float, down: bool, cam_yaw: float) -> void:
+	var lead := Constants.CREW_FOUND_CONTACT if from_spot else (Constants.CATCH_DOWN_REACH if down else Constants.CREW_LUNGE_WINDUP + Constants.CREW_LUNGE_SECONDS + minf(Net.clock_rtt_seconds() * 0.5, Constants.CREW_LUNGE_WINDUP_LAG_MAX))
+	contact_at = _rebased(contact_at, lead)
+	_grabs[grab_id] = {"crew": crew_index, "peer": peer_id, "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "lunged": false, "travel": travel, "down": down}
 	if Net.is_host():
 		stats["windups"] = int(stats["windups"]) + 1
 	_log("windup", peer_id, contact_at)
 	var crew := _crew(crew_index)
 	if crew != null:
-		crew.call("play_windup", from, dir, contact_at, from_spot, travel)
-	_set_stage_local(peer_id, Stage.WINDUP, Net.server_time(), crew_index, {"contact": contact_at})
+		crew.call("play_windup", from, dir, contact_at, from_spot, travel, down)
+	var args := {"contact": contact_at}
+	if down:
+		# The haul-up's two-shot, the catch's own staging (where he'll be, where it
+		# looks from), on the downed player's screen from the start of his reach.
+		args = {"contact": contact_at, "victim": _player(peer_id).global_position if _player(peer_id) != null else from, "crew_at": from + dir * travel, "cam_yaw": cam_yaw, "down": true}
+	_set_stage_local(peer_id, Stage.WINDUP, Net.server_time(), crew_index, args)
+	var player := _player(peer_id)
+	if down and peer_id == Net.local_peer_id() and player != null:
+		_played[peer_id] = {}
+		_push_two_shot(player, false)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -668,15 +749,26 @@ func _rpc_whiff(grab_id: int, peer_id: int, crew_index: int, at: float) -> void:
 	if crew != null:
 		crew.call("release_placement")
 	if stage_of(peer_id) == Stage.WINDUP:
+		# A haul-up spoiled (a friend's can on him): back to your own eyes, slowly.
+		if bool((_stages[peer_id]["args"] as Dictionary).get("down", false)) and peer_id == Net.local_peer_id():
+			_pop(_player(peer_id), &"gotcha", Constants.RESCUE_CAM_BLEND)
 		_stages.erase(peer_id)
 		stage_changed.emit(peer_id, Stage.NONE)
 
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_catch(grab_id: int, crew_index: int, peer_id: int, at: float, victim: Vector3, crew_at: Vector3, cam_yaw: float) -> void:
+func _rpc_catch(grab_id: int, crew_index: int, peer_id: int, at: float, victim: Vector3, crew_at: Vector3, cam_yaw: float, down: bool) -> void:
 	_grabs.erase(grab_id)
 	if Net.is_host():
 		stats["catches"] = int(stats["catches"]) + 1
+	# P1 catch (audit lagduo-2): on this peer's clock. A client whose clock estimate
+	# had drifted seconds behind held the whole gotcha and cite "in the future": no
+	# two-shot at all, the escort replaced it before it began.
+	var sent_at := at
+	at = _rebased(at, 0.0 if grab_id != 0 else float(_k("BEAT_LEAD", 0.15)))
+	_skew[peer_id] = at - sent_at
+	if down:
+		stats["hauls"] = int(stats["hauls"]) + 1
 	_log("catch", peer_id, at)
 	var director := get_parent()
 	director.call("mark_caught", peer_id, true)
@@ -700,8 +792,28 @@ func _rpc_catch(grab_id: int, crew_index: int, peer_id: int, at: float, victim: 
 		# Out of a pile, off a seat: the gotcha is on your feet.
 		if bool(player.get("in_pile")) and player.has_method("set_pile"):
 			player.call("set_pile", false)
-	_set_stage_local(peer_id, Stage.GOTCHA, at, crew_index, {"victim": victim, "crew_at": crew_at, "cam_yaw": cam_yaw})
+	_set_stage_local(peer_id, Stage.GOTCHA, at, crew_index, {"victim": victim, "crew_at": crew_at, "cam_yaw": cam_yaw, "down": down})
 	peer_caught.emit(peer_id)
+
+
+## P1 catch (audit lagduo-2): a stage time from the host, on this peer's clock.
+## Each stage message says when its moment starts on the host's clock, `lead` s
+## after the host sent it; it can't land here before it was sent, nor much later
+## than one link delay. A client whose clock estimate has drifted (a starved
+## window on a fixed step, a hitch) would hold a catch "in the future" for seconds
+## or play it as long past (no hit-stop, the two-shot cut in). More than
+## STAGE_CLOCK_TRUST off, the moment starts where the message says it should
+## start on this clock. The host's own times are its clock.
+func _rebased(at: float, lead: float) -> float:
+	# Only a message from the host is moved: a late joiner's snapshot replays its
+	# stages here directly (sender 0), and those are as old as they say.
+	if Net.is_host() or multiplayer.multiplayer_peer == null or multiplayer.get_remote_sender_id() != 1:
+		return at
+	var expected := Net.server_time() - Net.clock_rtt_seconds() * 0.5 + lead
+	if absf(at - expected) <= Constants.STAGE_CLOCK_TRUST:
+		return at
+	stats["rebased"] = int(stats["rebased"]) + 1
+	return expected
 
 
 ## The gotcha's staging, the same on every peer from the catch's args: the line
@@ -725,6 +837,13 @@ static func _staging(victim: Vector3, crew_at: Vector3, cam_yaw: float) -> Dicti
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_stage(peer_id: int, stage: int, at: float, crew_index: int, args: Dictionary) -> void:
+	# On this peer's clock (_rebased): the escort's walk starts CATCH_ESCORT_AFTER
+	# after its page is torn, every other stage when it's sent.
+	var sent_at := at
+	at = _rebased(at, Constants.CATCH_ESCORT_AFTER if stage == Stage.ESCORT else 0.0)
+	if not is_equal_approx(at, sent_at) and args.has("tear_at"):
+		args = args.duplicate()
+		args["tear_at"] = float(args["tear_at"]) + at - sent_at
 	_log("stage_%d" % stage, peer_id, at)
 	var player := _player(peer_id)
 	var was := stage_of(peer_id)
@@ -798,9 +917,17 @@ func _rpc_stage(peer_id: int, stage: int, at: float, crew_index: int, args: Dict
 ## Without an iris, the old way: back to your own camera.
 func _board_behind_iris(player: Node3D, delay: float = Constants.BOARD_IRIS_DELAY) -> void:
 	var iris := get_tree().get_first_node_in_group("iris")
-	if iris == null or not iris.has_method("close") or not bool(player.call("stage_top") != &"" if player.has_method("stage_top") else false):
+	if iris == null or not iris.has_method("close") or not player.has_method("stage_top"):
 		_pop_shots(player)
 		return
+	if StringName(player.call("stage_top")) == &"":
+		# P1 catch (audit lagduo-2): boarded with nothing staged on this screen (your
+		# own eyes: the catch and the escort never got going here). The iris is the
+		# host's BOARDING message's, and it always plays: the view holds still where
+		# it is and the iris shuts on it at once, then the seat is cut to behind it
+		# (it used to blend from your eyes 11 m into the van, no iris).
+		_hold_view(player)
+		delay = 0.0
 	var close_at := Net.server_time() + delay
 	iris.call("close", close_at, Constants.IRIS_CLOSE, &"seal")
 	_boarding = {"player": player, "close_at": close_at, "cut": false}
@@ -822,8 +949,27 @@ func _step_boarding() -> void:
 	_boarding["cut"] = true
 	_pop(player, &"gotcha", 0.0)
 	_pop(player, &"escort", 0.0)
+	_pop(player, &"board_hold", 0.0)
 	iris.call("open", Net.server_time() + 0.05, Constants.IRIS_OPEN)
 	_boarding.clear()
+
+
+## The local player's view, held still where it's drawn now (a shot on a marker
+## left where the camera is), above anything the van pushes, until the iris shuts.
+func _hold_view(player: Node3D) -> void:
+	var camera := get_viewport().get_camera_3d() if get_viewport() != null else null
+	if camera == null:
+		return
+	if _board_hold == null:
+		_board_hold = Node3D.new()
+		_board_hold.name = "BoardHold"
+		_placed_by_hand(_board_hold)
+		add_child(_board_hold)
+		_board_hold.top_level = true
+	_board_hold.global_transform = _StageCam.drawn_pose(camera)
+	stats["board_holds"] = int(stats["board_holds"]) + 1
+	_push(player, &"board_hold", {"anchor": _board_hold, "offset": Transform3D.IDENTITY, "blend_in": Constants.BOARD_HOLD_BLEND, "blend_out": 0.0,
+		"yaw_clamp": Vector2.ZERO, "pitch_clamp": Vector2.ZERO, "fov": camera.fov, "priority": Constants.BOARD_HOLD_PRIORITY, "hide_self": true})
 
 
 ## Freed, unbuckled or reset while boarding: the iris this asked to close is let
@@ -844,6 +990,8 @@ func director_mark(peer_id: int, caught: bool) -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_freed(peer_id: int, by_peer: int, cause: String, at: float) -> void:
+	at = _rebased(at, 0.0)
+	_skew.erase(peer_id)
 	_log("freed_" + cause, peer_id, at)
 	if Net.is_host():
 		stats["frees"] = int(stats["frees"]) + 1
@@ -960,6 +1108,15 @@ func _play_gotcha(peer_id: int, entry: Dictionary, now: float) -> void:
 			_stage_body(player, hold, Transform3D.IDENTITY, Constants.CATCH_CAM_BLEND, &"stand")
 		if peer_id == Net.local_peer_id() and player != null:
 			_push_two_shot(player, t > 0.5)
+		if bool((entry["args"] as Dictionary).get("down", false)):
+			# The haul-up: he heaves you up off the grass by the collar, and you come
+			# up off your back over it (the knock ends here, so the body gets up).
+			var hauler := crew.get_node_or_null("Visual/CartoonBody/Poser") if crew != null else null
+			if hauler != null:
+				hauler.call("shot", "haul_up")
+			if peer_id == Net.local_peer_id() and player != null and player.has_method("end_knockdown"):
+				player.call("end_knockdown")
+				player.call("say_to_all", "vo_oof")
 	if not played.has("grin") and t >= Constants.CATCH_GRIN_AT:
 		played["grin"] = true
 		var poser := crew.get_node_or_null("Visual/CartoonBody/Poser") if crew != null else null
@@ -1125,7 +1282,7 @@ func _two_shot_mid() -> Vector3:
 
 func _aim_two_shot(now: float) -> void:
 	var me := Net.local_peer_id()
-	if _shot == null or (stage_of(me) != Stage.GOTCHA and stage_of(me) != Stage.CITE):
+	if _shot == null or (stage_of(me) != Stage.GOTCHA and stage_of(me) != Stage.CITE and not _hauling(me)):
 		return
 	var entry: Dictionary = _stages[me]
 	var args: Dictionary = entry["args"]
@@ -1138,7 +1295,36 @@ func _aim_two_shot(now: float) -> void:
 	var push := clampf((now - float(entry["at"]) - Constants.CATCH_GRIN_AT) / (Constants.CATCH_HOLD_END - Constants.CATCH_GRIN_AT + Constants.CATCH_CITE_SECONDS), 0.0, 1.0)
 	var distance := Constants.CATCH_CAM_DISTANCE * (1.0 - Constants.CATCH_PUSH_IN * 3.0 * push)
 	var eye := mid + (staging["to_cam"] as Vector3) * distance - Vector3.UP * Constants.CATCH_CAM_EYE_DROP
+	# The haul-up starts from the ground (audit crew-13): low over you lying there
+	# and him bent over you, rising with you as he heaves you up.
+	var low := _haul_low(me, now)
+	if low > 0.0:
+		var back := Vector3.ZERO
+		var me_node := _player(me)
+		if me_node != null:
+			back = me_node.global_basis.z
+			back.y = 0.0
+			back = back.normalized() * Constants.CATCH_DOWN_HEAD_BACK * 0.4 * low if back.length() > 0.01 else Vector3.ZERO
+		mid += back - Vector3.UP * Constants.CATCH_DOWN_LOOK_DROP * low
+		eye += back - Vector3.UP * Constants.CATCH_DOWN_EYE_DROP * low
 	_shot.global_transform = Transform3D(Basis.looking_at(mid - eye, Vector3.UP), eye)
+
+
+## How low the haul-up's two-shot is now (1 on the ground, 0 standing).
+func _haul_low(peer_id: int, now: float) -> float:
+	if _hauling(peer_id):
+		return 1.0
+	var entry: Dictionary = _stages.get(peer_id, {})
+	if not bool((entry.get("args", {}) as Dictionary).get("down", false)):
+		return 0.0
+	var t := now - float(entry.get("at", now))
+	return 1.0 - smoothstep(Constants.CATCH_HITSTOP, Constants.CATCH_HITSTOP + Constants.CATCH_DOWN_RISE, t)
+
+
+## A haul-up's reach on this peer: wound up on while knocked flat (the two-shot is
+## already up).
+func _hauling(peer_id: int) -> bool:
+	return stage_of(peer_id) == Stage.WINDUP and bool(((_stages[peer_id] as Dictionary).get("args", {}) as Dictionary).get("down", false))
 
 
 ## Host: where the two-shot looks from, as a world yaw from between them. Side on
@@ -1366,6 +1552,7 @@ func _pop(player: Node3D, id: StringName, blend_out: float = -1.0) -> void:
 func _pop_shots(player: Node3D) -> void:
 	_pop(player, &"gotcha", 0.5)
 	_pop(player, &"escort", 0.5)
+	_pop(player, &"board_hold", 0.5)
 
 
 ## Hit-stop: per-character animation speed (chunk 1's set_anim_speed), never
@@ -1420,6 +1607,7 @@ func _clear_peer(peer_id: int) -> void:
 	_played.erase(peer_id)
 	_cite_end.erase(peer_id)
 	_routes.erase(peer_id)
+	_skew.erase(peer_id)
 	if not _stickers.has(peer_id):
 		return
 	_peel_sticker(peer_id)
