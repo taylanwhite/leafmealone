@@ -141,6 +141,15 @@ func set_room_dim(light: float, picture: float) -> void:
 	_dirty = true
 
 
+## The player's Brightness setting (levels/graphics_quality.gd): the picture's
+## brightness before the Annex's closing dim.
+func set_base_brightness(value: float) -> void:
+	if is_equal_approx(value, _base_brightness):
+		return
+	_base_brightness = value
+	_dirty = true
+
+
 func _hour() -> float:
 	var clock := get_parent().get_node_or_null("DayClock")
 	if clock == null:

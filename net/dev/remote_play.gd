@@ -55,6 +55,8 @@ extends Node
 ##                                 "leaf_bag"); by name it stops at arm's length
 ##                                 (GOTO_NAMED_STOP), not inside the thing.
 ##   ["hour", h]                   (host) the day clock jumps to hour h (7 to 26) of today
+##   ["setting", "preset", name]   a video quality preset (low, medium, high, ultra),
+##   ["setting", section, key, v]  or one setting (core/settings.gd), for this window
 ##   ["call_raid"]                 (host) the NICE BOYS are called now through the
 ##                                 run director's own warning, nothing reset or
 ##                                 placed: a raid in a crew session (tools:crew)
@@ -342,6 +344,22 @@ func _run(id: int, steps: Array) -> void:
 					errors.append("hour: host only, with an hour")
 				else:
 					day_clock.call("set_hour_for_tests", float(step[1]))
+			"setting":
+				# settings:2 playtests: ["setting", "preset", name] picks a quality preset,
+				# ["setting", section, key, value] one option, the way the Settings window
+				# does (this window only: settings are local).
+				if step.size() == 3 and str(step[1]) == "preset":
+					if not Settings.apply_preset(str(step[2])):
+						errors.append("setting: no preset %s" % step[2])
+				elif step.size() == 4:
+					var value: Variant = step[3]
+					if str(value) in ["true", "on"]:
+						value = true
+					elif str(value) in ["false", "off"]:
+						value = false
+					Settings.set_value(str(step[1]), str(step[2]), value)
+				else:
+					errors.append("setting: preset <name>, or <section> <key> <value>")
 			"call_raid":
 				# tools:crew: the NICE BOYS called now, the way the heat calls them
 				# (the director's warning, then the van), with nothing reset or

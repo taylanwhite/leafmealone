@@ -26,6 +26,8 @@ uniform float relative_threshold;
 uniform float min_threshold;
 uniform float fade_from;
 uniform float fade_to;
+// Line width in pixels (levels/graphics_quality.gd: the Outlines setting).
+uniform float line_width = 1.0;
 
 void vertex() {
 	POSITION = vec4(VERTEX.xy, 1.0, 1.0);
@@ -38,7 +40,7 @@ float linear_depth(vec2 uv, mat4 inv_projection) {
 }
 
 void fragment() {
-	vec2 pixel = 1.0 / VIEWPORT_SIZE;
+	vec2 pixel = line_width / VIEWPORT_SIZE;
 	float center = linear_depth(SCREEN_UV, INV_PROJECTION_MATRIX);
 	float left = linear_depth(SCREEN_UV - vec2(pixel.x, 0.0), INV_PROJECTION_MATRIX);
 	float right = linear_depth(SCREEN_UV + vec2(pixel.x, 0.0), INV_PROJECTION_MATRIX);
@@ -74,3 +76,13 @@ func _ready() -> void:
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# levels/shared_look.gd must leave this material alone.
 	set_meta("keep_material", true)
+	set_width(preload("res://levels/graphics_quality.gd").outline_width())
+
+
+## The line's width in pixels (the Outlines setting, Constants.OUTLINE_WIDTHS);
+## 0 turns the pass off.
+func set_width(width: float) -> void:
+	visible = width > 0.0
+	var material := material_override as ShaderMaterial
+	if material != null:
+		material.set_shader_parameter("line_width", maxf(width, 0.0))

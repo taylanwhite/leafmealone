@@ -11,6 +11,7 @@ const _Stylized = preload("res://props/stylized.gd")
 ## Grass lies flat under leaves (raking:2).
 const _GrassPress = preload("res://leaves/grass_press.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
+const _GraphicsQuality = preload("res://levels/graphics_quality.gd")
 const CHUNK: float = 14.0
 const BASE := Color(0.24, 0.38, 0.16)
 const TIP := Color(0.5, 0.66, 0.28)
@@ -131,6 +132,12 @@ static func _add_chunk(root: Node3D, mesh: Mesh, spots: Array[Transform3D], colo
 	view.visibility_range_end = 45.0
 	view.visibility_range_end_margin = 8.0
 	view.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	# Cosmetic lawn: the Grass setting thins it and pulls its range in
+	# (levels/graphics_quality.gd), here because lawns stream in after the world's
+	# _ready (gap-specs/critic.md C27). Mowable grass never goes through here.
+	view.add_to_group(_GraphicsQuality.GRASS_GROUP)
+	view.set_meta(_GraphicsQuality.FULL_COUNT_META, spots.size())
+	_GraphicsQuality.apply_grass(view)
 	root.add_child(view)
 
 
