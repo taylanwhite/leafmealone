@@ -13,7 +13,6 @@ Money sinks are tools/balance/sinks.json. docs/BALANCE.md explains it all.
 
     python tools/balance_sim.py                  # print the table, write build/balance/report.json and .md
     python tools/balance_sim.py --check          # exit 1 when a blocking check fails
-    python tools/balance_sim.py --check --baseline   # tuning checks don't fail (until the retune lands); parity still does
     python tools/balance_sim.py --set TOWN_REGROW_PER_DAY=0.3 --set Ranks.XP_FIRST_TIER=160
     python tools/balance_sim.py --players 1,4 --seeds 20 --html
     python tools/balance_sim.py --propose        # suggest values; writes build/balance/proposal.json, edits nothing
@@ -81,6 +80,8 @@ NEEDED = {
         "SEASON_DAYS", "RIVAL_POACH_CHANCE", "RIVAL_POACH_BELOW", "RIVAL_WIN_BACK_CHANCE",
         "RIVAL_MAX_SIGNS", "SHOP_HOURS", "SPIGOT_HOOKUP_FEE", "SPIGOT_FEE_PER_SECOND", "PAD_HALF",
         "TOWN_MAP_DEFAULT", "ARC_HOURS", "RANK_PACE_HOURS", "ARC_SOLO_RATIO_MAX", "STARTING_CASH",
+        "XP_ESCAPE", "XP_PAPERWORK", "XP_RESCUE", "HEAT_AFTER_EVADED",
+        "CREW_WORK_SCALE", "CREW_PATIENCE_SCALE", "XP_CREW_SCALE", "STARTER_SUPPLIES",
     ],
     "Balance": [
         "CREDITS_PER_1_PERCENT_LOT_CLEANUP", "RUN_EVENT_BASE_CHANCE", "RUN_CHANCE_ESCALATION_PER_TIER",
@@ -96,8 +97,9 @@ NEEDED = {
     "Hoods": ["HOODS", "PERSONALITIES"],
     "Catalog": ["ITEMS", "TIER_USED", "TIER_STOCK", "TIER_MK2", "TIER_MK3"],
 }
-# Constants the crew-size hooks will read once balance:E adds them; optional until then.
-OPTIONAL = {"Constants": ["CREW_WORK_SCALE", "CREW_PATIENCE_SCALE", "XP_CREW_SCALE"]}
+# Constants a --set what-if may add that the game doesn't have (none since balance:E
+# landed the crew-size tables).
+OPTIONAL = {"Constants": []}
 
 
 # ---------------------------------------------------------------- GDScript arithmetic
@@ -513,16 +515,18 @@ class Economy:
             return 1.0
         return float(table[int(clampf(players, 1, len(table))) - 1])
 
-    def run_roll_chance(self, heat, lots_completed):
+    def run_roll_chance(self, heat, hood_index):
         # balance:E0 (R2 chunk 1): the per-lot chance spread over a lot's rolls.
         C = self.C
-        p_lot = self.run_lot_chance(heat, lots_completed)
+        p_lot = self.run_lot_chance(heat, hood_index)
         return 1.0 - math.pow(1.0 - p_lot, C["HEAT_ROLL_SECONDS"] / (C["RAID_LOT_MINUTES"] * 60.0))
 
-    def run_lot_chance(self, heat, lots_completed):
+    def run_lot_chance(self, heat, hood_index):
+        # balance:E: the escalation is by neighborhood (0 Maple Row .. 5 Mansion Hill),
+        # no longer by every job the crew ever finished.
         B, C = self.B, self.C
         chance = B["RUN_EVENT_BASE_CHANCE"]
-        chance += B["RUN_CHANCE_ESCALATION_PER_TIER"] * float(lots_completed)
+        chance += B["RUN_CHANCE_ESCALATION_PER_TIER"] * float(max(0, hood_index))
         chance += C["HEAT_CHANCE_AT_MAX"] * heat / 100.0
         return min(chance, B["MAXIMUM_RUN_EVENT_CHANCE"])
 
@@ -614,6 +618,10 @@ class Run:
         self.owned = set()               # crew-shared sink ids
         self.owned_by = [set() for _ in range(players)]
         self.hands = []                  # {skill, wage, earned_today}
+        # Lawn bags on hand (shops.gd supplies): the starter rolls; the first job
+        # can run short, later ones are stocked for (model.json bags_per_yard).
+        self.bags = float(C["STARTER_SUPPLIES"].get("lawn_bags", 0))
+        self.first_job_bag_share = None
         self.heat = 0.0
         self.last_event = -INF           # real minutes
         self.lots_completed = 0
@@ -638,6 +646,7 @@ class Run:
         self.day_binding = {"clock": 0, "requests": 0}
         self.patience_jobs = 0
         self.raids = 0
+        self.raid_xp = 0
         self.raid_bands = {"quiet_maple_day": [0, 0], "loud": [0, 0], "mansion_night": [0, 0]}
         self.purchases = {}              # id -> {unlock_day, buy_day, days_of_income}
         self.quits = 0
@@ -934,6 +943,10 @@ class Run:
         """Leaf-rate multipliers and tool tiers from what the crew owns."""
         rake_mult, leaf_mult, blower = 1.0, 1.0, False
         speed, noise = {}, {}
+        # p2-kit: everyone rakes with their own rake, so a better rake bought by one
+        # player (per_player) speeds that player's share of the raking: the crew's
+        # rake multiplier is the average over its players' best rakes.
+        best_rake = [1.0] * self.n
         for sink in self.g.live:
             if not self.owns(sink["id"]):
                 continue
@@ -941,13 +954,19 @@ class Run:
             if effect.get("blower"):
                 blower = True
             if "rake_mult" in effect:
-                rake_mult = max(rake_mult, effect["rake_mult"])
+                if sink.get("per_player"):
+                    for index in range(self.n):
+                        if sink["id"] in self.owned_by[index]:
+                            best_rake[index] = max(best_rake[index], effect["rake_mult"])
+                else:
+                    best_rake = [max(b, effect["rake_mult"]) for b in best_rake]
             if "leaf_rate_mult" in effect:
                 leaf_mult *= effect["leaf_rate_mult"]
             if "tool" in effect:
                 tool = effect["tool"]
                 speed[tool] = max(speed.get(tool, 1.0), effect.get("speed", 1.0))
                 noise[tool] = min(noise.get(tool, 1.0), effect.get("heat_mult", 1.0))
+        rake_mult = sum(best_rake) / float(self.n)
         return rake_mult, leaf_mult, blower, speed, noise
 
     def leaf_rate(self, crew, effects):
@@ -971,8 +990,15 @@ class Run:
         """Minutes of work and what it achieves, done to the crew's target."""
         g, M, C, n = self.g, self.g.M, self.g.C, self.n
         size = offer["size"]
-        mess = clampf(offer["mess"] * g.econ.crew_work_scale(n), 0.0, 1.5)
-        leaf_units = g.cover[size] * mess / g.cover[1] * cleaned
+        # A small crew's yard is a smaller area (levels/lots/crew_drifts.gd): its
+        # leaves, and so its bags, go by CREW_WORK_SCALE, its time by the measured
+        # crew_area_work. A grown-back yard (mess < 1) is thinner all over: the bags
+        # go by mess, but the rake still covers the lawn (thin_work_floor).
+        area = g.econ.crew_work_scale(n)
+        mess = clampf(offer["mess"], 0.0, 1.5)
+        thin = M["thin_work_floor"]
+        work_share = M["crew_area_work"][int(clampf(n, 1, len(M["crew_area_work"]))) - 1] * (thin + (1.0 - thin) * mess)
+        leaf_units = g.cover[size] / g.cover[1] * work_share * cleaned
         hands = self.hands_rate()
         rate_n = self.leaf_rate(n, effects) + hands
         rate_1 = self.leaf_rate(1, effects) + hands
@@ -998,15 +1024,30 @@ class Run:
         if effects[2]:
             noise_seconds["leaf_blower"] = noise_seconds.get("leaf_blower", 0.0) + leaf_n * 60.0 * M["blower_use_share"]
         work = max(leaf_n, (leaf_1 + task_minutes) / n) if n > 1 else leaf_1 + task_minutes
-        yard_value = float(g.B["CREDITS_PER_1_PERCENT_LOT_CLEANUP"]) * 100.0 * g.cover[size] * mess
+        yard_value = float(g.B["CREDITS_PER_1_PERCENT_LOT_CLEANUP"]) * 100.0 * g.cover[size] * mess * area
         hand_share = hands / rate_n if rate_n > 0 else 0.0
+        bags = M["bags_per_yard"] * g.cover[size] / g.cover[1] * mess * area * cleaned
         return {"work": work, "cleaned": cleaned, "tasks": tasks, "noise": noise_seconds, "noise_mult": noise_mult,
-                "yard_value": yard_value, "hand_share": hand_share}
+                "yard_value": yard_value, "hand_share": hand_share, "bags": bags, "leaf_work": leaf_n}
+
+    def bag_limited(self, plan, supply):
+        """The crew runs out of bags partway: the leaves stop there (cleaned and
+        the leaf work shrink to the bags on hand); the tasks still get done."""
+        if plan["bags"] <= supply or plan["bags"] <= 0:
+            return plan, 1.0
+        share = max(0.0, supply) / plan["bags"]
+        out = dict(plan)
+        out["cleaned"] = plan["cleaned"] * share
+        out["work"] = max(0.0, plan["work"] - plan["leaf_work"] * (1.0 - share))
+        out["bags"] = supply
+        return out, share
 
     def scaled(self, plan, share):
         out = dict(plan)
         out["work"] = plan["work"] * share
         out["cleaned"] = plan["cleaned"] * share
+        out["bags"] = plan["bags"] * share
+        out["leaf_work"] = plan["leaf_work"] * share
         out["tasks"] = [(task, done * share) for task, done in plan["tasks"]]
         out["noise"] = {tool: seconds * share for tool, seconds in plan["noise"].items()}
         return out
@@ -1145,19 +1186,39 @@ class Run:
             since = (at - self.last_event) * 60.0
             if since < B["RUN_EVENT_COOLDOWN_MINUTES"] * 60.0 * (1.0 - self.heat / 100.0):
                 continue
-            chance = g.econ.run_roll_chance(self.heat, self.lots_completed)
+            chance = g.econ.run_roll_chance(self.heat, offer["hood_i"])
             if self.heat >= C["HEAT_RAID_AT"] or self.rng.random() < chance:
                 raids += 1
                 self.last_event = at
                 caught = sum(1 for _ in range(self.n) if self.rng.random() < raid["capture_chance"])
                 lost += (raid["chase_minutes"] + caught * (raid["transport_minutes"] + raid["annex_minutes"]) / self.n) * 60.0
-                self.heat = min(self.heat, C["HEAT_AFTER_RAID"])
+                # What a raid pays in XP (director._end_raid, annex.gd, Campaign.add_rescue):
+                # nobody caught is an escape for everyone they spotted; each one caught
+                # files Form 27-B; a friend unbuckles someone now and then.
+                if caught == 0:
+                    spotted = sum(1 for _ in range(self.n) if self.rng.random() < raid["spotted_share"])
+                    self.add_xp(spotted * C["XP_ESCAPE"])
+                    self.raid_xp += spotted * C["XP_ESCAPE"]
+                    self.heat = min(self.heat, C["HEAT_AFTER_EVADED"])
+                else:
+                    rescued = 1 if self.n > caught and self.rng.random() < raid["rescue_chance"] else 0
+                    self.add_xp((caught - rescued) * C["XP_PAPERWORK"] + rescued * C["XP_RESCUE"])
+                    self.raid_xp += (caught - rescued) * C["XP_PAPERWORK"] + rescued * C["XP_RESCUE"]
+                    self.heat = min(self.heat, C["HEAT_AFTER_RAID"])
         return lost / 60.0, raids
 
     def do_job(self, offer, effects):
         g, C, M, rng = self.g, self.g.C, self.g.M, self.rng
         cleaned = clampf(rng.gauss(M["clean_target"], M["clean_noise"]), 0.5, 1.0)
         _, plan, rushed = self.choose(offer, effects, cleaned)
+        # Bags: the first job runs on the starter rolls; before every later one the
+        # crew stocks what it needs (the cost is sinks.json lawn_bags).
+        if self.jobs == 0:
+            plan, share = self.bag_limited(plan, self.bags)
+            self.first_job_bag_share = share
+        else:
+            self.bags = max(self.bags, plan["bags"])
+        self.bags = max(0.0, self.bags - plan["bags"])
         house = offer["house"]
         self.current_house = house.id
         travel = g.travel[offer["hood_i"]]
@@ -1301,7 +1362,12 @@ class Run:
                 if sink.get("want") in ("endless", "cosmetic"):
                     reserve += policy["endless_buffer_days"] * income
                 if sink.get("per_player"):
+                    # A per-player thing that comes after another one (the Leafinator after
+                    # the Mk II) waits for that player's own.
+                    after = [gate[len("after:"):] for gate in sink["gate"] if gate.startswith("after:")]
                     for index in range(self.n):
+                        if any(rest not in self.owned_by[index] and rest not in self.owned for rest in after):
+                            continue
                         if sink["id"] not in self.owned_by[index] and self.wallets[index] - sink["price"] >= reserve:
                             self.wallets[index] -= sink["price"]
                             self.owned_by[index].add(sink["id"])
@@ -1554,6 +1620,7 @@ def summarize(game: Game, players, runs):
         "jobs_per_day": round(median(jobs_per_day), 2) if jobs_per_day else None,
         "first_night_tier_p50": median([r.first_night_tier for r in runs]),
         "first_night_share": sum(1 for r in runs if r.first_night_tier >= 1) / len(runs),
+        "first_job_bag_share_p10": round(percentile([r.first_job_bag_share if r.first_job_bag_share is not None else 0.0 for r in runs], 10), 3),
         "cash_per_player_by_day": cash,
         "income_per_day_by_rank": income_by_rank,
         "purchases": purchases,
@@ -1563,6 +1630,7 @@ def summarize(game: Game, players, runs):
             "patience": sum(r.patience_jobs for r in runs) / jobs_total,
         },
         "raids_per_job": sum(r.raids for r in runs) / jobs_total,
+        "raid_xp_share": round(statistics.median([r.raid_xp / max(1, r.xp + r.pending) for r in runs]), 4),
         "raid_bands": bands,
         "hire": {
             "fee_days_at_unlock": round(median(hire_fee_days), 3) if hire_fee_days else None,
@@ -1583,16 +1651,16 @@ def _finite(value):
 # ---------------------------------------------------------------- checks
 
 def run_checks(game: Game, crews: dict, parity, strict: bool, self_problems=()) -> list:
-    """Every check. baseline_ok marks the tuning checks --baseline may excuse; the
-    integrity checks (engine parity, the self-test) always fail the exit code."""
+    """Every check. Blocking ones fail --check's exit code (warnings too with
+    --strict); balance:E retired --baseline, which used to excuse the tuning ones."""
     C, T = game.C, game.M["targets"]
     checks = []
 
-    def add(name, ok, value, limit, blocking=True, baseline_ok=True):
+    def add(name, ok, value, limit, blocking=True):
         checks.append({"name": name, "ok": bool(ok), "value": value, "limit": limit,
-                       "blocking": bool(blocking or strict), "baseline_ok": bool(baseline_ok)})
+                       "blocking": bool(blocking or strict)})
 
-    add("self-test: sink prices equal Catalog.price", not self_problems, len(self_problems), 0, baseline_ok=False)
+    add("self-test: sink prices equal Catalog.price", not self_problems, len(self_problems), 0)
 
     arc = C["ARC_HOURS"]
     last_name = "The Lawnfather"
@@ -1603,6 +1671,10 @@ def run_checks(game: Game, crews: dict, parity, strict: bool, self_problems=()) 
         add("(a) arc hours, crew %s" % key, hours is not None and arc[0] <= hours <= arc[1], hours, list(arc))
         share = crews[key]["first_night_share"]
         add("(b) first rank-up on night 1, crew %s" % key, share >= T["first_night_share"], round(share, 3), ">= %s of seeds" % T["first_night_share"])
+        # The first job runs on the starter bags (Constants.STARTER_SUPPLIES): the
+        # crew shouldn't run out before the yard's done (p10 over the seeds).
+        bag_share = crews[key]["first_job_bag_share_p10"]
+        add("(b) first job's leaves fit the starter bags, crew %s" % key, bag_share >= T["first_job_bag_share"], bag_share, ">= %s (p10)" % T["first_job_bag_share"])
         for tool in C["TOOL_PRICES"]:
             info = crews[key]["purchases"].get(tool)
             if info is None:
@@ -1629,15 +1701,14 @@ def run_checks(game: Game, crews: dict, parity, strict: bool, self_problems=()) 
             days = crews[key]["catalog_days_at_lawnfather"]
             add("(g) endless catalog left, crew %s" % key, days is not None and days >= T["endless_catalog_days"], days, T["endless_catalog_days"])
     if parity is not None:
-        add("(f) engine parity: constants", not parity["constant_mismatches"], len(parity["constant_mismatches"]), 0, baseline_ok=False)
+        add("(f) engine parity: constants", not parity["constant_mismatches"], len(parity["constant_mismatches"]), 0)
         # A case for a function the sim has no mirror of is drift too: the engine
         # grew a formula that the sim can't follow.
         add("(f) engine parity: formulas", not parity["case_mismatches"] and not parity["unknown_functions"] and parity["cases"] > 0,
-            {"cases": parity["cases"], "mismatches": len(parity["case_mismatches"]), "unmirrored": parity["unknown_functions"]}, 0,
-            baseline_ok=False)
+            {"cases": parity["cases"], "mismatches": len(parity["case_mismatches"]), "unmirrored": parity["unknown_functions"]}, 0)
         # The engine's own rules about the tables (net/dev/balance_test.gd invariants).
         add("(f) engine invariants (--balance-test ok)", parity["engine_ok"] is True,
-            {"failed": parity["failed_invariants"]}, True, baseline_ok=False)
+            {"failed": parity["failed_invariants"]}, True)
 
     # Warnings (blocking with --strict).
     pace = C["RANK_PACE_HOURS"]
@@ -1841,6 +1912,7 @@ def table_lines(game, report) -> list:
     lines.append(row_of("days of income, washer", lambda c: (c["purchases"].get("pressure_washer") or {}).get("days_of_income"), 2))
     lines.append(row_of("hire fee, days of income", lambda c: c["hire"]["fee_days_at_unlock"], 2))
     lines.append(row_of("raids per job", lambda c: c["raids_per_job"], 2))
+    lines.append(row_of("XP share from raids", lambda c: c["raid_xp_share"], 2))
     lines.append(row_of("days bound by clock", lambda c: c["binding"]["clock"], 2))
     lines.append(row_of("days bound by requests", lambda c: c["binding"]["requests"], 2))
     lines.append(row_of("jobs past patience", lambda c: c["binding"]["patience"], 2))
@@ -2066,7 +2138,9 @@ def propose(repo, base_sets, model_path, sinks_path, seeds, days_max, log):
             if not dois:
                 continue
             income_at_unlock = sink["price"] / statistics.mean(dois)
-            path = "Constants.TOOL_PRICES.%s" % sink["id"] if sink["kind"] == "tool" else "Constants.SHOP_PRICES.%s" % sink["id"]
+            # A tool with a TOOL_PRICES entry is priced there; the rake (p2-kit) and
+            # the upgrades are SHOP_PRICES (Catalog.price looks there first).
+            path = "Constants.TOOL_PRICES.%s" % sink["id"] if sink["id"] in game.C["TOOL_PRICES"] else "Constants.SHOP_PRICES.%s" % sink["id"]
             prices[path] = max(50, int(round(income_at_unlock * targets["propose_price_days"] / 10.0)) * 10)
         fee_days = [result[k]["hire"]["fee_days_at_unlock"] for k in ("1", "4") if result[k]["hire"]["fee_days_at_unlock"]]
         if fee_days:
@@ -2112,7 +2186,6 @@ def main(argv=None) -> int:
     parser.add_argument("--html", nargs="?", const=os.path.join(REPO, "build", "balance", "report.html"), default=None)
     parser.add_argument("--check", action="store_true", help="exit 1 when a blocking check fails")
     parser.add_argument("--strict", action="store_true", help="warnings block too")
-    parser.add_argument("--baseline", action="store_true", help="with --check: the tuning checks don't fail the exit code (until balance:E); parity (f) and the self-test still do")
     parser.add_argument("--engine-dump", default=None, metavar="HOST_JSON", help="compare constants and formulas with --balance-test's output")
     parser.add_argument("--propose", action="store_true", help="search for values toward the targets; writes build/balance/proposal.json")
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
@@ -2206,13 +2279,6 @@ def main(argv=None) -> int:
             log("  parity: no mirror for %s" % ", ".join(parity["unknown_functions"]))
     log("%d blocking checks failed, %d warnings; wrote %s" % (len(failed), len(warned), args.report))
     if args.check and failed:
-        if args.baseline:
-            hard = [c for c in failed if not c.get("baseline_ok", True)]
-            if hard:
-                log("BASELINE does not excuse %s: the simulator or its mirror is wrong, not the tuning." % ", ".join(c["name"] for c in hard))
-                return EXIT_FAIL
-            log("BASELINE: %d blocking checks fail on today's numbers; --baseline keeps the exit code 0 until balance:E retunes them." % len(failed))
-            return EXIT_PASS
         return EXIT_FAIL
     return EXIT_PASS
 

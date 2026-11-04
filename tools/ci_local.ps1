@@ -728,8 +728,8 @@ try {
 
 ## The balance lab (docs/BALANCE.md): tools/balance_sim.py --check, with the balance test's
 ## host.json as --engine-dump when it exists, so a constant the sim's parser reads wrong or a
-## formula whose mirror drifted fails here. --baseline until balance:E retunes: the tuning
-## checks report without failing; parity and the engine's invariants always fail.
+## formula whose mirror drifted fails here. Every check blocks since balance:E's retune
+## (the arc, prices, hiring, days per tier, parity and the engine's invariants).
 if (Wants 'balance-sim') {
 	Write-Host '== balance sim' -ForegroundColor Cyan
 	$started = $Clock.Elapsed.TotalSeconds
@@ -739,7 +739,7 @@ if (Wants 'balance-sim') {
 	$dump = Join-Path $Root 'build\soak\local-balance\host.json'
 	$log = Join-Path $dir 'sim.log'
 	$notes = @()
-	$simArgs = "tools\balance_sim.py --check --baseline --report `"$(Join-Path $dir 'report.json')`" --md `"$(Join-Path $dir 'report.md')`""
+	$simArgs = "tools\balance_sim.py --check --report `"$(Join-Path $dir 'report.json')`" --md `"$(Join-Path $dir 'report.md')`""
 	if (Test-Path $dump) {
 		$simArgs += " --engine-dump `"$dump`""
 		if (-not (Wants 'balance')) { $notes += "engine dump from $((Get-Item $dump).LastWriteTime) (run -Only balance,balance-sim for a fresh one)" }
@@ -755,9 +755,9 @@ if (Wants 'balance-sim') {
 		$p.WaitForExit()
 		$ok = $p.ExitCode -eq 0
 		if ($p.ExitCode -eq 2) { $notes += 'usage or parse error (exit 2)' }
-		# The parity and self-test lines, then the totals; --baseline's excused tuning failures
-		# are in the log and the report.
-		$summary = Select-String -Path $log -Pattern '^(PASS|FAIL) +(\(f\)|self-test)|blocking checks failed|^BASELINE' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
+		# The parity and self-test lines, any failed check, then the totals (every check
+		# is in the log and the report).
+		$summary = Select-String -Path $log -Pattern '^(PASS|FAIL) +(\(f\)|self-test)|^FAIL +\([a-g]|blocking checks failed' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line }
 		$notes += @($summary)
 		if (-not $ok) {
 			Select-String -Path $log -Pattern '^  parity:' -ErrorAction SilentlyContinue | Select-Object -First 12 | ForEach-Object { $notes += $_.Line }

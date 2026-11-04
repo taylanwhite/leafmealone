@@ -62,8 +62,16 @@ func _run() -> void:
 	var pick: Dictionary = board.call("current")
 	var house_id := int(pick.get("house_id", -1))
 	var lot := get_tree().get_first_node_in_group("job_lot")
-	var loaded := lot != null and int(lot.get("job_seed")) == int(town.call("house", house_id)["seed"]) and absf(float(lot.get("mess")) - 1.0) < 0.001
-	print("[TownTest] picked %s at %s: their yard loaded, full of leaves: %s" % [pick.get("client", "?"), town.call("address", house_id), loaded])
+	# A new client's yard is full, sized for the crew on the session (balance:E:
+	# the lot carries the crew, two players here, and its leaves cover
+	# Constants.CREW_WORK_SCALE of the leafy lawn, levels/lots/crew_drifts.gd).
+	var field := lot.get_node_or_null("LeafField") if lot != null else null
+	var leafy := 0.0
+	if field != null:
+		leafy = 1.0 - float(field.get("_clean_at_start")) / float(int(field.get("grid_width")) * int(field.get("grid_depth")))
+	var loaded := lot != null and int(lot.get("job_seed")) == int(town.call("house", house_id)["seed"]) and absf(float(lot.get("mess")) - 1.0) < 0.001 \
+		and int(lot.get("crew")) == Net.player_count() and leafy > 0.2
+	print("[TownTest] picked %s at %s: their yard loaded, full of leaves (mess %.2f) for a crew of %d (lot crew %d, %.0f%% of the lot leafy, %.2f of the leafy lawn): %s" % [pick.get("client", "?"), town.call("address", house_id), float(lot.get("mess")) if lot != null else -1.0, Net.player_count(), int(lot.get("crew")) if lot != null else -1, leafy * 100.0, _Economy.crew_work_scale(Net.player_count()), loaded])
 	ok = ok and loaded
 	var working := int(town.get("current_house")) == house_id
 	print("[TownTest] the town knows the crew is at that house: %s" % working)

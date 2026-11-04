@@ -2,16 +2,28 @@
   "_about": "Assumptions tools/balance_sim.py needs that are not game tuning: how fast people work, how they choose, and the thresholds the checks hold. The game never reads this file. Every entry has a source: 'guess' (nobody has measured it yet), a doc, a game file it mirrors by hand, or 'calibrated <date>' once balance:G measures it. A value 'const:Script.NAME.key' is read from the game's scripts; 'model:name' is another entry here. See docs/BALANCE.md.",
 
   "leaf_rate_yard_per_min": {
-    "value": [0.0435, 0.0787, 0.0996, 0.1112],
-    "source": "guess, by crew size 1..4: a regular full yard's leaves per wall-clock minute with the job's one rake, bags and hauling (utilization already in); was [0.055, 0.09, 0.11, 0.12], matching docs/FUN.md's 6 to 12 minute jobs for 2 to 4 people. Calibrated 2026-11-02 by tools/rake_pace.gd for the windrow rule (rakefeel:field): a job with bagging and hauling at a walking pace takes 1.27x as long as with 0.4.7's 3.2 m stroke (785 s -> 995 s), so the rake's part of each rate (rake_share) is x0.79 and the rest is unchanged."
+    "value": [0.0435, 0.078, 0.108, 0.135],
+    "source": "guess, by crew size 1..4: a regular full yard's leaves per wall-clock minute, bags and hauling in (utilization already in). Solo calibrated 2026-11-02 by tools/rake_pace.gd for the windrow rule (rakefeel:field: 1.27x as long as 0.4.7's stroke). balance:E (2026-11-04): since p2-kit every player rakes with their own rake (was one rake per job: [0.0435, 0.0787, 0.0996, 0.1112]), so each player after the first adds about 0.8 of a solo raker (shared hauling to Chefty, working round each other): 1.8x, 2.5x and 3.1x solo."
+  },
+  "crew_area_work": {
+    "value": [0.66, 0.805, 0.94, 1.0],
+    "source": "calibrated 2026-11-04 by tools/rake_pace.gd --crew=N --quick --speeds=2.5 --seeds=777,1000,4242,31,9001,2468 (--skip: the raker works the drifts, not the whole lawn), by crew size 1..4: a crew's smaller yard (Constants.CREW_WORK_SCALE of the leafy area, levels/lots/crew_drifts.gd) takes this share of the whole yard's time with hauling (789.5, 964.7, 1123.7, 1197.8 s). Its leaves are about the area share (0.59, 0.74, 0.89 of the units), so pay goes by CREW_WORK_SCALE and work by this. Longer than the area share because each drift still has to be pushed to a pile row and walked round."
+  },
+  "thin_work_floor": {
+    "value": 0.72,
+    "source": "calibrated 2026-11-04 by tools/rake_pace.gd --mess=0.5 and --mess=0.75 (same seeds and --skip as crew_area_work): a yard grown back to mess m (thinner leaves over the whole lawn, net/town/town.gd regrowth) takes about (floor + (1 - floor) m) of a full yard's time: 0.856 at 0.5, 0.931 at 0.75. The rake still has to cover every cell; only the bagging shrinks. The bag value goes by m."
+  },
+  "bags_per_yard": {
+    "value": 100,
+    "source": "calibrated 2026-11-04 by tools/rake_pace.gd (6 seeds, 2.5 m/s): a full regular yard raked to 92% fills 99.75 bags on average (82 to 112). Bag supply (Constants.STARTER_SUPPLIES lawn_bags) binds on the campaign's first job, before the crew has been to the shelf; after that the crew buys what the next job needs (sinks.json lawn_bags)."
   },
   "leafable_share": {
     "value": 0.85,
     "source": "guess: the share of the 40 m pad (Constants.PAD_HALF) that grows leaves, after the house, the swept driveway and the tool corner (levels/lots/lot_generator.gd _shape_leaves)."
   },
   "rake_share": {
-    "value": [1.0, 0.6, 0.45, 0.35],
-    "source": "guess, by crew size: the share of the crew's leaf rate that is the one rake, so the rake tune-up (Campaign.rake_multiplier, only for the player holding it) speeds only that part."
+    "value": [0.8, 0.8, 0.8, 0.8],
+    "source": "guess, by crew size: the share of the crew's leaf rate that is raking (the rest is bagging and hauling), which a better rake speeds. balance:E: everyone rakes since p2-kit (was the one rake's share, [1.0, 0.6, 0.45, 0.35]); the Mk II and the Leafinator are each player's own (sinks.json per_player), so the crew's rake multiplier is the average of its players' rakes (balance_sim.py crew_effects)."
   },
   "blower_bonus": {
     "value": [1.35, 1.25, 1.2, 1.15],
@@ -98,8 +110,8 @@
     "source": "guess, by neighborhood index, on top of job_overhead_minutes: the legacy map rides are fixed (already in the overhead); the drivable town's are guesses until TownMap lands (critic.md, driving). Constants.TOWN_MAP_DEFAULT picks the row."
   },
   "raid": {
-    "value": {"chase_minutes": 1.2, "capture_chance": 0.4, "transport_minutes": 0.55, "annex_minutes": 1.3},
-    "source": "guess: work lost to the warning and chase (Constants.RUN_WARNING_SECONDS + up to RUN_CHASE_SECONDS), each player's chance of being caught, and a caught player's time away: the gotcha, escort, van hold and ride (transport_minutes) and Form 27-B at Satellite Annex B (annex_minutes; R2 chunk 6 refines it from its soak)."
+    "value": {"chase_minutes": 1.2, "capture_chance": 0.4, "transport_minutes": 0.55, "annex_minutes": 1.3, "spotted_share": 0.7, "rescue_chance": 0.3},
+    "source": "guess: work lost to the warning and chase (Constants.RUN_WARNING_SECONDS + up to RUN_CHASE_SECONDS), each player's chance of being caught, and a caught player's time away: the gotcha, escort, van hold and ride (transport_minutes) and Form 27-B at Satellite Annex B (annex_minutes; R2 chunk 6 refines it from its soak). balance:E: what a raid pays in XP: with nobody caught, each player they spotted (spotted_share) gets Constants.XP_ESCAPE (director._end_raid); each one caught files Form 27-B (XP_PAPERWORK), or with rescue_chance a friend unbuckles one (XP_RESCUE)."
   },
   "water": {
     "value": {"spigot_share": 0.35, "hose_spray_seconds": 50},
@@ -154,6 +166,7 @@
   "targets": {
     "value": {
       "first_night_share": 0.9,
+      "first_job_bag_share": 0.95,
       "price_days": [0.5, 2.0],
       "buy_within_days": 2.0,
       "hire_within_days": 2.0,

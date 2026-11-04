@@ -21,7 +21,17 @@ Template:
 
 ## Open
 
-_(none)_
+### [SHARED → Taylan (human)] 2026-11-04: the workbook after the retune (balance:E)
+- Need: in `design/leaf-me-alone-workbook.xlsx`, BAL-01/02 (5 to 10 hours) to 10 and 20 hours, the campaign's length to The Lawnfather (`Constants.ARC_HOURS`); BAL-08, BAL-09, BAL-11, BAL-18 and BAL-24 marked superseded by the persistent town and the spine's constants; BAL-14 clarified as per job (the code spreads it over a job's rolls, `RAID_LOT_MINUTES`); BAL-15's "tier" read as the job's neighborhood. Optionally a read-only "Balance Sim" sheet filled from `build/balance/report.json`.
+- Why: `core/balance.gd` is generated from the workbook, and `docs/GAME.md` says the workbook wins; today the spine's numbers (`core/constants.gd`, `core/ranks.gd`, tuned by `tools/balance_sim.py`) override those rows. docs/BALANCE.md has the table and the reasons.
+- Stub on my side (if any): GAME.md marks the rows superseded until then.
+- Blocking? no
+
+### [SHARED → driving:H / balance:F] 2026-11-04: model the town map's costs before the W11 cut-over (balance:E review)
+- Need: when `TOWN_MAP_DEFAULT` turns true (driving:H, W11), `tools/balance_sim.py` models what the connected town adds and reruns `--check` with crews 1 and 4 green: drive minutes per neighborhood (`model.json` `travel_minutes_by_hood.town`, still "guesses until TownMap lands": measure them from a real drive), tow and dent fees (`sinks.json`), junk income, and escape XP from town pursuits. critic.md W10 / gap 12 asked balance:E for these; it deferred them because they exist only on the town map.
+- Why: the arc (about 17 h for four, 18 solo) is tuned on the legacy map's travel; the town's drives, tows and dents cost play time and money the simulator doesn't see yet.
+- Stub on my side (if any): the bag supply is modeled now (first job on `STARTER_SUPPLIES`, later jobs stocked); lawn bags and gas are live costs.
+- Blocking? no (blocks the W11 cut-over's balance sign-off)
 
 ## Done
 

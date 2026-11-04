@@ -490,8 +490,8 @@ jobs:
       # The engine dumps its constants, a grid of economy formulas and the tables'
       # invariants (--balance-test, host only); tools/balance_sim.py then plays crews of
       # 1 to 4 through the town and compares itself with that dump (docs/BALANCE.md).
-      # --baseline until balance:E retunes: the arc and price checks are reported but
-      # don't fail; engine parity and the invariants always do.
+      # Every check blocks (balance:E retuned the numbers and dropped --baseline): the
+      # 10 to 20 hour arc, first night, tool and hire prices, days per tier, parity.
       - name: Balance simulator (10 to 20 hour arc for 1 and 4 players; engine parity)
         if: matrix.part == 'features'
         timeout-minutes: 3
@@ -501,7 +501,7 @@ jobs:
           "$GODOT" --headless --path . -- --host --port=7819 --name=Tester --no-steam --balance-test --measure="$PWD/build/soak/ci-balance/host.json" --run-seconds=20 > build/soak/ci-balance/host.log 2>&1
           grep "BalanceTest" build/soak/ci-balance/host.log || true
           $PY -c "import json,sys; r=json.load(open('build/soak/ci-balance/host.json'))['balance_test']; print(r.get('error','')); sys.exit(0 if r.get('ok') else 1)"
-          $PY tools/balance_sim.py --check --baseline --engine-dump build/soak/ci-balance/host.json --report build/soak/ci-balance/report.json --md build/soak/ci-balance/report.md
+          $PY tools/balance_sim.py --check --engine-dump build/soak/ci-balance/host.json --report build/soak/ci-balance/report.json --md build/soak/ci-balance/report.md
 
       # The playtest tools (docs/PLAYTEST.md): every scenario jump reaches its moment through
       # the real game code, and the recorder writes evenly spaced frames (a fixed step:

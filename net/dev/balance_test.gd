@@ -238,20 +238,21 @@ func _add_cases(cases: Array) -> void:
 		_case(cases, "Economy.split_shares", [scores], shares)
 		for pool: float in [0.0, 3.0, 40.0, 117.6]:
 			_case(cases, "Economy.split_dollars", [pool, shares], _Economy.split_dollars(pool, shares))
-	# Crew size.
-	for players: int in range(1, Constants.MAX_PLAYERS + 1):
+	# Crew size (0 and one past the most for the clamps).
+	for players: int in range(0, Constants.MAX_PLAYERS + 2):
 		_case(cases, "Economy.crew_work_scale", [players], _Economy.crew_work_scale(players))
 		_case(cases, "Economy.crew_patience_scale", [players], _Economy.crew_patience_scale(players))
 		_case(cases, "Economy.xp_crew_scale", [players], _Economy.xp_crew_scale(players))
-	# The NICE BOYS' roll.
+	# The NICE BOYS' roll, by heat and the job's neighborhood (balance:E; -1 and 9
+	# for the clamps).
 	for heat: float in [0.0, 25.0, 50.0, 75.0, 100.0]:
-		for progress: int in [0, 1, 3, 6, 10, 30]:
-			_case(cases, "Economy.run_roll_chance", [heat, progress], _Economy.run_roll_chance(heat, progress))
+		for hood: int in [-1, 0, 1, 2, 3, 4, 5, 9]:
+			_case(cases, "Economy.run_roll_chance", [heat, hood], _Economy.run_roll_chance(heat, hood))
 	# balance:E0 (R2 chunk 1): the per-lot chance and its per-roll share.
 	for heat: float in [0.0, 50.0, 94.0, 100.0]:
-		for lots: int in [0, 3, 10]:
-			_case(cases, "Economy.run_lot_chance", [heat, lots], _Economy.run_lot_chance(heat, lots))
-			_case(cases, "Economy.run_roll_chance", [heat, lots], _Economy.run_roll_chance(heat, lots))
+		for hood: int in [0, 3, 5]:
+			_case(cases, "Economy.run_lot_chance", [heat, hood], _Economy.run_lot_chance(heat, hood))
+			_case(cases, "Economy.run_roll_chance", [heat, hood], _Economy.run_roll_chance(heat, hood))
 
 
 # ---------------------------------------------------------------- invariants
@@ -284,11 +285,11 @@ func _check_invariants(invariants: Array) -> void:
 	var e0_rolls := Constants.RAID_LOT_MINUTES * 60.0 / Constants.HEAT_ROLL_SECONDS
 	var e0_off: Array[String] = []
 	for heat: float in [0.0, 50.0, 94.0, 100.0]:
-		for lots: int in [0, 3, 10]:
-			var p_lot := _Economy.run_lot_chance(heat, lots)
-			var p_roll := _Economy.run_roll_chance(heat, lots)
+		for hood: int in [0, 3, 5]:
+			var p_lot := _Economy.run_lot_chance(heat, hood)
+			var p_roll := _Economy.run_roll_chance(heat, hood)
 			if absf((1.0 - pow(1.0 - p_roll, e0_rolls)) - p_lot) > 0.0001 or (p_lot > 0.0 and p_roll >= p_lot):
-				e0_off.append("heat %d lots %d: lot %.4f roll %.4f" % [heat, lots, p_lot, p_roll])
+				e0_off.append("heat %d hood %d: lot %.4f roll %.4f" % [heat, hood, p_lot, p_roll])
 	_check(invariants, "a lot's raid rolls compound to the per-lot chance (balance:E0)", e0_off.is_empty(), e0_off)
 	# Every neighborhood a rank opens exists.
 	var hood_ids: Array[String] = []
@@ -299,14 +300,15 @@ func _check_invariants(invariants: Array) -> void:
 		if unlock.begins_with("hood:") and not hood_ids.has(unlock.trim_prefix("hood:")):
 			missing_hoods.append(unlock)
 	_check(invariants, "every hood unlock is a neighborhood", missing_hoods.is_empty(), missing_hoods)
-	# The crew-size tables (gap balance:E adds them): one entry per crew size, each above 0.
+	# The crew-size tables (balance:E): one entry per crew size, each above 0.
 	for table_name: String in ["CREW_WORK_SCALE", "CREW_PATIENCE_SCALE", "XP_CREW_SCALE"]:
 		if not constants.has(table_name):
-			_check(invariants, "%s has an entry per crew size" % table_name, true, "not added yet (balance:E); Economy returns 1.0")
+			_check(invariants, "%s has an entry per crew size" % table_name, false, "missing from core/constants.gd")
 			continue
 		var table: Array = constants[table_name]
 		var good := table.size() == Constants.MAX_PLAYERS and table.all(func(entry: Variant) -> bool: return float(entry) > 0.0)
 		_check(invariants, "%s has an entry per crew size" % table_name, good, table)
+	_check_crew_drifts(invariants)
 	# The pacing targets: one per rank and The Lawnfather, never going down, ending inside the arc.
 	var pace: Array = Constants.RANK_PACE_HOURS
 	var rising := true
@@ -325,6 +327,46 @@ func _check_invariants(invariants: Array) -> void:
 			off.append(str(tier))
 	_check(invariants, "tier_for_xp(xp_to_reach(k)) == k", off.is_empty(), off)
 	_check_migration(invariants)
+
+
+## A small crew's yard is smaller in area (levels/lots/crew_drifts.gd, balance:E):
+## on a yard-shaped 80 x 80 field (trees, a house with no leaves) the drifts leave
+## CREW_WORK_SCALE of the leafy cells leafy, within a percent, for every crew size
+## and a few seeds, and a whole crew's yard is untouched.
+func _check_crew_drifts(invariants: Array) -> void:
+	var drifts: Script = load("res://levels/lots/crew_drifts.gd")
+	var points := PackedVector2Array()
+	var amounts := PackedFloat32Array()
+	var trees: Array[Vector2] = [Vector2(-11.0, 6.0), Vector2(9.0, 10.0), Vector2(12.0, -14.0)]
+	for z: int in 80:
+		for x: int in 80:
+			var at := Vector2(-20.0 + (float(x) + 0.5) * 0.5, -20.0 + (float(z) + 0.5) * 0.5)
+			var amount := 0.5
+			for tree: Vector2 in trees:
+				amount += 1.2 * exp(-at.distance_squared_to(tree) / 18.0)
+			if Rect2(-6.0, -12.0, 12.0, 9.0).has_point(at):
+				amount = 0.0
+			points.append(at)
+			amounts.append(amount)
+	var off: Array[String] = []
+	for seed_value: int in [7, 1000, 4242]:
+		var noise: FastNoiseLite = drifts.call("noise_for", hash([seed_value, "crew_drifts"]))
+		var counts: Array[int] = []
+		for players: int in range(1, Constants.MAX_PLAYERS + 1):
+			var keep := _Economy.crew_work_scale(players)
+			var cut := float(drifts.call("cut_for", noise, points, amounts, keep))
+			var leafy := 0
+			for index: int in points.size():
+				var value := clampi(int(round(60.0 * amounts[index] * float(drifts.call("weight", noise, cut, points[index])))), 0, 255)
+				if value > 8:
+					leafy += 1
+			counts.append(leafy)
+		var whole := counts[counts.size() - 1]
+		for index: int in counts.size():
+			var share := float(counts[index]) / float(maxi(1, whole))
+			if absf(share - _Economy.crew_work_scale(index + 1)) > 0.01:
+				off.append("seed %d crew %d: %.3f" % [seed_value, index + 1, share])
+	_check(invariants, "a small crew's drifts cover CREW_WORK_SCALE of the leafy lawn", off.is_empty(), off)
 
 
 ## A crew never loses its tier when the XP curve changes: a pre-curve save loads

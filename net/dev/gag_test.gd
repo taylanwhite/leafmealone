@@ -47,7 +47,9 @@ func _run() -> void:
 	await _seconds(3.0)
 	var heat_after_mowing := float(heat.get("heat"))
 	print("[GagTest] mower running %s for 3 s: heat %.1f" % [running, heat_after_mowing])
-	ok = ok and running and heat_after_mowing > 3.0
+	# 3 s of mowing at the mower's noise (balance:E retunes it), with slack for the
+	# first tick and the mower's start.
+	ok = ok and running and heat_after_mowing > Constants.HEAT_NOISE_PER_SECOND["lawn_mower"] * 1.5
 	var dropped_at := mower.global_position
 	_drop_held()
 	await _seconds(1.2)

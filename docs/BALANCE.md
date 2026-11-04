@@ -9,11 +9,10 @@ Python 3 with the standard library only (`%LOCALAPPDATA%\Programs\Python\Python3
 | Command | What it does |
 | --- | --- |
 | `python tools/balance_sim.py` | Simulates crews 1 to 4 over 40 seeds (about 4 s), prints the summary table and every check, writes `build/balance/report.json` and `report.md`. |
-| `--check` | Exit 1 when a blocking check fails. |
-| `--check --baseline` | Runs and prints the checks; the tuning checks (a) to (e) and (g) don't fail the exit code. Today's numbers fail them on purpose (see the baseline below); CI uses this until the retune (gap balance:E) drops it. Engine parity (f) and the self-test are never excused: a misparsed constant or a drifted mirror exits 1 even with `--baseline`. |
+| `--check` | Exit 1 when a blocking check fails. Every one blocks in CI since the retune (balance:E removed `--baseline`, which excused the tuning checks while the numbers were known to fail). |
 | `--strict` | Warnings block too. |
 | `--players 1,4 --seeds 20 --days 120` | Crew sizes, runs per size, and the most days a run plays. With `--check`, `--players` must include 1 and 4 (the blocking checks are for them), or it exits 2. |
-| `--set NAME=VALUE` | A what-if, repeatable. NAME is `Script.NAME[.key...]` or a bare constant (looked up in Constants, then Ranks, Balance, Seasons). VALUE is a GDScript expression: `--set TOWN_REGROW_PER_DAY=0.3`, `--set Ranks.XP_FIRST_TIER=160`, `--set Constants.TOOL_PRICES.leaf_blower=400`, `--set "HIRE_SKILL=Vector2(0.5, 0.9)"`. A name, key or index the game doesn't have is a typo and exits 2; only the crew-scale hooks balance:E will add (`CREW_WORK_SCALE`, `CREW_PATIENCE_SCALE`, `XP_CREW_SCALE`) may be new. Nothing in the repo changes. |
+| `--set NAME=VALUE` | A what-if, repeatable. NAME is `Script.NAME[.key...]` or a bare constant (looked up in Constants, then Ranks, Balance, Seasons). VALUE is a GDScript expression: `--set TOWN_REGROW_PER_DAY=0.3`, `--set Ranks.XP_FIRST_TIER=160`, `--set Constants.TOOL_PRICES.leaf_blower=400`, `--set "HIRE_SKILL=Vector2(0.5, 0.9)"`. A name, key or index the game doesn't have is a typo and exits 2. Nothing in the repo changes. |
 | `--html [path]` | Also writes `build/balance/report.html`: hours per tier against the pace targets, and cash per player by day, as inline SVG, plus the tables. |
 | `--report`, `--md` | Where the JSON and Markdown go. |
 | `--engine-dump host.json` | Compares every constant the simulator reads, and a grid of formula calls, with what the engine computed (`--balance-test`'s probe report, below). Any difference, a case the sim has no mirror for, or a failed engine invariant fails check (f). |
@@ -34,7 +33,7 @@ Exit codes: 0 pass, 1 a blocking check failed, 2 a parse or usage error (a const
 - `net/town/town.gd`: the 47 houses and their owners (statistically, not Godot's random numbers), three Maple Row clients on day one, morning requests (`requests_per_day` with the extra-request perks), daytime texts, the request threshold, missed requests, relationship and referrals (with the word-of-mouth perks), Marty's lead when nobody texts, new neighborhoods opening by rank, TurfMasters™ poaching, signs and winning clients back.
 - `levels/job_board.gd` `choose_tasks` (owned tools, the unowned-tool task, extra tasks by yard size) and `Town.offer_for` (the owner's favorite task, the season's task, the season's leaves).
 - `npcs/homeowner.gd` `_judge` and `_handle_talk`: how done the job is (leaves and every task weighed alike), standards, patience (with sweet talk), the mood odds including the "some days people are just in a mood" rolls, and the pay.
-- `Campaign.finish_job` (Lawnfather stars, the season, quiet hours and night owl on top; XP per job; the town's XP; an even split, since the simulator gives every player the same contribution), `Campaign.crew_tools` (tools are shared), `net/crew/hires.gd` `pay_wages` (newest hand quits first when the crew can't pay), `net/day/day_clock.gd` (7 AM to 2 AM, no new job once the clock stops, sleep from 6 PM, XP banked at bedtime), `net/run_events/director.gd` `_consider_roll` (every 20 s once 10% is done, the cooldown that shrinks with heat, a raid at 95 heat) and `heat.gd` (noise by tool, neighborhood and quiet hours; cooling; 35 off per paid job; 15 after a raid).
+- `Campaign.finish_job` (Lawnfather stars, the season, quiet hours and night owl on top; XP per job; the town's XP; an even split, since the simulator gives every player the same contribution), `Campaign.crew_tools` (tools are shared), `net/crew/hires.gd` `pay_wages` (newest hand quits first when the crew can't pay), `net/day/day_clock.gd` (7 AM to 2 AM, no new job once the clock stops, sleep from 6 PM, XP banked at bedtime), `net/run_events/director.gd` `_consider_roll` (every 20 s once 10% is done, the cooldown that shrinks with heat, a raid at 95 heat, the escalation by the job's neighborhood) and `_end_raid`'s XP (an escape for everyone spotted when nobody's caught, Form 27-B for each one caught, an unbuckle now and then), and `heat.gd` (noise by tool, neighborhood and quiet hours; cooling; 35 off per paid job; 15 after a raid, 35 after an evaded one).
 
 Some numbers those files still write inline are copied into `tools/balance/model.json` (`town_inline`) with that source note. They should move into `constants.gd`, at which point the model entries go. (`homeowner_inline` went in p1-depart: the homeowner's mood swing is `HOMEOWNER_MOOD_SWING_UP_BELOW` / `_DOWN_ABOVE`, and `mood_odds` mirrors `homeowner.verdict`.)
 
@@ -50,7 +49,7 @@ Some numbers those files still write inline are copied into `tools/balance/model
 
 Hours of play are real minutes: the day's clock (jobs and raids run on it, so they cost no extra hours) plus a minute of summary card per day. One in-game hour is `MINUTES_PER_HOUR` (1.25) real minutes.
 
-**Money:** each player has a wallet, pay is split evenly, tools and upgrades are crew-shared (bought by the richest player as soon as they can keep a day of wages), and per-player things are bought by each player. `model.json` `buy_policy` and `hire_policy` say exactly when.
+**Money:** each player has a wallet, pay is split evenly, tools and the wheelbarrow are crew-shared (bought by the richest player as soon as they can keep a day of wages), and per-player things are bought by each player: since p2-kit everyone's rake (out of `STARTING_CASH`) and their own Mk II and Leafinator (a better rake speeds its owner's share of the raking, so the crew's rake multiplier is the average of its players'). Lawn bags (one per bag of leaves) and gas (a share of a can a job once the crew runs a gas tool) come out of the richest wallets. `model.json` `buy_policy` and `hire_policy` say exactly when.
 
 ## The targets
 
@@ -141,6 +140,83 @@ R2 chunk 1 (gap-specs/nice_boys.json) made the one change the retune starts with
 
 Re-run (`--check --baseline`, 40 seeds): raids per job 4.05, 3.97, 3.58 and 3.63 for crews of 1 to 4 (from 5.21, 4.54, 4.39, 4.21); a quiet daytime Maple Row job is raided 26%, 13%, 11% and 10% of the time (target band 10 to 40%, from 80 to 95%). Loud jobs and Mansion Hill nights still go to 95 heat and a certain raid every time, which is what keeps the average near four: that is balance:E's to retune (heat by neighborhood, the certain-raid threshold). 14 blocking checks fail on today's numbers, as before the change (`--baseline` keeps the exit code 0).
 
+## The retune (balance:E, 2026-11-04, build 0.4.16 + balance:E)
+
+Run with `--check` (40 seeds); every blocking check passes, two warnings. Re-run after the review (below: a small crew's yard is smaller in area, thin yards cost rake time, and the first job runs on the starter bags):
+
+```
+                              crew 1    crew 2    crew 3    crew 4    target
+----------------------------------------------------------------------------
+hours to tier I of each rank (median)
+  Leaf Grunt                     1.1       1.3       1.3       1.2       1.0
+  Bag Hauler                     2.7       2.5       2.8       2.6       2.5
+  Mulch Mule                     4.2       4.2       4.6       4.4       4.5
+  Hedge Hog                      6.3       6.3       6.7       6.3       6.5
+  Turf Boss                      8.7       8.6       9.1       8.5       9.0
+  Lawn Lord                     11.3      11.3      11.5      10.9      11.5
+  Yard Baron                    14.3      14.1      14.6      13.7      14.0
+  The Lawnfather                17.8      17.9      18.3      17.0      16.0
+Lawnfather p10 (h)              16.6      16.2      17.3      16.1
+Lawnfather p90 (h)              18.6      18.8      19.3      17.6
+days to The Lawnfather          28.0      33.0      37.0      35.0
+jobs to The Lawnfather            52        81       105       118
+jobs per day                     1.8       2.5       2.9       3.3
+tier after night 1                 3         2         2         2
+$/player/day, Rake Rookie        494       299       193       147
+$/player/day, Bag Hauler         720       378       266       224
+$/player/day, Hedge Hog          610       457       408       366
+$/player/day, Lawn Lord          974       631       612       465
+$/player/day, The Lawnfather      1362      1082      1001       848
+days of income, blower          0.74      0.92      0.92      1.17
+days of income, washer          0.52      0.93      1.67      1.91
+hire fee, days of income        0.87      1.29      1.33      1.53
+raids per job                   1.13      0.88      0.75      0.65
+XP share from raids             0.05      0.08      0.10      0.11
+days bound by clock             0.96      0.95      0.94      0.91
+days bound by requests          0.04      0.05      0.06      0.09
+jobs past patience              0.39      0.10      0.03      0.00
+```
+
+The warnings: a quiet daytime Maple Row job for four players is raided 6% of the time (band 10 to 40%). Those are four people on a regrown yard, done in four minutes: few rolls. And a solo mower-and-blower job is raided 82% of the time (band 45 to 75%): solo jobs are longer, so more rolls. Both are warnings, not targets worth a louder or quieter rule; balance:G should look at them with a human crew.
+
+**The review's fixes** (2026-11-04):
+
+- **A small crew's yard is smaller, not thinner.** `CREW_WORK_SCALE` used to multiply every cell's leaves, but the homeowner, the XP and "Call it a day" count cells raked clean (`LeafField.cleaned_fraction`), so a solo player raked the whole lawn for 60% of the bags: `tools/rake_pace.gd` measured 0.9 of the time for 0.6 of the leaves. Now the leaves lie in drifts over that share of the leafy lawn and the rest starts clean (`levels/lots/crew_drifts.gd`, `CREW_DRIFT_*`), and `rake_pace --crew=N` (with `--skip`: the raker works the drifts, not the whole lawn) measures what that costs: 0.66, 0.805, 0.94 and 1.0 of the whole yard's time for crews of 1 to 4 (`model.json` `crew_area_work`), with the leaves at the area share (0.59, 0.74, 0.89).
+- **A thin yard still costs the rake.** A regrown yard (`mess` under 1) is thinner everywhere; `rake_pace --mess` measures 0.856 of the time at 0.5 and 0.931 at 0.75, so the simulator's work is `thin_work_floor` 0.72 plus the rest by mess (it was all by mess). Bags still go by mess.
+- **The first job runs on the starter bags.** The simulator holds the crew's bags (`STARTER_SUPPLIES` lawn bags), and the campaign's first job stops where they run out (`model.json` `bags_per_yard` 100, from `rake_pace`); later jobs are stocked for. At 40 bags a four-player Day 1 cleaned 41% of its yard in the simulator (the real session: 45%), so a new crew now starts with 100, a roll each, and the new blocking check "(b) first job's leaves fit the starter bags" holds it (p10 of the seeds).
+- **The crew a yard is for is the lot's.** The yard's drifts, its XP scale and the homeowner's patience read `job_lot.crew` (spawn-synced, set at load), so a drop or a join mid-job can't make the yard and its pay disagree. The director's escalation reads the loaded lot's `hood`, so a legacy-map yard keeps its neighborhood through the ride-home wait and `--hood` yards roll as their own.
+- **Retuned for it:** `XP_CREW_SCALE` 2.6, 1.5, 1.12, 1 (was 2.35, 1.4, 1.1), `CREW_PATIENCE_SCALE` 1.3, 1.1, 1, 1 (was 1.15, 1.05; solo jobs past patience 0.44 to 0.39), `XP_PER_TIER_STEP` 22 (was 25). Without them the honest model put solo at 21.1 h and four players at 18.4 h.
+
+**What changed in the model** (before tuning, so the numbers are honest):
+
+- Everyone rakes since p2-kit: `leaf_rate_yard_per_min` is [0.0435, 0.078, 0.108, 0.135] (each player after the first adds about 0.8 of a solo raker), `rake_share` 0.8 for every crew, and the Mk II and the Leafinator are each player's own (`sinks.json` `per_player`).
+- The director rolls by neighborhood (`Economy.run_lot_chance(heat, hood_index)`, the loaded lot's `hood`), and raids pay XP (`model.json` `raid` `spotted_share` 0.7, `rescue_chance` 0.3; `XP_ESCAPE`, `XP_PAPERWORK`, `XP_RESCUE`). Escape XP was the one big reward the old raid storm handed out: at four raids a job it would have been a third of the arc's XP; at about one a job it's 4 to 9%.
+- Lawn bags and gas are live sinks (shops:3's supplies are real costs today). Tool tiers, cosmetics, paint and properties stay planned for balance:F.
+- Not modeled, and why: the drivable town's travel, tow and dent fees and junk income are town-map only (`TOWN_MAP_DEFAULT` false until driving:H cuts over in W11; `travel_minutes_by_hood` has the town row ready); the delivery wait doesn't cost play time (you order and keep working).
+
+**The values, and why** (`--propose` from the spec's candidates found the curve and the crew scales; the prices are solved from the income at unlock, then rounded):
+
+| Constant | Was | Now | Why |
+| --- | --- | --- | --- |
+| `Ranks.XP_FIRST_TIER` / `XP_PER_TIER_STEP` / `XP_ENDLESS_TIER` | 150 / 25 / 1200 | 265 / 22 / 1500 | A rank-up on night one (the simulator says two; no human crew has reached it yet), about a tier a day after, 17 to 18 hours to The Lawnfather. Saves keep their tier (`crew.curve`). |
+| `CREW_WORK_SCALE` | (1.0) | 0.6, 0.75, 0.9, 1.0 | A solo yard is 60% of the leafy lawn, in drifts (the tasks stay whole); it takes 66% of the time. |
+| `CREW_PATIENCE_SCALE` | (1.0) | 1.3, 1.1, 1.0, 1.0 | A solo crew ran out of patience on 81% of jobs; now 39%. |
+| `XP_CREW_SCALE` | (1.0) | 2.6, 1.5, 1.12, 1.0 | Solo does about half the jobs a day of a crew of four (1.8 against 3.3, the clock binds) and must do every task alone; this is what lands solo at 1.05 times four players' arc (target at most 1.3). XP stays flat per piece of work. |
+| `STARTER_SUPPLIES.lawn_bags` | 40 | 100 | A full regular yard fills about 100 bags; 40 ran a four-player Day 1 out at 45%. A roll a player. |
+| `TOOL_PRICES` | $70 to $260 | blower 400, mower 300, ladder 350, hose 350, washer 420, trimmer 450, roller 350 | Each between half a day of a solo player's income and two days of a four-player crew member's when it unlocks (solo earns about twice per player). The window is narrow, so the prices are flat-ish; the Mk II and Mk III (3.5x and 10x) carry the climb. |
+| `SHOP_PRICES.rake_tier_1` / `wheelbarrow_tier_1` | 120 / 120 | 200 / 350 | The Mk II is each player's first goal after Day 1 (a four-player Day 1 pays about $340 each). |
+| `HIRE_SIGNING_FEE` / `HIRE_DAILY_WAGE` | 150 / 40 | 500 / 35 | The fee is 0.8 to 1.5 days of income when hiring opens. The spec's $160 wage would lose money: the model says a hand brings in $30 to $60 a day (`hand_leaf_rate` is a guess; balance:G calibrates it), so the wage stays under that. |
+| `HEAT_NOISE_PER_SECOND` | mower 1.6, blower 1.4, washer 1.0, trimmer 0.9 | 0.2, 0.15, 0.2, 0.18 | A minute of mowing reached 95 heat, a certain raid; now a loud Maple Row job is raided about half the time, Mansion Hill at night nine times in ten (bands above). |
+| `RAID_LOT_MINUTES` | 8 | 5 | The per-lot chance is spread over a four-player job's length, so quiet jobs still see the NICE BOYS now and then. |
+| Director escalation | +5% per job ever finished | +5% per neighborhood | By the twelfth job every roll was at the 65% cap. |
+| `DELIVERY_HOURS` | 2.0 | 0.75 | 56 real seconds (arrivals round to the quarter hour); playtesters found 2.5 minutes long. |
+| `CHEFTY_BOARD_WAIT_SECONDS`, `_STRAGGLER_WAIT`, `_GATHER_REACH` | 6 s, 24 s, 7.5 m | 8 s, 30 s, 9 m | Time to walk over from across the yard; 9 m is the farthest a climb starts from, so nobody is pulled in from far off. |
+| `HOMEOWNER_SETTLE_DONE` | 0.25 | 0.5 | "Call it a day ($N)" comes on its own from half done, about where she stops calling it a mess. |
+
+**Kept on purpose:** `TOWN_REGROW_PER_DAY` 0.35 and `TOWN_REQUEST_MIN_MESS` 0.3 (the spec's 0.3 and 0.45 left a four-player crew without work on a fifth of its days and dropped Leaf Grunt out of its band), `RAKE_WIDTH` (decided: the windrow's 1.27 to 1.36 times slower job is in `leaf_rate_yard_per_min`, and job size and pay carry it), `STARTING_CASH` $50 (a rake each and change on Day 1). **R1-F** (the rake carried leaves twice as far toward +X/+Z as toward -X/-Z) was already fixed by R1b's windrow (each lane read before it's written): `tools/rake_pace.gd` measures 2.61 to 2.67 m of carry in all eight directions (ratio 1.02) and single strokes 0.99 to 1.04 m, so the golden test is unchanged.
+
+**Played** (docs/PLAYTEST.md, "balance:E the retune, played as a crew"): a host and three crew bots, Day 1 in real time. Every player had a rake (the bots bought four on the morning), and the one job's $199 split $60, $53, $48 and $38, so the one-rake days' $3 against $33 are gone. The bots clear a yard at about a third of the model's four-player rate and skip the hand tasks, and the crew's 40 starting bags ran out at 45% of the first yard, so that Day 1 earned a third of the simulated pay and banked 97 XP, short of the first rank-up. The model keeps the competent-player rates (`tools/rake_pace.gd`); calibrating them from a human session is balance:G's. Open: Chefty's 50 against a 65 to 100 bag yard, and `bag_value_avg` 12 against the $6 to $8 bags seen in play. (The 40 starting bags are 100 since the review.)
+
 ## The engine parity test
 
 `--balance-test` (`net/dev/balance_test.gd`, port 7819, host only, about a second) is the engine's half of check (f). Its probe report (`balance_test` in `host.json`) holds:
@@ -180,7 +256,6 @@ Locally: `tools\ci_local.ps1 -Only balance,balance-sim` (about 10 s). `balance-s
 
 ## Still to come
 
-- **balance:E**: the retune, from `--propose` and the checks, with the director change; `--baseline` comes off.
 - **balance:F**: sinks from the shops (tool tiers, supplies, workwear, paint, properties) go live, and the endless-loop check blocks.
 - **balance:G**: calibrate `model.json` from bot soaks.
 - Travel time on the drivable town (`model.json` `travel_minutes_by_hood`, `town` row) is a guess until `TownMap` lands; the legacy map's rides are already in the job overhead.

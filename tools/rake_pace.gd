@@ -38,6 +38,13 @@ const MAX_PASSES: int = 3
 
 var _quick := false
 var _report: Dictionary = {}
+## --mess=<0..1.5>: the yard grown back this far (density, like a town yard's
+## regrowth). --crew=<1..4>: that crew's smaller yard (balance:E drifts). Either
+## turns on --skip: the raker doesn't rake a lane run with no leaves on it, the
+## way a player walks past clean grass. Compare runs with the same flags only.
+var _mess := 1.0
+var _crew := 0
+var _skip := false
 
 
 func _process(_delta: float) -> bool:
@@ -55,6 +62,17 @@ func _process(_delta: float) -> bool:
 
 func _run() -> void:
 	_quick = OS.get_cmdline_user_args().has("--quick")
+	_skip = OS.get_cmdline_user_args().has("--skip")
+	for arg: String in OS.get_cmdline_user_args():
+		if arg.begins_with("--mess="):
+			_mess = float(arg.substr(7))
+			_skip = true
+		elif arg.begins_with("--crew="):
+			_crew = clampi(int(arg.substr(7)), 1, 4)
+			_skip = true
+	_report["mess"] = _mess
+	_report["crew"] = _crew
+	_report["skip"] = _skip
 	var rule := "windrow" if _new_api(_field_for(_uniform(60))) else "legacy"
 	print("[RakePace] rule: %s (RAKE_WIDTH %.2f, RAKE_STRENGTH %.1f, RAKE_STROKE_CELLS %d)" % [rule, _width(), Constants.RAKE_STRENGTH, Constants.RAKE_STROKE_CELLS])
 	_report["rule"] = rule
@@ -102,8 +120,8 @@ func _yard(seed_value: int, size: int) -> PackedByteArray:
 	var spread := rng.randf_range(Constants.YARD_TREE_SPREAD.x, Constants.YARD_TREE_SPREAD.y)
 	var base := rng.randf_range(Constants.YARD_LEAF_BASE.x, Constants.YARD_LEAF_BASE.y) * float(Constants.YARD_LEAVES[size])
 	var house := Rect2(-6.0, -12.0, 12.0, 9.0)
-	var density := PackedByteArray()
-	density.resize(GRID * GRID)
+	var points := PackedVector2Array()
+	var amounts := PackedFloat32Array()
 	for z: int in GRID:
 		for x: int in GRID:
 			var at := Vector2(ORIGIN.x + (float(x) + 0.5) * CELL, ORIGIN.z + (float(z) + 0.5) * CELL)
@@ -112,7 +130,23 @@ func _yard(seed_value: int, size: int) -> PackedByteArray:
 				amount += Constants.YARD_TREE_LEAVES * exp(-at.distance_squared_to(tree) / (2.0 * spread * spread))
 			if house.has_point(at) or (absf(at.x) < 3.0 and at.y > 3.0):
 				amount = 0.0
-			density[x + z * GRID] = clampi(int(round(60.0 * clampf(amount, 0.0, Constants.YARD_LEAF_CAP))), 0, 255)
+			# --mess: a yard grown back this far (lot_generator _shape_leaves' grown).
+			points.append(at)
+			amounts.append(clampf(amount * clampf(_mess, 0.0, 1.5), 0.0, Constants.YARD_LEAF_CAP))
+	# --crew: a crew this size's drifts (levels/lots/crew_drifts.gd, balance:E).
+	var drifts: Script = load("res://levels/lots/crew_drifts.gd") if _crew > 0 else null
+	var noise: FastNoiseLite = null
+	var cut := -2.0
+	if drifts != null:
+		noise = drifts.call("noise_for", hash([seed_value, "crew_drifts"]))
+		cut = float(drifts.call("cut_for", noise, points, amounts, float(Constants.CREW_WORK_SCALE[_crew - 1])))
+	var density := PackedByteArray()
+	density.resize(GRID * GRID)
+	for index: int in points.size():
+		var amount := amounts[index]
+		if noise != null:
+			amount *= float(drifts.call("weight", noise, cut, points[index]))
+		density[index] = clampi(int(round(60.0 * amount)), 0, 255)
 	return density
 
 
@@ -544,6 +578,7 @@ func _score(run: Dictionary) -> float:
 func _clean_lot(yard: PackedByteArray, orient: int, speed: float, spacing: float, block_count: int, stop_at: float, bag_step: float = 2.0) -> Dictionary:
 	var field := _field_for(yard)
 	var start_clean := _clean_at_start(yard)
+	var start_units := _total(field)
 	var raker := Raker.new(field)
 	var u := Vector3.RIGHT if orient == 0 else Vector3.BACK
 	var v := Vector3.BACK if orient == 0 else Vector3.RIGHT
@@ -572,6 +607,15 @@ func _clean_lot(yard: PackedByteArray, orient: int, speed: float, spacing: float
 					var end_origin := mid - side * stop_at
 					if (end_origin - start_origin) * side <= 0.0:
 						continue
+					# --skip: clean grass is walked past, not raked: the run starts at
+					# its first leaves, and a run with none isn't gone to at all (a
+					# player works the drifts, not the whole lawn).
+					if _skip:
+						var first := _first_dirty(field, u, v, start_origin, end_origin, cross, maxf(spacing, _width()))
+						if is_inf(first):
+							continue
+						walk += absf(first - start_origin)
+						start_origin = first
 					# Start a step back, so the first bite (0.12 s in) plants on the edge.
 					var a := u * (start_origin - side * (REACH + 0.35)) + v * cross
 					var b2 := u * (end_origin - side * REACH) + v * cross
@@ -586,7 +630,9 @@ func _clean_lot(yard: PackedByteArray, orient: int, speed: float, spacing: float
 			var mid := -20.0 + block * (float(b) + 0.5)
 			var along := -20.0 + 0.8
 			while along < 20.0:
-				walk += bag_step
+				# --skip: a stretch of row with nothing to bag isn't walked.
+				if not _skip or int(field.call("_units_within", _bag_spot(field, u * mid + v * along, u), Constants.BAG_RADIUS)) >= int(Constants.MIN_BAG_CELLS * 60):
+					walk += bag_step
 				for attempt: int in 3:
 					var spot := _bag_spot(field, u * mid + v * along, u)
 					if int(field.call("_units_within", spot, Constants.BAG_RADIUS)) < int(Constants.MIN_BAG_CELLS * 60):
@@ -606,9 +652,29 @@ func _clean_lot(yard: PackedByteArray, orient: int, speed: float, spacing: float
 		"cleaned": snappedf(cleaned, 0.001), "seconds": snappedf(seconds, 0.1), "rake_s": snappedf(raker.t, 0.1),
 		"bags": bags, "units_per_bag": int(float(bagged) / maxf(1.0, float(bags))), "strokes": raker.strokes,
 		"per_stroke": int(float(raker.moved) / maxf(1.0, float(raker.strokes))),
+		"area_cells": GRID * GRID - start_clean, "start_units": start_units,
 	}
 	field.free()
 	return result
+
+
+## Along a lane run (tines from a toward b along u, at cross along v, this wide):
+## where the first cell that isn't clean is, or INF for a run of clean grass.
+func _first_dirty(field: Node3D, u: Vector3, v: Vector3, a: float, b: float, cross: float, wide: float) -> float:
+	var density: PackedByteArray = field.get("_density")
+	var step := CELL if b >= a else -CELL
+	var along := a
+	while (b - along) * signf(step) >= -0.001:
+		var side := -wide * 0.5
+		while side <= wide * 0.5 + 0.001:
+			var at := u * along + v * (cross + side)
+			var x := int(floor((at.x - ORIGIN.x) / CELL))
+			var z := int(floor((at.z - ORIGIN.z) / CELL))
+			if x >= 0 and z >= 0 and x < GRID and z < GRID and density[x + z * GRID] > 8:
+				return along
+			side += CELL
+		along += step
+	return INF
 
 
 ## The densest spot near a row, the way equipment/rake.gd _pile_spot looks.

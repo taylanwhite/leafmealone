@@ -38,10 +38,12 @@ func _run() -> void:
 	var morning := str(clock.call("clock_text")).begins_with("7:") and int(clock.get("day")) == 1
 	print("[DayTest] day 1 starts at %s: %s" % [clock.call("clock_text"), morning])
 	ok = ok and morning
-	# XP earned during the day waits for bedtime.
-	Campaign.add_xp(400, "test")
-	var pending := Campaign.pending_xp() == 400 and Campaign.crew_tier() == 0
-	print("[DayTest] 400 XP is pending, rank still %s: %s" % [_Ranks.title(Campaign.crew_tier()), pending])
+	# XP earned during the day waits for bedtime: enough for two tiers, from the
+	# curve itself (balance:E retunes it; a hardcoded 400 broke on every retune).
+	var xp := _Ranks.xp_to_reach(2) + 10
+	Campaign.add_xp(xp, "test")
+	var pending := Campaign.pending_xp() == xp and Campaign.crew_tier() == 0
+	print("[DayTest] %d XP is pending, rank still %s: %s" % [xp, _Ranks.title(Campaign.crew_tier()), pending])
 	ok = ok and pending
 	var blower_locked := not Campaign.is_for_sale(&"leaf_blower")
 	print("[DayTest] the leaf blower isn't for sale at Rake Rookie I: %s" % blower_locked)
@@ -75,7 +77,7 @@ func _run() -> void:
 	print("[DayTest] both asleep: day %d, %d summary: %s" % [int(clock.get("day")), summaries.size(), next_day])
 	ok = ok and next_day
 	var tier := Campaign.crew_tier()
-	var banked := Campaign.crew_xp() == 400 and Campaign.pending_xp() == 0 and tier == _Ranks.tier_for_xp(400) and tier == 2
+	var banked := Campaign.crew_xp() == xp and Campaign.pending_xp() == 0 and tier == _Ranks.tier_for_xp(xp) and tier == 2
 	print("[DayTest] XP banked: %d, rank now %s: %s" % [Campaign.crew_xp(), _Ranks.title(tier), banked])
 	ok = ok and banked
 	var ups: Array = (summaries[0] as Dictionary).get("rank_ups", []) if not summaries.is_empty() else []
@@ -94,8 +96,8 @@ func _run() -> void:
 	print("[DayTest] day 2 starts at %s: %s" % [clock.call("clock_text"), morning_again])
 	ok = ok and morning_again
 	var saved: Dictionary = Campaign.call("_save_data")
-	var save_ok := int((saved.get("day", {}) as Dictionary).get("number", 0)) == 2 and int((saved.get("crew", {}) as Dictionary).get("xp", 0)) == 400
-	print("[DayTest] the save has day 2 and 400 XP: %s" % save_ok)
+	var save_ok := int((saved.get("day", {}) as Dictionary).get("number", 0)) == 2 and int((saved.get("crew", {}) as Dictionary).get("xp", 0)) == xp
+	print("[DayTest] the save has day 2 and %d XP: %s" % [xp, save_ok])
 	ok = ok and save_ok
 	# Give the client a moment to hear about the new day before the reports.
 	await get_tree().create_timer(1.0).timeout

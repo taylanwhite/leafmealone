@@ -8,6 +8,8 @@ extends Node3D
 
 signal generated
 
+const _Economy := preload("res://core/economy.gd")
+
 ## Seeds the whole yard: the house, trees, hedges, fences, beds, litter, leaves.
 @export var job_seed: int = 0
 ## Task ids the homeowner asked for (Constants.TASK_TOOLS), raking included.
@@ -17,6 +19,12 @@ signal generated
 ## How grown back the yard is since the crew last did it (net/town/town.gd):
 ## 1 is a full yard of leaves, less after a recent job.
 @export var mess: float = 1.0
+## The crew size the yard was loaded for (Net.player_count() then, balance:E), or
+## 0 for the seed's whole yard (--job-seed tests). A small crew's leaves cover
+## less of the lawn (levels/lots/crew_drifts.gd), and the job's XP and the
+## homeowner's patience read this too, so a drop or a join mid-job can't make
+## the yard and its rewards disagree.
+@export var crew: int = 0
 ## The neighborhood the house is in (net/town/neighborhoods.gd): the yard, its
 ## house and its street block are built in that hood's style.
 @export var hood: String = ""
@@ -64,6 +72,7 @@ func _ready() -> void:
 		marker.name = "SiteMarker"
 		add_child(marker)
 	$Dressing.set("mess", mess)
+	$Dressing.set("crew_area", _Economy.crew_work_scale(crew) if crew > 0 else 1.0)
 	# The yard and its block look like their neighborhood (levels/town/hood_styles.gd).
 	$Dressing.set("hood", hood)
 	$Dressing.call("generate", job_seed, tasks, yard_size)
@@ -84,6 +93,21 @@ func _exit_tree() -> void:
 ## Every peer: the homeowner has paid for this yard (stage, replicated).
 func is_paid() -> bool:
 	return stage == STAGE_PAID
+
+
+## Every peer: the crew size this yard pays and waits for (balance:E): the one it
+## was loaded for, or today's crew for a --job-seed yard (crew 0).
+func crew_size() -> int:
+	return crew if crew > 0 else Net.player_count()
+
+
+## The crew size the current yard was loaded for (job_lot.crew_size), or today's
+## crew when no yard is loaded.
+static func current_crew(tree: SceneTree) -> int:
+	var lot := tree.get_first_node_in_group("job_lot") if tree != null else null
+	if lot != null and lot.has_method("crew_size"):
+		return int(lot.call("crew_size"))
+	return Net.player_count()
 
 
 ## The job's extra work (net/work/job_tasks.gd), or null until generated.
