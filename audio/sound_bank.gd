@@ -232,6 +232,10 @@ const SOUNDS: Dictionary = {
 	"door_slam": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	"engine_idle": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 3.0, "db": 0.0},
 	"skid": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
+	# ---- audio:7 the engine (audio/vehicle_sound.gd): the loop it crossfades to at
+	# speed (tools/make_loops.py) and the crank when it switches on (tools/make_sfx.py).
+	"engine_rev": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 3.0, "db": 0.0},
+	"engine_start": {"variants": 0, "bus": &"Sfx", "gap_ms": 500, "voice": false, "loop": false, "max_seconds": 2.0, "db": 3.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
 	# ---- driving C3: Chefty's crash comedy (net/components/chefty_crash.gd): a crash
 	# (clang, boing, a short slide whistle), a big one (crunch, a slide whistle down,
 	# a car alarm's warble), and bags flying out of the bed (pomf-pomf).

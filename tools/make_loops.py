@@ -290,6 +290,38 @@ def engine_idle() -> list[float]:
     return seamless(out, 0.25)
 
 
+def engine_rev() -> list[float]:
+    """Chefty on the move (audio chunk 7, audio/vehicle_sound.gd): the putts run
+    together into a buzzy growl, with a nasal exhaust rasp, a whiny gearbox and a
+    loose something rattling in the dash. Pitched from ENGINE_PROFILES' rev range
+    by speed and stepped through the gears; engine_idle fades out under it."""
+    rng = random.Random(73)
+    seconds = 2.0
+    out = s.silence(seconds)
+    rate = 40.0
+    t = 0.0
+    beat = 0
+    while t < seconds:
+        # Every third putt leans on it: the same limp as the idle, faster.
+        level = 0.95 if beat % 3 == 0 else 0.7 + rng.uniform(-0.08, 0.08)
+        s.mix_into(out, s.blip(0.035, 190.0, 110.0, 110.0), t, level * 0.6)
+        s.mix_into(out, s.decay(s.lowpass(s.noise(rng, 0.03), 1200.0), 120.0), t, level * 0.9)
+        t += 1.0 / (rate * rng.uniform(0.985, 1.015))
+        beat += 1
+    # 80 and 160 Hz go round a whole number of times in 2 s, so the body loops clean.
+    body = s.lowpass(s.tone(seconds, 80.0, "saw", (3.0, 0.01)), 900.0)
+    s.mix_into(out, body, 0.0, 0.35)
+    rasp = s.bandpass(s.tone(seconds, 160.0, "square"), 1300.0, 2.0)
+    s.mix_into(out, rasp, 0.0, 0.18)
+    whine = s.tone(seconds, 640.0, "sine", (0.5, 0.004))
+    s.mix_into(out, whine, 0.0, 0.05)
+    for _ in range(9):
+        tick = s.decay(s.bandpass(s.noise(rng, 0.02), rng.uniform(2800.0, 4200.0), 5.0), 260.0)
+        s.mix_into(out, tick, rng.uniform(0.0, seconds - 0.05), rng.uniform(0.12, 0.25))
+    # The one-sided putts leave a DC offset; nobody hears below 25 Hz anyway.
+    return seamless(s.highpass(out, 25.0), 0.25)
+
+
 def horn_loop() -> list[float]:
     """Chefty's horn held down: the long 'BWAAH' going on and on, seamless."""
     seconds = 1.2
@@ -316,6 +348,8 @@ SOUNDS = {
     # ---- driving (Chefty, net/components/chefty_drive.gd)
     "engine_idle": (engine_idle, 0, 0.5),
     "horn_loop": (horn_loop, 0, 0.6),
+    # ---- audio:7 (audio/vehicle_sound.gd)
+    "engine_rev": (engine_rev, 0, 0.5),
 }
 
 

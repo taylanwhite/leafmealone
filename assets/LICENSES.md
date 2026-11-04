@@ -61,6 +61,8 @@
 | assets/audio/sfx/truck_horn.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/door_slam.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/engine_idle.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
+| assets/audio/sfx/engine_rev.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
+| assets/audio/sfx/engine_start.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/skid.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/horn_loop.wav | Original, synthesized by tools/make_loops.py | Project original | no | Python |
 | assets/audio/sfx/slot_tick.wav | Original, synthesized by tools/make_sfx.py | Project original | no | Python |

@@ -554,22 +554,38 @@ func _shin_for(thigh: float, reach: float) -> float:
 
 # ---------------------------------------------------------------- sound
 
-## audio/board_sound.gd when it exists (audio chunk 7; it reads the riding's
-## board_state(), critic C13), else the roll and grind loops here. Nothing headless.
+## audio/board_sound.gd (audio chunk 7, critic C13), else the roll and grind
+## loops here. Nothing headless. It rides on the drawn board (the riding itself
+## is a plain Node, nowhere in the world), reads the board as drawn
+## (shown_board_state: late on someone else's peer, like their body) and leaves
+## the pop and the landing to _edges here, which plays them on the drawn frames.
 func _attach_sound() -> void:
 	if Net.is_automated() or DisplayServer.get_name() == "headless":
 		return
 	if ResourceLoader.exists("res://audio/board_sound.gd"):
 		_board_sound = load("res://audio/board_sound.gd").new()
 		_board_sound.name = "BoardSound"
-		var riding: Node = player.skate()
-		if "state_source" in _board_sound and riding != null:
-			_board_sound.set("state_source", Callable(riding, "board_state"))
-		if riding != null:
-			riding.add_child(_board_sound)
+		_board_sound.set("state_source", shown_board_state)
+		_board_sound.set("auto_edges", false)
+		_root.add_child(_board_sound)
 		return
 	_roll = _loop("board_roll_loop", "Roll")
 	_grind = _loop("board_grind_loop", "Grind")
+
+
+## board_state() (player/skate.gd, the C13 contract) as this peer draws it: the
+## values _late_state shows, so the roll stops on the frame the drawn board
+## leaves the ground. A board flying loose after a wipeout isn't being ridden.
+func shown_board_state() -> Dictionary:
+	if _shown.is_empty():
+		return {"on_board": false, "speed": 0.0, "on_ground": true, "grinding": false}
+	var on := bool(_shown["on"]) and _fly_t < 0.0
+	return {
+		"on_board": on,
+		"speed": float(_shown["speed"]) if on else 0.0,
+		"on_ground": int(_shown["anim"]) != _Skate.ANIM_SKATE_AIR,
+		"grinding": on and int(_shown["trick"]) == _Skate.TRICK_GRIND,
+	}
 
 
 func _loop(id: String, node_name: String) -> AudioStreamPlayer3D:
