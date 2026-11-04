@@ -169,6 +169,18 @@ const SOUNDS: Dictionary = {
 	"pa_chime": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 3.2, "db": -2.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
 	"cart_rattle": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 2.6, "db": -2.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
 	"distant_mower": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 8.0, "db": 0.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_FAR_MAX_DISTANCE},
+	# ---- art:9 (tools/sfx_hood.py): what each neighborhood sounds like
+	# (audio/ambience.gd). The loops play at the set pieces in group
+	# ambient_emitters (a fountain, the lake's shore, a lawn's sprinkler), the
+	# one-shots from a porch, a back yard or out on the water near you.
+	"fountain_loop": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 6.0, "db": 0.0, "unit_size": Constants.AMBIENCE_FOUNTAIN_UNIT_SIZE, "max_distance": Constants.AMBIENCE_EMITTER_REACH},
+	"lake_lap_loop": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 10.0, "db": 0.0, "unit_size": Constants.AMBIENCE_LAKE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_EMITTER_REACH},
+	"sprinkler_tick_loop": {"variants": 0, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 6.0, "db": 0.0, "unit_size": Constants.AMBIENCE_SPRINKLER_UNIT_SIZE, "max_distance": Constants.AMBIENCE_EMITTER_REACH},
+	"loon": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 3.5, "db": 4.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_FAR_MAX_DISTANCE},
+	"wind_chime": {"variants": 3, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 3.2, "db": 5.0, "unit_size": Constants.AMBIENCE_PORCH_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
+	"screen_door": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": 3.0, "unit_size": Constants.AMBIENCE_PORCH_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
+	"dog_yip": {"variants": 3, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.5, "db": 3.0, "unit_size": Constants.AMBIENCE_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
+	"hoa_whistle": {"variants": 2, "bus": &"Ambience", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.8, "db": 4.0, "unit_size": Constants.AMBIENCE_PORCH_UNIT_SIZE, "max_distance": Constants.AMBIENCE_MAX_DISTANCE},
 	# ---- audio:6 foley (tools/sfx_foley.py): what a body does, from replicated
 	# state (audio/player_foley.gd), heard where it happens.
 	"paint_splat": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.6, "db": 0.0},

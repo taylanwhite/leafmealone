@@ -57,6 +57,11 @@ const EDGE_HEDGE_SIDE: float = 24.0
 ## bin_mate (fx-yard): how far behind the browsing friend you stand (m).
 const BIN_MATE_BEHIND: float = 0.85
 const KNOCK_FRIEND_PAST: float = 7.0
+## walker (art:9): how far ahead (s) a walker on their route reaches the spot you
+## are put on, the most you are moved to get there (m), and the friend beside you.
+const WALKER_AHEAD := Vector2(5.0, 14.0)
+const WALKER_REACH: float = 20.0
+const WALKER_FRIEND_SIDE: float = 1.1
 ## ...and how far toward the street from the mailbox Chefty's middle runs (m).
 const KNOCK_SIDE: float = 1.2
 ## plow: where Chefty starts and the friend watches from (the job yard's space).
@@ -71,7 +76,7 @@ const PURSUIT_FROM := Vector3(-15.0, 0.0, 29.2)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "bin_mate", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "skate_skitch", "recatch", "downed", "annex_desk_late", "shotgun_hand", "pursuit"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "bin_mate", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "skate_skitch", "recatch", "downed", "annex_desk_late", "shotgun_hand", "pursuit", "walker"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -159,7 +164,7 @@ const EYE_HEIGHT: float = 1.6
 ## the friend's catch yours comes (s).
 const TWO_CAUGHT_APART: float = 3.5
 const TWO_CAUGHT_GAP: float = 1.2
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "van_two", "dropoff_two", "recatch", "downed", "skate_skitch"]
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "van_two", "dropoff_two", "recatch", "downed", "skate_skitch", "walker"]
 ## recatch (P1 catch): how long after the friend's grace ends the NICE BOY winds up
 ## on them if he hasn't already (s).
 const RECATCH_LEAD: float = 1.0
@@ -319,6 +324,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _knock()
 		"plow":
 			out = await _plow()
+		"walker":
+			out = await _walker()
 		"pursuit":
 			out = await _pursuit()
 		"edge_hedge":
@@ -2182,6 +2189,35 @@ func _knock() -> Dictionary:
 			body.call("send_teleport", Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(mailbox.x + KNOCK_FRIEND_PAST, 0.1, mailbox.z + KNOCK_SIDE)))
 	await get_tree().create_timer(0.5).timeout
 	return {"note": "a mailbox %.0f m ahead%s; hold move_forward" % [KNOCK_RUN_UP, ", the friend past it" if friend != 0 else ""], "mailbox": _v(mailbox), "zone": _zone()}
+
+## walker (art:9, npcs/pedestrian.gd): someone out for a walk coming down the
+## sidewalk at you. You stand on the nearest walker's route where they will be
+## in WALKER_AHEAD seconds (within WALKER_REACH of where you are), facing them,
+## the friend just beside you on the same sidewalk. Stand still: they step round.
+func _walker() -> Dictionary:
+	var me := _me()
+	var start := me.global_position
+	var now := Net.server_time()
+	for node: Node in get_tree().get_nodes_in_group("bonkable"):
+		var walker := node as Node3D
+		if walker == null or not walker.has_method("passing_points") or not walker.is_visible_in_tree():
+			continue
+		var parent := walker.get_parent() as Node3D
+		var ahead := WALKER_AHEAD.x
+		while ahead <= WALKER_AHEAD.y:
+			var at: Vector3 = parent.global_transform * (walker.call("_route_at", now + ahead) as Vector3)
+			if Vector2(at.x - start.x, at.z - start.z).length() < WALKER_REACH:
+				var toward := walker.global_position - at
+				var yaw := atan2(-toward.x, -toward.z)
+				_place(at + Vector3(0.0, 0.05, 0.0), yaw, -0.05)
+				var body := _other_player()
+				if body != null:
+					var side := Basis(Vector3.UP, yaw) * Vector3(WALKER_FRIEND_SIDE, 0.0, 1.5)
+					body.call("send_teleport", Transform3D(Basis(Vector3.UP, yaw), at + side + Vector3(0.0, 0.1, 0.0)))
+				await get_tree().create_timer(0.3).timeout
+				return {"note": "%s reaches you in %.0f s; stand still" % [walker.name, ahead], "walker": walker.name, "at": _v(at), "zone": _zone()}
+			ahead += 0.5
+	return {"error": "no walker passes within %.0f m in the next %.0f s" % [WALKER_REACH, WALKER_AHEAD.y]}
 
 ## On the Gutter Shredder (driving G1) in Homie Depot's lot, the board yours. In
 ## the connected town you're lined up on Marty's ramp, 5 m out; in the legacy

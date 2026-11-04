@@ -41,6 +41,9 @@ const _Strings = preload("res://ui/strings.gd")
 const _Neighborhoods = preload("res://net/town/neighborhoods.gd")
 
 const BUILDERS: Array = [_Street, _Yard, _Estate, _Season, _Store]
+## A running sprinkler's jet (art:9), loaded when one is placed: it names Net,
+## which a --script run (tools/mesh_check.gd) has no autoload for yet.
+const SPRINKLER_JET: String = "res://props/sprinkler_jet.gd"
 
 ## Kinds that only look right through place() (they carry a glow, water, a
 ## required label, or bulbs). Everything else is SIMPLE.
@@ -247,6 +250,15 @@ static func place(parent: Node3D, kind: String, xform: Transform3D = Transform3D
 			root.add_child(tub)
 		"fountain_tiered":
 			_fountain_water(root, season)
+			root.set_meta("ambient_frozen", season == 1)
+		"sprinkler":
+			# A running one (art:9): opts running is its schedule
+			# (Constants.SPRINKLER_HOURS), phase its own beat.
+			if opts.has("running"):
+				var jet: Node3D = load(SPRINKLER_JET).new()
+				jet.set("schedule", str(opts["running"]))
+				jet.set("phase", float(opts.get("phase", 0.0)))
+				root.add_child(jet)
 		"jack_o_lantern":
 			_lantern_face(root)
 		"string_lights":
@@ -268,7 +280,8 @@ static func place(parent: Node3D, kind: String, xform: Transform3D = Transform3D
 
 ## Joins node to the groups the art test and later features look for: the
 ## kind's signature group, and "ambient_emitters" (meta "ambient", the loop id
-## in audio's list) for a fountain.
+## in audio's list; audio/ambience.gd) for a fountain (place() says whether its
+## water is frozen: meta "ambient_frozen", and then it doesn't babble).
 static func tag(node: Node, kind: String) -> void:
 	if SIGNATURE.has(kind):
 		node.add_to_group("art_signature:%s" % SIGNATURE[kind])

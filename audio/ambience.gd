@@ -10,10 +10,28 @@ extends Node
 ## sit on the Ambience bus (audio/buses.gd), and its tuning is
 ## Constants.AMBIENCE_*. The music, and M, are the music director's
 ## (audio/music_director.gd, under UIRoot/Audio).
+##
+## Each neighborhood's own sounds (art chunk 9; docs/GAME.md "What each
+## neighborhood sounds like"), by the hood the yard or the town street you're on
+## is in (the job lot's meta hood_style, TownMap.region_of):
+##   - the set pieces' loops, from group "ambient_emitters" (meta ambient, the
+##     loop's id; ambient_line [a, b] for a source along a line, like a lake's
+##     shore, heard from its nearest point; ambient_sync, ambient_phase for a loop
+##     that keeps time with what you see; ambient_level() for how loud now;
+##     ambient_frozen / ambient_freezes for water that's ice): the nearest
+##     AMBIENCE_EMITTER_VOICES within AMBIENCE_EMITTER_REACH play, fading in and
+##     out as you move. Mansion Hill's fountains, Lakeside's shore, Oak Hollow's
+##     lawn sprinklers (props/sprinkler_jet.gd) and a summer lawn's.
+##   - one-shots (Constants.AMBIENCE_HOOD_SHOTS) at the hours people make them,
+##     from a real porch or back yard near you (group "porches",
+##     levels/town/house_builder.gd) or out on the water: Maple Row's wind chimes,
+##     Dandelion Acres' screen doors and chained dog, Oak Hollow's disapproving
+##     whistle (office hours only), Lakeside's loon.
 
 const _Sfx = preload("res://audio/sfx.gd")
 const _Bank = preload("res://audio/sound_bank.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
+const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 
 
 var _wind: AudioStreamPlayer
@@ -29,6 +47,16 @@ var _car: AudioStreamPlayer3D
 var _car_t: float = -1.0
 var _car_from := Vector3.ZERO
 var _car_to := Vector3.ZERO
+## art:9: the hood you're in ("" outside one), the emitter loops' voices
+## ({player, emitter (a WeakRef or null), id}), the emitters picked at the last
+## scan, the houses near you, and each hood one-shot's wait.
+var hood_now: String = ""
+var _voices: Array[Dictionary] = []
+var _picked: Array = []
+var _porches: Array[Node3D] = []
+var _hood_waits: Dictionary = {}
+var _emitter_scan: float = 0.0
+var _loops: Dictionary = {}
 
 
 func _ready() -> void:
@@ -58,6 +86,14 @@ func _ready() -> void:
 	_car.unit_size = Constants.AMBIENCE_UNIT_SIZE
 	_car.max_distance = Constants.AMBIENCE_MAX_DISTANCE
 	add_child(_car)
+	for id: String in Constants.AMBIENCE_HOOD_SHOTS:
+		_hood_waits[id] = _between(Constants.AMBIENCE_HOOD_FIRST)
+	for index: int in Constants.AMBIENCE_EMITTER_VOICES:
+		var voice := AudioStreamPlayer3D.new()
+		voice.name = "Emitter%d" % index
+		voice.volume_db = -80.0
+		add_child(voice)
+		_voices.append({"player": voice, "emitter": null, "id": ""})
 
 
 ## Let go of every sound on the way out, or they outlive the engine at quit.
@@ -115,6 +151,18 @@ func _process(delta: float) -> void:
 		if in_hood and _car_t < 0.0:
 			_start_car(me.global_position)
 	_annex_office(zone, delta)
+	# art:9: the hood's own sounds.
+	hood_now = _hood_of(me, zone)
+	# Heard from where the camera is (the 3D sound listens there too), so a
+	# spectator's or a far third-person view hears what it sees.
+	var ear := _ear(me)
+	_emitter_scan -= delta
+	if _emitter_scan <= 0.0:
+		_emitter_scan = Constants.AMBIENCE_EMITTER_SCAN_SECONDS
+		_scan_emitters(ear)
+		_scan_porches(ear)
+	_step_voices(delta, ear)
+	_hood_shots(delta, ear, hour)
 	if _car_t >= 0.0:
 		_car_t += delta / Constants.AMBIENCE_CAR_SECONDS
 		_car.global_position = _car_from.lerp(_car_to, clampf(_car_t, 0.0, 1.0))
@@ -320,3 +368,230 @@ func _local_player() -> Node3D:
 		if node.name == str(Net.local_peer_id()):
 			return node as Node3D
 	return null
+
+
+# ---------------------------------------------------------------- art:9 each hood's own sounds
+
+func _ear(me: Node3D) -> Vector3:
+	var viewport := get_viewport()
+	var camera := viewport.get_camera_3d() if viewport != null else null
+	return camera.global_position if camera != null else me.global_position
+
+
+## The hood the local player is in: the job yard's (its lot's meta hood_style)
+## on a yard, the town's region on a town street, else "".
+func _hood_of(me: Node3D, zone: int) -> String:
+	if zone == Net.Zone.LOT:
+		var lot := get_tree().get_first_node_in_group("job_lot")
+		return str(lot.get_meta("hood_style", "")) if lot != null else ""
+	if zone == Net.Zone.TOWN and TownMap.enabled(get_tree()):
+		var region := str(TownMap.region_of(me.global_position))
+		return region if _HoodStyles.ids().has(region) else ""
+	return ""
+
+
+## Whether the hood one-shot id happens now (pure, for --art-test): in one of its
+## hoods, in its hours of the clock, and never a loon in winter (they've gone south).
+static func hood_wants(id: String, hood: String, hour: float, season: int) -> bool:
+	var spec: Dictionary = Constants.AMBIENCE_HOOD_SHOTS.get(id, {})
+	if spec.is_empty() or not (spec["hoods"] as Array).has(hood):
+		return false
+	var hours: Vector2 = spec["hours"]
+	if hour < hours.x or hour >= hours.y:
+		return false
+	return not (id == "loon" and season == 1)
+
+
+## How loud an emitter plays now, 0..1: silent while its water is frozen, else
+## what it says (a sprinkler's pressure), else full.
+static func emitter_level(emitter: Node) -> float:
+	if bool(emitter.get_meta("ambient_frozen", false)):
+		return 0.0
+	if bool(emitter.get_meta("ambient_freezes", false)) and Seasons.current() == 1:
+		return 0.0
+	if emitter.has_method("ambient_level"):
+		return clampf(float(emitter.call("ambient_level")), 0.0, 1.0)
+	return 1.0
+
+
+## Where an emitter is heard from by a listener at: the nearest point of its
+## line, or its own place.
+static func emitter_point(emitter: Node3D, at: Vector3) -> Vector3:
+	if emitter.has_meta("ambient_line"):
+		var line: PackedVector3Array = emitter.get_meta("ambient_line")
+		if line.size() >= 2:
+			var xform := emitter.global_transform
+			return Geometry3D.get_closest_point_to_segment(at, xform * line[0], xform * line[1])
+	return emitter.global_position
+
+
+## The nearest sounding emitters within reach, nearest first (at most VOICES).
+func _scan_emitters(at: Vector3) -> void:
+	var found: Array = []
+	for node: Node in get_tree().get_nodes_in_group("ambient_emitters"):
+		var emitter := node as Node3D
+		if emitter == null or not emitter.is_inside_tree() or not _Bank.has(str(emitter.get_meta("ambient", ""))):
+			continue
+		if emitter_level(emitter) <= 0.0:
+			continue
+		var distance := emitter_point(emitter, at).distance_to(at)
+		if distance <= Constants.AMBIENCE_EMITTER_REACH:
+			found.append([distance, emitter])
+	found.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	_picked.clear()
+	for entry: Array in found.slice(0, Constants.AMBIENCE_EMITTER_VOICES):
+		_picked.append(entry[1])
+	# A voice keeps its emitter while it's still picked; the rest fade out, and a
+	# newly picked emitter takes a voice that has gone quiet.
+	var wanted := _picked.duplicate()
+	for voice: Dictionary in _voices:
+		var emitter: Object = (voice["emitter"] as WeakRef).get_ref() if voice["emitter"] != null else null
+		if emitter != null and wanted.has(emitter):
+			wanted.erase(emitter)
+			_resync(voice, emitter as Node3D)
+		else:
+			voice["emitter"] = null
+	for emitter: Node3D in wanted:
+		for voice: Dictionary in _voices:
+			var player: AudioStreamPlayer3D = voice["player"]
+			if voice["emitter"] == null and (not player.playing or player.volume_db <= -59.0):
+				_start_voice(voice, emitter, at)
+				break
+
+
+func _start_voice(voice: Dictionary, emitter: Node3D, at: Vector3) -> void:
+	var id := str(emitter.get_meta("ambient"))
+	var player: AudioStreamPlayer3D = voice["player"]
+	if not _loops.has(id):
+		_loops[id] = _Sfx.looped(id)
+	var stream: AudioStream = _loops[id]
+	if stream == null:
+		return
+	voice["emitter"] = weakref(emitter)
+	voice["id"] = id
+	player.stream = stream
+	player.bus = _Bank.bus(id)
+	player.unit_size = _Bank.unit_size(id)
+	player.max_distance = _Bank.max_distance(id)
+	player.attenuation_filter_db = Constants.AMBIENCE_EMITTER_MUFFLE_DB
+	player.volume_db = -60.0
+	player.global_position = emitter_point(emitter, at)
+	player.play(_loop_position(emitter, stream))
+
+
+## Where in its loop an emitter's voice should be: a synced one (a sprinkler) at
+## the server time's point, so the tick lands on the step you see (allowing for
+## the audio's own latency); any other anywhere.
+func _loop_position(emitter: Node3D, stream: AudioStream) -> float:
+	var length := stream.get_length()
+	if emitter.has_meta("ambient_sync"):
+		var sync := float(emitter.get_meta("ambient_sync"))
+		return fposmod(Net.server_time() + float(emitter.get_meta("ambient_phase", 0.0)) + AudioServer.get_output_latency(), maxf(sync, 0.01))
+	return randf() * maxf(length - 0.05, 0.0)
+
+
+## A synced voice drifting off its emitter's time gets put back.
+func _resync(voice: Dictionary, emitter: Node3D) -> void:
+	var player: AudioStreamPlayer3D = voice["player"]
+	if not emitter.has_meta("ambient_sync") or not player.playing or player.stream == null:
+		return
+	var want := _loop_position(emitter, player.stream)
+	var length := maxf(float(emitter.get_meta("ambient_sync")), 0.01)
+	var off := fposmod(player.get_playback_position() - want + length * 0.5, length) - length * 0.5
+	if absf(off) > 0.06:
+		player.seek(want)
+
+
+## Every frame: each voice follows its emitter (a shore's nearest point moves
+## with you) at its level, or fades out and stops.
+func _step_voices(delta: float, at: Vector3) -> void:
+	for voice: Dictionary in _voices:
+		var player: AudioStreamPlayer3D = voice["player"]
+		if not player.playing:
+			continue
+		var emitter := (voice["emitter"] as WeakRef).get_ref() as Node3D if voice["emitter"] != null else null
+		var target := -60.0
+		if emitter != null and emitter.is_inside_tree():
+			var id := str(voice["id"])
+			var level := emitter_level(emitter)
+			target = -60.0 if level <= 0.001 else _Bank.db(id) + float(Constants.AMBIENCE_EMITTER_DB.get(id, 0.0)) + linear_to_db(level)
+			player.global_position = emitter_point(emitter, at)
+		elif emitter == null and voice["emitter"] != null:
+			voice["emitter"] = null
+		player.volume_db = move_toward(player.volume_db, target, Constants.AMBIENCE_EMITTER_FADE_DB_PER_SECOND * delta)
+		if voice["emitter"] == null and player.volume_db <= -59.5:
+			player.stop()
+
+
+## The houses near enough to be a one-shot's porch.
+func _scan_porches(at: Vector3) -> void:
+	_porches.clear()
+	var reach := Constants.AMBIENCE_PORCH_RANGE.y + 12.0
+	for node: Node in get_tree().get_nodes_in_group("porches"):
+		var house := node as Node3D
+		if house != null and house.is_inside_tree() and house.global_position.distance_to(at) < reach:
+			_porches.append(house)
+
+
+func _hood_shots(delta: float, at: Vector3, hour: float) -> void:
+	for id: String in _hood_waits:
+		_hood_waits[id] = float(_hood_waits[id]) - delta
+		if float(_hood_waits[id]) > 0.0:
+			continue
+		var spec: Dictionary = Constants.AMBIENCE_HOOD_SHOTS[id]
+		_hood_waits[id] = _between(spec["gap"]) * (float(spec["night_gap"]) if is_night(hour) else 1.0)
+		if not hood_wants(id, hood_now, hour, Seasons.current()):
+			continue
+		var from := _shot_point(str(spec["from"]), at)
+		if from != Vector3.INF:
+			_sfx_at(id, from, 0.0)
+
+
+## Where a hood one-shot comes from: a porch or a back yard of a house in
+## AMBIENCE_PORCH_RANGE of you (somewhere about there when there's none), or out
+## on the nearest water (none without a lake).
+func _shot_point(from: String, at: Vector3) -> Vector3:
+	match from:
+		"porch", "yard":
+			var choices: Array[Vector3] = []
+			for house: Node3D in _porches:
+				if not is_instance_valid(house) or not house.is_inside_tree():
+					continue
+				var door: Vector3 = house.get_meta("door", Vector3(0.0, 1.0, 4.0))
+				var local := door + Vector3(0.0, 0.5, 0.9)
+				if from == "yard":
+					local = Vector3(door.x * 0.4, 0.6, -float(house.get_meta("depth", 8.0)) * 0.5 - 4.0)
+				var point := house.global_transform * local
+				var distance := point.distance_to(at)
+				if distance >= Constants.AMBIENCE_PORCH_RANGE.x and distance <= Constants.AMBIENCE_PORCH_RANGE.y:
+					choices.append(point)
+			if not choices.is_empty():
+				return choices[randi() % choices.size()]
+			return at + _around(Vector2(Constants.AMBIENCE_PORCH_RANGE.x + 6.0, Constants.AMBIENCE_PORCH_RANGE.y * 0.7)) + Vector3(0.0, 1.0, 0.0)
+		"water":
+			var best := Vector3.INF
+			var best_distance := Constants.AMBIENCE_FAR_MAX_DISTANCE
+			for node: Node in get_tree().get_nodes_in_group("ambient_emitters"):
+				var shore := node as Node3D
+				if shore == null or not shore.has_meta("ambient_out") or emitter_level(shore) <= 0.0:
+					continue
+				var edge := emitter_point(shore, at)
+				var distance := edge.distance_to(at)
+				if distance < best_distance:
+					best_distance = distance
+					var out := (shore.global_transform.basis * (shore.get_meta("ambient_out") as Vector3)).normalized()
+					var along := out.cross(Vector3.UP).normalized() * randf_range(-25.0, 25.0)
+					best = edge + out * _between(Constants.AMBIENCE_LOON_OUT) + along + Vector3(0.0, 0.4, 0.0)
+			return best
+	return Vector3.INF
+
+
+## What the emitter voices are playing now: [[id, volume_db, distance], ...] (tests).
+func emitter_voices() -> Array:
+	var out: Array = []
+	var me := _local_player()
+	for voice: Dictionary in _voices:
+		var player: AudioStreamPlayer3D = voice["player"]
+		if player.playing:
+			out.append([str(voice["id"]), snappedf(player.volume_db, 0.1), snappedf(player.global_position.distance_to(me.global_position), 0.1) if me != null else -1.0])
+	return out

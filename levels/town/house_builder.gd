@@ -50,6 +50,7 @@ extends RefCounted
 const _HouseKit = preload("res://props/house_kit.gd")
 const _Archetypes = preload("res://levels/town/house_archetypes.gd")
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
+const _PorchLights = preload("res://levels/porch_lights.gd")
 ## The yard generator, loaded when first needed (it preloads half the game).
 const LOT_GENERATOR := "res://levels/lots/lot_generator.gd"
 
@@ -147,6 +148,13 @@ static func build(parent: Node3D, at: Vector3, req: Dictionary) -> Node3D:
 	for key: String in spec:
 		root.set_meta(key, spec[key])
 	root.set_meta("house_spec", spec)
+	# Its porch light, lit at dusk (levels/porch_lights.gd), and the porch the
+	# neighborhood's own sounds come from (audio/ambience.gd: a wind chime, a
+	# screen door, someone whistling).
+	root.add_to_group("porches")
+	if str(r["detail"]) == "full" and spec.has("door"):
+		var door_size: Vector2 = spec.get("door_size", Vector2(1.1, 2.2))
+		_PorchLights.add(root, (spec["door"] as Vector3) + Vector3(0.0, door_size.y * 0.5, 0.0), int(r["seed"]))
 	return root
 
 

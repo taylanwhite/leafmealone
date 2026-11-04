@@ -161,6 +161,25 @@ func _build(root: Node3D) -> void:
 			_tool_tiers(root)
 		"junk":
 			_junk(root)
+		"ambience":
+			# art:9: an Oak Hollow house with its porch light lit (--lit=0 for off)
+			# and its lawn sprinkler running in front (props/sprinkler_jet.gd).
+			var req := _HouseBuilder.request_for(_hood, _seed, _size)
+			req["archetype"] = _archetype if _archetype != "" else str(req["archetype"])
+			var house := _HouseBuilder.build(root, Vector3(0.0, 0.0, -6.0), req)
+			var light := house.get_node_or_null("PorchLight") as MeshInstance3D
+			if light != null:
+				(light.material_override as ShaderMaterial).set_shader_parameter("level", float(str(_options.get("lit", "1"))))
+			var sprinkler := _PropCatalog.place(root, "sprinkler", Transform3D(Basis.IDENTITY, Vector3(3.0, 0.0, 3.0)), Color.WHITE, {"running": "hoa"})
+			var jet := sprinkler.get_node("SprinklerJet")
+			jet.set("always_on", true)
+			jet.set("pressure", 1.0)
+			root.set_meta("views", [
+				{"from": Vector3(8.0, 2.2, 9.0), "at": Vector3(1.0, 0.8, -1.0), "fov": 45.0},
+				{"from": Vector3(-4.0, 1.4, 6.0), "at": Vector3(3.0, 0.6, 0.0), "fov": 40.0},
+				{"from": Vector3(3.0, 9.0, 4.0), "at": Vector3(3.0, 0.0, 0.0), "fov": 50.0},
+				{"from": Vector3(1.6, 1.6, -0.6), "at": Vector3(1.0, 1.7, -2.3), "fov": 35.0},
+			])
 		"shopkeepers":
 			# Marty, Rusty and Dot (npcs/store_clerk.gd), close enough to see beards.
 			var shops := ["homie_depot", "rustys", "lunch_money"]

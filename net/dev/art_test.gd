@@ -48,6 +48,15 @@ extends Node
 ##   mask) is stopped before it reaches the doors; a ShelfSlot marker per tool, the lobby's stock
 ##   standing every tool in one, each slot's front open and inside the shop's
 ##   "lobby"; the sliding doors there.
+## - A15 (art chunk 9) every yard's block: each group ambient_emitters node plays
+##   a loop in the bank; Mansion Hill has a fountain, Lakeside its shore, Oak
+##   Hollow its lawn sprinklers (all in step, all on the same spot of their lawn);
+##   every full-detail house a porch light
+## - A16 the hours the neighborhood keeps (pure): the hood one-shots
+##   (audio/ambience.gd hood_wants), the sprinklers' window, their head's sweep
+##   meeting itself and sprinkler_tick_loop's length matching it, porch lights off
+##   by day, all on at 8 PM, some left on at 2 AM, and no walker out at 1 AM
+## - A17 a walker on a route straight through the host steps round them
 
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
 const _BlockBuilder = preload("res://levels/town/block_builder.gd")
@@ -58,6 +67,12 @@ const _Trees = preload("res://props/trees.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _LayoutTest = preload("res://net/dev/layout_test.gd")
 const _Guardrail = preload("res://net/dev/guardrail.gd")
+# art:9 (A15-A17).
+const _Bank = preload("res://audio/sound_bank.gd")
+const _Ambience = preload("res://audio/ambience.gd")
+const _SprinklerJet = preload("res://props/sprinkler_jet.gd")
+const _PorchLights = preload("res://levels/porch_lights.gd")
+const _Pedestrian = preload("res://npcs/pedestrian.gd")
 
 const SWEEP_SEED: int = 1000
 const TWICE_SEED: int = 8919
@@ -138,6 +153,9 @@ func _run() -> void:
 	problems.append_array(_budgets())
 	problems.append_array(_strings())
 	problems.append_array(_store(world))
+	# art:9: the hours the neighborhood keeps, and walkers stepping round people.
+	problems.append_array(_ambience_rules())
+	problems.append_array(_walker_dodge(world))
 	# Every hood at every size.
 	for hood: String in _HoodStyles.ids():
 		hoods[hood] = {"archetypes": {}, "fences": {}, "street": "", "mailbox": {}, "ground": {}, "max_visuals_block": 0, "max_visuals_yard": 0, "signatures": {}, "build_ms": 0.0}
@@ -290,6 +308,8 @@ func _check_yard(lot: Node3D, hood: String, label: String, seen: Dictionary) -> 
 	# The job house's own decor, and the words on everything built.
 	out.append_array(_job_decor(dressing, Seasons.current(), label))
 	out.append_array(_labels(lot, label))
+	# A15 the hood's own sound sources and porch lights (art:9).
+	out.append_array(_ambience(lot, hood, label))
 	# The fingerprint (A4).
 	seen["archetypes"][str(lot.get_meta("archetype", ""))] = true
 	seen["fences"][str((look.get("job_fence", {}) as Dictionary).get("kind", ""))] = true
@@ -776,4 +796,163 @@ func _strings() -> Array[String]:
 			out.append("A12 %s: %s" % [path, hit])
 		if _words.search(text) != null:
 			out.append("A12 %s ('%s') breaks the art wording rule" % [path, text.replace("\n", " ")])
+	return out
+
+
+# ---------------------------------------------------------------- art:9 ambience
+
+## The loops each hood's block must sound with (A15), at least this many emitters.
+const AMBIENT_WANTED: Dictionary = {"mansion_hill": {"fountain_loop": 1}, "lakeside": {"lake_lap_loop": 1}, "oak_hollow": {"sprinkler_tick_loop": 4}}
+
+
+## A15 under one yard and its block: every emitter names a loop in the bank;
+## the hood has its own (Mansion Hill's fountains, Lakeside's shore, Oak Hollow's
+## sprinklers, every one of those in step and on the same spot of its lawn);
+## every full-detail house has its porch light and is a porch for the one-shots.
+func _ambience(lot: Node3D, hood: String, label: String) -> Array[String]:
+	var out: Array[String] = []
+	var counts := {}
+	var spots := {}
+	for node: Node in lot.find_children("*", "", true, false):
+		if not node.is_in_group("ambient_emitters"):
+			continue
+		var id := str(node.get_meta("ambient", ""))
+		if not _Bank.has(id) or not _Bank.is_loop(id):
+			out.append("A15 %s: emitter %s plays %s, not a loop in the bank" % [label, node.name, id])
+			continue
+		counts[id] = int(counts.get(id, 0)) + 1
+		if id == "sprinkler_tick_loop":
+			if not is_zero_approx(float(node.get_meta("ambient_phase", -1.0))):
+				out.append("A15 %s: an Oak Hollow sprinkler out of step (phase %s)" % [label, node.get_meta("ambient_phase", "none")])
+			var parcel := _parcel_of(node)
+			if parcel != null:
+				var house_at: Vector3 = parcel.get_meta("house_at", Vector3.ZERO)
+				var local := parcel.global_transform.affine_inverse() * (node as Node3D).global_position - house_at
+				spots[str(Vector3(absf(local.x), 0.0, local.z).snapped(Vector3.ONE * 0.05))] = true
+	var wanted: Dictionary = AMBIENT_WANTED.get(hood, {})
+	for id: String in wanted:
+		if int(counts.get(id, 0)) < int(wanted[id]):
+			out.append("A15 %s: %d %s emitters (want %d)" % [label, int(counts.get(id, 0)), id, int(wanted[id])])
+	if hood == "oak_hollow" and spots.size() > 3:
+		out.append("A15 %s: Oak Hollow's sprinklers stand on %d different spots before their houses" % [label, spots.size()])
+	var block := lot.get_node_or_null("Block")
+	for node: Node in (block.find_children("House", "Node3D", true, false) if block != null else []):
+		if node.is_in_group("porches") and node.get_node_or_null("Look") != null and node.get_node_or_null("PorchLight") == null and not _is_far(node):
+			out.append("A15 %s: %s has no porch light" % [label, node.get_path()])
+			break
+	return out
+
+
+func _parcel_of(node: Node) -> Node3D:
+	var at := node.get_parent()
+	while at != null:
+		if str(at.get("role")) == "parcel":
+			return at as Node3D
+		at = at.get_parent()
+	return null
+
+
+func _is_far(house: Node) -> bool:
+	var parcel := _parcel_of(house)
+	return parcel != null and str(parcel.get("detail")) == "far"
+
+
+## A16 the hours the neighborhood keeps (pure): the hood one-shots in their own
+## hoods and hours (no screen door at midnight, no whistle after office hours,
+## no loon in winter), the sprinklers' window and their head's sweep and its
+## loop's length, the porch lights coming on at dusk and some of them going off
+## at bedtime, and nobody out walking at 2 AM.
+func _ambience_rules() -> Array[String]:
+	var out: Array[String] = []
+	var cases := [
+		["wind_chime", "maple_row", 10.0, 0, true], ["wind_chime", "oak_hollow", 10.0, 0, false],
+		["screen_door", "dandelion_acres", 9.0, 0, true], ["screen_door", "dandelion_acres", 24.5, 0, false],
+		["dog_yip", "dandelion_acres", 25.5, 0, false], ["hoa_whistle", "oak_hollow", 9.0, 0, true],
+		["hoa_whistle", "oak_hollow", 21.0, 0, false], ["loon", "lakeside", 22.0, 0, true], ["loon", "lakeside", 22.0, 1, false],
+		["loon", "maple_row", 22.0, 0, false],
+	]
+	for case: Array in cases:
+		if _Ambience.hood_wants(case[0], case[1], case[2], case[3]) != bool(case[4]):
+			out.append("A16 %s in %s at %.1f (season %d) should be %s" % case)
+	for hour: float in [7.0, 9.0]:
+		if not _SprinklerJet.running("hoa", hour):
+			out.append("A16 Oak Hollow's sprinklers are off at %.1f" % hour)
+	for hour: float in [6.9, 9.6, 13.0, 25.0]:
+		if _SprinklerJet.running("hoa", hour):
+			out.append("A16 Oak Hollow's sprinklers run at %.1f" % hour)
+	var loop := _SprinklerJet.loop_seconds()
+	var stream := load(_Bank.files("sprinkler_tick_loop")[0]) as AudioStream
+	if stream == null or absf(stream.get_length() - loop) > 0.01:
+		out.append("A16 sprinkler_tick_loop is %.3f s, the head's loop %.3f s" % [stream.get_length() if stream != null else -1.0, loop])
+	var half := Constants.SPRINKLER_ARC * 0.5
+	if not is_equal_approx(_SprinklerJet.head_angle(0.0), -half) or absf(_SprinklerJet.head_angle(loop - 0.0005) + half) > 0.01:
+		out.append("A16 the sprinkler head's sweep doesn't meet itself at the loop")
+	var biggest := 0.0
+	var t := 0.0
+	while t < loop:
+		biggest = maxf(biggest, absf(_SprinklerJet.head_angle(t + 0.01) - _SprinklerJet.head_angle(t)))
+		t += 0.01
+	if biggest > Constants.SPRINKLER_ARC / float(Constants.SPRINKLER_TICKS) * 0.5:
+		out.append("A16 the sprinkler head jumps %.3f rad in 10 ms" % biggest)
+	var lit := {"noon": 0, "dusk": 0, "late": 0}
+	var walking_late := 0
+	for seed_value: int in 200:
+		lit["noon"] += 1 if _PorchLights.lit_at(seed_value, 13.0) else 0
+		lit["dusk"] += 1 if _PorchLights.lit_at(seed_value, 20.0) else 0
+		lit["late"] += 1 if _PorchLights.lit_at(seed_value, 25.9) else 0
+		walking_late += 1 if _Pedestrian.out_at(seed_value, 25.0) else 0
+		if not _Pedestrian.out_at(seed_value, 12.0):
+			out.append("A16 walker %d is home at noon" % seed_value)
+			break
+	if lit["noon"] != 0 or lit["dusk"] != 200:
+		out.append("A16 porch lights: %d of 200 lit at 1 PM, %d at 8 PM" % [lit["noon"], lit["dusk"]])
+	if lit["late"] < 40 or lit["late"] > 110:
+		out.append("A16 porch lights: %d of 200 still lit at 2 AM (about %d%% stay on)" % [lit["late"], int(Constants.PORCH_LIGHT_ALL_NIGHT * 100.0)])
+	if walking_late > 0:
+		out.append("A16 %d of 200 walkers still out at 1 AM" % walking_late)
+	return out
+
+
+## A17 a walker coming down the sidewalk at a player steps round them, never
+## through: one on a route straight through the host, simulated over a minute
+## of its walk, never comes nearer than PEDESTRIAN_CLEAR_PLAYER (less a hair).
+func _walker_dodge(world: Node) -> Array[String]:
+	var out: Array[String] = []
+	var me: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			me = node as Node3D
+	if me == null:
+		return ["A17 no host player to walk at"]
+	var holder := Node3D.new()
+	holder.name = "WalkerDodgeTest"
+	(world as Node3D).add_child(holder)
+	var walker: Node3D = _Pedestrian.new()
+	var at := me.global_position
+	walker.set("route_from", at + Vector3(-12.0, 0.0, 0.0))
+	walker.set("route_to", at + Vector3(12.0, 0.0, 0.0))
+	walker.set("speed", 1.6)
+	walker.set("seed_value", 4242)
+	holder.add_child(walker)
+	var axis := Vector3.RIGHT
+	var across := Vector3(-axis.z, 0.0, axis.x)
+	var nearest := INF
+	var step := 1.0 / 30.0
+	var offset_most := 0.0
+	for index: int in 1800:
+		var time := float(index) * step
+		var on_route: Vector3 = walker.call("_route_at", time)
+		var walked := fposmod(time * 1.6 + float(walker.get("phase")), 48.0)
+		var heading := axis * (1.0 if walked < 24.0 else -1.0)
+		walker.call("_dodge", on_route, heading, across, step)
+		var offset := float(walker.get("_offset"))
+		offset_most = maxf(offset_most, absf(offset))
+		var spot := on_route + across * offset
+		nearest = minf(nearest, Vector2(spot.x - at.x, spot.z - at.z).length())
+	holder.queue_free()
+	if nearest < Constants.PEDESTRIAN_CLEAR_PLAYER - 0.15:
+		out.append("A17 a walker passed %.2f m from a player standing on its route (keeps %.2f)" % [nearest, Constants.PEDESTRIAN_CLEAR_PLAYER])
+	if offset_most > Constants.PEDESTRIAN_SIDESTEP_MAX + 0.01:
+		out.append("A17 a walker stepped %.2f m off its route" % offset_most)
+	print("[ArtTest] A17 a walker passing a player kept %.2f m, stepping %.2f m aside" % [nearest, offset_most])
 	return out

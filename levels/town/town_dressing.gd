@@ -288,6 +288,8 @@ static func _lake(root: Node3D) -> void:
 	var water := _LowPoly.box(holder, Vector3(lake.size.x, 0.1, lake.size.y), Vector3(lake.get_center().x, 0.0, lake.get_center().y), WATER)
 	water.name = "Water"
 	_LowPoly.paint(_LowPoly.box(holder, Vector3(lake.size.x + 0.6, 0.5, 0.4), Vector3(lake.get_center().x, 0.25, lake.end.y), STONE), "stone")
+	# The water lapping at that edge and the loon out on it (art:9, audio/ambience.gd).
+	preload("res://levels/town/set_pieces.gd").shore(holder, Vector3(lake.position.x, 0.05, lake.end.y - 0.3), Vector3(lake.end.x, 0.05, lake.end.y - 0.3), Vector3.FORWARD)
 	for dock: Array in TownMap.docks():
 		var from: Vector3 = dock[0]
 		var to: Vector3 = dock[1]
