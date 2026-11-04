@@ -48,6 +48,8 @@ const KNOCK_RUN_UP: float = 14.0
 const EDGE_RUN_UP: float = 36.0
 ## ... this far west of the Depot Road farm track (m), so it meets hedge, not the gate.
 const EDGE_HEDGE_SIDE: float = 24.0
+## bin_mate (fx-yard): how far behind the browsing friend you stand (m).
+const BIN_MATE_BEHIND: float = 0.85
 const KNOCK_FRIEND_PAST: float = 7.0
 ## ...and how far toward the street from the mailbox Chefty's middle runs (m).
 const KNOCK_SIDE: float = 1.2
@@ -57,7 +59,7 @@ const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "bin_mate", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -311,6 +313,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _edge("hedge_angle")
 		"edge_barricade":
 			out = await _edge("barricade")
+		"bin_mate":
+			out = await _bin_mate()
 
 		"skate":
 			out = await _skate()
@@ -1869,6 +1873,41 @@ func _store() -> Dictionary:
 		return true if Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE else null)
 	await _ticks(3)
 	return {"zone": _zone()} if there != null else {"error": "never got to the store"}
+
+
+## bin_mate (fx-yard, needs -Friend): inside Homie Depot, the friend browsing
+## right in front of the rake bin, you a step behind them looking past them at
+## the bin. tap interact: the bin's window opens; nobody gets picked up.
+func _bin_mate() -> Dictionary:
+	var friend := _friend_id()
+	if friend == 0:
+		return {"error": "bin_mate needs a second player: start with -Friend"}
+	var out: Dictionary = await _store()
+	if out.has("error"):
+		return out
+	Net.move_player_to_zone(friend, Net.Zone.STORE)
+	await get_tree().create_timer(0.6).timeout
+	var bin := get_tree().get_first_node_in_group("rake_bin") as Node3D
+	if bin == null:
+		return {"error": "no rake bin"}
+	var front: Vector3 = bin.call("slot_front", 0)
+	var slot: Dictionary = (bin.get("slots") as Array)[0]
+	var middle := bin.to_global((slot["at"] as Vector3) + Vector3(0.0, (slot["size"] as Vector3).y * 0.5, 0.0))
+	var away := Vector3(front.x - middle.x, 0.0, front.z - middle.z).normalized()
+	var mate := Vector3(front.x, bin.global_position.y + 0.05, front.z) + away * 0.15
+	var stand := mate + away * BIN_MATE_BEHIND
+	_safe_peer(friend, QUIET_AFTER_SECONDS)
+	var body := _other_player()
+	if body != null:
+		body.call("send_teleport", Transform3D(Basis(Vector3.UP, atan2(away.x, away.z)), mate))
+	var me := _me()
+	var yaw := atan2(away.x, away.z)
+	me.call("apply_network_teleport", Transform3D(Basis(Vector3.UP, yaw), stand))
+	me.set("body_yaw", yaw)
+	var eye_y := stand.y + 1.6
+	me.set("head_pitch", atan2(middle.y - eye_y, Vector2(middle.x - stand.x, middle.z - stand.z).length()))
+	await get_tree().create_timer(0.5).timeout
+	return {"note": "the friend in front of the rake bin, you behind them looking at it; tap interact", "zone": _zone()}
 
 
 ## Back at Homie Depot with junk for Rusty's (shops chunk 5): Chefty on the

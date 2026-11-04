@@ -5868,3 +5868,19 @@ const SMOOTHER_CATCH_UP_SPEED_MIN: float = 2.5
 ## Off by more than this (m) after the gap, it's a move of its own (a short
 ## host-ordered hop), drawn as the stream has it.
 const SMOOTHER_CATCH_UP_MAX: float = 1.5
+## A player's drawn body is always held to that pace, judged by their replicated
+## speed or how far the stream went over this long (s), whichever is more.
+const SMOOTHER_SPEED_WINDOW: float = 0.25
+## 2 AM while Chefty honks and waits for a trip out: everyone hops back out this
+## long (s) after the day closes (levels/world.gd _tick_boarding), a beat after the yawn.
+const CHEFTY_BOARD_CLOSED_BEAT: float = 0.9
+## The night passing (levels/day_sky.gd): a clock jump this big (h) is worked out
+## whole on its frame; the sleepers' eyes open on the morning, a veil of this
+## color fading over this long (s), on this canvas layer (under the HUD's).
+const DAY_SKY_JUMP_HOURS: float = 2.0
+const DAY_SKY_WAKE_SECONDS: float = 0.9
+const DAY_SKY_WAKE_COLOR := Color(0.03, 0.03, 0.06, 1.0)
+const DAY_SKY_WAKE_LAYER: int = 0
+## The last of the crew to lie down gets this long (s) on the cot before the night
+## passes (net/day/day_clock.gd): the climb, a round trip, and a breath.
+const SLEEP_LAST_ONE_BEAT: float = 1.6
