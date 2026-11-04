@@ -6432,3 +6432,33 @@ const STAGE_POST_LENS_CLEAR: float = 1.1
 ## share of its height (an evergreen's skirt goes by VAN_TREE_SPREAD.x instead).
 const STAGE_LAMP_POST_RADIUS: float = 0.12
 const STAGE_TRUNK_SHARE: float = 0.045
+
+# ---- cast:7, words in the world (props/doodles.gd; docs/GAME.md "Words in the
+# world"). Presentation only. The words are printed on the paper, not hung over the
+# world: depth-tested ink on the card, so they go where the paper goes.
+## A poster's title and body lines, and a sticky note's line, this tall (m; one
+## line as ui/overheads.gd measures it: font size times pixel size). Sized so even
+## with your nose on the post (WORDS_NEAREST_M, at Constants.FOV_DEFAULT) a line
+## stays under P1_SIGN_LINE_MAX of the view, like every word in the world.
+const WORDS_POSTER_TITLE_M: float = 0.022
+const WORDS_POSTER_BODY_M: float = 0.018
+const WORDS_NOTE_LINE_M: float = 0.015
+## The closest your eye gets to a poster or a note (m): the player's capsule (0.35)
+## against the post or the door, less the head's lean.
+const WORDS_NEAREST_M: float = 0.45
+## The glyphs are rasterized this big (px; MSDF, so they stay sharp up close and on
+## the Low preset's 75% render scale) and drawn at the line heights above.
+const WORDS_TITLE_FONT_PX: int = 64
+const WORDS_BODY_FONT_PX: int = 48
+## The ink sits this far (m) in front of its paper: clear of z-fighting at the
+## farthest it draws, never visibly floating.
+const WORDS_INK_LIFT_M: float = 0.0025
+## Past this (m) the words fade out over WORDS_FADE_M (unreadable there anyway);
+## the paper and its picture stay.
+const WORDS_VISIBLE_M: float = 16.0
+const WORDS_FADE_M: float = 4.0
+## In the connected town, this share of the street lamps carries a poster (seeded),
+## and this share within WORDS_DOWNTOWN_M of the town square (people walk there).
+const WORDS_TOWN_POSTER_SHARE: float = 0.25
+const WORDS_DOWNTOWN_POSTER_SHARE: float = 0.75
+const WORDS_DOWNTOWN_M: float = 90.0

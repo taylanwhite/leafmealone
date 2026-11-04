@@ -44,6 +44,13 @@ extends Node
 ##      guardrail, it keeps its 5 collision boxes, it has wheels, see-through glass
 ##      and the dome; the pull-up ends exactly where the ride out starts
 ##  12. the beacon: seal, cones, notices and label; the seal spins; it folds away
+##  18. (cast:7) words in the world: every poster and sticky note in rotation has
+##      its Strings.SIGNS words printed on it (title and body), the courtesy notice
+##      a Daisy Seal; the ink is on the paper (a child of the card, in front of it
+##      by the lift, depth-tested, never billboarded, not one of overheads' hung
+##      signs), fits inside the paper and its zones, fades out past
+##      WORDS_VISIBLE_M, a line never taller than P1_SIGN_LINE_MAX of the view at
+##      WORDS_NEAREST_M, and the same seed always picks the same words
 ##  14b. (in phase C) the van pulled up and is parked at the curb as the crew arrives
 ## Phase C, a raid with a client watching (a client named Target joins):
 ## Phase C runs at full heat (the test adds it) on a day other than 1 (--start-day),
@@ -76,6 +83,13 @@ const _Vehicles = preload("res://props/vehicles.gd")
 const _NiceVan = preload("res://props/nice_van.gd")
 const _BeaconScript = preload("res://npcs/arrival_beacon.gd")
 const _VanArrival = preload("res://net/run_events/shuttle.gd")
+## Step 18: words in the world, the posters and sticky notes (cast:7).
+const PHASE_B_WORDS: bool = true
+const _Doodles = preload("res://props/doodles.gd")
+const _Overheads = preload("res://ui/overheads.gd")
+## Step 18 builds them this size (m), as the street does (levels/dressing/street_life.gd).
+const WORDS_POSTER_SIZE := Vector2(0.3, 0.41)
+const WORDS_NOTE_SIZES: Array[Vector2] = [Vector2(0.17, 0.17), Vector2(0.19, 0.19)]
 ## Steps 13-16: crew outfits and name tags on a networked crew (cast:4).
 const PHASE_C_CREW: bool = true
 ## Step 17: barks reach the client (cast:6).
@@ -219,6 +233,8 @@ func _phase_b() -> void:
 		await _beacon(scratch)
 	else:
 		print("[CastTest] steps 11-12 (van, beacon) are off until cast:5")
+	if PHASE_B_WORDS:
+		_words(scratch)
 	scratch.queue_free()
 	await get_tree().process_frame
 	print("[CastTest] steps 9-12, the NICE BOYS' look, van and beacon: %s" % (_problems.size() == before))
@@ -390,6 +406,92 @@ func _beacon(scratch: Node3D) -> void:
 		waited += get_process_delta_time()
 	_look(not is_instance_valid(beacon), "12 a dismissed beacon folds away and is freed")
 	print("[CastTest] step 12: the beacon spun, dropped notices and folded away in %.2f s" % waited)
+
+
+## Step 18 (cast:7): every poster and sticky note in rotation, built as the
+## street builds them, carries its words, printed on the paper, readable and
+## inside it.
+func _words(scratch: Node3D) -> void:
+	var holder := Node3D.new()
+	scratch.add_child(holder)
+	holder.position = Vector3(0.0, 0.0, 30.0)
+	var before := _problems.size()
+	var view_at_nearest := 2.0 * Constants.WORDS_NEAREST_M * tan(deg_to_rad(Constants.FOV_DEFAULT) * 0.5)
+	var tallest := 0.0
+	for index: int in _Doodles.POSTERS.size():
+		var key := _Doodles.POSTERS[index]
+		_look(_Doodles.poster_key(index) == key and _Doodles.poster_key(index + _Doodles.POSTERS.size()) == key, "18 poster seed %d picks %s every time" % [index, key])
+		var words := str(_Strings.SIGNS.get(key, ""))
+		_look(words.split("\n", false).size() >= 2, "18 Strings.SIGNS[%s] has a title and a body" % key)
+		_look(_Doodles.POSTER_LOOKS.has(key), "18 %s has a look in Doodles.POSTER_LOOKS" % key)
+		var card := _Doodles.place_poster(holder, index, Vector3(float(index) * 0.5, 1.8, 0.0), Vector3.BACK, WORDS_POSTER_SIZE)
+		_look(str(card.get_meta("words", "")) == key, "18 poster %d is %s" % [index, key])
+		var lines := words.split("\n", false, 1)
+		var title := card.get_node_or_null("Title") as Label3D
+		var body := card.get_node_or_null("Body") as Label3D
+		_look(title != null and title.text == lines[0], "18 %s's title reads '%s'" % [key, lines[0]])
+		_look(body != null and lines.size() > 1 and body.text == lines[1], "18 %s's body reads its SIGNS line" % key)
+		if title == null or body == null:
+			continue
+		# The title sits in its band, on one line; the body between where it starts
+		# and the tabs (or the courtesy notice's fine print, or the paper's foot).
+		var per_px := WORDS_POSTER_SIZE.y / float(_Doodles.POSTER_PX.y)
+		var title_size := _ink_size(title)
+		_look(_ink_lines(title) == 1, "18 %s's title fits on one line" % key)
+		_look(title_size.x <= WORDS_POSTER_SIZE.x * 0.95 and title_size.y * 0.5 <= _Doodles.POSTER_TITLE_Y * per_px, "18 %s's title (%.3f x %.3f m) fits its band" % [key, title_size.x, title_size.y])
+		var foot := _Doodles.POSTER_TABS_Y if bool((_Doodles.POSTER_LOOKS[key] as Dictionary)["tabs"]) else float(_Doodles.POSTER_PX.y) - 10.0
+		if key == "poster_courtesy":
+			foot = 296.0
+		var body_size := _ink_size(body)
+		var room := (foot - _Doodles.POSTER_BODY_Y) * per_px
+		_look(body_size.x <= WORDS_POSTER_SIZE.x * 0.95 and body_size.y <= room, "18 %s's body (%.3f x %.3f m) fits above the paper's foot (%.3f m)" % [key, body_size.x, body_size.y, room])
+		_look((key == "poster_courtesy") == (card.get_node_or_null("NiceSeal") != null), "18 %s %s a Daisy Seal" % [key, "carries" if key == "poster_courtesy" else "has no"])
+		for label: Label3D in [title, body]:
+			tallest = maxf(tallest, _printed(label, card, key, view_at_nearest))
+	for index: int in _Doodles.NOTES.size():
+		var key := _Doodles.NOTES[index]
+		_look(_Doodles.note_key(index) == key, "18 note seed %d picks %s every time" % [index, key])
+		for size: Vector2 in WORDS_NOTE_SIZES:
+			var card := _Doodles.place_note(holder, index, Vector3(float(index) * 0.5, 1.1, 0.0), Vector3.BACK, size, 0.2)
+			var line := card.get_node_or_null("Line") as Label3D
+			_look(line != null and line.text == str(_Strings.SIGNS.get(key, "-")) and line.text != "", "18 note %s reads its SIGNS line" % key)
+			if line == null:
+				continue
+			var ink := _ink_size(line)
+			# Under the glue strip and clear of the corner doodle.
+			_look(ink.x <= size.x * 0.92 and ink.y <= size.y * 0.62, "18 note %s's words (%.3f x %.3f m) fit a %.2f m note" % [key, ink.x, ink.y, size.x])
+			tallest = maxf(tallest, _printed(line, card, key, view_at_nearest))
+	look["words_line_share_at_nearest"] = tallest
+	holder.queue_free()
+	print("[CastTest] step 18: %d posters and %d notes carry their words; the tallest line is %.1f%% of the view at %.2f m (the cap is %.1f%%): %s" % [_Doodles.POSTERS.size(), _Doodles.NOTES.size(), tallest * 100.0, Constants.WORDS_NEAREST_M, Constants.P1_SIGN_LINE_MAX * 100.0, _problems.size() == before])
+
+
+## Step 18: one printed label's rules; returns its line's share of the view at
+## WORDS_NEAREST_M.
+func _printed(label: Label3D, card: Node3D, key: String, view_at_nearest: float) -> float:
+	_look(label.get_parent() == card, "18 %s's words are on its card" % key)
+	_look(label.position.z >= 0.001 and label.position.z <= 0.006, "18 %s's ink sits %.4f m in front of the paper (0.001 to 0.006)" % [key, label.position.z])
+	_look(label.billboard == BaseMaterial3D.BILLBOARD_DISABLED and not label.no_depth_test and not label.fixed_size and not label.double_sided, "18 %s's words are printed (no billboard, depth-tested, one-sided)" % key)
+	_look(not label.is_in_group(_Overheads.SIGNS), "18 %s's words aren't hung in the world (overheads' SIGNS)" % key)
+	_look(is_equal_approx(label.visibility_range_end, Constants.WORDS_VISIBLE_M) and label.visibility_range_fade_mode != GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED, "18 %s's words fade out past WORDS_VISIBLE_M" % key)
+	var share := float(label.font_size) * label.pixel_size / view_at_nearest
+	_look(share <= Constants.P1_SIGN_LINE_MAX, "18 %s's line is %.1f%% of the view at %.2f m, over the %.1f%% cap" % [key, share * 100.0, Constants.WORDS_NEAREST_M, Constants.P1_SIGN_LINE_MAX * 100.0])
+	return share
+
+
+## A printed label's words as they land on its card (m): wrapped at its width,
+## its line spacing counted.
+func _ink_size(label: Label3D) -> Vector2:
+	var font := label.font if label.font != null else ThemeDB.fallback_font
+	var px := font.get_multiline_string_size(label.text, HORIZONTAL_ALIGNMENT_CENTER, label.width, label.font_size)
+	px.y += float(_ink_lines(label) - 1) * label.line_spacing
+	return px * label.pixel_size
+
+
+func _ink_lines(label: Label3D) -> int:
+	var font := label.font if label.font != null else ThemeDB.fallback_font
+	var px := font.get_multiline_string_size(label.text, HORIZONTAL_ALIGNMENT_CENTER, label.width, label.font_size)
+	return maxi(1, roundi(px.y / font.get_height(label.font_size)))
 
 
 ## Steps 13-16 (cast:4): a raid on a real lot, with a client watching. Every NICE

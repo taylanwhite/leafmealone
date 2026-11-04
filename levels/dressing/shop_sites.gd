@@ -219,6 +219,9 @@ static func _rustys_shack(root: Node3D, area: Rect2) -> void:
 	_LowPoly.paint(door, "planks")
 	_LowPoly.window(root, 0.9, 0.6, Vector3(front - 0.01, 1.55, middle.z - size.z * 0.22), Color(0.45, 0.38, 0.3), -PI * 0.5)
 	_solid(root, middle + Vector3(0.0, size.y * 0.5, 0.0), size)
+	# A note on his door, and a poster on the fence north of the gate, clear of his
+	# sign board and his hours post (cast:7).
+	preload("res://levels/dressing/street_life.gd").dress_rustys(root, Vector3(front - 0.061, 1.42, middle.z + size.z * 0.28 + 0.18), Vector3.LEFT, Vector3(area.position.x - 0.015, 1.3, area.get_center().y + RUSTYS_GATE_HALF + 1.9), Vector3.LEFT)
 
 
 ## The chalkboard on an A-frame by the counter: today's mood (MoodBoard).

@@ -248,7 +248,7 @@ func _house() -> void:
 	# A note or two stuck to the front door.
 	var door: Vector3 = at + (_spec.get("door", Vector3(0.0, 1.6, depth * 0.5 + 0.07)) as Vector3)
 	for index: int in _rng.randi_range(0, 2):
-		_Doodles.place_paper(self, _Doodles.note(_rng.randi() % 50), door + Vector3(-0.15 + float(index) * 0.25, 0.3 - float(index) * 0.2, 0.02), Vector3.BACK, Vector2(0.19, 0.19), _rng.randf_range(-0.3, 0.3))
+		_Doodles.place_note(self, _rng.randi() % 50, door + Vector3(-0.15 + float(index) * 0.25, 0.3 - float(index) * 0.2, 0.02), Vector3.BACK, Vector2(0.19, 0.19), _rng.randf_range(-0.3, 0.3))
 	# Windows to wash.
 	for entry: Array in _spec.get("windows", []):
 		var spot_at: Vector3 = at + (entry[0] as Vector3)
