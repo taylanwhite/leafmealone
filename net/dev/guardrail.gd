@@ -59,7 +59,7 @@ const PATTERNS: Array = [
 	# Satellite Annex with open doors, never detention, cells, booking or bail.
 	{"id": "custody", "re": "(?i)\\b(detain\\w*|detention\\w*|custody|holding\\s+(cells?|pens?|areas?)|booking|booked\\s+in|mug\\s?shots?|fingerprint(s|ed|ing)?|inmates?|jail\\w*|prison\\w*|cell\\s?blocks?|perp\\s+walks?|processing\\s+(centers?|facilit(y|ies)))\\b",
 		"why": "custody imagery: the NICE BOYS cite and file, they never hold anyone"},
-	# "Bail out!" (jumping out of Chefty) is a different bail; the court kind is out.
+	# Bail in the courtroom sense is out (jumping out of a moving Chefty is fine).
 	{"id": "custody", "re": "(?i)\\b(post(s|ed|ing)?\\s+bail|bail\\s+(bonds?|money|hearings?|is\\s+set|was\\s+set)|on\\s+bail|make\\s+bail|made\\s+bail|jump(s|ed|ing)?\\s+bail|bail(ed)?\\s+(me|him|her|them|you|us)\\s+out|without\\s+bail|no\\s+bail)\\b",
 		"why": "bail in the courtroom sense"},
 	# ---- Canon casing: the crew is always NICE BOYS in caps (lowercase 'nice boys' is the pun, allowed).
@@ -90,7 +90,7 @@ const SHOULD_PASS: Array = [
 	"Spotless. Spick-and-span would be a stretch.", "a custom paint job", "Notice of Niceness",
 	"Pulled the TurfMasters sign", "Go back to the truck", "Raid warning", "The save migration ran", "Rake It Easy",
 	"Courtesy Lounge", "Satellite Annex B", "APPROVED, NICELY", "Form 27-B", "co-signer sheet",
-	"Bail out!", "They took Pat. Pat had the good rake.", "Have a NICE day!",
+	"They took Pat. Pat had the good rake.", "Have a NICE day!",
 ]
 
 static var _compiled: Array = []

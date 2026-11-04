@@ -45,7 +45,7 @@ const HEAD_HEIGHT: float = 1.55
 const SIGNS := "overhead_signs"
 ## p1-ui: the UIRoot pieces words in the world keep off (besides the hotbar's own
 ## rects, ui/hotbar_hud.gd screen_rects).
-const HUD_PIECES: Array[String] = ["HudRows", "TaskList", "DayHud", "HeatMeter", "JobGoal", "DriveHud"]
+const HUD_PIECES: Array[String] = ["HudRows", "TaskList", "DayHud", "HeatMeter", "JobGoal"]
 ## p1-ui: the cameras that are a moment, not your eyes (player/stage_cam.gd's
 ## StageCam, props/nice_van.gd's CabinCam rig): no tags or signs while one draws.
 const STAGE_CAMERAS: Array[StringName] = [&"StageCam", &"CabinCam"]

@@ -35,6 +35,8 @@ const _Strings = preload("res://ui/strings.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
 const _Sched = preload("res://net/annex/annex_schedule.gd")
 const _DriveTest = preload("res://net/dev/drive_test.gd")
+## shotgun_hand: where on the County Road Chefty parks (x, m; drive_test's spot).
+const SHOTGUN_HAND_X: float = 110.0
 ## crash, crash_big: the run-up to the parked car (m), and the load in the bed.
 const CRASH_RUN_UP: float = 15.0
 const CRASH_BIG_RUN_UP: float = 30.0
@@ -51,7 +53,7 @@ const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -289,6 +291,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _store()
 		"drive":
 			out = await _drive()
+		"shotgun_hand":
+			out = await _shotgun_hand()
 		"crash":
 			out = await _crash(false)
 		"crash_big":
@@ -1922,6 +1926,32 @@ func _drive() -> Dictionary:
 	if int(chefty.call("driver")) != Net.local_peer_id():
 		return {"error": "couldn't get in the driver's seat"}
 	return {"note": "driving: move_forward/back throttle, move_left/right steer, interact gets out", "zone": _zone()}
+
+
+## shotgun_hand (p1-dash): Chefty parked on the County Road (away from home, so a
+## hand has somewhere to drive), Big Sal hired and riding in the bed, and you slid
+## over to shotgun with the wheel empty. Turn left to the wheel for its prompt;
+## G hands Big Sal the wheel, G again (looking at him) pulls over.
+func _shotgun_hand() -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var spot := Vector3(SHOTGUN_HAND_X, 0.0, 0.0)
+	spot.z = lerpf(TownMap.DEPOT_JUNCTION.z, TownMap.COUNTY_BEND.z, (spot.x - TownMap.DEPOT_JUNCTION.x) / (TownMap.COUNTY_BEND.x - TownMap.DEPOT_JUNCTION.x))
+	chefty.call("dev_place", spot, -PI * 0.5)
+	Net.set_player_zone(Net.local_peer_id(), Net.Zone.TOWN)
+	var hires := get_tree().get_first_node_in_group("hires")
+	if hires == null:
+		return {"error": "no Hires node"}
+	if (chefty.call("hands_aboard") as Array).is_empty():
+		hires.call("dev_add_hand", "Big Sal")
+	await get_tree().create_timer(0.5).timeout
+	chefty.call("request_swap")
+	await get_tree().create_timer(0.6).timeout
+	if int(chefty.call("seat_of", Net.local_peer_id())) != 1:
+		return {"error": "couldn't slide over to shotgun"}
+	return {"note": "shotgun, the wheel empty, Big Sal in the bed; G would '%s'" % str(chefty.call("chauffeur_action", Net.local_peer_id())), "zone": _zone()}
 
 
 ## crash, crash_big (driving C3): at the wheel, stopped on a street with a parked

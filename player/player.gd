@@ -1820,6 +1820,11 @@ func _best_pickup() -> Node3D:
 ## prompt isn't showing. Empty when E does nothing here, or does something the
 ## world already shows (climbing out of a hedge, heaving a bag into Chefty).
 func interaction_hint() -> Dictionary:
+	# Seated in Chefty: a key over the seat or the hired hand you look at, else
+	# nothing (p1-dash: E gets you out the way it got you in).
+	if in_vehicle():
+		var vehicle := _Seated.vehicle_of(self)
+		return vehicle.call("seat_hint", self) if vehicle != null and vehicle.has_method("seat_hint") else {}
 	var choice := e_choice()
 	var hint: Dictionary = choice["hint"]
 	# A fresh notice (out of bags) shows only while E has nothing else to say.

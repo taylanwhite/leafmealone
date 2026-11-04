@@ -28,6 +28,9 @@ extends Node
 ##   p-r. the chase camera never inside anything (driving chunk E2, _camera_steps;
 ##      they were m-o on E2's branch, renamed at the W8 merge): swung past a
 ##      post, a tree planted behind the truck, a wall backed into.
+##   s-x. the dash in the cab (p1-dash, _dash_steps): the needle and the odometer
+##      read the truck's real ground speed and travel, pinned against a wall is
+##      standing still, the odometer saves, the check-engine lamp, the seat prompt.
 ## The client's prediction (how far its predicted Chefty was from the host's
 ## after the same input, "drive".prediction_error_max_m), the riders both peers
 ## see, and the client's snapshot gaps are checked by CI from the probe reports.
@@ -234,6 +237,7 @@ func _run(world: Node) -> void:
 	await _crash_steps(world, chefty, host, problems)
 
 	await _camera_steps(chefty, host, problems)
+	await _dash_steps(chefty, host, problems)
 	# Give the client's report time to see the same seats and zone.
 	await get_tree().create_timer(1.0).timeout
 	_finish(problems.is_empty(), problems)
@@ -745,6 +749,156 @@ func _camera_steps(chefty: Node, host: int, problems: Array[String]) -> void:
 	var cut := int(camera.get("cuts")) - cuts_before
 	_verdict(cut == 1 and lens_out < 4.0 - 0.2, "r. a wall backed into: %d cut, the lens %.1f m out (the wall at 4.0 m)" % [cut, lens_out], problems)
 	holder.queue_free()
+	chefty.call("request_exit")
+	await get_tree().create_timer(0.5).timeout
+
+
+## p1-dash: the instruments in the cab instead of a panel on screen, the truck's
+## real ground speed, the odometer in the save, the seat's prompts:
+##   s. no drive HUD; the host at the wheel on the County Road: the needle rests
+##      at 0, then 3 s of full throttle: Chefty's ground speed matches how far the
+##      chassis really went and the sim's own speed (the host once drove on a
+##      client's leftover input queue at two sim steps a tick, twice as fast as
+##      the sim said), the needle reads it within 3 MPH, and the odometer rolled
+##      on by that distance (in miles); then it stops.
+##   t. pinned: a wall at the bumper and the gas floored into it: the sim still
+##      pushes, but the ground speed and the needle read about 0, and getting out
+##      with the gas down is stepping out, not a bail.
+##   u. the save's vehicle section carries the odometer (odometer_m).
+##   v. the check-engine lamp: lit with a dent, dark again after Marty's.
+##   w. looking with your own eyes from the driver's seat at the empty shotgun
+##      seat offers [F] Slide over (the take key); looking down the road, nothing.
+##   x. slid over to shotgun with a hired hand aboard: looking at the empty wheel
+##      offers [F] Slide over and [G] You drive (the chauffeur's start).
+func _dash_steps(chefty: Node, host: int, problems: Array[String]) -> void:
+	var me := _player(host)
+	var ui := get_tree().get_first_node_in_group("game_ui")
+	var no_panel := ui != null and ui.get_node_or_null("DriveHud") == null
+	var spot := Vector3(110.0, 0.0, 0.0)
+	spot.z = lerpf(TownMap.DEPOT_JUNCTION.z, TownMap.COUNTY_BEND.z, (spot.x - TownMap.DEPOT_JUNCTION.x) / (TownMap.COUNTY_BEND.x - TownMap.DEPOT_JUNCTION.x))
+	var yaw := -PI * 0.5
+	await _take_wheel(chefty, host, spot, yaw)
+	await get_tree().create_timer(1.6).timeout
+	var rest: Dictionary = chefty.call("dash_reading")
+	var miles_before := float(chefty.call("odometer_miles"))
+	var from: Vector3 = (chefty.call("sim_pose") as Dictionary)["pos"]
+	chefty.call("dev_script", host, [{"seconds": 3.0, "throttle": 1.0}])
+	var clock := 0.0
+	while clock < 3.0:
+		await get_tree().physics_frame
+		clock += get_physics_process_delta_time()
+	var to: Vector3 = (chefty.call("sim_pose") as Dictionary)["pos"]
+	var ground := float(chefty.call("ground_speed"))
+	var sim := float(chefty.call("speed"))
+	var needle := float((chefty.call("dash_reading") as Dictionary).get("mph", -1.0))
+	var ground_mph := ground * Constants.CHEFTY_DASH_MPH_PER_MPS
+	var went := Vector2(to.x - from.x, to.z - from.z).length()
+	var rolled := (float(chefty.call("odometer_miles")) - miles_before) * Constants.CHEFTY_METERS_PER_MILE
+	chefty.call("dev_script", host, [{"seconds": 1.0, "throttle": -1.0}, {"seconds": 2.0, "handbrake": true}])
+	var waited := 0.0
+	while (chefty.call("dev_script_playing") or float(chefty.call("ground_speed")) > 0.3) and waited < 6.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	_verdict(no_panel and not rest.is_empty() and float(rest.get("mph", 99.0)) < 0.5 and ground > 10.0 and absf(ground - sim) < 1.5 and absf(needle - ground_mph) < 3.0 and went > 20.0 and absf(rolled - went) < went * 0.1 + 1.0,
+		"s. the dash: no panel on screen %s, needle at rest %.1f MPH; after 3 s of gas the ground speed %.1f m/s (%.0f MPH; the sim says %.1f), the needle %.1f MPH, Chefty went %.1f m and the odometer rolled %.1f m" % [no_panel, float(rest.get("mph", -1.0)), ground, ground_mph, sim, needle, went, rolled], problems)
+	# t. Pinned against a wall with the gas down.
+	var body: Transform3D = chefty.call("body_transform")
+	var ahead := -body.basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized()
+	var holder := Node3D.new()
+	holder.name = "DashTestWall"
+	get_tree().get_first_node_in_group("world").add_child(holder)
+	var wall_shape := BoxShape3D.new()
+	wall_shape.size = Vector3(9.0, 4.0, 0.6)
+	var wall := _test_solid(holder, wall_shape, body.origin + ahead * (Constants.CHEFTY_HALF_LENGTH + 0.9) + Vector3.UP * 2.0)
+	wall.rotation.y = atan2(ahead.x, ahead.z)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	chefty.call("dev_script", host, [{"seconds": 4.0, "throttle": 1.0}])
+	await get_tree().create_timer(2.5).timeout
+	var pushing := float(chefty.call("speed"))
+	var pinned_ground := float(chefty.call("ground_speed"))
+	var pinned_needle := float((chefty.call("dash_reading") as Dictionary).get("mph", -1.0))
+	chefty.call("request_exit")
+	await get_tree().create_timer(0.4).timeout
+	var exit: Dictionary = chefty.call("dev_last_exit", host)
+	var stepped := int(chefty.call("seat_of", host)) < 0 and not exit.is_empty() and not bool(exit.get("bail", true))
+	holder.queue_free()
+	await get_tree().create_timer(1.6).timeout
+	_verdict(pinned_ground < 1.0 and pinned_needle < 2.5 and stepped,
+		"t. pinned against a wall, gas down: the sim pushing at %.1f m/s, ground speed %.2f m/s, the needle %.1f MPH, getting out was a bail %s" % [pushing, pinned_ground, pinned_needle, exit.get("bail", "?")], problems)
+	# u. The odometer is in the save.
+	var saved: Dictionary = (chefty.call("_save_section") as Dictionary).get("vehicle", {})
+	var report: Dictionary = chefty.call("dev_report")
+	_verdict(saved.has("odometer_m") and float(saved["odometer_m"]) > 20.0 and is_equal_approx(float(saved["odometer_m"]), float(report["odometer_m"])),
+		"u. the save's vehicle section: odometer_m %s (Chefty's %.1f m)" % [saved.get("odometer_m", "missing"), float(report["odometer_m"])], problems)
+	# v. The check-engine lamp, and w. the seat's prompt: back at the wheel.
+	await _take_wheel(chefty, host, spot, yaw)
+	await get_tree().create_timer(Constants.CHEFTY_DASH_BULB_CHECK_SECONDS + 0.4).timeout
+	var clean_lamp := bool((chefty.call("dash_reading") as Dictionary).get("check_engine", true))
+	chefty.rpc("_rpc_dents", 1)
+	await get_tree().create_timer(0.3).timeout
+	var dented_lamp := bool((chefty.call("dash_reading") as Dictionary).get("check_engine", false))
+	chefty.call("host_repair")
+	await get_tree().create_timer(0.3).timeout
+	var fixed_lamp := bool((chefty.call("dash_reading") as Dictionary).get("check_engine", true))
+	_verdict(not clean_lamp and dented_lamp and not fixed_lamp, "v. the check-engine lamp: no dents %s, a dent %s, after Marty's %s" % [clean_lamp, dented_lamp, fixed_lamp], problems)
+	me.set_meta("vehicle_chase", false)
+	var eyes := me.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
+	if eyes != null:
+		eyes.make_current()
+	me.set("head_pitch", 0.0)
+	me.set("seat_look", 0.0)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var ahead_hint: Dictionary = me.call("interaction_hint")
+	var offered := ""
+	var key := ""
+	var look := 0.0
+	while look > -2.0 and offered == "":
+		look -= 0.05
+		me.set("seat_look", look)
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		var hint: Dictionary = me.call("interaction_hint")
+		if not hint.is_empty():
+			offered = str(hint.get("text", ""))
+			key = str(hint.get("key", ""))
+	me.set("seat_look", 0.0)
+	var ui_text: Dictionary = preload("res://ui/strings.gd").UI
+	_verdict(ahead_hint.is_empty() and offered == str(ui_text["prompt_slide_over"]) and key == "take",
+		"w. from the wheel: looking ahead offers %s; turning to the empty shotgun seat (seat look %.2f) offers '%s' on the %s key" % [ahead_hint.get("text", "nothing"), look, offered, key], problems)
+	# x. Slid over to shotgun with a hand riding in the bed: the empty wheel offers
+	# F to slide back and G to give it to the hand (the bed is behind a seated
+	# head's reach, so the prompt can't be over the hand).
+	var hires := get_tree().get_first_node_in_group("hires")
+	if hires != null and (chefty.call("hands_aboard") as Array).is_empty():
+		hires.call("dev_add_hand", "Big Sal")
+		await get_tree().create_timer(0.5).timeout
+	chefty.call("request_swap")
+	waited = 0.0
+	while int(chefty.call("seat_of", host)) != 1 and waited < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		waited += 0.1
+	await get_tree().create_timer(0.3).timeout
+	if eyes != null:
+		eyes.make_current()
+	me.set("seat_look", 0.0)
+	var start := str(chefty.call("chauffeur_action", host))
+	var wheel_hint := {}
+	look = 0.0
+	while look < 2.0 and wheel_hint.is_empty():
+		look += 0.05
+		me.set("seat_look", look)
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		wheel_hint = me.call("interaction_hint")
+	me.set("seat_look", 0.0)
+	var wheel_text := str(wheel_hint.get("text", ""))
+	var gives := wheel_text.begins_with(str(ui_text["prompt_slide_over"])) and wheel_text.contains("{key:drop}") and wheel_text.ends_with(str(ui_text["prompt_chauffeur"])) and str(wheel_hint.get("key", "")) == "take"
+	_verdict(int(chefty.call("seat_of", host)) == 1 and start == "start" and gives,
+		"x. in shotgun (seat %d) with %d hand(s) aboard, G would '%s'; turning to the empty wheel (seat look %.2f) offers '%s' on the %s key" % [int(chefty.call("seat_of", host)), (chefty.call("hands_aboard") as Array).size(), start, look, wheel_text, wheel_hint.get("key", "")], problems)
 	chefty.call("request_exit")
 	await get_tree().create_timer(0.5).timeout
 

@@ -1474,6 +1474,16 @@ func _state() -> Dictionary:
 	var truck := get_tree().get_first_node_in_group("chefty")
 	if truck != null:
 		out["truck"] = "%d bags $%d" % [int(truck.call("bag_count")), int(truck.call("bag_value"))]
+		# p1-dash: what the cab's instruments show (the needle, the odometer, the
+		# check-engine lamp) against the truck's real ground speed.
+		if truck.has_method("dash_reading"):
+			var dash: Dictionary = truck.call("dash_reading")
+			if not dash.is_empty():
+				out["dash"] = {
+					"mph": snappedf(float(dash["mph"]), 0.1), "odometer": snappedf(float(dash["odometer"]), 0.01),
+					"check_engine": bool(dash["check_engine"]),
+					"ground_mph": snappedf(float(truck.call("ground_speed")) * Constants.CHEFTY_DASH_MPH_PER_MPS, 0.1),
+				}
 	var heat := get_tree().get_first_node_in_group("heat")
 	if heat != null:
 		out["heat"] = snappedf(float(heat.get("heat")), 0.1)

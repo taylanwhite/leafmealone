@@ -4401,9 +4401,11 @@ const CHEFTY_JOLT_PIVOT := Vector3(0.0, 0.35, -2.95)
 const CHEFTY_SHAKE_SECONDS: float = 0.6
 const CHEFTY_SHAKE_METERS_MAX: float = 0.14
 const CHEFTY_SHAKE_NEAR: float = 14.0
-## Standing in Chefty's bed your first-person eye sits this much higher (m), so
-## you look out over the cab-over's roof instead of into the back of it.
-const CHEFTY_BED_EYE_LIFT: float = 0.75
+## Standing in Chefty's bed your first-person eye sits this much higher (m). It was
+## 0.75 to see over the cab-over's roof when its back wall was solid; with the rear
+## window (p1-dash) a standing eye sees the far road over the roof and, through the
+## window and the windshield, the backs of the cab's heads and the road ahead.
+const CHEFTY_BED_EYE_LIFT: float = 0.1
 ## It eases on and off this fast (m/s): about a third of a second each way.
 const CHEFTY_BED_EYE_EASE: float = 2.2
 ## Thrown (a toss, a crash or a bail out of Chefty): the first this many seconds
@@ -5574,3 +5576,42 @@ const P1_LABEL_FADE_PX: float = 24.0
 ## this far (rad) up or down from level.
 const P1_COUNTER_FRAME_SECONDS: float = 0.45
 const P1_COUNTER_PITCH_MAX: float = 0.12
+
+# ---- p1-dash: Chefty's instruments, its rear window and the seat prompts
+# (props/chefty_dash.gd, net/components/chefty_drive.gd; docs/GAME.md "Chefty's dash")
+## Chefty's ground speed (how fast it really goes over the road: the drawn body's
+## travel each tick, smoothed at this rate per second) is what the needle shows
+## and what the seat swap, getting in and bailing out go by. A tick that moved it
+## faster than CHEFTY_GROUND_TELEPORT_MPS (m/s) was a teleport (placed, towed
+## home), not driving: it counts for neither the speed nor the miles.
+const CHEFTY_GROUND_SPEED_RATE: float = 10.0
+const CHEFTY_GROUND_TELEPORT_MPS: float = 70.0
+## The speedometer: m/s to MPH, the top of the dial (MPH), the needle's spring
+## (stiffness per s^2, damping per s: a little overshoot, then it settles) and
+## where its top stop pin is (share of the dial).
+const CHEFTY_DASH_MPH_PER_MPS: float = 2.23694
+const CHEFTY_DASH_MAX_MPH: float = 50.0
+const CHEFTY_DASH_NEEDLE_STIFFNESS: float = 110.0
+const CHEFTY_DASH_NEEDLE_DAMPING: float = 15.0
+const CHEFTY_DASH_NEEDLE_PEG: float = 1.04
+## The lamps light this long (s) when someone takes the wheel (the bulb check);
+## the check-engine lamp blinks this fast (Hz) at CHEFTY_MAX_DENTS.
+const CHEFTY_DASH_BULB_CHECK_SECONDS: float = 1.3
+const CHEFTY_DASH_CEL_BLINK_HZ: float = 1.6
+## The dash's parts are drawn only within this far (m) of the camera.
+const CHEFTY_DASH_VISIBLE_M: float = 9.0
+## The odometer: Chefty came to the crew with this many miles on it; the crew's
+## own meters are in the save's "vehicle" section (odometer_m). The host tells
+## everyone its count every CHEFTY_ODOMETER_SYNC_M (m) driven; a peer that has
+## drifted further than CHEFTY_ODOMETER_RESYNC_M from it takes the host's.
+const CHEFTY_ODOMETER_START_MILES: float = 186427.0
+const CHEFTY_METERS_PER_MILE: float = 1609.344
+const CHEFTY_ODOMETER_SYNC_M: float = 16.0
+const CHEFTY_ODOMETER_RESYNC_M: float = 40.0
+## Seated in Chefty, a key's prompt shows over a seat (or the hired hand) you're
+## looking at with your own eyes: within this angle (radians) of the view's
+## center, within reach (m). A seat's prompt sits this high over its marker:
+## x in the cab (sitting), y in the bed (standing).
+const CHEFTY_SEAT_PROMPT_CONE: float = 0.3
+const CHEFTY_SEAT_PROMPT_REACH: float = 4.0
+const CHEFTY_SEAT_PROMPT_UP := Vector2(1.25, 1.75)

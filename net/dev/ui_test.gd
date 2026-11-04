@@ -331,16 +331,17 @@ func _check_signs() -> void:
 
 
 ## Over each HUD panel, well inside the screen's edges, a short sign fades for the
-## panel's sake alone. The heat meter and Chefty's dash place their children by
-## hand (their own size is zero), so they're checked to count at all.
+## panel's sake alone. The heat meter places its children by hand (its own size
+## is zero), so it's checked to count at all. (Chefty's drive panel is gone since
+## p1-dash put the dash in the cab, so it is no longer a piece to check.)
 func _check_sign_hud(camera: Camera3D, view: Vector2) -> void:
 	var ui := _ui()
 	var counted: Array[String] = []
-	for piece: String in ["HeatMeter", "DriveHud"]:
+	for piece: String in ["HeatMeter"]:
 		var node := ui.get_node_or_null(piece) as Control
 		if node != null and _Overheads.drawn_rect(node).size.x > 1.0 and _Overheads.drawn_rect(node).size.y > 1.0:
 			counted.append(piece)
-	_step("hud_pieces", counted.size() == 2, "drawn rects found for %s (heat %s, dash %s)" % [counted, _Overheads.drawn_rect(ui.get_node("HeatMeter")), _Overheads.drawn_rect(ui.get_node("DriveHud"))])
+	_step("hud_pieces", counted.size() == 1 and ui.get_node_or_null("DriveHud") == null, "drawn rects found for %s (heat %s; no drive panel %s)" % [counted, _Overheads.drawn_rect(ui.get_node("HeatMeter")), ui.get_node_or_null("DriveHud") == null])
 	var panels: Dictionary = {}
 	for piece: String in ["DayHud", "HeatMeter"]:
 		var node := ui.get_node_or_null(piece) as Control
