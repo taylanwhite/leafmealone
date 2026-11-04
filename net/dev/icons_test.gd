@@ -17,16 +17,21 @@ extends Node
 ##                rich() draws the keycap, plain() the "[E]" text; '[' is escaped
 ##   window_icon  project.godot names app_icon.png, and app_icon.ico is a real
 ##                .ico with at least 4 sizes
-##   shop         every Homie Depot card (meta "item_id") shows that item's own
-##                icon (Icons.for_shop_item), the header has the brand mark and
-##                the wallet's cash icon, and it fits 1280x720
+##   catalog      every Catalog item has its own icon (icons:catalog), every kit
+##                kind at every tier, every junk type, every tier's chip
+##   shop         every card of every shop's every tab (meta "item_id") shows that
+##                item's own icon on its catalog shelf (Icons.for_shop_item,
+##                ui/catalog_look.gd), the header has the brand mark and the
+##                wallet's cash icon, and it fits 1280x720 at UI scales 0.75, 1
+##                and 1.5
 ##   board        every job board offer card has task badges and a cash pay line
 ##   receipt      the payout receipt shows the bag, task, mood, bill, water, cash,
 ##                star, bonus, xp and split icons, and fits
 ##   summary      the day summary shows an icon on every line, the rank badge on a
 ##                RANK UP, the unlock's and season's icons, and fits
 ##   phone        every dock tile has its app icon, the crew app the rank badge,
-##                the map one pin per neighborhood, every text bubble an avatar
+##                the map one pin per neighborhood, every Orders row its item's
+##                icon, every text bubble an avatar
 ##   hud          the day HUD's rank badge, the cash row, a task row's badge and
 ##                the heat meter's siren
 ##   prompt       the interaction prompt is a screen-space pill (a Control with a
@@ -37,13 +42,10 @@ extends Node
 ##                point at UI scales 0.8 and 1.25 too (icons chunk F)
 ##   coin         a money popup carries a spinning cash coin left of its text,
 ##                turning in place (icons chunk F)
-## The check of the shop catalog's icons is written here
-## too, but it belongs to a later chunk. Until a check's chunk lands it is in
-## PENDING: it still runs, and its findings go in result["pending"], but it can't
-## fail the test. The chunk that builds it deletes its PENDING line (critic.md:
-## shops:4 turns on shop with its tabbed shop window; icons:E and icons:F turn on
-## theirs; icons:F turns on prompt_format once settings:4 has tokenized the
-## prompt; icons:catalog turns on catalog).
+## A check written ahead of the chunk that builds what it checks goes in PENDING:
+## it still runs, and its findings go in result["pending"], but it can't fail the
+## test. The chunk that builds it deletes its PENDING line (icons:catalog turned
+## on the last one, catalog).
 ## It never renders, so it runs headless. Each check prints an [IconsTest] line.
 
 const _Icons = preload("res://ui/icons.gd")
@@ -53,14 +55,20 @@ const _Seasons = preload("res://core/seasons.gd")
 const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Phone = preload("res://ui/phone.gd")
 const _Prompt = preload("res://ui/interaction_prompt.gd")
+const _WindowFit = preload("res://ui/window_fit.gd")
 const RECIPES_PATH := "res://tools/studio/icon_recipes.gd"
 const ICO_PATH := "res://assets/icons/app_icon.ico"
 const APP_ICON_PATH := "res://assets/icons/app_icon.png"
 
-## Check -> the chunk that turns it on (and deletes its line here).
-const PENDING: Dictionary = {
-	"catalog": "icons:catalog",
-}
+## Check -> the chunk that turns it on (and deletes its line here). Empty since
+## icons:catalog turned on the last one.
+const PENDING: Dictionary = {}
+## Icons more than one Catalog item may show (_catalog): they're the same thing
+## (the Snak-o-Matic's bag roll, Lunch Money's trucker cap is the trucker hat).
+const SHARED_ICONS: Array[String] = ["supply_lawn_bags"]
+## The shop and its cards fit the screen at each of these UI scales (Settings'
+## interface scale, the root's content_scale_factor).
+const UI_SCALES: Array[float] = [0.75, 1.0, 1.5]
 ## The actions a prompt names most; they need a keycap whatever Settings lists.
 const PROMPT_ACTIONS: Array[StringName] = [
 	&"interact", &"take", &"drop", &"primary", &"secondary", &"phone", &"pause",
@@ -352,13 +360,47 @@ func _prompt_format() -> Variant:
 
 
 ## Every Catalog item, and every shop item a rank unlocks, has an icon
-## (critic.md C9 and C32; the art is the icons:catalog chunk's).
+## (critic.md C9 and C32; the art is the icons:catalog chunk's), and its own:
+## no two items share one unless they're the same thing (the Snak-o-Matic's
+## roll of bags is a roll of bags; shirt dyes share the tinted shirt; a hat sold
+## twice is one hat). Every kit kind at every tier (Icons.for_kit), every junk
+## type and the jackpot flamingo (Icons.for_junk), and every tier's chip too.
 func _catalog() -> Variant:
 	var gaps: Array[String] = []
+	var users: Dictionary = {}
 	for item_id: Variant in Catalog.ITEMS:
 		var id := _Icons.for_shop_item(StringName(str(item_id)))
 		if id == "" or not _Icons.has(id):
 			gaps.append("%s ('%s')" % [item_id, id])
+		elif not _Icons.is_tinted(id):
+			(users.get_or_add(id, []) as Array).append(str(item_id))
+	for id: Variant in users:
+		var sharing: Array = users[id]
+		if sharing.size() > 1 and not SHARED_ICONS.has(str(id)):
+			gaps.append("%s is the icon of %s" % [id, sharing])
+	for kind: String in Constants.KIT_KINDS:
+		var ids: Array[String] = []
+		for tier: int in [Catalog.TIER_USED, Catalog.TIER_STOCK, Catalog.TIER_MK2, Catalog.TIER_MK3]:
+			var id := _Icons.for_kit(kind, tier)
+			_need(gaps, "kit %s tier %d" % [kind, tier], id)
+			if ids.has(id):
+				gaps.append("kit %s tier %d shares %s" % [kind, tier, id])
+			ids.append(id)
+			# The shop's card for that tier shows that same picture.
+			var item := Catalog.tool_item(kind, tier)
+			if item != "" and Catalog.has_item(item) and _Icons.for_shop_item(StringName(item)) != id:
+				gaps.append("%s's card is %s, its kit icon %s" % [item, _Icons.for_shop_item(StringName(item)), id])
+		if _Icons.for_tier_badge(Catalog.TIER_STOCK) != "":
+			gaps.append("stock has a tier chip")
+	for tier: int in [Catalog.TIER_USED, Catalog.TIER_MK2, Catalog.TIER_MK3]:
+		_need(gaps, "tier chip %d" % tier, _Icons.for_tier_badge(tier))
+	for type: Variant in Constants.JUNK_TYPES:
+		_need(gaps, "junk " + str(type), _Icons.for_junk(str(type)))
+		_need(gaps, "junk item junk_" + str(type), _Icons.for_shop_item(StringName("junk_" + str(type))))
+	_need(gaps, "the jackpot flamingo", _Icons.for_shop_item(&"junk_flamingo_vintage"))
+	for paint: Variant in Constants.CHEFTY_PAINTS:
+		if not Catalog.has_item(str(paint)):
+			gaps.append("paint %s isn't sold" % paint)
 	for tier: Variant in _Ranks.EXTRA_UNLOCKS:
 		for unlock: String in _Ranks.EXTRA_UNLOCKS[tier]:
 			if unlock.begins_with("shop:"):
@@ -409,28 +451,11 @@ func _shop() -> Variant:
 	_out["shop_cards"] = card_count
 	if cards == null:
 		gaps.append("no cards grid")
-	elif shop.has_method("_items") and card_count != (shop.call("_items") as Array).size():
+		return gaps
+	if shop.has_method("_items") and card_count != (shop.call("_items") as Array).size():
 		gaps.append("%d cards for %d items" % [card_count, (shop.call("_items") as Array).size()])
-	# Each card on its own: it names its item (meta "item_id") and shows that item's
-	# own icon. Counting every icon under the grid would let the price tags' cash
-	# icons and the task badges stand in for missing item icons.
-	var shown_items := 0
 	if card_count == 0:
 		gaps.append("no shop cards")
-	elif cards != null:
-		for card: Node in cards.get_children():
-			if not card.has_meta("item_id"):
-				gaps.append("a card (%s) has no item_id meta" % card.name)
-				continue
-			var item_id := StringName(card.get_meta("item_id"))
-			var want := _Icons.for_shop_item(item_id)
-			if want == "":
-				gaps.append("%s has no shop icon id" % item_id)
-			elif not _icons_under(card).has(want):
-				gaps.append("%s's card doesn't show %s" % [item_id, want])
-			else:
-				shown_items += 1
-	_out["shop_item_icons"] = shown_items
 	for id: String in ["brand_homie_depot", "cash"]:
 		if not _icons_under(shop).has(id):
 			gaps.append("no %s icon in the window" % id)
@@ -439,9 +464,62 @@ func _shop() -> Variant:
 	_out["shop_size"] = [shop.size.x, shop.size.y]
 	if not fits:
 		gaps.append("shop is %s, the window %s" % [shop.size, _design_size()])
+	# icons:catalog: every tab of every shop, each card in the catalog look (its
+	# item's own icon on a shelf, ui/catalog_look.gd, the job board's look).
+	var shown_items := 0
+	var tabs_seen := 0
+	for shop_id: Variant in Catalog.SHOPS:
+		for tab: Variant in (Catalog.SHOPS[shop_id] as Dictionary)["tabs"]:
+			shop.call("open_shop", str(shop_id), str(tab))
+			await _frames(LAYOUT_FRAMES)
+			tabs_seen += 1
+			shown_items += _shop_cards(cards, "%s/%s" % [shop_id, tab], gaps)
+	_out["shop_tabs"] = tabs_seen
+	_out["shop_item_icons"] = shown_items
+	# The window fits the screen at every UI scale (WindowFit draws it smaller
+	# rather than off the edge), with its cards' icons still there.
+	shop.call("open_shop", "homie_depot", "tools")
+	var root := get_tree().root
+	var scale_was := root.content_scale_factor
+	var scales: Dictionary = {}
+	for ui_scale: float in UI_SCALES:
+		root.content_scale_factor = ui_scale
+		await _frames(LAYOUT_FRAMES)
+		var inside := _WindowFit.inside(shop, Constants.UI_WINDOW_MARGIN_PX - 1.0)
+		scales[str(ui_scale)] = {"inside": inside, "scale": snappedf(shop.scale.x, 0.001), "canvas": get_viewport().get_visible_rect().size}
+		if not inside:
+			gaps.append("at UI scale %.2f the shop runs off the screen" % ui_scale)
+	root.content_scale_factor = scale_was
+	await _frames(1)
+	_out["shop_scales"] = scales
 	if shop.has_method("close_window"):
 		shop.call("close_window")
 	return gaps
+
+
+## One tab's cards: each names its item (meta "item_id") and shows that item's own
+## icon on its shelf. Counting every icon under the grid would let the price tags'
+## cash icons and the task badges stand in for missing item icons.
+func _shop_cards(cards: Control, where: String, gaps: Array[String]) -> int:
+	var shown := 0
+	for card: Node in cards.get_children():
+		if card.is_queued_for_deletion():
+			continue
+		if not card.has_meta("item_id"):
+			gaps.append("%s: a card (%s) has no item_id meta" % [where, card.name])
+			continue
+		var item_id := StringName(card.get_meta("item_id"))
+		var want := _Icons.for_shop_item(item_id)
+		var shelf := card.get_meta("shelf") as Control if card.has_meta("shelf") else null
+		if want == "":
+			gaps.append("%s: %s has no shop icon id" % [where, item_id])
+		elif shelf == null or not shelf.has_meta("shelf_icon"):
+			gaps.append("%s: %s's card has no catalog shelf" % [where, item_id])
+		elif not _icons_under(shelf).has(want):
+			gaps.append("%s: %s's shelf doesn't show %s" % [where, item_id, want])
+		else:
+			shown += 1
+	return shown
 
 
 func _board() -> Variant:
@@ -574,6 +652,19 @@ func _phone() -> Variant:
 	_out["map_pins"] = pins
 	if pins != _Hoods.HOODS.size():
 		gaps.append("%d hood pins for %d hoods" % [pins, _Hoods.HOODS.size()])
+	# Orders (icons:catalog): every row's picture is its item's own icon. Nothing
+	# to check while the crew's rank hasn't opened the app.
+	phone.call("show_app", "deliveries")
+	await _frames(LAYOUT_FRAMES)
+	var rows := _with_meta(phone, "order_row")
+	var bare_rows: Array[String] = []
+	for row: Node in rows:
+		var id := str(row.get_meta("order_row"))
+		if not _icons_under(row).has(_Icons.for_shop_item(StringName(id))):
+			bare_rows.append(id)
+	_out["order_rows"] = rows.size()
+	if not bare_rows.is_empty():
+		gaps.append("order rows without their item's icon: %s" % [bare_rows])
 	phone.call("show_app", "texts")
 	await _frames(LAYOUT_FRAMES)
 	# A bubble is a node with meta "text_bubble"; its avatar is an icon under it.
@@ -601,6 +692,9 @@ func _hud() -> Variant:
 	var rows := ui.get("_hud_rows") as Node
 	if rows == null or not _icons_under(rows).has("cash"):
 		gaps.append("ui_root _hud_rows has no cash icon")
+	# The status lines under the rows draw their keys as keycaps (icons:catalog).
+	if not (ui.get("_status") is RichTextLabel):
+		gaps.append("ui_root's status lines aren't a RichTextLabel, so their keys are '[E]' text")
 	var list := preload("res://ui/task_list.gd").new() as Node
 	add_child(list)
 	if not list.has_method("_task_line"):

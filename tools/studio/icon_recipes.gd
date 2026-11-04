@@ -40,6 +40,7 @@ const _Vehicles = preload("res://props/vehicles.gd")
 const _PropLooks = preload("res://props/prop_looks.gd")
 const _LowPoly = preload("res://props/low_poly.gd")
 const _TaskLooks = preload("res://levels/lots/task_looks.gd")
+const _ShopModels = preload("res://props/shop_models.gd")
 
 # Palette, copied from the UI's own constants.
 const ORANGE := Color(0.93, 0.47, 0.13)
@@ -85,7 +86,22 @@ const LITTER_CAN_SEED: int = 1
 const WHEELBARROW_RED := Color(0.55, 0.22, 0.18)
 const TRASH_GREY := Color(0.25, 0.28, 0.3)
 const CHEFTY_RED := Color(0.75, 0.22, 0.15)
-const VAN_GREY := Color(0.16, 0.17, 0.2)
+## A paint job's can beside Chefty (Chefty's space, faces -Z), and how much bigger
+## than life it is so it reads next to a truck.
+const PAINT_CAN_AT := Vector3(-1.75, 0.0, -2.2)
+const PAINT_CAN_SCALE: float = 4.5
+## The chips over a model (draw_chips): where they sit (0..1 of the icon), the tier
+## chip's colors (the tier trim's: props/yard_models.gd), and the glyph chip's size.
+const CHIP_RECT := Rect2(0.05, 0.7, 0.36, 0.22)
+const GLYPH_CHIP_AT := Vector2(0.2, 0.79)
+const GLYPH_CHIP_RADIUS: float = 0.14
+const TAPE_GREY := Color(0.76, 0.77, 0.78)
+const CHIP_RUST := Color(0.55, 0.28, 0.13)
+const CHROME_LIGHT := Color(0.97, 0.98, 1.0)
+const CHROME_DARK := Color(0.6, 0.63, 0.68)
+const MK3_BLACK := Color(0.1, 0.1, 0.11)
+const FLAME_RED := Color(0.92, 0.2, 0.08)
+const FLAME_YELLOW := Color(1.0, 0.85, 0.25)
 const HEDGE_GREEN := Color(0.2, 0.42, 0.22)
 
 ## Where a task vignette sits over its disc: a bit low, poking over the rim.
@@ -123,9 +139,63 @@ const RECIPES: Dictionary = {
 	# the camera and laid corner to corner, so the grip and the yellow wheels read at row size.
 	"gear_skateboard": {"kind": "model", "px": 256, "build": "build_skateboard", "yaw": 60.0, "tilt": Vector3(0.0, 0.0, 24.0), "roll": -24.0},
 	# ---- upgrades: the base model plus the "+" sticker
-	"upgrade_rake_tier_1": {"kind": "model", "px": 256, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0), "sticker": "plus"},
-	"upgrade_rake_tier_2": {"kind": "model", "px": 256, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0), "sticker": "plus", "sticker_color": GOLD},
 	"upgrade_wheelbarrow_tier_1":{"kind": "model", "px": 256, "build": "build_model", "model": "wheelbarrow", "color": WHEELBARROW_RED, "yaw": 125.0, "sticker": "plus"},
+	# ---- the crew's kit at its tiers (256, 3D; icons:catalog): the stock icon's pose,
+	# the model wearing its tier trim (props/yard_models.gd), its tier's chip bottom left
+	"item_rake_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "rake", "tier": 0, "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0)},
+	"item_rake_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "rake", "tier": 2, "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0)},
+	"item_rake_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "rake", "tier": 3, "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0)},
+	"tool_leaf_blower_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "leaf_blower", "tier": 0, "yaw": 120.0, "roll": -30.0},
+	"tool_leaf_blower_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "leaf_blower", "tier": 2, "yaw": 120.0, "roll": -30.0},
+	"tool_leaf_blower_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "leaf_blower", "tier": 3, "yaw": 120.0, "roll": -30.0},
+	"tool_lawn_mower_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "lawn_mower", "tier": 0, "yaw": 200.0},
+	"tool_lawn_mower_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "lawn_mower", "tier": 2, "yaw": 200.0},
+	"tool_lawn_mower_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "lawn_mower", "tier": 3, "yaw": 200.0},
+	"tool_ladder_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "ladder", "tier": 0, "yaw": 160.0, "tilt": Vector3(-72.0, 0.0, 0.0), "roll": 40.0},
+	"tool_ladder_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "ladder", "tier": 2, "yaw": 160.0, "tilt": Vector3(-72.0, 0.0, 0.0), "roll": 40.0},
+	"tool_ladder_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "ladder", "tier": 3, "yaw": 160.0, "tilt": Vector3(-72.0, 0.0, 0.0), "roll": 40.0},
+	"tool_hose_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "hose", "tier": 0, "yaw": 105.0},
+	"tool_hose_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "hose", "tier": 2, "yaw": 105.0},
+	"tool_hose_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "hose", "tier": 3, "yaw": 105.0},
+	"tool_hedge_trimmer_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "hedge_trimmer", "tier": 0, "yaw": 150.0, "tilt": Vector3(25.0, 0.0, 60.0), "roll": 30.0},
+	"tool_hedge_trimmer_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "hedge_trimmer", "tier": 2, "yaw": 150.0, "tilt": Vector3(25.0, 0.0, 60.0), "roll": 30.0},
+	"tool_hedge_trimmer_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "hedge_trimmer", "tier": 3, "yaw": 150.0, "tilt": Vector3(25.0, 0.0, 60.0), "roll": 30.0},
+	"tool_pressure_washer_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "pressure_washer", "tier": 0, "yaw": 200.0},
+	"tool_pressure_washer_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "pressure_washer", "tier": 2, "yaw": 200.0},
+	"tool_pressure_washer_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "pressure_washer", "tier": 3, "yaw": 200.0},
+	"tool_paint_roller_used": {"kind": "model", "px": 256, "build": "build_kit", "model": "paint_roller", "tier": 0, "yaw": 120.0, "tilt": Vector3(-35.0, 0.0, 0.0), "roll": -15.0},
+	"tool_paint_roller_mk2": {"kind": "model", "px": 256, "build": "build_kit", "model": "paint_roller", "tier": 2, "yaw": 120.0, "tilt": Vector3(-35.0, 0.0, 0.0), "roll": -15.0},
+	"tool_paint_roller_mk3": {"kind": "model", "px": 256, "build": "build_kit", "model": "paint_roller", "tier": 3, "yaw": 120.0, "tilt": Vector3(-35.0, 0.0, 0.0), "roll": -15.0},
+	# ---- the tier chips on their own (128, flat)
+	"tier_used": {"kind": "flat", "px": 128, "draw": "draw_tier_badge", "tier": 0},
+	"tier_2": {"kind": "flat", "px": 128, "draw": "draw_tier_badge", "tier": 2},
+	"tier_3": {"kind": "flat", "px": 128, "draw": "draw_tier_badge", "tier": 3},
+	# ---- supplies (256, 3D; icons:catalog): the shelf's own boxes, can and sacks
+	# (props/shop_models.gd), each with a chip saying what it's for
+	"supply_lawn_bags": {"kind": "model", "px": 256, "build": "build_shop_model", "model": "bag_roll", "yaw": 200.0},
+	"supply_big_bags": {"kind": "model", "px": 256, "build": "build_shop_model", "model": "bag_roll_big", "yaw": 200.0, "label_chip": "XL", "chip_color": Color(0.95, 0.5, 0.15)},
+	"supply_gas": {"kind": "model", "px": 256, "build": "build_shop_model", "model": "gas_can", "yaw": 125.0, "label_chip": "GAS", "chip_color": Color(0.98, 0.82, 0.2)},
+	"supply_fertilizer": {"kind": "model", "px": 256, "build": "build_shop_model", "model": "fertilizer_bag", "yaw": 200.0, "glyph_chip": "flower"},
+	"supply_grass_seed": {"kind": "model", "px": 256, "build": "build_shop_model", "model": "grass_seed", "yaw": 200.0, "glyph_chip": "sprout"},
+	"supply_rock_salt": {"kind": "model", "px": 256, "build": "build_shop_model", "model": "rock_salt", "yaw": 200.0, "glyph_chip": "snowflake"},
+	# ---- Rusty's junk (256, 3D; icons:catalog): the yard's own junk models
+	"junk_old_tv": {"kind": "model", "px": 256, "build": "build_junk", "junk": "old_tv", "yaw": 200.0},
+	"junk_tire": {"kind": "model", "px": 256, "build": "build_junk", "junk": "tire", "yaw": 200.0, "tilt": Vector3(55.0, 0.0, 0.0)},
+	"junk_grill": {"kind": "model", "px": 256, "build": "build_junk", "junk": "grill", "yaw": 200.0},
+	"junk_toilet": {"kind": "model", "px": 256, "build": "build_junk", "junk": "toilet", "yaw": 210.0},
+	"junk_bike": {"kind": "model", "px": 256, "build": "build_junk", "junk": "bike", "yaw": 110.0},
+	"junk_flamingo": {"kind": "model", "px": 256, "build": "build_junk", "junk": "flamingo", "yaw": 120.0},
+	"junk_mannequin": {"kind": "model", "px": 256, "build": "build_junk", "junk": "mannequin", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -30.0)},
+	"junk_boombox": {"kind": "model", "px": 256, "build": "build_junk", "junk": "boombox", "yaw": 200.0},
+	"junk_flamingo_vintage": {"kind": "model", "px": 256, "build": "build_junk", "junk": "flamingo", "yaw": 120.0, "sparkle": true},
+	# ---- Chefty's paint jobs (256, 3D; icons:catalog): Chefty in the color, logo and
+	# all (DEC-006), and its can of paint at the front wheel
+	"paint_classic": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_classic", "yaw": 145.0},
+	"paint_mint": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_mint", "yaw": 145.0},
+	"paint_sunset": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_sunset", "yaw": 145.0},
+	"paint_pink": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_pink", "yaw": 145.0},
+	"paint_black": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_black", "yaw": 145.0},
+	"paint_gold": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_gold", "yaw": 145.0, "sparkle": true},
 	# ---- task badges (256): a disc in the family color, a vignette over its rim
 	"task_rake_leaves": {"kind": "badge", "px": 256, "shape": "disc", "family": "leaves", "build": "build_task_rake_leaves", "yaw": 200.0},
 	"task_pick_litter": {"kind": "badge", "px": 256, "shape": "disc", "family": "by_hand", "build": "build_task_pick_litter", "yaw": 160.0},
@@ -342,7 +412,14 @@ static func base_painter(recipe: Dictionary) -> String:
 
 
 static func top_painter(recipe: Dictionary) -> String:
-	return "draw_plus_sticker" if str(recipe.get("sticker", "")) == "plus" else ""
+	if str(recipe.get("sticker", "")) == "plus":
+		return "draw_plus_sticker"
+	# A model's chips (icons:catalog): a kit tier, a label, a glyph, a sparkle.
+	if str(recipe.get("kind", "")) == "model":
+		for key: String in ["tier", "label_chip", "glyph_chip", "sparkle"]:
+			if recipe.has(key):
+				return "draw_chips"
+	return ""
 
 
 static func padding(recipe: Dictionary) -> float:
@@ -411,8 +488,42 @@ static func build_chefty(root: Node3D, _recipe: Dictionary) -> void:
 	_Vehicles.build_truck(root, CHEFTY_RED)
 
 
+## The NICE BOYS Courtesy Shuttle in its own cream paint and lavender band.
 static func build_van(root: Node3D, _recipe: Dictionary) -> void:
-	_Vehicles.build_van(root, VAN_GREY)
+	_Vehicles.build_van(root, _Vehicles.VAN_PAINT)
+
+
+## A kit thing at its tier, as the rack and your hands show it (props/yard_models.gd
+## tier trim: duct tape and rust, chrome stripes, black and gold with flames).
+static func build_kit(root: Node3D, recipe: Dictionary) -> void:
+	root.add_child(_YardModels.node(str(recipe.get("model", "")), Color.WHITE, Vector3.ONE, MODEL_LOOK, int(recipe.get("tier", 1))))
+
+
+## One of the shops' models (props/shop_models.gd): a box of bags, the gas can, a sack.
+static func build_shop_model(root: Node3D, recipe: Dictionary) -> void:
+	_add_shop_node(root, _ShopModels.node(str(recipe.get("model", ""))))
+
+
+## A piece of junk off a yard, the model Rusty weighs (props/shop_models.gd junk).
+static func build_junk(root: Node3D, recipe: Dictionary) -> void:
+	_add_shop_node(root, _ShopModels.junk(str(recipe.get("junk", ""))))
+
+
+## A shop model's mesh, lit like every other icon's model.
+static func _add_shop_node(root: Node3D, node: MeshInstance3D) -> void:
+	var mesh := node.mesh
+	node.free()
+	root.add_child(_Stylized.instance(mesh, MODEL_LOOK))
+
+
+## A paint job: Chefty in the color (logo and all, DEC-006), and the can it came
+## in by the front wheel, toy-sized up so it reads next to a truck.
+static func build_paint(root: Node3D, recipe: Dictionary) -> void:
+	var color: Color = Constants.CHEFTY_PAINTS.get(str(recipe.get("paint", "")), CHEFTY_RED)
+	_Vehicles.build_truck(root, {"color": color})
+	var can: ArrayMesh = preload("res://props/cosmetic_models.gd").paint_can(color)
+	if can != null:
+		_add_mesh(root, can, PAINT_CAN_AT, Basis(Vector3.UP, 0.5), PAINT_CAN_SCALE)
 
 
 ## Marty's nephew's board (props/gear_models.gd), as you ride it.
@@ -732,6 +843,107 @@ static func draw_plus_sticker(canvas: CanvasItem, size: float, recipe: Dictionar
 	var thick := radius * 0.34
 	canvas.draw_rect(Rect2(center - Vector2(arm, thick * 0.5), Vector2(arm * 2.0, thick)), WHITE)
 	canvas.draw_rect(Rect2(center - Vector2(thick * 0.5, arm), Vector2(thick, arm * 2.0)), WHITE)
+
+
+## A model's chips (icons:catalog), over the 3D render: "tier" a kit tier's chip,
+## "label_chip" a word on a colored label ("chip_color"), "glyph_chip" a round
+## paper chip with a little picture, "sparkle" three gold twinkles top right.
+static func draw_chips(canvas: CanvasItem, size: float, recipe: Dictionary) -> void:
+	if recipe.has("tier"):
+		_tier_chip(canvas, size, CHIP_RECT, int(recipe["tier"]))
+	if recipe.has("label_chip"):
+		_label_chip(canvas, size, CHIP_RECT, str(recipe["label_chip"]), recipe.get("chip_color", GOLD))
+	if recipe.has("glyph_chip"):
+		_glyph_chip(canvas, size, GLYPH_CHIP_AT, GLYPH_CHIP_RADIUS, str(recipe["glyph_chip"]))
+	if bool(recipe.get("sparkle", false)):
+		_sparkle(canvas, size, Vector2(0.8, 0.17), 0.09, GOLD.lightened(0.25))
+		_sparkle(canvas, size, Vector2(0.91, 0.31), 0.05, GOLD.lightened(0.4))
+		_sparkle(canvas, size, Vector2(0.67, 0.09), 0.045, GOLD.lightened(0.4))
+
+
+## A tier chip alone, big, for tier_used / tier_2 / tier_3.
+static func draw_tier_badge(canvas: CanvasItem, size: float, recipe: Dictionary) -> void:
+	_tier_chip(canvas, size, Rect2(0.07, 0.25, 0.86, 0.5), int(recipe.get("tier", 1)))
+
+
+## A kit tier's chip in rect (units), dressed like the tier's trim on the model
+## (props/yard_models.gd): a used thing's strip of duct tape with USED on it and
+## a rust spot, Mk II's chrome plate with II, Mk III's black plate with a gold rim,
+## a lick of flame and a gold III. Stock has none.
+static func _tier_chip(canvas: CanvasItem, size: float, rect: Rect2, tier: int) -> void:
+	var center := rect.get_center()
+	var em := rect.size.y * 0.7
+	match tier:
+		0:
+			# Torn ends, a little crooked, the way it got slapped on.
+			var tape := PackedVector2Array()
+			var teeth := 4
+			for step: int in teeth + 1:
+				var t := float(step) / float(teeth)
+				tape.append(Vector2(rect.position.x + (0.025 if step % 2 == 0 else 0.0) * rect.size.y * 4.0, lerpf(rect.position.y, rect.end.y, t)))
+			for step: int in teeth + 1:
+				var t := float(step) / float(teeth)
+				tape.append(Vector2(rect.end.x - (0.025 if step % 2 == 1 else 0.0) * rect.size.y * 4.0, lerpf(rect.end.y, rect.position.y, t)))
+			var crooked := PackedVector2Array()
+			for point: Vector2 in tape:
+				crooked.append(center + (point - center).rotated(-0.09))
+			var pixels := _xf(crooked, size)
+			canvas.draw_colored_polygon(pixels, TAPE_GREY)
+			canvas.draw_polyline(_closed(pixels), INK, FLAT_INK * size, true)
+			_disc(canvas, size, center + Vector2(rect.size.x * 0.36, rect.size.y * 0.22), rect.size.y * 0.12, CHIP_RUST)
+			_text(canvas, size, center, "USED", em * 0.78, INK, rect.size.x * 0.78)
+		2:
+			var plate := _xf(_rrect_pts(rect, rect.size.y * 0.3, 6), size)
+			_fill_gradient(canvas, plate, CHROME_LIGHT, CHROME_DARK)
+			canvas.draw_polyline(_closed(plate), INK, FLAT_INK * size, true)
+			# The glint across the chrome.
+			_line(canvas, size, rect.position + Vector2(rect.size.x * 0.12, rect.size.y * 0.3), rect.position + Vector2(rect.size.x * 0.3, rect.size.y * 0.3), rect.size.y * 0.1, WHITE)
+			_text(canvas, size, center, "II", em, INK, rect.size.x * 0.7)
+		3:
+			var plate := _xf(_rrect_pts(rect, rect.size.y * 0.3, 6), size)
+			_inked(canvas, plate, MK3_BLACK, size)
+			canvas.draw_polyline(_closed(_xf(_rrect_pts(rect.grow(-rect.size.y * 0.11), rect.size.y * 0.2, 6), size)), GOLD, rect.size.y * 0.07 * size, true)
+			# Two tongues of flame licking in from the left end.
+			for tongue: Vector2 in [Vector2(0.26, -0.12), Vector2(0.18, 0.14)]:
+				var base := Vector2(rect.position.x + rect.size.y * 0.2, center.y + tongue.y * rect.size.y)
+				_fill(canvas, _xf(_ellipse_pts(Vector2.ZERO, rect.size.y * tongue.x, rect.size.y * 0.075, 16), size, base + Vector2(rect.size.y * tongue.x * 0.6, 0.0)), FLAME_RED)
+				_fill(canvas, _xf(_ellipse_pts(Vector2.ZERO, rect.size.y * tongue.x * 0.5, rect.size.y * 0.035, 12), size, base + Vector2(rect.size.y * tongue.x * 0.45, 0.0)), FLAME_YELLOW)
+			_text(canvas, size, center + Vector2(rect.size.x * 0.13, 0.0), "III", em, GOLD.lightened(0.15), rect.size.x * 0.55, 0.12)
+
+
+## A word on a colored label (the gas can's GAS), in rect (units).
+static func _label_chip(canvas: CanvasItem, size: float, rect: Rect2, word: String, color: Color) -> void:
+	var plate := _xf(_rrect_pts(rect, rect.size.y * 0.25, 6), size)
+	_fill_gradient(canvas, plate, color.lightened(0.18), color.darkened(0.08))
+	canvas.draw_polyline(_closed(plate), INK, FLAT_INK * size, true)
+	_text(canvas, size, rect.get_center(), word, rect.size.y * 0.66, INK, rect.size.x * 0.8)
+
+
+## A round paper chip with a little picture: "flower" (fertilizer), "sprout"
+## (grass seed, the spring icon), "snowflake" (rock salt, the winter icon).
+static func _glyph_chip(canvas: CanvasItem, size: float, at: Vector2, radius: float, glyph: String) -> void:
+	_disc(canvas, size, at, radius, INK)
+	_disc(canvas, size, at, radius * 0.86, PAPER)
+	# The glyph funcs draw a whole 0..1 icon: scale it into the chip.
+	var scale := radius * 1.55
+	canvas.draw_set_transform((at - Vector2(0.5, 0.5) * scale) * size, 0.0, Vector2.ONE * scale)
+	match glyph:
+		"snowflake":
+			draw_season_winter(canvas, size, {})
+		"sprout":
+			draw_season_spring(canvas, size, {})
+		"flower":
+			_flower(canvas, size)
+	canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Five petals round a yellow middle, filling the unit square.
+static func _flower(canvas: CanvasItem, size: float) -> void:
+	_stroke(canvas, size, PackedVector2Array([Vector2(0.5, 0.55), Vector2(0.52, 0.92)]), 0.07, GREEN)
+	for petal: int in 5:
+		var angle := TAU * float(petal) / 5.0
+		_inked(canvas, _xf(_ellipse_pts(Vector2(0.0, -0.2), 0.12, 0.19, 20), size, Vector2(0.5, 0.45), 1.0, angle), Color(0.98, 0.55, 0.68), size)
+	_inked(canvas, _xf(_ellipse_pts(Vector2.ZERO, 0.12, 0.12, 20), size, Vector2(0.5, 0.45)), Color(1.0, 0.82, 0.25), size)
 
 
 static func _quad(a: Vector2, b: Vector2, c: Vector2, t: float) -> Vector2:

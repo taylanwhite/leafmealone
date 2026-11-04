@@ -32,6 +32,9 @@ const TAG_PAPER := Color(1.0, 0.99, 0.95)
 const TAG_RADIUS: int = 6
 const TAG_MARGIN_X: int = 6
 const TAG_MARGIN_Y: int = 1
+## How much of a shelf's left the price tag keeps for itself (px): the item is
+## centered in the rest.
+const TAG_ROOM: int = 72
 ## The brand mark beside a window's title, the cash icon beside the wallet.
 const BRAND_PX: float = 40.0
 const WALLET_PX: float = 22.0
@@ -78,7 +81,16 @@ static func shelf(icon_id: String, tint: Color, owned: bool, locked: bool, tag: 
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if locked and not owned:
 		icon.modulate = Color(1.0, 1.0, 1.0, LOCKED_ALPHA)
-	panel.add_child(icon)
+	if tag != null:
+		# icons:catalog: the item stands right of its tag, so the tag never covers
+		# the chip in the icon's corner (a tool's USED / II / III, the can's GAS).
+		var room := MarginContainer.new()
+		room.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		room.add_theme_constant_override("margin_left", TAG_ROOM)
+		room.add_child(icon)
+		panel.add_child(room)
+	else:
+		panel.add_child(icon)
 	panel.set_meta("shelf_icon", icon)
 	if not owned and not locked and tag == null:
 		return panel

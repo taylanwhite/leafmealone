@@ -131,7 +131,6 @@ const UI: Dictionary = {
 	# Taking it ends the job, so the prompt says so (p1-depart, NB-01).
 	"prompt_take_cash": "Call it a day ($%d)",
 	"cash_amount": "$%d",
-	"shop_tool_unlocks": "Unlocks: %s",
 	"shop_tools": "Tools",
 	"shop_upgrades": "Upgrades",
 	"tool_leaf_blower": "Leaf blower",
@@ -2582,6 +2581,9 @@ const ICON_UI: Dictionary = {
 	"board_rating_lead": "Crew rating:",
 	"board_rating_jobs": "(%d jobs)",
 	"board_rating_job_one": "(1 job)",
+	# A stock tool's shop card, before the badges of the jobs it opens up
+	# (icons:catalog; each badge's tooltip is the job's name).
+	"shop_opens_lead": "Unlocks:",
 }
 
 # ---- bags: throw into Chefty

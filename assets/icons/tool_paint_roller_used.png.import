@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://di2xuxqjq5dub"
-path="res://.godot/imported/upgrade_rake_tier_1.png-11d3071f0a274e2cf769ffd1bc0e001e.ctex"
+uid="uid://bbeopvw05lg6n"
+path="res://.godot/imported/tool_paint_roller_used.png-a5c6d2e33626f47a795b2cce8cf5d7f9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/icons/upgrade_rake_tier_1.png"
-dest_files=["res://.godot/imported/upgrade_rake_tier_1.png-11d3071f0a274e2cf769ffd1bc0e001e.ctex"]
+source_file="res://assets/icons/tool_paint_roller_used.png"
+dest_files=["res://.godot/imported/tool_paint_roller_used.png-a5c6d2e33626f47a795b2cce8cf5d7f9.ctex"]
 
 [params]
 

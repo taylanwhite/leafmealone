@@ -3,11 +3,14 @@ extends PanelContainer
 ## Authority: local. A shop's catalog window (docs/FEEL.md, "How characters deal
 ## with shops"; docs/GAME.md "Shops"; gap-specs shops chunk 4): the shop's name
 ## and brand, what its keeper just said, a tab per Catalog.SHOPS tab, and a
-## scrolling grid of cards from core/catalog.gd, each with its picture
-## (ui/icons.gd, or a color swatch until the catalog's icons are drawn), name,
-## blurb, price and what you can do about it:
-##   Tools     one card per tool with tier pips (●●○) and the next buy:
-##             Buy $110, then Mk II $385, then Mk III $1100
+## scrolling grid of cards from core/catalog.gd in the catalog look
+## (ui/catalog_look.gd, like the job board's; icons:catalog): the item's icon
+## (ui/icons.gd) on its tinted shelf with the price tag on the corner, a check
+## when it's yours, a padlock when the rank can't buy it yet; then its name,
+## blurb and what you can do about it:
+##   Tools     a card per tier on sale (its icon wears the tier: USED, II, III),
+##             the crew's best one as pips (●●○), and the jobs a stock tool opens
+##             as their badges
 ##   Supplies  "%d left today", what the crew has, and x1 / x5 buttons
 ##   Workwear, Oddities  Buy, then Wear or Take it off (the phone's Closet does the
 ##             same); in front of the hat rack's mirror, a hat or shirt going on
@@ -31,6 +34,7 @@ const _Ranks = preload("res://core/ranks.gd")
 const _Icons = preload("res://ui/icons.gd")
 const _CartoonBody = preload("res://player/cartoon_body.gd")
 const _WindowFit = preload("res://ui/window_fit.gd")
+const _Look = preload("res://ui/catalog_look.gd")
 const PAPER := Color(0.97, 0.93, 0.84)
 const INK := Color(0.17, 0.14, 0.11)
 const ORANGE := Color(0.93, 0.47, 0.13)
@@ -42,13 +46,16 @@ const BAD := Color(0.75, 0.2, 0.15)
 const CARD_WIDTH: float = 196.0
 const COLUMNS: int = 4
 const GAP: int = 10
-const SCROLL_HEIGHT: float = 330.0
-const ICON_PX: float = 64.0
+const SCROLL_HEIGHT: float = 400.0
 const BRAND_PX: float = 44.0
+## Room the crew's tier pips (●●○) take beside a tool card's name.
+const PIPS_WIDTH: float = 44.0
 ## How often an open window looks at the clock, so it shutters at closing time.
 const CLOCK_CHECK_SECONDS: float = 0.5
-## Card swatch colors, until the catalog's icons are drawn (icons:catalog).
+## The shelf each card's item sits on is tinted its color (ui/catalog_look.gd shelf):
+## a tool by the tool, a supply by its box, the rest by kind.
 const TOOL_COLORS: Dictionary = {
+	"rake": Color(0.66, 0.48, 0.3),
 	"leaf_blower": Color(0.95, 0.55, 0.15), "lawn_mower": Color(0.2, 0.55, 0.3), "ladder": Color(0.75, 0.75, 0.72),
 	"hose": Color(0.25, 0.6, 0.35), "pressure_washer": Color(0.95, 0.8, 0.2), "hedge_trimmer": Color(0.85, 0.25, 0.2),
 	"paint_roller": Color(0.35, 0.55, 0.85),
@@ -56,6 +63,8 @@ const TOOL_COLORS: Dictionary = {
 const KIND_COLORS: Dictionary = {
 	"upgrade": Color(0.85, 0.55, 0.25), "consumable": Color(0.72, 0.55, 0.34), "snack": Color(0.95, 0.75, 0.3),
 	"cosmetic": Color(0.55, 0.45, 0.75), "truck_cosmetic": Color(0.75, 0.22, 0.15),
+	"truck_gear": Color(0.75, 0.22, 0.15), "service": Color(0.55, 0.57, 0.6), "gear": Color(0.86, 0.62, 0.34),
+	"junk": Color(0.55, 0.27, 0.14),
 }
 const SUPPLY_COLORS: Dictionary = {
 	"lawn_bags": Color(0.72, 0.55, 0.34), "big_bags": Color(0.2, 0.2, 0.22), "gas": Color(0.84, 0.14, 0.1),
@@ -90,6 +99,9 @@ var _focus_card: Control
 ## offers held at their old price while Rusty hums a haggle over {name: {offer, until}}.
 var _scale_seen: PackedStringArray = PackedStringArray()
 var _haggle_hold: Dictionary = {}
+## The item a confirmed buy pops, and until when a redrawn card pops it again.
+var _pop_item: String = ""
+var _pop_until: float = 0.0
 
 
 func _ready() -> void:
@@ -379,6 +391,8 @@ func _refresh() -> void:
 		var opens := str(shops.call("opens_text", shop_id)) if shops != null else ""
 		_shutter_text.text = str(_Strings.SHOP_UI["shop_closed_shutter"]) % opens
 	_scroll.set_deferred("scroll_vertical", keep_scroll)
+	if _pop_item != "" and _now() <= _pop_until:
+		_apply_pop.call_deferred()
 
 
 ## The line over the cards: what the crew has, on a supplies tab.
@@ -408,31 +422,47 @@ func _card(data: Dictionary, wallet: int, shops: Node, open: bool) -> Control:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	card.add_child(column)
-	var top := HBoxContainer.new()
-	top.add_theme_constant_override("separation", 8)
-	column.add_child(top)
-	top.add_child(_picture(id, entry, data))
-	if data.has("tool"):
-		var pips := VBoxContainer.new()
-		pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		pips.add_child(_text(_pips(int(data["owned_tier"])), 22, ORANGE.darkened(0.1)))
-		if int(data["owned_tier"]) == Catalog.TIER_USED:
-			pips.add_child(_text(str(_Strings.SHOP_UI["shop_tier_used"]), 13, INK.lightened(0.35)))
-		top.add_child(pips)
+	# icons:catalog: the catalog look (ui/catalog_look.gd), like the job board's
+	# cards: the item on its tinted shelf with its price tag on the corner, a check
+	# when it's yours, a padlock when the rank can't buy it yet.
+	var price := Catalog.price(id)
+	var me := Net.local_peer_id()
+	var owned := Catalog.is_owned_kind(id) and shops != null and bool(shops.call("owns", me, id))
+	var locked := not Campaign.is_for_sale(StringName(id))
+	var tag: Control = null
+	if kind != "service":
+		tag = _Look.price_tag(_text(str(_Strings.SHOP_UI["shop_free"]) if price == 0 else str(_Strings.SHOP_UI["shop_price_tag"]) % price, 15, INK))
+	column.add_child(_shelf(id, entry, owned, locked, tag, card))
+	var name_row := HBoxContainer.new()
+	name_row.add_theme_constant_override("separation", 6)
+	column.add_child(name_row)
 	var name_label := _text(_Strings.shop_item_name(id), 18, INK)
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_label.custom_minimum_size = Vector2(CARD_WIDTH - 36.0, 0.0)
-	column.add_child(name_label)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.custom_minimum_size = Vector2(CARD_WIDTH - 36.0 - (PIPS_WIDTH if data.has("tool") else 0.0), 0.0)
+	name_row.add_child(name_label)
+	if data.has("tool"):
+		# The best of this tool the crew owns: ●●○, or USED (the card's own tier is
+		# on its icon).
+		var best := int(data["owned_tier"])
+		var pips := _text(str(_Strings.SHOP_UI["shop_tier_used"]) if best == Catalog.TIER_USED else _pips(best), 13 if best == Catalog.TIER_USED else 18, ORANGE.darkened(0.1))
+		pips.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		name_row.add_child(pips)
 	var blurb := _text(_blurb(id, data), 13, INK.lightened(0.25))
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	# A fixed wrap width, or the label asks for a tall, narrow size first.
 	blurb.custom_minimum_size = Vector2(CARD_WIDTH - 36.0, 0.0)
 	column.add_child(blurb)
+	var opens := _opens_tasks(id)
+	if not opens.is_empty():
+		var names := PackedStringArray()
+		for task_id: String in opens:
+			names.append(str(_Strings.UI["task_" + task_id]))
+		column.add_child(_Look.task_badges(opens, names, _text(str(_Strings.ICON_UI["shop_opens_lead"]), 13, INK.lightened(0.25))))
 	if kind == "consumable" and shops != null:
 		var left := int(shops.call("stock_left", shop_id, id))
 		if left >= 0:
 			column.add_child(_text(str(_Strings.SHOP_UI["shop_sold_out"]) if left == 0 else str(_Strings.SHOP_UI["shop_stock_left"]) % left, 13, BAD if left == 0 else GOOD))
-	var price := Catalog.price(id)
 	var card_qty := 1
 	if kind == "service":
 		# Marty's Body Shop: every dent Chefty has, at its price each (driving C3).
@@ -444,8 +474,6 @@ func _card(data: Dictionary, wallet: int, shops: Node, open: bool) -> Control:
 		elif dents > 1:
 			repair_text = str(_Strings.SHOP_UI["shop_repair_price"]) % [price * dents, dents]
 		column.add_child(_text(repair_text, 16, ORANGE.darkened(0.15)))
-	else:
-		column.add_child(_text(str(_Strings.SHOP_UI["shop_free"]) if price == 0 else str(_Strings.SHOP_UI["shop_price_tag"]) % price, 16, ORANGE.darkened(0.15)))
 	var why := _blocker(id, card_qty, wallet, shops, open, data)
 	if why != "":
 		var reason := _text(why, 13, BAD)
@@ -612,8 +640,9 @@ func _on_shop_result(code: String, item_id: String, _amount: int) -> void:
 			close_window()
 			return
 		# NB-10: no "Bought: Lawn bags". The register's ka-ching (audio/cue_hooks.gd),
-		# the cash going down and the card's stock say it.
+		# the cash going down, the card's stock and the item's pop say it.
 		_refresh()
+		_pop_bought(item_id)
 		return
 	elif code == "eaten":
 		# The Snak-o-Matic kept the money: out of the way, so you watch it stick on
@@ -660,7 +689,7 @@ func _junk_card(data: Dictionary, shops: Node, open: bool) -> Control:
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 4)
 	card.add_child(column)
-	column.add_child(_picture(id, {"kind": "junk"}, {}))
+	column.add_child(_shelf(id, {"kind": "junk"}, false, false, null, card))
 	var name_label := _text(str(_Strings.SHOP_UI.get(id, id)), 18, INK)
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_label.custom_minimum_size = Vector2(CARD_WIDTH - 36.0, 0.0)
@@ -739,21 +768,59 @@ func _now() -> float:
 
 # ---------------------------------------------------------------- pieces
 
-## The card's picture: its icon (ui/icons.gd for_shop_item), tinted for shirts
-## and paint, or a color swatch while the catalog has no icon for it yet.
-func _picture(id: String, entry: Dictionary, data: Dictionary) -> Control:
+## The card's shelf (ui/catalog_look.gd): the item's icon (ui/icons.gd
+## for_shop_item; a shirt dye's white shirt tinted the dye) on a shelf tinted its
+## color, with its tag and stamps. Hovering the card bounces the item; the shelf
+## is the card's meta "shelf", so a confirmed buy can pop it (_pop_bought).
+func _shelf(id: String, entry: Dictionary, owned: bool, locked: bool, tag: Control, card: Control) -> PanelContainer:
 	var icon_id := _Icons.for_shop_item(StringName(id))
 	var tint := _tint(id, entry)
-	if icon_id != "" and _Icons.has(icon_id):
-		var view := _Icons.rect(icon_id, ICON_PX)
-		if icon_id == "shirt" or icon_id == "paint_swatch":
-			view.modulate = tint
-		return view
-	var swatch := PanelContainer.new()
-	swatch.custom_minimum_size = Vector2(ICON_PX, ICON_PX)
-	swatch.add_theme_stylebox_override("panel", _tight(TOOL_COLORS.get(str(data.get("tool", "")), tint) as Color, 10, INK.lightened(0.5), 2))
-	swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return swatch
+	var shelf := _Look.shelf(icon_id, tint, owned, locked, tag)
+	if _Icons.is_tinted(icon_id):
+		var icon := shelf.get_meta("shelf_icon") as Control
+		icon.modulate = Color(tint, icon.modulate.a)
+	_Look.hover(card, shelf)
+	card.set_meta("shelf", shelf)
+	return shelf
+
+
+## A host-confirmed buy squash-pops the item on its fresh card (the register's
+## ring is audio/cue_hooks.gd's, critic C11).
+## A buy redraws the cards more than once in the same moment (the wallet, the
+## stock and the kit each say they changed), so the pop is remembered for a beat
+## and played on whichever card is up once the grid has laid it out.
+func _pop_bought(item_id: String) -> void:
+	_pop_item = item_id
+	_pop_until = _now() + Constants.ICONS_POP_SECONDS
+	_apply_pop.call_deferred()
+
+
+func _apply_pop() -> void:
+	if _pop_item == "" or _now() > _pop_until:
+		return
+	# A frame for the grid to lay the new card out, so it pops about its middle.
+	await get_tree().process_frame
+	if not is_instance_valid(_cards):
+		return
+	for card: Node in _cards.get_children():
+		if card.is_queued_for_deletion() or str(card.get_meta("item", "")) != _pop_item or not card.has_meta("shelf"):
+			continue
+		var icon := (card.get_meta("shelf") as Control).get_meta("shelf_icon") as Control
+		if icon != null and is_instance_valid(icon) and not icon.has_meta("popped"):
+			icon.set_meta("popped", true)
+			_Look.pop(icon)
+		return
+
+
+## The tasks a stock tool opens up (Constants.TASK_TOOLS), shown as their badges.
+func _opens_tasks(id: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	if str(Catalog.item(id).get("kind", "")) != "tool":
+		return out
+	for task_id: String in Constants.TASK_TOOLS:
+		if str(Constants.TASK_TOOLS[task_id]) == id:
+			out.append(task_id)
+	return out
 
 
 func _tint(id: String, entry: Dictionary) -> Color:
@@ -775,16 +842,8 @@ func _tint(id: String, entry: Dictionary) -> Color:
 func _blurb(id: String, data: Dictionary) -> String:
 	if bool(data.get("maxed", false)):
 		return str(_Strings.SHOP_UI["shop_tier_maxed"])
-	var blurb := _Strings.shop_item_blurb(id)
-	# A stock tool says which jobs it opens up.
-	if Catalog.item(id).get("kind", "") == "tool":
-		var unlocks := PackedStringArray()
-		for task_id: String in Constants.TASK_TOOLS:
-			if str(Constants.TASK_TOOLS[task_id]) == id:
-				unlocks.append(str(_Strings.UI["task_" + task_id]))
-		if not unlocks.is_empty():
-			blurb += "\n" + _Strings.UI["shop_tool_unlocks"] % ", ".join(unlocks)
-	return blurb
+	# A stock tool's jobs are its badges under the blurb (_opens_tasks).
+	return _Strings.shop_item_blurb(id)
 
 
 ## ●●○: the stock, Mk II and Mk III pips, filled up to the tier owned.

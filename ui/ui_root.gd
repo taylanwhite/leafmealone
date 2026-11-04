@@ -17,7 +17,7 @@ var _wallet_label: Label
 var _cleanup_label: Label
 var _chefty_row: Control
 var _chefty_label: Label
-var _status: Label
+var _status: RichTextLabel
 var _task_list: Control
 var _lobby: VBoxContainer
 var _lobby_players: Label
@@ -45,6 +45,8 @@ const TASK_LIST_GAP: float = 10.0
 const TASK_LIST_MIN_Y: float = 104.0
 ## The icons on the pause stack's Call-the-NICE-BOYS and Voice buttons.
 const BUTTON_ICON_PX: int = 24
+## A keycap in the status lines under the HUD rows (the push-to-talk key).
+const STATUS_KEY_PX: int = 20
 
 
 func _ready() -> void:
@@ -191,11 +193,13 @@ func _process(delta: float) -> void:
 
 	crew_line += _voice_line()
 	# What interact does is shown over the thing itself (ui/interaction_prompt.gd), so
-	# the HUD stays short. The hiding and push-to-talk lines name keys with
-	# {key:} tokens; the status block is a Label, so they read as "[E]".
-	crew_line = _Icons.plain(crew_line.trim_prefix("\n"))
+	# the HUD stays short. The push-to-talk line names its key with a {key:} token,
+	# drawn as the player's own keycap (icons:catalog; a key without a cap reads "[V]").
+	crew_line = crew_line.trim_prefix("\n")
 	_status.visible = crew_line != ""
-	_set_text(_status, crew_line)
+	var status_text := _Icons.rich(crew_line, STATUS_KEY_PX)
+	if _status.text != status_text:
+		_status.text = status_text
 	_follow_task_list(delta)
 	if _lobby != null and _lobby.visible:
 		var lines: PackedStringArray = PackedStringArray()
@@ -233,7 +237,17 @@ func _build_hud_rows() -> void:
 	_hud_rows.add_child(_chefty_row)
 	# Your snacks' buffs as icons, draining as they run (ui/buff_hud.gd, shops chunk 6).
 	_hud_rows.add_child(preload("res://ui/buff_hud.gd").new())
-	_status = _hud_label()
+	# A RichTextLabel, so the keys its lines name are keycaps, not "[V]" text.
+	_status = RichTextLabel.new()
+	_status.name = "Status"
+	_status.bbcode_enabled = true
+	_status.fit_content = true
+	_status.scroll_active = false
+	_status.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_status.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_status.add_theme_color_override("font_shadow_color", Color.BLACK)
+	_status.add_theme_constant_override("shadow_offset_x", 1)
+	_status.add_theme_constant_override("shadow_offset_y", 1)
 	_status.visible = false
 	_hud_rows.add_child(_status)
 
