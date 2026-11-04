@@ -11,6 +11,7 @@ extends RefCounted
 ## transform, local AABB] boxes, which the caller gathers (world.gd
 ## arrival_obstacles).
 
+const _Vehicles = preload("res://props/vehicles.gd")
 
 ## Where each rider lands. truck: the vehicle's place, flat (basis a yaw, origin
 ## on the ground). own: each rider's own spot in the truck's space, in the order
@@ -51,7 +52,7 @@ static func landing_facing(space: PhysicsDirectSpaceState3D, truck_at: Vector3, 
 		var look_yaw := atan2(-to.x, -to.z) if Vector2(to.x, to.z).length() > 0.01 else away_yaw
 		var limit := Constants.STEP_DOWN_FACE_FROM_TRUCK
 		var yaw := away_yaw + clampf(angle_difference(away_yaw, look_yaw), -limit, limit)
-		toward = at + Basis(Vector3.UP, yaw) * Vector3.FORWARD * 10.0
+		toward = at + Basis(Vector3.UP, yaw) * Vector3.FORWARD * Constants.STEP_DOWN_LOOK_AHEAD
 	return facing(space, at, toward, exclude, props)
 
 
@@ -64,12 +65,13 @@ static func flat(xform: Transform3D) -> Transform3D:
 	return Transform3D(Basis(Vector3.UP, yaw), xform.origin)
 
 
-## The ground under at (a curb, a lawn, the street), within a meter and a half
+## The ground under at (a curb, a lawn, the street), within STEP_DOWN_GROUND_REACH
 ## up or down, or at itself when there's none.
 static func ground(space: PhysicsDirectSpaceState3D, at: Vector3, exclude: Array[RID] = []) -> Vector3:
 	if space == null:
 		return at
-	var query := PhysicsRayQueryParameters3D.create(at + Vector3.UP * 1.5, at + Vector3.DOWN * 1.5, 1)
+	var reach := Constants.STEP_DOWN_GROUND_REACH
+	var query := PhysicsRayQueryParameters3D.create(at + Vector3.UP * reach, at + Vector3.DOWN * reach, 1)
 	query.exclude = exclude
 	var hit := space.intersect_ray(query)
 	if hit.is_empty() or not hit["collider"] is StaticBody3D:
@@ -90,7 +92,7 @@ static func clear_at(space: PhysicsDirectSpaceState3D, at: Vector3, exclude: Arr
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = capsule
 	# Its bottom just clear of the ground it stands on.
-	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, capsule.height * 0.5 + 0.12, 0.0))
+	query.transform = Transform3D(Basis.IDENTITY, at + Vector3(0.0, capsule.height * 0.5 + Constants.STEP_DOWN_CAPSULE_LIFT, 0.0))
 	query.collision_mask = 1
 	query.exclude = exclude
 	for hit: Dictionary in space.intersect_shape(query, 8):
@@ -119,18 +121,18 @@ static func view_clear(space: PhysicsDirectSpaceState3D, at: Vector3, yaw: float
 	# A drawn prop up to the knees or higher anywhere in the cone, to arm's length.
 	for turn: float in [0.0, -cone * 0.5, cone * 0.5, -cone, cone]:
 		var dir := Basis(Vector3.UP, yaw + turn) * Vector3.FORWARD
-		var step := 0.3
+		var step := Constants.STEP_DOWN_VIEW_STEP
 		while step <= Constants.STEP_DOWN_FACE_CLEAR:
-			if prop_distance(at + dir * step, props, at.y + 0.5) < 0.12:
+			if prop_distance(at + dir * step, props, at.y + Constants.STEP_DOWN_VIEW_KNEE) < Constants.STEP_DOWN_VIEW_HIT:
 				return false
-			step += 0.3
+			step += Constants.STEP_DOWN_VIEW_STEP
 	if space == null:
 		return true
-	var eye := at + Vector3.UP * 1.5
+	var eye := at + Vector3.UP * Constants.STEP_DOWN_VIEW_EYE
 	for turn: float in [0.0, -cone, cone]:
 		var ahead := Basis(Vector3.UP, yaw + turn) * Vector3.FORWARD * Constants.STEP_DOWN_FACE_CLEAR
 		# Low and high: a hedge's top and a pole both count.
-		for lift: float in [0.0, -0.8]:
+		for lift: float in [0.0, -Constants.STEP_DOWN_VIEW_LOW]:
 			var from := eye + Vector3.UP * lift
 			var query := PhysicsRayQueryParameters3D.create(from, from + ahead, 1)
 			query.exclude = exclude
@@ -156,6 +158,57 @@ static func prop_distance(at: Vector3, props: Array, min_top: float = -INF) -> f
 		var dz := maxf(maxf(box.position.z - local.z, local.z - box.end.z), 0.0)
 		nearest = minf(nearest, Vector2(dx, dz).length() * xform.basis.get_scale().x)
 	return nearest
+
+
+## How a hop off Chefty clears Chefty (player.gd step_down_point's path), from a
+## seat (world) to where it lands (world); truck: Chefty's body, its seats' space.
+## Off a bed seat: x..y, the stretch of the hop (0..1 along it) where the feet are
+## over the rail or the tailgate (the cab's back wall, going forward), and z the
+## height (world) they clear there: the hop goes over the wall, never through it
+## (review, p1-arrive: the arc peaked at 0.97 m, under the rails' 1.65). Out of a
+## cab seat: w, how far along the hop the body is out of the door; you slide out
+## at the seat's height, still sitting (the head never rises into the roof), then
+## drop off the sill.
+static func hop_path(truck: Transform3D, seat: Vector3, to: Vector3, cab: bool) -> Vector4:
+	var inverse := truck.affine_inverse()
+	var a3 := inverse * seat
+	var b3 := inverse * to
+	var a := Vector2(a3.x, a3.z)
+	var b := Vector2(b3.x, b3.z)
+	var span := a.distance_to(b)
+	if span < 0.01:
+		return Vector4.ZERO
+	if cab:
+		var across := absf(b.x - a.x)
+		var out := _Vehicles.CHEFTY_CAB_HALF_WIDTH + Constants.STEP_DOWN_DOOR_CLEAR - absf(a.x)
+		var door := clampf(out / across, 0.05, 0.9) if across > 0.01 else 0.5
+		return Vector4(0.0, 0.0, 0.0, door)
+	var inner := _exit_u(a, b, _Vehicles.CHEFTY_BED_INNER)
+	var outer := _exit_u(a, b, _Vehicles.CHEFTY_BED_OUTER)
+	if outer <= 0.0 or inner >= 1.0:
+		return Vector4.ZERO
+	var reach := Constants.STEP_DOWN_LEG_REACH / span
+	var exit := a.lerp(b, outer)
+	# Out over the front: that's the cab's back wall, as high as its roof.
+	var wall := _Vehicles.CHEFTY_CAB_ROOF if exit.y <= _Vehicles.CHEFTY_BED_INNER.position.y + 0.01 else _Vehicles.CHEFTY_BED_WALL_TOP
+	var middle := a.lerp(b, (inner + outer) * 0.5)
+	var top := (truck * Vector3(middle.x, wall + Constants.STEP_DOWN_WALL_CLEAR, middle.y)).y
+	return Vector4(clampf(inner - reach, 0.0, 1.0), clampf(outer + reach, 0.0, 1.0), top, 0.0)
+
+
+## Where (0..1) the flat line from a (inside rect) to b leaves rect; 1 when it doesn't.
+static func _exit_u(a: Vector2, b: Vector2, rect: Rect2) -> float:
+	var d := b - a
+	var u := INF
+	if d.x > 0.0:
+		u = minf(u, (rect.end.x - a.x) / d.x)
+	elif d.x < 0.0:
+		u = minf(u, (rect.position.x - a.x) / d.x)
+	if d.y > 0.0:
+		u = minf(u, (rect.end.y - a.y) / d.y)
+	elif d.y < 0.0:
+		u = minf(u, (rect.position.y - a.y) / d.y)
+	return 1.0 if u == INF else clampf(u, 0.0, 1.0)
 
 
 static func _near_any(at: Vector3, taken: Array[Vector3]) -> bool:

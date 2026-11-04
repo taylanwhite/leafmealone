@@ -71,6 +71,16 @@ const HUP_CHANCE: float = 0.6
 @export var skate_trick: int = 0
 @export var wipeout: bool = false
 @export var skitch: bool = false
+## Off a seat, as this player's own peer has it (p1-arrive): SEAT_STATE_SEATED on
+## a seat or waiting on it for their turn to hop down, SEAT_STATE_SLIDING sliding
+## out of a cab seat still sitting, 0 neither. Replicated with the position
+## (always, in the same update), so another peer keeps drawing the rider on its
+## own seat while the rider's own truck is still catching up and lets go only
+## when the hop starts (net/components/net_smoother.gd), and draws them sitting
+## on the way out of the door. The owner sets it.
+@export var seat_state: int = 0
+const SEAT_STATE_SEATED: int = 1
+const SEAT_STATE_SLIDING: int = 2
 
 var _look := Vector2.ZERO
 var _ride: Node3D
@@ -254,6 +264,7 @@ func _physics_process(delta: float) -> void:
 		_pending_bonk = []
 		_apply_bonk(bonk[0], bonk[1])
 	if is_multiplayer_authority():
+		_note_seat_state()
 		if _stage_hold(delta): return
 		_step_wind_up(delta)
 		_step_punch(delta)
@@ -1532,7 +1543,7 @@ func _process(_delta: float) -> void:
 		else:
 			_last_hand_prop = null
 		# Sitting in Chefty's cab, standing in its bed, hands on the wheel if driving.
-		body_now.call("sit", 1 if _stage_pose == &"sit_buckled" and is_staged() else _Seated.pose_for(self))
+		body_now.call("sit", 1 if (_stage_pose == &"sit_buckled" and is_staged()) or _step_sitting() or seat_state == SEAT_STATE_SLIDING else _Seated.pose_for(self))
 		var wheel := _Seated.wheel_grips(self)
 		if not wheel.is_empty():
 			body_now.call("set_hold", wheel[0], wheel[1])
@@ -1586,21 +1597,22 @@ func _rpc_teleport(at: Transform3D) -> void:
 
 
 ## Host: off a seat and down onto at, a hop from where they are (step_down_to),
-## never a teleport (p1-arrive: getting out of Chefty popped you 1.9 m).
-func send_step_down(at: Transform3D, wait: float = 0.0) -> void:
+## never a teleport (p1-arrive: getting out of Chefty popped you 1.9 m). path: how
+## the hop clears the vehicle (net/components/step_down.gd hop_path).
+func send_step_down(at: Transform3D, wait: float = 0.0, path := Vector4.ZERO) -> void:
 	if not Net.is_host():
 		return
 	if name.to_int() == Net.local_peer_id():
-		step_down_to(at, wait)
+		step_down_to(at, wait, path)
 	else:
-		_rpc_step_down.rpc_id(name.to_int(), at, wait)
+		_rpc_step_down.rpc_id(name.to_int(), at, wait, path)
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _rpc_step_down(at: Transform3D, wait: float) -> void:
+func _rpc_step_down(at: Transform3D, wait: float, path: Vector4) -> void:
 	if multiplayer.get_remote_sender_id() != 1:
 		return
-	step_down_to(at, wait)
+	step_down_to(at, wait, path)
 
 
 ## Host (net/components/personal_space.gd): ease this player along push (m/s,
@@ -2386,6 +2398,10 @@ var _step_t: float = -1.0
 var _step_turned: float = 0.0
 ## Seconds before this rider's hop starts (riders get off one after another).
 var _hop_wait: float = 0.0
+## How the hop clears the vehicle (step_down.gd hop_path; step_down_point).
+var _step_path := Vector4.ZERO
+## hop_timing for this hop: [crouch share, landing starts, seconds, top, top at].
+var _step_timing := hop_timing(0.0, 0.0)
 ## A legacy ride's seat yaw last tick (NAN: just sat down, so face the seat's way).
 var _ride_seat_yaw: float = NAN
 ## Room to stand: the host's last nudge (m/s, flat) and how long it still lasts.
@@ -2397,7 +2413,7 @@ var _nudge_left: float = 0.0
 ## rail (or out of the door) and a landing, turning to at's facing on the way,
 ## from exactly where you are now, so it never pops on any screen. Further than
 ## STEP_DOWN_MAX_METERS is a teleport instead.
-func step_down_to(at: Transform3D, wait: float = 0.0) -> void:
+func step_down_to(at: Transform3D, wait: float = 0.0, path := Vector4.ZERO) -> void:
 	if not is_multiplayer_authority():
 		return
 	if global_position.distance_to(at.origin) > Constants.STEP_DOWN_MAX_METERS:
@@ -2405,6 +2421,8 @@ func step_down_to(at: Transform3D, wait: float = 0.0) -> void:
 		return
 	_step_from = Transform3D(Basis(Vector3.UP, body_yaw), global_position)
 	_step_to = at
+	_step_path = path
+	_step_timing = hop_timing(_step_from.origin.y, at.origin.y, path)
 	_step_t = 0.0
 	_hop_wait = maxf(wait, 0.0)
 	_step_turned = 0.0
@@ -2417,12 +2435,61 @@ func is_stepping_down() -> bool:
 	return _step_t >= 0.0
 
 
-## Where the hop has the body at k (0..1): still while the knees bend, then a low
-## arc from the crouch to the ground, then the knees take the landing in place.
-static func step_down_point(from: Vector3, to: Vector3, k: float) -> Vector3:
-	var crouch := Constants.STEP_DOWN_CROUCH_SHARE
-	var land := 1.0 - Constants.STEP_DOWN_LAND_SHARE
-	var dip := Constants.STEP_DOWN_CROUCH
+## How the hop goes, from the seat's height (from_y) to the ground's (to_y):
+## [the share of it the knees bend first, where the landing starts (0..1), how
+## long it all takes (s), the top of the jump (world height), where along the
+## flight (0..1) it's at the top]. Over a rail or the tailgate (path, step_down.gd
+## hop_path) it's a jump like a thrown thing's, under STEP_DOWN_GRAVITY: up to a
+## top high enough that the feet are over the wall all the way across it, and
+## the flight takes as long as rising and falling that far does (review,
+## p1-arrive: a curve forced over the 1.65 m rail in the old time came down at
+## 11 m/s). Otherwise (the cab's door, a flat step) there's no top (0) and
+## step_down_point curves as before.
+static func hop_timing(from_y: float, to_y: float, path := Vector4.ZERO) -> PackedFloat32Array:
+	var base := Constants.STEP_DOWN_SECONDS
+	var crouch_s := base * Constants.STEP_DOWN_CROUCH_SHARE
+	var land_s := base * Constants.STEP_DOWN_LAND_SHARE
+	var flight := base - crouch_s - land_s
+	var apex := 0.0
+	var top_at := 0.5
+	if path.y > path.x and path.w <= 0.0:
+		var start_y := from_y - Constants.STEP_DOWN_CROUCH
+		var gravity := Constants.STEP_DOWN_GRAVITY
+		apex = maxf(maxf(start_y, to_y) + Constants.STEP_DOWN_MIN_RISE, path.z)
+		var samples := maxi(Constants.STEP_DOWN_WALL_SAMPLES, 2)
+		for _pass: int in 4:
+			var rise := sqrt(2.0 * maxf(apex - start_y, 0.0) / gravity)
+			var fall := sqrt(2.0 * maxf(apex - to_y, 0.0) / gravity)
+			top_at = rise / maxf(rise + fall, 0.001)
+			var need := apex
+			for index: int in samples:
+				var u := lerpf(path.x, path.y, float(index) / float(samples - 1))
+				var low := start_y if u <= top_at else to_y
+				var r := (top_at - u) / maxf(top_at, 0.001) if u <= top_at else (u - top_at) / maxf(1.0 - top_at, 0.001)
+				if r * r < 0.98:
+					need = maxf(need, (path.z - low * r * r) / (1.0 - r * r))
+			apex = need
+		var rise := sqrt(2.0 * maxf(apex - start_y, 0.0) / gravity)
+		var fall := sqrt(2.0 * maxf(apex - to_y, 0.0) / gravity)
+		top_at = rise / maxf(rise + fall, 0.001)
+		flight = maxf(flight, rise + fall)
+	var seconds := crouch_s + flight + land_s
+	return PackedFloat32Array([crouch_s / seconds, (crouch_s + flight) / seconds, seconds, apex, top_at])
+
+
+## Where the hop has the body at k (0..1; timing from hop_timing): still while the
+## knees bend, then the jump from the crouch to the ground, then the knees take
+## the landing in place. path (step_down.gd hop_path): over the bed's rail or
+## tailgate it's hop_timing's jump; out of a cab seat (w > 0) you slide out
+## through the door at the seat's height and drop off the sill at w.
+static func step_down_point(from: Vector3, to: Vector3, k: float, path := Vector4.ZERO, timing := PackedFloat32Array()) -> Vector3:
+	if timing.size() < 5:
+		timing = hop_timing(from.y, to.y, path)
+	var crouch := timing[0]
+	var land := timing[1]
+	var door := path.w
+	# Sitting, there are no knees to bend first.
+	var dip := 0.0 if door > 0.0 else Constants.STEP_DOWN_CROUCH
 	if k <= crouch:
 		return from + Vector3.DOWN * dip * sin(k / crouch * PI * 0.5)
 	if k >= land:
@@ -2430,13 +2497,46 @@ static func step_down_point(from: Vector3, to: Vector3, k: float) -> Vector3:
 	var u := (k - crouch) / (land - crouch)
 	var start := from + Vector3.DOWN * dip
 	var at := start.lerp(to, u)
-	# Up off the knees and over the rail, then down: a curve through a point
-	# STEP_DOWN_HOP x 2 over the higher end (a bit like a thrown thing's arc); out
-	# of a low seat (the cab's bench) it's barely a hop, more a step out.
-	var drop := clampf(absf(start.y - to.y), 0.25, 1.0)
+	if door > 0.0:
+		# Out of the door at the bench's height, then down off the sill, falling.
+		var v := clampf((u - door) / maxf(1.0 - door, 0.001), 0.0, 1.0)
+		at.y = lerpf(start.y, to.y, v * v)
+		return at
+	if path.y > path.x:
+		var apex := timing[3]
+		# Up to the top, slowing, then falling to the ground (a parabola each side).
+		var top_at := timing[4]
+		if u <= top_at:
+			var r := (top_at - u) / maxf(top_at, 0.001)
+			at.y = apex - (apex - start.y) * r * r
+		else:
+			var r := (u - top_at) / maxf(1.0 - top_at, 0.001)
+			at.y = apex - (apex - to.y) * r * r
+		return at
+	# Up off the knees and down: a curve through a point STEP_DOWN_HOP x 2 over the
+	# higher end; out of a low seat it's barely a hop, more a step out.
+	var drop := clampf(absf(start.y - to.y), Constants.STEP_DOWN_DROP_RANGE.x, Constants.STEP_DOWN_DROP_RANGE.y)
 	var over := maxf(start.y, to.y) + Constants.STEP_DOWN_HOP * 2.0 * drop * drop
 	at.y = (1.0 - u) * (1.0 - u) * start.y + 2.0 * u * (1.0 - u) * over + u * u * to.y
 	return at
+
+
+## Owner, each physics tick: seat_state, for the other peers.
+func _note_seat_state() -> void:
+	if _on_seat or (is_stepping_down() and _hop_wait > 0.0):
+		seat_state = SEAT_STATE_SEATED
+	else:
+		seat_state = SEAT_STATE_SLIDING if _step_sitting() else 0
+
+
+## Owner, mid-hop out of a cab seat: still sitting until you're out of the door,
+## so the eyes stay under the cab's roof (cartoon_body sit()).
+func _step_sitting() -> bool:
+	if not is_stepping_down() or _step_path.w <= 0.0 or _step_timing.size() < 5:
+		return false
+	var crouch := _step_timing[0]
+	var land := _step_timing[1]
+	return _hop_wait > 0.0 or (_step_t - crouch) / (land - crouch) < _step_path.w
 
 
 func _step_down(delta: float) -> void:
@@ -2449,11 +2549,12 @@ func _step_down(delta: float) -> void:
 		_hop_wait -= delta
 		anim_state = AnimState.IDLE
 		_step_from.origin = global_position
+		_step_timing = hop_timing(_step_from.origin.y, _step_to.origin.y, _step_path)
 		return
 	var before := global_position
-	_step_t = minf(_step_t + delta / Constants.STEP_DOWN_SECONDS, 1.0)
+	_step_t = minf(_step_t + delta / maxf(_step_timing[2], 0.01), 1.0)
 	var k := _step_t
-	global_position = step_down_point(_step_from.origin, _step_to.origin, k)
+	global_position = step_down_point(_step_from.origin, _step_to.origin, k, _step_path, _step_timing)
 	# The turn to the landing's facing, on top of any looking around meanwhile.
 	var total := angle_difference(_step_from.basis.get_euler().y, _step_to.basis.get_euler().y)
 	var turned := total * smoothstep(0.0, 1.0, minf(k / Constants.STEP_DOWN_TURN_DONE, 1.0))
@@ -2461,9 +2562,9 @@ func _step_down(delta: float) -> void:
 	_step_turned = turned
 	# What the body does (every peer draws it from anim_state and velocity): the
 	# knees bend, it flies, the knees take the landing, it stands.
-	var crouch := Constants.STEP_DOWN_CROUCH_SHARE
-	var land := 1.0 - Constants.STEP_DOWN_LAND_SHARE
-	if k < crouch or (k >= land and k < land + Constants.STEP_DOWN_LAND_SHARE * 0.6):
+	var crouch := _step_timing[0]
+	var land := _step_timing[1]
+	if k < crouch or (k >= land and k < land + (1.0 - land) * Constants.STEP_DOWN_LAND_CROUCH):
 		anim_state = AnimState.CROUCH
 	elif k < land:
 		anim_state = AnimState.AIR

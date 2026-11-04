@@ -17,6 +17,9 @@ const SIDEWALK_NEAR := Vector2(20.3, 22.3)
 const STREET := Vector2(22.6, 31.4)
 const SIDEWALK_FAR := Vector2(31.7, 33.7)
 const STREET_LENGTH: float = 260.0
+## A street lamp's pole height and the radius of its base (m; _lamp).
+const LAMP_HEIGHT: float = 5.2
+const LAMP_BASE_RADIUS: float = 0.16
 const ASPHALT := Color(0.3, 0.3, 0.32)
 const CONCRETE := Color(0.72, 0.7, 0.66)
 ## Center-line dashes, meters long, on a period of twice that (props/surfaces.gd "road").
@@ -79,8 +82,8 @@ static func _lamp(root: Node3D, at: Vector3, yaw: float) -> void:
 	lamp.position = at
 	lamp.rotation.y = yaw
 	var pole := Color(0.22, 0.24, 0.26)
-	_LowPoly.paint(_LowPoly.cylinder(lamp, 0.09, 5.2, Vector3(0.0, 2.6, 0.0), pole, false, 8), "metal")
-	_LowPoly.paint(_LowPoly.cylinder(lamp, 0.16, 0.5, Vector3(0.0, 0.25, 0.0), pole, false, 8), "metal")
+	_LowPoly.paint(_LowPoly.cylinder(lamp, 0.09, LAMP_HEIGHT, Vector3(0.0, LAMP_HEIGHT * 0.5, 0.0), pole, false, 8), "metal")
+	_LowPoly.paint(_LowPoly.cylinder(lamp, LAMP_BASE_RADIUS, 0.5, Vector3(0.0, 0.25, 0.0), pole, false, 8), "metal")
 	_LowPoly.paint(_LowPoly.box(lamp, Vector3(0.1, 0.1, 1.3), Vector3(0.0, 5.15, 0.6), pole), "metal")
 	_LowPoly.paint(_LowPoly.box(lamp, Vector3(0.42, 0.18, 0.62), Vector3(0.0, 5.08, 1.25), pole), "metal")
 	_LowPoly.glow(lamp, Vector3(0.34, 0.04, 0.52), Vector3(0.0, 4.98, 1.25), Color(1.0, 0.9, 0.7), 0.6)

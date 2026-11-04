@@ -433,9 +433,34 @@ func arrival_look_point(zone: int) -> Vector3:
 ## anything under a moving body (props, people) is left out.
 func arrival_obstacles(zone: int, near: Vector3, reach: float) -> Array:
 	var out: Array = []
-	var root: Node = $LotZone if zone == Net.Zone.LOT else ($StoreZone if zone == Net.Zone.STORE else null)
-	if root == null:
-		return out
+	# Out on the connected town's streets (the drivable Chefty's E-exit, zone TOWN
+	# most of the time) it's wherever near is: both zones' dressing (the reach keeps
+	# only what's close) and the town's own mailboxes and bins.
+	var roots: Array[Node] = []
+	if zone == Net.Zone.LOT or zone == Net.Zone.STORE:
+		roots.append($LotZone if zone == Net.Zone.LOT else $StoreZone)
+	else:
+		roots.append_array([$LotZone, $StoreZone])
+		for node: Node in get_tree().get_nodes_in_group("town_knockables"):
+			var piece := node as Node3D
+			if piece != null and piece.is_visible_in_tree() and _flat_near(piece.global_position, near, reach):
+				var box := _drawn_box(piece)
+				if box.size != Vector3.ZERO:
+					out.append([piece.global_transform, box])
+	for root: Node in roots:
+		_gather_props(root, near, reach, out)
+	if zone != Net.Zone.LOT:
+		# Homie Depot's lot lamps (levels/dressing/neighborhood.gd lamp).
+		var radius := _Neighborhood.LAMP_BASE_RADIUS
+		for lamp: Vector3 in _StoreDressing.LOT_LAMPS:
+			var xform := ($StoreZone as Node3D).global_transform * Transform3D(Basis.IDENTITY, lamp)
+			if zone == Net.Zone.STORE or _flat_near(xform.origin, near, reach):
+				out.append([xform, AABB(Vector3(-radius, 0.0, -radius), Vector3(radius * 2.0, _Neighborhood.LAMP_HEIGHT, radius * 2.0))])
+	return out
+
+
+## arrival_obstacles: every placed prop under root within reach of near.
+func _gather_props(root: Node, near: Vector3, reach: float, out: Array) -> void:
 	for node: Node in root.find_children("*", "Node3D", true, false):
 		if not node.has_meta("prop_kind") or _under_mover(node, root):
 			continue
@@ -453,11 +478,6 @@ func arrival_obstacles(zone: int, near: Vector3, reach: float) -> Array:
 			var box := _drawn_box(view)
 			if box.size != Vector3.ZERO:
 				out.append([view.global_transform, box])
-	if zone == Net.Zone.STORE:
-		# Homie Depot's lot lamps (levels/dressing/neighborhood.gd lamp: a 0.16 m base).
-		for lamp: Vector3 in _StoreDressing.LOT_LAMPS:
-			out.append([($StoreZone as Node3D).global_transform * Transform3D(Basis.IDENTITY, lamp), AABB(Vector3(-0.16, 0.0, -0.16), Vector3(0.32, 5.2, 0.32))])
-	return out
 
 
 func _flat_near(at: Vector3, near: Vector3, reach: float) -> bool:

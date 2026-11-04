@@ -5061,15 +5061,17 @@ const CHEFTY_RIDE_SEATS: Array[Vector3] = [
 ## left side, -90 deg out the right.
 const CHEFTY_RIDE_SEAT_YAWS: Array[float] = [1.5708, -1.5708, 1.5708, -1.5708]
 ## Where each legacy seat's rider lands when Chefty arrives (truck space, the
-## ground): bed left, bed right, the tailgate, by the cab's shotgun door.
+## ground): bed left, bed right, the tailgate, by the cab on the right. Each is
+## straight out over its own wall: a hop to the shotgun door (z -2.0) went over
+## the cab's back corner (review, p1-arrive).
 const CHEFTY_STEP_DOWN_SLOTS: Array[Vector3] = [
 	Vector3(-1.85, 0.0, 0.35), Vector3(1.85, 0.0, 0.35),
-	Vector3(0.0, 0.0, 3.6), Vector3(1.85, 0.0, -2.0),
+	Vector3(0.0, 0.0, 3.6), Vector3(1.85, 0.0, -0.9),
 ]
 ## A rider whose own spot is blocked (a lamp post, a hedge, a parked car) or
 ## taken takes the first of these that's clear, in order.
 const CHEFTY_STEP_DOWN_SPARE: Array[Vector3] = [
-	Vector3(-1.85, 0.0, -2.0), Vector3(-1.85, 0.0, 1.9), Vector3(1.85, 0.0, 1.9),
+	Vector3(-1.85, 0.0, -0.9), Vector3(-1.85, 0.0, 1.9), Vector3(1.85, 0.0, 1.9),
 	Vector3(-1.1, 0.0, 3.7), Vector3(1.1, 0.0, 3.7), Vector3(0.0, 0.0, 4.9),
 ]
 ## A client whose truck is still short of the curb when the host says it arrived
@@ -5137,3 +5139,50 @@ const PERSONAL_SPACE_AFTER: float = 0.3
 const PERSONAL_SPACE_SPEED: float = 1.6
 const PERSONAL_SPACE_TICK: float = 0.1
 const PERSONAL_SPACE_NUDGE_SECONDS: float = 0.15
+## Two players further apart than this up or down (m) aren't in each other's
+## space (one on a roof, one under it).
+const PERSONAL_SPACE_HEIGHT: float = 1.2
+## The push is full at or inside this share of PERSONAL_SPACE_RADIUS and falls to
+## PERSONAL_SPACE_MIN_PUSH of PERSONAL_SPACE_SPEED at its edge.
+const PERSONAL_SPACE_FULL_PUSH_AT: float = 0.5
+const PERSONAL_SPACE_MIN_PUSH: float = 0.5
+## The ground under a landing spot is looked for this far up and down (m).
+const STEP_DOWN_GROUND_REACH: float = 1.5
+## A landing spot's capsule starts this far over the ground (m), so a curb's lip
+## doesn't count as a wall.
+const STEP_DOWN_CAPSULE_LIFT: float = 0.12
+## The landing's view check (step_down.gd view_clear): from this high (m, the
+## eyes), again this much lower (a hedge's top), and along the ground every this
+## many meters, where a drawn prop over the knees (this high, m) within this
+## much (m) of the line counts as in the way.
+const STEP_DOWN_VIEW_EYE: float = 1.5
+const STEP_DOWN_VIEW_LOW: float = 0.8
+const STEP_DOWN_VIEW_STEP: float = 0.3
+const STEP_DOWN_VIEW_KNEE: float = 0.5
+const STEP_DOWN_VIEW_HIT: float = 0.12
+## With nothing to look at, you land looking this far (m) along the truck's nose.
+const STEP_DOWN_LOOK_AHEAD: float = 10.0
+## The hop's height comes from how far down it goes, held between these (m).
+const STEP_DOWN_DROP_RANGE := Vector2(0.25, 1.0)
+## Of the landing's share, the knees stay bent for this much, then you stand.
+const STEP_DOWN_LAND_CROUCH: float = 0.6
+## Over the bed's rails or tailgate (step_down.gd hop_path): the feet clear their
+## top by this much (m), from this far (m) before the wall to this far past it
+## (the shins aren't a point), checked at this many places along the way.
+const STEP_DOWN_WALL_CLEAR: float = 0.12
+const STEP_DOWN_LEG_REACH: float = 0.05
+const STEP_DOWN_WALL_SAMPLES: int = 6
+## That jump rises and falls under this gravity (m/s^2, a little snappier than
+## the world's), and rises at least this much (m) over the higher end.
+const STEP_DOWN_GRAVITY: float = 14.0
+const STEP_DOWN_MIN_RISE: float = 0.15
+## Out of a cab seat you slide out through the door still sitting until you're
+## this far (m) past the cab's side (your own width), then drop off the sill.
+const STEP_DOWN_DOOR_CLEAR: float = 0.4
+## Another peer's view of a rider leaving a seat (net_smoother.gd): drawn on the
+## seat while that rider's own peer still has them on one (their truck can trail
+## this one by a second), but never longer than this (s); then it blends from
+## where it was drawn into the replicated stream over this long (s), so a hop
+## already under way on the rider's peer is caught up, never jumped.
+const SMOOTHER_SEAT_HOLD_MAX: float = 3.0
+const SMOOTHER_RESUME_BLEND: float = 0.3

@@ -895,7 +895,7 @@ func _handle_exit(peer_id: int) -> void:
 		return
 	var spot := _exit_spot(seat)
 	var space := get_world_3d().direct_space_state
-	var ahead := Basis(Vector3.UP, yaw()) * Vector3.FORWARD * 10.0
+	var ahead := Basis(Vector3.UP, yaw()) * Vector3.FORWARD * Constants.STEP_DOWN_LOOK_AHEAD
 	# A hop down from the seat to the door's spot, from exactly where they sit (no
 	# pop on any screen), facing the way Chefty does, turned out from it so its
 	# cab and mirror aren't in your face, and never into a lamp post.
@@ -903,7 +903,9 @@ func _handle_exit(peer_id: int) -> void:
 	var zone := Net.player_zone(peer_id)
 	var props: Array = world.call("arrival_obstacles", zone, spot, Constants.STEP_DOWN_PROP_REACH) if world != null and world.has_method("arrival_obstacles") else []
 	var facing := _StepDown.landing_facing(space, body_position(), spot, spot + ahead, _exit_exclude(), props)
-	player.call("send_step_down", Transform3D(facing, spot))
+	# Out of the cab through its door, sitting; out of the bed over the rail.
+	var path := _StepDown.hop_path(_body.global_transform, seat_transform(seat).origin, spot, is_cab_seat(seat))
+	player.call("send_step_down", Transform3D(facing, spot), 0.0, path)
 	_last_exits[peer_id] = {"at": spot, "bail": false}
 	_note_zone(peer_id, spot)
 
@@ -1468,26 +1470,31 @@ func _arrive() -> void:
 	_end_trip()
 	if kind == Trip.DEPART:
 		var riders_now: Array[int] = []
+		var seats_now: Array[int] = []
 		var own: Array = []
 		for seat: int in _riders.size():
 			if _riders[seat] != 0:
 				riders_now.append(_riders[seat])
+				seats_now.append(seat)
 				own.append(Vector3(_exit_side(seat) * Constants.CHEFTY_EXIT_SIDE, 0.0, _Vehicles.CHEFTY_SEATS[seat].z))
 		var truck := Transform3D(Basis(Vector3.UP, yaw()), Vector3(body_position().x, _chassis.global_position.y, body_position().z))
 		var world := get_tree().get_first_node_in_group("world")
-		var look_at := truck * Vector3(0.0, 0.0, -10.0)
+		var look_at := truck * Vector3(0.0, 0.0, -Constants.STEP_DOWN_LOOK_AHEAD)
 		var props: Array = []
 		if world != null and world.has_method("arrival_look_point"):
 			look_at = world.call("arrival_look_point", zone)
 			props = world.call("arrival_obstacles", zone, truck.origin, Constants.STEP_DOWN_PROP_REACH)
 		var spots := _StepDown.slots(get_world_3d().direct_space_state, truck, own, look_at, _exit_exclude(), props)
+		var paths: Array[Vector4] = []
+		for index: int in seats_now.size():
+			paths.append(_StepDown.hop_path(_body.global_transform, seat_transform(seats_now[index]).origin, spots[index].origin, is_cab_seat(seats_now[index])))
 		_riders.fill(0)
 		_send_seats()
 		for index: int in riders_now.size():
 			var player := _player(riders_now[index])
 			if player != null:
 				# One after another, so two hops never cross in the air.
-				player.call("send_step_down", spots[index], float(index) * Constants.STEP_DOWN_STAGGER)
+				player.call("send_step_down", spots[index], float(index) * Constants.STEP_DOWN_STAGGER, paths[index])
 		for id: int in riders_now:
 			Net.move_player_to_zone(id, zone as Net.Zone, &"", false)
 		if world != null and world.has_method("on_ride_arrived"):

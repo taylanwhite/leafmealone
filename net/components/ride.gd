@@ -45,6 +45,8 @@ var _eased_now: float = 1.0
 var _catchup_from: float = 0.0
 var _catchup_t: float = -1.0
 var _catchup_seconds: float = 0.5
+## The last arrival's riders, in seat order (arrival_spots, the tests).
+var _landed_riders: Array = []
 
 
 func _ready() -> void:
@@ -427,24 +429,43 @@ func _land() -> void:
 ## (net/components/step_down.gd), and this peer's own rider hops down to theirs.
 ## Everyone else sees that hop through the synchronizer.
 func _step_riders_down(riders: Array) -> void:
+	_landed_riders = riders.duplicate()
 	var local_id := Net.local_peer_id()
 	var mine := riders.find(local_id)
 	if mine < 0 or _body == null:
 		return
+	var spots := arrival_spots(riders)
+	var seat := seat_transform(mine).origin
+	# Over the rail or the tailgate, never through it (step_down.gd hop_path).
+	var path := _StepDown.hop_path(_body.global_transform, seat, spots[mine].origin, false)
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(local_id) and node.has_method("step_down_to"):
+			# One after another, by seat, so two hops never cross in the air.
+			node.call("step_down_to", spots[mine], float(mine) * Constants.STEP_DOWN_STAGGER, path)
+
+
+## Every peer: where each of riders (in seat order) lands by the truck where it's
+## parked, worked out from this peer's own world (step_down.gd slots). Each peer
+## steps only its own rider down, so the peers have to agree on all of them, or
+## two riders could take one spot; --arrive-test checks they do.
+func arrival_spots(riders: Array) -> Array[Transform3D]:
+	if _body == null:
+		return []
 	var own: Array = []
 	for index: int in riders.size():
 		own.append(Constants.CHEFTY_STEP_DOWN_SLOTS[index % Constants.CHEFTY_STEP_DOWN_SLOTS.size()])
 	var world := get_tree().get_first_node_in_group("world")
-	var look_at := _body.global_position + (-_body.global_basis.z) * 10.0
+	var look_at := _body.global_position + (-_body.global_basis.z) * Constants.STEP_DOWN_LOOK_AHEAD
 	var props: Array = []
 	if world != null and world.has_method("arrival_look_point"):
 		look_at = world.call("arrival_look_point", _destination)
 		props = world.call("arrival_obstacles", _destination, _body.global_position, Constants.STEP_DOWN_PROP_REACH)
-	var spots := _StepDown.slots(_body.get_world_3d().direct_space_state, _StepDown.flat(_body.global_transform), own, look_at, [], props)
-	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.name == str(local_id) and node.has_method("step_down_to"):
-			# One after another, by seat, so two hops never cross in the air.
-			node.call("step_down_to", spots[mine], float(mine) * Constants.STEP_DOWN_STAGGER)
+	return _StepDown.slots(_body.get_world_3d().direct_space_state, _StepDown.flat(_body.global_transform), own, look_at, [], props)
+
+
+## The riders of the last arrival, in seat order (for the tests).
+func landed_riders() -> Array:
+	return _landed_riders.duplicate()
 
 
 @rpc("authority", "call_local", "reliable")

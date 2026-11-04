@@ -53,7 +53,7 @@ func _physics_process(delta: float) -> void:
 func _check_pair(a: Node3D, b: Node3D, seen: Dictionary) -> void:
 	var flat := Vector2(b.global_position.x - a.global_position.x, b.global_position.z - a.global_position.z)
 	var apart := flat.length()
-	if apart >= Constants.PERSONAL_SPACE_RADIUS or absf(b.global_position.y - a.global_position.y) > 1.2:
+	if apart >= Constants.PERSONAL_SPACE_RADIUS or absf(b.global_position.y - a.global_position.y) > Constants.PERSONAL_SPACE_HEIGHT:
 		return
 	var free_a := on_foot(a)
 	var free_b := on_foot(b)
@@ -69,8 +69,9 @@ func _check_pair(a: Node3D, b: Node3D, seen: Dictionary) -> void:
 		stats["pairs"] = int(stats["pairs"]) + 1
 	# Exactly on top of each other: apart along a direction both peers' ids pick.
 	var away := flat.normalized() if apart > 0.01 else Vector2.from_angle(float(hash(key) % 628) * 0.01)
-	# Harder the deeper in, never less than half.
-	var speed := Constants.PERSONAL_SPACE_SPEED * clampf(1.5 - apart / Constants.PERSONAL_SPACE_RADIUS, 0.5, 1.0)
+	# Harder the deeper in, never less than PERSONAL_SPACE_MIN_PUSH of it.
+	var depth := apart / Constants.PERSONAL_SPACE_RADIUS - Constants.PERSONAL_SPACE_FULL_PUSH_AT
+	var speed := Constants.PERSONAL_SPACE_SPEED * clampf(1.0 - depth, Constants.PERSONAL_SPACE_MIN_PUSH, 1.0)
 	# One of them can't move (seated, asleep): the other just takes longer.
 	if free_a:
 		_nudge(a, -away * speed)
