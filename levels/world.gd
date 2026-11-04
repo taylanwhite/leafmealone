@@ -104,6 +104,10 @@ func _ready() -> void:
 	var hotbar := preload("res://net/components/hotbar.gd").new()
 	hotbar.name = "Hotbar"
 	add_child(hotbar)
+	# Room to stand: players standing inside each other are eased apart (host).
+	var personal_space := preload("res://net/components/personal_space.gd").new()
+	personal_space.name = "PersonalSpace"
+	add_child(personal_space)
 	# The look before the dressing: the dressing is built over the next frames
 	# (_dress hands it to the BuildQueue), and every mesh it adds is restyled as
 	# it lands, like everything built after _ready always was.
@@ -404,6 +408,102 @@ func get_spawn_transform(zone: Net.Zone, spawn_marker: StringName, peer_id: int)
 		if not _someone_near(candidate.origin, peer_id):
 			return candidate
 	return _slot_transform(markers, posmod(peer_id, markers.size()))
+
+
+## Every peer: what a crew stepping off Chefty looks at (p1-arrive): the client's
+## house at a job yard, Homie Depot's doors at the store, else the zone's middle.
+## The same answer on every peer (the yard's house is built from its seed).
+func arrival_look_point(zone: int) -> Vector3:
+	if zone == Net.Zone.LOT and %LotSlot.get_child_count() > 0:
+		var house := %LotSlot.get_child(0).find_child("HouseBody", true, false) as Node3D
+		if house != null:
+			return house.global_position
+		return ($LotZone as Node3D).global_position
+	if zone == Net.Zone.STORE:
+		return ($StoreZone as Node3D).global_transform * Constants.ARRIVE_LOOK_STORE
+	return _spawn_points(zone as Net.Zone).global_position
+
+
+## Every peer: the drawn things standing near a point in a zone that have no
+## collider (the street's lamp posts, hydrants, mailboxes, benches: every
+## props/prop_catalog.gd prop, placed alone or batched), as [global transform,
+## local AABB] boxes, so step_down.gd never lands a crew stepping off Chefty
+## inside one or nose to one (play, p1-arrive: a lamp post at 0.6 m and a
+## hydrant at your foot). Built from the yard's seed, so the same on every peer;
+## anything under a moving body (props, people) is left out.
+func arrival_obstacles(zone: int, near: Vector3, reach: float) -> Array:
+	var out: Array = []
+	# Out on the connected town's streets (the drivable Chefty's E-exit, zone TOWN
+	# most of the time) it's wherever near is: both zones' dressing (the reach keeps
+	# only what's close) and the town's own mailboxes and bins.
+	var roots: Array[Node] = []
+	if zone == Net.Zone.LOT or zone == Net.Zone.STORE:
+		roots.append($LotZone if zone == Net.Zone.LOT else $StoreZone)
+	else:
+		roots.append_array([$LotZone, $StoreZone])
+		for node: Node in get_tree().get_nodes_in_group("town_knockables"):
+			var piece := node as Node3D
+			if piece != null and piece.is_visible_in_tree() and _flat_near(piece.global_position, near, reach):
+				var box := _drawn_box(piece)
+				if box.size != Vector3.ZERO:
+					out.append([piece.global_transform, box])
+	for root: Node in roots:
+		_gather_props(root, near, reach, out)
+	if zone != Net.Zone.LOT:
+		# Homie Depot's lot lamps (levels/dressing/neighborhood.gd lamp).
+		var radius := _Neighborhood.LAMP_BASE_RADIUS
+		for lamp: Vector3 in _StoreDressing.LOT_LAMPS:
+			var xform := ($StoreZone as Node3D).global_transform * Transform3D(Basis.IDENTITY, lamp)
+			if zone == Net.Zone.STORE or _flat_near(xform.origin, near, reach):
+				out.append([xform, AABB(Vector3(-radius, 0.0, -radius), Vector3(radius * 2.0, _Neighborhood.LAMP_HEIGHT, radius * 2.0))])
+	return out
+
+
+## arrival_obstacles: every placed prop under root within reach of near.
+func _gather_props(root: Node, near: Vector3, reach: float, out: Array) -> void:
+	for node: Node in root.find_children("*", "Node3D", true, false):
+		if not node.has_meta("prop_kind") or _under_mover(node, root):
+			continue
+		var view := node as Node3D
+		if view is MultiMeshInstance3D and view.has_meta("instance_xforms"):
+			var multimesh := (view as MultiMeshInstance3D).multimesh
+			if multimesh == null or multimesh.mesh == null:
+				continue
+			var box := multimesh.mesh.get_aabb()
+			for local: Transform3D in view.get_meta("instance_xforms") as Array:
+				var xform := view.global_transform * local
+				if _flat_near(xform.origin, near, reach):
+					out.append([xform, box])
+		elif _flat_near(view.global_position, near, reach):
+			var box := _drawn_box(view)
+			if box.size != Vector3.ZERO:
+				out.append([view.global_transform, box])
+
+
+func _flat_near(at: Vector3, near: Vector3, reach: float) -> bool:
+	return Vector2(at.x - near.x, at.z - near.z).length() <= reach
+
+
+## A placed prop's drawn box in its own space (its meshes', merged).
+func _drawn_box(prop: Node3D) -> AABB:
+	var box := AABB()
+	var first := true
+	var to_local := prop.global_transform.affine_inverse()
+	for child: Node in prop.find_children("*", "VisualInstance3D", true, false):
+		var visual := child as VisualInstance3D
+		var local := to_local * visual.global_transform * visual.get_aabb()
+		box = local if first else box.merge(local)
+		first = false
+	return box
+
+
+func _under_mover(node: Node, stop: Node) -> bool:
+	var at := node.get_parent()
+	while at != null and at != stop:
+		if at is RigidBody3D or at is CharacterBody3D:
+			return true
+		at = at.get_parent()
+	return false
 
 
 ## Slot 0 is the first marker, then the next, then rows behind the markers.

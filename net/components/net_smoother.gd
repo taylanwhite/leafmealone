@@ -58,16 +58,35 @@ func _physics_process(_delta: float) -> void:
 		return
 	if _parent_places_visual():
 		_samples.clear()
+		_was_placed = true
 		return
 	var body := get_parent() as Node3D
 	if body == null:
 		return
+	if _was_placed:
+		resume_from_drawn()
 	var origin := body.global_position
 	var now := _now()
+	var basis := body.global_basis
+	if _held:
+		var unchanged := origin.distance_squared_to(_last_recorded) < 0.0000001 and basis.is_equal_approx(_last_basis)
+		var waited := now - _hold_since
+		# Still on a seat on its own peer (its truck can trail this one's, or it
+		# waits its turn to hop down): what it replicates is that seat, not where
+		# it's drawn here, so it stays drawn on this one's.
+		var seated := int(body.get(&"seat_state")) == SEAT_STATE_SEATED if "seat_state" in body else false
+		if (seated and waited < Constants.SMOOTHER_SEAT_HOLD_MAX) or (unchanged and waited < HOLD_MAX_SECONDS):
+			return
+		# Off it now (or nothing new came: the replicated pose was right all
+		# along): blend from where it's drawn into the stream from here on.
+		_held = false
+		_blend_from = _samples[0]["xform"] if not _samples.is_empty() else body.global_transform
+		_blend_at = now
+		_samples.clear()
+		_last_recorded = Vector3.INF
 	# Turning on the spot counts as a change too (a hired hand stops, then faces its
 	# pile; a player turns while raking in place; a NICE BOY turning on a spot or a
 	# stand): only a body that neither moved nor turned is unchanged.
-	var basis := body.global_basis
 	if origin.distance_squared_to(_last_recorded) < 0.0000001 and basis.is_equal_approx(_last_basis) and not _samples.is_empty():
 		# Unchanged. Updates arrive at the sync interval, slower than physics, so
 		# most of these are just the gap between two updates: record nothing.
@@ -106,14 +125,28 @@ func _trim(now: float) -> void:
 
 
 func _process(_delta: float) -> void:
-	if _is_local_authority() or _visual == null or _samples.is_empty() or _parent_places_visual():
+	if _is_local_authority() or _visual == null or _parent_places_visual():
+		return
+	# Off a seat or a stage since the last physics tick: from where it's drawn now.
+	if _was_placed:
+		resume_from_drawn()
+	if _samples.is_empty():
 		return
 	var body := get_parent() as Node3D
 	if body == null:
 		return
 	var rendered := _sample_at(_now() - delay_seconds)
-	if rendered.origin.distance_to(body.global_position) > snap_distance:
+	if _blend_at >= 0.0:
+		var blend := (_now() - _blend_at) / maxf(maxf(Constants.SMOOTHER_RESUME_BLEND, delay_seconds), 0.001)
+		if blend >= 1.0:
+			_blend_at = -1.0
+		else:
+			rendered = _blend_from.interpolate_with(rendered, smoothstep(0.0, 1.0, blend))
+	# Held where the seat or stage drew it: the replicated pose is from before the
+	# hand-over (a ride at speed left it metres back up the road), so no snap to it.
+	if not _held and rendered.origin.distance_to(body.global_position) > snap_distance:
 		rendered = body.global_transform
+		_blend_at = -1.0
 		stats["snaps"] = int(stats["snaps"]) + 1
 		_visual.reset_physics_interpolation()
 		_samples.clear()
@@ -127,6 +160,51 @@ func _process(_delta: float) -> void:
 
 
 var _rest := Transform3D.IDENTITY
+## The parent placed the visual itself last tick (a seat, a stage).
+var _was_placed: bool = false
+## Since that ended: drawing from where the seat or stage left the visual, while
+## the body's own peer still has it seated (player.gd seat_state, up to
+## Constants.SMOOTHER_SEAT_HOLD_MAX), then until the replicated pose next changes
+## (or HOLD_MAX_SECONDS go by without one). Then, from _blend_at, it blends from
+## where it was held (_blend_from) into the stream over SMOOTHER_RESUME_BLEND:
+## releasing straight into it slid a rider back up the road at seat height (their
+## own truck trailing), or skipped a hop already under way in one frame (review,
+## p1-arrive). _blend_at is -1 when not blending.
+var _held: bool = false
+var _hold_since: float = 0.0
+var _blend_from := Transform3D.IDENTITY
+var _blend_at: float = -1.0
+## For the tests: hand-overs from a seat or stage back to the smoother.
+static var resumes: int = 0
+const HOLD_MAX_SECONDS: float = 0.5
+## player.gd SEAT_STATE_SEATED (the smoother runs on bodies that aren't players).
+const SEAT_STATE_SEATED: int = 1
+
+
+## The parent just stopped placing the visual (off a seat, out of a stage;
+## p1-arrive): carry on from where it was drawn, never from the last replicated
+## pose, which is from before the hand-over (riding at speed, metres back along
+## the road: every peer saw a rider pop 2-4 m backwards as they stepped down).
+## It stays there while the body's own peer still has it seated, then blends
+## into the replicated stream (the owner's own step down). player.gd calls it the
+## moment a seat lets go; otherwise it runs on the next tick or frame.
+func resume_from_drawn() -> void:
+	var body := get_parent() as Node3D
+	if body == null or _visual == null or _is_local_authority():
+		return
+	_was_placed = false
+	resumes += 1
+	var drawn := _visual.global_transform * _rest.affine_inverse()
+	_samples.clear()
+	_samples.append({"at": _now(), "xform": drawn, "speed": 0.0})
+	_last_recorded = body.global_position
+	_last_basis = body.global_basis
+	_last_change_at = _now()
+	_last_change_speed = 0.0
+	_stop_recorded = true
+	_held = true
+	_hold_since = _now()
+	_blend_at = -1.0
 
 
 func _sample_at(target_time: float) -> Transform3D:

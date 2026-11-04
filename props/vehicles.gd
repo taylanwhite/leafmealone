@@ -46,6 +46,15 @@ const STEERING_WHEEL_RADIUS: float = 0.19
 const CHEFTY_DRIVER_DOOR := Vector3(-1.6, 0.0, -2.0)
 const CHEFTY_SHOTGUN_DOOR := Vector3(1.6, 0.0, -2.0)
 const CHEFTY_TAILGATE := Vector3(0.0, 0.0, 3.4)
+## The bed's walls as build_truck's Solid boxes draw them, flat (x, z in Chefty's
+## space): the inside of the bed, the outside of its rails and tailgate, and their
+## top (m); the cab's half width and its roof. A hop off a seat clears them
+## (net/components/step_down.gd hop_path, p1-arrive).
+const CHEFTY_BED_INNER := Rect2(-1.02, -1.25, 2.04, 3.83)
+const CHEFTY_BED_OUTER := Rect2(-1.18, -1.25, 2.36, 3.99)
+const CHEFTY_BED_WALL_TOP: float = 1.65
+const CHEFTY_CAB_HALF_WIDTH: float = 1.15
+const CHEFTY_CAB_ROOF: float = 2.5
 
 static var _cache: Dictionary = {}
 

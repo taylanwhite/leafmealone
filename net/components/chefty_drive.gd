@@ -51,6 +51,7 @@ const _JunkBed = preload("res://net/components/junk_bed.gd")
 const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 
 const _CheftyCrash = preload("res://net/components/chefty_crash.gd")
+const _StepDown = preload("res://net/components/step_down.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
@@ -281,6 +282,7 @@ func _build() -> void:
 		var seat := Marker3D.new()
 		seat.name = "Seat%d" % index
 		seat.position = _Vehicles.CHEFTY_SEATS[index]
+		seat.rotation.y = seat_yaw(index)
 		_seats.add_child(seat)
 	_view = _VehicleView.new()
 	_view.name = "View"
@@ -388,6 +390,16 @@ func seat_transform(index: int) -> Transform3D:
 
 func seat_count() -> int:
 	return Constants.CHEFTY_SEATS
+
+
+## Which way a seat faces, from Chefty's nose (radians about +Y): the cab looks
+## ahead, the bed's two rows look out over their own side (p1-arrive, lagduo-7:
+## facing ahead side by side, the next rider's head filled half your view), so
+## bed riders stand back to back. A seated player's look turns from here.
+func seat_yaw(index: int) -> float:
+	if index < _Vehicles.CHEFTY_CAB_SEATS or index >= _Vehicles.CHEFTY_SEATS.size():
+		return 0.0
+	return PI * 0.5 if _Vehicles.CHEFTY_SEATS[index].x < 0.0 else -PI * 0.5
 
 
 ## Whether a seat is in the cab (the riders there sit, player/cartoon_body.gd sit()).
@@ -866,18 +878,49 @@ func _handle_exit(peer_id: int) -> void:
 		return
 	var player := _player(peer_id)
 	var moving: Vector3 = _state["vel"]
+	var bail := Vector2(moving.x, moving.z).length() > Constants.CHEFTY_EXIT_MAX_SPEED
+	if bail:
+		# Flung from the seat itself, out over your own side (p1-arrive: the door
+		# spot first was a 1.9 m pop, then the throw).
+		var from := seat_transform(seat).origin
+		var side := Vector3(_exit_side(seat), 0.0, 0.0)
+		var out := Basis(Vector3.UP, yaw()) * side * Constants.CHEFTY_BAIL_SIDE
+		host_eject(peer_id, moving * Constants.CHEFTY_BAIL_SHARE + out + Vector3.UP * Constants.CHEFTY_BAIL_UP)
+		_last_exits[peer_id] = {"at": from, "bail": true}
+		_note_zone(peer_id, from)
+		return
 	_riders[seat] = 0
 	_send_seats()
 	if player == null:
 		return
 	var spot := _exit_spot(seat)
-	var facing := yaw()
-	player.call("send_teleport", Transform3D(Basis(Vector3.UP, facing), spot))
-	var bail := Vector2(moving.x, moving.z).length() > Constants.CHEFTY_EXIT_MAX_SPEED
-	if bail:
-		host_eject(peer_id, moving * Constants.CHEFTY_BAIL_SHARE + Vector3.UP * Constants.CHEFTY_BAIL_UP)
-	_last_exits[peer_id] = {"at": spot, "bail": bail}
+	var space := get_world_3d().direct_space_state
+	var ahead := Basis(Vector3.UP, yaw()) * Vector3.FORWARD * Constants.STEP_DOWN_LOOK_AHEAD
+	# A hop down from the seat to the door's spot, from exactly where they sit (no
+	# pop on any screen), facing the way Chefty does, turned out from it so its
+	# cab and mirror aren't in your face, and never into a lamp post.
+	var world := get_tree().get_first_node_in_group("world")
+	var zone := Net.player_zone(peer_id)
+	var props: Array = world.call("arrival_obstacles", zone, spot, Constants.STEP_DOWN_PROP_REACH) if world != null and world.has_method("arrival_obstacles") else []
+	var facing := _StepDown.landing_facing(space, body_position(), spot, spot + ahead, _exit_exclude(), props)
+	# Out of the cab through its door, sitting; out of the bed over the rail.
+	var path := _StepDown.hop_path(_body.global_transform, seat_transform(seat).origin, spot, is_cab_seat(seat))
+	player.call("send_step_down", Transform3D(facing, spot), 0.0, path)
+	_last_exits[peer_id] = {"at": spot, "bail": false}
 	_note_zone(peer_id, spot)
+
+
+## -1 for the driver's side (the left), 1 for shotgun's; a bed seat by its row's side.
+func _exit_side(seat: int) -> float:
+	return -1.0 if (seat == SEAT_DRIVER or (seat >= _Vehicles.CHEFTY_CAB_SEATS and _Vehicles.CHEFTY_SEATS[seat].x < 0.0)) else 1.0
+
+
+## What a landing spot's checks look past: the chassis and Chefty's own Solid.
+func _exit_exclude() -> Array[RID]:
+	var exclude: Array[RID] = [_chassis.get_rid()]
+	for rid: RID in _params.get("exclude", []):
+		exclude.append(rid)
+	return exclude
 
 
 ## Host: fling a peer out (a bail, later a crash): they fly with velocity and land
@@ -1416,23 +1459,44 @@ func _warp_step(delta: float) -> void:
 	_state["air"] = false
 
 
-## Host: the trip's over. A depart() trip lets everyone off into its zone (a
-## teleport, like the legacy ride) and tells the world; a chauffeur just parks,
-## and its riders' zones follow where Chefty stopped.
+## Host: the trip's over. A depart() trip lets everyone off into its zone, each
+## rider hopping down to their own spot by their seat's door or side, facing the
+## house or the store (p1-arrive; a teleport to the zone's spawn put them all on
+## one spot), and tells the world; a chauffeur just parks, and its riders' zones
+## follow where Chefty stopped.
 func _arrive() -> void:
 	var kind := _trip
 	var zone := _trip_zone
 	_end_trip()
 	if kind == Trip.DEPART:
 		var riders_now: Array[int] = []
-		for id: int in _riders:
-			if id != 0:
-				riders_now.append(id)
+		var seats_now: Array[int] = []
+		var own: Array = []
+		for seat: int in _riders.size():
+			if _riders[seat] != 0:
+				riders_now.append(_riders[seat])
+				seats_now.append(seat)
+				own.append(Vector3(_exit_side(seat) * Constants.CHEFTY_EXIT_SIDE, 0.0, _Vehicles.CHEFTY_SEATS[seat].z))
+		var truck := Transform3D(Basis(Vector3.UP, yaw()), Vector3(body_position().x, _chassis.global_position.y, body_position().z))
+		var world := get_tree().get_first_node_in_group("world")
+		var look_at := truck * Vector3(0.0, 0.0, -Constants.STEP_DOWN_LOOK_AHEAD)
+		var props: Array = []
+		if world != null and world.has_method("arrival_look_point"):
+			look_at = world.call("arrival_look_point", zone)
+			props = world.call("arrival_obstacles", zone, truck.origin, Constants.STEP_DOWN_PROP_REACH)
+		var spots := _StepDown.slots(get_world_3d().direct_space_state, truck, own, look_at, _exit_exclude(), props)
+		var paths: Array[Vector4] = []
+		for index: int in seats_now.size():
+			paths.append(_StepDown.hop_path(_body.global_transform, seat_transform(seats_now[index]).origin, spots[index].origin, is_cab_seat(seats_now[index])))
 		_riders.fill(0)
 		_send_seats()
+		for index: int in riders_now.size():
+			var player := _player(riders_now[index])
+			if player != null:
+				# One after another, so two hops never cross in the air.
+				player.call("send_step_down", spots[index], float(index) * Constants.STEP_DOWN_STAGGER, paths[index])
 		for id: int in riders_now:
-			Net.move_player_to_zone(id, zone as Net.Zone)
-		var world := get_tree().get_first_node_in_group("world")
+			Net.move_player_to_zone(id, zone as Net.Zone, &"", false)
 		if world != null and world.has_method("on_ride_arrived"):
 			world.call("on_ride_arrived", zone)
 	else:

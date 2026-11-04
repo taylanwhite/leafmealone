@@ -272,6 +272,16 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --town-map --start-hour=10 --skate-test'; Seconds = 60; Client = 55
 		Check = { param($h, $c) [bool]$h.skate_test.ok -and $c -ne $null -and [bool]$c.skate_seen.'1'.mounted -and [bool]$c.skate_seen.'1'.wipeout -and ([int]$c.skate_seen.'1'.max_trick -ge 2) }
 	}
+	# Stepping off Chefty (p1-arrive, net/dev/arrive_test.gd): host and client ride to the
+	# yard and back; seated back to back on opposite rails, each hops down to their own
+	# spot by the truck, facing the house or the store, with no pop on either peer;
+	# then two players put on one spot are eased apart. Both peers run the node.
+	arrive = @{
+		Port = 7832
+		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --arrive-test'; Seconds = 70; Client = 65
+		Extra = '--sim-lag=150 --arrive-test'
+		Check = { param($h, $c) [bool]$h.arrive_test.ok -and $c -ne $null -and [bool]$c.arrive_test.ok }
+	}
 	# The Courtesy Shuttle (nice_boys:4) over 150 ms: the park point clears a tree and a
 	# prop, the raid van pulls up with the crew seated (on their anchors on the client),
 	# host and client agree on its pose on every leg, a boarded client sits, an unbuckle

@@ -16,6 +16,7 @@ const _BedLoad = preload("res://props/truck_bed_load.gd")
 const _NearLabel = preload("res://ui/near_label.gd")
 const _JunkBed = preload("res://net/components/junk_bed.gd")
 const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
+const _StepDown = preload("res://net/components/step_down.gd")
 
 var _riding: bool = false
 ## The bags drawn in the bed (props/truck_bed_load.gd), Chefty only.
@@ -37,6 +38,15 @@ var _vehicle_color: Color = Color(0.75, 0.22, 0.15)
 var _reverse: bool = false
 ## Where along the road it is parked between rides: 0 at the store, 1 at the lot.
 var _parked_along: float = 0.0
+## How far through this trip it was last drawn (0 to 1, eased), and a client's
+## drive to the curb after the host's arrival: from where, how far (0 to 1; -1
+## when not), over how long (s).
+var _eased_now: float = 1.0
+var _catchup_from: float = 0.0
+var _catchup_t: float = -1.0
+var _catchup_seconds: float = 0.5
+## The last arrival's riders, in seat order (arrival_spots, the tests).
+var _landed_riders: Array = []
 
 
 func _ready() -> void:
@@ -56,16 +66,38 @@ func _ready() -> void:
 
 ## Moves on physics ticks, so physics interpolation smooths the vehicle and its
 ## riders together.
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	if _catchup_t >= 0.0:
+		_step_catchup(delta)
+		return
 	if not _riding:
 		return
 	var duration := maxf(_duration, 0.1)
 	var along := clampf((Net.server_time() - _start_time) / duration, 0.0, 1.0)
-	# Chefty's legacy ride keeps its even pace. (The NICE BOYS' van is
-	# net/run_events/shuttle.gd now, nice_boys:4.)
-	_place(1.0 - along if _reverse else along)
+	# Chefty's legacy ride pulls away and pulls in (p1-arrive): at an even pace it
+	# hit the curb at 125 m/s, so a client's clock a few ms off, or a rider's
+	# replicated pose one update old, put that rider metres from where they got
+	# off: every screen saw a pop as the riders stepped down. (The NICE BOYS' van
+	# is net/run_events/shuttle.gd now, nice_boys:4.)
+	var eased := smoothstep(0.0, 1.0, along)
+	_eased_now = eased
+	_place(1.0 - eased if _reverse else eased)
 	if Net.is_host() and along >= 1.0:
 		_arrive()
+
+
+## A client whose truck was still short of the curb when the host said it had
+## arrived (its clock trails the host's; a loaded machine's, by most of a second:
+## 50 m in play, and the rider's hop became a 50 m teleport) drives the rest of
+## the way first, easing into the curb, and only then lets its riders off.
+func _step_catchup(delta: float) -> void:
+	_catchup_t = minf(_catchup_t + delta / maxf(_catchup_seconds, 0.01), 1.0)
+	var eased := lerpf(_catchup_from, 1.0, smoothstep(0.0, 1.0, _catchup_t))
+	_eased_now = eased
+	_place(1.0 - eased if _reverse else eased)
+	if _catchup_t >= 1.0:
+		_catchup_t = -1.0
+		_land()
 
 
 ## Host only. Seat these peers and drive to a zone.
@@ -205,12 +237,16 @@ func _arrive() -> void:
 	_parked_along = 0.0 if _reverse else 1.0
 	var riders: Array = _riders.duplicate()
 	var destination := _destination
-	_riders.clear()
+	# Every peer steps its own rider down from the seat list it still has
+	# (_rpc_arrived), so the list is cleared there, not before.
 	_rpc_arrived.rpc()
 	if not Net.is_host():
 		return
+	# Into the zone where they stand: each rider hops down to their own spot by
+	# the truck (_step_riders_down), never a spawn marker (crew-01: every rider
+	# landed on the same one, inside each other).
 	for peer_id: Variant in riders:
-		Net.move_player_to_zone(int(peer_id), destination as Net.Zone)
+		Net.move_player_to_zone(int(peer_id), destination as Net.Zone, &"", false)
 	var world := get_tree().get_first_node_in_group("world")
 	if world != null and world.has_method("on_ride_arrived"):
 		world.call("on_ride_arrived", destination)
@@ -269,10 +305,14 @@ func _build() -> void:
 	seats.name = "Seats"
 	_body.add_child(seats)
 	_seats = seats
+	# On the bed's rails, facing out over the side (Constants.CHEFTY_RIDE_SEATS):
+	# two riders stand back to back, not shoulder to shoulder in each other's view.
 	for index: int in Balance.EXPECTED_TRAVELING_PARTY_SIZE:
 		var seat := Marker3D.new()
 		seat.name = "Seat%d" % index
-		seat.position = Vector3(-0.5 + float(index % 2), 1.0, -1.2 + float(index / 2))
+		var place := index % Constants.CHEFTY_RIDE_SEATS.size()
+		seat.position = Constants.CHEFTY_RIDE_SEATS[place]
+		seat.rotation.y = Constants.CHEFTY_RIDE_SEAT_YAWS[place]
 		seats.add_child(seat)
 	_place(0.0)
 
@@ -298,6 +338,10 @@ func _seat_local_player() -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_depart(start_time: float, riders: Array, destination_zone: int, duration: float) -> void:
+	# Still driving the last trip's last meters here: that trip's riders get off first.
+	if _catchup_t >= 0.0:
+		_land()
+	_eased_now = 0.0
 	_start_time = start_time
 	_duration = duration
 	_destination = destination_zone
@@ -347,21 +391,81 @@ func _rpc_parked(along: float, count: int, value: int) -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_arrived() -> void:
+	# Still short of the curb here: drive the rest first (_step_catchup).
+	var left := (1.0 - _eased_now) * (_path.curve.get_baked_length() if _path != null and _path.curve != null else 0.0)
+	if not Net.is_host() and _riding and _catchup_t < 0.0 and left > Constants.CHEFTY_RIDE_CATCHUP_MIN_METERS:
+		_catchup_from = _eased_now
+		_catchup_t = 0.0
+		_catchup_seconds = clampf(left / Constants.CHEFTY_RIDE_CATCHUP_SPEED, Constants.CHEFTY_RIDE_CATCHUP_SECONDS.x, Constants.CHEFTY_RIDE_CATCHUP_SECONDS.y)
+		return
+	_land()
+
+
+## Every peer: the truck's parked at the end of the trip, and its riders get off.
+func _land() -> void:
+	_catchup_t = -1.0
 	_riding = false
 	_parked_along = 0.0 if _reverse else 1.0
+	_eased_now = 1.0
 	# A client's last tick can fall just short of the end (its clock estimate
 	# trails the host's), and a dev scenario that skips the ride moves only the
 	# host's start time (net/dev/scenarios.gd): park where the trip ends either way.
 	_place(_parked_along)
 	if _body != null:
 		_body.reset_physics_interpolation()
+	var riders: Array = _riders.duplicate()
 	_riders.clear()
 	# Only this ride's riders get off: anyone seated elsewhere (the Shuttle, the
 	# drivable Chefty) stays put.
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		if node.has_method("clear_riding") and node.get("_ride") == self:
 			node.call("clear_riding")
+	_step_riders_down(riders)
 	_refresh_label()
+
+
+## Every peer, on arrival: each rider's landing spot from their seat (bed left,
+## bed right, the tailgate, the cab), worked out the same way everywhere
+## (net/components/step_down.gd), and this peer's own rider hops down to theirs.
+## Everyone else sees that hop through the synchronizer.
+func _step_riders_down(riders: Array) -> void:
+	_landed_riders = riders.duplicate()
+	var local_id := Net.local_peer_id()
+	var mine := riders.find(local_id)
+	if mine < 0 or _body == null:
+		return
+	var spots := arrival_spots(riders)
+	var seat := seat_transform(mine).origin
+	# Over the rail or the tailgate, never through it (step_down.gd hop_path).
+	var path := _StepDown.hop_path(_body.global_transform, seat, spots[mine].origin, false)
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(local_id) and node.has_method("step_down_to"):
+			# One after another, by seat, so two hops never cross in the air.
+			node.call("step_down_to", spots[mine], float(mine) * Constants.STEP_DOWN_STAGGER, path)
+
+
+## Every peer: where each of riders (in seat order) lands by the truck where it's
+## parked, worked out from this peer's own world (step_down.gd slots). Each peer
+## steps only its own rider down, so the peers have to agree on all of them, or
+## two riders could take one spot; --arrive-test checks they do.
+func arrival_spots(riders: Array) -> Array[Transform3D]:
+	if _body == null:
+		return []
+	var own: Array = []
+	for index: int in riders.size():
+		own.append(Constants.CHEFTY_STEP_DOWN_SLOTS[index % Constants.CHEFTY_STEP_DOWN_SLOTS.size()])
+	var world := get_tree().get_first_node_in_group("world")
+	var look_at := _body.global_position + (-_body.global_basis.z) * Constants.STEP_DOWN_LOOK_AHEAD
+	var props: Array = []
+	if world != null and world.has_method("arrival_look_point"):
+		look_at = world.call("arrival_look_point", _destination)
+		props = world.call("arrival_obstacles", _destination, _body.global_position, Constants.STEP_DOWN_PROP_REACH)
+	return _StepDown.slots(_body.get_world_3d().direct_space_state, _StepDown.flat(_body.global_transform), own, look_at, [], props)
+
+
+## The riders of the last arrival, in seat order (for the tests).
+func landed_riders() -> Array:
+	return _landed_riders.duplicate()
 
 
 @rpc("authority", "call_local", "reliable")

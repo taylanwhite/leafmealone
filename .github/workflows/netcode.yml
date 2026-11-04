@@ -439,6 +439,18 @@ jobs:
           grep "ShuttleTest" build/soak/ci-shuttle/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-shuttle/host.json')); t=json.load(open('build/soak/ci-shuttle/target.json')); sys.exit(0 if h['shuttle_test'].get('ok') and t['shuttle'].get('max_speed_on_screen', 99) <= 14.5 else 1)"
 
+      - name: Arrive test (stepping off Chefty to your own spot over 150 ms of lag, back to back in the bed, no pop, room to stand)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-arrive
+          "$GODOT" --headless --path . -- --host --port=7832 --name=Tester --no-steam --job-seed=777 --yard-size=1 --arrive-test --sim-lag=150 --arrive-test --measure="$PWD/build/soak/ci-arrive/host.json" --run-seconds=70 > build/soak/ci-arrive/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7832 --name=Target --no-steam --sim-lag=150 --arrive-test --measure="$PWD/build/soak/ci-arrive/target.json" --run-seconds=65 > build/soak/ci-arrive/target.log 2>&1
+          wait
+          grep "ArriveTest" build/soak/ci-arrive/host.log build/soak/ci-arrive/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-arrive/host.json')); t=json.load(open('build/soak/ci-arrive/target.json')); sys.exit(0 if h['arrive_test'].get('ok') and t['arrive_test'].get('ok') else 1)"
+
       # The engine dumps its constants, a grid of economy formulas and the tables'
       # invariants (--balance-test, host only); tools/balance_sim.py then plays crews of
       # 1 to 4 through the town and compares itself with that dump (docs/BALANCE.md).
