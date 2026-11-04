@@ -115,6 +115,7 @@ const FONT := {
 ## Event kinds that mark a tile red (something is wrong) or yellow (a sound).
 const RED_FLAGS: Array[String] = ["pop", "cam_snap", "cam_frozen", "view_frozen", "cam_inside"]
 const _ViewBlockers = preload("res://props/view_blockers.gd")
+const _LensBody = preload("res://player/cartoon_body.gd")
 
 ## Emitted on the main thread when a stopped take is fully written.
 signal written(report: Dictionary)
@@ -719,7 +720,46 @@ func _poll_changes() -> void:
 	var camera := get_viewport().get_camera_3d()
 	var name_now := _node_label(camera)
 	_changed("camera", name_now, func(value: String) -> void: _event("cam_cut", {"to": value}))
+	_poll_lens()
 
+
+## P1 lens (player/cartoon_body.gd's near-lens net): who it's fading, in quarter
+## steps ("lens"), and any head still showing at the lens ("face_at_lens", a
+## finding): a body's head (any body but one this camera skips) within
+## LENS_FADE_GONE_METERS of the camera and faded less than 0.9. Every body in the
+## scene is checked, not just the ones the net is watching.
+func _poll_lens() -> void:
+	var fading := PackedStringArray()
+	for entry: Dictionary in _LensBody.lens_watch.values():
+		var fade := float(entry["fade"])
+		if fade > 0.0:
+			fading.append("%s=%.2f" % [entry["who"], snappedf(fade, 0.25)])
+	fading.sort()
+	_changed("lens", ",".join(fading), func(value: String) -> void: _event("lens", {"fading": value}))
+	var showing := PackedStringArray()
+	var camera := get_viewport().get_camera_3d()
+	# Only as drawn: at the top of a frame the physics tick has moved people and
+	# the camera and fades haven't caught up yet, which read as false faces.
+	if not _post_draw:
+		return
+	if camera != null:
+		var head_bit := 1 << (_LensBody.HEAD_LAYER - 1)
+		for body: Node in get_tree().root.find_children("CartoonBody", "", true, false):
+			if not body.has_method("lens_clearance") or not (body as Node3D).is_inside_tree():
+				continue
+			if bool(body.get("_own_head")) and (camera.cull_mask & head_bit) == 0:
+				continue
+			var face := body.call("pose_part", "face") as Node3D
+			if face == null or not face.is_visible_in_tree():
+				continue
+			var at := face.get_global_transform_interpolated().origin if face.is_physics_interpolated_and_enabled() else face.global_position
+			var clear := at.distance_to(camera.global_position) - Constants.LENS_HEAD_RADIUS
+			if clear < Constants.LENS_FADE_GONE_METERS and float(body.get("lens_fade")) < 0.9:
+				showing.append("%s@%.2f" % [body.call("lens_label"), clear])
+	showing.sort()
+	_changed("face_at_lens", ",".join(showing), func(value: String) -> void:
+		if value != "":
+			_event("face_at_lens", {"who": value}))
 
 func _changed(key: String, value: String, on_change: Callable) -> void:
 	if not _poll.has(key):

@@ -5045,3 +5045,56 @@ const TOWN_STREET_PROP_CHUNK: float = 256.0
 ## the queue's last turn, the frame is already a long one (the job yard arriving
 ## on a joiner) and the queue sits it out (never two frames running).
 const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
+
+# ---- near-lens dissolve (P1 lens: player/cartoon_body.gd _lens_net, docs/GAME.md
+# "Nobody's face at the lens")
+## Any CartoonBody but your own fades out (the stylized material's screen-door
+## dissolve, its own lens_fade channel) as its head or torso comes this close (m,
+## from the camera to the part's surface) to whichever camera is drawing: solid
+## at LENS_FADE_START_METERS, gone by LENS_FADE_GONE_METERS.
+const LENS_FADE_START_METERS: float = 0.6
+const LENS_FADE_GONE_METERS: float = 0.2
+## The head and torso as the net measures them: a ball this wide (m, the head and
+## hair or a hat), its center this high over the face pivot; the chest a capsule
+## this wide, from the hips' pivot up this far (m, to the collar).
+const LENS_HEAD_RADIUS: float = 0.3
+const LENS_HEAD_CENTER_Y: float = 0.04
+const LENS_TORSO_RADIUS: float = 0.21
+const LENS_TORSO_HEIGHT: float = 0.55
+## How fast it fades: out (0 to 1) over this long at the most, back in over this
+## long (s). Out is quick so a camera dollying through a head never shows it; in
+## is slower, so a friend stepping back from you settles in rather than blinks.
+const LENS_FADE_OUT_SECONDS: float = 0.08
+const LENS_FADE_IN_SECONDS: float = 0.3
+## A camera that moves this far (m) in one frame, or a different camera taking
+## over, is a cut: the fade lands at once, since the whole picture changed.
+const LENS_CUT_METERS: float = 1.0
+## Bodies further than this (m) from the camera, and solid, aren't measured.
+const LENS_CHECK_METERS: float = 3.0
+## Homeowners (npcs/homeowner.gd): solid to people like the Annex staff (a capsule
+## this wide and tall, and a head ball, on the pad-wall layer); they keep this far
+## (m) from the nearest player, and when they react to a talk they step round to
+## this far in front of the talker's eyes (into view, not off the edge), within
+## HOMEOWNER_STAGE_RADIUS of where they wait (m), walking at this speed (m/s, with
+## this long to get going). A player this far off (m) lets them drift back home.
+const HOMEOWNER_SOLID_RADIUS: float = 0.4
+const HOMEOWNER_SOLID_HEIGHT: float = 1.75
+const HOMEOWNER_SOLID_HEAD_RADIUS: float = 0.55
+const HOMEOWNER_SOLID_HEAD_Y: float = 1.6
+const HOMEOWNER_KEEP_METERS: float = 1.8
+## Someone closer than this share of HOMEOWNER_KEEP_METERS makes them step back.
+const HOMEOWNER_KEEP_TRIGGER: float = 0.88
+## While they step round into the talker's view, only someone this close (m).
+const HOMEOWNER_KEEP_STAGED_METERS: float = 1.1
+const HOMEOWNER_FACE_METERS: float = 1.8
+const HOMEOWNER_STAGE_RADIUS: float = 2.4
+const HOMEOWNER_WALK_SPEED: float = 1.4
+const HOMEOWNER_WALK_EASE_SECONDS: float = 0.35
+const HOMEOWNER_HOME_AFTER_METERS: float = 4.0
+## Steps shorter than this (m) aren't worth taking (no shuffling on the spot).
+const HOMEOWNER_STEP_MIN_METERS: float = 0.25
+## The cash's price while they hold it out: over their head (m), this small
+## (Label3D font size and meters per pixel), so the offered handful still reads.
+const HOMEOWNER_PRICE_Y: float = 2.04
+const HOMEOWNER_PRICE_FONT: int = 40
+const HOMEOWNER_PRICE_PIXEL: float = 0.0035

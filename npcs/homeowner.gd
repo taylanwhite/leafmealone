@@ -99,6 +99,7 @@ func _ready() -> void:
 	_voice.bus = preload("res://audio/sound_bank.gd").bus("babble")
 	add_child(_voice)
 	_build_cash()
+	_build_solid()
 	if not Net.is_host() and multiplayer.multiplayer_peer != null:
 		_rpc_request_state.rpc_id(1)
 
@@ -161,7 +162,8 @@ func prompt() -> Dictionary:
 		Phase.WAITING:
 			return {"text": _Strings.UI["prompt_talk"], "at": global_position + Vector3(0.0, 2.9, 0.0)}
 		Phase.OFFERING:
-			return {"text": _Strings.UI["prompt_take_cash"] % _amount, "at": _cash.global_position + Vector3(0.0, 0.5, 0.0)}
+			# At the offered handful, not over the face (P1 lens: half a meter up, the pill sat on her face).
+			return {"text": _Strings.UI["prompt_take_cash"] % _amount, "at": _cash.global_position}
 	return {}
 
 
@@ -442,6 +444,7 @@ func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -
 	# pool is "<mood>", "bill_<reason>" or "<personality>/<mood>" (Strings.homeowner_pool).
 	var lines: Array = _Strings.homeowner_pool(pool if pool != "" else mood)
 	show_caption(str(lines[clampi(line_index, 0, lines.size() - 1)]))
+	_step_into_view()
 	var staging: Dictionary = STAGING.get(mood, STAGING["fine"])
 	_body.set("mood", staging["mood"])
 	_body.call("gesture", staging["gesture"])
@@ -463,6 +466,7 @@ func _offer(amount: int) -> void:
 	_phase = Phase.OFFERING
 	_cash_label.text = _Strings.UI["cash_amount"] % amount
 	_cash.visible = true
+	_cash_label.visible = true
 
 
 @rpc("authority", "call_local", "reliable")
@@ -480,6 +484,8 @@ func _rpc_paid(peer_id: int) -> void:
 	# onto one frame (rec_a5_pay2_1p frame 18, with the babble and Chefty).
 	_MoneyPopup.pop(get_tree(), _cash.global_position + Vector3(0.0, 0.4, 0.0), _amount, false)
 	_cash.visible = false
+	_cash_label.visible = false
+	_stage_to = Vector3.INF
 	_body.set("mood", "raised")
 	_body.call("gesture", "wave")
 	# Seeded by the amount, which every peer has, so they all hear the same goodbye.
@@ -521,14 +527,46 @@ func _build_cash() -> void:
 		bills.rotation.y = float(index - 1) * 0.12
 		_LowPoly.paint(bills, "fabric")
 	_LowPoly.box(_cash, Vector3(0.06, 0.16, 0.17), Vector3(0.0, 0.05, 0.0), Color(0.9, 0.85, 0.7))
+	# The amount over their head, small (P1 lens, NB-M2: a giant "$10" on the cash
+	# covered her whole chest and the offered handful it was meant to label).
 	_cash_label = Label3D.new()
+	_cash_label.name = "Price"
 	_cash_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_cash_label.font_size = 64
-	_cash_label.outline_size = 12
+	_cash_label.font_size = Constants.HOMEOWNER_PRICE_FONT
+	_cash_label.pixel_size = Constants.HOMEOWNER_PRICE_PIXEL
+	_cash_label.outline_size = 10
 	_cash_label.modulate = Color(0.7, 1.0, 0.6)
-	_cash_label.position.y = 0.3
-	_cash.add_child(_cash_label)
+	_cash_label.position.y = Constants.HOMEOWNER_PRICE_Y
+	_cash_label.visible = false
+	add_child(_cash_label)
+	_cash_label.add_to_group("prompt_avoid")
 	_cash.visible = false
+
+
+## Solid to people (P1 lens, crew-17: walking into her put the camera through her
+## face), the way the Annex staff are: a capsule and a wider head ball on the
+## pad-wall layer, which people mask and thrown things and rays don't. It rides
+## along as they step about.
+func _build_solid() -> void:
+	var solid := AnimatableBody3D.new()
+	solid.name = "Solid"
+	solid.sync_to_physics = false
+	solid.collision_layer = Constants.PAD_WALL_LAYER
+	solid.collision_mask = 0
+	var shape := CollisionShape3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = Constants.HOMEOWNER_SOLID_RADIUS
+	capsule.height = Constants.HOMEOWNER_SOLID_HEIGHT
+	shape.shape = capsule
+	shape.position = Vector3(0.0, Constants.HOMEOWNER_SOLID_HEIGHT * 0.5, 0.0)
+	solid.add_child(shape)
+	var head := CollisionShape3D.new()
+	var ball := SphereShape3D.new()
+	ball.radius = Constants.HOMEOWNER_SOLID_HEAD_RADIUS
+	head.shape = ball
+	head.position = Vector3(0.0, Constants.HOMEOWNER_SOLID_HEAD_Y, 0.0)
+	solid.add_child(head)
+	add_child(solid)
 
 
 func _turn_toward_nearest(delta: float) -> void:
@@ -543,6 +581,143 @@ func _turn_toward_nearest(delta: float) -> void:
 		return
 	var to := nearest.global_position - global_position
 	rotation.y = lerp_angle(rotation.y, atan2(-to.x, -to.z), clampf(delta * 4.0, 0.0, 1.0))
+
+
+# ---------------------------------------------------------------- stepping about
+# P1 lens (docs/GAME.md, "Nobody's face at the lens"): they keep a polite
+# distance and, when they answer you, step round to where you're looking (NB-05:
+# Patrice talked from half off the left edge of the screen for four seconds).
+# Every peer works it out from what every peer has (the players' replicated
+# positions and facing), so they all see her walk the same way; nothing is sent.
+
+## Where they wait (in the lot's space), where they're stepping to (INF: nowhere
+## in particular), and how fast they're walking now.
+var _home := Vector3.ZERO
+var _stage_to := Vector3.INF
+var _back_to := Vector3.INF
+var _walk_speed: float = 0.0
+var _left_at := Vector3.INF
+
+
+func _physics_process(delta: float) -> void:
+	var parent := get_parent() as Node3D
+	if parent == null or not is_inside_tree():
+		return
+	# Placed somewhere new by someone else (a scenario, a test): that's home now.
+	if not _left_at.is_finite() or position.distance_to(_left_at) > 0.5:
+		_home = position
+		_stage_to = Vector3.INF
+		_back_to = Vector3.INF
+		_walk_speed = 0.0
+	var nearest := _nearest_player()
+	var away := _flat_distance(nearest) if nearest != null else INF
+	# On the way round into the talker's view the path can cut a little inside the
+	# polite distance; only someone really close (HOMEOWNER_KEEP_STAGED_METERS)
+	# turns that into a step back.
+	var too_close := Constants.HOMEOWNER_KEEP_STAGED_METERS if _stage_to.is_finite() else Constants.HOMEOWNER_KEEP_METERS * Constants.HOMEOWNER_KEEP_TRIGGER
+	if nearest != null and away < too_close:
+		# Someone's walked right up: a step back, so they're not in your face. The
+		# step is kept till it's taken (no stopping dead the moment it's enough).
+		var from := parent.to_local(nearest.global_position)
+		var out := Vector3(position.x - from.x, 0.0, position.z - from.z)
+		if out.length() < 0.01:
+			out = transform.basis.z
+		_back_to = position + out.normalized() * (Constants.HOMEOWNER_KEEP_METERS - away)
+		_stage_to = Vector3.INF
+	var want := Vector3.INF
+	if _back_to.is_finite():
+		want = _back_to
+	elif _stage_to.is_finite() and (_phase == Phase.REACTING or _phase == Phase.OFFERING or away < Constants.HOMEOWNER_HOME_AFTER_METERS):
+		want = _stage_to
+	elif away > Constants.HOMEOWNER_HOME_AFTER_METERS:
+		_stage_to = Vector3.INF
+		want = _home
+	if _walk(want, delta):
+		_back_to = Vector3.INF
+	_left_at = position
+
+
+## Every peer, when they react: the talker is the nearest player in reach; they
+## step to HOMEOWNER_FACE_METERS in front of that player's eyes, so the line, the
+## gesture and the cash happen in the middle of the talker's screen.
+func _step_into_view() -> void:
+	var talker := _nearest_player()
+	var parent := get_parent() as Node3D
+	if talker == null or parent == null or _flat_distance(talker) > TALK_REACH + 0.5:
+		return
+	var yaw := float(talker.get("body_yaw")) if "body_yaw" in talker else talker.global_rotation.y
+	var ahead := Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var spot := talker.global_position + ahead * Constants.HOMEOWNER_FACE_METERS
+	_stage_to = parent.to_local(Vector3(spot.x, global_position.y, spot.z))
+
+
+## Walks toward want (lot space; INF stays put): within HOMEOWNER_STAGE_RADIUS of
+## home, short of anything solid on the way, easing in and out. CartoonBody
+## animates the walk from the motion. True once there (or nowhere to go).
+func _walk(want: Vector3, delta: float) -> bool:
+	var goal := position
+	if want.is_finite():
+		var off := Vector3(want.x - _home.x, 0.0, want.z - _home.z).limit_length(Constants.HOMEOWNER_STAGE_RADIUS)
+		goal = Vector3(_home.x + off.x, position.y, _home.z + off.z)
+		goal = _clear_path(goal)
+	var to := Vector3(goal.x - position.x, 0.0, goal.z - position.z)
+	var moving := _walk_speed > 0.05
+	if to.length() < (0.04 if moving else Constants.HOMEOWNER_STEP_MIN_METERS):
+		_walk_speed = 0.0
+		return true
+	# Ease in, and slow down for the last stretch rather than stopping dead.
+	var top := minf(Constants.HOMEOWNER_WALK_SPEED, to.length() / maxf(Constants.HOMEOWNER_WALK_EASE_SECONDS, 0.01))
+	_walk_speed = move_toward(_walk_speed, top, delta * Constants.HOMEOWNER_WALK_SPEED / maxf(Constants.HOMEOWNER_WALK_EASE_SECONDS, 0.01))
+	position += to.normalized() * minf(_walk_speed * delta, to.length())
+	return false
+
+
+## goal pulled back short of the first solid thing (a fence, the house, Chefty)
+## between them and it, at chest height.
+func _clear_path(goal: Vector3) -> Vector3:
+	var parent := get_parent() as Node3D
+	var world := get_world_3d()
+	if parent == null or world == null:
+		return goal
+	var chest := Vector3(0.0, 1.0, 0.0)
+	var from := global_position + chest
+	var to := parent.to_global(goal) + chest
+	if from.distance_to(to) < 0.05:
+		return goal
+	var query := PhysicsRayQueryParameters3D.create(from, to + (to - from).normalized() * Constants.HOMEOWNER_SOLID_RADIUS, 1 | Constants.VEHICLE_LAYER)
+	var hit := world.direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return goal
+	var stop: Vector3 = hit["position"]
+	var back := from.distance_to(stop) - Constants.HOMEOWNER_SOLID_RADIUS
+	if back <= 0.0:
+		return position
+	return parent.to_local(from + (to - from).normalized() * back - chest)
+
+
+## The nearest player within 8 m on the yard (not a watcher), or null.
+func _nearest_player() -> Node3D:
+	var nearest: Node3D = null
+	var best := 8.0
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var body := node as Node3D
+		if body == null or (str(node.name).is_valid_int() and Net.is_watcher(int(str(node.name)))):
+			continue
+		var away := _flat_distance(body)
+		if away < best:
+			nearest = body
+			best = away
+	return nearest
+
+
+## Where they're stepping to (world space, INF for nowhere) and how fast. For tests.
+func stepping_to() -> Vector3:
+	var parent := get_parent() as Node3D
+	return parent.to_global(_stage_to) if parent != null and _stage_to.is_finite() else Vector3.INF
+
+
+func walk_speed() -> float:
+	return _walk_speed
 
 
 func _local_in_reach() -> bool:

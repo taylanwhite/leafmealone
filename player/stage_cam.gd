@@ -762,7 +762,11 @@ func _hide_near_bodies() -> void:
 			if node == player or not (node is Node3D):
 				continue
 			var body := node.get_node_or_null("Visual/CartoonBody") as Node3D
-			if body == null:
+			# P1 lens: a body with the near-lens net dissolves out on its own as the
+			# eye nears it (player/cartoon_body.gd). Hiding it here popped it, and
+			# hid only the body: a player's head hangs off Visual/Head, so it stayed,
+			# floating at the lens (rec_lens_caught_fr 304-307).
+			if body == null or "lens_fade" in body:
 				continue
 			var feet := body.global_position
 			# The closest point on his middle line, from the hips to the top of the head.
