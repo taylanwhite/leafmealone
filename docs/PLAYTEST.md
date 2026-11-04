@@ -328,3 +328,4 @@ Scenarios (town; `-Scenario` adds `--town-map`): `hand_hop` (at the wheel 30 m u
 - [ ] **A fence holds Chefty:** no crash sound, no dent, `fence_give` on the contact frame, riders stay standing; the yard's panels lean at the bumper (side-on view) and spring back when you reverse.
 - [ ] **A sawhorse goes over** beside the truck and stays near the road, never 15 m up it.
 - [ ] **NICE BOYS under loss:** `pop` flags on `Crew*` in an observer take of a raid at `--sim-lag=150 --sim-loss=2` (still open: 0.64-0.74 m steps in the chase run).
+- [ ] **A bot at the bin when Chefty honks:** start a fresh crew save with `-Bots 2 -BotsHeadless`, put the host at the tailgate, `until crew.Bot2.holding rake 60; tap interact`, and follow Bot2 from the observer: it leaves the bin at the horn, goes out through the doors (no wall-grinding) and climbs in before the window ends (`rec_w_botstore3_3p` 128-182).

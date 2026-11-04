@@ -890,11 +890,17 @@ func _kit_missed_ride(player: Node3D, delta: float) -> bool:
 	var pad := store.get_node_or_null("TruckPad") as Node3D if store != null else null
 	if pad == null:
 		return false
+	# Still inside (on its way in to the bin, or at it): out through the doors first.
+	Input.action_press(&"sprint")
+	if _kit_leg > 0 and _kit_walk_path(player, delta, true):
+		return true
+	_kit_leg = 0
 	var away := Vector2(pad.global_position.x - player.global_position.x, pad.global_position.z - player.global_position.z).length()
 	if away > CREW_ARRIVE_METERS:
 		_face(player, _crew_steer(player, pad.global_position))
 		_crew_walk(player, true, delta)
 		return true
+	Input.action_release(&"sprint")
 	_crew_walk(player, false, delta)
 	if _elapsed - _missed_pressed_at >= KIT_MISSED_PRESS_EVERY:
 		_missed_pressed_at = _elapsed

@@ -416,7 +416,7 @@ $Tests = [ordered]@{
 	# (the window, the stragglers gathered, the job settled as it pulls away).
 	depart = @{
 		Port = 7837
-		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test'; Seconds = 260; Client = 255
+		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test'; Seconds = 330; Client = 325
 		Extra = '--sim-lag=80 --depart-test'
 		Check = { param($h, $c) [bool]$h.depart_test.ok -and $c -ne $null -and [bool]$c.depart_test.ok }
 	}

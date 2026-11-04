@@ -766,10 +766,12 @@ func _fence_local(delta: float) -> void:
 		if fresh and maxf(into, speed) > Constants.FENCE_GIVE_SOUND_SPEED:
 			fence_gives_seen += 1
 			var sfx := get_tree().get_first_node_in_group("sfx")
+			var hard := maxf(into, speed) / Constants.FENCE_GIVE_FULL_SPEED
 			if sfx != null:
-				sfx.call("play_at", "fence_give", at + Vector3.UP * 0.7, -6.0 + 6.0 * clampf(maxf(into, speed) / 10.0, 0.0, 1.0))
+				var db := Constants.FENCE_GIVE_SOUND_DB_RANGE
+				sfx.call("play_at", "fence_give", at + Vector3.UP * Constants.FENCE_GIVE_SOUND_HEIGHT, lerpf(db.x, db.y, clampf(hard, 0.0, 1.0)))
 			if _feels(at):
-				_shake = maxf(_shake, 0.25 * clampf(maxf(into, speed) / 10.0, 0.2, 1.0))
+				_shake = maxf(_shake, Constants.FENCE_GIVE_SHAKE * clampf(hard, Constants.FENCE_GIVE_SHAKE_MIN_SHARE, 1.0))
 	_fence_was_pressing = pressing
 	# Every leaning panel eases toward where the bumper has it (or back upright).
 	for holder: Variant in lean_to:
@@ -872,11 +874,12 @@ func _knock_over(piece: Node3D) -> void:
 		# barely leaves its feet, tips flat within a few frames and is swept off
 		# to its side, then grinds to a stop on the road on its rough wood.
 		flier.linear_velocity = push * flat.length() * Constants.TOWN_EDGE_SAWHORSE_CARRY + Vector3.UP * Constants.TOWN_EDGE_SAWHORSE_UP + off_side * Constants.TOWN_EDGE_SAWHORSE_SIDE
-		flier.angular_velocity = axis * Constants.TOWN_EDGE_SAWHORSE_TIP * _rng.randf_range(0.85, 1.0) + Vector3.UP * _rng.randf_range(-0.8, 0.8)
+		var tip := Constants.TOWN_EDGE_SAWHORSE_TIP_JITTER
+		flier.angular_velocity = axis * Constants.TOWN_EDGE_SAWHORSE_TIP * _rng.randf_range(tip.x, tip.y) + Vector3.UP * _rng.randf_range(-Constants.TOWN_EDGE_SAWHORSE_YAW_JITTER, Constants.TOWN_EDGE_SAWHORSE_YAW_JITTER)
 		var rough := PhysicsMaterial.new()
 		rough.friction = Constants.TOWN_EDGE_SAWHORSE_FRICTION
 		rough.rough = true
-		rough.bounce = 0.05
+		rough.bounce = Constants.TOWN_EDGE_SAWHORSE_BOUNCE
 		flier.physics_material_override = rough
 		flier.linear_damp = Constants.TOWN_EDGE_SAWHORSE_SKID_DAMP
 		_play_at("sawhorse_tip", piece.global_position + Vector3.UP * 0.6)

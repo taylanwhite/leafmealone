@@ -6483,6 +6483,24 @@ const FENCE_BOW_REACH: float = 3.0
 const FENCE_BOW_HEIGHT: float = 0.9
 const FENCE_BOW_IN_RATE: float = 18.0
 const FENCE_BOW_OUT_RATE: float = 5.0
+## The fence_give creak: its volume (dB) from the first to the second number as
+## the truck's speed into the fence goes from 0 to FENCE_GIVE_FULL_SPEED (m/s),
+## heard this high (m) off the ground; riders' and bystanders' view shakes up to
+## FENCE_GIVE_SHAKE at full speed, never less than FENCE_GIVE_SHAKE_MIN_SHARE of it.
+const FENCE_GIVE_SOUND_DB_RANGE: Vector2 = Vector2(-6.0, 0.0)
+const FENCE_GIVE_FULL_SPEED: float = 10.0
+const FENCE_GIVE_SOUND_HEIGHT: float = 0.7
+const FENCE_GIVE_SHAKE: float = 0.25
+const FENCE_GIVE_SHAKE_MIN_SHARE: float = 0.2
+## A struck sawhorse (chefty_crash.gd _knock_over): its tip-over spin is
+## TOWN_EDGE_SAWHORSE_TIP times a roll in this range, plus a yaw (rad/s) rolled
+## up to this either way; it lands with this bounce.
+const TOWN_EDGE_SAWHORSE_TIP_JITTER: Vector2 = Vector2(0.85, 1.0)
+const TOWN_EDGE_SAWHORSE_YAW_JITTER: float = 0.8
+const TOWN_EDGE_SAWHORSE_BOUNCE: float = 0.05
+## A hired hand spawned at their landing spot beside Chefty stands this high (m)
+## above it, so they never start inside the ground.
+const HIRE_LANDING_LIFT: float = 0.05
 ## Rammed parked (pulled over), the NICE BOYS' van slews round: this share of a
 ## moving van's spin-out (VAN_SPIN_SECONDS, so about a quarter turn), shoved
 ## along with this share of a moving van's shove; never while a NICE BOY is on

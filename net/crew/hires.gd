@@ -121,7 +121,7 @@ func spawn_on_lot() -> void:
 			var landing: Dictionary = truck.call("hand_landing", seat)
 			var out: Vector3 = landing["out"]
 			# Set before it's added, so it spawns on every peer already standing there.
-			node.position = (npcs as Node3D).global_transform.affine_inverse() * (landing["at"] as Vector3 + Vector3.UP * 0.05) if npcs is Node3D else landing["at"] as Vector3
+			node.position = (npcs as Node3D).global_transform.affine_inverse() * (landing["at"] as Vector3 + Vector3.UP * Constants.HIRE_LANDING_LIFT) if npcs is Node3D else landing["at"] as Vector3
 			node.rotation.y = atan2(out.x, out.z)
 			node.set("hop_seconds", float(landing["seconds"]))
 			npcs.add_child(node, true)

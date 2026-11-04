@@ -505,13 +505,19 @@ func host_chase_start() -> float:
 	var at := Net.server_time() + Constants.VAN_PLAN_LEAD
 	var leg := _current_leg(trip, at)
 	# fx-w9: still sliding round from a ram where it stood: it's already on the
-	# move, so the chase just takes over from here.
+	# move, so the chase just takes over from here. The doors the pull-over's
+	# unload opened slide shut as it goes (review: it chased with the side open).
 	if not leg.is_empty() and int(leg["k"]) == Leg.CHASE and bool(_chase.get("park_after_spin", false)):
 		_chase["park_after_spin"] = false
+		var go := Net.server_time()
+		for which: String in ["side", "back"]:
+			if _door_open(trip, which, at):
+				_host_door(trip, which, false, at)
+				go = at + Constants.VAN_DOOR_SLIDE
 		trip.info["siren"] = true
 		trip.info["lights"] = true
 		_rpc_info.rpc(trip.id, trip.info)
-		return Net.server_time()
+		return go
 	if leg.is_empty() or int(leg["k"]) != Leg.PARKED:
 		return -1.0
 	var start := at
