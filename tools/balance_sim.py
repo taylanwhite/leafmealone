@@ -81,7 +81,7 @@ NEEDED = {
         "RIVAL_MAX_SIGNS", "SHOP_HOURS", "SPIGOT_HOOKUP_FEE", "SPIGOT_FEE_PER_SECOND", "PAD_HALF",
         "TOWN_MAP_DEFAULT", "ARC_HOURS", "RANK_PACE_HOURS", "ARC_SOLO_RATIO_MAX", "STARTING_CASH",
         "XP_ESCAPE", "XP_PAPERWORK", "XP_RESCUE", "HEAT_AFTER_EVADED",
-        "CREW_WORK_SCALE", "CREW_PATIENCE_SCALE", "XP_CREW_SCALE",
+        "CREW_WORK_SCALE", "CREW_PATIENCE_SCALE", "XP_CREW_SCALE", "STARTER_SUPPLIES",
     ],
     "Balance": [
         "CREDITS_PER_1_PERCENT_LOT_CLEANUP", "RUN_EVENT_BASE_CHANCE", "RUN_CHANCE_ESCALATION_PER_TIER",
@@ -618,6 +618,10 @@ class Run:
         self.owned = set()               # crew-shared sink ids
         self.owned_by = [set() for _ in range(players)]
         self.hands = []                  # {skill, wage, earned_today}
+        # Lawn bags on hand (shops.gd supplies): the starter rolls; the first job
+        # can run short, later ones are stocked for (model.json bags_per_yard).
+        self.bags = float(C["STARTER_SUPPLIES"].get("lawn_bags", 0))
+        self.first_job_bag_share = None
         self.heat = 0.0
         self.last_event = -INF           # real minutes
         self.lots_completed = 0
@@ -986,8 +990,15 @@ class Run:
         """Minutes of work and what it achieves, done to the crew's target."""
         g, M, C, n = self.g, self.g.M, self.g.C, self.n
         size = offer["size"]
-        mess = clampf(offer["mess"] * g.econ.crew_work_scale(n), 0.0, 1.5)
-        leaf_units = g.cover[size] * mess / g.cover[1] * cleaned
+        # A small crew's yard is a smaller area (levels/lots/crew_drifts.gd): its
+        # leaves, and so its bags, go by CREW_WORK_SCALE, its time by the measured
+        # crew_area_work. A grown-back yard (mess < 1) is thinner all over: the bags
+        # go by mess, but the rake still covers the lawn (thin_work_floor).
+        area = g.econ.crew_work_scale(n)
+        mess = clampf(offer["mess"], 0.0, 1.5)
+        thin = M["thin_work_floor"]
+        work_share = M["crew_area_work"][int(clampf(n, 1, len(M["crew_area_work"]))) - 1] * (thin + (1.0 - thin) * mess)
+        leaf_units = g.cover[size] / g.cover[1] * work_share * cleaned
         hands = self.hands_rate()
         rate_n = self.leaf_rate(n, effects) + hands
         rate_1 = self.leaf_rate(1, effects) + hands
@@ -1013,15 +1024,30 @@ class Run:
         if effects[2]:
             noise_seconds["leaf_blower"] = noise_seconds.get("leaf_blower", 0.0) + leaf_n * 60.0 * M["blower_use_share"]
         work = max(leaf_n, (leaf_1 + task_minutes) / n) if n > 1 else leaf_1 + task_minutes
-        yard_value = float(g.B["CREDITS_PER_1_PERCENT_LOT_CLEANUP"]) * 100.0 * g.cover[size] * mess
+        yard_value = float(g.B["CREDITS_PER_1_PERCENT_LOT_CLEANUP"]) * 100.0 * g.cover[size] * mess * area
         hand_share = hands / rate_n if rate_n > 0 else 0.0
+        bags = M["bags_per_yard"] * g.cover[size] / g.cover[1] * mess * area * cleaned
         return {"work": work, "cleaned": cleaned, "tasks": tasks, "noise": noise_seconds, "noise_mult": noise_mult,
-                "yard_value": yard_value, "hand_share": hand_share}
+                "yard_value": yard_value, "hand_share": hand_share, "bags": bags, "leaf_work": leaf_n}
+
+    def bag_limited(self, plan, supply):
+        """The crew runs out of bags partway: the leaves stop there (cleaned and
+        the leaf work shrink to the bags on hand); the tasks still get done."""
+        if plan["bags"] <= supply or plan["bags"] <= 0:
+            return plan, 1.0
+        share = max(0.0, supply) / plan["bags"]
+        out = dict(plan)
+        out["cleaned"] = plan["cleaned"] * share
+        out["work"] = max(0.0, plan["work"] - plan["leaf_work"] * (1.0 - share))
+        out["bags"] = supply
+        return out, share
 
     def scaled(self, plan, share):
         out = dict(plan)
         out["work"] = plan["work"] * share
         out["cleaned"] = plan["cleaned"] * share
+        out["bags"] = plan["bags"] * share
+        out["leaf_work"] = plan["leaf_work"] * share
         out["tasks"] = [(task, done * share) for task, done in plan["tasks"]]
         out["noise"] = {tool: seconds * share for tool, seconds in plan["noise"].items()}
         return out
@@ -1185,6 +1211,14 @@ class Run:
         g, C, M, rng = self.g, self.g.C, self.g.M, self.rng
         cleaned = clampf(rng.gauss(M["clean_target"], M["clean_noise"]), 0.5, 1.0)
         _, plan, rushed = self.choose(offer, effects, cleaned)
+        # Bags: the first job runs on the starter rolls; before every later one the
+        # crew stocks what it needs (the cost is sinks.json lawn_bags).
+        if self.jobs == 0:
+            plan, share = self.bag_limited(plan, self.bags)
+            self.first_job_bag_share = share
+        else:
+            self.bags = max(self.bags, plan["bags"])
+        self.bags = max(0.0, self.bags - plan["bags"])
         house = offer["house"]
         self.current_house = house.id
         travel = g.travel[offer["hood_i"]]
@@ -1586,6 +1620,7 @@ def summarize(game: Game, players, runs):
         "jobs_per_day": round(median(jobs_per_day), 2) if jobs_per_day else None,
         "first_night_tier_p50": median([r.first_night_tier for r in runs]),
         "first_night_share": sum(1 for r in runs if r.first_night_tier >= 1) / len(runs),
+        "first_job_bag_share_p10": round(percentile([r.first_job_bag_share if r.first_job_bag_share is not None else 0.0 for r in runs], 10), 3),
         "cash_per_player_by_day": cash,
         "income_per_day_by_rank": income_by_rank,
         "purchases": purchases,
@@ -1636,6 +1671,10 @@ def run_checks(game: Game, crews: dict, parity, strict: bool, self_problems=()) 
         add("(a) arc hours, crew %s" % key, hours is not None and arc[0] <= hours <= arc[1], hours, list(arc))
         share = crews[key]["first_night_share"]
         add("(b) first rank-up on night 1, crew %s" % key, share >= T["first_night_share"], round(share, 3), ">= %s of seeds" % T["first_night_share"])
+        # The first job runs on the starter bags (Constants.STARTER_SUPPLIES): the
+        # crew shouldn't run out before the yard's done (p10 over the seeds).
+        bag_share = crews[key]["first_job_bag_share_p10"]
+        add("(b) first job's leaves fit the starter bags, crew %s" % key, bag_share >= T["first_job_bag_share"], bag_share, ">= %s (p10)" % T["first_job_bag_share"])
         for tool in C["TOOL_PRICES"]:
             info = crews[key]["purchases"].get(tool)
             if info is None:

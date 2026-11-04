@@ -668,14 +668,14 @@ func _load_job_lot() -> void:
 	lot.set("yard_size", int(offer.get("size", 1)))
 	# A house in the town (net/town/town.gd) brings its regrowth and neighborhood,
 	# and a smaller crew gets a smaller yard (balance:E, Constants.CREW_WORK_SCALE:
-	# solo and four players climb at similar speeds). The lot's mess is spawn-synced,
-	# so clients build the same leaves; someone joining mid-job keeps this yard's
-	# scale, and the next yard uses the new crew size. A --job-seed yard (tests)
-	# stays the seed's whole yard.
-	var mess := float(offer.get("mess", 1.0))
+	# solo and four players climb at similar speeds). The lot's crew is
+	# spawn-synced, so clients lay the same drifts (levels/lots/crew_drifts.gd);
+	# someone joining or dropping mid-job keeps this yard's crew, for its leaves,
+	# its XP and the homeowner's patience, and the next yard uses the new crew
+	# size. A --job-seed yard (tests) stays the seed's whole yard (crew 0).
+	lot.set("mess", float(offer.get("mess", 1.0)))
 	if town_offer:
-		mess *= _Economy.crew_work_scale(Net.player_count())
-	lot.set("mess", mess)
+		lot.set("crew", Net.player_count())
 	lot.set("hood", str(offer.get("hood", "")))
 	# --hood=<id>: every yard is in that neighborhood (tests, screenshots). Clients
 	# get it with the lot like any hood.

@@ -27,6 +27,12 @@ Template:
 - Stub on my side (if any): GAME.md marks the rows superseded until then.
 - Blocking? no
 
+### [SHARED → driving:H / balance:F] 2026-11-04: model the town map's costs before the W11 cut-over (balance:E review)
+- Need: when `TOWN_MAP_DEFAULT` turns true (driving:H, W11), `tools/balance_sim.py` models what the connected town adds and reruns `--check` with crews 1 and 4 green: drive minutes per neighborhood (`model.json` `travel_minutes_by_hood.town`, still "guesses until TownMap lands": measure them from a real drive), tow and dent fees (`sinks.json`), junk income, and escape XP from town pursuits. critic.md W10 / gap 12 asked balance:E for these; it deferred them because they exist only on the town map.
+- Why: the arc (about 17 h for four, 18 solo) is tuned on the legacy map's travel; the town's drives, tows and dents cost play time and money the simulator doesn't see yet.
+- Stub on my side (if any): the bag supply is modeled now (first job on `STARTER_SUPPLIES`, later jobs stocked); lawn bags and gas are live costs.
+- Blocking? no (blocks the W11 cut-over's balance sign-off)
+
 ## Done
 
 ### [NET → PLAY] 2026-10-18: voice output on each head, speaking indicator, voice settings

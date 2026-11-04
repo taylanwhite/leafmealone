@@ -22,6 +22,7 @@ const _CharacterLife = preload("res://player/character_life.gd")
 const _LowPoly = preload("res://props/low_poly.gd")
 const _MoneyPopup = preload("res://ui/money_popup.gd")
 const _Economy = preload("res://core/economy.gd")
+const _JobLot = preload("res://levels/lots/job_lot.gd")
 ## How close you must be to talk or take the cash, in meters.
 const TALK_REACH: float = 2.8
 ## How long they react before holding out the cash.
@@ -502,8 +503,9 @@ func _judge(value: int) -> String:
 	var patience := Constants.HOMEOWNER_PATIENCE_MINUTES
 	if Campaign.has_perk("sweet_talk"):
 		patience *= Constants.SWEET_TALK_PATIENCE
-	# A small crew gets a little longer (Constants.CREW_PATIENCE_SCALE, balance:E).
-	patience *= _Economy.crew_patience_scale(Net.player_count())
+	# A small crew gets a little longer (Constants.CREW_PATIENCE_SCALE, balance:E):
+	# the crew the yard was loaded for.
+	patience *= _Economy.crew_patience_scale(_JobLot.current_crew(get_tree()))
 	var slow := Campaign.job_minutes() > patience
 	return verdict(clean, clean_enough, messy_below, slow, grumbles, _rng)
 

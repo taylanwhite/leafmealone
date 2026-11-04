@@ -308,6 +308,7 @@ func _check_invariants(invariants: Array) -> void:
 		var table: Array = constants[table_name]
 		var good := table.size() == Constants.MAX_PLAYERS and table.all(func(entry: Variant) -> bool: return float(entry) > 0.0)
 		_check(invariants, "%s has an entry per crew size" % table_name, good, table)
+	_check_crew_drifts(invariants)
 	# The pacing targets: one per rank and The Lawnfather, never going down, ending inside the arc.
 	var pace: Array = Constants.RANK_PACE_HOURS
 	var rising := true
@@ -326,6 +327,46 @@ func _check_invariants(invariants: Array) -> void:
 			off.append(str(tier))
 	_check(invariants, "tier_for_xp(xp_to_reach(k)) == k", off.is_empty(), off)
 	_check_migration(invariants)
+
+
+## A small crew's yard is smaller in area (levels/lots/crew_drifts.gd, balance:E):
+## on a yard-shaped 80 x 80 field (trees, a house with no leaves) the drifts leave
+## CREW_WORK_SCALE of the leafy cells leafy, within a percent, for every crew size
+## and a few seeds, and a whole crew's yard is untouched.
+func _check_crew_drifts(invariants: Array) -> void:
+	var drifts: Script = load("res://levels/lots/crew_drifts.gd")
+	var points := PackedVector2Array()
+	var amounts := PackedFloat32Array()
+	var trees: Array[Vector2] = [Vector2(-11.0, 6.0), Vector2(9.0, 10.0), Vector2(12.0, -14.0)]
+	for z: int in 80:
+		for x: int in 80:
+			var at := Vector2(-20.0 + (float(x) + 0.5) * 0.5, -20.0 + (float(z) + 0.5) * 0.5)
+			var amount := 0.5
+			for tree: Vector2 in trees:
+				amount += 1.2 * exp(-at.distance_squared_to(tree) / 18.0)
+			if Rect2(-6.0, -12.0, 12.0, 9.0).has_point(at):
+				amount = 0.0
+			points.append(at)
+			amounts.append(amount)
+	var off: Array[String] = []
+	for seed_value: int in [7, 1000, 4242]:
+		var noise: FastNoiseLite = drifts.call("noise_for", hash([seed_value, "crew_drifts"]))
+		var counts: Array[int] = []
+		for players: int in range(1, Constants.MAX_PLAYERS + 1):
+			var keep := _Economy.crew_work_scale(players)
+			var cut := float(drifts.call("cut_for", noise, points, amounts, keep))
+			var leafy := 0
+			for index: int in points.size():
+				var value := clampi(int(round(60.0 * amounts[index] * float(drifts.call("weight", noise, cut, points[index])))), 0, 255)
+				if value > 8:
+					leafy += 1
+			counts.append(leafy)
+		var whole := counts[counts.size() - 1]
+		for index: int in counts.size():
+			var share := float(counts[index]) / float(maxi(1, whole))
+			if absf(share - _Economy.crew_work_scale(index + 1)) > 0.01:
+				off.append("seed %d crew %d: %.3f" % [seed_value, index + 1, share])
+	_check(invariants, "a small crew's drifts cover CREW_WORK_SCALE of the leafy lawn", off.is_empty(), off)
 
 
 ## A crew never loses its tier when the XP curve changes: a pre-curve save loads

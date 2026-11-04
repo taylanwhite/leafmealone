@@ -45,6 +45,7 @@ const _HouseKit = preload("res://props/house_kit.gd")
 const _PropCatalog = preload("res://props/prop_catalog.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
 const _Parcel = preload("res://levels/town/parcel.gd")
+const _CrewDrifts = preload("res://levels/lots/crew_drifts.gd")
 const YARD_HALF: float = 20.0
 const POOL_RADIUS: float = 2.3
 const POOL_HEIGHT: float = 1.15
@@ -110,6 +111,9 @@ var _tree_looks: Array = []
 var _size: int = 1
 ## Set by job_lot before generate(): how grown back the leaves are (net/town/town.gd).
 var mess: float = 1.0
+## Set by job_lot before generate(): the share of the leafy lawn a crew this size
+## gets (Constants.CREW_WORK_SCALE; levels/lots/crew_drifts.gd), 1 for the whole yard.
+var crew_area: float = 1.0
 
 
 func generate(job_seed: int, tasks: PackedStringArray, yard_size: int = 1) -> void:
@@ -986,7 +990,7 @@ func _shape_leaves(lot: Node3D) -> void:
 		var b: Vector3 = (field as Node3D).to_local(to_global(to))
 		fence_lines.append([Vector2(a.x, a.z), Vector2(b.x, b.z)])
 	field.set_meta("fence_lines", fence_lines)
-	field.call("shape_initial", func(world: Vector3) -> float:
+	var leaves_at := func(world: Vector3) -> float:
 		var local := lot.to_local(world)
 		if house.grow(-0.4).has_point(Vector2(local.x, local.z)):
 			return 0.0
@@ -1004,6 +1008,28 @@ func _shape_leaves(lot: Node3D) -> void:
 		if Rect2(-10.0, 12.0, 6.5, 7.0).has_point(Vector2(local.x, local.z)):
 			return 0.0
 		return clampf(amount * grown, 0.0, Constants.YARD_LEAF_CAP)
+	if crew_area >= 0.999:
+		field.call("shape_initial", leaves_at)
+		return
+	# A small crew's yard (balance:E): the leaves lie in drifts over crew_area of
+	# the leafy lawn, the rest of the grass already clean. Its own noise seed, so
+	# the gameplay rng's draws stay as they were.
+	var noise: FastNoiseLite = _CrewDrifts.noise_for(hash([_job_seed, "crew_drifts"]))
+	var points := PackedVector2Array()
+	var amounts := PackedFloat32Array()
+	var cell := float(field.get("cell_size"))
+	var origin: Vector3 = field.get("grid_origin")
+	var to_world: Transform3D = (field as Node3D).global_transform
+	for z: int in int(field.get("grid_depth")):
+		for x: int in int(field.get("grid_width")):
+			var world: Vector3 = to_world * (origin + Vector3((float(x) + 0.5) * cell, 0.0, (float(z) + 0.5) * cell))
+			var local := lot.to_local(world)
+			points.append(Vector2(local.x, local.z))
+			amounts.append(float(leaves_at.call(world)))
+	var cut: float = _CrewDrifts.cut_for(noise, points, amounts, crew_area)
+	field.call("shape_initial", func(world: Vector3) -> float:
+		var local := lot.to_local(world)
+		return float(leaves_at.call(world)) * _CrewDrifts.weight(noise, cut, Vector2(local.x, local.z))
 	)
 
 

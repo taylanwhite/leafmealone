@@ -20,6 +20,7 @@ const CREW_SCENE: PackedScene = preload("res://npcs/crew_member.tscn")
 const _RideScript: Script = preload("res://net/components/ride.gd")
 const _Rules: Script = preload("res://net/run_events/rules.gd")
 const _Economy = preload("res://core/economy.gd")
+const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _Encounter = preload("res://net/run_events/encounter.gd")
 const _Crew = preload("res://npcs/crew_member.gd")
@@ -414,9 +415,11 @@ func _consider_roll() -> void:
 	var since := Net.server_time() - _last_event_time
 	if since < Balance.RUN_EVENT_COOLDOWN_MINUTES * 60.0 * (1.0 - heat / 100.0):
 		return
-	# balance:E: the escalation is by the job's neighborhood, not every job ever done.
-	var town := get_tree().get_first_node_in_group("town")
-	var hood_index := int(town.call("current_hood_index")) if town != null and town.has_method("current_hood_index") else 0
+	# balance:E: the escalation is by the neighborhood of the yard that's loaded
+	# (its synced hood, --hood included; a legacy-map yard keeps it through the
+	# ride-home wait), not every job ever done.
+	var lot := slot.get_child(slot.get_child_count() - 1)
+	var hood_index := maxi(0, _Hoods.index_of(str(lot.get("hood"))))
 	var chance := _Economy.run_roll_chance(heat, hood_index)
 	if heat >= Constants.HEAT_RAID_AT or randf() < chance:
 		_begin_warning()

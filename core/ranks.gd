@@ -14,16 +14,17 @@ const ENDLESS_NAME := "The Lawnfather"
 const TIERS_PER_RANK: int = 5
 const ROMAN: Array[String] = ["I", "II", "III", "IV", "V"]
 
-## XP for tier t to t+1 is FIRST + STEP * t: two tiers on the first night, about
-## one a day by Yard Baron. 30,100 XP through Yard Baron V: about 16 to 19 hours
-## for four players or solo, 125 jobs for four and 60 alone (a small crew earns
-## more a job, Constants.XP_CREW_SCALE). Tuned by tools/balance_sim.py (balance:E,
-## docs/BALANCE.md); saves on the old curve keep their tier (crew.curve).
+## XP for tier t to t+1 is FIRST + STEP * t: a rank-up on the first night (the
+## simulator says two; no human crew has confirmed it yet), about one a day by
+## Yard Baron. 27,760 XP through Yard Baron V: about 17 to 18 hours for four
+## players or solo, about 120 jobs for four and 50 alone (a small crew earns more a job,
+## Constants.XP_CREW_SCALE). Tuned by tools/balance_sim.py (balance:E,
+## docs/BALANCE.md); saves on an old curve keep their tier (crew.curve).
 const XP_FIRST_TIER: int = 265
-const XP_PER_TIER_STEP: int = 25
+const XP_PER_TIER_STEP: int = 22
 ## Each Lawnfather star after that.
 const XP_ENDLESS_TIER: int = 1500
-## The curve's name, "first/step/endless" ("265/25/1500"). A save remembers it
+## The curve's name, "first/step/endless" ("265/22/1500"). A save remembers it
 ## (crew.curve, gap balance:E) so banked XP can follow a retune of the three
 ## numbers above (core/economy.gd migrate_xp).
 const CURVE_ID: String = "%d/%d/%d" % [XP_FIRST_TIER, XP_PER_TIER_STEP, XP_ENDLESS_TIER]

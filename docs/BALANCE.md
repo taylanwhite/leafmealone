@@ -142,46 +142,55 @@ Re-run (`--check --baseline`, 40 seeds): raids per job 4.05, 3.97, 3.58 and 3.63
 
 ## The retune (balance:E, 2026-11-04, build 0.4.16 + balance:E)
 
-Run with `--check` (40 seeds); every blocking check passes, one warning:
+Run with `--check` (40 seeds); every blocking check passes, two warnings. Re-run after the review (below: a small crew's yard is smaller in area, thin yards cost rake time, and the first job runs on the starter bags):
 
 ```
                               crew 1    crew 2    crew 3    crew 4    target
+----------------------------------------------------------------------------
 hours to tier I of each rank (median)
-  Leaf Grunt                     1.1       1.2       1.2       1.1       1.0
-  Bag Hauler                     2.5       2.3       2.5       2.4       2.5
-  Mulch Mule                     4.2       4.0       4.1       3.9       4.5
-  Hedge Hog                      6.0       6.0       5.9       5.6       6.5
-  Turf Boss                      8.3       8.2       8.3       7.8       9.0
-  Lawn Lord                     11.2      10.9      10.8      10.2      11.5
-  Yard Baron                    14.4      14.0      13.8      13.0      14.0
-  The Lawnfather                18.3      18.2      17.6      16.6      16.0
-Lawnfather p10 (h)              17.2      16.9      16.9      15.9
-Lawnfather p90 (h)              20.0      19.2      18.3      17.2
-days to The Lawnfather          31.0      35.5      37.0      36.0
-jobs to The Lawnfather            63        95       119       130
-jobs per day                     2.0       2.7       3.2       3.6
-tier after night 1                 2         2         2         2
-$/player/day, Rake Rookie        488       246       190       136
-$/player/day, Bag Hauler         610       424       296       250
-$/player/day, Hedge Hog          646       502       449       381
-$/player/day, Lawn Lord          995       699       601       460
-$/player/day, The Lawnfather      1239      1201       992       836
-days of income, blower          0.77      0.83      0.96      1.17
-days of income, washer          0.59      1.08      1.43      1.74
-hire fee, days of income        0.82      1.11      1.24      1.46
-raids per job                   0.90      0.76      0.58      0.54
-XP share from raids             0.04      0.08      0.08      0.09
-days bound by clock             0.97      0.94      0.91      0.88
-days bound by requests          0.03      0.06      0.09      0.12
-jobs past patience              0.32      0.08      0.01      0.00
+  Leaf Grunt                     1.1       1.3       1.3       1.2       1.0
+  Bag Hauler                     2.7       2.5       2.8       2.6       2.5
+  Mulch Mule                     4.2       4.2       4.6       4.4       4.5
+  Hedge Hog                      6.3       6.3       6.7       6.3       6.5
+  Turf Boss                      8.7       8.6       9.1       8.5       9.0
+  Lawn Lord                     11.3      11.3      11.5      10.9      11.5
+  Yard Baron                    14.3      14.1      14.6      13.7      14.0
+  The Lawnfather                17.8      17.9      18.3      17.0      16.0
+Lawnfather p10 (h)              16.6      16.2      17.3      16.1
+Lawnfather p90 (h)              18.6      18.8      19.3      17.6
+days to The Lawnfather          28.0      33.0      37.0      35.0
+jobs to The Lawnfather            52        81       105       118
+jobs per day                     1.8       2.5       2.9       3.3
+tier after night 1                 3         2         2         2
+$/player/day, Rake Rookie        494       299       193       147
+$/player/day, Bag Hauler         720       378       266       224
+$/player/day, Hedge Hog          610       457       408       366
+$/player/day, Lawn Lord          974       631       612       465
+$/player/day, The Lawnfather      1362      1082      1001       848
+days of income, blower          0.74      0.92      0.92      1.17
+days of income, washer          0.52      0.93      1.67      1.91
+hire fee, days of income        0.87      1.29      1.33      1.53
+raids per job                   1.13      0.88      0.75      0.65
+XP share from raids             0.05      0.08      0.10      0.11
+days bound by clock             0.96      0.95      0.94      0.91
+days bound by requests          0.04      0.05      0.06      0.09
+jobs past patience              0.39      0.10      0.03      0.00
 ```
 
-The one warning: a quiet daytime Maple Row job for four players is raided 3% of the time (band 10 to 40%; solo 24%, two 12%, three 13%). Those are four people on a regrown yard, done in four minutes: few rolls. It's a warning, not a target worth a louder rule.
+The warnings: a quiet daytime Maple Row job for four players is raided 6% of the time (band 10 to 40%). Those are four people on a regrown yard, done in four minutes: few rolls. And a solo mower-and-blower job is raided 82% of the time (band 45 to 75%): solo jobs are longer, so more rolls. Both are warnings, not targets worth a louder or quieter rule; balance:G should look at them with a human crew.
+
+**The review's fixes** (2026-11-04):
+
+- **A small crew's yard is smaller, not thinner.** `CREW_WORK_SCALE` used to multiply every cell's leaves, but the homeowner, the XP and "Call it a day" count cells raked clean (`LeafField.cleaned_fraction`), so a solo player raked the whole lawn for 60% of the bags: `tools/rake_pace.gd` measured 0.9 of the time for 0.6 of the leaves. Now the leaves lie in drifts over that share of the leafy lawn and the rest starts clean (`levels/lots/crew_drifts.gd`, `CREW_DRIFT_*`), and `rake_pace --crew=N` (with `--skip`: the raker works the drifts, not the whole lawn) measures what that costs: 0.66, 0.805, 0.94 and 1.0 of the whole yard's time for crews of 1 to 4 (`model.json` `crew_area_work`), with the leaves at the area share (0.59, 0.74, 0.89).
+- **A thin yard still costs the rake.** A regrown yard (`mess` under 1) is thinner everywhere; `rake_pace --mess` measures 0.856 of the time at 0.5 and 0.931 at 0.75, so the simulator's work is `thin_work_floor` 0.72 plus the rest by mess (it was all by mess). Bags still go by mess.
+- **The first job runs on the starter bags.** The simulator holds the crew's bags (`STARTER_SUPPLIES` lawn bags), and the campaign's first job stops where they run out (`model.json` `bags_per_yard` 100, from `rake_pace`); later jobs are stocked for. At 40 bags a four-player Day 1 cleaned 41% of its yard in the simulator (the real session: 45%), so a new crew now starts with 100, a roll each, and the new blocking check "(b) first job's leaves fit the starter bags" holds it (p10 of the seeds).
+- **The crew a yard is for is the lot's.** The yard's drifts, its XP scale and the homeowner's patience read `job_lot.crew` (spawn-synced, set at load), so a drop or a join mid-job can't make the yard and its pay disagree. The director's escalation reads the loaded lot's `hood`, so a legacy-map yard keeps its neighborhood through the ride-home wait and `--hood` yards roll as their own.
+- **Retuned for it:** `XP_CREW_SCALE` 2.6, 1.5, 1.12, 1 (was 2.35, 1.4, 1.1), `CREW_PATIENCE_SCALE` 1.3, 1.1, 1, 1 (was 1.15, 1.05; solo jobs past patience 0.44 to 0.39), `XP_PER_TIER_STEP` 22 (was 25). Without them the honest model put solo at 21.1 h and four players at 18.4 h.
 
 **What changed in the model** (before tuning, so the numbers are honest):
 
 - Everyone rakes since p2-kit: `leaf_rate_yard_per_min` is [0.0435, 0.078, 0.108, 0.135] (each player after the first adds about 0.8 of a solo raker), `rake_share` 0.8 for every crew, and the Mk II and the Leafinator are each player's own (`sinks.json` `per_player`).
-- The director rolls by neighborhood (`Economy.run_lot_chance(heat, hood_index)`, `Town.current_hood_index`), and raids pay XP (`model.json` `raid` `spotted_share` 0.7, `rescue_chance` 0.3; `XP_ESCAPE`, `XP_PAPERWORK`, `XP_RESCUE`). Escape XP was the one big reward the old raid storm handed out: at four raids a job it would have been a third of the arc's XP; at about one a job it's 4 to 9%.
+- The director rolls by neighborhood (`Economy.run_lot_chance(heat, hood_index)`, the loaded lot's `hood`), and raids pay XP (`model.json` `raid` `spotted_share` 0.7, `rescue_chance` 0.3; `XP_ESCAPE`, `XP_PAPERWORK`, `XP_RESCUE`). Escape XP was the one big reward the old raid storm handed out: at four raids a job it would have been a third of the arc's XP; at about one a job it's 4 to 9%.
 - Lawn bags and gas are live sinks (shops:3's supplies are real costs today). Tool tiers, cosmetics, paint and properties stay planned for balance:F.
 - Not modeled, and why: the drivable town's travel, tow and dent fees and junk income are town-map only (`TOWN_MAP_DEFAULT` false until driving:H cuts over in W11; `travel_minutes_by_hood` has the town row ready); the delivery wait doesn't cost play time (you order and keep working).
 
@@ -189,10 +198,11 @@ The one warning: a quiet daytime Maple Row job for four players is raided 3% of 
 
 | Constant | Was | Now | Why |
 | --- | --- | --- | --- |
-| `Ranks.XP_FIRST_TIER` / `XP_PER_TIER_STEP` / `XP_ENDLESS_TIER` | 150 / 25 / 1200 | 265 / 25 / 1500 | Two tiers on night one, about a tier a day after, 16 to 19 hours to The Lawnfather. Saves keep their tier (`crew.curve`). |
-| `CREW_WORK_SCALE` | (1.0) | 0.6, 0.75, 0.9, 1.0 | A solo yard is 60% of the leaves (the tasks stay whole). |
-| `CREW_PATIENCE_SCALE` | (1.0) | 1.15, 1.05, 1.0, 1.0 | A solo crew ran out of patience on 81% of jobs; now 32%. |
-| `XP_CREW_SCALE` | (1.0) | 2.35, 1.4, 1.1, 1.0 | Solo does half the jobs a day of a crew of four (two against 3.6, the clock binds) and must do every task alone; this is what lands solo at 1.1 times four players' arc (target at most 1.3). XP stays flat per piece of work. |
+| `Ranks.XP_FIRST_TIER` / `XP_PER_TIER_STEP` / `XP_ENDLESS_TIER` | 150 / 25 / 1200 | 265 / 22 / 1500 | A rank-up on night one (the simulator says two; no human crew has reached it yet), about a tier a day after, 17 to 18 hours to The Lawnfather. Saves keep their tier (`crew.curve`). |
+| `CREW_WORK_SCALE` | (1.0) | 0.6, 0.75, 0.9, 1.0 | A solo yard is 60% of the leafy lawn, in drifts (the tasks stay whole); it takes 66% of the time. |
+| `CREW_PATIENCE_SCALE` | (1.0) | 1.3, 1.1, 1.0, 1.0 | A solo crew ran out of patience on 81% of jobs; now 39%. |
+| `XP_CREW_SCALE` | (1.0) | 2.6, 1.5, 1.12, 1.0 | Solo does about half the jobs a day of a crew of four (1.8 against 3.3, the clock binds) and must do every task alone; this is what lands solo at 1.05 times four players' arc (target at most 1.3). XP stays flat per piece of work. |
+| `STARTER_SUPPLIES.lawn_bags` | 40 | 100 | A full regular yard fills about 100 bags; 40 ran a four-player Day 1 out at 45%. A roll a player. |
 | `TOOL_PRICES` | $70 to $260 | blower 400, mower 300, ladder 350, hose 350, washer 420, trimmer 450, roller 350 | Each between half a day of a solo player's income and two days of a four-player crew member's when it unlocks (solo earns about twice per player). The window is narrow, so the prices are flat-ish; the Mk II and Mk III (3.5x and 10x) carry the climb. |
 | `SHOP_PRICES.rake_tier_1` / `wheelbarrow_tier_1` | 120 / 120 | 200 / 350 | The Mk II is each player's first goal after Day 1 (a four-player Day 1 pays about $340 each). |
 | `HIRE_SIGNING_FEE` / `HIRE_DAILY_WAGE` | 150 / 40 | 500 / 35 | The fee is 0.8 to 1.5 days of income when hiring opens. The spec's $160 wage would lose money: the model says a hand brings in $30 to $60 a day (`hand_leaf_rate` is a guess; balance:G calibrates it), so the wage stays under that. |
@@ -205,7 +215,7 @@ The one warning: a quiet daytime Maple Row job for four players is raided 3% of 
 
 **Kept on purpose:** `TOWN_REGROW_PER_DAY` 0.35 and `TOWN_REQUEST_MIN_MESS` 0.3 (the spec's 0.3 and 0.45 left a four-player crew without work on a fifth of its days and dropped Leaf Grunt out of its band), `RAKE_WIDTH` (decided: the windrow's 1.27 to 1.36 times slower job is in `leaf_rate_yard_per_min`, and job size and pay carry it), `STARTING_CASH` $50 (a rake each and change on Day 1). **R1-F** (the rake carried leaves twice as far toward +X/+Z as toward -X/-Z) was already fixed by R1b's windrow (each lane read before it's written): `tools/rake_pace.gd` measures 2.61 to 2.67 m of carry in all eight directions (ratio 1.02) and single strokes 0.99 to 1.04 m, so the golden test is unchanged.
 
-**Played** (docs/PLAYTEST.md, "balance:E the retune, played as a crew"): a host and three crew bots, Day 1 in real time. Every player had a rake (the bots bought four on the morning), and the one job's $199 split $60, $53, $48 and $38, so the one-rake days' $3 against $33 are gone. The bots clear a yard at about a third of the model's four-player rate and skip the hand tasks, and the crew's 40 starting bags ran out at 45% of the first yard, so that Day 1 earned a third of the simulated pay and banked 97 XP, short of the first rank-up. The model keeps the competent-player rates (`tools/rake_pace.gd`); calibrating them from a human session is balance:G's. Open: the 40 starting bags and Chefty's 50 against a 65 to 90 bag yard, and `bag_value_avg` 12 against the $6 to $8 bags seen in play.
+**Played** (docs/PLAYTEST.md, "balance:E the retune, played as a crew"): a host and three crew bots, Day 1 in real time. Every player had a rake (the bots bought four on the morning), and the one job's $199 split $60, $53, $48 and $38, so the one-rake days' $3 against $33 are gone. The bots clear a yard at about a third of the model's four-player rate and skip the hand tasks, and the crew's 40 starting bags ran out at 45% of the first yard, so that Day 1 earned a third of the simulated pay and banked 97 XP, short of the first rank-up. The model keeps the competent-player rates (`tools/rake_pace.gd`); calibrating them from a human session is balance:G's. Open: Chefty's 50 against a 65 to 100 bag yard, and `bag_value_avg` 12 against the $6 to $8 bags seen in play. (The 40 starting bags are 100 since the review.)
 
 ## The engine parity test
 

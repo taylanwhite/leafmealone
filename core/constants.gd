@@ -747,8 +747,12 @@ const SUPPLY_PER_ITEM: Dictionary = {
 	"vend_bags": 10,
 }
 ## A new crew's supplies. Timed test runs (other than --shop-test) never run out.
+## balance:E review: four rolls of lawn bags, a roll a player, because a full
+## regular yard fills about 100 bags (tools/rake_pace.gd) and the first job comes
+## before anyone has looked at the shelf. 40 ran a four-player Day-1 crew out at
+## 45% clean (build/play rec_cash_1p); tools/balance_sim.py checks it.
 const STARTER_SUPPLIES: Dictionary = {
-	"lawn_bags": 40, "big_bags": 0, "gas": 6.0, "fertilizer": 0, "grass_seed": 0, "rock_salt": 0,
+	"lawn_bags": 100, "big_bags": 0, "gas": 6.0, "fertilizer": 0, "grass_seed": 0, "rock_salt": 0,
 }
 ## No contractor bags in them: those scoop wider, and the older tests measure
 ## piles with plain lawn bags.
@@ -6449,12 +6453,24 @@ const STAGE_LAMP_POST_RADIUS: float = 0.12
 const STAGE_TRUNK_SHARE: float = 0.045
 
 # ---- balance:E (the retune; docs/BALANCE.md, tools/balance_sim.py)
-## Crew size, by players on the session (index 0 is one player). A yard's leaves
-## scale with the crew (levels/world.gd _load_job_lot: a solo yard is a smaller
-## job, not a smaller pay rate), the homeowner waits a little longer for a small
-## crew (npcs/homeowner.gd), and a small crew earns more XP per job
+## Crew size, by players on the session (index 0 is one player). A yard's leafy
+## area scales with the crew (levels/world.gd _load_job_lot stores the crew on
+## the lot; levels/lots/crew_drifts.gd: a solo yard is a smaller job, not a
+## thinner one or a smaller pay rate), the homeowner waits a little longer for a
+## small crew (npcs/homeowner.gd), and a small crew earns more XP per job
 ## (core/economy.gd job_xp), so solo and four players climb at similar speeds.
-## Tuned by tools/balance_sim.py (docs/BALANCE.md).
+## All three read the crew the yard was loaded for, so a drop or a join mid-job
+## doesn't change what that yard pays. Tuned by tools/balance_sim.py (docs/BALANCE.md).
 const CREW_WORK_SCALE: Array[float] = [0.6, 0.75, 0.9, 1.0]
-const CREW_PATIENCE_SCALE: Array[float] = [1.15, 1.05, 1.0, 1.0]
-const XP_CREW_SCALE: Array[float] = [2.35, 1.4, 1.1, 1.0]
+const CREW_PATIENCE_SCALE: Array[float] = [1.3, 1.1, 1.0, 1.0]
+const XP_CREW_SCALE: Array[float] = [2.6, 1.5, 1.12, 1.0]
+## The drifts a small crew's leaves lie in (levels/lots/crew_drifts.gd): noise
+## frequency per metre (0.025: one or two drifts on the 40 m lot, banked to one
+## side, so a solo crew's yard is a smaller yard to walk, not leaf islands to
+## visit: tools/rake_pace.gd --crew, 0.06 took a solo raker 0.75 of the whole
+## yard's time for 0.6 of its leaves, 0.025 takes 0.66), its octaves (few: soft,
+## wind-blown edges, not speckle), and how many noise units a drift's edge fades
+## over (narrow, so the leaves are the area share: 0.12 lost a tenth of them).
+const CREW_DRIFT_FREQUENCY: float = 0.025
+const CREW_DRIFT_OCTAVES: int = 2
+const CREW_DRIFT_FADE: float = 0.05

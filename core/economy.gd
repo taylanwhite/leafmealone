@@ -231,7 +231,7 @@ static func _scale_for(table: Array[float], players: int) -> float:
 ## (BAL-14 is per job), so it is spread over the rolls of a lot of
 ## RAID_LOT_MINUTES: per roll 1 - (1 - p_lot)^(HEAT_ROLL_SECONDS / lot seconds).
 ## Before it, every 20 s roll took the whole per-lot chance, about 4-5 raids a job.
-## hood_index is the job's neighborhood (Town.current_hood_index: 0 Maple Row to
+## hood_index is the loaded yard's neighborhood (its synced hood: 0 Maple Row to
 ## 5 Mansion Hill), balance:E; it used to be every job the crew ever finished, so
 ## by the second week every job was a raid.
 static func run_roll_chance(heat: float, hood_index: int) -> float:

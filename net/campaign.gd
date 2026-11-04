@@ -15,6 +15,7 @@ signal rank_changed
 
 const _Ranks = preload("res://core/ranks.gd")
 const _Economy = preload("res://core/economy.gd")
+const _JobLot = preload("res://levels/lots/job_lot.gd")
 const _KitRules = preload("res://core/kit_rules.gd")
 ## The player's real save. Only a player's session (no dev, test or automation
 ## flag; net/command_line.gd is_dev_session()) ever reads or writes it.
@@ -396,9 +397,10 @@ func _award_job_xp(fraction: float, details: Dictionary) -> int:
 	for line: Variant in (details.get("tasks", []) as Array):
 		if typeof(line) == TYPE_ARRAY and (line as Array).size() >= 2:
 			task_done.append(float(line[1]) / 100.0)
-	# The crew on the job (Net.player_count: a playtest observer only watches):
-	# a small crew earns more per job (Constants.XP_CREW_SCALE, balance:E).
-	var amount := _Economy.job_xp(fraction, task_done, int(details.get("stars", 0)), Net.player_count())
+	# The crew the yard was loaded for (job_lot.crew; a playtest observer only
+	# watches): a small crew earns more per job (Constants.XP_CREW_SCALE,
+	# balance:E), and a drop before the homeowner settles doesn't change it.
+	var amount := _Economy.job_xp(fraction, task_done, int(details.get("stars", 0)), _JobLot.current_crew(get_tree()))
 	add_xp(amount, "jobs")
 	return amount
 

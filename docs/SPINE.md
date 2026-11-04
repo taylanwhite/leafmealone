@@ -153,16 +153,16 @@ The numbers are in `core/constants.gd` and `core/ranks.gd`, tuned by `tools/bala
 
 | Rank | Target | Solo | Four players |
 | --- | --- | --- | --- |
-| Leaf Grunt | 1.0 | 1.1 | 1.1 |
-| Bag Hauler | 2.5 | 2.5 | 2.4 |
-| Mulch Mule | 4.5 | 4.2 | 3.9 |
-| Hedge Hog (every tool on sale) | 6.5 | 6.0 | 5.6 |
-| Turf Boss | 9.0 | 8.3 | 7.8 |
-| Lawn Lord | 11.5 | 11.2 | 10.2 |
-| Yard Baron | 14.0 | 14.4 | 13.0 |
-| The Lawnfather | 16.0 (10 to 20) | 18.3 | 16.6 |
+| Leaf Grunt | 1.0 | 1.1 | 1.2 |
+| Bag Hauler | 2.5 | 2.7 | 2.6 |
+| Mulch Mule | 4.5 | 4.2 | 4.4 |
+| Hedge Hog (every tool on sale) | 6.5 | 6.3 | 6.3 |
+| Turf Boss | 9.0 | 8.7 | 8.5 |
+| Lawn Lord | 11.5 | 11.3 | 10.9 |
+| Yard Baron | 14.0 | 14.3 | 13.7 |
+| The Lawnfather | 16.0 (10 to 20) | 17.8 | 17.0 |
 
-Two tiers on the first night, about a tier a day after; a tool costs about a day of one player's pay when it unlocks; about one NICE BOYS raid a job (more with loud tools, at night and up the hill).
+A rank-up on the first night (two tiers in the simulator, for competent players; not yet seen in a real session), about a tier a day after; a tool costs about a day of one player's pay when it unlocks; about one NICE BOYS raid a job (more with loud tools, at night and up the hill).
 
 ## What we took from Schedule I, and what we didn't
 
