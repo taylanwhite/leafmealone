@@ -1897,7 +1897,7 @@ var _order_cue: bool = false
 ##   order: two gas cans, a rake and a roll of bags by phone: each charged the
 ##     price plus fees, off Homie Depot's shelf, nothing in hand yet; a hat or an
 ##     upgrade can't be ordered, and a fourth order is "full" with cash untouched;
-##   delivery: not before it's due; at 2:30 PM the van lands it: the supplies go
+##   delivery: not before it's due; half an hour after, the van lands it: the supplies go
 ##     up, the crates come over the wall onto the pallet (tossed, not popped), the
 ##     rake lands in front of the cage as a real kit prop, and the text comes;
 ##   client_order: the client orders through _rpc_request_order;
@@ -1906,7 +1906,7 @@ func _check_delivery(shops: Node, me: int, mate: int) -> void:
 	var clock := get_tree().get_first_node_in_group("day_clock")
 	var fee := 24 +Constants.DELIVERY_FEE + roundi(24.0 * Constants.DELIVERY_FEE_SHARE)
 	var rules: bool = _Shops.order_price("gas_can", 2) == fee \
-		and _Shops.arrival_at(10.0, 3) == [3, 720.0] and _Shops.arrival_at(22.0, 3) == [4, 540.0] \
+		and _Shops.arrival_at(10.0, 3) == [3, (10.0 + Constants.DELIVERY_HOURS) * 60.0] and _Shops.arrival_at(22.0, 3) == [4, 540.0] \
 		and _Shops.order_due({"arrive_day": 3, "arrive_minutes": 720.0}, 12.0, 3) \
 		and not _Shops.order_due({"arrive_day": 3, "arrive_minutes": 720.0}, 11.9, 3) \
 		and _Shops.order_due({"arrive_day": 3, "arrive_minutes": 720.0}, 8.0, 4) \
@@ -1943,8 +1943,8 @@ func _check_delivery(shops: Node, me: int, mate: int) -> void:
 		and str((orders[0] as Dictionary).get("by_key", "")) == Campaign.key_of(me),
 		"gas %s ($%d), rake %s, bags %s, paid $%d of $%d; upgrade %s, hat %s, a fourth %s; %d open" % [gas_code, gas_paid, rake_code, bags_code, paid, expected, upgrade, hat, full, orders.size()])
 
-	# Not before it's due: 1:50 PM.
-	clock.call("set_hour_for_tests", 13.85)
+	# Not before it's due (ordered at noon, DELIVERY_HOURS later; balance:E made it 0.75).
+	clock.call("set_hour_for_tests", 12.0 + Constants.DELIVERY_HOURS - 0.15)
 	await get_tree().create_timer(Constants.DELIVERY_CHECK_SECONDS + 0.5).timeout
 	var early := (shops.get("orders") as Array).size()
 	var town := get_tree().get_first_node_in_group("town")
@@ -1956,7 +1956,7 @@ func _check_delivery(shops: Node, me: int, mate: int) -> void:
 	var thuds := _SfxScript.log.count("crate_thud")
 	var heard: Array = []
 	shops.connect("delivered", func(crates: Array, tools: int) -> void: heard.append([crates.size(), tools]), CONNECT_ONE_SHOT)
-	clock.call("set_hour_for_tests", 14.5)
+	clock.call("set_hour_for_tests", 12.0 + Constants.DELIVERY_HOURS + 0.5)
 	await _wait_until(func() -> bool: return (shops.get("orders") as Array).is_empty(), Constants.DELIVERY_CHECK_SECONDS * 3.0)
 	var landed_gas := float(shops.call("supply", "gas")) - gas
 	var landed_bags := float(shops.call("supply", "lawn_bags")) - bags
@@ -1981,7 +1981,7 @@ func _check_delivery(shops: Node, me: int, mate: int) -> void:
 		and is_equal_approx(landed_gas, 2.0 * float(Constants.SUPPLY_PER_ITEM["gas_can"])) and is_equal_approx(landed_bags, float(Constants.SUPPLY_PER_ITEM["lawn_bags"])) \
 		and heard == [[want_crates, 1]] and crates == want_crates and tossed == want_crates and arrived >= want_crates \
 		and rake != null and made_at_landing and flat and texted and sounded,
-		"sounds %s; open at 1:50 PM %d; landed gas +%.1f, bags +%d; heard %s; crates %d (tossed %d), arrived_today %d; the rake %s (made at landing %s, flat with a thud %s); texted %s" % [sounded, early, landed_gas, int(landed_bags), str(heard), crates, tossed, arrived, str(rake.global_position) if rake != null else "missing", made_at_landing, flat, texted])
+		"sounds %s; open just before it's due %d; landed gas +%.1f, bags +%d; heard %s; crates %d (tossed %d), arrived_today %d; the rake %s (made at landing %s, flat with a thud %s); texted %s" % [sounded, early, landed_gas, int(landed_bags), str(heard), crates, tossed, arrived, str(rake.global_position) if rake != null else "missing", made_at_landing, flat, texted])
 
 	# client_order: the client orders a roll of bags through the RPC.
 	var mate_cash := Campaign.credits(mate)

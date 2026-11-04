@@ -147,9 +147,22 @@ yet: properties and winter's own work.
   pools. A season lasts `SEASON_DAYS` days. Seasons are the endless loop: the
   town keeps needing different work, and each season brings its own tools.
 
-## Numbers to start from
+## The pacing
 
-All in `core/constants.gd` under "Spine". They are first guesses to tune in play.
+The numbers are in `core/constants.gd` and `core/ranks.gd`, tuned by `tools/balance_sim.py` against these targets (balance:E; the manual, the model's assumptions and the latest report are `docs/BALANCE.md`). Real hours of play to tier I of each rank, the median over 40 simulated crews:
+
+| Rank | Target | Solo | Four players |
+| --- | --- | --- | --- |
+| Leaf Grunt | 1.0 | 1.1 | 1.1 |
+| Bag Hauler | 2.5 | 2.5 | 2.4 |
+| Mulch Mule | 4.5 | 4.2 | 3.9 |
+| Hedge Hog (every tool on sale) | 6.5 | 6.0 | 5.6 |
+| Turf Boss | 9.0 | 8.3 | 7.8 |
+| Lawn Lord | 11.5 | 11.2 | 10.2 |
+| Yard Baron | 14.0 | 14.4 | 13.0 |
+| The Lawnfather | 16.0 (10 to 20) | 18.3 | 16.6 |
+
+Two tiers on the first night, about a tier a day after; a tool costs about a day of one player's pay when it unlocks; about one NICE BOYS raid a job (more with loud tools, at night and up the hill).
 
 ## What we took from Schedule I, and what we didn't
 

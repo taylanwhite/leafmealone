@@ -21,7 +21,11 @@ Template:
 
 ## Open
 
-_(none)_
+### [SHARED → Taylan (human)] 2026-11-04: the workbook after the retune (balance:E)
+- Need: in `design/leaf-me-alone-workbook.xlsx`, BAL-01/02 (5 to 10 hours) to 10 and 20 hours, the campaign's length to The Lawnfather (`Constants.ARC_HOURS`); BAL-08, BAL-09, BAL-11, BAL-18 and BAL-24 marked superseded by the persistent town and the spine's constants; BAL-14 clarified as per job (the code spreads it over a job's rolls, `RAID_LOT_MINUTES`); BAL-15's "tier" read as the job's neighborhood. Optionally a read-only "Balance Sim" sheet filled from `build/balance/report.json`.
+- Why: `core/balance.gd` is generated from the workbook, and `docs/GAME.md` says the workbook wins; today the spine's numbers (`core/constants.gd`, `core/ranks.gd`, tuned by `tools/balance_sim.py`) override those rows. docs/BALANCE.md has the table and the reasons.
+- Stub on my side (if any): GAME.md marks the rows superseded until then.
+- Blocking? no
 
 ## Done
 

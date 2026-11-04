@@ -414,7 +414,10 @@ func _consider_roll() -> void:
 	var since := Net.server_time() - _last_event_time
 	if since < Balance.RUN_EVENT_COOLDOWN_MINUTES * 60.0 * (1.0 - heat / 100.0):
 		return
-	var chance := _Economy.run_roll_chance(heat, Campaign.lots_completed())
+	# balance:E: the escalation is by the job's neighborhood, not every job ever done.
+	var town := get_tree().get_first_node_in_group("town")
+	var hood_index := int(town.call("current_hood_index")) if town != null and town.has_method("current_hood_index") else 0
+	var chance := _Economy.run_roll_chance(heat, hood_index)
 	if heat >= Constants.HEAT_RAID_AT or randf() < chance:
 		_begin_warning()
 

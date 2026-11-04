@@ -12,6 +12,7 @@ const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _Pedestrians = preload("res://npcs/pedestrians.gd")
 const _JobBoard = preload("res://levels/job_board.gd")
+const _Economy = preload("res://core/economy.gd")
 const _JobLot = preload("res://levels/lots/job_lot.gd")
 const _Cot = preload("res://props/cot.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
@@ -655,7 +656,9 @@ func _load_job_lot() -> void:
 	# A new name for every yard loaded, so nothing meant for the last one lands on this one.
 	_lots_loaded += 1
 	lot.name = "Lot%d_%d" % [Campaign.current_lot_index(), _lots_loaded]
+	var town_offer := true
 	if int(Net.dev_options().get("job_seed")) != 0 or offer.is_empty():
+		town_offer = false
 		var job_seed := int(Net.dev_options().get("job_seed"))
 		if job_seed == 0:
 			job_seed = randi_range(1, 2147483646)
@@ -663,8 +666,16 @@ func _load_job_lot() -> void:
 	lot.set("job_seed", int(offer["seed"]))
 	lot.set("tasks", offer["tasks"])
 	lot.set("yard_size", int(offer.get("size", 1)))
-	# A house in the town (net/town/town.gd) brings its regrowth and neighborhood.
-	lot.set("mess", float(offer.get("mess", 1.0)))
+	# A house in the town (net/town/town.gd) brings its regrowth and neighborhood,
+	# and a smaller crew gets a smaller yard (balance:E, Constants.CREW_WORK_SCALE:
+	# solo and four players climb at similar speeds). The lot's mess is spawn-synced,
+	# so clients build the same leaves; someone joining mid-job keeps this yard's
+	# scale, and the next yard uses the new crew size. A --job-seed yard (tests)
+	# stays the seed's whole yard.
+	var mess := float(offer.get("mess", 1.0))
+	if town_offer:
+		mess *= _Economy.crew_work_scale(Net.player_count())
+	lot.set("mess", mess)
 	lot.set("hood", str(offer.get("hood", "")))
 	# --hood=<id>: every yard is in that neighborhood (tests, screenshots). Clients
 	# get it with the lot like any hood.

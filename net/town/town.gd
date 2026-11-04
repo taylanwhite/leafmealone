@@ -251,6 +251,19 @@ func heat_scale() -> float:
 	return float(_Hoods.get_hood(str(entry["hood"]))["heat"])
 
 
+## The neighborhood of the house being worked, as its index in HOODS (0 Maple
+## Row up to Mansion Hill), 0 with no job: the run director's escalation
+## (core/economy.gd run_lot_chance, balance:E).
+func current_hood_index() -> int:
+	var entry := house(current_house)
+	if entry.is_empty():
+		return 0
+	for index: int in _Hoods.HOODS.size():
+		if str(_Hoods.HOODS[index]["id"]) == str(entry["hood"]):
+			return index
+	return 0
+
+
 # ---------------------------------------------------------------- host hooks
 
 ## The crew picked this house's job and is heading out.

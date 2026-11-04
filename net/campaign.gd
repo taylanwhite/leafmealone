@@ -396,7 +396,9 @@ func _award_job_xp(fraction: float, details: Dictionary) -> int:
 	for line: Variant in (details.get("tasks", []) as Array):
 		if typeof(line) == TYPE_ARRAY and (line as Array).size() >= 2:
 			task_done.append(float(line[1]) / 100.0)
-	var amount := _Economy.job_xp(fraction, task_done, int(details.get("stars", 0)), Net.peer_ids().size())
+	# The crew on the job (Net.player_count: a playtest observer only watches):
+	# a small crew earns more per job (Constants.XP_CREW_SCALE, balance:E).
+	var amount := _Economy.job_xp(fraction, task_done, int(details.get("stars", 0)), Net.player_count())
 	add_xp(amount, "jobs")
 	return amount
 

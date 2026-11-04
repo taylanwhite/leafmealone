@@ -62,8 +62,10 @@ func _run() -> void:
 	var pick: Dictionary = board.call("current")
 	var house_id := int(pick.get("house_id", -1))
 	var lot := get_tree().get_first_node_in_group("job_lot")
-	var loaded := lot != null and int(lot.get("job_seed")) == int(town.call("house", house_id)["seed"]) and absf(float(lot.get("mess")) - 1.0) < 0.001
-	print("[TownTest] picked %s at %s: their yard loaded, full of leaves: %s" % [pick.get("client", "?"), town.call("address", house_id), loaded])
+	var loaded := lot != null and int(lot.get("job_seed")) == int(town.call("house", house_id)["seed"]) and absf(float(lot.get("mess")) - _Economy.crew_work_scale(Net.player_count())) < 0.001
+	# A new client's yard is full, scaled for the crew on the session (balance:E,
+	# Constants.CREW_WORK_SCALE: two players here).
+	print("[TownTest] picked %s at %s: their yard loaded, full of leaves for %d (mess %.2f): %s" % [pick.get("client", "?"), town.call("address", house_id), Net.player_count(), float(lot.get("mess")) if lot != null else -1.0, loaded])
 	ok = ok and loaded
 	var working := int(town.get("current_house")) == house_id
 	print("[TownTest] the town knows the crew is at that house: %s" % working)

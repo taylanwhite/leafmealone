@@ -195,48 +195,54 @@ static func split_dollars(pool: float, shares: Array) -> Array[int]:
 
 # ---------------------------------------------------------------- crew size
 
-## How much of a yard's mess a crew this size gets (levels/world.gd, gap balance:E).
-## 1.0 for every size until the retune lands CREW_WORK_SCALE.
+## How much of a yard's mess a crew this size gets (levels/world.gd _load_job_lot,
+## balance:E): Constants.CREW_WORK_SCALE.
 static func crew_work_scale(players: int) -> float:
-	return _scale_for(players)
+	return _scale_for(Constants.CREW_WORK_SCALE, players)
 
 
-## How much longer the homeowner waits for a crew this size (gap balance:E).
-## 1.0 for every size until the retune lands CREW_PATIENCE_SCALE.
+## How much longer the homeowner waits for a crew this size (npcs/homeowner.gd,
+## balance:E): Constants.CREW_PATIENCE_SCALE.
 static func crew_patience_scale(players: int) -> float:
-	return _scale_for(players)
+	return _scale_for(Constants.CREW_PATIENCE_SCALE, players)
 
 
-## The XP multiplier for a crew this size, so small crews keep pace (gap balance:E).
-## 1.0 for every size until the retune lands XP_CREW_SCALE.
+## The XP multiplier for a crew this size, so small crews keep pace (balance:E):
+## Constants.XP_CREW_SCALE.
 static func xp_crew_scale(players: int) -> float:
-	return _scale_for(players)
+	return _scale_for(Constants.XP_CREW_SCALE, players)
 
 
-static func _scale_for(_players: int) -> float:
-	return 1.0
+## The table's entry for a crew this size (index 0 is one player), clamped to the
+## table; 1.0 for an empty one.
+static func _scale_for(table: Array[float], players: int) -> float:
+	if table.is_empty():
+		return 1.0
+	return float(table[clampi(players, 1, table.size()) - 1])
 
 
 # ---------------------------------------------------------------- run events
 
 ## The chance one director roll (net/run_events/director.gd, every
 ## HEAT_ROLL_SECONDS) sends the NICE BOYS: the workbook's base chance, rising with
-## each finished job, plus the crew's heat (0..100), capped. Reaching HEAT_RAID_AT
+## the neighborhood, plus the crew's heat (0..100), capped. Reaching HEAT_RAID_AT
 ## sends them whatever the roll; the director checks that itself.
 ## balance:E0 (pulled forward by R2 chunk 1): that formula is the chance per lot
 ## (BAL-14 is per job), so it is spread over the rolls of a lot of
 ## RAID_LOT_MINUTES: per roll 1 - (1 - p_lot)^(HEAT_ROLL_SECONDS / lot seconds).
 ## Before it, every 20 s roll took the whole per-lot chance, about 4-5 raids a job.
-## gap balance:E still replaces lots_completed with the neighborhood index.
-static func run_roll_chance(heat: float, lots_completed: int) -> float:
-	var p_lot := run_lot_chance(heat, lots_completed)
+## hood_index is the job's neighborhood (Town.current_hood_index: 0 Maple Row to
+## 5 Mansion Hill), balance:E; it used to be every job the crew ever finished, so
+## by the second week every job was a raid.
+static func run_roll_chance(heat: float, hood_index: int) -> float:
+	var p_lot := run_lot_chance(heat, hood_index)
 	return 1.0 - pow(1.0 - p_lot, Constants.HEAT_ROLL_SECONDS / (Constants.RAID_LOT_MINUTES * 60.0))
 
 
-## The chance the NICE BOYS come during one lot: the workbook's base, rising with
-## each finished job, plus the crew's heat (0..100), capped.
-static func run_lot_chance(heat: float, lots_completed: int) -> float:
+## The chance the NICE BOYS come during one lot: the workbook's base, rising a
+## step (BAL-15) with each neighborhood up the hill, plus the crew's heat (0..100), capped.
+static func run_lot_chance(heat: float, hood_index: int) -> float:
 	var chance := Balance.RUN_EVENT_BASE_CHANCE
-	chance += Balance.RUN_CHANCE_ESCALATION_PER_TIER * float(lots_completed)
+	chance += Balance.RUN_CHANCE_ESCALATION_PER_TIER * float(maxi(0, hood_index))
 	chance += Constants.HEAT_CHANCE_AT_MAX * heat / 100.0
 	return minf(chance, Balance.MAXIMUM_RUN_EVENT_CHANCE)

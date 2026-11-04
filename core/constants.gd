@@ -126,11 +126,13 @@ const PAD_RECTS: Dictionary = {
 
 ## Tools and tasks, from Taylan on 2026-10-20: buying a tool unlocks the task it
 ## does, and every job asks for a different mix (docs/GAME.md, developer notes).
-## TODO(balance): prices, pay, weights, and work rates are not in the workbook yet.
+## Prices tuned by tools/balance_sim.py (docs/BALANCE.md, balance:E): each costs
+## 0.5 to 2 days of one player's income when it unlocks, solo or four players.
+## Pay, weights and work rates are not in the workbook yet.
 ## Tool id -> price at Homie Depot, in dollars.
 const TOOL_PRICES: Dictionary = {
-	"leaf_blower": 110, "lawn_mower": 180, "ladder": 140, "hose": 70,
-	"pressure_washer": 260, "hedge_trimmer": 130, "paint_roller": 90,
+	"leaf_blower": 400, "lawn_mower": 300, "ladder": 350, "hose": 350,
+	"pressure_washer": 420, "hedge_trimmer": 450, "paint_roller": 350,
 }
 ## Task id -> the tool it needs ("" for bare hands). Raking is paid by the bag.
 const TASK_TOOLS: Dictionary = {
@@ -163,8 +165,11 @@ const TASK_REACH: Dictionary = {
 const JOB_BOARD_OFFERS: int = 3
 ## Heat, from Taylan on 2026-10-21 (docs/FUN.md): the noise the crew makes, what
 ## it breaks, and who it bonks draw the NICE BOYS. 0 to 100; the run director
-## rolls against it (net/run_events/heat.gd). TODO(balance): not in the workbook.
-const HEAT_NOISE_PER_SECOND: Dictionary = {"lawn_mower": 1.6, "leaf_blower": 1.4, "pressure_washer": 1.0, "hedge_trimmer": 0.9}
+## rolls against it (net/run_events/heat.gd). Tuned by tools/balance_sim.py
+## (docs/BALANCE.md, balance:E): a mower-and-blower job draws the NICE BOYS about
+## half the time, a quiet Maple Row one about a quarter, Mansion Hill at night
+## nearly always (it was a raid every job: a minute of mowing pinned the heat).
+const HEAT_NOISE_PER_SECOND: Dictionary = {"lawn_mower": 0.2, "leaf_blower": 0.15, "pressure_washer": 0.2, "hedge_trimmer": 0.18}
 const HEAT_HYDRANT: float = 12.0
 const HEAT_PER_BILL_DOLLAR: float = 0.15
 const HEAT_PEDESTRIAN_BONK: Dictionary = {"light": 4.0, "medium": 8.0, "heavy": 14.0}
@@ -380,8 +385,8 @@ const TOWN_STARTING_CLIENTS: int = 3
 
 ## Hired hands (net/crew/hires.gd, npcs/crew_hand.gd): what one costs to sign
 ## and per day, how often they rake, how many strokes make a pile, how fast they walk.
-const HIRE_SIGNING_FEE: int = 150
-const HIRE_DAILY_WAGE: int = 40
+const HIRE_SIGNING_FEE: int = 500
+const HIRE_DAILY_WAGE: int = 35
 const HIRE_STROKE_SECONDS: float = 0.55
 const HIRE_STROKES_PER_PILE: int = 10
 const HIRE_SPEED: float = 3.2
@@ -681,10 +686,11 @@ const SHOP_REACH_SLACK: float = 1.5
 ## Prices for everything that isn't a tool tier (tools are TOOL_PRICES x
 ## TOOL_TIER_PRICE). Snak-o-Matic prices here are before VENDING_PRICE_SCALE.
 const SHOP_PRICES: Dictionary = {
-	# Upgrades. The first two match Balance.BASELINE_TIER_1_TOOL_COST. Since p2-kit
-	# rake_tier_1 and rake_tier_2 are rakes you buy (the Mk II and Mk III), next to
-	# the plain rake ($50 buys one with change for bags) and Rusty's bent one.
-	"rake_tier_1": 120, "wheelbarrow_tier_1": 120, "rake_tier_2": 1200,
+	# Upgrades. Since p2-kit rake_tier_1 and rake_tier_2 are rakes you buy (the Mk II
+	# and Mk III), next to the plain rake ($50 buys one with change for bags) and
+	# Rusty's bent one. balance:E (tools/balance_sim.py): the Mk II is the first
+	# thing each player saves for, about a day of a four-player crew's pay.
+	"rake_tier_1": 200, "wheelbarrow_tier_1": 350, "rake_tier_2": 1200,
 	"rake": 25, "rake_used": 12,
 	# Gear (driving G1): the Gutter Shredder, Marty's nephew's old board.
 	"skateboard": 60,
@@ -766,9 +772,12 @@ const GAS_CAN_CARRY: float = 5.0
 
 ## Deliveries: a flat fee plus a share of the price, how many clock hours they
 ## take, when after-hours orders land, and how many can be open at once.
+## balance:E: three quarters of a clock hour, under a real minute (it was 2.0,
+## two and a half real minutes at the pallet, and playtesters found it long);
+## arrivals round up to DELIVERY_ROUND_MINUTES, so keep it on a quarter hour.
 const DELIVERY_FEE: int = 15
 const DELIVERY_FEE_SHARE: float = 0.1
-const DELIVERY_HOURS: float = 2.0
+const DELIVERY_HOURS: float = 0.75
 const DELIVERY_AFTER_HOURS_ARRIVE: float = 9.0
 const DELIVERY_MAX_OPEN: int = 3
 
@@ -868,7 +877,7 @@ const TEAMMATE_SEEN_METERS: float = 25.0
 ## balance:E0, pulled forward by R2 (core/economy.gd run_roll_chance): the raid
 ## formula's chance is per lot of about this many minutes, spread over the
 ## director's HEAT_ROLL_SECONDS rolls.
-const RAID_LOT_MINUTES: float = 8.0
+const RAID_LOT_MINUTES: float = 5.0
 
 
 # ---- cast
@@ -5486,8 +5495,9 @@ const VAN_PASSER_LEAD: float = 3.0
 # "Leaving together", levels/world.gd _tick_boarding, net/components/ride.gd)
 ## Chefty's honk-and-wait: the first boarder sits, Chefty honks, and the truck
 ## goes this long after (s), or sooner once the whole crew there is aboard. The
-## same window after the homeowner's cash, before the ride home.
-const CHEFTY_BOARD_WAIT_SECONDS: float = 6.0
+## same window after the homeowner's cash, before the ride home. balance:E: 8 (was
+## 6), long enough to walk over from the shelves or across the yard at a walk.
+const CHEFTY_BOARD_WAIT_SECONDS: float = 8.0
 ## Everyone aboard: the beat (s) before it pulls away, so the last one in lands
 ## in the bed and hears the engine before the road moves.
 const CHEFTY_BOARD_ALL_ABOARD_SECONDS: float = 1.0
@@ -5515,7 +5525,9 @@ const CHEFTY_BOARD_STEP_DOWN_Z: float = 3.6
 ## and every task asked for, the measure _judge uses, 0..1): she waves the crew
 ## over only past it, and below it the first talk gets a look at the yard and
 ## no cash; ask again and she'll call it a day anyway (npcs/homeowner.gd).
-const HOMEOWNER_SETTLE_DONE: float = 0.25
+## balance:E: half the job (was a quarter): "Call it a day" comes on its own once
+## the yard is about where she'd stop calling it a mess (HOMEOWNER_MESSY_BELOW).
+const HOMEOWNER_SETTLE_DONE: float = 0.5
 ## "Some days people are just in a mood" (homeowner.verdict): a roll under this
 ## lifts the mood a step, over this drops it a step. A mess stays a mess, and
 ## only a job that's clean enough can be lifted to thrilled.
@@ -6268,12 +6280,15 @@ const CHEFTY_RIDE_LATE_MAKEUP_SECONDS: float = 3.0
 ## After the cash, Chefty waits longer for the crew still out on the yard: when
 ## its window has this little left (s) and someone's still coming, it goes on
 ## this much longer (s, a last-call honk each time), up to this long in all (s).
+## balance:E: 30 (was 24), for someone across the yard with a full bag.
 const CHEFTY_BOARD_STRAGGLER_LEAD: float = 0.2
 const CHEFTY_BOARD_STRAGGLER_STEP: float = 4.0
-const CHEFTY_BOARD_STRAGGLER_WAIT: float = 24.0
+const CHEFTY_BOARD_STRAGGLER_WAIT: float = 30.0
 ## When it does go, whoever's within this of the bed (m, flat) climbs in; farther
 ## off they're left on the yard (never pulled into the bed from across it).
-const CHEFTY_BOARD_GATHER_REACH: float = 7.5
+## balance:E: 9 (was 7.5), the farthest a climb still starts from
+## (CHEFTY_BOARD_CLIMB_FROM_MAX), so a last-second jog up still gets a hop in.
+const CHEFTY_BOARD_GATHER_REACH: float = 9.0
 ## Asked for while on its way out to the yard, Chefty turns round for the
 ## straggler at the pad this long (s) after it drops the crew off.
 const CHEFTY_FETCH_TURNAROUND_SECONDS: float = 1.5
@@ -6432,3 +6447,14 @@ const STAGE_POST_LENS_CLEAR: float = 1.1
 ## share of its height (an evergreen's skirt goes by VAN_TREE_SPREAD.x instead).
 const STAGE_LAMP_POST_RADIUS: float = 0.12
 const STAGE_TRUNK_SHARE: float = 0.045
+
+# ---- balance:E (the retune; docs/BALANCE.md, tools/balance_sim.py)
+## Crew size, by players on the session (index 0 is one player). A yard's leaves
+## scale with the crew (levels/world.gd _load_job_lot: a solo yard is a smaller
+## job, not a smaller pay rate), the homeowner waits a little longer for a small
+## crew (npcs/homeowner.gd), and a small crew earns more XP per job
+## (core/economy.gd job_xp), so solo and four players climb at similar speeds.
+## Tuned by tools/balance_sim.py (docs/BALANCE.md).
+const CREW_WORK_SCALE: Array[float] = [0.6, 0.75, 0.9, 1.0]
+const CREW_PATIENCE_SCALE: Array[float] = [1.15, 1.05, 1.0, 1.0]
+const XP_CREW_SCALE: Array[float] = [2.35, 1.4, 1.1, 1.0]

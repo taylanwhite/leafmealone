@@ -502,6 +502,8 @@ func _judge(value: int) -> String:
 	var patience := Constants.HOMEOWNER_PATIENCE_MINUTES
 	if Campaign.has_perk("sweet_talk"):
 		patience *= Constants.SWEET_TALK_PATIENCE
+	# A small crew gets a little longer (Constants.CREW_PATIENCE_SCALE, balance:E).
+	patience *= _Economy.crew_patience_scale(Net.player_count())
 	var slow := Campaign.job_minutes() > patience
 	return verdict(clean, clean_enough, messy_below, slow, grumbles, _rng)
 
