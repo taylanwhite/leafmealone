@@ -9,13 +9,17 @@ extends Node
 ##   keep        she then stands off: at least HOMEOWNER_KEEP_METERS * HOMEOWNER_KEEP_TRIGGER from
 ##               you, or as far as her patch of yard lets her.
 ##   view        answering a talk, she walks (no teleport) to the middle of the
-##               talker's view, about HOMEOWNER_FACE_METERS away.
-##   price       the cash's price floats over her head, small, not over her chest.
+##               talker's view, about HOMEOWNER_FACE_METERS away, though the other
+##               player stands nearer to her; the client has her on the same spot.
+##   price       in reach, the take-the-cash pill carries the amount, under the
+##               cash; out of reach, the price floats over her head, small.
 ##   dolly       a camera dollied through her head at 6 m/s: she's gone before the
 ##               lens gets there (no frame inside LENS_FADE_GONE_METERS shows her),
 ##               fades in steps no faster than the crossing allows, and comes
 ##               back once it's past.
 ##   cut         a camera cut into her head lands faded at once; cut away, solid.
+##   share       just outside the distance band at a 60 degree FOV her head is
+##               over half the picture: gone; on a lens_composed camera, solid.
 ##   remote      (each peer) the other player walks into your face: their body
 ##               fades out (shown inside the gone distance no longer than a fade
 ##               takes), and back in no faster than LENS_FADE_IN_SECONDS when they
@@ -29,7 +33,7 @@ const HOLD_SECONDS: float = 1.5
 const DOLLY_SPEED: float = 6.0
 ## How far in front of the other's eyes a walker puts its feet (m): heads overlap.
 const WALK_IN_METERS: float = 0.2
-const STEPS_HOST: Array[String] = ["solid", "keep", "view", "price", "dolly", "cut", "remote", "own", "client"]
+const STEPS_HOST: Array[String] = ["solid", "keep", "view", "price", "dolly", "cut", "share", "remote", "own", "client"]
 
 static var result: Dictionary = {}
 
@@ -47,6 +51,7 @@ var _host_walked: bool = false
 var _client_done: bool = false
 var _client_ok: bool = false
 var _client_detail: String = ""
+var _client_ho_at := Vector3.INF
 
 
 func _ready() -> void:
@@ -108,7 +113,7 @@ func _run_host() -> void:
 func _homeowner_checks() -> void:
 	var ho := get_tree().get_first_node_in_group("homeowner") as Node3D
 	if ho == null:
-		for step: String in ["solid", "keep", "view", "price", "dolly", "cut"]:
+		for step: String in ["solid", "keep", "view", "price", "dolly", "cut", "share"]:
 			_step(step, false, "no homeowner on the yard")
 		return
 	var body := ho.get_node_or_null("CartoonBody") as Node3D
@@ -157,12 +162,14 @@ func _homeowner_checks() -> void:
 	var stand := home + front * 2.0
 	var toward := -front
 	var looks := Vector3.ZERO
+	var looks_turn := 0.0
 	for turn: float in [1.2, -1.2, 0.9, -0.9]:
 		var look := toward.rotated(Vector3.UP, turn)
 		var spot := stand + look * Constants.HOMEOWNER_FACE_METERS
 		var ray := PhysicsRayQueryParameters3D.create(home + Vector3(0.0, 1.0, 0.0), spot + Vector3(0.0, 1.0, 0.0) + (spot - home).normalized() * 0.5, 1 | Constants.VEHICLE_LAYER)
 		if ho.get_world_3d().direct_space_state.intersect_ray(ray).is_empty() and Vector2(spot.x - home.x, spot.z - home.z).length() < Constants.HOMEOWNER_STAGE_RADIUS - 0.1:
 			looks = look
+			looks_turn = turn
 			break
 	if looks == Vector3.ZERO:
 		_step("view", false, "no clear spot in front of the talker on this yard to test with")
@@ -170,6 +177,16 @@ func _homeowner_checks() -> void:
 		_move_me(Vector3(stand.x, me.global_position.y + 0.05, stand.z), looks)
 		await _ticks(5)
 		var off_before := _view_angle(me, ho)
+		# The other player stands nearer to her than the talker (out of her way, on
+		# the side she won't walk to, just outside where she'd step back): she
+		# still steps into the talker's view, the one who asked.
+		var client_id := int(str(_other().name))
+		var near_spot := home + toward.rotated(Vector3.UP, -signf(looks_turn) * PI * 0.5) * (Constants.HOMEOWNER_KEEP_METERS * Constants.HOMEOWNER_KEEP_TRIGGER + 0.1)
+		_rpc_stand_at.rpc_id(client_id, near_spot, toward)
+		await _until(func() -> bool: return _flat(_other().global_position, near_spot) < 0.3, 4.0)
+		await _wait(0.4)
+		var other_nearer := _flat(_other().global_position, ho.global_position) < _flat(me.global_position, ho.global_position)
+		ho.call("host_stage_for", Net.local_peer_id())
 		ho.call("_rpc_react", "fine", 0, 10, "")
 		var fastest := 0.0
 		var last := ho.global_position
@@ -186,16 +203,34 @@ func _homeowner_checks() -> void:
 				break
 		var angle := _view_angle(me, ho)
 		var dist := _flat(ho.global_position, me.global_position)
-		_step("view", moved and angle < 25.0 and dist > 1.3 and dist < 2.3 and fastest <= Constants.HOMEOWNER_WALK_SPEED * 1.15,
-			"she was %.0f deg off the talker's view; walked to %.0f deg off at %.2f m, never faster than %.2f m/s" % [off_before, angle, dist, fastest])
+		# Where the client has her: the same spot (the host sends where she goes).
+		_client_ho_at = Vector3.INF
+		await _wait(0.6)
+		_rpc_ask_homeowner.rpc_id(client_id)
+		await _until(func() -> bool: return _client_ho_at.is_finite(), 4.0)
+		var apart := _flat(_client_ho_at, ho.global_position) if _client_ho_at.is_finite() else INF
+		_step("view", moved and other_nearer and angle < 25.0 and dist > 1.3 and dist < 2.3 and fastest <= Constants.HOMEOWNER_WALK_SPEED * 1.15 and apart < 0.15,
+			"she was %.0f deg off the talker's view (the other player nearer: %s); walked to %.0f deg off at %.2f m, never faster than %.2f m/s; the client has her %.2f m from the host's spot" % [off_before, other_nearer, angle, dist, fastest, apart])
+		_rpc_stand_at.rpc_id(client_id, home + front * 8.0 + toward.rotated(Vector3.UP, PI * 0.5) * 3.0, toward)
 	# ---- price
 	ho.call("_offer", 10)
-	await _ticks(3)
+	await _frames(3)
 	var price := ho.get_node_or_null("Price") as Label3D
+	# In reach, the take-the-cash pill carries the amount (and sits under the
+	# cash, not on it); a step back out of reach, the price over her head shows.
+	var in_reach_shown := price != null and price.visible
+	var pill: Dictionary = ho.call("prompt")
+	var cash := ho.get_node("Cash") as Node3D
+	var pill_under := not pill.is_empty() and (pill["at"] as Vector3).y < cash.global_position.y - 0.08
+	var back := me.global_position - ho.global_position
+	back.y = 0.0
+	_move_me(ho.global_position + back.normalized() * 4.0 + Vector3(0.0, me.global_position.y - ho.global_position.y + 0.05, 0.0), -back.normalized())
+	await _ticks(4)
+	await _frames(2)
 	var head_top := (body.call("pose_part", "face") as Node3D).global_position.y + Constants.LENS_HEAD_RADIUS - 0.05
 	var glyph := float(price.font_size) * price.pixel_size if price != null else INF
-	_step("price", price != null and price.visible and price.get_parent() == ho and price.global_position.y >= head_top and glyph <= 0.16,
-		"price %s over her head by %.2f m, %.3f m tall" % [price != null and price.visible, (price.global_position.y - head_top) if price != null else -1.0, glyph])
+	_step("price", price != null and not in_reach_shown and pill_under and price.visible and price.get_parent() == ho and price.global_position.y >= head_top and glyph <= 0.16,
+		"in reach: price shown %s, pill under the cash %s; out of reach: price %s over her head by %.2f m, %.3f m tall" % [in_reach_shown, pill_under, price != null and price.visible, (price.global_position.y - head_top) if price != null else -1.0, glyph])
 	# Back to waiting (this was the host's copy only).
 	ho.set("_phase", 0)
 	(ho.get_node("Cash") as Node3D).visible = false
@@ -266,6 +301,21 @@ func _dolly(ho: Node3D, body: Node3D, front: Vector3) -> void:
 	await _frames(2)
 	var cut_out := float(body.get("lens_fade"))
 	_step("cut", cut_in >= 0.99 and cut_out <= 0.0, "cut in: %.2f, cut out: %.2f" % [cut_in, cut_out])
+	# ---- share: looking at her face from just outside the distance band, at a
+	# 60 degree FOV her head is over half the picture: gone. On a camera whose
+	# shots are framed on purpose (a StageCam's lens_composed), solid.
+	face = (body.call("pose_part", "face") as Node3D).global_position + Vector3(0.0, Constants.LENS_HEAD_CENTER_Y, 0.0)
+	var near := Constants.LENS_FADE_START_METERS + Constants.LENS_HEAD_RADIUS + 0.05
+	cam.fov = 60.0
+	cam.look_at_from_position(face + front * near, face, Vector3.UP)
+	await _frames(3)
+	var share_fade := float(body.get("lens_fade"))
+	var share := float(_Body.lens_screen_share(cam, cam.global_transform, face, Constants.LENS_HEAD_RADIUS))
+	cam.set_meta(&"lens_composed", true)
+	await _wait(Constants.LENS_FADE_IN_SECONDS + 0.3)
+	var composed_fade := float(body.get("lens_fade"))
+	_step("share", share >= Constants.LENS_SCREEN_GONE and share_fade >= 0.99 and composed_fade <= 0.0,
+		"%.2f m off at 60 deg, her head %.0f%% of the picture: fade %.2f; on a composed camera: %.2f" % [near, share * 100.0, share_fade, composed_fade])
 	cam.current = false
 	cam.queue_free()
 	if before != null and is_instance_valid(before):
@@ -313,6 +363,26 @@ func _rpc_host_walked() -> void:
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_walked() -> void:
 	_peer_walked = true
+
+
+## Client: stand there (the view step's bystander, then out of the way).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_stand_at(at: Vector3, facing: Vector3) -> void:
+	var me := _me()
+	if me != null:
+		_move_me(Vector3(at.x, me.global_position.y + 0.05, at.z), facing)
+
+
+## Client: where this peer has the homeowner.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_ask_homeowner() -> void:
+	var ho := get_tree().get_first_node_in_group("homeowner") as Node3D
+	_rpc_homeowner_at.rpc_id(1, ho.global_position if ho != null else Vector3.INF)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_homeowner_at(at: Vector3) -> void:
+	_client_ho_at = at
 
 
 @rpc("any_peer", "call_remote", "reliable")

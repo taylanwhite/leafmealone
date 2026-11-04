@@ -162,8 +162,13 @@ func prompt() -> Dictionary:
 		Phase.WAITING:
 			return {"text": _Strings.UI["prompt_talk"], "at": global_position + Vector3(0.0, 2.9, 0.0)}
 		Phase.OFFERING:
-			# At the offered handful, not over the face (P1 lens: half a meter up, the pill sat on her face).
-			return {"text": _Strings.UI["prompt_take_cash"] % _amount, "at": _cash.global_position}
+			# Just under the offered handful, not over the face (P1 lens: half a meter
+			# up, the pill sat on her face; on the cash, it hid the cash). The drop
+			# grows with distance, so it's about the pill's height on screen and the
+			# pill stays in the picture up close.
+			var cam := get_viewport().get_camera_3d()
+			var away := cam.global_position.distance_to(_cash.global_position) if cam != null else Constants.HOMEOWNER_FACE_METERS
+			return {"text": _Strings.UI["prompt_take_cash"] % _amount, "at": _cash.global_position - Vector3(0.0, Constants.HOMEOWNER_PROMPT_DROP * away, 0.0)}
 	return {}
 
 
@@ -208,6 +213,9 @@ func _process(delta: float) -> void:
 		# Keep the hands out, and let the cash bob so it reads as "take this".
 		if _body.call("current_gesture") != "offer":
 			_body.call("gesture", "offer")
+		# In reach, the pill says the amount; the price over their head is for
+		# everyone further off (one "$9" on screen, not two).
+		_cash_label.visible = not _local_in_reach()
 		_cash.position.y = 1.05 + sin(Time.get_ticks_msec() * 0.005) * 0.03
 	_beckon(delta)
 
@@ -284,6 +292,9 @@ func _handle_talk(peer_id: int) -> void:
 			var pay := int(round(float(Constants.TASK_PAY[task]) * done))
 			task_value += pay
 			task_lines.append([task, int(round(done * 100.0)), pay])
+	# Into the talker's view (the one who asked, not whoever's nearest), the same
+	# spot on every peer.
+	host_stage_for(peer_id)
 	var mood := _judge(value + task_value)
 	# Their water isn't free.
 	var water_fee := int(round(float(tasks.get("water_fee")))) if tasks != null else 0
@@ -431,8 +442,14 @@ func _rpc_request_take() -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_request_state() -> void:
-	if Net.is_host() and _phase == Phase.OFFERING:
-		_rpc_offer_with.rpc_id(multiplayer.get_remote_sender_id(), _amount)
+	if not Net.is_host():
+		return
+	var asker := multiplayer.get_remote_sender_id()
+	# Where they stand and where they're headed (a joiner mid-talk sees her where
+	# everyone else does).
+	_rpc_walk_sync.rpc_id(asker, _home, position, _shared_want if _shared_want.is_finite() else position, _talker)
+	if _phase == Phase.OFFERING:
+		_rpc_offer_with.rpc_id(asker, _amount)
 
 
 # ---------------------------------------------------------------- every peer
@@ -444,7 +461,6 @@ func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -
 	# pool is "<mood>", "bill_<reason>" or "<personality>/<mood>" (Strings.homeowner_pool).
 	var lines: Array = _Strings.homeowner_pool(pool if pool != "" else mood)
 	show_caption(str(lines[clampi(line_index, 0, lines.size() - 1)]))
-	_step_into_view()
 	var staging: Dictionary = STAGING.get(mood, STAGING["fine"])
 	_body.set("mood", staging["mood"])
 	_body.call("gesture", staging["gesture"])
@@ -466,7 +482,8 @@ func _offer(amount: int) -> void:
 	_phase = Phase.OFFERING
 	_cash_label.text = _Strings.UI["cash_amount"] % amount
 	_cash.visible = true
-	_cash_label.visible = true
+	# In reach, the pill says the amount (_process keeps this up to date).
+	_cash_label.visible = not _local_in_reach()
 
 
 @rpc("authority", "call_local", "reliable")
@@ -486,6 +503,7 @@ func _rpc_paid(peer_id: int) -> void:
 	_cash.visible = false
 	_cash_label.visible = false
 	_stage_to = Vector3.INF
+	_talker = 0
 	_body.set("mood", "raised")
 	_body.call("gesture", "wave")
 	# Seeded by the amount, which every peer has, so they all hear the same goodbye.
@@ -574,6 +592,10 @@ func _turn_toward_nearest(delta: float) -> void:
 	var best := 8.0
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var body := node as Node3D
+		# Talking with someone: it's them she faces, whoever else walks up.
+		if body != null and _talker != 0 and (_phase == Phase.REACTING or _phase == Phase.OFFERING) and node.name == str(_talker):
+			nearest = body
+			break
 		if body != null and _flat_distance(body) < best:
 			nearest = body
 			best = _flat_distance(body)
@@ -587,8 +609,11 @@ func _turn_toward_nearest(delta: float) -> void:
 # P1 lens (docs/GAME.md, "Nobody's face at the lens"): they keep a polite
 # distance and, when they answer you, step round to where you're looking (NB-05:
 # Patrice talked from half off the left edge of the screen for four seconds).
-# Every peer works it out from what every peer has (the players' replicated
-# positions and facing), so they all see her walk the same way; nothing is sent.
+# The host decides where she goes (who's too close, who asked) and sends each
+# new destination (_rpc_walk, lot space); every peer walks her there the same
+# way, so the spot the host checks reach against is the spot every player sees
+# (P1 lens review: each peer picking its own nearest player put her up to 2.4 m
+# apart). A joiner gets where she is and where she's headed (_rpc_walk_sync).
 
 ## Where they wait (in the lot's space), where they're stepping to (INF: nowhere
 ## in particular), and how fast they're walking now.
@@ -597,6 +622,14 @@ var _stage_to := Vector3.INF
 var _back_to := Vector3.INF
 var _walk_speed: float = 0.0
 var _left_at := Vector3.INF
+## Who she's answering (a peer id, 0: nobody): she faces them while she talks.
+var _talker: int = 0
+## Host: the destination last sent (lot space), when, and one waiting to go.
+var _shared_want := Vector3.INF
+var _shared_at: float = -INF
+var _share_pending: bool = false
+## Clients: the destination the host last sent.
+var _net_want := Vector3.INF
 
 
 func _physics_process(delta: float) -> void:
@@ -608,7 +641,19 @@ func _physics_process(delta: float) -> void:
 		_home = position
 		_stage_to = Vector3.INF
 		_back_to = Vector3.INF
+		_net_want = Vector3.INF
+		_shared_want = Vector3.INF
 		_walk_speed = 0.0
+	if Net.is_host() or multiplayer.multiplayer_peer == null or multiplayer.multiplayer_peer is OfflineMultiplayerPeer:
+		_host_steps(delta)
+	else:
+		_walk(_net_want, delta)
+	_left_at = position
+
+
+## Host: where she should be heading this tick, walked, and shared.
+func _host_steps(delta: float) -> void:
+	var parent := get_parent() as Node3D
 	var nearest := _nearest_player()
 	var away := _flat_distance(nearest) if nearest != null else INF
 	# On the way round into the talker's view the path can cut a little inside the
@@ -632,23 +677,69 @@ func _physics_process(delta: float) -> void:
 	elif away > Constants.HOMEOWNER_HOME_AFTER_METERS:
 		_stage_to = Vector3.INF
 		want = _home
+	# Where she ends up this tick when there's nowhere to go: where she stopped.
+	var heading := want
 	if _walk(want, delta):
 		_back_to = Vector3.INF
-	_left_at = position
+	_share_want(heading if heading.is_finite() else position, false)
 
 
-## Every peer, when they react: the talker is the nearest player in reach; they
-## step to HOMEOWNER_FACE_METERS in front of that player's eyes, so the line, the
-## gesture and the cash happen in the middle of the talker's screen.
-func _step_into_view() -> void:
-	var talker := _nearest_player()
+## Host: sends a new destination to everyone (at most every
+## HOMEOWNER_WALK_SHARE_SECONDS while someone keeps crowding her; the latest one
+## always goes out).
+func _share_want(want: Vector3, now: bool) -> void:
+	var changed := not _shared_want.is_finite() or want.distance_to(_shared_want) > 0.05
+	if not changed and not _share_pending and not now:
+		return
+	if changed:
+		_shared_want = want
+		_share_pending = true
+	var clock := Time.get_ticks_msec() / 1000.0
+	if not now and clock - _shared_at < Constants.HOMEOWNER_WALK_SHARE_SECONDS:
+		return
+	_share_pending = false
+	_shared_at = clock
+	if multiplayer.multiplayer_peer != null and Net.is_host() and multiplayer.get_peers().size() > 0:
+		_rpc_walk.rpc(_shared_want, _talker)
+
+
+## Host, when someone talks to them: the talker is peer_id (whoever asked, not
+## whoever's nearest); they step to HOMEOWNER_FACE_METERS in front of that
+## player's eyes, so the line, the gesture and the cash happen in the middle of
+## the talker's screen. Sent to every peer at once.
+func host_stage_for(peer_id: int) -> void:
 	var parent := get_parent() as Node3D
+	var talker: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(peer_id):
+			talker = node as Node3D
 	if talker == null or parent == null or _flat_distance(talker) > TALK_REACH + 0.5:
 		return
+	_talker = peer_id
 	var yaw := float(talker.get("body_yaw")) if "body_yaw" in talker else talker.global_rotation.y
 	var ahead := Vector3(-sin(yaw), 0.0, -cos(yaw))
 	var spot := talker.global_position + ahead * Constants.HOMEOWNER_FACE_METERS
 	_stage_to = parent.to_local(Vector3(spot.x, global_position.y, spot.z))
+	_back_to = Vector3.INF
+	_share_want(_stage_to, true)
+
+
+## Every peer but the host: where she's headed now (lot space), and who she's talking to.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_walk(want: Vector3, talker: int) -> void:
+	_net_want = want
+	_talker = talker
+
+
+## A joiner: where she waits, where she is, where she's headed, who she's talking to.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_walk_sync(home: Vector3, at: Vector3, want: Vector3, talker: int) -> void:
+	_home = home
+	position = Vector3(at.x, position.y, at.z)
+	_left_at = position
+	_net_want = want
+	_talker = talker
+	_walk_speed = 0.0
 
 
 ## Walks toward want (lot space; INF stays put): within HOMEOWNER_STAGE_RADIUS of

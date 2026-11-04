@@ -140,6 +140,9 @@ static func drawn_pose(node: Node3D) -> Transform3D:
 func _ready() -> void:
 	top_level = true
 	far = 400.0
+	# Its shots are framed on purpose: the near-lens net (player/cartoon_body.gd)
+	# keeps only its distance rule here, not how big a head looks.
+	set_meta(&"lens_composed", true)
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	# Late in the frame, after everything an anchor can ride on has moved.
 	process_priority = 120

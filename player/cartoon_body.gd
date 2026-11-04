@@ -259,6 +259,10 @@ var _lens_out_rate: float = 1.0 / Constants.LENS_FADE_OUT_SECONDS
 var _lens_cam: Camera3D
 var _lens_cam_at := Vector3.INF
 var _lens_last_clear: float = INF
+var _lens_last_share: float = -1.0
+## How long (s) this body's head has looked big in the drawing camera's picture
+## (LENS_SCREEN_START or more). For the recorder.
+var lens_big_for: float = 0.0
 var _lens_written: float = 0.0
 var _lens_parts: int = 0
 ## Bodies the net is measuring now (instance id -> {who, clear, fade}), for the
@@ -1037,13 +1041,16 @@ func _lens_net(delta: float) -> void:
 		_lens_cam = null
 		lens_watch.erase(key)
 		return
-	var cam_at := cam.get_global_transform_interpolated().origin if cam.is_physics_interpolated_and_enabled() else cam.global_position
+	var cam_xf := cam.get_global_transform_interpolated() if cam.is_physics_interpolated_and_enabled() else cam.global_transform
+	var cam_at := cam_xf.origin
 	var cut := cam != _lens_cam or not _lens_cam_at.is_finite() or cam_at.distance_to(_lens_cam_at) > Constants.LENS_CUT_METERS
 	_lens_cam = cam
 	_lens_cam_at = cam_at
 	var drawn := get_global_transform_interpolated() if is_physics_interpolated_and_enabled() else global_transform
 	if drawn.origin.distance_to(cam_at) > Constants.LENS_CHECK_METERS + 1.0 and lens_fade <= 0.0:
 		_lens_last_clear = INF
+		_lens_last_share = -1.0
+		lens_big_for = 0.0
 		lens_watch.erase(key)
 		return
 	var clear := lens_clearance(cam_at)
@@ -1060,6 +1067,22 @@ func _lens_net(delta: float) -> void:
 	_lens_last_clear = clear
 	var span := maxf(Constants.LENS_FADE_START_METERS - Constants.LENS_FADE_GONE_METERS, 0.001)
 	var target := smoothstep(0.0, 1.0, clampf((Constants.LENS_FADE_START_METERS - clear) / span, 0.0, 1.0))
+	# And by how much of the picture the head takes up (the FOV's say), on the
+	# player's own cameras (a StageCam shot is framed on purpose: lens_composed).
+	# Only a face that stays big (LENS_SCREEN_DWELL_SECONDS, or from a cut): one
+	# that's there for a moment (a NICE BOY's lunge landing, the shot cutting away
+	# 0.2 s later) stays solid; the distance rule still has the lens itself.
+	var share := 0.0
+	if not cam.has_meta(&"lens_composed"):
+		var head := lens_head_point()
+		if head.distance_to(cam_at) < Constants.LENS_SCREEN_METERS:
+			share = lens_screen_share(cam, cam_xf, head, Constants.LENS_HEAD_RADIUS)
+	if share >= Constants.LENS_SCREEN_START:
+		lens_big_for = maxf(lens_big_for, Constants.LENS_SCREEN_DWELL_SECONDS) if cut else lens_big_for + delta
+	else:
+		lens_big_for = 0.0
+	if lens_big_for >= Constants.LENS_SCREEN_DWELL_SECONDS:
+		target = maxf(target, smoothstep(Constants.LENS_SCREEN_START, Constants.LENS_SCREEN_GONE, share))
 	var before := lens_fade
 	# Closing faster than a fade takes (a dolly at van speed, a lunge): the fade
 	# keeps pace with the band (1.5: the smoothstep's steepest), so it's done when
@@ -1067,13 +1090,19 @@ func _lens_net(delta: float) -> void:
 	# a NICE BOY lunging to a stop short of you blinked a quarter see-through
 	# (rec_lens_nb_1p 66).
 	_lens_out_rate = maxf(1.0 / maxf(Constants.LENS_FADE_OUT_SECONDS, 0.001), 1.5 * closing / span)
+	# The same for a head growing in the picture faster than a fade takes (a
+	# spectator camera swinging round onto a passer-by, rec_lens4_pay_3p 37.3 s).
+	if not cut and _lens_last_share >= 0.0 and delta > 0.0 and share > _lens_last_share:
+		var growing := (share - _lens_last_share) / delta
+		_lens_out_rate = maxf(_lens_out_rate, 1.5 * growing / maxf(Constants.LENS_SCREEN_GONE - Constants.LENS_SCREEN_START, 0.001))
+	_lens_last_share = share
 	_lens_settle(target, delta, cut)
 	if not cut:
 		lens_log["max_step"] = maxf(float(lens_log["max_step"]), absf(lens_fade - before))
 	if clear < Constants.LENS_FADE_GONE_METERS and lens_fade < 0.9:
 		lens_log["shown_inside"] = int(lens_log["shown_inside"]) + 1
 	if clear < Constants.LENS_CHECK_METERS or lens_fade > 0.0:
-		lens_watch[key] = {"who": lens_label(), "clear": clear, "fade": lens_fade}
+		lens_watch[key] = {"who": lens_label(), "clear": clear, "share": share, "fade": lens_fade}
 	else:
 		lens_watch.erase(key)
 
@@ -1127,19 +1156,61 @@ func _lens_geometry() -> Array[GeometryInstance3D]:
 
 
 ## How far (m) the point is from this body's head or chest, whichever is nearer,
-## measured from their surfaces (negative: inside), as drawn this frame.
+## measured from their surfaces (negative: inside), as drawn this frame. An arm
+## counts once its sleeve is within LENS_ARM_START_METERS (a NICE BOY's arm and
+## belly at the lens, crew-13), not as soon as a hand reaches toward you.
 func lens_clearance(point: Vector3) -> float:
 	if _hips == null or _face == null:
 		return INF
-	# The parts' poses are this tick's; the body's own drawn offset carries them
-	# to where they're drawn.
-	var drawn := get_global_transform_interpolated() if is_physics_interpolated_and_enabled() else global_transform
-	var shift := drawn * global_transform.affine_inverse()
-	var head := shift * (_face.global_transform * Vector3(0.0, Constants.LENS_HEAD_CENTER_Y, 0.0))
+	var shift := _lens_shift()
+	var head := lens_head_point()
 	var low := shift * _hips.global_position
 	var high := shift * (_torso.global_transform * Vector3(0.0, Constants.LENS_TORSO_HEIGHT, 0.0))
 	var on_chest := Geometry3D.get_closest_point_to_segment(point, low, high)
-	return minf(point.distance_to(head) - Constants.LENS_HEAD_RADIUS, point.distance_to(on_chest) - Constants.LENS_TORSO_RADIUS)
+	var clear := minf(point.distance_to(head) - Constants.LENS_HEAD_RADIUS, point.distance_to(on_chest) - Constants.LENS_TORSO_RADIUS)
+	var arm_lead := Constants.LENS_FADE_START_METERS - Constants.LENS_ARM_START_METERS
+	for arm: Node3D in _arms:
+		var shoulder := shift * arm.global_position
+		var hand := shift * (arm.global_transform * Vector3(0.0, -Constants.LENS_ARM_LENGTH, 0.0))
+		var on_arm := Geometry3D.get_closest_point_to_segment(point, shoulder, hand)
+		clear = minf(clear, point.distance_to(on_arm) - Constants.LENS_ARM_RADIUS + arm_lead)
+	return clear
+
+
+## The center of the head ball the net measures, where it's drawn this frame.
+func lens_head_point() -> Vector3:
+	if _face == null:
+		return global_position
+	return _lens_shift() * (_face.global_transform * Vector3(0.0, Constants.LENS_HEAD_CENTER_Y, 0.0))
+
+
+## The parts' poses are this tick's; the body's own drawn offset carries them to
+## where they're drawn.
+func _lens_shift() -> Transform3D:
+	var drawn := get_global_transform_interpolated() if is_physics_interpolated_and_enabled() else global_transform
+	return drawn * global_transform.affine_inverse()
+
+
+## How much of cam's picture a ball of radius at point takes up: its width as a
+## share of the picture's height (or width, whichever is narrower). 0 behind the
+## camera or off the picture. cam_xf is the camera as drawn.
+static func lens_screen_share(cam: Camera3D, cam_xf: Transform3D, point: Vector3, radius: float) -> float:
+	if cam == null or cam.projection != Camera3D.PROJECTION_PERSPECTIVE:
+		return 0.0
+	var local := cam_xf.affine_inverse() * point
+	var depth := -local.z
+	if depth <= 0.01:
+		return 0.0
+	var size := cam.get_viewport().get_visible_rect().size if cam.get_viewport() != null else Vector2(16.0, 9.0)
+	var aspect := size.x / maxf(size.y, 1.0)
+	var tan_v := tan(deg_to_rad(cam.fov) * 0.5)
+	var tan_h := tan_v * aspect
+	if cam.keep_aspect == Camera3D.KEEP_WIDTH:
+		tan_h = tan_v
+		tan_v = tan_h / maxf(aspect, 0.01)
+	if absf(local.x) - radius > depth * tan_h or absf(local.y) - radius > depth * tan_v:
+		return 0.0
+	return radius / (depth * minf(tan_v, tan_h))
 
 
 ## Who this body is, for logs: its character's node name.

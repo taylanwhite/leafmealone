@@ -726,7 +726,9 @@ func _poll_changes() -> void:
 ## P1 lens (player/cartoon_body.gd's near-lens net): who it's fading, in quarter
 ## steps ("lens"), and any head still showing at the lens ("face_at_lens", a
 ## finding): a body's head (any body but one this camera skips) within
-## LENS_FADE_GONE_METERS of the camera and faded less than 0.9. Every body in the
+## LENS_FADE_GONE_METERS of the camera, or (on the player's own cameras) taking
+## up LENS_SCREEN_GONE of the picture past the net's dwell, and faded less than
+## 0.9. Every body in the
 ## scene is checked, not just the ones the net is watching.
 func _poll_lens() -> void:
 	var fading := PackedStringArray()
@@ -743,6 +745,10 @@ func _poll_lens() -> void:
 	if not _post_draw:
 		return
 	if camera != null:
+		var cam_xf := camera.get_global_transform_interpolated() if camera.is_physics_interpolated_and_enabled() else camera.global_transform
+		# How big a head may look before it should be gone (the net's screen rule,
+		# on the player's own cameras; a StageCam shot is framed on purpose).
+		var by_share := not camera.has_meta(&"lens_composed")
 		var head_bit := 1 << (_LensBody.HEAD_LAYER - 1)
 		for body: Node in get_tree().root.find_children("CartoonBody", "", true, false):
 			if not body.has_method("lens_clearance") or not (body as Node3D).is_inside_tree():
@@ -753,9 +759,15 @@ func _poll_lens() -> void:
 			if face == null or not face.is_visible_in_tree():
 				continue
 			var at := face.get_global_transform_interpolated().origin if face.is_physics_interpolated_and_enabled() else face.global_position
-			var clear := at.distance_to(camera.global_position) - Constants.LENS_HEAD_RADIUS
-			if clear < Constants.LENS_FADE_GONE_METERS and float(body.get("lens_fade")) < 0.9:
-				showing.append("%s@%.2f" % [body.call("lens_label"), clear])
+			at += face.global_basis.y.normalized() * Constants.LENS_HEAD_CENTER_Y
+			var clear := at.distance_to(cam_xf.origin) - Constants.LENS_HEAD_RADIUS
+			var share := 0.0
+			# A face that has stayed big past the net's dwell and a fade's time.
+			var stayed := float(body.get("lens_big_for")) >= Constants.LENS_SCREEN_DWELL_SECONDS + Constants.LENS_FADE_OUT_SECONDS + 0.05
+			if by_share and stayed and at.distance_to(cam_xf.origin) < Constants.LENS_SCREEN_METERS:
+				share = _LensBody.lens_screen_share(camera, cam_xf, at, Constants.LENS_HEAD_RADIUS)
+			if (clear < Constants.LENS_FADE_GONE_METERS or share >= Constants.LENS_SCREEN_GONE) and float(body.get("lens_fade")) < 0.9:
+				showing.append("%s@%.2f/%.0f%%" % [body.call("lens_label"), clear, share * 100.0])
 	showing.sort()
 	_changed("face_at_lens", ",".join(showing), func(value: String) -> void:
 		if value != "":
