@@ -174,7 +174,10 @@ func _rake(player: Node3D, field: Node, tree: SceneTree) -> bool:
 		# (p2-kit: the crew buys a rake each), it keeps its own, so it's in its
 		# hands to put back on the rack when Chefty honks home (hotbar:E: two
 		# rested rakes lay out on the lawn at the honk, play\rec_honk6_1p).
-		_set_rake_down = share_rake and _rakeless_person(player, tree)
+		# Only while the rakeless outnumber the rakes already lying free on the yard
+		# (hotbar:E review, rec_lagbots2_3p: bots kept shedding rakes beside a free
+		# one until three lay loose and nobody raked).
+		_set_rake_down = share_rake and _rakeless_people(player, tree) > _spare_rakes(player, tree)
 		return true
 	if _pile == Vector3.INF:
 		_pile = _random_spot(field)
@@ -357,9 +360,10 @@ func _pocketed_work(player: Node3D) -> int:
 	return -1
 
 
-## Whether a person (not a bot, not the observer) on the yard has no rake in hand
+## How many people (not bots, not the observer) on the yard have no rake in hand
 ## or pocket.
-func _rakeless_person(player: Node3D, tree: SceneTree) -> bool:
+func _rakeless_people(player: Node3D, tree: SceneTree) -> int:
+	var count := 0
 	for node: Node in tree.get_nodes_in_group("players"):
 		var peer_id := int(str(node.name))
 		if node == player or Net.player_zone(peer_id) != Net.Zone.LOT or Net.is_watcher(peer_id):
@@ -373,8 +377,25 @@ func _rakeless_person(player: Node3D, tree: SceneTree) -> bool:
 				carries = true
 				break
 		if not carries:
-			return true
-	return false
+			count += 1
+	return count
+
+
+## A rake lying free this close (m) to a bot counts as one on its yard.
+const YARD_RAKE_METERS: float = 40.0
+
+
+## How many rakes lie free (is_loose, not in the air) on this bot's yard: one is
+## there for a rakeless person already.
+func _spare_rakes(player: Node3D, tree: SceneTree) -> int:
+	var count := 0
+	for node: Node in tree.get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or str(prop.get("kind")) != "rake" or not bool(prop.call("is_loose")) or bool(prop.call("is_flying")):
+			continue
+		if _flat_distance(player.global_position, prop.global_position) <= YARD_RAKE_METERS:
+			count += 1
+	return count
 
 
 ## The pocket (0-based) holding this kind of ours, or -1 (player/pockets.gd).

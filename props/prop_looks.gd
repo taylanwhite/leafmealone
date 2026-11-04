@@ -188,12 +188,28 @@ static func pose_rake(prop: Node3D, holder: Node3D, _raking: bool = false) -> vo
 		pose.reset_physics_interpolation()
 	# Drawn: the head comes off the back lifted and plants on the leaves (a
 	# negative dip lifts it; props/rake_motion.gd), the hands on the handle all the way.
-	RakeMotion.pose(prop, holder, RakeStroke.display(actor), actor, -draw_dip(prop))
+	# Riding in Chefty's bed (or sitting), the tines rest on the floor under the
+	# holder's feet, not on the street a metre below, where they were drawn inside
+	# the truck (hotbar:E review: a bot's rake vanished from boarding to racking,
+	# rec_honk6_3p frames 74-83), and they rake nothing.
+	var riding := _riding(holder)
+	RakeMotion.pose(prop, holder, RakeStroke.display(actor), actor, -draw_dip(prop), holder_frame(holder).origin.y if riding else NAN)
+	if riding:
+		RakeMotion.unpublish(pose)
 	var target := pose.global_transform
 	if progress < 1.0:
 		_carry_grips(pose, _blend_put(prop, pose, target, holder) * target.affine_inverse())
 	else:
 		prop.set_meta("pose_last", target)
+
+
+## Whether a holder is on a seat: in Chefty's bed (the ride or its honk-and-wait,
+## where the body keeps standing), a drivable vehicle's seat (a sit pose), or staged.
+static func _riding(holder: Node3D) -> bool:
+	if holder.has_method("is_riding_visual") and bool(holder.call("is_riding_visual")):
+		return true
+	var body := holder.get_node_or_null("Visual/CartoonBody")
+	return body != null and int(body.get("_sit_pose")) != 0
 
 
 ## Which rake head a rake of this tier has (p2-kit: the tier is the rake's, not

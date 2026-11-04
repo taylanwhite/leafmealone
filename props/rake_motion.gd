@@ -31,8 +31,9 @@ static func fp_reach(reach: float) -> float:
 
 ## Poses a held rake prop (props/prop_looks.gd pose_rake): its Visual/Look/Pose,
 ## in world space. draw_dip is reserved for hotbar:D's stow and draw (added to the
-## lift, m).
-static func pose(prop: Node3D, holder: Node3D, sample: Dictionary, actor: int, draw_dip: float = 0.0) -> void:
+## lift, m). floor_y: the height the tines rest on instead of the leaves (NAN: the
+## leaves), for a holder riding in Chefty's bed (prop_looks.pose_rake).
+static func pose(prop: Node3D, holder: Node3D, sample: Dictionary, actor: int, draw_dip: float = 0.0, floor_y: float = NAN) -> void:
 	var look := prop.get_node_or_null("Visual/Look") as Node3D
 	if look == null:
 		return
@@ -43,9 +44,9 @@ static func pose(prop: Node3D, holder: Node3D, sample: Dictionary, actor: int, d
 	var eyes := holder.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
 	if eyes != null and eyes.current and holder.has_node("Visual/Head/Arms"):
 		# Your own rake, seen through your own eyes with your first-person arms.
-		pose_frame(pose_node, frame, sample, actor, draw_dip, [], true)
+		pose_frame(pose_node, frame, sample, actor, draw_dip, [], true, floor_y)
 		return
-	pose_frame(pose_node, frame, sample, actor, draw_dip, shoulders_of(holder.get_node_or_null("Visual/CartoonBody")))
+	pose_frame(pose_node, frame, sample, actor, draw_dip, shoulders_of(holder.get_node_or_null("Visual/CartoonBody")), false, floor_y)
 
 
 ## A cartoon body's shoulders [right, left] in world space, or [] without one.
@@ -58,7 +59,7 @@ static func shoulders_of(body: Node) -> Array:
 ## Poses a rake's Pose node for a holder whose body frame (feet, -Z ahead, level)
 ## is frame. Hired hands call this with their own frame. shoulders: the holder's
 ## body's [right, left] shoulders (last tick's), else they're estimated from the sample.
-static func pose_frame(pose_node: Node3D, frame: Transform3D, sample: Dictionary, actor: int, draw_dip: float = 0.0, shoulders: Array = [], first_person: bool = false) -> void:
+static func pose_frame(pose_node: Node3D, frame: Transform3D, sample: Dictionary, actor: int, draw_dip: float = 0.0, shoulders: Array = [], first_person: bool = false, floor_y: float = NAN) -> void:
 	var forward := -frame.basis.z
 	forward = Vector3(forward.x, 0.0, forward.z).normalized()
 	if forward.length() < 0.001:
@@ -72,7 +73,8 @@ static func pose_frame(pose_node: Node3D, frame: Transform3D, sample: Dictionary
 		reach = fp_reach(reach)
 	var lateral := clampf(float(sample.get("head_lateral", 0.0)), -Constants.RAKE_HEAD_LATERAL, Constants.RAKE_HEAD_LATERAL)
 	var contact := frame.origin + forward * reach + right * lateral
-	contact.y = surface_y(pose_node, contact, frame.origin.y) + SURFACE_GAP + float(sample.get("head_lift", 0.0)) - draw_dip
+	var ground := floor_y if not is_nan(floor_y) else surface_y(pose_node, contact, frame.origin.y)
+	contact.y = ground + SURFACE_GAP + float(sample.get("head_lift", 0.0)) - draw_dip
 	var heading := forward.rotated(Vector3.UP, -float(sample.get("head_yaw", 0.0)))
 	var across := heading.cross(Vector3.UP).normalized()
 	# The body's hips move with the wind-up and the lunge (sample hip, + is back)

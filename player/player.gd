@@ -1788,8 +1788,10 @@ func _grab_nearby() -> bool:
 
 
 ## What E picks up: whatever is in reach, favoring what you're looking at, and
-## a leaf bag over the rake you just put down beside it.
-func _best_pickup() -> Node3D:
+## a leaf bag over the rake you just put down beside it. fits_only: only things
+## that have somewhere to go (_has_room_for), so a pocket thing with every pocket
+## full doesn't hide the gnome behind it (hotbar:E review).
+func _best_pickup(fits_only: bool = false) -> Node3D:
 	var forward := -global_basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
@@ -1803,6 +1805,8 @@ func _best_pickup() -> Node3D:
 		var offset := prop.global_position - global_position
 		var distance := offset.length()
 		if distance >= Constants.PICKUP_REACH:
+			continue
+		if fits_only and not _has_room_for(prop):
 			continue
 		var flat := Vector3(offset.x, 0.0, offset.z)
 		var facing := flat.normalized().dot(forward) if flat.length() > 0.05 else 1.0
@@ -1934,7 +1938,9 @@ func e_choice() -> Dictionary:
 	var looked := _looked_at_pickup() if can_pick else null
 	if looked != null:
 		return _pickup_choice(looked)
-	var best := _best_pickup() if can_pick else null
+	# Only what can come (fits_only): with every pocket full, the pocket thing in
+	# reach is passed over for whatever's next (hotbar:E).
+	var best := _best_pickup(true) if can_pick else null
 	# A leaf bag in reach: the work comes before the place.
 	if best != null and str(best.get("kind")) == "leaf_bag":
 		return _pickup_choice(best)
@@ -1944,9 +1950,10 @@ func e_choice() -> Dictionary:
 		if not hint.is_empty():
 			return {"do": &"source", "hint": hint, "target": source}
 	# Pockets full (hotbar:E): a pocket thing merely lying in reach doesn't take E
-	# from the litter, a seat or the hedge after it; one you look right at still
-	# does (above), and its "eh?" and the bar's shake say why it won't come.
-	if best != null and _has_room_for(best):
+	# from the next thing in reach that can come (a gnome for your arms), the
+	# litter, a seat or the hedge after it; one you look right at still does
+	# (above), and its "eh?" and the bar's shake say why it won't come.
+	if best != null:
 		return _pickup_choice(best)
 	var hand := _nearest_hand_task()
 	if not hand.is_empty():
@@ -2065,8 +2072,6 @@ func _junk_choice(bed: Node) -> Dictionary:
 	return {"do": &"unload_junk", "hint": {"text": _Strings.SHOP_UI["prompt_unload_junk"], "at": (bed.call("tailgate_point") as Vector3) + Vector3(0.0, 1.5, 0.0)}, "target": bed}
 
 
-## Picking a thing up, as an E choice. A pocket item with every pocket full (and
-## no stack of its kind to join) shows no prompt: E shakes the full bar (x1:text).
 ## Whether this pickup has somewhere to go: a big thing always does (it fills your
 ## arms), a pocket thing only with a free pocket or a stack of its kind with room.
 func _has_room_for(prop: Node3D) -> bool:
@@ -2074,6 +2079,8 @@ func _has_room_for(prop: Node3D) -> bool:
 	return not _Hotbar.is_pocketable(kind_of) or _Hotbar.has_room(get_tree(), name.to_int(), kind_of)
 
 
+## Picking a thing up, as an E choice. A pocket item with every pocket full (and
+## no stack of its kind to join) shows no prompt: E shakes the full bar (x1:text).
 func _pickup_choice(prop: Node3D) -> Dictionary:
 	if not _has_room_for(prop):
 		return {"do": &"pick_up", "hint": {}, "target": prop}

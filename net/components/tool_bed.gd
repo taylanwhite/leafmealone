@@ -24,6 +24,7 @@ const _LowPoly = preload("res://props/low_poly.gd")
 const _Hotbar = preload("res://net/components/hotbar.gd")
 const _KitRules = preload("res://core/kit_rules.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _PropLooks = preload("res://props/prop_looks.gd")
 ## The rack's color: galvanized steel.
 const RACK_COLOR := Color(0.55, 0.57, 0.6)
 ## The bed's middle (its space), what "[E] Load" measures from.
@@ -176,10 +177,7 @@ func accept(prop: Node3D) -> bool:
 	var slot := slot_for(kind, _taken())
 	if slot == "":
 		return false
-	var look := prop.get_node_or_null("Visual") as Node3D
-	var seen := look.global_transform if look != null else prop.global_transform
-	var from := global_transform.affine_inverse() * seen
-	from.basis = from.basis.orthonormalized()
+	var from := _seen_from(prop)
 	tools.append({"kind": kind, "tier": int(prop.get("tier")), "fuel": float(prop.get("fuel")), "slot": slot})
 	_send(slot, from)
 	prop.queue_free()
@@ -307,16 +305,28 @@ func _put_back(prop: RigidBody3D, slot: String) -> void:
 	if spot == "":
 		prop.call("_set_solid", true)
 		return
-	var look := prop.get_node_or_null("Visual") as Node3D
-	var seen := look.global_transform if look != null else prop.global_transform
-	var from := global_transform.affine_inverse() * seen
-	from.basis = from.basis.orthonormalized()
+	var from := _seen_from(prop)
 	tools.append({"kind": kind, "tier": int(prop.get("tier")), "fuel": float(prop.get("fuel")), "slot": spot})
 	if spot == slot:
 		_send()
 	else:
 		_send(spot, from)
 	prop.queue_free()
+
+
+## Where a prop's model is drawn now, in bed space, for its glide aboard: the
+## posed model itself (a rake's Pose, in the hands that hold it; a tool's Look),
+## which is the frame the rack's model is built in, not the prop's Visual (a
+## held rake's Visual hangs at its holder's head: hotbar:E review, the glide
+## started there, rec_honk6_3p frame 86).
+func _seen_from(prop: Node3D) -> Transform3D:
+	var look := _PropLooks.posed_node(prop)
+	if look == null or not look.is_inside_tree():
+		look = prop.get_node_or_null("Visual") as Node3D
+	var seen := look.global_transform if look != null else prop.global_transform
+	var from := global_transform.affine_inverse() * seen
+	from.basis = from.basis.orthonormalized()
+	return from
 
 
 ## Host: whether this peer's player is close enough to the bed to load a tool.
@@ -429,6 +439,12 @@ func _rpc_tools(list: Array, glide_slot: String, glide_from: Transform3D) -> voi
 	if glide_slot != "":
 		_glides[glide_slot] = {"from": glide_from, "age": 0.0}
 		_step_glides(0.0)
+		# Placed at its start after the reset above: reset again, or physics
+		# interpolation draws its first frame from the rack spot (hotbar:E review:
+		# a one-frame flash of the rake already racked, rec_honk6_3p frame 84).
+		var gliding := holder.get_node_or_null(glide_slot.replace(":", "_")) as Node3D
+		if gliding != null:
+			gliding.reset_physics_interpolation()
 		var sfx := get_tree().get_first_node_in_group("sfx")
 		if sfx != null:
 			sfx.call("play_at", "pocket", global_transform * slot_pose_of(glide_slot).origin)
