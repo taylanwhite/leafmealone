@@ -37,6 +37,7 @@ const _JobTasks = preload("res://net/work/job_tasks.gd")
 const _TaskLooks = preload("res://levels/lots/task_looks.gd")
 const _HideSpot = preload("res://props/hide_spot.tscn")
 const _Doodles = preload("res://props/doodles.gd")
+const _StreetLife = preload("res://levels/dressing/street_life.gd")
 const _WaterSources = preload("res://net/work/water_sources.gd")
 const _HouseBuilder = preload("res://levels/town/house_builder.gd")
 const _HoodStyles = preload("res://levels/town/hood_styles.gd")
@@ -248,7 +249,7 @@ func _house() -> void:
 	# A note or two stuck to the front door.
 	var door: Vector3 = at + (_spec.get("door", Vector3(0.0, 1.6, depth * 0.5 + 0.07)) as Vector3)
 	for index: int in _rng.randi_range(0, 2):
-		_Doodles.place_paper(self, _Doodles.note(_rng.randi() % 50), door + Vector3(-0.15 + float(index) * 0.25, 0.3 - float(index) * 0.2, 0.02), Vector3.BACK, Vector2(0.19, 0.19), _rng.randf_range(-0.3, 0.3))
+		_Doodles.place_note(self, _rng.randi() % 50, door + Vector3(-0.15 + float(index) * 0.25, 0.3 - float(index) * 0.2, 0.02), Vector3.BACK, _StreetLife.NOTE_SIZE_LARGE, _rng.randf_range(-0.3, 0.3))
 	# Windows to wash.
 	for entry: Array in _spec.get("windows", []):
 		var spot_at: Vector3 = at + (entry[0] as Vector3)

@@ -289,6 +289,11 @@ func _build(root: Node3D) -> void:
 			_van(root, _subject == "van_detail")
 		"beacon":
 			_beacon(root)
+		"words":
+			# cast:7, words in the world (props/doodles.gd): every poster and sticky
+			# note on a wall, from reading distance, nose-to-the-post, across the
+			# street, and at a slant (--view=near puts all four up close).
+			_words(root)
 		"nice_boys":
 			_nice_boys(root)
 		"nice_boy":
@@ -828,6 +833,30 @@ func _van(root: Node3D, detail: bool) -> void:
 ## The arrival beacon, the Courtesy Flare (npcs/arrival_beacon.gd), at --urgency
 ## (default 0.6), with its notices partway down: the whole column, the seal up top,
 ## the cones, and the label.
+## cast:7: every poster in a row on a painted wall at lamp-post height, every
+## sticky note under them at door height, and a lamp post with a poster on it.
+func _words(root: Node3D) -> void:
+	var doodles := preload("res://props/doodles.gd")
+	var street := preload("res://levels/dressing/street_life.gd")
+	var wall := _LowPoly.box(root, Vector3(3.4, 2.4, 0.1), Vector3(0.0, 1.2, -0.05), Color(0.78, 0.76, 0.72))
+	_LowPoly.paint(wall, "stucco")
+	for index: int in doodles.POSTERS.size():
+		doodles.place_poster(root, index, Vector3(-1.35 + float(index) * 0.54, 1.75, 0.0), Vector3.BACK, street.POSTER_SIZE, [0.05, -0.08, 0.0, 0.1, -0.04, 0.07][index])
+	for index: int in doodles.NOTES.size():
+		doodles.place_note(root, index, Vector3(-1.35 + float(index) * 0.54, 1.12, 0.0), Vector3.BACK, street.NOTE_SIZE_LARGE, [-0.2, 0.15, 0.05, -0.1, 0.25, -0.05][index])
+	var post := _LowPoly.cylinder(root, 0.09, 5.2, Vector3(2.4, 2.6, 0.8), Color(0.22, 0.24, 0.26), false, 8)
+	_LowPoly.paint(post, "metal")
+	doodles.place_poster(root, 1, Vector3(2.4, 1.95, 0.8 + 0.102), Vector3.BACK, street.POSTER_SIZE, -0.06)
+	var near := str(_options.get("view", "")) == "near"
+	var eye := Constants.WORDS_NEAREST_M
+	root.set_meta("views", [
+		{"from": Vector3(-0.81, 1.62, 1.1), "at": Vector3(-0.81, 1.5, 0.0), "fov": Constants.FOV_DEFAULT},
+		{"from": Vector3(2.4, 1.85, 0.902 + eye), "at": Vector3(2.4, 1.95, 0.902), "fov": Constants.FOV_DEFAULT},
+		{"from": Vector3(0.0, 1.65, 3.4) if not near else Vector3(1.35, 1.7, 0.9), "at": Vector3(0.0, 1.4, 0.0) if not near else Vector3(1.35, 1.6, 0.0), "fov": Constants.FOV_DEFAULT},
+		{"from": Vector3(-2.2, 1.6, 1.2) if not near else Vector3(-1.35, 1.15, 0.6), "at": Vector3(-0.8, 1.45, 0.0) if not near else Vector3(-1.35, 1.12, 0.0), "fov": Constants.FOV_DEFAULT},
+	])
+
+
 func _beacon(root: Node3D) -> void:
 	var beacon: Node3D = preload("res://npcs/arrival_beacon.gd").new()
 	root.add_child(beacon)

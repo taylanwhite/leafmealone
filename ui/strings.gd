@@ -2395,6 +2395,23 @@ const SIGNS: Dictionary = {
 	"for_sale": "FOR SALE\nLeaves included",
 	"stop": "STOP",
 	"speed_limit": "SPEED\nLIMIT\n25",
+	# cast:7, words in the world (props/doodles.gd): the paper posters on lamp posts
+	# (a title line, then the body) and the sticky notes on doors, mailboxes and the
+	# checkout counter. Doodles.POSTERS and NOTES list which keys are in rotation;
+	# each poster has its own picture. Neighbors being petty, a gnome with a name,
+	# a courtesy notice nobody asked for. Never instructions.
+	"poster_gnome": "LOST GNOME\nAnswers to Gerald.\nDo not mow.",
+	"poster_courtesy": "COURTESY NOTICE\nYour lawn has been observed.",
+	"poster_depot": "HOMIE DEPOT\nRakes, 2 for 1\n(one rake)",
+	"poster_yard_sale": "YARD SALE\nEverything must go.\nEspecially the leaves.",
+	"poster_turf": "TurfMasters™\nLAWNS DONE RIGHT.\nLawns done by others: concerning.",
+	"poster_cat": "FOUND CAT\nHe let himself in.\nHe has notes on our mulch.",
+	"note_side": "Your leaves are on my side again.",
+	"note_2am": "Who keeps raking at 2 AM?!",
+	"note_mailman": "Please stop bonking the mailman.",
+	"note_rake": "Borrowed your rake. Back by spring. -Dale",
+	"note_gerald": "Gerald came back. He won't say where he was.",
+	"note_hoa": "Your hedge is 1/4 inch over. We measured. -HOA",
 }
 
 ## Names painted on the boats at Lakeside's docks (props/prop_catalog.gd).

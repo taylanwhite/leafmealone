@@ -336,6 +336,9 @@ static func _lamps(root: Node3D) -> void:
 	for lamp: Array in TownMap.lamp_spots():
 		_Neighborhood.lamp(holder, lamp[0], float(lamp[1]))
 	_fade(holder, Constants.TOWN_LAMP_VISIBLE_METERS)
+	# Posters on some of them (cast:7, levels/dressing/street_life.gd); their words
+	# keep their own fade.
+	preload("res://levels/dressing/street_life.gd").dress_town_lamps(root, TownMap.lamp_spots(), SEED, TownMap.SQUARE)
 
 
 ## A mailbox at every yard and every house across the street, and a wheelie
