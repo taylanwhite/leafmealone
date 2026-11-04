@@ -215,6 +215,8 @@ static func _door(kit: RefCounted, spec: Dictionary, x: float, y0: float, z: flo
 		kit.call("box", Vector3(0.1, height, 0.1), Vector3(x + side * (width * 0.5 + 0.05), y0 + height * 0.5, z + 0.05), trim, "planks")
 	kit.call("box", Vector3(0.07, 0.07, 0.07), Vector3(x + width * 0.36, y0 + height * 0.45, z + 0.1), Color(0.82, 0.68, 0.3), "metal")
 	spec["door"] = Vector3(x, y0 + height * 0.5, z + 0.07)
+	# Its size, for the porch light over it (levels/porch_lights.gd).
+	spec["door_size"] = Vector2(width, height)
 
 
 ## count steps down from a porch top at y_top, starting at z0 and stepping

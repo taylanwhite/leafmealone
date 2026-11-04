@@ -6455,3 +6455,115 @@ const GOAL_ARROW_LOOKAHEAD: float = 15.0
 ## ...and it keeps its last arrow until the way is this far (degrees) past the
 ## edge between two arrows, so it doesn't flicker through a turn.
 const GOAL_ARROW_HYSTERESIS: float = 8.0
+
+# ---- art:9 neighborhood ambience (audio/ambience.gd, props/sprinkler_jet.gd,
+# levels/porch_lights.gd, npcs/pedestrian.gd; docs/GAME.md "What each
+# neighborhood sounds like")
+## The set pieces' loops (group ambient_emitters): how far from you one is still
+## heard, how many play at once (the nearest), how often the list is redone (s),
+## and how fast a voice fades in and out (dB a second).
+const AMBIENCE_EMITTER_REACH: float = 48.0
+const AMBIENCE_EMITTER_VOICES: int = 3
+const AMBIENCE_EMITTER_SCAN_SECONDS: float = 1.0
+const AMBIENCE_EMITTER_FADE_DB_PER_SECOND: float = 40.0
+## Each loop's level (dB, on top of its bank trim) and full-volume radius (m).
+const AMBIENCE_EMITTER_DB: Dictionary = {"fountain_loop": 0.0, "lake_lap_loop": 0.0, "sprinkler_tick_loop": 2.0}
+const AMBIENCE_FOUNTAIN_UNIT_SIZE: float = 6.0
+const AMBIENCE_LAKE_UNIT_SIZE: float = 10.0
+const AMBIENCE_SPRINKLER_UNIT_SIZE: float = 6.0
+## How much a far loop's highs are muffled (dB, Godot's distance low-pass): a
+## sprinkler's tick has to carry across a lawn.
+const AMBIENCE_EMITTER_MUFFLE_DB: float = -8.0
+## Porch and back-yard one-shots come from a house this near (m) and no nearer.
+const AMBIENCE_PORCH_RANGE: Vector2 = Vector2(9.0, 45.0)
+const AMBIENCE_PORCH_UNIT_SIZE: float = 6.0
+## The porch list is redone for houses this much beyond AMBIENCE_PORCH_RANGE.y (m),
+## so walking a few steps doesn't leave the far porches out until the next scan.
+const AMBIENCE_PORCH_SCAN_MARGIN: float = 12.0
+## A synced loop (meta ambient_sync) is re-seeked when it drifts this far (s)
+## from where the server clock has it.
+const AMBIENCE_EMITTER_RESYNC_SECONDS: float = 0.06
+## The loon calls from this far out over the water from the shore (m), and up to
+## this far either way along it.
+const AMBIENCE_LOON_OUT: Vector2 = Vector2(25.0, 55.0)
+const AMBIENCE_LOON_ALONG: float = 25.0
+## Each neighborhood's own one-shots (tools/sfx_hood.py): which hoods, the gap
+## between two (s), the hours of the clock they happen in (7 to 26; 26 is 2 AM),
+## and where from ("porch": a house's porch, "yard": behind a house, "water": out
+## on the lake). night_gap scales the gap after dark (loons call more at night).
+const AMBIENCE_HOOD_SHOTS: Dictionary = {
+	"wind_chime": {"hoods": ["maple_row"], "gap": Vector2(9.0, 24.0), "hours": Vector2(7.0, 26.0), "from": "porch", "night_gap": 1.0},
+	"screen_door": {"hoods": ["dandelion_acres"], "gap": Vector2(16.0, 40.0), "hours": Vector2(7.0, 23.0), "from": "porch", "night_gap": 1.6},
+	"dog_yip": {"hoods": ["dandelion_acres"], "gap": Vector2(14.0, 38.0), "hours": Vector2(7.0, 24.0), "from": "yard", "night_gap": 1.5},
+	"hoa_whistle": {"hoods": ["oak_hollow"], "gap": Vector2(26.0, 60.0), "hours": Vector2(8.0, 20.0), "from": "porch", "night_gap": 1.0},
+	"loon": {"hoods": ["lakeside"], "gap": Vector2(22.0, 55.0), "hours": Vector2(7.0, 26.0), "from": "water", "night_gap": 0.6},
+}
+## The first of each after you arrive comes this soon (s).
+const AMBIENCE_HOOD_FIRST: Vector2 = Vector2(3.0, 12.0)
+
+## Oak Hollow's lawn sprinklers (props/sprinkler_jet.gd): one in every front
+## lawn, the same spot, all ticking in step, during the Approved Watering Window;
+## a summer lawn's own sprinkler runs in the morning too, in its own time. The
+## head steps SPRINKLER_TICKS times across SPRINKLER_ARC (radians), one tick every
+## SPRINKLER_TICK_SECONDS, then ratchets back over SPRINKLER_RETURN_SECONDS: the
+## same timing as sprinkler_tick_loop (tools/sfx_hood.py; --art-test checks).
+const SPRINKLER_HOODS: Array[String] = ["oak_hollow"]
+const SPRINKLER_HOURS: Dictionary = {"hoa": Vector2(7.0, 9.5), "summer": Vector2(7.0, 10.0)}
+const SPRINKLER_TICK_SECONDS: float = 0.2
+const SPRINKLER_TICKS: int = 20
+const SPRINKLER_RETURN_SECONDS: float = 1.2
+const SPRINKLER_ARC: float = 2.4
+## The jet: how far it throws (m), how high its arc rises, and how long the
+## water takes to come up to pressure and to die away (s).
+const SPRINKLER_REACH: float = 5.4
+const SPRINKLER_RISE: float = 1.6
+const SPRINKLER_RAMP_UP_SECONDS: float = 1.4
+const SPRINKLER_RAMP_DOWN_SECONDS: float = 2.2
+## How hard a tick of the arm chokes the stream (its length dips by this share).
+const SPRINKLER_CHOKE: float = 0.12
+## The jet is drawn and swung only this near the camera (m); the head is a prop.
+const SPRINKLER_DRAW_DISTANCE: float = 50.0
+## Where it stands: this far across from the house's middle, on the side away from
+## the drive (x), and out in front of its porch (z), m. A lawn with something there
+## has it in the middle of its free front lawn instead.
+const SPRINKLER_LAWN_OFFSET: Vector3 = Vector3(3.5, 0.0, 4.0)
+
+## Porch lights (levels/porch_lights.gd): one by every front door, coming on
+## house by house as dusk falls (between the hours in PORCH_LIGHT_ON), and going
+## off as people go to bed (PORCH_LIGHT_OFF), except the share that leaves it on
+## all night. Warm, and quick to come up (s), like a bulb.
+const PORCH_LIGHT_ON: Vector2 = Vector2(18.5, 19.7)
+const PORCH_LIGHT_OFF: Vector2 = Vector2(22.5, 25.6)
+const PORCH_LIGHT_ALL_NIGHT: float = 0.35
+const PORCH_LIGHT_COLOR: Color = Color(1.0, 0.78, 0.45)
+const PORCH_LIGHT_ENERGY: float = 2.4
+const PORCH_LIGHT_WARM_SECONDS: float = 0.15
+## Over the door: from the middle of its head (the top of the door), up over the
+## frame's trim and back to the wall (m).
+const PORCH_LIGHT_OFFSET: Vector3 = Vector3(0.0, 0.36, -0.06)
+const PORCH_LIGHT_CHECK_SECONDS: float = 0.25
+
+## People out walking (npcs/pedestrian.gd) keep hours: out from the morning (the
+## day opens at 7), each home at an hour between PEDESTRIAN_HOME_HOURS.x and .y,
+## so nobody is out at 2 AM. They only leave or come back where you can't see it.
+const PEDESTRIAN_HOME_HOURS: Vector2 = Vector2(20.5, 23.6)
+## Out of sight: farther than this from the camera (m), or outside its view.
+const PEDESTRIAN_UNSEEN_DISTANCE: float = 70.0
+## Stepping round people: a walker keeps this far (m) from a player's middle and
+## from the camera (far enough that a face never fills a first-person view:
+## rec_walker_1p 116-124 at 0.75 m), starts stepping aside this far ahead (m), sidesteps at this
+## speed (m/s) and drifts back onto the route at the other.
+const PEDESTRIAN_CLEAR_PLAYER: float = 1.15
+const PEDESTRIAN_CLEAR_CAMERA: float = 1.4
+const PEDESTRIAN_LOOK_AHEAD: float = 6.0
+const PEDESTRIAN_SIDESTEP_SPEED: float = 1.0
+const PEDESTRIAN_RETURN_SPEED: float = 0.6
+## The farthest off the route they'll step (m).
+const PEDESTRIAN_SIDESTEP_MAX: float = 2.6
+## Someone right in front of them: they sidestep this many times faster.
+const PEDESTRIAN_URGENT_SIDESTEP: float = 2.5
+## Passing someone, they hold their line while within this much (m) beyond the
+## clearance, rather than drifting back into them.
+const PEDESTRIAN_HOLD_BAND: float = 0.5
+## How often they check whether it's time to go home or come out (s).
+const PEDESTRIAN_HOURS_CHECK_SECONDS: float = 0.5

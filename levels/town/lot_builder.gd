@@ -382,6 +382,22 @@ static func plan(req: Dictionary) -> Dictionary:
 					_styled(p, rng, BACKYARD[key], spec, front_lawn, back_lawn, side_lawn, look, false)
 			_cars_and_bins(p, rng, look, drive_x, drive_side, half_d, wide)
 	_trees(p, rng, look, front_lawn, back_lawn, half_w, half_d, drive_side)
+	# Oak Hollow's lawn sprinkler (art:9, props/sprinkler_jet.gd): the same spot
+	# before every house, off its front corner on the side away from the drive,
+	# all of them ticking in step in the Approved Watering Window. A lawn with
+	# something there has none (its variance is pending). Before the season's free
+	# lawns are worked out, so nothing seasonal lands on it.
+	if not bool(r["vacant"]) and not bool(r["job"]) and Constants.SPRINKLER_HOODS.has(str(r["hood"])):
+		var house_at: Vector3 = p["house_at"]
+		var spot := Vector2(house_at.x - drive_side * Constants.SPRINKLER_LAWN_OFFSET.x, house_front + Constants.SPRINKLER_LAWN_OFFSET.z)
+		var room := Rect2(spot - Vector2(0.8, 0.8), Vector2(1.6, 1.6))
+		var clear := Rect2(-half_w + 1.5, -half_d + 1.5, frontage - 3.0, depth - 3.0).encloses(room)
+		for rect: Rect2 in p["taken"]:
+			clear = clear and not rect.intersects(room)
+		if clear:
+			(p["taken"] as Array).append(room)
+			# Its sweep faces out over the side lawn, away from the house and the walk.
+			_prop(p, "sprinkler", Transform3D(Basis(Vector3.UP, drive_side * PI * 0.5), Vector3(spot.x, 0.0, spot.y)), Color.WHITE, Vector3.ONE, true, {"running": "hoa"})
 	# What the season dresses: lawns free of everything above.
 	# front: the free front lawn alone (the block's inflatable snowman), or absent.
 	var yard: Array = []

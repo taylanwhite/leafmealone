@@ -19,6 +19,8 @@ extends Node3D
 ##     DAY_SKY_LAMP_LIGHTS lamps nearest the camera cast real light on the street.
 ##   - "window_glass" (props/house_kit.gd): the houses' windows glow warm at night.
 ##   - "headlights" (props/vehicles.gd): Chefty's and Lunch Money's beams.
+##   - "porch_lights" (art:9): its PorchLights child (levels/porch_lights.gd)
+##     turns each house's on at its own dusk minute and off at its bedtime.
 ##
 ## Satellite Annex B dims the room at closing through set_room_dim(), since this
 ## node owns the sun's and the sky light's strength.
@@ -79,6 +81,10 @@ func _ready() -> void:
 			add_child(light)
 			_pool.append(light)
 		_pool_target.resize(_pool.size())
+	# The porch lights, house by house at dusk (art:9).
+	var porches: Node = preload("res://levels/porch_lights.gd").new()
+	porches.name = "PorchLights"
+	add_child(porches)
 	_apply(_hour())
 
 

@@ -5,6 +5,10 @@ extends Node3D
 ## Where they are is a pure function of their seed and Net.server_time(), so every
 ## peer sees them in the same spot with no network traffic (docs/NETCODE.md).
 ## They glance at people and fidget like everyone else (player/character_life.gd).
+## They keep hours (art:9, out_at): home by late evening, back out in the
+## morning, leaving and coming back only where this peer's camera can't see it.
+## On the way they step round players and the camera (_dodge, local to each
+## peer), so nobody walks through you or into your lens.
 ##
 ## Bonkable: the host spots a thrown item reaching them (net/components/net_prop.gd)
 ## and tells every peer, which calls on_bonked here. They get shoved, flinch,
@@ -43,6 +47,13 @@ var _angry_left: float = 0.0
 ## Stopped short of a NICE van's door, watching (Shuttle.keep_clear); _free_at
 ## holds where they stand, and they catch up on their route once it's gone.
 var _held: bool = false
+## art:9: out for their walk at this hour (out_at), or home; they only leave or
+## come back where nobody's camera sees it. And how far (m) they've stepped off
+## their route (across it) to get round a player or the camera, and how fast.
+var _out: bool = true
+var _hours_check: float = 0.0
+var _offset: float = 0.0
+var _offset_speed: float = 0.0
 
 
 func _ready() -> void:
@@ -69,13 +80,117 @@ func _ready() -> void:
 	_voice.unit_size = 5.0
 	_voice.bus = preload("res://audio/sound_bank.gd").bus("vo_yelp")
 	add_child(_voice)
+	# Built at night, they're at home already.
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	_out = out_at(seed_value, float(clock.call("hour")) if clock != null else Constants.DAY_SKY_ART_HOUR)
+	visible = _out
+	if not _out:
+		remove_from_group("bonkable")
 	_place(0.0)
 	reset_physics_interpolation()
 
 
 ## Every peer moves them the same way on physics ticks.
 func _physics_process(delta: float) -> void:
+	_hours_check -= delta
+	if _hours_check <= 0.0:
+		_hours_check = Constants.PEDESTRIAN_HOURS_CHECK_SECONDS
+		_keep_hours()
+	if not _out:
+		return
 	_place(delta)
+
+
+## Whether the walker with this seed is out at hour (7 to 26; pure, for tests):
+## out from the morning until their own evening hour, so nobody is out at 2 AM.
+static func out_at(seed_number: int, hour: float) -> bool:
+	var home := lerpf(Constants.PEDESTRIAN_HOME_HOURS.x, Constants.PEDESTRIAN_HOME_HOURS.y, float(posmod(hash([seed_number, "home"]), 1000)) / 1000.0)
+	return hour < home
+
+
+## Out or home by the clock, changing only while no camera here can see it
+## happen (they never pop in or out in front of you).
+func _keep_hours() -> void:
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	var want := out_at(seed_value, float(clock.call("hour")) if clock != null else Constants.DAY_SKY_ART_HOUR)
+	if want == _out:
+		return
+	# Going home: where they stand. Coming out: where today's walk has them now
+	# (a hidden walker still stands where they went home, maybe far from it).
+	var at := _world(_route_at(Net.server_time())) if want else global_position
+	if not _unseen_at(at):
+		return
+	_out = want
+	visible = want
+	if want:
+		add_to_group("bonkable")
+		_free = false
+		_held = false
+		_offset = 0.0
+		_offset_speed = 0.0
+		_place(0.0)
+		reset_physics_interpolation()
+	else:
+		remove_from_group("bonkable")
+
+
+## No camera here sees someone standing at (world space).
+func _unseen_at(at: Vector3) -> bool:
+	var viewport := get_viewport()
+	var camera := viewport.get_camera_3d() if viewport != null else null
+	if camera == null:
+		return true
+	var middle := at + Vector3(0.0, 1.0, 0.0)
+	return camera.global_position.distance_to(middle) > Constants.PEDESTRIAN_UNSEEN_DISTANCE or not camera.is_position_in_frustum(middle)
+
+
+## How far across the route (m, along across) to be, given the players and the
+## camera near on_route: stepping aside for whoever is in the way ahead, holding
+## that while passing them, drifting back once clear. Moves _offset.
+func _dodge(on_route: Vector3, heading: Vector3, across: Vector3, delta: float) -> void:
+	var nearest := INF
+	var target := 0.0
+	var hold := false
+	var urgent := false
+	for obstacle: Array in _obstacles():
+		var rel := _local(obstacle[0] as Vector3) - on_route
+		rel.y = 0.0
+		var ahead := rel.dot(heading)
+		if ahead < -0.9 or ahead > Constants.PEDESTRIAN_LOOK_AHEAD:
+			continue
+		var clear := float(obstacle[1])
+		var side := rel.dot(across)
+		var gap := side - _offset
+		if absf(gap) < clear:
+			if absf(ahead) < nearest:
+				nearest = absf(ahead)
+				# Round whichever side is nearer: away from where they stand.
+				target = side - clear if gap > 0.0 else side + clear
+				urgent = Vector2(ahead, gap).length() < clear
+		elif absf(gap) < clear + Constants.PEDESTRIAN_HOLD_BAND:
+			hold = true
+	var speed := Constants.PEDESTRIAN_RETURN_SPEED
+	if nearest < INF:
+		speed = Constants.PEDESTRIAN_SIDESTEP_SPEED * (Constants.PEDESTRIAN_URGENT_SIDESTEP if urgent else 1.0)
+	elif hold:
+		target = _offset
+	target = clampf(target, -Constants.PEDESTRIAN_SIDESTEP_MAX, Constants.PEDESTRIAN_SIDESTEP_MAX)
+	var before := _offset
+	_offset = move_toward(_offset, target, speed * delta)
+	_offset_speed = (_offset - before) / maxf(delta, 0.001)
+
+
+## Who a walker steps round: every player's middle, and this peer's camera.
+func _obstacles() -> Array:
+	var out: Array = []
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node is Node3D:
+			out.append([(node as Node3D).global_position, Constants.PEDESTRIAN_CLEAR_PLAYER])
+	var viewport := get_viewport()
+	var camera := viewport.get_camera_3d() if viewport != null else null
+	if camera != null:
+		out.append([camera.global_position, Constants.PEDESTRIAN_CLEAR_CAMERA])
+	return out
 
 
 ## A mower got their foot. Called on every peer.
@@ -105,6 +220,8 @@ func on_bonked(push: Vector3, tier: String) -> void:
 	if not _free:
 		_free = true
 		_free_at = position
+		_offset = 0.0
+		_offset_speed = 0.0
 	_slide = Vector3(push.x, 0.0, push.z)
 	_say("vo_oof" if tier != "light" else "vo_eh")
 
@@ -143,14 +260,23 @@ func _place(delta: float) -> void:
 		if _keep_inside(_world(next), keep) and not _keep_inside(global_position, keep):
 			_held = true
 			if not _free:
+				# Off the route where they stand (sidestep and all); the walk back
+				# rejoins the plain route, so the sidestep ends here, not in a jump later.
 				_free = true
 				_free_at = position
+				_offset = 0.0
+				_offset_speed = 0.0
 			anim_state = STATE_IDLE
 			position = _free_at
 			return
 	if not _free:
-		position = on_route
-		_face(heading)
+		# Round anyone in the way (art:9): never through a player or into the lens.
+		var axis := (route_to - route_from).normalized()
+		var across := Vector3(-axis.z, 0.0, axis.x)
+		if delta > 0.0:
+			_dodge(on_route, heading, across, delta)
+		position = on_route + across * _offset
+		_face(heading * speed + across * _offset_speed)
 		return
 	_free_at += _slide * delta
 	_slide = _slide.move_toward(Vector3.ZERO, 9.0 * delta)

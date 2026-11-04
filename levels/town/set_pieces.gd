@@ -187,7 +187,23 @@ static func lake(parent: Node3D, width: float, shore_z: float, length: float, se
 	root.set("season", -1)
 	root.call("apply_season", season)
 	root.add_to_group("art_signature:lake")
+	# It freezes over in winter (parcel.gd), and then neither laps nor has a loon.
+	shore(root, Vector3(-width * 0.5, WATER_Y, shore_z), Vector3(width * 0.5, WATER_Y, shore_z), Vector3.FORWARD).set_meta("ambient_freezes", true)
 	return root
+
+
+## The lake's edge as a sound source (art:9, audio/ambience.gd): the water
+## lapping along the line from a to b (parent space) wherever along it is
+## nearest you, and the loon out over the water, toward out.
+static func shore(parent: Node3D, a: Vector3, b: Vector3, out: Vector3) -> Node3D:
+	var node := Node3D.new()
+	node.name = "Shore"
+	parent.add_child(node)
+	node.add_to_group("ambient_emitters")
+	node.set_meta("ambient", "lake_lap_loop")
+	node.set_meta("ambient_line", PackedVector3Array([a, b]))
+	node.set_meta("ambient_out", out)
+	return node
 
 
 ## A dock behind each yard at xs (block x), from the shore out over the lake,
