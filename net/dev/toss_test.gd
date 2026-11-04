@@ -222,10 +222,13 @@ func _hold_drop(hold: float) -> bool:
 	while waited < hold:
 		await get_tree().physics_frame
 		waited += get_physics_process_delta_time()
-	await get_tree().process_frame
-	var arc_caught := bool(_TossArc.stats["last_caught"])
+	# Let go on this tick, and ask the preview about this wind-up (fx-net: it read
+	# the drawn preview on the next rendered frame, which a loaded run reached up to
+	# eight ticks of wind-up later, at the edge of what a sure catch allows).
 	var me := _own_player()
 	_last_wind_up = float(me.call("wind_up_seconds"))
+	var bag: Node = _arc.call("held_bag", me)
+	var arc_caught := bag != null and bool((_arc.call("judge", me, bag, _last_wind_up) as Dictionary)["warm"])
 	Input.action_release(&"drop")
 	return arc_caught
 

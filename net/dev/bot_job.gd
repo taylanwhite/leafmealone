@@ -87,6 +87,13 @@ var _next_hand_choice: float = 0.0
 var _press_wait: float = 0.0
 var _release_next: StringName = &""
 var _elapsed: float = 0.0
+## Since when (bot seconds) this bot has been on the lot (-1: it isn't), and
+## whether it has said it's going for the current loose rake (for the logs:
+## playtest_tools_test reads the line).
+var _on_lot_since: float = -1.0
+var _told_taking: bool = false
+## The person whose claim on the loose rake is running (0: none).
+var _claimant: int = 0
 
 
 func _init(rng: RandomNumberGenerator) -> void:
@@ -108,8 +115,11 @@ func step(player: Node3D, delta: float) -> bool:
 	var tree := player.get_tree()
 	var field := tree.get_first_node_in_group("leaf_field")
 	if field == null or Net.player_zone(Net.local_peer_id()) != Net.Zone.LOT:
+		_on_lot_since = -1.0
 		stop()
 		return false
+	if _on_lot_since < 0.0:
+		_on_lot_since = _elapsed
 	# Raking walks slowly so the strokes overlap; everything else walks.
 	Input.action_release(&"sprint")
 	Input.action_release(&"crouch")
@@ -322,9 +332,13 @@ func _mine_to_take(player: Node3D, rake: Node3D) -> bool:
 	if _loose_rake != rake:
 		_loose_rake = rake
 		_loose_since = -1.0
+		_claimant = 0
+		_told_taking = false
 	var mine := _flat_distance(player.global_position, rake.global_position)
 	var person_claims := false
+	var claimant_about := false
 	var bot_nearer := false
+	var nearest_person := INF
 	for node: Node in player.get_tree().get_nodes_in_group("players"):
 		var other := node as Node3D
 		var peer_id := int(str(node.name))
@@ -333,17 +347,32 @@ func _mine_to_take(player: Node3D, rake: Node3D) -> bool:
 		var theirs := _flat_distance(other.global_position, rake.global_position)
 		if not Net.player_name(peer_id).begins_with("Bot"):
 			var free_hands := other.has_method("_held_prop") and other.call("_held_prop") == null
-			person_claims = person_claims or (free_hands and (theirs <= RAKE_DEFER_METERS or theirs < mine))
+			nearest_person = minf(nearest_person, theirs)
+			if free_hands and (theirs <= RAKE_DEFER_METERS or theirs < mine):
+				person_claims = true
+				if _claimant == 0:
+					_claimant = peer_id
+			claimant_about = claimant_about or (peer_id == _claimant and free_hands)
 		elif theirs < mine:
 			bot_nearer = true
+	# A claim, once made, runs its time while that person is still on the yard with
+	# empty hands, wherever the rake has got to since (fx-net: a bot scooping
+	# leaves by hand beside a rake it was leaving to the host kicked it 7 m along
+	# the lawn, out of the host's 15 m, and then took it, 13 s in).
+	if not person_claims and claimant_about:
+		person_claims = true
 	# _loose_since here: since when a person has had a claim on this rake (-1: none now).
 	if not person_claims:
 		_loose_since = -1.0
+		_claimant = 0
 	elif _loose_since < 0.0:
 		_loose_since = _elapsed
 	if person_claims and _elapsed - _loose_since < RAKE_DEFER_SECONDS:
 		return false
 	# Another bot nearer goes for it.
+	if not bot_nearer and not _told_taking:
+		_told_taking = true
+		print("[BotJob] going for the loose rake %.1f s after arriving; a person's claim %s; the nearest person %.1f m from it, me %.1f m" % [_elapsed - _on_lot_since, "ran %.1f s" % (_elapsed - _loose_since) if person_claims else "none now", nearest_person, mine])
 	return not bot_nearer
 
 

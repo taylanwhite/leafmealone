@@ -67,6 +67,9 @@ const CLIENT_WAIT_SECONDS: float = 20.0
 const STEP_WAIT_SECONDS: float = 30.0
 const POSE_TOLERANCE: float = 0.05
 const SEAT_TOLERANCE: float = 0.05
+## ride: no draw of the van on the client steps further than this (m) beyond what
+## its top speed covers in whatever time the draw had past one frame (shuttle.gd
+## max_step_over_m; fx-net: a long frame's honest distance isn't a pop).
 const STEP_MAX_METERS: float = 1.0
 ## road: the van's middle stays this far (m) inside the street's curbs (its half
 ## width), checked along this much of the yard's street either way (m, lot x).
@@ -284,6 +287,9 @@ func _step_unbuckle(shuttle: Node) -> void:
 	var pose: Transform3D = shuttle.call("trip_pose", trip, Net.server_time())
 	me.call("apply_network_teleport", Transform3D(Basis.IDENTITY, step + pose.basis.x.normalized() * 0.8 + Vector3(0.0, 0.1, 0.0)))
 	await get_tree().create_timer(0.3).timeout
+	# Between two of the driver's mirror checks (fx-net: a loaded run reached this
+	# during one, and the mirror's refusal, which comes first, hid the guard's).
+	await _between_mirror_checks(shuttle, trip, 0.3)
 	# A NICE BOY right beside you, looking.
 	var guard := get_tree().get_nodes_in_group("crew")[0] as Node3D
 	var guard_was := guard.global_position
@@ -649,6 +655,15 @@ static func _head_of(lens: Transform3D) -> Vector3:
 	return lens.origin + lens.basis.z.normalized() * 0.2
 
 
+## Waits (at most 10 s) until the driver isn't checking his mirror now and won't
+## start within margin seconds.
+func _between_mirror_checks(shuttle: Node, trip: int, margin: float) -> void:
+	var waited := 0.0
+	while waited < 10.0 and (bool(shuttle.call("mirror_checking", trip, Net.server_time())) or bool(shuttle.call("mirror_checking", trip, Net.server_time() + margin))):
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+
+
 ## Somebody else lets a seated rider's body go mid-ride (the playtest's "two riders
 ## share a seat": its network pose, behind the van, was the next seat): the shuttle
 ## puts it straight back on its seat.
@@ -659,6 +674,9 @@ func _step_restage(shuttle: Node) -> void:
 		_check("restage", false, "no client body or StageBody")
 		return
 	var before := int((shuttle.get("stats") as Dictionary).get("restaged", 0))
+	# fx-net: on the ride so far nobody let a seated rider go (the Encounter's
+	# RIDING stage lets go of its own catch hold only, never the seat).
+	_check("restage_none", before == 0, "seated riders let go mid-ride before this step: %d (want 0)" % before)
 	var anchor: Object = stage_body.call("staged_anchor")
 	body.call("clear_staged")
 	await get_tree().physics_frame
@@ -885,7 +903,7 @@ func _rpc_ask(what: String, args: Dictionary) -> void:
 			out = {"poses": poses}
 		"ride":
 			var stats: Dictionary = shuttle.get("stats")
-			out = {"max_speed_on_screen": float(stats.get("max_speed_on_screen", 0.0)), "max_step_m": float(stats.get("max_step_m", 0.0)), "speed_where": str(stats.get("max_speed_where", "")), "step_where": str(stats.get("max_step_where", "")),
+			out = {"max_speed_on_screen": float(stats.get("max_speed_on_screen", 0.0)), "max_step_m": float(stats.get("max_step_over_m", 0.0)), "speed_where": str(stats.get("max_speed_where", "")), "step_where": str(stats.get("max_step_over_where", "")),
 				"crew_err_max": _crew_err_max, "crew_samples": _crew_samples, "zone_iris": _zone_iris}
 		"border":
 			var me := _me()

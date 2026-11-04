@@ -3,6 +3,8 @@ extends Node
 ## Authority: host drives, the Target client watches and reports. --encounter-test
 ## (R2 chunk 2; docs/GAME.md "The NICE BOYS encounter (R2)") checks the catch from
 ## the van to the escort, under --sim-lag=150 --sim-loss=2 on both peers:
+##   0. (fx-net) the two-shot's side keeps a street lamp out of both faces' sight
+##      lines (_post_side_step)
 ##   1. force_event: the crew is made at once, SEATED, and on the client never more
 ##      than 1.5 m from its seat in the van once the van is in sight (PENDING_SHUTTLE:
 ##      the cast:5 van's fallback seats until chunk 4's Shuttle seats them)
@@ -43,6 +45,8 @@ static var result: Dictionary = {}
 const _Encounter = preload("res://net/run_events/encounter.gd")
 const _Crew = preload("res://npcs/crew_member.gd")
 const _Sweep = preload("res://player/stage_sweep.gd")
+const _StageCam = preload("res://player/stage_cam.gd")
+const _PropCatalog = preload("res://props/prop_catalog.gd")
 ## No grabbing the host's player, ever (it's the one throwing things).
 const HOST_SAFE_SECONDS: float = 100000.0
 const CLIENT_WAIT_SECONDS: float = 20.0
@@ -73,16 +77,24 @@ var _yaw_prev: Dictionary = {}
 var _yaw_max: float = 0.0
 var _yaw_where: String = ""
 var _yaw_skip: int = 0
-## The physics tick of a client's last per-frame yaw sample.
+## The physics tick of a client's last per-frame yaw sample, and when it was (usec).
 var _yaw_tick: int = 0
-## Client (step 5, P1 catch): its clock estimate held this far off the host's (s),
-## from this base offset.
+var _yaw_usec: int = 0
+## Host, step 5: {body, max, samples} while its escorted client is sampled.
+var _host_anchor: Dictionary = {}
+## Client (step 10, P1 catch): its clock estimate held this far off the host's (s).
 var _skew_by: float = 0.0
-var _skew_base: float = 0.0
 
 
 func _ready() -> void:
 	result = {}
+	# Step 5's client half samples its escorted body after StageBody (110) has
+	# placed it this tick, against the anchor it was placed from (fx-net: sampled
+	# before, it measured how far the NICE BOY's drawn body moved in the last
+	# rendered frame, 0.32 m after a 200 ms frame on a loaded machine).
+	var anchor_probe := _AnchorProbe.new()
+	anchor_probe.test = self
+	add_child(anchor_probe)
 	# After every NICE BOY's own tick, so each sample is that tick's pose.
 	process_physics_priority = 100
 	# R2c: and after everything that places a drawn pose in a frame (the smoother,
@@ -93,6 +105,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_sample_host_anchor()
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		# R2c: a client draws a NICE BOY once per rendered frame (the smoother), so its
 		# turn is sampled per frame, per physics tick that frame covered. Only the
@@ -147,9 +160,13 @@ func _sample_yaw(ticks: int) -> void:
 				var turn := absf(wrapf(yaw - float(last[0]), -PI, PI)) / float(maxi(1, ticks))
 				if turn > _yaw_max:
 					_yaw_max = turn
-					_yaw_where = "%s mode %d at %.2f over %d tick(s)" % [member.name, int(member.get("mode")), Net.server_time(), ticks]
+					var smoother := member.get_node_or_null("NetSmoother")
+					_yaw_where = "%s mode %d at %.2f over %d tick(s); real %.0f ms since the last sample, placed '%s', smoother held %s blending %s" % [member.name, int(member.get("mode")), Net.server_time(), ticks,
+						float(Time.get_ticks_usec() - _yaw_usec) / 1000.0, str((member.get("_placed") as Dictionary).get("kind", "")),
+						smoother.get("_held") if smoother != null else "-", (float(smoother.get("_blend_at")) >= 0.0) if smoother != null else "-"]
 		_yaw_prev[id] = [yaw, at]
 		alive[id] = true
+	_yaw_usec = Time.get_ticks_usec()
 	for id: Variant in _yaw_prev.keys():
 		if not alive.has(id):
 			_yaw_prev.erase(id)
@@ -179,6 +196,7 @@ func _run() -> void:
 	# Two NICE BOYS (one for the catches, one to watch).
 	heat.call("add", Constants.HEAT_PER_EXTRA_CREW * 1.5 - float(heat.get("heat")), "test")
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	_post_side_step(encounter, lot)
 	_move_to(lot.global_position + Vector3(-8.0, 0.1, 10.0), 0.0)
 	_teleport(_client, lot.global_position + Vector3(4.0, 0.1, 6.0))
 	# 1. Seated at the call.
@@ -280,17 +298,18 @@ func _run() -> void:
 		await _ticks(2)
 		_step("5 a captured client's grab is refused", int(trash.get("held_by")) != _client)
 	var anchor_ok := true
-	var anchor_max := 0.0
-	var anchor_samples := 0
+	# Sampled in _process, after StageBody has drawn the body this frame, against
+	# the anchor as drawn this frame (fx-net: sampled on a physics tick, it measured
+	# how far the NICE BOY had walked since the last rendered frame, 0.45 m after a
+	# long one in a full -Jobs 8 run).
+	_host_anchor = {"body": client_body, "max": 0.0, "samples": 0}
 	for _sample: int in 40:
 		await get_tree().physics_frame
 		if int(encounter.call("stage_of", _client)) != _Encounter.Stage.ESCORT:
 			break
-		var anchor: Node3D = encounter.call("escort_anchor", _client)
-		if anchor != null:
-			var drawn := client_body.get_node("Visual") as Node3D
-			anchor_max = maxf(anchor_max, Vector2(drawn.global_position.x - anchor.global_position.x, drawn.global_position.z - anchor.global_position.z).length())
-			anchor_samples += 1
+	var anchor_max := float(_host_anchor["max"])
+	var anchor_samples := int(_host_anchor["samples"])
+	_host_anchor = {}
 	if PENDING_STAGE:
 		_note("5 pending: the escorted body on its anchor needs chunk 1's set_staged (host saw %.2f m)" % anchor_max)
 	else:
@@ -337,13 +356,22 @@ func _run() -> void:
 		investigated = await _wait(func() -> bool: return int(idle.get("mode")) == _Crew.Mode.INVESTIGATE, 4.0)
 	_step("7 a can landing near %s: he investigates (%s)" % [idle.name if idle != null else "nobody", investigated], investigated)
 	# 8. Barks.
-	_report = {}
-	_rpc_ask_report.rpc_id(_client)
-	await _wait(func() -> bool: return not _report.is_empty(), 4.0)
-	var client_barks: Array = _report.get("barks", [])
+	# Asked again while they differ (fx-net: the last bark can still be on its way
+	# when the ask overtakes it, or a loaded client answers after the wait); the
+	# same barks in the same order are still required.
 	var host_barks: Array = _Crew.bark_log.slice(maxi(0, _Crew.bark_log.size() - 6))
-	var tail: Array = client_barks.slice(maxi(0, client_barks.size() - host_barks.size()))
-	_step("8 the client saw the same last %d barks (kinds and lines) as the host" % host_barks.size(), host_barks.size() > 0 and JSON.stringify(host_barks) == JSON.stringify(tail))
+	var tail: Array = []
+	for _ask: int in 5:
+		_report = {}
+		_rpc_ask_report.rpc_id(_client)
+		await _wait(func() -> bool: return not _report.is_empty(), 6.0)
+		var client_barks: Array = _report.get("barks", [])
+		tail = client_barks.slice(maxi(0, client_barks.size() - host_barks.size()))
+		if JSON.stringify(host_barks) == JSON.stringify(tail):
+			break
+		await get_tree().create_timer(0.5).timeout
+	var same_barks := host_barks.size() > 0 and JSON.stringify(host_barks) == JSON.stringify(tail)
+	_step("8 the client saw the same last %d barks (kinds and lines) as the host%s" % [host_barks.size(), "" if same_barks else ": host %s, client %s" % [JSON.stringify(host_barks), JSON.stringify(tail)]], same_barks)
 	_step("8 on the client the name tags and bark lines keep a fixed, clamped size", bool(_report.get("tags_ok", false)))
 	# 8b. A sidestep during the wind-up: the verdict is a whiff, he sprawls, and the
 	# target has a moment's grace. The host's own player dodges (its position is the
@@ -453,6 +481,33 @@ func _run() -> void:
 
 ## 8d (R2b): the escort's way to the van door goes round a wall put across the
 ## straight line, through a point with a clear line on to the door.
+## 0 (fx-net). The two-shot's side keeps a street lamp (no collider) out of the
+## sight lines: a pair in the air far off the map (clear of everything) with a lamp
+## standing between the caught one's face and the first side tried. The pick is
+## another side, both faces seen past every post, none by the lens.
+func _post_side_step(encounter: Node, lot: Node3D) -> void:
+	# Far off the map, so no real tree or lamp is near.
+	var ground := lot.global_position + Vector3(5000.0, 30.0, 0.0)
+	var victim := ground + Vector3(0.65, 0.0, 0.0)
+	var crew_at := ground - Vector3(0.65, 0.0, 0.0)
+	var look_up := Vector3.UP * Constants.CATCH_CAM_HEIGHT
+	var mid := ground + look_up
+	var side := Vector3.RIGHT.cross(Vector3.UP).normalized()
+	# On the line from the caught face (x 0.65) to the first eye tried (+Z, 3 m).
+	var lamp := _PropCatalog.place(lot.get_parent() as Node3D, "lamp_acorn")
+	lamp.global_position = ground + Vector3(0.26, -30.0, 1.8)
+	var faces := [victim + look_up, crew_at + look_up]
+	var yaw := float(encounter.call("_clear_side", mid, side, Constants.CATCH_CAM_DISTANCE, faces))
+	var to_cam := Vector3(sin(yaw), 0.0, cos(yaw))
+	var eye := mid + to_cam * Constants.CATCH_CAM_DISTANCE
+	var posts := _Sweep.posts(get_tree(), mid, Constants.CATCH_CAM_DISTANCE + 2.0)
+	var seen := _Sweep.lens_clear(posts, eye, Constants.STAGE_POST_LENS_CLEAR)
+	for face: Vector3 in faces:
+		seen = seen and _Sweep.posts_clear(posts, face, eye, Constants.STAGE_POST_SIGHT_CLEAR)
+	lamp.free()
+	_step("0 a lamp post in the first side's sight line: the two-shot looks from yaw %.2f, both faces clear of %d posts (%s)" % [yaw, posts.size(), seen], posts.size() >= 1 and seen and to_cam.z < 0.5)
+
+
 func _route_step(encounter: Node) -> void:
 	var walker: Node3D = null
 	for node: Node in get_tree().get_nodes_in_group("nice_crew"):
@@ -639,6 +694,38 @@ func _client_sample() -> void:
 				var drawn := member.get_node("Visual") as Node3D
 				_sampled["seat_max"] = maxf(float(_sampled["seat_max"]), drawn.global_position.distance_to(seat.origin))
 				_sampled["seat_samples"] = int(_sampled["seat_samples"]) + 1
+	if _wriggling:
+		_wriggle_down = not _wriggle_down
+		if _wriggle_down:
+			Input.action_press(&"jump")
+		else:
+			Input.action_release(&"jump")
+
+
+## Host, step 5: the escorted client's drawn body against its anchor as drawn,
+## each rendered frame after everything has placed what it draws.
+func _sample_host_anchor() -> void:
+	if _host_anchor.is_empty():
+		return
+	var encounter := _encounter()
+	var body := _host_anchor["body"] as Node3D
+	if encounter == null or not is_instance_valid(body) or int(encounter.call("stage_of", _client)) != _Encounter.Stage.ESCORT:
+		return
+	var anchor: Node3D = encounter.call("escort_anchor", _client)
+	if anchor == null:
+		return
+	var drawn := body.get_node("Visual") as Node3D
+	var at := _StageCam.drawn_pose(anchor).origin
+	_host_anchor["max"] = maxf(float(_host_anchor["max"]), Vector2(drawn.global_position.x - at.x, drawn.global_position.z - at.z).length())
+	_host_anchor["samples"] = int(_host_anchor["samples"]) + 1
+
+
+## Client, step 5: the escorted body against its anchor, once StageBody has
+## placed it this tick (_AnchorProbe, priority 120).
+func _client_anchor_sample() -> void:
+	if multiplayer.multiplayer_peer == null or Net.is_host():
+		return
+	var me := Net.local_peer_id()
 	var encounter := _encounter()
 	var player := _own()
 	if encounter != null and player != null and int(encounter.call("stage_of", me)) == _Encounter.Stage.ESCORT and Net.server_time() > float(encounter.call("stage_at", me)) + Constants.ESCORT_LINK_BLEND + 0.1:
@@ -646,12 +733,17 @@ func _client_sample() -> void:
 		if anchor != null:
 			_sampled["anchor_max"] = maxf(float(_sampled["anchor_max"]), Vector2(player.global_position.x - anchor.global_position.x, player.global_position.z - anchor.global_position.z).length())
 			_sampled["anchor_samples"] = int(_sampled["anchor_samples"]) + 1
-	if _wriggling:
-		_wriggle_down = not _wriggle_down
-		if _wriggle_down:
-			Input.action_press(&"jump")
-		else:
-			Input.action_release(&"jump")
+
+
+class _AnchorProbe extends Node:
+	var test: Node
+
+	func _ready() -> void:
+		process_physics_priority = 120
+
+	func _physics_process(_delta: float) -> void:
+		if test != null:
+			test.call("_client_anchor_sample")
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -743,39 +835,18 @@ func _rpc_wriggle(on: bool) -> void:
 
 
 ## Client: hold its clock estimate `by` seconds off the host's (0: let it go), the
-## way a starved window's drifts (net/clock_sync.gd: both its offsets, every tick,
-## over whatever the pings fold in).
+## way a starved window's drifted: the clock's own dev skew (--clock-skew=), which
+## every ping leaves alone (net/clock_sync.gd).
 @rpc("authority", "call_remote", "reliable")
 func _rpc_skew(by: float) -> void:
-	var clock: RefCounted = Net.get("_clock")
-	if clock == null:
-		return
-	var samples: Array = clock.get("_samples")
-	for sample: Variant in samples.duplicate():
-		if bool((sample as Dictionary).get("skew", false)):
-			samples.erase(sample)
-	if is_zero_approx(by):
-		if not is_zero_approx(_skew_by):
-			clock.set("_offset_seconds", _skew_base)
-			clock.set("_applied_offset", _skew_base)
-		_skew_by = 0.0
-		return
-	if is_zero_approx(_skew_by):
-		_skew_base = float(clock.call("offset_seconds"))
 	_skew_by = by
-	# A sample no ping beats (no round trip, and it never ages out): every pong
-	# folded in meanwhile keeps the skewed offset.
-	samples.append({"rtt": 0.0, "offset": _skew_base + by, "at": 1.0e12, "skew": true})
 	_hold_skew()
 
 
 func _hold_skew() -> void:
-	if is_zero_approx(_skew_by):
-		return
 	var clock: RefCounted = Net.get("_clock")
-	if clock != null:
-		clock.set("_offset_seconds", _skew_base + _skew_by)
-		clock.set("_applied_offset", _skew_base + _skew_by)
+	if clock != null and not is_equal_approx(float(clock.get("dev_skew")), _skew_by):
+		clock.set("dev_skew", _skew_by)
 
 
 ## Client: the next ticks' turns are the test's own teleport, not the game's.

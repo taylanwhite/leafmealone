@@ -63,6 +63,9 @@ const CLOCK_SETTLE_WAIT: float = 20.0
 const CLOCK_SETTLE_RTT: float = 0.6
 ## Every second physics tick of the client's staged body goes in its report.
 const WALL_SAMPLE_EVERY: int = 2
+## The system clock read either side of a server time: further apart than this
+## (s), the process was switched out between them and the pair can't date it.
+const WALL_READ_MAX: float = 0.002
 
 static var result: Dictionary = {}
 
@@ -94,6 +97,10 @@ var _anchor_seen_at: float = INF
 var _anchor_local_at: float = 0.0
 ## Client: [system unix time, body position] on its physics ticks after the blend.
 var _wall_samples: Array = []
+## The system clock at the moment this tick's anchor time was read, and whether
+## the two reads round it came within WALL_READ_MAX (else the tick isn't sampled).
+var _anchor_wall: float = 0.0
+var _anchor_wall_sure: bool = false
 var _wall_tick: int = 0
 ## Client: watching its clock offset settle; host: told it has.
 var _clock_settled: bool = false
@@ -131,7 +138,16 @@ func _move_anchor() -> void:
 	if _anchor_base == Vector3.INF:
 		return
 	var before := _anchor.global_position
-	_anchor.global_transform = _anchor_xform(Net.server_time())
+	# The system clock read on both sides of the server time the anchor is placed
+	# by: the agree step pairs the body with this moment, not one read later in the
+	# tick (fx-net: a loaded machine can switch this process out between the two
+	# for a scheduler slice, 27 ms, which the step read as the clocks disagreeing).
+	var wall_before := Time.get_unix_time_from_system()
+	var placed_at := Net.server_time()
+	var wall_after := Time.get_unix_time_from_system()
+	_anchor_wall = (wall_before + wall_after) * 0.5
+	_anchor_wall_sure = wall_after - wall_before <= WALL_READ_MAX
+	_anchor.global_transform = _anchor_xform(placed_at)
 	var at := _anchor.global_position
 	# A hitch (a frame that took far longer than a tick) moves a time-driven anchor
 	# a long way at once; that's the anchor catching up, not the stage popping.
@@ -226,20 +242,35 @@ func _run_host() -> void:
 ## a wall-clock moment, against where the host's anchor was at that moment.
 func _cross_step() -> void:
 	var samples: Array = _report.get("wall", [])
-	# This machine's system clock minus the host's server time (both read now).
-	var wall_minus_server := Time.get_unix_time_from_system() - Net.server_time()
+	# This machine's system clock minus the host's server time: the tightest of a
+	# few reads with the system clock either side (see _move_anchor).
+	var wall_minus_server := 0.0
+	var tightest := INF
+	for _read: int in 16:
+		var wall_before := Time.get_unix_time_from_system()
+		var server := Net.server_time()
+		var wall_after := Time.get_unix_time_from_system()
+		if wall_after - wall_before < tightest:
+			tightest = wall_after - wall_before
+			wall_minus_server = (wall_before + wall_after) * 0.5 - server
 	var offset := Transform3D(Basis.IDENTITY, Vector3(0.6, 0.0, 0.0))
 	var err_max := 0.0
 	var err_sum := 0.0
-	for sample: Variant in samples:
-		var pair: Array = sample
+	var worst_at := ""
+	for index: int in samples.size():
+		var pair: Array = samples[index]
 		var want := (_anchor_xform(float(pair[0]) - wall_minus_server) * offset).origin
 		var err := (pair[1] as Vector3).distance_to(want)
+		if err > err_max:
+			# The client's clock then: how far its applied offset trailed its estimate,
+			# and how wide the estimate's bounds were (net/clock_sync.gd).
+			var clock: Vector2 = pair[2] if pair.size() > 2 else Vector2.ZERO
+			worst_at = "sample %d of %d, client clock trailing its estimate by %.1f ms, bounds %.1f ms wide" % [index, samples.size(), clock.x * 1000.0, clock.y * 1000.0]
 		err_max = maxf(err_max, err)
 		err_sum += err
 	var mean := err_sum / float(samples.size()) if not samples.is_empty() else 0.0
 	var ok := samples.size() > 30 and err_max <= CROSS_TOLERANCE
-	_step("agree", ok, "the client's own staged body against the host's anchor at the same moment: worst %.3f m, mean %.3f m over %d samples (want <= %.2f)" % [err_max, mean, samples.size(), CROSS_TOLERANCE])
+	_step("agree", ok, "the client's own staged body against the host's anchor at the same moment: worst %.3f m (%s), mean %.3f m over %d samples (want <= %.2f)" % [err_max, worst_at, mean, samples.size(), CROSS_TOLERANCE])
 
 
 ## The client's body on a moving anchor, staged by one reliable RPC on every peer.
@@ -794,8 +825,9 @@ func _measure_owner() -> void:
 			_err_max = maxf(_err_max, body.global_position.distance_to(want))
 			_err_samples += 1
 			_wall_tick += 1
-			if _wall_tick % WALL_SAMPLE_EVERY == 0:
-				_wall_samples.append([Time.get_unix_time_from_system(), body.global_position])
+			if _wall_tick % WALL_SAMPLE_EVERY == 0 and _anchor_wall_sure:
+				var clock: RefCounted = Net.get("_clock")
+				_wall_samples.append([_anchor_wall, body.global_position, clock.call("lag_and_width") if clock != null else Vector2.ZERO])
 	elif _release_at != INF and Net.server_time() - _release_at < RELEASE_WATCH_SECONDS:
 		# Across the ground: the body settles onto the floor under gravity as it should.
 		_release_jump = maxf(_release_jump, _flat(body.global_position - _release_from))

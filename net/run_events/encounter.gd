@@ -217,7 +217,8 @@ func host_windup(crew: Node, peer_id: int, from_spot: bool = false) -> bool:
 		var line := crew_at - stand
 		line.y = 0.0
 		var across := line.cross(Vector3.UP).normalized() if line.length() > 0.05 else dir.cross(Vector3.UP).normalized()
-		var cam_yaw := _clear_side((stand + crew_at) * 0.5 + Vector3.UP * Constants.CATCH_CAM_HEIGHT, across, Constants.CATCH_CAM_DISTANCE)
+		var look_up := Vector3.UP * Constants.CATCH_CAM_HEIGHT
+		var cam_yaw := _clear_side((stand + crew_at) * 0.5 + look_up, across, Constants.CATCH_CAM_DISTANCE, [stand + look_up, crew_at + look_up])
 		haul = {"stand": stand, "crew_at": crew_at, "cam_yaw": cam_yaw, "face": points["face"]}
 		_down_staging[peer_id] = haul
 	else:
@@ -325,7 +326,8 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0, land: V
 	# The host picks where the two-shot looks from (open lawn, no wall, no truck),
 	# so every peer turns both bodies toward the same camera.
 	var mid := (victim + crew_at) * 0.5
-	var cam_yaw := float(staged_down["cam_yaw"]) if down else _clear_side(mid + Vector3.UP * Constants.CATCH_CAM_HEIGHT, dir.cross(Vector3.UP).normalized(), Constants.CATCH_CAM_DISTANCE)
+	var look_up := Vector3.UP * Constants.CATCH_CAM_HEIGHT
+	var cam_yaw := float(staged_down["cam_yaw"]) if down else _clear_side(mid + look_up, dir.cross(Vector3.UP).normalized(), Constants.CATCH_CAM_DISTANCE, [victim + look_up, crew_at + look_up])
 	_rpc_catch.rpc(grab_id, int(crew.call("crew_index")), peer_id, at, victim, crew_at, cam_yaw, down)
 
 
@@ -931,8 +933,11 @@ func _rpc_stage(peer_id: int, stage: int, at: float, crew_index: int, args: Dict
 				_lock(player, &"nice_cite", false)
 				_lock(player, &"escort", false)
 		Stage.RIDING, Stage.ANNEX, Stage.RETURNING:
-			if player != null and _holds.has(peer_id):
-				_unstage_body(player)
+			# A leftover catch hold lets go; the van's seat or the Annex's walk, which
+			# staged the body since, keeps it (fx-net: this let go of whatever the body
+			# was on, and a rider fell off their seat onto their network pose).
+			if player != null:
+				_unstage_body(player, peer_id)
 			if player != null and peer_id == Net.local_peer_id():
 				if _boarding.is_empty():
 					_pop_shots(player)
@@ -1412,9 +1417,13 @@ func _hauling(peer_id: int) -> bool:
 ## first, the yard side before the street side (the curb is lined with trees and
 ## trucks, the yard is open lawn), then swung up to 50 degrees toward either of
 ## them, until a sphere swept from between them out past the eye touches nothing:
-## no wall, no hedge, no Chefty, no van (player/stage_sweep.gd). With nowhere
-## clear, the one with the most room.
-func _clear_side(mid: Vector3, side: Vector3, distance: float) -> float:
+## no wall, no hedge, no Chefty, no van (player/stage_sweep.gd). fx-net: and the
+## eye sees both faces (`faces`, at the look height): no sweep from either face
+## to the eye touches anything, no street lamp or tree trunk (no collider: the
+## sweep can't see them) stands in either sight line or right by the lens. A
+## catch beside a lamp post filmed the post across half the frame for the whole
+## gotcha (rec_fx_raid_1p 244-284). With nowhere clear, the one with the most room.
+func _clear_side(mid: Vector3, side: Vector3, distance: float, faces: Array = []) -> float:
 	var world := get_viewport().world_3d if get_viewport() != null else null
 	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
 	var first := 1.0
@@ -1429,10 +1438,20 @@ func _clear_side(mid: Vector3, side: Vector3, distance: float) -> float:
 	var best := tries[0]
 	if world != null:
 		var exclude := _Sweep.passable(get_tree())
+		var posts := _Sweep.posts(get_tree(), mid, distance + 2.0)
 		var best_reach := -1.0
 		for to_cam: Vector3 in tries:
 			var eye := mid + to_cam * (distance + 0.4) - Vector3.UP * Constants.CATCH_CAM_EYE_DROP
 			var reach := _Sweep.reach(world, mid, eye, Constants.STAGE_CAM_RADIUS + 0.1, exclude)
+			# Where the eye really sits (it only pushes in from there).
+			var lens := mid + to_cam * distance - Vector3.UP * Constants.CATCH_CAM_EYE_DROP
+			var seen := _Sweep.lens_clear(posts, lens, Constants.STAGE_POST_LENS_CLEAR) and _Sweep.posts_clear(posts, mid, lens, Constants.STAGE_POST_SIGHT_CLEAR)
+			for face: Variant in faces:
+				reach = minf(reach, _Sweep.reach(world, face as Vector3, eye, Constants.STAGE_CAM_RADIUS, exclude))
+				seen = seen and _Sweep.posts_clear(posts, face as Vector3, lens, Constants.STAGE_POST_SIGHT_CLEAR)
+			if not seen:
+				# Never picked over a clear one, but better than a wall in the face.
+				reach *= 0.5
 			if reach >= 0.999:
 				best = to_cam
 				break
@@ -1610,9 +1629,37 @@ func _stage_body(player: Node3D, anchor: Node3D, offset: Transform3D, blend: flo
 		player.call("set_staged", anchor, offset, blend, pose, clear_of)
 
 
-func _unstage_body(player: Node3D) -> void:
-	if player != null and player.has_method("clear_staged") and player.has_method("is_staged") and bool(player.call("is_staged")):
+## Lets go of a body the Encounter staged: on this peer's hold, or a NICE BOY's
+## EscortAnchor. A body something else has staged since (the van's seat, the
+## Annex's walk-in) is that system's to let go of (fx-net).
+func _unstage_body(player: Node3D, peer_id: int) -> void:
+	if player == null or not player.has_method("clear_staged") or not player.has_method("is_staged") or not bool(player.call("is_staged")):
+		return
+	if _owns_anchor(peer_id, _staged_anchor(player)):
 		player.call("clear_staged")
+
+
+## What this player's body is staged on, or null.
+static func _staged_anchor(player: Node3D) -> Node3D:
+	var stage_body := player.get_node_or_null("StageBody")
+	if stage_body == null or not stage_body.has_method("staged_anchor"):
+		return null
+	return stage_body.call("staged_anchor") as Node3D
+
+
+## Whether anchor is one the Encounter stages bodies on: this peer's hold, or a
+## crew member's EscortAnchor.
+func _owns_anchor(peer_id: int, anchor: Node3D) -> bool:
+	if anchor == null:
+		return false
+	if anchor == _holds.get(peer_id):
+		return true
+	var carrier := anchor.get_parent()
+	while carrier != null:
+		if carrier.has_method("escort_anchor"):
+			return carrier.call("escort_anchor") == anchor
+		carrier = carrier.get_parent()
+	return false
 
 
 func _lock(player: Node3D, reason: StringName, on: bool) -> void:
@@ -1674,7 +1721,7 @@ func _clear_peer(peer_id: int) -> void:
 		_anim_speed(_body_of(crew), 1.0)
 	if player != null:
 		_anim_speed(_body_of(player), 1.0)
-		_unstage_body(player)
+		_unstage_body(player, peer_id)
 		_drop_caught_pose(player)
 		if peer_id == Net.local_peer_id():
 			_release_boarding_iris()
@@ -1757,10 +1804,8 @@ func _shake_loose(peer_id: int, player: Node3D, crew_at: Vector3, rescuer: Node3
 func _end_shake_loose(peer_id: int, hold_id: int) -> void:
 	var hold := instance_from_id(hold_id) as Node3D
 	var player := _player(peer_id)
-	if player != null and hold != null and player.has_method("is_staged") and bool(player.call("is_staged")):
-		var stage_body := player.get_node_or_null("StageBody")
-		if stage_body != null and stage_body.call("staged_anchor") == hold:
-			_unstage_body(player)
+	if player != null and hold != null and _staged_anchor(player) == hold:
+		player.call("clear_staged")
 	if hold != null and _holds.get(peer_id) == hold and stage_of(peer_id) == Stage.NONE:
 		_holds.erase(peer_id)
 		hold.queue_free()

@@ -26,14 +26,11 @@ const CLIENT_WAIT_SECONDS: float = 12.0
 const HOLD_LINGER_SECONDS: float = 4.0
 ## Step 14c, the draw (_draw_take): after the first tick at least this share of
 ## the way is still to go; at least this many samples part way; no tick's step
-## over this share of the path's length; a take whose ticks came more than this
-## many ticks of real time apart can't be judged, and is drawn again, this many
-## takes at most.
+## over this share of the path's length. The glide runs on game time (physics
+## ticks, prop_looks.gd clock_msec), so every take is judged, stalls or not.
 const DRAW_FIRST_LEFT: float = 0.4
 const DRAW_BETWEEN: int = 3
 const DRAW_STEP_SHARE: float = 0.5
-const DRAW_TICK_LATE: float = 1.6
-const DRAW_TRIES: int = 4
 
 static var result: Dictionary = {}
 
@@ -568,18 +565,10 @@ func _check_stowed(rake: Node3D) -> void:
 	var shown_again := await _wait_for(func() -> bool: return look.is_visible_in_tree(), 120)
 	_step("14b hidden in a pile %s, back on the body after %s" % [hidden, shown_again], hidden and shown_again)
 	await _seconds(1.5)
-	# The draw, judged only on a take whose ticks came on time (a stall on a loaded
-	# machine moves the msec-clocked glide further in one tick, so a pop and a
-	# stall look alike): put back and drawn again until one is, DRAW_TRIES at most.
-	var take: Dictionary = {}
-	for attempt: int in DRAW_TRIES:
-		take = await _draw_take(rake)
-		if bool(take["judged"]) or attempt == DRAW_TRIES - 1:
-			break
-		print("[HotbarTest] draw take %d had a stalled tick, drawing again" % (attempt + 1))
-		await _tap(&"slot_1")
-		await _seconds(Constants.HOTBAR_STOW_SECONDS + 0.3)
-	_step("14c drawn %s: glided %.2f m into the hands in %.2f s (by %.2f); %.0f%% still to go after the first tick (over %.0f%%), %d samples on the way (%d+), biggest step %.2f m a tick (%.2f at most: %.0f%% of its %.2f m path), ticks on time %s" % [take["drawn"], take["travel"], take["arrived"], Constants.HOTBAR_DRAW_SECONDS + 0.1, float(take["left_first"]) * 100.0, DRAW_FIRST_LEFT * 100.0, take["between"], DRAW_BETWEEN, take["biggest"], DRAW_STEP_SHARE * float(take["length"]), DRAW_STEP_SHARE * 100.0, take["length"], take["judged"]], bool(take["passed"]))
+	# The draw: one take, judged in game time (fx-net: the glide's clock is the
+	# physics tick now, so a stalled frame no longer moves it further in one tick).
+	var take: Dictionary = await _draw_take(rake)
+	_step("14c drawn %s: glided %.2f m into the hands in %.2f s of game time (by %.2f); %.0f%% still to go after the first tick (over %.0f%%), %d samples on the way (%d+), biggest step %.2f m a tick (%.2f at most: %.0f%% of its %.2f m path)" % [take["drawn"], take["travel"], take["arrived"], Constants.HOTBAR_DRAW_SECONDS + 0.1, float(take["left_first"]) * 100.0, DRAW_FIRST_LEFT * 100.0, take["between"], DRAW_BETWEEN, take["biggest"], DRAW_STEP_SHARE * float(take["length"]), DRAW_STEP_SHARE * 100.0, take["length"]], bool(take["passed"]))
 	# Back to bare hands for the steps that follow.
 	await _tap(&"slot_1")
 	await _seconds(Constants.HOTBAR_STOW_SECONDS + 0.1)
@@ -592,57 +581,59 @@ func _check_stowed(rake: Node3D) -> void:
 ## the path it took (it bows out round the body, so the path is longer than the
 ## straight line), and in its in-hand pose by HOTBAR_DRAW_SECONDS + 0.1 s. A pop
 ## is the whole straight line (about 0.8 m) in one tick, all of its path; one
-## spread over two ticks has one sample part way. judged: every tick until
-## it arrived came within DRAW_TICK_LATE ticks of real time, so the steps are
-## steps, not stalls.
+## spread over two ticks has one sample part way. Times are game time: one
+## sample a physics tick (the real time between them is printed, not judged).
 func _draw_take(rake: Node3D) -> Dictionary:
 	var start := _look_bounds(rake).get_center()
 	var path: Array[Vector3] = []
 	var gaps: Array[float] = []
 	var last := Time.get_ticks_usec()
 	var pressed := last
+	# The tick the rake came into the hands: the key is handed out on a rendered
+	# frame, which a loaded run reaches some ticks after the press. Timed from there.
+	var first := -1
 	_send(&"slot_1", true)
-	for _tick: int in 60:
+	for _tick: int in 60 + 30:
 		await get_tree().physics_frame
 		var now := Time.get_ticks_usec()
 		path.append(_look_bounds(rake).get_center())
 		gaps.append(float(now - last) / 1000000.0)
 		last = now
-		if path.size() == 2:
+		if first < 0 and _holds(rake):
+			first = path.size() - 1
 			_send(&"slot_1", false)
+		if first >= 0 and path.size() - first >= 60:
+			break
+	first = maxi(first, 0)
 	var settled := path[path.size() - 1]
 	var travel := start.distance_to(settled)
 	var tick := 1.0 / float(Engine.physics_ticks_per_second)
-	print("[HotbarTest] draw path, m from the settled pose: %s" % ", ".join(path.slice(0, 16).map(func(at: Vector3) -> String: return "%.2f" % at.distance_to(settled))))
-	print("[HotbarTest] draw ticks, ms apart: %s" % ", ".join(gaps.slice(0, 16).map(func(gap: float) -> String: return "%.0f" % (gap * 1000.0))))
+	print("[HotbarTest] draw path from the press, m from the settled pose (in hand from sample %d): %s" % [first, ", ".join(path.slice(0, first + 16).map(func(at: Vector3) -> String: return "%.2f" % at.distance_to(settled)))])
+	print("[HotbarTest] draw ticks, real ms apart (not judged): %s" % ", ".join(gaps.slice(0, first + 16).map(func(gap: float) -> String: return "%.0f" % (gap * 1000.0))))
 	var arrived := -1.0
 	var arrived_index := path.size() - 1
-	var elapsed := 0.0
-	for index: int in path.size():
-		elapsed += gaps[index]
+	for index: int in range(first, path.size()):
 		if arrived < 0.0 and path[index].distance_to(settled) <= 0.05:
-			arrived = elapsed
+			arrived = float(index - first + 1) * tick
 			arrived_index = index
 		elif arrived >= 0.0 and path[index].distance_to(settled) > 0.05:
 			arrived = -1.0
-	var judged := true
 	var biggest := 0.0
 	var length := 0.0
 	var between := 0
 	var previous := start
 	for index: int in arrived_index + 1:
-		judged = judged and gaps[index] <= tick * DRAW_TICK_LATE
 		biggest = maxf(biggest, path[index].distance_to(previous))
 		length += path[index].distance_to(previous)
 		previous = path[index]
 		if path[index].distance_to(start) > 0.05 and path[index].distance_to(settled) > 0.05:
 			between += 1
-	var left_first := path[0].distance_to(settled) / maxf(travel, 0.001)
+	var left_first := path[first].distance_to(settled) / maxf(travel, 0.001)
 	var in_time := arrived >= 0.0 and arrived <= Constants.HOTBAR_DRAW_SECONDS + 0.1
 	var drawn := _holds(rake)
 	var glided := travel > 0.3 and left_first > DRAW_FIRST_LEFT and between >= DRAW_BETWEEN and biggest <= DRAW_STEP_SHARE * length
 	print("[HotbarTest] draw take: %.0f ms tracked, path %.2f m long" % [float(last - pressed) / 1000.0, length])
-	return {"drawn": drawn, "travel": travel, "length": length, "arrived": arrived, "left_first": left_first, "between": between, "biggest": biggest, "judged": judged, "passed": drawn and in_time and glided and judged}
+	return {"drawn": drawn, "travel": travel, "length": length, "arrived": arrived, "left_first": left_first, "between": between, "biggest": biggest, "passed": drawn and in_time and glided}
 
 
 # ---------------------------------------------------------------- helpers
@@ -703,11 +694,16 @@ func _grab(item: Node3D) -> void:
 
 
 ## A key press as a player's: press, then release next tick, through the input
-## pipeline (bot_job._tap does the same).
+## pipeline (bot_job._tap does the same). Parsed events are handed out once a
+## rendered frame, and a loaded frame can run all six ticks before that (fx-net:
+## step 5 read the pockets before its key had been seen), so each half waits for
+## frames as well as ticks.
 func _tap(action: StringName) -> void:
 	_send(action, true)
+	await _frames(2)
 	await _ticks(1)
 	_send(action, false)
+	await _frames(2)
 	await _ticks(5)
 
 

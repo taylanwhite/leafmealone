@@ -16,6 +16,9 @@ const OPEN_SHOP_AFTER_SECONDS: float = 1.0
 const FINISH_SETTLE_SECONDS: float = 0.5
 ## How long the host waits for clients to report and leave before it quits anyway.
 const FINISH_CLIENT_WAIT_SECONDS: float = 5.0
+## At its --run-seconds ceiling the host waits this long, at most, for clients
+## still on their own ceilings to report and leave (_finish).
+const HOST_LAST_WAIT_SECONDS: float = 20.0
 ## --fill-pockets: how long it waits for the yard and the player, then lets the
 ## yard's props settle before picking things up.
 const FILL_POCKETS_WAIT_SECONDS: float = 30.0
@@ -335,7 +338,18 @@ func _finish() -> void:
 	# The host is already finishing early; the ceiling must not write its report twice.
 	if _finishing:
 		return
+	_finishing = true
 	_write_report()
+	# The host's ceiling: clients still here are on ceilings of their own, which a
+	# loaded machine started late (a soak's late joiner took several seconds more
+	# to boot than the host's 5 s margin, saw "Host left" before its report and
+	# failed the soak: fx-net). Wait for them to go, a while at most, so the host
+	# stops last.
+	if Net.is_host() and multiplayer.multiplayer_peer != null:
+		var waited := 0.0
+		while Net.peer_ids().size() > 1 and waited < HOST_LAST_WAIT_SECONDS:
+			await get_tree().create_timer(0.1).timeout
+			waited += 0.1
 	print("[Dev] run finished")
 	get_tree().quit(0)
 

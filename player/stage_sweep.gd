@@ -8,6 +8,8 @@ extends RefCounted
 ## People (players, the crew) and loose props are never obstacles here: a camera
 ## about someone looks past them, and the pair walks past them.
 
+const _Trees = preload("res://props/trees.gd")
+
 const MASK: int = 1 | Constants.VEHICLE_LAYER
 
 
@@ -66,3 +68,56 @@ static func inside(world: World3D, at: Vector3, radius: float, exclude: Array[RI
 ## Whether a sphere passes from -> to without touching anything solid.
 static func clear(world: World3D, from: Vector3, to: Vector3, radius: float, exclude: Array[RID]) -> bool:
 	return reach(world, from, to, radius, exclude) >= 0.999
+
+
+## fx-net: the upright things a camera can't see through and the physics can't
+## see at all (street lamps and scenery trees have no collider): [[base, radius]]
+## for each within `within` m (flat) of `near`. A street lamp is found by its
+## lens (group "street_lamps", props/prop_catalog.gd), whose parent stands at the
+## post's foot; a tree by group "seasonal" (props/trees.gd), its trunk a share of
+## its height, an evergreen's skirt its whole low spread.
+static func posts(tree: SceneTree, near: Vector3, within: float) -> Array:
+	var out: Array = []
+	if tree == null:
+		return out
+	for lens: Node in tree.get_nodes_in_group(&"street_lamps"):
+		var post := lens.get_parent() as Node3D
+		if post == null or not post.is_inside_tree():
+			continue
+		if _flat(post.global_position, near) <= within:
+			out.append([post.global_position, Constants.STAGE_LAMP_POST_RADIUS])
+	for node: Node in tree.get_nodes_in_group(&"seasonal"):
+		var plant := node as Node3D
+		if plant == null or not "kind" in plant or not plant.is_visible_in_tree():
+			continue
+		if _flat(plant.global_position, near) > within:
+			continue
+		var height := plant.global_basis.get_scale().x * _Trees.BUILD_HEIGHT
+		var share := Constants.VAN_TREE_SPREAD.x if _Trees.EVERGREEN.has(str(plant.get("kind"))) else Constants.STAGE_TRUNK_SHARE
+		out.append([plant.global_position, height * share])
+	return out
+
+
+## Whether a sight line from -> to passes every one of posts() by its radius
+## plus margin (flat: they all stand taller than a face).
+static func posts_clear(found: Array, from: Vector3, to: Vector3, margin: float) -> bool:
+	var a := Vector2(from.x, from.z)
+	var b := Vector2(to.x, to.z)
+	for post: Array in found:
+		var at := post[0] as Vector3
+		var point := Vector2(at.x, at.z)
+		if Geometry2D.get_closest_point_to_segment(point, a, b).distance_to(point) < float(post[1]) + margin:
+			return false
+	return true
+
+
+## Whether no post of posts() stands within `clear` m (flat, past its radius) of `eye`.
+static func lens_clear(found: Array, eye: Vector3, clear: float) -> bool:
+	for post: Array in found:
+		if _flat(post[0] as Vector3, eye) - float(post[1]) < clear:
+			return false
+	return true
+
+
+static func _flat(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x - b.x, a.z - b.z).length()

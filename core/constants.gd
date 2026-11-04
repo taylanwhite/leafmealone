@@ -6390,3 +6390,45 @@ const DAY_SKY_WAKE_LAYER: int = 0
 ## The last of the crew to lie down gets this long (s) on the cot before the night
 ## passes (net/day/day_clock.gd): the climb, a round trip, and a breath.
 const SLEEP_LAST_ONE_BEAT: float = 1.6
+
+# ---- fx-net (W9: trustworthy tests, the clock under load; docs/DECISIONS.md "fx-net")
+## A client pings the host for its clock this often (s). Each ping bounds the
+## offset; more of them give each bound more chances at a frame with no wait
+## (net/clock_sync.gd). Two floats each way.
+const CLOCK_PING_SECONDS: float = 0.25
+## A client clock whose estimate fell back more than ClockSync.SNAP_SECONDS walks
+## back at this share of real time (time runs at half speed) instead of jumping
+## back: scheduled beats never replay.
+const CLOCK_BACK_SLEW: float = 0.5
+## A session's first this-many pongs (a joiner's, mostly through its loading
+## stalls) set the clock straight to the estimate instead of slewing toward it.
+const CLOCK_YOUNG_SAMPLES: int = 20
+## A --fixed-step run's clock (game ticks): the window the offset's rate is
+## fitted over (s), the samples it needs and how long a stretch they must span
+## (s), how far over the quickest round trip a sample may be to count (s), and
+## the fastest the offset may move (s a second: a window at 0.2 of real time
+## beside a host at full speed is 4).
+const CLOCK_RATE_WINDOW: float = 5.0
+const CLOCK_RATE_MIN_SAMPLES: int = 4
+const CLOCK_RATE_MIN_SPAN: float = 1.5
+const CLOCK_RATE_RTT_SLACK: float = 0.03
+const CLOCK_RATE_MAX: float = 4.0
+## Chefty's driver: a frame that drops at least this many physics ticks has
+## them stepped on the held input, as the host stood in for them
+## (chefty_drive.gd _lost_ticks); fewer is the step counter's own jitter.
+const CHEFTY_LOST_TICKS_MIN: int = 2
+## NetSmoother: two updates are played back at least this far apart (s), a hair
+## under the synchronizers' 0.033 s replication interval, so updates a loaded
+## peer reads in consecutive ticks still take their interval each.
+const SMOOTHER_MIN_SPACING: float = 0.03
+## The gotcha two-shot's side (encounter.gd _clear_side) also keeps clear of the
+## things the physics can't see (street lamps and scenery trees have no
+## collider): a sight line from either face to the eye passes no post nearer
+## than its radius plus this (m), and no post stands within STAGE_POST_LENS_CLEAR
+## of the eye (one there fills half the frame: rec_fx_raid_1p 244-284).
+const STAGE_POST_SIGHT_CLEAR: float = 0.3
+const STAGE_POST_LENS_CLEAR: float = 1.1
+## A street lamp's post radius (m) for that test, and a scenery tree's trunk as a
+## share of its height (an evergreen's skirt goes by VAN_TREE_SPREAD.x instead).
+const STAGE_LAMP_POST_RADIUS: float = 0.12
+const STAGE_TRUNK_SHARE: float = 0.045

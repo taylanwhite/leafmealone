@@ -538,12 +538,18 @@ func _corrupt(defaults: Dictionary) -> bool:
 		ok = _fail("corrupt", "a garbage file didn't give defaults")
 	# This one fails to parse, so it takes the unreadable-file path, and the
 	# sensitivity before the bad line must not leak through.
-	print("[SettingsTest] the next two ConfigFile parse errors are expected")
+	# The engine logs ConfigFile's parse error (twice: the probe and the reload) to
+	# stderr, where ci_local shows it as if something broke; it's this step's
+	# point, so it's muted for these two loads only (fx-net).
 	_write("[controls]\nsensitivity=2.0\n[audio]\nmusic=@@@\n")
+	var printing := Engine.print_error_messages
+	Engine.print_error_messages = false
 	var probe := ConfigFile.new()
-	if probe.load(Settings.path()) == OK:
-		ok = _fail("corrupt", "the unparseable file parsed, so the unreadable path isn't tested")
+	var parsed := probe.load(Settings.path())
 	Settings.reload()
+	Engine.print_error_messages = printing
+	if parsed == OK:
+		ok = _fail("corrupt", "the unparseable file parsed, so the unreadable path isn't tested")
 	if not bool(Settings.get_value("audio", "music")) or not is_equal_approx(float(Settings.get_value("controls", "sensitivity")), 1.0) or _snapshot_bindings() != defaults:
 		ok = _fail("corrupt", "an unparseable file gave music %s, sensitivity %s" % [Settings.get_value("audio", "music"), Settings.get_value("controls", "sensitivity")])
 	return ok

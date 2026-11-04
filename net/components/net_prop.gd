@@ -41,7 +41,7 @@ const _KitRules = preload("res://core/kit_rules.gd")
 @export var held_by: int = 0:
 	set(value):
 		if value != held_by:
-			var now := Time.get_ticks_msec()
+			var now := _PropLooks.clock_msec()
 			if value != 0:
 				set_meta("drawn_msec", now)
 				set_meta("drawn_from_pocket", pocketed_by != 0 or now - int(get_meta("unpocketed_msec", -100000)) < Constants.HOTBAR_STAMP_FRESH_MS)
@@ -55,7 +55,7 @@ const _KitRules = preload("res://core/kit_rules.gd")
 @export var pocketed_by: int = 0:
 	set(value):
 		if value != pocketed_by:
-			var now := Time.get_ticks_msec()
+			var now := _PropLooks.clock_msec()
 			if value != 0:
 				set_meta("stowed_msec", now)
 				set_meta("stowed_from_hand", held_by != 0 or now - int(get_meta("unheld_msec", -100000)) < Constants.HOTBAR_STAMP_FRESH_MS)

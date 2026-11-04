@@ -128,6 +128,28 @@ var _prediction_error_sum: float = 0.0
 var _prediction_error_count: int = 0
 ## Snapshots that acked an input this peer hadn't predicted yet (see _reconcile).
 var _acks_ahead: int = 0
+## The driver's peer: the real time its ticks have stood for (usec), the last
+## tick and frame counted, and the ticks it stepped for frames too long (_lost_ticks).
+var _real_usec: float = 0.0
+var _real_tick: int = -1
+var _real_frame: int = -1
+var _lost_stepped: int = 0
+## The driver's peer: inputs it skipped ahead by when an ack showed its count
+## behind the host's (_reconcile).
+var _resynced: int = 0
+## The driver's peer, for drive_test: how many resyncs, and the last one's lead
+## (the round trip in ticks) against how far past the ack its count ended up.
+var _resync_events: int = 0
+var _resync_lead: int = -1
+var _resync_ahead: int = -1
+## Tests (dev_script {do: "lose_ticks"}): physics ticks this driver's peer still
+## skips entirely, as if its frames ran past Godot's catch-up limit.
+var _dev_lose_ticks: int = 0
+## Host: when each watcher's last snapshot went ([usec, physics tick]),
+## and the longest waits seen (_note_snap_sent).
+var _snap_sent: Dictionary = {}
+var _snap_gap_ms: float = 0.0
+var _snap_gap_ticks: int = 0
 var _corrections: int = 0
 ## Host, for drive_test: each peer's last time getting out, peer -> {at, bail}.
 var _last_exits: Dictionary = {}
@@ -1342,11 +1364,18 @@ func _physics_process(delta: float) -> void:
 	_crash.call("physics", delta)
 	if Net.is_host():
 		_host_step(delta)
+	elif driver() == Net.local_peer_id() and driver() != 0 and _trip == Trip.NONE and _dev_lose_ticks > 0:
+		# A test's lost ticks: nothing predicted or sent, so the host stands in.
+		_dev_lose_ticks -= 1
 	elif driver() == Net.local_peer_id() and driver() != 0 and _trip == Trip.NONE:
 		if not _snap_waiting.is_empty():
 			var snap := _snap_waiting
 			_snap_waiting = {}
 			_reconcile(snap["pos"], float(snap["yaw"]), snap["vel"], float(snap["yaw_rate"]), int(snap["ack"]))
+		# Ticks a frame too long to catch up lost (fx-net): stepped here, on the
+		# same input, the way the host stood in for them.
+		for _lost: int in _lost_ticks():
+			_predict_step(delta)
 		_predict_step(delta)
 	_update_presentation(delta)
 
@@ -1377,8 +1406,23 @@ func _host_step(delta: float) -> void:
 		# an unreliable snapshot can outrun the world's spawn to a joining peer.
 		for peer_id: int in _watchers.keys():
 			if Net.peer_ids().has(peer_id):
+				_note_snap_sent(peer_id)
 				_rpc_snap.rpc_id(peer_id, Net.server_time(), _chassis.global_position, float(_state["yaw"]), _state["vel"], float(_state["yaw_rate"]), float(_state["steer"]), _sim_seq)
 	_note_parking()
+
+
+## Host, for drive_test's logs (fx-net): the longest wait between two snapshots
+## to the same peer, in real time and in physics ticks, whether the host kept to
+## its schedule in game time whatever its frames did. Run-long maxima, so not a
+## gate: they can't say which of a watcher's gaps a host stall explains.
+func _note_snap_sent(peer_id: int) -> void:
+	var now := Time.get_ticks_usec()
+	var tick := Engine.get_physics_frames()
+	if _snap_sent.has(peer_id):
+		var last: Array = _snap_sent[peer_id]
+		_snap_gap_ms = maxf(_snap_gap_ms, float(now - int(last[0])) / 1000.0)
+		_snap_gap_ticks = maxi(_snap_gap_ticks, tick - int(last[1]))
+	_snap_sent[peer_id] = [now, tick]
 
 
 ## Host: one step of the sim on these controls, then the crash rules on what it
@@ -1452,6 +1496,46 @@ static func _unpack(packed: Dictionary) -> Dictionary:
 	return {"throttle": float(packed["throttle"]), "steer": float(packed["steer"]), "handbrake": flags & FLAG_HANDBRAKE != 0, "horn": flags & FLAG_HORN != 0}
 
 
+## The driver's peer, on the first physics tick of each frame: how many ticks of
+## real time this frame will never step (fx-net). Godot steps at most
+## max_physics_steps_per_frame ticks a frame and drops the rest of a longer one,
+## but the host stood in for every tick of it (_host_input), so from then on every
+## snapshot acked an input this peer was still to send: no prediction could be
+## checked (drive_test's samples fell to 24 under load, 93 acks ahead) and each
+## reconcile had nothing to replay, pulling the truck back a round trip's worth.
+## Stepping the lost ticks here, on the held input, keeps the count in step with
+## the host's. A stall past CHEFTY_INPUT_TIMEOUT isn't stood in (the host braked
+## and took its stand-ins back), nor more than the host's stand-in limit.
+func _lost_ticks() -> int:
+	var now := float(Time.get_ticks_usec())
+	var tick_usec := 1000000.0 / float(Engine.physics_ticks_per_second)
+	var tick := Engine.get_physics_frames()
+	var frame := Engine.get_process_frames()
+	if _real_tick < 0 or tick != _real_tick + 1:
+		# Not predicting last tick: start counting from here.
+		_real_usec = now
+		_real_tick = tick
+		_real_frame = frame
+		return 0
+	_real_tick = tick
+	_real_usec += tick_usec
+	if frame == _real_frame:
+		# A later tick of the same frame: Godot catching up inside it.
+		return 0
+	_real_frame = frame
+	var behind := (now - _real_usec) / tick_usec
+	if behind < -Constants.CHEFTY_LOST_TICKS_MIN or behind * tick_usec / 1000000.0 > Constants.CHEFTY_INPUT_TIMEOUT:
+		_real_usec = now
+		return 0
+	var lost := int(floor(behind)) - Engine.max_physics_steps_per_frame
+	if lost < Constants.CHEFTY_LOST_TICKS_MIN:
+		return 0
+	lost = mini(lost, int(round(Constants.CHEFTY_STAND_IN_MAX_SECONDS * Engine.physics_ticks_per_second)))
+	_real_usec += float(lost) * tick_usec
+	_lost_stepped += lost
+	return lost
+
+
 ## The driver's peer: send this tick's input and move on it right away.
 func _predict_step(delta: float) -> void:
 	_seq += 1
@@ -1486,11 +1570,25 @@ func _reconcile(pos: Vector3, yaw_now: float, vel: Vector3, yaw_rate: float, ack
 		_prediction_error_max = maxf(_prediction_error_max, error)
 		_prediction_error_sum += error
 		_prediction_error_count += 1
-	elif ack > _seq:
+	var resync := 0
+	var jumped_to_ack := false
+	if ack > _seq:
 		# The host's pose is after an input this peer hasn't sent yet: its frames ran
 		# so long it lost physics ticks (past Godot's catch-up limit) and fell behind
 		# real time, while the host stood in for it. Nothing here to compare it with.
 		_acks_ahead += 1
+		# fx-net: and the count is behind the host's for good (every later input is
+		# one the host already stood in for, so it keeps standing in, and each
+		# reconcile pulls the truck back a round trip). Catch the count up: to the
+		# ack plus the round trip's ticks, the inputs the host will have stood in
+		# for by the time the next one arrives, stepped here on the held input.
+		# The count jumps to the ack first, so only the lead is stepped after it.
+		var lead := int(round(Net.clock_rtt_seconds() * float(Engine.physics_ticks_per_second)))
+		resync = clampi(lead, 0, Constants.CHEFTY_INPUT_QUEUE_MAX)
+		_resynced += ack - _seq + resync
+		_resync_events += 1
+		_resync_lead = lead
+		jumped_to_ack = true
 	_last_ack = maxi(_last_ack, ack)
 	while not _pending.is_empty() and int(_pending[0]["seq"]) <= ack:
 		_pending.pop_front()
@@ -1503,6 +1601,18 @@ func _reconcile(pos: Vector3, yaw_now: float, vel: Vector3, yaw_rate: float, ack
 	var dt := get_physics_process_delta_time()
 	for entry: Dictionary in _pending:
 		VehicleSim.step(_chassis, _state, entry["input"], _params, dt)
+	if jumped_to_ack:
+		_seq = ack
+		var held := _input_from_local()
+		for _tick: int in resync:
+			_seq += 1
+			VehicleSim.step(_chassis, _state, held, _params, dt)
+			_pending.append({"seq": _seq, "input": held})
+			_predicted[_seq] = _chassis.global_position
+			_predicted.erase(_seq - PREDICTION_HISTORY)
+		while _pending.size() > PREDICTION_HISTORY:
+			_pending.pop_front()
+		_resync_ahead = _seq - ack
 	var jump := before - _chassis.global_position
 	if jump.length() > 0.05:
 		_corrections += 1
@@ -1997,7 +2107,9 @@ func _hand_to_wheel_seconds() -> float:
 
 ## Host: play scripted controls on the driver's peer (drive_test). Steps are
 ## {seconds, throttle, steer, handbrake, horn} held for seconds, or {do:
-## "enter", kind} / {do: "exit"} / {do: "swap"} done at once.
+## "enter", kind} / {do: "exit"} / {do: "swap"} / {do: "lose_ticks", ticks}
+## done at once ("lose_ticks": the driver's peer skips that many physics ticks,
+## so the host stands in and its next acks are ahead of the driver's count).
 func dev_script(peer_id: int, steps: Array) -> void:
 	if not Net.is_host():
 		return
@@ -2041,6 +2153,9 @@ func _step_dev_script(delta: float) -> void:
 			"chauffeur":
 				request_chauffeur()
 				continue
+			"lose_ticks":
+				_dev_lose_ticks = int(step.get("ticks", 0))
+				continue
 		_dev_input = {"throttle": float(step.get("throttle", 0.0)), "steer": float(step.get("steer", 0.0)), "handbrake": bool(step.get("handbrake", false)), "horn": bool(step.get("horn", false))}
 		_dev_left = float(step.get("seconds", 0.0))
 		return
@@ -2064,6 +2179,13 @@ func dev_report() -> Dictionary:
 		"prediction_error_mean_m": _prediction_error_sum / maxf(float(_prediction_error_count), 1.0),
 		"prediction_samples": _prediction_error_count,
 		"acks_ahead": _acks_ahead,
+		"lost_stepped": _lost_stepped,
+		"resynced": _resynced,
+		"resync_events": _resync_events,
+		"resync_lead": _resync_lead,
+		"resync_ahead": _resync_ahead,
+		"snap_gap_ms": _snap_gap_ms,
+		"snap_gap_ticks": _snap_gap_ticks,
 		"corrections": _corrections,
 		"stood_in": _stood_in,
 		"made_good": _made_good,

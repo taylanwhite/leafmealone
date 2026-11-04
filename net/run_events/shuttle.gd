@@ -3200,6 +3200,13 @@ func _draw_trip(trip: Trip, now: float, delta: float) -> void:
 		# Over the server time between draws, not the tick: a client's clock easing
 		# toward the host's stretches a tick a little, which isn't the van speeding.
 		var span := now - trip.drawn_at if now - trip.drawn_at > delta * 0.5 else delta
+		# A step past what top speed covers in any time this draw had beyond one
+		# frame's (fx-net: a draw after an 88 ms frame on a loaded machine stepped
+		# 1.06 m at 12 m/s, its frame's worth, which max_step_m counted as a pop).
+		var over := step - Constants.VAN_MAX_SCREEN_SPEED * maxf(0.0, span - 1.0 / float(Engine.physics_ticks_per_second))
+		if over > float(stats.get("max_step_over_m", 0.0)):
+			stats["max_step_over_m"] = over
+			stats["max_step_over_where"] = "%s%s trip %d at %.2f over %.3f s" % [LEG_NAMES[kind], " (ghost)" if ghosting else "", trip.id, now, span]
 		if not _local_iris_closed() and step / span > float(stats["max_speed_on_screen"]):
 			stats["max_speed_on_screen"] = step / span
 			stats["max_speed_where"] = "%s%s trip %d" % [LEG_NAMES[kind], " (ghost)" if ghosting else "", trip.id]
@@ -3561,11 +3568,12 @@ func _place_riders(trip: Trip, now: float) -> void:
 		var pose: StringName = &"sit_buckled" if sat else &"stand"
 		var restaged := false
 		if sat and not leaving and trip.staged_pose.get(peer, &"") == pose and not _staged_on(player, anchor) and not bool(player.call("is_staged")) and not _indoors_at_annex(get_tree().get_first_node_in_group("annex"), peer):
-			# Someone else let the body go mid-ride (the Encounter's stage change to
-			# RIDING or RETURNING drops a leftover catch hold by unstaging whatever the
-			# body is on): it fell back onto its network pose, ~100 ms behind a van doing
-			# 13 m/s, which is the next seat along: your eye inside your friend's head
-			# (playtest missed-02, "two riders share a seat"). Back on the seat, now.
+			# Someone else let the body go mid-ride: it fell back onto its network pose,
+			# ~100 ms behind a van doing 13 m/s, which is the next seat along: your eye
+			# inside your friend's head (playtest missed-02, "two riders share a seat").
+			# Back on the seat, now. (The Encounter's stage change to RIDING used to do
+			# it, unstaging whatever the body was on; since fx-net it lets go of its own
+			# hold only, and shuttle_test counts this at 0 on a normal ride. A net.)
 			trip.staged_pose.erase(peer)
 			restaged = true
 			stats["restaged"] = int(stats.get("restaged", 0)) + 1

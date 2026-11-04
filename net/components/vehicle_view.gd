@@ -29,6 +29,7 @@ var vehicle: Node
 var _buffer: Array[Dictionary] = []
 var _offset: float = NAN
 var _last_arrival: float = -1.0
+var _last_stamp: float = -INF
 var _last_drawn := Vector3.INF
 
 
@@ -43,9 +44,16 @@ static func reset_stats() -> void:
 ## A snapshot from the host: its server time t and the pose then.
 func add_snap(t: float, pos: Vector3, yaw: float, vel: Vector3) -> void:
 	var now := _now()
+	# The longest wait between two snapshots, on the host's stamps: what the host
+	# sent and the network lost (fx-net). Their arrivals here also count this
+	# peer's own long frames, which bunch them (a 5 fps client measured 733 ms):
+	# that's max_arrival_gap_ms, for the logs.
 	if _last_arrival >= 0.0:
-		stats["max_gap_ms"] = maxf(float(stats["max_gap_ms"]), (now - _last_arrival) * 1000.0)
+		stats["max_arrival_gap_ms"] = maxf(float(stats.get("max_arrival_gap_ms", 0.0)), (now - _last_arrival) * 1000.0)
+		if t > _last_stamp:
+			stats["max_gap_ms"] = maxf(float(stats["max_gap_ms"]), (t - _last_stamp) * 1000.0)
 	_last_arrival = now
+	_last_stamp = maxf(_last_stamp, t)
 	stats["samples"] = int(stats["samples"]) + 1
 	# Arrival minus the host's stamp: take a lower one at once (a fast packet
 	# shows the real delay), drift slowly up toward a higher one.
