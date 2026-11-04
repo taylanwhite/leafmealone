@@ -1268,10 +1268,16 @@ func _physics_process(delta: float) -> void:
 	if _haul_ignore_knock > 0.0:
 		_haul_ignore_knock = 0.0 if not knocked else _haul_ignore_knock - delta
 		knocked = false
+	# A wipeout off a board is a flop (flop()), not a plank tipping over: its knock
+	# waits for it (the view starts it a beat later on someone else's peer).
+	knocked = _flop_gate(knocked, owner_node, delta)
 	# Every peer sees stars when someone goes down, bonked or fainted.
-	if knocked and fallen <= 0.0:
+	if knocked and fallen <= 0.0 and _flop_t < 0.0:
 		dizzy(float(Constants.BONK_STUN_SECONDS["heavy"]))
-	if _haul_t >= 0.0:
+	if _flop_t >= 0.0:
+		# The flop sets how far down the body is (_step_flop).
+		pass
+	elif _haul_t >= 0.0:
 		# Sitting up and standing on the haul's curve: the hips' distance back from
 		# the feet shrinks with the staged body's own eased carry in (StageBody), so
 		# the hips stay put while the feet swing in under them.
@@ -1355,6 +1361,7 @@ func _physics_process(delta: float) -> void:
 	var lean := -eye_lead.x * 0.08 * walk
 	if _limping:
 		lean += 0.14 * walk * (0.5 + 0.5 * sin(_phase))
+	_take_off_woozy()
 	_torso.rotation.z = lerpf(_torso.rotation.z, lean, clampf(delta * 8.0, 0.0, 1.0))
 	_show_bandage()
 	_show_foot()
@@ -1365,6 +1372,9 @@ func _physics_process(delta: float) -> void:
 	_animate_face(delta)
 	_apply_fall(delta)
 	_apply_work_head()
+	_step_flop(delta)
+	_step_woozy(delta)
+	_keep_eye_clear()
 
 
 ## Asleep on a cot (crew-06): lying on the back on the canvas, legs together,
@@ -1534,6 +1544,279 @@ func dizzy(seconds: float) -> void:
 			_stars.scale = Vector3.ONE * Constants.STARS_OWN_SCALE
 		_stars.add_child(view)
 	_stars_left = seconds
+
+
+# ---------------------------------------------------------------- driving G2: the flop
+
+## The flop's landings: strength 1 the first, less each bounce after it (the
+## view plays a thud).
+signal flop_hit(strength: float)
+
+## Where the flop's tumble turns about, and what of the body never goes below
+## the ground while it does: [point in the body's rest pose, its radius]. The
+## hands are where flailing arms throw them, up and out.
+const _FLOP_POINTS: Array = [
+	[Vector3(-0.1, 0.05, 0.0), 0.05], [Vector3(0.1, 0.05, 0.0), 0.05],
+	[Vector3(-0.1, 0.45, 0.0), 0.08], [Vector3(0.1, 0.45, 0.0), 0.08],
+	[Vector3(0.0, 0.82, 0.0), 0.15],
+	[Vector3(-0.55, 1.7, 0.0), 0.06], [Vector3(0.55, 1.7, 0.0), 0.06],
+	[Vector3(-0.62, 1.15, 0.0), 0.06], [Vector3(0.62, 1.15, 0.0), 0.06],
+]
+## Seconds into the flop (-1: not flopping), which way it was thrown (world, flat),
+## how long the knock lasts, when it lands (s in), and the height it started at.
+var _flop_t: float = -1.0
+var _flop_push := Vector3.FORWARD
+var _flop_seconds: float = 0.0
+var _flop_land: float = Constants.FLOP_FIRST_HIT_SECONDS
+var _flop_from_y: float = 0.0
+var _flop_from := Quaternion.IDENTITY
+var _flop_hits: int = 0
+## The owner's wipeout flag: seen up, waiting this long for its flop (-1 not
+## waiting), and whether a flop has claimed it.
+var _flop_wiped: bool = false
+var _flop_wait: float = -1.0
+var _flop_claimed: bool = false
+## How far the body is turned from upright now (rad), the most in the last flop,
+## and how many flops this body has done (tests and the probe read them).
+var flop_angle: float = 0.0
+var flop_max_angle: float = 0.0
+var flops: int = 0
+## A player's eyes dip toward the ground mid-flop (rad, added to the head's pitch
+## by player.gd).
+var flop_dip: float = 0.0
+## Up again: seconds into the woozy sway (-1 not woozy) and its roll now (rad).
+var _woozy_t: float = -1.0
+var woozy_roll: float = 0.0
+## The sway laid on the torso and the face last tick (rad), taken off again first.
+var _woozy_torso: float = 0.0
+var _woozy_face: float = 0.0
+
+
+## driving G2, every peer (player/skate_view.gd, from the wipeout as it's drawn
+## there): a procedural ragdoll flop. Thrown along push, the body tumbles head
+## over heels about its middle with the spin slowing as it goes, limbs flailing,
+## lands land_after seconds in and bounces twice (flop_hit each time), then
+## settles flat on its back exactly where a knock lies, with stars until it's up
+## and woozy for a moment after (seconds: how long the knock lasts). Nothing of it
+## goes below the ground. Cosmetic: it moves no collision.
+func flop(push: Vector3, seconds: float, land_after: float = Constants.FLOP_FIRST_HIT_SECONDS) -> void:
+	if _hips == null:
+		return
+	var flat := Vector3(push.x, 0.0, push.z)
+	if flat.length() < 0.05:
+		flat = -global_basis.z
+		flat.y = 0.0
+	_flop_push = flat.normalized() if flat.length() > 0.001 else Vector3.FORWARD
+	_flop_seconds = seconds
+	_flop_land = maxf(land_after, 0.05)
+	_flop_t = 0.0
+	_flop_hits = 0
+	_flop_from_y = position.y
+	_flop_from = Quaternion(basis.orthonormalized())
+	_flop_claimed = true
+	_flop_wait = -1.0
+	_woozy_t = -1.0
+	flop_max_angle = 0.0
+	flops += 1
+	# Whatever the hands were doing stops; the stars wait for the landing.
+	_gesture = ""
+	_gesture_time = 0.0
+	_stars_left = 0.0
+
+
+func is_flopping() -> bool:
+	return _flop_t >= 0.0
+
+
+## The knock this tick, given the owner's wipeout flag: a wipeout's knock waits
+## (at most FLOP_WAIT_MAX) for its flop, which then holds the body down itself.
+## A wipeout over with a flop behind it starts the woozy sway.
+func _flop_gate(knocked: bool, owner_node: Node, delta: float) -> bool:
+	var wiped := owner_node != null and "wipeout" in owner_node and bool(owner_node.get("wipeout"))
+	if not wiped:
+		if _flop_wiped and _flop_claimed:
+			_woozy_t = 0.0
+		_flop_wiped = false
+		_flop_wait = -1.0
+		_flop_claimed = false
+		return knocked
+	if not _flop_wiped:
+		_flop_wiped = true
+		_flop_wait = -1.0 if _flop_claimed else 0.0
+	if _flop_wait >= 0.0:
+		_flop_wait += delta
+		if _flop_wait < Constants.FLOP_WAIT_MAX:
+			return false
+		_flop_wait = -1.0
+	return knocked
+
+
+func _step_flop(delta: float) -> void:
+	if _flop_t < 0.0:
+		return
+	_flop_t += delta
+	var u := clampf(_flop_t / Constants.FLOP_TUMBLE_SECONDS, 0.0, 1.0)
+	var settle := smoothstep(Constants.FLOP_SETTLE_FROM, 1.0, u)
+	# Head over heels along the throw, the spin slowing, while it tips onto its
+	# back: whole turns, so it ends exactly on its back (the knock's pose).
+	var turned := TAU * float(Constants.FLOP_TURNS) * (1.0 - pow(1.0 - u, Constants.FLOP_SPIN_EASE))
+	var rot := Basis(_flop_axis(), turned) * Basis(Vector3.RIGHT, FALL_ANGLE * settle)
+	# Out of whatever lean the board had it in.
+	if u < 0.15:
+		rot = Basis(_flop_from.slerp(Quaternion(rot), smoothstep(0.0, 0.15, u)))
+	flop_angle = rot.get_rotation_quaternion().get_angle()
+	flop_max_angle = maxf(flop_max_angle, flop_angle)
+	var center := Vector3(0.0, Constants.FLOP_CENTER_Y, 0.0)
+	var lying := Basis(Vector3.RIGHT, FALL_ANGLE) * center
+	var at := center.lerp(lying, settle)
+	# In the air it turns at hip height (the throw's own arc carries it); landed,
+	# it rolls on whatever of it is lowest; settling, it comes to the knock's pose.
+	var needed := _flop_clearance(rot, center) + Constants.FLOP_GROUND_ROOM * (1.0 - settle)
+	var landed := smoothstep(_flop_land - 0.08, _flop_land + 0.04, _flop_t)
+	var y := lerpf(maxf(at.y, needed), needed, landed)
+	y = lerpf(y, at.y, settle * settle)
+	y += _flop_bounce() * (1.0 - settle * settle) + _flop_from_y * (1.0 - smoothstep(0.0, 0.25, u))
+	at.y = y
+	transform = Transform3D(rot, at - rot * center)
+	fallen = settle
+	flop_dip = -Constants.FLOP_LOOK_DIP * sin(PI * u)
+	# A player's head hangs off their Head node beside the body: it rides the
+	# tumble, and the face turns with it (everyone else sees it; your own eyes
+	# only go where it goes).
+	if _head_root != self and _head_root.get_parent() != self:
+		_head_root.position = transform * Vector3(0.0, _head_stand_y, 0.0)
+		var size := _face.scale
+		var tumbling := Quaternion(_head_root.basis.orthonormalized().inverse() * rot)
+		var normal := Quaternion(_face.basis.orthonormalized())
+		_face.basis = Basis(normal.slerp(tumbling, 1.0 - settle)).scaled(size)
+	# Arms and legs everywhere, calming as it settles.
+	var wild := 1.0 - settle
+	var rate := Constants.FLOP_FLAIL_RATE
+	var swing := Constants.FLOP_FLAIL_SWING
+	for index: int in 2:
+		var side := -1.0 if index == 0 else 1.0
+		var kick := sin(_flop_t * rate.x + PI * float(index))
+		_legs[index].rotation.x = lerpf(_legs[index].rotation.x, swing.x * kick - 0.3, wild)
+		_legs[index].rotation.z = lerpf(_legs[index].rotation.z, side * (0.25 + 0.15 * kick), wild)
+		_shins[index].rotation.x = lerpf(_shins[index].rotation.x, -0.5 - 0.6 * maxf(kick, 0.0), wild)
+		_arms[index].rotation.z = lerpf(_arms[index].rotation.z, side * (Constants.FLOP_FLAIL_ARMS_UP + swing.y * sin(_flop_t * rate.y + 1.3 * float(index))), wild)
+		_arms[index].rotation.x = lerpf(_arms[index].rotation.x, swing.z * sin(_flop_t * rate.z + 2.0 * float(index)), wild)
+	if u >= 1.0:
+		# Flat on its back, exactly the knock's pose; stars till it's up and woozy.
+		_flop_t = -1.0
+		flop_angle = 0.0
+		flop_dip = 0.0
+		fallen = 1.0
+		transform = Transform3D(Basis(Vector3.RIGHT, FALL_ANGLE), Vector3.ZERO)
+		# The face's turn with the tumble: its pitch and yaw are set every tick, its
+		# roll by nothing, so what the tumble left of it goes here.
+		if _head_root != self and _head_root.get_parent() != self:
+			_face.rotation.z = 0.0
+			_woozy_face = 0.0
+		dizzy(maxf(_flop_seconds - Constants.FLOP_TUMBLE_SECONDS, 0.0) + Constants.FLOP_STARS_GET_UP + Constants.FLOP_WOOZY_SECONDS)
+
+
+## Your own head carries your first-person camera: going over in a flop or lying
+## flat, it stops FLOP_EYE_ROOM short of anything solid between the body's middle
+## and where the head would be (a bail into Chefty's tailgate put the view inside
+## the truck, rec_sk1_fr 69-89). Everyone else's view of you is unchanged.
+func _keep_eye_clear() -> void:
+	if not _own_head or (fallen <= 0.01 and _flop_t < 0.0) or _head_root == self or _head_root.get_parent() == self:
+		return
+	var visual := _head_root.get_parent() as Node3D
+	var owner_body := visual.get_parent() as CollisionObject3D if visual != null else null
+	if visual == null or not is_inside_tree():
+		return
+	var mid := global_transform * Vector3(0.0, Constants.FLOP_CENTER_Y, 0.0)
+	var head := _head_root.global_position
+	var reach := head - mid
+	if reach.length() < 0.05:
+		return
+	var skip: Array[RID] = []
+	if owner_body != null:
+		skip.append(owner_body.get_rid())
+	var query := PhysicsRayQueryParameters3D.create(mid, head + reach.normalized() * Constants.FLOP_EYE_ROOM, 1, skip)
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty() or hit["collider"] is CharacterBody3D:
+		return
+	var stop := (hit["position"] as Vector3) - reach.normalized() * Constants.FLOP_EYE_ROOM
+	if (stop - mid).dot(reach) < 0.0:
+		stop = mid
+	_head_root.global_position = stop
+
+
+## The tumble's axis in the body's parent's space: level, square to the throw,
+## turning the head toward where it was thrown.
+func _flop_axis() -> Vector3:
+	var parent := get_parent() as Node3D
+	var way := _flop_push
+	if parent != null:
+		way = parent.global_basis.orthonormalized().inverse() * _flop_push
+	way.y = 0.0
+	if way.length() < 0.01:
+		way = Vector3.FORWARD
+	return Vector3.UP.cross(way.normalized()).normalized()
+
+
+## How high the tumble's middle has to be (m) so nothing of the body turned by
+## rot is below the ground.
+func _flop_clearance(rot: Basis, center: Vector3) -> float:
+	var low := INF
+	for entry: Array in _FLOP_POINTS:
+		var point: Vector3 = entry[0]
+		low = minf(low, (rot * (point - center)).y - float(entry[1]))
+	return maxf(0.0, -low)
+
+
+## The bounces after landing: twice, each lower (m); flop_hit at each landing and
+## at the last one down.
+func _flop_bounce() -> float:
+	var t := _flop_t - _flop_land
+	if t < 0.0:
+		return 0.0
+	var hop := int(t / Constants.FLOP_BOUNCE_SECONDS)
+	if hop >= _flop_hits and _flop_hits <= 2:
+		flop_hit.emit(pow(Constants.FLOP_BOUNCE_KEEP, float(_flop_hits)))
+		_flop_hits += 1
+	if hop >= 2:
+		return 0.0
+	var phase := fmod(t, Constants.FLOP_BOUNCE_SECONDS) / Constants.FLOP_BOUNCE_SECONDS
+	return Constants.FLOP_BOUNCE_HEIGHT * pow(Constants.FLOP_BOUNCE_KEEP, float(hop)) * sin(PI * phase)
+
+
+## Up again after a flop: the body sways, the head lolls, for FLOP_WOOZY_SECONDS.
+func _step_woozy(delta: float) -> void:
+	if _woozy_t < 0.0:
+		woozy_roll = 0.0
+		_lay_woozy()
+		return
+	_woozy_t += delta
+	var left := 1.0 - _woozy_t / Constants.FLOP_WOOZY_SECONDS
+	if left <= 0.0:
+		_woozy_t = -1.0
+		woozy_roll = 0.0
+		_lay_woozy()
+		return
+	var amount := left * left * (1.0 - fallen)
+	woozy_roll = sin(TAU * Constants.FLOP_WOOZY_HZ * _woozy_t) * Constants.FLOP_WOOZY_SWAY * amount
+	_lay_woozy()
+
+
+## The sway as offsets laid on fresh each tick: last tick's comes off first (the
+## torso's came off before its lean lerp, _take_off_woozy), so it never adds up.
+func _lay_woozy() -> void:
+	_torso.rotation.z += woozy_roll
+	_woozy_torso = woozy_roll
+	var face := woozy_roll * Constants.FLOP_WOOZY_FACE_SHARE
+	if face != _woozy_face:
+		_face.rotation.z += face - _woozy_face
+		_woozy_face = face
+
+
+## Before the torso's lean lerp: last tick's sway off it, so the lerp never carries it.
+func _take_off_woozy() -> void:
+	_torso.rotation.z -= _woozy_torso
+	_woozy_torso = 0.0
 
 
 func _animate_face(delta: float) -> void:

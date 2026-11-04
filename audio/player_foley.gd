@@ -153,6 +153,10 @@ func _stepping() -> bool:
 		return false
 	if int(player.get("carried_by")) != 0 or bool(player.get("thrown")):
 		return false
+	# On a board the wheels make the noise (driving G2: a skitcher towed at 15 m/s
+	# was pattering footsteps, rec_sk1_fr 3.7-6.1 s).
+	if "on_board" in player and bool(player.get("on_board")):
+		return false
 	# Seated is no walk; a staged body (the NICE BOYS' escort) walks for real.
 	if bool(player.call("is_hidden")) or (bool(player.call("is_riding_visual")) and not bool(player.call("is_staged"))):
 		return false

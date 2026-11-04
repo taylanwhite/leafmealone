@@ -1461,6 +1461,10 @@ func _state() -> Dictionary:
 				"wipeout": bool(player.get("wipeout")), "air": int(player.get("anim_state")) == 7,
 				"speed": snappedf(Vector2(body.velocity.x, body.velocity.z).length(), 0.1),
 				"line": str(popup.call("showing")) if popup != null else "",
+				# driving G2: hanging on behind Chefty, and why the last bail or let-go was.
+				"skitch": bool(player.get("skitch")),
+				"let_go": str(player.call("skate").get("last_let_go")) if player.call("skate") != null else "",
+				"bails": (player.call("skate").get("wipeouts") as Dictionary).duplicate() if player.call("skate") != null else {},
 			}
 		var hotbar := preload("res://net/components/hotbar.gd")
 		var kinds: Array = []

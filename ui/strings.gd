@@ -440,6 +440,8 @@ const UI: Dictionary = {
 	"prompt_drive": "Drive",
 	"prompt_ride_shotgun": "Ride shotgun",
 	"prompt_ride_bed": "Hop in the bed",
+	# On the board at Chefty's tailgate (driving G2): skitching.
+	"prompt_skitch": "Hang on",
 	## p1-dash: seated, over the other cab seat you look at (chefty_drive.gd
 	## seat_hint): F to an empty one, or trading with whoever's in it.
 	"prompt_slide_over": "Slide over",

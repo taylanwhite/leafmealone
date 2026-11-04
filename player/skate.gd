@@ -34,7 +34,7 @@ const TRICK_GRIND: int = 6
 ## How often the owner looks at what's in hand (s): a list walk over every prop.
 const HELD_CHECK_SECONDS: float = 0.25
 
-enum Mode { ROLL, AIR, GRIND }
+enum Mode { ROLL, AIR, GRIND, SKITCH }
 
 ## Every peer, per player (by peer id as a string), from the replicated values:
 ## on_board now, mounted (ever seen on a board), max_trick (the highest
@@ -87,6 +87,32 @@ var _last_yaw: float = 0.0
 ## Owner: how fast the board turned last tick (rad/s), for the lean.
 var yaw_rate: float = 0.0
 
+## Owner, skitching (driving G2): the Chefty you hang on to and which side of it
+## (1 its right, -1 its left), how it's going as read here (smoothed: its
+## velocity, its turn rate), its yaw last tick, the board's yaw as last set, and
+## whether it crashed while you held on.
+var _tow: Node3D = null
+var _tow_solid: PhysicsBody3D = null
+## Let go: the truck's Solid you still pass through, and for how long (s).
+var _clear_of: PhysicsBody3D = null
+var _clear_left: float = 0.0
+var _tow_side: float = 1.0
+var _tow_vel := Vector3.ZERO
+var _tow_turn: float = 0.0
+var _tow_accel: float = 0.0
+var _tow_last_yaw: float = 0.0
+var _tow_set_yaw: float = 0.0
+var _tow_bumped: bool = false
+## Seconds held on above SKITCH_MAX_SPEED (it drains back below it).
+var _tow_strain: float = 0.0
+## Owner, for tests and logs: times grabbed on, seconds towed, why you last let go
+## (hands, ollie, slipped, lost, off; a bail is a wipeout reason instead), and the
+## worst gap to the spot behind Chefty while towed (m).
+var skitches: int = 0
+var skitch_seconds: float = 0.0
+var last_let_go: String = ""
+var skitch_gap_max: float = 0.0
+
 static var _curbs: Array = []
 static var _curbs_world: int = 0
 
@@ -105,6 +131,13 @@ func _physics_process(delta: float) -> void:
 	# Down after a wipeout until the stun runs out (player.gd _step_stunned moves you).
 	if bool(player.get("wipeout")) and float(player.get("_stun_left")) <= 0.0:
 		player.set("wipeout", false)
+	_ease_look_back(delta)
+	if _clear_of != null:
+		_clear_left -= delta
+		if _clear_left <= 0.0 or not is_instance_valid(_clear_of):
+			if is_instance_valid(_clear_of) and _clear_of != _tow_solid:
+				player.remove_collision_exception_with(_clear_of)
+			_clear_of = null
 	if not bool(player.get("on_board")):
 		return
 	var why := _must_get_off()
@@ -140,6 +173,11 @@ func _note_seen() -> void:
 	entry["mounted"] = bool(entry["mounted"]) or on
 	entry["wipeout"] = bool(entry["wipeout"]) or falling
 	entry["max_trick"] = maxi(int(entry["max_trick"]), int(player.get("skate_trick")))
+	# driving G2: seen hanging on behind Chefty, and how far over the flop went here.
+	entry["skitch"] = bool(entry.get("skitch", false)) or bool(player.get("skitch"))
+	var body := player.get_node_or_null("Visual/CartoonBody")
+	if body != null and "flop_max_angle" in body:
+		entry["flop"] = maxf(float(entry.get("flop", 0.0)), float(body.get("flop_max_angle")))
 	seen[key] = entry
 
 
@@ -209,6 +247,7 @@ func mount() -> void:
 func dismount(_hands: bool = false) -> void:
 	if not bool(player.get("on_board")):
 		return
+	_release_tow("off")
 	_settle_line(true)
 	player.set("on_board", false)
 	player.set("skate_trick", TRICK_NONE)
@@ -268,6 +307,8 @@ func step(delta: float) -> void:
 			_step_air(delta, input)
 		Mode.GRIND:
 			_step_grind(delta, input)
+		Mode.SKITCH:
+			_step_skitch(delta, input)
 		_:
 			_step_roll(delta, input)
 	if not bool(player.get("on_board")):
@@ -602,6 +643,239 @@ func _curb_list() -> Array:
 	return TownMap.curb_segments()
 
 
+# ---------------------------------------------------------------- owner: skitching (driving G2)
+
+## Where a skater here could grab on behind Chefty right now: {chefty, side, at}
+## (at: the spot the board is towed on), or {} when there's nowhere. On the board,
+## rolling, going about Chefty's speed, in reach of the spot on your own side of
+## it (when that side's free); a parked Chefty only from beside its corner.
+func skitch_spot() -> Dictionary:
+	if not bool(player.get("on_board")) or bool(player.get("skitch")) or _mode != Mode.ROLL or not player.is_on_floor():
+		return {}
+	var me := player.global_position
+	for truck: Node in get_tree().get_nodes_in_group("vehicles"):
+		var chefty := truck as Node3D
+		if chefty == null or not chefty.is_in_group("chefty") or not chefty.has_method("tow_point"):
+			continue
+		var truck_vel := chefty.call("drawn_velocity") as Vector3
+		var rel := truck_vel - player.velocity
+		if Vector2(rel.x, rel.z).length() > Constants.SKITCH_GRAB_REL_SPEED:
+			continue
+		var local := (chefty.call("tow_point") as Transform3D).affine_inverse() * me
+		# Only the side you're on: the far one would drag you across the back of the
+		# truck, and everyone else works out your side from where you are (skate_view).
+		var side := 1.0 if local.x >= 0.0 else -1.0
+		if _side_taken(chefty, side):
+			continue
+		# A parked Chefty's tailgate is the bed's: you hang on from beside its corner.
+		if Vector2(truck_vel.x, truck_vel.z).length() < Constants.SKITCH_PARKED_SPEED and absf(local.x) < Constants.SKITCH_SIDE * Constants.SKITCH_PARKED_SIDE_SHARE:
+			continue
+		var at := hold_spot(chefty, side)
+		if Vector2(at.x - me.x, at.z - me.z).length() <= Constants.SKITCH_GRAB_REACH:
+			return {"chefty": chefty, "side": side, "at": at}
+	return {}
+
+
+## The spot behind Chefty a towed board rides on (world), on its side (1 right, -1 left).
+static func hold_spot(chefty: Node3D, side: float) -> Vector3:
+	var tow: Transform3D = chefty.call("tow_point")
+	return tow * Vector3(side * Constants.SKITCH_SIDE, 0.0, -Constants.SKITCH_IN)
+
+
+## Where the towed skater's hand is on Chefty's rear bumper (world).
+static func grip_point(chefty: Node3D, side: float) -> Vector3:
+	var grip := Constants.SKITCH_GRIP
+	return (chefty.call("body_transform") as Transform3D) * Vector3(side * grip.x, grip.y, grip.z)
+
+
+## The side of Chefty you hang on (or last hung on): 1 its right, -1 its left.
+func tow_side() -> float:
+	return _tow_side
+
+
+## Someone else already hanging on to that side.
+func _side_taken(chefty: Node3D, side: float) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var other := node as Node3D
+		if other == null or other == player or not bool(other.get("skitch")):
+			continue
+		var local := (chefty.call("tow_point") as Transform3D).affine_inverse() * other.global_position
+		if (local.x >= 0.0) == (side > 0.0):
+			return true
+	return false
+
+
+## E's prompt at Chefty's tailgate on the board: {text, at, source}, or {}.
+func skitch_hint() -> Dictionary:
+	var spot := skitch_spot()
+	if spot.is_empty():
+		return {}
+	var at := grip_point(spot["chefty"] as Node3D, float(spot["side"])) + Vector3.UP * Constants.SKITCH_HINT_RISE
+	return {"text": _Strings.UI["prompt_skitch"], "at": at, "source": "skitch"}
+
+
+## E at Chefty's tailgate on the board: grab on. True when you did.
+func grab_on() -> bool:
+	var spot := skitch_spot()
+	if spot.is_empty():
+		return false
+	_tow = spot["chefty"] as Node3D
+	_tow_side = float(spot["side"])
+	_tow_vel = _tow.call("drawn_velocity") as Vector3
+	_tow_turn = 0.0
+	_tow_accel = 0.0
+	_tow_last_yaw = float(_tow.call("yaw"))
+	_tow_set_yaw = float(player.get("body_yaw"))
+	_tow_bumped = false
+	_tow_strain = 0.0
+	if not _tow.is_connected("crashed", _on_tow_crashed):
+		_tow.connect("crashed", _on_tow_crashed)
+	# Hanging on, you don't bump the truck you hold: its Solid moves with the drawn
+	# truck a tick behind the physics (the transform flush), and at 9 m/s and up
+	# that tick put its tail into the board and stopped it dead.
+	_tow_solid = _tow.call("solid_body") as PhysicsBody3D
+	if _tow_solid != null:
+		player.add_collision_exception_with(_tow_solid)
+	_mode = Mode.SKITCH
+	player.set("skitch", true)
+	player.set("skate_trick", TRICK_NONE)
+	skitches += 1
+	return true
+
+
+## Let go of Chefty on purpose (E, an ollie) or not (slipped off the spot, Chefty
+## gone): you roll on at the speed you had.
+func let_go(why: String) -> void:
+	if _tow == null and not bool(player.get("skitch")):
+		return
+	_release_tow(why)
+	_mode = Mode.ROLL
+
+
+func _release_tow(why: String) -> void:
+	if _tow == null and not bool(player.get("skitch")):
+		return
+	if _tow != null and is_instance_valid(_tow) and _tow.is_connected("crashed", _on_tow_crashed):
+		_tow.disconnect("crashed", _on_tow_crashed)
+	# The truck's Solid stays out of your way a moment longer: it's drawn ahead of
+	# where the physics has it, and let go at speed its tail is right there.
+	if _tow_solid != null and is_instance_valid(_tow_solid):
+		_clear_of = _tow_solid
+		_clear_left = Constants.SKITCH_CLEAR_SECONDS
+	_tow_solid = null
+	_tow = null
+	last_let_go = why
+	player.set("skitch", false)
+	if _mode == Mode.SKITCH:
+		_mode = Mode.ROLL
+
+
+func _on_tow_crashed(_strength: float, _at: Vector3) -> void:
+	_tow_bumped = true
+
+
+## Owner, every tick towed: the board rides the spot behind Chefty (a spring on
+## top of Chefty's own speed), turning with it, your head free to look round like
+## a seat's. Let go, or be let go of: see SKITCH_* in core/constants.gd.
+func _step_skitch(delta: float, input: Dictionary) -> void:
+	var truck := _tow
+	if truck == null or not is_instance_valid(truck) or not truck.is_inside_tree():
+		let_go("lost")
+		_step_roll(delta, input)
+		return
+	# Space: let go with a pop.
+	if bool(input.get("jump", false)):
+		let_go("ollie")
+		_step_roll(delta, input)
+		return
+	var vel := truck.call("drawn_velocity") as Vector3
+	vel.y = 0.0
+	var smooth := 1.0 - exp(-delta / Constants.SKITCH_READ_SMOOTH)
+	var forward := -(truck.call("body_transform") as Transform3D).basis.z
+	forward = Vector3(forward.x, 0.0, forward.z).normalized()
+	var before_vel := _tow_vel
+	_tow_vel = _tow_vel.lerp(vel, smooth)
+	_tow_accel = lerpf(_tow_accel, (_tow_vel - before_vel).dot(forward) / maxf(delta, 0.0001), smooth)
+	var yaw_now := float(truck.call("yaw"))
+	_tow_turn = lerpf(_tow_turn, angle_difference(_tow_last_yaw, yaw_now) / maxf(delta, 0.0001), smooth)
+	_tow_last_yaw = yaw_now
+	var speed := Vector2(_tow_vel.x, _tow_vel.z).length()
+	# Being let go of.
+	if _tow_bumped:
+		wipeout("skitch_crash")
+		return
+	# Too fast: your grip goes after a moment of it (the needle past the line a
+	# beat is a thrill; staying there tears the bumper out of your hand).
+	_tow_strain = maxf(0.0, _tow_strain + (delta if speed > Constants.SKITCH_MAX_SPEED else -delta))
+	if _tow_strain > Constants.SKITCH_STRAIN_SECONDS:
+		wipeout("skitch_fast")
+		return
+	if absf(_tow_turn) > Constants.SKITCH_TURN_RATE and speed > Constants.SKITCH_TURN_MIN_SPEED:
+		var outward := forward.cross(Vector3.UP) * signf(_tow_turn)
+		wipeout("skitch_turn", outward * speed * Constants.SKITCH_FLING_SHARE)
+		return
+	if _tow_accel < -Constants.SKITCH_BRAKE_DECEL and speed > Constants.SKITCH_BRAKE_MIN_SPEED:
+		wipeout("skitch_brake", -forward * Constants.SKITCH_SLAM_BACK)
+		return
+	var spot := hold_spot(truck, _tow_side)
+	var at := player.global_position
+	var gap := Vector3(spot.x - at.x, 0.0, spot.z - at.z)
+	skitch_gap_max = maxf(skitch_gap_max, gap.length())
+	if gap.length() > Constants.SKITCH_BREAK_METERS:
+		let_go("slipped")
+		_step_roll(delta, input)
+		return
+	var want := vel + (gap * Constants.SKITCH_SPRING).limit_length(Constants.SKITCH_PULL_MAX)
+	var surface := surface_under()
+	if (surface == &"grass" or surface == &"water") and Vector2(want.x, want.z).length() > Constants.SKATE_LAWN_BAIL_SPEED:
+		wipeout("lawn")
+		return
+	var vy := player.velocity.y if player.is_on_floor() else player.velocity.y - _gravity() * delta
+	player.velocity = Vector3(want.x, vy, want.z)
+	var before := player.velocity
+	player.move_and_slide()
+	if _walls(before):
+		return
+	if _bumped_someone(before):
+		return
+	if Vector2(want.x, want.z).length() > Constants.SKATE_PILE_SPEED and bool(player.call("_on_pile")):
+		_dive_in_pile()
+		return
+	_steer_towed(delta, truck)
+	skitch_seconds += delta
+
+
+## The board turns with Chefty; whatever the mouse turned this tick goes to your
+## head instead (seat_look and the Head's yaw, as in a seat), so you can look
+## round at the crew without the board turning off the spot.
+func _steer_towed(delta: float, truck: Node3D) -> void:
+	var looked := angle_difference(_tow_set_yaw, float(player.get("body_yaw")))
+	var limit := Constants.CHEFTY_SEAT_LOOK_YAW
+	var look := clampf(float(player.get("seat_look")) + looked, -limit, limit)
+	var board := lerp_angle(_tow_set_yaw, float(truck.call("yaw")), 1.0 - exp(-delta * Constants.SKITCH_YAW_RATE))
+	player.set("body_yaw", board)
+	_tow_set_yaw = board
+	player.set("seat_look", look)
+	var head := player.get_node_or_null("Visual/Head") as Node3D
+	if head != null:
+		head.rotation.y = look
+
+
+## Let go: the head comes back round to the board over a moment (it may have been
+## looking back at the crew), never in one frame. A seat has its own (seated.gd).
+func _ease_look_back(delta: float) -> void:
+	if bool(player.get("skitch")) or bool(player.call("in_vehicle")):
+		return
+	var look := float(player.get("seat_look"))
+	if look == 0.0:
+		return
+	var step := move_toward(look, 0.0, delta * Constants.SKITCH_LOOK_BACK_RATE)
+	player.set("seat_look", step)
+	var head := player.get_node_or_null("Visual/Head") as Node3D
+	if head != null:
+		head.rotation.y = step
+
+
 # ---------------------------------------------------------------- owner: wipeouts
 
 ## Hitting something hard: true when it put you down.
@@ -623,7 +897,8 @@ func _walls(before: Vector3) -> bool:
 		if _is_person(thing):
 			continue
 		last_wall = "%s @ %s" % [thing.get_path() if thing != null else NodePath("?"), hit.get_position()]
-		wipeout("wall")
+		# Bounced back off it: the flop goes away from the wall, not into it.
+		wipeout("wall", Vector3(normal.x, 0.0, normal.z).normalized() * into * Constants.SKATE_WALL_REBOUND)
 		return true
 	return false
 
@@ -697,6 +972,7 @@ func wipeout(reason: String, push := Vector3.ZERO) -> void:
 	if not bool(player.get("on_board")) or not player.is_multiplayer_authority():
 		return
 	var flat := Vector2(player.velocity.x, player.velocity.z)
+	_release_tow(reason)
 	_settle_line(true)
 	_count_wipeout(reason)
 	player.set("on_board", false)
