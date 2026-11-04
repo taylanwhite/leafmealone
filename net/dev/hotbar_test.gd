@@ -121,6 +121,39 @@ func _run() -> void:
 	# x1:text: the shake is the whole message; no words.
 	var shook := hud != null and float(hud.get("shake_left")) > 0.0 and str(hud.get("toast_text")) == ""
 	_step("13b HUD: the refusal shook the bar and said '%s'" % (str(hud.get("toast_text")) if hud != null else "no HUD"), shook)
+	# hotbar:E: with no pocket free, a sign lying in reach at your feet doesn't take
+	# E (and shows no prompt); E goes on to whatever else is here.
+	var in_reach := signs[0].global_position.distance_to(me.global_position) < Constants.PICKUP_REACH
+	var choice: Dictionary = me.call("e_choice")
+	var sign_took_e := StringName(choice["do"]) == &"pick_up" and signs.has(choice["target"])
+	var hint_text := str((me.call("interaction_hint") as Dictionary).get("text", ""))
+	_step("4b pockets full: a sign in reach (%s) at your feet leaves E alone (E: %s, prompt '%s')" % [in_reach, choice["do"], hint_text], in_reach and not sign_took_e and hint_text != str(_Strings.UI["prompt_pick_up_plain"]))
+	# hotbar:E review: ...on to the gnome beside you (it fills your arms, not a
+	# pocket), which ranks behind the nearer sign; and the sign you look right at
+	# still takes E, with no prompt (its "eh?" and the shake say why).
+	var gnome_was := gnome.global_position
+	await get_tree().physics_frame
+	gnome.global_position = me.global_position + me.global_basis * Vector3(1.6, 0.3, 0.0)
+	gnome.set("linear_velocity", Vector3.ZERO)
+	await _ticks(20)
+	var gnome_reach := gnome.global_position.distance_to(me.global_position)
+	choice = me.call("e_choice")
+	hint_text = str((me.call("interaction_hint") as Dictionary).get("text", ""))
+	var to_gnome: bool = StringName(choice["do"]) == &"pick_up" and choice["target"] == gnome and hint_text == str(_Strings.UI["prompt_pick_up_plain"])
+	_step("4c pockets full: E goes on to the gnome %.2f m away (E: %s on %s, prompt '%s')" % [gnome_reach, choice["do"], (choice["target"] as Node).name if choice["target"] is Node else "-", hint_text], gnome_reach < Constants.PICKUP_REACH and to_gnome)
+	var yaw_was := float(me.get("body_yaw"))
+	await _aim_at(signs[0].global_position + Vector3(0.0, _PropLooks.VISUAL_HEIGHT, 0.0))
+	choice = me.call("e_choice")
+	hint_text = str((me.call("interaction_hint") as Dictionary).get("text", ""))
+	var looked_sign: bool = StringName(choice["do"]) == &"pick_up" and choice["target"] == signs[0] and hint_text == ""
+	_step("4d pockets full: the sign you look at takes E with no prompt (E: %s on %s, prompt '%s')" % [choice["do"], (choice["target"] as Node).name if choice["target"] is Node else "-", hint_text], looked_sign)
+	me.set("head_pitch", 0.0)
+	me.set("body_yaw", yaw_was)
+	me.rotation.y = yaw_was
+	await get_tree().physics_frame
+	gnome.global_position = gnome_was
+	gnome.set("linear_velocity", Vector3.ZERO)
+	await _ticks(3)
 
 	# 5. Keys: 1 draws the rake, the wheel steps to the blower, 2 again is bare hands.
 	await _tap(&"slot_1")
@@ -690,6 +723,19 @@ func _hold_g(seconds: float) -> void:
 	await _seconds(seconds)
 	Input.action_release(&"drop")
 	await _ticks(3)
+
+
+## Turn and tip the head to look straight at point (kit_test's _aim_at).
+func _aim_at(point: Vector3) -> void:
+	var me := _me()
+	for _try: int in 3:
+		var head := me.get_node_or_null("Visual/Head") as Node3D
+		var eye := head.global_position if head != null else me.global_position + Vector3.UP * 1.6
+		var to := point - eye
+		me.set("body_yaw", atan2(-to.x, -to.z))
+		me.rotation.y = float(me.get("body_yaw"))
+		me.set("head_pitch", atan2(to.y, Vector2(to.x, to.z).length()))
+		await _ticks(1)
 
 
 ## Somewhere on the yard (relative to it), facing yaw.
