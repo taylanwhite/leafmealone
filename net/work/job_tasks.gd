@@ -330,7 +330,7 @@ func _spread(peer_id: int, task: String, origin: Vector3) -> void:
 	var sack := _held(peer_id, str(Constants.TASK_TOOLS.get(task, "")))
 	if player == null or sack == null or float(sack.get("fuel")) <= 0.0:
 		return
-	var reach := float(Constants.TASK_REACH.get(task, 2.0)) + float(Constants.SACK_SWATH.get(task, 1.0)) + 1.0
+	var reach := float(Constants.TASK_REACH.get(task, 2.0)) + float(Constants.SACK_SWATH.get(task, 1.0)) + Constants.SACK_REACH_SLACK
 	if Vector2(player.global_position.x - origin.x, player.global_position.z - origin.z).length() > reach:
 		return
 	sack.call("mark_spraying")

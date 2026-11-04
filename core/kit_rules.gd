@@ -16,7 +16,12 @@ static func is_kit_kind(kind: String) -> bool:
 static func is_kit(node: Object) -> bool:
 	if node == null or not node is Node or (node as Node).is_queued_for_deletion():
 		return false
-	return (node as Node).is_in_group("props") and is_kit_kind(str(node.get("kind")))
+	var kind := str(node.get("kind"))
+	# A sack poured dry (shops:9) is folding away (net_prop.gd host_use_sack): it
+	# isn't saved, racked, swept or counted, so it can't come back empty.
+	if Catalog.is_sack(kind) and float(node.get("fuel")) <= 0.0:
+		return false
+	return (node as Node).is_in_group("props") and is_kit_kind(kind)
 
 
 ## How much harder a rake of this tier rakes than a plain one: Rusty's used one a

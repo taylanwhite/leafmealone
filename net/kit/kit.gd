@@ -289,7 +289,10 @@ func _restore() -> void:
 		var kind := str(row.get("kind", ""))
 		if not _KitRules.is_kit_kind(kind):
 			continue
-		var entry := {"kind": kind, "tier": clampi(int(row.get("tier", Catalog.TIER_STOCK)), Catalog.TIER_USED, Catalog.TIER_MK3), "fuel": clampf(float(row.get("fuel", 100.0)), 0.0, 100.0)}
+		# An empty sack in an older save is paper, not kit (shops:9).
+		if Catalog.is_sack(kind) and float(row.get("fuel", 100.0)) <= 0.0:
+			continue
+		var entry :={"kind": kind, "tier": clampi(int(row.get("tier", Catalog.TIER_STOCK)), Catalog.TIER_USED, Catalog.TIER_MK3), "fuel": clampf(float(row.get("fuel", 100.0)), 0.0, 100.0)}
 		if str(row.get("at", "")) == "bed" and bed != null:
 			to_bed.append(entry)
 		else:

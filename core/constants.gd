@@ -6487,3 +6487,36 @@ const SACK_HANDOFF_AHEAD: float = 0.55
 const SACK_HANDOFF_HEIGHT: float = 0.9
 ## The shake's sound (tools/make_sfx.py "sack_shake") at this volume (dB).
 const SACK_SHAKE_DB: float = -6.0
+## How much wider an empty sack bulges than a full one (share), and how much
+## wider still it spreads as it folds flat (props/sack_spread.gd slump_scale).
+const SACK_EMPTY_BULGE: float = 0.12
+const SACK_FOLD_BULGE: float = 0.2
+## A held sack slumps about the hands, a loose one about its base; picked up or
+## let go, the point it slumps about eases across at this rate (per second).
+const SACK_ANCHOR_FOLLOW: float = 10.0
+## The shake's beat (props/sack_spread.gd): where in it (0 to 1) the sack snaps
+## forward and throws, and how far it lifts back first (share of SACK_SHAKE_TILT).
+const SACK_SNAP_AT: float = 0.42
+const SACK_WINDUP_SHARE: float = 0.3
+## The throw's granules: how long each is in the air (s), how wide the fan is
+## (degrees) and how flat (0 to 1), the slowest one's share of SACK_THROW_SPEED,
+## and how far above level the throw leaves (share of the forward direction).
+const SACK_GRANULE_SECONDS: float = 0.8
+const SACK_THROW_SPREAD_DEG: float = 16.0
+const SACK_THROW_FLATNESS: float = 0.55
+const SACK_THROW_SLOW_SHARE: float = 0.65
+const SACK_THROW_LIFT: float = 0.22
+## How far past the throw's swath the host still takes a pour (m): the holder's
+## drawn position runs a step behind the host's at a client's lag.
+const SACK_REACH_SLACK: float = 1.0
+## Your own arms reach this far past their length (share) to keep both hands on
+## the sack's sides in first person (player/first_person_arms.gd), as for the rake.
+const SACK_FP_ARM_STRETCH: float = 1.8
+## The spring lawn's bare patches (levels/lots/lot_generator.gd _seasonal_grids):
+## kept this far inside the yard's edge (m), at least this far apart edge to edge
+## (m), tried up to this many times per patch wanted, their edges wobbling this
+## much (share of the radius) round the patch.
+const SEED_PATCH_MARGIN: float = 3.0
+const SEED_PATCH_GAP: float = 2.0
+const SEED_PATCH_TRIES: int = 12
+const SEED_PATCH_WOBBLE: float = 0.22

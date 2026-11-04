@@ -59,13 +59,15 @@ const HOLDS: Dictionary = {
 	"gas_can": {"at": Vector3(0.3, 0.5, -0.22), "grips": [Vector3(0.0, 0.4, 0.0), Vector3.INF]},
 	"lawn_mower": {"grips": [Vector3(0.19, 0.95, 0.95), Vector3(-0.19, 0.95, 0.95)]},
 	"ladder": {"at": Vector3(0.33, 1.59, 0.0), "roll": PI * 0.5, "tilt": -0.08, "grips": [Vector3(0.0, 0.0, -0.35), Vector3.INF]},
-	# shops:9: a seasonal sack hugged against the right of the chest by its sides
-	# (the hands about 1.08 m up), so through your own eyes its mouth shows at the
-	# bottom right and the lawn ahead stays clear, its open top tipped
-	# ahead, ready to flick out (props/sack_spread.gd shakes it about the grips).
-	"fertilizer_bag": {"at": Vector3(0.2, 0.78, -0.4), "tilt": -0.5, "pivot": Vector3(0.0, 0.3, 0.0), "grips": [Vector3(0.235, 0.3, 0.0), Vector3(-0.235, 0.3, 0.0)]},
-	"grass_seed": {"at": Vector3(0.2, 0.84, -0.38), "tilt": -0.5, "pivot": Vector3(0.0, 0.24, 0.0), "grips": [Vector3(0.195, 0.24, 0.0), Vector3(-0.195, 0.24, 0.0)]},
-	"rock_salt": {"at": Vector3(0.2, 0.82, -0.39), "tilt": -0.5, "pivot": Vector3(0.0, 0.26, 0.0), "grips": [Vector3(0.215, 0.26, 0.0), Vector3(-0.215, 0.26, 0.0)]},
+	# shops:9: a seasonal sack hugged a little right of the chest, its open top
+	# tipped ahead, ready to flick out (props/sack_spread.gd shakes it about the
+	# pivot). The hands hold its upper sides, under the folded mouth, so through
+	# your own eyes both hands show on it at the bottom of the view, just right of
+	# centre, and they go with every shake (the grips are read off the shaken
+	# model, prop_looks.gd _hand_grips).
+	"fertilizer_bag": {"at": Vector3(0.2, 0.78, -0.4), "tilt": -0.5, "pivot": Vector3(0.0, 0.3, 0.0), "grips": [Vector3(0.205, 0.42, 0.0), Vector3(-0.205, 0.42, 0.0)]},
+	"grass_seed": {"at": Vector3(0.2, 0.84, -0.38), "tilt": -0.5, "pivot": Vector3(0.0, 0.24, 0.0), "grips": [Vector3(0.168, 0.34, 0.0), Vector3(-0.168, 0.34, 0.0)]},
+	"rock_salt": {"at": Vector3(0.2, 0.82, -0.39), "tilt": -0.5, "pivot": Vector3(0.0, 0.26, 0.0), "grips": [Vector3(0.19, 0.36, 0.0), Vector3(-0.19, 0.36, 0.0)]},
 }
 ## The pressure washer's wand grips, in the wand's space: [right, left].
 const WAND_GRIPS: Array[Vector3] = [Vector3(0.0, -0.11, 0.1), Vector3(-0.03, -0.02, -0.3)]
@@ -791,9 +793,14 @@ static func _hand_grips(prop: Node3D, look: Node3D, kind: String) -> Array[Vecto
 		grips = hold_of(prop)["grips"]
 	else:
 		return free
+	var frame := look.global_transform
+	# A sack (shops:9) slumps, bulges and shakes inside its Look (props/
+	# sack_spread.gd): the hands stay on the model as it's drawn.
+	if Catalog.is_sack(kind) and look.get_child_count() > 0 and look.get_child(0) is Node3D:
+		frame = frame * (look.get_child(0) as Node3D).transform
 	var points: Array[Vector3] = []
 	for grip: Vector3 in grips:
-		points.append(look.global_transform * grip if grip.is_finite() else Vector3.INF)
+		points.append(frame * grip if grip.is_finite() else Vector3.INF)
 	return points
 
 

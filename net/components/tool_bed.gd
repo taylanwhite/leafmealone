@@ -25,6 +25,7 @@ const _Hotbar = preload("res://net/components/hotbar.gd")
 const _KitRules = preload("res://core/kit_rules.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
 const _PropLooks = preload("res://props/prop_looks.gd")
+const _SackSpread = preload("res://props/sack_spread.gd")
 ## The rack's color: galvanized steel.
 const RACK_COLOR := Color(0.55, 0.57, 0.6)
 ## The bed's middle (its space), what "[E] Load" measures from.
@@ -358,6 +359,11 @@ func _seen_from(prop: Node3D) -> Transform3D:
 	var look := _PropLooks.posed_node(prop)
 	if look == null or not look.is_inside_tree():
 		look = prop.get_node_or_null("Visual") as Node3D
+	# A sack (shops:9) is drawn by its model inside the Look, slumped and shaken
+	# (props/sack_spread.gd): the glide starts from that model's base, and the
+	# rack's model carries the same slump (_slump).
+	elif Catalog.is_sack(str(prop.get("kind"))) and look.get_child_count() > 0 and look.get_child(0) is Node3D:
+		look = look.get_child(0) as Node3D
 	var seen := look.global_transform if look != null else prop.global_transform
 	var from := global_transform.affine_inverse() * seen
 	from.basis = from.basis.orthonormalized()
@@ -468,7 +474,7 @@ func _rpc_tools(list: Array, glide_slot: String, glide_from: Transform3D) -> voi
 		var slot := str(entry["slot"])
 		view.name = slot.replace(":", "_")
 		view.set_meta("slot", slot)
-		view.transform = slot_pose(str(entry["kind"]), int(entry["tier"]), slot)
+		view.transform = slot_pose(str(entry["kind"]), int(entry["tier"]), slot) * _slump(entry)
 		holder.add_child(view)
 		view.reset_physics_interpolation()
 	if glide_slot != "":
@@ -493,6 +499,23 @@ func slot_pose_of(slot: String) -> Transform3D:
 	return Transform3D.IDENTITY
 
 
+## shops:9: a sack on the rack keeps the slump it has in your arms (props/
+## sack_spread.gd slump_scale, about its base), so a part-used one doesn't swell
+## gliding on or shrink coming off. Identity for anything else.
+static func _slump(entry: Dictionary) -> Transform3D:
+	if not Catalog.is_sack(str(entry["kind"])):
+		return Transform3D.IDENTITY
+	return Transform3D(Basis.IDENTITY.scaled(_SackSpread.slump_scale(float(entry.get("fuel", 100.0)) / 100.0)), Vector3.ZERO)
+
+
+## The slump of whatever's on this spot now.
+func _slump_of(slot: String) -> Transform3D:
+	for entry: Dictionary in tools:
+		if str(entry["slot"]) == slot:
+			return _slump(entry)
+	return Transform3D.IDENTITY
+
+
 ## Local: each gliding model moves along an arc from where it was to its spot,
 ## turning on the way, and lands with a small settle.
 func _step_glides(delta: float) -> void:
@@ -504,7 +527,7 @@ func _step_glides(delta: float) -> void:
 		var t := clampf(float(glide["age"]) / Constants.KIT_LOAD_GLIDE_SECONDS, 0.0, 1.0)
 		if view == null or t >= 1.0:
 			if view != null:
-				view.transform = slot_pose_of(str(slot))
+				view.transform = slot_pose_of(str(slot)) * _slump_of(str(slot))
 			_glides.erase(slot)
 			continue
 		var to := slot_pose_of(str(slot))
@@ -512,7 +535,7 @@ func _step_glides(delta: float) -> void:
 		var eased := t * t * (3.0 - 2.0 * t)
 		var at := from.origin.lerp(to.origin, eased) + Vector3.UP * Constants.KIT_LOAD_GLIDE_LIFT * 4.0 * t * (1.0 - t)
 		var turn := from.basis.get_rotation_quaternion().slerp(to.basis.get_rotation_quaternion(), eased)
-		view.transform = Transform3D(Basis(turn), at)
+		view.transform = Transform3D(Basis(turn), at) * _slump_of(str(slot))
 
 
 # ---------------------------------------------------------------- helpers

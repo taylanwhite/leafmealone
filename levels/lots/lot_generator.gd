@@ -965,16 +965,17 @@ func _seasonal_grids(on_lawn: Callable, walk: Rect2) -> void:
 	bare.seed = hash([_job_seed, "bare"])
 	var patches: Array = []
 	var want := bare.randi_range(Constants.SEED_PATCHES.x, Constants.SEED_PATCHES.y)
-	for _try: int in want * 12:
+	var margin := Constants.SEED_PATCH_MARGIN
+	for _try: int in want * Constants.SEED_PATCH_TRIES:
 		if patches.size() >= want:
 			break
-		var at := Vector3(bare.randf_range(-YARD_HALF + 3.0, YARD_HALF - 3.0), 0.0, bare.randf_range(-YARD_HALF + 3.0, YARD_HALF - 3.0))
+		var at := Vector3(bare.randf_range(-YARD_HALF + margin, YARD_HALF - margin), 0.0, bare.randf_range(-YARD_HALF + margin, YARD_HALF - margin))
 		var radius := bare.randf_range(Constants.SEED_PATCH_RADIUS.x, Constants.SEED_PATCH_RADIUS.y)
 		if not bool(on_lawn.call(to_global(at))):
 			continue
 		# Kept in the lot's space, the one the include below measures in.
 		at = lot_global.to_local(to_global(at))
-		if patches.any(func(other: Array) -> bool: return (other[0] as Vector3).distance_to(at) < float(other[1]) + radius + 2.0):
+		if patches.any(func(other: Array) -> bool: return (other[0] as Vector3).distance_to(at) < float(other[1]) + radius + Constants.SEED_PATCH_GAP):
 			continue
 		patches.append([at, radius, bare.randf() * TAU])
 	var seed_cell := float(Constants.SEASONAL_GRID_CELL["seed_lawn"])
@@ -985,7 +986,7 @@ func _seasonal_grids(on_lawn: Callable, walk: Rect2) -> void:
 		for patch: Array in patches:
 			var offset := Vector2(local.x - (patch[0] as Vector3).x, local.z - (patch[0] as Vector3).z)
 			# A lumpy edge: the radius wobbles round the patch.
-			var wobble := 1.0 + 0.22 * sin(offset.angle() * 3.0 + float(patch[2]))
+			var wobble := 1.0 + Constants.SEED_PATCH_WOBBLE * sin(offset.angle() * 3.0 + float(patch[2]))
 			if offset.length() <= float(patch[1]) * wobble:
 				return true
 		return false

@@ -13,8 +13,10 @@ extends Node3D
 ##     cells, and a settle back; the shake's sound plays on the frame of the snap;
 ##   - run dry it folds flat (SACK_FOLD_SECONDS) with a papery crumple, and the
 ##     host frees it after that (net_prop.gd host_use_sack).
-## It moves the model inside the prop's Look, about the line through the hands'
-## grips (props/prop_looks.gd HOLDS), so the hands stay on its sides.
+## It moves the model inside the prop's Look, about its HOLDS pivot (props/
+## prop_looks.gd), and the hands' grips are read off that model, so the hands
+## stay on its sides through the slump and every shake. Chefty's rack draws the
+## same slump (slump_scale, net/components/tool_bed.gd).
 
 const _PropLooks = preload("res://props/prop_looks.gd")
 ## The granules' colors, by sack: blue-white fertilizer prills, straw seed, salt.
@@ -22,15 +24,30 @@ const GRANULE_COLORS: Dictionary = {
 	"fertilizer_bag": Color(0.86, 0.92, 1.0), "grass_seed": Color(0.9, 0.8, 0.5), "rock_salt": Color(0.97, 0.97, 0.95),
 }
 ## Where the shake is in its beat (0 to 1) when the sack snaps forward and throws.
-const SNAP_AT: float = 0.42
+const SNAP_AT := Constants.SACK_SNAP_AT
 ## How far it lifts back in the wind-up, as a share of SACK_SHAKE_TILT.
-const WINDUP_SHARE: float = 0.3
+const WINDUP_SHARE := Constants.SACK_WINDUP_SHARE
 
 var _phase: float = 0.0
 var _shaking: bool = false
 var _fold: float = 0.0
 var _folded_sound: bool = false
-var _burst: CPUParticles3D
+var _anchor_y: float = NAN
+
+
+## How a sack this full (0 to 1) and this far folded (0 to 1) is scaled, (wide,
+## tall, wide), about its base: shared with Chefty's rack (net/components/
+## tool_bed.gd), so a part-used sack keeps its slump as it glides on and off.
+static func slump_scale(fill: float, fold: float = 0.0) -> Vector3:
+	var height := lerpf(Constants.SACK_EMPTY_HEIGHT, 1.0, clampf(fill, 0.0, 1.0)) * lerpf(1.0, 0.08, ease(clampf(fold, 0.0, 1.0), 0.6))
+	var wide := 1.0 + (1.0 - clampf(fill, 0.0, 1.0)) * Constants.SACK_EMPTY_BULGE + clampf(fold, 0.0, 1.0) * Constants.SACK_FOLD_BULGE
+	return Vector3(wide, height, wide)
+
+
+## The sack's shape from the first frame it's drawn (taken off the rack part
+## used, it never shows full for a frame).
+func _ready() -> void:
+	_physics_process.call_deferred(0.0)
 
 
 func _physics_process(delta: float) -> void:
@@ -47,8 +64,7 @@ func _physics_process(delta: float) -> void:
 		if not _folded_sound:
 			_folded_sound = true
 			_play("sack_fold", prop.global_position + Vector3.UP * 0.6)
-	var height := lerpf(Constants.SACK_EMPTY_HEIGHT, 1.0, fill) * lerpf(1.0, 0.08, ease(_fold, 0.6))
-	var wide := 1.0 + (1.0 - fill) * 0.12 + _fold * 0.2
+	var scale_now := slump_scale(fill, _fold)
 	# Poured: the beat runs; let go, the sack eases back from wherever it was.
 	var pouring := bool(prop.get("spraying")) and held and fill > 0.0
 	var tilt := 0.0
@@ -64,9 +80,13 @@ func _physics_process(delta: float) -> void:
 	else:
 		_shaking = false
 		_phase = 0.0
-	# Scaled about the base when it stands on its own, about the hands when held.
-	var anchor := Vector3(0.0, pivot.y if held else 0.0, 0.0)
-	var shape := Transform3D(Basis.IDENTITY.scaled(Vector3(wide, height, wide)), Vector3.ZERO)
+	# Scaled about the base when it stands on its own, about the hands when held,
+	# easing between the two as it's picked up or let go (a part-used sack would
+	# otherwise hop by the slump as it changes hands).
+	var anchor_to := pivot.y if held else 0.0
+	_anchor_y = anchor_to if is_nan(_anchor_y) else lerpf(_anchor_y, anchor_to, 1.0 - exp(-Constants.SACK_ANCHOR_FOLLOW * delta))
+	var anchor := Vector3(0.0, _anchor_y, 0.0)
+	var shape := Transform3D(Basis.IDENTITY.scaled(scale_now), Vector3.ZERO)
 	var turn := Transform3D(Basis(Vector3.RIGHT, -tilt), Vector3.ZERO)
 	model.transform = Transform3D(Basis.IDENTITY, anchor) * turn * shape * Transform3D(Basis.IDENTITY, -anchor)
 
@@ -103,17 +123,19 @@ func _throw(prop: Node3D, kind: String) -> void:
 	var holder := _holder(prop)
 	if holder != null and int(prop.get("held_by")) == Net.local_peer_id():
 		mouth += ahead * Constants.SACK_OWN_VIEW_AHEAD + Vector3.DOWN * Constants.SACK_OWN_VIEW_DROP
-	if _burst == null or not is_instance_valid(_burst):
-		# In the world, not on the sack: thrown granules don't follow it.
-		_burst = _make_burst(kind)
-		var world := get_tree().get_first_node_in_group("world")
-		if world != null:
-			world.add_child(_burst)
-		else:
-			add_child(_burst)
-	_burst.global_position = mouth
-	_burst.direction = (ahead + Vector3.UP * 0.22).normalized()
-	_burst.restart()
+	# A fresh handful each throw, in the world, not on the sack (thrown granules
+	# don't follow it), gone once it has landed: the last throw's granules finish
+	# their flight while the next one leaves the mouth.
+	var burst := _make_burst(kind)
+	var world := get_tree().get_first_node_in_group("world")
+	if world != null:
+		world.add_child(burst)
+	else:
+		get_tree().current_scene.add_child(burst)
+	burst.global_position = mouth
+	burst.direction = (ahead + Vector3.UP * Constants.SACK_THROW_LIFT).normalized()
+	burst.emitting = true
+	get_tree().create_timer(Constants.SACK_GRANULE_SECONDS + Constants.SACK_SHAKE_SECONDS).timeout.connect(burst.queue_free)
 	_play("sack_shake", mouth)
 
 
@@ -124,11 +146,11 @@ func _make_burst(kind: String) -> CPUParticles3D:
 	burst.emitting = false
 	burst.explosiveness = 0.85
 	burst.amount = Constants.SACK_GRANULES
-	burst.lifetime = 0.8
+	burst.lifetime = Constants.SACK_GRANULE_SECONDS
 	burst.local_coords = false
-	burst.spread = 16.0
-	burst.flatness = 0.55
-	burst.initial_velocity_min = Constants.SACK_THROW_SPEED * 0.65
+	burst.spread = Constants.SACK_THROW_SPREAD_DEG
+	burst.flatness = Constants.SACK_THROW_FLATNESS
+	burst.initial_velocity_min = Constants.SACK_THROW_SPEED * Constants.SACK_THROW_SLOW_SHARE
 	burst.initial_velocity_max = Constants.SACK_THROW_SPEED
 	burst.gravity = Vector3(0.0, -9.8, 0.0)
 	burst.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
@@ -146,12 +168,6 @@ func _make_burst(kind: String) -> CPUParticles3D:
 	burst.material_override = material
 	burst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return burst
-
-
-func _exit_tree() -> void:
-	if _burst != null and is_instance_valid(_burst) and _burst.get_parent() != self and _burst.is_inside_tree():
-		# Its last throw finishes falling, then it goes.
-		_burst.get_tree().create_timer(1.0).timeout.connect(_burst.queue_free)
 
 
 ## The sack's model: the mesh inside the prop's Look (props/prop_looks.gd dress).

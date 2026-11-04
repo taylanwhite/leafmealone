@@ -406,6 +406,11 @@ func _on_item(held: Node, hands: Array[Vector3]) -> bool:
 	if kind == "leaf_bag":
 		_stretch = BAG_ARM_STRETCH
 		return true
+	# A seasonal sack (shops:9) is hugged lower than these short arms reach: they
+	# stretch to keep both hands on its sides, through every shake.
+	if Catalog.is_sack(kind):
+		_stretch = Constants.SACK_FP_ARM_STRETCH
+		return true
 	# Pushed and shouldered things rock with each step, and the hands follow
 	# them smoothly instead of exactly.
 	if kind in ["lawn_mower", "wheelbarrow", "ladder"]:

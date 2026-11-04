@@ -77,6 +77,13 @@ func _run(lot: Node) -> void:
 	print("[WorkTest] receipt pays $%d for the tasks (full pay is $%d), mood %s, total $%d" % [task_pay, expected, settlement.get("mood", "?"), int(settlement.get("paid", 0))])
 	all_ok = all_ok and task_pay >= expected - outcomes.size()
 	all_ok = all_ok and await _fall_check()
+	# shops:9: winter's sack work too, on the same yard after the pay (CI runs this
+	# test in spring): the salt grid covers the drive and the front walk, and a
+	# bag of rock salt poured up it salts it all.
+	if not (tasks.get("active") as PackedStringArray).has("salt_walk"):
+		var salted := await _salt_pass(tasks)
+		result["salt_pass"] = salted
+		all_ok = all_ok and salted
 	result["ok"] = all_ok
 	result["done"] = true
 	print("[WorkTest] all ok: %s" % all_ok)
@@ -394,6 +401,109 @@ func _spread(tasks: Node, task: String) -> void:
 	var left := float(sack.get("fuel")) if is_instance_valid(sack) else 0.0
 	print("[WorkTest] %s: the sack shook %s, %.0f%% -> %.0f%% full" % [task, shook, full, left])
 	result["sack_" + task] = {"shook": shook, "from": snappedf(full, 0.1), "to": snappedf(left, 0.1)}
+
+
+## shops:9: the winter job on this yard: the homeowner now asks only for salting
+## (activate, as a winter yard does); its grid lies on the drive and the front
+## walk and nowhere else, a rock salt sack is handed over, poured up it, drains,
+## and the drive is salted.
+func _salt_pass(tasks: Node) -> bool:
+	var grid_index := _grid_of(tasks, "salt_walk")
+	if grid_index < 0:
+		print("[WorkTest] salt_walk: this yard has no salt grid")
+		return false
+	# Only the host is told (activate isn't sent: every peer runs it from the yard's
+	# seed), so the job is put back as it was afterwards, and the client's copy of
+	# it (the parity check in ci_local) still matches.
+	var saved := _job_state(tasks)
+	tasks.call("activate", PackedStringArray(["salt_walk"]), 7)
+	await _ticks(2)
+	var grid: Dictionary = tasks.call("grid", grid_index)
+	var mask: PackedByteArray = grid["mask"]
+	var cells := 0
+	for value: int in mask:
+		cells += 1 if value == 1 else 0
+	# The drive's middle (lot space x 0, z 11: lot_generator.gd _seasonal_grids,
+	# whose parent is the job lot) is on it.
+	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	var drive_mid: Vector3 = lot.to_global(Vector3(0.0, 0.0, 11.0)) if lot != null else Vector3.INF
+	var corner: Vector3 = grid["corner"]
+	var cell_size: float = grid["cell"]
+	var width: int = grid["width"]
+	var on_drive := false
+	if drive_mid.is_finite():
+		var cx := int(floor((drive_mid.x - corner.x) / cell_size))
+		var cz := int(floor((drive_mid.z - corner.z) / cell_size))
+		var at := cz * width + cx
+		on_drive = cx >= 0 and cx < width and at >= 0 and at < mask.size() and mask[at] == 1
+	var asked := float(tasks.call("progress", "salt_walk")) < 0.01
+	var done: float = await _do_task(tasks, "salt_walk")
+	var sack: Dictionary = result.get("sack_salt_walk", {})
+	var drained := bool(sack.get("shook", false)) and float(sack.get("to", 100.0)) < float(sack.get("from", 0.0))
+	var handed := bool(result.get("sack_handed_rock_salt", false))
+	print("[WorkTest] salt_walk (winter pass): %d cells, the drive's middle on it %s, asked at 0%% %s, rock salt handed %s, drained %s, %d%% done" % [cells, on_drive, asked, handed, drained, int(done * 100.0)])
+	result["salt_walk"] = {"cells": cells, "on_drive": on_drive, "done": snappedf(done, 0.01), "drained": drained}
+	var racked := await _rack_slump("rock_salt")
+	_drop_held()
+	# The salt grid was all zeros on the client and is all salted (zeros) here now.
+	_put_job_back(tasks, saved)
+	return cells > 0 and on_drive and asked and handed and drained and done >= 0.99 and racked
+
+
+## shops:9: the part-used sack in your arms loaded on Chefty's rack keeps its
+## slump there (tool_bed.gd _slump, the same props/sack_spread.gd slump_scale the
+## prop is drawn with), once its glide aboard has landed.
+func _rack_slump(kind: String) -> bool:
+	var sack: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == kind and int(node.get("held_by")) == Net.local_peer_id():
+			sack = node as Node3D
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var bed := chefty.get_node_or_null("Body/ToolBed") if chefty != null else null
+	if sack == null or bed == null:
+		print("[WorkTest] rack slump: no %s in my arms or no tool bed (%s, %s)" % [kind, sack != null, bed != null])
+		return false
+	var fill := float(sack.get("fuel")) / 100.0
+	var drawn := (sack.get_node_or_null("Visual/Look") as Node3D).get_child(0) as Node3D
+	var held_tall := drawn.transform.basis.y.length() if drawn != null else 0.0
+	if not bool(bed.call("accept", sack)):
+		print("[WorkTest] rack slump: the bed didn't take the %s" % kind)
+		return false
+	await get_tree().create_timer(Constants.KIT_LOAD_GLIDE_SECONDS + 0.2).timeout
+	var slot := ""
+	for entry: Dictionary in bed.get("tools") as Array:
+		if str(entry["kind"]) == kind:
+			slot = str(entry["slot"])
+	var view := bed.get_node_or_null("Load/" + slot.replace(":", "_")) as Node3D
+	var tall := view.transform.basis.y.length() if view != null else 0.0
+	var want: float = preload("res://props/sack_spread.gd").slump_scale(fill).y
+	var ok := view != null and slot.begins_with("sack:") and want < 0.99 and absf(tall - want) < 0.01 and absf(held_tall - want) < 0.01
+	print("[WorkTest] rack slump: a %.0f%% %s in my arms stands %.2f of full, on the rack (%s) %.2f (want %.2f): %s" % [fill * 100.0, kind, held_tall, slot, tall, want, ok])
+	result["rack_slump"] = {"fill": snappedf(fill, 0.01), "held": snappedf(held_tall, 0.01), "rack": snappedf(tall, 0.01), "ok": ok}
+	return ok
+
+
+## The host's job state, to put back after a pass the client wasn't told of.
+func _job_state(tasks: Node) -> Dictionary:
+	var spots: Array = []
+	for spot: Dictionary in tasks.get("_spots") as Array:
+		spots.append(int(spot["amount"]))
+	var grids: Array = []
+	for grid: Dictionary in tasks.get("_grids") as Array:
+		grids.append((grid["amounts"] as PackedByteArray).duplicate())
+	return {"active": (tasks.get("active") as PackedStringArray).duplicate(), "spots": spots, "grids": grids, "start": (tasks.get("_start_total") as Dictionary).duplicate()}
+
+
+func _put_job_back(tasks: Node, saved: Dictionary) -> void:
+	tasks.set("active", saved["active"])
+	var spots: Array = tasks.get("_spots")
+	for index: int in mini(spots.size(), (saved["spots"] as Array).size()):
+		(spots[index] as Dictionary)["amount"] = int(saved["spots"][index])
+	var grids: Array = tasks.get("_grids")
+	for index: int in mini(grids.size(), (saved["grids"] as Array).size()):
+		(grids[index] as Dictionary)["amounts"] = saved["grids"][index]
+	tasks.set("_start_total", saved["start"])
+	tasks.emit_signal("tasks_changed")
 
 
 ## shops:9: a sack poured dry folds away and frees your arms.

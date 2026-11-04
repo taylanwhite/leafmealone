@@ -21,6 +21,7 @@ signal remote_bite(bite: int)
 const REACH: float = 1.5
 const _Strings = preload("res://ui/strings.gd")
 const _StrokeCam = preload("res://player/stroke_cam.gd")
+const _JobTasks = preload("res://net/work/job_tasks.gd")
 ## Hand raking: a stroke at most this often, so flailing doesn't turn into a fast rake.
 const HAND_STROKE_SECONDS: float = 0.35
 
@@ -281,7 +282,7 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 func _spread(player: CharacterBody3D, sack_kind: String) -> void:
 	if _work_wait > 0.0:
 		return
-	_work_wait = 0.15
+	_work_wait = _JobTasks.WORK_TICK
 	var tasks := get_tree().get_first_node_in_group("job_tasks")
 	if tasks == null:
 		return
