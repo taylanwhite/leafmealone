@@ -172,6 +172,8 @@ func _add_chefty() -> void:
 	var chefty := script.new() as Node3D
 	chefty.name = "Chefty"
 	$Rides.add_child(chefty)
+	if chefty.has_signal("hopped_out"):
+		chefty.connect("hopped_out", _on_boarder_hopped_out)
 
 
 ## Cosmetic set dressing for each zone, the scenery around them, and the shared
@@ -526,7 +528,7 @@ func _someone_near(point: Vector3, except_peer: int) -> bool:
 
 func request_depart() -> void:
 	if Net.is_host():
-		_host_depart()
+		_host_depart(Net.local_peer_id())
 	else:
 		_rpc_request_depart.rpc_id(1)
 
@@ -691,7 +693,7 @@ func _site_house_for(offer: Dictionary) -> int:
 ## SITE_FREE_DISTANCE away.
 func job_locked() -> bool:
 	var ride := get_node_or_null("Rides/Chefty")
-	if ride != null and bool(ride.call("is_riding")):
+	if ride != null and (bool(ride.call("is_riding")) or _is_boarding(ride)):
 		return true
 	if town_map:
 		if %LotSlot.get_child_count() == 0:
@@ -921,18 +923,214 @@ func _return_job_gas() -> void:
 		shops.call("add_supply", "gas", gallons)
 
 
-func _host_depart() -> void:
+## Host. peer_id pressed E at Chefty's pad: they climb in, Chefty honks, and the
+## crew has CHEFTY_BOARD_WAIT_SECONDS to walk up and climb in too (p1-depart,
+## crew-02: one E used to leave at once with whoever stood near and strand the
+## rest). peer_id 0 is a test or dev call: everyone near the pad, right now.
+## Chefty parked out at the yard (a teammate who missed the window) has no bed
+## here to climb into: it comes back for whoever's at the pad and goes, as it
+## always did (the window would honk on the yard and seat them a kilometre off).
+func _host_depart(peer_id: int = 0) -> void:
 	var ride := get_node_or_null("Rides/Chefty")
 	if ride == null or bool(ride.call("is_riding")):
-		return
-	var party: Array = _Boarding.call("choose_party", _players_near(%TruckPad.global_position))
-	if party.is_empty():
 		return
 	# No job to go to: nobody texted, or it's past 2 AM and the crew needs sleep.
 	if not can_depart():
 		return
-	_load_job_lot()
-	ride.call("depart", party, Net.Zone.LOT)
+	var away := not _is_boarding(ride) and ride.has_method("parked_at_store") and not bool(ride.call("parked_at_store"))
+	if peer_id == 0 or not ride.has_method("open_boarding") or away:
+		var party: Array = _Boarding.call("choose_party", _players_near(%TruckPad.global_position))
+		if party.is_empty():
+			return
+		_load_job_lot()
+		ride.call("depart", party, Net.Zone.LOT)
+		return
+	var body := _player_node(peer_id)
+	if body == null or Net.is_watcher(peer_id) or not _players_near(%TruckPad.global_position).has(peer_id):
+		return
+	if _is_boarding(ride):
+		# Late to the honk: in you get (the window's own walk-up does the same).
+		if int(ride.call("boarding_destination")) == Net.Zone.LOT:
+			ride.call("board", peer_id, body.global_position)
+		return
+	_open_boarding(ride, Net.Zone.LOT)
+	_board_opener = peer_id
+	ride.call("board", peer_id, body.global_position)
+
+
+## Host: Chefty starts its honk-and-wait toward destination.
+func _open_boarding(ride: Node, destination: int) -> void:
+	_board_left.clear()
+	_all_aboard_at = -1.0
+	_go_now = false
+	_board_opener = 0
+	ride.call("open_boarding", destination, Constants.CHEFTY_BOARD_WAIT_SECONDS)
+
+
+## Host, while Chefty honks and waits (p1-depart, docs/GAME.md "Leaving
+## together"): anyone of the crew who walks up to it climbs in; once everyone in
+## its zone who can come is aboard it goes after a beat, and otherwise when the
+## window runs out. Captured, carried or buried crew aren't waited for.
+func _tick_boarding() -> void:
+	var ride := get_node_or_null("Rides/Chefty")
+	if not _is_boarding(ride):
+		_all_aboard_at = -1.0
+		return
+	var going_to := int(ride.call("boarding_destination"))
+	var zone: int = Net.Zone.STORE if going_to == Net.Zone.LOT else Net.Zone.LOT
+	var director := get_node_or_null("RunDirector")
+	var waiting := 0
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var body := node as Node3D
+		var peer_id := int(str(node.name))
+		if body == null or Net.is_watcher(peer_id) or int(Net.player_zone(peer_id)) != zone:
+			continue
+		if (ride.call("boarders") as Array).has(peer_id):
+			continue
+		if director != null and bool(director.call("is_captured", peer_id)):
+			continue
+		if int(body.get("carried_by")) != 0 or bool(body.get("in_pile")):
+			continue
+		if not _at_chefty(body, ride, zone):
+			# Walked off after hopping out: walking back up counts again.
+			_board_left.erase(peer_id)
+			waiting += 1
+			continue
+		if _board_left.has(peer_id) or not bool(ride.call("board", peer_id, body.global_position)):
+			waiting += 1
+	var now := Net.server_time()
+	var aboard := (ride.call("boarders") as Array).size()
+	if aboard == 0 and zone == Net.Zone.STORE:
+		# Everyone hopped back out: no trip.
+		ride.call("close_boarding")
+		return
+	if waiting == 0 and aboard > 0:
+		if _all_aboard_at < 0.0:
+			_all_aboard_at = now
+		elif now - _all_aboard_at >= Constants.CHEFTY_BOARD_ALL_ABOARD_SECONDS:
+			_host_leave()
+			return
+	else:
+		_all_aboard_at = -1.0
+	if now >= float(ride.call("leave_at")) or _go_now:
+		_host_leave()
+
+
+## Host: a boarder held E (net/components/ride.gd): go now.
+func boarding_go_now() -> void:
+	if Net.is_host() and _is_boarding(get_node_or_null("Rides/Chefty")):
+		_go_now = true
+		_host_leave()
+
+
+## Host: the honk-and-wait is over. To the yard, or (after the cash) settle up
+## and take everyone home. Never with someone still in mid-hop into the bed
+## (the truck pulled the last one in from 50 m down the road, rec_crew_fr
+## frames 550-558): the next tick tries again once they've landed.
+func _host_leave() -> void:
+	var ride := get_node_or_null("Rides/Chefty")
+	if not _is_boarding(ride):
+		return
+	if int(ride.call("boarding_destination")) == Net.Zone.LOT:
+		if not can_depart():
+			_go_now = false
+			ride.call("close_boarding")
+			return
+		if bool(ride.call("climbing")):
+			return
+		_all_aboard_at = -1.0
+		_go_now = false
+		_load_job_lot()
+		ride.call("leave_now")
+		return
+	_gather_lot(ride)
+	if bool(ride.call("climbing")):
+		return
+	_all_aboard_at = -1.0
+	_go_now = false
+	var pending := _pending_finish
+	_pending_finish = {}
+	var paid := float(pending.get("paid", -1.0))
+	# Bags tossed in during the wait are paid for too (she updates the receipt's
+	# details in place; the cash already handed over was the rest of it).
+	var homeowner := get_tree().get_first_node_in_group("homeowner")
+	if homeowner != null and paid >= 0.0 and homeowner.has_method("host_count_late_bags"):
+		var repriced := int(homeowner.call("host_count_late_bags"))
+		if repriced >= 0:
+			paid = float(repriced)
+	_host_settle(paid, pending.get("details", {}) as Dictionary)
+
+
+## Host, the window after the cash is up: whoever's still on the lot climbs in
+## too (the crew first, then a watcher, as seats allow); whoever doesn't fit
+## goes to the store as before. Close by, they hop in; from across the yard
+## they're just aboard (Constants.CHEFTY_BOARD_CLIMB_FROM_MAX).
+func _gather_lot(ride: Node) -> void:
+	var lot_peers: Array[int] = Net.players_in_zone(Net.Zone.LOT)
+	lot_peers.sort_custom(func(a: int, b: int) -> bool: return int(Net.is_watcher(a)) < int(Net.is_watcher(b)))
+	for peer_id: int in lot_peers:
+		if (ride.call("boarders") as Array).has(peer_id):
+			continue
+		var body := _player_node(peer_id)
+		if body == null or not bool(ride.call("board", peer_id, body.global_position)):
+			Net.move_player_to_zone(peer_id, Net.Zone.STORE)
+
+
+## Whether this body is at Chefty for the walk-up: the store's Board pad, or
+## within CHEFTY_BOARD_WALKUP_METERS of the bed.
+func _at_chefty(body: Node3D, ride: Node, zone: int) -> bool:
+	if zone == Net.Zone.STORE:
+		var pad := get_node_or_null("StoreZone/Board") as Area3D
+		if pad != null and pad.overlaps_body(body):
+			return true
+	var bed: Vector3 = (ride.call("bed_transform") as Transform3D) * Vector3(0.0, 0.0, 0.7)
+	return Vector2(body.global_position.x - bed.x, body.global_position.z - bed.z).length() <= Constants.CHEFTY_BOARD_WALKUP_METERS
+
+
+static func _is_boarding(ride: Node) -> bool:
+	return ride != null and ride.has_method("is_boarding") and bool(ride.call("is_boarding"))
+
+
+func _player_node(peer_id: int) -> Node3D:
+	return %Players.get_node_or_null(str(peer_id)) as Node3D
+
+
+func _on_boarder_hopped_out(peer_id: int) -> void:
+	_board_left[peer_id] = true
+	# Whoever called the trip hopped back out: it's off, and whoever climbed in
+	# for it hops out too (crew bots waiting by the truck sit down at any honk,
+	# and drove off without the one who'd honked, play: rec_hop_1p).
+	var ride := get_node_or_null("Rides/Chefty")
+	if peer_id == _board_opener and _is_boarding(ride) and int(ride.call("boarding_destination")) == Net.Zone.LOT:
+		ride.call("cancel_boarding")
+
+
+## Host: someone left the game while Chefty waited. Their seat empties (no hop:
+## there's nobody to draw), and if they'd called the trip it's off, as if
+## they'd hopped out (else Chefty drove a ghost to the yard, loaded it, and
+## stranded the crew at the store: review of p1-depart).
+func _drop_departed_boarder(peer_id: int) -> void:
+	_board_left.erase(peer_id)
+	var ride := get_node_or_null("Rides/Chefty")
+	if not Net.is_host() or not _is_boarding(ride) or not ride.has_method("drop_boarder"):
+		return
+	ride.call("drop_boarder", peer_id)
+	if peer_id == _board_opener:
+		_board_opener = 0
+		if int(ride.call("boarding_destination")) == Net.Zone.LOT:
+			ride.call("cancel_boarding")
+
+
+## Host: who hopped out of the waiting truck and hasn't walked away since.
+var _board_left: Dictionary = {}
+## Host: when everyone was first aboard (server time), or -1.
+var _all_aboard_at: float = -1.0
+## Host: the homeowner's cash, settled when Chefty leaves for home.
+var _pending_finish: Dictionary = {}
+## Host: a boarder asked to go now (it goes once nobody's mid-hop).
+var _go_now: bool = false
+## Host: who pressed E to call this trip (0 for the ride home).
+var _board_opener: int = 0
 
 
 ## Whether Chefty can head out: a yard is waiting (or a test seed), and the
@@ -949,10 +1147,24 @@ func can_depart() -> bool:
 
 
 ## Host only. paid is the homeowner's cash; without it, Campaign falls back to cleanup.
+## With the cash (p1-depart, crew-09) the crew gets a beat first: Chefty honks
+## and waits for them to walk over and climb in, and the job settles (and the
+## receipt prints) as it pulls away (_host_leave).
 func _host_finish(paid: float = -1.0, details: Dictionary = {}) -> void:
 	if town_map:
 		_host_finish_in_town(paid, details)
 		return
+	var waiting_ride := get_node_or_null("Rides/Chefty")
+	if paid >= 0.0 and waiting_ride != null and waiting_ride.has_method("open_boarding") and not bool(waiting_ride.call("is_riding")) and not _is_boarding(waiting_ride):
+		_pending_finish = {"paid": paid, "details": details}
+		_open_boarding(waiting_ride, Net.Zone.STORE)
+		return
+	_host_settle(paid, details)
+
+
+## Host: settle the job and drive everyone on the lot home. Whoever didn't make
+## it to the truck in the window is gathered up (the yard goes once Chefty's home).
+func _host_settle(paid: float, details: Dictionary) -> void:
 	Campaign.finish_job(paid, details)
 	# Paid: the hands climb back on the truck.
 	var hires := get_node_or_null("Hires")
@@ -963,6 +1175,14 @@ func _host_finish(paid: float = -1.0, details: Dictionary = {}) -> void:
 		chefty.call("clear_bags")
 	var ride := get_node_or_null("Rides/Chefty")
 	if ride == null or bool(ride.call("is_riding")):
+		return
+	if _is_boarding(ride):
+		_gather_lot(ride)
+		if (ride.call("boarders") as Array).is_empty():
+			ride.call("close_boarding")
+			_free_lot()
+			return
+		ride.call("leave_now")
 		return
 	var party: Array = _Boarding.call("choose_party", Net.players_in_zone(Net.Zone.LOT))
 	var riding: Array[int] = []
@@ -996,7 +1216,10 @@ func _host_finish_in_town(paid: float, details: Dictionary) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not town_map or not Net.is_host() or multiplayer.multiplayer_peer == null:
+	if not Net.is_host() or multiplayer.multiplayer_peer == null:
+		return
+	if not town_map:
+		_tick_boarding()
 		return
 	_site_check_wait -= delta
 	if _site_check_wait > 0.0:
@@ -1038,7 +1261,7 @@ func _players_near(point: Vector3) -> Array[int]:
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_request_depart() -> void:
 	if Net.is_host():
-		_host_depart()
+		_host_depart(multiplayer.get_remote_sender_id())
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -1074,6 +1297,7 @@ func _on_zone_changed(_peer_id: int, zone: Net.Zone) -> void:
 
 
 func _on_player_left(peer_id: int) -> void:
+	_drop_departed_boarder(peer_id)
 	_PlayerDirector.despawn(%Players, peer_id)
 
 

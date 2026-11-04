@@ -139,6 +139,60 @@ static func bag_bonus(perk_count: int) -> float:
 	return bonus
 
 
+# ---------------------------------------------------------------- the split
+
+## Each crew member's share of a job's pool (Campaign._split_pool, p1-depart):
+## CREW_SPLIT_EVEN_SHARE of it evenly, the rest by contribution. scores holds
+## each member's contribution score (the Balance weights over their share of the
+## crew's leaves, rescues and objectives); each contribution share is floored at
+## MINIMUM_CONTRIBUTION_SHARE before it is normalized. With no scores at all the
+## contribution part is even too. The shares sum to 1.
+static func split_shares(scores: Array) -> Array[float]:
+	var shares: Array[float] = []
+	var count := scores.size()
+	if count == 0:
+		return shares
+	var total := 0.0
+	for score: Variant in scores:
+		total += maxf(0.0, float(score))
+	var raw: Array[float] = []
+	var floored := 0.0
+	for score: Variant in scores:
+		var part := 1.0 / float(count) if total <= 0.0 else maxf(0.0, float(score)) / total
+		part = maxf(part, Balance.MINIMUM_CONTRIBUTION_SHARE)
+		raw.append(part)
+		floored += part
+	var even := clampf(Constants.CREW_SPLIT_EVEN_SHARE, 0.0, 1.0)
+	for part: float in raw:
+		shares.append(even / float(count) + (1.0 - even) * part / floored)
+	return shares
+
+
+## Whole dollars for each share of a pool, summing to the pool rounded: each
+## gets the floor of their share, and the dollars left go to the biggest
+## remainders (ties to the earlier member), so a $3 job one bagger did, split
+## four ways, reads $2, $1, $0, $0 instead of everyone's rounding making it $4.
+static func split_dollars(pool: float, shares: Array) -> Array[int]:
+	var out: Array[int] = []
+	var whole := maxi(0, int(round(pool)))
+	var given := 0
+	var rests: Array = []
+	for index: int in shares.size():
+		var exact := float(whole) * float(shares[index])
+		var dollars := int(floor(exact + 1e-9))
+		out.append(dollars)
+		given += dollars
+		rests.append([exact - float(dollars), index])
+	rests.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) > float(b[0]) or (is_equal_approx(float(a[0]), float(b[0])) and int(a[1]) < int(b[1])))
+	var left := whole - given
+	for entry: Array in rests:
+		if left <= 0:
+			break
+		out[int(entry[1])] += 1
+		left -= 1
+	return out
+
+
 # ---------------------------------------------------------------- crew size
 
 ## How much of a yard's mess a crew this size gets (levels/world.gd, gap balance:E).

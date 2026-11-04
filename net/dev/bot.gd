@@ -565,6 +565,21 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 	Input.action_release(&"crouch")
 	_job.set("turn_left", 0.0)
 	var zone := Net.player_zone(Net.local_peer_id())
+	# p1-depart: Chefty honked after the cash. Drop the work and walk over to it
+	# (the honk-and-wait sits you down once you're beside the bed).
+	var honking := get_tree().get_first_node_in_group("chefty")
+	if zone == Net.Zone.LOT and honking != null and honking.has_method("is_boarding") and bool(honking.call("is_boarding")) and int(honking.call("boarding_destination")) == Net.Zone.STORE:
+		_job.call("stop")
+		Input.action_release(&"primary")
+		var spot := _crew_wait_spot()
+		if spot != Vector3.INF and int(honking.call("seat_of", Net.local_peer_id())) < 0:
+			_face(player, _crew_steer(player, spot))
+			Input.action_press(&"sprint")
+			_crew_walk(player, true, delta)
+		else:
+			Input.action_release(&"sprint")
+			_crew_walk(player, false, delta)
+		return
 	if zone == Net.Zone.LOT or zone == Net.Zone.TOWN:
 		if _job.call("step", player, delta):
 			for action: StringName in STRAFE_ACTIONS:

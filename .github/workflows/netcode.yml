@@ -547,6 +547,20 @@ jobs:
           wait
           grep "LensTest" build/soak/ci-lens/host.log build/soak/ci-lens/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-lens/host.json')); t=json.load(open('build/soak/ci-lens/target.json')); sys.exit(0 if h['lens_test'].get('ok') and t['lens_test'].get('ok') else 1)"
+
+      # p1-depart: Chefty's honk-and-wait, the homeowner's verdict and the crew's split (net/dev/depart_test.gd).
+      - name: Depart test (the honk-and-wait, calling it a day, the crew's split, over 80 ms of lag)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-depart
+          "$GODOT" --headless --path . -- --host --port=7837 --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test --sim-lag=80 --depart-test --measure="$PWD/build/soak/ci-depart/host.json" --run-seconds=150 > build/soak/ci-depart/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7837 --name=Target --no-steam --sim-lag=80 --depart-test --measure="$PWD/build/soak/ci-depart/target.json" --run-seconds=145 > build/soak/ci-depart/target.log 2>&1
+          wait
+          grep "DepartTest" build/soak/ci-depart/host.log build/soak/ci-depart/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-depart/host.json')); t=json.load(open('build/soak/ci-depart/target.json')); sys.exit(0 if h['depart_test'].get('ok') and t['depart_test'].get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

@@ -109,10 +109,6 @@
     "value": {"chance": 0.15, "mean": 30},
     "source": "guess: the chance a job breaks something billable (a hose $25, a gnome $15, a foot $40 or $120) and the average bill."
   },
-  "homeowner_inline": {
-    "value": {"surprise_good_below": 0.12, "surprise_bad_above": 0.9},
-    "source": "mirrors npcs/homeowner.gd _judge by hand: the 'some days people are just in a mood' rolls are still inline there, not in constants.gd."
-  },
   "town_inline": {
     "value": {
       "request_luck": 0.6,

@@ -256,7 +256,15 @@ func _beckoned(out: Dictionary) -> bool:
 		return _fail(out, "no homeowner body to wave")
 	var away := owner_node.global_position + Vector3(Constants.HOMEOWNER_BECKON_METERS * 0.4, 0.0, 0.0)
 	_move_player_to(Vector3(away.x, _own_player().global_position.y, away.z))
+	# p1-depart (NB-01): two bags isn't a job. Under HOMEOWNER_SETTLE_DONE she
+	# doesn't wave anyone over to settle up.
+	if await _until(func() -> bool: return str(body.call("current_gesture")) == "wave", 2.5):
+		return _fail(out, "the homeowner waved the crew over with the yard %.0f%% done" % (float(owner_node.call("done_share")) * 100.0))
+	_note("no wave with the yard %.0f%% done" % (float(owner_node.call("done_share")) * 100.0))
+	# Past the line (stood in for here: raking that much takes minutes), she does.
+	owner_node.set("dev_done_share", 1.0)
 	var waved := await _until(func() -> bool: return str(body.call("current_gesture")) == "wave", Constants.HOMEOWNER_BECKON_SECONDS + 3.0)
+	owner_node.set("dev_done_share", -1.0)
 	out["beckoned"] = waved
 	_note("the homeowner waved us over from %.0f m: %s" % [Constants.HOMEOWNER_BECKON_METERS * 0.4, waved])
 	if not waved:
@@ -271,19 +279,32 @@ func _get_paid(out: Dictionary) -> bool:
 	out["credits_before"] = Campaign.credits(Net.local_peer_id())
 	owner_node.call("_handle_talk", Net.local_peer_id())
 	_note("talked to the homeowner")
+	# p1-depart: a job this far from done gets a long look at the yard first, and
+	# no cash (phase 0, WAITING); asked again, she calls it a day.
+	await _ticks(2)
+	if int(owner_node.get("_phase")) != 0 or not bool(owner_node.get("_asked_early")):
+		return _fail(out, "the homeowner settled up a yard %.0f%% done on the first ask" % (float(owner_node.call("done_share")) * 100.0))
+	_note("first ask: she looked the yard over and kept the cash")
+	owner_node.call("_handle_talk", Net.local_peer_id())
 	# Phase 2 is OFFERING: the reaction plays, then the cash comes out.
 	if not await _until(func() -> bool: return int(owner_node.get("_phase")) == 2, 6.0):
 		return _fail(out, "the homeowner never held out the cash")
 	_expect_quiet(out, "take_cash")
 	out["offered"] = int(owner_node.get("_amount"))
+	out["mood"] = str((owner_node.get("_settlement") as Dictionary).get("mood", ""))
 	owner_node.call("_handle_take", Net.local_peer_id())
-	await _ticks(3)
+	# The job settles as Chefty pulls away, after its honk-and-wait.
+	var before := int(out["credits_before"])
+	await _until(func() -> bool: return Campaign.credits(Net.local_peer_id()) != before, Constants.CHEFTY_BOARD_WAIT_SECONDS + 3.0)
 	out["credits_after"] = Campaign.credits(Net.local_peer_id())
 	out["paid"] = int(out["credits_after"]) - int(out["credits_before"])
 	out["settlement"] = Campaign.last_settlement()
-	_note("took the cash: $%d, credits %d -> %d" % [out["offered"], out["credits_before"], out["credits_after"]])
+	_note("took the cash: $%d (%s), credits %d -> %d" % [out["offered"], out["mood"], out["credits_before"], out["credits_after"]])
 	if int(out["offered"]) <= 0 or int(out["paid"]) != int(out["offered"]):
 		return _fail(out, "the cash taken did not land in credits")
+	# crew-08: a yard this far from done is a mess, whatever kind of day she's having.
+	if str(out["mood"]) != "messy":
+		return _fail(out, "the homeowner was %s about a yard %.0f%% done" % [out["mood"], float(owner_node.call("done_share")) * 100.0])
 	return true
 
 
