@@ -5045,3 +5045,87 @@ const TOWN_STREET_PROP_CHUNK: float = 256.0
 ## the queue's last turn, the frame is already a long one (the job yard arriving
 ## on a joiner) and the queue sits it out (never two frames running).
 const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
+
+# ---- near-lens dissolve (P1 lens: player/cartoon_body.gd _lens_net, docs/GAME.md
+# "Nobody's face at the lens")
+## Any CartoonBody but your own fades out (the stylized material's screen-door
+## dissolve, its own lens_fade channel) as its head or torso comes this close (m,
+## from the camera to the part's surface) to whichever camera is drawing: solid
+## at LENS_FADE_START_METERS, gone by LENS_FADE_GONE_METERS.
+const LENS_FADE_START_METERS: float = 0.6
+const LENS_FADE_GONE_METERS: float = 0.2
+## The head and torso as the net measures them: a ball this wide (m, the head and
+## hair or a hat), its center this high over the face pivot; the chest a capsule
+## this wide, from the hips' pivot up this far (m, to the collar).
+const LENS_HEAD_RADIUS: float = 0.3
+const LENS_HEAD_CENTER_Y: float = 0.04
+const LENS_TORSO_RADIUS: float = 0.21
+const LENS_TORSO_HEIGHT: float = 0.55
+## How fast it fades: out (0 to 1) over this long at the most, back in over this
+## long (s). Out is quick so a camera dollying through a head never shows it; in
+## is slower, so a friend stepping back from you settles in rather than blinks.
+const LENS_FADE_OUT_SECONDS: float = 0.08
+const LENS_FADE_IN_SECONDS: float = 0.3
+## A camera that moves this far (m) in one frame, or a different camera taking
+## over, is a cut: the fade lands at once, since the whole picture changed.
+const LENS_CUT_METERS: float = 1.0
+## Bodies further than this (m) from the camera, and solid, aren't measured.
+const LENS_CHECK_METERS: float = 3.0
+## The net also goes by how big the head looks (P1 lens review: riding in
+## Chefty's bed, the two riders opposite sat 0.9 m off, each face 40% of the
+## picture's height for the whole ride, and stayed solid; a band any wider left
+## them a see-through ghost all ride long; at a 60 degree FOV a
+## head looks bigger still): the head ball's width as a share of the picture's
+## height (or width, if narrower). Solid below LENS_SCREEN_START, gone by
+## LENS_SCREEN_GONE (75 degrees: about 1.15 m and 0.98 m from the head's center;
+## a friend you stop 1.2 m from stays solid). Only within LENS_SCREEN_METERS
+## of the lens, and only on the player's own cameras: a StageCam shot is framed on
+## purpose (the van's two heads either side of the road) and keeps the distance
+## rule alone.
+const LENS_SCREEN_START: float = 0.34
+const LENS_SCREEN_GONE: float = 0.4
+const LENS_SCREEN_METERS: float = 1.6
+## ... and only once it's looked that big this long (s), or from a cut onto it: a
+## face you're stuck with goes, one there for a moment (a NICE BOY's lunge
+## landing a beat before the shot swings out) doesn't blink see-through.
+const LENS_SCREEN_DWELL_SECONDS: float = 0.4
+## Arms count too, as a sleeve this wide (m) from the shoulder to the hand (this
+## long), but only once they're this close (m from the sleeve): a hand reaching
+## toward you doesn't ghost the whole person, a sleeve at the lens does.
+const LENS_ARM_RADIUS: float = 0.08
+const LENS_ARM_LENGTH: float = 0.52
+const LENS_ARM_START_METERS: float = 0.3
+## Homeowners (npcs/homeowner.gd): solid to people like the Annex staff (a capsule
+## this wide and tall, and a head ball, on the pad-wall layer); they keep this far
+## (m) from the nearest player, and when they react to a talk they step round to
+## this far in front of the talker's eyes (into view, not off the edge), within
+## HOMEOWNER_STAGE_RADIUS of where they wait (m), walking at this speed (m/s, with
+## this long to get going). A player this far off (m) lets them drift back home.
+const HOMEOWNER_SOLID_RADIUS: float = 0.4
+const HOMEOWNER_SOLID_HEIGHT: float = 1.75
+const HOMEOWNER_SOLID_HEAD_RADIUS: float = 0.55
+const HOMEOWNER_SOLID_HEAD_Y: float = 1.6
+const HOMEOWNER_KEEP_METERS: float = 1.8
+## Someone closer than this share of HOMEOWNER_KEEP_METERS makes them step back.
+const HOMEOWNER_KEEP_TRIGGER: float = 0.88
+## While they step round into the talker's view, only someone this close (m).
+const HOMEOWNER_KEEP_STAGED_METERS: float = 1.1
+const HOMEOWNER_FACE_METERS: float = 1.8
+const HOMEOWNER_STAGE_RADIUS: float = 2.4
+const HOMEOWNER_WALK_SPEED: float = 1.4
+const HOMEOWNER_WALK_EASE_SECONDS: float = 0.35
+const HOMEOWNER_HOME_AFTER_METERS: float = 4.0
+## Steps shorter than this (m) aren't worth taking (no shuffling on the spot).
+const HOMEOWNER_STEP_MIN_METERS: float = 0.25
+## The host sends where they're walking to at most this often (s) while someone
+## keeps crowding them (the latest destination always goes out).
+const HOMEOWNER_WALK_SHARE_SECONDS: float = 0.2
+## The take-the-cash pill sits under the offered handful, so the cash itself
+## stays in sight: this far down (m) for every meter between the camera and the
+## cash (about the pill's own height on screen; up close it stays in the picture).
+const HOMEOWNER_PROMPT_DROP: float = 0.09
+## The cash's price while they hold it out: over their head (m), this small
+## (Label3D font size and meters per pixel), so the offered handful still reads.
+const HOMEOWNER_PRICE_Y: float = 2.04
+const HOMEOWNER_PRICE_FONT: int = 40
+const HOMEOWNER_PRICE_PIXEL: float = 0.0035

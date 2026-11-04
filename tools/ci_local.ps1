@@ -341,6 +341,16 @@ $Tests = [ordered]@{
 		Extra = '--sim-lag=150 --hud-test'
 		Check = { param($h, $c) [bool]$h.hud_test.ok -and $c -ne $null -and [bool]$c.hud_test.ok }
 	}
+	# P1 lens (net/dev/lens_test.gd) over 150 ms of lag: no body's face at the lens.
+	# The other player walking into your face dissolves out and back, a camera
+	# dollied or cut through the homeowner's head never shows it, and she is solid,
+	# stands off, steps into the talker's view and keeps her price over her head.
+	lens = @{
+		Port = 7841
+		Host = '--host --name=Tester --no-steam --start-zone=lot --job-seed=777 --yard-size=1 --lens-test'; Seconds = 90; Client = 85
+		Extra = '--sim-lag=150 --lens-test'
+		Check = { param($h, $c) [bool]$h.lens_test.ok -and $c -ne $null -and [bool]$c.lens_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

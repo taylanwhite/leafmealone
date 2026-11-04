@@ -289,6 +289,7 @@ func write_report() -> void:
 		"leaf_motion_test": _test_result_by_path("res://net/dev/leaf_motion_test.gd"),
 		"rake_stroke_test": _test_result_by_path("res://net/dev/rake_stroke_test.gd"),
 		"shuttle_test": _test_result_by_path("res://net/dev/shuttle_test.gd"),
+		"lens_test": _test_result_by_path("res://net/dev/lens_test.gd"),
 		"shuttle": _shuttle(),
 		"leaf_view": _leaf_view(),
 		"leaf_ledger": _leaf_ledger(),
