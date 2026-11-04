@@ -28,6 +28,19 @@ extends Node
 ##             peer's burst) glides back onto the stream instead of jumping.
 ##   bunched   a teammate's late update and the one bunched right behind it are
 ##             drawn at the players' pace cap, not as a leap.
+## fx-w9 (W9's leftovers, docs/GAME.md "Fixes a player bumps into"):
+##   shove     walking past a leaf bag lying beside your line leaves it be;
+##             walking into one nudges it ahead no faster than PROP_SHOVE_SPEED_MAX.
+##   hands_hop a hired hand riding Chefty's bed hops off at the yard: they stand
+##             beside their own seat's rail, and wait out the hop before working.
+##   down      knocked flat behind Chefty's tailgate: E does nothing and the bed
+##             won't take you; on your feet again, it does.
+##   fence_give Chefty floored into a fence (a run given to the fence give, with a
+##             solid like the yard's): it bows and holds, no crash, no dent, the
+##             nose within FENCE_GIVE_DEPTH of the pickets; the job yard's fence
+##             is given to it too.
+##   town_fence the town's own fences are solid to people (walking into one stops
+##             you at it) and Chefty noses into one off the street without a crash.
 ## Each step prints a [YardTest] line; CI needs both peers' ok.
 
 static var result: Dictionary = {}
@@ -37,6 +50,7 @@ const _Strings = preload("res://ui/strings.gd")
 const _TownLine = preload("res://levels/town/town_line.gd")
 const _LotGenerator = preload("res://levels/lots/lot_generator.gd")
 const _NetSmoother = preload("res://net/components/net_smoother.gd")
+const _FenceGive = preload("res://net/components/fence_give.gd")
 
 var _started: bool = false
 var _client_ready: bool = false
@@ -121,6 +135,11 @@ func _run_host() -> void:
 	await _bunched()
 	await _bin()
 	await _fence()
+	await _shove()
+	await _hands_hop()
+	await _down()
+	await _fence_give()
+	await _town_fence()
 	await _framed()
 	await _hedge()
 	await _barricade()
@@ -215,6 +234,252 @@ func _fence() -> void:
 	var side_x := float(_LotGenerator.FENCE_RUNS[1][0].x)
 	var answer := await _ask("fence", {"start": lot.to_global(Vector3(side_x + 2.4, 0.1, -4.0)), "yaw": yaw + PI * 0.5, "lot": lot.global_transform, "fence_x": side_x}, 12.0)
 	_check("fence: the client walks into the side fence and stops at it", bool(answer.get("ok", false)), str(answer))
+
+
+## fx-w9: a walker only nudges what's in front of their feet, at a walk's share.
+func _shove() -> void:
+	var lot := await _job_lot()
+	if lot == null:
+		_check("shove: the job yard is there", false, "no job_lot")
+		return
+	var me := _me()
+	var world := get_tree().get_first_node_in_group("world")
+	var yaw := lot.global_rotation.y
+	var ahead := -lot.global_basis.z
+	var side := lot.global_basis.x
+	_teleport(_other(), lot.to_global(Vector3(-8.0, 0.1, 6.0)), yaw)
+	# A bag 0.7 m to the side of the line you sprint along.
+	var start := lot.to_global(Vector3(6.0, 0.1, 4.0))
+	var beside_at := start + ahead * 2.5 + side * 0.75 + Vector3.UP * 0.5
+	world.call("_spawn_bag", beside_at, 0)
+	await _seconds(1.2)
+	var beside := _nearest_bag(beside_at)
+	if beside == null:
+		_check("shove: a bag on the lawn", false, "no bag spawned")
+		return
+	var rest := beside.global_position
+	_place(me, start, yaw)
+	await _seconds(0.3)
+	Input.action_press("sprint")
+	Input.action_press("move_forward")
+	await _seconds(1.4)
+	Input.action_release("move_forward")
+	Input.action_release("sprint")
+	await _seconds(0.8)
+	var passed := _flat(beside.global_position, rest)
+	_check("shove: sprinting past a bag lying beside your line leaves it where it lay", passed < 0.15, "it moved %.2f m (the old shove kicked anything within 1.1 m)" % passed)
+	# Straight into it: it's nudged along ahead, never faster than the cap.
+	var behind := beside.global_position - ahead * 1.6
+	_place(me, Vector3(behind.x, start.y, behind.z), yaw)
+	await _seconds(0.4)
+	var from := beside.global_position
+	var fastest := 0.0
+	Input.action_press("move_forward")
+	for _tick: int in 60:
+		await get_tree().physics_frame
+		var vel := (beside as RigidBody3D).linear_velocity
+		fastest = maxf(fastest, Vector2(vel.x, vel.z).length())
+	Input.action_release("move_forward")
+	await _seconds(0.6)
+	var pushed := (beside.global_position - from).dot(ahead)
+	_check("shove: walking into a bag nudges it ahead at most at PROP_SHOVE_SPEED_MAX", pushed > 0.2 and fastest <= Constants.PROP_SHOVE_SPEED_MAX + 0.4,
+		"pushed %.2f m ahead, fastest %.2f m/s (cap %.1f)" % [pushed, fastest, Constants.PROP_SHOVE_SPEED_MAX])
+	beside.queue_free()
+
+
+## fx-w9: a hired hand riding in Chefty's bed hops off at the yard over their own
+## rail (chefty_drive.gd draws the hop from the seat; hires.gd stands them there).
+func _hands_hop() -> void:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var hires := get_tree().get_first_node_in_group("hires")
+	var lot := await _job_lot()
+	if chefty == null or hires == null or lot == null or not chefty.has_method("hand_landing"):
+		_check("hands_hop: Chefty, the hires and the yard", false, "missing")
+		return
+	var house := TownMap.test_site_house()
+	var curb := TownMap.yard_transform(house) * Vector3(TownMap.CURB_POINT.x, 0.0, TownMap.YARD_STREET_Z + 2.2)
+	chefty.call("dev_place", curb, -PI * 0.5)
+	hires.call("dev_add_hand", "Gravy")
+	await _seconds(0.6)
+	var seat := -1
+	for entry: Dictionary in chefty.call("cosmetic_riders"):
+		if str(entry["name"]) == "Gravy":
+			seat = int(entry["seat"])
+	var landing: Dictionary = chefty.call("hand_landing", maxi(seat, 1))
+	hires.call("spawn_on_lot")
+	await _ticks(2)
+	var hand: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("crew_hands"):
+		if str(node.get("hand_name")) == "Gravy":
+			hand = node as Node3D
+	if hand == null or seat < 0:
+		_check("hands_hop: the hand rode in a bed seat and is on the yard", false, "seat %d, hand %s" % [seat, hand])
+		hires.call("_handle_fire", "Gravy")
+		return
+	var off := _flat(hand.global_position, landing["at"] as Vector3)
+	var at := hand.global_position
+	var hop := float(hand.get("hop_seconds"))
+	await _seconds(hop * 0.85)
+	var still := _flat(hand.global_position, at)
+	await _seconds(hop * 0.15 + Constants.HIRE_HOP_LAND_BEAT + 2.6)
+	var went := _flat(hand.global_position, at)
+	# Off to work (crew_hand.gd State: 5 is REST, what the hop holds them in).
+	var working := int(hand.get("_state")) != 5 or went > 0.3
+	_check("hands_hop: a hand in the bed lands beside their own seat's rail, waits out the hop, then works", off < 0.4 and hop > 0.5 and still < 0.1 and working,
+		"seat %d, landed %.2f m from the rail spot, hop %.2f s, moved %.2f m during it, then state %d and %.2f m" % [seat, off, hop, still, int(hand.get("_state")), went])
+	hires.call("despawn")
+	hires.call("_handle_fire", "Gravy")
+	await _seconds(0.3)
+
+
+## fx-w9: flat on your back behind the tailgate, the bed won't take you.
+func _down() -> void:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var me := _me()
+	if chefty == null or not chefty.has_method("request_enter"):
+		_check("down: the drivable Chefty", false, "none")
+		return
+	chefty.call("dev_place", Constants.CHEFTY_PARK_SPOT, Constants.CHEFTY_PARK_YAW)
+	await _seconds(0.4)
+	var at: Transform3D = chefty.call("body_transform")
+	var behind := at * (_Vehicles.CHEFTY_TAILGATE + Vector3(0.0, 0.0, 0.9))
+	_place(me, Vector3(behind.x, behind.y + 0.1, behind.z), atan2(at.basis.z.x, at.basis.z.z))
+	await _seconds(0.5)
+	me.call("_apply_bonk", Vector3.ZERO, "heavy")
+	var flat := await _until(func() -> bool: return bool(me.call("is_down")), 1.5)
+	var choice: Dictionary = me.call("e_choice")
+	chefty.call("request_enter", 2)
+	await _seconds(0.4)
+	var refused := int(chefty.call("seat_of", Net.local_peer_id())) < 0
+	await _until(func() -> bool: return not bool(me.call("is_down")), float(Constants.BONK_STUN_SECONDS["heavy"]) + 2.0)
+	await _seconds(0.4)
+	_place(me, Vector3(behind.x, behind.y + 0.1, behind.z), atan2(at.basis.z.x, at.basis.z.z))
+	await _seconds(0.3)
+	chefty.call("request_enter", 2)
+	var took := await _until(func() -> bool: return int(chefty.call("seat_of", Net.local_peer_id())) >= 0, 2.0)
+	_check("down: knocked flat behind the tailgate, E does nothing and the bed won't take you; up again, it does", flat and StringName(choice["do"]) == &"down" and refused and took,
+		"knocked down %s, E would %s, refused %s, in once up %s" % [flat, choice["do"], refused, took])
+	if took:
+		chefty.call("request_exit")
+		await _seconds(1.6)
+
+
+## fx-w9: Chefty into a fence: it bows and holds. A run given to the fence give
+## out on the farm track (a solid like the yard's, which the chassis is kept out
+## of), driven at flat out; and the job yard's own fence is given to it.
+func _fence_give() -> void:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var lot := await _job_lot()
+	var yard_lines := 0
+	if lot != null:
+		# A truck's footprint just inside each of the back and side fences.
+		for corner: Vector3 in [Vector3(0.0, 0.0, -15.8), Vector3(-18.0, 0.0, 0.0), Vector3(18.0, 0.0, 0.0)]:
+			if not _FenceGive.contact(lot.to_global(corner), lot.global_rotation.y).is_empty():
+				yard_lines += 1
+	if not await _drive(chefty):
+		_check("fence_give: at Chefty's wheel", false, "couldn't get in")
+		return
+	var crash := chefty.get_node("Crash")
+	var before: Dictionary = crash.call("report")
+	var face_z := Constants.TOWN_LINE_RECT.position.y + Constants.TOWN_LINE_WALL_INSIDE
+	var x := TownMap.DEPOT_X - 24.0
+	# Clear of the hedge's band (its face + TOWN_EDGE_BAND), on the hedge test's own ground.
+	var fence_z := face_z + 14.0
+	var holder := StaticBody3D.new()
+	holder.name = "YardTestFence"
+	holder.collision_layer = 1
+	add_child(holder)
+	var box := BoxShape3D.new()
+	box.size = Vector3(12.0, 1.0, Constants.YARD_FENCE_SOLID_THICK)
+	var shape := CollisionShape3D.new()
+	shape.shape = box
+	holder.add_child(shape)
+	holder.global_position = Vector3(x, 0.5, fence_z)
+	_FenceGive.add_body(holder)
+	_FenceGive.add(Vector3(x - 6.0, 0.0, fence_z), Vector3(x + 6.0, 0.0, fence_z), holder)
+	await _ticks(2)
+	var run := await _run_at(chefty, Vector3(x, 0.5, fence_z + 26.0 + Constants.CHEFTY_HALF_LENGTH), 0.0, 4.5)
+	var after: Dictionary = crash.call("report")
+	var nose := (run["pos"] as Vector3).z - Constants.CHEFTY_HALF_LENGTH - fence_z
+	var crashed := int(after["crashes_seen"]) - int(before["crashes_seen"])
+	_check("fence_give: flat out into a fence, it bows and holds: no crash, no dent, the nose at the pickets", float(run["top"]) > 12.0 and float(run["end_speed"]) < 1.5 and nose > -(Constants.FENCE_GIVE_DEPTH + 0.25) and nose < 0.8 and crashed == 0 and int(chefty.call("dents")) == 0 and yard_lines >= 3,
+		"top %.1f m/s, ended at %.1f m/s, the nose %.2f m from the pickets (yard side +), crashes %d, dents %d; the job yard's back and side fences given to it: %d of 3" % [float(run["top"]), float(run["end_speed"]), nose, crashed, int(chefty.call("dents")), yard_lines])
+	_FenceGive.remove_owner(holder)
+	holder.queue_free()
+	chefty.call("request_exit")
+	await _seconds(1.2)
+
+
+## fx-w9: the town's own fences: solid to people, and Chefty noses into one.
+func _town_fence() -> void:
+	var colliders := get_tree().get_first_node_in_group("town_colliders")
+	var me := _me()
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var foot := colliders.get_node_or_null("TownLineFoot") as Node3D if colliders != null else null
+	if foot == null:
+		_check("town_fence: the town's colliders", false, "none")
+		return
+	await _until(func() -> bool: return _town_fence_shapes(foot).size() > 20, 20.0)
+	var shapes := _town_fence_shapes(foot)
+	var space := me.get_world_3d().direct_space_state
+	var picked: Dictionary = {}
+	for shape: CollisionShape3D in shapes:
+		if (shape.shape as BoxShape3D).size.x < 3.0 or shape.disabled:
+			continue
+		var mid := shape.global_position
+		mid.y = 0.0
+		var normal := shape.global_basis.z
+		normal.y = 0.0
+		normal = normal.normalized()
+		for sign: float in [1.0, -1.0]:
+			var out := normal * sign
+			var far := mid + out * 13.0
+			var ray := PhysicsRayQueryParameters3D.create(far + Vector3.UP * 0.9, mid + Vector3.UP * 0.9 + out * 0.3, 1 | Constants.VEHICLE_LAYER)
+			var floor := PhysicsRayQueryParameters3D.create(far + Vector3.UP * 2.0, far + Vector3.DOWN * 1.0, 1)
+			if space.intersect_ray(ray).is_empty() and not space.intersect_ray(floor).is_empty():
+				picked = {"mid": mid, "out": out}
+				break
+		if not picked.is_empty():
+			break
+	if picked.is_empty():
+		_check("town_fence: a town fence with open street in front of it", false, "%d fence shapes, none clear" % shapes.size())
+		return
+	var mid: Vector3 = picked["mid"]
+	var out: Vector3 = picked["out"]
+	# On foot, from 2.4 m out, at a walk.
+	var start := mid + out * 2.4 + Vector3.UP * 0.1
+	_place(me, start, atan2(out.x, out.z))
+	await _seconds(0.5)
+	Input.action_press("move_forward")
+	await _seconds(1.8)
+	Input.action_release("move_forward")
+	await _ticks(3)
+	var from_line := (me.global_position - mid).dot(out)
+	var stopped := from_line > Constants.YARD_FENCE_SOLID_THICK * 0.5 and from_line < 0.8
+	# Chefty, off the street, at it.
+	var crash := chefty.get_node("Crash")
+	var before: Dictionary = crash.call("report")
+	var nosed := false
+	var detail := "couldn't get in"
+	if await _drive(chefty):
+		var run := await _run_at(chefty, mid + out * 13.0 + Vector3.UP * 0.5, atan2(out.x, out.z), 3.0)
+		var after: Dictionary = crash.call("report")
+		var nose := ((run["pos"] as Vector3) - mid).dot(out) - Constants.CHEFTY_HALF_LENGTH
+		var crashed := int(after["crashes_seen"]) - int(before["crashes_seen"])
+		nosed = crashed == 0 and nose > -(Constants.FENCE_GIVE_DEPTH + 0.3) and nose < 1.0 and float(run["end_speed"]) < 1.5
+		detail = "top %.1f m/s, the nose %.2f m from the pickets, crashes %d" % [float(run["top"]), nose, crashed]
+		chefty.call("request_exit")
+		await _seconds(1.2)
+	_check("town_fence: walking into a town fence stops you at it; Chefty noses into one off the street, no crash", stopped and nosed,
+		"%d fence runs; on foot stopped %.2f m off it; %s" % [shapes.size(), from_line, detail])
+
+
+func _town_fence_shapes(foot: Node) -> Array[CollisionShape3D]:
+	var out: Array[CollisionShape3D] = []
+	for child: Node in foot.get_children():
+		if child is CollisionShape3D and str(child.name).begins_with("Fence") and (child as CollisionShape3D).shape is BoxShape3D:
+			out.append(child as CollisionShape3D)
+	return out
 
 
 func _framed() -> void:

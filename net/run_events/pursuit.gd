@@ -83,6 +83,8 @@ var _parked_until: float = -1.0
 var _grabs: Dictionary = {}
 var _next_bark: float = 0.0
 var _hooked: Node
+## fx-w9: when the last ram counted (server time).
+var _last_ram_at: float = -100.0
 ## Rammed: the van sits spun out until then (server time).
 var _stun_until: float = -1.0
 ## A U-turn under way: how long, and how long it has sat stuck in it (s).
@@ -726,21 +728,30 @@ func _on_crashed(strength: float, at: Vector3) -> void:
 	var half := Constants.NICE_VAN_CHASSIS_SIZE * 0.5
 	if absf(local.x) > half.x + Constants.VAN_RAM_SLACK or absf(local.z) > half.z + Constants.VAN_RAM_SLACK:
 		return
+	# fx-w9: one ram is one ram. A parked van slewing round into a truck still on
+	# the gas met its bumper again and again, and the heat went up 45 for one hit.
+	var now := Net.server_time()
+	if now - _last_ram_at < Constants.VAN_RAM_REPEAT_SECONDS:
+		return
+	_last_ram_at = now
 	stats["rams"] = int(stats["rams"]) + 1
 	_log("pursuit_ram", {"strength": strength})
 	var heat := get_tree().get_first_node_in_group("heat")
 	if heat != null:
 		heat.call("add", Constants.HEAT_VAN_RAM, "van_ram")
 	var pose: Dictionary = shuttle.call("host_chase_pose")
-	if _state != State.CHASING or pose.is_empty() or not bool(pose["driving"]):
-		# Parked: it rocks, Chefty crumples, the heat goes up; it doesn't go anywhere.
-		return
 	var push: Vector3 = chefty.call("ground_velocity")
 	if push.length() < 0.5:
 		push = (van.origin - (chefty.call("body_position") as Vector3))
 	push.y = 0.0
 	var shove := push.normalized() * strength * Constants.VAN_RAM_PUSH_SHARE
 	var dir := signf(van.basis.z.cross(push).y)
+	if _state != State.CHASING or pose.is_empty() or not bool(pose["driving"]):
+		# fx-w9: parked (pulled over), it slews round on its locked wheels from the
+		# hit and stands where it stops; the crew out on the street walk back to
+		# its door from there. It used to just rock in place.
+		shuttle.call("host_parked_spin", shove * Constants.VAN_PARKED_PUSH_SHARE, dir if dir != 0.0 else 1.0)
+		return
 	shuttle.call("host_chase_spin", shove, dir if dir != 0.0 else 1.0)
 	stats["spins"] = int(stats["spins"]) + 1
 	# Spun out: back on it after VAN_STUN_SECONDS (_step_chasing).

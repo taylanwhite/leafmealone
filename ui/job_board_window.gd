@@ -46,6 +46,7 @@ func open() -> void:
 	var board := _board()
 	if board != null and not board.is_connected("offers_changed", _refresh_if_open):
 		board.connect("offers_changed", _refresh_if_open)
+	_taken_at = -1
 	# Sized to its cards, centered and inside the screen (super.open, ui/window_fit.gd).
 	super.open()
 
@@ -113,9 +114,31 @@ func _offer_card(offer: Dictionary, index: int, picked: bool, locked: bool) -> C
 		var board := _board()
 		if board != null:
 			board.call("request_choose", index)
+		_close_after_take()
 	)
 	column.add_child(take)
 	return card
+
+
+## fx-w9: the job's taken, so the board's done with. The pin goes in, the card
+## turns "Next up" when the host's answer lands (a ping later), and the window
+## goes a beat after (Constants.JOB_BOARD_TAKE_CLOSE_SECONDS); the other cards
+## can't be pressed in that beat. It used to stay up over the yard you'd picked.
+func _close_after_take() -> void:
+	for card: Node in _board_cards.get_children():
+		for button: Node in card.find_children("*", "Button", true, false):
+			(button as Button).disabled = true
+	var shown_at := Time.get_ticks_msec()
+	_taken_at = shown_at
+	get_tree().create_timer(Constants.JOB_BOARD_TAKE_CLOSE_SECONDS).timeout.connect(func() -> void:
+		if visible and _taken_at == shown_at:
+			close_window()
+	)
+
+
+## When a take last closed the board's window on its timer (msec), so reopening
+## it in that beat isn't closed by the old one's timer.
+var _taken_at: int = -1
 
 ## The crew rating as star icons (ui/job_board_window.gd): the lead, the stars,
 ## then the count; no reviews yet keeps the old one-line text.

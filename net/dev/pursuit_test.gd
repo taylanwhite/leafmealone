@@ -21,12 +21,16 @@ extends Node
 ##      behind: no getaway (no escape, no XP); the van pulls in behind the truck.
 ##   g. a fourth raid: the chase on, Chefty floored head-on into the van: a ram,
 ##      the van spins out, the heat up by HEAT_VAN_RAM.
+##   i. (fx-w9) a fifth, pulled over: Chefty floored into the parked van's side
+##      slews it round where it stood, and it stands there again.
 ## The client's view (it saw the chase start, drew the van's CHASE leg from the
 ## host's track) is checked by CI from the probe reports. Each step prints a
 ## [PursuitTest] line.
 
 const _Vehicles = preload("res://props/vehicles.gd")
 const _Pursuit = preload("res://net/run_events/pursuit.gd")
+const _Shuttle = preload("res://net/run_events/shuttle.gd")
+const _FenceGive = preload("res://net/components/fence_give.gd")
 ## How long the raid's warning has left when a step calls it (s): the van pulls up
 ## that soon (the scenarios' backdated warning).
 const WARN_LEAD: float = 2.0
@@ -38,6 +42,10 @@ const FAR_AWAY := Vector3(70.0, 0.0, 10.0)
 const RAM_RUN_UP: float = 32.0
 ## The eastbound lane, from the street's centerline (m, yard space +Z).
 const EASTBOUND_LANE: float = 2.2
+## i (fx-w9): how far off the parked van's side Chefty is lined up to ram it (m),
+## and how far round (rad) it must slew.
+const PARKED_RAM_RUN_UP: float = 11.0
+const PARKED_RAM_MIN_TURN: float = 0.6
 
 static var result: Dictionary = {}
 
@@ -193,6 +201,14 @@ func _run(world: Node) -> void:
 	var spins_before := int(_Pursuit.stats["spins"])
 	var heat_before := float(heat.get("heat")) if heat != null else 0.0
 	if chased_g:
+		# fx-w9: the town's fences hold Chefty now, so it's lined up once the straight
+		# run ahead of the van is clear of them (a van mid-turn points it across a
+		# front yard's fence); it follows the truck's road meanwhile.
+		var lined := func() -> bool:
+			var pose: Transform3D = shuttle.call("raid_pose")
+			var fore := Vector3(-pose.basis.z.x, 0.0, -pose.basis.z.z).normalized()
+			return _fence_free(pose.origin + fore * RAM_RUN_UP, pose.origin, atan2(fore.x, fore.z))
+		var clear_ahead: bool = await _until(lined, 8.0)
 		var van: Transform3D = shuttle.call("raid_pose")
 		var ahead := -van.basis.z
 		ahead.y = 0.0
@@ -201,6 +217,7 @@ func _run(world: Node) -> void:
 		# Facing the van, nose to nose.
 		chefty.call("dev_place", Vector3(from.x, van.origin.y, from.z), atan2(ahead.x, ahead.z))
 		chefty.call("dev_script", host, [{"seconds": 4.0, "throttle": 1.0}])
+		print("[PursuitTest] g: lined up %.0f m ahead of the van, the run clear of fences %s" % [RAM_RUN_UP, clear_ahead])
 	var rammed := false
 	if chased_g:
 		rammed = await _until(func() -> bool: return int(_Pursuit.stats["rams"]) > rams_before, 6.0)
@@ -216,7 +233,86 @@ func _run(world: Node) -> void:
 			var van: Dictionary = shuttle.call("host_chase_pose")
 			return str(pursuit.call("state_name")) != "chasing" or (not van.is_empty() and float(van["speed"]) > 1.0), 4.0)
 	_verdict(recovered, "g. the van got going again after its spin-out (state %s)" % str(pursuit.call("state_name")), problems)
+	# i (fx-w9), last: the parked van rammed.
+	_safe(director, host, 60.0)
+	await _until(func() -> bool: return int(director.call("phase")) == 0, 30.0)
+	_safe(director, host, 0.0)
+	await _ram_parked(director, shuttle, pursuit, chefty, host, house, problems)
 	_finish(problems.is_empty(), problems)
+
+
+## Whether a truck driven straight from a to b (heading yaw) meets no fence
+## (net/components/fence_give.gd), sampled every meter.
+func _fence_free(a: Vector3, b: Vector3, yaw: float) -> bool:
+	var steps := int(a.distance_to(b))
+	for index: int in steps + 1:
+		var at := a.lerp(b, float(index) / float(maxi(steps, 1)))
+		if not _FenceGive.contact(at, yaw).is_empty():
+			return false
+	return true
+
+
+## i (fx-w9). A raid, the chase, the pull-over: once the crew are out on the
+## street, Chefty is lined up on the parked van's side and floored into it. It
+## slews round where it stood (about a quarter turn, the heat up as for any ram)
+## and stands again; it used to just rock in place.
+func _ram_parked(director: Node, shuttle: Node, pursuit: Node, chefty: Node, host: int, house: int, problems: Array[String]) -> void:
+	await _quiet_down(director, shuttle)
+	var seated: bool = await _seat_at_curb(chefty, host, 0, house)
+	var raided := false
+	if seated:
+		raided = await _raid(director, shuttle)
+	var chased := false
+	if raided:
+		chefty.call("dev_script", host, [{"seconds": DRIVE_OFF_SECONDS, "throttle": 1.0}, {"seconds": 2.0, "throttle": -1.0}, {"seconds": 6.0, "handbrake": true}])
+		chased = await _until(func() -> bool: return str(pursuit.call("state_name")) == "chasing" and str(shuttle.call("raid_leg")) == "chase", 18.0)
+	var out := false
+	if chased:
+		out = await _until(func() -> bool: return str(pursuit.call("state_name")) == "pullover" and str(pursuit.get("_pull_stage")) == "out", 20.0)
+	var spun := false
+	var turned := 0.0
+	var stood := false
+	var heat := get_tree().get_first_node_in_group("heat")
+	var heat_before := float(heat.get("heat")) if heat != null else 0.0
+	if out:
+		# Kept safe while they climb out (nobody's pulled from the seat before the run).
+		_safe(director, host, 20.0)
+		var van: Transform3D = shuttle.call("raid_pose")
+		var side := van.basis.x
+		side.y = 0.0
+		side = side.normalized()
+		var from := van.origin + side * PARKED_RAM_RUN_UP
+		chefty.call("dev_place", Vector3(from.x, van.origin.y, from.z), atan2(side.x, side.z))
+		var hopping := func() -> bool:
+			for crew: Node in get_tree().get_nodes_in_group("nice_crew"):
+				if int(crew.get("mode")) == preload("res://npcs/crew_member.gd").Mode.HOP_OUT:
+					return true
+			return false
+		# With nobody to catch they'd wrap up after PULLOVER_IDLE_SECONDS: held off
+		# here (test only) while they climb out and the truck runs at them.
+		var hold_idle := func() -> bool:
+			pursuit.set("_idle_for", 0.0)
+			return false
+		await _until(func() -> bool: return bool(hold_idle.call()) or not bool(hopping.call()), 4.0)
+		hold_idle.call()
+		await get_tree().create_timer(0.4).timeout
+		hold_idle.call()
+		var spins_before := int(_Shuttle.stats.get("parked_spins", 0))
+		chefty.call("dev_script", host, [{"seconds": 2.6, "throttle": 1.0}, {"seconds": 1.0, "throttle": -1.0}])
+		spun = await _until(func() -> bool:
+			hold_idle.call()
+			return int(_Shuttle.stats.get("parked_spins", 0)) > spins_before, 4.0)
+		if spun:
+			# Its short slide (a CHASE leg from VAN_PLAN_LEAD on), then standing again.
+			await _until(func() -> bool: return str(shuttle.call("raid_leg")) == "chase", 2.0)
+			stood = await _until(func() -> bool: return str(shuttle.call("raid_leg")) == "parked", 6.0)
+			var after: Transform3D = shuttle.call("raid_pose")
+			turned = Vector3(van.basis.z.x, 0.0, van.basis.z.z).normalized().angle_to(Vector3(after.basis.z.x, 0.0, after.basis.z.z).normalized())
+	var heat_after := float(heat.get("heat")) if heat != null else 0.0
+	_verdict(spun and stood and turned >= PARKED_RAM_MIN_TURN and heat_after - heat_before >= Constants.HEAT_VAN_RAM - 0.5,
+		"i. rammed the pulled-over van side-on (chase %s, pull-over %s): it slewed round %.0f deg (want %.0f+) where it stood and stood again (%s), heat %.1f -> %.1f" % [chased, out, rad_to_deg(turned), rad_to_deg(PARKED_RAM_MIN_TURN), stood, heat_before, heat_after], problems)
+	await _until(func() -> bool: return int(director.call("phase")) == 0, 20.0)
+	_safe(director, host, 0.0)
 
 
 ## Chefty at the test house's curb facing up the street (away from where the van

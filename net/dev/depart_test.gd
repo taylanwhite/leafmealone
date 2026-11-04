@@ -43,7 +43,9 @@ extends Node
 ##             store, the client climbs in and rides out (fx-chefty).
 ##   stranded  Chefty parked at the yard, the client at the store's pad: Chefty
 ##             drives back down the road for them empty (fx-chefty), honks and
-##             waits at the store, they climb in, and it takes them there.
+##             waits at the store, they climb in, and it takes them there. They
+##             are knocked flat on the pad as it pulls in (fx-w9 review): not
+##             put in the bed while down; the window holds and they climb in up.
 ##   behind    the cash taken with the client out on the yard, past
 ##             CHEFTY_BOARD_GATHER_REACH; the host climbs in and holds E: Chefty
 ##             goes without them (never pulled in from across the yard), and the
@@ -54,15 +56,20 @@ extends Node
 ##             while it's on the road: the job settles, Chefty doesn't take the
 ##             client out to a finished job but turns round for the host, honks
 ##             and waits on the yard, takes the host home, and the yard goes.
+##   bot_store a crew bot (bot.gd on the client's player) at the rake bin when
+##             Chefty honks for the yard: out the doors and in within the window;
+##             left behind (the host holds E), it presses E on the pad, Chefty
+##             comes back for it and it rides out (fx-w9 review).
 ## The client reports what it saw by its own probe: seated while Chefty waited,
 ## its climb drawn as a hop (not a pop), the honks heard.
 
 const _Homeowner = preload("res://npcs/homeowner.gd")
 const _Economy = preload("res://core/economy.gd")
 const _Strings = preload("res://ui/strings.gd")
+const _Bot = preload("res://net/dev/bot.gd")
 const JOIN_WAIT_SECONDS: float = 30.0
 const RIDE_WAIT_SECONDS: float = 20.0
-const STEPS: Array[String] = ["verdict", "split", "hop_out", "wait", "late", "early", "beat", "gone", "hold", "midway", "stranded", "behind", "paid_away"]
+const STEPS: Array[String] = ["verdict", "split", "hop_out", "wait", "late", "early", "beat", "gone", "hold", "midway", "stranded", "behind", "paid_away", "bot_store"]
 ## A peer id nobody has: a boarder who then leaves the game (gone).
 const GHOST: int = 999
 
@@ -107,11 +114,55 @@ func _watch_client() -> void:
 		_was_on_lot = true
 	if _was_on_lot and Net.player_zone(me) == Net.Zone.STORE:
 		_gathered_home = true
+	_check_late_facing(chefty)
 	# Done once home from the yard and the host has left again without us (hold).
 	if _gathered_home and bool(chefty.call("is_riding")) and int(chefty.call("seat_of", me)) < 0:
 		var honks := int(chefty.get("honks"))
-		result = {"ok": _seen_seated and _seen_climb and honks >= 3, "seated": _seen_seated, "climb": _seen_climb, "honks": honks, "done": true}
-		print("[DepartTest] client: seated %s, climb drawn %s, honks %d" % [_seen_seated, _seen_climb, honks])
+		var facing := _face_check == 2 and _face_ok
+		result = {"ok": _seen_seated and _seen_climb and honks >= 3 and facing, "seated": _seen_seated, "climb": _seen_climb, "honks": honks, "late_facing": facing, "late_facing_detail": _face_detail, "done": true}
+		print("[DepartTest] client: seated %s, climb drawn %s, honks %d, a late joiner's Chefty faces the host's way %s (%s)" % [_seen_seated, _seen_climb, honks, facing, _face_detail])
+
+
+## fx-w9, client: home from the yard, Chefty parks facing the way it came. A late
+## joiner learns how it's parked (ride.gd _rpc_parked); played here by forgetting
+## which way it faces (a fresh peer's default) and asking the host again, as a
+## joiner does: it must end facing the way it did, not the other way round.
+var _face_check: int = 0
+var _face_ok: bool = false
+var _face_wrong: bool = false
+var _face_at: float = 0.0
+var _face_before := Vector3.ZERO
+var _face_detail: String = "not run"
+
+
+func _check_late_facing(chefty: Node) -> void:
+	if _face_check == 2 or not _gathered_home:
+		return
+	var body := chefty.get_node_or_null("Body") as Node3D
+	if body == null:
+		return
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	if _face_check == 0:
+		if bool(chefty.call("is_riding")) or not bool(chefty.call("parked_at_store")):
+			return
+		_face_before = body.global_basis.z
+		# The wrong way round, whichever way it's parked (review: forcing false
+		# tested nothing if it happened to be parked unreversed).
+		chefty.set("_reverse", not bool(chefty.get("_reverse")))
+		chefty.call("_place", float(chefty.get("_parked_along")))
+		var wrong := body.global_basis.z.angle_to(_face_before)
+		_face_wrong = wrong > deg_to_rad(90.0)
+		_face_detail = "drawn the other way round it's %.0f deg off" % rad_to_deg(wrong)
+		chefty.rpc_id(1, "_rpc_request_state")
+		_face_check = 1
+		_face_at = now
+		return
+	if now - _face_at < 1.0:
+		return
+	var off := body.global_basis.z.angle_to(_face_before)
+	_face_ok = _face_wrong and off < 0.05
+	_face_detail += "; after the host's answer %.1f deg off" % rad_to_deg(off)
+	_face_check = 2
 
 
 # ---------------------------------------------------------------- host
@@ -148,6 +199,8 @@ func _run() -> void:
 		return _finish("behind")
 	if not await _check_paid_away():
 		return _finish("paid_away")
+	if not await _check_bot_store():
+		return _finish("bot_store")
 	_finish("")
 
 
@@ -421,10 +474,27 @@ func _check_stranded() -> bool:
 	# the curb, no seat a kilometre off), then honks and waits at the store, they
 	# climb in, and it goes.
 	var came_back := bool(chefty.call("is_riding")) and not bool(chefty.call("is_boarding")) and Net.player_zone(client) == Net.Zone.STORE and int(chefty.call("seat_of", client)) < 0 and int(chefty.get("honks")) == honks
+	# fx-w9 review: knocked flat on the pad as it pulls in (kept down the whole
+	# way, a heavy bonk again before the last one wears off): not lifted into the
+	# bed; the window waits, and once up they climb in.
+	var client_body := _world().get_node("%Players").get_node_or_null(str(client)) as Node3D
+	var knock_every := float(Constants.BONK_STUN_SECONDS["heavy"]) * 0.5
+	var knocked_at := -INF
+	var waited := 0.0
+	while not bool(chefty.call("is_boarding")) and waited < RIDE_WAIT_SECONDS:
+		if waited - knocked_at >= knock_every:
+			rpc_id(client, "_rpc_knock")
+			knocked_at = waited
+		await _seconds(0.05)
+		waited += 0.05
+	var flat_in := bool(chefty.call("is_boarding")) and client_body != null and bool(client_body.call("is_down"))
+	var left_down := flat_in and int(chefty.call("seat_of", client)) < 0
+	await _ticks(3)
+	var held := bool(chefty.call("is_boarding"))
 	var waiting := await _until(func() -> bool: return bool(chefty.call("is_boarding")) and (chefty.call("boarders") as Array).has(client), RIDE_WAIT_SECONDS)
 	var honked := int(chefty.get("honks")) > honks
 	var arrived := await _until(func() -> bool: return Net.player_zone(client) == Net.Zone.LOT, RIDE_WAIT_SECONDS)
-	return _step("stranded", away and came_back and waiting and honked and arrived, "Chefty parked at the yard %s; the client at the pad: it drives back for them empty %s, honks %s and they climb in %s, at the yard %s" % [away, came_back, honked, waiting, arrived])
+	return _step("stranded", away and came_back and left_down and held and waiting and honked and arrived, "Chefty parked at the yard %s; the client at the pad: it drives back for them empty %s, they're flat on the pad as it pulls in %s and stay out of the bed %s, the window holds %s, honks %s and they climb in once up %s, at the yard %s" % [away, came_back, flat_in, left_down, held, honked, waiting, arrived])
 
 
 ## Hold sent Chefty off with just the host; the client, left at the store,
@@ -560,7 +630,99 @@ func _check_paid_away() -> bool:
 		"Chefty on its way back for the client %s, the cash %s, settled on the road %s, turned round for the host without the client %s %s, honking on the yard %s, the host aboard %s, home %s, the yard gone %s" % [fetching, offered, settled, turned, no_client, honking, aboard, home, freed])
 
 
+## fx-w9 review: a crew bot (net/dev/bot.gd, driving the client's player) is at
+## the rake bin inside Homie Depot when Chefty honks for the yard. It drops the
+## errand, walks out through the doors and climbs in within the window. Then
+## again, but the host holds E and Chefty goes at once: left behind, the bot
+## walks onto the pad and presses E there (world.request_depart), Chefty comes
+## back for it, and it rides out to the yard.
+func _check_bot_store() -> bool:
+	await _seconds(1.0)
+	var chefty := _chefty()
+	var world := _world()
+	var host := Net.local_peer_id()
+	var client := _client_id()
+	var bin := get_tree().get_first_node_in_group("rake_bin") as Node3D
+	if bin == null:
+		return _step("bot_store", false, "no rake bin")
+	var parked := await _until(func() -> bool: return bool(chefty.call("parked_at_store")) and not bool(chefty.call("is_boarding")), RIDE_WAIT_SECONDS)
+	if Net.player_zone(client) != Net.Zone.STORE:
+		Net.move_player_to_zone(client, Net.Zone.STORE)
+		await _seconds(0.6)
+	var at_bin: Vector3 = (bin.call("slot_front", 0) as Vector3) + Vector3(0.0, 0.4, 0.0)
+	await _put(client, at_bin)
+	rpc_id(client, "_rpc_be_bot")
+	await _seconds(0.5)
+	# The honk, the host already aboard.
+	await _to_pad(host)
+	world.call("_host_depart", host)
+	var honked := bool(chefty.call("is_boarding")) and (chefty.call("boarders") as Array).has(host)
+	var opened_at := Net.server_time()
+	var seated := await _until(func() -> bool: return (chefty.call("boarders") as Array).has(client), Constants.CHEFTY_BOARD_WAIT_SECONDS + 1.0)
+	var took := Net.server_time() - opened_at
+	# Off again (the trip's off), and back to the bin for the second take.
+	if bool(chefty.call("is_boarding")):
+		chefty.call("close_boarding")
+	await _until(func() -> bool: return not bool(chefty.call("climbing")), 3.0)
+	await _seconds(1.5)
+	await _put(client, at_bin)
+	rpc_id(client, "_rpc_bot_inside")
+	await _seconds(0.5)
+	await _to_pad(host)
+	world.call("_host_depart", host)
+	world.call("boarding_go_now")
+	var went := await _until(func() -> bool: return bool(chefty.call("is_riding")) and int(chefty.call("trip_destination")) == Net.Zone.LOT, 4.0)
+	var behind := went and int(chefty.call("seat_of", client)) < 0
+	# Left behind: it calls Chefty back from the pad and rides out.
+	var asked := false
+	var fetched := false
+	var waited := 0.0
+	while waited < RIDE_WAIT_SECONDS * 3.0 and Net.player_zone(client) != Net.Zone.LOT:
+		if (world.get("_fetch_for") as Dictionary).has(client):
+			asked = true
+		if bool(chefty.call("is_boarding")) and (chefty.call("boarders") as Array).has(client):
+			fetched = true
+		await _seconds(0.1)
+		waited += 0.1
+	var arrived := Net.player_zone(client) == Net.Zone.LOT
+	return _step("bot_store", parked and honked and seated and behind and asked and fetched and arrived,
+		"a crew bot at the rake bin, the honk %s: out the doors and in after %.1f s (window %.0f s) %s; Chefty gone without it %s: it pressed E on the pad %s, Chefty came back and it climbed in %s, at the yard %s after %.0f s" % [honked, took, Constants.CHEFTY_BOARD_WAIT_SECONDS, seated, behind, asked, fetched, arrived, waited])
+
+
 # ---------------------------------------------------------------- helpers
+
+## Client (bot_store): a crew bot takes over this player, standing at the rake
+## bin inside the store (part way along its way in through the doors).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_be_bot() -> void:
+	var bot := get_node_or_null("DepartBot")
+	if bot == null:
+		bot = _Bot.new()
+		bot.name = "DepartBot"
+		add_child(bot)
+		Input.action_release(&"move_forward")
+		bot.set("_crew", true)
+		var job: Variant = bot.get("_job")
+		if job is Object:
+			(job as Object).set("share_rake", true)
+	_rpc_bot_inside()
+
+
+## Client (bot_store): the bot is inside, at the bin, at the end of its way in.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_bot_inside() -> void:
+	var bot := get_node_or_null("DepartBot")
+	if bot != null:
+		bot.set("_kit_leg", _Bot.KIT_DOOR_PATH.size())
+
+
+## Client: knocked flat, as by a heavy throw (stranded).
+@rpc("authority", "call_remote", "reliable")
+func _rpc_knock() -> void:
+	var me := _own_player()
+	if me != null:
+		me.call("on_bonked", Vector3.ZERO, "heavy")
+
 
 func _step(id: String, ok: bool, text: String) -> bool:
 	_steps[id] = ok

@@ -216,6 +216,28 @@ static func colliders(req: Dictionary) -> Array:
 	return out
 
 
+## fx-w9: the parcel's fence runs, parcel space: [[a, b, height], ...], each a
+## line on the ground from a to b (the front fence's pieces, gaps at the drive and
+## the walk left open). The town makes them solid to people and gives them to the
+## vehicle sim's fence give (levels/town/town_colliders.gd); they used to be
+## drawn only, so you walked through the pickets.
+static func fence_lines(req: Dictionary) -> Array:
+	var p := plan(req)
+	var out: Array = []
+	var kinds := {}
+	for kind: String in FENCE_RUNS:
+		kinds[FENCE_RUNS[kind]] = kind
+	for entry: Dictionary in p["props"]:
+		var run := str(entry["kind"])
+		if not kinds.has(run):
+			continue
+		var xform: Transform3D = entry["xform"]
+		var half := float((entry["size"] as Vector3).x) * 0.5
+		var high := float(Constants.YARD_FENCE_SOLID_HEIGHT.get(str(kinds[run]), 1.0))
+		out.append([xform * Vector3(-half, 0.0, 0.0), xform * Vector3(half, 0.0, 0.0), high])
+	return out
+
+
 ## Far boxes for a merged skyline, parcel space: [[center, size, color], ...]:
 ## the house's walls in its wall color and its main roof in its roof color.
 static func skyline_boxes(req: Dictionary) -> Array:

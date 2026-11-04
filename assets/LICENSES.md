@@ -91,3 +91,4 @@
 | assets/icons/*.png, assets/icons/app_icon.ico | Original, generated in-house by tools/studio/icon_studio.gd from the project's own code models and code-drawn shapes (labels in Godot's built-in fallback font); no third-party source | Project original | no | Godot (tools/studio/icon_studio.gd) |
 | assets/audio/sfx/sawhorse_tip_1.wav, sawhorse_tip_2.wav, hedge_plow_1.wav, hedge_plow_2.wav, hedge_plow_3.wav (fx-yard) | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
 | assets/audio/sfx/sack_shake_1.wav, sack_shake_2.wav, sack_shake_3.wav, sack_fold.wav (shops:9) | Original, synthesized by tools/make_sfx.py | Project original | no | Python |
+| assets/audio/sfx/fence_give_1.wav, fence_give_2.wav, fence_give_3.wav (fx-w9) | Original, synthesized by tools/make_sfx.py | Project original | no | Python |

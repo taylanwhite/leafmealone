@@ -293,7 +293,7 @@ $Tests = [ordered]@{
 	# The client saw the chase start and drew the van's chase from the host's track.
 	pursuit = @{
 		Port = 7818
-		Host = '--host --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --heat=30 --start-hour=10 --pursuit-test'; Seconds = 200; Client = 195
+		Host = '--host --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --heat=30 --start-hour=10 --pursuit-test'; Seconds = 260; Client = 255
 		Extra = '--sim-lag=100'
 		Check = { param($h, $c) [bool]$h.pursuit_test.ok -and $c -ne $null -and ([int]$c.pursuit.seen_active -ge 1) -and (@($c.shuttle.legs_seen) -contains 'chase') -and ([int]$c.shuttle.track_samples -gt 60) -and ([double]$c.shuttle.max_speed_on_screen -lt 35) }
 	}
@@ -416,7 +416,7 @@ $Tests = [ordered]@{
 	# (the window, the stragglers gathered, the job settled as it pulls away).
 	depart = @{
 		Port = 7837
-		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test'; Seconds = 260; Client = 255
+		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test'; Seconds = 330; Client = 325
 		Extra = '--sim-lag=80 --depart-test'
 		Check = { param($h, $c) [bool]$h.depart_test.ok -and $c -ne $null -and [bool]$c.depart_test.ok }
 	}
@@ -438,7 +438,7 @@ $Tests = [ordered]@{
 	# body glides back after a gap in their updates. Both peers run the node.
 	yard = @{
 		Port = 7839
-		Host = '--host --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --start-hour=10 --yard-test'; Seconds = 150; Client = 145
+		Host = '--host --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --start-hour=10 --yard-test'; Seconds = 210; Client = 205
 		Extra = '--sim-lag=150 --yard-test'
 		Check = { param($h, $c) [bool]$h.yard_test.ok -and $c -ne $null -and [bool]$c.yard_test.ok }
 	}

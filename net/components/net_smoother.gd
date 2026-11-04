@@ -187,7 +187,11 @@ func _process(delta: float) -> void:
 	# read as a sprint and throw the drawn body 0.65 m in a frame (fx-yard
 	# rec_bin_1p 0.83 s, Bot2 walking to Chefty). Across the ground only: a jump
 	# rises as it comes.
-	var player := catch_up_on and (paced or body.is_in_group("players"))
+	# fx-w9: a NICE BOY too. Under --sim-loss=2 a lost update made the next one a
+	# double step played back in one interval, and a client drew him jumping
+	# 0.64-0.98 m in a frame (W9's lag takes); paced by his own replicated speed he
+	# walks, runs and lunges as fast as he really does and no faster.
+	var player := catch_up_on and (paced or body.is_in_group("players") or body.is_in_group("nice_crew"))
 	if (_catch_up or player) and _has_drawn and _blend_at < 0.0 and not _held:
 		var off := Vector3(rendered.origin.x - _drawn_at.x, 0.0, rendered.origin.z - _drawn_at.z)
 		var speed := maxf(_last_change_speed, _window_speed()) if player and not _catch_up else _stream_speed()

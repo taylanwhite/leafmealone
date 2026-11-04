@@ -337,3 +337,13 @@ The same house, Bud Nguyen's regular yard at 6 Sycamore Lane (Maple Row), taken 
 - **Four players** (`play-observer\shot_0002.png` and `rec_drift_crew4_3p`, same camera): the whole lawn under leaves, the same house and trees. `play-observer\rec_crew4_bot_3p` 0-74 follows Bot1 raking into the full yard: plant, scrape and pile-whump sounds on the strokes, nothing popping.
 - Not from this change: the walk to the edge put the first-person camera through the pine's foliage (`rec_drift_edge_1p` 43-58), and the observer's follow camera sat inside an oak's trunk (`rec_crew4_bot_3p` 0-17). The pine has no collider for its skirt and the observer cam is a dev tool; noted for the art and playtest tooling owners.
 - Fun: a solo yard you can see the end of. Annoying: nothing new.
+
+### fx-w9 (2026-11-04)
+
+Scenarios (town; `-Scenario` adds `--town-map`): `hand_hop` (at the wheel 30 m up the street from the job yard's curb, Big Sal riding in the bed: `drive 409 -112.4 15 6` stops at the curb and he hops off; scripts `build\s_hop.txt`) and `fence_yard` (on the job yard's lawn 12 m short of its side fence: `hold move_forward 2.6`; `build\s_fence.txt`). `edge_barricade` for the sawhorse tip (`build\s_bar.txt`).
+- [ ] **The board closes** a beat after Take: pin on the click frame, then the window goes (`rec_w_take_1p` 14-30).
+- [ ] **A hand's hop off:** the figure crouches, rises over its own rail and lands; the working hand is never drawn before it lands (no one-frame body on the grass); from the observer under `--sim-lag=150 --sim-loss=2` too.
+- [ ] **A fence holds Chefty:** no crash sound, no dent, `fence_give` on the contact frame, riders stay standing; the yard's panels lean at the bumper (side-on view) and spring back when you reverse.
+- [ ] **A sawhorse goes over** beside the truck and stays near the road, never 15 m up it.
+- [ ] **NICE BOYS under loss:** `pop` flags on `Crew*` in an observer take of a raid at `--sim-lag=150 --sim-loss=2` (still open: 0.64-0.74 m steps in the chase run).
+- [ ] **A bot at the bin when Chefty honks:** start a fresh crew save with `-Bots 2 -BotsHeadless`, put the host at the tailgate, `until crew.Bot2.holding rake 60; tap interact`, and follow Bot2 from the observer: it leaves the bin at the horn, goes out through the doors (no wall-grinding) and climbs in before the window ends (`rec_w_botstore3_3p` 128-182).

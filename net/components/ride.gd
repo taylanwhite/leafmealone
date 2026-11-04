@@ -914,7 +914,7 @@ func _refresh_label() -> void:
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_request_state() -> void:
 	if Net.is_host():
-		_rpc_parked.rpc_id(multiplayer.get_remote_sender_id(), _parked_along, _bags, _bag_value)
+		_rpc_parked.rpc_id(multiplayer.get_remote_sender_id(), _parked_along, _bags, _bag_value, _reverse)
 		# Joined mid honk-and-wait: who's sitting where (no honk, no climbs).
 		if _boarding:
 			_rpc_boarding_state.rpc_id(multiplayer.get_remote_sender_id(), _destination, _leave_at, _leave_at - Net.server_time(), _riders)
@@ -924,10 +924,15 @@ func _rpc_request_state() -> void:
 			_tool_bed.call("send_to", multiplayer.get_remote_sender_id())
 
 
-## A late joiner learns where Chefty is parked and what it is carrying.
+## A late joiner learns where Chefty is parked, which way it faces (fx-w9: back
+## from a trip it faces the way it came in, and a joiner drew it the other way
+## round until it next moved), and what it is carrying.
 @rpc("authority", "call_remote", "reliable")
-func _rpc_parked(along: float, count: int, value: int) -> void:
+func _rpc_parked(along: float, count: int, value: int, reverse: bool) -> void:
 	_parked_along = along
+	if not _riding and is_in_group("chefty"):
+		_reverse = reverse
+		_uturn = false
 	_bags = count
 	_bag_value = value
 	if _bed_load != null:

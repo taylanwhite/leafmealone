@@ -178,7 +178,6 @@ var _junk_landed_ms: int = 0
 static var _long_quip_at: float = -100.0
 
 const GRAB_REACH: float = 2.4
-const PUSH_REACH: float = 1.1
 
 
 func _enter_tree() -> void:
@@ -1092,14 +1091,7 @@ func _host_step() -> void:
 		return
 	if kind == "wheelbarrow" and not _airborne:
 		_steady_upright()
-	for node: Node in get_tree().get_nodes_in_group("players"):
-		if not node is CharacterBody3D:
-			continue
-		var player := node as CharacterBody3D
-		var offset := global_position - player.global_position
-		if offset.length() > PUSH_REACH or player.velocity.length() < 0.8:
-			continue
-		apply_central_impulse(player.velocity * mass * 0.15)
+	_shoved_by_walkers()
 	if _airborne:
 		_check_bonks()
 	_come_back_in()
@@ -1111,6 +1103,42 @@ func _host_step() -> void:
 	_try_load_junk()
 	_try_load_kit()
 	_try_unload_wheelbarrow()
+
+
+## Host (fx-w9): someone walking into a loose thing nudges it along ahead of
+## their feet, no faster than a share of their own pace. Only what's in front of
+## them and against their shins counts (not what they pass beside or step away
+## from), and the nudge sets its speed rather than adding a kick every tick: it
+## used to add 15% of the walker's velocity each physics tick to anything within
+## 1.1 m, so a teammate (most often a bot, who walks straight) strolling past a
+## rake sent it skidding metres across the lawn.
+func _shoved_by_walkers() -> void:
+	if freeze:
+		return
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var player := node as CharacterBody3D
+		if player == null:
+			continue
+		var walk := Vector3(player.velocity.x, 0.0, player.velocity.z)
+		var pace := walk.length()
+		if pace < Constants.PROP_SHOVE_MIN_SPEED:
+			continue
+		var offset := global_position - player.global_position
+		if offset.y < -Constants.PROP_SHOVE_BELOW or offset.y > Constants.PROP_SHOVE_ABOVE:
+			continue
+		var flat := Vector3(offset.x, 0.0, offset.z)
+		if flat.length() > Constants.PROP_SHOVE_REACH:
+			continue
+		var heading := walk / pace
+		# Ahead of them, within a body's width of their line.
+		var ahead := flat.dot(heading)
+		var across := (flat - heading * ahead).length()
+		if ahead < 0.0 or across > Constants.PROP_SHOVE_WIDTH:
+			continue
+		var want := minf(pace * Constants.PROP_SHOVE_SPEED_SHARE, Constants.PROP_SHOVE_SPEED_MAX)
+		var have := linear_velocity.dot(heading)
+		if have < want:
+			linear_velocity += heading * (want - have)
 
 
 ## Host (NB-14): a loose wheelbarrow never stays tipped. Bumped by someone

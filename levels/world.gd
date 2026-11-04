@@ -1013,7 +1013,7 @@ func _host_depart(peer_id: int = 0) -> void:
 		ride.call("depart", party, Net.Zone.LOT)
 		return
 	var body := _player_node(peer_id)
-	if body == null or Net.is_watcher(peer_id) or not _players_near(%TruckPad.global_position).has(peer_id):
+	if body == null or Net.is_watcher(peer_id) or not _players_near(%TruckPad.global_position).has(peer_id) or _is_down(body):
 		return
 	if _is_boarding(ride):
 		# Late to the honk: in you get (the window's own walk-up does the same).
@@ -1064,7 +1064,10 @@ func _fetch_arrived(ride: Node) -> void:
 	_board_opener = waiting[0]
 	for peer_id: int in waiting:
 		var body := _player_node(peer_id)
-		if body != null:
+		# fx-w9 review: flat on the pad as it pulls in, you aren't lifted into the
+		# bed with stars round your head. The window holds for you (_tick_boarding)
+		# and you climb in once you're up, like any walk-up.
+		if body != null and not _is_down(body):
 			ride.call("board", peer_id, body.global_position)
 
 
@@ -1152,6 +1155,9 @@ func _tick_boarding() -> void:
 	var waiting := 0
 	# Still walking over (not at the truck, and not someone who hopped back out).
 	var coming := 0
+	# Knocked flat at the truck: waited for, and the store's window stays open
+	# for them even with nobody aboard yet (a fetch that pulls in on a downed crew).
+	var down_here := 0
 	for node: Node in get_tree().get_nodes_in_group("players"):
 		var body := node as Node3D
 		var peer_id := int(str(node.name))
@@ -1169,11 +1175,16 @@ func _tick_boarding() -> void:
 			waiting += 1
 			coming += 1
 			continue
+		# fx-w9: knocked flat beside the truck, you get up first; then you climb in.
+		if _is_down(body):
+			waiting += 1
+			down_here += 1
+			continue
 		if _board_left.has(peer_id) or not bool(ride.call("board", peer_id, body.global_position)):
 			waiting += 1
 	var now := Net.server_time()
 	var aboard := (ride.call("boarders") as Array).size()
-	if aboard == 0 and zone == Net.Zone.STORE:
+	if aboard == 0 and zone == Net.Zone.STORE and down_here == 0:
 		# Everyone hopped back out: no trip.
 		ride.call("close_boarding")
 		return
@@ -1265,6 +1276,10 @@ func _gather_lot(ride: Node) -> void:
 		# yard stays until they walk off it (the gate home at the curb).
 		if body != null and not Net.is_watcher(peer_id) and Vector2(body.global_position.x - bed.x, body.global_position.z - bed.z).length() > Constants.CHEFTY_BOARD_GATHER_REACH:
 			continue
+		# fx-w9: flat on the grass as it goes: left on the yard like a straggler,
+		# never lifted into the bed with stars round their head.
+		if body != null and _is_down(body):
+			continue
 		if body == null or not bool(ride.call("board", peer_id, body.global_position)):
 			Net.move_player_to_zone(peer_id, Net.Zone.STORE)
 
@@ -1278,6 +1293,11 @@ func _at_chefty(body: Node3D, ride: Node, zone: int) -> bool:
 			return true
 	var bed: Vector3 = (ride.call("bed_transform") as Transform3D) * Vector3(0.0, 0.0, 0.7)
 	return Vector2(body.global_position.x - bed.x, body.global_position.z - bed.z).length() <= Constants.CHEFTY_BOARD_WALKUP_METERS
+
+
+## fx-w9: knocked flat, thrown or bailed (player.gd is_down), from the replicated pose.
+static func _is_down(body: Node) -> bool:
+	return body != null and body.has_method("is_down") and bool(body.call("is_down"))
 
 
 static func _is_boarding(ride: Node) -> bool:

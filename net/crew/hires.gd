@@ -102,6 +102,13 @@ func spawn_on_lot() -> void:
 	var drop := truck.has_method("tow_point")
 	if drop:
 		behind = truck.call("tow_point")
+	# fx-w9: who rides in which bed seat now, so each hops off over their own rail
+	# (chefty_drive.gd draws the hop from that seat to where they stand here).
+	var seats := {}
+	if truck.has_method("cosmetic_riders") and truck.has_method("hand_landing"):
+		for entry: Dictionary in truck.call("cosmetic_riders"):
+			if int(entry["seat"]) != 0:
+				seats[str(entry["name"])] = int(entry["seat"])
 	for index: int in hands.size():
 		var hand: Dictionary = hands[index]
 		var node: CharacterBody3D = HAND_SCENE.instantiate()
@@ -109,6 +116,16 @@ func spawn_on_lot() -> void:
 		node.set("hand_name", str(hand["name"]))
 		node.set("look_seed", int(hand["look"]))
 		node.set("skill", float(hand["skill"]))
+		var seat := int(seats.get(str(hand["name"]), -1))
+		if seat > 0:
+			var landing: Dictionary = truck.call("hand_landing", seat)
+			var out: Vector3 = landing["out"]
+			# Set before it's added, so it spawns on every peer already standing there.
+			node.position = (npcs as Node3D).global_transform.affine_inverse() * (landing["at"] as Vector3 + Vector3.UP * Constants.HIRE_LANDING_LIFT) if npcs is Node3D else landing["at"] as Vector3
+			node.rotation.y = atan2(out.x, out.z)
+			node.set("hop_seconds", float(landing["seconds"]))
+			npcs.add_child(node, true)
+			continue
 		npcs.add_child(node, true)
 		if drop:
 			var across := (float(index) - float(hands.size() - 1) * 0.5) * Constants.CHEFTY_HAND_DROP_SPACING
