@@ -68,6 +68,7 @@ func start() -> void:
 	_last_served = -INF
 	_has_sample = false
 	_samples.clear()
+	stats = {"samples": 0, "crossed": 0, "held_back": 0, "snaps": 0}
 
 
 ## Seconds since the session started on the host. On a client this is the estimate.
@@ -98,7 +99,11 @@ func _slew(now: float) -> void:
 	if not _has_sample:
 		return
 	var target := _target(now)
-	if not _applied_started:
+	if not _applied_started or int(stats["samples"]) <= Constants.CLOCK_YOUNG_SAMPLES:
+		# The first pings of a session (a joiner is still building the world, and
+		# they came back through its loading stalls): the bounds narrow fast, and
+		# each step is taken at once rather than slewed for seconds
+		# (fx-net: a 145 ms improvement still trailed by 70 ms when stage_test began).
 		_applied_offset = target
 		_applied_started = true
 		_applied_at = now
@@ -122,8 +127,14 @@ func local_seconds() -> float:
 	return _local_seconds()
 
 
-## The estimate now (host minus local, s).
+## The offset in use now (host minus local, s): what server time is built from.
 func offset_seconds() -> float:
+	_slew(_local_seconds())
+	return _applied_offset
+
+
+## The estimate now (host minus local, s), which the offset in use walks toward.
+func estimate_seconds() -> float:
 	return _target(_local_seconds())
 
 
@@ -135,7 +146,7 @@ func rate() -> float:
 ## For the tests: how far the applied offset trails the estimate now (s), and the
 ## estimate's bounds' width at the last sample (s; negative when they crossed).
 func lag_and_width() -> Vector2:
-	return Vector2(offset_seconds() - _applied_offset, _bounds.y - _bounds.x)
+	return Vector2(estimate_seconds() - offset_seconds(), _bounds.y - _bounds.x)
 
 
 func last_rtt_seconds() -> float:

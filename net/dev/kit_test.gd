@@ -249,6 +249,13 @@ func _buy_rake() -> bool:
 	var front: Vector3 = bin.call("slot_front", 0)
 	_own_player().call("apply_network_teleport", Transform3D(_own_player().global_basis, front + Vector3.UP * 0.1))
 	await _ticks(3)
+	# The host judges the buy by its copy of where you stand, which reaches it by
+	# the synchronizer, once a rendered frame: on a loaded run the reliable buy
+	# three ticks after the teleport overtook it and was refused as out of reach
+	# (fx-net). A player walks up first; this waits a few frames and a sync's worth.
+	for _frame: int in 3:
+		await get_tree().process_frame
+	await _seconds(0.3)
 	var shops := get_tree().get_first_node_in_group("shops")
 	shops.call("request_buy", "homie_depot", "rake", 1)
 	return await _until(func() -> bool: return _held_rake(Net.local_peer_id()) != null, WAIT_SECONDS)

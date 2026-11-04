@@ -5796,6 +5796,9 @@ const CLOCK_PING_SECONDS: float = 0.25
 ## back at this share of real time (time runs at half speed) instead of jumping
 ## back: scheduled beats never replay.
 const CLOCK_BACK_SLEW: float = 0.5
+## A session's first this-many pongs (a joiner's, mostly through its loading
+## stalls) set the clock straight to the estimate instead of slewing toward it.
+const CLOCK_YOUNG_SAMPLES: int = 20
 ## A --fixed-step run's clock (game ticks): the window the offset's rate is
 ## fitted over (s), the samples it needs and how long a stretch they must span
 ## (s), how far over the quickest round trip a sample may be to count (s), and
