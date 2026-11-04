@@ -5786,3 +5786,73 @@ const KIT_DROP_AHEAD: float = 0.7
 const KIT_DROP_LIFT: float = 0.4
 ## Past KIT_DOOR_MAX, more kit by the door stacks on the last spot this much higher each (m).
 const KIT_DOOR_STACK_STEP: float = 0.3
+
+# ---- fx-yard: the yard and the people on it (docs/GAME.md "The yard's edges and
+# the people on it"). The fence, the town's edge, the homeowner's framing, a
+# teammate's catch-up after a network gap, and the rake bin under your look.
+## The job yard's fence is solid (levels/lots/lot_generator.gd _fence_body): a box
+## this thick (m) per run, this tall (m) by the hood's fence kind (a hand over the
+## tallest picket or rail), reaching back this far (m) past each run's start so
+## the back corners close, like the leaf field's fence line.
+const YARD_FENCE_SOLID_THICK: float = 0.14
+const YARD_FENCE_SOLID_HEIGHT: Dictionary = {
+	"picket": 1.0, "weathered_picket": 1.0, "vinyl": 1.3, "split_rail": 1.15, "privacy": 1.7, "iron": 1.4,
+}
+const YARD_FENCE_SOLID_OVERLAP: float = 1.0
+## The town line gives (levels/town/town_line.gd, net/components/vehicle_sim.gd).
+## The hedge takes Chefty in a band this deep (m) in front of the hedge wall's
+## inside face: its speed toward the hedge is held under what would stop it at
+## this deceleration (m/s^2) by the face, so it noses into the leaves and stops
+## there (under CHEFTY_CRASH_MIN_SPEED, never a crash); past the face it's pushed
+## back out at this speed (m/s), turned away from the hedge at up to this rate
+## (rad/s), and the leaves drag its sliding along the hedge (1/s) over the last
+## TOWN_EDGE_LEAVES_DEEP (m).
+const TOWN_EDGE_BAND: float = 9.0
+const TOWN_EDGE_DECEL: float = 24.0
+const TOWN_EDGE_PUSH_BACK: float = 1.4
+const TOWN_EDGE_TURN_RATE: float = 0.9
+const TOWN_EDGE_SIDE_DRAG: float = 2.2
+const TOWN_EDGE_LEAVES_DEEP: float = 2.2
+## A ROAD CLOSED barricade is for people (layer PAD_WALL_LAYER: they stop at it,
+## Chefty doesn't): Chefty drives through, tipping the sawhorses and bowling the
+## barrels, and loses this share of its speed per meter it spends among them.
+const TOWN_EDGE_BARRICADE_DRAG_PER_M: float = 0.035
+## The barricade's pieces, knocked (net/components/chefty_crash.gd _knock_over):
+## how heavy (kg); a sawhorse tips over its feet (carried at this share of
+## Chefty's speed, this much lift, m/s, turning at up to this rate, rad/s) and a
+## barrel bowls away (this share, this lift).
+const TOWN_EDGE_SAWHORSE_MASS: float = 7.0
+const TOWN_EDGE_SAWHORSE_CARRY: float = 0.45
+const TOWN_EDGE_SAWHORSE_UP: float = 1.6
+const TOWN_EDGE_SAWHORSE_TIP: float = 6.0
+const TOWN_EDGE_BARREL_MASS: float = 11.0
+const TOWN_EDGE_BARREL_CARRY: float = 0.65
+const TOWN_EDGE_BARREL_UP: float = 2.2
+## Every peer, from where it draws Chefty: in the hedge's leaves faster than this
+## (m/s) the hedge thrashes (leaves fly, hedge_plow), at most this often (s); the
+## view of anyone riding along or this close (m) gets a little shake.
+const TOWN_EDGE_PLOW_MIN_SPEED: float = 1.5
+const TOWN_EDGE_PLOW_EVERY: float = 0.22
+const TOWN_EDGE_PLOW_LEAVES: int = 14
+## The homeowner, answering a talk (npcs/homeowner.gd host_stage_for): her spot
+## is on the talker's line of sight, this far out (m), searched along it and to
+## either side up to this angle (rad) for one inside her stage radius and clear
+## of solids; if she still ends up more than this angle (rad) off the middle of
+## the talker's view, the talker's view eases round onto her
+## (P1_COUNTER_FRAME_SECONDS), at most this many degrees up or down (rad).
+const HOMEOWNER_FRAME_SEARCH: float = 1.1
+const HOMEOWNER_FRAME_OFF_CENTER: float = 0.26
+const HOMEOWNER_FRAME_PITCH_MAX: float = 0.2
+## Her face's height over her feet (m), what the view eases onto, and how long
+## after she answers (s) a stop still frames her (later, your look is your own).
+const HOMEOWNER_FRAME_FACE_Y: float = 1.5
+const HOMEOWNER_FRAME_WINDOW: float = 4.0
+## A teammate's drawn body never jumps (net/components/net_smoother.gd): after a
+## gap in their updates, the visual catches up to where the stream says at no
+## more than this many times their own speed plus this much (m/s), so a burst
+## after a stall glides in over a few frames instead of popping.
+const SMOOTHER_CATCH_UP_SPEED_SHARE: float = 1.6
+const SMOOTHER_CATCH_UP_SPEED_MIN: float = 2.5
+## Off by more than this (m) after the gap, it's a move of its own (a short
+## host-ordered hop), drawn as the stream has it.
+const SMOOTHER_CATCH_UP_MAX: float = 1.5

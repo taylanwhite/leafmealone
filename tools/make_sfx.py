@@ -910,6 +910,50 @@ SOUNDS["hat_on"] = (hat_on, 0, 0.7)
 SOUNDS["spray_can"] = (spray_can, 0, 0.6)
 
 
+# ---- fx-yard: the town's edge gives (net/components/chefty_crash.gd)
+def sawhorse_tip(variant: int) -> list[float]:
+    """A ROAD CLOSED sawhorse knocked over: the board's hollow wooden whack on
+    the bumper, a clatter of legs as it goes over, and two bounces on the road."""
+    rng = random.Random(1500 + variant)
+    out = silence(0.85)
+    base = (310.0, 360.0)[variant - 1]
+    # The whack: a hollow plank knock over a short crack.
+    mix_into(out, decay(tone(0.3, glide(base, base * 0.8, 0.2), "triangle"), 18.0), 0.0, 0.9)
+    mix_into(out, decay(tone(0.3, base * 2.7), 30.0), 0.0, 0.3)
+    mix_into(out, decay(highpass(noise(rng, 0.04), 2000.0), 70.0), 0.0, 0.55)
+    # Legs clattering, then the board slapping the road twice, smaller each time.
+    for index in range(4):
+        start = 0.14 + index * 0.06 + rng.uniform(0.0, 0.025)
+        knock = decay(tone(0.12, base * rng.uniform(1.3, 1.9), "triangle"), 45.0)
+        mix_into(out, knock, start, 0.35)
+        mix_into(out, decay(bandpass(noise(rng, 0.05), 1800.0, 2.0), 60.0), start, 0.25)
+    for start, gain in [(0.42, 0.7), (0.6, 0.4)]:
+        mix_into(out, decay(lowpass(noise(rng, 0.12), 600.0), 30.0), start, gain)
+        mix_into(out, decay(tone(0.15, base * 0.6, "triangle"), 30.0), start, gain * 0.6)
+    return out
+
+
+def hedge_plow(variant: int) -> list[float]:
+    """Chefty's nose into the hedgerow: a big leafy whoomph, twigs snapping in
+    it, and the leaves hissing as they settle."""
+    rng = random.Random(1510 + variant)
+    seconds = 0.75
+    out = silence(seconds)
+    body = lowpass(noise(rng, 0.35), 420.0)
+    mix_into(out, envelope(body, 0.015, 0.25), 0.0, 1.0)
+    rustle = bandpass(noise(rng, seconds), lambda t: 2600.0 + 1200.0 * math.sin(TAU * 3.0 * t), 1.4)
+    mix_into(out, decay(envelope(rustle, 0.01, 0.3), 3.5), 0.0, 0.6)
+    for index in range(3 + variant):
+        snap = decay(highpass(noise(rng, 0.02), 3000.0), 140.0)
+        mix_into(out, snap, 0.03 + rng.uniform(0.0, 0.3), 0.5)
+        mix_into(out, decay(tone(0.04, rng.uniform(1100.0, 1700.0), "triangle"), 90.0), 0.03 + rng.uniform(0.0, 0.3), 0.2)
+    return out
+
+
+SOUNDS["sawhorse_tip"] = (sawhorse_tip, 2, 0.8)
+SOUNDS["hedge_plow"] = (hedge_plow, 3, 0.75)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

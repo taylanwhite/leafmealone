@@ -693,6 +693,7 @@ func _fences() -> void:
 	var faded: Color = look.get("faded", _TaskLooks.FADED_PAINT)
 	var surface := str(look.get("surface", "planks"))
 	_art_notes.append(["fence", kind, fresh.to_html(), faded.to_html(), surface])
+	_fence_body(kind)
 	for run: Array in FENCE_RUNS:
 		var from: Vector3 = run[0]
 		var to: Vector3 = run[1]
@@ -713,6 +714,35 @@ func _fences() -> void:
 			var middle := (a + b) * 0.5
 			var index: int = _tasks.call("define_spot", "paint_fence", to_global(middle + Vector3(0.0, 0.5, 0.0) + inward * 0.1), inward, 1.2)
 			_looks.call("add_fence_panel", index, holder, fresh, faded, surface)
+
+
+## fx-yard: the fence is solid (it used to stop only the leaves, NB-08): one thin
+## box per run on the world layer, as tall as the fence kind stands (and a hand
+## more), so people, the wheelbarrow and a thrown bag stop at it, while a raker
+## can still stand right up to the pickets and reach the leaves banked there.
+## Each run reaches back past its start like the leaf field's line, so the back
+## corners close. Every peer builds it from the seed, like the rest of the yard.
+func _fence_body(kind: String) -> void:
+	var body := StaticBody3D.new()
+	body.name = "FenceBody"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	add_child(body)
+	var high := float(Constants.YARD_FENCE_SOLID_HEIGHT.get(kind, 1.0))
+	var thick := Constants.YARD_FENCE_SOLID_THICK
+	for run: Array in FENCE_RUNS:
+		var from: Vector3 = run[0]
+		var to: Vector3 = run[1]
+		var along := (to - from).normalized()
+		var start := from - along * Constants.YARD_FENCE_SOLID_OVERLAP
+		var length := start.distance_to(to)
+		var box := BoxShape3D.new()
+		box.size = Vector3(length, high, thick)
+		var shape := CollisionShape3D.new()
+		shape.name = "Run"
+		shape.shape = box
+		shape.transform = Transform3D(Basis(along, Vector3.UP, along.cross(Vector3.UP)), (start + to) * 0.5 + Vector3(0.0, high * 0.5, 0.0))
+		body.add_child(shape)
 
 
 ## One fence panel from a to b (the yard side is inward), in one color, into kit.

@@ -260,6 +260,28 @@ func prompt() -> Dictionary:
 	return {"text": str(_Strings.SHOP_UI["prompt_look_at"]), "at": to_global((slot["at"] as Vector3) + Vector3(0.0, (slot["size"] as Vector3).y + 0.35, 0.0)), "source": "%s/%d" % [name, int(entry["slot"])]}
 
 
+## fx-yard: "[E] Look" when player's look lands on the slot E would open (its
+## foot, middle or top within Constants.E_LOOK_MISS), else {}. player.gd's E
+## choice asks this ahead of grabbing a teammate, so a friend standing in front
+## of the rake bin doesn't get picked up when you press E at the bin.
+func looked_prompt(player: Node3D) -> Dictionary:
+	if player == null or not player.has_method("look_miss"):
+		return {}
+	var entry := _nearest_entry()
+	if entry.is_empty():
+		return {}
+	var slot: Dictionary = slots[int(entry["slot"])]
+	var size: Vector3 = slot["size"]
+	var foot := to_global(slot["at"] as Vector3)
+	var reach := Constants.SHELF_LOOK_REACH + Constants.E_LOOK_REACH_SLACK
+	var miss := INF
+	for share: float in [0.15, 0.5, 0.9]:
+		miss = minf(miss, float(player.call("look_miss", foot + Vector3.UP * size.y * share, reach)))
+	if miss > Constants.E_LOOK_MISS:
+		return {}
+	return prompt()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("interact"):
 		return

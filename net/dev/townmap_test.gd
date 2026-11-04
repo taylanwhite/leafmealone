@@ -358,8 +358,9 @@ func _check_town_line(world: Node, space: PhysicsDirectSpaceState3D, problems: A
 		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(gate - out * 12.0 + Vector3.UP * 1.0, gate + out * 6.0 + Vector3.UP * 1.0, 1))
 		var at_gate := not hit.is_empty() and (hit["position"] as Vector3).distance_to(gate + Vector3.UP * 1.0) < 0.4
 		var barrels := 0
+		# fx-yard: the barricades stop people (their mask, 1 | PAD_WALL_LAYER), not Chefty.
 		for spot: Vector3 in _TownLine.barrels(closure):
-			var across := space.intersect_ray(PhysicsRayQueryParameters3D.create(spot + Vector3(3.0 * signf(spot.x - gate.x), 0.5, 0.0), spot + Vector3.UP * 0.5, 1))
+			var across := space.intersect_ray(PhysicsRayQueryParameters3D.create(spot + Vector3(3.0 * signf(spot.x - gate.x), 0.5, 0.0), spot + Vector3.UP * 0.5, 1 | Constants.PAD_WALL_LAYER))
 			barrels += 1 if not across.is_empty() else 0
 		gates.append("%s %s/%d" % [closure["key"], at_gate, barrels])
 		if not at_gate or barrels != 2:
@@ -371,7 +372,7 @@ func _check_town_line(world: Node, space: PhysicsDirectSpaceState3D, problems: A
 		var end: Vector3 = closure["end"]
 		var out: Vector3 = closure["out"]
 		var at := _TownLine.barricade_at(closure)
-		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(end - out * 6.0 + Vector3.UP * 0.6, end + out * 20.0 + Vector3.UP * 0.6, 1))
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(end - out * 6.0 + Vector3.UP * 0.6, end + out * 20.0 + Vector3.UP * 0.6, 1 | Constants.PAD_WALL_LAYER))
 		var blocked := not hit.is_empty() and (hit["position"] as Vector3).distance_to(at + Vector3.UP * 0.6) < 1.0
 		# Past the road graph's last point that way, so routes never reach it.
 		var last := Vector3.ZERO

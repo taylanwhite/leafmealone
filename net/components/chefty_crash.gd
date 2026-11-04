@@ -27,6 +27,10 @@ extends Node
 const _Vehicles = preload("res://props/vehicles.gd")
 const _NetLook = preload("res://props/chefty_net_look.gd")
 const _TownDressing = preload("res://levels/town/town_dressing.gd")
+const _HideSpot = preload("res://props/hide_spot.gd")
+## The leaves a hedge ploughed into throws (fx-yard): the hedgerow's greens and
+## its field trees' autumn colors.
+const PLOW_LEAVES: Array[Color] = [Color(0.27, 0.38, 0.19), Color(0.33, 0.42, 0.2), Color(0.86, 0.46, 0.14), Color(0.72, 0.26, 0.13), Color(0.4, 0.42, 0.2)]
 const BAG_SCENE: PackedScene = preload("res://props/yard_prop.tscn")
 const BAG_COLOR := Color(0.72, 0.48, 0.18, 1)
 ## A spilled bag's middle starts at least this high in Chefty's space (m): clear
@@ -97,6 +101,9 @@ var runovers_seen: int = 0
 var runovers_me: int = 0
 var spills_seen: int = 0
 var knocks_seen: int = 0
+## fx-yard: how often this peer saw the hedge thrash, and the wait to the next.
+var hedge_plows_seen: int = 0
+var _plow_wait: float = 0.0
 ## The second dent's rolling hubcap, on this peer (counted headless too).
 var hubcaps_seen: int = 0
 ## Host only.
@@ -566,6 +573,7 @@ func physics(delta: float) -> void:
 			_jolt_t = -1.0
 	_shake_view(delta)
 	_knock_local()
+	_hedge_local(delta)
 	_restore_left -= delta
 	if _restore_left <= 0.0:
 		_restore_left = 1.0
@@ -662,9 +670,51 @@ func _knock_local() -> void:
 		var at := piece.global_position
 		if absf(at.x - body.origin.x) > Constants.CHEFTY_NEAR_BOX or absf(at.z - body.origin.z) > Constants.CHEFTY_NEAR_BOX:
 			continue
-		if not _in_footprint(to_local * at):
+		# A sawhorse is caught by either end of its board, not just its middle (fx-yard).
+		var reach := float(piece.get_meta("knock_reach", 0.0))
+		var hit := _in_footprint(to_local * at)
+		if not hit and reach > 0.0:
+			var across := piece.global_basis.x * reach
+			hit = _in_footprint(to_local * (at + across)) or _in_footprint(to_local * (at - across))
+		if not hit:
 			continue
 		_knock_over(piece)
+
+
+## fx-yard, every peer: Chefty's drawn body ploughing into the town's hedgerow
+## (VehicleSim.town_edge holds the speed) thrashes it: leaves burst off the
+## hedge where the nose meets it, hedge_plow crunches there, and the view of
+## anyone aboard or close by gives a little shake. Cosmetic; never a crash.
+func _hedge_local(delta: float) -> void:
+	_plow_wait = maxf(_plow_wait - delta, 0.0)
+	if _plow_wait > 0.0 or not TownMap.enabled(get_tree()):
+		return
+	var speed := float(vehicle.call("speed"))
+	if speed < Constants.TOWN_EDGE_PLOW_MIN_SPEED:
+		return
+	var body: Transform3D = vehicle.call("body_transform")
+	var yaw := float(vehicle.call("yaw"))
+	var hit := VehicleSim.town_edge_depth(body.origin, yaw)
+	var depth := float(hit[0])
+	var left := Constants.TOWN_EDGE_BAND - depth
+	if left > Constants.TOWN_EDGE_LEAVES_DEEP:
+		return
+	_plow_wait = Constants.TOWN_EDGE_PLOW_EVERY
+	hedge_plows_seen += 1
+	var normal: Vector3 = hit[1]
+	var forward := VehicleSim.forward_of(yaw)
+	var nose := body.origin + forward * Constants.CHEFTY_HALF_LENGTH * signf(forward.dot(normal) + 0.001)
+	var at := nose + normal * maxf(left, 0.0) + Vector3.UP * 1.3
+	var strength := clampf(speed / 10.0, 0.25, 1.0)
+	if DisplayServer.get_name() != "headless":
+		var world := get_tree().get_first_node_in_group("world")
+		if world != null:
+			_HideSpot.burst(world, at, int(Constants.TOWN_EDGE_PLOW_LEAVES * strength) + 4, PLOW_LEAVES, 2.0 + 2.5 * strength, _rng)
+		var sfx := get_tree().get_first_node_in_group("sfx")
+		if sfx != null:
+			sfx.call("play_at", "hedge_plow", at, -6.0 + 6.0 * strength)
+	if _feels(at):
+		_shake = maxf(_shake, 0.3 * strength)
 
 
 ## One mailbox or bin goes flying: the drawn one hides, and a copy in a physics
@@ -672,13 +722,22 @@ func _knock_local() -> void:
 ## with Chefty's speed, spinning.
 func _knock_over(piece: Node3D) -> void:
 	knocks_seen += 1
-	var mailbox := str(piece.get_meta("kind", "")) == "mailbox"
+	var kind := str(piece.get_meta("kind", ""))
+	var mailbox := kind == "mailbox"
 	var size := Vector3(0.45, 1.45, 0.66) if mailbox else Vector3(0.66, 1.1, 0.76)
+	var mass := Constants.CHEFTY_KNOCK_MASS_MAILBOX if mailbox else Constants.CHEFTY_KNOCK_MASS_BIN
+	if kind == "sawhorse":
+		size = Vector3(float(piece.get_meta("knock_reach", 1.0)) * 2.0, 1.1, 0.8)
+		mass = Constants.TOWN_EDGE_SAWHORSE_MASS
+	elif kind == "barrel":
+		size = Vector3(0.66, 1.0, 0.66)
+		mass = Constants.TOWN_EDGE_BARREL_MASS
+	_foot_solid(piece, false)
 	var flier := RigidBody3D.new()
 	flier.name = "Knocked%d" % knocks_seen
 	flier.collision_layer = 0
 	flier.collision_mask = 1
-	flier.mass = Constants.CHEFTY_KNOCK_MASS_MAILBOX if mailbox else Constants.CHEFTY_KNOCK_MASS_BIN
+	flier.mass = mass
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = size
@@ -698,10 +757,38 @@ func _knock_over(piece: Node3D) -> void:
 	var vel: Vector3 = vehicle.call("drawn_velocity")
 	var right := VehicleSim.right_of(float(vehicle.call("yaw")))
 	var side := right * signf((piece.global_position - vehicle.call("body_position")).dot(right))
-	flier.linear_velocity = Vector3(vel.x, 0.0, vel.z) * Constants.CHEFTY_KNOCK_CARRY + Vector3.UP * Constants.CHEFTY_KNOCK_UP + side * Constants.CHEFTY_KNOCK_SIDE
-	flier.angular_velocity = Vector3(_rng.randf_range(-7.0, 7.0), _rng.randf_range(-3.0, 3.0), _rng.randf_range(-7.0, 7.0))
+	var flat := Vector3(vel.x, 0.0, vel.z)
+	if kind == "sawhorse":
+		# It tips over its feet the way the bumper shoves it, its board swinging
+		# down toward the road ahead, and skids a little (fx-yard).
+		var push := flat.normalized() if flat.length() > 0.1 else VehicleSim.forward_of(float(vehicle.call("yaw")))
+		var axis := Vector3.UP.cross(push).normalized()
+		flier.linear_velocity = flat * Constants.TOWN_EDGE_SAWHORSE_CARRY + Vector3.UP * Constants.TOWN_EDGE_SAWHORSE_UP + side * 0.4
+		flier.angular_velocity = axis * Constants.TOWN_EDGE_SAWHORSE_TIP * _rng.randf_range(0.7, 1.0) + Vector3.UP * _rng.randf_range(-1.5, 1.5)
+		_play_at("sawhorse_tip", piece.global_position + Vector3.UP * 0.6)
+	elif kind == "barrel":
+		flier.linear_velocity = flat * Constants.TOWN_EDGE_BARREL_CARRY + Vector3.UP * Constants.TOWN_EDGE_BARREL_UP + side * Constants.CHEFTY_KNOCK_SIDE
+		flier.angular_velocity = Vector3(_rng.randf_range(-6.0, 6.0), _rng.randf_range(-2.0, 2.0), _rng.randf_range(-6.0, 6.0))
+		_play_at("bonk", piece.global_position + Vector3.UP * 0.5)
+	else:
+		flier.linear_velocity = flat * Constants.CHEFTY_KNOCK_CARRY + Vector3.UP * Constants.CHEFTY_KNOCK_UP + side * Constants.CHEFTY_KNOCK_SIDE
+		flier.angular_velocity = Vector3(_rng.randf_range(-7.0, 7.0), _rng.randf_range(-3.0, 3.0), _rng.randf_range(-7.0, 7.0))
+		_play_at("bonk", piece.global_position + Vector3.UP)
 	_fallen.append({"node": piece, "body": flier, "at": Time.get_ticks_msec()})
-	_play_at("bonk", piece.global_position + Vector3.UP)
+
+
+## fx-yard: a barricade piece's people-only solid (levels/town/town_colliders.gd
+## foot_shape) goes with it: off while it lies knocked over on this peer, back
+## when the town stands it up again.
+func _foot_solid(piece: Node3D, on: bool) -> void:
+	if not piece.has_meta("foot_key"):
+		return
+	var colliders := get_tree().get_first_node_in_group("town_colliders")
+	if colliders == null or not colliders.has_method("foot_shape"):
+		return
+	var shape := colliders.call("foot_shape", str(piece.get_meta("foot_key"))) as CollisionShape3D
+	if shape != null:
+		shape.set_deferred("disabled", not on)
 
 
 ## Knocked-over pieces stand back up once nobody's been near for a while, out
@@ -730,6 +817,7 @@ func _restore_fallen() -> void:
 		if is_instance_valid(flier):
 			flier.queue_free()
 		piece.visible = true
+		_foot_solid(piece, true)
 		_fallen.remove_at(index)
 
 
@@ -803,7 +891,7 @@ func _play_at(id: String, at: Vector3) -> void:
 func report() -> Dictionary:
 	return {
 		"crashes_seen": crashes_seen, "tumbles_seen": tumbles_seen, "runovers_seen": runovers_seen,
-		"runovers_me": runovers_me, "spills_seen": spills_seen, "knocks_seen": knocks_seen, "hubcaps_seen": hubcaps_seen,
+		"runovers_me": runovers_me, "spills_seen": spills_seen, "knocks_seen": knocks_seen, "hubcaps_seen": hubcaps_seen, "hedge_plows_seen": hedge_plows_seen,
 		"bags_spilled": bags_spilled, "riders_ejected": riders_ejected, "plowed": plowed,
 		"mailboxes_hit": mailboxes_hit, "last_crash": last_crash.duplicate(),
 	}

@@ -284,6 +284,9 @@ const SOUNDS: Dictionary = {
 	"heat_whoop": {"variants": 0, "bus": &"UI", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0},
 	# Registered and generated only: audio:6's player foley plays it while someone sleeps.
 	"snore_loop": {"variants": 0, "bus": &"Chatter", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": true, "max_seconds": 5.0, "db": -4.0},
+	# fx-yard: the town's edge gives (net/components/chefty_crash.gd).
+	"sawhorse_tip": {"variants": 2, "bus": &"Sfx", "gap_ms": 60, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
+	"hedge_plow": {"variants": 3, "bus": &"Sfx", "gap_ms": 120, "voice": false, "loop": false, "max_seconds": 0.9, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
 }
 
 

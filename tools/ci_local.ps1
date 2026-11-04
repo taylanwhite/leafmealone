@@ -404,6 +404,18 @@ $Tests = [ordered]@{
 		Host = '--host --name=Tester --no-steam --ui-test'; Seconds = 60; Client = 55
 		Check = { param($h, $c) [bool]$h.ui_test.ok }
 	}
+	# The yard's edges and the people on it (fx-yard, net/dev/yard_test.gd) in the
+	# connected town over 150 ms: E at the rake bin with a teammate in front is the
+	# bin's, the job yard's fence stops people and bags, the homeowner ends framed in
+	# the talker's view, Chefty is caught by the town's hedgerow and drives through a
+	# ROAD CLOSED barricade without a crash (people still stop at it), and a teammate's
+	# body glides back after a gap in their updates. Both peers run the node.
+	yard = @{
+		Port = 7839
+		Host = '--host --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --start-hour=10 --yard-test'; Seconds = 150; Client = 145
+		Extra = '--sim-lag=150 --yard-test'
+		Check = { param($h, $c) [bool]$h.yard_test.ok -and $c -ne $null -and [bool]$c.yard_test.ok }
+	}
 }
 # New feature tests register here too (see CLAUDE.md, "Adding a test").
 $ExtraTests = Join-Path $PSScriptRoot 'ci_tests.ps1'

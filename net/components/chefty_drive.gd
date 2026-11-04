@@ -348,6 +348,8 @@ func _refresh_params() -> void:
 	_params = VehicleSim.chefty_params(_dents, Campaign.has_perk("chefty_tuneup"))
 	var solid := _look.get_node_or_null("Solid") as CollisionObject3D if _look != null else null
 	_params["exclude"] = [solid.get_rid()] if solid != null else []
+	# fx-yard: in Gutterford the hedgerow and the closed roads give (VehicleSim.town_edge).
+	_params["town_edge"] = is_inside_tree() and TownMap.enabled(get_tree())
 
 
 func _place(at: Vector3, yaw: float) -> void:
