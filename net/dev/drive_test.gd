@@ -5,7 +5,8 @@ extends Node
 ## (net/components/chefty_drive.gd, driving chunk C1) through the real paths:
 ##   a. seats: Chefty on the TruckPad, the client asks for the driver's seat
 ##      (a scripted "enter" from _rpc_dev_script) and the host's player hops in
-##      the bed; the host sees the client driving and itself in a bed seat.
+##      the bed; the host sees the client driving and itself in a bed seat,
+##      and both climbs in drawn as moves (fx-chefty; the client's count too).
 ##   b. 4 s of full throttle from the client: Chefty (the host's, the truth)
 ##      went at least 25 m along +X and reached at least 12 m/s.
 ##   c. 2 s of steering right: the heading turned at least 0.6 rad.
@@ -15,9 +16,11 @@ extends Node
 ##      Chefty, and in Zone.TOWN.
 ##   g. the host gets in to drive and the client rides in the bed (the client
 ##      draws Chefty through vehicle_view; CI gates its ride_wobble_m), then the
-##      host floors it.
+##      host floors it. The host's view eased from its eyes to the chase camera
+##      through a CameraBlend (fx-chefty), never a cut.
 ##   h. the client, then the host, bail out at speed: each exit is a bail, each
-##      was thrown, and each landed at least 2 m from where they got out.
+##      was thrown, and each landed at least 2 m from where they got out. The
+##      host's view eased back down to its eyes through a CameraBlend.
 ##   i. the client sits in the bed again and is caught (run director
 ##      note_capture, released at once): it's out of its seat.
 ##   j-l. the autopilot (driving chunk C2, _autopilot_steps): a real depart()
@@ -46,9 +49,19 @@ const CAMERA_STEP_MAX: float = 1.2
 static var result: Dictionary = {}
 
 var _started: bool = false
+## fx-chefty review: while set, the name of the camera the host's view is
+## through, each frame it changes (the eased hand-overs into and out of the
+## driver's seat, player/camera_blend.gd).
+var _watch_cams: bool = false
+var _cam_log: Array[String] = []
 
 
 func _process(_delta: float) -> void:
+	if _watch_cams:
+		var camera := get_viewport().get_camera_3d()
+		var seen := str(camera.name) if camera != null else ""
+		if _cam_log.is_empty() or _cam_log[_cam_log.size() - 1] != seen:
+			_cam_log.append(seen)
 	if _started or not Net.is_host():
 		return
 	var world := get_tree().get_first_node_in_group("world")
@@ -84,6 +97,7 @@ func _run(world: Node) -> void:
 	var at: Transform3D = chefty.call("body_transform")
 	var door := at * _Vehicles.CHEFTY_DRIVER_DOOR
 	var gate := at * _Vehicles.CHEFTY_TAILGATE
+	var moves_before := int((chefty.call("dev_report") as Dictionary)["moves_seen"])
 	# A slow client (a window compiling shaders) may not have its Chefty yet, so
 	# walk it to the door and ask again until it's in.
 	waited = 0.0
@@ -104,7 +118,11 @@ func _run(world: Node) -> void:
 			chefty.call("dev_script", client, [{"do": "enter", "kind": 0}])
 		await get_tree().create_timer(1.2).timeout
 		waited += 2.0
-	_verdict(int(chefty.call("driver")) == client and int(chefty.call("seat_of", host)) >= 2, "a. the client drives (%d), the host rides in bed seat %d" % [int(chefty.call("driver")), int(chefty.call("seat_of", host))], problems)
+	# fx-chefty: both climbs in (the client at the door, the host over the
+	# tailgate) were drawn as moves, not a pop onto the seat (CI checks the
+	# client's own count too: drive.moves_seen).
+	var moves := int((chefty.call("dev_report") as Dictionary)["moves_seen"]) - moves_before
+	_verdict(int(chefty.call("driver")) == client and int(chefty.call("seat_of", host)) >= 2 and moves >= 2, "a. the client drives (%d), the host rides in bed seat %d, climbs drawn %d" % [int(chefty.call("driver")), int(chefty.call("seat_of", host)), moves], problems)
 	if int(chefty.call("driver")) != client:
 		_finish(false, problems)
 		return
@@ -165,6 +183,10 @@ func _run(world: Node) -> void:
 	door = at * _Vehicles.CHEFTY_DRIVER_DOOR
 	gate = at * _Vehicles.CHEFTY_TAILGATE
 	waited = 0.0
+	# fx-chefty: getting into the driver's seat eases the view from your eyes to
+	# the chase camera (CameraBlend, then VehicleCamera), never a cut.
+	_cam_log.clear()
+	_watch_cams = true
 	while (int(chefty.call("driver")) != host or int(chefty.call("seat_of", client)) < 2) and waited < 12.0:
 		if int(chefty.call("driver")) != host:
 			_player(host).call("send_teleport", Transform3D(Basis.IDENTITY, door + Vector3(0.0, 0.1, 0.0)))
@@ -177,7 +199,10 @@ func _run(world: Node) -> void:
 			chefty.call("dev_script", client, [{"do": "enter", "kind": 2}])
 		await get_tree().create_timer(1.2).timeout
 		waited += 2.0
-	_verdict(int(chefty.call("driver")) == host and int(chefty.call("seat_of", client)) >= 2, "g. the host drives (%d), the client rides in bed seat %d" % [int(chefty.call("driver")), int(chefty.call("seat_of", client))], problems)
+	await get_tree().create_timer(Constants.CHEFTY_ENTER_CAMERA_SECONDS + 0.3).timeout
+	var cams_in: Array[String] = _cam_log.duplicate()
+	var blend_in: bool = cams_in.has("CameraBlend") and cams_in.find("CameraBlend") > cams_in.find("FirstPerson") and cams_in[cams_in.size() - 1] == "VehicleCamera"
+	_verdict(int(chefty.call("driver")) == host and int(chefty.call("seat_of", client)) >= 2 and blend_in, "g. the host drives (%d), the client rides in bed seat %d, the view eased into the chase camera %s %s" % [int(chefty.call("driver")), int(chefty.call("seat_of", client)), blend_in, cams_in], problems)
 	if int(chefty.call("driver")) != host or int(chefty.call("seat_of", client)) < 2:
 		_finish(false, problems)
 		return
@@ -190,6 +215,7 @@ func _run(world: Node) -> void:
 	var bail_speed := float(chefty.call("speed"))
 	chefty.call("dev_script", client, [{"do": "exit"}])
 	await get_tree().create_timer(0.3).timeout
+	_cam_log.clear()
 	chefty.call("request_exit")
 	var seen_thrown := {client: false, host: false}
 	clock = 0.0
@@ -210,6 +236,13 @@ func _run(world: Node) -> void:
 			flew = Vector2(bailed.global_position.x - from.x, bailed.global_position.z - from.z).length()
 		var who := "client" if peer_id == client else "host"
 		_verdict(bool(exit.get("bail", false)) and bool(seen_thrown[peer_id]) and flew >= 2.0, "h. the %s bailed (Chefty at %.1f m/s): bail %s, thrown %s, landed %.1f m from the door" % [who, bail_speed, exit.get("bail", false), seen_thrown[peer_id], flew], problems)
+	# fx-chefty: out of the driver's seat the view eases from the chase camera
+	# back down to your eyes (CameraBlend), and the chase camera is gone.
+	var cams_out: Array[String] = _cam_log.duplicate()
+	_watch_cams = false
+	var last_cam: String = cams_out[cams_out.size() - 1] if not cams_out.is_empty() else ""
+	var blend_out: bool = cams_out.has("CameraBlend") and last_cam != "" and last_cam != "CameraBlend" and not last_cam.begins_with("VehicleCamera") and _player(host).get_node_or_null("VehicleCameraGone") == null
+	_verdict(blend_out, "h. the host's view eased back to its eyes %s %s" % [blend_out, cams_out], problems)
 	waited = 0.0
 	while (chefty.call("dev_script_playing") or float(chefty.call("speed")) > 0.3) and waited < 6.0:
 		await get_tree().create_timer(0.1).timeout
@@ -250,8 +283,9 @@ func _run(world: Node) -> void:
 ##      CHEFTY_ARRIVE_RADIUS of the curb point, the host gets off into LOT, the
 ##      homeowner's clock starts, and it took the time a drive takes.
 ##   k. a hired hand (Big Sal) rides in a bed seat; the client in shotgun lets
-##      them drive (its own G, through _rpc_request_chauffeur): the autopilot
-##      heads home with Big Sal drawn at the wheel, the client's G again pulls
+##      them drive (its own G, through _rpc_request_chauffeur): Chefty waits,
+##      brakes on, while Big Sal walks round to the wheel (fx-chefty); the
+##      autopilot heads home with Big Sal drawn at the wheel, the client's G again pulls
 ##      over, F still slides the client over to the wheel, and the client gets
 ##      out on the street.
 ##   l. warp mode: depart([host], STORE) follows the route at warp speed, parks
@@ -311,6 +345,13 @@ func _autopilot_steps(world: Node, chefty: Node, host: int, problems: Array[Stri
 		waited += 0.1
 	var report: Dictionary = chefty.call("dev_report")
 	var chauffeur := int(report["trip"]) == 2 and str(report["trip_label"]) == "Big Sal" and _rides(chefty, "Big Sal", 0) and not bool(chefty.call("is_riding"))
+	# fx-chefty: Big Sal climbs out of the bed and walks round to the driver's
+	# door first; Chefty waits for him, brakes on, then pulls away.
+	var sal_wait := float(chefty.get("_hand_board_wait"))
+	var parked_at: Vector3 = (chefty.call("sim_pose") as Dictionary)["pos"]
+	await get_tree().create_timer(maxf(sal_wait - 0.6, 0.0)).timeout
+	var still_at: Vector3 = (chefty.call("sim_pose") as Dictionary)["pos"]
+	var waited_for_sal := sal_wait >= 1.0 and Vector2(still_at.x - parked_at.x, still_at.z - parked_at.z).length() < 0.3 and bool(chefty.call("is_autopiloting"))
 	# Far enough that the client gets out on the street, not in the yard's zone.
 	var moved := 0.0
 	waited = 0.0
@@ -341,8 +382,8 @@ func _autopilot_steps(world: Node, chefty: Node, host: int, problems: Array[Stri
 		await get_tree().create_timer(0.1).timeout
 		waited += 0.1
 	var out := int(chefty.call("seat_of", client)) < 0 and Net.player_zone(client) == Net.Zone.TOWN
-	_verdict(in_bed and offered == "start" and chauffeur and moved >= 10.0 and stop_offered == "stop" and pulled_over and slid and out,
-		"k. the chauffeur: Big Sal in the bed %s, the client's G offers '%s', at the wheel %s, drove %.1f m, G then offers '%s', pulled over %s, F slid the client over %s, out on the street %s (%s)" % [in_bed, offered, chauffeur, moved, stop_offered, pulled_over, slid, out, Net.Zone.keys()[Net.player_zone(client)]], problems)
+	_verdict(in_bed and offered == "start" and chauffeur and waited_for_sal and moved >= 10.0 and stop_offered == "stop" and pulled_over and slid and out,
+		"k. the chauffeur: Big Sal in the bed %s, the client's G offers '%s', at the wheel %s, Chefty waited %.1f s for his walk round %s, drove %.1f m, G then offers '%s', pulled over %s, F slid the client over %s, out on the street %s (%s)" % [in_bed, offered, chauffeur, sal_wait, waited_for_sal, moved, stop_offered, pulled_over, slid, out, Net.Zone.keys()[Net.player_zone(client)]], problems)
 	# k2. The chauffeur fired mid-trip: nobody is named or drawn at the wheel any
 	# more and Chefty pulls over. Big Sal is hired back for step l.
 	# (The client again: the host is on the yard, fenced into LOT.)

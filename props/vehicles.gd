@@ -46,6 +46,11 @@ const STEERING_WHEEL_RADIUS: float = 0.19
 ## The open cab's rear window (x across, y up, in Chefty's space): the back wall
 ## stands around it at z -1.31.
 const REAR_WINDOW := Rect2(-0.9, 1.6, 1.8, 0.69)
+## The open cab's roof ends here at the front (z, Chefty's space), over the top of
+## the raked windshield: from a seated eye (y ~1.9, z ~-2.0) its edge is ~45
+## degrees up, out of a level view (fx-chefty). The A-pillars are this thick (m).
+const CHEFTY_ROOF_FRONT_Z: float = -2.46
+const CHEFTY_A_PILLAR_RADIUS: float = 0.03
 ## The doors and the tailgate, in Chefty's space, where you get in.
 const CHEFTY_DRIVER_DOOR := Vector3(-1.6, 0.0, -2.0)
 const CHEFTY_SHOTGUN_DOOR := Vector3(1.6, 0.0, -2.0)
@@ -146,9 +151,11 @@ static func _decal_mesh(decal: String, color: Color, interior: bool) -> ArrayMes
 	match decal:
 		"decal_stripes":
 			var ink := GRILLE if color.get_luminance() > 0.55 else TRIM
-			var roof_y := 2.455 if interior else 2.445
+			var roof_y := 2.447 if interior else 2.445
+			# The open cab's roof is shorter at the front (CHEFTY_ROOF_FRONT_Z).
+			var roof_z := Vector2(-1.85, 1.15) if interior else Vector2(-2.0, 1.3)
 			for x: float in [-0.2, 0.2]:
-				kit.box(Vector3(x, roof_y, -2.0), Vector3(0.15, 0.012, 1.3), ink)
+				kit.box(Vector3(x, roof_y, roof_z.x), Vector3(0.15, 0.012, roof_z.y), ink)
 				kit.box(Vector3(x, 1.366, -2.7), Vector3(0.15, 0.012, 0.38), ink)
 			for side: float in [-1.0, 1.0]:
 				# Two stripes down each side of the bed, front to tail, and on into the cab's door.
@@ -363,9 +370,10 @@ static func _truck_mesh(color: Color, interior: bool = false) -> ArrayMesh:
 	for side: float in [-1.0, 1.0]:
 		# A door handle.
 		kit.rbox(Vector3(side * 1.13, 1.62, -1.62), Vector3(0.025, 0.03, 0.09), CHROME, 4.0)
-		# Mirrors on stalks.
-		kit.rbox(Vector3(side * 1.28, 2.0, -2.45), Vector3(0.18, 0.025, 0.025), GRILLE, 4.0)
-		kit.rbox(Vector3(side * 1.44, 2.0, -2.4), Vector3(0.05, 0.16, 0.1), GRILLE, 4.0)
+		# Mirrors on stalks (the open cab's from its slim A-pillar).
+		var mirror_z := -2.55 if interior else -2.45
+		kit.rbox(Vector3(side * 1.26, 2.0, mirror_z), Vector3(0.2, 0.025, 0.025), GRILLE, 4.0)
+		kit.rbox(Vector3(side * 1.44, 2.0, mirror_z + 0.05), Vector3(0.05, 0.16, 0.1), GRILLE, 4.0)
 		# Bed walls with a rolled top rail.
 		kit.rbox(Vector3(side * 1.08, 1.28, 0.72), Vector3(0.07, 0.3, 1.98), color, 6.0)
 		kit.rbox(Vector3(side * 1.08, 1.6, 0.72), Vector3(0.09, 0.04, 2.0), dark, 4.0)
@@ -412,13 +420,24 @@ static func _open_cab(kit: RefCounted, color: Color, dark: Color) -> void:
 	kit.call("rbox", Vector3(0.0, opening.end.y, wall_z), Vector3(opening.end.x, 0.014, 0.055), gasket, 4.0)
 	kit.call("rbox", Vector3(0.0, opening.position.y, wall_z), Vector3(opening.end.x, 0.014, 0.055), gasket, 4.0)
 	kit.call("rbox", Vector3(0.0, opening.get_center().y, wall_z - 0.02), Vector3(0.016, opening.size.y * 0.5, 0.02), gasket, 4.0)
-	# The roof, and the four pillars.
-	kit.call("rbox", Vector3(0.0, 2.38, -2.0), Vector3(1.14, 0.07, 0.76), color, 5.0)
+	# The roof, and the four pillars (fx-chefty): a real pickup's slim A-pillars,
+	# raked back from the cowl to the roof's front edge, so from either cab seat
+	# the one on your side is a thin line at the edge of the road, not a trunk
+	# (p1-dash: the old 12 cm posts hid ~15% of the view). The roof stops at the
+	# top of the raked windshield (CHEFTY_ROOF_FRONT_Z), above a seated eye's view.
+	var roof_front := CHEFTY_ROOF_FRONT_Z
+	var roof_back := -1.24
+	kit.call("rbox", Vector3(0.0, 2.38, (roof_front + roof_back) * 0.5), Vector3(1.14, 0.06, (roof_back - roof_front) * 0.5), color, 5.0)
 	for side: float in [-1.0, 1.0]:
-		kit.call("rbox", Vector3(side * 1.06, 1.98, -2.66), Vector3(0.06, 0.36, 0.06), color, 4.0)
-		kit.call("rbox", Vector3(side * 1.06, 1.98, -1.36), Vector3(0.06, 0.36, 0.06), color, 4.0)
+		var cowl := Vector3(side * 1.07, 1.6, -2.72)
+		var header := Vector3(side * 1.06, 2.34, roof_front + 0.03)
+		kit.call("tube", PackedVector3Array([cowl, cowl.lerp(header, 0.5), header]), PackedFloat32Array([CHEFTY_A_PILLAR_RADIUS, CHEFTY_A_PILLAR_RADIUS, CHEFTY_A_PILLAR_RADIUS * 0.9]), color, 8, {"jitter": 0.0, "cap": true, "cap_start": true})
+		kit.call("rbox", Vector3(side * 1.07, 1.98, -1.34), Vector3(0.035, 0.36, 0.04), color, 4.0)
 		# The door panels up to the window line.
 		kit.call("rbox", Vector3(side * 1.08, 1.3, -2.0), Vector3(0.05, 0.3, 0.7), color, 5.0)
+	# The windshield's frame across the top and along the cowl: thin, dark rubber.
+	kit.call("tube", PackedVector3Array([Vector3(-1.04, 2.33, roof_front + 0.02), Vector3(1.04, 2.33, roof_front + 0.02)]), PackedFloat32Array([0.022, 0.022]), GRILLE, 6, {"jitter": 0.0})
+	kit.call("tube", PackedVector3Array([Vector3(-1.05, 1.605, -2.71), Vector3(1.05, 1.605, -2.71)]), PackedFloat32Array([0.012, 0.012]), GRILLE, 6, {"jitter": 0.0})
 	# The dash, with a glovebox line; the gauge pod is its own node (chefty_dash.gd).
 	kit.call("rbox", Vector3(0.0, 1.42, -2.58), Vector3(1.04, 0.18, 0.12), dark, 5.0)
 	kit.call("rbox", Vector3(0.45, 1.36, -2.455), Vector3(0.22, 0.06, 0.008), GRILLE, 4.0, {"shade": false})

@@ -167,7 +167,7 @@ static func pose_rake(prop: Node3D, holder: Node3D, _raking: bool = false) -> vo
 	if holder != null:
 		prop.set_meta("last_holder", holder.name.to_int())
 	# p2-kit: the head is the rake's own (its tier), whoever holds it.
-	RakeMotion.dress(pose, rake_head(int(prop.get("tier"))))
+	RakeMotion.dress(pose, rake_head(int(prop.get("tier"))), int(prop.get("tier")))
 	if holder == null:
 		RakeMotion.unpublish(pose)
 		if pose.top_level:

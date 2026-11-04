@@ -20,6 +20,8 @@ const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 const _StepDown = preload("res://net/components/step_down.gd")
 const _VehicleSound = preload("res://audio/vehicle_sound.gd")
 
+const _SeatMoves = preload("res://net/components/seat_moves.gd")
+
 var _riding: bool = false
 ## The bags drawn in the bed (props/truck_bed_load.gd), Chefty only.
 var _bed_load: Node3D
@@ -51,6 +53,17 @@ var _catchup_t: float = -1.0
 var _catchup_seconds: float = 0.5
 ## The last arrival's riders, in seat order (arrival_spots, the tests).
 var _landed_riders: Array = []
+## This trip leaves facing the other way from how it parked (fx-chefty): the
+## U-turn out, over the trip's first CHEFTY_RIDE_UTURN_SHARE; how far through the
+## trip it is (0 to 1, by the clock).
+var _uturn: bool = false
+var _trip_t: float = 1.0
+## The riders the trip under way set off with (who get off when it lands).
+var _trip_riders: Array = []
+## A client that heard of the trip late: how late (s) past the pull-away it
+## allows, made up by _late_until (server time) (_late_offset).
+var _late_by: float = 0.0
+var _late_until: float = 0.0
 
 ## p1-depart, the honk-and-wait (docs/GAME.md "Leaving together"): Chefty parked
 ## with the crew climbing in, honking, until _leave_at (server time). The host
@@ -111,7 +124,7 @@ func _physics_process(delta: float) -> void:
 	if not _riding:
 		return
 	var duration := maxf(_duration, 0.1)
-	var along := clampf((Net.server_time() - _start_time) / duration, 0.0, 1.0)
+	var along := clampf((Net.server_time() - _start_time - _late_offset()) / duration, 0.0, 1.0)
 	# Chefty's legacy ride pulls away and pulls in (p1-arrive): at an even pace it
 	# hit the curb at 125 m/s, so a client's clock a few ms off, or a rider's
 	# replicated pose one update old, put that rider metres from where they got
@@ -119,9 +132,19 @@ func _physics_process(delta: float) -> void:
 	# is net/run_events/shuttle.gd now, nice_boys:4.)
 	var eased := smoothstep(0.0, 1.0, along)
 	_eased_now = eased
+	_trip_t = along
 	_place(1.0 - eased if _reverse else eased)
 	if Net.is_host() and along >= 1.0:
 		_arrive()
+
+
+## How far behind the host's clock this peer runs the trip right now (s): all of
+## a client's lateness as it pulls away, none of it once the time's made up.
+func _late_offset() -> float:
+	if _late_by <= 0.0:
+		return 0.0
+	var left := clampf((_late_until - Net.server_time()) / maxf(Constants.CHEFTY_RIDE_LATE_MAKEUP_SECONDS, 0.01), 0.0, 1.0)
+	return _late_by * left
 
 
 ## A client whose truck was still short of the curb when the host said it had
@@ -149,6 +172,35 @@ func depart(peer_ids: Array, destination_zone: int) -> void:
 
 func is_riding() -> bool:
 	return _riding
+
+
+## Host: Chefty drives its road with nobody aboard, to destination_zone's end
+## (fx-chefty: back to Homie Depot for a teammate who missed it, or back out to
+## the yard when nobody came after all). Only from the other end, parked.
+func drive_empty(destination_zone: int) -> void:
+	if not Net.is_host() or _riding or _boarding or not is_in_group("chefty"):
+		return
+	var at_store := parked_at_store()
+	if (destination_zone == Net.Zone.STORE) == at_store:
+		return
+	_rpc_depart.rpc(Net.server_time(), [], destination_zone, RIDE_DURATION_SECONDS)
+
+
+## Where the truck is headed on the trip under way (a Net.Zone), or -1 parked.
+func trip_destination() -> int:
+	return _destination if _riding else -1
+
+
+## Host: the honk-and-wait goes on extra seconds from now (fx-chefty: the crew
+## is still walking over from the yard). Every peer hears a last call before the
+## new end, which is the call to hurry.
+func extend_boarding(extra: float) -> void:
+	if not Net.is_host() or not _boarding:
+		return
+	_leave_at = Net.server_time() + extra
+	_local_leave = _local_now() + extra
+	_last_call_played = false
+	_rpc_boarding_state.rpc(_destination, _leave_at, extra, _riders)
 
 
 ## The peers in a riders list, without the empty seats.
@@ -205,7 +257,8 @@ func leave_at() -> float:
 func climbing() -> bool:
 	for peer_id: Variant in _climbs:
 		var climb: Array = _climbs[peer_id]
-		if _riders.has(peer_id) and _local_now() - float(climb[1]) < float(climb[2]):
+		# A little past it: a client heard of the boarding a ping later (fx-chefty).
+		if _riders.has(peer_id) and _local_now() - float(climb[1]) < float(climb[2]) + Constants.CHEFTY_BOARD_CLIMB_MARGIN:
 			return true
 	return false
 
@@ -220,11 +273,32 @@ func boarders() -> Array[int]:
 func board(peer_id: int, from: Vector3) -> bool:
 	if not Net.is_host() or not _boarding or _riders.has(peer_id):
 		return false
-	var seat := _free_seat()
+	var seat := _nearest_free_seat(from)
 	if seat < 0:
 		return false
 	_rpc_boarded.rpc(peer_id, seat, from)
 	return true
+
+
+## The free seat nearest from (world), else -1 (fx-chefty: you climb in where you
+## stand, not round the truck to the first free one).
+func _nearest_free_seat(from: Vector3) -> int:
+	var first := _free_seat()
+	if first < 0 or _seats == null:
+		return first
+	var local := bed_transform().affine_inverse() * from
+	var best := first
+	var best_distance := INF
+	for seat: int in seat_count():
+		var leaving := _exits.has(seat) and _local_now() - float((_exits[seat] as Array)[1]) < float((_exits[seat] as Array)[2])
+		if (seat < _riders.size() and int(_riders[seat]) != 0) or leaving:
+			continue
+		var at := (_seats.get_child(seat) as Node3D).position
+		var distance := Vector2(at.x - local.x, at.z - local.z).length()
+		if distance < best_distance:
+			best_distance = distance
+			best = seat
+	return best
 
 
 ## Host: peer_id hops back out over the tailgate.
@@ -421,22 +495,42 @@ func _rpc_boarded(peer_id: int, seat: int, from: Vector3) -> void:
 				from = here
 	_climbs.erase(peer_id)
 	if from.distance_to(seat_transform(seat).origin) <= Constants.CHEFTY_BOARD_CLIMB_FROM_MAX:
-		# On this peer's own game clock, from when it hears of it: timed by the
-		# host's clock a client's hop stood still, then started late, by as much
-		# as its server-time estimate trailed (play: rec_dep2_fr frames 236-258).
-		# Farther off, the hop takes longer (no 13 m/s leap from the pad's edge:
-		# rec_dep3_1p frame 240).
-		var reach := from.distance_to(seat_transform(seat).origin)
-		_climbs[peer_id] = [from, _local_now(), Constants.CHEFTY_BOARD_CLIMB_SECONDS * maxf(1.0, reach / Constants.CHEFTY_BOARD_CLIMB_REACH)]
+		if _catchup_t >= 0.0:
+			# This peer's truck is still easing into the curb (its clock trails the
+			# host's): the climb waits where they stand until it's parked (_land),
+			# or its path, drawn on the moving truck, dragged them metres along
+			# with it (fx-chefty, play: rec_fetch_fr frame 255, 4.8 m).
+			_climbs[peer_id] = [from, _local_now() + CLIMB_WAITING, 1.0]
+		else:
+			_start_climb(peer_id, seat, from)
 	else:
 		_climbs.erase(peer_id)
 	if peer_id == Net.local_peer_id():
 		_hold_armed = false
 		_hold = 0.0
 		_seat_local_player()
-	# The thump is the landing in the bed, at the end of the hop.
-	if _climbs.has(peer_id):
+	# The thump is the landing in the bed, at the end of the hop (a waiting
+	# climb's comes when it starts, _land).
+	if _climbs.has(peer_id) and float((_climbs[peer_id] as Array)[1]) <= _local_now():
 		_sound_later("bed_thump", float((_climbs[peer_id] as Array)[2]), Callable(), true)
+
+
+## A climb that hasn't started yet sits this far (s) in the future.
+const CLIMB_WAITING: float = 1000.0
+
+
+## Every peer: peer_id climbs into seat from where they stand (world), on this
+## peer's own game clock from now: timed by the host's clock a client's hop
+## stood still, then started late, by as much as its server-time estimate
+## trailed (play: rec_dep2_fr frames 236-258). fx-chefty: a few steps up to the
+## rail (or the tailgate) and the hop in, the drivable Chefty's climb
+## (net/components/seat_moves.gd), not one long leap from wherever you stood
+## (5 m from the pad's edge, rec_fetch_fr).
+func _start_climb(peer_id: int, seat: int, from: Vector3) -> void:
+	var body_inverse := bed_transform().affine_inverse()
+	var seat_local := (_seats.get_child(seat) as Node3D).position if _seats != null and seat < _seats.get_child_count() else body_inverse * seat_transform(seat).origin
+	var move := _SeatMoves.board(body_inverse * from, 0.0, seat_local, 0.0, false, Vector3.ZERO)
+	_climbs[peer_id] = [from, _local_now(), maxf(_SeatMoves.seconds(move), 0.05), move]
 
 
 ## hops false: they left the game, the seat just empties.
@@ -627,6 +721,9 @@ func seat_transform(index: int) -> Transform3D:
 		var climb: Array = _climbs[peer_id]
 		var t := (_local_now() - float(climb[1])) / float(climb[2])
 		if t < 1.0:
+			if climb.size() > 3:
+				var drawn := _SeatMoves.sample(climb[3] as Dictionary, (_local_now() - float(climb[1])))
+				return Transform3D(xf.basis, bed_transform() * (drawn["pos"] as Vector3))
 			return Transform3D(xf.basis, _hop(climb[0] as Vector3, xf.origin, clampf(t, 0.0, 1.0)))
 	return xf
 
@@ -659,6 +756,11 @@ func _place(along: float) -> void:
 	# Driving back along the same road it faces the way it's going, not backward.
 	if _reverse:
 		on_path.basis = on_path.basis.rotated(on_path.basis.y.normalized(), PI)
+	# Parked facing the way it came in, it pulls a U-turn as it leaves (fx-chefty:
+	# it used to flip round in one frame, and everyone in the bed popped 1.4 m).
+	if _uturn and _riding:
+		var left := PI * (1.0 - smoothstep(0.0, Constants.CHEFTY_RIDE_UTURN_SHARE, _trip_t))
+		on_path.basis = on_path.basis.rotated(on_path.basis.y.normalized(), left)
 	_body.global_transform = _path.global_transform * on_path
 
 
@@ -752,12 +854,39 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	# Still driving the last trip's last meters here: that trip's riders get off first.
 	if _catchup_t >= 0.0:
 		_land()
+	# fx-chefty: a climb this peer is still drawing when the truck pulls away (it
+	# heard of the boarding a ping after the host) finishes as a short hop from
+	# where it has them now onto the seat, before the truck's first turn: played
+	# on under the U-turn, the climb's path swung them out over the road.
+	var now := _local_now()
+	for peer_id: Variant in _climbs.keys():
+		var climb: Array = _climbs[peer_id]
+		var index := _riders.find(peer_id)
+		if index < 0 or now - float(climb[1]) >= float(climb[2]):
+			_climbs.erase(peer_id)
+			continue
+		_climbs[peer_id] = [seat_transform(index).origin, now, Constants.CHEFTY_BOARD_CLIMB_FINISH_SECONDS]
 	_eased_now = 0.0
 	_start_time = start_time
+	# A client hears of the departure a ping late (on a busy machine its clock
+	# estimate trails further): starting the trip that far in made the truck jump
+	# 2-3 m on its first frame (fx-chefty, play: rec_board_fr frame 109). It pulls
+	# away from the curb here too, and makes the time up over the trip's first
+	# CHEFTY_RIDE_LATE_MAKEUP_SECONDS (a few percent quicker, while it's on the
+	# straight), so it reaches the far curb with the host: made up at the end it
+	# was a 3-5 m lurch into the curb (review: rec_fetch_3p frames 354, 640).
+	_late_by = 0.0
+	if not Net.is_host():
+		_late_by = maxf(0.0, Net.server_time() - Constants.CHEFTY_RIDE_LATE_START_MAX - start_time)
+		_late_until = Net.server_time() + Constants.CHEFTY_RIDE_LATE_MAKEUP_SECONDS
 	_duration = duration
 	_destination = destination_zone
+	var was_reversed := _reverse
 	_reverse = is_in_group("chefty") and destination_zone == Net.Zone.STORE
+	_uturn = is_in_group("chefty") and was_reversed != _reverse
+	_trip_t = 0.0
 	_riders = riders
+	_trip_riders = riders.duplicate()
 	_riding = true
 	# The honk-and-wait is over: the boarders keep their seats (and a climb
 	# still finishing finishes on the move).
@@ -834,13 +963,27 @@ func _land() -> void:
 	_place(_parked_along)
 	if _body != null:
 		_body.reset_physics_interpolation()
-	var riders: Array = _riders.duplicate()
-	_riders.clear()
-	_climbs.clear()
+	# The trip's riders, as it set off (fx-chefty: a client still easing into
+	# the curb when the next honk-and-wait opened took the crew climbing in for
+	# riders arriving, and hopped them straight back off; play: rec_fetch_fr).
+	var riders: Array = _trip_riders.duplicate()
+	_trip_riders = []
+	var boarding := _boarding
+	if not boarding:
+		_riders.clear()
+		_climbs.clear()
+	else:
+		# Parked now: the climbs that waited for it start from where they stand.
+		for peer_id: Variant in _climbs.keys():
+			var climb: Array = _climbs[peer_id]
+			var seat := _riders.find(peer_id)
+			if float(climb[1]) > _local_now() and seat >= 0:
+				_start_climb(int(peer_id), seat, climb[0] as Vector3)
+				_sound_later("bed_thump", float((_climbs[peer_id] as Array)[2]), Callable(), true)
 	# Only this ride's riders get off: anyone seated elsewhere (the Shuttle, the
-	# drivable Chefty) stays put.
+	# drivable Chefty) stays put, and so does anyone climbing in for the next trip.
 	for node: Node in get_tree().get_nodes_in_group("players"):
-		if node.has_method("clear_riding") and node.get("_ride") == self:
+		if node.has_method("clear_riding") and node.get("_ride") == self and (not boarding or riders.has(int(str(node.name)))):
 			node.call("clear_riding")
 	_step_riders_down(riders)
 	_refresh_label()

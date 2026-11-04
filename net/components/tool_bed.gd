@@ -71,7 +71,7 @@ func count_of(kind: String) -> int:
 ## The spot a tool of this kind takes, given the spots taken: the ladder on top
 ## of the rack, the pushed tools on the floor, everything else on the rack; ""
 ## when its place is full.
-static func slot_for(kind: String, taken: Array) -> String:
+static func slot_for(kind: String, taken: Array, side: float = 0.0) -> String:
 	if kind == "ladder":
 		return "ladder" if not taken.has("ladder") else ""
 	if _Hotbar.carry_class(kind) == "push":
@@ -79,26 +79,39 @@ static func slot_for(kind: String, taken: Array) -> String:
 			if not taken.has("floor:%d" % index):
 				return "floor:%d" % index
 		return ""
-	# The rack fills from the middle out, so a few tools sit over the cab's middle.
-	for index: int in _rack_order():
+	for index: int in _rack_order(side):
 		if not taken.has("rack:%d" % index):
 			return "rack:%d" % index
 	return ""
 
 
-## The rack spots, middle out: 4, 3, 5, 2, 6, 1, 7, 0 for eight.
-static func _rack_order() -> Array[int]:
-	var out: Array[int] = []
+## The rack spots in the order they fill (fx-chefty): from the outside in, so a
+## tool rides by the rail where you can see it (and its tier) and reach it from
+## beside the truck; from the side you loaded it on first (side < 0 the driver's,
+## > 0 shotgun's), so it's there when you come back for it. side 0 (a save, a
+## dev kit) alternates the sides. (p2-kit filled from the middle out, and from
+## beside the cab the far rakes were out of sight.)
+static func _rack_order(side: float = 0.0) -> Array[int]:
 	var size := Constants.KIT_RACK_SLOTS_X.size()
-	var middle := size / 2
-	out.append(middle)
-	for step: int in range(1, size):
-		var left := middle - step
-		var right := middle + step
-		if left >= 0:
-			out.append(left)
-		if right < size:
-			out.append(right)
+	var left: Array[int] = []
+	var right: Array[int] = []
+	for step: int in range(size / 2 + size % 2):
+		left.append(step)
+		if size - 1 - step != step:
+			right.append(size - 1 - step)
+	var out: Array[int] = []
+	if side < 0.0:
+		out.append_array(left)
+		out.append_array(right)
+	elif side > 0.0:
+		out.append_array(right)
+		out.append_array(left)
+	else:
+		for index: int in maxi(left.size(), right.size()):
+			if index < left.size():
+				out.append(left[index])
+			if index < right.size():
+				out.append(right[index])
 	return out
 
 
@@ -174,7 +187,9 @@ func accept(prop: Node3D) -> bool:
 	if not Net.is_host() or prop == null or not _KitRules.is_kit(prop):
 		return false
 	var kind := str(prop.get("kind"))
-	var slot := slot_for(kind, _taken())
+	# On the rack on the side it came from (fx-chefty).
+	var side := (global_transform.affine_inverse() * prop.global_position).x
+	var slot := slot_for(kind, _taken(), side)
 	if slot == "":
 		return false
 	var from := _seen_from(prop)

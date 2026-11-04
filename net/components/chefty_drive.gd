@@ -60,6 +60,7 @@ const _CheftyPaint = preload("res://net/components/chefty_paint.gd")
 
 const _CheftyCrash = preload("res://net/components/chefty_crash.gd")
 const _StepDown = preload("res://net/components/step_down.gd")
+const _SeatMoves = preload("res://net/components/seat_moves.gd")
 ## Chefty's bed, in its own space: bags that land in here are loaded (as ride.gd).
 const BED := AABB(Vector3(-1.05, 0.9, -1.2), Vector3(2.1, 1.3, 3.85))
 const COLOR := Color(0.75, 0.22, 0.15)
@@ -214,6 +215,17 @@ var _odometer_sent: float = 0.0
 ## Who sat where as _rpc_seats (or the join's _rpc_state) last said, for telling
 ## what changed.
 var _seats_said := PackedInt32Array()
+## fx-chefty: who is still climbing in or sliding over, drawn on every peer from
+## the seat changes (net/components/seat_moves.gd): peer -> {move, start}.
+var _moves: Dictionary = {}
+## Tests: how many climbs and seat changes this peer has drawn as a move.
+var _moves_seen: int = 0
+## The hired hands last seen working (npcs/crew_hand.gd), by name: {at (world),
+## yaw, time}, so a hand who walks back to the truck climbs in from there.
+var _hand_seen: Dictionary = {}
+## Host: how long the chauffeur's autopilot waits at the start of a trip while the
+## hand climbs out of the bed and round to the wheel (s).
+var _hand_board_wait: float = 0.0
 
 
 func _ready() -> void:
@@ -411,7 +423,102 @@ func seat_of(peer_id: int) -> int:
 func seat_transform(index: int) -> Transform3D:
 	if _seats == null or _seats.get_child_count() == 0:
 		return global_transform
+	# Still climbing in (or sliding over): where the move has them (fx-chefty).
+	var peer_id := _riders[index] if index >= 0 and index < _riders.size() else 0
+	if peer_id != 0 and _moves.has(peer_id):
+		var drawn := _move_sample(peer_id)
+		if not drawn.is_empty():
+			return body_transform() * Transform3D(Basis(Vector3.UP, float(drawn["yaw"])), drawn["pos"] as Vector3)
 	return (_seats.get_child(clampi(index, 0, _seats.get_child_count() - 1)) as Node3D).global_transform
+
+
+# ---------------------------------------------------------------- climbing in (fx-chefty)
+
+## This peer's game clock (s): the moves are cosmetic and local, like the legacy
+## ride's climbs.
+static func _local_now() -> float:
+	return float(Engine.get_physics_frames()) / float(Engine.physics_ticks_per_second)
+
+
+## Every peer, when the seats change (_rpc_seats): whoever just got a seat climbs
+## in from where this peer draws them (a few steps to the door or the rail, then
+## the hop: net/components/seat_moves.gd); whoever moved seats slides or hops
+## over. From farther than CHEFTY_CLIMB_FROM_MAX (a trip that seats the party
+## wherever they stand) they're just aboard.
+func _start_moves(before: PackedInt32Array) -> void:
+	for peer_id: Variant in _moves.keys():
+		if seat_of(int(peer_id)) < 0:
+			_moves.erase(peer_id)
+	if _body == null:
+		return
+	var inverse := body_transform().affine_inverse()
+	var now := _local_now()
+	for index: int in _riders.size():
+		var peer_id := _riders[index]
+		if peer_id == 0:
+			continue
+		var old := before.find(peer_id)
+		if old == index:
+			continue
+		var player := _player(peer_id)
+		if player == null:
+			continue
+		var visual := player.get_node_or_null("Visual") as Node3D
+		var drawn: Transform3D = player.global_transform if player.is_multiplayer_authority() or visual == null else visual.global_transform
+		var from := inverse * drawn.origin
+		var forward := inverse.basis * (-drawn.basis.z)
+		var yaw_from := atan2(-forward.x, -forward.z) if Vector2(forward.x, forward.z).length() > 0.01 else seat_yaw(index)
+		var seat := _Vehicles.CHEFTY_SEATS[index]
+		var move: Dictionary
+		if old >= 0:
+			move = _SeatMoves.shift(from, is_cab_seat(old), yaw_from, seat, is_cab_seat(index), seat_yaw(index), _door_for(index if is_cab_seat(index) else old))
+		elif from.distance_to(seat) <= Constants.CHEFTY_CLIMB_FROM_MAX:
+			move = _SeatMoves.board(from, yaw_from, seat, seat_yaw(index), is_cab_seat(index), _door_for(index))
+		else:
+			_moves.erase(peer_id)
+			continue
+		_moves[peer_id] = {"move": move, "start": now}
+		if _SeatMoves.seconds(move) > 0.0:
+			_moves_seen += 1
+		if player.has_method("reset_physics_interpolation"):
+			player.reset_physics_interpolation()
+
+
+## The door a cab seat is got into by (a bed seat: its own side's).
+func _door_for(seat: int) -> Vector3:
+	return _Vehicles.CHEFTY_DRIVER_DOOR if _exit_side(seat) < 0.0 else _Vehicles.CHEFTY_SHOTGUN_DOOR
+
+
+## Where peer_id's move has them now ({pos, yaw, pose, anim} in Chefty's space),
+## or {} once it's over (and it's forgotten).
+func _move_sample(peer_id: int) -> Dictionary:
+	var entry: Dictionary = _moves.get(peer_id, {})
+	if entry.is_empty():
+		return {}
+	var drawn := _SeatMoves.sample(entry["move"], _local_now() - float(entry["start"]))
+	if bool(drawn["done"]):
+		_moves.erase(peer_id)
+		return {}
+	return drawn
+
+
+## While peer_id is still climbing in or sliding over: the cartoon pose for it
+## (seat_moves.gd POSE_*), else -1 (player/seated.gd pose_for).
+func climb_pose(peer_id: int) -> int:
+	var drawn := _move_sample(peer_id)
+	return int(drawn["pose"]) if not drawn.is_empty() else -1
+
+
+## While peer_id is still climbing in: what the body is doing ("walk", "air",
+## "crouch", "idle"), else "" (player/seated.gd sets the owner's anim_state).
+func climb_anim(peer_id: int) -> String:
+	var drawn := _move_sample(peer_id)
+	return str(drawn["anim"]) if not drawn.is_empty() else ""
+
+
+## Whether peer_id is still on the way into their seat.
+func is_climbing(peer_id: int) -> bool:
+	return not _move_sample(peer_id).is_empty()
 
 
 func seat_count() -> int:
@@ -954,6 +1061,21 @@ func _seat_for_kind(kind: int) -> int:
 			return _free_seat(range(_Vehicles.CHEFTY_CAB_SEATS, Constants.CHEFTY_SEATS))
 
 
+## The free bed seat nearest local (Chefty's space), else fallback.
+func _nearest_bed_seat(local: Vector3, fallback: int) -> int:
+	var best := fallback
+	var best_distance := INF
+	for index: int in range(_Vehicles.CHEFTY_CAB_SEATS, Constants.CHEFTY_SEATS):
+		if _riders[index] != 0:
+			continue
+		var at := _Vehicles.CHEFTY_SEATS[index]
+		var distance := Vector2(at.x - local.x, at.z - local.z).length()
+		if distance < best_distance:
+			best_distance = distance
+			best = index
+	return best
+
+
 func _free_seat(indices: Array) -> int:
 	for index: Variant in indices:
 		if _riders[int(index)] == 0:
@@ -973,6 +1095,10 @@ func _handle_enter(peer_id: int, kind: int) -> void:
 	var seat := _seat_for_kind(int(entry["kind"]))
 	if seat < 0:
 		return
+	# Into the bed (fx-chefty): the free spot nearest where you stand, so from
+	# behind the tailgate you hop straight in, not walk round to the front row.
+	if int(entry["kind"]) == Kind.BED:
+		seat = _nearest_bed_seat(body_transform().affine_inverse() * player.global_position, seat)
 	_riders[seat] = peer_id
 	_stow(peer_id)
 	_send_seats()
@@ -1487,6 +1613,9 @@ func _start_trip(kind: int, zone: int, stop: Transform3D) -> void:
 	var hands := hands_aboard()
 	var label := str(hands[0].get("name", "")) if not hands.is_empty() and driver() == 0 else ""
 	var quip := -1
+	# fx-chefty: the hand climbs out of the bed and round to the wheel before
+	# Chefty pulls away (every peer draws that climb; it used to pop there).
+	_hand_board_wait = _hand_to_wheel_seconds() if label != "" else 0.0
 	if kind == Trip.CHAUFFEUR and label != "":
 		quip = _quip_rng.randi() % _Strings.CHAUFFEUR_QUIPS.size()
 	_rpc_autopilot.rpc(kind, zone, label, quip)
@@ -1503,6 +1632,10 @@ func _autopilot_step(delta: float) -> void:
 		return
 	_trip_clock += delta
 	_set_horn(bool(_crash.call("horn_stuck")))
+	# The hand is still on the way round to the wheel: Chefty waits, brakes on.
+	if _trip_clock < _hand_board_wait:
+		_host_sim({"brake": true}, delta)
+		return
 	if not _warp and _trip_clock > _trip_give_up:
 		push_warning("Chefty's autopilot gave up driving after %.0f s; warping the rest" % _trip_clock)
 		_auto.start(VehicleAutopilot.plan(_chassis.global_position, _trip_stop.origin), _trip_stop.origin)
@@ -1701,17 +1834,15 @@ func _update_ground(delta: float) -> void:
 func _update_hands(delta: float) -> void:
 	var riding := cosmetic_riders()
 	var built := str(riding)
+	_note_working_hands()
 	if built != _hands_built:
 		_hands_built = built
-		for figure: Node3D in _hand_figures:
-			if is_instance_valid(figure):
-				figure.queue_free()
-		_hand_figures.clear()
-		if DisplayServer.get_name() != "headless" and _seats != null:
-			for entry: Dictionary in riding:
-				_hand_figures.append(_build_hand(entry))
+		_rebuild_hands(riding)
 	for figure: Node3D in _hand_figures:
-		if not is_instance_valid(figure) or int(figure.get_meta("seat", 0)) == SEAT_DRIVER:
+		if not is_instance_valid(figure):
+			continue
+		_place_hand(figure)
+		if int(figure.get_meta("seat", 0)) == SEAT_DRIVER or figure.has_meta("move"):
 			continue
 		var wait := float(figure.get_meta("wave_in", 0.0)) - delta
 		if wait <= 0.0:
@@ -1751,7 +1882,113 @@ func _build_hand(entry: Dictionary) -> Node3D:
 	# p1-ui: kept off the HUD, the screen's edges and the other names (ui/overheads.gd).
 	tag.add_to_group("overhead_signs")
 	holder.add_child(tag)
+	holder.set_meta("hand", str(entry["name"]))
 	return holder
+
+
+## The hands riding along changed (fx-chefty, driving C2's Big Sal): each hand
+## keeps their figure. One whose seat changed climbs there (out of the bed, round
+## to the driver's door and in, for the wheel; back again after), one just aboard
+## climbs in from where they were last seen working, and one gone is gone.
+func _rebuild_hands(riding: Array) -> void:
+	var by_name := {}
+	for figure: Node3D in _hand_figures:
+		if is_instance_valid(figure):
+			by_name[str(figure.get_meta("hand", ""))] = figure
+	var kept: Array[Node3D] = []
+	var drawn := DisplayServer.get_name() != "headless" and _seats != null
+	for entry: Dictionary in riding:
+		var hand := str(entry["name"])
+		var seat := int(entry["seat"])
+		var figure: Node3D = by_name.get(hand, null)
+		if figure != null:
+			by_name.erase(hand)
+			if int(figure.get_meta("seat", -1)) != seat:
+				_move_hand(figure, seat)
+		elif drawn:
+			figure = _build_hand(entry)
+			_board_hand(figure, hand, seat)
+		if figure != null:
+			kept.append(figure)
+	for figure: Variant in by_name.values():
+		(figure as Node3D).queue_free()
+	_hand_figures = kept
+
+
+## A hand's figure moves from its seat to another: re-hung on the new seat, and
+## the way there drawn from where it is now.
+func _move_hand(figure: Node3D, seat: int) -> void:
+	var old := int(figure.get_meta("seat", seat))
+	var inverse := body_transform().affine_inverse()
+	var from := inverse * figure.global_position
+	var forward := inverse.basis * (-figure.global_basis.z)
+	var yaw_from := atan2(-forward.x, -forward.z)
+	figure.reparent(_seats.get_child(seat), true)
+	figure.name = "HandRider%d" % seat
+	figure.set_meta("seat", seat)
+	var door := _door_for(seat if is_cab_seat(seat) else old)
+	figure.set_meta("move", _SeatMoves.shift(from, is_cab_seat(old), yaw_from, _Vehicles.CHEFTY_SEATS[seat], is_cab_seat(seat), seat_yaw(seat), door))
+	figure.set_meta("move_start", _local_now())
+
+
+## A hand just aboard: climbing in from where they were seen working a moment ago
+## (they walked back to the truck), else they're simply there (hired at the store).
+func _board_hand(figure: Node3D, hand: String, seat: int) -> void:
+	var seen: Dictionary = _hand_seen.get(hand, {})
+	if seen.is_empty() or _local_now() - float(seen["time"]) > Constants.CHEFTY_HAND_SEEN_SECONDS:
+		return
+	var inverse := body_transform().affine_inverse()
+	var from := inverse * (seen["at"] as Vector3)
+	if from.distance_to(_Vehicles.CHEFTY_SEATS[seat]) > Constants.CHEFTY_CLIMB_FROM_MAX:
+		return
+	var yaw_from := float(seen["yaw"]) - yaw()
+	figure.set_meta("move", _SeatMoves.board(from, yaw_from, _Vehicles.CHEFTY_SEATS[seat], seat_yaw(seat), is_cab_seat(seat), _door_for(seat)))
+	figure.set_meta("move_start", _local_now())
+	_place_hand(figure)
+
+
+## Every frame: a hand mid-move is drawn where the move has them, in its pose;
+## settled, on the seat.
+func _place_hand(figure: Node3D) -> void:
+	var body := figure.get_node_or_null("CartoonBody")
+	var seat := int(figure.get_meta("seat", 0))
+	if figure.has_meta("move"):
+		var drawn := _SeatMoves.sample(figure.get_meta("move") as Dictionary, _local_now() - float(figure.get_meta("move_start", 0.0)))
+		if not bool(drawn["done"]):
+			figure.global_transform = body_transform() * Transform3D(Basis(Vector3.UP, float(drawn["yaw"])), drawn["pos"] as Vector3)
+			if body != null:
+				body.call("sit", int(drawn["pose"]))
+			return
+		figure.remove_meta("move")
+		figure.transform = Transform3D.IDENTITY
+	if body != null:
+		body.call("sit", 1 if is_cab_seat(seat) else 2)
+
+
+## Every frame: where each hired hand working the yard is, so one who walks back
+## to Chefty climbs in from there.
+func _note_working_hands() -> void:
+	var now := _local_now()
+	for node: Node in get_tree().get_nodes_in_group("crew_hands"):
+		var hand := node as Node3D
+		if hand == null or hand.is_queued_for_deletion():
+			continue
+		_hand_seen[str(hand.get("hand_name"))] = {"at": hand.global_position, "yaw": hand.global_rotation.y, "time": now}
+
+
+## Host: how long a hand takes from their bed seat round to the wheel (s), what a
+## chauffeur's trip waits before it pulls away.
+func _hand_to_wheel_seconds() -> float:
+	var hands := hands_aboard()
+	if hands.is_empty():
+		return 0.0
+	var hand := str((hands[0] as Dictionary).get("name", ""))
+	for entry: Dictionary in cosmetic_riders():
+		var seat := int(entry["seat"])
+		if str(entry["name"]) != hand or seat == SEAT_DRIVER:
+			continue
+		return _SeatMoves.seconds(_SeatMoves.shift(_Vehicles.CHEFTY_SEATS[seat], false, seat_yaw(seat), _Vehicles.CHEFTY_SEATS[SEAT_DRIVER], true, 0.0, _Vehicles.CHEFTY_DRIVER_DOOR))
+	return 0.0
 
 
 # ---------------------------------------------------------------- tests
@@ -1842,6 +2079,7 @@ func dev_report() -> Dictionary:
 		"trip_label": trip_label(),
 		"trips_seen": _trips_seen,
 		"chauffeur_seen": _chauffeur_seen.duplicate(),
+		"moves_seen": _moves_seen,
 		"cosmetic": _cosmetic_report(),
 		"job_value": _job_value,
 	}
@@ -2109,6 +2347,7 @@ func _rpc_seats(seated: PackedInt32Array, driver_id: int) -> void:
 	# still on the way from an earlier stint is taken for a new one.
 	if driver_id != before_driver:
 		driver_changed.emit(driver_id)
+	_start_moves(before)
 	_refresh_role()
 	# Someone got in or out of the cab: the door.
 	for index: int in _Vehicles.CHEFTY_CAB_SEATS:

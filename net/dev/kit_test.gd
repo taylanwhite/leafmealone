@@ -23,16 +23,26 @@ extends Node
 ##   h. the save has the kit (where each thing is), and an old save's tool
 ##      unlocks turn into kit (Kit.migrate_players);
 ##   i. a take refused in its hand-off beat (arms filled) goes back aboard,
-##      and a second take while one is on its way is refused.
+##      and a second take while one is on its way is refused;
+##   k. (fx-chefty) each rake tier is its own model on the rack (a Leafinator
+##      aboard is drawn as one), and the rack fills from the outside in, from
+##      the side a tool was loaded on.
+## With --town-map (CI's "kittown") the same loop runs in the connected town with
+## the drivable Chefty (--warp-rides): its rack, the ride there and back, and the
+## morning sweep of the rake left lying on the yard's lawn (the yard stays put).
 ## Each step prints a [KitTest] line; CI needs both peers' ok.
 
 const _KitRules = preload("res://core/kit_rules.gd")
 const _Kit = preload("res://net/kit/kit.gd")
+const _ToolBedScript = preload("res://net/components/tool_bed.gd")
 const _Strings = preload("res://ui/strings.gd")
 const WAIT_SECONDS: float = 6.0
 const RIDE_SECONDS: float = 20.0
 ## The blower that rides along, and how full its tank is before the top-up.
 const BLOWER_FUEL: float = 20.0
+## A client waits this long after stepping up to the bin before buying, so the
+## host has its move (the link is 150 ms each way).
+const CLIENT_MOVE_SECONDS: float = 0.6
 
 static var result: Dictionary = {}
 
@@ -127,16 +137,23 @@ func _run_host() -> void:
 	var lost := (kit.get("lost") as Array).size()
 	var client_home := _carried_rake(mate) != null
 	await _until(func() -> bool: return _kit_count("rake") == 2, WAIT_SECONDS)
-	_step("f home", home and lost == 1 and client_home and _kit_count("rake") == 2 and not is_instance_valid(mine),
-		"home %s, left at the yard %d, the client's came home %s, crew rakes %d" % [home, lost, client_home, _kit_count("rake")])
+	if _town():
+		# fx-chefty, the connected town (--town-map, the drivable Chefty): the
+		# host's rake was left on the yard's lawn, out in town; it's still the
+		# crew's, and the morning sweep brings it to the door (g).
+		_step("f home", home and client_home and _kit_count("rake") == 2,
+			"town: home %s, the host's rake left out (still the crew's), the client's came home %s, crew rakes %d" % [home, client_home, _kit_count("rake")])
+	else:
+		_step("f home", home and lost == 1 and client_home and _kit_count("rake") == 2 and not is_instance_valid(mine),
+			"home %s, left at the yard %d, the client's came home %s, crew rakes %d" % [home, lost, client_home, _kit_count("rake")])
 	# g. sleep: in the morning it's by the door, and a neighbor texts.
 	var town := get_tree().get_first_node_in_group("town")
 	var texts_before := (town.get("texts") as Array).size() if town != null else 0
 	get_tree().get_first_node_in_group("day_clock").call("force_sleep")
 	var at_door := await _until(func() -> bool: return _door_rake() != null, WAIT_SECONDS)
 	var text := _new_text(texts_before)
-	_step("g morning", at_door and (kit.get("lost") as Array).is_empty() and text != "" and text.contains("rake"),
-		"by the door %s, text '%s'" % [at_door, text])
+	_step("g morning", at_door and (kit.get("lost") as Array).is_empty() and text != "" and text.contains("rake") and (not _town() or not is_instance_valid(mine)),
+		"by the door %s, text '%s'%s" % [at_door, text, ", the lawn's rake swept up %s" % (not is_instance_valid(mine)) if _town() else ""])
 	# h. the save, and an old save's tools.
 	Campaign.save_now()
 	var saved := _saved_kit()
@@ -160,7 +177,41 @@ func _run_host() -> void:
 	# i. a take whose hand-off is refused goes back aboard (no loose ghost), and
 	# a second take while one is on its way is refused; j. hose or load by the tap.
 	await _refused_take()
+	_check_rack_tiers()
 	_finish()
+
+
+## fx-chefty: a rake's tier shows on the rack (each tier's own model: its head,
+## tines and handle), and the rack fills from the outside in, from the side a
+## tool was loaded on.
+func _check_rack_tiers() -> void:
+	var bed := _bed()
+	var stock_view := _ToolBedScript._model("rake", Catalog.TIER_STOCK) as MeshInstance3D
+	var stock: Mesh = stock_view.mesh
+	stock_view.free()
+	var looks := {}
+	for tier: int in [Catalog.TIER_USED, Catalog.TIER_MK2, Catalog.TIER_MK3]:
+		var view := _ToolBedScript._model("rake", tier) as MeshInstance3D
+		looks[tier] = view.mesh
+		view.free()
+	var own_looks: bool = looks[Catalog.TIER_USED] != stock and looks[Catalog.TIER_MK2] != stock and looks[Catalog.TIER_MK3] != stock and looks[Catalog.TIER_MK2] != looks[Catalog.TIER_MK3]
+	var wider: bool = _ToolBedScript.model_box("rake", Catalog.TIER_MK3).size.length() > _ToolBedScript.model_box("rake", Catalog.TIER_STOCK).size.length()
+	var left := _ToolBedScript.slot_for("rake", [], -1.0)
+	var right := _ToolBedScript.slot_for("rake", [], 1.0)
+	var last := "rack:%d" % (Constants.KIT_RACK_SLOTS_X.size() - 1)
+	var sides := left == "rack:0" and right == last and _ToolBedScript.slot_for("rake", ["rack:0"], -1.0) == "rack:1"
+	# Drawn aboard: a Leafinator on the rack is The Leafinator's model, not a stock rake's.
+	var taken: Array = []
+	for entry: Dictionary in bed.get("tools") as Array:
+		taken.append(str(entry["slot"]))
+	bed.call("restore", [{"kind": "rake", "tier": Catalog.TIER_MK3, "fuel": 100.0}])
+	var slot := ""
+	for entry: Dictionary in bed.get("tools") as Array:
+		if not taken.has(str(entry["slot"])):
+			slot = str(entry["slot"])
+	var drawn := bed.get_node_or_null("Load/" + slot.replace(":", "_")) as MeshInstance3D
+	var shows: bool = drawn != null and drawn.mesh == looks[Catalog.TIER_MK3]
+	_step("k rack tiers", own_looks and wider and sides and shows, "each tier its own model %s, The Leafinator's head wider %s, the rack fills outside in from the loader's side (%s, %s) %s, a Leafinator aboard drawn as one %s" % [own_looks, wider, left, right, sides, shows])
 
 
 ## Host: a rake goes on the rack and a washer on the bed floor; E on the rake,
@@ -249,6 +300,10 @@ func _buy_rake() -> bool:
 	var front: Vector3 = bin.call("slot_front", 0)
 	_own_player().call("apply_network_teleport", Transform3D(_own_player().global_basis, front + Vector3.UP * 0.1))
 	await _ticks(3)
+	# A client's move reaches the host a lag later (150 ms here): buying before it
+	# had was refused as out of reach, about one run in two (fx-chefty review).
+	if not Net.is_host():
+		await _seconds(CLIENT_MOVE_SECONDS)
 	var shops := get_tree().get_first_node_in_group("shops")
 	shops.call("request_buy", "homie_depot", "rake", 1)
 	return await _until(func() -> bool: return _held_rake(Net.local_peer_id()) != null, WAIT_SECONDS)
@@ -451,6 +506,12 @@ func _bed() -> Node:
 
 func _kit() -> Node:
 	return get_tree().get_first_node_in_group("kit")
+
+
+## The connected town (--town-map): the drivable Chefty and a yard that stays put.
+func _town() -> bool:
+	var world := get_tree().get_first_node_in_group("world")
+	return world != null and bool(world.call("is_town_map"))
 
 
 func _lot_origin() -> Vector3:

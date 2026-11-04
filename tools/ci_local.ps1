@@ -272,7 +272,7 @@ $Tests = [ordered]@{
 		Port = 7815
 		Host = '--host --name=Tester --no-steam --town-map --sim-loss=1 --job-seed=777 --yard-size=1 --drive-test'; Seconds = 290; Client = 285
 		Extra = '--sim-lag=120'
-		Check = { param($h, $c) [bool]$h.drive_test.ok -and $c -ne $null -and ([double]$c.drive.prediction_error_max_m -lt 1.5) -and ([double]$c.drive.prediction_error_mean_m -lt 0.25) -and ([int]$c.drive.prediction_samples -gt 100) -and (Same $h.drive.riders $c.drive.riders) -and ([double]$c.vehicle_view.max_gap_ms -lt 400) -and ([int]$h.ride_frames -gt 0) -and ([double]$h.ride_wobble_m -lt 0.05) -and ([int]$c.ride_frames -gt 0) -and ([double]$c.ride_wobble_m -lt 0.05) -and ($c.zone -eq 'TOWN') -and ([int]$c.drive.trips_seen -ge 3) -and ((@($c.drive.chauffeur_seen) -join ',') -match 'start,stop') -and (Same $h.drive.cosmetic $c.drive.cosmetic) -and (($h.drive.cosmetic | ConvertTo-Json -Compress) -match 'Big Sal') -and ([int]$c.drive.crashes_seen -ge 2) -and ([int]$c.drive.runovers_me -ge 1) -and ([int]$c.drive.dents -eq 0) -and ([double]$c.drive.odometer_m -gt 100) -and ([math]::Abs([double]$c.drive.odometer_m - [double]$h.drive.odometer_m) -lt 40) }
+		Check = { param($h, $c) [bool]$h.drive_test.ok -and $c -ne $null -and ([double]$c.drive.prediction_error_max_m -lt 1.5) -and ([double]$c.drive.prediction_error_mean_m -lt 0.25) -and ([int]$c.drive.prediction_samples -gt 100) -and (Same $h.drive.riders $c.drive.riders) -and ([double]$c.vehicle_view.max_gap_ms -lt 400) -and ([int]$h.ride_frames -gt 0) -and ([double]$h.ride_wobble_m -lt 0.05) -and ([int]$c.ride_frames -gt 0) -and ([double]$c.ride_wobble_m -lt 0.05) -and ($c.zone -eq 'TOWN') -and ([int]$c.drive.trips_seen -ge 3) -and ([int]$c.drive.moves_seen -ge 2) -and ((@($c.drive.chauffeur_seen) -join ',') -match 'start,stop') -and (Same $h.drive.cosmetic $c.drive.cosmetic) -and (($h.drive.cosmetic | ConvertTo-Json -Compress) -match 'Big Sal') -and ([int]$c.drive.crashes_seen -ge 2) -and ([int]$c.drive.runovers_me -ge 1) -and ([int]$c.drive.dents -eq 0) -and ([double]$c.drive.odometer_m -gt 100) -and ([math]::Abs([double]$c.drive.odometer_m - [double]$h.drive.odometer_m) -lt 40) }
 	}
 	# The Gutter Shredder (driving:G1): the host buys the board and rides it through
 	# pushes, an ollie, a kickflip, a sideways landing, a wall and a lawn, and can't
@@ -306,6 +306,17 @@ $Tests = [ordered]@{
 		Port = 7843
 		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --start-hour=10 --kit-test'; Seconds = 150; Client = 145
 		Extra = '--sim-lag=150 --kit-test'
+		Check = { param($h, $c) [bool]$h.kit_test.ok -and $c -ne $null -and [bool]$c.kit_test.ok }
+	}
+	# The same kit loop in the connected town (fx-chefty): the drivable Chefty's
+	# rack, a warped drive to the yard and back, the rake left on the yard's lawn
+	# swept to the store's door in the morning, and each rake tier drawn as itself
+	# on the rack.
+	kittown = @{
+		Port = 7844
+		Host = '--host --name=Tester --no-steam --town-map --warp-rides --job-seed=777 --yard-size=1 --start-hour=10 --kit-test'; Seconds = 170; Client = 165
+		Extra = '--sim-lag=150 --kit-test'
+		Key = 'kit_test'
 		Check = { param($h, $c) [bool]$h.kit_test.ok -and $c -ne $null -and [bool]$c.kit_test.ok }
 	}
 	# Stepping off Chefty (p1-arrive, net/dev/arrive_test.gd): host and client ride to the
@@ -403,7 +414,7 @@ $Tests = [ordered]@{
 	# (the window, the stragglers gathered, the job settled as it pulls away).
 	depart = @{
 		Port = 7837
-		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test'; Seconds = 150; Client = 145
+		Host = '--host --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test'; Seconds = 260; Client = 255
 		Extra = '--sim-lag=80 --depart-test'
 		Check = { param($h, $c) [bool]$h.depart_test.ok -and $c -ne $null -and [bool]$c.depart_test.ok }
 	}
@@ -462,10 +473,12 @@ function Get-PortMismatches {
 	foreach ($name in $BasePorts.Keys) {
 		$flag = [regex]::Match([string]$Tests[$name].Host, '--[a-z0-9-]+-test\b').Value
 		if (-not $flag) { $found += "${name}: no --<x>-test flag in its Host args"; continue }
-		$hostLine = $lines | Where-Object { $_ -match '--host\b' -and $_ -match ([regex]::Escape($flag) + '(\s|$)') } | Select-Object -First 1
-		if (-not $hostLine) { $found += "${name}: netcode.yml has no step running $flag"; continue }
-		$ymlPort = [regex]::Match($hostLine, '--port=(\d+)').Groups[1].Value
-		if ([int]$ymlPort -ne $BasePorts[$name]) { $found += "${name}: port $($BasePorts[$name]) here, $ymlPort in netcode.yml" }
+		# One test flag can run in two worlds (kit and kittown, fx-chefty): any step
+		# with the flag on this test's port matches.
+		$hostLines = @($lines | Where-Object { $_ -match '--host\b' -and $_ -match ([regex]::Escape($flag) + '(\s|$)') })
+		if ($hostLines.Count -eq 0) { $found += "${name}: netcode.yml has no step running $flag"; continue }
+		$ymlPorts = @($hostLines | ForEach-Object { [int][regex]::Match($_, '--port=(\d+)').Groups[1].Value })
+		if ($ymlPorts -notcontains $BasePorts[$name]) { $found += "${name}: port $($BasePorts[$name]) here, $($ymlPorts -join '/') in netcode.yml" }
 	}
 	$found
 }
@@ -652,7 +665,8 @@ function Complete-Test($item) {
 			$c = $null
 			if (Test-Path $item.ClientJson) { $c = Get-Content $item.ClientJson -Raw | ConvertFrom-Json }
 			$ok = [bool](& $t.Check $h $c)
-			$key = "$($name)_test"
+			# A test run twice under two names (kit and kittown) reports under its own key.
+			$key = if ($t.ContainsKey('Key')) { $t.Key } else { "$($name)_test" }
 			if (-not $ok -and $h.$key.error) { $notes += "error: $($h.$key.error)" }
 			if (-not $h.$key.done) { $notes += 'the test never finished; it ran out its time limit' }
 		} catch {

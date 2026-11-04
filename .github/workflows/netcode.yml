@@ -413,7 +413,7 @@ jobs:
           "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7815 --name=Target --no-steam --sim-lag=120 --measure="$PWD/build/soak/ci-drive/target.json" --run-seconds=285 > build/soak/ci-drive/target.log 2>&1
           wait
           grep "DriveTest" build/soak/ci-drive/host.log || true
-          $PY -c "import json,sys; h=json.load(open('build/soak/ci-drive/host.json')); t=json.load(open('build/soak/ci-drive/target.json')); sys.exit(0 if h['drive_test'].get('ok') and t['drive'].get('prediction_error_max_m', 99) < 1.5 and t['drive'].get('prediction_error_mean_m', 99) < 0.25 and t['drive'].get('prediction_samples', 0) > 100 and h['drive'].get('riders') == t['drive'].get('riders') and t['vehicle_view'].get('max_gap_ms', 9999) < 400 and h.get('ride_frames', 0) > 0 and h.get('ride_wobble_m', 1) < 0.05 and t.get('ride_frames', 0) > 0 and t.get('ride_wobble_m', 1) < 0.05 and t.get('zone') == 'TOWN' and t['drive'].get('trips_seen', 0) >= 3 and 'start,stop' in ','.join(t['drive'].get('chauffeur_seen') or []) and h['drive'].get('cosmetic') == t['drive'].get('cosmetic') and 'Big Sal' in json.dumps(h['drive'].get('cosmetic')) and t['drive'].get('crashes_seen', 0) >= 2 and t['drive'].get('runovers_me', 0) >= 1 and t['drive'].get('dents', 9) == 0 and t['drive'].get('odometer_m', 0) > 100 and abs(t['drive'].get('odometer_m', 0) - h['drive'].get('odometer_m', 0)) < 40 else 1)"
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-drive/host.json')); t=json.load(open('build/soak/ci-drive/target.json')); sys.exit(0 if h['drive_test'].get('ok') and t['drive'].get('prediction_error_max_m', 99) < 1.5 and t['drive'].get('prediction_error_mean_m', 99) < 0.25 and t['drive'].get('prediction_samples', 0) > 100 and h['drive'].get('riders') == t['drive'].get('riders') and t['vehicle_view'].get('max_gap_ms', 9999) < 400 and h.get('ride_frames', 0) > 0 and h.get('ride_wobble_m', 1) < 0.05 and t.get('ride_frames', 0) > 0 and t.get('ride_wobble_m', 1) < 0.05 and t.get('zone') == 'TOWN' and t['drive'].get('trips_seen', 0) >= 3 and t['drive'].get('moves_seen', 0) >= 2 and 'start,stop' in ','.join(t['drive'].get('chauffeur_seen') or []) and h['drive'].get('cosmetic') == t['drive'].get('cosmetic') and 'Big Sal' in json.dumps(h['drive'].get('cosmetic')) and t['drive'].get('crashes_seen', 0) >= 2 and t['drive'].get('runovers_me', 0) >= 1 and t['drive'].get('dents', 9) == 0 and t['drive'].get('odometer_m', 0) > 100 and abs(t['drive'].get('odometer_m', 0) - h['drive'].get('odometer_m', 0)) < 40 else 1)"
 
       - name: Skate test (the Gutter Shredder bought and ridden, pushes, an ollie, a kickflip, wipeouts on a bad landing, a wall and a lawn)
         if: matrix.part == 'features'
@@ -474,6 +474,18 @@ jobs:
           wait
           grep "KitTest" build/soak/ci-kit/host.log build/soak/ci-kit/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-kit/host.json')); t=json.load(open('build/soak/ci-kit/target.json')); sys.exit(0 if h['kit_test'].get('ok') and t['kit_test'].get('ok') else 1)"
+
+      - name: Kit test in the connected town (fx-chefty: the drivable Chefty's rack, a drive to the yard and back, the lawn's rake by the door in the morning, rake tiers on the rack)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-kittown
+          "$GODOT" --headless --path . -- --host --port=7844 --name=Tester --no-steam --town-map --warp-rides --job-seed=777 --yard-size=1 --start-hour=10 --kit-test --sim-lag=150 --kit-test --measure="$PWD/build/soak/ci-kittown/host.json" --run-seconds=170 > build/soak/ci-kittown/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7844 --name=Target --no-steam --sim-lag=150 --kit-test --measure="$PWD/build/soak/ci-kittown/target.json" --run-seconds=165 > build/soak/ci-kittown/target.log 2>&1
+          wait
+          grep "KitTest" build/soak/ci-kittown/host.log build/soak/ci-kittown/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-kittown/host.json')); t=json.load(open('build/soak/ci-kittown/target.json')); sys.exit(0 if h['kit_test'].get('ok') and t['kit_test'].get('ok') else 1)"
 
       # The engine dumps its constants, a grid of economy formulas and the tables'
       # invariants (--balance-test, host only); tools/balance_sim.py then plays crews of
@@ -578,9 +590,9 @@ jobs:
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-depart
-          "$GODOT" --headless --path . -- --host --port=7837 --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test --sim-lag=80 --depart-test --measure="$PWD/build/soak/ci-depart/host.json" --run-seconds=150 > build/soak/ci-depart/host.log 2>&1 &
+          "$GODOT" --headless --path . -- --host --port=7837 --name=Tester --no-steam --job-seed=777 --yard-size=1 --depart-test --sim-lag=80 --depart-test --measure="$PWD/build/soak/ci-depart/host.json" --run-seconds=260 > build/soak/ci-depart/host.log 2>&1 &
           sleep 3
-          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7837 --name=Target --no-steam --sim-lag=80 --depart-test --measure="$PWD/build/soak/ci-depart/target.json" --run-seconds=145 > build/soak/ci-depart/target.log 2>&1
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7837 --name=Target --no-steam --sim-lag=80 --depart-test --measure="$PWD/build/soak/ci-depart/target.json" --run-seconds=255 > build/soak/ci-depart/target.log 2>&1
           wait
           grep "DepartTest" build/soak/ci-depart/host.log build/soak/ci-depart/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-depart/host.json')); t=json.load(open('build/soak/ci-depart/target.json')); sys.exit(0 if h['depart_test'].get('ok') and t['depart_test'].get('ok') else 1)"

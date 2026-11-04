@@ -11,9 +11,13 @@ extends RefCounted
 
 const _VehicleCamera = preload("res://player/vehicle_camera.gd")
 const _Vehicles = preload("res://props/vehicles.gd")
+const _CameraBlend = preload("res://player/camera_blend.gd")
 ## player.gd's AnimState.IDLE, and its PITCH_LIMIT.
 const ANIM_IDLE: int = 0
 const PITCH_LIMIT: float = 1.2
+## A climb's anim (net/components/seat_moves.gd) as player.gd's AnimState: WALK,
+## CROUCH, AIR.
+const CLIMB_ANIMS: Dictionary = {"walk": 1, "crouch": 3, "air": 4}
 
 
 ## The vehicle this player sits in, or null (a legacy ride isn't one).
@@ -33,7 +37,9 @@ static func step(player: CharacterBody3D, _delta: float) -> void:
 	if vehicle == null:
 		return
 	player.velocity = Vector3.ZERO
-	player.set("anim_state", ANIM_IDLE)
+	# Climbing in (fx-chefty): the steps to the door, the knees, the hop, for everyone.
+	var climbing := str(vehicle.call("climb_anim", player.name.to_int())) if vehicle.has_method("climb_anim") else ""
+	player.set("anim_state", CLIMB_ANIMS.get(climbing, ANIM_IDLE))
 	var look: Vector2 = player.get("_look")
 	player.set("_look", Vector2.ZERO)
 	var turn := Settings.look_scale()
@@ -114,9 +120,11 @@ static func on_seat_changed(player: Node3D, seated: bool, seat: int) -> void:
 	var vehicle := vehicle_of(player) if seated else null
 	var camera := player.get_node_or_null("VehicleCamera") as Camera3D
 	if vehicle == null:
+		var chasing := camera != null and camera.current
 		if camera != null:
-			camera.queue_free()
 			camera.name = "VehicleCameraGone"
+			if not chasing:
+				camera.queue_free()
 		var head := player.get_node_or_null("Visual/Head") as Node3D
 		if head != null:
 			head.rotation.y = 0.0
@@ -125,7 +133,16 @@ static func on_seat_changed(player: Node3D, seated: bool, seat: int) -> void:
 		var rig := player.get_node_or_null("CameraRig")
 		if rig != null:
 			rig.call("set_active", true)
+		# Out from behind the chase camera (fx-chefty): the view comes down to your
+		# eyes as you hop out, never a cut. The chase camera goes when it's done.
+		if chasing:
+			var eyes: Camera3D = rig.call("current_base_camera") if rig != null else player.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
+			if eyes != null and eyes.current:
+				_CameraBlend.start(player, camera, eyes, Constants.CHEFTY_EXIT_CAMERA_SECONDS, true, _swing_point(camera.get("vehicle") as Node, eyes.global_position))
+			else:
+				camera.queue_free()
 		return
+	var entering := camera == null
 	if camera == null:
 		camera = _VehicleCamera.new()
 		camera.name = "VehicleCamera"
@@ -133,7 +150,23 @@ static func on_seat_changed(player: Node3D, seated: bool, seat: int) -> void:
 		player.add_child(camera)
 	camera.set("vehicle", vehicle)
 	player.set_meta("vehicle_chase", seat == 0)
+	var was := player.get_viewport().get_camera_3d() if player.is_inside_tree() else null
 	_apply_camera(player, vehicle)
+	# Into the driver's seat: the view swings out from your eyes to the chase
+	# camera while you climb in (fx-chefty), never a cut.
+	if entering and was != null and was != camera and camera.current and player.is_ancestor_of(was):
+		_CameraBlend.start(player, was, camera, Constants.CHEFTY_ENTER_CAMERA_SECONDS, false, _swing_point(vehicle, was.global_position))
+
+
+## Where the view swings out through between your eyes and the chase camera
+## (world): up and out beside the truck on the side you're on, so the lens goes
+## round the bed and the cab, never through them. INF without a truck.
+static func _swing_point(vehicle: Node, eye: Vector3) -> Vector3:
+	if vehicle == null or not is_instance_valid(vehicle) or not vehicle.has_method("body_transform"):
+		return Vector3.INF
+	var body: Transform3D = vehicle.call("body_transform")
+	var side := -1.0 if (body.affine_inverse() * eye).x < 0.0 else 1.0
+	return body * Vector3(side * Constants.CHEFTY_CAMERA_SWING_OUT.x, Constants.CHEFTY_CAMERA_SWING_OUT.y, Constants.CHEFTY_CAMERA_SWING_OUT.z)
 
 
 static func _apply_camera(player: Node, _vehicle: Node) -> void:
@@ -154,6 +187,11 @@ static func pose_for(player: Node) -> int:
 	var vehicle := vehicle_of(player)
 	if vehicle == null:
 		return 0
+	# Still climbing in (fx-chefty): on your feet to the door, sitting once over the sill.
+	if vehicle.has_method("climb_pose"):
+		var climbing := int(vehicle.call("climb_pose", player.name.to_int()))
+		if climbing >= 0:
+			return climbing
 	return 1 if bool(vehicle.call("is_cab_seat", int(player.call("seat_slot")))) else 2
 
 
