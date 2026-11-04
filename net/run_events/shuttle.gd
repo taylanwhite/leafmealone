@@ -504,6 +504,14 @@ func host_chase_start() -> float:
 		return -1.0
 	var at := Net.server_time() + Constants.VAN_PLAN_LEAD
 	var leg := _current_leg(trip, at)
+	# fx-w9: still sliding round from a ram where it stood: it's already on the
+	# move, so the chase just takes over from here.
+	if not leg.is_empty() and int(leg["k"]) == Leg.CHASE and bool(_chase.get("park_after_spin", false)):
+		_chase["park_after_spin"] = false
+		trip.info["siren"] = true
+		trip.info["lights"] = true
+		_rpc_info.rpc(trip.id, trip.info)
+		return Net.server_time()
 	if leg.is_empty() or int(leg["k"]) != Leg.PARKED:
 		return -1.0
 	var start := at
@@ -579,6 +587,42 @@ func host_chase_spin(push: Vector3, dir: float) -> void:
 	state["vel"] = (state["vel"] as Vector3) * Constants.VAN_RAM_KEEP_SPEED_SHARE + Vector3(push.x, 0.0, push.z)
 	_rpc_beat.rpc(trip.id, "ram", Net.server_time())
 	stats["spins"] = int(stats.get("spins", 0)) + 1
+
+
+## Host (fx-w9): rammed where it stands. It slews round on its locked wheels from
+## the hit (a short CHASE leg nobody steers: the spin-out with the handbrake on,
+## VAN_PARKED_SPIN_SHARE of a moving van's) and stands again where it stops, a
+## PARKED leg there (_host_chase_idle parks it). Not while a NICE BOY is in the
+## middle of hopping in or out of its door: then it only rocks. True when it spun.
+func host_parked_spin(push: Vector3, dir: float) -> bool:
+	var trip := _trip(_raid_trip)
+	if not Net.is_host() or trip == null or trip.ended or trip.depart_planned:
+		return false
+	var now := Net.server_time()
+	var leg := _current_leg(trip, now)
+	if leg.is_empty() or int(leg["k"]) != Leg.PARKED:
+		return false
+	for index: Variant in trip.crew.keys():
+		var entry: Dictionary = trip.crew[index]
+		var mode := int(entry.get("mode", -1))
+		if mode == CREW_HOP_OUT and now < float(entry.get("at", 0.0)) + Constants.VAN_HOP_SECONDS + Constants.VAN_PARKED_SPIN_HOP_MARGIN:
+			return false
+		if mode == CREW_HOP_IN and not crew_aboard(int(index)):
+			return false
+	var start := now + Constants.VAN_PLAN_LEAD
+	_cut_legs(trip, start)
+	var pose := _pose(trip, start)
+	trip.legs.append({"k": Leg.CHASE, "t": start, "x": pose})
+	_send_plan(trip)
+	_chase_body(trip, pose)
+	_chase["spin_left"] = Constants.VAN_SPIN_SECONDS * Constants.VAN_PARKED_SPIN_SHARE
+	_chase["spin_dir"] = signf(dir) if dir != 0.0 else 1.0
+	_chase["park_after_spin"] = true
+	var state: Dictionary = _chase["state"]
+	state["vel"] = Vector3(push.x, 0.0, push.z)
+	_rpc_beat.rpc(trip.id, "ram", now)
+	stats["parked_spins"] = int(stats.get("parked_spins", 0)) + 1
+	return true
 
 
 ## Host: the chasing van has stopped; it stands here from VAN_PLAN_LEAD on (a
@@ -715,6 +759,11 @@ func _host_chase_idle() -> void:
 	if _chase.is_empty() or int(_chase.get("stepped", -1)) == Engine.get_physics_frames():
 		return
 	host_chase_step({"brake": true}, get_physics_process_delta_time())
+	# fx-w9: a parked van that was rammed round stands again once it's stopped.
+	if bool(_chase.get("park_after_spin", false)) and float(_chase["spin_left"]) <= 0.0:
+		var pose := host_chase_pose()
+		if not pose.is_empty() and float(pose["speed"]) < Constants.CHEFTY_PARK_SPEED and host_chase_park():
+			_chase["park_after_spin"] = false
 
 
 ## Every peer: a pose sample of the chase, kept in time order for

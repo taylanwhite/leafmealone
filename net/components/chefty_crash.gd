@@ -28,6 +28,7 @@ const _Vehicles = preload("res://props/vehicles.gd")
 const _NetLook = preload("res://props/chefty_net_look.gd")
 const _TownDressing = preload("res://levels/town/town_dressing.gd")
 const _HideSpot = preload("res://props/hide_spot.gd")
+const _FenceGive = preload("res://net/components/fence_give.gd")
 ## The leaves a hedge ploughed into throws (fx-yard): the hedgerow's greens and
 ## its field trees' autumn colors.
 const PLOW_LEAVES: Array[Color] = [Color(0.27, 0.38, 0.19), Color(0.33, 0.42, 0.2), Color(0.86, 0.46, 0.14), Color(0.72, 0.26, 0.13), Color(0.4, 0.42, 0.2)]
@@ -105,6 +106,11 @@ var knocks_seen: int = 0
 var hedge_plows_seen: int = 0
 var _plow_wait: float = 0.0
 var _plow_last_msec: int = -100000
+## fx-w9: how often this peer heard a fence take the truck, whether the drawn
+## truck pressed a fence last tick, and each leaning fence panel's [angle, away].
+var fence_gives_seen: int = 0
+var _fence_was_pressing: bool = false
+var _fence_lean: Dictionary = {}
 ## The second dent's rolling hubcap, on this peer (counted headless too).
 var hubcaps_seen: int = 0
 ## Host only.
@@ -575,6 +581,7 @@ func physics(delta: float) -> void:
 	_shake_view(delta)
 	_knock_local()
 	_hedge_local(delta)
+	_fence_local(delta)
 	_restore_left -= delta
 	if _restore_left <= 0.0:
 		_restore_left = 1.0
@@ -727,6 +734,85 @@ func _hedge_local(delta: float) -> void:
 		_shake = maxf(_shake, 0.3 * strength)
 
 
+## fx-w9, every peer: Chefty's drawn body pressing into a fence (the vehicle
+## sim's fence give holds its speed, net/components/fence_give.gd). The job
+## yard's panels round the bumper lean away from it as far as it presses, and
+## spring back upright when it backs off; the pickets creak and rattle as it
+## meets them (fence_give, louder the faster it came), and the view of anyone
+## aboard or close by gives a little shake. Cosmetic; never a crash.
+func _fence_local(delta: float) -> void:
+	var body: Transform3D = vehicle.call("body_transform")
+	var yaw := float(vehicle.call("yaw"))
+	var hit := _FenceGive.contact(body.origin, yaw)
+	var pressing := not hit.is_empty() and float(hit["clear"]) < Constants.FENCE_GIVE_TOUCH
+	var lean_to := {}
+	if pressing:
+		var normal: Vector3 = hit["normal"]
+		var at: Vector3 = hit["at"]
+		var press := clampf(Constants.FENCE_GIVE_TOUCH - float(hit["clear"]), 0.0, Constants.FENCE_GIVE_DEPTH + Constants.FENCE_GIVE_TOUCH)
+		for panel: Variant in _FenceGive.panels_of(int(hit["id"])):
+			var holder := panel as Node3D
+			if not is_instance_valid(holder):
+				continue
+			var mid: Vector3 = (holder.get_parent() as Node3D).to_global(holder.get_meta(&"fence_mid", Vector3.ZERO) as Vector3) if holder.get_parent() is Node3D else holder.global_position
+			var off := Vector2(mid.x - at.x, mid.z - at.z).length()
+			var share := clampf(1.0 - off / Constants.FENCE_BOW_REACH, 0.0, 1.0)
+			if share <= 0.0:
+				continue
+			lean_to[holder] = [atan2(press * share, Constants.FENCE_BOW_HEIGHT), -normal]
+		var speed := float(vehicle.call("speed"))
+		var into := -(vehicle.call("drawn_velocity") as Vector3).dot(normal) if vehicle.has_method("drawn_velocity") else speed
+		var fresh := not _fence_was_pressing
+		if fresh and maxf(into, speed) > Constants.FENCE_GIVE_SOUND_SPEED:
+			fence_gives_seen += 1
+			var sfx := get_tree().get_first_node_in_group("sfx")
+			if sfx != null:
+				sfx.call("play_at", "fence_give", at + Vector3.UP * 0.7, -6.0 + 6.0 * clampf(maxf(into, speed) / 10.0, 0.0, 1.0))
+			if _feels(at):
+				_shake = maxf(_shake, 0.25 * clampf(maxf(into, speed) / 10.0, 0.2, 1.0))
+	_fence_was_pressing = pressing
+	# Every leaning panel eases toward where the bumper has it (or back upright).
+	for holder: Variant in lean_to:
+		if not _fence_lean.has(holder):
+			_fence_lean[holder] = [0.0, (lean_to[holder] as Array)[1]]
+	for holder: Variant in _fence_lean.keys():
+		var node := holder as Node3D
+		if not is_instance_valid(node):
+			_fence_lean.erase(holder)
+			continue
+		var entry: Array = _fence_lean[holder]
+		var want := float((lean_to[holder] as Array)[0]) if lean_to.has(holder) else 0.0
+		if lean_to.has(holder):
+			entry[1] = (lean_to[holder] as Array)[1]
+		var rate := Constants.FENCE_BOW_IN_RATE if want > float(entry[0]) else Constants.FENCE_BOW_OUT_RATE
+		entry[0] = lerpf(float(entry[0]), want, clampf(rate * delta, 0.0, 1.0))
+		_lean_panel(node, float(entry[0]), entry[1] as Vector3)
+		if not lean_to.has(holder) and float(entry[0]) < 0.002:
+			_lean_panel(node, 0.0, entry[1] as Vector3)
+			_fence_lean.erase(holder)
+
+
+## A fence panel leaning angle (rad) away from the truck (away: flat, world),
+## about the foot of its pickets.
+static func _lean_panel(holder: Node3D, angle: float, away: Vector3) -> void:
+	var parent := holder.get_parent() as Node3D
+	if parent == null:
+		return
+	var mid: Vector3 = holder.get_meta(&"fence_mid", Vector3.ZERO)
+	var along: Vector3 = holder.get_meta(&"fence_along", Vector3.RIGHT)
+	var away_local := parent.global_basis.inverse() * away
+	away_local.y = 0.0
+	if away_local.length() < 0.001 or angle <= 0.0:
+		holder.transform = Transform3D.IDENTITY
+		return
+	# Turning about the fence's line, the top goes toward away.
+	var axis := along.normalized()
+	if Vector3.UP.rotated(axis, 0.1).dot(away_local) < 0.0:
+		axis = -axis
+	var turn := Basis(axis, angle)
+	holder.transform = Transform3D(Basis.IDENTITY, mid) * Transform3D(turn, Vector3.ZERO) * Transform3D(Basis.IDENTITY, -mid)
+
+
 ## One mailbox or bin goes flying: the drawn one hides, and a copy in a physics
 ## body of its own (nothing collides with it, it lands on the ground) takes off
 ## with Chefty's speed, spinning.
@@ -780,8 +866,19 @@ func _knock_over(piece: Node3D) -> void:
 		# Off to the side it was on (a coin toss dead ahead), clear of the truck
 		# driving on through, which never touches it again.
 		var off_side := side if side.length() > 0.5 else right * (-1.0 if _rng.randf() < 0.5 else 1.0)
-		flier.linear_velocity = flat * Constants.TOWN_EDGE_SAWHORSE_CARRY + Vector3.UP * Constants.TOWN_EDGE_SAWHORSE_UP + off_side * Constants.TOWN_EDGE_SAWHORSE_SIDE
-		flier.angular_velocity = axis * Constants.TOWN_EDGE_SAWHORSE_TIP * _rng.randf_range(0.7, 1.0) + Vector3.UP * _rng.randf_range(-1.5, 1.5)
+		# fx-w9: it goes over, it doesn't take off. Lifted 2.4 m/s and carried
+		# faster than the bumper it sailed 15-20 m down the road at 18 m/s. Now it
+		# keeps the bumper's pace (so the truck never drives through it standing),
+		# barely leaves its feet, tips flat within a few frames and is swept off
+		# to its side, then grinds to a stop on the road on its rough wood.
+		flier.linear_velocity = push * flat.length() * Constants.TOWN_EDGE_SAWHORSE_CARRY + Vector3.UP * Constants.TOWN_EDGE_SAWHORSE_UP + off_side * Constants.TOWN_EDGE_SAWHORSE_SIDE
+		flier.angular_velocity = axis * Constants.TOWN_EDGE_SAWHORSE_TIP * _rng.randf_range(0.85, 1.0) + Vector3.UP * _rng.randf_range(-0.8, 0.8)
+		var rough := PhysicsMaterial.new()
+		rough.friction = Constants.TOWN_EDGE_SAWHORSE_FRICTION
+		rough.rough = true
+		rough.bounce = 0.05
+		flier.physics_material_override = rough
+		flier.linear_damp = Constants.TOWN_EDGE_SAWHORSE_SKID_DAMP
 		_play_at("sawhorse_tip", piece.global_position + Vector3.UP * 0.6)
 	elif kind == "barrel":
 		flier.linear_velocity = flat * Constants.TOWN_EDGE_BARREL_CARRY + Vector3.UP * Constants.TOWN_EDGE_BARREL_UP + side * Constants.CHEFTY_KNOCK_SIDE
@@ -908,7 +1005,7 @@ func _play_at(id: String, at: Vector3) -> void:
 func report() -> Dictionary:
 	return {
 		"crashes_seen": crashes_seen, "tumbles_seen": tumbles_seen, "runovers_seen": runovers_seen,
-		"runovers_me": runovers_me, "spills_seen": spills_seen, "knocks_seen": knocks_seen, "hubcaps_seen": hubcaps_seen, "hedge_plows_seen": hedge_plows_seen,
+		"runovers_me": runovers_me, "spills_seen": spills_seen, "knocks_seen": knocks_seen, "hubcaps_seen": hubcaps_seen, "hedge_plows_seen": hedge_plows_seen, "fence_gives_seen": fence_gives_seen,
 		"bags_spilled": bags_spilled, "riders_ejected": riders_ejected, "plowed": plowed,
 		"mailboxes_hit": mailboxes_hit, "last_crash": last_crash.duplicate(),
 	}

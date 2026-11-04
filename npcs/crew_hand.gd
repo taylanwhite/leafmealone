@@ -28,6 +28,10 @@ var look_seed: int = 0
 var action: String = "idle"
 ## Host: 0.5 to 1, how good they are (rake strength and walking speed).
 var skill: float = 0.7
+## Host (fx-w9): set before spawning, the seconds the hop off Chefty's bed takes
+## (net/crew/hires.gd spawn_on_lot): they stand where they land until it's over
+## and a beat more, then go to work.
+var hop_seconds: float = 0.0
 
 var _state: int = State.FIND
 var _target := Vector3.ZERO
@@ -55,10 +59,22 @@ signal raked(origin: Vector3)
 func _ready() -> void:
 	set_multiplayer_authority(1)
 	add_to_group("crew_hands")
+	# fx-w9: still drawn riding in Chefty's bed on this peer: hidden until that
+	# figure has hopped off onto this spot (chefty_drive.gd _alight_hand shows us),
+	# or the yard would show us on the grass for a frame before the hop.
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty != null and chefty.has_method("hand_riding") and bool(chefty.call("hand_riding", hand_name)):
+		var visual := get_node_or_null("Visual") as Node3D
+		if visual != null:
+			visual.visible = false
 	_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 	if Net.is_host():
 		_rng.seed = hash([look_seed, hand_name])
 		_LotNav.ensure(_lot_zone())
+		if hop_seconds > 0.0:
+			# REST ends 2 s in: this one ends that long after the landing.
+			_state = State.REST
+			_state_time = 2.0 - hop_seconds - Constants.HIRE_HOP_LAND_BEAT
 
 
 ## This hand in stroke events: Constants.RAKE_ACTOR_HAND_BASE + N for "HandN".

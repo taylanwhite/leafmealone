@@ -1002,7 +1002,7 @@ func _host_depart(peer_id: int = 0) -> void:
 		ride.call("depart", party, Net.Zone.LOT)
 		return
 	var body := _player_node(peer_id)
-	if body == null or Net.is_watcher(peer_id) or not _players_near(%TruckPad.global_position).has(peer_id):
+	if body == null or Net.is_watcher(peer_id) or not _players_near(%TruckPad.global_position).has(peer_id) or _is_down(body):
 		return
 	if _is_boarding(ride):
 		# Late to the honk: in you get (the window's own walk-up does the same).
@@ -1158,6 +1158,10 @@ func _tick_boarding() -> void:
 			waiting += 1
 			coming += 1
 			continue
+		# fx-w9: knocked flat beside the truck, you get up first; then you climb in.
+		if _is_down(body):
+			waiting += 1
+			continue
 		if _board_left.has(peer_id) or not bool(ride.call("board", peer_id, body.global_position)):
 			waiting += 1
 	var now := Net.server_time()
@@ -1254,6 +1258,10 @@ func _gather_lot(ride: Node) -> void:
 		# yard stays until they walk off it (the gate home at the curb).
 		if body != null and not Net.is_watcher(peer_id) and Vector2(body.global_position.x - bed.x, body.global_position.z - bed.z).length() > Constants.CHEFTY_BOARD_GATHER_REACH:
 			continue
+		# fx-w9: flat on the grass as it goes: left on the yard like a straggler,
+		# never lifted into the bed with stars round their head.
+		if body != null and _is_down(body):
+			continue
 		if body == null or not bool(ride.call("board", peer_id, body.global_position)):
 			Net.move_player_to_zone(peer_id, Net.Zone.STORE)
 
@@ -1267,6 +1275,11 @@ func _at_chefty(body: Node3D, ride: Node, zone: int) -> bool:
 			return true
 	var bed: Vector3 = (ride.call("bed_transform") as Transform3D) * Vector3(0.0, 0.0, 0.7)
 	return Vector2(body.global_position.x - bed.x, body.global_position.z - bed.z).length() <= Constants.CHEFTY_BOARD_WALKUP_METERS
+
+
+## fx-w9: knocked flat, thrown or bailed (player.gd is_down), from the replicated pose.
+static func _is_down(body: Node) -> bool:
+	return body != null and body.has_method("is_down") and bool(body.call("is_down"))
 
 
 static func _is_boarding(ride: Node) -> bool:

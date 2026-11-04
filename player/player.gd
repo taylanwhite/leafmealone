@@ -1898,6 +1898,10 @@ func e_choice() -> Dictionary:
 	# Hidden, or on the way in or out: E gets you out, which you already know.
 	if _hidden_spot != null or in_pile or _hide_moving():
 		return {"do": &"hide_toggle", "hint": {}, "target": null}
+	# Flat on your back (fx-w9): E waits until you're up. You could hop into
+	# Chefty's bed from the grass with stars still round your head.
+	if is_down():
+		return {"do": &"down", "hint": {}, "target": null}
 	var held := _held_prop()
 	var held_kind := str(held.get("kind")) if held != null else ""
 	if held_kind == "paint_roller" and _nearest_bucket() != null:
@@ -2052,7 +2056,7 @@ func _press_e(event: InputEvent) -> bool:
 			_refuel()
 		&"climb":
 			_toggle_climb()
-		&"held", &"ride":
+		&"held", &"ride", &"down":
 			pass
 		&"put_down", &"grab_player":
 			_grab_player()
@@ -2502,6 +2506,14 @@ func _apply_bonk(push: Vector3, tier: String) -> void:
 	velocity = push
 	if _knocked and _held_prop() != null:
 		_release_held(false)
+
+
+## Every peer (fx-w9): flat on your back or flying through the air: knocked down
+## by a heavy bonk, a bad fall or a punch, thrown, or bailed off the board. From
+## the replicated pose, so the host knows it of anyone. Nobody climbs into
+## Chefty like that, and E does nothing until you're back on your feet.
+func is_down() -> bool:
+	return anim_state == AnimState.KNOCKED or thrown or wipeout
 
 
 ## Owner (P1 catch, the haul-up, net/run_events/encounter.gd): hauled up off the

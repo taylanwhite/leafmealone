@@ -432,9 +432,9 @@ jobs:
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-pursuit
-          "$GODOT" --headless --path . -- --host --port=7818 --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --heat=30 --start-hour=10 --pursuit-test --sim-lag=100 --measure="$PWD/build/soak/ci-pursuit/host.json" --run-seconds=200 > build/soak/ci-pursuit/host.log 2>&1 &
+          "$GODOT" --headless --path . -- --host --port=7818 --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --heat=30 --start-hour=10 --pursuit-test --sim-lag=100 --measure="$PWD/build/soak/ci-pursuit/host.json" --run-seconds=260 > build/soak/ci-pursuit/host.log 2>&1 &
           sleep 3
-          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7818 --name=Target --no-steam --sim-lag=100 --measure="$PWD/build/soak/ci-pursuit/target.json" --run-seconds=195 > build/soak/ci-pursuit/target.log 2>&1
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7818 --name=Target --no-steam --sim-lag=100 --measure="$PWD/build/soak/ci-pursuit/target.json" --run-seconds=255 > build/soak/ci-pursuit/target.log 2>&1
           wait
           grep "PursuitTest" build/soak/ci-pursuit/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-pursuit/host.json')); t=json.load(open('build/soak/ci-pursuit/target.json')); s=t.get('shuttle',{}); sys.exit(0 if h['pursuit_test'].get('ok') and t.get('pursuit',{}).get('seen_active',0) >= 1 and 'chase' in s.get('legs_seen',[]) and s.get('track_samples',0) > 60 and s.get('max_speed_on_screen',99) < 35 else 1)"
@@ -629,9 +629,9 @@ jobs:
         run: |
           if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
           mkdir -p build/soak/ci-yard
-          "$GODOT" --headless --path . -- --host --port=7839 --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --start-hour=10 --yard-test --sim-lag=150 --yard-test --measure="$PWD/build/soak/ci-yard/host.json" --run-seconds=150 > build/soak/ci-yard/host.log 2>&1 &
+          "$GODOT" --headless --path . -- --host --port=7839 --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --start-hour=10 --yard-test --sim-lag=150 --yard-test --measure="$PWD/build/soak/ci-yard/host.json" --run-seconds=210 > build/soak/ci-yard/host.log 2>&1 &
           sleep 3
-          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7839 --name=Target --no-steam --sim-lag=150 --yard-test --measure="$PWD/build/soak/ci-yard/target.json" --run-seconds=145 > build/soak/ci-yard/target.log 2>&1
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7839 --name=Target --no-steam --sim-lag=150 --yard-test --measure="$PWD/build/soak/ci-yard/target.json" --run-seconds=205 > build/soak/ci-yard/target.log 2>&1
           wait
           grep "YardTest" build/soak/ci-yard/host.log build/soak/ci-yard/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-yard/host.json')); t=json.load(open('build/soak/ci-yard/target.json')); sys.exit(0 if h['yard_test'].get('ok') and t['yard_test'].get('ok') else 1)"

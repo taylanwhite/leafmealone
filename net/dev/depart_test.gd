@@ -107,11 +107,51 @@ func _watch_client() -> void:
 		_was_on_lot = true
 	if _was_on_lot and Net.player_zone(me) == Net.Zone.STORE:
 		_gathered_home = true
+	_check_late_facing(chefty)
 	# Done once home from the yard and the host has left again without us (hold).
 	if _gathered_home and bool(chefty.call("is_riding")) and int(chefty.call("seat_of", me)) < 0:
 		var honks := int(chefty.get("honks"))
-		result = {"ok": _seen_seated and _seen_climb and honks >= 3, "seated": _seen_seated, "climb": _seen_climb, "honks": honks, "done": true}
-		print("[DepartTest] client: seated %s, climb drawn %s, honks %d" % [_seen_seated, _seen_climb, honks])
+		var facing := _face_check == 2 and _face_ok
+		result = {"ok": _seen_seated and _seen_climb and honks >= 3 and facing, "seated": _seen_seated, "climb": _seen_climb, "honks": honks, "late_facing": facing, "late_facing_detail": _face_detail, "done": true}
+		print("[DepartTest] client: seated %s, climb drawn %s, honks %d, a late joiner's Chefty faces the host's way %s (%s)" % [_seen_seated, _seen_climb, honks, facing, _face_detail])
+
+
+## fx-w9, client: home from the yard, Chefty parks facing the way it came. A late
+## joiner learns how it's parked (ride.gd _rpc_parked); played here by forgetting
+## which way it faces (a fresh peer's default) and asking the host again, as a
+## joiner does: it must end facing the way it did, not the other way round.
+var _face_check: int = 0
+var _face_ok: bool = false
+var _face_at: float = 0.0
+var _face_before := Vector3.ZERO
+var _face_detail: String = "not run"
+
+
+func _check_late_facing(chefty: Node) -> void:
+	if _face_check == 2 or not _gathered_home:
+		return
+	var body := chefty.get_node_or_null("Body") as Node3D
+	if body == null:
+		return
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	if _face_check == 0:
+		if bool(chefty.call("is_riding")) or not bool(chefty.call("parked_at_store")):
+			return
+		_face_before = body.global_basis.z
+		chefty.set("_reverse", false)
+		chefty.call("_place", float(chefty.get("_parked_along")))
+		var wrong := body.global_basis.z.angle_to(_face_before)
+		_face_detail = "a fresh peer would draw it %.0f deg off" % rad_to_deg(wrong)
+		chefty.rpc_id(1, "_rpc_request_state")
+		_face_check = 1
+		_face_at = now
+		return
+	if now - _face_at < 1.0:
+		return
+	var off := body.global_basis.z.angle_to(_face_before)
+	_face_ok = off < 0.05
+	_face_detail += "; after the host's answer %.1f deg off" % rad_to_deg(off)
+	_face_check = 2
 
 
 # ---------------------------------------------------------------- host

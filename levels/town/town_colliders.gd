@@ -31,6 +31,7 @@ const _Streamer = preload("res://levels/town/town_streamer.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
 const _Outskirts = preload("res://levels/town/outskirts.gd")
 const _TownLine = preload("res://levels/town/town_line.gd")
+const _FenceGive = preload("res://net/components/fence_give.gd")
 const GROUND_THICKNESS: float = 0.2
 const LAMP_RADIUS: float = 0.15
 ## The outskirts' tree trunks go in this many a build step.
@@ -208,6 +209,7 @@ func _add_across(slot: Dictionary) -> void:
 	var req := _Streamer.parcel_request(str(slot["hood"]), int(slot["seed"]), int(slot["size"]), int(slot["hood_index"]), true)
 	for solid: Array in _LotBuilder.colliders(req):
 		_add_box("Dressing", xform * (solid[0] as Vector3), solid[1], xform.basis)
+	_add_fences(xform, req)
 
 
 ## One yard slot's house: its solids, unless the seeds changed again since.
@@ -215,7 +217,9 @@ func _add_yard(house_id: int, house_seed: int, size: int, built_from: int) -> vo
 	if built_from != _built_from:
 		return
 	for shape: CollisionShape3D in _slots[house_id]:
-		_body.remove_child(shape)
+		if str(shape.name).begins_with("Fence"):
+			_FenceGive.remove_owner(shape)
+		shape.get_parent().remove_child(shape)
 		shape.queue_free()
 	var shapes: Array = []
 	var xform := TownMap.yard_transform(house_id)
@@ -225,7 +229,41 @@ func _add_yard(house_id: int, house_seed: int, size: int, built_from: int) -> vo
 		var shape := _add_box("Yard%d" % house_id, xform * (solid[0] as Vector3), solid[1], xform.basis)
 		shape.disabled = _off.has(house_id)
 		shapes.append(shape)
+	# Its fences go with the slot: off while it's the job site (the job yard has its own).
+	for fence: CollisionShape3D in _add_fences(xform, req):
+		fence.disabled = _off.has(house_id)
+		shapes.append(fence)
 	_slots[house_id] = shapes
+
+
+## fx-w9: a parcel's fence runs (lot_builder.gd fence_lines), solid to people (a
+## thin box each on the pad-wall layer, like the barricades: people and the
+## crew stop, thrown things and Chefty's chassis don't) and given to the vehicle
+## sim's fence give, so Chefty noses into them and they hold. Each line lives as
+## long as its shape is on. Returns the shapes.
+func _add_fences(xform: Transform3D, req: Dictionary) -> Array[CollisionShape3D]:
+	var out: Array[CollisionShape3D] = []
+	if _foot == null:
+		return out
+	for line: Array in _LotBuilder.fence_lines(req):
+		var a := xform * (line[0] as Vector3)
+		var b := xform * (line[1] as Vector3)
+		var high := float(line[2])
+		var span := Vector3(b.x - a.x, 0.0, b.z - a.z)
+		if span.length() < 0.2:
+			continue
+		var along := span.normalized()
+		var box := BoxShape3D.new()
+		box.size = Vector3(span.length(), high, Constants.YARD_FENCE_SOLID_THICK)
+		var shape := CollisionShape3D.new()
+		_serial += 1
+		shape.name = "Fence_%d" % _serial
+		shape.shape = box
+		shape.transform = Transform3D(Basis(along, Vector3.UP, along.cross(Vector3.UP)), (a + b) * 0.5 + Vector3(0.0, high * 0.5, 0.0))
+		_foot.add_child(shape)
+		_FenceGive.add(a, b, shape)
+		out.append(shape)
+	return out
 
 
 func _add_box(label: String, center: Vector3, size: Vector3, basis: Basis = Basis.IDENTITY) -> CollisionShape3D:

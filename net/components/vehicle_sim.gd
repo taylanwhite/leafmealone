@@ -27,6 +27,8 @@ extends RefCounted
 ## input: throttle -1..1 (negative brakes, then reverses), steer -1..1 (positive
 ## is right), handbrake bool, brake bool (nobody driving: stop).
 
+const _FenceGive = preload("res://net/components/fence_give.gd")
+
 
 ## The params dictionary for Chefty with this many dents and the tune-up perk.
 static func chefty_params(dents: int, tuneup: bool) -> Dictionary:
@@ -145,6 +147,12 @@ static func step(chassis: CharacterBody3D, state: Dictionary, input: Dictionary,
 		yaw = wrapf(yaw + float(edge[1]), -PI, PI)
 		forward = forward_of(yaw)
 		right = right_of(yaw)
+	# fx-w9: fences give the same way (net/components/fence_give.gd): the yard's
+	# pickets and the town's fences bow and hold the truck instead of crashing it.
+	if bool(params.get("fence_give", false)):
+		_FenceGive.except_bodies(chassis)
+		if not air:
+			vel = _FenceGive.give(chassis.global_position, yaw, vel, dt)
 	# Lean back on the gas, nose down on the brakes, out of the turn.
 	var lean_max := Constants.CHEFTY_LEAN_MAX
 	var lateral := yaw_rate * along

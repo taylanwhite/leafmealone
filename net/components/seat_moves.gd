@@ -81,6 +81,12 @@ static func shift(from_seat: Vector3, from_cab: bool, from_yaw: float, to_seat: 
 	return _finish(legs, from_yaw, to_yaw)
 
 
+## fx-w9: off a bed seat onto the ground beside the truck (a hired hand at the
+## yard): the step off the seat, over the rail, the knees taking the landing.
+static func alight(seat: Vector3, seat_yaw: float, ground: Vector3, yaw_to: float) -> Dictionary:
+	return _finish([_out_leg(seat, ground, false)], seat_yaw, yaw_to)
+
+
 static func _side_of(x: float) -> float:
 	return -1.0 if x < 0.0 else 1.0
 

@@ -6326,14 +6326,19 @@ const TOWN_EDGE_BARRICADE_DRAG_PER_M: float = 0.035
 ## The barricade's pieces, knocked (net/components/chefty_crash.gd _knock_over):
 ## how heavy (kg); a sawhorse tips over its feet (carried at this share of
 ## Chefty's speed, this much lift, m/s, turning at up to this rate, rad/s) and a
-## barrel bowls away (this share, this lift). Struck, a sawhorse leaves a little faster than the bumper (it's
-## light), so it flies ahead and off to the side instead of going under the truck.
+## barrel bowls away (this share, this lift). Struck, a sawhorse keeps the
+## bumper's pace (fx-w9: it used to leave faster, with a 2.4 m/s hop, and sailed
+## 15-20 m off a fast truck), tips flat in a few frames and is swept off to the
+## side it was on, then grinds to a stop on its rough wood (this friction, this
+## damping, 1/s) instead of going under the truck or up the road.
 const TOWN_EDGE_SAWHORSE_MASS: float = 7.0
-const TOWN_EDGE_SAWHORSE_CARRY: float = 1.15
-const TOWN_EDGE_SAWHORSE_UP: float = 2.4
+const TOWN_EDGE_SAWHORSE_CARRY: float = 1.0
+const TOWN_EDGE_SAWHORSE_UP: float = 0.9
 ## ... and off the side it was on at this speed (m/s), clear of the truck.
-const TOWN_EDGE_SAWHORSE_SIDE: float = 3.5
-const TOWN_EDGE_SAWHORSE_TIP: float = 6.0
+const TOWN_EDGE_SAWHORSE_SIDE: float = 4.2
+const TOWN_EDGE_SAWHORSE_TIP: float = 9.0
+const TOWN_EDGE_SAWHORSE_FRICTION: float = 1.6
+const TOWN_EDGE_SAWHORSE_SKID_DAMP: float = 0.8
 const TOWN_EDGE_BARREL_MASS: float = 11.0
 const TOWN_EDGE_BARREL_CARRY: float = 0.65
 const TOWN_EDGE_BARREL_UP: float = 2.2
@@ -6432,3 +6437,58 @@ const STAGE_POST_LENS_CLEAR: float = 1.1
 ## share of its height (an evergreen's skirt goes by VAN_TREE_SPREAD.x instead).
 const STAGE_LAMP_POST_RADIUS: float = 0.12
 const STAGE_TRUNK_SHARE: float = 0.045
+
+# ---- fx-w9 (W9's player-facing leftovers; docs/GAME.md "Fixes a player bumps into")
+## The job board closes this long (s) after "Take this job": the pin goes in and
+## the card turns "Next up" first.
+const JOB_BOARD_TAKE_CLOSE_SECONDS: float = 0.45
+## A hired hand hopping off Chefty's bed at a yard stands where they land this
+## long (s) after the hop before going to work.
+const HIRE_HOP_LAND_BEAT: float = 0.4
+## Walking into a loose thing nudges it (net/components/net_prop.gd
+## _shoved_by_walkers): only at this pace or more (m/s), only what's ahead of
+## the walker's feet within this reach (m, flat) and this far either side of
+## their line (m), from this far below their feet to this far above (m); it's
+## moved along at this share of their pace, never faster than this (m/s).
+const PROP_SHOVE_MIN_SPEED: float = 0.8
+const PROP_SHOVE_REACH: float = 0.9
+const PROP_SHOVE_WIDTH: float = 0.45
+const PROP_SHOVE_BELOW: float = 0.3
+const PROP_SHOVE_ABOVE: float = 1.0
+const PROP_SHOVE_SPEED_SHARE: float = 0.6
+const PROP_SHOVE_SPEED_MAX: float = 2.2
+## Fences give (net/components/fence_give.gd): the truck's speed into a fence is
+## held, from this far out (m), under what stops it within this far past the
+## pickets (m) at this deceleration (m/s^2); bowed in deep it's pushed back out at
+## up to this speed (m/s). Rubbing along it (closer than this, m), its slide is
+## dragged at this rate (1/s). The truck's middle must be this far (m) from a
+## run's line to count, and a corner this far (m) past a run's end still does. A
+## truck with a corner more than FENCE_GIVE_DEPTH and this (m) through a run was put
+## there (a teleport, a crash's shove): that run lets it go.
+const FENCE_GIVE_CROSSED: float = 0.5
+const FENCE_GIVE_BAND: float = 1.2
+const FENCE_GIVE_DEPTH: float = 0.55
+const FENCE_GIVE_DECEL: float = 120.0
+const FENCE_GIVE_PUSH_BACK: float = 1.2
+const FENCE_GIVE_TOUCH: float = 0.12
+const FENCE_GIVE_SIDE_DRAG: float = 3.0
+const FENCE_GIVE_MIDDLE_CLEAR: float = 0.8
+const FENCE_GIVE_END_SLACK: float = 0.15
+## Every peer (chefty_crash.gd _fence_local): meeting a fence faster than this
+## (m/s) creaks it (fence_give); the job yard's panels within this far (m) of the
+## bumper lean as far as it presses, as if this tall (m), easing in and back out
+## at these rates (1/s).
+const FENCE_GIVE_SOUND_SPEED: float = 1.5
+const FENCE_BOW_REACH: float = 3.0
+const FENCE_BOW_HEIGHT: float = 0.9
+const FENCE_BOW_IN_RATE: float = 18.0
+const FENCE_BOW_OUT_RATE: float = 5.0
+## Rammed parked (pulled over), the NICE BOYS' van slews round: this share of a
+## moving van's spin-out (VAN_SPIN_SECONDS, so about a quarter turn), shoved
+## along with this share of a moving van's shove; never while a NICE BOY is on
+## his way in at its door, or hopping out of it (VAN_HOP_SECONDS and this, s).
+const VAN_PARKED_SPIN_SHARE: float = 0.5
+const VAN_PARKED_PUSH_SHARE: float = 0.6
+const VAN_PARKED_SPIN_HOP_MARGIN: float = 0.3
+## Crashes into the van this soon (s) after a ram that counted are the same ram.
+const VAN_RAM_REPEAT_SECONDS: float = 2.0

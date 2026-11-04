@@ -626,6 +626,30 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 		return
 	if _crew_bedtime(player, delta):
 		return
+	# fx-w9: Chefty honked at the pad for the yard. Whatever the bot was at (the
+	# rake bin, walking a rake out, fetching the one by the door), it drops it and
+	# heads for the truck, loading the rake it has in hand if the rack's in reach
+	# on the way: it used to finish its errand and stand by the empty pad holding
+	# a rake while the crew drove off (hotbar:E's crew session).
+	if honking != null and honking.has_method("is_boarding") and bool(honking.call("is_boarding")) and int(honking.call("boarding_destination")) == Net.Zone.LOT:
+		if int(honking.call("seat_of", Net.local_peer_id())) >= 0:
+			_crew_walk(player, false, delta)
+			return
+		_kit_load_in_passing(player)
+		Input.action_press(&"sprint")
+		if _kit_leg > 0 and _kit_walk_path(player, delta, true):
+			return
+		_kit_leg = 0
+		var aboard := _crew_wait_spot()
+		if aboard != Vector3.INF:
+			_face(player, _crew_steer(player, aboard))
+			_crew_walk(player, true, delta)
+		return
+	# fx-w9: missed it anyway (it left while the bot was inside): the crew's out at
+	# the yard and Chefty isn't here. A person walks onto the pad and presses E,
+	# which brings it back for them (world.gd _host_depart); so does a bot.
+	if _kit_missed_ride(player, delta):
+		return
 	# p2-kit: Day 1 shopping. A crew short of rakes: buy one with its own cash,
 	# carry it to Chefty and load it, then wait for the ride like everyone.
 	if _kit_shop(player, delta):
@@ -822,6 +846,60 @@ func _kit_walk_path(player: Node3D, delta: float, outward: bool) -> bool:
 		return _kit_leg > 0
 	_face(player, _crew_steer(player, point))
 	_crew_walk(player, true, delta)
+	return true
+
+
+## fx-w9: a rake in this bot's hands goes up onto Chefty's rack if the rack is in
+## reach right now and has room, without stopping for it (the honk at the store).
+func _kit_load_in_passing(player: Node3D) -> void:
+	var mine := _carried_rake(Net.local_peer_id())
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var bed: Node = truck.call("tool_bed") if truck != null and truck.has_method("tool_bed") else null
+	if mine == null or bed == null or player.call("_held_prop") != mine or _elapsed < _next_interact:
+		return
+	if bool(bed.call("has_room_for", "rake")) and bool(bed.call("can_load_from", player)):
+		_next_interact = _elapsed + 1.0
+		mine.call("request_load_truck")
+
+
+## How often (s) a bot left at the store presses E on the pad to call Chefty back.
+const KIT_MISSED_PRESS_EVERY: float = 4.0
+var _missed_pressed_at: float = -100.0
+
+
+## fx-w9: left at Homie Depot. Chefty's out at the yard (or on its way there) with
+## the crew on it, nobody's calling a trip here, and the session plays the legacy
+## road (the town's Chefty is driven, not called): walk onto the pad and press E
+## there (world.request_depart), as a person would. True while doing that.
+func _kit_missed_ride(player: Node3D, delta: float) -> bool:
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var world := get_tree().get_first_node_in_group("world")
+	if truck == null or world == null or not truck.has_method("parked_at_store") or not world.has_method("request_depart"):
+		return false
+	if bool(truck.call("parked_at_store")) or bool(truck.call("is_boarding")):
+		return false
+	if truck.has_method("trip_destination") and bool(truck.call("is_riding")) and int(truck.call("trip_destination")) == Net.Zone.STORE:
+		return false
+	var crew_out := false
+	for peer_id: int in Net.players_in_zone(Net.Zone.LOT):
+		if not Net.is_watcher(peer_id):
+			crew_out = true
+	if not crew_out or not bool(world.call("can_depart")):
+		return false
+	var store := _store_zone()
+	var pad := store.get_node_or_null("TruckPad") as Node3D if store != null else null
+	if pad == null:
+		return false
+	var away := Vector2(pad.global_position.x - player.global_position.x, pad.global_position.z - player.global_position.z).length()
+	if away > CREW_ARRIVE_METERS:
+		_face(player, _crew_steer(player, pad.global_position))
+		_crew_walk(player, true, delta)
+		return true
+	_crew_walk(player, false, delta)
+	if _elapsed - _missed_pressed_at >= KIT_MISSED_PRESS_EVERY:
+		_missed_pressed_at = _elapsed
+		print("[Bot] left at the store: pressing E on the pad for Chefty")
+		world.call("request_depart")
 	return true
 
 

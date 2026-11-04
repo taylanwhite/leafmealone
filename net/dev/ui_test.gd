@@ -59,6 +59,7 @@ func _run() -> void:
 	await _check_shop()
 	await _check_counter()
 	await _check_signs()
+	await _check_board_take()
 	result = {"ok": _ok, "done": true, "steps": _steps}
 	print("[UiTest] all ok: %s" % _ok)
 
@@ -100,6 +101,45 @@ func _check_board() -> void:
 	var same := window.size.is_equal_approx(first) and _WindowFit.inside(window, Constants.UI_WINDOW_MARGIN_PX - 1.0) and _centered(window)
 	_step("board", window.visible and inside and centered and same, "%s at %s in %s: inside %s, centered %s, same after refreshes %s (%s)" % [first, window.position, _view(), inside, centered, same, window.size])
 	window.call("close_window")
+
+
+## fx-w9: "Take this job" on a card that isn't up yet: the board takes it (its
+## pick is that card) and the window closes a beat later; the other cards can't
+## be pressed in that beat.
+func _check_board_take() -> void:
+	var ui := _ui()
+	var board := get_tree().get_first_node_in_group("job_board")
+	ui.call("open_job_board")
+	await _frames(3)
+	var window := ui.get_node("JobBoardWindow") as Control
+	var take: Button = null
+	var index := -1
+	var buttons: Array[Button] = []
+	var cards := window.get("_board_cards") as Node
+	for card_index: int in cards.get_child_count():
+		for node: Node in cards.get_child(card_index).find_children("*", "Button", true, false):
+			var button := node as Button
+			buttons.append(button)
+			if take == null and not button.disabled:
+				take = button
+				index = card_index
+	if take == null:
+		_step("board_take", false, "no card to take (%d cards)" % cards.get_child_count())
+		window.call("close_window")
+		return
+	take.pressed.emit()
+	await _frames(1)
+	var others_off := true
+	for button: Button in buttons:
+		if is_instance_valid(button) and button != take and not button.disabled:
+			others_off = false
+	var open_after_press := window.visible
+	await get_tree().create_timer(Constants.JOB_BOARD_TAKE_CLOSE_SECONDS + 0.4).timeout
+	var picked := int(board.get("chosen")) == index
+	var ok := picked and open_after_press and others_off and not window.visible
+	_step("board_take", ok, "took card %d: picked %s, still up for the pin %s, other cards off %s, closed after %.2f s %s" % [index, picked, open_after_press, others_off, Constants.JOB_BOARD_TAKE_CLOSE_SECONDS, not window.visible])
+	if window.visible:
+		window.call("close_window")
 
 
 func _check_clamp() -> void:

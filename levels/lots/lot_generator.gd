@@ -45,6 +45,15 @@ const _HouseKit = preload("res://props/house_kit.gd")
 const _PropCatalog = preload("res://props/prop_catalog.gd")
 const _Surfaces = preload("res://props/surfaces.gd")
 const _Parcel = preload("res://levels/town/parcel.gd")
+const _FenceGive = preload("res://net/components/fence_give.gd")
+
+
+## fx-w9: its fence lines and body leave the vehicle sim's fence give with it.
+func _exit_tree() -> void:
+	_FenceGive.remove_owner(self)
+	var body := get_node_or_null("FenceBody")
+	if body != null:
+		_FenceGive.remove_owner(body)
 const YARD_HALF: float = 20.0
 const POOL_RADIUS: float = 2.3
 const POOL_HEIGHT: float = 1.15
@@ -694,17 +703,26 @@ func _fences() -> void:
 	var surface := str(look.get("surface", "planks"))
 	_art_notes.append(["fence", kind, fresh.to_html(), faded.to_html(), surface])
 	_fence_body(kind)
+	# fx-w9: Chefty noses into it and it bows and holds (net/components/fence_give.gd);
+	# its panels lean where the bumper pushes (chefty_crash.gd).
+	_FenceGive.remove_owner(self)
 	for run: Array in FENCE_RUNS:
 		var from: Vector3 = run[0]
 		var to: Vector3 = run[1]
 		var inward: Vector3 = run[2]
 		var length := from.distance_to(to)
 		var panels := int(length / 2.4)
+		var run_panels: Array = []
+		var along := (to - from).normalized()
+		_FenceGive.add(to_global(from - along * Constants.YARD_FENCE_SOLID_OVERLAP), to_global(to), self, run_panels)
 		for panel: int in panels:
 			var a := from.lerp(to, float(panel) / float(panels))
 			var b := from.lerp(to, float(panel + 1) / float(panels))
 			var holder := Node3D.new()
 			holder.name = "FencePanel"
+			holder.set_meta(&"fence_mid", (a + b) * 0.5)
+			holder.set_meta(&"fence_along", along)
+			run_panels.append(holder)
 			add_child(holder)
 			# One color per panel and no per-vertex paint: the paint task swaps its material.
 			var kit: RefCounted = _HouseKit.new()
@@ -728,6 +746,9 @@ func _fence_body(kind: String) -> void:
 	body.collision_layer = 1
 	body.collision_mask = 0
 	add_child(body)
+	# fx-w9: solid to people and things, but Chefty meets the fence's give
+	# (net/components/fence_give.gd), not a wall.
+	_FenceGive.add_body(body)
 	var high := float(Constants.YARD_FENCE_SOLID_HEIGHT.get(kind, 1.0))
 	var thick := Constants.YARD_FENCE_SOLID_THICK
 	for run: Array in FENCE_RUNS:

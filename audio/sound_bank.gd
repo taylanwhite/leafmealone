@@ -301,6 +301,8 @@ const SOUNDS: Dictionary = {
 	# fx-yard: the town's edge gives (net/components/chefty_crash.gd).
 	"sawhorse_tip": {"variants": 2, "bus": &"Sfx", "gap_ms": 60, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
 	"hedge_plow": {"variants": 3, "bus": &"Sfx", "gap_ms": 120, "voice": false, "loop": false, "max_seconds": 0.9, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
+	# fx-w9: a fence bowing and holding Chefty (net/components/chefty_crash.gd).
+	"fence_give": {"variants": 3, "bus": &"Sfx", "gap_ms": 250, "voice": false, "loop": false, "max_seconds": 1.2, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
 }
 
 

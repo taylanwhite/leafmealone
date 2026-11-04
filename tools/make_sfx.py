@@ -1034,6 +1034,41 @@ SOUNDS["sawhorse_tip"] = (sawhorse_tip, 2, 0.8)
 SOUNDS["hedge_plow"] = (hedge_plow, 3, 0.75)
 
 
+# ---- fx-w9: fences give (net/components/fence_give.gd, chefty_crash.gd)
+def fence_give(variant: int) -> list[float]:
+    """Chefty's bumper into a picket fence that bows and holds: the pickets'
+    hollow knock on the bumper, a run of loose pickets rattling down the line,
+    the long creak of the rails bending (stick-slip, faster as it bends), and
+    a low springy thrum as the fence holds the truck like a bowstring."""
+    rng = random.Random(1530 + variant)
+    out = silence(1.1)
+    base = (420.0, 380.0, 460.0)[variant - 1]
+    # The knock: a hollow plank hit over a soft thump.
+    mix_into(out, decay(tone(0.2, glide(base, base * 0.85, 0.12), "triangle"), 24.0), 0.0, 0.8)
+    mix_into(out, decay(lowpass(noise(rng, 0.08), 700.0), 35.0), 0.0, 0.5)
+    # Pickets rattling away along the line, smaller and higher each.
+    for index in range(7):
+        start = 0.03 + index * 0.035 + rng.uniform(0.0, 0.012)
+        knock = decay(tone(0.06, base * rng.uniform(1.6, 2.6), "triangle"), 70.0)
+        mix_into(out, knock, start, 0.32 - index * 0.03)
+        mix_into(out, decay(bandpass(noise(rng, 0.02), 2400.0, 3.0), 120.0), start, 0.18)
+    # The creak: stick-slip clicks, speeding up as the rails bend, through a woody band.
+    t = 0.08
+    gap = 0.03
+    while t < 0.62:
+        click = decay(bandpass(noise(rng, 0.012), rng.uniform(700.0, 1100.0), 5.0), 260.0)
+        mix_into(out, click, t, 0.22 + 0.25 * (t / 0.62))
+        t += gap * rng.uniform(0.8, 1.2)
+        gap = max(0.007, gap * 0.9)
+    # The thrum: a low wobble that dies away as the fence settles.
+    thrum = tone(0.8, glide(105.0 + variant * 6.0, 88.0, 0.8), "triangle", vibrato=(7.0, 0.04))
+    mix_into(out, decay(envelope(thrum, 0.05, 0.6), 3.2), 0.12, 0.45)
+    return out
+
+
+SOUNDS["fence_give"] = (fence_give, 3, 0.75)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

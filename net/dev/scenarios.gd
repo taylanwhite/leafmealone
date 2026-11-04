@@ -68,10 +68,16 @@ const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## its nose.
 const PURSUIT_LEAD: float = 3.0
 const PURSUIT_FROM := Vector3(-15.0, 0.0, 29.2)
+## hand_hop (fx-w9): how far up the street from the job yard's curb Chefty starts (m).
+const HAND_HOP_RUN_UP: float = 30.0
+## fence_yard (fx-w9): how far short of the yard's side fence Chefty's nose starts
+## (m), and the lawn row it runs along (yard z, in front of the house).
+const FENCE_YARD_RUN_UP: float = 12.0
+const FENCE_YARD_Z: float = 12.0
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "bin_mate", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "skate_skitch", "recatch", "downed", "annex_desk_late", "shotgun_hand", "pursuit"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "bin_mate", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "skate_skitch", "recatch", "downed", "annex_desk_late", "shotgun_hand", "pursuit", "hand_hop", "fence_yard"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -321,6 +327,10 @@ func run(scenario: String) -> Dictionary:
 			out = await _plow()
 		"pursuit":
 			out = await _pursuit()
+		"hand_hop":
+			out = await _hand_hop()
+		"fence_yard":
+			out = await _fence_yard()
 		"edge_hedge":
 			out = await _edge("hedge")
 		"edge_hedge_angle":
@@ -2090,6 +2100,71 @@ func _pursuit() -> Dictionary:
 	_warn_with(_director(), PURSUIT_LEAD)
 	await _ticks(2)
 	return {"note": "they pull up behind you in %.0f s; hold move_forward to run for it" % PURSUIT_LEAD, "riders": riders, "phase": _phase(), "zone": _zone()}
+
+
+## hand_hop (fx-w9): at the wheel in the near lane HAND_HOP_RUN_UP m up the street
+## from the job yard's curb, facing it, Big Sal hired and riding in the bed (and
+## whoever else plays, in the bed too). Drive to the curb and stop there: he hops
+## off over his rail and goes to work (hires.gd spawn_on_lot).
+func _hand_hop() -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var world := _world()
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var house := TownMap.test_site_house()
+	world.call("place_job_site", TownMap.yard_transform(house), house)
+	world.call("_load_job_lot")
+	await _wait_for(func() -> Variant: return true if get_tree().get_first_node_in_group("homeowner") != null else null)
+	var curb := TownMap.yard_transform(house) * TownMap.CURB_POINT
+	var from := TownMap.yard_transform(house) * (TownMap.CURB_POINT + Vector3(HAND_HOP_RUN_UP, 0.0, 0.0))
+	# Westbound in the near lane (VehicleSim yaw: +PI/2 faces -X).
+	chefty.call("dev_place", from, PI * 0.5)
+	var hires := get_tree().get_first_node_in_group("hires")
+	if hires == null:
+		return {"error": "no Hires node"}
+	if (chefty.call("hands_aboard") as Array).is_empty():
+		hires.call("dev_add_hand", "Big Sal")
+	var me_id := Net.local_peer_id()
+	var seat := _Vehicles.CHEFTY_CAB_SEATS
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me_id or Net.is_watcher(peer_id) or Net.player_name(peer_id) == OBSERVER_NAME or seat >= Constants.CHEFTY_SEATS - 1:
+			continue
+		if bool(chefty.call("dev_seat", peer_id, seat)):
+			Net.set_player_zone(peer_id, Net.Zone.TOWN)
+			seat += 1
+	Net.set_player_zone(me_id, Net.Zone.TOWN)
+	await get_tree().create_timer(0.5).timeout
+	return {"note": "the job yard's curb %.0f m ahead: drive there and stop" % HAND_HOP_RUN_UP, "curb": [snappedf(curb.x, 0.1), snappedf(curb.z, 0.1)], "zone": _zone()}
+
+
+## fence_yard (fx-w9): at the wheel on the job yard's lawn (the test site's
+## house), FENCE_YARD_RUN_UP m short of its side fence, nose to it; hold
+## move_forward: the pickets bow and hold the truck. Others who play in the bed.
+func _fence_yard() -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var world := _world()
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var house := TownMap.test_site_house()
+	world.call("place_job_site", TownMap.yard_transform(house), house)
+	world.call("_load_job_lot")
+	await _wait_for(func() -> Variant: return true if get_tree().get_first_node_in_group("homeowner") != null else null)
+	var lot := (world.get_node("LotZone") as Node3D).global_transform
+	# Facing +X along the lawn's front strip to the right-hand side fence (x 19.4).
+	chefty.call("dev_place", lot * Vector3(19.4 - FENCE_YARD_RUN_UP - Constants.CHEFTY_HALF_LENGTH, 0.0, FENCE_YARD_Z), lot.basis.get_euler().y - PI * 0.5)
+	var me_id := Net.local_peer_id()
+	var seat := _Vehicles.CHEFTY_CAB_SEATS
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me_id or Net.is_watcher(peer_id) or Net.player_name(peer_id) == OBSERVER_NAME or seat >= Constants.CHEFTY_SEATS:
+			continue
+		if bool(chefty.call("dev_seat", peer_id, seat)):
+			Net.set_player_zone(peer_id, Net.Zone.TOWN)
+			seat += 1
+	Net.set_player_zone(me_id, Net.Zone.TOWN)
+	await get_tree().create_timer(0.5).timeout
+	return {"note": "the side fence %.0f m ahead: hold move_forward" % FENCE_YARD_RUN_UP, "zone": _zone()}
 
 
 ## plow (driving C3): at the wheel at the edge of the job yard (the test site's

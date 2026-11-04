@@ -190,6 +190,8 @@ var _quip_left: float = 0.0
 ## figures, and when each waves next.
 var _hands_built: String = ""
 var _hand_figures: Array[Node3D] = []
+## fx-w9: figures of hands hopping off the bed to work a yard, until they land.
+var _leaving_hands: Array[Node3D] = []
 var _wave_rng := RandomNumberGenerator.new()
 ## Bags: this job's (unpaid; what the homeowner pays for) and paid ones still in
 ## the bed (driving chunk J's mulch; always 0 for now).
@@ -384,6 +386,8 @@ func _refresh_params() -> void:
 	_params["exclude"] = [solid.get_rid()] if solid != null else []
 	# fx-yard: in Gutterford the hedgerow and the closed roads give (VehicleSim.town_edge).
 	_params["town_edge"] = is_inside_tree() and TownMap.enabled(get_tree())
+	# fx-w9: and its fences bow and hold (net/components/fence_give.gd).
+	_params["fence_give"] = true
 
 
 func _place(at: Vector3, yaw: float) -> void:
@@ -654,6 +658,19 @@ func yaw() -> float:
 	# by half a turn.
 	var length := _body.global_basis.z
 	return atan2(length.x, length.z)
+
+
+## fx-w9: where a hired hand riding in a bed seat lands hopping off at a yard
+## (world), which way they face there ("out", flat), and how long the hop takes:
+## over their own rail, level with their seat, looking out at the yard. The host
+## stands the hand there; every peer draws the hop there from the seat.
+func hand_landing(seat: int) -> Dictionary:
+	var at: Vector3 = _Vehicles.CHEFTY_SEATS[seat]
+	var side := -1.0 if at.x < 0.0 else 1.0
+	var local := Vector3(side * Constants.CHEFTY_CLIMB_RAIL_OUT, 0.0, at.z)
+	var flat := Transform3D(Basis(Vector3.UP, yaw()), body_position())
+	var out := flat.basis * Vector3(side, 0.0, 0.0)
+	return {"at": flat * local, "out": out, "seconds": _SeatMoves.seconds(_SeatMoves.alight(at, seat_yaw(seat), local, atan2(-side, 0.0)))}
 
 
 ## Where a skateboarder hangs on behind (driving G2): behind the tailgate.
@@ -1128,12 +1145,15 @@ func _handle_enter(peer_id: int, kind: int) -> void:
 	_send_seats()
 
 
-## Not captured, carried, carrying someone, hiding, asleep, or flying.
+## Not captured, carried, carrying someone, hiding, asleep, flying, or flat on
+## their back (fx-w9: knocked down, you could climb in from the grass).
 func _may_board(player: Node3D, peer_id: int) -> bool:
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and bool(director.call("is_captured", peer_id)):
 		return false
 	if int(player.get("carried_by")) != 0 or int(player.get("carrying")) != 0 or bool(player.get("thrown")):
+		return false
+	if player.has_method("is_down") and bool(player.call("is_down")):
 		return false
 	if bool(player.call("is_hidden")) or bool(player.call("is_sleeping")):
 		return false
@@ -1950,6 +1970,7 @@ func _update_hands(delta: float) -> void:
 	if built != _hands_built:
 		_hands_built = built
 		_rebuild_hands(riding)
+	_step_leaving_hands()
 	for figure: Node3D in _hand_figures:
 		if not is_instance_valid(figure):
 			continue
@@ -2023,8 +2044,84 @@ func _rebuild_hands(riding: Array) -> void:
 		if figure != null:
 			kept.append(figure)
 	for figure: Variant in by_name.values():
-		(figure as Node3D).queue_free()
+		if not _alight_hand(figure as Node3D):
+			_show_hand_worker(str((figure as Node3D).get_meta("hand", "")))
+			(figure as Node3D).queue_free()
 	_hand_figures = kept
+
+
+## fx-w9: whether this peer draws the hand riding in a seat now (crew_hand.gd
+## stays hidden until that figure has hopped off).
+func hand_riding(hand_name: String) -> bool:
+	for figure: Node3D in _hand_figures:
+		if is_instance_valid(figure) and str(figure.get_meta("hand", "")) == hand_name:
+			return true
+	return false
+
+
+## A hand's working body drawn again when there's no hop to wait for.
+func _show_hand_worker(hand_name: String) -> void:
+	for node: Node in get_tree().get_nodes_in_group("crew_hands"):
+		if str(node.get("hand_name")) == hand_name:
+			_show_worker(node as Node3D, true)
+
+
+## fx-w9: a hand left the bed to work the yard (net/crew/hires.gd spawn_on_lot
+## stood them on the ground beside their seat). Their figure steps off the seat
+## and over the rail onto that spot, and only then is the hand that works the
+## yard drawn there: it used to vanish off its seat as the hand appeared on the
+## grass (fx-chefty's leftover). False when there's no such hand to hop to.
+func _alight_hand(figure: Node3D) -> bool:
+	var hand_name := str(figure.get_meta("hand", ""))
+	var seat := int(figure.get_meta("seat", -1))
+	if seat < 0 or seat == SEAT_DRIVER or figure.has_meta("move"):
+		return false
+	var worker: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("crew_hands"):
+		if str(node.get("hand_name")) == hand_name and not node.is_queued_for_deletion():
+			worker = node as Node3D
+	if worker == null:
+		return false
+	var inverse := Transform3D(Basis(Vector3.UP, yaw()), body_position()).affine_inverse()
+	var ground := inverse * worker.global_position
+	ground.y = 0.0
+	if ground.distance_to(_Vehicles.CHEFTY_SEATS[seat]) > Constants.CHEFTY_CLIMB_FROM_MAX:
+		return false
+	var side := -1.0 if ground.x < 0.0 else 1.0
+	figure.set_meta("move", _SeatMoves.alight(_Vehicles.CHEFTY_SEATS[seat], seat_yaw(seat), ground, atan2(-side, 0.0)))
+	figure.set_meta("move_start", _local_now())
+	figure.set_meta("worker", worker)
+	_show_worker(worker, false)
+	_leaving_hands.append(figure)
+	return true
+
+
+## A hand's working body, drawn or not (while their figure hops off the seat).
+static func _show_worker(worker: Node3D, shown: bool) -> void:
+	var visual := worker.get_node_or_null("Visual") as Node3D if is_instance_valid(worker) else null
+	if visual != null:
+		visual.visible = shown
+
+
+## Every frame: the hands hopping off the bed, then gone into the ones working.
+func _step_leaving_hands() -> void:
+	for index: int in range(_leaving_hands.size() - 1, -1, -1):
+		var figure := _leaving_hands[index]
+		if not is_instance_valid(figure):
+			_leaving_hands.remove_at(index)
+			continue
+		var worker := figure.get_meta("worker", null) as Node3D
+		var drawn := _SeatMoves.sample(figure.get_meta("move") as Dictionary, _local_now() - float(figure.get_meta("move_start", 0.0)))
+		if bool(drawn["done"]) or not is_instance_valid(worker):
+			_show_worker(worker, true)
+			figure.queue_free()
+			_leaving_hands.remove_at(index)
+			continue
+		_show_worker(worker, false)
+		figure.global_transform = Transform3D(Basis(Vector3.UP, yaw()), body_position()) * Transform3D(Basis(Vector3.UP, float(drawn["yaw"])), drawn["pos"] as Vector3)
+		var body := figure.get_node_or_null("CartoonBody")
+		if body != null:
+			body.call("sit", int(drawn["pose"]))
 
 
 ## A hand's figure moves from its seat to another: re-hung on the new seat, and
