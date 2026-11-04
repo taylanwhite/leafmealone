@@ -293,4 +293,7 @@ func _set_exception(anchor: Node3D) -> void:
 
 
 func _is_owner() -> bool:
-	return player != null and player.is_multiplayer_authority()
+	# No peer (the session just ended, the world not yet freed): nobody's, quietly.
+	if player == null or player.multiplayer.multiplayer_peer == null:
+		return false
+	return player.is_multiplayer_authority()

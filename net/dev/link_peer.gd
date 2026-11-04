@@ -23,6 +23,7 @@ var _events: Array[Dictionary] = []
 var _gone: Dictionary = {}
 var _target: int = 0
 var _rng := RandomNumberGenerator.new()
+var _last_id: int = 0
 
 
 func _init(wrapped: MultiplayerPeer, round_trip_ms: int, loss_fraction: float) -> void:
@@ -132,7 +133,12 @@ func _set_target_peer(peer: int) -> void:
 
 
 func _get_unique_id() -> int:
-	return inner.get_unique_id()
+	# Asked while announcing the host's departure, after the inner peer closed
+	# (it logged "The multiplayer instance isn't currently active"): the id it had.
+	if inner.get_connection_status() == MultiplayerPeer.CONNECTION_DISCONNECTED:
+		return _last_id
+	_last_id = inner.get_unique_id()
+	return _last_id
 
 
 func _is_server() -> bool:
