@@ -46,7 +46,9 @@ static var _cache: Dictionary = {}
 ## tier dresses one of the seven tools (TIER_TRIM): 0 used, 1 stock (none), 2 Mk
 ## II, 3 Mk III. Anything else ignores it.
 static func node(kind: String, color: Color = Color.WHITE, size: Vector3 = Vector3.ONE, options: Dictionary = {}, tier: int = 1) -> MeshInstance3D:
-	var trim := tier if TIER_TRIM.has(kind) and tier != 1 else 1
+	# The rake wears its tier too (fx-chefty: on Chefty's rack a Mk II and The
+	# Leafinator looked like stock rakes): its head, tines and handle (_rake).
+	var trim := tier if (TIER_TRIM.has(kind) or kind == "rake") and tier != 1 else 1
 	var key := "%s|%s|%s" % [kind, color.to_html(), size]
 	if trim != 1:
 		key += "|tier%d" % trim
@@ -57,6 +59,10 @@ static func node(kind: String, color: Color = Color.WHITE, size: Vector3 = Vecto
 
 static func _build(kind: String, color: Color, size: Vector3, tier: int = 1) -> ArrayMesh:
 	var kit := _MeshKit.new()
+	if kind == "rake":
+		var head := rake_head_of(tier)
+		_rake(kit, "", Constants.RAKE_HEAD_WIDTHS[head], Constants.RAKE_TINES[head], head, tier)
+		return kit.commit()
 	_build_kind(kit, kind, color, size)
 	if tier != 1 and TIER_TRIM.has(kind):
 		_tier_trim(kit, kind, tier)
@@ -192,22 +198,31 @@ const RAKE_TIER_LOOKS: Array[Dictionary] = [
 ## collar, and a fan of springy tines curling forward at the tips. part "handle"
 ## or "tines" builds only that half (the tines about RAKE_TINES_PIVOT, for rake()),
 ## "" both; width and tines give the tier's head (Constants.RAKE_HEAD_WIDTHS).
-static func _rake(kit: RefCounted, part: String = "", width: float = 0.95, tines: int = 15, tier: int = 0) -> void:
+static func _rake(kit: RefCounted, part: String = "", width: float = 0.95, tines: int = 15, tier: int = 0, kit_tier: int = 1) -> void:
 	var look: Dictionary = RAKE_TIER_LOOKS[clampi(tier, 0, RAKE_TIER_LOOKS.size() - 1)]
 	if part != "tines":
-		kit.call("tube", PackedVector3Array([Vector3(0, 0.14, 0), Vector3(0, 0.9, 0), Vector3(0, 1.58, 0)]), PackedFloat32Array([0.022, 0.022, 0.021]), WOOD, 8, {"jitter": 0.0})
+		var handle := WOOD.darkened(0.3) if kit_tier == Catalog.TIER_USED else (MK3_BLACK if kit_tier == Catalog.TIER_MK3 else WOOD)
+		kit.call("tube", PackedVector3Array([Vector3(0, 0.14, 0), Vector3(0, 0.9, 0), Vector3(0, 1.58, 0)]), PackedFloat32Array([0.022, 0.022, 0.021]), handle, 8, {"jitter": 0.0})
 		kit.call("tube", PackedVector3Array([Vector3(0, 1.42, 0), Vector3(0, 1.62, 0)]), PackedFloat32Array([0.03, 0.03]), look["grip"], 8, {"jitter": 0.0, "cap_start": true})
 		kit.call("tube", PackedVector3Array([Vector3(0, 0.1, 0), Vector3(0, 0.2, 0)]), PackedFloat32Array([0.03, 0.026]), look["collar"], 8, {"jitter": 0.0, "cap_start": true})
+		_rake_handle_trim(kit, kit_tier)
 	if part == "handle":
 		return
 	var shift := -RAKE_TINES_PIVOT if part == "tines" else Vector3.ZERO
 	var half := width * 0.5 - 0.02
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 27
 	for index: int in tines:
 		var spread := lerpf(-1.0, 1.0, float(index) / float(tines - 1))
 		var mid := Vector3(spread * half * 0.5, -0.02, 0.0)
 		# A nearly straight tip line, so the whole fan meets flat ground.
 		var tip := Vector3(spread * half, -0.22 + absf(spread) * 0.02, -0.05)
 		var curl := tip + Vector3(spread * 0.01, -0.035, -0.065)
+		# A used rake: three tines straight, the rest have opinions (docs/GAME.md).
+		if kit_tier == Catalog.TIER_USED and index % 5 != 2:
+			var bend := Vector3(rng.randf_range(-0.05, 0.05), rng.randf_range(0.0, 0.04), rng.randf_range(-0.05, 0.05))
+			tip += bend
+			curl += bend * 1.6
 		kit.call("tube", PackedVector3Array([Vector3(spread * 0.02, 0.11, 0.0) + shift, mid + shift, tip + shift, curl + shift]), PackedFloat32Array([0.012, 0.012, 0.011, 0.01]), look["tines"], 5, {"jitter": 0.0})
 	# The cross wire that holds the fan in shape.
 	var wire := PackedVector3Array()
@@ -219,18 +234,52 @@ static func _rake(kit: RefCounted, part: String = "", width: float = 0.95, tines
 	kit.call("tube", wire, radii, (look["wire"] as Color).darkened(0.15), 4, {"jitter": 0.0})
 
 
+## Which head a rake of this kit tier has (0 used and stock, 1 the Mk II's, 2 The
+## Leafinator's: Constants.KIT_RAKE_HEAD_BY_TIER).
+static func rake_head_of(kit_tier: int) -> int:
+	var heads := Constants.KIT_RAKE_HEAD_BY_TIER
+	return clampi(heads[clampi(kit_tier, 0, heads.size() - 1)], 0, Constants.RAKE_HEAD_WIDTHS.size() - 1)
+
+
+## The rake's tier on its handle (fx-chefty), so you can tell them apart in a
+## hand, on the rack and lying on a lawn: a used one's handle is dark old wood
+## with two wraps of duct tape; the Mk II's has two chrome bands; The
+## Leafinator's is black with gold bands and flames licking up from the head.
+## Stock is plain wood.
+static func _rake_handle_trim(kit: RefCounted, kit_tier: int) -> void:
+	match kit_tier:
+		Catalog.TIER_USED:
+			for wrap: Vector2 in [Vector2(0.62, 0.07), Vector2(1.08, 0.05)]:
+				kit.call("tube", PackedVector3Array([Vector3(0.002, wrap.x - wrap.y * 0.5, 0.0), Vector3(-0.002, wrap.x + wrap.y * 0.5, 0.0)]), PackedFloat32Array([0.027, 0.027]), TAPE, 8, {"jitter": 0.0, "cap_start": true})
+		Catalog.TIER_MK2:
+			for y: float in [0.4, 1.2]:
+				kit.call("tube", PackedVector3Array([Vector3(0, y - 0.03, 0), Vector3(0, y + 0.03, 0)]), PackedFloat32Array([0.028, 0.028]), CHROME, 8, {"jitter": 0.0, "cap_start": true})
+		Catalog.TIER_MK3:
+			for y: float in [0.6, 1.3]:
+				kit.call("tube", PackedVector3Array([Vector3(0, y - 0.015, 0), Vector3(0, y + 0.015, 0)]), PackedFloat32Array([0.027, 0.027]), GOLD, 8, {"jitter": 0.0, "cap_start": true})
+			# Three tongues of flame up the handle from the collar, all the way round.
+			for turn: int in 3:
+				var angle := TAU * float(turn) / 3.0
+				var out := Vector3(cos(angle), 0.0, sin(angle)) * 0.021
+				kit.call("blob", Vector3(0.0, 0.32, 0.0) + out, Vector3(0.012, 0.11, 0.012), FLAMES[0], TRIM_BLOB)
+				kit.call("blob", Vector3(0.0, 0.29, 0.0) + out * 1.08, Vector3(0.008, 0.06, 0.008), FLAMES[2], TRIM_BLOB)
+
+
 ## A posable rake for a tier (0 starter, 1 Tune-Up, 2 The Leafinator): the handle,
 ## and its tine fan as a child "Tines" pivoting at the head bar so it can flex
 ## (props/rake_motion.gd). Its head (the collar) is at the origin, handle up +Y.
-static func rake(tier: int = 0, options: Dictionary = {"roughness": 0.6, "specular": 0.3}) -> Node3D:
+## kit_tier (Catalog.TIER_*, the rake's own) dresses the handle and, used, bends
+## the tines (_rake_handle_trim); -1 is the head's own look.
+static func rake(tier: int = 0, options: Dictionary = {"roughness": 0.6, "specular": 0.3}, kit_tier: int = -1) -> Node3D:
 	tier = clampi(tier, 0, Constants.RAKE_HEAD_WIDTHS.size() - 1)
+	var dress := kit_tier if kit_tier >= 0 else Catalog.TIER_STOCK
 	var root := Node3D.new()
 	root.name = "Rake"
 	for part: String in ["handle", "tines"]:
-		var key := "rake_%s|tier%d" % [part, tier]
+		var key := "rake_%s|tier%d|kit%d" % [part, tier, dress]
 		if not _cache.has(key):
 			var kit := _MeshKit.new()
-			_rake(kit, part, Constants.RAKE_HEAD_WIDTHS[tier], Constants.RAKE_TINES[tier], tier)
+			_rake(kit, part, Constants.RAKE_HEAD_WIDTHS[tier], Constants.RAKE_TINES[tier], tier, dress)
 			_cache[key] = kit.commit()
 		var view := _Stylized.instance(_cache[key], options)
 		if part == "tines":

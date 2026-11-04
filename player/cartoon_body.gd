@@ -149,6 +149,8 @@ const SIT_HIPS: float = 0.48
 const SIT_LEGS: float = 1.42
 ## 0 on your feet, 1 sitting, 2 riding standing up (a truck's bed: no walk cycle).
 var _sit_pose: int = 0
+## How far into sitting the body is (0 standing .. 1 sat), eased toward _sit_pose.
+var _sit_amount: float = 0.0
 ## set_work_pose: what was asked (lean, twist, hip) and what's shown, and how fast
 ## it follows; the neck's height above the hips, for the head to ride the lean.
 var _work_target := Vector3.ZERO
@@ -1322,8 +1324,12 @@ func _physics_process(delta: float) -> void:
 		bounce = maxf(0.0, sin(_phase)) * 0.11 * walk
 	var breathe := sin(_time * 2.2) * 0.012 * (1.0 - walk)
 	var drop := CROUCH_DROP if crouching else 0.0
-	if _sit_pose == 1:
-		drop = 0.82 - SIT_HIPS
+	# Sitting down and getting up ease over BODY_SIT_EASE_SECONDS (fx-chefty: the
+	# hips used to drop into a cab seat in one frame).
+	_sit_amount = move_toward(_sit_amount, 1.0 if _sit_pose == 1 else 0.0, delta / maxf(Constants.BODY_SIT_EASE_SECONDS, 0.001))
+	var seated := smoothstep(0.0, 1.0, _sit_amount)
+	if seated > 0.0:
+		drop = lerpf(drop, 0.82 - SIT_HIPS, seated)
 	_hips.position.y = 0.82 + bounce - drop - _squash * 0.08
 	# The head rides with the body, and a player's camera with it.
 	_head_stand_y = lerpf(_head_stand_y, _head_base_y - drop + bounce * 0.6 - _squash * 0.06, clampf(delta * 12.0, 0.0, 1.0))
@@ -1340,8 +1346,8 @@ func _physics_process(delta: float) -> void:
 		if in_air:
 			_legs[index].rotation.x = 0.5 if index == 0 else -0.25
 			_shins[index].rotation.x = Constants.BODY_JUMP_SHINS.x if index == 0 else Constants.BODY_JUMP_SHINS.y
-		if _sit_pose == 1:
-			_legs[index].rotation.x = SIT_LEGS
+		if seated > 0.0:
+			_legs[index].rotation.x = lerpf(_legs[index].rotation.x, SIT_LEGS, seated)
 	for index: int in _arms.size():
 		var side := -1.0 if index == 0 else 1.0
 		# Flailing up when airborne, the way cartoon people jump.

@@ -5745,7 +5745,9 @@ const KIT_DOOR_MAX: int = 12
 const KIT_RACK_SLOTS_X: Array[float] = [-0.84, -0.6, -0.36, -0.12, 0.12, 0.36, 0.6, 0.84]
 const KIT_RACK_Y: float = 2.64
 const KIT_RACK_Z: float = -1.95
-const KIT_RACK_BARS_Z: Array[float] = [-1.3, -2.6]
+## (fx-chefty: the front bar moved back from -2.6 to stand on the drivable
+## Chefty's shorter open-cab roof, props/vehicles.gd CHEFTY_ROOF_FRONT_Z.)
+const KIT_RACK_BARS_Z: Array[float] = [-1.3, -2.38]
 const KIT_LADDER_ON_RACK := Vector3(0.0, 3.0, -1.6)
 ## The bed's floor spots for the big pushed tools (mower, washer), truck space,
 ## with their yaw: up the ramp by the tailgate, clear of the rail riders.
@@ -5786,3 +5788,79 @@ const KIT_DROP_AHEAD: float = 0.7
 const KIT_DROP_LIFT: float = 0.4
 ## Past KIT_DOOR_MAX, more kit by the door stacks on the last spot this much higher each (m).
 const KIT_DOOR_STACK_STEP: float = 0.3
+
+
+# ---- fx-chefty: getting in and out of Chefty, its pillars, stragglers, the rack (docs/GAME.md "Getting in and out of Chefty")
+## Climbing into the drivable Chefty (net/components/seat_moves.gd): the steps to
+## the door or the rail go at this pace (m/s); shorter than this (m) and there's
+## no step at all. From farther than CHEFTY_CLIMB_FROM_MAX (m) you're just aboard.
+const CHEFTY_CLIMB_WALK_SPEED: float = 3.2
+const CHEFTY_CLIMB_WALK_MIN: float = 0.2
+const CHEFTY_CLIMB_FROM_MAX: float = 6.0
+## Into the bed you hop from this far outside the rails' outer edge (m): any
+## closer and the arc over the rail has to start nearly straight up (the hop off a
+## seat's physics, played backward), a leap higher than the cab.
+const CHEFTY_CLIMB_RAIL_GAP: float = 0.8
+## A hired hand going round between the bed and the cab stands this far out from
+## Chefty's middle (m), beside their seat, as they climb out or in over the rail.
+const CHEFTY_CLIMB_RAIL_OUT: float = 1.75
+## Seat to seat inside the truck: a slide along the bench takes this long (s) for
+## this far (m), longer or shorter in proportion; across the bed it's a hop this high (m).
+const CHEFTY_SEAT_SLIDE_SECONDS: float = 0.5
+const CHEFTY_SEAT_SLIDE_SPAN: float = 0.9
+const CHEFTY_SEAT_SHUFFLE_HOP: float = 0.18
+## A hand seen working the yard this recently (s) climbs in from where they were.
+const CHEFTY_HAND_SEEN_SECONDS: float = 1.5
+## The view between the chase camera and your own eyes when you get into the
+## driver's seat and out of it (s): eased, never a cut (player/camera_blend.gd).
+const CHEFTY_ENTER_CAMERA_SECONDS: float = 0.7
+const CHEFTY_EXIT_CAMERA_SECONDS: float = 0.8
+## A cartoon body sits down or stands up over this long (s), not in a frame.
+const BODY_SIT_EASE_SECONDS: float = 0.22
+## The point (Chefty's space, x mirrored to your side) the view swings out
+## through on the way between your eyes and the chase camera: beside the bed,
+## up over the rail, so it never passes through the truck.
+const CHEFTY_CAMERA_SWING_OUT := Vector3(2.8, 2.6, 1.5)
+## Walking round from one side of the truck to the other, a hand goes across in
+## front of the nose here (z, Chefty's space; the bumper is at -3.0).
+const CHEFTY_CLIMB_ROUND_FRONT_Z: float = -3.7
+## ... and behind the tailgate here (z). Beside the truck means past this far
+## out from its middle (m). Bed seats back of this z (the back row) are got into
+## over the tailgate when you're behind the truck.
+const CHEFTY_CLIMB_ROUND_BACK_Z: float = 3.5
+const CHEFTY_CLIMB_SIDE_X: float = 1.25
+const CHEFTY_CLIMB_TAILGATE_ROW_Z: float = 1.4
+## Sat down in the legacy ride's bed, you turn to face your seat's way over this
+## long (s), the length of a climb in, never in one frame.
+const CHEFTY_BOARD_TURN_SECONDS: float = 1.0
+## A client that hears the legacy ride leave later than this (s) starts it from
+## the curb anyway, so the truck never jumps on its first frame; it makes the
+## time up at the end with the arrival's catch-up.
+const CHEFTY_RIDE_LATE_START_MAX: float = 0.05
+## After the cash, Chefty waits longer for the crew still out on the yard: when
+## its window has this little left (s) and someone's still coming, it goes on
+## this much longer (s, a last-call honk each time), up to this long in all (s).
+const CHEFTY_BOARD_STRAGGLER_LEAD: float = 0.2
+const CHEFTY_BOARD_STRAGGLER_STEP: float = 4.0
+const CHEFTY_BOARD_STRAGGLER_WAIT: float = 24.0
+## When it does go, whoever's within this of the bed (m, flat) climbs in; farther
+## off they're left on the yard (never pulled into the bed from across it).
+const CHEFTY_BOARD_GATHER_REACH: float = 7.5
+## Asked for while on its way out to the yard, Chefty turns round for the
+## straggler at the pad this long (s) after it drops the crew off.
+const CHEFTY_FETCH_TURNAROUND_SECONDS: float = 1.5
+## Walking to the door or the rail on the way in, the body turns to the way it
+## goes over this long (s), never in a frame.
+const CHEFTY_CLIMB_TURN_SECONDS: float = 0.4
+## A walk on the way in shorter than this (m) is a sidestep: the body keeps facing
+## where it looked rather than swinging round (and your view with it).
+const CHEFTY_CLIMB_FACE_WALK_MIN: float = 1.5
+## The legacy ride parks facing the way it came; leaving the other way it pulls a
+## U-turn over this share of the trip's time (its first second, while it's still
+## pulling away: the trip eases out).
+const CHEFTY_RIDE_UTURN_SHARE: float = 0.12
+## A climb into the legacy ride still being drawn when it pulls away finishes as
+## a hop onto the seat this long (s); the host also waits this much past its own
+## view of the last climb before it goes (a client hears of it a ping later).
+const CHEFTY_BOARD_CLIMB_FINISH_SECONDS: float = 0.25
+const CHEFTY_BOARD_CLIMB_MARGIN: float = 0.25

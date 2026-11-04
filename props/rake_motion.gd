@@ -220,11 +220,13 @@ static func grips_of(pose_node: Node3D) -> Array[Vector3]:
 
 
 ## Builds (or rebuilds, when the tier changed) the rake model under a Pose node.
-static func dress(pose_node: Node3D, tier: int) -> void:
+## kit_tier (fx-chefty): the rake's own tier, worn on its handle (-1: plain).
+static func dress(pose_node: Node3D, tier: int, kit_tier: int = -1) -> void:
 	var old := pose_node.get_node_or_null("Rake")
 	if old != null:
-		if int(pose_node.get_meta("tier", -1)) == tier:
+		if int(pose_node.get_meta("tier", -1)) == tier and int(pose_node.get_meta("kit_tier", -1)) == kit_tier:
 			return
 		old.free()
 	pose_node.set_meta("tier", tier)
-	pose_node.add_child(_YardModels.rake(tier))
+	pose_node.set_meta("kit_tier", kit_tier)
+	pose_node.add_child(_YardModels.rake(tier, {"roughness": 0.6, "specular": 0.3}, kit_tier))

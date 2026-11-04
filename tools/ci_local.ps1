@@ -295,6 +295,16 @@ $Tests = [ordered]@{
 		Extra = '--sim-lag=150 --kit-test'
 		Check = { param($h, $c) [bool]$h.kit_test.ok -and $c -ne $null -and [bool]$c.kit_test.ok }
 	}
+	# The same kit loop in the connected town (fx-chefty): the drivable Chefty's
+	# rack, a warped drive to the yard and back, the rake left on the yard's lawn
+	# swept to the store's door in the morning, and each rake tier drawn as itself
+	# on the rack.
+	kittown = @{
+		Port = 7844
+		Host = '--host --name=Tester --no-steam --town-map --warp-rides --job-seed=777 --yard-size=1 --start-hour=10 --kit-test'; Seconds = 170; Client = 165
+		Extra = '--sim-lag=150 --kit-test'
+		Check = { param($h, $c) [bool]$h.kit_test.ok -and $c -ne $null -and [bool]$c.kit_test.ok }
+	}
 	# Stepping off Chefty (p1-arrive, net/dev/arrive_test.gd): host and client ride to the
 	# yard and back; seated back to back on opposite rails, each hops down to their own
 	# spot by the truck, facing the house or the store, with no pop on either peer;
@@ -449,10 +459,12 @@ function Get-PortMismatches {
 	foreach ($name in $BasePorts.Keys) {
 		$flag = [regex]::Match([string]$Tests[$name].Host, '--[a-z0-9-]+-test\b').Value
 		if (-not $flag) { $found += "${name}: no --<x>-test flag in its Host args"; continue }
-		$hostLine = $lines | Where-Object { $_ -match '--host\b' -and $_ -match ([regex]::Escape($flag) + '(\s|$)') } | Select-Object -First 1
-		if (-not $hostLine) { $found += "${name}: netcode.yml has no step running $flag"; continue }
-		$ymlPort = [regex]::Match($hostLine, '--port=(\d+)').Groups[1].Value
-		if ([int]$ymlPort -ne $BasePorts[$name]) { $found += "${name}: port $($BasePorts[$name]) here, $ymlPort in netcode.yml" }
+		# One test flag can run in two worlds (kit and kittown, fx-chefty): any step
+		# with the flag on this test's port matches.
+		$hostLines = @($lines | Where-Object { $_ -match '--host\b' -and $_ -match ([regex]::Escape($flag) + '(\s|$)') })
+		if ($hostLines.Count -eq 0) { $found += "${name}: netcode.yml has no step running $flag"; continue }
+		$ymlPorts = @($hostLines | ForEach-Object { [int][regex]::Match($_, '--port=(\d+)').Groups[1].Value })
+		if ($ymlPorts -notcontains $BasePorts[$name]) { $found += "${name}: port $($BasePorts[$name]) here, $($ymlPorts -join '/') in netcode.yml" }
 	}
 	$found
 }

@@ -27,8 +27,9 @@ extends Node
 ##             counted in (NB-01).
 ##   beat      the cash taken: the job isn't settled yet; Chefty honks and waits.
 ##             A bag tossed in now is paid for too. The host walks up and climbs
-##             in, the client stays off on the yard; it goes when the window runs
-##             out (not before), gathers the client, and the job settles as it
+##             in, the client stays off on the yard: Chefty waits past its window
+##             for them, honking (fx-chefty: it used to pull them in from 30 m),
+##             they walk over and climb in, it goes, and the job settles as it
 ##             pulls away, the client paid at least the crew's even part
 ##             (crew-09, missed-03).
 ##   gone      back at the store: a boarder leaving the game empties their seat;
@@ -36,8 +37,9 @@ extends Node
 ##             host aboard hops them out (not glued to the seat).
 ##   hold      the host boards with the client off by the store: holding E sends
 ##             Chefty off at once with just the host.
-##   stranded  Chefty parked at the yard, the client at the store's pad: no honk,
-##             Chefty comes back and takes them straight there.
+##   stranded  Chefty parked at the yard, the client at the store's pad: Chefty
+##             drives back down the road for them empty (fx-chefty), honks and
+##             waits at the store, they climb in, and it takes them there.
 ## The client reports what it saw by its own probe: seated while Chefty waited,
 ## its climb drawn as a hop (not a pop), the honks heard.
 
@@ -293,9 +295,16 @@ func _check_beat() -> bool:
 	# The host walks over and climbs in; the client stays out on the yard.
 	_teleport(host, (chefty.call("bed_transform") as Transform3D) * Vector3(0.0, 0.5, 3.4))
 	var aboard := await _until(func() -> bool: return (chefty.call("boarders") as Array).has(host), 2.0)
-	var went := await _until(func() -> bool: return bool(chefty.call("is_riding")), Constants.CHEFTY_BOARD_WAIT_SECONDS + 2.0)
+	# fx-chefty: the client is still out on the yard, so Chefty waits past its
+	# window (a last-call honk each time) instead of pulling them in from 30 m.
+	var honks_before := int(chefty.get("honks"))
+	var left_early := await _until(func() -> bool: return bool(chefty.call("is_riding")), Constants.CHEFTY_BOARD_WAIT_SECONDS + Constants.CHEFTY_BOARD_STRAGGLER_STEP)
+	var extended := not left_early and bool(chefty.call("is_boarding")) and int(chefty.get("honks")) > honks_before
+	# The client walks over and climbs in; with everyone aboard it goes.
+	_teleport(client, (chefty.call("bed_transform") as Transform3D) * Vector3(2.4, 0.5, 0.8))
+	var went := await _until(func() -> bool: return bool(chefty.call("is_riding")), Constants.CHEFTY_BOARD_STRAGGLER_STEP + 3.0)
 	var took := Net.server_time() - taken_at
-	var waited := took >= Constants.CHEFTY_BOARD_WAIT_SECONDS - 0.3
+	var waited := took >= Constants.CHEFTY_BOARD_WAIT_SECONDS - 0.3 and extended
 	var gathered := Net.player_zone(client) == Net.Zone.TRANSIT and int(chefty.call("seat_of", client)) >= 0
 	await _ticks(3)
 	var settled := not Campaign.is_job_open() and str(Campaign.last_settlement().get("mood", "")) == "messy"
@@ -304,7 +313,7 @@ func _check_beat() -> bool:
 	var paid := Campaign.credits(client) - credits_before
 	var fair := paid >= int(floor(float(offered) * Constants.CREW_SPLIT_EVEN_SHARE / 2.0))
 	var home := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.STORE and Net.player_zone(client) == Net.Zone.STORE, RIDE_WAIT_SECONDS)
-	return _step("beat", held and aboard and went and waited and gathered and settled and late_paid and fair and home, "after the cash: unsettled and waiting %s, the host climbed in %s, went %s after %.1f s (window %.0f s) %s, the client gathered %s, settled as it left (messy) %s, a bag tossed in the wait paid for ($%d -> $%d) %s, the client paid $%d of $%d %s, home %s" % [held, aboard, went, took, Constants.CHEFTY_BOARD_WAIT_SECONDS, waited, gathered, settled, offered, settled_paid, late_paid, paid, offered, fair, home])
+	return _step("beat", held and aboard and went and waited and gathered and settled and late_paid and fair and home, "after the cash: unsettled and waiting %s, the host climbed in %s, still waiting for the client out on the yard past the window, honking %s, went once they climbed in %s after %.1f s (window %.0f s) %s, the client aboard %s, settled as it left (messy) %s, a bag tossed in the wait paid for ($%d -> $%d) %s, the client paid $%d of $%d %s, home %s" % [held, aboard, extended, went, took, Constants.CHEFTY_BOARD_WAIT_SECONDS, waited, gathered, settled, offered, settled_paid, late_paid, paid, offered, fair, home])
 
 
 func _check_hold() -> bool:
@@ -384,9 +393,14 @@ func _check_stranded() -> bool:
 	var honks := int(chefty.get("honks"))
 	_world().call("_host_depart", client)
 	await _ticks(3)
-	var went := bool(chefty.call("is_riding")) and not bool(chefty.call("is_boarding")) and Net.player_zone(client) == Net.Zone.TRANSIT and int(chefty.get("honks")) == honks
+	# fx-chefty: it drives back down the road for them, empty (no vanishing from
+	# the curb, no seat a kilometre off), then honks and waits at the store, they
+	# climb in, and it goes.
+	var came_back := bool(chefty.call("is_riding")) and not bool(chefty.call("is_boarding")) and Net.player_zone(client) == Net.Zone.STORE and int(chefty.call("seat_of", client)) < 0 and int(chefty.get("honks")) == honks
+	var waiting := await _until(func() -> bool: return bool(chefty.call("is_boarding")) and (chefty.call("boarders") as Array).has(client), RIDE_WAIT_SECONDS)
+	var honked := int(chefty.get("honks")) > honks
 	var arrived := await _until(func() -> bool: return Net.player_zone(client) == Net.Zone.LOT, RIDE_WAIT_SECONDS)
-	return _step("stranded", away and went and arrived, "Chefty parked at the yard %s; the client at the pad: taken straight there, no honk %s, at the yard %s" % [away, went, arrived])
+	return _step("stranded", away and came_back and waiting and honked and arrived, "Chefty parked at the yard %s; the client at the pad: it drives back for them empty %s, honks %s and they climb in %s, at the yard %s" % [away, came_back, honked, waiting, arrived])
 
 
 # ---------------------------------------------------------------- helpers

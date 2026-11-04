@@ -315,6 +315,16 @@ func _physics_process(delta: float) -> void:
 			_simulate(delta)
 		_track_fall(delta)
 	_apply_presentation()
+	# Seated in a drivable vehicle the body turns with the seat this tick
+	# (player/seated.gd sets body_yaw after the seat placed the Visual): put the
+	# Visual back where the seat has it, or it's drawn turned by that much for a
+	# tick (fx-chefty: a 90-degree flick of the view as you sat down).
+	if _on_seat and is_multiplayer_authority() and in_vehicle():
+		$Visual.global_transform = _seat_visual
+
+
+## Where _seat_on_ride drew the Visual this tick.
+var _seat_visual := Transform3D()
 
 
 ## Follow a seat until the ride arrives. Movement stays off; looking still works.
@@ -343,6 +353,7 @@ func _seat_on_ride() -> void:
 	# peer turns just the head); a legacy ride's keep their own facing.
 	var facing := seat.basis.orthonormalized() if _seat_ride != null and _seat_ride.is_in_group("vehicles") else global_basis
 	$Visual.global_transform = Transform3D(facing, seat.origin)
+	_seat_visual = $Visual.global_transform
 
 
 ## For net/components/net_smoother.gd: while true, the smoother leaves the visual alone.
@@ -2946,10 +2957,22 @@ func _step_down(delta: float) -> void:
 func _follow_seat_yaw(seat: Transform3D) -> void:
 	var yaw := seat.basis.orthonormalized().get_euler().y
 	if is_nan(_ride_seat_yaw):
-		body_yaw = yaw
+		# fx-chefty: you turn to the seat's way over the climb in, not in a frame
+		# (the view swung 84 degrees in one, play: rec_board_fr frame 72).
+		_seat_turn_left = angle_difference(body_yaw, yaw)
+		_seat_turn_rate = absf(_seat_turn_left) / maxf(Constants.CHEFTY_BOARD_TURN_SECONDS, 0.01)
 	else:
 		body_yaw += angle_difference(_ride_seat_yaw, yaw)
+	if _seat_turn_left != 0.0:
+		var step := signf(_seat_turn_left) * minf(absf(_seat_turn_left), _seat_turn_rate * get_physics_process_delta_time())
+		body_yaw += step
+		_seat_turn_left -= step
 	_ride_seat_yaw = yaw
+
+
+## A legacy seat's turn to its facing still to come (radians), and how fast it goes.
+var _seat_turn_left: float = 0.0
+var _seat_turn_rate: float = 0.0
 
 
 ## Another peer's view of a rider: while seated the Visual is top_level, so the
