@@ -104,6 +104,7 @@ var knocks_seen: int = 0
 ## fx-yard: how often this peer saw the hedge thrash, and the wait to the next.
 var hedge_plows_seen: int = 0
 var _plow_wait: float = 0.0
+var _plow_last_msec: int = -100000
 ## The second dent's rolling hubcap, on this peer (counted headless too).
 var hubcaps_seen: int = 0
 ## Host only.
@@ -697,7 +698,10 @@ func _hedge_local(delta: float) -> void:
 	var hit := VehicleSim.town_edge_depth(body.origin, yaw)
 	var depth := float(hit[0])
 	var left := Constants.TOWN_EDGE_BAND - depth
-	if left > Constants.TOWN_EDGE_LEAVES_DEEP:
+	# In the leaves, or already being held back by them (VehicleSim.town_edge's
+	# clamp): the hedge never brakes the truck without being seen to.
+	var held := depth > 0.0 and speed > sqrt(2.0 * Constants.TOWN_EDGE_DECEL * maxf(left, 0.0)) - 0.5
+	if left > Constants.TOWN_EDGE_LEAVES_DEEP and not held:
 		return
 	_plow_wait = Constants.TOWN_EDGE_PLOW_EVERY
 	hedge_plows_seen += 1
@@ -709,10 +713,16 @@ func _hedge_local(delta: float) -> void:
 	if DisplayServer.get_name() != "headless":
 		var world := get_tree().get_first_node_in_group("world")
 		if world != null:
-			_HideSpot.burst(world, at, int(Constants.TOWN_EDGE_PLOW_LEAVES * strength) + 4, PLOW_LEAVES, 2.0 + 2.5 * strength, _rng)
+			# Across the whole bumper, and a big one as the nose first goes in.
+			var first := Time.get_ticks_msec() - _plow_last_msec > 800
+			var across := VehicleSim.right_of(yaw) * (Constants.CHEFTY_HALF_WIDTH * 0.8)
+			var count := int(float(Constants.TOWN_EDGE_PLOW_LEAVES) * strength * (2.0 if first else 1.0)) + 4
+			for side: float in [-1.0, 0.0, 1.0]:
+				_HideSpot.burst(world, at + across * side + Vector3.UP * _rng.randf_range(-0.4, 0.5), count / 3 + 2, PLOW_LEAVES, 2.5 + 3.0 * strength, _rng, Vector3.INF, 0.0, Constants.TOWN_EDGE_PLOW_LEAF_SIZE)
+		_plow_last_msec = Time.get_ticks_msec()
 		var sfx := get_tree().get_first_node_in_group("sfx")
 		if sfx != null:
-			sfx.call("play_at", "hedge_plow", at, -6.0 + 6.0 * strength)
+			sfx.call("play_at", "hedge_plow", at, -3.0 + 6.0 * strength)
 	if _feels(at):
 		_shake = maxf(_shake, 0.3 * strength)
 
@@ -726,8 +736,8 @@ func _knock_over(piece: Node3D) -> void:
 	var mailbox := kind == "mailbox"
 	var size := Vector3(0.45, 1.45, 0.66) if mailbox else Vector3(0.66, 1.1, 0.76)
 	var mass := Constants.CHEFTY_KNOCK_MASS_MAILBOX if mailbox else Constants.CHEFTY_KNOCK_MASS_BIN
-	if kind == "sawhorse":
-		size = Vector3(float(piece.get_meta("knock_reach", 1.0)) * 2.0, 1.1, 0.8)
+	if kind == "sawhorse" or kind == "sign":
+		size = Vector3(float(piece.get_meta("knock_reach", 1.0)) * 2.0, 2.3 if kind == "sign" else 1.1, 0.8)
 		mass = Constants.TOWN_EDGE_SAWHORSE_MASS
 	elif kind == "barrel":
 		size = Vector3(0.66, 1.0, 0.66)
@@ -754,16 +764,23 @@ func _knock_over(piece: Node3D) -> void:
 	holder.add_child(flier)
 	flier.global_transform = piece.global_transform
 	piece.visible = false
+	# The town's edge pieces fly clear of the truck's own body (fx-yard).
+	var truck_solid := vehicle.call("solid_body") as PhysicsBody3D if vehicle.has_method("solid_body") else null
+	if kind in ["sawhorse", "barrel", "sign"] and truck_solid != null:
+		flier.add_collision_exception_with(truck_solid)
 	var vel: Vector3 = vehicle.call("drawn_velocity")
 	var right := VehicleSim.right_of(float(vehicle.call("yaw")))
 	var side := right * signf((piece.global_position - vehicle.call("body_position")).dot(right))
 	var flat := Vector3(vel.x, 0.0, vel.z)
-	if kind == "sawhorse":
+	if kind == "sawhorse" or kind == "sign":
 		# It tips over its feet the way the bumper shoves it, its board swinging
 		# down toward the road ahead, and skids a little (fx-yard).
 		var push := flat.normalized() if flat.length() > 0.1 else VehicleSim.forward_of(float(vehicle.call("yaw")))
 		var axis := Vector3.UP.cross(push).normalized()
-		flier.linear_velocity = flat * Constants.TOWN_EDGE_SAWHORSE_CARRY + Vector3.UP * Constants.TOWN_EDGE_SAWHORSE_UP + side * 0.4
+		# Off to the side it was on (a coin toss dead ahead), clear of the truck
+		# driving on through, which never touches it again.
+		var off_side := side if side.length() > 0.5 else right * (-1.0 if _rng.randf() < 0.5 else 1.0)
+		flier.linear_velocity = flat * Constants.TOWN_EDGE_SAWHORSE_CARRY + Vector3.UP * Constants.TOWN_EDGE_SAWHORSE_UP + off_side * Constants.TOWN_EDGE_SAWHORSE_SIDE
 		flier.angular_velocity = axis * Constants.TOWN_EDGE_SAWHORSE_TIP * _rng.randf_range(0.7, 1.0) + Vector3.UP * _rng.randf_range(-1.5, 1.5)
 		_play_at("sawhorse_tip", piece.global_position + Vector3.UP * 0.6)
 	elif kind == "barrel":

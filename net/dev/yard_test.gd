@@ -281,7 +281,8 @@ func _hedge() -> void:
 	var client_before := await _ask("crashes", {}, 6.0)
 	var face_z := Constants.TOWN_LINE_RECT.position.y + Constants.TOWN_LINE_WALL_INSIDE
 	# Head on at the north hedge, up the Depot Road farm track, flat out.
-	var x := TownMap.DEPOT_X
+	# West of the farm track: the hedge itself, not its gate.
+	var x := TownMap.DEPOT_X - 24.0
 	var start := Vector3(x, 0.5, face_z + 32.0)
 	var run := await _run_at(chefty, start, 0.0, 5.5)
 	var after: Dictionary = crash.call("report")

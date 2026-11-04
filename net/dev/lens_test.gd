@@ -186,6 +186,7 @@ func _homeowner_checks() -> void:
 		await _until(func() -> bool: return _flat(_other().global_position, near_spot) < 0.3, 4.0)
 		await _wait(0.4)
 		var other_nearer := _flat(_other().global_position, ho.global_position) < _flat(me.global_position, ho.global_position)
+		var eased_before := int(ho.get("frames_eased"))
 		ho.call("host_stage_for", Net.local_peer_id())
 		ho.call("_rpc_react", "fine", 0, 10, "")
 		var fastest := 0.0
@@ -201,6 +202,13 @@ func _homeowner_checks() -> void:
 			last = ho.global_position
 			if moved and float(ho.call("walk_speed")) <= 0.0:
 				break
+			# fx-yard: well off to the side at a talking distance, she answers from
+			# where she stands and the talker's view turns to her instead.
+			if not moved and int(ho.get("frames_eased")) > eased_before:
+				break
+		var turned := int(ho.get("frames_eased")) > eased_before
+		if turned:
+			await _wait(Constants.P1_COUNTER_FRAME_SECONDS + 0.2)
 		var angle := _view_angle(me, ho)
 		var dist := _flat(ho.global_position, me.global_position)
 		# Where the client has her: the same spot (the host sends where she goes).
@@ -209,8 +217,8 @@ func _homeowner_checks() -> void:
 		_rpc_ask_homeowner.rpc_id(client_id)
 		await _until(func() -> bool: return _client_ho_at.is_finite(), 4.0)
 		var apart := _flat(_client_ho_at, ho.global_position) if _client_ho_at.is_finite() else INF
-		_step("view", moved and other_nearer and angle < 25.0 and dist > 1.3 and dist < 2.3 and fastest <= Constants.HOMEOWNER_WALK_SPEED * 1.15 and apart < 0.15,
-			"she was %.0f deg off the talker's view (the other player nearer: %s); walked to %.0f deg off at %.2f m, never faster than %.2f m/s; the client has her %.2f m from the host's spot" % [off_before, other_nearer, angle, dist, fastest, apart])
+		_step("view", (moved or turned) and other_nearer and angle < 25.0 and dist > 1.3 and dist < 2.3 and fastest <= Constants.HOMEOWNER_WALK_SPEED * 1.15 and apart < 0.15,
+			("she was %.0f deg off the talker's view (the other player nearer: %s); walked (or the view turned: " + str(turned) + ") to %.0f deg off at %.2f m, never faster than %.2f m/s; the client has her %.2f m from the host's spot") % [off_before, other_nearer, angle, dist, fastest, apart])
 		_rpc_stand_at.rpc_id(client_id, home + front * 8.0 + toward.rotated(Vector3.UP, PI * 0.5) * 3.0, toward)
 	# ---- price
 	ho.call("_offer", 10)

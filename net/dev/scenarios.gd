@@ -44,6 +44,10 @@ const CRASH_BAGS: int = 14
 const CRASH_BAG_VALUE: int = 20
 ## knock: the run-up to the mailbox (m), and how far past it the friend stands.
 const KNOCK_RUN_UP: float = 14.0
+## edge_* (fx-yard): how far short of the hedge's face or the barricade Chefty stops (m).
+const EDGE_RUN_UP: float = 36.0
+## ... this far west of the Depot Road farm track (m), so it meets hedge, not the gate.
+const EDGE_HEDGE_SIDE: float = 24.0
 const KNOCK_FRIEND_PAST: float = 7.0
 ## ...and how far toward the street from the mailbox Chefty's middle runs (m).
 const KNOCK_SIDE: float = 1.2
@@ -53,7 +57,7 @@ const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -301,6 +305,12 @@ func run(scenario: String) -> Dictionary:
 			out = await _knock()
 		"plow":
 			out = await _plow()
+		"edge_hedge":
+			out = await _edge("hedge")
+		"edge_hedge_angle":
+			out = await _edge("hedge_angle")
+		"edge_barricade":
+			out = await _edge("barricade")
 
 		"skate":
 			out = await _skate()
@@ -2012,6 +2022,47 @@ func _plow() -> Dictionary:
 			body.call("send_teleport", Transform3D(Basis(Vector3.UP, PI * 0.5), lot * PLOW_FRIEND))
 	await get_tree().create_timer(0.5).timeout
 	return {"note": "the job yard's lawn ahead; drive in, stop on it, honk", "zone": _zone()}
+
+
+## fx-yard, the town's edge (docs/GAME.md "The yard's edges and the people on
+## it"): at the wheel, stopped EDGE_RUN_UP m short of it, everyone else who plays
+## standing in the bed. edge_hedge: up the Depot Road farm track at the north
+## hedgerow, head on; edge_hedge_angle: across the field at it, nose 32 degrees
+## off; edge_barricade: on Depot Road at its north ROAD CLOSED barricade. hold
+## move_forward: the hedge catches the truck, or the sawhorses go over.
+func _edge(which: String) -> Dictionary:
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	var town_line := preload("res://levels/town/town_line.gd")
+	var face_z := Constants.TOWN_LINE_RECT.position.y + Constants.TOWN_LINE_WALL_INSIDE
+	# Off the farm track: into the hedge itself, not its gate.
+	var at := Vector3(TownMap.DEPOT_X - EDGE_HEDGE_SIDE, 0.5, face_z + EDGE_RUN_UP)
+	var yaw := 0.0
+	if which == "hedge_angle":
+		at = Vector3(TownMap.DEPOT_X - EDGE_HEDGE_SIDE - EDGE_RUN_UP * 0.6, 0.5, face_z + EDGE_RUN_UP)
+		yaw = -0.55
+	elif which == "barricade":
+		for closure: Dictionary in town_line.closures():
+			if str(closure["key"]) == "depot_n":
+				at = town_line.barricade_at(closure) + Vector3(0.0, 0.5, EDGE_RUN_UP)
+	chefty.call("dev_place", at, yaw)
+	await _ticks(2)
+	var me_id := Net.local_peer_id()
+	Net.set_player_zone(me_id, Net.Zone.TOWN)
+	var seat := _Vehicles.CHEFTY_CAB_SEATS
+	var riders: Array[String] = []
+	for peer_id: int in Net.peer_ids():
+		if peer_id == me_id or Net.is_watcher(peer_id) or Net.player_name(peer_id) == OBSERVER_NAME or seat >= Constants.CHEFTY_SEATS:
+			continue
+		_safe_peer(peer_id, QUIET_AFTER_SECONDS)
+		if bool(chefty.call("dev_seat", peer_id, seat)):
+			Net.set_player_zone(peer_id, Net.Zone.TOWN)
+			riders.append(Net.player_name(peer_id))
+			seat += 1
+	await get_tree().create_timer(0.4).timeout
+	return {"note": "%s %.0f m ahead; hold move_forward" % ["the ROAD CLOSED barricade" if which == "barricade" else "the hedgerow", EDGE_RUN_UP], "riders": riders, "zone": _zone()}
 
 
 ## knock (driving C3): at the wheel on a street, a curbside mailbox KNOCK_RUN_UP m

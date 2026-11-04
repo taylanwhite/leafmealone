@@ -1010,11 +1010,12 @@ func _burst(at: Vector3, count: int, colors: Array[Color], speed: float) -> void
 
 ## A puff of leaves from at under parent, cosmetic: each flies on its own arc,
 ## spins, lands and shrinks away. Shared with the pile dive (player/hide_view.gd).
-static func burst(parent: Node, at: Vector3, count: int, colors: Array[Color], speed: float, rng: RandomNumberGenerator, lens := Vector3.INF, lens_clear := 0.0) -> void:
+## leaf_size is the range of leaf sizes (m): a hedgerow Chefty ploughs into throws bigger ones (fx-yard).
+static func burst(parent: Node, at: Vector3, count: int, colors: Array[Color], speed: float, rng: RandomNumberGenerator, lens := Vector3.INF, lens_clear := 0.0, leaf_size := Vector2(0.05, 0.09)) -> void:
 	if parent == null or not parent.is_inside_tree():
 		return
 	for index: int in count:
-		var leaf := _leaf_mesh(colors[index % colors.size()], rng.randf_range(0.05, 0.09))
+		var leaf := _leaf_mesh(colors[index % colors.size()], snappedf(rng.randf_range(leaf_size.x, leaf_size.y), 0.01))
 		parent.add_child(leaf)
 		leaf.global_position = at
 		var angle := rng.randf() * TAU

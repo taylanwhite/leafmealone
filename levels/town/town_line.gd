@@ -387,12 +387,16 @@ static func _closure(parent: Node3D, closure: Dictionary) -> void:
 		var barrel_kit := _MeshKit.new()
 		_barrel(barrel_kit, Vector3.ZERO)
 		_view(piece, barrel_kit, "Look", true)
-	# The sign on a stand, just off the middle, its legs behind the board.
+	# The sign on a stand, just off the middle, its legs behind the board: a
+	# piece of its own, so a truck through the barricade takes it too (fx-yard).
 	var sign_x := -half * 0.35
+	var sign_piece := _knockable(root, "Sign", "sign", "", root.global_transform * Vector3(sign_x, 0.0, 0.0), root.global_rotation.y, 1.05)
+	var sign_kit := _MeshKit.new()
 	for leg: float in [-1.0, 1.0]:
-		_P.bar(kit, Vector3(sign_x + leg * 0.75, 0.0, -0.3), Vector3(sign_x + leg * 0.75, 2.25, -0.01), 0.045, Color(0.35, 0.36, 0.37), 5)
-	_P.slab(kit, Vector3(sign_x, 1.75, 0.08), Vector3(2.0, 1.15, 0.05), WHITE)
-	_P.slab(kit, Vector3(sign_x, 1.75, 0.06), Vector3(2.1, 1.25, 0.03), ORANGE)
+		_P.bar(sign_kit, Vector3(leg * 0.75, 0.0, -0.3), Vector3(leg * 0.75, 2.25, -0.01), 0.045, Color(0.35, 0.36, 0.37), 5)
+	_P.slab(sign_kit, Vector3(0.0, 1.75, 0.08), Vector3(2.0, 1.15, 0.05), WHITE)
+	_P.slab(sign_kit, Vector3(0.0, 1.75, 0.06), Vector3(2.1, 1.25, 0.03), ORANGE)
+	_view(sign_piece, sign_kit, "Look", true)
 	# The farm gate in the hedge: two posts and five bars, shut across the track,
 	# and a bush each side so the hedge closes on the posts.
 	var gate_z := -(to_gate - Constants.TOWN_LINE_BARRICADE_OUT)
@@ -410,10 +414,10 @@ static func _closure(parent: Node3D, closure: Dictionary) -> void:
 	for side: float in [-1.0, 1.0]:
 		_P.slab(kit, Vector3(side * (gate_half - 0.1), 0.89, gate_z + 0.04), Vector3(0.12, 1.25, 0.06), GATE.darkened(0.08))
 	_view(root, kit, "Barricade", true)
-	var title := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed"], Vector3(sign_x, 2.0, 0.12), 50, Color(0.12, 0.1, 0.08))
+	var title := _LowPoly.text_sign(sign_piece, _Strings.TOWN_SIGNS["road_closed"], Vector3(0.0, 2.0, 0.12), 50, Color(0.12, 0.1, 0.08))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.outline_size = 0
-	var line := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed_" + str(closure["key"])], Vector3(sign_x, 1.52, 0.12), 19, Color(0.12, 0.1, 0.08))
+	var line := _LowPoly.text_sign(sign_piece, _Strings.TOWN_SIGNS["road_closed_" + str(closure["key"])], Vector3(0.0, 1.52, 0.12), 19, Color(0.12, 0.1, 0.08))
 	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	line.outline_size = 0
 
@@ -427,7 +431,8 @@ static func _knockable(parent: Node3D, node_name: String, kind: String, key: Str
 	parent.add_child(piece)
 	piece.global_transform = Transform3D(Basis(Vector3.UP, yaw), at)
 	piece.set_meta("kind", kind)
-	piece.set_meta("foot_key", key)
+	if key != "":
+		piece.set_meta("foot_key", key)
 	piece.set_meta("knock_reach", reach)
 	piece.add_to_group("town_knockables")
 	return piece
