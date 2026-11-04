@@ -161,6 +161,12 @@ var _crouch: float = 0.0
 var _stance: float = 0.0
 var _lean_last: float = 0.0
 var _head_lag: float = 0.0
+## haul_up: seconds into the rise (-1: none), its length, how fallen it began, and
+## how long (s) a knock replicated from before it is still ignored.
+var _haul_t: float = -1.0
+var _haul_len: float = 0.6
+var _haul_from: float = 1.0
+var _haul_ignore_knock: float = 0.0
 var _in_air: bool = false
 ## The stance's feet on the ground (world x, z; INF until planted), each foot's
 ## step (0 to 1 while it steps, -1 planted) and where the step left from, and the
@@ -1258,11 +1264,25 @@ func _physics_process(delta: float) -> void:
 		foot_hurt = int(owner_node.get("foot_hurt"))
 	if foot_hurt == 1:
 		_limping = true
+	# Hauled up (haul_up): the owner's knock may still be on its way here; it's over.
+	if _haul_ignore_knock > 0.0:
+		_haul_ignore_knock = 0.0 if not knocked else _haul_ignore_knock - delta
+		knocked = false
 	# Every peer sees stars when someone goes down, bonked or fainted.
 	if knocked and fallen <= 0.0:
 		dizzy(float(Constants.BONK_STUN_SECONDS["heavy"]))
-	# Topple fast, get up a little slower.
-	fallen = move_toward(fallen, 1.0 if knocked else 0.0, delta * (5.0 if knocked else 2.5))
+	if _haul_t >= 0.0:
+		# Sitting up and standing on the haul's curve: the hips' distance back from
+		# the feet shrinks with the staged body's own eased carry in (StageBody), so
+		# the hips stay put while the feet swing in under them.
+		_haul_t += delta
+		var s := smoothstep(0.0, 1.0, clampf(_haul_t / _haul_len, 0.0, 1.0))
+		fallen = asin(clampf((1.0 - s) * sin(_haul_from * FALL_ANGLE), 0.0, 1.0)) / FALL_ANGLE
+		if _haul_t >= _haul_len:
+			_haul_t = -1.0
+	else:
+		# Topple fast, get up a little slower.
+		fallen = move_toward(fallen, 1.0 if knocked else 0.0, delta * (5.0 if knocked else 2.5))
 	if _was_air and not in_air:
 		_squash = 1.0
 	_was_air = in_air
@@ -1366,6 +1386,15 @@ func _apply_fall(delta: float) -> void:
 			_legs[index].rotation.z = lerpf(0.0, (-0.3 if index == 0 else 0.3), fallen)
 			_shins[index].rotation.x = lerpf(_shins[index].rotation.x, Constants.BODY_FALLEN_SHIN, fallen)
 			_shoes[index].rotation.x = lerpf(_shoes[index].rotation.x, 0.0, fallen)
+	if _haul_t >= 0.0:
+		# Hauled up: the knees come up as the feet swing in, the shoes kept flat to
+		# the grass, and straighten as they stand.
+		var tuck := sin(PI * clampf(_haul_t / _haul_len, 0.0, 1.0))
+		for index: int in _legs.size():
+			_legs[index].rotation.x += Constants.BODY_HAUL_THIGH * tuck
+			_shins[index].rotation.x += Constants.BODY_HAUL_SHIN * tuck
+			_shoes[index].rotation.x -= (Constants.BODY_HAUL_THIGH + Constants.BODY_HAUL_SHIN) * tuck
+	if fallen > 0.01:
 		for index: int in _arms.size():
 			_arms[index].rotation.z = lerpf(_arms[index].rotation.z, (-1.6 if index == 0 else 1.6) + 0.2 * sin(_time * 9.0 + index), fallen)
 	else:
@@ -1421,6 +1450,19 @@ func _show_bandage() -> void:
 	_bandage.visible = true
 	if mood == "neutral":
 		mood = "worried"
+
+
+## P1 catch (the haul-up, net/run_events/encounter.gd): hauled up off your back by
+## the collar over `seconds`, from now, on every peer. Not a knock's own get-up (a
+## stiff plank swung up from the feet, audit crew-13 review): the hips stay where
+## they lay while the body sits up, the knees come up and the feet swing in under
+## them; the caller's staged body carries the origin in from the feet to the hips
+## on the same eased curve. A knock still replicating here is over meanwhile.
+func haul_up(seconds: float) -> void:
+	_haul_len = maxf(seconds, 0.05)
+	_haul_t = 0.0
+	_haul_from = fallen
+	_haul_ignore_knock = Constants.BODY_HAUL_KNOCK_STALE
 
 
 ## Stars circle this character's head for a while.

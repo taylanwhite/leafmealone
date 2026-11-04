@@ -321,17 +321,21 @@ func _shuttle_seats() -> bool:
 
 ## Every peer, from net/run_events/encounter.gd's wind-up RPC: from where, which
 ## way, and when the hand lands. He winds up there and lunges along dir.
-func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float = Constants.CREW_LUNGE_DISTANCE) -> void:
-	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "travel": travel, "blend_from": _drawn_transform(), "since": _now(), "whooshed": from_spot}
+## down (P1 catch, the haul-up): on someone knocked flat there's no crouch and no
+## lunge; he walks over beside them, turning to face `face` (their collar) as he
+## arrives, then squats and reaches down over the last CATCH_DOWN_BEND s.
+func play_windup(from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float = Constants.CREW_LUNGE_DISTANCE, down: bool = false, face: Vector3 = Vector3.ZERO) -> void:
+	_placed = {"kind": "lunge", "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "down": down, "face": face, "travel": travel, "blend_from": _drawn_transform(), "since": _now(), "whooshed": from_spot or down}
 	# The crouch from this frame on every peer, whenever the mode replicates (R2b:
 	# the pose followed the mode, which reached a client late or not before the lunge).
+	# A haul-up walks over first (its gait, no pose) and squats when it gets there.
 	var poser := get_node_or_null("Visual/CartoonBody/Poser")
 	if poser != null and not from_spot:
-		poser.call("hold", "lunge_windup")
+		poser.call("hold", "" if down else "lunge_windup")
 	# R2c: the crouch squeaks where he is, so a wind-up out of view is heard from
 	# his side before the lunge (audit dodge-offscreen).
 	var sfx := get_tree().get_first_node_in_group("sfx") if is_inside_tree() else null
-	if sfx != null and not from_spot and contact_at - _now() > Constants.CREW_LUNGE_SECONDS:
+	if sfx != null and not from_spot and not down and contact_at - _now() > Constants.CREW_LUNGE_SECONDS:
 		sfx.call("play_on", "windup_squeak", self)
 
 
@@ -347,6 +351,14 @@ func play_stand(at: Vector3, yaw: float, blend: float, delay: float = 0.0) -> vo
 func _step_lunge_beats() -> void:
 	if str(_placed.get("kind", "")) != "lunge" or bool(_placed.get("spot", false)):
 		return
+	if bool(_placed.get("down", false)):
+		# The haul-up: there, he squats over them and reaches down for the collar.
+		if not bool(_placed.get("bent", false)) and _now() >= _haul_bend_at():
+			_placed["bent"] = true
+			var bender := get_node_or_null("Visual/CartoonBody/Poser")
+			if bender != null:
+				bender.call("hold", "haul_reach", 0.0, _now() - _haul_bend_at())
+		return
 	var lunge_at := float(_placed["contact"]) - Constants.CREW_LUNGE_SECONDS
 	if _now() < lunge_at or bool(_placed.get("lunging", false)):
 		return
@@ -359,6 +371,12 @@ func _step_lunge_beats() -> void:
 		var sfx := get_tree().get_first_node_in_group("sfx")
 		if sfx != null:
 			sfx.call("play_on", "lunge_whoosh", self, -4.0)
+
+
+## A haul-up's placement: when (this peer's server time) the walk over ends and
+## the squat begins, CATCH_DOWN_BEND before the hand lands.
+func _haul_bend_at() -> float:
+	return float(_placed.get("contact", 0.0)) - Constants.CATCH_DOWN_BEND
 
 
 ## Every peer: back to the network's pose (the host's body is where the placement left it).
@@ -652,9 +670,20 @@ func _place() -> void:
 			var contact := float(_placed["contact"])
 			var yaw := atan2(dir.x, dir.z)
 			var along := 0.0
-			if not bool(_placed.get("spot", false)):
+			var shaped := 0.0
+			if bool(_placed.get("down", false)):
+				# A few quick steps over beside them, eased in and out, turning to face
+				# their collar as he arrives (the haul-up); then he bends over it.
+				var since := float(_placed.get("since", now))
+				along = clampf((now - since) / maxf(_haul_bend_at() - since, 0.05), 0.0, 1.0)
+				shaped = smoothstep(0.0, 1.0, along)
+				var face: Vector3 = _placed.get("face", Vector3.ZERO)
+				if face.length() > 0.01:
+					yaw = lerp_angle(yaw, atan2(face.x, face.z), smoothstep(0.4, 1.0, along))
+			elif not bool(_placed.get("spot", false)):
 				along = clampf((now - (contact - Constants.CREW_LUNGE_SECONDS)) / Constants.CREW_LUNGE_SECONDS, 0.0, 1.0)
-			var at := from + dir * float(_placed.get("travel", Constants.CREW_LUNGE_DISTANCE)) * ease(along, 0.6)
+				shaped = ease(along, 0.6)
+			var at := from + dir * float(_placed.get("travel", Constants.CREW_LUNGE_DISTANCE)) * shaped
 			want = Transform3D(Basis(Vector3.UP, yaw), at)
 			want = _blend_in(want, Constants.CREW_WINDUP_BLEND, now)
 		"stand":
@@ -808,13 +837,24 @@ func _show_mode(body: Node, poser: Node) -> void:
 			# Down from the van: straighten the visor, look left, look right.
 			poser.call("hold", "land_look", Constants.CREW_LAND_LOOK_SECONDS, late)
 		Mode.WINDUP:
-			poser.call("hold", "lunge_windup")
+			# A haul-up (play_windup's down) walks over, then squats to reach
+			# (_step_lunge_beats), never the pounce crouch.
+			if bool(_placed.get("down", false)):
+				if bool(_placed.get("bent", false)):
+					poser.call("hold", "haul_reach")
+			else:
+				poser.call("hold", "lunge_windup")
 		Mode.LUNGE:
 			poser.call("hold", "lunge")
 		Mode.WHIFF:
 			poser.call("hold", "whiff_sprawl", Constants.CREW_WHIFF_SECONDS, late)
 		Mode.GOTCHA:
-			poser.call("hold", "collar_grab")
+			# Squatting over someone he's hauling up, he stays down until the heave
+			# (encounter.gd's haul_up shot hands over to the collar grab itself): the
+			# mode reaching a lagged peer before the catch stood him up and dropped him
+			# again (crew-13 review, observer under 150 ms).
+			if str(poser.call("current")) != "haul_reach":
+				poser.call("hold", "collar_grab")
 		Mode.CITE:
 			poser.call("hold", "cite_scribble")
 		Mode.ESCORT:

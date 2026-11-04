@@ -140,6 +140,11 @@ var annex_test: bool = false
 ## (net/clock_sync.gd), so recordings are evenly spaced and rides and raids keep
 ## in step with physics even on a loaded machine. tools/play.ps1 passes both.
 var fixed_step: int = 0
+## --clock-skew=S (P1 catch): a client's estimate of the host's clock held S s off
+## (negative: behind), the way a starved window's drifted in crew playtest 1, so a
+## playtest can watch the stage on a drifted clock (net/clock_sync.gd). The host's
+## own clock ignores it.
+var clock_skew: float = 0.0
 ## --art-test: every neighborhood's look in the running game: styles, signatures,
 ## budgets, layout, determinism, seasons and words (net/dev/art_test.gd).
 var art_test: bool = false
@@ -390,6 +395,8 @@ func parse(arguments: PackedStringArray) -> void:
 			annex_test = true
 		elif argument.begins_with("--fixed-step="):
 			fixed_step = maxi(0, int(argument.trim_prefix("--fixed-step=")))
+		elif argument.begins_with("--clock-skew="):
+			clock_skew = float(argument.trim_prefix("--clock-skew="))
 		elif argument == "--art-test":
 			art_test = true
 		elif argument == "--rake-net-test":

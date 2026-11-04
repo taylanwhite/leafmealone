@@ -48,6 +48,8 @@ func _ready() -> void:
 	_args.read()
 	# Dev only: a --fixed-step run's clock counts game time (net/clock_sync.gd).
 	_clock.game_ticks = _args.fixed_step > 0
+	# Dev only: a client's clock estimate held off the host's (--clock-skew=).
+	_clock.dev_skew = _args.clock_skew
 	if _args.player_name != "":
 		_local_name = _args.player_name
 	multiplayer.peer_connected.connect(_on_peer_connected)

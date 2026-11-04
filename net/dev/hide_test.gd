@@ -20,8 +20,11 @@ extends Node
 ##    where it started, not hidden. Then the client vaults in itself (a live
 ##    view under the lid) and back out.
 ## 4. pile: the host rakes a pile, the client dives in (the hide shot again,
-##    nothing drawn, the mound); the host bags the pile and the client is
-##    turned out (PENDING_R1 when the leaf field has no bag-out hook).
+##    nothing drawn, the mound); the host, watching it as another player, hears
+##    of the dive from its owner no later than in_pile, lands it and grows one
+##    mound that never shrinks on the way (P1 catch review); the host bags the
+##    pile and the client is turned out (PENDING_R1 when the leaf field has no
+##    bag-out hook).
 ## 5. the NICE BOYS (a chase, the crew held still and placed by hand): the
 ##    client hides unseen; peeking with a NICE BOY behind it raises no
 ##    suspicion, in front of it does; an inspection of an unseen still hider is
@@ -240,9 +243,17 @@ func _pile_step(mate: int) -> void:
 		view.set("_pile_poke_at", Net.server_time() - 30.0)
 		view.set("_pile_found_at", Net.server_time() - 29.0)
 	_reports.erase("pile")
+	_dive_seen = {}
+	_watch_pile_dive(view, client)
 	_rpc_cue.rpc_id(mate, "pile", {})
 	var report: Dictionary = await _report("pile")
 	var hidden := bool(client.get("in_pile"))
+	# P1 catch review (audit nb7): the watcher (the host here) hears of the dive from
+	# its owner before the host's word that they're in, lands it, and grows one mound
+	# over them that never shrinks back on the way.
+	await _wait_for(func() -> Variant: return true if bool(_dive_seen.get("done", false)) else null)
+	_check("pile dive seen by others", bool(_dive_seen.get("announced_first", false)) and bool(_dive_seen.get("landed", false)) and float(_dive_seen.get("shrunk", 9.0)) <= 0.02 and int(_dive_seen.get("mounds", 0)) == 1,
+		"announced before in_pile %s (word at %.2f s, in at %.2f s), landed %s, mounds made %d, most it shrank %.3f" % [_dive_seen.get("announced_first", false), float(_dive_seen.get("announced_at", -1.0)), float(_dive_seen.get("in_at", -1.0)), _dive_seen.get("landed", false), int(_dive_seen.get("mounds", 0)), float(_dive_seen.get("shrunk", 9.0))])
 	await _seconds(0.4)
 	var mound_node := view.get("_mound") as Node3D if view != null else null
 	var mound := mound_node != null
@@ -782,6 +793,46 @@ func _clear_at(at: Vector3) -> bool:
 			rids.append((node as CollisionObject3D).get_rid())
 	query.exclude = rids
 	return _me().get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
+
+
+## Host, step 4 (P1 catch review): watch the client's pile dive as another player
+## sees it, every physics tick for a few seconds: the owner's announcement before
+## the host's word that they're in, its landing, and the mound (one, only growing).
+var _dive_seen: Dictionary = {}
+
+
+func _watch_pile_dive(view: Node, client: Node3D) -> void:
+	var announced_first := false
+	var landed := false
+	var mounds := 0
+	var last_mound: Node3D = null
+	var last_size := 0.0
+	var shrunk := 0.0
+	var waited := 0.0
+	var announced_at := -1.0
+	var in_at := -1.0
+	while view != null and is_instance_valid(view) and waited < Constants.HIDE_ENTER_SECONDS + 2.5:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+		var to: Vector3 = view.get("_remote_pile_to")
+		if to.is_finite() and announced_at < 0.0:
+			announced_at = waited
+		if bool(client.get("in_pile")) and in_at < 0.0:
+			in_at = waited
+		if to.is_finite() and not bool(client.get("in_pile")):
+			announced_first = true
+		landed = landed or bool(view.get("_remote_pile_landed"))
+		var mound := view.get("_mound") as Node3D
+		if mound != null and mound != last_mound:
+			mounds += 1
+			last_mound = mound
+			last_size = 0.0
+		if mound != null:
+			shrunk = maxf(shrunk, last_size - mound.scale.y)
+			last_size = maxf(last_size, mound.scale.y)
+	# Same tick on a local link (the word and in_pile can land in one poll): no later.
+	announced_first = announced_first or (announced_at >= 0.0 and (in_at < 0.0 or announced_at <= in_at))
+	_dive_seen = {"announced_first": announced_first, "landed": landed, "mounds": mounds, "shrunk": shrunk, "done": true, "announced_at": announced_at, "in_at": in_at}
 
 
 ## A raked pile on an untouched strip (gag_test's way), with the host's own rake.

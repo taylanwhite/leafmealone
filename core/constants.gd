@@ -5386,3 +5386,75 @@ const HOMEOWNER_MOOD_SWING_DOWN_ABOVE: float = 0.9
 ## to the whole crew evenly, the rest by contribution (Balance weights and
 ## MINIMUM_CONTRIBUTION_SHARE), so nobody who came along reads $0.
 const CREW_SPLIT_EVEN_SHARE: float = 0.5
+
+# ---- P1 catch (fix wave P1: the second catch, the haul-up, the Annex desk and walk-in,
+# the pile dive seen by others; docs/GAME.md "P1: the catch, again")
+## A stage message's time (encounter.gd _rebased) trusted on a client within this
+## much (s) of when it should land on the client's own clock; further off (a clock
+## estimate gone stale in a starved window, a hitch) the moment starts on arrival.
+const STAGE_CLOCK_TRUST: float = 0.35
+## The haul-up (a NICE BOY on someone knocked flat): no lunge. He walks over beside
+## them at this pace (m/s; the walk takes at least the first and at most the second
+## many s), then squats and reaches down over this long (s): the hand lands on their
+## collar at its end.
+const CATCH_DOWN_WALK: float = 4.0
+const CATCH_DOWN_WALK_SECONDS: Vector2 = Vector2(0.3, 1.0)
+const CATCH_DOWN_BEND: float = 0.35
+## Where he bends over them: this far (m) to the side of their collar, on his own
+## side of them, never over the head that tipped back behind them.
+const CATCH_DOWN_SIDE: float = 0.5
+## Someone flat on their back (player/cartoon_body.gd FALL_ANGLE): their hips and
+## their collar lie this far (m) back from their feet along the ground. They come up
+## where their hips lay; he reaches for the collar.
+const CATCH_DOWN_HIPS_BACK: float = 0.8
+const CATCH_DOWN_COLLAR_BACK: float = 1.25
+## After the heave he stands this far (m) from them, a short step back from his reach.
+const CATCH_DOWN_GAP: float = 0.9
+## The two-shot comes up as a cut, not a swing, when the camera would have to turn
+## more than this (degrees) to reach it: a swing that far crosses empty lawn first.
+const CATCH_CAM_CUT_TURN: float = 125.0
+## The haul-up's two-shot starts from the ground: its look point this much lower
+## (m) and its eye this much lower while you lie there, rising to the usual
+## two-shot over this long (s) after the hit-stop as he heaves you up.
+const CATCH_DOWN_LOOK_DROP: float = 0.8
+const CATCH_DOWN_EYE_DROP: float = 0.1
+const CATCH_DOWN_RISE: float = 0.6
+## ...facing the way they lay until this share of the rise, then turned to face him.
+const CATCH_DOWN_TURN_FROM: float = 0.55
+## The low shot is also this much further off (a share of CATCH_CAM_DISTANCE) while you
+## lie there, so your own head on the grass doesn't fill it.
+const CATCH_DOWN_PULL_BACK: float = 0.35
+## Boarding with nothing staged (your own eyes): the view holds still where it is
+## while the iris shuts at once, then cuts to the seat behind it.
+const BOARD_HOLD_PRIORITY: int = 45
+## ...taken over this short a blend (s) from exactly where it is: no cut, no move.
+const BOARD_HOLD_BLEND: float = 0.05
+## Annex B (audit r2): after he slams APPROVED the Head NICE BOY sits back in his
+## chair, pleased with himself, this long (s) before any walk off; the walk starts
+## from his chair then, never part way along.
+const ANNEX_HEAD_PLEASED: float = 2.4
+## Annex B's walk-in (audit r3): a rider is let inside (the clipboard) only once
+## their body is this near the threshold (m, flat), or this long (s) after the walk
+## should have ended, whatever happened to it.
+const ANNEX_INSIDE_REACH: float = 2.2
+const ANNEX_WALK_LATE_MAX: float = 6.0
+## Annex B (audit nb10): a keycap this near (px) the clipboard in your hand on screen
+## is behind it, and waits until it isn't.
+const ANNEX_FORM_PROMPT_PAD: float = 18.0
+## The pile dive seen by others (audit nb7): a cannonball announced by its owner is
+## played this long (s) past the dive's own length waiting on the host's word that
+## they're in; no word by then, the body stands back up out of the leaves.
+const HIDE_REMOTE_PILE_WAIT: float = 0.9
+## ...it lands (the whump, the burst, the mound starting to grow) as the body drawn
+## on that screen comes within this share of its way to the owner's landing, or this
+## long (s) after it should have landed, wherever it is; the landing is this share
+## of the cannonball's HIDE_ENTER_SECONDS.
+const HIDE_REMOTE_PILE_NEAR: float = 0.15
+const HIDE_REMOTE_PILE_LAND_LATE: float = 0.6
+const HIDE_PILE_LANDING: float = 0.6
+## The haul-up's rise (player/cartoon_body.gd haul_up): the thighs come up this far
+## and the knees bend this far (rad) at its middle, as the feet swing in under the
+## hips; a knock replicated from before it is ignored for up to this long (s).
+const BODY_HAUL_THIGH: float = 0.9
+const BODY_HAUL_SHIN: float = -1.4
+const BODY_HAUL_KNOCK_STALE: float = 2.0

@@ -9,7 +9,8 @@ extends Node
 ## Poses, by name (POSES): speedwalk (a gait overlay: stiff, elbow-pumping),
 ## lunge_windup, lunge, collar_grab, grin_hold, cite_scribble (loops), tear_page,
 ## slap_sticker, arm_link and escort_hum (the escort, loops), hop_out, hop_in,
-## whiff_sprawl, investigate_peer, wave_off, driver_wheel, sit_bench.
+## whiff_sprawl, investigate_peer, wave_off, driver_wheel, sit_bench, haul_reach
+## and haul_up (the haul-up of someone knocked flat).
 ##
 ## crew_member.gd picks the pose from its replicated mode on every peer. When
 ## player/cartoon_body.gd has chunk 1's register_gesture, register_all() also puts
@@ -41,9 +42,20 @@ const POSES: Dictionary = {
 	# R2c: a rescue's bonk lands on him (encounter.gd _rpc_freed): knocked back a
 	# step, arms flung up, the clipboard flying, a woozy wobble with stars.
 	"bonked": [1.5, false],
+	# P1 catch (audit crew-13): someone knocked flat isn't pounced on. He bends over
+	# them reaching for the collar (held through the steps over), then heaves them up
+	# off the grass (a shot at the thaw, encounter.gd _play_gotcha).
+	"haul_reach": [0.0, false],
+	"haul_up": [0.6, false],
 }
 ## Blend in and out, in seconds.
 const BLEND_SECONDS: float = 0.12
+## The haul-up's squat over someone on the ground: the hips this far down (m) and
+## the back bent over this far (rad, forward), deep enough for the hand to reach
+## a collar on the grass (the head rides the bend, _follow_head).
+const HAUL_SQUAT: float = 0.32
+const HAUL_BEND: float = -1.0
+const _CartoonBody = preload("res://player/cartoon_body.gd")
 
 var _body: Node3D
 var _pose: String = ""
@@ -57,6 +69,10 @@ var _time: float = 0.0
 ## A one-shot that plays over the held pose (tear_page, slap_sticker, wave_off).
 var _shot: String = ""
 var _shot_time: float = 0.0
+var _shot_hard: bool = false
+## The haul-up (P1 catch): the body (a player's CartoonBody) whose collar his
+## grabbing hand goes to in haul_reach and haul_up (net/run_events/encounter.gd).
+var reach_body: Node3D
 ## The speed-walk gait, on top of whatever else (0..1, by how fast he goes).
 var gait: float = 0.0
 
@@ -79,10 +95,17 @@ func hold(pose_name: String, length: float = 0.0, t0: float = 0.0) -> void:
 	_weight = 0.0 if _fading == "" else _weight
 
 
-## Play a short one over the held pose.
-func shot(pose_name: String) -> void:
+## Play a short one over the held pose. hard: it starts fully in (from the held
+## pose's own last frame, the haul-up's heave out of its reach) and is the whole
+## pose until it blends out into whatever is held then.
+func shot(pose_name: String, hard: bool = false) -> void:
 	_shot = pose_name
 	_shot_time = 0.0
+	_shot_hard = hard
+	if hard and _pose == "haul_reach":
+		# Out of the reach, into the hand on your shoulder under it (crew_member's
+		# GOTCHA, which may reach this peer after the heave has started).
+		hold("collar_grab")
 
 
 func current() -> String:
@@ -122,11 +145,18 @@ func _physics_process(delta: float) -> void:
 	if parts.is_empty():
 		return
 	var phase := float(_body.get("_phase"))
+	# Where the body left the lean and the hips this tick, for the head (_follow_head).
+	var lean_from := (parts["torso"] as Node3D).rotation.x
+	var hips_from := (parts["hips"] as Node3D).position.y
 	# The few pivots the body never resets itself are written absolutely from these.
 	var extras: Dictionary = {}
-	if gait > 0.01 and _pose == "":
+	# A hard one-shot (the haul-up's heave) is the whole pose while it's fully in.
+	var shot_whole := _shot != "" and _shot_hard and _shot_time + delta < float((POSES.get(_shot, [0.5, false]) as Array)[0]) - 0.08
+	if gait > 0.01 and _pose == "" and not shot_whole:
 		_apply(parts, "speedwalk", _time, 0.0, gait, phase, extras)
-	if _fading != "":
+	if shot_whole:
+		_fading = ""
+	elif _fading != "":
 		var fade_t := _time - _fade_start
 		var out := clampf(1.0 - (_time - _start) / BLEND_SECONDS, 0.0, 1.0)
 		if out <= 0.0:
@@ -141,21 +171,86 @@ func _physics_process(delta: float) -> void:
 			if t >= _length:
 				_pose = ""
 		_weight = weight
-		if _pose != "":
+		if _pose != "" and not shot_whole:
 			_apply(parts, _pose, t, _t01(t, _length), weight, phase, extras)
 	if _shot != "":
 		_shot_time += delta
 		var length := float((POSES.get(_shot, [0.5, false]) as Array)[0])
 		var weight := clampf(minf(_shot_time, length - _shot_time) / 0.08, 0.0, 1.0)
+		if _shot_hard:
+			weight = clampf((length - _shot_time) / 0.08, 0.0, 1.0)
 		_apply(parts, _shot, _shot_time, _t01(_shot_time, length), weight, 0.0, extras)
 		if _shot_time >= length:
 			_shot = ""
+			_shot_hard = false
 	(parts["torso"] as Node3D).rotation.y = float(extras.get("torso_y", 0.0))
 	(parts["hips"] as Node3D).rotation.z = float(extras.get("hips_z", 0.0))
 	if parts["face"] != null:
 		(parts["face"] as Node3D).rotation.z = float(extras.get("face_z", 0.0))
 		if extras.has("face_y"):
 			(parts["face"] as Node3D).rotation.y += float(extras["face_y"])
+	_squat_legs(float(extras.get("squat", 0.0)))
+	_reach(parts, float(extras.get("reach", 0.0)))
+	_follow_head(parts, lean_from, hips_from)
+
+
+## The haul-up's squat over someone on the ground, 0 to 1, t seconds into it (it
+## starts as his walk over ends): down by the time the hand lands (CATCH_DOWN_BEND).
+static func _haul_bend(t: float) -> float:
+	return smoothstep(0.0, maxf(Constants.CATCH_DOWN_BEND, 0.05), t)
+
+
+## Squatting (the haul-up): the feet planted under him on the grass, the knees taking
+## up the drop of the hips (CartoonBody's own leg reach), by `share` (0 to 1).
+func _squat_legs(share: float) -> void:
+	if share <= 0.0 or not _body.has_method("_leg_reach"):
+		return
+	var legs: Array = _body.get("_legs")
+	var shins: Array = _body.get("_shins")
+	var shoes: Array = _body.get("_shoes")
+	if legs.size() < 2 or shins.size() < 2 or shoes.size() < 2:
+		return
+	for index: int in 2:
+		var leg := legs[index] as Node3D
+		# Feet a little wide, the left a half step ahead (its -Z is forward).
+		var foot := Vector3(leg.position.x * 1.5, 0.06, -0.12 if index == 0 else 0.1)
+		var angles: Vector2 = _body.call("_leg_reach", index, foot)
+		leg.rotation.x = lerpf(leg.rotation.x, angles.x, share)
+		leg.rotation.z = lerpf(leg.rotation.z, 0.0, share)
+		(shins[index] as Node3D).rotation.x = lerpf((shins[index] as Node3D).rotation.x, angles.y, share)
+		(shoes[index] as Node3D).rotation.x = lerpf((shoes[index] as Node3D).rotation.x, -(angles.x + angles.y), share)
+
+
+## The haul-up's grabbing hand on reach_body's collar, by `share`: the right arm
+## swung round from the shoulder onto it (CartoonBody._aim_arm), wherever that body
+## is drawn: lying on the grass, then coming up with it.
+func _reach(parts: Dictionary, share: float) -> void:
+	if share <= 0.0 or reach_body == null or not is_instance_valid(reach_body) or not _body.has_method("_aim_arm"):
+		return
+	var torso := reach_body.call("pose_part", "torso") as Node3D if reach_body.has_method("pose_part") else null
+	if torso == null:
+		return
+	# The shirt's collar, at the front of the chest (a body faces its -Z).
+	var collar := torso.global_transform * Vector3(0.0, 0.4, -0.1)
+	_body.call("_aim_arm", parts["right"], collar, smoothstep(0.0, 1.0, share))
+
+
+## The head isn't on the torso (CartoonBody: its own pivot, moved only with the
+## body's work lean). A pose that bends the torso or drops the hips takes it along:
+## round the hips by the change in lean, down by the change in hips, so the neck
+## never shows a gap (audit crew-13 review: his head floated above his collar in a
+## bend). Only an NPC's own head pivot; a player's Head is the camera's.
+func _follow_head(parts: Dictionary, lean_from: float, hips_from: float) -> void:
+	var head := parts.get("head") as Node3D
+	if head == null or head.get_parent() != _body:
+		return
+	var lean_to := (parts["torso"] as Node3D).rotation.x
+	var neck := float(_CartoonBody.WORK_NECK)
+	var drop := (parts["hips"] as Node3D).position.y - hips_from
+	if is_equal_approx(lean_to, lean_from) and is_zero_approx(drop):
+		return
+	head.position.y += neck * (cos(lean_to) - cos(lean_from)) + drop
+	head.position.z += neck * (sin(lean_to) - sin(lean_from))
 
 
 static func _t01(t: float, length: float) -> float:
@@ -174,7 +269,7 @@ static func _parts(body: Node3D) -> Dictionary:
 			"right": body.call("pose_part", "arm_r"), "left": body.call("pose_part", "arm_l"),
 			"leg_l": body.call("pose_part", "leg_l"), "leg_r": body.call("pose_part", "leg_r"),
 			"torso": body.call("pose_part", "torso"), "hips": body.call("pose_part", "hips"),
-			"face": body.call("pose_part", "face"), "clipboard": body.call("pose_part", "clipboard"),
+			"face": body.call("pose_part", "face"), "head": body.call("pose_part", "head"), "clipboard": body.call("pose_part", "clipboard"),
 			"megaphone": body.call("pose_part", "megaphone"),
 		}
 	var arms: Array = body.get("_arms") if "_arms" in body else []
@@ -183,7 +278,7 @@ static func _parts(body: Node3D) -> Dictionary:
 		return {}
 	return {
 		"right": arms[1], "left": arms[0], "leg_l": legs[0], "leg_r": legs[1],
-		"torso": body.get("_torso"), "hips": body.get("_hips"), "face": body.get("_face"),
+		"torso": body.get("_torso"), "hips": body.get("_hips"), "face": body.get("_face"), "head": body.get("_head_root"),
 		"clipboard": body.get("_clipboard"), "megaphone": body.get("_megaphone"),
 	}
 
@@ -245,6 +340,36 @@ static func _apply(parts: Dictionary, pose_name: String, t: float, t01: float, w
 			left.rotation.z = lerpf(left.rotation.z, -0.4, w)
 			leg_l.rotation.x = lerpf(leg_l.rotation.x, 0.75, w)
 			leg_r.rotation.x = lerpf(leg_r.rotation.x, -0.7, w)
+		"haul_reach":
+			# Held once his walk over ends (crew_member.gd), squatting down over
+			# someone on the ground: knees bent, back bent well over (the head rides
+			# it, _follow_head), the grabbing hand down on their collar (_reach) and
+			# the clipboard hand out on his knee for balance, eyes on them.
+			var bend := _haul_bend(t)
+			hips.position.y -= HAUL_SQUAT * bend * w
+			torso.rotation.x = lerpf(torso.rotation.x, HAUL_BEND * bend, w)
+			right.rotation.x = lerpf(right.rotation.x, 0.6 * bend, w)
+			left.rotation.x = lerpf(left.rotation.x, 0.75 * bend, w)
+			left.rotation.z = lerpf(left.rotation.z, -0.35 * bend, w)
+			if face != null:
+				face.rotation.x += 0.3 * w * bend
+			extras["squat"] = maxf(float(extras.get("squat", 0.0)), bend * w)
+			extras["reach"] = maxf(float(extras.get("reach", 0.0)), smoothstep(0.3, 0.95, t / maxf(Constants.CATCH_DOWN_BEND, 0.05)) * w)
+		"haul_up":
+			# The heave: up out of the squat with the weight of you, leaning back on
+			# it at the top, the hand on your collar the whole way up (_reach), then
+			# letting go into the hand on your shoulder (collar_grab) as he stands tall.
+			var heave := smoothstep(0.0, 0.8, t01)
+			var lean_back := sin(clampf((t01 - 0.35) / 0.65, 0.0, 1.0) * PI)
+			hips.position.y -= HAUL_SQUAT * (1.0 - heave) * w
+			torso.rotation.x = lerpf(torso.rotation.x, lerpf(HAUL_BEND, 0.06, heave) + 0.18 * lean_back, w)
+			right.rotation.x = lerpf(right.rotation.x, lerpf(0.6, 1.3, heave), w)
+			left.rotation.x = lerpf(left.rotation.x, lerpf(0.75, 0.95, heave), w)
+			left.rotation.z = lerpf(left.rotation.z, lerpf(-0.35, 0.42, heave), w)
+			if face != null:
+				face.rotation.x += lerpf(0.3, -0.06, heave) * w
+			extras["squat"] = maxf(float(extras.get("squat", 0.0)), (1.0 - heave) * w)
+			extras["reach"] = maxf(float(extras.get("reach", 0.0)), (1.0 - smoothstep(0.7, 1.0, t01)) * w)
 		"collar_grab", "grin_hold":
 			# The hand on your shoulder, the clipboard tucked at his chest, standing
 			# tall. grin_hold adds a pleased little head tilt and a bob of breath.
