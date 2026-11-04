@@ -43,6 +43,7 @@ static var result: Dictionary = {}
 const _Encounter = preload("res://net/run_events/encounter.gd")
 const _Crew = preload("res://npcs/crew_member.gd")
 const _Sweep = preload("res://player/stage_sweep.gd")
+const _StageCam = preload("res://player/stage_cam.gd")
 ## No grabbing the host's player, ever (it's the one throwing things).
 const HOST_SAFE_SECONDS: float = 100000.0
 const CLIENT_WAIT_SECONDS: float = 20.0
@@ -76,6 +77,8 @@ var _yaw_skip: int = 0
 ## The physics tick of a client's last per-frame yaw sample, and when it was (usec).
 var _yaw_tick: int = 0
 var _yaw_usec: int = 0
+## Host, step 5: {body, max, samples} while its escorted client is sampled.
+var _host_anchor: Dictionary = {}
 ## Client (step 10, P1 catch): its clock estimate held this far off the host's (s).
 var _skew_by: float = 0.0
 
@@ -99,6 +102,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	_sample_host_anchor()
 	if multiplayer.multiplayer_peer != null and not Net.is_host():
 		# R2c: a client draws a NICE BOY once per rendered frame (the smoother), so its
 		# turn is sampled per frame, per physics tick that frame covered. Only the
@@ -290,17 +294,18 @@ func _run() -> void:
 		await _ticks(2)
 		_step("5 a captured client's grab is refused", int(trash.get("held_by")) != _client)
 	var anchor_ok := true
-	var anchor_max := 0.0
-	var anchor_samples := 0
+	# Sampled in _process, after StageBody has drawn the body this frame, against
+	# the anchor as drawn this frame (fx-net: sampled on a physics tick, it measured
+	# how far the NICE BOY had walked since the last rendered frame, 0.45 m after a
+	# long one in a full -Jobs 8 run).
+	_host_anchor = {"body": client_body, "max": 0.0, "samples": 0}
 	for _sample: int in 40:
 		await get_tree().physics_frame
 		if int(encounter.call("stage_of", _client)) != _Encounter.Stage.ESCORT:
 			break
-		var anchor: Node3D = encounter.call("escort_anchor", _client)
-		if anchor != null:
-			var drawn := client_body.get_node("Visual") as Node3D
-			anchor_max = maxf(anchor_max, Vector2(drawn.global_position.x - anchor.global_position.x, drawn.global_position.z - anchor.global_position.z).length())
-			anchor_samples += 1
+	var anchor_max := float(_host_anchor["max"])
+	var anchor_samples := int(_host_anchor["samples"])
+	_host_anchor = {}
 	if PENDING_STAGE:
 		_note("5 pending: the escorted body on its anchor needs chunk 1's set_staged (host saw %.2f m)" % anchor_max)
 	else:
@@ -664,6 +669,24 @@ func _client_sample() -> void:
 			Input.action_press(&"jump")
 		else:
 			Input.action_release(&"jump")
+
+
+## Host, step 5: the escorted client's drawn body against its anchor as drawn,
+## each rendered frame after everything has placed what it draws.
+func _sample_host_anchor() -> void:
+	if _host_anchor.is_empty():
+		return
+	var encounter := _encounter()
+	var body := _host_anchor["body"] as Node3D
+	if encounter == null or not is_instance_valid(body) or int(encounter.call("stage_of", _client)) != _Encounter.Stage.ESCORT:
+		return
+	var anchor: Node3D = encounter.call("escort_anchor", _client)
+	if anchor == null:
+		return
+	var drawn := body.get_node("Visual") as Node3D
+	var at := _StageCam.drawn_pose(anchor).origin
+	_host_anchor["max"] = maxf(float(_host_anchor["max"]), Vector2(drawn.global_position.x - at.x, drawn.global_position.z - at.z).length())
+	_host_anchor["samples"] = int(_host_anchor["samples"]) + 1
 
 
 ## Client, step 5: the escorted body against its anchor, once StageBody has
