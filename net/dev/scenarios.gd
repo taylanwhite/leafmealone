@@ -25,7 +25,9 @@ extends Node
 ## lunch_money_rake, snak_o_matic_can (the same holding a rake, or the gas can),
 ## two_caught and two_caught_far (both need a second player), skate (on the Gutter
 ## Shredder in Homie Depot's lot, lined up on Marty's ramp in the connected town),
-## skate_shop (at Homie Depot's counter with $100 each and no board yet), recatch
+## skate_shop (at Homie Depot's counter with $100 each and no board yet),
+## skate_skitch (needs -Friend: you at the wheel, the friend with a board behind
+## the tailgate, driving G2), recatch
 ## (needs -Friend: the friend freed by your rescue, then caught again once their
 ## grace is up), downed (knocked flat, then lunged at) and annex_desk_late (an
 ## approval that runs past the end of his desk time).
@@ -37,6 +39,8 @@ const _Sched = preload("res://net/annex/annex_schedule.gd")
 const _DriveTest = preload("res://net/dev/drive_test.gd")
 ## shotgun_hand: where on the County Road Chefty parks (x, m; drive_test's spot).
 const SHOTGUN_HAND_X: float = 110.0
+## skate_skitch: the friend starts this far (m) behind the spot a towed board rides on.
+const SKITCH_SCENE_BACK: float = 2.5
 ## crash, crash_big: the run-up to the parked car (m), and the load in the bed.
 const CRASH_RUN_UP: float = 15.0
 const CRASH_BIG_RUN_UP: float = 30.0
@@ -53,7 +57,7 @@ const PLOW_FRIEND := Vector3(4.0, 0.1, 12.0)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "skate_skitch", "recatch", "downed", "annex_desk_late", "shotgun_hand"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -141,7 +145,7 @@ const EYE_HEIGHT: float = 1.6
 ## the friend's catch yours comes (s).
 const TWO_CAUGHT_APART: float = 3.5
 const TWO_CAUGHT_GAP: float = 1.2
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "van_two", "dropoff_two", "recatch", "downed"]
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "van_two", "dropoff_two", "recatch", "downed", "skate_skitch"]
 ## recatch (P1 catch): how long after the friend's grace ends the NICE BOY winds up
 ## on them if he hasn't already (s).
 const RECATCH_LEAD: float = 1.0
@@ -306,6 +310,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _skate()
 		"skate_shop":
 			out = await _skate_shop()
+		"skate_skitch":
+			out = await _skate_skitch()
 		"toss":
 			out = await _toss()
 		"toss_full":
@@ -2083,6 +2089,42 @@ func _skate_shop() -> Dictionary:
 	_stand_facing(Vector3(stand.x, zone.global_position.y, stand.z), zone.to_global(counter) + Vector3(0.0, 1.3, 0.0))
 	await _ticks(3)
 	return {"zone": _zone(), "cash": Campaign.credits(Net.local_peer_id())}
+
+
+## skate_skitch (driving G2, needs -Friend): you at Chefty's wheel on County
+## Road 9 facing east, the friend on the street SKITCH_SCENE_BACK m behind its
+## tailgate's right corner with a Gutter Shredder of their own. The friend hops on
+## (board), rolls up and grabs on ([E] Hang on); you drive.
+func _skate_skitch() -> Dictionary:
+	# tools\play.ps1's Friend when there is one (bots join too, and a bot would
+	# take the board out of the friend's hands).
+	var friend := _friend_id()
+	for peer_id: int in Net.peer_ids():
+		if Net.player_name(peer_id) == "Friend":
+			friend = peer_id
+	if friend == 0:
+		return {"ok": false, "error": "skate_skitch needs a second player: start with -Friend"}
+	var out: Dictionary = await _drive()
+	if out.has("error"):
+		return out
+	var chefty := get_tree().get_first_node_in_group("chefty") as Node3D
+	var spot := Vector3(SHOTGUN_HAND_X, 0.0, 0.0)
+	spot.z = lerpf(TownMap.DEPOT_JUNCTION.z, TownMap.COUNTY_BEND.z, (spot.x - TownMap.DEPOT_JUNCTION.x) / (TownMap.COUNTY_BEND.x - TownMap.DEPOT_JUNCTION.x))
+	chefty.call("dev_place", spot, -PI * 0.5)
+	Net.set_player_zone(Net.local_peer_id(), Net.Zone.TOWN)
+	Campaign.grant_unlock(friend, "skateboard")
+	_safe_peer(friend, QUIET_AFTER_SECONDS)
+	Net.set_player_zone(friend, Net.Zone.TOWN)
+	await _ticks(2)
+	var hold := preload("res://player/skate.gd").hold_spot(chefty, 1.0)
+	var body: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(friend):
+			body = node as Node3D
+	if body != null:
+		body.call("send_teleport", Transform3D(Basis(Vector3.UP, -PI * 0.5), hold + Vector3(-SKITCH_SCENE_BACK, 0.1, 0.0)))
+	await get_tree().create_timer(0.5).timeout
+	return {"note": "the friend %.0f m behind the tailgate with a board: friend 'tap board', roll up, 'tap interact'; then drive" % SKITCH_SCENE_BACK, "zone": _zone()}
 
 
 ## Dev only: take an unlock back off a wallet (a test save keeps what the last

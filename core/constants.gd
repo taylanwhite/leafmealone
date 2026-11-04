@@ -4596,6 +4596,90 @@ const SKATE_LEAN_RATE: float = 8.0
 ## SKATE_MAX_PUSH_SPEED (dB).
 const SKATE_GRIND_DB := Vector2(-8.0, 0.0)
 
+# ---- driving:G2 the wipeout flop and skitching (player/cartoon_body.gd flop(),
+# player/skate.gd, player/skate_view.gd; docs/GAME.md "The Gutter Shredder").
+# First guesses, tuned by riding it. TODO(balance): not in the workbook.
+## The flop: the tumble lasts this long (s), turning head over heels about the
+## body's middle (FLOP_CENTER_Y m up) this many whole turns before it settles onto
+## its back; the settle starts this far into it (share of the tumble).
+const FLOP_TUMBLE_SECONDS: float = 0.95
+const FLOP_TURNS: int = 1
+const FLOP_CENTER_Y: float = 0.9
+const FLOP_SETTLE_FROM: float = 0.3
+## How sharply the tumble slows (the exponent on 1 - t: bigger, more of it early).
+const FLOP_SPIN_EASE: float = 2.2
+## The bounces after it lands: the first this high (m), each next one keeping
+## FLOP_BOUNCE_KEEP of it, FLOP_BOUNCE_SECONDS apart. It lands FLOP_FIRST_HIT_SECONDS in
+## (the throw's own arc, SKATE_WIPEOUT_THROW_UP under gravity, comes down about then).
+const FLOP_BOUNCE_HEIGHT: float = 0.22
+const FLOP_BOUNCE_KEEP: float = 0.45
+const FLOP_BOUNCE_SECONDS: float = 0.26
+const FLOP_FIRST_HIT_SECONDS: float = 0.42
+## Nothing of the tumbling body goes below the ground: its head (this round), its
+## hips, hands and feet, with this much room to spare until it settles (m).
+const FLOP_HEAD_RADIUS: float = 0.2
+const FLOP_GROUND_ROOM: float = 0.03
+## Your own eyes in a flop (the first-person camera rides the head): they dip
+## toward the ground this far (rad) halfway through, then end up at the sky the
+## way a knock leaves them.
+const FLOP_LOOK_DIP: float = 0.9
+## Your own eyes never go into a wall, a fence or a truck on the way over: they
+## stop this far (m) short of whatever is between the body's middle and the head.
+const FLOP_EYE_ROOM: float = 0.3
+## A wall bail bounces you back off it at this share of the speed you hit it with.
+const SKATE_WALL_REBOUND: float = 0.35
+## Up again: woozy for this long (s), swaying this far (rad) at this rate (Hz),
+## your own view rolling FLOP_WOOZY_VIEW_SHARE of the sway. The stars stay till then.
+const FLOP_WOOZY_SECONDS: float = 1.1
+const FLOP_WOOZY_SWAY: float = 0.16
+const FLOP_WOOZY_HZ: float = 1.6
+const FLOP_WOOZY_VIEW_SHARE: float = 0.25
+## Skitching: E at Chefty's tailgate on the board grabs on beside it, this far to
+## the side of chefty.tow_point() (m) and this far nearer the truck (m), if you're
+## within SKITCH_GRAB_REACH of that spot and rolling within SKITCH_GRAB_REL_SPEED of
+## Chefty. The towed board follows that spot with a spring (1/s), its pull
+## correcting at most SKITCH_PULL_MAX (m/s) on top of Chefty's own speed.
+const SKITCH_SIDE: float = 1.6
+const SKITCH_IN: float = 0.7
+const SKITCH_GRAB_REACH: float = 1.8
+const SKITCH_GRAB_REL_SPEED: float = 4.0
+const SKITCH_SPRING: float = 9.0
+const SKITCH_PULL_MAX: float = 4.0
+## The board turns with Chefty at this rate (1/s); your head looks round at most
+## CHEFTY_SEAT_LOOK_YAW either way while you hang on, like a seat, and comes back
+## round to the board at SKITCH_LOOK_BACK_RATE (rad/s) once you let go.
+const SKITCH_YAW_RATE: float = 10.0
+const SKITCH_LOOK_BACK_RATE: float = 4.0
+## Letting go, whether you meant to or not: Chefty faster than SKITCH_MAX_SPEED (m/s)
+## tears the tailgate out of your hand; turning harder than SKITCH_TURN_RATE (rad/s)
+## above SKITCH_TURN_MIN_SPEED (m/s) flings you wide (SKITCH_FLING_SHARE of the
+## speed, outward); braking harder than SKITCH_BRAKE_DECEL (m/s^2) above
+## SKITCH_BRAKE_MIN_SPEED rams you into the tailgate (bounced back SKITCH_SLAM_BACK
+## m/s); a crash shakes you off; drifting SKITCH_BREAK_METERS off the spot, you've let go.
+const SKITCH_MAX_SPEED: float = 15.0
+## ... after this long above it, all told (s; it drains back while you're under).
+const SKITCH_STRAIN_SECONDS: float = 1.2
+const SKITCH_TURN_RATE: float = 1.2
+const SKITCH_TURN_MIN_SPEED: float = 8.0
+const SKITCH_FLING_SHARE: float = 0.35
+const SKITCH_BRAKE_DECEL: float = 9.0
+const SKITCH_BRAKE_MIN_SPEED: float = 4.0
+const SKITCH_SLAM_BACK: float = 3.0
+const SKITCH_BREAK_METERS: float = 1.6
+## Let go (or shaken off), you still pass through Chefty's tail for this long (s):
+## its collision runs a tick or two behind the truck you see, right where you were.
+const SKITCH_CLEAR_SECONDS: float = 0.6
+## Chefty's turn rate and braking are read smoothed over this long (s), so one
+## jolt of the sim's reconciliation isn't a fling.
+const SKITCH_READ_SMOOTH: float = 0.12
+## Everyone else sees the skater drawn on the spot behind their own Chefty, eased
+## onto it and off it over this long (s).
+const SKITCH_PIN_BLEND: float = 0.3
+## The hand on Chefty's rear bumper (props/vehicles.gd: chrome at y 0.74, its back
+## face at z 2.88, 1.18 either side), in Chefty's space for a skater on its right
+## (x is mirrored on the left): crouched low, one hand on the chrome.
+const SKITCH_GRIP := Vector3(1.05, 0.8, 2.86)
+
 # ---- R2c hide
 # The seams between hiding's beats (docs/GAME.md "Hiding, R2c"): the find as a
 # physical grab, heads riding the body's hide moves, the insides of a pile and a

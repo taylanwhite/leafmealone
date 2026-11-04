@@ -194,6 +194,25 @@ func skate() -> Node:
 	return get_node_or_null("Skate")
 
 
+## driving G2: a board flop dips your eyes toward the ground on the way over
+## (CartoonBody.flop_dip) before they end up at the sky like any knock's, and
+## once you're up its woozy sway rolls your own view a little.
+var _woozy_view: bool = false
+
+
+func _flop_view() -> void:
+	var body := get_node_or_null("Visual/CartoonBody")
+	if body == null:
+		return
+	%Head.rotation.x += float(body.get("flop_dip"))
+	if not is_multiplayer_authority():
+		return
+	var roll := float(body.get("woozy_roll")) * Constants.FLOP_WOOZY_VIEW_SHARE
+	if roll != 0.0 or _woozy_view:
+		%Head.rotation.z = roll
+		_woozy_view = roll != 0.0
+
+
 func _build_skate() -> void:
 	if get_node_or_null("Skate") == null:
 		var riding := _Skate.new()
@@ -1898,6 +1917,14 @@ func e_choice() -> Dictionary:
 		return {"do": &"held", "hint": {}, "target": null}
 	if carrying != 0:
 		return {"do": &"put_down", "hint": {"text": _Strings.UI["prompt_put_down"], "at": global_position - global_basis.z * 0.9 + Vector3(0.0, 1.9, 0.0)}, "target": null}
+	# On the board (driving G2): hanging on behind Chefty, E lets go (your hand on
+	# its bumper says so); rolling up to its tailgate, E grabs on, raid or not.
+	if skitch:
+		return {"do": &"let_go", "hint": {}, "target": null}
+	if on_board:
+		var tow_hint: Dictionary = skate().call("skitch_hint")
+		if not tow_hint.is_empty():
+			return {"do": &"skitch", "hint": tow_hint, "target": null}
 	var raid := _raid_on()
 	if raid:
 		var hide := _hide_choice()
@@ -2024,6 +2051,10 @@ func _press_e(event: InputEvent) -> bool:
 			_hand_task()
 		&"seat":
 			_Seated.try_enter(self)
+		&"skitch":
+			skate().call("grab_on")
+		&"let_go":
+			skate().call("let_go", "hands")
 		_:
 			return false
 	return true
@@ -2457,7 +2488,8 @@ func _stay_on_the_pad() -> void:
 	# faster and pops higher (player/skate.gd keeps its own caps).
 	var cap := SPRINT_SPEED * maxf(snack_buff("speed"), 1.0)
 	if on_board:
-		cap = Constants.SKATE_TOP_SPEED
+		# Towed behind Chefty you go its speed (it tears you off past SKITCH_MAX_SPEED).
+		cap = Constants.SKITCH_MAX_SPEED + Constants.SKITCH_PULL_MAX if skitch else Constants.SKATE_TOP_SPEED
 	if flat.length() > cap:
 		flat = flat.normalized() * cap
 		velocity.x = flat.x
@@ -2552,6 +2584,7 @@ func _apply_presentation() -> void:
 	# Knocked flat, the head lies back with the body and stares at the sky.
 	var fallen := float(get_node("Visual/CartoonBody").get("fallen")) if has_node("Visual/CartoonBody") else 0.0
 	%Head.rotation.x = lerpf(head_pitch, 0.0, fallen) + fallen * 1.35
+	_flop_view()
 	# Lying on a cot the eyes look up at the tarp, and the mouse still turns them
 	# (down toward your feet, back over the pillow).
 	var lying := float(get_node("Visual/CartoonBody").get("lie")) if has_node("Visual/CartoonBody") else 0.0

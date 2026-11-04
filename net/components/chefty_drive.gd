@@ -1864,6 +1864,22 @@ func dev_set_warp(on: bool) -> void:
 	_warp_forced = on
 
 
+## Host, tests (skate_test's skitch): the autopilot drives Chefty to stop for
+## real (never warped), with or without anyone aboard. Arriving is a depart()
+## trip's to the town, which changes nothing but where Chefty is.
+func dev_drive_to(stop: Transform3D) -> void:
+	if not Net.is_host():
+		return
+	_start_trip(Trip.DEPART, Net.Zone.TOWN, stop)
+	_warp = false
+
+
+## Host, tests: the autopilot lets go where Chefty is (it brakes to a stop).
+func dev_end_trip() -> void:
+	if Net.is_host() and _trip != Trip.NONE:
+		_end_trip()
+
+
 ## Host, tests: how far the current trip has left to go along its route (m),
 ## or -1 with no trip.
 func dev_trip_left() -> float:
