@@ -292,7 +292,7 @@ if ($Start) {
 	if ($Observer) {
 		$obsArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', '--name=Observer', '--observer')
 		# The --sim- flags, and --rank= (a dev rank floor each peer reads for itself, so a client sees the shops the host's rank opened).
-		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=') { $obsArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=)' }) }
+		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=|--clock-skew=') { $obsArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=|clock-skew=)' }) }
 		$pids['observer'] = Start-Instance 'observer' $obsArgs '660,120'
 		$started += 'observer'
 		Save-Session $pids $Port $Fps
@@ -303,7 +303,7 @@ if ($Start) {
 		# A plain client that plays: no --observer, so it isn't parked, ghosted or kept
 		# safe; the scenarios that need a friend put it on the yard themselves.
 		$friendArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', '--name=Friend')
-		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=') { $friendArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=)' }) }
+		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=|--clock-skew=') { $friendArgs += @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=|clock-skew=)' }) }
 		$pids['friend'] = Start-Instance 'friend' $friendArgs '340,380'
 		$started += 'friend'
 		Save-Session $pids $Port $Fps
@@ -320,7 +320,7 @@ if ($Start) {
 		$want = [math]::Min($Bots, [math]::Min($room, $free.Count))
 		if ($want -lt $Bots) { Write-Host "only $want more bot(s): $players of $MaxPlayers players are in (the observer doesn't count)" }
 		$botFlags = @()
-		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=') { $botFlags = @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=)' }) }
+		if ($Extra -ne '' -and $Extra -match '--sim-|--rank=|--clock-scale=|--clock-skew=') { $botFlags = @($Extra.Split(' ') | Where-Object { $_ -match '^--(sim-|rank=|clock-scale=|clock-skew=)' }) }
 		for ($i = 0; $i -lt $want; $i++) {
 			$n = $free[$i]
 			$botArgs = @('--join=127.0.0.1', "--port=$Port", '--no-steam', "--name=Bot$n", '--bot', '--bot-crew') + $botFlags

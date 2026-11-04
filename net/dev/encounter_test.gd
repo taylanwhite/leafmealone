@@ -426,6 +426,14 @@ func _run() -> void:
 	_step("10 caught with the client's clock %.1f s behind the host's: its two-shot is up all the same (top '%s', stage %d, rebased %d)" % [SKEW_SECONDS, skew_top, int(_report.get("stage", 0)), int(_report.get("rebased", 0))],
 		skew_top == "gotcha" and int(_report.get("stage", 0)) in [_Encounter.Stage.GOTCHA, _Encounter.Stage.CITE] and int(_report.get("rebased", 0)) > 0)
 	await _wait(func() -> bool: return int(encounter.call("stage_of", _client)) == _Encounter.Stage.ESCORT, 8.0)
+	# P1 catch review: boarding with nothing staged on the client's screen (the
+	# catch and the escort never got going there): the view holds still, the iris
+	# shuts on it, and the cut to the seat is behind it.
+	_report = {}
+	_rpc_board_probe.rpc_id(_client)
+	await _wait(func() -> bool: return bool(_report.get("board_probe", false)), Constants.IRIS_CLOSE + 4.0)
+	_step("10 boarding with nothing staged on the client's screen: the view held (top '%s', +%d holds), the iris shut on it (%s), and the cut came behind it (top after '%s')" % [str(_report.get("hold_top", "")), int(_report.get("held", 0)), bool(_report.get("closed", false)), str(_report.get("after_top", "?"))],
+		str(_report.get("hold_top", "")) == "board_hold" and int(_report.get("held", 0)) == 1 and bool(_report.get("closed", false)) and str(_report.get("after_top", "board_hold")) != "board_hold")
 	var walker := _holder(_client)
 	_rpc_leave.rpc_id(_client)
 	var back: bool = await _wait(func() -> bool:
@@ -557,7 +565,8 @@ func _haul_step(director: Node, encounter: Node, client_body: Node3D) -> void:
 	(director.get("_safe_until") as Dictionary).erase(_client)
 	var hauls := int(_Encounter.stats["hauls"])
 	var wound := bool(encounter.call("host_windup", hauler, _client, false))
-	await get_tree().create_timer(Constants.CATCH_DOWN_REACH * 0.6).timeout
+	# Mid-walk over, before the hand lands (the walk takes at least CATCH_DOWN_WALK_SECONDS.x).
+	await get_tree().create_timer(Constants.CATCH_DOWN_WALK_SECONDS.x).timeout
 	_report = {}
 	_rpc_ask_report.rpc_id(_client)
 	await _wait(func() -> bool: return not _report.is_empty(), 2.0)
@@ -647,6 +656,42 @@ func _client_sample() -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _rpc_ask_report() -> void:
+	_rpc_report.rpc_id(1, _client_report())
+
+
+## Client (step 10, P1 catch review): board with nothing staged here. The shots are
+## let go first (the catch and the escort that never got going on a drifted clock),
+## then the van's boarding (encounter._board_behind_iris) runs on this screen.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_board_probe() -> void:
+	var player := _own()
+	var encounter := _encounter()
+	var iris := get_tree().get_first_node_in_group("iris")
+	var out := _client_report()
+	out["board_probe"] = true
+	if player == null or encounter == null or iris == null or not player.has_method("stage_top"):
+		_rpc_report.rpc_id(1, out)
+		return
+	for shot: StringName in [&"gotcha", &"escort"]:
+		player.call("stage_pop", shot, 0.0)
+	var holds := int(_Encounter.stats["board_holds"])
+	encounter.call("_board_behind_iris", player)
+	out["hold_top"] = str(player.call("stage_top"))
+	out["held"] = int(_Encounter.stats["board_holds"]) - holds
+	var closed := false
+	var since := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - since < int((Constants.IRIS_CLOSE + 1.5) * 1000.0):
+		await get_tree().process_frame
+		if bool(iris.call("is_closed")):
+			closed = true
+			break
+	out["closed"] = closed
+	await get_tree().create_timer(0.3).timeout
+	out["after_top"] = str(player.call("stage_top"))
+	_rpc_report.rpc_id(1, out)
+
+
+func _client_report() -> Dictionary:
 	var me := Net.local_peer_id()
 	var encounter := _encounter()
 	var windup: Dictionary = {}
@@ -665,7 +710,7 @@ func _rpc_ask_report() -> void:
 			var label := member.get_node_or_null("Visual/" + label_name) as Label3D
 			tags_ok = tags_ok and label != null and label.fixed_size and label.pixel_size <= Constants.CREW_TAG_MAX_PX
 	var player := _own()
-	_rpc_report.rpc_id(1, {
+	return {
 		"windup": windup, "caught_seen": caught_seen,
 		"stage": int(encounter.call("stage_of", me)) if encounter != null else 0,
 		"hops": int(_Crew.stats["hops"]),
@@ -681,7 +726,7 @@ func _rpc_ask_report() -> void:
 		"rebased": int(_Encounter.stats["rebased"]),
 		"down": _Encounter.is_down(player),
 		"hauling": encounter != null and bool(encounter.call("_hauling", me)),
-	})
+	}
 
 
 @rpc("any_peer", "call_remote", "reliable")

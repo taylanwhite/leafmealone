@@ -192,8 +192,6 @@ func host_windup(crew: Node, peer_id: int, from_spot: bool = false) -> bool:
 	# The whole crouch, then the lunge: contact is the wind-up AND the lunge away
 	# (R2b: it used to be the wind-up alone, so the lunge ate all but 0.1 s of it).
 	var lead := Constants.CREW_FOUND_CONTACT if from_spot else Constants.CREW_LUNGE_WINDUP + Constants.CREW_LUNGE_SECONDS + minf(_rtt_seconds(peer_id) * 0.5, Constants.CREW_LUNGE_WINDUP_LAG_MAX)
-	if down:
-		lead = Constants.CATCH_DOWN_REACH
 	var from := (crew as Node3D).global_position
 	var toward := player.global_position - from
 	toward.y = 0.0
@@ -201,23 +199,27 @@ func host_windup(crew: Node, peer_id: int, from_spot: bool = false) -> bool:
 	# His body travels until the hand lands: never into your face (he stops a
 	# shoulder's width short of where you stood).
 	var travel := clampf(toward.length() - Constants.CATCH_GOTCHA_GAP, 0.0, Constants.CREW_LUNGE_DISTANCE - Constants.CREW_LUNGE_ARM)
-	var cam_yaw := 0.0
+	var haul: Dictionary = {}
 	if down:
-		var beside := _down_spot(player, from)
-		var step := beside - from
+		var points := _down_points(player, from)
+		var step: Vector3 = points["reach"] - from
 		step.y = 0.0
 		if step.length() > 0.05:
 			dir = step.normalized()
-		travel = minf(step.length(), Constants.CREW_LUNGE_DISTANCE)
-		var crew_at := from + dir * travel
-		var mid := (player.global_position + crew_at) * 0.5
-		# Side on to the two of them as they'll stand (him beside your hips), not to
-		# his steps over: both faces read.
-		var line := crew_at - player.global_position
+		# He walks all the way over, however far (a lunge's reach doesn't limit it:
+		# stopped short, his hand never got to them).
+		travel = step.length()
+		lead = haul_lead(travel)
+		var stand: Vector3 = points["stand"]
+		var crew_at: Vector3 = points["crew_at"]
+		# Side on to the two of them as they'll stand once you're up (you where your
+		# hips lay, him a step back from where he reached), so both faces read.
+		var line := crew_at - stand
 		line.y = 0.0
 		var across := line.cross(Vector3.UP).normalized() if line.length() > 0.05 else dir.cross(Vector3.UP).normalized()
-		cam_yaw = _clear_side(mid + Vector3.UP * Constants.CATCH_CAM_HEIGHT, across, Constants.CATCH_CAM_DISTANCE)
-		_down_staging[peer_id] = {"crew_at": crew_at, "cam_yaw": cam_yaw}
+		var cam_yaw := _clear_side((stand + crew_at) * 0.5 + Vector3.UP * Constants.CATCH_CAM_HEIGHT, across, Constants.CATCH_CAM_DISTANCE)
+		haul = {"stand": stand, "crew_at": crew_at, "cam_yaw": cam_yaw, "face": points["face"]}
+		_down_staging[peer_id] = haul
 	else:
 		_down_staging.erase(peer_id)
 	var grab_id := _next_grab
@@ -225,8 +227,15 @@ func host_windup(crew: Node, peer_id: int, from_spot: bool = false) -> bool:
 	crew.call("host_set_mode", _Crew.Mode.WINDUP, peer_id, dir)
 	if not from_spot and not down:
 		crew.call("bark", "lunge", true)
-	_rpc_windup.rpc(grab_id, index, peer_id, from, dir, now + lead, from_spot, travel, down, cam_yaw)
+	_rpc_windup.rpc(grab_id, index, peer_id, from, dir, now + lead, from_spot, travel, haul)
 	return true
+
+
+## A haul-up's whole lead (s) for a walk over of `travel` m: the walk, then the
+## squat and reach (CATCH_DOWN_BEND). The same on every peer from the wind-up's travel.
+static func haul_lead(travel: float) -> float:
+	var walk := clampf(travel / Constants.CATCH_DOWN_WALK, Constants.CATCH_DOWN_WALK_SECONDS.x, Constants.CATCH_DOWN_WALK_SECONDS.y)
+	return walk + Constants.CATCH_DOWN_BEND
 
 
 ## Knocked flat right now (a heavy bonk, a fall, a punch's dizzy): on the ground,
@@ -235,20 +244,31 @@ static func is_down(player: Node) -> bool:
 	return player != null and "anim_state" in player and int(player.get("anim_state")) == _KNOCKED
 
 
-## Host: where he stands to haul someone up: beside their hips, on his own side
-## of them, never over the head that tipped back behind their feet.
-func _down_spot(player: Node3D, from: Vector3) -> Vector3:
+## Host: a haul-up's places, from someone lying on their back (their feet at their
+## origin, the head tipped back along +basis.z, player/cartoon_body.gd _apply_fall):
+## reach, where he bends over beside their collar on his own side of them (never
+## over the head); stand, where they come up (their hips stay put, the feet swing
+## in under them); crew_at, where he ends up after the heave, a short step back
+## from there; face, which way he looks down at the collar from reach.
+func _down_points(player: Node3D, from: Vector3) -> Dictionary:
 	var at := player.global_position
 	var back := player.global_basis.z
 	back.y = 0.0
 	back = back.normalized() if back.length() > 0.01 else Vector3.BACK
-	var hips := at + back * (Constants.CATCH_DOWN_HEAD_BACK * 0.4)
+	var stand := at + back * Constants.CATCH_DOWN_HIPS_BACK
+	var collar := at + back * Constants.CATCH_DOWN_COLLAR_BACK
 	var side := back.cross(Vector3.UP).normalized()
-	if side.dot(from - hips) < 0.0:
+	if side.dot(from - collar) < 0.0:
 		side = -side
-	var spot := hips + side * Constants.CATCH_DOWN_SIDE
-	spot.y = from.y
-	return spot
+	var reach := collar + side * Constants.CATCH_DOWN_SIDE
+	reach.y = from.y
+	var off := reach - stand
+	off.y = 0.0
+	var crew_at := stand + (off.normalized() if off.length() > 0.05 else side) * Constants.CATCH_DOWN_GAP
+	crew_at.y = from.y
+	var face := collar - reach
+	face.y = 0.0
+	return {"reach": reach, "stand": stand, "crew_at": crew_at, "face": face.normalized() if face.length() > 0.05 else -side}
 
 
 ## Host: caught, with no lunge (force_capture, a found hider after the inspection,
@@ -286,9 +306,16 @@ func host_begin_catch(peer_id: int, crew: Node = null, grab_id: int = 0) -> void
 	crew_at.y = (crew as Node3D).global_position.y
 	var down := not staged_down.is_empty()
 	if down:
-		# The haul-up: he's where his reach-down took him, and the two-shot that
-		# started from the ground keeps looking from where it did.
-		crew_at = staged_down["crew_at"]
+		# The haul-up: you come up where your hips lay, he steps back with the heave,
+		# and the two-shot that started from the ground keeps looking from where it did.
+		# Where they lie now (a heavy knock can still be sliding them along at his
+		# wind-up), and a step back from where he really is.
+		var lying := _down_points(player, (crew as Node3D).global_position)
+		victim = lying["stand"]
+		var off: Vector3 = (crew as Node3D).global_position - victim
+		off.y = 0.0
+		crew_at = victim + off.normalized() * Constants.CATCH_DOWN_GAP if off.length() > 0.05 else staged_down["crew_at"]
+		crew_at.y = (crew as Node3D).global_position.y
 	crew.call("host_set_mode", _Crew.Mode.GOTCHA, peer_id, victim)
 	crew.call("host_walk", Vector3.INF, 0.0)
 	_cite_end[peer_id] = at + Constants.CATCH_CITE_AT + Constants.CATCH_CITE_SECONDS
@@ -717,26 +744,35 @@ func _rpc_cite_end(peer_id: int, end_at: float) -> void:
 # ---------------------------------------------------------------- RPCs (every peer)
 
 @rpc("authority", "call_local", "reliable")
-func _rpc_windup(grab_id: int, crew_index: int, peer_id: int, from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float, down: bool, cam_yaw: float) -> void:
-	var lead := Constants.CREW_FOUND_CONTACT if from_spot else (Constants.CATCH_DOWN_REACH if down else Constants.CREW_LUNGE_WINDUP + Constants.CREW_LUNGE_SECONDS + minf(Net.clock_rtt_seconds() * 0.5, Constants.CREW_LUNGE_WINDUP_LAG_MAX))
+func _rpc_windup(grab_id: int, crew_index: int, peer_id: int, from: Vector3, dir: Vector3, contact_at: float, from_spot: bool, travel: float, haul: Dictionary) -> void:
+	var down := not haul.is_empty()
+	var lead := Constants.CREW_FOUND_CONTACT if from_spot else (haul_lead(travel) if down else Constants.CREW_LUNGE_WINDUP + Constants.CREW_LUNGE_SECONDS + minf(Net.clock_rtt_seconds() * 0.5, Constants.CREW_LUNGE_WINDUP_LAG_MAX))
 	contact_at = _rebased(contact_at, lead)
-	_grabs[grab_id] = {"crew": crew_index, "peer": peer_id, "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "lunged": false, "travel": travel, "down": down}
+	var face: Vector3 = haul.get("face", Vector3.ZERO)
+	_grabs[grab_id] = {"crew": crew_index, "peer": peer_id, "from": from, "dir": dir, "contact": contact_at, "spot": from_spot, "lunged": false, "travel": travel, "down": down, "face": face}
 	if Net.is_host():
 		stats["windups"] = int(stats["windups"]) + 1
 	_log("windup", peer_id, contact_at)
 	var crew := _crew(crew_index)
+	var player := _player(peer_id)
 	if crew != null:
-		crew.call("play_windup", from, dir, contact_at, from_spot, travel, down)
+		crew.call("play_windup", from, dir, contact_at, from_spot, travel, down, face)
+		# The haul-up: his grabbing hand goes to this body's collar, wherever it's drawn.
+		var poser := crew.get_node_or_null("Visual/CartoonBody/Poser")
+		if poser != null:
+			poser.set("reach_body", _body_of(player) if down else null)
 	var args := {"contact": contact_at}
 	if down:
-		# The haul-up's two-shot, the catch's own staging (where he'll be, where it
-		# looks from), on the downed player's screen from the start of his reach.
-		args = {"contact": contact_at, "victim": _player(peer_id).global_position if _player(peer_id) != null else from, "crew_at": from + dir * travel, "cam_yaw": cam_yaw, "down": true}
+		# The haul-up's two-shot, the catch's own staging (where you'll stand, where
+		# he'll be, where it looks from), on the downed player's screen from the start
+		# of his reach.
+		args = {"contact": contact_at, "victim": haul["stand"], "crew_at": haul["crew_at"], "cam_yaw": float(haul["cam_yaw"]), "down": true}
 	_set_stage_local(peer_id, Stage.WINDUP, Net.server_time(), crew_index, args)
-	var player := _player(peer_id)
 	if down and peer_id == Net.local_peer_id() and player != null:
 		_played[peer_id] = {}
-		_push_two_shot(player, false)
+		# A cut, on his first step: the swing out of your eyes lying on the grass
+		# went over your own body at the lens (audit crew-13 review).
+		_push_two_shot(player, true)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -1103,20 +1139,39 @@ func _play_gotcha(peer_id: int, entry: Dictionary, now: float) -> void:
 		_anim_speed(victim_body, 1.0)
 		# The hit-stop held you where the hand landed; now he turns you to face him
 		# (and the camera), over the camera's swing.
+		var hauled := bool((entry["args"] as Dictionary).get("down", false))
 		var hold := _holds.get(peer_id) as Node3D
+		if hauled:
+			# Up the way they lay, and only then turned to him: turning while still
+			# half down swept their legs and head through him (crew-13 review).
+			var visual := player.get_node_or_null("Visual") as Node3D if player != null else null
+			if visual != null and hold != null and is_instance_valid(hold):
+				var lay := visual.global_basis.z
+				var face := hold.global_basis.z
+				played["haul_yaw"] = Vector2(atan2(lay.x, lay.z), atan2(face.x, face.z))
+				played["haul_from"] = now
+				_turn_haul_hold(peer_id, now)
 		if player != null and hold != null and is_instance_valid(hold) and not bool(player.call("is_staged") if player.has_method("is_staged") else false):
-			_stage_body(player, hold, Transform3D.IDENTITY, Constants.CATCH_CAM_BLEND, &"stand")
+			# A haul-up's rise is its own length: the body is carried in from its feet
+			# to where its hips lay while it sits up and stands (CartoonBody.haul_up).
+			_stage_body(player, hold, Transform3D.IDENTITY, Constants.CATCH_DOWN_RISE if hauled else Constants.CATCH_CAM_BLEND, &"stand")
 		if peer_id == Net.local_peer_id() and player != null:
-			_push_two_shot(player, t > 0.5)
-		if bool((entry["args"] as Dictionary).get("down", false)):
-			# The haul-up: he heaves you up off the grass by the collar, and you come
-			# up off your back over it (the knock ends here, so the body gets up).
+			# The haul-up's shot is already up (from his first step): it just rises.
+			_push_two_shot(player, t > 0.5 or hauled)
+		if hauled:
+			# The haul-up: he heaves you up off the grass by the collar, his hand on it
+			# the whole way, and you sit up and come up onto your feet under your hips
+			# (every peer, on this timeline; the owner's knock ends here too).
 			var hauler := crew.get_node_or_null("Visual/CartoonBody/Poser") if crew != null else null
 			if hauler != null:
-				hauler.call("shot", "haul_up")
+				hauler.call("shot", "haul_up", true)
+			if victim_body != null and victim_body.has_method("haul_up"):
+				victim_body.call("haul_up", Constants.CATCH_DOWN_RISE)
 			if peer_id == Net.local_peer_id() and player != null and player.has_method("end_knockdown"):
 				player.call("end_knockdown")
 				player.call("say_to_all", "vo_oof")
+	if played.has("haul_yaw"):
+		_turn_haul_hold(peer_id, now)
 	if not played.has("grin") and t >= Constants.CATCH_GRIN_AT:
 		played["grin"] = true
 		var poser := crew.get_node_or_null("Visual/CartoonBody/Poser") if crew != null else null
@@ -1137,6 +1192,21 @@ func _play_gotcha(peer_id: int, entry: Dictionary, now: float) -> void:
 		if now >= _scribble_next and crew != null and sfx != null and now < cite_end(peer_id):
 			_scribble_next = now + _SCRIBBLE_LOOP
 			sfx.call("play_on", "scribble", crew)
+
+
+## Every peer, through a haul-up's rise: the hold (where the hauled body is staged)
+## keeps the way they lay until they're mostly up, then turns them to face him.
+func _turn_haul_hold(peer_id: int, now: float) -> void:
+	var played: Dictionary = _played.get(peer_id, {})
+	var hold := _holds.get(peer_id) as Node3D
+	if hold == null or not is_instance_valid(hold) or not played.has("haul_yaw"):
+		return
+	var yaws: Vector2 = played["haul_yaw"]
+	var u := (now - float(played.get("haul_from", now))) / maxf(Constants.CATCH_DOWN_RISE, 0.05)
+	var turn := smoothstep(Constants.CATCH_DOWN_TURN_FROM, 1.0, u)
+	hold.global_basis = Basis(Vector3.UP, lerp_angle(yaws.x, yaws.y, turn))
+	if u >= 1.0:
+		played.erase("haul_yaw")
 
 
 ## The escort's start on every peer: the page torn, the sticker slapped on, then
@@ -1216,6 +1286,17 @@ func _push_two_shot(player: Node3D, late: bool) -> void:
 		add_child(_shot)
 		_shot.top_level = true
 	_aim_two_shot(Net.server_time())
+	# Looking away from the pair (more than CATCH_CAM_CUT_TURN off the shot), the
+	# swing round whipped across empty lawn for a second before either of you was in
+	# it (audit lagduo-2 review, the second catch): a cut on the hit-stop instead.
+	var camera := get_viewport().get_camera_3d() if get_viewport() != null else null
+	if not late and camera != null:
+		var was := -_StageCam.drawn_pose(camera).basis.z
+		var to := -_shot.global_basis.z
+		was.y = 0.0
+		to.y = 0.0
+		if was.length() > 0.01 and to.length() > 0.01 and was.normalized().dot(to.normalized()) < cos(deg_to_rad(Constants.CATCH_CAM_CUT_TURN)):
+			late = true
 	# Out of first person from exactly where you looked, back and round the pair
 	# (the pivot) to the side, kept clear of walls and trucks (R2b).
 	_push(player, &"gotcha", {"anchor": _shot, "offset": Transform3D.IDENTITY, "blend_in": 0.0 if late else Constants.CATCH_CAM_BLEND, "blend_out": 0.6, "fov": Constants.CATCH_CAM_FOV, "yaw_clamp": Vector2(-0.7, 0.7), "pitch_clamp": Vector2(-0.35, 0.35), "priority": 50,
@@ -1296,17 +1377,14 @@ func _aim_two_shot(now: float) -> void:
 	var distance := Constants.CATCH_CAM_DISTANCE * (1.0 - Constants.CATCH_PUSH_IN * 3.0 * push)
 	var eye := mid + (staging["to_cam"] as Vector3) * distance - Vector3.UP * Constants.CATCH_CAM_EYE_DROP
 	# The haul-up starts from the ground (audit crew-13): low over you lying there
-	# and him bent over you, rising with you as he heaves you up.
+	# (your hips are where you'll stand) and him bent over you, rising with you as
+	# he heaves you up.
 	var low := _haul_low(me, now)
 	if low > 0.0:
-		var back := Vector3.ZERO
-		var me_node := _player(me)
-		if me_node != null:
-			back = me_node.global_basis.z
-			back.y = 0.0
-			back = back.normalized() * Constants.CATCH_DOWN_HEAD_BACK * 0.4 * low if back.length() > 0.01 else Vector3.ZERO
-		mid += back - Vector3.UP * Constants.CATCH_DOWN_LOOK_DROP * low
-		eye += back - Vector3.UP * Constants.CATCH_DOWN_EYE_DROP * low
+		mid -= Vector3.UP * Constants.CATCH_DOWN_LOOK_DROP * low
+		# ...and a little further off, so your own head on the grass doesn't fill it.
+		eye += (staging["to_cam"] as Vector3) * Constants.CATCH_CAM_DISTANCE * Constants.CATCH_DOWN_PULL_BACK * low
+		eye -= Vector3.UP * Constants.CATCH_DOWN_EYE_DROP * low
 	_shot.global_transform = Transform3D(Basis.looking_at(mid - eye, Vector3.UP), eye)
 
 
@@ -1317,8 +1395,9 @@ func _haul_low(peer_id: int, now: float) -> float:
 	var entry: Dictionary = _stages.get(peer_id, {})
 	if not bool((entry.get("args", {}) as Dictionary).get("down", false)):
 		return 0.0
-	var t := now - float(entry.get("at", now))
-	return 1.0 - smoothstep(Constants.CATCH_HITSTOP, Constants.CATCH_HITSTOP + Constants.CATCH_DOWN_RISE, t)
+	# With the body's rise (CartoonBody.haul_up), from the thaw.
+	var thaw := float((_played.get(peer_id, {}) as Dictionary).get("thaw_at", float(entry.get("at", now)) + Constants.CATCH_HITSTOP))
+	return 1.0 - smoothstep(thaw, thaw + Constants.CATCH_DOWN_RISE, now)
 
 
 ## A haul-up's reach on this peer: wound up on while knocked flat (the two-shot is
@@ -1732,7 +1811,7 @@ func apply_snapshot(data: Dictionary) -> void:
 		_grabs[int(key)] = grab
 		var lunger := _crew(int(grab.get("crew", 0)))
 		if lunger != null:
-			lunger.call("play_windup", grab["from"], grab["dir"], float(grab["contact"]), bool(grab["spot"]), float(grab.get("travel", Constants.CREW_LUNGE_DISTANCE - Constants.CREW_LUNGE_ARM)))
+			lunger.call("play_windup", grab["from"], grab["dir"], float(grab["contact"]), bool(grab["spot"]), float(grab.get("travel", Constants.CREW_LUNGE_DISTANCE - Constants.CREW_LUNGE_ARM)), bool(grab.get("down", false)), grab.get("face", Vector3.ZERO))
 	var stages: Dictionary = data.get("stages", {})
 	for key: Variant in stages:
 		var peer_id := int(key)

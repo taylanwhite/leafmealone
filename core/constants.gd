@@ -5052,20 +5052,37 @@ const BUILD_SKIP_FRAME_OVER_MS: float = 60.0
 ## much (s) of when it should land on the client's own clock; further off (a clock
 ## estimate gone stale in a starved window, a hitch) the moment starts on arrival.
 const STAGE_CLOCK_TRUST: float = 0.35
-## The haul-up (a NICE BOY on someone knocked flat): no lunge, he steps in beside
-## them and reaches down, the hand landing this long (s) after he starts.
-const CATCH_DOWN_REACH: float = 0.5
-## Where he ends up: beside the fallen body's hips (m to the side of where they
-## went down), never over the head that tipped back behind them.
-const CATCH_DOWN_SIDE: float = 0.75
-## How far back from the feet the head of someone knocked flat lies (m).
-const CATCH_DOWN_HEAD_BACK: float = 1.1
+## The haul-up (a NICE BOY on someone knocked flat): no lunge. He walks over beside
+## them at this pace (m/s; the walk takes at least the first and at most the second
+## many s), then squats and reaches down over this long (s): the hand lands on their
+## collar at its end.
+const CATCH_DOWN_WALK: float = 4.0
+const CATCH_DOWN_WALK_SECONDS: Vector2 = Vector2(0.3, 1.0)
+const CATCH_DOWN_BEND: float = 0.35
+## Where he bends over them: this far (m) to the side of their collar, on his own
+## side of them, never over the head that tipped back behind them.
+const CATCH_DOWN_SIDE: float = 0.5
+## Someone flat on their back (player/cartoon_body.gd FALL_ANGLE): their hips and
+## their collar lie this far (m) back from their feet along the ground. They come up
+## where their hips lay; he reaches for the collar.
+const CATCH_DOWN_HIPS_BACK: float = 0.8
+const CATCH_DOWN_COLLAR_BACK: float = 1.25
+## After the heave he stands this far (m) from them, a short step back from his reach.
+const CATCH_DOWN_GAP: float = 0.9
+## The two-shot comes up as a cut, not a swing, when the camera would have to turn
+## more than this (degrees) to reach it: a swing that far crosses empty lawn first.
+const CATCH_CAM_CUT_TURN: float = 125.0
 ## The haul-up's two-shot starts from the ground: its look point this much lower
 ## (m) and its eye this much lower while you lie there, rising to the usual
 ## two-shot over this long (s) after the hit-stop as he heaves you up.
-const CATCH_DOWN_LOOK_DROP: float = 0.75
-const CATCH_DOWN_EYE_DROP: float = 0.45
+const CATCH_DOWN_LOOK_DROP: float = 0.8
+const CATCH_DOWN_EYE_DROP: float = 0.1
 const CATCH_DOWN_RISE: float = 0.6
+## ...facing the way they lay until this share of the rise, then turned to face him.
+const CATCH_DOWN_TURN_FROM: float = 0.55
+## The low shot is also this much further off (a share of CATCH_CAM_DISTANCE) while you
+## lie there, so your own head on the grass doesn't fill it.
+const CATCH_DOWN_PULL_BACK: float = 0.35
 ## Boarding with nothing staged (your own eyes): the view holds still where it is
 ## while the iris shuts at once, then cuts to the seat behind it.
 const BOARD_HOLD_PRIORITY: int = 45
@@ -5087,3 +5104,16 @@ const ANNEX_FORM_PROMPT_PAD: float = 18.0
 ## played this long (s) past the dive's own length waiting on the host's word that
 ## they're in; no word by then, the body stands back up out of the leaves.
 const HIDE_REMOTE_PILE_WAIT: float = 0.9
+## ...it lands (the whump, the burst, the mound starting to grow) as the body drawn
+## on that screen comes within this share of its way to the owner's landing, or this
+## long (s) after it should have landed, wherever it is; the landing is this share
+## of the cannonball's HIDE_ENTER_SECONDS.
+const HIDE_REMOTE_PILE_NEAR: float = 0.15
+const HIDE_REMOTE_PILE_LAND_LATE: float = 0.6
+const HIDE_PILE_LANDING: float = 0.6
+## The haul-up's rise (player/cartoon_body.gd haul_up): the thighs come up this far
+## and the knees bend this far (rad) at its middle, as the feet swing in under the
+## hips; a knock replicated from before it is ignored for up to this long (s).
+const BODY_HAUL_THIGH: float = 0.9
+const BODY_HAUL_SHIN: float = -1.4
+const BODY_HAUL_KNOCK_STALE: float = 2.0

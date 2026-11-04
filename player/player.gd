@@ -1308,11 +1308,12 @@ func set_pile(hidden: bool) -> void:
 
 
 ## Every other peer (P1 catch, audit nb7): this player just threw themselves at a
-## pile, at server time `at`. The cannonball plays from then, not from the host's
-## word that they're in (which reached a watcher after they'd landed standing up).
+## pile, at server time `at`, to land at `to`. The cannonball plays from then, not
+## from the host's word that they're in (which reached a watcher after they'd landed
+## standing up), and lands where they're seen to get to.
 @rpc("authority", "call_remote", "reliable")
-func _rpc_pile_dive(at: float) -> void:
-	_hide_view().call("on_pile_dive", at)
+func _rpc_pile_dive(at: float, to: Vector3) -> void:
+	_hide_view().call("on_pile_dive", at, to)
 
 
 ## Every other peer: this player just popped out of their pile (the burst and

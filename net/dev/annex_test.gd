@@ -85,6 +85,8 @@ func _run() -> void:
 	_check("1 every clerk's walk back from his break and from the copier fits its RETURN, past no seated colleague", walks.is_empty(), "; ".join(walks.slice(0, 4)))
 	var solids := _staff_solids()
 	_check("1 every staff body is solid to players", solids.is_empty(), "; ".join(solids))
+	var pleased := _head_pleased()
+	_check("1 after APPROVED the Head NICE BOY sits back pleased, and a walk off that came due meanwhile starts from his chair after", pleased.is_empty(), "; ".join(pleased.slice(0, 4)))
 	# 2. A visit begins for the client, the way the shuttle starts one.
 	director.set("_hazard_seed", RAID_SEED)
 	# A hot crew: four boxes on the form, room for every step below.
@@ -92,9 +94,28 @@ func _run() -> void:
 	if heat != null:
 		heat.set("heat", Constants.ANNEX_BOXES_BY_HEAT[1] + 10.0)
 	annex.call("begin", 1, [client], Net.server_time())
+	# Off the van at the curb, short of the doors: not let in yet, however the clock
+	# reads; long overdue, let in wherever they are.
+	await get_tree().physics_frame
+	var threshold: Vector3 = annex.call("_set_point", "Threshold")
+	var client_body := _player(client)
+	var curb_gap := Vector2(client_body.global_position.x - threshold.x, client_body.global_position.z - threshold.z).length() if threshold.is_finite() and client_body != null else -1.0
+	var away_early := curb_gap > Constants.ANNEX_INSIDE_REACH and not bool(annex.call("_walked_in", client, 0.5))
+	var late_lets_in := bool(annex.call("_walked_in", client, Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX))
 	# P1 catch: the clipboard waits for the rider's body at the threshold (their own
 	# peer walks them in), at most ANNEX_WALK_LATE_MAX past the walk.
-	var inside := await _until(func() -> bool: return str(annex.call("stage_of", client)) == "inside", Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX + 2.0)
+	var begun := Net.server_time()
+	var inside_at := [INF, -1.0]
+	var inside := await _until(func() -> bool:
+		if str(annex.call("stage_of", client)) != "inside":
+			return false
+		if client_body != null and threshold.is_finite():
+			inside_at[0] = Vector2(client_body.global_position.x - threshold.x, client_body.global_position.z - threshold.z).length()
+		inside_at[1] = Net.server_time() - begun
+		return true, Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX + 2.0)
+	_check("2 the clipboard comes at the threshold: not while the rider is away from it, at it, or once the walk's long overdue",
+		away_early and late_lets_in and inside and (float(inside_at[0]) <= Constants.ANNEX_INSIDE_REACH + 0.3 or float(inside_at[1]) >= Constants.ANNEX_GREETER_WALK + Constants.ANNEX_WALK_LATE_MAX),
+		"held off %.1f m away from it %s, let in overdue %s, inside %.2f m from it after %.1f s" % [curb_gap, away_early, late_lets_in, float(inside_at[0]), float(inside_at[1])])
 	await get_tree().create_timer(SETTLE).timeout
 	annex.call("dev_client", client, "report", [])
 	report = await _report(annex)
@@ -753,3 +774,33 @@ func _player(peer_id: int) -> Node3D:
 		if node.name == str(peer_id):
 			return node as Node3D
 	return null
+
+## P1 catch review (audit r2): the Head NICE BOY after an approval that ran into his
+## day's walk off (annex_schedule.effective): PLEASED in his chair for
+## ANNEX_HEAD_PLEASED, then AWAY from the end of that beat, never part way along.
+func _head_pleased() -> Array[String]:
+	var out: Array[String] = []
+	var tried := 0
+	for seed_value: int in range(1, SEEDS_TO_CHECK + 1):
+		for seg: Variant in _Schedule.segments(seed_value, "head"):
+			var s: Array = seg
+			if int(s[2]) != _Schedule.S.AWAY or float(s[1]) - float(s[0]) < Constants.ANNEX_HEAD_PLEASED + 1.5:
+				continue
+			tried += 1
+			var from := float(s[0])
+			var ended := from + 0.5
+			var overrides := [{"w": "head", "kind": "approve", "at": from - 1.0, "until": ended}]
+			var during := _Schedule.effective(seed_value, "head", from, overrides)
+			var pleased := _Schedule.effective(seed_value, "head", ended + 0.05, overrides)
+			var still := _Schedule.effective(seed_value, "head", ended + Constants.ANNEX_HEAD_PLEASED - 0.05, overrides)
+			var off := _Schedule.effective(seed_value, "head", ended + Constants.ANNEX_HEAD_PLEASED + 0.05, overrides)
+			if int(during["state"]) != _Schedule.S.APPROVE:
+				out.append("seed %d: %s during the approval" % [seed_value, _Schedule.state_name(int(during["state"]))])
+			if int(pleased["state"]) != _Schedule.S.PLEASED or int(still["state"]) != _Schedule.S.PLEASED:
+				out.append("seed %d: %s, %s after it, not PLEASED" % [seed_value, _Schedule.state_name(int(pleased["state"])), _Schedule.state_name(int(still["state"]))])
+			if int(off["state"]) != _Schedule.S.AWAY or not is_equal_approx(float(off["since"]), ended + Constants.ANNEX_HEAD_PLEASED):
+				out.append("seed %d: %s from %.2f after the beat (want AWAY from %.2f)" % [seed_value, _Schedule.state_name(int(off["state"])), float(off["since"]), ended + Constants.ANNEX_HEAD_PLEASED])
+			break
+	if tried == 0:
+		out.append("no seed's day has a walk off long enough to check")
+	return out

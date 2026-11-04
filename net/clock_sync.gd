@@ -15,6 +15,9 @@ const SNAP_SECONDS: float = 0.25
 ## instead of the wall clock, so a fixed-step run that falls behind real time
 ## slows down as a whole instead of its clock running ahead of its physics.
 var game_ticks: bool = false
+## Dev only (--clock-skew=S, P1 catch): a client's estimate held S s off the host's
+## clock, the way a starved window's drifted (crew playtest 1). 0 in every real run.
+var dev_skew: float = 0.0
 var _origin_usec: int = 0
 var _origin_ticks: int = 0
 var _offset_seconds: float = 0.0
@@ -42,7 +45,7 @@ func server_seconds(is_host: bool) -> float:
 		return _local_seconds()
 	var now := _local_seconds()
 	_slew(now)
-	return now + _applied_offset
+	return now + _applied_offset + dev_skew
 
 
 ## Walk the applied offset toward the latest estimate at SLEW_RATE, so time on a

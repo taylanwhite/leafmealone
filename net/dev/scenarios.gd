@@ -139,12 +139,14 @@ const EYE_HEIGHT: float = 1.6
 ## the friend's catch yours comes (s).
 const TWO_CAUGHT_APART: float = 3.5
 const TWO_CAUGHT_GAP: float = 1.2
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "recatch"]
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "recatch", "downed"]
 ## recatch (P1 catch): how long after the friend's grace ends the NICE BOY winds up
 ## on them if he hasn't already (s).
 const RECATCH_LEAD: float = 1.0
 ## downed (P1 catch): how long after the heavy knock he winds up (s); you're still flat.
 const DOWNED_LEAD: float = 0.6
+## ...and how far to the side a teammate (-Friend) stands watching (m).
+const DOWNED_FRIEND_METERS: float = 3.5
 ## annex_desk_late (P1 catch): how long his desk time has left when you arrive (s).
 const DESK_LATE_LEAD: float = 1.6
 ## annex_heist_seen: where you watch a friend's self-stamp from (the window's
@@ -747,6 +749,17 @@ func _downed() -> Dictionary:
 	var me := _me()
 	var push := stand - crew.global_position
 	push.y = 0.0
+	# A teammate close by, watching it happen (with -Friend; P1 catch review: what
+	# the others see of a haul-up), kept safe from the NICE BOYS meanwhile.
+	var friend := _friend_id()
+	var friend_node := _other_player()
+	if friend != 0 and friend_node != null:
+		await _friend_to_lot(friend, DOWNED_LEAD + 12.0)
+		var across := push.normalized().cross(Vector3.UP) if push.length() > 0.05 else Vector3.RIGHT
+		var watch := stand + push.normalized() * 0.8 + across * DOWNED_FRIEND_METERS
+		_placing("friend")
+		friend_node.call("send_teleport", Transform3D(Basis(Vector3.UP, _yaw_toward(watch, stand)), watch))
+		await _ticks(2)
 	me.call("on_bonked", push.normalized() * 1.5, "heavy")
 	_safe_for(DOWNED_LEAD)
 	get_tree().create_timer(DOWNED_LEAD).timeout.connect(_windup_later.bind(crew.get_instance_id(), Net.local_peer_id()))
