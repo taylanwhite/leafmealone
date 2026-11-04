@@ -42,6 +42,16 @@ const EXPOSURE: float = 1.05
 const OUTLINE_SHARE: float = 1.0 / 85.0
 const SHADOW_SHARE: float = 1.0 / 64.0
 const SHADOW_ALPHA: float = 0.25
+## A dark subject's die-cut edge (icon_recipes.halo): this wide outside the ink
+## outline (about 5 px at 256, so still a pixel at hotbar size), in warm grey that
+## shows on a dark slot and stays quiet on a paper shelf. Its rim light comes from
+## behind and above, so the black shell's edges catch it.
+const HALO_SHARE: float = 1.0 / 50.0
+const HALO_COLOR := Color(0.8, 0.76, 0.7)
+## Which way the rim light travels: from behind the subject and above, toward
+## the camera (ICON_VIEW) and down, so it grazes the top and far edges.
+const RIM_DIRECTION := Vector3(0.6, -0.7, 0.8)
+const RIM_ENERGY: float = 1.6
 ## Frames each pass is drawn before it is read back.
 const SETTLE_FRAMES: int = 4
 
@@ -71,6 +81,8 @@ uniform float shadow_alpha = 0.25;
 uniform float sticker_share = 0.0;
 uniform vec3 sticker_ink = vec3(0.17, 0.14, 0.11);
 uniform vec3 ink = vec3(0.17, 0.14, 0.11);
+uniform float halo_px = 0.0;
+uniform vec3 halo_color = vec3(0.8, 0.76, 0.7);
 
 // Both clamp at zero first: pow() of a negative is NaN, and a NaN pixel turns
 // into a bright blob with a dark middle once filtered (props/stylized.gd).
@@ -144,13 +156,32 @@ float dilated(vec2 uv) {
 	return a;
 }
 
+// A dark subject's die-cut edge: the alpha grown past the outline by halo_px, at
+// 24 directions and three radii so thin tines don't scallop it.
+float haloed(vec2 uv) {
+	float reach = outline_px + halo_px;
+	float a = dilated(uv);
+	for (int i = 0; i < 24; i++) {
+		float angle = 6.2831853 * float(i) / 24.0;
+		vec2 dir = vec2(cos(angle), sin(angle)) * texel;
+		a = max(a, layer_at(uv + dir * reach, false).a);
+		a = max(a, layer_at(uv + dir * mix(outline_px, reach, 0.5), false).a);
+	}
+	return a;
+}
+
 void fragment() {
 	vec4 c = layer_at(UV, true);
 	vec3 ink_linear = to_linear(ink);
 	float outline = dilated(UV);
 	vec3 color = c.rgb + ink_linear * outline * (1.0 - c.a);
 	float alpha = c.a + outline * (1.0 - c.a);
-	float shadow = dilated(UV - vec2(0.0, shadow_px) * texel) * shadow_alpha;
+	if (halo_px > 0.0) {
+		float halo = haloed(UV);
+		color += to_linear(halo_color) * halo * (1.0 - alpha);
+		alpha += halo * (1.0 - alpha);
+	}
+	float shadow = (halo_px > 0.0 ? haloed(UV - vec2(0.0, shadow_px) * texel) : dilated(UV - vec2(0.0, shadow_px) * texel)) * shadow_alpha;
 	color += ink_linear * shadow * (1.0 - alpha);
 	alpha += shadow * (1.0 - alpha);
 	COLOR = alpha > 0.0001 ? vec4(to_srgb(color / alpha), alpha) : vec4(ink, 0.0);
@@ -260,7 +291,7 @@ func _make(id: String, recipe: Dictionary) -> void:
 
 func _render_subject(recipe: Dictionary, render: Vector2i) -> Image:
 	var viewport := _viewport(render, true)
-	_stage(viewport)
+	_stage(viewport, _Recipes.halo(recipe))
 	var yaw := Node3D.new()
 	yaw.name = "Subject"
 	yaw.rotation_degrees.y = float(recipe.get("yaw", 0.0))
@@ -291,7 +322,8 @@ func _render_subject(recipe: Dictionary, render: Vector2i) -> Image:
 
 ## A transparent stage with its own world: one warm key light, a cool fill from
 ## the other side and flat warm ambient light. No sky, fog, SSAO, glow or shadows.
-func _stage(viewport: SubViewport) -> void:
+## A dark subject (rim) also gets a rim light from behind (RIM_*).
+func _stage(viewport: SubViewport, rim: bool = false) -> void:
 	var environment := Environment.new()
 	environment.background_mode = Environment.BG_CLEAR_COLOR
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
@@ -319,6 +351,14 @@ func _stage(viewport: SubViewport) -> void:
 	fill.light_energy = FILL_ENERGY
 	fill.shadow_enabled = false
 	viewport.add_child(fill)
+	if rim:
+		var back := DirectionalLight3D.new()
+		back.name = "Rim"
+		back.transform = Transform3D(Basis.looking_at(RIM_DIRECTION.normalized(), Vector3.UP), Vector3.ZERO)
+		back.light_color = Color.WHITE
+		back.light_energy = RIM_ENERGY
+		back.shadow_enabled = false
+		viewport.add_child(back)
 
 
 ## Puts the camera on ICON_VIEW so the subject's corners (each mesh's own box, so
@@ -421,6 +461,9 @@ func _post(subject: Image, base: Image, top: Image, recipe: Dictionary, render: 
 	material.set_shader_parameter("sticker_ink", Vector3(ring.r, ring.g, ring.b))
 	var ink := _Recipes.INK
 	material.set_shader_parameter("ink", Vector3(ink.r, ink.g, ink.b))
+	if _Recipes.halo(recipe):
+		material.set_shader_parameter("halo_px", float(px) * HALO_SHARE * scale)
+		material.set_shader_parameter("halo_color", Vector3(HALO_COLOR.r, HALO_COLOR.g, HALO_COLOR.b))
 	var canvas := TextureRect.new()
 	canvas.texture = blank_texture
 	canvas.material = material

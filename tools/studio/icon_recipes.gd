@@ -16,6 +16,8 @@ extends RefCounted
 ##   "build"  model and badge: the static builder below that makes the subject,
 ##            with "model" / "color" / "size" read by build_model
 ##   "sticker" optional: "plus" puts the orange upgrade sticker in the corner
+##   "halo"   optional, model: a light die-cut edge outside the ink outline and a
+##            rim light, for a dark subject (every tier 3 kit icon gets it too)
 ##   "shape"  badge: "disc" or "shield"; "color" its fill; "rim" its edge
 ##   "emblem_rect" badge: where the 3D render sits, in 0..1 of the icon
 ##   "draw"   flat, tile and key: the static draw_* func that paints the icon; on a
@@ -180,7 +182,7 @@ const RECIPES: Dictionary = {
 	"supply_rock_salt": {"kind": "model", "px": 256, "build": "build_shop_model", "model": "rock_salt", "yaw": 200.0, "glyph_chip": "snowflake"},
 	# ---- Rusty's junk (256, 3D; icons:catalog): the yard's own junk models
 	"junk_old_tv": {"kind": "model", "px": 256, "build": "build_junk", "junk": "old_tv", "yaw": 200.0},
-	"junk_tire": {"kind": "model", "px": 256, "build": "build_junk", "junk": "tire", "yaw": 200.0, "tilt": Vector3(55.0, 0.0, 0.0)},
+	"junk_tire": {"kind": "model", "px": 256, "build": "build_junk", "junk": "tire", "yaw": 200.0, "tilt": Vector3(55.0, 0.0, 0.0), "halo": true},
 	"junk_grill": {"kind": "model", "px": 256, "build": "build_junk", "junk": "grill", "yaw": 200.0},
 	"junk_toilet": {"kind": "model", "px": 256, "build": "build_junk", "junk": "toilet", "yaw": 210.0},
 	"junk_bike": {"kind": "model", "px": 256, "build": "build_junk", "junk": "bike", "yaw": 110.0},
@@ -194,7 +196,7 @@ const RECIPES: Dictionary = {
 	"paint_mint": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_mint", "yaw": 145.0},
 	"paint_sunset": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_sunset", "yaw": 145.0},
 	"paint_pink": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_pink", "yaw": 145.0},
-	"paint_black": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_black", "yaw": 145.0},
+	"paint_black": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_black", "yaw": 145.0, "halo": true},
 	"paint_gold": {"kind": "model", "px": 256, "build": "build_paint", "paint": "paint_gold", "yaw": 145.0, "sparkle": true},
 	# ---- task badges (256): a disc in the family color, a vignette over its rim
 	"task_rake_leaves": {"kind": "badge", "px": 256, "shape": "disc", "family": "leaves", "build": "build_task_rake_leaves", "yaw": 200.0},
@@ -428,6 +430,15 @@ static func padding(recipe: Dictionary) -> float:
 
 static func sticker_share(recipe: Dictionary) -> float:
 	return STICKER_SHARE if str(recipe.get("kind", "")) == "badge" else 0.0
+
+
+## A dark subject gets a light die-cut edge outside its ink outline (icon_studio
+## HALO_*), so it still reads on the hotbar's dark slots: every Mk III (black and
+## gold), and any recipe with "halo": true (black paint, the tire).
+static func halo(recipe: Dictionary) -> bool:
+	if str(recipe.get("kind", "")) != "model":
+		return false
+	return int(recipe.get("tier", -1)) == 3 or bool(recipe.get("halo", false))
 
 
 ## Where the 3D render sits in the icon, in 0..1.

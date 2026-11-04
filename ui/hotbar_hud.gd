@@ -22,6 +22,7 @@ const _Icons = preload("res://ui/icons.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _UiStyle = preload("res://ui/ui_style.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _Shops = preload("res://net/shops/shops.gd")
 
 const SLOT_COLOR := Color(0.08, 0.06, 0.05, 0.62)
 const SLOT_RADIUS: int = 10
@@ -260,14 +261,15 @@ static func icon_for(kind: String) -> String:
 
 ## The icon for this very thing (icons:catalog): a kit tool or rake at its own
 ## tier (Icons.for_kit: the trim and its chip), a piece of junk as what it is
-## (Icons.for_junk, by its label), else its kind's (icon_for).
+## (Icons.for_junk of Shops.junk_item, as Rusty's Sell tab names it: the jackpot
+## flamingo is the vintage one), else its kind's (icon_for).
 static func icon_of(item: Node) -> String:
 	var kind := str(item.get("kind"))
 	var id := ""
 	if Constants.KIT_KINDS.has(kind):
 		id = _Icons.for_kit(kind, int(item.get("tier")))
 	elif kind == "junk":
-		id = _Icons.for_junk(str(item.get("label")))
+		id = _Icons.for_junk(_Shops.junk_item(item))
 	return id if id != "" and _Icons.has(id) else icon_for(kind)
 
 

@@ -99,9 +99,14 @@ var _focus_card: Control
 ## offers held at their old price while Rusty hums a haggle over {name: {offer, until}}.
 var _scale_seen: PackedStringArray = PackedStringArray()
 var _haggle_hold: Dictionary = {}
-## The item a confirmed buy pops, and until when a redrawn card pops it again.
+## The item a confirmed buy pops, until when the pop may wait for its card, and
+## when it started (-1 not yet); see _pop_bought.
 var _pop_item: String = ""
 var _pop_until: float = 0.0
+var _pop_started: float = -1.0
+## How many pops have started from the top (a mid-pop card's carry-on doesn't
+## count), for icons_test: one per confirmed buy.
+var pop_plays: int = 0
 
 
 func _ready() -> void:
@@ -391,7 +396,7 @@ func _refresh() -> void:
 		var opens := str(shops.call("opens_text", shop_id)) if shops != null else ""
 		_shutter_text.text = str(_Strings.SHOP_UI["shop_closed_shutter"]) % opens
 	_scroll.set_deferred("scroll_vertical", keep_scroll)
-	if _pop_item != "" and _now() <= _pop_until:
+	if _pop_item != "":
 		_apply_pop.call_deferred()
 
 
@@ -786,21 +791,32 @@ func _shelf(id: String, entry: Dictionary, owned: bool, locked: bool, tag: Contr
 
 ## A host-confirmed buy squash-pops the item on its fresh card (the register's
 ## ring is audio/cue_hooks.gd's, critic C11).
-## A buy redraws the cards more than once in the same moment (the wallet, the
-## stock and the kit each say they changed), so the pop is remembered for a beat
-## and played on whichever card is up once the grid has laid it out.
+## A buy redraws the cards more than once (the wallet, the stock and the kit each
+## say they changed, and not always in the same frame), so the pop is one clock:
+## it starts on the first card up, and a card redrawn mid-pop carries on from
+## where the pop had got to instead of starting over. Once it has run its
+## ICONS_POP_SECONDS, later redraws show the item at rest.
 func _pop_bought(item_id: String) -> void:
 	_pop_item = item_id
+	_pop_started = -1.0
+	# How long a pop may wait for its card (the grid's first redraw) before it is dropped.
 	_pop_until = _now() + Constants.ICONS_POP_SECONDS
 	_apply_pop.call_deferred()
 
 
 func _apply_pop() -> void:
-	if _pop_item == "" or _now() > _pop_until:
+	if _pop_item == "":
+		return
+	if _pop_started < 0.0 and _now() > _pop_until:
+		_pop_item = ""
 		return
 	# A frame for the grid to lay the new card out, so it pops about its middle.
 	await get_tree().process_frame
-	if not is_instance_valid(_cards):
+	if not is_instance_valid(_cards) or _pop_item == "":
+		return
+	var elapsed := 0.0 if _pop_started < 0.0 else _now() - _pop_started
+	if elapsed >= Constants.ICONS_POP_SECONDS:
+		_pop_item = ""
 		return
 	for card: Node in _cards.get_children():
 		if card.is_queued_for_deletion() or str(card.get_meta("item", "")) != _pop_item or not card.has_meta("shelf"):
@@ -808,7 +824,10 @@ func _apply_pop() -> void:
 		var icon := (card.get_meta("shelf") as Control).get_meta("shelf_icon") as Control
 		if icon != null and is_instance_valid(icon) and not icon.has_meta("popped"):
 			icon.set_meta("popped", true)
-			_Look.pop(icon)
+			if _pop_started < 0.0:
+				_pop_started = _now()
+				pop_plays += 1
+			_Look.pop(icon, elapsed)
 		return
 
 

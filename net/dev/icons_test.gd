@@ -476,6 +476,23 @@ func _shop() -> Variant:
 			shown_items += _shop_cards(cards, "%s/%s" % [shop_id, tab], gaps)
 	_out["shop_tabs"] = tabs_seen
 	_out["shop_item_icons"] = shown_items
+	# A price tag never covers its item (the tier chip in its corner), however
+	# many digits: the Tools tab has the $1000+ tiers.
+	shop.call("open_shop", "homie_depot", "tools")
+	await _frames(LAYOUT_FRAMES)
+	var clear := 0
+	for shelf: Node in _with_meta(cards, &"shelf_icon"):
+		var tag := _tag_of(shelf as Control)
+		if tag == null:
+			continue
+		var icon := (shelf as Control).get_meta("shelf_icon") as Control
+		var tag_right := tag.get_global_rect().end.x
+		if icon.get_global_rect().position.x < tag_right:
+			gaps.append("a %.0f px price tag covers its item (icon at %.0f, tag ends %.0f)" % [tag.size.x, icon.get_global_rect().position.x, tag_right])
+		else:
+			clear += 1
+	_out["shop_tags_clear"] = clear
+	gaps.append_array(await _pop_once(shop, cards))
 	# The window fits the screen at every UI scale (WindowFit draws it smaller
 	# rather than off the edge), with its cards' icons still there.
 	shop.call("open_shop", "homie_depot", "tools")
@@ -494,6 +511,53 @@ func _shop() -> Variant:
 	_out["shop_scales"] = scales
 	if shop.has_method("close_window"):
 		shop.call("close_window")
+	return gaps
+
+
+## The price tag on a shelf (catalog_look.price_tag: a PanelContainer in the
+## shelf's overlay), or null.
+func _tag_of(shelf: Control) -> Control:
+	for child: Node in shelf.get_children():
+		if child is Control and not (child is PanelContainer) and not (child is MarginContainer):
+			for piece: Node in child.get_children():
+				if piece is PanelContainer:
+					return piece as Control
+	return null
+
+
+## A confirmed buy pops its item once, however many times the grid redraws
+## around it (shop_window _pop_bought): redraws mid-pop carry the pop on, and the
+## item is at rest once ICONS_POP_SECONDS have passed.
+func _pop_once(shop: Control, cards: Control) -> Array[String]:
+	var gaps: Array[String] = []
+	var item := ""
+	for card: Node in cards.get_children():
+		if card.has_meta("shelf") and str(card.get_meta("item", "")) != "":
+			item = str(card.get_meta("item"))
+			break
+	if item == "":
+		gaps.append("pop: no card to pop")
+		return gaps
+	var plays_before := int(shop.get("pop_plays"))
+	var started := Time.get_ticks_msec() / 1000.0
+	shop.call("_refresh")
+	shop.call("_pop_bought", item)
+	# The wallet, the stock and the kit each redraw it, spread over the pop.
+	for at: float in [0.1, 0.24, 0.29]:
+		await get_tree().create_timer(maxf(0.0, started + at - Time.get_ticks_msec() / 1000.0)).timeout
+		shop.call("_refresh")
+	await get_tree().create_timer(maxf(0.0, started + Constants.ICONS_POP_SECONDS + 0.12 - Time.get_ticks_msec() / 1000.0)).timeout
+	var plays := int(shop.get("pop_plays")) - plays_before
+	var resting := true
+	for card: Node in cards.get_children():
+		if not card.is_queued_for_deletion() and str(card.get_meta("item", "")) == item and card.has_meta("shelf"):
+			var icon := (card.get_meta("shelf") as Control).get_meta("shelf_icon") as Control
+			resting = icon.scale.distance_to(Vector2.ONE) < 0.02
+	_out["shop_pop"] = {"plays": plays, "resting": resting}
+	if plays != 1:
+		gaps.append("pop: one buy popped %d times" % plays)
+	if not resting:
+		gaps.append("pop: the item still moves after the pop's %.2f s" % Constants.ICONS_POP_SECONDS)
 	return gaps
 
 
