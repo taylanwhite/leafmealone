@@ -1897,15 +1897,13 @@ func _bin_mate() -> Dictionary:
 	var mate := Vector3(front.x, bin.global_position.y + 0.05, front.z) + away * 0.15
 	var stand := mate + away * BIN_MATE_BEHIND
 	_safe_peer(friend, QUIET_AFTER_SECONDS)
+	var yaw := atan2(away.x, away.z)
 	var body := _other_player()
 	if body != null:
-		body.call("send_teleport", Transform3D(Basis(Vector3.UP, atan2(away.x, away.z)), mate))
-	var me := _me()
-	var yaw := atan2(away.x, away.z)
-	me.call("apply_network_teleport", Transform3D(Basis(Vector3.UP, yaw), stand))
-	me.set("body_yaw", yaw)
+		_placing("friend")
+		body.call("send_teleport", Transform3D(Basis(Vector3.UP, yaw), mate))
 	var eye_y := stand.y + 1.6
-	me.set("head_pitch", atan2(middle.y - eye_y, Vector2(middle.x - stand.x, middle.z - stand.z).length()))
+	_place(stand, yaw, atan2(middle.y - eye_y, Vector2(middle.x - stand.x, middle.z - stand.z).length()))
 	await get_tree().create_timer(0.5).timeout
 	return {"note": "the friend in front of the rake bin, you behind them looking at it; tap interact", "zone": _zone()}
 
