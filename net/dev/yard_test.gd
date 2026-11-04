@@ -440,7 +440,10 @@ func _catch_up() -> void:
 	# The cap rides the stream's own speed, which jitters with when updates land:
 	# a third over it is still a run, and a jump is several times it.
 	var allowed := (float(after["stream"]) * Constants.SMOOTHER_CATCH_UP_SPEED_SHARE + Constants.SMOOTHER_CATCH_UP_SPEED_MIN) * 1.35
-	_check("catch_up: after a 0.35 s gap a teammate's body glides back onto the stream, never jumping", float(after["jump"]) > 0.8 and float(before["fastest"]) > allowed * 2.0 and float(after["fastest"]) <= allowed and float(after["behind"]) < 3.5 * 0.1 + 0.3,
+	# Drawn without the cap the body no longer jumps in one frame either: fx-net's
+	# smoother glides from where it was drawn over delay_seconds. That glide is
+	# still faster than a run; the cap must hold it below it (W9 integration).
+	_check("catch_up: after a 0.35 s gap a teammate's body glides back onto the stream, never jumping", float(after["jump"]) > 0.8 and float(before["fastest"]) > float(after["fastest"]) * 1.2 and float(after["fastest"]) <= allowed and float(after["behind"]) < 3.5 * 0.1 + 0.3,
 		"the stream jumped %.2f m; drawn as it came the body went %.1f m/s, caught up never faster than %.1f m/s (allowed %.1f), ended %.2f m behind" % [float(after["jump"]), float(before["fastest"]), float(after["fastest"]), allowed, float(after["behind"])])
 
 
@@ -454,7 +457,10 @@ func _bunched() -> void:
 	var before: Dictionary = await _bunched_run(false)
 	var after: Dictionary = await _bunched_run(true)
 	var allowed := (3.5 * Constants.SMOOTHER_CATCH_UP_SPEED_SHARE + Constants.SMOOTHER_CATCH_UP_SPEED_MIN) * 1.35
-	_check("bunched: a teammate's late-then-bunched updates are drawn at their pace, not as a leap", int(after["bursts"]) >= 3 and float(before["fastest"]) > allowed and float(after["fastest"]) <= allowed and float(after["behind"]) < 3.5 * 0.1 + 0.3,
+	# fx-net's SMOOTHER_MIN_SPACING already spaces a bunched pair, so drawn without
+	# the cap it no longer leaps far past a run; the cap still holds it lower, and
+	# under what a run allows (W9 integration).
+	_check("bunched: a teammate's late-then-bunched updates are drawn at their pace, not as a leap", int(after["bursts"]) >= 3 and float(before["fastest"]) > float(after["fastest"]) and float(after["fastest"]) <= allowed and float(after["behind"]) < 3.5 * 0.1 + 0.3,
 		"%d bursts; drawn as they came the body went %.1f m/s, paced never faster than %.1f m/s (allowed %.1f), ended %.2f m behind" % [int(after["bursts"]), float(before["fastest"]), float(after["fastest"]), allowed, float(after["behind"])])
 
 

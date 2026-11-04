@@ -112,6 +112,7 @@ func _physics_process(_delta: float) -> void:
 			# the visual catches up at a run rather than in one frame (_process).
 			if not _held and catch_up_on:
 				_catch_up = true
+				_catch_up_until = -1.0
 				stats["catch_ups"] = int(stats.get("catch_ups", 0)) + 1
 
 	# After a gap longer than the delay (a stall on either peer, updates bunched on
@@ -124,7 +125,9 @@ func _physics_process(_delta: float) -> void:
 	if not _samples.is_empty() and now - _last_change_at > delay_seconds:
 		var drawn_at := now - delay_seconds
 		if drawn_at > float(_samples[_samples.size() - 1]["at"]):
-			_samples.append({"at": drawn_at, "xform": _sample_at(drawn_at), "speed": 0.0})
+			# Marked: it is where this peer drew the body, not an update, so the
+			# speed reads below (fx-yard's catch-up cap) skip it (W9 integration).
+			_samples.append({"at": drawn_at, "xform": _sample_at(drawn_at), "speed": 0.0, "drawn": true})
 	stats["samples"] = int(stats["samples"]) + 1
 	var velocity: Vector3 = body.get("velocity") if "velocity" in body else Vector3.ZERO
 	_last_recorded = origin
@@ -143,6 +146,11 @@ func _physics_process(_delta: float) -> void:
 		var spaced := float(_samples[_samples.size() - 1]["at"]) + Constants.SMOOTHER_MIN_SPACING
 		at = clampf(spaced, now, now + delay_seconds * 0.5)
 	_samples.append({"at": at, "xform": body.global_transform, "speed": _last_change_speed})
+	# The catch-up runs at least until this update is drawn: fx-net's drawn-pose
+	# sample starts the glide right where the body is, so the first frame after a
+	# gap is no distance off yet (W9 integration).
+	if _catch_up and _catch_up_until < 0.0:
+		_catch_up_until = at
 	_trim(now)
 
 
@@ -184,9 +192,10 @@ func _process(delta: float) -> void:
 		var off := Vector3(rendered.origin.x - _drawn_at.x, 0.0, rendered.origin.z - _drawn_at.z)
 		var speed := maxf(_last_change_speed, _window_speed()) if player and not _catch_up else _stream_speed()
 		var cap := (speed * Constants.SMOOTHER_CATCH_UP_SPEED_SHARE + Constants.SMOOTHER_CATCH_UP_SPEED_MIN) * delta
-		if off.length() > Constants.SMOOTHER_CATCH_UP_MAX or off.length() <= cap:
+		if off.length() > Constants.SMOOTHER_CATCH_UP_MAX or (off.length() <= cap and _now() - delay_seconds >= _catch_up_until):
 			_catch_up = false
-		else:
+			_catch_up_until = -1.0
+		elif off.length() > cap:
 			var held := _drawn_at + off.normalized() * cap
 			rendered.origin = Vector3(held.x, rendered.origin.y, held.z)
 	# Held where the seat or stage drew it: the replicated pose is from before the
@@ -204,6 +213,7 @@ func _process(delta: float) -> void:
 		_last_change_speed = 0.0
 		_stop_recorded = true
 		_catch_up = false
+		_catch_up_until = -1.0
 	_visual.global_transform = rendered * _rest
 	_drawn_at = rendered.origin
 	_has_drawn = true
@@ -218,6 +228,8 @@ func _window_speed() -> float:
 	var newest: Dictionary = _samples[_samples.size() - 1]
 	var from: Dictionary = _samples[0]
 	for index: int in range(_samples.size() - 2, -1, -1):
+		if bool(_samples[index].get("drawn", false)):
+			continue
 		from = _samples[index]
 		if float(newest["at"]) - float(from["at"]) >= Constants.SMOOTHER_SPEED_WINDOW:
 			break
@@ -232,7 +244,13 @@ func _stream_speed() -> float:
 	var speed := _last_change_speed
 	if _samples.size() >= 2:
 		var newest: Dictionary = _samples[_samples.size() - 1]
+		# The last update before it: fx-net's drawn-pose sample after a gap is not
+		# one, and measured from it the gap's whole step reads as a sprint.
 		var previous: Dictionary = _samples[_samples.size() - 2]
+		for index: int in range(_samples.size() - 2, -1, -1):
+			previous = _samples[index]
+			if not bool(previous.get("drawn", false)):
+				break
 		var span := float(newest["at"]) - float(previous["at"])
 		if span > 0.0:
 			speed = maxf(speed, ((newest["xform"] as Transform3D).origin - (previous["xform"] as Transform3D).origin).length() / span)
@@ -243,6 +261,8 @@ var _rest := Transform3D.IDENTITY
 ## fx-yard: catching the visual up after a gap (_process), where it was last
 ## drawn (body space, no rest offset), and whether it has been drawn yet.
 var _catch_up: bool = false
+## The playback time of the update that ended the gap (-1 until it lands).
+var _catch_up_until: float = -1.0
 ## Tests only: off draws the stream as it comes (yard_test's before and after).
 var catch_up_on: bool = true
 ## Tests only: held to a player's pace without being in "players" (yard_test's
