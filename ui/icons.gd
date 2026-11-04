@@ -209,7 +209,9 @@ static func path(id: String) -> String:
 
 ## A prop or yard-model kind: a tool when the shop sells it, else an item.
 static func for_kind(kind: String) -> String:
-	return for_tool(kind) if Constants.TOOL_PRICES.has(kind) else "item_" + kind
+	if Constants.TOOL_PRICES.has(kind) or Catalog.is_sack(kind):
+		return for_tool(kind)
+	return "item_" + kind
 
 
 static func for_tool(tool_id: String) -> String:
@@ -223,7 +225,10 @@ static func for_tool(tool_id: String) -> String:
 ## (Catalog.TIER_*): stock is the plain icon (item_rake, tool_hose), the others
 ## add the tier the way the catalog's ids do: item_rake_used, tool_hose_mk2,
 ## tool_hose_mk3. Those icons wear the tier's trim and chip (icons:catalog).
+## A seasonal sack (shops:9) has no tiers: it is always its supply's picture.
 static func for_kit(kind: String, tier: int) -> String:
+	if Catalog.is_sack(kind):
+		return for_kind(kind)
 	return for_kind(kind) + str(TIER_SUFFIXES.get(tier, ""))
 
 

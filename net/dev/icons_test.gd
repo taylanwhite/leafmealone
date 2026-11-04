@@ -380,7 +380,11 @@ func _catalog() -> Variant:
 			gaps.append("%s is the icon of %s" % [id, sharing])
 	for kind: String in Constants.KIT_KINDS:
 		var ids: Array[String] = []
-		for tier: int in [Catalog.TIER_USED, Catalog.TIER_STOCK, Catalog.TIER_MK2, Catalog.TIER_MK3]:
+		# A seasonal sack (shops:9) comes in the one tier, as its supply's picture.
+		var tiers: Array[int] = [Catalog.TIER_STOCK]
+		if not Catalog.is_sack(kind):
+			tiers = [Catalog.TIER_USED, Catalog.TIER_STOCK, Catalog.TIER_MK2, Catalog.TIER_MK3]
+		for tier: int in tiers:
 			var id := _Icons.for_kit(kind, tier)
 			_need(gaps, "kit %s tier %d" % [kind, tier], id)
 			if ids.has(id):
