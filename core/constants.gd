@@ -4634,7 +4634,28 @@ const FLOP_WOOZY_SECONDS: float = 1.1
 const FLOP_WOOZY_SWAY: float = 0.16
 const FLOP_WOOZY_HZ: float = 1.6
 const FLOP_WOOZY_VIEW_SHARE: float = 0.25
-## Skitching: E at Chefty's tailgate on the board grabs on beside it, this far to
+## The head lolls this share of the body's sway.
+const FLOP_WOOZY_FACE_SHARE: float = 0.8
+## The stars outlast the knock by this long (s): they're still circling as you get up.
+const FLOP_STARS_GET_UP: float = 0.4
+## On someone else's peer a wipeout's knock waits at most this long (s) for its
+## flop (drawn a beat later there) before the body goes down the plain way.
+const FLOP_WAIT_MAX: float = 0.4
+## Mid-flop flailing: the legs kick, the arms wave and windmill at these rates
+## (rad/s: legs, arms out, arms forward), swinging this far (rad, same order), the
+## arms thrown this far up (rad) around which they wave.
+const FLOP_FLAIL_RATE := Vector3(19.0, 23.0, 17.0)
+const FLOP_FLAIL_SWING := Vector3(0.9, 0.6, 0.7)
+const FLOP_FLAIL_ARMS_UP: float = 2.0
+## The flop's landing: the thud's level (dB), and each smaller bounce's on top of
+## its own strength (dB).
+const FLOP_THUD_DB: float = -2.0
+const FLOP_BOUNCE_DB: float = -3.0
+## The loose board after a bail dissolves near a camera: starting this near (m, x)
+## and all but gone (SKATE_BOARD_LENS_MAX_FADE) this near (m, y).
+const SKATE_BOARD_LENS := Vector2(0.8, 0.35)
+const SKATE_BOARD_LENS_MAX_FADE: float = 0.9
+## Skitching: E at Chefty's tail on the board grabs on beside it, this far to
 ## the side of chefty.tow_point() (m) and this far nearer the truck (m), if you're
 ## within SKITCH_GRAB_REACH of that spot and rolling within SKITCH_GRAB_REL_SPEED of
 ## Chefty. The towed board follows that spot with a spring (1/s), its pull
@@ -4645,6 +4666,23 @@ const SKITCH_GRAB_REACH: float = 1.8
 const SKITCH_GRAB_REL_SPEED: float = 4.0
 const SKITCH_SPRING: float = 9.0
 const SKITCH_PULL_MAX: float = 4.0
+## Only the spot on your own side of the truck is offered. A Chefty slower than
+## SKITCH_PARKED_SPEED (m/s) is parked: its tailgate is the bed's (E hops in), so
+## you grab on only from beside its corner, at least this share of SKITCH_SIDE out.
+const SKITCH_PARKED_SPEED: float = 1.0
+const SKITCH_PARKED_SIDE_SHARE: float = 0.6
+## On everyone else's peer a skater's side is put right while they're towed once
+## their replicated position is this share of SKITCH_SIDE out on the other side.
+const SKITCH_SIDE_SURE: float = 0.4
+## E's "Hang on" sits this far (m) over the hand's spot on the bumper.
+const SKITCH_HINT_RISE: float = 0.6
+## Towed: knees bent this share of a tuck, the torso bent this much more (rad)
+## toward the bumper, your own first-person arm stretching up to this share of its
+## length to keep its hand on it, and the slap of the grab at this level (dB).
+const SKITCH_TOW_CROUCH: float = 0.5
+const SKITCH_TOW_LEAN: float = 0.45
+const SKITCH_FP_GRIP_STRETCH: float = 1.6
+const SKITCH_GRAB_DB: float = -4.0
 ## The board turns with Chefty at this rate (1/s); your head looks round at most
 ## CHEFTY_SEAT_LOOK_YAW either way while you hang on, like a seat, and comes back
 ## round to the board at SKITCH_LOOK_BACK_RATE (rad/s) once you let go.
@@ -4654,8 +4692,9 @@ const SKITCH_LOOK_BACK_RATE: float = 4.0
 ## tears the tailgate out of your hand; turning harder than SKITCH_TURN_RATE (rad/s)
 ## above SKITCH_TURN_MIN_SPEED (m/s) flings you wide (SKITCH_FLING_SHARE of the
 ## speed, outward); braking harder than SKITCH_BRAKE_DECEL (m/s^2) above
-## SKITCH_BRAKE_MIN_SPEED rams you into the tailgate (bounced back SKITCH_SLAM_BACK
-## m/s); a crash shakes you off; drifting SKITCH_BREAK_METERS off the spot, you've let go.
+## SKITCH_BRAKE_MIN_SPEED tears the bumper out of your hand: a flop off its corner,
+## thrown SKITCH_SLAM_BACK m/s slower than you were going (the collision exception
+## keeps you out of the tailgate); a crash shakes you off; drifting SKITCH_BREAK_METERS off the spot, you've let go.
 const SKITCH_MAX_SPEED: float = 15.0
 ## ... after this long above it, all told (s; it drains back while you're under).
 const SKITCH_STRAIN_SECONDS: float = 1.2

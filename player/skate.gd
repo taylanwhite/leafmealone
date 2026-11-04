@@ -647,7 +647,8 @@ func _curb_list() -> Array:
 
 ## Where a skater here could grab on behind Chefty right now: {chefty, side, at}
 ## (at: the spot the board is towed on), or {} when there's nowhere. On the board,
-## rolling, in reach of a free side's spot, and going about Chefty's speed.
+## rolling, going about Chefty's speed, in reach of the spot on your own side of
+## it (when that side's free); a parked Chefty only from beside its corner.
 func skitch_spot() -> Dictionary:
 	if not bool(player.get("on_board")) or bool(player.get("skitch")) or _mode != Mode.ROLL or not player.is_on_floor():
 		return {}
@@ -656,17 +657,22 @@ func skitch_spot() -> Dictionary:
 		var chefty := truck as Node3D
 		if chefty == null or not chefty.is_in_group("chefty") or not chefty.has_method("tow_point"):
 			continue
-		var rel := (chefty.call("drawn_velocity") as Vector3) - player.velocity
+		var truck_vel := chefty.call("drawn_velocity") as Vector3
+		var rel := truck_vel - player.velocity
 		if Vector2(rel.x, rel.z).length() > Constants.SKITCH_GRAB_REL_SPEED:
 			continue
 		var local := (chefty.call("tow_point") as Transform3D).affine_inverse() * me
-		var near := 1.0 if local.x >= 0.0 else -1.0
-		for side: float in [near, -near]:
-			if _side_taken(chefty, side):
-				continue
-			var at := hold_spot(chefty, side)
-			if Vector2(at.x - me.x, at.z - me.z).length() <= Constants.SKITCH_GRAB_REACH:
-				return {"chefty": chefty, "side": side, "at": at}
+		# Only the side you're on: the far one would drag you across the back of the
+		# truck, and everyone else works out your side from where you are (skate_view).
+		var side := 1.0 if local.x >= 0.0 else -1.0
+		if _side_taken(chefty, side):
+			continue
+		# A parked Chefty's tailgate is the bed's: you hang on from beside its corner.
+		if Vector2(truck_vel.x, truck_vel.z).length() < Constants.SKITCH_PARKED_SPEED and absf(local.x) < Constants.SKITCH_SIDE * Constants.SKITCH_PARKED_SIDE_SHARE:
+			continue
+		var at := hold_spot(chefty, side)
+		if Vector2(at.x - me.x, at.z - me.z).length() <= Constants.SKITCH_GRAB_REACH:
+			return {"chefty": chefty, "side": side, "at": at}
 	return {}
 
 
@@ -680,6 +686,11 @@ static func hold_spot(chefty: Node3D, side: float) -> Vector3:
 static func grip_point(chefty: Node3D, side: float) -> Vector3:
 	var grip := Constants.SKITCH_GRIP
 	return (chefty.call("body_transform") as Transform3D) * Vector3(side * grip.x, grip.y, grip.z)
+
+
+## The side of Chefty you hang on (or last hung on): 1 its right, -1 its left.
+func tow_side() -> float:
+	return _tow_side
 
 
 ## Someone else already hanging on to that side.
@@ -699,7 +710,7 @@ func skitch_hint() -> Dictionary:
 	var spot := skitch_spot()
 	if spot.is_empty():
 		return {}
-	var at := grip_point(spot["chefty"] as Node3D, float(spot["side"])) + Vector3.UP * 0.6
+	var at := grip_point(spot["chefty"] as Node3D, float(spot["side"])) + Vector3.UP * Constants.SKITCH_HINT_RISE
 	return {"text": _Strings.UI["prompt_skitch"], "at": at, "source": "skitch"}
 
 

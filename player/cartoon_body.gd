@@ -1361,6 +1361,7 @@ func _physics_process(delta: float) -> void:
 	var lean := -eye_lead.x * 0.08 * walk
 	if _limping:
 		lean += 0.14 * walk * (0.5 + 0.5 * sin(_phase))
+	_take_off_woozy()
 	_torso.rotation.z = lerpf(_torso.rotation.z, lean, clampf(delta * 8.0, 0.0, 1.0))
 	_show_bandage()
 	_show_foot()
@@ -1561,9 +1562,6 @@ const _FLOP_POINTS: Array = [
 	[Vector3(-0.55, 1.7, 0.0), 0.06], [Vector3(0.55, 1.7, 0.0), 0.06],
 	[Vector3(-0.62, 1.15, 0.0), 0.06], [Vector3(0.62, 1.15, 0.0), 0.06],
 ]
-## How long a wipeout's knock waits for its flop before it falls the plain way (s).
-const FLOP_WAIT_MAX: float = 0.4
-
 ## Seconds into the flop (-1: not flopping), which way it was thrown (world, flat),
 ## how long the knock lasts, when it lands (s in), and the height it started at.
 var _flop_t: float = -1.0
@@ -1589,6 +1587,9 @@ var flop_dip: float = 0.0
 ## Up again: seconds into the woozy sway (-1 not woozy) and its roll now (rad).
 var _woozy_t: float = -1.0
 var woozy_roll: float = 0.0
+## The sway laid on the torso and the face last tick (rad), taken off again first.
+var _woozy_torso: float = 0.0
+var _woozy_face: float = 0.0
 
 
 ## driving G2, every peer (player/skate_view.gd, from the wipeout as it's drawn
@@ -1644,7 +1645,7 @@ func _flop_gate(knocked: bool, owner_node: Node, delta: float) -> bool:
 		_flop_wait = -1.0 if _flop_claimed else 0.0
 	if _flop_wait >= 0.0:
 		_flop_wait += delta
-		if _flop_wait < FLOP_WAIT_MAX:
+		if _flop_wait < Constants.FLOP_WAIT_MAX:
 			return false
 		_flop_wait = -1.0
 	return knocked
@@ -1690,14 +1691,16 @@ func _step_flop(delta: float) -> void:
 		_face.basis = Basis(normal.slerp(tumbling, 1.0 - settle)).scaled(size)
 	# Arms and legs everywhere, calming as it settles.
 	var wild := 1.0 - settle
+	var rate := Constants.FLOP_FLAIL_RATE
+	var swing := Constants.FLOP_FLAIL_SWING
 	for index: int in 2:
 		var side := -1.0 if index == 0 else 1.0
-		var kick := sin(_flop_t * 19.0 + PI * float(index))
-		_legs[index].rotation.x = lerpf(_legs[index].rotation.x, 0.9 * kick - 0.3, wild)
+		var kick := sin(_flop_t * rate.x + PI * float(index))
+		_legs[index].rotation.x = lerpf(_legs[index].rotation.x, swing.x * kick - 0.3, wild)
 		_legs[index].rotation.z = lerpf(_legs[index].rotation.z, side * (0.25 + 0.15 * kick), wild)
 		_shins[index].rotation.x = lerpf(_shins[index].rotation.x, -0.5 - 0.6 * maxf(kick, 0.0), wild)
-		_arms[index].rotation.z = lerpf(_arms[index].rotation.z, side * (2.0 + 0.6 * sin(_flop_t * 23.0 + 1.3 * float(index))), wild)
-		_arms[index].rotation.x = lerpf(_arms[index].rotation.x, 0.7 * sin(_flop_t * 17.0 + 2.0 * float(index)), wild)
+		_arms[index].rotation.z = lerpf(_arms[index].rotation.z, side * (Constants.FLOP_FLAIL_ARMS_UP + swing.y * sin(_flop_t * rate.y + 1.3 * float(index))), wild)
+		_arms[index].rotation.x = lerpf(_arms[index].rotation.x, swing.z * sin(_flop_t * rate.z + 2.0 * float(index)), wild)
 	if u >= 1.0:
 		# Flat on its back, exactly the knock's pose; stars till it's up and woozy.
 		_flop_t = -1.0
@@ -1705,7 +1708,12 @@ func _step_flop(delta: float) -> void:
 		flop_dip = 0.0
 		fallen = 1.0
 		transform = Transform3D(Basis(Vector3.RIGHT, FALL_ANGLE), Vector3.ZERO)
-		dizzy(maxf(_flop_seconds - Constants.FLOP_TUMBLE_SECONDS, 0.0) + 0.4 + Constants.FLOP_WOOZY_SECONDS)
+		# The face's turn with the tumble: its pitch and yaw are set every tick, its
+		# roll by nothing, so what the tumble left of it goes here.
+		if _head_root != self and _head_root.get_parent() != self:
+			_face.rotation.z = 0.0
+			_woozy_face = 0.0
+		dizzy(maxf(_flop_seconds - Constants.FLOP_TUMBLE_SECONDS, 0.0) + Constants.FLOP_STARS_GET_UP + Constants.FLOP_WOOZY_SECONDS)
 
 
 ## Your own head carries your first-person camera: going over in a flop or lying
@@ -1780,17 +1788,35 @@ func _flop_bounce() -> float:
 func _step_woozy(delta: float) -> void:
 	if _woozy_t < 0.0:
 		woozy_roll = 0.0
+		_lay_woozy()
 		return
 	_woozy_t += delta
 	var left := 1.0 - _woozy_t / Constants.FLOP_WOOZY_SECONDS
 	if left <= 0.0:
 		_woozy_t = -1.0
 		woozy_roll = 0.0
+		_lay_woozy()
 		return
 	var amount := left * left * (1.0 - fallen)
 	woozy_roll = sin(TAU * Constants.FLOP_WOOZY_HZ * _woozy_t) * Constants.FLOP_WOOZY_SWAY * amount
+	_lay_woozy()
+
+
+## The sway as offsets laid on fresh each tick: last tick's comes off first (the
+## torso's came off before its lean lerp, _take_off_woozy), so it never adds up.
+func _lay_woozy() -> void:
 	_torso.rotation.z += woozy_roll
-	_face.rotation.z += woozy_roll * 0.8
+	_woozy_torso = woozy_roll
+	var face := woozy_roll * Constants.FLOP_WOOZY_FACE_SHARE
+	if face != _woozy_face:
+		_face.rotation.z += face - _woozy_face
+		_woozy_face = face
+
+
+## Before the torso's lean lerp: last tick's sway off it, so the lerp never carries it.
+func _take_off_woozy() -> void:
+	_torso.rotation.z -= _woozy_torso
+	_woozy_torso = 0.0
 
 
 func _animate_face(delta: float) -> void:

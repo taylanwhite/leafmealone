@@ -22,11 +22,13 @@ extends Node
 ##   j. on the board at Chefty's driver's door E is the door; seated, the board's away.
 ##   k. behind the tailgate E grabs on ("Hang on"); towed 5 s behind the autopilot
 ##      down County Road 9 within 3.1 m of tow_point() at Chefty's speed; E lets go.
+##   n. on a parked Chefty: the tailgate is the bed's, a taken side offers nothing
+##      (never the far side), the left corner is the left.
 ##   l. Chefty crashing shakes the skitcher off: a wipeout whose flop tumbles past
 ##      1 rad, nothing below the ground, ending on its back.
 ## The client's view of the host (it saw the host on a board, a kickflip, a
-## wipeout, a skitch and the flop: "skate_seen") is checked by CI from the probe
-## reports.
+## wipeout, a skitch drawn on both sides of Chefty and the flop: "skate_seen") is
+## checked by CI from the probe reports.
 ## Each step prints a [SkateTest] line.
 
 const _Skate = preload("res://player/skate.gd")
@@ -210,6 +212,7 @@ func _run() -> void:
 		return
 	await _into_chefty(me, skate, chefty, road, along, problems)
 	await _skitch(me, skate, chefty, road, along, problems)
+	await _sides(me, skate, chefty, road, along, problems)
 	await _flop(me, skate, chefty, problems)
 	_finish(problems.is_empty(), problems)
 
@@ -286,6 +289,50 @@ func _skitch(me: CharacterBody3D, skate: Node, chefty: Node3D, road: Vector3, al
 	await _seconds(1.0)
 
 
+## n. Sides, on a parked Chefty: right behind its tailgate E isn't "Hang on" (the
+## tailgate is the bed's); beside its right corner it is, but with someone already
+## hanging on that side there's nothing (the far side is never offered: it would
+## drag you across the back, and everyone else draws your side from where you
+## are); beside its left corner it's the left. The client then draws the host on
+## both sides (skate_seen skitch_sides, CI). The other skitcher is a stand-in that
+## exists only inside one synchronous check, so nothing else ever sees it.
+func _sides(me: CharacterBody3D, skate: Node, chefty: Node3D, road: Vector3, along: Vector3, problems: Array[String]) -> void:
+	chefty.call("dev_place", road + along * 10.0, atan2(along.x, along.z) + PI)
+	await _ticks(4)
+	var tow: Transform3D = chefty.call("tow_point")
+	# Beside a corner: level with the spots. Behind the tailgate: on tow_point,
+	# just clear of it.
+	var at := func(x: float) -> Vector3:
+		var p := tow * Vector3(x, 0.0, 0.0 if x == 0.0 else -Constants.SKITCH_IN)
+		return Vector3(p.x, road.y, p.z)
+	await _ride_from(me, skate, at.call(0.0), along, 0.0)
+	await _ticks(4)
+	var middle := StringName((me.call("e_choice") as Dictionary)["do"])
+	var middle_spot := (skate.call("skitch_spot") as Dictionary).is_empty()
+	await _ride_from(me, skate, at.call(Constants.SKITCH_SIDE * 0.9), along, 0.0)
+	await _ticks(4)
+	var right_free: Dictionary = skate.call("skitch_spot")
+	var stand_in := CharacterBody3D.new()
+	var code := GDScript.new()
+	code.source_code = "extends CharacterBody3D\nvar skitch := true\n"
+	code.reload()
+	stand_in.set_script(code)
+	stand_in.add_to_group("players")
+	add_child(stand_in)
+	stand_in.global_position = _Skate.hold_spot(chefty, 1.0)
+	var right_taken: Dictionary = skate.call("skitch_spot")
+	stand_in.remove_from_group("players")
+	stand_in.free()
+	await _ride_from(me, skate, at.call(-Constants.SKITCH_SIDE * 0.9), along, 0.0)
+	await _ticks(4)
+	var left: Dictionary = skate.call("skitch_spot")
+	_verdict(middle != &"skitch" and middle_spot and float(right_free.get("side", 0.0)) == 1.0 and right_taken.is_empty() and float(left.get("side", 0.0)) == -1.0,
+		"n. parked Chefty: at the tailgate E %s (no spot %s); right corner side %s, %s with it taken; left corner side %s" % [middle, middle_spot, right_free.get("side", "-"), "nothing" if right_taken.is_empty() else "side %s" % right_taken.get("side"), left.get("side", "-")], problems)
+	if bool(me.get("on_board")):
+		skate.call("dismount", false)
+	await _ticks(3)
+
+
 ## l. Hanging on when Chefty crashes shakes you off: a wipeout, and the body's
 ## flop tumbles past 1 rad (CartoonBody.flop_max_angle, the cosmetic hook), never
 ## below the ground (its hips, head and feet), and lands on its back like a knock.
@@ -324,6 +371,39 @@ func _flop(me: CharacterBody3D, skate: Node, chefty: Node3D, problems: Array[Str
 	_verdict(grabbed and fell and int(body.get("flops")) == flops_before + 1 and angle > 1.0 and lowest > -0.05 and flat and int((skate.get("wipeouts") as Dictionary).get("skitch_crash", 0)) >= 1,
 		"l. a crash shook the skitcher off (grabbed %s, wipeout %s): flopped %d, tumbled to %.2f rad, lowest part %.2f m off the ground, on its back %s" % [grabbed, fell, int(body.get("flops")) - flops_before, angle, lowest, flat], problems)
 	await _seconds(Constants.SKATE_WIPEOUT_SECONDS + 0.3)
+	# Up, then woozy: the sway is laid on fresh each tick, so once it's over the
+	# head and the torso are square again (it used to pile up on the face).
+	# An idle gesture (a head scratch tilts the face on purpose) is skipped over.
+	await _seconds(Constants.FLOP_WOOZY_SECONDS + 0.5)
+	var face := body.call("pose_part", "face") as Node3D
+	var torso := body.call("pose_part", "torso") as Node3D
+	# The bail's own woozy may have run out while the body was still down (it
+	# sways only as far as it's up), so a full one is started standing: it must
+	# sway, and leave nothing behind.
+	var waited := 0.0
+	while waited < 4.0 and bool(body.call("is_gesturing")):
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+	body.set("_woozy_t", 0.0)
+	var swayed := 0.0
+	waited = 0.0
+	while waited < Constants.FLOP_WOOZY_SECONDS:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+		swayed = maxf(swayed, absf(float(body.get("woozy_roll"))))
+	var face_roll := 0.0
+	var torso_roll := 0.0
+	var samples := 0
+	waited = 0.0
+	while waited < 6.0 and samples < 15:
+		await get_tree().physics_frame
+		waited += get_physics_process_delta_time()
+		if bool(body.call("is_gesturing")) or face == null or torso == null:
+			continue
+		samples += 1
+		face_roll = maxf(face_roll, absf(face.rotation.z))
+		torso_roll = maxf(torso_roll, absf(torso.rotation.z))
+	_verdict(swayed > 0.05 and samples >= 15 and face_roll < 0.02 and torso_roll < 0.02, "l. woozy: swayed to %.3f rad; over, face roll %.3f rad, torso roll %.3f rad (%d ticks with no gesture)" % [swayed, face_roll, torso_roll, samples], problems)
 
 
 ## m. A NICE BOY standing on County Road 9 (stunned, so he stays put; out of the

@@ -280,7 +280,7 @@ $Tests = [ordered]@{
 	skate = @{
 		Port = 7817
 		Host = '--host --name=Tester --no-steam --town-map --start-hour=10 --skate-test'; Seconds = 90; Client = 85
-		Check = { param($h, $c) [bool]$h.skate_test.ok -and $c -ne $null -and [bool]$c.skate_seen.'1'.mounted -and [bool]$c.skate_seen.'1'.wipeout -and ([int]$c.skate_seen.'1'.max_trick -ge 2) -and [bool]$c.skate_seen.'1'.skitch -and ([double]$c.skate_seen.'1'.flop -gt 1.0) }
+		Check = { param($h, $c) [bool]$h.skate_test.ok -and $c -ne $null -and [bool]$c.skate_seen.'1'.mounted -and [bool]$c.skate_seen.'1'.wipeout -and ([int]$c.skate_seen.'1'.max_trick -ge 2) -and [bool]$c.skate_seen.'1'.skitch -and (@($c.skate_seen.'1'.skitch_sides) -contains 1) -and (@($c.skate_seen.'1'.skitch_sides) -contains -1) -and ([double]$c.skate_seen.'1'.flop -gt 1.0) }
 	}
 	# The crew's kit (p2-kit, net/dev/kit_test.gd) over 150 ms of lag: host and client
 	# each buy a rake with the starting $50 at the bin inside the doors, load it on

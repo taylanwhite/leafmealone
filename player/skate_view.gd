@@ -106,22 +106,15 @@ var _grab_on: bool = false
 var _posed: bool = false
 var _time: float = 0.0
 ## Skitching (driving G2): 0 .. 1 how far into the towed lean (the bumper hand
-## with it), the side of Chefty seen when the grab was (1 its right, -1 its
-## left), and on someone else's peer how far their body is drawn onto the spot
-## behind this peer's own Chefty (0 .. 1).
+## with it), the side of Chefty this skater hangs on (1 its right, -1 its left;
+## 0 not worked out yet), and on someone else's peer how far their body is drawn
+## onto the spot behind this peer's own Chefty (0 .. 1) and the side that spot is
+## drawn on now (eased across if the side turns out to be the other one).
 var _tow_lean: float = 0.0
 var _tow_side: float = 0.0
 var _pin: float = 0.0
-## Towed: the torso bends this much more toward the bumper (rad), and your own
-## first-person arm may stretch this far (share of its length) to keep its hand on it.
-const TOW_LEAN: float = 0.45
-const TOW_CROUCH: float = 0.5
-## The loose board starts to dissolve this near the camera (m), and is all but
-## gone this near.
-const BOARD_LENS_START: float = 0.8
-const BOARD_LENS_GONE: float = 0.35
+var _pin_side: float = 0.0
 var _board_fade: float = 0.0
-const FP_GRIP_STRETCH: float = 1.6
 ## This view put your first-person hand on the bumper (fp_hands), so it takes it off.
 var _fp_grip: bool = false
 
@@ -149,6 +142,7 @@ func _process(delta: float) -> void:
 ## stays on it. Cosmetic: the replicated position is untouched.
 func _pin_to_truck(delta: float) -> void:
 	var towed := bool(_shown.get("skitch", false))
+	var was_pinned := _pin > 0.0
 	_pin = move_toward(_pin, 1.0 if towed else 0.0, delta / maxf(Constants.SKITCH_PIN_BLEND, 0.001))
 	if _pin <= 0.0:
 		return
@@ -162,7 +156,10 @@ func _pin_to_truck(delta: float) -> void:
 		drawn_truck = body.get_global_transform_interpolated()
 	var tow_local := (truck.call("body_transform") as Transform3D).affine_inverse() * (truck.call("tow_point") as Transform3D)
 	var side := _side_of(truck)
-	var spot := drawn_truck * (tow_local * Vector3(side * Constants.SKITCH_SIDE, 0.0, -Constants.SKITCH_IN))
+	# A side worked out wrong at the grab (its replicated position near the middle)
+	# is put right by sliding the drawn spot across, never in one frame.
+	_pin_side = side if not was_pinned else move_toward(_pin_side, side, 2.0 * delta / maxf(Constants.SKITCH_PIN_BLEND, 0.001))
+	var spot := drawn_truck * (tow_local * Vector3(_pin_side * Constants.SKITCH_SIDE, 0.0, -Constants.SKITCH_IN))
 	var back := drawn_truck.basis.z
 	var yaw := atan2(back.x, back.z)
 	var drawn := visual.global_transform
@@ -178,13 +175,43 @@ func _chefty() -> Node3D:
 	return null
 
 
-## Which side of Chefty this skater hangs on (1 its right, -1 its left): from
-## where they are when they grab on, kept while they're towed.
+## Which side of Chefty this skater hangs on (1 its right, -1 its left). Your own:
+## the side you grabbed (Skate.tow_side). Someone else's: the side of the truck
+## they're on (skate.gd only offers that one) when they grab on, and while they're
+## towed whichever side their replicated position is clearly on, so a grab seen
+## near the middle (lag, this peer's Chefty drawn a little elsewhere) comes right.
 func _side_of(truck: Node3D) -> float:
-	if _tow_side == 0.0 or not bool(_shown.get("skitch", false)) and _pin <= 0.0 and _tow_lean <= 0.0:
-		var local := (truck.call("tow_point") as Transform3D).affine_inverse() * player.global_position
+	if player.is_multiplayer_authority() and player.skate() != null:
+		_tow_side = float(player.skate().call("tow_side"))
+		return _tow_side
+	var local := (truck.call("tow_point") as Transform3D).affine_inverse() * player.global_position
+	var towing := bool(_shown.get("skitch", false)) or _pin > 0.0 or _tow_lean > 0.0
+	if _tow_side == 0.0 or not towing:
 		_tow_side = 1.0 if local.x >= 0.0 else -1.0
+	elif absf(local.x) >= Constants.SKITCH_SIDE * Constants.SKITCH_SIDE_SURE and signf(local.x) != _tow_side:
+		_tow_side = signf(local.x)
 	return _tow_side
+
+
+## The side the hand on the bumper is drawn on: someone else's eases across with
+## their drawn spot (_pin_to_truck) if their side turned out to be the other one.
+func _hand_side(truck: Node3D) -> float:
+	var side := _side_of(truck)
+	if not player.is_multiplayer_authority() and _pin > 0.0 and _pin_side != 0.0:
+		return _pin_side
+	return side
+
+
+## Tests (skate_seen, CI): the sides this peer has drawn this skater towed on.
+func _note_side(truck: Node3D) -> void:
+	var entry: Dictionary = _Skate.seen.get(str(player.name), {})
+	if entry.is_empty():
+		return
+	var sides: Array = entry.get("skitch_sides", [])
+	var side := int(_side_of(truck))
+	if not sides.has(side):
+		sides.append(side)
+		entry["skitch_sides"] = sides
 
 
 func _build() -> void:
@@ -224,13 +251,15 @@ func _physics_process(delta: float) -> void:
 	var wipe := bool(_shown["wipe"])
 	var speed := float(_shown["speed"])
 	_edges(on, air, trick, wipe, speed)
+	if bool(_shown.get("skitch", false)) and _chefty() != null:
+		_note_side(_chefty())
 	_mount = move_toward(_mount, 1.0 if on else 0.0, delta / Constants.SKATE_MOUNT_SECONDS)
 	var crouch_want := 0.0
 	if on and not air and _tucking():
 		crouch_want = 1.0
 	elif on and not air and bool(_shown.get("skitch", false)):
 		# Hanging on: knees bent, but your eyes stay up over the tail to see the road.
-		crouch_want = TOW_CROUCH
+		crouch_want = Constants.SKITCH_TOW_CROUCH
 	_crouch = move_toward(_crouch, crouch_want, delta * CROUCH_RATE * 0.5)
 	var tuck_want := 0.0
 	if on and air:
@@ -287,7 +316,7 @@ func _edges(on: bool, air: bool, trick: int, wipe: bool, _speed: float) -> void:
 		_tow_side = 0.0
 		var truck := _chefty()
 		if truck != null:
-			_play_at("grab_yoink", _Skate.grip_point(truck, _side_of(truck)), -4.0)
+			_play_at("grab_yoink", _Skate.grip_point(truck, _side_of(truck)), Constants.SKITCH_GRAB_DB)
 	if not on and was_on and not wipe:
 		_play("board_pop", -6.0)
 	if wipe and not bool(_was["wipe"]):
@@ -340,9 +369,9 @@ func _on_flop_hit(strength: float) -> void:
 		return
 	var at := body.global_position + Vector3.UP * 0.3
 	if strength >= 0.99:
-		_play_at("thud", at, -2.0)
+		_play_at("thud", at, Constants.FLOP_THUD_DB)
 	else:
-		_play_at("land_thump", at, linear_to_db(clampf(strength, 0.05, 1.0)) - 3.0)
+		_play_at("land_thump", at, linear_to_db(clampf(strength, 0.05, 1.0)) + Constants.FLOP_BOUNCE_DB)
 
 
 func _tucking() -> bool:
@@ -554,7 +583,8 @@ func _fade_at_lens(flying: bool) -> void:
 		var cam := get_viewport().get_camera_3d() if get_viewport() != null else null
 		if cam != null:
 			var near := cam.global_position.distance_to(_root.global_position)
-			fade = clampf((BOARD_LENS_START - near) / (BOARD_LENS_START - BOARD_LENS_GONE), 0.0, 0.9)
+			var lens := Constants.SKATE_BOARD_LENS
+			fade = clampf((lens.x - near) / (lens.x - lens.y), 0.0, Constants.SKATE_BOARD_LENS_MAX_FADE)
 	if is_equal_approx(fade, _board_fade):
 		return
 	_board_fade = fade
@@ -634,7 +664,7 @@ func _pose(on: bool, air: bool, trick: int) -> void:
 	var towed := on and not air and bool(_shown.get("skitch", false))
 	_tow_lean = move_toward(_tow_lean, 1.0 if towed else 0.0, get_physics_process_delta_time() * CROUCH_RATE * 0.5)
 	torso.rotation.y = lerpf(0.0, TORSO_YAW, m) * (1.0 - 0.6 * _tow_lean)
-	torso.rotation.x = lerpf(torso.rotation.x, -TORSO_LEAN - 0.25 * _crouch - 0.2 * _air_tuck - TOW_LEAN * _tow_lean, m)
+	torso.rotation.x = lerpf(torso.rotation.x, -TORSO_LEAN - 0.25 * _crouch - 0.2 * _air_tuck - Constants.SKITCH_TOW_LEAN * _tow_lean, m)
 	# Arms out for balance, wobbling; up and wide in the air. Hands on something
 	# held (a leaf bag) stay on it. Towed, the leading (right) hand is on the bumper.
 	var holding := bool(player.call("holding_prop"))
@@ -653,10 +683,10 @@ func _pose(on: bool, air: bool, trick: int) -> void:
 	if _tow_lean > 0.0 and not holding:
 		var truck := _chefty()
 		if truck != null:
-			var grip := _Skate.grip_point(truck, _side_of(truck))
+			var grip := _Skate.grip_point(truck, _hand_side(truck))
 			body.call("_aim_arm", arms[1], grip, m * smoothstep(0.0, 1.0, _tow_lean))
 			if towed and player.is_multiplayer_authority():
-				player.set_meta(&"fp_hands", {"right": grip, "stretch": FP_GRIP_STRETCH})
+				player.set_meta(&"fp_hands", {"right": grip, "stretch": Constants.SKITCH_FP_GRIP_STRETCH})
 				gripping = true
 	if _fp_grip and not gripping:
 		player.remove_meta(&"fp_hands")
