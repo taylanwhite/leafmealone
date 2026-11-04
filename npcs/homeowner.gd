@@ -231,12 +231,27 @@ func _host_recount() -> void:
 		return
 	if _phase != Phase.REACTING and _phase != Phase.OFFERING:
 		return
-	var chefty := get_tree().get_first_node_in_group("chefty")
-	if chefty == null:
+	var amount := _reprice()
+	if amount < 0:
 		return
+	_amount = amount
+	# Still taking in the yard (her verdict line up, no cash out yet): she just
+	# counts it, and the cash comes out with the new amount (the REACT_SECONDS
+	# timer in _handle_talk). A "here, MORE?" line before any cash was out read
+	# as nonsense and wiped the verdict (review of p1-depart).
+	if _phase == Phase.OFFERING:
+		_rpc_recount.rpc(amount)
+
+
+## Host: Chefty's load changed since she priced the job: the same verdict, the
+## new load, written into _settlement. The new amount, or -1 if nothing changed.
+func _reprice() -> int:
+	var chefty := get_tree().get_first_node_in_group("chefty")
+	if chefty == null or _settlement.is_empty():
+		return -1
 	var value := int(chefty.call("bag_value"))
 	if value == int(_settlement.get("bags_value", 0)):
-		return
+		return -1
 	var task_value := 0
 	for row: Variant in (_settlement.get("tasks", []) as Array):
 		task_value += int((row as Array)[2])
@@ -246,7 +261,18 @@ func _host_recount() -> void:
 	var amount := _Economy.job_pay(value, task_value, str(_settlement.get("mood", "fine")), _budget(), int(_settlement.get("water_fee", 0)), bills_total)
 	_settlement["bags_value"] = value
 	_settlement["paid"] = amount
-	_rpc_recount.rpc(amount)
+	return amount
+
+
+## Host (levels/world.gd, as Chefty pulls away after the cash): bags the crew
+## tossed in during the honk-and-wait are paid for too, on the same verdict
+## (docs/GAME.md: a crew that keeps working while one of them settles up loses
+## nothing). The settlement (the receipt's details) is updated in place; the new
+## pay, or -1 when nothing landed after the cash.
+func host_count_late_bags() -> int:
+	if not Net.is_host() or _phase != Phase.PAID:
+		return -1
+	return _reprice()
 
 
 var _beckon_left: float = 0.0
@@ -385,7 +411,10 @@ func _handle_talk(peer_id: int) -> void:
 		return
 	get_tree().create_timer(REACT_SECONDS).timeout.connect(func() -> void:
 		if _phase == Phase.REACTING:
-			_rpc_offer.rpc()
+			# With the amount: a bag counted in while she reacted (_host_recount)
+			# changed it on the host only.
+			_offer(_amount)
+			_rpc_offer_with.rpc(_amount)
 	)
 
 
@@ -535,11 +564,6 @@ func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -
 	_body.set("mood", staging["mood"])
 	_body.call("gesture", staging["gesture"])
 	_speak(str(staging["sound"]))
-
-
-@rpc("authority", "call_local", "reliable")
-func _rpc_offer() -> void:
-	_offer(_amount)
 
 
 @rpc("authority", "call_remote", "reliable")

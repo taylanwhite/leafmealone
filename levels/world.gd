@@ -827,6 +827,9 @@ func _return_job_gas() -> void:
 ## crew has CHEFTY_BOARD_WAIT_SECONDS to walk up and climb in too (p1-depart,
 ## crew-02: one E used to leave at once with whoever stood near and strand the
 ## rest). peer_id 0 is a test or dev call: everyone near the pad, right now.
+## Chefty parked out at the yard (a teammate who missed the window) has no bed
+## here to climb into: it comes back for whoever's at the pad and goes, as it
+## always did (the window would honk on the yard and seat them a kilometre off).
 func _host_depart(peer_id: int = 0) -> void:
 	var ride := get_node_or_null("Rides/Chefty")
 	if ride == null or bool(ride.call("is_riding")):
@@ -834,7 +837,8 @@ func _host_depart(peer_id: int = 0) -> void:
 	# No job to go to: nobody texted, or it's past 2 AM and the crew needs sleep.
 	if not can_depart():
 		return
-	if peer_id == 0 or not ride.has_method("open_boarding"):
+	var away := not _is_boarding(ride) and ride.has_method("parked_at_store") and not bool(ride.call("parked_at_store"))
+	if peer_id == 0 or not ride.has_method("open_boarding") or away:
 		var party: Array = _Boarding.call("choose_party", _players_near(%TruckPad.global_position))
 		if party.is_empty():
 			return
@@ -946,7 +950,15 @@ func _host_leave() -> void:
 	_go_now = false
 	var pending := _pending_finish
 	_pending_finish = {}
-	_host_settle(float(pending.get("paid", -1.0)), pending.get("details", {}) as Dictionary)
+	var paid := float(pending.get("paid", -1.0))
+	# Bags tossed in during the wait are paid for too (she updates the receipt's
+	# details in place; the cash already handed over was the rest of it).
+	var homeowner := get_tree().get_first_node_in_group("homeowner")
+	if homeowner != null and paid >= 0.0 and homeowner.has_method("host_count_late_bags"):
+		var repriced := int(homeowner.call("host_count_late_bags"))
+		if repriced >= 0:
+			paid = float(repriced)
+	_host_settle(paid, pending.get("details", {}) as Dictionary)
 
 
 ## Host, the window after the cash is up: whoever's still on the lot climbs in
@@ -991,6 +1003,22 @@ func _on_boarder_hopped_out(peer_id: int) -> void:
 	var ride := get_node_or_null("Rides/Chefty")
 	if peer_id == _board_opener and _is_boarding(ride) and int(ride.call("boarding_destination")) == Net.Zone.LOT:
 		ride.call("cancel_boarding")
+
+
+## Host: someone left the game while Chefty waited. Their seat empties (no hop:
+## there's nobody to draw), and if they'd called the trip it's off, as if
+## they'd hopped out (else Chefty drove a ghost to the yard, loaded it, and
+## stranded the crew at the store: review of p1-depart).
+func _drop_departed_boarder(peer_id: int) -> void:
+	_board_left.erase(peer_id)
+	var ride := get_node_or_null("Rides/Chefty")
+	if not Net.is_host() or not _is_boarding(ride) or not ride.has_method("drop_boarder"):
+		return
+	ride.call("drop_boarder", peer_id)
+	if peer_id == _board_opener:
+		_board_opener = 0
+		if int(ride.call("boarding_destination")) == Net.Zone.LOT:
+			ride.call("cancel_boarding")
 
 
 ## Host: who hopped out of the waiting truck and hasn't walked away since.
@@ -1169,6 +1197,7 @@ func _on_zone_changed(_peer_id: int, zone: Net.Zone) -> void:
 
 
 func _on_player_left(peer_id: int) -> void:
+	_drop_departed_boarder(peer_id)
 	_PlayerDirector.despawn(%Players, peer_id)
 
 

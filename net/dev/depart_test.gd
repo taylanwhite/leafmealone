@@ -18,16 +18,26 @@ extends Node
 ##             2 s); the client walks up and climbs in; with everyone aboard it
 ##             goes after CHEFTY_BOARD_ALL_ABOARD_SECONDS, well before the window
 ##             is out, both riding (crew-02).
-##   early     at the yard with a bag in Chefty: the first ask gets a look at the
-##             yard and no cash; the second holds out the cash with "Call it a
-##             day ($N)"; another bag mid-offer is counted in (NB-01).
+##   late      at the yard, a job past HOMEOWNER_SETTLE_DONE: the first ask goes
+##             straight to her verdict and the cash.
+##   early     a yard barely touched with a bag in Chefty: the first ask gets a
+##             look at the yard and no cash; the second her verdict, and a bag
+##             landing while she reacts is counted in quietly (her line stays);
+##             then the cash with "Call it a day ($N)"; another bag mid-offer is
+##             counted in (NB-01).
 ##   beat      the cash taken: the job isn't settled yet; Chefty honks and waits.
-##             The host walks up and climbs in, the client stays off on the yard;
-##             it goes when the window runs out (not before), gathers the client,
-##             and the job settles as it pulls away, the client paid at least the
-##             crew's even part (crew-09, missed-03).
-##   hold      back at the store, the host boards with the client off by the
-##             store: holding E sends Chefty off at once with just the host.
+##             A bag tossed in now is paid for too. The host walks up and climbs
+##             in, the client stays off on the yard; it goes when the window runs
+##             out (not before), gathers the client, and the job settles as it
+##             pulls away, the client paid at least the crew's even part
+##             (crew-09, missed-03).
+##   gone      back at the store: a boarder leaving the game empties their seat;
+##             the trip's caller leaving calls it off; a window closed with the
+##             host aboard hops them out (not glued to the seat).
+##   hold      the host boards with the client off by the store: holding E sends
+##             Chefty off at once with just the host.
+##   stranded  Chefty parked at the yard, the client at the store's pad: no honk,
+##             Chefty comes back and takes them straight there.
 ## The client reports what it saw by its own probe: seated while Chefty waited,
 ## its climb drawn as a hop (not a pop), the honks heard.
 
@@ -36,7 +46,9 @@ const _Economy = preload("res://core/economy.gd")
 const _Strings = preload("res://ui/strings.gd")
 const JOIN_WAIT_SECONDS: float = 30.0
 const RIDE_WAIT_SECONDS: float = 20.0
-const STEPS: Array[String] = ["verdict", "split", "hop_out", "wait", "early", "beat", "hold"]
+const STEPS: Array[String] = ["verdict", "split", "hop_out", "wait", "late", "early", "beat", "gone", "hold", "stranded"]
+## A peer id nobody has: a boarder who then leaves the game (gone).
+const GHOST: int = 999
 
 static var result: Dictionary = {}
 
@@ -108,8 +120,12 @@ func _run() -> void:
 		return _finish("early")
 	if not await _check_beat():
 		return _finish("beat")
+	if not await _check_gone():
+		return _finish("gone")
 	if not await _check_hold():
 		return _finish("hold")
+	if not await _check_stranded():
+		return _finish("stranded")
 	_finish("")
 
 
@@ -218,11 +234,33 @@ func _check_early() -> bool:
 	chefty.call("accept_bags", 1, 12)
 	_teleport(host, owner_node.global_position + Vector3(0.0, 0.5, 1.5))
 	await _seconds(0.4)
+	# Past HOMEOWNER_SETTLE_DONE the first ask goes straight to her verdict and
+	# the cash, no long look at the yard.
+	owner_node.set("dev_done_share", Constants.HOMEOWNER_SETTLE_DONE + 0.05)
 	owner_node.call("_handle_talk", host)
 	await _ticks(3)
-	var looked := int(owner_node.get("_phase")) == 0 and _Strings.HOMEOWNER_LINES["not_done"].has(str((owner_node.get_node("Caption") as Label3D).text))
+	var caption := owner_node.get_node("Caption") as Label3D
+	var straight := int(owner_node.get("_phase")) == 1 and not bool(owner_node.get("_asked_early")) and not _Strings.HOMEOWNER_LINES["not_done"].has(caption.text)
+	straight = straight and await _until(func() -> bool: return int(owner_node.get("_phase")) == 2, 6.0)
+	_step("late", straight, "a job past the settle line (%.0f%%): the first ask went to the verdict and the cash %s" % [(Constants.HOMEOWNER_SETTLE_DONE + 0.05) * 100.0, straight])
+	# (Back to a yard barely touched, and a homeowner who hasn't been asked.)
+	owner_node.set("dev_done_share", -1.0)
+	owner_node.set("_phase", 0)
+	(owner_node.get_node("Cash") as Node3D).visible = false
 	owner_node.call("_handle_talk", host)
+	await _ticks(3)
+	var looked := int(owner_node.get("_phase")) == 0 and _Strings.HOMEOWNER_LINES["not_done"].has(caption.text)
+	owner_node.call("_handle_talk", host)
+	await _ticks(2)
+	# A bag lands while she's still taking in the yard: her verdict line stays up
+	# (no "MORE?" before any cash is out), and the cash comes out with it counted.
+	var verdict_line := caption.text
+	var priced := int((owner_node.get("_settlement") as Dictionary).get("paid", 0))
+	chefty.call("accept_bags", 1, 6)
+	await _ticks(4)
+	var quiet := int(owner_node.get("_phase")) == 1 and caption.text == verdict_line
 	var offered := await _until(func() -> bool: return int(owner_node.get("_phase")) == 2, 6.0)
+	var quiet_counted := quiet and int(owner_node.get("_amount")) > priced and int(owner_node.get("_amount")) == int((owner_node.get("_settlement") as Dictionary).get("paid", -1))
 	var prompt := str((owner_node.call("prompt") as Dictionary).get("text", ""))
 	var named := prompt == _Strings.UI["prompt_take_cash"] % int(owner_node.get("_amount"))
 	# Another bag lands mid-offer: she counts it in, still holding out the cash.
@@ -232,7 +270,7 @@ func _check_early() -> bool:
 	var after := int(owner_node.get("_amount"))
 	var counted := int(owner_node.get("_phase")) == 2 and after > before and int((owner_node.get("_settlement") as Dictionary).get("bags_value", 0)) == int(chefty.call("bag_value")) \
 			and str((owner_node.call("prompt") as Dictionary).get("text", "")) == _Strings.UI["prompt_take_cash"] % after
-	return _step("early", looked and offered and named and counted, "first ask: a look at the yard and no cash %s; then the cash %s as \"%s\" %s; a new bag counted in, $%d -> $%d, still offered %s" % [looked, offered, prompt, named, before, after, counted])
+	return _step("early", straight and looked and offered and quiet_counted and named and counted, "first ask: a look at the yard and no cash %s; then the cash %s (a bag landed while she reacted: her line kept %s, counted in $%d -> $%d %s) as \"%s\" %s; a new bag counted in, $%d -> $%d, still offered %s" % [looked, offered, quiet, priced, before, quiet_counted, prompt, named, before, after, counted])
 
 
 func _check_beat() -> bool:
@@ -250,6 +288,8 @@ func _check_beat() -> bool:
 	var taken_at := Net.server_time()
 	await _ticks(3)
 	var held := Campaign.is_job_open() and bool(chefty.call("is_boarding")) and Campaign.credits(client) == credits_before
+	# One more bag tossed in while Chefty waits: paid for as it pulls away.
+	chefty.call("accept_bags", 1, 9)
 	# The host walks over and climbs in; the client stays out on the yard.
 	_teleport(host, (chefty.call("bed_transform") as Transform3D) * Vector3(0.0, 0.5, 3.4))
 	var aboard := await _until(func() -> bool: return (chefty.call("boarders") as Array).has(host), 2.0)
@@ -259,10 +299,12 @@ func _check_beat() -> bool:
 	var gathered := Net.player_zone(client) == Net.Zone.TRANSIT and int(chefty.call("seat_of", client)) >= 0
 	await _ticks(3)
 	var settled := not Campaign.is_job_open() and str(Campaign.last_settlement().get("mood", "")) == "messy"
+	var settled_paid := int(Campaign.last_settlement().get("paid", 0))
+	var late_paid := settled_paid > offered
 	var paid := Campaign.credits(client) - credits_before
 	var fair := paid >= int(floor(float(offered) * Constants.CREW_SPLIT_EVEN_SHARE / 2.0))
 	var home := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.STORE and Net.player_zone(client) == Net.Zone.STORE, RIDE_WAIT_SECONDS)
-	return _step("beat", held and aboard and went and waited and gathered and settled and fair and home, "after the cash: unsettled and waiting %s, the host climbed in %s, went %s after %.1f s (window %.0f s) %s, the client gathered %s, settled as it left (messy) %s, the client paid $%d of $%d %s, home %s" % [held, aboard, went, took, Constants.CHEFTY_BOARD_WAIT_SECONDS, waited, gathered, settled, paid, offered, fair, home])
+	return _step("beat", held and aboard and went and waited and gathered and settled and late_paid and fair and home, "after the cash: unsettled and waiting %s, the host climbed in %s, went %s after %.1f s (window %.0f s) %s, the client gathered %s, settled as it left (messy) %s, a bag tossed in the wait paid for ($%d -> $%d) %s, the client paid $%d of $%d %s, home %s" % [held, aboard, went, took, Constants.CHEFTY_BOARD_WAIT_SECONDS, waited, gathered, settled, offered, settled_paid, late_paid, paid, offered, fair, home])
 
 
 func _check_hold() -> bool:
@@ -286,6 +328,65 @@ func _check_hold() -> bool:
 	# Give the client a moment to see it go without it, and report.
 	await _seconds(1.5)
 	return _step("hold", seated and prompt == _Strings.UI["prompt_go_now"] and went and took < Constants.CHEFTY_BOARD_WAIT_SECONDS - 2.0 and alone, "seated %s with \"%s\", holding E went %s after %.1f s, just the host %s" % [seated, prompt, went, took, alone])
+
+
+## Back at the store: a boarder who leaves the game mid-wait empties their seat
+## and the window carries on; the one who called the trip leaving calls it off
+## (Chefty drove a ghost to the yard); a window that closes with someone aboard
+## (2 AM) hops them out instead of gluing them to the seat.
+func _check_gone() -> bool:
+	await _seconds(1.5)
+	var chefty := _chefty()
+	var world := _world()
+	var host := Net.local_peer_id()
+	var player := _own_player()
+	_teleport(_client_id(), _store_far())
+	_teleport(host, _pad() + Vector3(0.0, 0.5, 3.2))
+	await _seconds(0.8)
+	world.call("request_depart")
+	await _seconds(Constants.CHEFTY_BOARD_CLIMB_SECONDS + 0.2)
+	chefty.call("board", GHOST, player.global_position)
+	await _ticks(3)
+	var ghost_in := (chefty.call("boarders") as Array).has(GHOST)
+	world.call("_drop_departed_boarder", GHOST)
+	await _ticks(3)
+	var dropped := ghost_in and not (chefty.call("boarders") as Array).has(GHOST) and bool(chefty.call("is_boarding")) and (chefty.call("boarders") as Array).has(host)
+	# The one who called it climbs in and drops out of the game.
+	chefty.call("board", GHOST, player.global_position)
+	await _ticks(3)
+	world.set("_board_opener", GHOST)
+	world.call("_drop_departed_boarder", GHOST)
+	await _seconds(Constants.CHEFTY_BOARD_CLIMB_SECONDS * 3.0)
+	var called_off := not bool(chefty.call("is_boarding")) and not bool(chefty.call("is_riding")) and player.get("_ride") == null and int(chefty.call("seat_of", host)) < 0 and Net.player_zone(host) == Net.Zone.STORE
+	# The window closes with the host aboard.
+	_teleport(host, _pad() + Vector3(0.0, 0.5, 3.2))
+	await _seconds(0.5)
+	world.call("request_depart")
+	await _seconds(Constants.CHEFTY_BOARD_CLIMB_SECONDS + 0.2)
+	var sat: bool = (chefty.call("boarders") as Array).has(host) and player.get("_ride") == chefty
+	chefty.call("close_boarding")
+	await _seconds(Constants.CHEFTY_BOARD_CLIMB_SECONDS * 3.0)
+	var released: bool = sat and not bool(chefty.call("is_boarding")) and not bool(chefty.call("is_riding")) and player.get("_ride") == null and int(chefty.call("seat_of", host)) < 0
+	return _step("gone", dropped and called_off and released, "a boarder left the game: seat emptied, still waiting %s; the trip's caller left: called off, the host out %s; closed with the host aboard: hopped out, not glued %s" % [dropped, called_off, released])
+
+
+## Chefty parked out at the yard (hold took the host there), the client left at
+## the store presses E at the pad: no honk at the yard and no seat a kilometre
+## off; it comes back and takes them, as before the honk-and-wait.
+func _check_stranded() -> bool:
+	var chefty := _chefty()
+	var host := Net.local_peer_id()
+	var client := _client_id()
+	var parked := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.LOT and not bool(chefty.call("is_riding")), RIDE_WAIT_SECONDS)
+	var away := parked and not bool(chefty.call("parked_at_store"))
+	_teleport(client, _pad() + Vector3(0.0, 0.5, 3.2))
+	await _seconds(1.0)
+	var honks := int(chefty.get("honks"))
+	_world().call("_host_depart", client)
+	await _ticks(3)
+	var went := bool(chefty.call("is_riding")) and not bool(chefty.call("is_boarding")) and Net.player_zone(client) == Net.Zone.TRANSIT and int(chefty.get("honks")) == honks
+	var arrived := await _until(func() -> bool: return Net.player_zone(client) == Net.Zone.LOT, RIDE_WAIT_SECONDS)
+	return _step("stranded", away and went and arrived, "Chefty parked at the yard %s; the client at the pad: taken straight there, no honk %s, at the yard %s" % [away, went, arrived])
 
 
 # ---------------------------------------------------------------- helpers

@@ -568,7 +568,7 @@ func _crew_tick(player: Node3D, delta: float) -> void:
 	# p1-depart: Chefty honked after the cash. Drop the work and walk over to it
 	# (the honk-and-wait sits you down once you're beside the bed).
 	var honking := get_tree().get_first_node_in_group("chefty")
-	if zone == Net.Zone.LOT and honking != null and honking.has_method("is_boarding") and bool(honking.call("is_boarding")):
+	if zone == Net.Zone.LOT and honking != null and honking.has_method("is_boarding") and bool(honking.call("is_boarding")) and int(honking.call("boarding_destination")) == Net.Zone.STORE:
 		_job.call("stop")
 		Input.action_release(&"primary")
 		var spot := _crew_wait_spot()

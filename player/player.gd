@@ -276,7 +276,7 @@ func _physics_process(delta: float) -> void:
 		# Standing in Chefty's bed you look out over the cab, not into the back of
 		# its roof (driving C3: from a plain standing eye the cab filled half the view).
 		# The bed's lift eases on and off (thrown out of the bed, it dropped 0.6 m in a frame).
-		var eye_lift := Constants.CHEFTY_BED_EYE_LIFT if _Seated.pose_for(self) == 2 else 0.0
+		var eye_lift := Constants.CHEFTY_BED_EYE_LIFT if _Seated.pose_for(self) == 2 or _in_legacy_bed() else 0.0
 		if in_pile:
 			%FirstPerson.position.y = -1.05
 		elif %FirstPerson.position.y < 0.0:
@@ -358,6 +358,16 @@ func _current_seat() -> Transform3D:
 ## In a drivable vehicle's seat (Chefty in the connected town), on every peer.
 func in_vehicle() -> bool:
 	return _on_seat and _Seated.vehicle_of(self) != null
+
+
+## In a seat in the legacy Chefty's bed (net/components/ride.gd: the ride, or its
+## honk-and-wait), not hopping out over the tailgate. The bed's eye lift applies
+## here too: from a plain standing eye the cab roof filled the lower half of the
+## view while the crew climbed in (review of p1-depart, rec_dep3_1p frame 150).
+func _in_legacy_bed() -> bool:
+	if _seat_ride == null or not is_instance_valid(_seat_ride) or _seat_ride.is_in_group("vehicles") or not _seat_ride.is_in_group("chefty"):
+		return false
+	return _seat_slot >= 0 and _seat_slot < int(_seat_ride.call("seat_count"))
 
 
 ## The ride this player's seat is on (every peer knows), or null.

@@ -170,8 +170,8 @@ static func split_shares(scores: Array) -> Array[float]:
 
 ## Whole dollars for each share of a pool, summing to the pool rounded: each
 ## gets the floor of their share, and the dollars left go to the biggest
-## remainders (ties to the earlier member), so a $3 job split four ways reads
-## $1, $1, $1, $0 instead of everyone's rounding making it $4.
+## remainders (ties to the earlier member), so a $3 job one bagger did, split
+## four ways, reads $2, $1, $0, $0 instead of everyone's rounding making it $4.
 static func split_dollars(pool: float, shares: Array) -> Array[int]:
 	var out: Array[int] = []
 	var whole := maxi(0, int(round(pool)))

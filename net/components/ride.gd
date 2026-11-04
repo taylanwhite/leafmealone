@@ -187,23 +187,36 @@ func board(peer_id: int, from: Vector3) -> bool:
 func unboard(peer_id: int) -> void:
 	if not Net.is_host() or not _boarding or not _riders.has(peer_id):
 		return
-	_rpc_unboarded.rpc(peer_id)
+	_rpc_unboarded.rpc(peer_id, true)
 	hopped_out.emit(peer_id)
+
+
+## Host: peer_id left the game mid-wait: their seat just empties (levels/world.gd).
+func drop_boarder(peer_id: int) -> void:
+	if Net.is_host() and _boarding and _riders.has(peer_id):
+		_rpc_unboarded.rpc(peer_id, false)
 
 
 ## Host: the trip's off: everyone aboard hops back out, and the window closes.
 func cancel_boarding() -> void:
-	if not Net.is_host() or not _boarding:
-		return
-	for peer_id: int in boarders():
-		_rpc_unboarded.rpc(peer_id)
 	close_boarding()
 
 
-## Host: the window closes with nobody going (everyone hopped back out).
+## Host: the window closes with nobody going. Whoever's still aboard hops back
+## out over the tailgate first (closed with someone seated, say at 2 AM, they
+## stayed glued to the seat with E and jump dead: review of p1-depart).
 func close_boarding() -> void:
-	if Net.is_host() and _boarding:
-		_rpc_boarding_closed.rpc()
+	if not Net.is_host() or not _boarding:
+		return
+	for peer_id: int in boarders():
+		_rpc_unboarded.rpc(peer_id, true)
+	_rpc_boarding_closed.rpc()
+
+
+## Whether Chefty is parked at Homie Depot (the store end of the road) rather
+## than out at the yard.
+func parked_at_store() -> bool:
+	return not _riding and _parked_along < 0.5
 
 
 ## Host: the window's over; go with whoever's aboard (their seats as they sat).
@@ -380,8 +393,9 @@ func _rpc_boarded(peer_id: int, seat: int, from: Vector3) -> void:
 		_sound_later("bed_thump", float((_climbs[peer_id] as Array)[2]), Callable(), true)
 
 
+## hops false: they left the game, the seat just empties.
 @rpc("authority", "call_local", "reliable")
-func _rpc_unboarded(peer_id: int) -> void:
+func _rpc_unboarded(peer_id: int, hops: bool) -> void:
 	var seat := _riders.find(peer_id)
 	if seat < 0:
 		return
@@ -389,6 +403,8 @@ func _rpc_unboarded(peer_id: int) -> void:
 	var from := seat_transform(seat).origin
 	_riders[seat] = 0
 	_climbs.erase(peer_id)
+	if not hops:
+		return
 	# The front seats are farther from the tailgate: a longer hop, not a faster one.
 	var hop := Constants.CHEFTY_BOARD_CLIMB_SECONDS * maxf(1.0, from.distance_to(_step_down_spot(seat)) / Constants.CHEFTY_BOARD_CLIMB_REACH)
 	_exits[seat] = [peer_id, _local_now(), hop, from]
@@ -429,6 +445,11 @@ func _rpc_boarding_closed() -> void:
 	_boarding = false
 	_riders = []
 	_climbs.clear()
+	# Nobody stays seated in a truck that isn't going (close_boarding hops them
+	# out first; this catches a seat whose hop-out never arrived).
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.has_method("clear_riding") and node.get("_ride") == self:
+			node.call("clear_riding")
 
 
 func bag_count() -> int:
