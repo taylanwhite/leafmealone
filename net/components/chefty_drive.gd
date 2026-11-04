@@ -32,6 +32,13 @@ extends Node3D
 ## follow the route at AUTOPILOT_TEST_WARP times cruise speed. The hands riding
 ## along are drawn in the free bed seats (and at the wheel) on every peer from
 ## the hires list and the seats, cosmetic only (cosmetic_riders()).
+##
+## The dash (p1-dash): no panel on screen. Every peer measures how fast Chefty
+## really goes over the road (ground_speed(), _update_ground) and feeds the cab's
+## instruments (props/chefty_dash.gd) with it, the odometer (the crew's meters,
+## the host's saved and sent with _rpc_odometer) and the dents. Getting in at the
+## driver's door, sliding over and bailing out go by ground speed too. Seated,
+## seat_hint() is the prompt over the seat or hired hand you look at.
 
 signal crashed(strength: float, at: Vector3)
 signal parked(at: Vector3)
@@ -190,6 +197,19 @@ var _bed_load: Node3D
 var _junk_bed: Node3D
 ## The crash comedy (net/components/chefty_crash.gd, driving chunk C3).
 var _crash: Node
+## p1-dash: Chefty's ground velocity as this peer draws it (the host: the
+## chassis, the truth), smoothed, and where it was last tick (INF before the
+## first). What the needle shows and the seat rules go by (ground_speed()).
+var _ground_vel := Vector3.ZERO
+var _ground_last := Vector3.INF
+## The crew's miles, in meters (the save's vehicle.odometer_m): the host's count,
+## and on every other peer its own count of the drawn truck's travel, kept to the
+## host's by _rpc_odometer. Host: the count it last sent.
+var _odometer_m: float = 0.0
+var _odometer_sent: float = 0.0
+## Who sat where as _rpc_seats (or the join's _rpc_state) last said, for telling
+## what changed.
+var _seats_said := PackedInt32Array()
 
 
 func _ready() -> void:
@@ -197,6 +217,7 @@ func _ready() -> void:
 	add_to_group("chefty")
 	add_to_group("vehicles")
 	_riders.resize(Constants.CHEFTY_SEATS)
+	_seats_said = _riders.duplicate()
 	_quip_rng.randomize()
 	_wave_rng.randomize()
 	_state = VehicleSim.new_state(Constants.CHEFTY_PARK_YAW)
@@ -443,6 +464,40 @@ func is_moving() -> bool:
 	return speed() > Constants.CHEFTY_PARK_SPEED
 
 
+## How fast Chefty really goes over the road here (m/s): the drawn truck's
+## travel, smoothed (the host's is the chassis's). Pinned against a wall with the
+## gas down it's about 0, whatever the sim is pushing (p1-dash). The needle shows
+## it, and getting in, sliding over and bailing out go by it.
+func ground_speed() -> float:
+	return Vector2(_ground_vel.x, _ground_vel.z).length()
+
+
+## That travel as a velocity (m/s, flat): what a bail flings you with.
+func ground_velocity() -> Vector3:
+	return Vector3(_ground_vel.x, 0.0, _ground_vel.z)
+
+
+## The odometer (miles): what Chefty had on it when the crew got it, plus the
+## crew's own.
+func odometer_miles() -> float:
+	return Constants.CHEFTY_ODOMETER_START_MILES + _odometer_m / Constants.CHEFTY_METERS_PER_MILE
+
+
+## Whether the engine's running: someone at the wheel, or a hired hand.
+func engine_on() -> bool:
+	return driver() != 0 or _trip != Trip.NONE
+
+
+## What the dash in the cab shows now ({mph, odometer, check_engine}; {} without one).
+func dash_reading() -> Dictionary:
+	var dash := _dash()
+	return dash.call("reading") if dash != null else {}
+
+
+func _dash() -> Node:
+	return _look.get_node_or_null("Dash") if _look != null else null
+
+
 func yaw() -> float:
 	if _body == null:
 		return 0.0
@@ -588,7 +643,7 @@ func unload_junk() -> void:
 
 ## Whether E at the tailgate may unload the junk now: Chefty is standing still.
 func junk_unload_allowed() -> bool:
-	return speed() <= Constants.CHEFTY_PARK_SPEED
+	return ground_speed() <= Constants.CHEFTY_PARK_SPEED
 
 
 ## Host only: the job is paid, so its bags come off the truck.
@@ -629,16 +684,19 @@ func _day() -> int:
 
 
 ## The save's "vehicle" section (gap-specs/critic.md, save keys): Chefty's dents,
-## paid bags still in the bed (driving chunk J's mulch), and the last day Marty
-## towed it. Always parked on the TruckPad in the morning, so no position.
+## paid bags still in the bed (driving chunk J's mulch), the last day Marty
+## towed it, and (p1-dash, additive) the meters the crew has driven it, the
+## odometer's. Always parked on the TruckPad in the morning, so no position.
 func _save_section() -> Dictionary:
-	return {"vehicle": {"dents": _dents, "spent_bags": _spent_bags, "towed_day": _towed_day}}
+	return {"vehicle": {"dents": _dents, "spent_bags": _spent_bags, "towed_day": _towed_day, "odometer_m": _odometer_m}}
 
 
 func _load_section() -> void:
 	var saved := Campaign.save_section("vehicle")
 	_spent_bags = maxi(int(saved.get("spent_bags", 0)), 0)
 	_towed_day = int(saved.get("towed_day", 0))
+	_odometer_m = maxf(float(saved.get("odometer_m", 0.0)), 0.0)
+	_odometer_sent = _odometer_m
 	apply_dents(int(saved.get("dents", 0)))
 
 
@@ -766,7 +824,7 @@ func local_drive_input(input: Dictionary) -> void:
 
 
 ## What E would do near Chefty for this player, for the interaction prompt:
-## {text, at, kind} or {}. Nothing while seated (the drive HUD shows the keys).
+## {text, at, kind} or {}. Nothing while seated (seat_hint() is the seat's).
 func prompt_for(player: Node3D) -> Dictionary:
 	if player == null or seat_of(player.name.to_int()) >= 0 or is_riding():
 		return {}
@@ -775,6 +833,58 @@ func prompt_for(player: Node3D) -> Dictionary:
 		return {}
 	var key := {Kind.DRIVER: "prompt_drive", Kind.SHOTGUN: "prompt_ride_shotgun", Kind.BED: "prompt_ride_bed"}.get(int(best["kind"]), "prompt_ride_bed") as String
 	return {"text": _Strings.UI[key], "at": (best["at"] as Vector3) + Vector3(0.0, 1.7, 0.0), "kind": int(best["kind"])}
+
+
+## Seated, the prompt for what a key does to whatever you're looking at with
+## your own eyes (not the chase camera), for the interaction prompt (p1-dash: no
+## key list on screen; docs/GAME.md "Chefty's dash"): {text, at, key, source} or {}.
+## - The hired hand: G lets the one riding along take the wheel ("You drive",
+##   over them in the bed), and pulls over the one driving ("Pull over", over
+##   them at the wheel).
+## - The other cab seat, while Chefty's slow enough to move over: F "Slide over"
+##   to it when it's empty, "Swap seats" when someone's in it.
+## E (out, the way you got in; a bail at speed) and the bed's F shuffle say nothing.
+func seat_hint(player: Node3D) -> Dictionary:
+	var peer_id := player.name.to_int()
+	var seat := seat_of(peer_id)
+	var eyes := player.get_node_or_null("Visual/Head/FirstPerson") as Camera3D
+	if seat < 0 or eyes == null or not eyes.current:
+		return {}
+	var view := eyes.global_transform
+	var up := body_transform().basis.y
+	var chauffeur := chauffeur_action(peer_id)
+	if chauffeur != "":
+		var hand_seat := -1
+		for entry: Dictionary in cosmetic_riders():
+			var at_wheel := int(entry["seat"]) == SEAT_DRIVER
+			if (chauffeur == "stop") == at_wheel:
+				hand_seat = int(entry["seat"])
+				break
+		if hand_seat >= 0:
+			var head := seat_transform(hand_seat).origin + up * _seat_head_up(hand_seat)
+			if _looked_at(view, head):
+				var key := "prompt_chauffeur" if chauffeur == "start" else "prompt_chauffeur_stop"
+				return {"text": _Strings.UI[key], "at": head + up * 0.4, "key": "drop", "source": "chefty_hand_%d" % hand_seat}
+	if is_cab_seat(seat) and _trip == Trip.NONE and ground_speed() < Constants.CHEFTY_SEAT_SWAP_MAX_SPEED:
+		var other := SEAT_SHOTGUN if seat == SEAT_DRIVER else SEAT_DRIVER
+		var target := seat_transform(other).origin + up * _seat_head_up(other)
+		if _looked_at(view, target):
+			var key := "prompt_slide_over" if _riders[other] == 0 else "prompt_swap_seat"
+			return {"text": _Strings.UI[key], "at": target + up * 0.3, "key": "take", "source": "chefty_seat_%d" % other}
+	return {}
+
+
+## How high over a seat's marker a head is: sitting in the cab, standing in the bed.
+func _seat_head_up(seat: int) -> float:
+	return Constants.CHEFTY_SEAT_PROMPT_UP.x if is_cab_seat(seat) else Constants.CHEFTY_SEAT_PROMPT_UP.y
+
+
+static func _looked_at(view: Transform3D, target: Vector3) -> bool:
+	var toward := target - view.origin
+	var reach := toward.length()
+	if reach > Constants.CHEFTY_SEAT_PROMPT_REACH or reach < 0.05:
+		return false
+	return (-view.basis.z).normalized().angle_to(toward / reach) < Constants.CHEFTY_SEAT_PROMPT_CONE
 
 
 ## The nearest way in for someone standing at from, of this kind (or the nearest
@@ -806,7 +916,7 @@ func _seat_for_kind(kind: int) -> int:
 	match kind:
 		Kind.DRIVER:
 			# The autopilot (or the hand it's drawn as) has the wheel.
-			if speed() >= Constants.CHEFTY_ENTER_MAX_SPEED or _trip != Trip.NONE:
+			if ground_speed() >= Constants.CHEFTY_ENTER_MAX_SPEED or _trip != Trip.NONE:
 				return -1
 			return _free_seat([SEAT_DRIVER])
 		Kind.SHOTGUN:
@@ -865,7 +975,9 @@ func _handle_exit(peer_id: int) -> void:
 	if seat < 0 or is_riding():
 		return
 	var player := _player(peer_id)
-	var moving: Vector3 = _state["vel"]
+	# What the truck is really doing over the road: pinned against a wall with
+	# the gas down is standing still, not a bail (p1-dash).
+	var moving := ground_velocity()
 	_riders[seat] = 0
 	_send_seats()
 	if player == null:
@@ -963,7 +1075,7 @@ func _handle_swap(peer_id: int) -> void:
 		return
 	if seat < _Vehicles.CHEFTY_CAB_SEATS:
 		# Nobody slides behind the wheel while a hand is driving.
-		if speed() >= Constants.CHEFTY_SEAT_SWAP_MAX_SPEED or _trip != Trip.NONE:
+		if ground_speed() >= Constants.CHEFTY_SEAT_SWAP_MAX_SPEED or _trip != Trip.NONE:
 			return
 		var other := SEAT_SHOTGUN if seat == SEAT_DRIVER else SEAT_DRIVER
 		_riders[seat] = _riders[other]
@@ -1057,7 +1169,10 @@ func _host_step(delta: float) -> void:
 	if _auto != null:
 		_autopilot_step(delta)
 	else:
-		var steps := 2 if _queue.size() > Constants.CHEFTY_INPUT_QUEUE_CATCHUP else 1
+		# Two steps catch a client driver's long queue up; never for the host's own
+		# drive or nobody's (a queue is only ever a client driver's).
+		var remote := driver() != 0 and driver() != Net.local_peer_id()
+		var steps := 2 if remote and _queue.size() > Constants.CHEFTY_INPUT_QUEUE_CATCHUP else 1
 		for _step: int in steps:
 			var input := _host_input()
 			# A barrel roll jams the horn on for a while (chefty_crash.gd).
@@ -1459,6 +1574,10 @@ func _update_presentation(delta: float) -> void:
 		var heading := _body.global_rotation.y
 		_drawn_yaw_rate = lerpf(_drawn_yaw_rate, wrapf(heading - _drawn_yaw, -PI, PI) / delta, clampf(delta * Constants.CHEFTY_SKID_YAW_SMOOTHING, 0.0, 1.0))
 		_drawn_yaw = heading
+	_update_ground(delta)
+	var dash := _dash()
+	if dash != null:
+		dash.call("set_reading", ground_speed(), odometer_miles(), _dents, engine_on())
 	_update_sound(delta)
 	if _quip_label != null:
 		_quip_left = maxf(_quip_left - delta, 0.0)
@@ -1469,6 +1588,31 @@ func _update_presentation(delta: float) -> void:
 		_chauffeur_last = offered
 		if offered != "":
 			_chauffeur_seen.append(offered)
+
+
+## Every peer, each physics tick: how far Chefty really went over the road since
+## the last one (the host's chassis, the truth; elsewhere the truck as drawn),
+## smoothed into the ground velocity, and onto the odometer. A jump faster than
+## any drive (placed, towed home) is neither. The host tells everyone its count
+## every CHEFTY_ODOMETER_SYNC_M.
+func _update_ground(delta: float) -> void:
+	if delta <= 0.0 or _body == null:
+		return
+	var here := _chassis.global_position if Net.is_host() else _body.global_position
+	here.y = 0.0
+	var raw := Vector3.ZERO
+	if _ground_last != Vector3.INF:
+		var moved := here - _ground_last
+		if moved.length() / delta < Constants.CHEFTY_GROUND_TELEPORT_MPS:
+			raw = moved / delta
+			_odometer_m += moved.length()
+		else:
+			raw = _ground_vel
+	_ground_last = here
+	_ground_vel = _ground_vel.lerp(raw, 1.0 - exp(-Constants.CHEFTY_GROUND_SPEED_RATE * delta))
+	if Net.is_host() and _odometer_m - _odometer_sent >= Constants.CHEFTY_ODOMETER_SYNC_M:
+		_odometer_sent = _odometer_m
+		_rpc_odometer.rpc(_odometer_m)
 
 
 ## The hands riding along, drawn from cosmetic_riders() (rebuilt only when who
@@ -1606,6 +1750,9 @@ func dev_report() -> Dictionary:
 		"dents": _dents,
 		"bag_count": bag_count(),
 		"speed": speed(),
+		"ground_speed": ground_speed(),
+		"odometer_m": _odometer_m,
+		"dash": dash_reading(),
 		"pos": [at.x, at.y, at.z],
 		"yaw": float(_state["yaw"]),
 		"trip": _trip,
@@ -1843,9 +1990,15 @@ func _rpc_request_swap() -> void:
 
 @rpc("authority", "call_local", "reliable")
 func _rpc_seats(seated: PackedInt32Array, driver_id: int) -> void:
-	var before := _riders.duplicate()
-	var before_driver := driver()
+	# Against the seats this last said, not _riders: on the host _riders already
+	# holds the change (it's sent from there), so a driver leaving never cleared
+	# their queued inputs, and the host never heard the door (p1-dash: with a
+	# backlog left over, the host's own drive ran two sim steps a tick, Chefty at
+	# twice the speed its needle and sim said).
+	var before := _seats_said.duplicate()
+	var before_driver := _seats_said[SEAT_DRIVER] if _seats_said.size() > 0 else 0
 	_riders = seated.duplicate()
+	_seats_said = _riders.duplicate()
 	_riders.resize(Constants.CHEFTY_SEATS)
 	if Net.is_host() and driver_id != before_driver:
 		# A new driver starts a fresh input stream.
@@ -1948,6 +2101,19 @@ func _rpc_request_state() -> void:
 	_rpc_state.rpc_id(multiplayer.get_remote_sender_id(), _riders, driver(), _job_bags, _job_value, _spent_bags, _dents, _horn, _trip, _trip_zone, _trip_label, _chassis.global_position, float(_state["yaw"]))
 	if _junk_bed != null:
 		_junk_bed.call("send_to", multiplayer.get_remote_sender_id())
+	_rpc_odometer.rpc_id(multiplayer.get_remote_sender_id(), _odometer_m)
+
+
+## The host's odometer (meters the crew has driven), every CHEFTY_ODOMETER_SYNC_M
+## and to a joiner. This peer's own count of the drawn truck's travel runs a hair
+## behind the host's (it draws 100 ms back), so it takes the host's when that's
+## ahead, and the host's outright when the two have drifted apart.
+@rpc("authority", "call_remote", "reliable")
+func _rpc_odometer(meters: float) -> void:
+	if absf(_odometer_m - meters) > Constants.CHEFTY_ODOMETER_RESYNC_M:
+		_odometer_m = meters
+	else:
+		_odometer_m = maxf(_odometer_m, meters)
 
 
 ## A late joiner learns who sits where, what's in the bed, whether the autopilot
@@ -1956,6 +2122,7 @@ func _rpc_request_state() -> void:
 func _rpc_state(seated: PackedInt32Array, _driver_id: int, job_bags: int, job_value: int, spent_bags: int, dents: int, horn: bool, trip: int, trip_zone: int, trip_label: String, at: Vector3, yaw_now: float) -> void:
 	_riders = seated.duplicate()
 	_riders.resize(Constants.CHEFTY_SEATS)
+	_seats_said = _riders.duplicate()
 	_job_bags = job_bags
 	_job_value = job_value
 	_spent_bags = spent_bags

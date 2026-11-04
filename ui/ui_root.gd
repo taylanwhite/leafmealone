@@ -99,10 +99,6 @@ func _ready() -> void:
 	var phone := preload("res://ui/phone.gd").new()
 	phone.name = "Phone"
 	add_child(phone)
-	# Chefty's dash while you sit in it (the connected town).
-	var drive_hud := preload("res://ui/drive_hud.gd").new()
-	drive_hud.name = "DriveHud"
-	add_child(drive_hud)
 	# The Gutter Shredder's trick line (driving G1).
 	var trick_popup := preload("res://ui/trick_popup.gd").new()
 	trick_popup.name = "TrickPopup"

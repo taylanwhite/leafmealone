@@ -12,6 +12,7 @@ extends RefCounted
 const _LowPoly = preload("res://props/low_poly.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
 const _NiceVan = preload("res://props/nice_van.gd")
+const _CheftyDash = preload("res://props/chefty_dash.gd")
 ## The van's cream paint, its Courtesy Lavender band, and its amber dome.
 const VAN_PAINT := _NiceVan.PAINT
 const VAN_BAND := _NiceVan.BAND
@@ -39,9 +40,12 @@ const CHEFTY_SEATS: Array[Vector3] = [
 ## The cab seats (driver, shotgun); the rest are in the bed.
 const CHEFTY_CAB_SEATS: int = 2
 ## Where the steering wheel's hub sits (driver's side), and how far it leans back.
-const STEERING_WHEEL_AT := Vector3(-0.45, 1.52, -2.52)
-const STEERING_WHEEL_TILT: float = -0.95
+const STEERING_WHEEL_AT := Vector3(-0.45, 1.47, -2.33)
+const STEERING_WHEEL_TILT: float = -0.62
 const STEERING_WHEEL_RADIUS: float = 0.19
+## The open cab's rear window (x across, y up, in Chefty's space): the back wall
+## stands around it at z -1.31.
+const REAR_WINDOW := Rect2(-0.9, 1.6, 1.8, 0.69)
 ## The doors and the tailgate, in Chefty's space, where you get in.
 const CHEFTY_DRIVER_DOOR := Vector3(-1.6, 0.0, -2.0)
 const CHEFTY_SHOTGUN_DOOR := Vector3(1.6, 0.0, -2.0)
@@ -67,6 +71,8 @@ static func build_truck(parent: Node3D, opts: Variant = {}) -> Node3D:
 	_decal(look, str(options.get("decal", "")), color, interior)
 	if interior:
 		_steering_wheel(look)
+		# The instruments (p1-dash): a node of their own, so their needle moves.
+		look.add_child(_CheftyDash.new())
 	# Solid: you bump into it, and thrown bags land in the bed.
 	_solid(look, [
 		[Vector3(0.0, 0.65, -0.1), Vector3(2.3, 0.8, 5.6)],
@@ -376,25 +382,37 @@ static func _truck_mesh(color: Color, interior: bool = false) -> ArrayMesh:
 
 
 ## The drivable Chefty's cab: open windows (no glass, so you can see who's
-## driving), a roof on four pillars, door panels, a dash and a bench seat. The
-## cab spans the old closed cab's box (y 1.0 to 2.44, z -2.74 to -1.26).
+## driving), a roof on four pillars, door panels, a dash with the gauge pod
+## (props/chefty_dash.gd) and a bench seat. The cab spans the old closed cab's box
+## (y 1.0 to 2.44, z -2.74 to -1.26). The back wall has a real rear window, its
+## slider open (p1-dash): from the bed you see the backs of the driver's and
+## shotgun's heads, and the road ahead through the windshield past them.
 static func _open_cab(kit: RefCounted, color: Color, dark: Color) -> void:
 	var seat := Color(0.55, 0.36, 0.22)
-	# The back wall behind the bench, the roof, and the four pillars.
-	kit.call("rbox", Vector3(0.0, 1.72, -1.31), Vector3(1.12, 0.72, 0.05), color, 5.0)
+	var gasket := Color(0.1, 0.1, 0.11)
+	var opening := REAR_WINDOW
+	var wall_z := -1.31
+	# The back wall around the rear window: under it, over it, either side.
+	kit.call("rbox", Vector3(0.0, (1.0 + opening.position.y) * 0.5, wall_z), Vector3(1.12, (opening.position.y - 1.0) * 0.5 + 0.02, 0.05), color, 5.0)
+	kit.call("rbox", Vector3(0.0, (opening.end.y + 2.4) * 0.5, wall_z), Vector3(1.12, (2.4 - opening.end.y) * 0.5 + 0.02, 0.05), color, 5.0)
+	for side: float in [-1.0, 1.0]:
+		var inner := opening.end.x
+		kit.call("rbox", Vector3(side * (inner + 1.12) * 0.5, opening.get_center().y, wall_z), Vector3((1.12 - inner) * 0.5 + 0.02, opening.size.y * 0.5 + 0.04, 0.05), color, 5.0)
+		# The rubber round the opening, and the slider's frame standing open.
+		kit.call("rbox", Vector3(side * inner, opening.get_center().y, wall_z), Vector3(0.014, opening.size.y * 0.5, 0.055), gasket, 4.0)
+	kit.call("rbox", Vector3(0.0, opening.end.y, wall_z), Vector3(opening.end.x, 0.014, 0.055), gasket, 4.0)
+	kit.call("rbox", Vector3(0.0, opening.position.y, wall_z), Vector3(opening.end.x, 0.014, 0.055), gasket, 4.0)
+	kit.call("rbox", Vector3(0.0, opening.get_center().y, wall_z - 0.02), Vector3(0.016, opening.size.y * 0.5, 0.02), gasket, 4.0)
+	# The roof, and the four pillars.
 	kit.call("rbox", Vector3(0.0, 2.38, -2.0), Vector3(1.14, 0.07, 0.76), color, 5.0)
 	for side: float in [-1.0, 1.0]:
 		kit.call("rbox", Vector3(side * 1.06, 1.98, -2.66), Vector3(0.06, 0.36, 0.06), color, 4.0)
 		kit.call("rbox", Vector3(side * 1.06, 1.98, -1.36), Vector3(0.06, 0.36, 0.06), color, 4.0)
 		# The door panels up to the window line.
 		kit.call("rbox", Vector3(side * 1.08, 1.3, -2.0), Vector3(0.05, 0.3, 0.7), color, 5.0)
-		# A little rear window in the back wall's upper corners.
-		kit.call("rbox", Vector3(side * 0.55, 2.0, -1.255), Vector3(0.32, 0.16, 0.012), GLASS, 6.0, {"shade": false})
-	# The dash, with a glovebox line and two round gauges.
+	# The dash, with a glovebox line; the gauge pod is its own node (chefty_dash.gd).
 	kit.call("rbox", Vector3(0.0, 1.42, -2.58), Vector3(1.04, 0.18, 0.12), dark, 5.0)
 	kit.call("rbox", Vector3(0.45, 1.36, -2.455), Vector3(0.22, 0.06, 0.008), GRILLE, 4.0, {"shade": false})
-	for x: float in [-0.56, -0.34]:
-		kit.call("rbox", Vector3(x, 1.52, -2.455), Vector3(0.06, 0.06, 0.008), TRIM, 6.0, {"shade": false})
 	# The bench: a cushion and a back.
 	kit.call("rbox", Vector3(0.0, 1.12, -1.78), Vector3(0.95, 0.1, 0.3), seat, 6.0)
 	kit.call("rbox", Vector3(0.0, 1.48, -1.44), Vector3(0.95, 0.3, 0.08), seat, 6.0)

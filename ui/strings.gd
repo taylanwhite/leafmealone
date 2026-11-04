@@ -424,25 +424,15 @@ const UI: Dictionary = {
 	"action_slot_5": "Pocket 5",
 	"action_slot_next": "Next pocket",
 	"action_slot_prev": "Previous pocket",
-	# ---- driving: Chefty (net/components/chefty_drive.gd, player/seated.gd, ui/drive_hud.gd)
+	# ---- driving: Chefty (net/components/chefty_drive.gd, player/seated.gd)
 	"action_honk": "Honk",
 	"prompt_drive": "Drive",
 	"prompt_ride_shotgun": "Ride shotgun",
 	"prompt_ride_bed": "Hop in the bed",
-	"prompt_get_out": "Get out",
-	"prompt_bail_out": "Bail out!",
+	## p1-dash: seated, over the other cab seat you look at (chefty_drive.gd
+	## seat_hint): F to an empty one, or trading with whoever's in it.
+	"prompt_slide_over": "Slide over",
 	"prompt_swap_seat": "Swap seats",
-	"prompt_too_fast": "Slow down first",
-	"drive_hud_speed": "%d MPH",
-	"drive_hud_bed": "Bed %d/%d ($%d)",
-	"drive_hud_driver": "Driver: %s",
-	"drive_hud_no_driver": "Nobody's driving",
-	# x1:text: only the keys a driver can't guess (WASD drives itself).
-	"drive_hud_keys_driver": "{key:jump} Handbrake   {key:honk} Honk",
-	"drive_hud_keys_rider": "{key:toggle_camera} Camera",
-	## The seat's own two keys, after the line above: prompt_swap_seat or
-	## prompt_too_fast, then prompt_get_out or prompt_bail_out.
-	"drive_hud_keys_seat": "{key:take} %s   {key:interact} %s",
 	# ---- settings:4: words that used to be written into scenes and net/ (the main
 	# menu in ui/ui_root.tscn, the world's signs in levels/world.tscn, net/net.gd's
 	# fallbacks and session-ended reasons). The menu's own labels and buttons:
@@ -474,13 +464,10 @@ const UI: Dictionary = {
 	"end_steam_skipped": "Steam is off for this run",
 	# ---- end settings:4
 	# ---- driving: the autopilot and the chauffeur (driving chunk C2)
-	## The chauffeur's own key, after the seat's: prompt_chauffeur or
-	## prompt_chauffeur_stop. F stays the seat swap.
-	"drive_hud_keys_chauffeur": "{key:drop} %s",
-	"prompt_chauffeur": "Let %s drive",
+	## G, over the hired hand you look at from the cab (p1-dash): the one riding in
+	## the bed takes the wheel, the one at it pulls over. F stays the seat swap.
+	"prompt_chauffeur": "You drive",
 	"prompt_chauffeur_stop": "Pull over",
-	"drive_hud_chauffeur": "%s is driving",
-	"drive_hud_autopilot": "Chefty is driving itself. Don't ask.",
 	# ---- driving: the job at the client's house (driving chunk D, ui/job_goal.gd,
 	# levels/lots/site_marker.gd)
 	## The chalk box the homeowner drew on the street, and the beacon over it.
@@ -1991,13 +1978,7 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/ride_chefty_label": [3, 1],
 	"SHOP_UI/shop_repair_price": [2, 1],
 	"SHOP_UI/shop_repair_price_one": [1, 1],
-	"UI/drive_hud_speed": [1, 1],
-	"UI/drive_hud_bed": [3, 1],
-	"UI/drive_hud_driver": [1, 1],
-	"UI/drive_hud_keys_seat": [2, 1],
-	"UI/drive_hud_keys_chauffeur": [1, 1],
-	"UI/prompt_chauffeur": [1, 1],
-	"UI/drive_hud_chauffeur": [1, 1],
+
 	"CHAUFFEUR_QUIPS": [2, 3],
 	"TOW_TEXTS": [1, 3],
 	"WIPEOUT_QUIPS": [0, 3],

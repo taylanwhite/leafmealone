@@ -1633,9 +1633,11 @@ func _best_pickup() -> Node3D:
 ## What E would do right now, for the prompt in ui/interaction_prompt.gd, in the
 ## same order _unhandled_input tries them. Empty when E does nothing here.
 func interaction_hint() -> Dictionary:
-	# Seated in Chefty the drive HUD shows the seat's keys (ui/drive_hud.gd).
+	# Seated in Chefty: a key over the seat or the hired hand you look at, else
+	# nothing (p1-dash: E gets you out the way it got you in).
 	if in_vehicle():
-		return {}
+		var vehicle := _Seated.vehicle_of(self)
+		return vehicle.call("seat_hint", self) if vehicle != null and vehicle.has_method("seat_hint") else {}
 	# A fresh notice (out of bags, out of gas) beats every other prompt for a moment.
 	if _notice_text != "" and Time.get_ticks_msec() < _notice_until:
 		return {"text": _notice_text, "at": global_position + Vector3(0.0, 2.2, 0.0), "plain": true}
