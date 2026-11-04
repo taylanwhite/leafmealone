@@ -255,7 +255,7 @@ $Tests = [ordered]@{
 	townmap = @{
 		Port = 7816
 		Host = '--host --name=Tester --no-steam --town-map --townmap-test'; Seconds = 60; Client = 55
-		Check = { param($h, $c) [bool]$h.townmap_test.ok -and (Same $h.town_site $c.town_site) -and ([int]$c.town_site.house_shapes -eq 46) -and [bool]$c.town_site.job_locked -and (Same $h.lot_layout $c.lot_layout) -and ([double]$c.lot_layout -ne 0) -and ([double]$c.lot_work.cleaned_fraction -gt 0) -and ((@($c.host_zones) -join ',') -match 'LOT,TOWN,STORE') -and ([double]$c.join_stall_ms -gt 0) -and ([double]$c.join_stall_ms -lt 1500) }
+		Check = { param($h, $c) [bool]$h.townmap_test.ok -and (Same $h.town_site $c.town_site) -and ([int]$c.town_site.house_shapes -eq 46) -and [bool]$c.town_site.job_locked -and (Same $h.lot_layout $c.lot_layout) -and ([double]$c.lot_layout -ne 0) -and ([double]$c.lot_work.cleaned_fraction -gt 0) -and ((@($c.host_zones) -join ',') -match 'LOT,TOWN,STORE') -and ([double]$c.join_stall_ms -gt 0) -and ([double]$c.join_stall_ms -lt 1500) -and (Same $h.phone_map $c.phone_map) -and ([int]$c.phone_map.pin -ge 0) }
 	}
 	# The drivable Chefty (driving:C1) over a laggy link: the client drives (each
 	# input's first prediction ends within 1.5 m of the host's pose after it, and
@@ -282,7 +282,7 @@ $Tests = [ordered]@{
 	skate = @{
 		Port = 7817
 		Host = '--host --name=Tester --no-steam --town-map --start-hour=10 --skate-test'; Seconds = 90; Client = 85
-		Check = { param($h, $c) [bool]$h.skate_test.ok -and $c -ne $null -and [bool]$c.skate_seen.'1'.mounted -and [bool]$c.skate_seen.'1'.wipeout -and ([int]$c.skate_seen.'1'.max_trick -ge 2) -and [bool]$c.skate_seen.'1'.skitch -and (@($c.skate_seen.'1'.skitch_sides) -contains 1) -and (@($c.skate_seen.'1'.skitch_sides) -contains -1) -and ([double]$c.skate_seen.'1'.flop -gt 1.0) }
+		Check = { param($h, $c) [bool]$h.skate_test.ok -and $c -ne $null -and [bool]$c.skate_seen.'1'.mounted -and [bool]$c.skate_seen.'1'.wipeout -and ([int]$c.skate_seen.'1'.max_trick -ge 2) -and [bool]$c.skate_seen.'1'.skitch -and (@($c.skate_seen.'1'.skitch_sides) -contains 1) -and (@($c.skate_seen.'1'.skitch_sides) -contains -1) -and ([double]$c.skate_seen.'1'.flop -gt 1.0) -and ([int]$c.skate_seen.'1'.best_score -ge 200) }
 	}
 	# The NICE BOYS chase the crew's truck (driving:F, net/dev/pursuit_test.gd) over a
 	# laggy link: the raid at the yard, the host drives off with the client in the

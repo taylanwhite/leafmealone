@@ -3,8 +3,9 @@ extends PanelContainer
 ## Authority: local. The crew phone (docs/SPINE.md, "The phone"). Tab takes it
 ## out and puts it away. Four apps: Texts (job requests you can take from here,
 ## referrals, the clerk), Clients (everyone you work for and how they feel about
-## you), Map (the neighborhoods and what opens them), and Crew (the rank, XP,
-## and perks). Everything it shows comes from net/town/town.gd, the day clock,
+## you), Map (in the connected town Gutterford from above, ui/town_map_view.gd,
+## then the neighborhoods and what opens them), and Crew (the rank, XP, perks,
+## and the session's best skate lines). Everything it shows comes from net/town/town.gd, the day clock,
 ## and Campaign; taking a job asks the job board, like walking up to it.
 ## Every app wears its icons (gap-specs/icons.json chunk E; docs/GAME.md, "Icons"):
 ## app tiles in the dock, the app's tile in the header, an avatar on every text,
@@ -17,6 +18,8 @@ const _Hoods = preload("res://net/town/neighborhoods.gd")
 const _Icons = preload("res://ui/icons.gd")
 const _Look = preload("res://ui/catalog_look.gd")
 const _Shops = preload("res://net/shops/shops.gd")
+const _TownMapView = preload("res://ui/town_map_view.gd")
+const _Skate = preload("res://player/skate.gd")
 const BEZEL := Color(0.1, 0.1, 0.12)
 const SCREEN := Color(0.96, 0.95, 0.92)
 const INK := Color(0.15, 0.15, 0.17)
@@ -66,6 +69,11 @@ var _slide: Tween
 var _rest_y: float = NAN
 ## Going back into the pocket: still drawn, sliding down (close_phone).
 var _closing: bool = false
+## The Map app's town map (driving chunk K), kept across rebuilds so a zoom or a
+## pan holds while the list under it changes; made the first time it's shown.
+var _town_map: Control = null
+## The Gutter Shredder's best_lines_version the Crew app last drew.
+var _best_seen: int = -1
 
 
 func _ready() -> void:
@@ -212,6 +220,9 @@ func open_phone(app: String = "") -> void:
 	offset_bottom = custom_minimum_size.y * 0.5
 	if coming_out:
 		_slide_in()
+		# Out of the pocket, the map shows the whole town again.
+		if _town_map != null:
+			_town_map.call("reset_view")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	show_app(app if app != "" else _app)
 
@@ -278,12 +289,24 @@ func show_app(app: String) -> void:
 
 
 func _process(_delta: float) -> void:
+	# Someone landed a better line: the Crew app's list is out of date.
+	if _app == "crew" and _best_seen != _Skate.best_lines_version:
+		_best_seen = _Skate.best_lines_version
+		_dirty = true
 	if visible and _dirty:
 		_rebuild()
 
 
+func _notification(what: int) -> void:
+	# The map is kept out of the tree between Map visits; it goes with the phone.
+	if what == NOTIFICATION_PREDELETE and is_instance_valid(_town_map) and not _town_map.is_inside_tree():
+		_town_map.free()
+
+
 func _rebuild() -> void:
 	_dirty = false
+	if _town_map != null and _town_map.get_parent() == _list:
+		_list.remove_child(_town_map)
 	for child: Node in _list.get_children():
 		child.queue_free()
 	_header.text = _Strings.UI["phone_tab_" + _app]
@@ -656,7 +679,15 @@ func _clients(town: Node) -> void:
 			_list.add_child(card)
 
 
+## Map: in the connected town, Gutterford from above first (ui/town_map_view.gd:
+## the yards, the job's pin and the way there, the crew and Chefty), then each
+## neighborhood with its pin and what opens it.
 func _map(town: Node) -> void:
+	if TownMap.enabled(get_tree()):
+		if _town_map == null:
+			_town_map = _TownMapView.new()
+			_town_map.name = "TownMap"
+		_list.add_child(_town_map)
 	for hood: Dictionary in _Hoods.HOODS:
 		var hood_id := str(hood["id"])
 		var known := 0
@@ -719,6 +750,7 @@ func _crew() -> void:
 		perk_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		perk_label.custom_minimum_size.x = LINE_WIDTH - STAT_PX - 6.0
 		_list.add_child(_icon_line("perk", perk_label, STAT_PX))
+	_best_lines()
 	_hires()
 	_list.add_child(HSeparator.new())
 	# The ladder ahead: the next few tiers, each as its rank's badge, what it
@@ -735,6 +767,34 @@ func _crew() -> void:
 		brings.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		row.add_child(brings)
 		row.move_child(brings, 1)
+		_list.add_child(row)
+
+
+## The session's best lines on the Gutter Shredder (driving chunk K): each
+## crewmate's best landed line as it popped (player/skate.gd best_lines, sent by
+## whoever landed it), best first, the board's icon on each. Nothing at all until
+## someone lands one: bragging only, and only once there's something to brag about.
+func _best_lines() -> void:
+	var here := Net.peer_ids()
+	var lines: Array[Dictionary] = []
+	for key: Variant in _Skate.best_lines:
+		var peer_id := int(str(key))
+		var entry := _Skate.best_lines[key] as Dictionary
+		if here.has(peer_id) and int(entry.get("score", 0)) > 0:
+			lines.append({"peer": peer_id, "score": int(entry["score"]), "text": str(entry.get("text", ""))})
+	if lines.is_empty():
+		return
+	lines.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["score"]) > int(b["score"]))
+	_list.add_child(HSeparator.new())
+	_list.add_child(_text(str(_Strings.UI["phone_best_lines"]), 15, ORANGE))
+	for index: int in mini(lines.size(), Constants.PHONE_BEST_LINES):
+		var best := lines[index]
+		var label := _text(str(_Strings.UI["phone_best_line"]) % [Net.player_name(int(best["peer"])), str(best["text"])], 14, INK)
+		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		label.custom_minimum_size.x = LINE_WIDTH - STAT_PX - 6.0
+		var row := _icon_line("gear_skateboard", label, STAT_PX)
+		row.set_meta("best_line", int(best["peer"]))
+		row.set_meta("best_score", int(best["score"]))
 		_list.add_child(row)
 
 

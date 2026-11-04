@@ -40,6 +40,12 @@ enum Mode { ROLL, AIR, GRIND, SKITCH }
 ## on_board now, mounted (ever seen on a board), max_trick (the highest
 ## skate_trick seen), wipeout (ever seen), wipeouts (falls seen). For tests.
 static var seen: Dictionary = {}
+## Every peer, per player (peer id as a string): their best landed line this
+## session, {text (as it popped), score}, sent by the rider when they beat it
+## (_rpc_best_line; driving chunk K: the phone's Crew app lists them). A player
+## who leaves takes theirs along. best_lines_version counts the changes.
+static var best_lines: Dictionary = {}
+static var best_lines_version: int = 0
 
 var player: CharacterBody3D
 ## Tests: the keys this player presses instead of the keyboard (push, brake,
@@ -163,7 +169,9 @@ func board_state() -> Dictionary:
 
 func _note_seen() -> void:
 	var key := str(player.name)
-	var entry: Dictionary = seen.get(key, {"on_board": false, "mounted": false, "max_trick": 0, "wipeout": false, "wipeouts": 0})
+	var entry: Dictionary = seen.get(key, {})
+	if not entry.has("wipeouts"):
+		entry.merge({"on_board": false, "mounted": false, "max_trick": 0, "wipeout": false, "wipeouts": 0})
 	var on := bool(player.get("on_board"))
 	var falling := bool(player.get("wipeout"))
 	if falling and not bool(entry.get("_falling", false)):
@@ -525,18 +533,44 @@ func _settle_line(bailed: bool) -> void:
 	_combo = _combo + 1 if now - _last_land_ms <= int(Constants.SKATE_COMBO_WINDOW * 1000.0) and _combo > 0 else 1
 	_last_land_ms = now
 	var score := _line_points * _combo
+	var beaten := score > best_score
 	best_score = maxi(best_score, score)
 	last_line = {"names": _line.duplicate(), "points": _line_points, "combo": _combo, "score": score, "clean": true}
 	var text := str(_Strings.UI["trick_join"]).join(PackedStringArray(_line))
 	if _combo > 1:
 		text += str(_Strings.UI["trick_combo"]) % _combo
 	text += str(_Strings.UI["trick_score"]) % score
+	if beaten:
+		_rpc_best_line.rpc(text, score)
 	# A plain ollie on its own says nothing; anything more gets the popup.
 	var plain := _line.size() == 1 and _line[0] == str(_Strings.UI["trick_ollie"]) and _combo == 1
 	_line.clear()
 	_line_points = 0
 	if not plain:
 		_popup(text, true)
+
+
+## Rider to everyone (themselves too): their new best line, for the Crew app.
+## Bragging only, so the rider's word is taken, from the rider alone.
+@rpc("any_peer", "call_local", "reliable")
+func _rpc_best_line(text: String, score: int) -> void:
+	var sender := multiplayer.get_remote_sender_id()
+	if player == null or (sender != 0 and sender != player.get_multiplayer_authority()):
+		return
+	var key := str(player.name)
+	if score <= int((best_lines.get(key, {}) as Dictionary).get("score", 0)):
+		return
+	best_lines[key] = {"text": text.left(80), "score": score}
+	best_lines_version += 1
+	var entry: Dictionary = seen.get(key, {})
+	entry["best_score"] = score
+	seen[key] = entry
+
+
+func _exit_tree() -> void:
+	# The player left (or the session ended): their line goes with them.
+	if player != null and best_lines.erase(str(player.name)):
+		best_lines_version += 1
 
 
 func _count(trick: String, amount: int = 1) -> void:

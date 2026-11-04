@@ -6432,3 +6432,20 @@ const STAGE_POST_LENS_CLEAR: float = 1.1
 ## share of its height (an evergreen's skirt goes by VAN_TREE_SPREAD.x instead).
 const STAGE_LAMP_POST_RADIUS: float = 0.12
 const STAGE_TRUNK_SHARE: float = 0.045
+
+# ---- driving:K the phone's map (ui/town_map_view.gd, docs/GAME.md "The phone's map")
+## The map's size on the phone's screen (px), and the part of Gutterford it frames
+## at its widest (world x, z): Homie Depot's lot to the end of the longest
+## street, the lake behind Lakeside to Mansion Hill's houses.
+const PHONE_MAP_SIZE := Vector2(304.0, 320.0)
+const PHONE_MAP_FRAME := Rect2(-30.0, -512.0, 890.0, 975.0)
+## The wheel zooms by this much a notch, up to this far in (1 is the whole town).
+const PHONE_MAP_ZOOM_STEP: float = 1.25
+const PHONE_MAP_MAX_ZOOM: float = 5.0
+## Untouched, the map keeps you and the pin framed as you go, easing there at
+## this rate (1/s).
+const PHONE_MAP_FOLLOW_RATE: float = 2.5
+## A client's open request breathes, and the pin's ring goes out, this often (Hz).
+const PHONE_MAP_PULSE_HZ: float = 0.8
+## The Crew app lists at most this many best skate lines (the crew's, best first).
+const PHONE_BEST_LINES: int = 4

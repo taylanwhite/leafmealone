@@ -492,10 +492,20 @@ const UI: Dictionary = {
 	"site_beacon": "%s's place",
 	## An address: the house number and the street ("14 Maple Row").
 	"site_address": "%d %s",
-	## The goal line's one job since x1:text: where the job is, which you can't
-	## see from here. %s is the address, %d meters away, and an arrow pointing the
-	## way. Nothing says what to do there (docs/GAME.md "Writing for players").
-	"goal_drive_to": "%s · %d m %s",
+	# ---- driving:K the phone's map (ui/town_map_view.gd). The bottom of the screen
+	# no longer says where the job is (the goal line's last job): the map does,
+	# when you take the phone out, and the beacon does in the world.
+	## Along the map's bottom: the pin's address and how far it is by road (m).
+	"phone_map_pin": "%s · %d m",
+	## Pointing at a client's yard: their name and the address.
+	"phone_map_client": "%s · %s",
+	## Road names drawn on the map (the streets wear their neighborhood's name).
+	"map_main_street": "Main St",
+	"map_county_road": "County Rd 9",
+	## The Crew app: everyone's best trick line this session, best first. %s is
+	## who, %s the line as it popped ("KICKFLIP + 360 ×2 = 800").
+	"phone_best_lines": "Best lines",
+	"phone_best_line": "%s   %s",
 	# ---- driving: the Gutter Shredder (driving chunk G1; player/skate.gd, ui/trick_popup.gd)
 	"action_board": "Skateboard",
 	## A trick line: names joined by trick_join, then trick_combo when it's a combo, then
@@ -2080,7 +2090,9 @@ const FORMAT_ARGS: Dictionary = {
 	"UI/trick_score": [1, 1],
 	"UI/site_beacon": [1, 1],
 	"UI/site_address": [2, 1],
-	"UI/goal_drive_to": [3, 1],
+	"UI/phone_map_pin": [2, 1],
+	"UI/phone_map_client": [2, 1],
+	"UI/phone_best_line": [2, 1],
 	"UI/ride_rider_unnamed": [1, 1],
 	"UI/phone_text_head": [3, 1],
 	"UI/popup_cash": [1, 1],

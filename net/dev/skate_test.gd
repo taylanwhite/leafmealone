@@ -10,6 +10,8 @@ extends Node
 ##   c. 3 s of pushing: 7 m/s or more; 2 s coasting: slower, still over 4.
 ##   d. an ollie: 0.4 m up or more, down again, one ollie counted.
 ##   e. an ollie with a kickflip, landed: a line worth 200 or more.
+##  e2. (driving K) it's the session's best line, sent to everyone, and the
+##      phone's Crew app lists it under your name (CI: the client heard it too).
 ##   f. a 90 degree spin landed sideways: a wipeout, flat on your back (KNOCKED),
 ##      and back up within 3 s.
 ##   g. into a wall at 6 m/s: a wipeout.
@@ -132,6 +134,21 @@ func _run() -> void:
 	await _ticks(2)
 	var line: Dictionary = skate.get("last_line")
 	_verdict(bool(line.get("clean", false)) and int(line.get("score", 0)) >= 200 and bool(me.get("on_board")), "e. ollie + kickflip: %s" % [line], problems)
+	# e2. driving K: that's the session's best line, and the phone's Crew app lists
+	# it under your name (the client's copy is CI's: skate_seen best_score).
+	await _ticks(3)
+	var best: Dictionary = _Skate.best_lines.get(str(Net.local_peer_id()), {})
+	var listed := -1
+	var phone := get_tree().get_first_node_in_group("phone")
+	if phone != null:
+		phone.call("open_phone", "crew")
+		await _ticks(2)
+		for row: Node in phone.find_children("*", "HBoxContainer", true, false):
+			if row.has_meta("best_line") and int(row.get_meta("best_line")) == Net.local_peer_id():
+				listed = int(row.get_meta("best_score"))
+		phone.call("close_phone")
+	var top := int(skate.get("best_score"))
+	_verdict(top >= int(line.get("score", 0)) and int(best.get("score", 0)) == top and str(best.get("text", "")).ends_with(str(top)) and listed == top, "e2. best line %s (best_score %d), on the Crew app at %d" % [best, top, listed], problems)
 	# f. Spun a quarter turn and landed sideways: down you go, and back up.
 	skate.set("dev_input", {"push": true})
 	await _seconds(1.0)

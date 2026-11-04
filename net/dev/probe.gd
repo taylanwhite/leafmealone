@@ -279,6 +279,8 @@ func write_report() -> void:
 		"icons_test": preload("res://net/dev/icons_test.gd").result.duplicate(true),
 		"balance_test": preload("res://net/dev/balance_test.gd").result.duplicate(true),
 		"town_site": _town_site(),
+		# driving:K: what the phone's map pins and marks on this peer ({} legacy).
+		"phone_map": preload("res://ui/town_map_view.gd").summary(get_tree()),
 		"streamer": preload("res://levels/town/town_streamer.gd").stats.duplicate(),
 		"drive_test": preload("res://net/dev/drive_test.gd").result.duplicate(true),
 		"skate_test": preload("res://net/dev/skate_test.gd").result.duplicate(true),
