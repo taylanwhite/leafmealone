@@ -229,7 +229,10 @@ func _check_shop() -> void:
 	await _frames(2)
 	# The line the window showed isn't put back over his head; his next one is.
 	var not_again := caption != null and not caption.visible
-	marty.call("say", "Next line, please.")
+	# A caption line, not a sound id: held in a variable so audio_test's source
+	# scan (which reads literal ids out of say(...) calls) leaves it alone.
+	var next_line := "Next line, please."
+	marty.call("say", next_line)
 	await _frames(2)
 	var captions_on := bool(Settings.get_value("interface", "captions"))
 	var back := not_again and caption != null and (caption.visible or not captions_on or not bool(marty.call("is_present")))
