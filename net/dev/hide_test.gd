@@ -214,8 +214,12 @@ func _bin_step(bin: Node3D, mate: int) -> void:
 	_check("bin refuses a second", host_in and refused and not bool(bin.call("is_inside", mate)) and bool(report.get("ok", false)), "host in %s, refused %s; client: %s" % [host_in, refused, report])
 	me.call("_toggle_hiding")
 	await _seconds(1.0)
+	# Integration (P1): wait until the host is really out, and stand the client on
+	# a side away from where the host landed, so p1-arrive's personal space never
+	# eases them off the bin's lip before they vault (the step flaked on timing).
+	await _wait_for(func() -> Variant: return true if bool(bin.call("has_room")) and not bool(bin.call("is_inside", me.name.to_int())) else null)
 	# Now it's free: the client vaults in, and its view under the lid is live.
-	_place(client, bin, 0)
+	_place(client, bin, 2 if int(bin.call("side_toward", me.global_position)) != 2 else 0)
 	await _seconds(0.6)
 	_reports.erase("in")
 	_rpc_cue.rpc_id(mate, "enter", {})
