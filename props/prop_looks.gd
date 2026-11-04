@@ -59,6 +59,15 @@ const HOLDS: Dictionary = {
 	"gas_can": {"at": Vector3(0.3, 0.5, -0.22), "grips": [Vector3(0.0, 0.4, 0.0), Vector3.INF]},
 	"lawn_mower": {"grips": [Vector3(0.19, 0.95, 0.95), Vector3(-0.19, 0.95, 0.95)]},
 	"ladder": {"at": Vector3(0.33, 1.59, 0.0), "roll": PI * 0.5, "tilt": -0.08, "grips": [Vector3(0.0, 0.0, -0.35), Vector3.INF]},
+	# shops:9: a seasonal sack hugged a little right of the chest, its open top
+	# tipped ahead, ready to flick out (props/sack_spread.gd shakes it about the
+	# pivot). The hands hold its upper sides, under the folded mouth, so through
+	# your own eyes both hands show on it at the bottom of the view, just right of
+	# centre, and they go with every shake (the grips are read off the shaken
+	# model, prop_looks.gd _hand_grips).
+	"fertilizer_bag": {"at": Vector3(0.2, 0.78, -0.4), "tilt": -0.5, "pivot": Vector3(0.0, 0.3, 0.0), "grips": [Vector3(0.205, 0.42, 0.0), Vector3(-0.205, 0.42, 0.0)]},
+	"grass_seed": {"at": Vector3(0.2, 0.84, -0.38), "tilt": -0.5, "pivot": Vector3(0.0, 0.24, 0.0), "grips": [Vector3(0.168, 0.34, 0.0), Vector3(-0.168, 0.34, 0.0)]},
+	"rock_salt": {"at": Vector3(0.2, 0.82, -0.39), "tilt": -0.5, "pivot": Vector3(0.0, 0.26, 0.0), "grips": [Vector3(0.19, 0.36, 0.0), Vector3(-0.19, 0.36, 0.0)]},
 }
 ## The pressure washer's wand grips, in the wand's space: [right, left].
 const WAND_GRIPS: Array[Vector3] = [Vector3(0.0, -0.11, 0.1), Vector3(-0.03, -0.02, -0.3)]
@@ -140,6 +149,12 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 		var stream: Node3D = load("res://props/water_stream.gd").new()
 		stream.name = "WaterStream"
 		prop.add_child(stream)
+	# shops:9: a seasonal sack slumps as it empties, shakes and throws while it's
+	# poured, and folds away empty (props/sack_spread.gd).
+	if Catalog.is_sack(kind) and prop.get_node_or_null("SackSpread") == null:
+		var spread: Node3D = load("res://props/sack_spread.gd").new()
+		spread.name = "SackSpread"
+		prop.add_child(spread)
 	# Tools make their running noise where they are, for everyone nearby.
 	if load("res://audio/tool_sound.gd").LOOPS.has(kind) and prop.get_node_or_null("ToolSound") == null:
 		var sound: Node = load("res://audio/tool_sound.gd").new()
@@ -778,9 +793,14 @@ static func _hand_grips(prop: Node3D, look: Node3D, kind: String) -> Array[Vecto
 		grips = hold_of(prop)["grips"]
 	else:
 		return free
+	var frame := look.global_transform
+	# A sack (shops:9) slumps, bulges and shakes inside its Look (props/
+	# sack_spread.gd): the hands stay on the model as it's drawn.
+	if Catalog.is_sack(kind) and look.get_child_count() > 0 and look.get_child(0) is Node3D:
+		frame = frame * (look.get_child(0) as Node3D).transform
 	var points: Array[Vector3] = []
 	for grip: Vector3 in grips:
-		points.append(look.global_transform * grip if grip.is_finite() else Vector3.INF)
+		points.append(frame * grip if grip.is_finite() else Vector3.INF)
 	return points
 
 

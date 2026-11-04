@@ -490,6 +490,10 @@ func crew_tools() -> PackedStringArray:
 	for tool_id: String in Catalog.TOOLS:
 		if crew_tool_tier(tool_id) >= Catalog.TIER_USED:
 			tools.append(tool_id)
+	# shops:9: a seasonal sack the crew has is what its task needs.
+	for sack: String in Catalog.SACK_ITEMS:
+		if crew_tool_tier(sack) >= Catalog.TIER_USED:
+			tools.append(sack)
 	return tools
 
 

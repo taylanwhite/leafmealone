@@ -1283,6 +1283,9 @@ func _whack() -> bool:
 	var held := _held_prop()
 	if held == null or Constants.TOOL_PRICES.has(str(held.get("kind"))) or str(held.get("kind")) == "rake":
 		return false
+	# A seasonal sack's left click pours it (equipment/rake.gd _spread), never a swing.
+	if Catalog.is_sack(str(held.get("kind"))):
+		return false
 	if _stun_left > 0.0 or carried_by != 0 or is_up_high() or _ladder != null:
 		return false
 	get_tree().get_first_node_in_group("brawl").call("request_whack")

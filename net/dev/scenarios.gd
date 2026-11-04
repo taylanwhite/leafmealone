@@ -76,7 +76,7 @@ const PURSUIT_FROM := Vector3(-15.0, 0.0, 29.2)
 ## annex*: the raid seed and trip the visit starts with, so the room is the same every take.
 const ANNEX_SEED: int = 271828
 const ANNEX_TRIP: int = 1
-const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "bin_mate", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "skate_skitch", "recatch", "downed", "annex_desk_late", "shotgun_hand", "pursuit", "walker"]
+const NAMES: Array[String] = ["rake_fresh", "rake_pile", "raid_warn", "raid_arrive", "caught", "spotted", "lunge", "dodge", "gotcha", "cite_rescue", "escort", "hide", "hide_bin", "hide_shed", "pile", "peek", "inspect_near", "inspect_found", "pile_found", "border_return", "van_ride", "van_seated", "van_unbuckle", "van_straggler", "van_straggler_far", "dropoff", "van_two", "dropoff_two", "annex", "annex_break", "annex_heist", "annex_bigstamp", "annex_desk", "annex_window_d", "annex_turnstile", "annex_visit", "annex_heist_seen", "annex_closing", "store", "drive", "crash", "crash_big", "knock", "plow", "edge_hedge", "edge_hedge_angle", "edge_barricade", "bin_mate", "toss", "toss_full", "toss_close", "rustys", "lunch_money", "snak_o_matic", "lunch_money_rake", "snak_o_matic_can", "snack_crash", "snack_queasy", "hat_rack", "mirror", "paint_counter", "two_caught", "two_caught_far", "skate", "skate_shop", "skate_skitch", "recatch", "downed", "annex_desk_late", "shotgun_hand", "pursuit", "walker", "sack_feed", "sack_seed", "sack_salt"]
 ## van_ride: how long the seated van holds before it pulls out.
 const VAN_RIDE_LEAD_SECONDS: float = 2.0
 ## van_unbuckle: how far from the door step you stand.
@@ -164,7 +164,7 @@ const EYE_HEIGHT: float = 1.6
 ## the friend's catch yours comes (s).
 const TWO_CAUGHT_APART: float = 3.5
 const TWO_CAUGHT_GAP: float = 1.2
-const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "van_two", "dropoff_two", "recatch", "downed", "skate_skitch", "walker"]
+const FRIEND_SCENARIOS: Array[String] = ["cite_rescue", "van_unbuckle", "annex_visit", "annex_heist_seen", "two_caught", "two_caught_far", "van_two", "dropoff_two", "recatch", "downed", "skate_skitch", "walker", "sack_feed", "sack_seed", "sack_salt"]
 ## recatch (P1 catch): how long after the friend's grace ends the NICE BOY winds up
 ## on them if he hasn't already (s).
 const RECATCH_LEAD: float = 1.0
@@ -369,6 +369,8 @@ func run(scenario: String) -> Dictionary:
 			out = await _downed()
 		"annex_desk_late":
 			out = await _annex_desk_late()
+		"sack_feed", "sack_seed", "sack_salt":
+			out = await _sack({"sack_feed": "fertilizer_bag", "sack_seed": "grass_seed", "sack_salt": "rock_salt"}[scenario])
 	out["scenario"] = scenario
 	if not out.has("ok"):
 		out["ok"] = not out.has("error")
@@ -394,6 +396,32 @@ func _rake_fresh() -> Dictionary:
 	if held != "rake":
 		return {"error": "couldn't get the rake (holding '%s')" % held}
 	return {"note": "facing +x along a strip of untouched leaves; hold primary to rake", "facing": "+x", "strip": _v(strip)}
+
+
+## shops:9: on the yard, a seasonal sack of this kind in your arms, standing on
+## its task's grid (the lawn, or the foot of the drive) facing +x. The yard asks
+## for the work only in season (--start-day, --all-tasks).
+func _sack(kind: String) -> Dictionary:
+	var problem: String = await _to_lot()
+	if problem != "":
+		return {"error": problem}
+	# The crew comes along (the Friend, bots): it's a crew's yard.
+	for peer_id: int in Net.peer_ids():
+		if peer_id != Net.local_peer_id() and not Net.is_watcher(peer_id) and Net.player_name(peer_id) != OBSERVER_NAME:
+			await _friend_to_lot(peer_id, 0.0)
+	var lot := get_tree().get_first_node_in_group("job_lot") as Node3D
+	var at := lot.global_position + (Vector3(-0.6, 0.1, 18.0) if kind == "rock_salt" else Vector3(8.0, 0.1, 6.0))
+	_place(at, -PI * 0.5 if kind != "rock_salt" else 0.0, -0.3)
+	# Hands free first (the last scenario's sack, say).
+	var in_hands: Node = _me().call("_held_prop")
+	if in_hands != null and str(in_hands.get("kind")) != kind:
+		in_hands.call("request_drop")
+	await _ticks(3)
+	var held: String = await _hold(kind)
+	_place(at, -PI * 0.5 if kind != "rock_salt" else 0.0, -0.3)
+	if held != kind:
+		return {"error": "couldn't get the %s (holding '%s')" % [kind, held]}
+	return {"note": "a %s in your arms; hold primary and walk to pour it" % kind, "at": _v(at)}
 
 
 ## A yard half done: a pile raked up just in front of you, the rake in hand.

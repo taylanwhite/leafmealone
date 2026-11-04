@@ -72,7 +72,7 @@ $Tests = [ordered]@{
 	}
 	work = @{
 		Port = 7796
-		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --work-test'; Seconds = 120; Client = 115
+		Host = '--host --name=Tester --no-steam --start-zone=lot --all-tools --all-tasks --job-seed=777 --start-day=15 --work-test'; Seconds = 120; Client = 115
 		Check = { param($h, $c) [bool]$h.work_test.ok -and (Same $h.lot_layout $c.lot_layout) -and (Same $h.job_progress $c.job_progress) }
 	}
 	throw = @{

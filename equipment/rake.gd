@@ -21,6 +21,7 @@ signal remote_bite(bite: int)
 const REACH: float = 1.5
 const _Strings = preload("res://ui/strings.gd")
 const _StrokeCam = preload("res://player/stroke_cam.gd")
+const _JobTasks = preload("res://net/work/job_tasks.gd")
 ## Hand raking: a stroke at most this often, so flailing doesn't turn into a fast rake.
 const HAND_STROKE_SECONDS: float = 0.35
 
@@ -89,6 +90,11 @@ func _physics_process(delta: float) -> void:
 	if Constants.TOOL_PRICES.has(held_kind):
 		if Input.is_action_pressed("primary"):
 			_use_tool(player, held_kind)
+		return
+	# shops:9: a seasonal sack in your arms: held left click flicks it out ahead.
+	if Catalog.is_sack(held_kind):
+		if Input.is_action_pressed("primary"):
+			_spread(player, held_kind)
 		return
 	if held != null and not has_rake:
 		return
@@ -268,6 +274,28 @@ func _use_tool(player: CharacterBody3D, tool_kind: String) -> void:
 	if (task == "power_wash" or task == "paint_fence") and float(_held_prop(player).get("water")) <= 0.0:
 		return
 	tasks.call("request_work", task, origin, look)
+
+
+## shops:9: a tick of pouring the sack in your arms: the throw lands its task's
+## reach (Constants.TASK_REACH) ahead of your feet, the way you face; the host
+## drains the sack and works the cells there (job_tasks.gd _spread).
+func _spread(player: CharacterBody3D, sack_kind: String) -> void:
+	if _work_wait > 0.0:
+		return
+	_work_wait = _JobTasks.WORK_TICK
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if tasks == null:
+		return
+	var task := ""
+	for task_id: String in Constants.SEASONAL_TASKS:
+		if str(Constants.TASK_TOOLS.get(task_id, "")) == sack_kind:
+			task = task_id
+	if task == "":
+		return
+	var forward := -player.global_basis.z
+	forward.y = 0.0
+	forward = forward.normalized() if forward.length() > 0.01 else Vector3.FORWARD
+	tasks.call("request_work", task, player.global_position + forward * float(Constants.TASK_REACH.get(task, 2.0)), forward)
 
 
 func _held_prop(player: CharacterBody3D) -> Node:

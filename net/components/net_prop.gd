@@ -760,6 +760,35 @@ func mark_spraying() -> void:
 		spraying = true
 
 
+## Host (shops:9): a seasonal sack poured for this long (s): its fill (`fuel`,
+## 0 to 100) drains so a full one lasts Constants.SACK_SPREAD_SECONDS. Run dry,
+## it folds flat on every peer (props/sack_spread.gd) and then it's gone, the
+## holder's hands free again.
+func host_use_sack(seconds: float) -> void:
+	if not Net.is_host() or not Catalog.is_sack(kind) or _sack_folding:
+		return
+	fuel = maxf(0.0, fuel - 100.0 / maxf(float(Constants.SACK_SPREAD_SECONDS.get(kind, 30.0)), 0.1) * seconds)
+	if fuel > 0.0:
+		return
+	_sack_folding = true
+	spraying = false
+	_spray_left = 0.0
+	await get_tree().create_timer(Constants.SACK_FOLD_SECONDS).timeout
+	if not is_instance_valid(self) or is_queued_for_deletion():
+		return
+	var holder := held_by
+	held_by = 0
+	pocket_slot = -1
+	var hotbar := _hotbar()
+	if hotbar != null and holder != 0:
+		hotbar.call("host_settle", holder)
+	queue_free()
+
+
+## Host: an empty sack on its way out (host_use_sack).
+var _sack_folding: bool = false
+
+
 ## Host: a running gas tool burns its tank (core/tool_tiers.gd: thirstier used,
 ## thriftier Mk II and III). Empty, it sputters and dies.
 func _step_fuel(delta: float) -> void:

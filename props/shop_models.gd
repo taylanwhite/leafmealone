@@ -113,11 +113,13 @@ static func build_into(kit: RefCounted, model: String) -> void:
 		"gas_can":
 			gas_can(kit)
 		"fertilizer_bag":
-			_sack(kit, Vector3(0.22, 0.3, 0.11), Color(0.36, 0.6, 0.3), Color(0.95, 0.85, 0.3))
+			# Cream paper with a green band, so it reads against a lawn (shops:9).
+			_sack(kit, Vector3(0.22, 0.3, 0.11), Color(0.93, 0.88, 0.66), Color(0.3, 0.58, 0.26))
 		"grass_seed":
 			_sack(kit, Vector3(0.18, 0.24, 0.09), Color(0.92, 0.82, 0.42), Color(0.3, 0.6, 0.28))
 		"rock_salt":
-			_sack(kit, Vector3(0.2, 0.26, 0.1), Color(0.86, 0.9, 0.95), Color(0.25, 0.45, 0.8))
+			# Deep blue paper with a white band: a winter-only sack has to read on snow.
+			_sack(kit, Vector3(0.2, 0.26, 0.1), Color(0.14, 0.3, 0.64), Color(0.95, 0.95, 0.93))
 		"crate":
 			_crate(kit)
 		"pallet":

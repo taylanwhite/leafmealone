@@ -138,24 +138,33 @@ const TASK_TOOLS: Dictionary = {
 	"mow_lawn": "lawn_mower", "clean_gutters": "ladder", "wash_windows": "hose",
 	"power_wash": "pressure_washer", "trim_hedges": "hedge_trimmer", "paint_fence": "paint_roller",
 	"clear_roof": "ladder", "skim_pool": "",
+	# shops:9: seasonal work, done with a sack you bought (SEASONAL_TASKS).
+	"fertilize_lawn": "fertilizer_bag", "seed_lawn": "grass_seed", "salt_walk": "rock_salt",
 }
 ## Task id -> what the homeowner pays for it done completely, in dollars.
 const TASK_PAY: Dictionary = {
 	"pick_litter": 12, "pull_weeds": 15, "mow_lawn": 45, "clean_gutters": 40,
 	"wash_windows": 30, "power_wash": 55, "trim_hedges": 35, "paint_fence": 40,
 	"clear_roof": 35, "skim_pool": 25,
+	# shops:9: each pays about twice its sack's price (SHOP_PRICES), so a sack is
+	# worth buying for one job and a part-used one is a head start on the next.
+	"fertilize_lawn": 40, "seed_lawn": 32, "salt_walk": 24,
 }
 ## How much of a spot or cell each second of work clears, out of 100.
 const TASK_WORK_RATE: Dictionary = {
 	"pick_litter": 100.0, "pull_weeds": 40.0, "mow_lawn": 450.0, "clean_gutters": 30.0,
 	"wash_windows": 55.0, "power_wash": 90.0, "trim_hedges": 50.0, "paint_fence": 60.0,
 	"clear_roof": 35.0, "skim_pool": 50.0,
+	# shops:9: one walking pass covers a cell (it sits under the swath ~1 s).
+	"fertilize_lawn": 160.0, "seed_lawn": 140.0, "salt_walk": 180.0,
 }
 ## How far from you a tool reaches, in meters.
 const TASK_REACH: Dictionary = {
 	"pick_litter": 2.0, "pull_weeds": 2.0, "mow_lawn": 0.9, "clean_gutters": 2.6,
 	"wash_windows": 40.0, "power_wash": 3.2, "trim_hedges": 2.2, "paint_fence": 2.0,
 	"clear_roof": 1.8, "skim_pool": 2.7,
+	# shops:9: how far ahead of your feet the throw lands (SACK_SWATH is its radius).
+	"fertilize_lawn": 2.2, "seed_lawn": 1.6, "salt_walk": 1.8,
 }
 ## How many tasks a job asks for besides the leaves, at least and at most (three in all).
 ## Taylan, 2026-10-20: too much at once felt like a chore list.
@@ -5856,6 +5865,8 @@ const STARTING_CASH: int = 50
 ## carried to jobs in Chefty's bed or in pockets (the rake first, then the tools).
 const KIT_KINDS: Array[String] = [
 	"rake", "leaf_blower", "lawn_mower", "ladder", "hose", "hedge_trimmer", "pressure_washer", "paint_roller",
+	# shops:9: the seasonal sacks are kit too (a sack's fill is its `fuel`).
+	"fertilizer_bag", "grass_seed", "rock_salt",
 ]
 ## A rake's raking strength by its tier (0 used, 1 stock, 2 Mk II, 3 Mk III):
 ## Rusty's used rake is a little bent; Mk II and Mk III are the old Tune-Up and
@@ -6567,3 +6578,80 @@ const PEDESTRIAN_URGENT_SIDESTEP: float = 2.5
 const PEDESTRIAN_HOLD_BAND: float = 0.5
 ## How often they check whether it's time to go home or come out (s).
 const PEDESTRIAN_HOURS_CHECK_SECONDS: float = 0.5
+
+
+# ---- shops:9 seasonal supplies as work (docs/GAME.md "Seasonal work"; net/work/job_tasks.gd,
+# props/sack_spread.gd, levels/lots/task_looks.gd). The sacks Homie Depot sells in
+# season are crew kit (KIT_KINDS): bought into your arms, loaded on Chefty's rack,
+# spread across the yard by holding left click. A sack's fill is its `fuel`.
+## The tasks a sack does (TASK_TOOLS names the sack). A homeowner asks for one
+## only while its sack is in season (Catalog "seasons", Seasons.FAVORED); the
+## job board's general pick (job_board.gd choose_tasks) never draws them.
+const SEASONAL_TASKS: Array[String] = ["fertilize_lawn", "seed_lawn", "salt_walk"]
+## How many seconds of spreading a full sack holds, by sack kind: fertilizer
+## covers about one lawn, seed and salt a couple of yards' patches or drives.
+const SACK_SPREAD_SECONDS: Dictionary = {"fertilizer_bag": 100.0, "grass_seed": 34.0, "rock_salt": 34.0}
+## The throw's radius where it lands (m), by task: a broadcast of fertilizer is
+## wide, seed goes on a patch, salt on a strip of drive.
+const SACK_SWATH: Dictionary = {"fertilize_lawn": 2.3, "seed_lawn": 1.4, "salt_walk": 1.5}
+## The task grids' cell sizes (m): the whole lawn, the bare patches, the drive and walk.
+const SEASONAL_GRID_CELL: Dictionary = {"fertilize_lawn": 2.0, "seed_lawn": 0.75, "salt_walk": 0.5}
+## The bare patches a spring lawn has for overseeding: how many (at least, at
+## most) and how big (radius, m), from the job's seed (never the yard's own rng).
+const SEED_PATCHES := Vector2i(5, 8)
+const SEED_PATCH_RADIUS := Vector2(0.9, 1.7)
+## The shake: one flick of the sack this often while spreading (s), tipping it
+## this far forward at the flick (rad), and the throw leaving the mouth this
+## fast (m/s) at this many granules a flick.
+const SACK_SHAKE_SECONDS: float = 0.42
+const SACK_SHAKE_TILT: float = 0.42
+const SACK_THROW_SPEED: float = 4.2
+const SACK_GRANULES: int = 36
+## Through your own eyes the throw is drawn starting this far ahead of the sack's
+## mouth (m) and this much lower (m), clear of your face (props/sack_spread.gd).
+const SACK_OWN_VIEW_AHEAD: float = 0.55
+const SACK_OWN_VIEW_DROP: float = 0.2
+## A sack slumps as it empties: an empty one stands this share of its full
+## height (and bulges a little wider). Run dry, it folds flat over this long
+## (s) and is gone, the hands free again.
+const SACK_EMPTY_HEIGHT: float = 0.45
+const SACK_FOLD_SECONDS: float = 0.55
+## A sack bought at the counter comes into your arms: it waits this far ahead of
+## you (m), at this height (m), for KIT_TAKE_HANDOFF_SECONDS, then you have it.
+const SACK_HANDOFF_AHEAD: float = 0.55
+const SACK_HANDOFF_HEIGHT: float = 0.9
+## The shake's sound (tools/make_sfx.py "sack_shake") at this volume (dB).
+const SACK_SHAKE_DB: float = -6.0
+## How much wider an empty sack bulges than a full one (share), and how much
+## wider still it spreads as it folds flat (props/sack_spread.gd slump_scale).
+const SACK_EMPTY_BULGE: float = 0.12
+const SACK_FOLD_BULGE: float = 0.2
+## A held sack slumps about the hands, a loose one about its base; picked up or
+## let go, the point it slumps about eases across at this rate (per second).
+const SACK_ANCHOR_FOLLOW: float = 10.0
+## The shake's beat (props/sack_spread.gd): where in it (0 to 1) the sack snaps
+## forward and throws, and how far it lifts back first (share of SACK_SHAKE_TILT).
+const SACK_SNAP_AT: float = 0.42
+const SACK_WINDUP_SHARE: float = 0.3
+## The throw's granules: how long each is in the air (s), how wide the fan is
+## (degrees) and how flat (0 to 1), the slowest one's share of SACK_THROW_SPEED,
+## and how far above level the throw leaves (share of the forward direction).
+const SACK_GRANULE_SECONDS: float = 0.8
+const SACK_THROW_SPREAD_DEG: float = 16.0
+const SACK_THROW_FLATNESS: float = 0.55
+const SACK_THROW_SLOW_SHARE: float = 0.65
+const SACK_THROW_LIFT: float = 0.22
+## How far past the throw's swath the host still takes a pour (m): the holder's
+## drawn position runs a step behind the host's at a client's lag.
+const SACK_REACH_SLACK: float = 1.0
+## Your own arms reach this far past their length (share) to keep both hands on
+## the sack's sides in first person (player/first_person_arms.gd), as for the rake.
+const SACK_FP_ARM_STRETCH: float = 1.8
+## The spring lawn's bare patches (levels/lots/lot_generator.gd _seasonal_grids):
+## kept this far inside the yard's edge (m), at least this far apart edge to edge
+## (m), tried up to this many times per patch wanted, their edges wobbling this
+## much (share of the radius) round the patch.
+const SEED_PATCH_MARGIN: float = 3.0
+const SEED_PATCH_GAP: float = 2.0
+const SEED_PATCH_TRIES: int = 12
+const SEED_PATCH_WOBBLE: float = 0.22

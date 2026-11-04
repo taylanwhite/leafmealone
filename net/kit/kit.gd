@@ -137,6 +137,10 @@ func host_deliver(peer_id: int, kind: String, tier: int) -> Node3D:
 		ahead.y = 0.0
 		_add(prop, player.global_position + ahead.normalized() * Constants.KIT_DROP_AHEAD + Vector3.UP * Constants.KIT_DROP_LIFT)
 		return prop
+	# shops:9: a seasonal sack is handed over into your arms (dropped at your feet
+	# when they're full); it never waits by the door.
+	if Catalog.is_sack(kind) and player != null:
+		return _hand_sack(peer_id, player, kind, tier, fuel)
 	var big := _make(kind, tier, fuel)
 	_add(big, door_point(_door_index()))
 	if multiplayer.multiplayer_peer == null:
@@ -144,6 +148,30 @@ func host_deliver(peer_id: int, kind: String, tier: int) -> Node3D:
 	else:
 		_rpc_thud.rpc(big.global_position)
 	return big
+
+
+## Host (shops:9): a bought sack, held still in front of its buyer at chest
+## height (Constants.SACK_HANDOFF_*) for the hand-off's beat, so every peer has
+## it there, then into their arms the way a take off Chefty's rack goes. Arms
+## full: it's let go where it is and drops in front of them.
+func _hand_sack(peer_id: int, player: Node3D, kind: String, tier: int, fuel: float) -> Node3D:
+	var ahead := -player.global_basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized() if ahead.length() > 0.01 else Vector3.FORWARD
+	var prop := _make(kind, tier, fuel)
+	_add(prop, player.global_position + ahead * Constants.SACK_HANDOFF_AHEAD + Vector3.UP * Constants.SACK_HANDOFF_HEIGHT)
+	prop.global_rotation = Vector3(0.0, player.global_rotation.y, 0.0)
+	prop.call("host_hold_for_take", true)
+	_sack_handoff(prop, peer_id)
+	return prop
+
+
+func _sack_handoff(prop: Node3D, peer_id: int) -> void:
+	await get_tree().create_timer(Constants.KIT_TAKE_HANDOFF_SECONDS).timeout
+	if not is_instance_valid(prop) or prop.is_queued_for_deletion():
+		return
+	prop.call("host_hold_for_take", false)
+	prop.call("host_hand_to", peer_id)
 
 
 ## Host: make a kit prop at `at` (world space). For the bed's "take", the save's
@@ -261,7 +289,10 @@ func _restore() -> void:
 		var kind := str(row.get("kind", ""))
 		if not _KitRules.is_kit_kind(kind):
 			continue
-		var entry := {"kind": kind, "tier": clampi(int(row.get("tier", Catalog.TIER_STOCK)), Catalog.TIER_USED, Catalog.TIER_MK3), "fuel": clampf(float(row.get("fuel", 100.0)), 0.0, 100.0)}
+		# An empty sack in an older save is paper, not kit (shops:9).
+		if Catalog.is_sack(kind) and float(row.get("fuel", 100.0)) <= 0.0:
+			continue
+		var entry :={"kind": kind, "tier": clampi(int(row.get("tier", Catalog.TIER_STOCK)), Catalog.TIER_USED, Catalog.TIER_MK3), "fuel": clampf(float(row.get("fuel", 100.0)), 0.0, 100.0)}
 		if str(row.get("at", "")) == "bed" and bed != null:
 			to_bed.append(entry)
 		else:
