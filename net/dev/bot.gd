@@ -41,6 +41,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if _job != null:
+		print("[Bot] hotbar fidgets: %d in %d rake runs" % [int(_job.get("fidgets")), int(_job.get("runs"))])
 	for action: StringName in [&"move_forward", &"move_left", &"move_right", &"sprint", &"crouch", &"jump", &"primary"]:
 		Input.action_release(action)
 
@@ -692,7 +694,10 @@ func _kit_shop(player: Node3D, delta: float) -> bool:
 			if _kit_walk_path(player, delta, true):
 				return true
 		var side := (truck.call("bed_transform") as Transform3D) * KIT_LOAD_SIDE
-		if bool(bed.call("can_load_from", player)) and Vector2(side.x - player.global_position.x, side.z - player.global_position.z).length() < 1.2:
+		# Up onto the rack as soon as it's in reach (hotbar:E: walking on to the
+		# load side, a bot stood inside the other one waiting there,
+		# play-observer\rec_fetch_3p frame 57).
+		if bool(bed.call("can_load_from", player)):
 			_crew_walk(player, false, delta)
 			_face(player, truck.call("body_position"))
 			if _elapsed >= _next_interact:
@@ -701,6 +706,10 @@ func _kit_shop(player: Node3D, delta: float) -> bool:
 			return true
 		_face(player, _crew_steer(player, side))
 		_crew_walk(player, true, delta)
+		return true
+	# hotbar:E: the crew's own rake lying by the front door (left at a yard, walked
+	# over by a neighbor overnight): fetch it before buying another.
+	if held == null and _kit_fetch(player, delta, bed):
 		return true
 	var kit := get_tree().get_first_node_in_group("kit")
 	var shops := get_tree().get_first_node_in_group("shops")
@@ -740,6 +749,64 @@ func _kit_shop(player: Node3D, delta: float) -> bool:
 	return true
 
 
+## A loose rake this close (m) to a bot waiting at the store is the crew's to fetch.
+const KIT_FETCH_METERS: float = 40.0
+## Close enough to pick it up (m).
+const KIT_FETCH_GRAB_METERS: float = 1.5
+
+
+## hotbar:E: while Chefty's rack has fewer rakes than the crew has players, walk to
+## a loose rake at the store (the ones a neighbor brought back sit by the front
+## door) and pick it up; _kit_shop then carries it to the rack like a bought one.
+## A bot nearer the same rake leaves it to that bot. True while it's doing that.
+func _kit_fetch(player: Node3D, delta: float, bed: Node) -> bool:
+	var truck := get_tree().get_first_node_in_group("chefty")
+	if bed == null or truck == null or bool(truck.call("is_riding")) or not bool(bed.call("has_room_for", "rake")):
+		return false
+	var crew := 0
+	for peer_id: int in Net.peer_ids():
+		if not Net.is_watcher(peer_id) and Net.player_name(peer_id) != "Observer":
+			crew += 1
+	if int(bed.call("count_of", "rake")) >= crew:
+		return false
+	var target: Node3D = null
+	var best := KIT_FETCH_METERS
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or str(prop.get("kind")) != "rake" or not bool(prop.call("is_loose")) or bool(prop.call("is_flying")):
+			continue
+		var away := Vector2(prop.global_position.x - player.global_position.x, prop.global_position.z - player.global_position.z).length()
+		if away < best and not _other_bot_nearer(player, prop.global_position, away):
+			best = away
+			target = prop
+	if target == null:
+		return false
+	if best > KIT_FETCH_GRAB_METERS:
+		_face(player, _crew_steer(player, target.global_position))
+		_crew_walk(player, true, delta)
+		return true
+	_crew_walk(player, false, delta)
+	_face(player, target.global_position)
+	if _elapsed >= _next_interact:
+		_next_interact = _elapsed + 1.0
+		target.call("request_grab")
+	return true
+
+
+## Whether another bot on this zone stands nearer the point than distance.
+func _other_bot_nearer(player: Node3D, point: Vector3, distance: float) -> bool:
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		var other := node as Node3D
+		var peer_id := int(str(node.name))
+		if other == null or other == player or not Net.player_name(peer_id).begins_with("Bot"):
+			continue
+		if Net.player_zone(peer_id) != Net.player_zone(Net.local_peer_id()):
+			continue
+		if Vector2(point.x - other.global_position.x, point.z - other.global_position.z).length() < distance:
+			return true
+	return false
+
+
 ## Back out through the doors with the rake (true while still on the way).
 func _kit_walk_path(player: Node3D, delta: float, outward: bool) -> bool:
 	var store := _store_zone()
@@ -758,32 +825,75 @@ func _kit_walk_path(player: Node3D, delta: float, outward: bool) -> bool:
 	return true
 
 
+## A rake lying this close (m) when Chefty honks home is picked up on the way.
+const KIT_HONK_PICKUP_METERS: float = 10.0
+
+
 ## On the yard, Chefty honking to go home: a rake in hand or pocket goes back
-## on the rack first (true while it's doing that).
+## on the rack first (true while it's doing that), and a rake it set down nearby
+## is picked up on the way. The honk-and-wait is short (CHEFTY_BOARD_WAIT_SECONDS)
+## and climbing in starts at CHEFTY_BOARD_WALKUP_METERS from the tailgate, farther
+## out than the rack's KIT_LOAD_REACH, so (hotbar:E, P2's crew session: no bot was
+## ever seen putting its rake back) the rake comes out of the pocket while it
+## walks, not standing still, and it goes up onto the rack from wherever the
+## bot is once it's in reach, even from its seat in the bed, which it had
+## reached first every time.
 func _kit_put_back(player: Node3D, delta: float) -> bool:
 	var mine := _carried_rake(Net.local_peer_id())
 	var truck := get_tree().get_first_node_in_group("chefty")
 	var bed: Node = truck.call("tool_bed") if truck != null and truck.has_method("tool_bed") else null
-	if mine == null or bed == null or not bool(bed.call("has_room_for", "rake")) or int(truck.call("seat_of", Net.local_peer_id())) >= 0:
+	if bed == null or not bool(bed.call("has_room_for", "rake")):
 		return false
+	var seated := int(truck.call("seat_of", Net.local_peer_id())) >= 0
 	var held: Node = player.call("_held_prop")
+	if mine == null:
+		return not seated and held == null and _kit_honk_pickup(player, delta)
 	if held != mine:
 		if held != null:
 			return false
 		_kit_draw(mine)
-		_crew_walk(player, false, delta)
+	var can_load := bool(bed.call("can_load_from", player))
+	if held == mine and can_load and _elapsed >= _next_interact:
+		_next_interact = _elapsed + 1.0
+		mine.call("request_load_truck")
+	if seated:
 		return true
-	var side := (truck.call("bed_transform") as Transform3D) * KIT_LOAD_SIDE
-	if bool(bed.call("can_load_from", player)) and Vector2(side.x - player.global_position.x, side.z - player.global_position.z).length() < 1.2:
+	if can_load:
 		_crew_walk(player, false, delta)
 		_face(player, truck.call("body_position"))
-		if _elapsed >= _next_interact:
-			_next_interact = _elapsed + 1.0
-			mine.call("request_load_truck")
 		return true
+	var side := (truck.call("bed_transform") as Transform3D) * KIT_LOAD_SIDE
 	_face(player, _crew_steer(player, side))
 	Input.action_press(&"sprint")
 	_crew_walk(player, true, delta)
+	return true
+
+
+## The honk home with no rake on it: one lying within KIT_HONK_PICKUP_METERS that
+## no other bot is nearer gets picked up (then _kit_put_back loads it).
+func _kit_honk_pickup(player: Node3D, delta: float) -> bool:
+	var target: Node3D = null
+	var best := KIT_HONK_PICKUP_METERS
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		var prop := node as Node3D
+		if prop == null or str(prop.get("kind")) != "rake" or not bool(prop.call("is_loose")) or bool(prop.call("is_flying")):
+			continue
+		var away := Vector2(prop.global_position.x - player.global_position.x, prop.global_position.z - player.global_position.z).length()
+		if away < best and not _other_bot_nearer(player, prop.global_position, away):
+			best = away
+			target = prop
+	if target == null:
+		return false
+	if best > KIT_FETCH_GRAB_METERS:
+		_face(player, _crew_steer(player, target.global_position))
+		Input.action_press(&"sprint")
+		_crew_walk(player, true, delta)
+		return true
+	_crew_walk(player, false, delta)
+	_face(player, target.global_position)
+	if _elapsed >= _next_interact:
+		_next_interact = _elapsed + 1.0
+		target.call("request_grab")
 	return true
 
 

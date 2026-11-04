@@ -1943,7 +1943,10 @@ func e_choice() -> Dictionary:
 		var hint: Dictionary = source.call("prompt")
 		if not hint.is_empty():
 			return {"do": &"source", "hint": hint, "target": source}
-	if best != null:
+	# Pockets full (hotbar:E): a pocket thing merely lying in reach doesn't take E
+	# from the litter, a seat or the hedge after it; one you look right at still
+	# does (above), and its "eh?" and the bar's shake say why it won't come.
+	if best != null and _has_room_for(best):
 		return _pickup_choice(best)
 	var hand := _nearest_hand_task()
 	if not hand.is_empty():
@@ -2064,9 +2067,15 @@ func _junk_choice(bed: Node) -> Dictionary:
 
 ## Picking a thing up, as an E choice. A pocket item with every pocket full (and
 ## no stack of its kind to join) shows no prompt: E shakes the full bar (x1:text).
-func _pickup_choice(prop: Node3D) -> Dictionary:
+## Whether this pickup has somewhere to go: a big thing always does (it fills your
+## arms), a pocket thing only with a free pocket or a stack of its kind with room.
+func _has_room_for(prop: Node3D) -> bool:
 	var kind_of := str(prop.get("kind"))
-	if _Hotbar.is_pocketable(kind_of) and not _Hotbar.has_room(get_tree(), name.to_int(), kind_of):
+	return not _Hotbar.is_pocketable(kind_of) or _Hotbar.has_room(get_tree(), name.to_int(), kind_of)
+
+
+func _pickup_choice(prop: Node3D) -> Dictionary:
+	if not _has_room_for(prop):
 		return {"do": &"pick_up", "hint": {}, "target": prop}
 	# x1:text: the key and the verb; the thing is right there under the prompt.
 	return {"do": &"pick_up", "hint": {"text": _Strings.UI["prompt_pick_up_plain"], "at": prop.global_position + Vector3(0.0, 1.2, 0.0), "source": prop}, "target": prop}

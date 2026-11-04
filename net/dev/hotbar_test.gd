@@ -121,6 +121,13 @@ func _run() -> void:
 	# x1:text: the shake is the whole message; no words.
 	var shook := hud != null and float(hud.get("shake_left")) > 0.0 and str(hud.get("toast_text")) == ""
 	_step("13b HUD: the refusal shook the bar and said '%s'" % (str(hud.get("toast_text")) if hud != null else "no HUD"), shook)
+	# hotbar:E: with no pocket free, a sign lying in reach behind you doesn't take
+	# E (and shows no prompt); E goes on to whatever else is here.
+	var in_reach := signs[0].global_position.distance_to(me.global_position) < Constants.PICKUP_REACH
+	var choice: Dictionary = me.call("e_choice")
+	var sign_took_e := StringName(choice["do"]) == &"pick_up" and signs.has(choice["target"])
+	var hint_text := str((me.call("interaction_hint") as Dictionary).get("text", ""))
+	_step("4b pockets full: a sign in reach (%s) behind you leaves E alone (E: %s, prompt '%s')" % [in_reach, choice["do"], hint_text], in_reach and not sign_took_e and hint_text != str(_Strings.UI["prompt_pick_up_plain"]))
 
 	# 5. Keys: 1 draws the rake, the wheel steps to the blower, 2 again is bare hands.
 	await _tap(&"slot_1")

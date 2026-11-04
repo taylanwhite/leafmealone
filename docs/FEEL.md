@@ -77,7 +77,7 @@ Built (shops chunk 4, 2026-11-02; docs/GAME.md "2026-11-01, shops"):
 
 ## Order to build in
 
-Taylan agreed on 2026-10-19. Items 1 to 4 are built: `levels/shared_look.gd`, `player/cartoon_body.gd` (players, crew, and clerk), `ui/interaction_prompt.gd`, `npcs/store_clerk.gd`, and `ui/shop_window.gd`. The rake in your hands and a hotbar are not built yet.
+Taylan agreed on 2026-10-19. Items 1 to 4 are built: `levels/shared_look.gd`, `player/cartoon_body.gd` (players, crew, and clerk), `ui/interaction_prompt.gd`, `npcs/store_clerk.gd`, and `ui/shop_window.gd`. The rake in your hands is built (R1 raking feel: `equipment/rake_motion.gd`, `player/first_person_arms.gd`), and so is the hotbar (hotbar chunks A to E, 2026-11-01 to 11-03): five pockets on keys 1 to 5 and the wheel, kept on the props (`net/components/hotbar.gd`, `player/pockets.gd`), the bar along the bottom (`ui/hotbar_hud.gd`), real grips in every hand (`props/prop_looks.gd` HOLDS), what's pocketed worn on the body (`STOWED`), and its synthesized tick, fwump, shwip-tink and jangle (`tools/make_sfx.py`). docs/GAME.md "2026-11-01, the hotbar" has the rules.
 
 1. Lit look: lighting, shadows, ambient occlusion, warm autumn sun. Cheap, and it changes the feel most.
 2. Cartoon characters with goofy procedural motion and their silly voice noises.

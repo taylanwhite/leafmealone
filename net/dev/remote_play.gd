@@ -59,7 +59,9 @@ extends Node
 ##                                 run director's own warning, nothing reset or
 ##                                 placed: a raid in a crew session (tools:crew)
 ## The result's "crew" lists everyone else (not the observer) as this window knows
-## them: zone, position and what they hold, so a script can wait on a teammate.
+## them: zone, position, what they hold and what's in their pockets, so a script
+## can wait on a teammate; "rakes" counts the crew's rakes on Chefty's rack and
+## lying loose (hotbar:E).
 
 ##   ["drive", x, z, timeout, top]  at Chefty's wheel: drive there along the roads
 ##                                 (W/S and A/D as eased strengths, slowing for
@@ -1521,9 +1523,24 @@ func _state() -> Dictionary:
 			mate["position"] = [snappedf(body.global_position.x, 0.1), snappedf(body.global_position.z, 0.1)]
 			var their: Node = body.call("_held_prop") if body.has_method("_held_prop") else null
 			mate["holding"] = str(their.get("kind")) if their != null else ""
+			# What's in their pockets too (hotbar:E: whether a bot's rake rode home
+			# in a pocket or went back on the rack).
+			var pocketed: Array = []
+			for prop: Node in get_tree().get_nodes_in_group("props"):
+				if int(prop.get("pocketed_by")) == peer_id:
+					pocketed.append(str(prop.get("kind")))
+			if not pocketed.is_empty():
+				mate["pockets"] = pocketed
 		others[Net.player_name(peer_id)] = mate
 	if not others.is_empty():
 		out["crew"] = others
+	# The crew's rakes (hotbar:E): how many ride on Chefty's rack, how many lie loose.
+	var rack: Node = truck.call("tool_bed") if truck != null and truck.has_method("tool_bed") else null
+	var loose := 0
+	for prop: Node in get_tree().get_nodes_in_group("props"):
+		if str(prop.get("kind")) == "rake" and prop.has_method("is_loose") and bool(prop.call("is_loose")):
+			loose += 1
+	out["rakes"] = {"rack": int(rack.call("count_of", "rake")) if rack != null else -1, "loose": loose}
 	var director := get_tree().get_first_node_in_group("run_director")
 	if director != null and int(director.call("phase")) != 0:
 		out["raid"] = ["QUIET", "WARNING", "CHASE", "DEPARTING"][clampi(int(director.call("phase")), 0, 3)]

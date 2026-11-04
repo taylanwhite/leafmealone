@@ -41,6 +41,14 @@ const PILE_TRIES: int = 8
 const RUN_TRIES: int = 6
 ## How fast a crew bot turns (rad/s).
 const CREW_TURN_RATE: float = 5.0
+## hotbar:E: on this share of its walks to a run's start, a bot with the rake
+## flicks the scroll wheel (slot_next) the way a bored hand does, then picks the
+## rake back out of its pocket. Keeps the select RPC busy in the soaks, with
+## --sim-lag too, and shows teammates the draw.
+const FIDGET_CHANCE: float = 0.1
+## A soak bot (not a crew bot) fidgets this often instead: a 45 s soak has only a
+## handful of runs, and the point there is the select RPC under --sim-lag.
+const SOAK_FIDGET_CHANCE: float = 0.4
 
 ## Set by a crew bot (net/dev/bot.gd --bot-crew): take turns with the rake, steer
 ## round things, give up on a spot it can't reach, and pick spots with leaves.
@@ -69,6 +77,11 @@ var _run_start := Vector3.ZERO
 var _runs_on_pile: int = 0
 var _raking_in: bool = false
 var _bag_next: bool = false
+## This walk to a run's start flicks to the next pocket on the way (FIDGET_CHANCE).
+var _fidget: bool = false
+## Fidgets and rake runs so far (each bot prints them on exit).
+var fidgets: int = 0
+var runs: int = 0
 var _hand_raking: bool = false
 var _next_hand_choice: float = 0.0
 var _press_wait: float = 0.0
@@ -110,7 +123,14 @@ func step(player: Node3D, delta: float) -> bool:
 		"":
 			return _find_work(player, tree)
 		_:
-			# Not something bots work with. Put it down.
+			# Another pocket's tool came up (a fidget, or a dive that drew the wrong
+			# slot back): back to the rake in its pocket. Otherwise it's not
+			# something bots work with: put it down.
+			var rake_slot := _pocket_of(player, "rake")
+			if rake_slot >= 0:
+				wants_walk = false
+				_tap(StringName("slot_%d" % (rake_slot + 1)))
+				return true
 			stop()
 			_tap(&"drop")
 			return false
@@ -150,7 +170,11 @@ func _rake(player: Node3D, field: Node, tree: SceneTree) -> bool:
 		_bag_next = false
 		_tap(&"secondary")
 		_pile = Vector3.INF
-		_set_rake_down = share_rake
+		# A turn for a person with no rake of their own; with everyone holding one
+		# (p2-kit: the crew buys a rake each), it keeps its own, so it's in its
+		# hands to put back on the rack when Chefty honks home (hotbar:E: two
+		# rested rakes lay out on the lawn at the honk, play\rec_honk6_1p).
+		_set_rake_down = share_rake and _rakeless_person(player, tree)
 		return true
 	if _pile == Vector3.INF:
 		_pile = _random_spot(field)
@@ -159,6 +183,12 @@ func _rake(player: Node3D, field: Node, tree: SceneTree) -> bool:
 		_new_run(player)
 	if not _raking_in:
 		Input.action_release(&"primary")
+		if _fidget and _press_wait <= 0.0 and _release_next == &"":
+			# The scroll wheel, idly, on the way: whatever's next comes up (or bare
+			# hands); _find_work or the other-tool branch above draws the rake back.
+			_fidget = false
+			fidgets += 1
+			_tap(&"slot_next")
 		_face(player, _steer(player, _run_start))
 		if _flat_distance(player.global_position, _run_start) < 1.0:
 			_raking_in = true
@@ -204,7 +234,8 @@ func _find_work(player: Node3D, tree: SceneTree) -> bool:
 	# Something of ours in a pocket (a dive into a hedge pockets what you hold):
 	# take it back out, or the crew's only rake sits in a bot's pocket all day
 	# (tools:crew, "Press [1] for the rake" on a bot that thought its hands were empty).
-	var pocket := _pocketed_work(player) if share_rake else -1
+	# Every bot does this (hotbar:E): a soak bot's fidget leaves the rake there too.
+	var pocket := _pocketed_work(player)
 	if pocket >= 0:
 		wants_walk = false
 		_tap(StringName("slot_%d" % (pocket + 1)))
@@ -266,6 +297,8 @@ func _new_run(player: Node3D) -> void:
 				_run_start = start
 			angle = _rng.randf_range(0.0, TAU)
 	_raking_in = _flat_distance(player.global_position, _run_start) < 1.0
+	runs += 1
+	_fidget = not _raking_in and _rng.randf() < (FIDGET_CHANCE if share_rake else SOAK_FIDGET_CHANCE)
 	_stuck_goal = Vector3.INF
 
 
@@ -322,6 +355,32 @@ func _pocketed_work(player: Node3D) -> int:
 		if not slot.is_empty() and slot[0] != null and str((slot[0] as Node).get("kind")) in ["rake", "leaf_bag"]:
 			return index
 	return -1
+
+
+## Whether a person (not a bot, not the observer) on the yard has no rake in hand
+## or pocket.
+func _rakeless_person(player: Node3D, tree: SceneTree) -> bool:
+	for node: Node in tree.get_nodes_in_group("players"):
+		var peer_id := int(str(node.name))
+		if node == player or Net.player_zone(peer_id) != Net.Zone.LOT or Net.is_watcher(peer_id):
+			continue
+		var who := Net.player_name(peer_id)
+		if who.begins_with("Bot") or who == "Observer":
+			continue
+		var carries := false
+		for prop: Node in tree.get_nodes_in_group("props"):
+			if str(prop.get("kind")) == "rake" and (int(prop.get("held_by")) == peer_id or int(prop.get("pocketed_by")) == peer_id):
+				carries = true
+				break
+		if not carries:
+			return true
+	return false
+
+
+## The pocket (0-based) holding this kind of ours, or -1 (player/pockets.gd).
+func _pocket_of(player: Node3D, kind: String) -> int:
+	var pockets := player.get_node_or_null("Pockets")
+	return int(pockets.call("slot_of_kind", kind)) if pockets != null and pockets.has_method("slot_of_kind") else -1
 
 
 func _leaves_at(point: Vector3) -> int:
