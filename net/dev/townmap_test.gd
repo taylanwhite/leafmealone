@@ -715,8 +715,10 @@ func _check_job_at_house(world: Node, town: Node, problems: Array[String]) -> vo
 	await _check_goal_line(next_house, problems)
 
 
-## x1:text, the goal line (ui/job_goal.gd), which only says where the job is:
-##   g1. At the store with no request picked (no yard, no offers): quiet.
+## x1:text, the goal line (ui/job_goal.gd), which only says where the job is,
+## and the phone's map (ui/town_map_view.gd, driving chunk K):
+##   g1. At the store with no request picked (no yard, no offers): the line is
+##       quiet, and the map has no pin and nothing along its bottom.
 func _check_goal_unpicked(board: Node, problems: Array[String]) -> void:
 	var host := Net.local_peer_id()
 	_teleport(host, Vector3(2.0, 0.3, 4.0))
@@ -724,32 +726,43 @@ func _check_goal_unpicked(board: Node, problems: Array[String]) -> void:
 	if get_tree().get_first_node_in_group("job_lot") != null:
 		_verdict(false, "g1. no yard loaded before the first pick", problems)
 		return
+	var view: Control = _TownMapView.new()
+	view.size = Constants.PHONE_MAP_SIZE
+	add_child(view)
 	# No frame passes between these lines, so nothing else sees the empty board.
 	var kept: Array = board.get("offers")
 	board.set("offers", [])
 	var shown := _JobGoal.goal(get_tree(), host)
+	var drawn: Dictionary = view.call("report")
 	board.set("offers", kept)
-	_verdict(Net.player_zone(host) == Net.Zone.STORE and shown == "", "g1. at the store with nothing picked the goal line is quiet (zone %s, %s)" % [Net.Zone.keys()[Net.player_zone(host)], JSON.stringify(shown)], problems)
+	view.queue_free()
+	_verdict(Net.player_zone(host) == Net.Zone.STORE and shown == "" and int(drawn["pin"]) == -1 and str(drawn["caption"]) == "" and int(drawn["route_points"]) == 0, "g1. at the store with nothing picked (zone %s) the goal line is quiet (%s), the map pins %d, caption %s, way %d points" % [Net.Zone.keys()[Net.player_zone(host)], JSON.stringify(shown), int(drawn["pin"]), JSON.stringify(drawn["caption"]), int(drawn["route_points"])], problems)
 
 
-## Driving chunk K: where the job is lives on the phone's map now, not the HUD.
-##   g2. At the store with house next_house's job picked, the goal line is quiet;
-##       the map (ui/town_map_view.gd, the model every peer draws from) pins that
-##       house, its way there starts on the road nearest the host (20 m) and ends at the curb, along the
-##       roads (no shorter than the straight line), and its caption is the address
-##       and the meters by road. It draws every yard, the town's open requests and
-##       Chefty; nothing about the NICE BOYS' van.
-##   g3. The phone's Map app has that map, the same pin, inside it.
-##   g4. In Chefty's driver's seat the way starts from Chefty, and Chefty wears
-##       your ring (no dot for you beside it).
+##   g2. At the store with house next_house's job picked: the map (the model
+##       every peer draws from) pins that house, its way there starts on the road
+##       nearest the host (20 m) and ends at the curb along the roads (no shorter
+##       than the straight line), its caption is the address and the meters by
+##       road; it draws every yard, the town's open requests and Chefty, nothing
+##       about the NICE BOYS' van. The goal line says the same address and road
+##       meters, and one of the eight arrows.
+##   g3. The same once the clock has closed for the night: the line is quiet.
+##   g4. On the street at that house's curb (within CHEFTY_ARRIVE_RADIUS): quiet.
+##   g5. The phone's Map app has that map, the same pin, and while it's out the
+##       goal line steps aside (the map's strip says it).
+##   g6. In Chefty's driver's seat the way starts at Chefty itself (the model's
+##       from is Chefty's body, not the seated player), Chefty wears your ring (no
+##       dot for you beside it), and the goal line's meters are the road from
+##       Chefty.
 ## The host ends back at the store, where d4 left it.
 func _check_goal_line(house: int, problems: Array[String]) -> void:
 	var host := Net.local_peer_id()
-	var shown := _JobGoal.goal(get_tree(), host)
 	var view: Control = _TownMapView.new()
 	view.size = Constants.PHONE_MAP_SIZE
 	add_child(view)
+	var shown := _JobGoal.goal(get_tree(), host)
 	var drawn: Dictionary = view.call("report")
+	view.queue_free()
 	var me := _player(host) as Node3D
 	var curb := TownMap.curb_point(house)
 	var address := _TownMapView.address_of(get_tree(), house)
@@ -760,19 +773,39 @@ func _check_goal_line(house: int, problems: Array[String]) -> void:
 	requests.sort()
 	var from: Vector3 = drawn["route_from"]
 	var to: Vector3 = drawn["route_to"]
+	var meters := roundi(float(drawn["route_meters"]))
 	var straight := Vector2(curb.x - me.global_position.x, curb.z - me.global_position.z).length()
 	var routed: bool = int(drawn["route_points"]) >= 3 and Vector2(from.x - me.global_position.x, from.z - me.global_position.z).length() < 20.0 and Vector2(to.x - curb.x, to.z - curb.z).length() < 0.5 and float(drawn["route_meters"]) >= straight * 0.99
-	var captioned: bool = str(drawn["caption"]) == str(_Strings.UI["phone_map_pin"]) % [address, roundi(float(drawn["route_meters"]))]
+	var captioned: bool = str(drawn["caption"]) == str(_Strings.UI["phone_map_pin"]) % [address, meters]
 	var town_drawn: bool = int(drawn["yards"]) == TownMap.house_count() and drawn["requests"] == requests and not (drawn["chefty"] as Dictionary).is_empty() and not drawn.has("van")
-	_verdict(shown == "" and int(drawn["pin"]) == house and routed and captioned and town_drawn, "g2. at the store, goal line %s; the map pins house %d (%d), the way %d points %.0f m by road (%.0f straight) from %s to the curb %s, caption %s, %d yards, requests %s, Chefty %s" % [JSON.stringify(shown), house, int(drawn["pin"]), int(drawn["route_points"]), float(drawn["route_meters"]), straight, from, to, JSON.stringify(drawn["caption"]), int(drawn["yards"]), drawn["requests"], drawn["chefty"]], problems)
-	view.queue_free()
+	var lined := _line_says(shown, address, meters)
+	_verdict(Net.player_zone(host) == Net.Zone.STORE and lined and int(drawn["pin"]) == house and routed and captioned and town_drawn, "g2. at the store, goal line %s; the map pins house %d (%d), the way %d points %.0f m by road (%.0f straight) from %s to the curb %s, caption %s, %d yards, requests %s, Chefty %s" % [JSON.stringify(shown), house, int(drawn["pin"]), int(drawn["route_points"]), float(drawn["route_meters"]), straight, from, to, JSON.stringify(drawn["caption"]), int(drawn["yards"]), drawn["requests"], drawn["chefty"]], problems)
+	var clock := get_tree().get_first_node_in_group("day_clock")
+	if clock != null:
+		# Closed for the night and straight back, with no frame between.
+		var hour := float(clock.call("hour"))
+		clock.call("set_hour_for_tests", 26.0)
+		var closed_shown := _JobGoal.goal(get_tree(), host)
+		clock.call("set_hour_for_tests", hour)
+		_verdict(closed_shown == "", "g3. after closing the goal line is quiet (%s)" % JSON.stringify(closed_shown), problems)
+	# Out on the street by the curb (the curb point itself is the yard's LOT), so
+	# it's the distance that quiets the line, not the zone.
+	var by_curb := TownMap.yard_transform(house) * Vector3(TownMap.CURB_POINT.x, 0.3, 33.6)
+	_teleport(host, by_curb)
+	await get_tree().create_timer(0.6).timeout
+	var at_curb := _JobGoal.goal(get_tree(), host)
+	var near := Vector2(by_curb.x - curb.x, by_curb.z - curb.z).length() <= Constants.CHEFTY_ARRIVE_RADIUS
+	_verdict(near and Net.player_zone(host) == Net.Zone.TOWN and at_curb == "", "g4. on the street by the curb (zone %s, within %.0f m %s) the goal line is quiet (%s)" % [Net.Zone.keys()[Net.player_zone(host)], Constants.CHEFTY_ARRIVE_RADIUS, near, JSON.stringify(at_curb)], problems)
+	_teleport(host, Vector3(2.0, 0.3, 4.0))
+	await get_tree().create_timer(0.6).timeout
 	var phone := get_tree().get_first_node_in_group("phone")
 	if phone != null:
 		phone.call("open_phone", "map")
 		await get_tree().process_frame
 		var in_phone := phone.find_child("TownMap", true, false) as Control
 		var phone_pin := int(in_phone.call("report")["pin"]) if in_phone != null else -2
-		_verdict(in_phone != null and in_phone.is_visible_in_tree() and phone_pin == house, "g3. the phone's Map app has the town map, pinned on house %d (%d)" % [house, phone_pin], problems)
+		var with_map := _JobGoal.goal(get_tree(), host)
+		_verdict(in_phone != null and in_phone.is_visible_in_tree() and phone_pin == house and with_map == "", "g5. the phone's Map app has the town map, pinned on house %d (%d); the goal line with it out %s" % [house, phone_pin, JSON.stringify(with_map)], problems)
 		phone.call("close_phone")
 	var chefty := get_tree().get_first_node_in_group("chefty") as Node3D
 	if chefty != null and me != null:
@@ -782,15 +815,24 @@ func _check_goal_line(house: int, problems: Array[String]) -> void:
 		seated_view.size = Constants.PHONE_MAP_SIZE
 		add_child(seated_view)
 		var seated: Dictionary = seated_view.call("report")
+		var seated_line := _JobGoal.goal(get_tree(), host)
 		seated_view.queue_free()
 		var at: Vector3 = chefty.call("body_position")
-		var start: Vector3 = seated["route_from"]
+		var start: Vector3 = seated["from"]
+		var by_road := roundi(float(_TownMapView.route_to(at, house)["meters"]))
 		var dots := (seated["players"] as Array).filter(func(entry: Variant) -> bool: return int((entry as Dictionary)["peer"]) == host).size()
-		_verdict(bool(seated["me_in_chefty"]) and dots == 0 and Vector2(start.x - at.x, start.z - at.z).length() < 20.0, "g4. at Chefty's wheel (seat %d) the way starts by Chefty (%s from %s), your ring %s, your dots %d" % [int(chefty.call("seat_of", host)), start, at, seated["me_in_chefty"], dots], problems)
+		_verdict(bool(seated["me_in_chefty"]) and dots == 0 and start.distance_to(at) < 0.01 and _line_says(seated_line, address, by_road), "g6. at Chefty's wheel (seat %d) the way starts at Chefty (%s, Chefty %s, you %s), your ring %s, your dots %d, goal line %s (%d m from Chefty)" % [int(chefty.call("seat_of", host)), start, at, me.global_position, seated["me_in_chefty"], dots, JSON.stringify(seated_line), by_road], problems)
 		chefty.call("drop_rider", host)
 		await get_tree().physics_frame
 	_teleport(host, Vector3(2.0, 0.3, 4.0))
 	await get_tree().create_timer(0.6).timeout
+
+
+## The goal line reads "<address> · <meters> m <one of the eight arrows>".
+func _line_says(shown: String, address: String, meters: int) -> bool:
+	var head := str(_Strings.UI["goal_drive_to"]) % [address, meters, ""]
+	return shown.begins_with(head) and _JobGoal.ARROWS.has(shown.substr(head.length()))
+
 
 ## Host: a request from this house, picked on the board; waits for its yard.
 ## The yard (generated), or null.

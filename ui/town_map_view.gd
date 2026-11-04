@@ -120,6 +120,10 @@ func _frame_view(delta: float, snap: bool) -> void:
 	if pin >= 0 and from != Vector3.INF and size.x > FRAME_MARGIN_PX * 2.0:
 		var curb := TownMap.curb_point(pin)
 		var box := Rect2(Vector2(from.x, from.z), Vector2.ZERO).expand(Vector2(curb.x, curb.z))
+		# At the store, Homie Depot's mark is in the frame too (it sat half off
+		# the map's west edge: rec_k_nav2_friend 0, 60).
+		if Net.player_zone(Net.local_peer_id()) == Net.Zone.STORE:
+			box = box.expand(Vector2(STORE_MARK.x, STORE_MARK.z))
 		var frame := Constants.PHONE_MAP_FRAME
 		var fit := minf(size.x / frame.size.x, size.y / frame.size.y)
 		var room := size - Vector2(FRAME_MARGIN_PX, FRAME_MARGIN_PX + CAPTION_PX) * 2.0

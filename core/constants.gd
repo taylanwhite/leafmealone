@@ -6449,3 +6449,9 @@ const PHONE_MAP_FOLLOW_RATE: float = 2.5
 const PHONE_MAP_PULSE_HZ: float = 0.8
 ## The Crew app lists at most this many best skate lines (the crew's, best first).
 const PHONE_BEST_LINES: int = 4
+## The goal line's arrow points at the road this far (m) along the way there, so
+## it turns you out of the lot and round the next corner, not through the houses.
+const GOAL_ARROW_LOOKAHEAD: float = 15.0
+## ...and it keeps its last arrow until the way is this far (degrees) past the
+## edge between two arrows, so it doesn't flicker through a turn.
+const GOAL_ARROW_HYSTERESIS: float = 8.0
