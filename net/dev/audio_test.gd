@@ -13,6 +13,7 @@ extends Node
 ##                (Sfx.placed) and its engine (audio/vehicle_sound.gd) cranks; the
 ##                ride reaches the lot and pulls up with one skid and the cab door
 ##   vehicle_mix  (chunk 7) the engine's idle-to-rev crossfade, throttle, gears, profiles
+##   engine_late_join  (chunk 7) a primed engine (a late joiner's) runs without a crank
 ##   board_sound  (chunk 7) audio/board_sound.gd under a stand-in board pops and
 ##                lands by itself, cuts the roll in the air, grinds
 ##   positional   a bag, a throw and a heavy bonk on the lot are play_at where they
@@ -160,6 +161,7 @@ func _run() -> void:
 	_check("positional", await _positional())
 	# Audio chunk 7: the engine's mix and the board component.
 	_check("vehicle_mix", _vehicle_mix())
+	_check("engine_late_join", await _engine_late_join())
 	_check("board_sound", await _board_sound())
 	# Audio chunk 6: footsteps, the body, props, task work, ambience, the horn.
 	var foley: Dictionary = await preload("res://net/dev/foley_check.gd").run(self)
@@ -476,6 +478,39 @@ func _vehicle_mix() -> bool:
 	}
 	print("[AudioTest] vehicle_mix %s; at rest %s, flat out %s" % [checks, still, flat_out])
 	return checks.values().all(func(value: Variant) -> bool: return bool(value))
+
+
+## A late joiner told of a honk-and-wait (ride.gd _rpc_boarding_state) after its
+## VehicleSound first saw the engine off: prime_running() means the engine just
+## runs, no crank. A second engine that isn't primed does crank on the same
+## change (first the primed one, so a crank gap can't hide the control's).
+func _engine_late_join() -> bool:
+	var state := {"on": false}
+	var me := _me()
+	var engines: Array[Node3D] = []
+	for primed: bool in [true, false]:
+		var engine := _VehicleSound.new() as Node3D
+		engine.name = "AudioTestEngine"
+		engine.set("state_source", func() -> Dictionary: return state)
+		add_child(engine)
+		engine.global_position = me.global_position if me != null else Vector3.ZERO
+		engines.append(engine)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var cranks := _SfxScript.log.count("engine_start")
+	engines[0].call("prime_running")
+	state["on"] = true
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	var after := _SfxScript.log.count("engine_start")
+	var crank := _placed("engine_start")
+	var primed_quiet: bool = crank.is_empty() or crank["node"] != str(engines[0].get_path())
+	var control_cranked: bool = after == cranks + 1 and not crank.is_empty() and crank["node"] == str(engines[1].get_path())
+	var running: bool = bool(engines[0].call("is_running")) and bool(engines[1].call("is_running"))
+	for engine: Node3D in engines:
+		engine.queue_free()
+	print("[AudioTest] engine_late_join: primed engine quiet %s, unprimed one cranked %s (cranks %d -> %d), both running %s" % [primed_quiet, control_cranked, cranks, after, running])
+	return primed_quiet and control_cranked and running
 
 
 ## audio/board_sound.gd on its own, the way a board that only attaches it gets it:

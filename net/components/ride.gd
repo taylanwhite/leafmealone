@@ -482,7 +482,10 @@ func _rpc_boarding_state(destination_zone: int, leave_at_time: float, left: floa
 	_destination = destination_zone
 	_leave_at = leave_at_time
 	_local_leave = _local_now() + left
+	# The engine has been idling since before this peer came: no crank for it.
 	_engine_on_at = _local_now()
+	if _engine != null:
+		_engine.call("prime_running")
 	_riders = riders
 	_last_call_played = left <= Constants.CHEFTY_BOARD_LAST_CALL_SECONDS
 

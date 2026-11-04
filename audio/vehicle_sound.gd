@@ -81,7 +81,8 @@ func _physics_process(delta: float) -> void:
 	_since_skid += delta
 	_since_start += delta
 	if not _primed:
-		# Already running when this peer first sees it (a late join): no crank.
+		# Already running when this peer first sees it: no crank. (A late joiner
+		# whose state arrives after this first tick is told by prime_running().)
 		_primed = true
 		_on = on
 		_speed = float(state.get("speed", 0.0))
@@ -102,6 +103,16 @@ func start() -> void:
 		return
 	_since_start = 0.0
 	_play("engine_start")
+
+
+## Already running when this peer first hears of it (a late joiner told of a
+## honk-and-wait that started before it came): the loops, no crank, whenever the
+## state first says on.
+func prime_running() -> void:
+	_primed = true
+	_on = true
+	_stop_t = -1.0
+	_since_start = INF
 
 
 ## Pulled up: the brakes (unless they just squealed) and a door.
