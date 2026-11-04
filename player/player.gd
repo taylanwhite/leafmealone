@@ -1966,7 +1966,12 @@ func e_choice() -> Dictionary:
 		if barrow != null:
 			return {"do": &"load_barrow", "hint": {"text": _Strings.UI["prompt_load_bag"], "at": barrow.global_position + Vector3(0.0, 1.4, 0.0), "source": barrow}, "target": barrow}
 	var can_pick := _hands_can_pick_up()
-	# Looking right at it.
+	# Looking right at it. fx-yard: a shelf slot your look lands on (the rake
+	# bin) beats a teammate standing in front of it: the thing you look at wins,
+	# and a friend browsing the bin in front of you isn't an offer to pick them up.
+	var looked_shelf := _looked_at_shelf()
+	if not looked_shelf.is_empty():
+		return looked_shelf
 	var mate := _grabbable_player()
 	if mate != null:
 		return {"do": &"grab_player", "hint": {"text": _Strings.UI["prompt_grab"], "at": mate.global_position + Vector3(0.0, 2.0, 0.0), "source": mate}, "target": mate}
@@ -2147,6 +2152,25 @@ func _look_miss(point: Vector3, reach: float) -> float:
 	if along <= 0.0 or to.length() > reach:
 		return INF
 	return (to - aim * along).length()
+
+
+## fx-yard: the shop shelf slot your look lands on, as E's choice ({} if none):
+## any "prompt_sources" node that can say what you're looking at (shelf_stock.gd
+## looked_prompt).
+func _looked_at_shelf() -> Dictionary:
+	for source: Node in get_tree().get_nodes_in_group("prompt_sources"):
+		if not source.has_method("looked_prompt"):
+			continue
+		var hint: Dictionary = source.call("looked_prompt", self)
+		if not hint.is_empty():
+			return {"do": &"source", "hint": hint, "target": source}
+	return {}
+
+
+## How far (m) your line of sight passes from point, within reach (INF past it
+## or behind you). For the things E chooses between (shelf_stock.gd).
+func look_miss(point: Vector3, reach: float) -> float:
+	return _look_miss(point, reach)
 
 
 ## The thing in reach you're looking right at (the nearest along your look), or null.

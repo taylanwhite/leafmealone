@@ -6292,3 +6292,101 @@ const CHEFTY_RIDE_UTURN_SHARE: float = 0.12
 ## view of the last climb before it goes (a client hears of it a ping later).
 const CHEFTY_BOARD_CLIMB_FINISH_SECONDS: float = 0.25
 const CHEFTY_BOARD_CLIMB_MARGIN: float = 0.25
+
+# ---- fx-yard: the yard and the people on it (docs/GAME.md "The yard's edges and
+# the people on it"). The fence, the town's edge, the homeowner's framing, a
+# teammate's catch-up after a network gap, and the rake bin under your look.
+## The job yard's fence is solid (levels/lots/lot_generator.gd _fence_body): a box
+## this thick (m) per run, this tall (m) by the hood's fence kind (a hand over the
+## tallest picket or rail), reaching back this far (m) past each run's start so
+## the back corners close, like the leaf field's fence line.
+const YARD_FENCE_SOLID_THICK: float = 0.14
+const YARD_FENCE_SOLID_HEIGHT: Dictionary = {
+	"picket": 1.0, "weathered_picket": 1.0, "vinyl": 1.3, "split_rail": 1.15, "privacy": 1.7, "iron": 1.4,
+}
+const YARD_FENCE_SOLID_OVERLAP: float = 1.0
+## The town line gives (levels/town/town_line.gd, net/components/vehicle_sim.gd).
+## The hedge takes Chefty in a band this deep (m) in front of the hedge wall's
+## inside face: its speed toward the hedge is held under what would stop it at
+## this deceleration (m/s^2) by the face, so it noses into the leaves and stops
+## there (under CHEFTY_CRASH_MIN_SPEED, never a crash); past the face it's pushed
+## back out at this speed (m/s), turned away from the hedge at up to this rate
+## (rad/s), and the leaves drag its sliding along the hedge (1/s) over the last
+## TOWN_EDGE_LEAVES_DEEP (m).
+const TOWN_EDGE_BAND: float = 9.0
+const TOWN_EDGE_DECEL: float = 34.0
+const TOWN_EDGE_PUSH_BACK: float = 1.4
+const TOWN_EDGE_TURN_RATE: float = 0.9
+const TOWN_EDGE_SIDE_DRAG: float = 2.2
+const TOWN_EDGE_LEAVES_DEEP: float = 2.2
+## A ROAD CLOSED barricade is for people (layer PAD_WALL_LAYER: they stop at it,
+## Chefty doesn't): Chefty drives through, tipping the sawhorses and bowling the
+## barrels, and loses this share of its speed per meter it spends among them.
+const TOWN_EDGE_BARRICADE_DRAG_PER_M: float = 0.035
+## The barricade's pieces, knocked (net/components/chefty_crash.gd _knock_over):
+## how heavy (kg); a sawhorse tips over its feet (carried at this share of
+## Chefty's speed, this much lift, m/s, turning at up to this rate, rad/s) and a
+## barrel bowls away (this share, this lift). Struck, a sawhorse leaves a little faster than the bumper (it's
+## light), so it flies ahead and off to the side instead of going under the truck.
+const TOWN_EDGE_SAWHORSE_MASS: float = 7.0
+const TOWN_EDGE_SAWHORSE_CARRY: float = 1.15
+const TOWN_EDGE_SAWHORSE_UP: float = 2.4
+## ... and off the side it was on at this speed (m/s), clear of the truck.
+const TOWN_EDGE_SAWHORSE_SIDE: float = 3.5
+const TOWN_EDGE_SAWHORSE_TIP: float = 6.0
+const TOWN_EDGE_BARREL_MASS: float = 11.0
+const TOWN_EDGE_BARREL_CARRY: float = 0.65
+const TOWN_EDGE_BARREL_UP: float = 2.2
+## Every peer, from where it draws Chefty: in the hedge's leaves faster than this
+## (m/s) the hedge thrashes (leaves fly, hedge_plow), at most this often (s); the
+## view of anyone riding along or this close (m) gets a little shake.
+const TOWN_EDGE_PLOW_MIN_SPEED: float = 1.5
+const TOWN_EDGE_PLOW_EVERY: float = 0.22
+const TOWN_EDGE_PLOW_LEAVES: int = 24
+## The thrashed hedge's leaves (m across): bigger than a pile's, so they read from the cab.
+const TOWN_EDGE_PLOW_LEAF_SIZE := Vector2(0.1, 0.18)
+## The homeowner, answering a talk (npcs/homeowner.gd host_stage_for): her spot
+## is on the talker's line of sight, this far out (m), searched along it and to
+## either side up to this angle (rad) for one inside her stage radius and clear
+## of solids; if she still ends up more than this angle (rad) off the middle of
+## the talker's view, the talker's view eases round onto her
+## (P1_COUNTER_FRAME_SECONDS), at most this many degrees up or down (rad).
+const HOMEOWNER_FRAME_SEARCH: float = 1.1
+const HOMEOWNER_FRAME_OFF_CENTER: float = 0.26
+const HOMEOWNER_FRAME_PITCH_MAX: float = 0.2
+## Her face's height over her feet (m), what the view eases onto, and how long
+## after she answers (s) a stop still frames her (later, your look is your own).
+const HOMEOWNER_FRAME_FACE_Y: float = 1.5
+const HOMEOWNER_FRAME_WINDOW: float = 4.0
+## Walking round into the talker's view she keeps this far off them (m), never
+## across their face.
+const HOMEOWNER_ROUND_TALKER: float = 1.75
+## Already this far off you (m, from..to) and more than this far (rad) off where you're looking,
+## she answers from where she stands and your view turns to her instead.
+const HOMEOWNER_FRAME_STAY_METERS := Vector2(1.4, 2.8)
+const HOMEOWNER_FRAME_TURN_AT: float = 0.85
+## A teammate's drawn body never jumps (net/components/net_smoother.gd): after a
+## gap in their updates, the visual catches up to where the stream says at no
+## more than this many times their own speed plus this much (m/s), so a burst
+## after a stall glides in over a few frames instead of popping.
+const SMOOTHER_CATCH_UP_SPEED_SHARE: float = 1.6
+const SMOOTHER_CATCH_UP_SPEED_MIN: float = 2.5
+## Off by more than this (m) after the gap, it's a move of its own (a short
+## host-ordered hop), drawn as the stream has it.
+const SMOOTHER_CATCH_UP_MAX: float = 1.5
+## A player's drawn body is always held to that pace, judged by their replicated
+## speed or how far the stream went over this long (s), whichever is more.
+const SMOOTHER_SPEED_WINDOW: float = 0.25
+## 2 AM while Chefty honks and waits for a trip out: everyone hops back out this
+## long (s) after the day closes (levels/world.gd _tick_boarding), a beat after the yawn.
+const CHEFTY_BOARD_CLOSED_BEAT: float = 0.9
+## The night passing (levels/day_sky.gd): a clock jump this big (h) is worked out
+## whole on its frame; the sleepers' eyes open on the morning, a veil of this
+## color fading over this long (s), on this canvas layer (under the HUD's).
+const DAY_SKY_JUMP_HOURS: float = 2.0
+const DAY_SKY_WAKE_SECONDS: float = 0.9
+const DAY_SKY_WAKE_COLOR := Color(0.03, 0.03, 0.06, 1.0)
+const DAY_SKY_WAKE_LAYER: int = 0
+## The last of the crew to lie down gets this long (s) on the cot before the night
+## passes (net/day/day_clock.gd): the climb, a round trip, and a breath.
+const SLEEP_LAST_ONE_BEAT: float = 1.6

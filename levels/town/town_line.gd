@@ -93,10 +93,11 @@ static func barricade_at(closure: Dictionary) -> Vector3:
 	return (closure["end"] as Vector3) + (closure["out"] as Vector3) * Constants.TOWN_LINE_BARRICADE_OUT
 
 
-## Everything here that collides, world space: [["box", center, size, yaw]].
-## The hedge's walls (overlapping at the corners, their inside face at the
-## fence, broken at each gate), each shut gate, and each barricade with its two
-## barrels.
+## Everything here that collides for everyone, world space: [["box", center,
+## size, yaw]]. The hedge's walls (overlapping at the corners, their inside face
+## at the fence, broken at each gate) and each shut gate. Chefty never reaches
+## them at speed: the hedge's band catches it first (VehicleSim.town_edge,
+## fx-yard). The barricades are foot_solids().
 static func solids() -> Array:
 	var out: Array = []
 	var high := Constants.TOWN_LINE_WALL_HEIGHT
@@ -133,11 +134,55 @@ static func solids() -> Array:
 	for closure: Dictionary in closures():
 		var gate: Vector3 = closure["gate"]
 		out.append(["box", gate + Vector3(0.0, 0.9, 0.0), Vector3(gate_reach * 2.0, 1.8, 0.4), 0.0])
-		var at := barricade_at(closure)
-		var half := float(closure["half"])
-		out.append(["box", at + Vector3(0.0, 0.6, 0.0), Vector3(half * 2.0, 1.2, 0.7), 0.0])
-		for spot: Vector3 in barrels(closure):
-			out.append(["box", spot + Vector3(0.0, 0.5, 0.0), Vector3(0.7, 1.0, 0.7), 0.0])
+	return out
+
+
+## fx-yard: the closed roads' barricades, solid to people only (Constants.
+## PAD_WALL_LAYER; Chefty drives through them and they tip): [[key, center, size,
+## yaw]], one per sawhorse (as wide as its share of the road, so the row has no
+## gap to squeeze through) and one per barrel. The key names the drawn piece
+## (_closure), which turns its own off while it lies knocked over.
+static func foot_solids() -> Array:
+	var out: Array = []
+	for closure: Dictionary in closures():
+		var horses := sawhorses(closure)
+		var share := float(closure["half"]) * 2.0 / float(horses.size())
+		for index: int in horses.size():
+			var horse: Dictionary = horses[index]
+			out.append([piece_key(closure, "horse", index), (horse["at"] as Vector3) + Vector3(0.0, 0.6, 0.0), Vector3(share + 0.5, 1.2, 0.8), float(horse["yaw"])])
+		var spots := barrels(closure)
+		for index: int in spots.size():
+			out.append([piece_key(closure, "barrel", index), spots[index] + Vector3(0.0, 0.5, 0.0), Vector3(0.7, 1.0, 0.7), 0.0])
+	return out
+
+
+## The name a barricade piece goes by in foot_solids() and the drawing.
+static func piece_key(closure: Dictionary, kind: String, index: int) -> String:
+	return "%s_%s%d" % [closure["key"], kind, index]
+
+
+## The barricade's own frame, world space: +X across the road, +Z back toward
+## town (it faces in), at the middle of the road at the ground.
+static func barricade_frame(closure: Dictionary) -> Transform3D:
+	var out: Vector3 = closure["out"]
+	return Transform3D(Basis(Vector3.UP, 0.0 if out.z < 0.0 else PI), barricade_at(closure))
+
+
+## A closed road's sawhorses across it, a little ragged: [{at (world, the
+## feet's middle at the ground), yaw, width}]. The same on every peer.
+static func sawhorses(closure: Dictionary) -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([SEED, str(closure["key"]), "sawhorses"])
+	var frame := barricade_frame(closure)
+	var half := float(closure["half"])
+	var width := half * 2.0
+	var count := maxi(3, int(width / 3.4))
+	var out: Array = []
+	for index: int in count:
+		var x := -half + width * (float(index) + 0.5) / float(count) + rng.randf_range(-0.2, 0.2)
+		var turn := rng.randf_range(-0.08, 0.08)
+		var foot := Vector3(x, 0.0, rng.randf_range(-0.15, 0.15))
+		out.append({"at": frame * foot, "yaw": frame.basis.get_euler().y + turn, "width": minf(2.6, width / float(count) - 0.3)})
 	return out
 
 
@@ -320,26 +365,38 @@ static func _closure(parent: Node3D, closure: Dictionary) -> void:
 		track.box(Vector3(side * 0.9, 0.0, -track_length * 0.5), Vector3(0.5, 0.06, track_length), GRAVEL.darkened(0.15))
 	_view(root, track, "Track", false, {"snow": 1.0})
 	var kit := _MeshKit.new()
-	# Sawhorses across the road, a little ragged.
-	var width := half * 2.0
-	var horses := maxi(3, int(width / 3.4))
-	var first := Vector3.ZERO
-	for index: int in horses:
-		var x := -half + width * (float(index) + 0.5) / float(horses) + rng.randf_range(-0.2, 0.2)
-		var turn := Basis(Vector3.UP, rng.randf_range(-0.08, 0.08))
-		var foot := Vector3(x, 0.0, rng.randf_range(-0.15, 0.15))
-		_sawhorse(kit, foot, turn, minf(2.6, width / float(horses) - 0.3))
+	# fx-yard: the sawhorses and barrels are each a piece of their own, so Chefty
+	# can knock them over (net/components/chefty_crash.gd, "town_knockables"),
+	# each with its people-only solid (foot_solids()) turned off while it lies.
+	var horses := sawhorses(closure)
+	for index: int in horses.size():
+		var horse: Dictionary = horses[index]
+		var piece := _knockable(root, "Sawhorse%d" % index, "sawhorse", piece_key(closure, "horse", index), horse["at"], float(horse["yaw"]), float(horse["width"]) * 0.5)
+		var horse_kit := _MeshKit.new()
+		_sawhorse(horse_kit, Vector3.ZERO, Basis.IDENTITY, float(horse["width"]))
+		_view(piece, horse_kit, "Look", true)
+		# The amber lamp sits on the first one's board (its top at 1.14 m) and
+		# goes over with it.
 		if index == 0:
-			first = foot
-	# The barrels where solids() has them (world to this frame).
-	for spot: Vector3 in barrels(closure):
-		_barrel(kit, root.transform.affine_inverse() * spot)
-	# The sign on a stand, just off the middle, its legs behind the board.
+			var lamp := _LowPoly.glow(piece, Vector3(0.22, 0.22, 0.22), Vector3(0.0, 1.25, 0.0), AMBER, 1.8)
+			lamp.name = "Lamp"
+			(lamp as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var spots := barrels(closure)
+	for index: int in spots.size():
+		var piece := _knockable(root, "Barrel%d" % index, "barrel", piece_key(closure, "barrel", index), spots[index], 0.0, 0.0)
+		var barrel_kit := _MeshKit.new()
+		_barrel(barrel_kit, Vector3.ZERO)
+		_view(piece, barrel_kit, "Look", true)
+	# The sign on a stand, just off the middle, its legs behind the board: a
+	# piece of its own, so a truck through the barricade takes it too (fx-yard).
 	var sign_x := -half * 0.35
+	var sign_piece := _knockable(root, "Sign", "sign", "", root.global_transform * Vector3(sign_x, 0.0, 0.0), root.global_rotation.y, 1.05)
+	var sign_kit := _MeshKit.new()
 	for leg: float in [-1.0, 1.0]:
-		_P.bar(kit, Vector3(sign_x + leg * 0.75, 0.0, -0.3), Vector3(sign_x + leg * 0.75, 2.25, -0.01), 0.045, Color(0.35, 0.36, 0.37), 5)
-	_P.slab(kit, Vector3(sign_x, 1.75, 0.08), Vector3(2.0, 1.15, 0.05), WHITE)
-	_P.slab(kit, Vector3(sign_x, 1.75, 0.06), Vector3(2.1, 1.25, 0.03), ORANGE)
+		_P.bar(sign_kit, Vector3(leg * 0.75, 0.0, -0.3), Vector3(leg * 0.75, 2.25, -0.01), 0.045, Color(0.35, 0.36, 0.37), 5)
+	_P.slab(sign_kit, Vector3(0.0, 1.75, 0.08), Vector3(2.0, 1.15, 0.05), WHITE)
+	_P.slab(sign_kit, Vector3(0.0, 1.75, 0.06), Vector3(2.1, 1.25, 0.03), ORANGE)
+	_view(sign_piece, sign_kit, "Look", true)
 	# The farm gate in the hedge: two posts and five bars, shut across the track,
 	# and a bush each side so the hedge closes on the posts.
 	var gate_z := -(to_gate - Constants.TOWN_LINE_BARRICADE_OUT)
@@ -357,16 +414,28 @@ static func _closure(parent: Node3D, closure: Dictionary) -> void:
 	for side: float in [-1.0, 1.0]:
 		_P.slab(kit, Vector3(side * (gate_half - 0.1), 0.89, gate_z + 0.04), Vector3(0.12, 1.25, 0.06), GATE.darkened(0.08))
 	_view(root, kit, "Barricade", true)
-	# The amber lamp sits on the first sawhorse's board (its top at 1.14 m).
-	var lamp := _LowPoly.glow(root, Vector3(0.22, 0.22, 0.22), first + Vector3(0.0, 1.25, 0.0), AMBER, 1.8)
-	lamp.name = "Lamp"
-	(lamp as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var title := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed"], Vector3(sign_x, 2.0, 0.12), 50, Color(0.12, 0.1, 0.08))
+	var title := _LowPoly.text_sign(sign_piece, _Strings.TOWN_SIGNS["road_closed"], Vector3(0.0, 2.0, 0.12), 50, Color(0.12, 0.1, 0.08))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.outline_size = 0
-	var line := _LowPoly.text_sign(root, _Strings.TOWN_SIGNS["road_closed_" + str(closure["key"])], Vector3(sign_x, 1.52, 0.12), 19, Color(0.12, 0.1, 0.08))
+	var line := _LowPoly.text_sign(sign_piece, _Strings.TOWN_SIGNS["road_closed_" + str(closure["key"])], Vector3(0.0, 1.52, 0.12), 19, Color(0.12, 0.1, 0.08))
 	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	line.outline_size = 0
+
+
+## One barricade piece Chefty can knock over: a node at world `at`, turned to
+## yaw, in "town_knockables" (kind, its people-only solid's key, and how far its
+## ends reach past its middle across the road, m, for the knock's footprint).
+static func _knockable(parent: Node3D, node_name: String, kind: String, key: String, at: Vector3, yaw: float, reach: float) -> Node3D:
+	var piece := Node3D.new()
+	piece.name = node_name
+	parent.add_child(piece)
+	piece.global_transform = Transform3D(Basis(Vector3.UP, yaw), at)
+	piece.set_meta("kind", kind)
+	if key != "":
+		piece.set_meta("foot_key", key)
+	piece.set_meta("knock_reach", reach)
+	piece.add_to_group("town_knockables")
+	return piece
 
 
 ## A sawhorse at at (its feet at the ground), turned by turn: A-frame legs each

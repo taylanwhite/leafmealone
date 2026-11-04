@@ -69,7 +69,8 @@ func _run() -> void:
 	ok = ok and one_down
 	var other := _other_peer()
 	clock.call("_handle_sleep", other, true)
-	await get_tree().create_timer(0.5).timeout
+	# fx-yard: the night passes a beat after the last one lies down.
+	await get_tree().create_timer(Constants.SLEEP_LAST_ONE_BEAT + 0.5).timeout
 	var next_day := int(clock.get("day")) == 2 and summaries.size() == 1 and (clock.get("sleepers") as Array).is_empty()
 	print("[DayTest] both asleep: day %d, %d summary: %s" % [int(clock.get("day")), summaries.size(), next_day])
 	ok = ok and next_day

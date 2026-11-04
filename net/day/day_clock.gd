@@ -188,8 +188,13 @@ func _handle_sleep(peer_id: int, lying_down: bool, cot: int = -1) -> void:
 		sleepers.erase(peer_id)
 		cots.erase(peer_id)
 	_rpc_sleepers.rpc(sleepers, cots)
+	# fx-yard: the last one in bed gets to lie down first (they climb on over
+	# SLEEP_CLIMB_SECONDS, a round trip after the host hears them): the night
+	# came the moment they pressed E, so on every screen but the host's they never
+	# lay down at all (rec_night2_3p frames 145-147). Still all in bed after the
+	# beat, the night passes.
 	if not sleepers.is_empty() and sleepers.size() >= _crew_count():
-		_end_day()
+		get_tree().create_timer(Constants.SLEEP_LAST_ONE_BEAT).timeout.connect(_check_all_asleep)
 
 
 ## Everyone is back at the store: nobody's mid-job, in the van, or crossing.

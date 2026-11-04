@@ -135,6 +135,16 @@ static func step(chassis: CharacterBody3D, state: Dictionary, input: Dictionary,
 		accel_along = (along - before) / maxf(dt, 0.0001)
 	state["slip"] = absf(side)
 	vel = forward * along + right * side
+	# fx-yard: Gutterford's edge gives. The hedgerow catches the truck and turns
+	# it back instead of being a wall to crash into; a ROAD CLOSED barricade is
+	# driven through, the sawhorses costing a little speed. Both a pure function
+	# of where the chassis is, so the driver's replay matches the host.
+	if bool(params.get("town_edge", false)) and not air:
+		var edge := town_edge(chassis.global_position, yaw, vel, dt)
+		vel = edge[0]
+		yaw = wrapf(yaw + float(edge[1]), -PI, PI)
+		forward = forward_of(yaw)
+		right = right_of(yaw)
 	# Lean back on the gas, nose down on the brakes, out of the turn.
 	var lean_max := Constants.CHEFTY_LEAN_MAX
 	var lateral := yaw_rate * along
@@ -277,6 +287,78 @@ static func _mean(values: Array) -> float:
 			total += value
 			count += 1
 	return total / float(count) if count > 0 else NAN
+
+
+## How far (m) the truck's footprint at pos, heading yaw, reaches into the
+## hedge's band (0 outside it, TOWN_EDGE_BAND at the hedge wall's inside face),
+## and the outward normal of that side: [depth, normal]. Corners count, so a
+## truck sliding along the hedge at an angle is caught by its nose.
+static func town_edge_depth(pos: Vector3, yaw: float) -> Array:
+	var face := Constants.TOWN_LINE_RECT.grow(-Constants.TOWN_LINE_WALL_INSIDE)
+	var band := Constants.TOWN_EDGE_BAND
+	var basis := Basis(Vector3.UP, yaw)
+	var best := 0.0
+	var normal := Vector3.ZERO
+	for corner: Vector2 in [Vector2(-1.0, -1.0), Vector2(1.0, -1.0), Vector2(-1.0, 1.0), Vector2(1.0, 1.0)]:
+		var at := pos + basis * Vector3(corner.x * Constants.CHEFTY_HALF_WIDTH, 0.0, corner.y * Constants.CHEFTY_HALF_LENGTH)
+		for side: Array in [[face.position.x + band - at.x, Vector3.LEFT], [at.x - (face.end.x - band), Vector3.RIGHT], [face.position.y + band - at.z, Vector3.FORWARD], [at.z - (face.end.y - band), Vector3.BACK]]:
+			var depth := float(side[0])
+			if depth > best:
+				best = depth
+				normal = side[1]
+	return [minf(best, band + 1.0), normal]
+
+
+## The town's edge on one step (see step): [velocity, yaw change].
+static func town_edge(pos: Vector3, yaw: float, vel: Vector3, dt: float) -> Array:
+	var turn := 0.0
+	var hit := town_edge_depth(pos, yaw)
+	var depth := float(hit[0])
+	if depth > 0.0:
+		var normal: Vector3 = hit[1]
+		var left := Constants.TOWN_EDGE_BAND - depth
+		var leaves := clampf(1.0 - left / Constants.TOWN_EDGE_LEAVES_DEEP, 0.0, 1.0)
+		# Held under the speed that stops it by the hedge's face, and in the
+		# leaves pushed gently back out.
+		var allow := sqrt(2.0 * Constants.TOWN_EDGE_DECEL * maxf(left, 0.0)) - Constants.TOWN_EDGE_PUSH_BACK * leaves
+		var out := vel.dot(normal)
+		if out > allow:
+			vel -= normal * (out - allow)
+		if leaves > 0.0:
+			var along := vel - normal * vel.dot(normal)
+			vel -= along * (1.0 - exp(-Constants.TOWN_EDGE_SIDE_DRAG * leaves * dt))
+		# Turned away from it: driven nose first into the hedge, the truck swings
+		# back toward town (the hedge on its right turns it left; +yaw is a left
+		# turn). Only then: a truck leaving (nose toward town) or backing out is
+		# the driver's to steer; turning those dragged it along the hedge.
+		var forward := forward_of(yaw)
+		var facing := forward.dot(normal)
+		var ahead := vel.dot(forward)
+		if facing > 0.1 and ahead > 0.5:
+			var away := 1.0 if right_of(yaw).dot(normal) >= 0.0 else -1.0
+			turn = away * Constants.TOWN_EDGE_TURN_RATE * clampf(depth / Constants.TOWN_EDGE_BAND, 0.0, 1.0) * clampf(Vector2(vel.x, vel.z).length() / 6.0, 0.0, 1.0) * dt
+	# A closed road's barricade: driven through, a little speed lost to it.
+	for rect: Rect2 in barricade_rects():
+		if rect.has_point(Vector2(pos.x, pos.z)):
+			var meters := Vector2(vel.x, vel.z).length() * dt
+			vel *= exp(-Constants.TOWN_EDGE_BARRICADE_DRAG_PER_M * meters)
+			break
+	return [vel, turn]
+
+
+static var _barricades: Array[Rect2] = []
+
+
+## Where a truck's middle is among a closed road's sawhorses and barrels (x, z):
+## each barricade's row, grown by the truck's half width across and half length along.
+static func barricade_rects() -> Array[Rect2]:
+	if _barricades.is_empty():
+		var town_line: Variant = load("res://levels/town/town_line.gd")
+		for closure: Dictionary in town_line.closures():
+			var at: Vector3 = town_line.barricade_at(closure)
+			var half := float(closure["half"]) + 1.2
+			_barricades.append(Rect2(at.x - half, at.z - 0.4, half * 2.0, 0.8).grow_individual(Constants.CHEFTY_HALF_WIDTH, Constants.CHEFTY_HALF_LENGTH, Constants.CHEFTY_HALF_WIDTH, Constants.CHEFTY_HALF_LENGTH))
+	return _barricades
 
 
 ## Soft things the chassis went through come back into play after a moment.

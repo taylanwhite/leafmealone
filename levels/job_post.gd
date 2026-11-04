@@ -28,14 +28,14 @@ func _ready() -> void:
 
 ## The prompt while the local player stands here, or empty.
 func prompt() -> Dictionary:
-	if not _inside or _aboard():
+	if not _inside or _aboard() or _closed():
 		return {}
 	var keys := {"finish": "prompt_finish", "store": "prompt_shop"}
 	return {"text": _Strings.UI[keys.get(action_name, "prompt_board")], "at": global_position + Vector3(0.0, 1.6, 0.0)}
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not _inside or _aboard() or not event.is_action_pressed("interact"):
+	if not _inside or _aboard() or _closed() or not event.is_action_pressed("interact"):
 		return
 	var world := get_tree().get_first_node_in_group("world")
 	if world == null:
@@ -49,6 +49,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	else:
 		world.call("request_depart")
 	get_viewport().set_input_as_handled()
+
+
+## fx-yard: Board when Chefty can't go anywhere (past 2 AM, or no job yet) says
+## nothing and does nothing: no prompt for an E that only shrugs.
+func _closed() -> bool:
+	if action_name != "depart":
+		return false
+	var world := get_tree().get_first_node_in_group("world")
+	return world != null and world.has_method("can_depart") and not bool(world.call("can_depart"))
 
 
 ## Sitting in Chefty's bed already (its honk-and-wait, p1-depart): the truck's

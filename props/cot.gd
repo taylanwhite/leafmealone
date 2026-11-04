@@ -175,8 +175,11 @@ static func dress_camp(zone: Node3D, spots: Array[Vector3]) -> void:
 	kit.rbox(Vector3(middle.x + 1.0, 0.22, last.z + 1.3), Vector3(0.32, 0.22, 0.22), Color(0.85, 0.25, 0.2), 5.0)
 	kit.rbox(Vector3(middle.x + 1.0, 0.46, last.z + 1.3), Vector3(0.33, 0.03, 0.23), Color(0.95, 0.95, 0.92), 5.0)
 	kit.blob(Vector3(middle.x - 1.2, 0.08, first.z - 1.1), Vector3(0.09, 0.08, 0.05), Color(0.9, 0.75, 0.2), {"flat": false, "lumps": 0.0})
-	# The sign stands on its own post out front, clear of the tarp.
-	var sign_at := Vector3(pole_x + 1.1, 0.0, middle.z)
+	# The sign stands on its own post out front, clear of the tarp, past the end of
+	# the row: in front of the middle cot it stood where a sleeper steps down off
+	# the foot, and the morning opened on the back of the board (fx-yard,
+	# rec_night2_1p frames 155-175).
+	var sign_at := Vector3(pole_x + 0.7, 0.0, first.z - 2.0)
 	kit.tube(PackedVector3Array([sign_at, sign_at + Vector3(0.0, 1.5, 0.0)]), PackedFloat32Array([0.04, 0.04]), FRAME, 6, {"jitter": 0.0})
 	kit.rbox(sign_at + Vector3(0.0, 1.65, 0.0), Vector3(0.05, 0.42, 1.0), Color(0.93, 0.9, 0.82), 6.0)
 	var view := _Stylized.instance(kit.commit(), {"roughness": 0.8, "specular": 0.1})

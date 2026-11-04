@@ -623,6 +623,19 @@ jobs:
           grep "UiTest" build/soak/ci-ui/host.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-ui/host.json')); sys.exit(0 if h['ui_test'].get('ok') else 1)"
 
+      # fx-yard: the yard's edges and the people on it (net/dev/yard_test.gd).
+      - name: Yard test (the rake bin under your look, the solid fence, the homeowner framed, the town's edge gives, catch-up)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-yard
+          "$GODOT" --headless --path . -- --host --port=7839 --name=Tester --no-steam --town-map --job-seed=777 --yard-size=1 --start-hour=10 --yard-test --sim-lag=150 --yard-test --measure="$PWD/build/soak/ci-yard/host.json" --run-seconds=150 > build/soak/ci-yard/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7839 --name=Target --no-steam --sim-lag=150 --yard-test --measure="$PWD/build/soak/ci-yard/target.json" --run-seconds=145 > build/soak/ci-yard/target.log 2>&1
+          wait
+          grep "YardTest" build/soak/ci-yard/host.log build/soak/ci-yard/target.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-yard/host.json')); t=json.load(open('build/soak/ci-yard/target.json')); sys.exit(0 if h['yard_test'].get('ok') and t['yard_test'].get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

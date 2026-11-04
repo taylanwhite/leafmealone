@@ -583,6 +583,11 @@ func _rpc_react(mood: String, line_index: int, amount: int, pool: String = "") -
 	_body.set("mood", staging["mood"])
 	_body.call("gesture", staging["gesture"])
 	_speak(str(staging["sound"]))
+	# fx-yard: answering you (host_stage_for's walk went out just before this):
+	# once she's stopped where she answers from, she's framed in your view.
+	if _talker != 0 and _talker == Net.local_peer_id():
+		_frame_pending = true
+		_frame_until = Time.get_ticks_msec() + int(Constants.HOMEOWNER_FRAME_WINDOW * 1000.0)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -773,6 +778,11 @@ func _physics_process(delta: float) -> void:
 	else:
 		_walk(_net_want, delta)
 	_left_at = position
+	# fx-yard: stopped where she answers you from; frame her if she's off to the side.
+	if _frame_pending and _walk_speed <= 0.0:
+		if Time.get_ticks_msec() < _frame_until:
+			_frame_talker()
+		_frame_pending = false
 
 
 ## Host: where she should be heading this tick, walked, and shared.
@@ -841,16 +851,96 @@ func host_stage_for(peer_id: int) -> void:
 		return
 	_talker = peer_id
 	var yaw := float(talker.get("body_yaw")) if "body_yaw" in talker else talker.global_rotation.y
-	var ahead := Vector3(-sin(yaw), 0.0, -cos(yaw))
-	var spot := talker.global_position + ahead * Constants.HOMEOWNER_FACE_METERS
-	_stage_to = parent.to_local(Vector3(spot.x, global_position.y, spot.z))
+	_stage_to = _stage_spot(talker, yaw)
 	_back_to = Vector3.INF
 	_share_want(_stage_to, true)
+
+
+## fx-yard: where she stands to answer (lot space). Straight ahead of the
+## talker's eyes at HOMEOWNER_FACE_METERS when she can get there; otherwise the
+## spot nearest their line of sight (searched out to HOMEOWNER_FRAME_SEARCH
+## either side, a little nearer or farther) that is inside her stage radius and
+## that she can walk to without a fence, the house or Chefty in the way. The
+## old way clamped the straight-ahead spot to the radius, which could leave her
+## 1.2 m off the line of sight, at the edge of the talker's screen.
+func _stage_spot(talker: Node3D, yaw: float) -> Vector3:
+	var parent := get_parent() as Node3D
+	# Well off to the side of where you look (behind your shoulder) but at a
+	# talking distance already: she answers from there and your view turns to her
+	# (_frame_talker), the way you'd turn to someone who spoke from beside you.
+	# Walking round into view from there crossed the screen's edge, where a wide
+	# lens stretches a face to half the picture (rec_framed3_1p frames 37-50).
+	var ahead_now := Vector3(-sin(yaw), 0.0, -cos(yaw))
+	var to_her := Vector3(global_position.x - talker.global_position.x, 0.0, global_position.z - talker.global_position.z)
+	if to_her.length() >= Constants.HOMEOWNER_FRAME_STAY_METERS.x and to_her.length() <= Constants.HOMEOWNER_FRAME_STAY_METERS.y and ahead_now.angle_to(to_her) > Constants.HOMEOWNER_FRAME_TURN_AT:
+		return position
+	var best := Vector3.INF
+	var best_score := INF
+	var steps := 8
+	for step: int in range(-steps, steps + 1):
+		var angle := Constants.HOMEOWNER_FRAME_SEARCH * float(step) / float(steps)
+		for reach: float in [Constants.HOMEOWNER_FACE_METERS, Constants.HOMEOWNER_FACE_METERS + 0.5, Constants.HOMEOWNER_FACE_METERS - 0.3, Constants.HOMEOWNER_FACE_METERS + 1.0]:
+			var score := absf(angle) + absf(reach - Constants.HOMEOWNER_FACE_METERS) * 0.15
+			if score >= best_score:
+				continue
+			var ahead := Vector3(-sin(yaw + angle), 0.0, -cos(yaw + angle))
+			var spot := talker.global_position + ahead * reach
+			var local := parent.to_local(Vector3(spot.x, global_position.y, spot.z))
+			if Vector2(local.x - _home.x, local.z - _home.z).length() > Constants.HOMEOWNER_STAGE_RADIUS:
+				continue
+			if _clear_path(local).distance_to(local) > 0.15:
+				continue
+			best = local
+			best_score = score
+	if best.is_finite():
+		return best
+	var fallback := talker.global_position + ahead_now * Constants.HOMEOWNER_FACE_METERS
+	return parent.to_local(Vector3(fallback.x, global_position.y, fallback.z))
+
+
+## fx-yard, the talker's own peer: once she has stopped where she answers from,
+## if she's still off the middle of your view (she couldn't get in front of
+## you: a fence, Chefty, her own yard's edge), your view eases round onto her
+## face the way Marty's counter does (store_clerk.gd frame_for), so the line,
+## the gesture and the cash are always in the picture. Local: your look is yours.
+var _frame_pending: bool = false
+var _frame_until: int = 0
+## How many times this peer eased its view onto her (tests).
+var frames_eased: int = 0
+
+
+func _frame_talker() -> void:
+	_frame_pending = false
+	var me: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(Net.local_peer_id()):
+			me = node as Node3D
+	if me == null or not ("body_yaw" in me) or not ("head_pitch" in me):
+		return
+	var camera := get_viewport().get_camera_3d() if get_viewport() != null else null
+	var eye := camera.global_position if camera != null else me.global_position + Vector3.UP * 1.6
+	var face := global_position + Vector3.UP * Constants.HOMEOWNER_FRAME_FACE_Y
+	var to := face - eye
+	var flat := Vector2(to.x, to.z).length()
+	# Walked off meanwhile, or right on top of her: nothing to frame.
+	if flat < 0.3 or flat > TALK_REACH + 1.5:
+		return
+	var yaw := float(me.get("body_yaw"))
+	var want_yaw := atan2(-to.x, -to.z)
+	var off := absf(angle_difference(yaw, want_yaw))
+	if off <= Constants.HOMEOWNER_FRAME_OFF_CENTER:
+		return
+	frames_eased += 1
+	var want_pitch := clampf(atan2(to.y, flat), -Constants.HOMEOWNER_FRAME_PITCH_MAX, Constants.HOMEOWNER_FRAME_PITCH_MAX)
+	var turn := me.create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	turn.tween_property(me, "body_yaw", yaw + angle_difference(yaw, want_yaw), Constants.P1_COUNTER_FRAME_SECONDS)
+	turn.tween_property(me, "head_pitch", want_pitch, Constants.P1_COUNTER_FRAME_SECONDS)
 
 
 ## Every peer but the host: where she's headed now (lot space), and who she's talking to.
 @rpc("authority", "call_remote", "reliable")
 func _rpc_walk(want: Vector3, talker: int) -> void:
+	# A new spot to answer you from (fx-yard): frame her once she's there.
 	_net_want = want
 	_talker = talker
 
@@ -883,8 +973,58 @@ func _walk(want: Vector3, delta: float) -> bool:
 	# Ease in, and slow down for the last stretch rather than stopping dead.
 	var top := minf(Constants.HOMEOWNER_WALK_SPEED, to.length() / maxf(Constants.HOMEOWNER_WALK_EASE_SECONDS, 0.01))
 	_walk_speed = move_toward(_walk_speed, top, delta * Constants.HOMEOWNER_WALK_SPEED / maxf(Constants.HOMEOWNER_WALK_EASE_SECONDS, 0.01))
-	position += to.normalized() * minf(_walk_speed * delta, to.length())
+	var heading := _round_talker(to)
+	position += heading * minf(_walk_speed * delta, to.length())
 	return false
+
+
+## fx-yard: the way to `to` (a step from here, lot space), bent round the one
+## she's answering so she never walks across their face: a straight line from
+## beside them to in front of them passed through their eyes (rec_framed_1p
+## frames 39-49, her face filling the screen). Kept HOMEOWNER_ROUND_TALKER (m)
+## off them, on whichever side the line already passed.
+func _round_talker(to: Vector3) -> Vector3:
+	var straight := to.normalized()
+	if _talker == 0:
+		return straight
+	var talker: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("players"):
+		if node.name == str(_talker):
+			talker = node as Node3D
+	var parent := get_parent() as Node3D
+	if talker == null or parent == null:
+		return straight
+	var at := parent.to_local(talker.global_position)
+	var me := Vector2(position.x, position.z)
+	var them := Vector2(at.x, at.z)
+	var path := Vector2(to.x, to.z)
+	var clear := Constants.HOMEOWNER_ROUND_TALKER
+	# Where the straight line passes nearest them; no bend once the rest of the
+	# way is clear, or when the spot itself is that close (then she just goes).
+	var along := clampf((them - me).dot(path) / maxf(path.length_squared(), 0.0001), 0.0, 1.0)
+	var nearest := me + path * along
+	if nearest.distance_to(them) >= clear or (me + path).distance_to(them) < clear * 0.9:
+		return straight
+	var side := nearest - them
+	if side.length() < 0.05:
+		side = Vector2(-path.y, path.x)
+	# Head for the point beside them on that side, then round them to the spot.
+	var aim := them + side.normalized() * (clear + 0.15) - me
+	if aim.length() < 0.2:
+		aim = Vector2(-(them - me).y, (them - me).x) * signf(side.dot(Vector2(-(them - me).y, (them - me).x)) + 0.001)
+	var bent := Vector3(aim.x, 0.0, aim.y).normalized()
+	if bent.length() < 0.5:
+		return straight
+	# The bent leg is checked like the straight one (_walk only clears that): past
+	# her stage radius, or into the house, the yard fence or Chefty, she takes the
+	# straight way instead.
+	var round_to := Vector3(me.x + aim.x, position.y, me.y + aim.y)
+	if Vector2(round_to.x - _home.x, round_to.z - _home.z).length() > Constants.HOMEOWNER_STAGE_RADIUS:
+		return straight
+	var cleared := _clear_path(round_to)
+	if Vector2(cleared.x - round_to.x, cleared.z - round_to.z).length() > 0.05:
+		return straight
+	return bent
 
 
 ## goal pulled back short of the first solid thing (a fence, the house, Chefty)

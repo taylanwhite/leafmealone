@@ -1121,6 +1121,21 @@ func _tick_boarding() -> void:
 		_all_aboard_at = -1.0
 		return
 	var going_to := int(ride.call("boarding_destination"))
+	# fx-yard: 2 AM came while Chefty honked and waited for a trip out. The day's
+	# over, so is the wait: a beat after the closing yawn everyone hops back out,
+	# with no last-call honk for a trip that isn't happening and no "hit the road"
+	# for five more seconds (rec_close2am_1p: it waited out the window first).
+	if going_to == Net.Zone.LOT and not can_depart():
+		var now_closed := Net.server_time()
+		if _closed_wait_at < 0.0:
+			_closed_wait_at = now_closed
+		elif now_closed - _closed_wait_at >= Constants.CHEFTY_BOARD_CLOSED_BEAT:
+			_closed_wait_at = -1.0
+			_go_now = false
+			_all_aboard_at = -1.0
+			ride.call("close_boarding")
+		return
+	_closed_wait_at = -1.0
 	var zone: int = Net.Zone.STORE if going_to == Net.Zone.LOT else Net.Zone.LOT
 	var director := get_node_or_null("RunDirector")
 	var waiting := 0
@@ -1310,6 +1325,9 @@ var _lot_free_pending: bool = false
 ## (on the road, or honking at the store for a straggler): it goes back out for
 ## the crew and takes them home.
 var _home_after_trip: bool = false
+
+## Host: when a wait for a trip out found the day closed (server time), or -1.
+var _closed_wait_at: float = -1.0
 
 
 ## Whether Chefty can head out: a yard is waiting (or a test seed), and the

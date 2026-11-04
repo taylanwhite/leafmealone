@@ -84,10 +84,25 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var hour := _hour()
+	# fx-yard: the night passing (everyone in bed, the clock jumps to 7 AM) is a
+	# cut, and the sky's light caught up with it a few frames at a time, so the
+	# morning showed dim and then jumped bright eight frames later (rec_night_3p
+	# frames 148-156). Worked out whole on that frame instead; and if you slept
+	# through it, your eyes open on the morning.
+	var jumped := _shown_hour > -50.0 and absf(hour - _shown_hour) >= Constants.DAY_SKY_JUMP_HOURS
 	if _dirty or absf(hour - _shown_hour) >= Constants.DAY_SKY_STEP_HOURS:
 		_apply(hour)
 	if _headless():
 		return
+	if jumped:
+		_whole_sky_frames = 2
+		if _was_asleep:
+			_open_eyes()
+	if _environment != null and _environment.sky != null:
+		_environment.sky.process_mode = Sky.PROCESS_MODE_QUALITY if _whole_sky_frames > 0 else Sky.PROCESS_MODE_INCREMENTAL
+	_whole_sky_frames = maxi(_whole_sky_frames - 1, 0)
+	_was_asleep = _local_asleep()
+	_step_eyes(delta)
 	_scan_wait -= delta
 	if _scan_wait <= 0.0:
 		_scan_wait = Constants.DAY_SKY_SCAN_SECONDS
@@ -148,6 +163,49 @@ func set_base_brightness(value: float) -> void:
 		return
 	_base_brightness = value
 	_dirty = true
+
+
+var _whole_sky_frames: int = 0
+var _was_asleep: bool = false
+## Your eyes opening on the morning: a dark veil over the screen fading out.
+var _eyes: ColorRect
+var _eyes_left: float = 0.0
+
+
+func _local_asleep() -> bool:
+	var clock := get_parent().get_node_or_null("DayClock")
+	return clock != null and clock.has_method("is_sleeping") and bool(clock.call("is_sleeping", Net.local_peer_id()))
+
+
+func _open_eyes() -> void:
+	if _eyes == null:
+		var layer := CanvasLayer.new()
+		layer.name = "WakeEyes"
+		# Under the HUD and the day's card, over the world.
+		layer.layer = Constants.DAY_SKY_WAKE_LAYER
+		add_child(layer)
+		_eyes = ColorRect.new()
+		_eyes.color = Constants.DAY_SKY_WAKE_COLOR
+		_eyes.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_eyes.set_anchors_preset(Control.PRESET_FULL_RECT)
+		layer.add_child(_eyes)
+	_eyes_left = Constants.DAY_SKY_WAKE_SECONDS
+	_eyes.visible = true
+	_eyes.modulate.a = 1.0
+	wakes_seen += 1
+
+
+## How many times this peer's eyes opened on a morning (tests).
+var wakes_seen: int = 0
+
+
+func _step_eyes(delta: float) -> void:
+	if _eyes == null or not _eyes.visible:
+		return
+	_eyes_left = maxf(_eyes_left - delta, 0.0)
+	_eyes.modulate.a = smoothstep(0.0, 1.0, _eyes_left / Constants.DAY_SKY_WAKE_SECONDS)
+	if _eyes_left <= 0.0:
+		_eyes.visible = false
 
 
 func _hour() -> float:

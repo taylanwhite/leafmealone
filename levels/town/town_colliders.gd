@@ -10,7 +10,8 @@ extends Node3D
 ## (its top at y -0.02, a hair under the lot's floor), each yard slot's house and
 ## tree trunks, each dressing house across the street, street lamps, parked
 ## cars, the landmarks, the country trees, the lake's low wall, Marty's pallet
-## ramp at Homie Depot, and the town line's hedge and barricades. Curbs have no collider: vehicles ride over them.
+## ramp at Homie Depot, and the town line's hedge and farm gates. Curbs have no collider: vehicles ride over them.
+## The town line's ROAD CLOSED barricades are people-only (TownLineFoot, fx-yard).
 ##
 ## A yard slot's house comes from the house's seed (the job yard's house), which
 ## clients learn with the town's state (net/town/town.gd); until then those
@@ -43,6 +44,8 @@ const LAKE_WALL_HEIGHT: float = 0.5
 const RAMP_SIZE := Vector3(3.2, 0.8, 2.4)
 
 var _body: StaticBody3D
+## fx-yard: the barricades' people-only shapes, by piece key (town_line.gd foot_solids).
+var _foot: StaticBody3D
 ## house_id -> Array[CollisionShape3D]; the first is the house.
 var _slots: Dictionary = {}
 ## Yard slots that are the job site right now.
@@ -74,9 +77,25 @@ func _ready() -> void:
 		_add_box("Landmark", solid[0], solid[1], Basis(Vector3.UP, float(solid[2])))
 	_lake_wall()
 	_ramp()
-	# The town line's hedge and its closed roads' barricades (levels/town/town_line.gd).
+	# The town line's hedge and its farm gates (levels/town/town_line.gd).
 	for solid: Array in _TownLine.solids():
 		_add_box("TownLine", solid[1], solid[2], Basis(Vector3.UP, float(solid[3])))
+	# fx-yard: its closed roads' barricades stop people, not Chefty: a body of
+	# their own on the pad-wall layer, one shape per sawhorse and barrel, which
+	# the drawn piece turns off while it lies knocked over (chefty_crash.gd).
+	_foot = StaticBody3D.new()
+	_foot.name = "TownLineFoot"
+	_foot.collision_layer = Constants.PAD_WALL_LAYER
+	_foot.collision_mask = 0
+	add_child(_foot)
+	for solid: Array in _TownLine.foot_solids():
+		var box := BoxShape3D.new()
+		box.size = solid[2]
+		var shape := CollisionShape3D.new()
+		shape.name = str(solid[0])
+		shape.shape = box
+		shape.transform = Transform3D(Basis(Vector3.UP, float(solid[3])), solid[1])
+		_foot.add_child(shape)
 	# The outskirts' poles, farm, water tower, billboard, leaf mountain, row trees
 	# and Main Street's storefronts (levels/town/outskirts.gd, driving:E2); the
 	# farmhouse costs a house plan.
@@ -137,6 +156,11 @@ func layout_hash() -> int:
 
 func shape_count() -> int:
 	return _body.get_child_count()
+
+
+## fx-yard: a barricade piece's people-only solid (town_line.gd piece_key), or null.
+func foot_shape(key: String) -> CollisionShape3D:
+	return _foot.get_node_or_null(key) as CollisionShape3D if _foot != null else null
 
 
 ## The yard slots' houses, from the town's seeds, once they're known.

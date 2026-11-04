@@ -107,6 +107,11 @@ func _physics_process(_delta: float) -> void:
 			stats["hitches"] = int(stats["hitches"]) + 1
 			if hitch_log.size() < HITCH_LOG_MAX:
 				hitch_log.append([now, snappedf(gap, 0.001), body.get_multiplayer_authority()])
+			# fx-yard: the stream starts again ahead of where the visual stalled;
+			# the visual catches up at a run rather than in one frame (_process).
+			if not _held and catch_up_on:
+				_catch_up = true
+				stats["catch_ups"] = int(stats.get("catch_ups", 0)) + 1
 	stats["samples"] = int(stats["samples"]) + 1
 	var velocity: Vector3 = body.get("velocity") if "velocity" in body else Vector3.ZERO
 	_last_recorded = origin
@@ -124,7 +129,7 @@ func _trim(now: float) -> void:
 		_samples.remove_at(0)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _is_local_authority() or _visual == null or _parent_places_visual():
 		return
 	# Off a seat or a stage since the last physics tick: from where it's drawn now.
@@ -142,6 +147,25 @@ func _process(_delta: float) -> void:
 			_blend_at = -1.0
 		else:
 			rendered = _blend_from.interpolate_with(rendered, smoothstep(0.0, 1.0, blend))
+	# fx-yard: after a gap in the updates (a stalled peer, a burst after it) the
+	# stream is ahead of what was drawn; glide there at up to a run, never a jump
+	# (a bot picking up a rake popped 0.6 m on everyone else's screen). A gap
+	# that put it farther off than SMOOTHER_CATCH_UP_MAX is a move of its own.
+	# A player's body is held to that all the time, by its own replicated speed:
+	# two updates landing a tick apart after a longer wait (a busy peer) used to
+	# read as a sprint and throw the drawn body 0.65 m in a frame (fx-yard
+	# rec_bin_1p 0.83 s, Bot2 walking to Chefty). Across the ground only: a jump
+	# rises as it comes.
+	var player := catch_up_on and (paced or body.is_in_group("players"))
+	if (_catch_up or player) and _has_drawn and _blend_at < 0.0 and not _held:
+		var off := Vector3(rendered.origin.x - _drawn_at.x, 0.0, rendered.origin.z - _drawn_at.z)
+		var speed := maxf(_last_change_speed, _window_speed()) if player and not _catch_up else _stream_speed()
+		var cap := (speed * Constants.SMOOTHER_CATCH_UP_SPEED_SHARE + Constants.SMOOTHER_CATCH_UP_SPEED_MIN) * delta
+		if off.length() > Constants.SMOOTHER_CATCH_UP_MAX or off.length() <= cap:
+			_catch_up = false
+		else:
+			var held := _drawn_at + off.normalized() * cap
+			rendered.origin = Vector3(held.x, rendered.origin.y, held.z)
 	# Held where the seat or stage drew it: the replicated pose is from before the
 	# hand-over (a ride at speed left it metres back up the road), so no snap to it.
 	if not _held and rendered.origin.distance_to(body.global_position) > snap_distance:
@@ -156,10 +180,54 @@ func _process(_delta: float) -> void:
 		_last_change_at = _now()
 		_last_change_speed = 0.0
 		_stop_recorded = true
+		_catch_up = false
 	_visual.global_transform = rendered * _rest
+	_drawn_at = rendered.origin
+	_has_drawn = true
+
+
+## How far the stream really went over its last SMOOTHER_SPEED_WINDOW seconds,
+## per second, across the ground (m/s): steady when updates bunch up, so a burst
+## doesn't read as a sprint, and quick enough for a dive or a stumble.
+func _window_speed() -> float:
+	if _samples.size() < 2:
+		return 0.0
+	var newest: Dictionary = _samples[_samples.size() - 1]
+	var from: Dictionary = _samples[0]
+	for index: int in range(_samples.size() - 2, -1, -1):
+		from = _samples[index]
+		if float(newest["at"]) - float(from["at"]) >= Constants.SMOOTHER_SPEED_WINDOW:
+			break
+	var span := maxf(float(newest["at"]) - float(from["at"]), Constants.SMOOTHER_SPEED_WINDOW * 0.5)
+	var step := (newest["xform"] as Transform3D).origin - (from["xform"] as Transform3D).origin
+	return Vector2(step.x, step.z).length() / span
+
+
+## How fast the stream says it's moving (m/s): the replicated velocity, or the
+## last two updates' step, whichever is more.
+func _stream_speed() -> float:
+	var speed := _last_change_speed
+	if _samples.size() >= 2:
+		var newest: Dictionary = _samples[_samples.size() - 1]
+		var previous: Dictionary = _samples[_samples.size() - 2]
+		var span := float(newest["at"]) - float(previous["at"])
+		if span > 0.0:
+			speed = maxf(speed, ((newest["xform"] as Transform3D).origin - (previous["xform"] as Transform3D).origin).length() / span)
+	return speed
 
 
 var _rest := Transform3D.IDENTITY
+## fx-yard: catching the visual up after a gap (_process), where it was last
+## drawn (body space, no rest offset), and whether it has been drawn yet.
+var _catch_up: bool = false
+## Tests only: off draws the stream as it comes (yard_test's before and after).
+var catch_up_on: bool = true
+## Tests only: held to a player's pace without being in "players" (yard_test's
+## stand-in teammate; a fake in that group would be walked by everything that
+## looks for players).
+var paced: bool = false
+var _drawn_at := Vector3.ZERO
+var _has_drawn: bool = false
 ## The parent placed the visual itself last tick (a seat, a stage).
 var _was_placed: bool = false
 ## Since that ended: drawing from where the seat or stage left the visual, while

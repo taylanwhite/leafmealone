@@ -86,6 +86,10 @@ func _watch(clock: Node) -> void:
 
 
 func show_summary(summary: Dictionary) -> void:
+	# fx-yard: a dev watcher (the playtest observer) isn't crew: no card over its
+	# shot, like the payday card (ui/payout_window.gd is_spectator).
+	if preload("res://ui/payout_window.gd").is_spectator(Net.local_peer_id()):
+		return
 	for child: Node in _rows.get_children():
 		# Out of the list now, not at the end of the frame, so _fit_rows measures only the new lines.
 		_rows.remove_child(child)
