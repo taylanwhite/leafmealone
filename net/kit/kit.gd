@@ -113,7 +113,7 @@ func _now() -> Dictionary:
 func host_deliver(peer_id: int, kind: String, tier: int) -> Node3D:
 	if not Net.is_host() or not _KitRules.is_kit_kind(kind):
 		return null
-	var fuel := 50.0 if tier == Catalog.TIER_USED else 100.0
+	var fuel := Constants.KIT_USED_FUEL if tier == Catalog.TIER_USED else Constants.KIT_NEW_FUEL
 	var player := _player(peer_id)
 	if _Hotbar.is_pocketable(kind) and player != null:
 		var hotbar := get_tree().get_first_node_in_group("hotbar")
@@ -135,7 +135,7 @@ func host_deliver(peer_id: int, kind: String, tier: int) -> Node3D:
 		# No room: it lands at your feet, in front of you.
 		var ahead := -player.global_basis.z
 		ahead.y = 0.0
-		_add(prop, player.global_position + ahead.normalized() * 0.7 + Vector3.UP * 0.4)
+		_add(prop, player.global_position + ahead.normalized() * Constants.KIT_DROP_AHEAD + Vector3.UP * Constants.KIT_DROP_LIFT)
 		return prop
 	var big := _make(kind, tier, fuel)
 	_add(big, door_point(_door_index()))
@@ -184,7 +184,7 @@ func door_point(index: int) -> Vector3:
 	var store := _store_zone()
 	var local := Constants.KIT_DOOR_FIRST + Constants.KIT_DOOR_STEP * float(clampi(index, 0, Constants.KIT_DOOR_MAX - 1))
 	if index >= Constants.KIT_DOOR_MAX:
-		local += Vector3.UP * 0.3 * float(index - Constants.KIT_DOOR_MAX + 1)
+		local += Vector3.UP * Constants.KIT_DOOR_STACK_STEP * float(index - Constants.KIT_DOOR_MAX + 1)
 	return store.to_global(local) if store != null else local
 
 

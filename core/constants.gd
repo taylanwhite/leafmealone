@@ -5769,6 +5769,20 @@ const KIT_LOAD_REACH: float = 3.0
 ## many rakes lying where the yard's own rake used to (lot space), the first there
 ## and the rest beside it; --starter-kit=N puts N rakes in Chefty's bed instead.
 const KIT_DEV_RAKE_AT := Vector3(-2.5, 0.2, 12.0)
-const KIT_DEV_RAKE_STEP := Vector3(0.0, 0.0, -1.0)## The legacy store's pad, grown by this much (m), still counts as at the store
+const KIT_DEV_RAKE_STEP := Vector3(0.0, 0.0, -1.0)
+## The legacy store's pad, grown by this much (m), still counts as at the store
 ## (kit left there isn't swept to the door in the morning).
 const KIT_STORE_SLACK: float = 2.0
+## How full a bought gas tool's tank comes (%): Rusty's used ones half full,
+## Marty fills a new one.
+const KIT_USED_FUEL: float = 50.0
+const KIT_NEW_FUEL: float = 100.0
+## The host takes a "[E] Take" from this much farther (m) than the prompt's
+## reach (KIT_TAKE_REACH, measured from the eye), for lag and feet-vs-eye.
+const KIT_TAKE_HOST_SLACK: float = 1.5
+## A bought pocket tool with no pocket free lands this far ahead of the buyer (m)
+## and this high over their feet (m), so it drops in front of them.
+const KIT_DROP_AHEAD: float = 0.7
+const KIT_DROP_LIFT: float = 0.4
+## Past KIT_DOOR_MAX, more kit by the door stacks on the last spot this much higher each (m).
+const KIT_DOOR_STACK_STEP: float = 0.3

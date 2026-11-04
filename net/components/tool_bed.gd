@@ -256,10 +256,12 @@ func _host_take(peer_id: int, slot: String) -> void:
 	for at: int in tools.size():
 		if str((tools[at] as Dictionary)["slot"]) == slot:
 			index = at
-	if index < 0 or _taking.has(slot):
+	# One take at a time each: a second E while the first is on its way would be
+	# refused by full arms after the first lands.
+	if index < 0 or _taking.has(slot) or _taking.values().has(peer_id):
 		return
 	var player := _player(peer_id)
-	if player == null or player.global_position.distance_to(_world_middle(tools[index])) > Constants.KIT_TAKE_REACH + 1.5:
+	if player == null or player.global_position.distance_to(_world_middle(tools[index])) > Constants.KIT_TAKE_REACH + Constants.KIT_TAKE_HOST_SLACK:
 		return
 	var entry: Dictionary = tools[index]
 	var kind := str(entry["kind"])
@@ -278,16 +280,43 @@ func _host_take(peer_id: int, slot: String) -> void:
 	var prop := kit.call("spawn_item", kind, int(entry["tier"]), float(entry["fuel"]), pose) as RigidBody3D
 	if prop == null:
 		return
-	# Held still on its spot for a beat, so every peer has it there before it moves.
-	prop.freeze = true
-	prop.call("_set_solid", false)
-	_taking[slot] = true
+	# Held still on its spot for a beat, so every peer has it there before it
+	# moves (and a floor tool isn't loaded straight back in as it lies in the bed).
+	prop.call("host_hold_for_take", true)
+	_taking[slot] = peer_id
 	await get_tree().create_timer(Constants.KIT_TAKE_HANDOFF_SECONDS).timeout
 	_taking.erase(slot)
 	if not is_instance_valid(prop):
 		return
-	prop.freeze = false
-	prop.call("host_hand_to", peer_id)
+	var handed := bool(prop.call("host_hand_to", peer_id))
+	prop.call("host_hold_for_take", false)
+	if handed:
+		return
+	# The hand-off didn't happen (they left, were caught, or filled their hands in
+	# the beat): it goes back on its spot, never a loose ghost with no body.
+	_put_back(prop, slot)
+
+
+## Host: a taken tool that never reached anyone's hands goes back aboard, on its
+## own spot if it's still free (it never moved, so nothing jumps), else the next
+## one it fits, gliding there; with no room left it drops in the bed as a prop.
+func _put_back(prop: RigidBody3D, slot: String) -> void:
+	var kind := str(prop.get("kind"))
+	var taken := _taken()
+	var spot := slot if not taken.has(slot) else slot_for(kind, taken)
+	if spot == "":
+		prop.call("_set_solid", true)
+		return
+	var look := prop.get_node_or_null("Visual") as Node3D
+	var seen := look.global_transform if look != null else prop.global_transform
+	var from := global_transform.affine_inverse() * seen
+	from.basis = from.basis.orthonormalized()
+	tools.append({"kind": kind, "tier": int(prop.get("tier")), "fuel": float(prop.get("fuel")), "slot": spot})
+	if spot == slot:
+		_send()
+	else:
+		_send(spot, from)
+	prop.queue_free()
 
 
 ## Host: whether this peer's player is close enough to the bed to load a tool.

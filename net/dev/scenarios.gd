@@ -2288,6 +2288,10 @@ func _hold(kind: String) -> String:
 			item = node as Node3D
 			break
 	if item == null:
+		# p2-kit: the yard has no rake of its own any more, and a session not
+		# started on the yard has no dev rake lying there: the scenario makes one.
+		item = _dev_kit_item(kind, me)
+	if item == null:
 		return _held(me)
 	item.global_position = me.global_position + Vector3(0.0, 0.4, 0.0) + (-me.global_basis.z) * 0.8
 	item.set("linear_velocity", Vector3.ZERO)
@@ -2298,6 +2302,15 @@ func _hold(kind: String) -> String:
 		pockets.call("select", int(pockets.call("slot_of_kind", kind)))
 		await _ticks(4)
 	return _held(me)
+
+
+## Host: a fresh stock kit prop of this kind by the player (dev kit, via World/Kit),
+## or null when it isn't kit or this isn't the host.
+func _dev_kit_item(kind: String, me: Node3D) -> Node3D:
+	var kit := get_tree().get_first_node_in_group("kit")
+	if kit == null or not Net.is_host() or not preload("res://core/kit_rules.gd").is_kit_kind(kind):
+		return null
+	return kit.call("spawn_item", kind, Catalog.TIER_STOCK, Constants.KIT_NEW_FUEL, Transform3D(Basis.IDENTITY, me.global_position + Vector3(0.0, 0.4, 0.0) + (-me.global_basis.z) * 0.8)) as Node3D
 
 
 func _held(me: Node) -> String:

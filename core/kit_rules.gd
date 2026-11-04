@@ -44,6 +44,10 @@ static func sentence_name(kind: String, tier: int) -> String:
 	var strings := preload("res://ui/strings.gd")
 	var id := Catalog.tool_item(kind, tier)
 	var shown := strings.shop_item_name(id) if id != "" and tier != Catalog.TIER_STOCK else strings.item_name(kind)
+	# A proper name brings its own article ("The Leafinator"); the sentence has
+	# one already ("your %s", "a %s"), so it drops its own and keeps its capital.
+	if shown.begins_with("The "):
+		return shown.substr(4)
 	if shown.length() > 1 and shown.substr(1, 1) == shown.substr(1, 1).to_lower():
 		return shown.substr(0, 1).to_lower() + shown.substr(1)
 	return shown

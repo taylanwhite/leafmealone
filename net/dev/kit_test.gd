@@ -21,7 +21,9 @@ extends Node
 ##   g. sleep: in the morning the host's rake is by the store's front door and
 ##      a neighbor texts that it was found;
 ##   h. the save has the kit (where each thing is), and an old save's tool
-##      unlocks turn into kit (Kit.migrate_players).
+##      unlocks turn into kit (Kit.migrate_players);
+##   i. a take refused in its hand-off beat (arms filled) goes back aboard,
+##      and a second take while one is on its way is refused.
 ## Each step prints a [KitTest] line; CI needs both peers' ok.
 
 const _KitRules = preload("res://core/kit_rules.gd")
@@ -150,9 +152,93 @@ func _run_host() -> void:
 	var kinds := old.map(func(item: Variant) -> String: return "%s:%d" % [str((item as Dictionary)["kind"]), int((item as Dictionary)["tier"])])
 	kinds.sort()
 	_step("h2 old save", kinds == ["lawn_mower:0", "leaf_blower:2", "rake:1", "rake:2"], "an old save's two players bring %s" % str(kinds))
-	# Wait for the client's verdict on what it saw.
+	# The neighbor's text names a proper-named tool without a second article.
+	var leafinator := _KitRules.sentence_name("rake", Catalog.TIER_MK3)
+	_step("h3 names", leafinator == "Leafinator" and _KitRules.sentence_name("rake", Catalog.TIER_STOCK) == "rake", "Mk III '%s'" % leafinator)
+	# Wait for the client's verdict on what it saw (it counts the crew's rakes).
 	await _seconds(2.5)
+	# i. a take whose hand-off is refused goes back aboard (no loose ghost), and
+	# a second take while one is on its way is refused; j. hose or load by the tap.
+	await _refused_take()
 	_finish()
+
+
+## Host: a rake goes on the rack and a washer on the bed floor; E on the rake,
+## E on the washer straight after (refused: one take at a time), then the host's
+## arms fill with a ladder in the hand-off's beat, so the rake's hand-off is
+## refused: both stay aboard and no rake lies loose by the truck.
+func _refused_take() -> void:
+	var me := Net.local_peer_id()
+	_bed().call("restore", [{"kind": "rake", "tier": Catalog.TIER_STOCK, "fuel": 100.0}, {"kind": "pressure_washer", "tier": Catalog.TIER_STOCK, "fuel": 100.0}])
+	var rakes := _bed_count("rake")
+	_move_to_bed_side(Vector3(1.9, 0.0, -0.4))
+	await _ticks(3)
+	_bed().call("request_take", _bed_index("rake"))
+	_bed().call("request_take", _bed_index("pressure_washer"))
+	# The rake left the rack for its hand-off; the washer's take was refused.
+	var mid := _bed_count("rake") == rakes - 1 and _bed_count("pressure_washer") == 1
+	var ladder := _kit().call("spawn_item", "ladder", Catalog.TIER_STOCK, 100.0, Transform3D(Basis.IDENTITY, _own_player().global_position + Vector3(0.6, 0.5, 0.0))) as Node3D
+	ladder.call("_handle_grab", me, false)
+	await _seconds(Constants.KIT_TAKE_HANDOFF_SECONDS + 0.5)
+	var loose := 0
+	var truck_at := (_bed() as Node3D).global_position
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == "rake" and not node.is_queued_for_deletion() and bool(node.call("is_loose")) and (node as Node3D).global_position.distance_to(truck_at) < 6.0:
+			loose += 1
+	_step("i refused take", mid and _bed_count("rake") == rakes and _bed_count("pressure_washer") == 1 and loose == 0 and int(ladder.get("held_by")) == me,
+		"mid-take %s, rakes aboard %d of %d, washer aboard %d, loose by the truck %d, ladder held %s" % [mid, _bed_count("rake"), rakes, _bed_count("pressure_washer"), loose, int(ladder.get("held_by")) == me])
+	# j. by Chefty's water tap with the washer: looking at the bed, E loads it;
+	# looking at the tap, E refills it.
+	ladder.call("request_load_truck")
+	await _until(func() -> bool: return _bed_count("ladder") == 1, WAIT_SECONDS)
+	# The loaded prop is freed at the frame's end; till then it's still in your arms.
+	await _ticks(3)
+	_bed().call("request_take", _bed_index("pressure_washer"))
+	var washer_held := await _until(func() -> bool: return _held_kind(me) == "pressure_washer", WAIT_SECONDS)
+	var tap: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("water_sources"):
+		if node.has_meta("kind") and str(node.get_meta("kind")) == "chefty":
+			tap = node as Node3D
+	if tap == null or not washer_held:
+		_step("j tap or load", false, "tap %s, washer in hand %s (holding '%s', ladders aboard %d)" % [tap != null, washer_held, _held_kind(me), _bed_count("ladder")])
+		return
+	var middle := (_bed() as Node3D).global_transform * Vector3(0.0, 1.2, 0.7)
+	var away := Vector3(tap.global_position.x - middle.x, 0.0, tap.global_position.z - middle.z).normalized()
+	var stand := tap.global_position + away * 1.4
+	_own_player().call("apply_network_teleport", Transform3D(_own_player().global_basis, Vector3(stand.x, _own_player().global_position.y + 0.1, stand.z)))
+	await _ticks(4)
+	await _aim_at(_bed().call("load_point") as Vector3)
+	var at_bed := StringName((_own_player().call("e_choice") as Dictionary)["do"])
+	await _aim_at(tap.global_position)
+	var at_tap := StringName((_own_player().call("e_choice") as Dictionary)["do"])
+	_step("j tap or load", at_bed == &"load_truck" and at_tap == &"water", "looking at the bed E would %s, at the tap %s" % [at_bed, at_tap])
+
+
+func _held_kind(peer_id: int) -> String:
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) == peer_id and not node.is_queued_for_deletion():
+			return str(node.get("kind"))
+	return ""
+
+
+func _aim_at(point: Vector3) -> void:
+	var player := _own_player()
+	for _try: int in 3:
+		var head := player.get_node_or_null("Visual/Head") as Node3D
+		var eye := head.global_position if head != null else player.global_position + Vector3.UP * 1.6
+		var to := point - eye
+		player.set("body_yaw", atan2(-to.x, -to.z))
+		player.rotation.y = float(player.get("body_yaw"))
+		player.set("head_pitch", atan2(to.y, Vector2(to.x, to.z).length()))
+		await _ticks(1)
+
+
+func _bed_index(kind: String) -> int:
+	var tools: Array = _bed().get("tools")
+	for index: int in tools.size():
+		if str((tools[index] as Dictionary)["kind"]) == kind:
+			return index
+	return -1
 
 
 ## Host: to the rake bin's front, and buy one.

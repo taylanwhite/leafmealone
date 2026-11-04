@@ -1871,6 +1871,10 @@ func e_choice() -> Dictionary:
 		return {"do": &"water", "hint": {"text": _Strings.UI["prompt_dip"], "at": bucket.global_position + Vector3(0.0, 0.6, 0.0), "source": bucket}, "target": held}
 	if held_kind == "hose" or held_kind == "pressure_washer":
 		var source := _WaterSources.nearest(get_tree(), global_position, Constants.WATER_REACH)
+		# Chefty's own tap sits beside its bed: looking at the bed rather than the
+		# tap with a tool that fits aboard, E loads it (below) instead.
+		if source != null and str(source.get_meta("kind")) == "chefty" and _looking_to_load(held, held_kind, source.global_position):
+			source = null
 		if source != null:
 			var key := "prompt_refill"
 			if held_kind == "hose":
@@ -2030,6 +2034,18 @@ func _press_e(event: InputEvent) -> bool:
 func _tool_bed() -> Node:
 	var chefty := get_tree().get_first_node_in_group("chefty")
 	return chefty.call("tool_bed") as Node if chefty != null and chefty.has_method("tool_bed") else null
+
+
+## Whether the kit tool in hand could go aboard now and the look is on Chefty's
+## bed more than on this point (its water tap): the load wins there.
+func _looking_to_load(held: Node, held_kind: String, tap: Vector3) -> bool:
+	var tool_bed := _tool_bed()
+	if held == null or tool_bed == null or not _KitRules.is_kit_kind(held_kind):
+		return false
+	if not bool(tool_bed.call("can_load_from", self)) or not bool(tool_bed.call("has_room_for", held_kind)):
+		return false
+	var reach := Constants.KIT_LOAD_REACH + Constants.E_LOOK_REACH_SLACK
+	return _look_miss(tool_bed.call("load_point") as Vector3, reach) < _look_miss(tap, reach)
 
 
 ## The nearest hiding spot with room, or the pile underfoot, as an E choice; {} for neither.

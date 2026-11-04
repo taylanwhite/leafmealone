@@ -234,7 +234,8 @@ func _physics_process(_delta: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
 	# A carried prop must not stay solid. Moving a colliding body into the player launches them.
-	_set_solid(is_loose())
+	# A tool on its way off Chefty's rack is held still on its spot (host_hold_for_take).
+	_set_solid(is_loose() and not _kit_hold)
 	if Net.is_host() and ladder_top != Vector3.ZERO:
 		freeze = true
 	_refresh_label()
@@ -1100,12 +1101,26 @@ func _steady_upright() -> void:
 	angular_velocity = Vector3(turn.x, angular_velocity.y, turn.z)
 
 
+## Host (p2-kit): a tool just taken off Chefty's rack or bed floor stays still
+## and not solid on its spot for the hand-off's beat (tool_bed.gd _host_take), so
+## it neither drops nor gets loaded straight back in.
+var _kit_hold: bool = false
+
+
+func host_hold_for_take(hold: bool) -> void:
+	_kit_hold = hold
+	_set_solid(is_loose() and not hold)
+
+
 ## Host (p2-kit, net/components/tool_bed.gd): straight into this peer's hands,
 ## the way a pickup goes, from wherever it is (a tool on Chefty's rack is out of
-## a pickup's reach of your feet).
-func host_hand_to(peer_id: int) -> void:
-	if Net.is_host():
-		_handle_grab(peer_id, false)
+## a pickup's reach of your feet). Whether it's theirs now (false: they're gone,
+## caught, or their hands or pockets are full; the caller puts it back).
+func host_hand_to(peer_id: int) -> bool:
+	if not Net.is_host():
+		return false
+	_handle_grab(peer_id, false)
+	return held_by == peer_id or pocketed_by == peer_id
 
 
 func _handle_grab(peer_id: int, check_reach: bool = true) -> void:
@@ -1626,7 +1641,7 @@ func _try_load_junk() -> void:
 ## on the rack (net/components/tool_bed.gd), gliding from where it lies. A full
 ## rack leaves it lying in the bed.
 func _try_load_kit() -> void:
-	if not _KitRules.is_kit_kind(kind) or not is_loose() or freeze or linear_velocity.length() > Constants.KIT_BED_REST_SPEED:
+	if not _KitRules.is_kit_kind(kind) or not is_loose() or freeze or _kit_hold or linear_velocity.length() > Constants.KIT_BED_REST_SPEED:
 		return
 	var truck := get_tree().get_first_node_in_group("chefty")
 	if truck == null or not truck.has_method("tool_bed") or not bool(truck.call("in_bed", global_position + Vector3.UP * 0.1)):
