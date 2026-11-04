@@ -439,13 +439,10 @@ func _order_row(shops: Node, me: int, id: String) -> HBoxContainer:
 	return row
 
 
-## An Orders row's picture: the item's icon, or for a roll of bags with none
-## drawn yet (the supply_* family), a leaf bag.
+## An Orders row's picture: the item's own icon (a supply's box, can or sack; a
+## tool's with its tier chip), the same as its shop card's.
 func _order_icon(id: String) -> String:
-	var icon := _Icons.for_shop_item(StringName(id))
-	if not _Icons.has(icon) and str(Catalog.item(id).get("supply", "")).ends_with("bags"):
-		return "item_leaf_bag"
-	return icon
+	return _Icons.for_shop_item(StringName(id))
 
 
 ## Pay a crewmate (shops chunk 8), at the top of the Crew app: everyone else in

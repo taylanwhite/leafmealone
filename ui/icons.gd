@@ -20,6 +20,9 @@ extends RefCounted
 ##   mood_<Strings.MOOD_NAMES key>      season_<Seasons.IDS entry>
 ##   hood_<neighborhoods HOODS id>      brand_<name>
 ##   key_<lowercased key name>          mouse_left / mouse_right / wheel_up ...
+##   <tool or item_rake>_used/_mk2/_mk3 supply_<Catalog supply>   junk_<JUNK_TYPES key>
+##   paint_<CHEFTY_PAINTS key>          tier_used / tier_2 / tier_3
+## Every Catalog item has its own (icons:catalog, for_shop_item).
 ## A new tool, task, app, hood, mood, season or prompt key adds its id to IDS and
 ## a recipe to icon_recipes.RECIPES, then runs the generator with --only=<id>.
 ##
@@ -57,7 +60,33 @@ const IDS: PackedStringArray = [
 	# Gear (256, 3D): yours to keep, gear_<catalog id> (driving G1).
 	"gear_skateboard",
 	# Upgrades: the base model with a "+" sticker.
-	"upgrade_rake_tier_1", "upgrade_rake_tier_2", "upgrade_wheelbarrow_tier_1",
+	"upgrade_wheelbarrow_tier_1",
+	# The crew's kit at every tier but stock (256, 3D; icons:catalog, for_kit): the
+	# model wearing its tier trim (props/yard_models.gd, the rack's and the hand's),
+	# with the tier's chip baked in bottom left, so a tier reads in every place
+	# that shows the icon: USED on duct tape, II on chrome, III in gold on black.
+	"item_rake_used", "item_rake_mk2", "item_rake_mk3",
+	"tool_leaf_blower_used", "tool_leaf_blower_mk2", "tool_leaf_blower_mk3",
+	"tool_lawn_mower_used", "tool_lawn_mower_mk2", "tool_lawn_mower_mk3",
+	"tool_ladder_used", "tool_ladder_mk2", "tool_ladder_mk3",
+	"tool_hose_used", "tool_hose_mk2", "tool_hose_mk3",
+	"tool_hedge_trimmer_used", "tool_hedge_trimmer_mk2", "tool_hedge_trimmer_mk3",
+	"tool_pressure_washer_used", "tool_pressure_washer_mk2", "tool_pressure_washer_mk3",
+	"tool_paint_roller_used", "tool_paint_roller_mk2", "tool_paint_roller_mk3",
+	# The chips alone (128, flat; critic.md "tier badges ... overlays"), for a
+	# picture that isn't a kit icon (none today).
+	"tier_used", "tier_2", "tier_3",
+	# The crew's supplies (256, 3D; icons:catalog): what the shelf and the van
+	# bring, each with its chip: GAS on the can, the season's glyph on a sack.
+	"supply_lawn_bags", "supply_big_bags", "supply_gas", "supply_fertilizer",
+	"supply_grass_seed", "supply_rock_salt",
+	# Rusty's junk (256, 3D; icons:catalog): junk_<Constants.JUNK_TYPES key>, and
+	# the jackpot flamingo with its gold sparkle.
+	"junk_old_tv", "junk_tire", "junk_grill", "junk_toilet", "junk_bike",
+	"junk_flamingo", "junk_mannequin", "junk_boombox", "junk_flamingo_vintage",
+	# Chefty's paint jobs (256, 3D; icons:catalog): Chefty in the color, its can
+	# of paint in front (paint_<Constants.CHEFTY_PAINTS key>).
+	"paint_classic", "paint_mint", "paint_sunset", "paint_pink", "paint_black", "paint_gold",
 	# Task badges (256): a disc in the work family's color with a 3D vignette.
 	"task_rake_leaves", "task_pick_litter", "task_pull_weeds", "task_mow_lawn",
 	"task_clean_gutters", "task_wash_windows", "task_power_wash", "task_trim_hedges",
@@ -128,6 +157,11 @@ const MOUSE_IDS: Dictionary = {
 	MOUSE_BUTTON_XBUTTON2: "mouse_5", MOUSE_BUTTON_WHEEL_UP: "wheel_up",
 	MOUSE_BUTTON_WHEEL_DOWN: "wheel_down",
 }
+## A kit tier (Catalog.TIER_*) -> what its icon id adds to the stock one
+## (for_kit), the same endings as the catalog's own ids. Stock adds nothing.
+const TIER_SUFFIXES: Dictionary = {0: "_used", 2: "_mk2", 3: "_mk3"}
+## A kit tier -> its chip on its own (for_tier_badge).
+const TIER_BADGES: Dictionary = {0: "tier_used", 2: "tier_2", 3: "tier_3"}
 ## feature:<id> unlocks -> the icon that stands for them.
 const FEATURE_ICONS: Dictionary = {
 	"hiring": "app_hires", "rival": "brand_turfmasters", "garage": "app_properties",
@@ -180,32 +214,53 @@ static func for_tool(tool_id: String) -> String:
 	return "tool_" + tool_id
 
 
+## A kit thing (Constants.KIT_KINDS: the rake and the seven tools) at its tier
+## (Catalog.TIER_*): stock is the plain icon (item_rake, tool_hose), the others
+## add the tier the way the catalog's ids do: item_rake_used, tool_hose_mk2,
+## tool_hose_mk3. Those icons wear the tier's trim and chip (icons:catalog).
+static func for_kit(kind: String, tier: int) -> String:
+	return for_kind(kind) + str(TIER_SUFFIXES.get(tier, ""))
+
+
+## A tier's chip on its own (tier_used, tier_2, tier_3), "" for stock.
+static func for_tier_badge(tier: int) -> String:
+	return str(TIER_BADGES.get(tier, ""))
+
+
+## A piece of Rusty's junk: its type ("old_tv") or its item id as the Sell tab
+## names it ("junk_old_tv", "junk_flamingo_vintage", net/shops/shops.gd
+## junk_item) -> junk_<type>.
+static func for_junk(type_or_item: String) -> String:
+	if type_or_item == "":
+		return ""
+	return type_or_item if type_or_item.begins_with("junk_") else "junk_" + type_or_item
+
+
 ## A core/catalog.gd item id -> its icon, by the item's kind, in the id families
 ## of gap-specs/critic.md (contracts, "Icons"):
-##   tool, tier, used_tool  tool_<tool> (the tier_used / tier_2 / tier_3 overlays
-##                          go on top of it at the call site)
+##   tool, tier, used_tool  for_kit(tool, tier): item_rake_mk2, tool_hose_used ...
+##                          (the trimmed model with its tier chip baked in)
 ##   upgrade                upgrade_<id>
 ##   consumable             supply_<supply>  ("gas_can" is supply_gas)
 ##   snack                  snack_<id>
 ##   cosmetic hat           hat_<style>      (the item id already is)
 ##   cosmetic shirt         shirt            (tinted by the caller)
-##   truck paint            paint_swatch     (tinted by the caller)
+##   truck paint            paint_<x>        (the item id: Chefty in that color)
 ##   truck decal            decal_<x>        (the item id)
 ##   gear                   gear_<id>        (the skateboard, driving G1)
+##   junk (Rusty's scale)   junk_<type>      (for_junk; not catalog items)
 ## Anything else (an id the catalog doesn't know) is "", "no icon", not a guess.
-## The supply, snack, hat, shirt, paint and decal art is the icons:catalog chunk's.
 static func for_shop_item(item_id: StringName) -> String:
 	var id := String(item_id)
 	var entry := Catalog.item(id)
 	if entry.is_empty():
+		if id.begins_with("junk_"):
+			return for_junk(id)
 		return for_tool(id) if Constants.TOOL_PRICES.has(id) else ""
 	match str(entry.get("kind", "")):
 		"tool", "tier", "used_tool":
-			# p2-kit: the rake is sold like a tool; its Mk II and Mk III keep the old
-			# upgrades' stickers (the rake with a "+"), the plain and used ones the rake.
-			if str(entry.get("tool", "")) == "rake":
-				return "upgrade_" + id if id.begins_with("rake_tier_") else "item_rake"
-			return for_tool(str(entry.get("tool", id)))
+			# p2-kit: every tier is a thing of its own, so every tier has its picture.
+			return for_kit(str(entry.get("tool", id)), int(entry.get("tier", Catalog.TIER_STOCK)))
 		"upgrade":
 			return "upgrade_" + id
 		"consumable":
@@ -226,11 +281,14 @@ static func for_shop_item(item_id: StringName) -> String:
 					return "hat_" + str(entry.get("style", id.trim_prefix("hat_")))
 				"shirt":
 					return "shirt"
-				"paint":
-					return "paint_swatch"
-				"decal":
+				"paint", "decal":
 					return id
 	return ""
+
+
+## Whether a shop picture is the white one its caller tints (a shirt dye).
+static func is_tinted(icon_id: String) -> bool:
+	return icon_id == "shirt" or icon_id == "paint_swatch"
 
 
 static func for_task(task_id: String) -> String:

@@ -22,6 +22,7 @@ const _Icons = preload("res://ui/icons.gd")
 const _Strings = preload("res://ui/strings.gd")
 const _UiStyle = preload("res://ui/ui_style.gd")
 const _ToolTiers = preload("res://core/tool_tiers.gd")
+const _Shops = preload("res://net/shops/shops.gd")
 
 const SLOT_COLOR := Color(0.08, 0.06, 0.05, 0.62)
 const SLOT_RADIUS: int = 10
@@ -176,13 +177,16 @@ static func slot_view(slot: Array) -> Dictionary:
 		return {"kind": "", "count": 0}
 	var item: Node = slot[0]
 	var kind := str(item.get("kind"))
+	var icon := icon_of(item)
 	var view := {
 		"kind": kind,
 		"count": slot.size(),
 		"name": item_label(item),
-		"icon": icon_for(kind),
+		"icon": icon,
 		"abbr": str(_Strings.UI.get("hotbar_abbr_" + kind, kind.left(4).to_upper())),
-		"tier": int(item.get("tier")) if Constants.TOOL_PRICES.has(kind) else Catalog.TIER_STOCK,
+		# The tier tag is for a tool whose icon doesn't wear its tier already
+		# (icons:catalog: the kit's tier icons carry their USED / II / III chip).
+		"tier": Catalog.TIER_STOCK if icon != icon_for(kind) or not Constants.TOOL_PRICES.has(kind) else int(item.get("tier")),
 		"paint": -1.0,
 		"gas": -1.0,
 		"hooked": kind == "hose" and str(item.get("hose_source")) != "",
@@ -221,7 +225,7 @@ static func hands_view(item: Node) -> Dictionary:
 	return {
 		"kind": kind,
 		"name": name,
-		"icon": icon_for(kind),
+		"icon": icon_of(item),
 		"abbr": str(_Strings.UI.get("hotbar_abbr_" + kind, kind.left(4).to_upper())),
 		"title": title,
 		"line": _Strings.keyed(line),
@@ -253,6 +257,20 @@ static func hint_for(kind: String) -> String:
 static func icon_for(kind: String) -> String:
 	var id := _Icons.for_kind(kind)
 	return id if _Icons.has(id) else ""
+
+
+## The icon for this very thing (icons:catalog): a kit tool or rake at its own
+## tier (Icons.for_kit: the trim and its chip), a piece of junk as what it is
+## (Icons.for_junk of Shops.junk_item, as Rusty's Sell tab names it: the jackpot
+## flamingo is the vintage one), else its kind's (icon_for).
+static func icon_of(item: Node) -> String:
+	var kind := str(item.get("kind"))
+	var id := ""
+	if Constants.KIT_KINDS.has(kind):
+		id = _Icons.for_kit(kind, int(item.get("tier")))
+	elif kind == "junk":
+		id = _Icons.for_junk(_Shops.junk_item(item))
+	return id if id != "" and _Icons.has(id) else icon_for(kind)
 
 
 ## Whether the bar is up for this player right now.

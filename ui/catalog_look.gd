@@ -32,6 +32,11 @@ const TAG_PAPER := Color(1.0, 0.99, 0.95)
 const TAG_RADIUS: int = 6
 const TAG_MARGIN_X: int = 6
 const TAG_MARGIN_Y: int = 1
+## How much of a shelf's left the price tag keeps for itself (px) at least: the
+## item is centered in the rest. A wider tag ($1200) keeps its own width plus
+## TAG_GAP, once it is laid out.
+const TAG_ROOM: int = 72
+const TAG_GAP: int = 4
 ## The brand mark beside a window's title, the cash icon beside the wallet.
 const BRAND_PX: float = 40.0
 const WALLET_PX: float = 22.0
@@ -78,7 +83,22 @@ static func shelf(icon_id: String, tint: Color, owned: bool, locked: bool, tag: 
 	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	if locked and not owned:
 		icon.modulate = Color(1.0, 1.0, 1.0, LOCKED_ALPHA)
-	panel.add_child(icon)
+	if tag != null:
+		# icons:catalog: the item stands right of its tag, so the tag never covers
+		# the chip in the icon's corner (a tool's USED / II / III, the can's GAS).
+		var room := MarginContainer.new()
+		room.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		room.add_theme_constant_override("margin_left", TAG_ROOM)
+		room.add_child(icon)
+		panel.add_child(room)
+		# The tag's width comes from its digits and the theme's font, known only
+		# once it is laid out: widen the room to clear it.
+		tag.resized.connect(func() -> void:
+			if is_instance_valid(room):
+				room.add_theme_constant_override("margin_left", maxi(TAG_ROOM, STAMP_INSET + int(ceil(tag.size.x)) + TAG_GAP))
+		)
+	else:
+		panel.add_child(icon)
 	panel.set_meta("shelf_icon", icon)
 	if not owned and not locked and tag == null:
 		return panel
@@ -205,8 +225,9 @@ static func hover(card: Control, shelf_panel: Control) -> void:
 
 ## A squash-and-stretch pop on an icon: wide and short, tall and thin, settle.
 ## Shown when the host confirms a buy; the register sound is audio/cue_hooks.gd's
-## (critic C11), so this is silent.
-static func pop(icon: Control) -> void:
+## (critic C11), so this is silent. from_seconds starts it part-way through: a
+## card redrawn mid-pop carries on rather than popping again (shop_window).
+static func pop(icon: Control, from_seconds: float = 0.0) -> void:
 	if icon == null or not icon.is_inside_tree():
 		return
 	icon.pivot_offset = icon.size * 0.5
@@ -216,6 +237,8 @@ static func pop(icon: Control) -> void:
 	tween.tween_property(icon, "scale", Vector2(1.0 + stretch, 1.0 - stretch), step)
 	tween.tween_property(icon, "scale", Vector2(1.0 - stretch * 0.5, 1.0 + stretch * 0.5), step)
 	tween.tween_property(icon, "scale", Vector2.ONE, step).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if from_seconds > 0.0:
+		tween.custom_step(from_seconds)
 
 
 ## Plays a UI sound through the sfx group (audio/sfx.gd), when there is one.
