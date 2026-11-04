@@ -485,12 +485,21 @@ static func stowed_transform(prop: Node3D, holder: Node3D) -> Transform3D:
 	return frame * Transform3D(Basis.from_euler(euler).scaled(Vector3.ONE * float(entry["scale"])), at)
 
 
+## The hand-off glides' clock (ms): game time, counted in physics ticks, not the
+## wall clock. Every pose runs on a physics tick, so a glide moves the same share
+## of its way each tick however long the frame took; on the wall clock a tick
+## after a stall moved it a stall's worth at once, the pop the glide is there to
+## hide (fx-net; hotbar_test 14c failed four takes in four under load).
+static func clock_msec() -> int:
+	return Engine.get_physics_frames() * 1000 / Engine.physics_ticks_per_second
+
+
 ## A stacked thing's place in its fan as shown, (offset from the middle, index):
 ## eased toward where the stack puts it now (HOTBAR_FAN_SETTLE), so the rest
 ## shuffle over when one is drawn or thrown instead of snapping. Straight there
 ## when it wasn't worn a moment ago (it glides in on its own).
 static func _fan_shown(prop: Node3D, aim: Vector2) -> Vector2:
-	var now := Time.get_ticks_msec()
+	var now := clock_msec()
 	var last := int(prop.get_meta("fan_msec", -100000))
 	prop.set_meta("fan_msec", now)
 	var shown := aim
@@ -532,7 +541,7 @@ static func unstow(prop: Node3D) -> void:
 static func draw_dip(prop: Node3D) -> float:
 	if not prop.has_meta("drawn_msec") or not bool(prop.get_meta("drawn_from_pocket", false)):
 		return 0.0
-	var t := float(Time.get_ticks_msec() - int(prop.get_meta("drawn_msec"))) / 1000.0 / Constants.HOTBAR_DRAW_SECONDS
+	var t := float(clock_msec() - int(prop.get_meta("drawn_msec"))) / 1000.0 / Constants.HOTBAR_DRAW_SECONDS
 	if t >= 1.0 or t < 0.0:
 		return 0.0
 	return Constants.HOTBAR_RAKE_DRAW_LIFT * (1.0 - _ease_out(t))
@@ -545,7 +554,7 @@ static func is_stowing(prop: Node) -> bool:
 		return false
 	if not bool(prop.get_meta("stowed_from_hand", false)):
 		return false
-	return Time.get_ticks_msec() - int(prop.get_meta("stowed_msec", -100000)) < int(Constants.HOTBAR_STOW_SECONDS * 1000.0)
+	return clock_msec() - int(prop.get_meta("stowed_msec", -100000)) < int(Constants.HOTBAR_STOW_SECONDS * 1000.0)
 
 
 ## Being drawn right now: out of a pocket into the hands within the last
@@ -553,7 +562,7 @@ static func is_stowing(prop: Node) -> bool:
 static func is_drawing(prop: Node) -> bool:
 	if prop == null or not is_instance_valid(prop) or int(prop.get("held_by")) == 0 or not bool(prop.get_meta("drawn_from_pocket", false)):
 		return false
-	return Time.get_ticks_msec() - int(prop.get_meta("drawn_msec", -100000)) < int(Constants.HOTBAR_DRAW_SECONDS * 1000.0)
+	return clock_msec() - int(prop.get_meta("drawn_msec", -100000)) < int(Constants.HOTBAR_DRAW_SECONDS * 1000.0)
 
 
 static func _first_person(holder: Node3D) -> bool:
@@ -571,7 +580,7 @@ static func _blend_begin(prop: Node3D, mode: String, holder: Node3D = null) -> f
 	if was != mode:
 		prop.set_meta("pose_mode", mode)
 		prop.set_meta("blend_was", was)
-		var now := Time.get_ticks_msec()
+		var now := clock_msec()
 		var stowing := mode.begins_with("stowed")
 		var stamp := int(prop.get_meta("stowed_msec" if stowing else "drawn_msec", -100000))
 		var start := stamp if now - stamp >= 0 and now - stamp < Constants.HOTBAR_STAMP_FRESH_MS else now
@@ -603,7 +612,7 @@ static func _blend_from(prop: Node3D, holder: Node3D) -> Transform3D:
 
 static func _blend_progress(prop: Node3D) -> float:
 	var seconds := maxf(float(prop.get_meta("blend_secs", Constants.HOTBAR_DRAW_SECONDS)), 0.001)
-	return clampf(float(Time.get_ticks_msec() - int(prop.get_meta("blend_msec", -100000))) / 1000.0 / seconds, 0.0, 1.0)
+	return clampf(float(clock_msec() - int(prop.get_meta("blend_msec", -100000))) / 1000.0 / seconds, 0.0, 1.0)
 
 
 ## Puts the posed node at target in world space, part way along the current glide

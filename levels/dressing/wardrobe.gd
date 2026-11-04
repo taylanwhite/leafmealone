@@ -135,6 +135,14 @@ static func _paint_counter(root: Node3D) -> void:
 	stock.name = "PaintStock"
 	stock.set("shop_id", "homie_depot")
 	stock.set("tabs", ["truck"] as Array[String])
+	# Only the paint and the decals stand on the counter, one a slot: the Chefty Net
+	# and Marty's Body Shop are on the same catalog page but nothing you set on a
+	# counter (fx-net: they overflowed its ten slots and warned on every load).
+	var shown := PackedStringArray()
+	for id: String in Catalog.items_for("homie_depot", "truck"):
+		if str(Catalog.item(id).get("kind", "")) == "truck_cosmetic":
+			shown.append(id)
+	stock.set("items", shown)
 	stock.set("slots", slots)
 	stock.set("stock_group", "wardrobe_stock")
 	stock.set("tag_pixel", TAG_PIXEL)

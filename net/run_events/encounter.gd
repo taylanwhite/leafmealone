@@ -929,8 +929,11 @@ func _rpc_stage(peer_id: int, stage: int, at: float, crew_index: int, args: Dict
 				_lock(player, &"nice_cite", false)
 				_lock(player, &"escort", false)
 		Stage.RIDING, Stage.ANNEX, Stage.RETURNING:
-			if player != null and _holds.has(peer_id):
-				_unstage_body(player)
+			# A leftover catch hold lets go; the van's seat or the Annex's walk, which
+			# staged the body since, keeps it (fx-net: this let go of whatever the body
+			# was on, and a rider fell off their seat onto their network pose).
+			if player != null:
+				_unstage_body(player, peer_id)
 			if player != null and peer_id == Net.local_peer_id():
 				if _boarding.is_empty():
 					_pop_shots(player)
@@ -1608,9 +1611,37 @@ func _stage_body(player: Node3D, anchor: Node3D, offset: Transform3D, blend: flo
 		player.call("set_staged", anchor, offset, blend, pose, clear_of)
 
 
-func _unstage_body(player: Node3D) -> void:
-	if player != null and player.has_method("clear_staged") and player.has_method("is_staged") and bool(player.call("is_staged")):
+## Lets go of a body the Encounter staged: on this peer's hold, or a NICE BOY's
+## EscortAnchor. A body something else has staged since (the van's seat, the
+## Annex's walk-in) is that system's to let go of (fx-net).
+func _unstage_body(player: Node3D, peer_id: int) -> void:
+	if player == null or not player.has_method("clear_staged") or not player.has_method("is_staged") or not bool(player.call("is_staged")):
+		return
+	if _owns_anchor(peer_id, _staged_anchor(player)):
 		player.call("clear_staged")
+
+
+## What this player's body is staged on, or null.
+static func _staged_anchor(player: Node3D) -> Node3D:
+	var stage_body := player.get_node_or_null("StageBody")
+	if stage_body == null or not stage_body.has_method("staged_anchor"):
+		return null
+	return stage_body.call("staged_anchor") as Node3D
+
+
+## Whether anchor is one the Encounter stages bodies on: this peer's hold, or a
+## crew member's EscortAnchor.
+func _owns_anchor(peer_id: int, anchor: Node3D) -> bool:
+	if anchor == null:
+		return false
+	if anchor == _holds.get(peer_id):
+		return true
+	var carrier := anchor.get_parent()
+	while carrier != null:
+		if carrier.has_method("escort_anchor"):
+			return carrier.call("escort_anchor") == anchor
+		carrier = carrier.get_parent()
+	return false
 
 
 func _lock(player: Node3D, reason: StringName, on: bool) -> void:
@@ -1672,7 +1703,7 @@ func _clear_peer(peer_id: int) -> void:
 		_anim_speed(_body_of(crew), 1.0)
 	if player != null:
 		_anim_speed(_body_of(player), 1.0)
-		_unstage_body(player)
+		_unstage_body(player, peer_id)
 		_drop_caught_pose(player)
 		if peer_id == Net.local_peer_id():
 			_release_boarding_iris()
@@ -1755,10 +1786,8 @@ func _shake_loose(peer_id: int, player: Node3D, crew_at: Vector3, rescuer: Node3
 func _end_shake_loose(peer_id: int, hold_id: int) -> void:
 	var hold := instance_from_id(hold_id) as Node3D
 	var player := _player(peer_id)
-	if player != null and hold != null and player.has_method("is_staged") and bool(player.call("is_staged")):
-		var stage_body := player.get_node_or_null("StageBody")
-		if stage_body != null and stage_body.call("staged_anchor") == hold:
-			_unstage_body(player)
+	if player != null and hold != null and _staged_anchor(player) == hold:
+		player.call("clear_staged")
 	if hold != null and _holds.get(peer_id) == hold and stage_of(peer_id) == Stage.NONE:
 		_holds.erase(peer_id)
 		hold.queue_free()

@@ -96,7 +96,8 @@ func _physics_process(_delta: float) -> void:
 		if _stop_recorded or now - _last_change_at < STOP_AFTER_SECONDS:
 			return
 		_stop_recorded = true
-		_samples.append({"at": now, "xform": body.global_transform, "speed": 0.0})
+		# After the last update's playback time (it can be spaced a little ahead).
+		_samples.append({"at": maxf(now, float(_samples[_samples.size() - 1]["at"]) + 0.001), "xform": body.global_transform, "speed": 0.0})
 		_trim(now)
 		return
 	# Gaps are measured between updates, not to a stop copy.
@@ -107,6 +108,17 @@ func _physics_process(_delta: float) -> void:
 			stats["hitches"] = int(stats["hitches"]) + 1
 			if hitch_log.size() < HITCH_LOG_MAX:
 				hitch_log.append([now, snappedf(gap, 0.001), body.get_multiplayer_authority()])
+	# After a gap longer than the delay (a stall on either peer, updates bunched on
+	# the way, or a body setting off after standing still), the rendered time is
+	# already past the last update, so the new one would be drawn most of the way
+	# there in one frame: a NICE BOY who turned through a host's stall snapped
+	# 0.6 rad at once on a client (encounter_test step 2). Carry on from where it's
+	# drawn: a sample of that, at the rendered time, so the catch-up takes
+	# delay_seconds like any other stretch (fx-net).
+	if not _samples.is_empty() and now - _last_change_at > delay_seconds:
+		var drawn_at := now - delay_seconds
+		if drawn_at > float(_samples[_samples.size() - 1]["at"]):
+			_samples.append({"at": drawn_at, "xform": _sample_at(drawn_at), "speed": 0.0})
 	stats["samples"] = int(stats["samples"]) + 1
 	var velocity: Vector3 = body.get("velocity") if "velocity" in body else Vector3.ZERO
 	_last_recorded = origin
@@ -114,7 +126,17 @@ func _physics_process(_delta: float) -> void:
 	_last_change_at = now
 	_last_change_speed = Vector2(velocity.x, velocity.z).length()
 	_stop_recorded = false
-	_samples.append({"at": now, "xform": body.global_transform, "speed": _last_change_speed})
+	# Updates are sent at least a replication interval apart, but a loaded peer
+	# reads the network once a frame, so two can land a tick apart: played back on
+	# their arrival times, the second interval's motion took one tick (a NICE BOY
+	# drawn turning 0.4-0.8 rad in a tick he turned over three). Each is played at
+	# least SMOOTHER_MIN_SPACING after the last, never more than half the delay
+	# ahead of its arrival (fx-net).
+	var at := now
+	if not _samples.is_empty():
+		var spaced := float(_samples[_samples.size() - 1]["at"]) + Constants.SMOOTHER_MIN_SPACING
+		at = clampf(spaced, now, now + delay_seconds * 0.5)
+	_samples.append({"at": at, "xform": body.global_transform, "speed": _last_change_speed})
 	_trim(now)
 
 

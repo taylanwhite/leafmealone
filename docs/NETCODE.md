@@ -256,7 +256,7 @@ The collision body follows the latest snapshot, and only the visual child follow
 The Annex's clerks, ride progress, and run event timers need every peer to agree on the time. `Net.server_time()` returns the host's clock in seconds on every peer.
 
 - On the host it is simply the host's monotonic clock since the session started.
-- Each client estimates its offset from the host. Every second it sends a ping on channel 1 with its own send time, the host replies with its current time, and the client computes `offset = host_time + round_trip / 2 - local_receive_time`. Keep the samples from the last 10 seconds and use the offset from the sample with the lowest round trip, which is the least distorted by jitter.
+- Each client estimates its offset from the host. Four times a second (`CLOCK_PING_SECONDS`) it sends a ping on channel 1 with its own send time and the host replies with its current time. Each sample bounds the offset: at least `host_time - local_receive_time`, at most `host_time - local_send_time`. Over the last 10 seconds the tightest bounds are kept and the estimate is their middle (fx-net, 2026-11-04; before, the offset of the single lowest-round-trip sample, which needed one sample with no frame wait on either leg). If the bounds ever cross, the lowest round trip's middle is used. The applied clock slews toward the estimate (5% of real time), snaps forward past 0.25 s, walks back at half speed past it, and never runs backwards. On a `--fixed-step` dev run the offset is fitted as a line and its rate carried.
 - Clients should agree with the host to within roughly 20 ms on a normal connection. The debug overlay shows each client's current offset estimate and round trip.
 
 ## Leaf field

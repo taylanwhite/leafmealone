@@ -96,7 +96,7 @@ func _process(delta: float) -> void:
 	if multiplayer.multiplayer_peer.get_connection_status() != MultiplayerPeer.CONNECTION_CONNECTED:
 		return
 	_ping_wait += delta
-	if _ping_wait < 1.0:
+	if _ping_wait < Constants.CLOCK_PING_SECONDS:
 		return
 	_ping_wait = 0.0
 	_rpc_clock_ping.rpc_id(1, _clock.local_seconds())

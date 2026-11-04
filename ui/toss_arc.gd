@@ -91,32 +91,10 @@ func _process(delta: float) -> void:
 	visible = true
 	_slide = fposmod(_slide + delta * SLIDE_PER_SECOND, 1.0)
 	var truck := get_tree().get_first_node_in_group("chefty")
-	var forward := -player.global_basis.z
-	forward.y = 0.0
-	var feet := player.global_position
-	# It leaves from where it hangs in your hands (net_prop.gd _release).
-	var from: Vector3 = bag.call("_hold_position", player)
-	var power := _BedToss.power_for_seconds(seconds)
-	var vel := _BedToss.launch_velocity("leaf_bag", float(bag.call("weight_kg")), forward, power)
-	vel = _BedToss.assist(truck, from, vel, feet.y)
 	var step := Constants.TOSS_ARC_STEP_SECONDS
-	var path := _BedToss.flight(from, vel, feet.y, truck, -1.0, step * (1.0 - _slide))
-	# Gold only when it's sure: a throw a touch softer or harder goes in too (the
-	# same test the aim help aims for). The catch itself is kinder than that, so
-	# an arc left plain can still sneak in.
-	var caught := bool(path["caught"]) and _BedToss.sure_catch(truck, from, vel, feet.y)
-	var room := truck != null and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY
-	if room and _BedToss.close_toss(truck, from, vel, feet.y):
-		# Right by the bed it hops in over the side (net_prop.gd): the dots follow the hop.
-		caught = true
-		path = _hop_path(truck, from, vel, step)
-	else:
-		# The arc stops at whatever's in the way: a mailbox, a fence, a tree.
-		var hit := _blocked(path["points"] as PackedVector3Array, [bag, player, truck])
-		if not hit.is_empty():
-			caught = false
-			path = {"points": hit["points"], "end": hit["at"]}
-	var warm := caught and room
+	var judged := judge(player, bag, seconds, step * (1.0 - _slide))
+	var path: Dictionary = judged["path"]
+	var warm := bool(judged["warm"])
 	var fade := clampf((seconds - Constants.THROW_TAP_SECONDS) / FADE_IN_SECONDS, 0.0, 1.0)
 	var color := DOT_IN_COLOR if warm else DOT_COLOR
 	_dot_material.albedo_color = Color(color, color.a * fade)
@@ -159,6 +137,46 @@ func _process(delta: float) -> void:
 
 ## The hop over the side into the next spot in the load, as dots (the glide
 ## net_prop.gd _step_settle draws), in the same shape flight() gives.
+## The arc for a bag let go after this wind-up (s), as the preview draws it:
+## {path: {points, end}, warm: gold (a sure catch with room in the bed)}. The
+## first dot is first_step s along. toss_test asks it on the tick it lets go
+## (fx-net: reading the drawn preview waited for a rendered frame, which a loaded
+## run reached several ticks of wind-up later).
+func judge(player: Node3D, bag: Node, seconds: float, first_step: float = Constants.TOSS_ARC_STEP_SECONDS) -> Dictionary:
+	var truck := get_tree().get_first_node_in_group("chefty")
+	var forward := -player.global_basis.z
+	forward.y = 0.0
+	var feet := player.global_position
+	# It leaves from where it hangs in your hands (net_prop.gd _release).
+	var from: Vector3 = bag.call("_hold_position", player)
+	var power := _BedToss.power_for_seconds(seconds)
+	var vel := _BedToss.launch_velocity("leaf_bag", float(bag.call("weight_kg")), forward, power)
+	vel = _BedToss.assist(truck, from, vel, feet.y)
+	var step := Constants.TOSS_ARC_STEP_SECONDS
+	var path := _BedToss.flight(from, vel, feet.y, truck, -1.0, first_step)
+	# Gold only when it's sure: a throw a touch softer or harder goes in too (the
+	# same test the aim help aims for). The catch itself is kinder than that, so
+	# an arc left plain can still sneak in.
+	var caught := bool(path["caught"]) and _BedToss.sure_catch(truck, from, vel, feet.y)
+	var room := truck != null and int(truck.call("bag_count")) < Constants.TRUCK_BAG_CAPACITY
+	if room and _BedToss.close_toss(truck, from, vel, feet.y):
+		# Right by the bed it hops in over the side (net_prop.gd): the dots follow the hop.
+		caught = true
+		path = _hop_path(truck, from, vel, step)
+	else:
+		# The arc stops at whatever's in the way: a mailbox, a fence, a tree.
+		var hit := _blocked(path["points"] as PackedVector3Array, [bag, player, truck])
+		if not hit.is_empty():
+			caught = false
+			path = {"points": hit["points"], "end": hit["at"]}
+	return {"path": path, "warm": caught and room}
+
+
+## The bag in this player's hands, or null (for judge's callers).
+func held_bag(player: Node) -> Node:
+	return _held_bag(player)
+
+
 func _hop_path(truck: Node, from: Vector3, vel: Vector3, step: float) -> Dictionary:
 	var bed: Transform3D = truck.call("bed_transform")
 	var slot := _BedLoad.slot(int(truck.call("bag_count")))

@@ -5786,3 +5786,31 @@ const KIT_DROP_AHEAD: float = 0.7
 const KIT_DROP_LIFT: float = 0.4
 ## Past KIT_DOOR_MAX, more kit by the door stacks on the last spot this much higher each (m).
 const KIT_DOOR_STACK_STEP: float = 0.3
+
+# ---- fx-net (W9: trustworthy tests, the clock under load; docs/DECISIONS.md "fx-net")
+## A client pings the host for its clock this often (s). Each ping bounds the
+## offset; more of them give each bound more chances at a frame with no wait
+## (net/clock_sync.gd). Two floats each way.
+const CLOCK_PING_SECONDS: float = 0.25
+## A client clock whose estimate fell back more than ClockSync.SNAP_SECONDS walks
+## back at this share of real time (time runs at half speed) instead of jumping
+## back: scheduled beats never replay.
+const CLOCK_BACK_SLEW: float = 0.5
+## A --fixed-step run's clock (game ticks): the window the offset's rate is
+## fitted over (s), the samples it needs and how long a stretch they must span
+## (s), how far over the quickest round trip a sample may be to count (s), and
+## the fastest the offset may move (s a second: a window at 0.2 of real time
+## beside a host at full speed is 4).
+const CLOCK_RATE_WINDOW: float = 5.0
+const CLOCK_RATE_MIN_SAMPLES: int = 4
+const CLOCK_RATE_MIN_SPAN: float = 1.5
+const CLOCK_RATE_RTT_SLACK: float = 0.03
+const CLOCK_RATE_MAX: float = 4.0
+## Chefty's driver: a frame that drops at least this many physics ticks has
+## them stepped on the held input, as the host stood in for them
+## (chefty_drive.gd _lost_ticks); fewer is the step counter's own jitter.
+const CHEFTY_LOST_TICKS_MIN: int = 2
+## NetSmoother: two updates are played back at least this far apart (s), a hair
+## under the synchronizers' 0.033 s replication interval, so updates a loaded
+## peer reads in consecutive ticks still take their interval each.
+const SMOOTHER_MIN_SPACING: float = 0.03

@@ -313,8 +313,13 @@ func _check_crew_bot(problems: Array[String]) -> Dictionary:
 	report["rake_strokes"] = tally["strokes"]
 	report["moved"] = tally["moved"]
 	# The bot said it plays as one of the crew (its --bot-crew reached net/dev/bot.gd).
-	var said := FileAccess.get_file_as_string(log_path).contains("as a crew member")
+	var bot_log := FileAccess.get_file_as_string(log_path)
+	var said := bot_log.contains("as a crew member")
 	report["crew_mode"] = said
+	# What the bot saw when it went for the rake (net/dev/bot_job.gd), on its own clock.
+	for line: String in bot_log.split("\n"):
+		if line.begins_with("[BotJob] going for the loose rake"):
+			report["bot_went"] = line.trim_prefix("[BotJob] ")
 	# It left the rake to the host standing near it with empty hands for the whole
 	# wait first (net/dev/bot_job.gd _mine_to_take): a bot that took it at once fails.
 	var defer: float = load("res://net/dev/bot_job.gd").RAKE_DEFER_SECONDS
@@ -336,7 +341,9 @@ func _crew_bot_where(bot: int, rake: Node) -> String:
 			body = node as Node3D
 	var at := body.global_position if body != null else Vector3.INF
 	var rake_at := (rake as Node3D).global_position if is_instance_valid(rake) else Vector3.INF
-	return "zone %s at %s, rake at %s held by %d loose %s" % [Net.Zone.keys()[Net.player_zone(bot)] if bot != 0 else "-", at.snappedf(0.1), rake_at.snappedf(0.1), int(rake.get("held_by")) if is_instance_valid(rake) else -1, bool(rake.call("is_loose")) if is_instance_valid(rake) else false]
+	var me := _own_player()
+	var host_off := Vector2(me.global_position.x - rake_at.x, me.global_position.z - rake_at.z).length() if me != null and rake_at.is_finite() else INF
+	return "zone %s at %s, rake at %s held by %d loose %s, the host %.1f m from it" % [Net.Zone.keys()[Net.player_zone(bot)] if bot != 0 else "-", at.snappedf(0.1), rake_at.snappedf(0.1), int(rake.get("held_by")) if is_instance_valid(rake) else -1, bool(rake.call("is_loose")) if is_instance_valid(rake) else false, host_off]
 
 
 ## Seconds until a NICE BOY winds up at you (the Encounter's WINDUP or a grab

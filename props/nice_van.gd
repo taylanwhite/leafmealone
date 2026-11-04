@@ -1039,6 +1039,19 @@ class Motion extends Node:
 			tail.emission_energy_multiplier = lerpf(Constants.VAN_TAIL_GLOW, Constants.VAN_BRAKE_GLOW, _braking)
 
 
+## Server time for the doors (every peer agrees on it). Looked up at run time, not
+## through the Net autoload's name: tools/mesh_check.gd builds the van as a
+## --script, where autoload names don't compile (fx-net). Without a session, this
+## machine's clock (the studio, the headless checks).
+class DoorClock:
+	static func now() -> float:
+		var tree := Engine.get_main_loop() as SceneTree
+		var net := tree.root.get_node_or_null("Net") if tree != null else null
+		if net != null and net.has_method("server_time"):
+			return float(net.call("server_time"))
+		return float(Time.get_ticks_msec()) / 1000.0
+
+
 ## The sliding door: three panels that telescope along the outside track.
 ## slide(open, at) eases them over Constants.VAN_DOOR_SLIDE from wherever they
 ## are, starting at server time at, so every peer's door moves together; the
@@ -1073,9 +1086,10 @@ class SideDoor extends Node3D:
 		return _to > 0.5
 
 	func _process(_delta: float) -> void:
-		if is_equal_approx(openness, _to) and Net.server_time() >= _at:
+		var now := DoorClock.now()
+		if is_equal_approx(openness, _to) and now >= _at:
 			return
-		var u := clampf((Net.server_time() - _at) / maxf(Constants.VAN_DOOR_SLIDE, 0.01), 0.0, 1.0)
+		var u := clampf((now - _at) / maxf(Constants.VAN_DOOR_SLIDE, 0.01), 0.0, 1.0)
 		_apply(lerpf(_from, _to, u * u * (3.0 - 2.0 * u)))
 
 	func _apply(value: float) -> void:
@@ -1106,11 +1120,12 @@ class BackDoors extends Node3D:
 		_apply(_from, _from)
 
 	func _process(_delta: float) -> void:
-		if is_equal_approx(openness, _to) and Net.server_time() >= _at + 0.2:
+		var now := DoorClock.now()
+		if is_equal_approx(openness, _to) and now >= _at + 0.2:
 			return
 		var seconds := maxf(Constants.VAN_BACK_DOOR_SWING, 0.01)
-		var right := clampf((Net.server_time() - _at) / seconds, 0.0, 1.0)
-		var left := clampf((Net.server_time() - _at - 0.12) / seconds, 0.0, 1.0)
+		var right := clampf((now - _at) / seconds, 0.0, 1.0)
+		var left := clampf((now - _at - 0.12) / seconds, 0.0, 1.0)
 		_apply(lerpf(_from, _to, _ease(left)), lerpf(_from, _to, _ease(right)))
 
 	## Swinging out, a little past and back, like a door let go of.
