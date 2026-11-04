@@ -40,14 +40,25 @@ float linear_depth(vec2 uv, mat4 inv_projection) {
 }
 
 void fragment() {
-	vec2 pixel = line_width / VIEWPORT_SIZE;
+	vec2 pixel = 1.0 / VIEWPORT_SIZE;
 	float center = linear_depth(SCREEN_UV, INV_PROJECTION_MATRIX);
-	float left = linear_depth(SCREEN_UV - vec2(pixel.x, 0.0), INV_PROJECTION_MATRIX);
-	float right = linear_depth(SCREEN_UV + vec2(pixel.x, 0.0), INV_PROJECTION_MATRIX);
-	float up = linear_depth(SCREEN_UV - vec2(0.0, pixel.y), INV_PROJECTION_MATRIX);
-	float down = linear_depth(SCREEN_UV + vec2(0.0, pixel.y), INV_PROJECTION_MATRIX);
+	// Every pixel from 1 out to the line width, not just the one at the width:
+	// a wide line has to be one band hugging the edge, or a gap a pixel wide
+	// (between cart wires, behind a rail) draws two ghost lines 3 px off it.
+	float steps = max(ceil(line_width), 1.0);
 	// Only the far side of a jump draws, so lines sit on the outer edge of shapes.
-	float jump = max(max(left - center, right - center), max(up - center, down - center));
+	float jump = 0.0;
+	for (int i = 1; i <= 4; i++) {
+		if (float(i) > steps) {
+			break;
+		}
+		vec2 offset = pixel * float(i);
+		float left = linear_depth(SCREEN_UV - vec2(offset.x, 0.0), INV_PROJECTION_MATRIX);
+		float right = linear_depth(SCREEN_UV + vec2(offset.x, 0.0), INV_PROJECTION_MATRIX);
+		float up = linear_depth(SCREEN_UV - vec2(0.0, offset.y), INV_PROJECTION_MATRIX);
+		float down = linear_depth(SCREEN_UV + vec2(0.0, offset.y), INV_PROJECTION_MATRIX);
+		jump = max(jump, max(max(left - center, right - center), max(up - center, down - center)));
+	}
 	float threshold = max(min_threshold, center * relative_threshold);
 	ALBEDO = line_color.rgb;
 	ALPHA = step(threshold, jump) * line_color.a * (1.0 - smoothstep(fade_from, fade_to, center));

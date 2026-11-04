@@ -671,13 +671,22 @@ func _graphics() -> bool:
 	await get_tree().process_frame
 	if int(Settings.last_display.get("window_mode", -1)) != 1 or bool(Settings.last_display.get("applied", true)) or DisplayServer.window_get_mode() != window_before:
 		ok = _fail("graphics", "display in a test run: %s, window mode %d" % [Settings.last_display, DisplayServer.window_get_mode()])
+	# The preset alone (no reset) takes Low's FSR, 75% and thin grass back to the
+	# shipped look; brightness isn't a preset key, so it goes back by hand first.
+	Settings.set_value("video", "brightness", 1.0, false)
+	Settings.apply_preset("low")
 	Settings.apply_preset("high")
+	for frame: int in 3:
+		await get_tree().process_frame
+	high_ok = _is_high(sun, environment, outline, _lawns(world), viewport)
+	if high_ok != "":
+		ok = _fail("graphics", "the high preset after low didn't put the shipped look back: %s" % high_ok)
 	Settings.reset_section("video")
 	for frame: int in 3:
 		await get_tree().process_frame
 	high_ok = _is_high(sun, environment, outline, _lawns(world), viewport)
 	if high_ok != "":
-		ok = _fail("graphics", "high didn't put the shipped look back: %s" % high_ok)
+		ok = _fail("graphics", "resetting video didn't put the shipped look back: %s" % high_ok)
 	print("[SettingsTest] graphics: %d lawn chunks, last render %s" % [lawns.size(), Settings.last_render])
 	return ok
 
