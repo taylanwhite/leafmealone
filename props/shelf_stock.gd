@@ -238,15 +238,15 @@ func slot_front(index: int) -> Vector3:
 	return to_global((slot["at"] as Vector3) + out * (size.x * 0.5 + 0.4))
 
 
-## "Look at ..." while the local player stands by a slot.
+## "[E] Look" while the local player stands by a slot (p1-ui: the thing on the
+## shelf is right there; the window it opens names it).
 func prompt() -> Dictionary:
 	var entry := _nearest_entry()
 	if entry.is_empty():
 		return {}
-	var state: Dictionary = entry["state"]
-	var name_text := _Strings.shop_item_name(str(state.get("item", entry["item"])))
 	var slot: Dictionary = slots[int(entry["slot"])]
-	return {"text": str(_Strings.SHOP_UI["prompt_look_at"]) % name_text, "at": to_global((slot["at"] as Vector3) + Vector3(0.0, (slot["size"] as Vector3).y + 0.35, 0.0))}
+	# Each slot is its own prompt (the pill moves over to the next box as a new one).
+	return {"text": str(_Strings.SHOP_UI["prompt_look_at"]), "at": to_global((slot["at"] as Vector3) + Vector3(0.0, (slot["size"] as Vector3).y + 0.35, 0.0)), "source": "%s/%d" % [name, int(entry["slot"])]}
 
 
 func _unhandled_input(event: InputEvent) -> void:

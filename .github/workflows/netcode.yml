@@ -573,6 +573,20 @@ jobs:
           wait
           grep "HandsTest" build/soak/ci-hands/host.log build/soak/ci-hands/target.log || true
           $PY -c "import json,sys; h=json.load(open('build/soak/ci-hands/host.json')); t=json.load(open('build/soak/ci-hands/target.json')); sys.exit(0 if h['hands_test'].get('ok') and t['hands_test'].get('ok') else 1)"
+
+      # p1-ui: the windows and the words hung in the world (net/dev/ui_test.gd).
+      - name: UI test (windows sized and centered, prompts, the phone, the counter, world signs)
+        if: matrix.part == 'features'
+        run: |
+          if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+          mkdir -p build/soak/ci-ui
+          "$GODOT" --headless --path . -- --host --port=7833 --name=Tester --no-steam --ui-test --measure="$PWD/build/soak/ci-ui/host.json" --run-seconds=60 > build/soak/ci-ui/host.log 2>&1 &
+          sleep 3
+          "$GODOT" --headless --path . -- --join=127.0.0.1 --port=7833 --name=Target --no-steam --measure="$PWD/build/soak/ci-ui/target.json" --run-seconds=55 > build/soak/ci-ui/target.log 2>&1
+          wait
+          grep "UiTest" build/soak/ci-ui/host.log || true
+          $PY -c "import json,sys; h=json.load(open('build/soak/ci-ui/host.json')); sys.exit(0 if h['ui_test'].get('ok') else 1)"
+
       - name: Bot soak (150 ms, 2% loss, late joiner)
         if: matrix.part == 'soaks'
         run: |

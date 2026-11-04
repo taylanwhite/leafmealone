@@ -15,6 +15,14 @@ const _Overheads = preload("res://ui/overheads.gd")
 var max_screen: float = Constants.CHEFTY_LABEL_MAX_SCREEN
 var gone_m: float = Constants.CHEFTY_LABEL_GONE_M
 var full_m: float = Constants.CHEFTY_LABEL_FULL_M
+## p1-ui: its own fade now (distance and the yard HUD's), and the share of it
+## ui/overheads.gd lets show (a world sign: off a screen edge, off the HUD, out of
+## a nearer name's way, gone during a stage shot). Drawn at their product.
+var own_alpha: float = 1.0
+var screen_alpha: float = 1.0:
+	set(value):
+		screen_alpha = value
+		transparency = 1.0 - own_alpha * screen_alpha
 ## Its own pixel size; it draws smaller by drawing smaller pixels (a billboard
 ## doesn't take its node's scale).
 var _base_pixel: float = 0.0
@@ -22,6 +30,7 @@ var _base_pixel: float = 0.0
 
 func _ready() -> void:
 	_base_pixel = pixel_size
+	add_to_group(_Overheads.SIGNS)
 	# Its size follows the camera, which moves on physics ticks too.
 	process_physics_priority = 1000
 
@@ -40,7 +49,8 @@ func fit(camera: Camera3D) -> float:
 	# R2c: it's HUD hung in the world, so it eases out with the yard HUD while the
 	# moment has you (Chefty's "0/50 bags" used to float through the Courtesy
 	# Shuttle's window during the ride).
-	transparency = 1.0 - smoothstep(gone_m, full_m, away) * _Overheads.yard_alpha(get_tree())
+	own_alpha = smoothstep(gone_m, full_m, away) * _Overheads.yard_alpha(get_tree())
+	transparency = 1.0 - own_alpha * screen_alpha
 	var size := 1.0
 	if camera.projection == Camera3D.PROJECTION_PERSPECTIVE:
 		var view_height := 2.0 * away * tan(deg_to_rad(camera.fov) * 0.5)

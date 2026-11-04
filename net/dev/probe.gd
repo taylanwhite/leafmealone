@@ -247,6 +247,7 @@ func write_report() -> void:
 		"stage_test": preload("res://net/dev/stage_test.gd").result.duplicate(),
 		"hud_test": preload("res://net/dev/hud_test.gd").result.duplicate(),
 		"depart_test": preload("res://net/dev/depart_test.gd").result.duplicate(),
+		"ui_test": preload("res://net/dev/ui_test.gd").result.duplicate(),
 		"job_test": preload("res://net/dev/job_test.gd").result.duplicate(),
 		"bonk_test": preload("res://net/dev/bonk_test.gd").result.duplicate(),
 		"work_test": preload("res://net/dev/work_test.gd").result.duplicate(),

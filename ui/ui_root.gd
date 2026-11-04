@@ -620,6 +620,9 @@ func _build_payout() -> void:
 
 
 func _on_payout(results: Array[Dictionary]) -> void:
+	# A dev watcher (the playtest observer) isn't on the crew: no payday card.
+	if bool(_payout.call("is_spectator", Net.local_peer_id())):
+		return
 	_payout.call("show_payout", results, Campaign.last_settlement())
 
 

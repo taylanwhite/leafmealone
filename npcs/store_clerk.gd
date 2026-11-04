@@ -46,6 +46,9 @@ const KEEPERS: Dictionary = {
 ## The caption's size on screen at the normal caption size (Settings.caption_scale()).
 ## Presentation, not tuning: it matches the homeowner caption (docs/DECISIONS.md).
 const CAPTION_PIXEL_SIZE: float = 0.0011
+## Where a keeper's face is over their feet (m), for framing a customer's view
+## on it (frame_for). Presentation: the cartoon body's head.
+const KEEPER_FACE_M: float = 1.5
 
 ## Which shop this keeper runs (a Catalog.SHOPS id). Set before adding it.
 var shop_id: String = "homie_depot"
@@ -70,6 +73,9 @@ var _was_raided: bool = false
 ## to give when it's done ("" for none yet).
 var _thinking_until: float = 0.0
 var _verdict: String = ""
+## p1-ui: the line his shop window's header showed; it isn't put back over his
+## head once the window closes (said once, NB-10).
+var _window_line: String = ""
 ## Dot's hand-over: the server time of the newest sale she's handing out, and who to.
 var _handed_at: float = -1.0
 var _handing_to: int = 0
@@ -177,6 +183,8 @@ func say_line(trigger: String) -> void:
 		return
 	last_trigger = trigger
 	last_line = str(lines[randi() % lines.size()])
+	if not window_up():
+		_window_line = ""
 	_caption.text = last_line
 	_caption_left = Constants.CLERK_CAPTION_SECONDS
 	chatter()
@@ -189,6 +197,8 @@ func say(line: String) -> void:
 		return
 	last_trigger = "say"
 	last_line = line
+	if not window_up():
+		_window_line = ""
 	_caption.text = line
 	_caption_left = Constants.CLERK_CAPTION_SECONDS
 	chatter()
@@ -243,6 +253,36 @@ func current_line() -> String:
 	return last_line if _caption_left > 0.0 else ""
 
 
+## Whether this keeper's own shop window is up on this screen.
+func window_up() -> bool:
+	var ui := get_tree().get_first_node_in_group("game_ui") if is_inside_tree() else null
+	var window := ui.get_node_or_null("ShopWindow") as Control if ui != null else null
+	return window != null and window.visible and str(window.get("shop_id")) == shop_id
+
+
+## NB-M1: the customer who just opened his window has their view eased round onto
+## his face (P1_COUNTER_FRAME_SECONDS), so when it closes he's in the middle of
+## the picture, the counter below him, instead of half off the edge or under a
+## counter top filling the screen. Looking down is held to P1_COUNTER_PITCH_MAX.
+## Local: it turns this peer's own player, whose look it is.
+func frame_for(customer: Node3D) -> void:
+	if customer == null or not ("body_yaw" in customer) or not ("head_pitch" in customer) or not is_inside_tree():
+		return
+	var camera := get_viewport().get_camera_3d()
+	var eye := camera.global_position if camera != null else customer.global_position + Vector3.UP * 1.5
+	var face := global_position + Vector3.UP * KEEPER_FACE_M
+	var to := face - eye
+	var flat := Vector2(to.x, to.z).length()
+	if flat < 0.2:
+		return
+	var yaw := float(customer.get("body_yaw"))
+	var want_yaw := yaw + angle_difference(yaw, atan2(-to.x, -to.z))
+	var want_pitch := clampf(atan2(to.y, flat), -Constants.P1_COUNTER_PITCH_MAX, Constants.P1_COUNTER_PITCH_MAX)
+	var turn := customer.create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	turn.tween_property(customer, "body_yaw", want_yaw, Constants.P1_COUNTER_FRAME_SECONDS)
+	turn.tween_property(customer, "head_pitch", want_pitch, Constants.P1_COUNTER_FRAME_SECONDS)
+
+
 ## Babble something, with the mouth moving, in this keeper's voice. Called with every line.
 func chatter() -> void:
 	if Net.is_automated():
@@ -285,6 +325,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		# The line first, so the window opens with it in its header.
 		say_line(open_trigger())
 		ui.call("open_shop", shop_id)
+		frame_for(_player(Net.local_peer_id()))
 	get_viewport().set_input_as_handled()
 
 
@@ -316,7 +357,11 @@ func _process(delta: float) -> void:
 	_local_was_near = near
 	_caption_left = maxf(0.0, _caption_left - delta)
 	var captions_on := bool(Settings.get_value("interface", "captions"))
-	_caption.visible = _caption_left > 0.0 and captions_on
+	# NB-10: while this shop's window is up its header shows the line, so it isn't
+	# printed over his head (above the window) as well.
+	if window_up():
+		_window_line = last_line
+	_caption.visible = _caption_left > 0.0 and captions_on and not window_up() and last_line != _window_line
 	_caption.pixel_size = CAPTION_PIXEL_SIZE * Settings.caption_scale()
 	# The name steps aside while they talk, so the two don't pile up.
 	_tag.visible = not _caption.visible

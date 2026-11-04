@@ -125,7 +125,8 @@ func show_summary(summary: Dictionary) -> void:
 		for poached: Variant in (town.get("poached", []) as Array):
 			_line(_Strings.UI["summary_poached"] % str(poached), Color(0.1, 0.5, 0.25), 18, "brand_turfmasters")
 		if int(town.get("missed", 0)) > 0:
-			_line(_Strings.UI["summary_missed"] % int(town["missed"]), INK.lightened(0.3), 18, "warning")
+			var missed := int(town["missed"])
+			_line(_Strings.UI["summary_missed_one"] if missed == 1 else _Strings.UI["summary_missed"] % missed, INK.lightened(0.3), 18, "warning")
 		_line(_Strings.UI["summary_requests"] % int(town.get("requests", 0)), INK, 18, "app_texts")
 	_fit_rows()
 	visible = true

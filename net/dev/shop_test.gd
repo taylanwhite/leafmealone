@@ -676,7 +676,7 @@ func _check_tier_math() -> void:
 ## shelves: the garden center's shelves (props/shelf_stock.gd) show today's
 ## stock: the day's lawn bags just sold out, a box per gas can left, the next
 ## tier of each tool with its price, or a tarp and the rank for one the crew's
-## rank hasn't opened; and walking up to a slot prompts "Look at ...".
+## rank hasn't opened; and walking up to a slot prompts "[E] Look" (that slot's).
 func _check_shelves(shops: Node) -> bool:
 	var shelf := get_tree().get_first_node_in_group("shelf_stock")
 	if shelf == null:
@@ -712,8 +712,10 @@ func _check_shelves(shops: Node) -> bool:
 		if me != null:
 			me.set("head_pitch", float(shelf.call("pitch_to", slot)))
 		var prompt := str((shelf.call("prompt") as Dictionary).get("text", ""))
-		var shown := str((shelf.call("slot_state", item) as Dictionary).get("item", item))
-		if prompt != str(_Strings.SHOP_UI["prompt_look_at"]) % _Strings.shop_item_name(shown):
+		# p1-ui: a keycap and a verb, the same at every slot; the slot is picked by
+		# where you stand and look (the window opens on that item).
+		var hint: Dictionary = shelf.call("prompt")
+		if prompt != str(_Strings.SHOP_UI["prompt_look_at"]) or not str(hint.get("source", "")).ends_with("/%d" % slot):
 			problems.append("looking at the %s prompts \"%s\"" % [item, prompt])
 	if me != null:
 		me.set("head_pitch", 0.0)
@@ -737,7 +739,7 @@ func _drawn_units(shelf: Node, item: String) -> int:
 ## window: the shop window (ui/shop_window.gd), opened on the gas can as the
 ## shelf does, lands on the Supplies tab with that card picked out; its x1
 ## button buys one through Shops at the counter (cash, supply, stock and the
-## shelf all move, and the toast says so); the Tools tab is one card per tool
+## shelf all move, and no toast restates it: the register rings, p1-ui); the Tools tab is one card per tool
 ## with the next tier, the locked Mk III's button off.
 func _check_window(shops: Node, me: int) -> void:
 	var ui := get_tree().get_first_node_in_group("game_ui")
@@ -771,7 +773,7 @@ func _check_window(shops: Node, me: int) -> void:
 		var toast := str(window.call("toast_text"))
 		if cash - Campaign.credits(me) != Catalog.price("gas_can") or not is_equal_approx(float(shops.call("supply", "gas")) - gas, float(Constants.SUPPLY_PER_ITEM["gas_can"])) \
 			or int(shops.call("stock_left", "homie_depot", "gas_can")) != left - 1 or units != mini(left - 1, Constants.SHELF_MAX_UNITS) \
-			or toast != str(_Strings.SHOP_UI["shop_result_ok"]) % _Strings.shop_item_name("gas_can"):
+			or toast != "":
 			problems.append("the x1 gas can: paid $%d, gas +%.1f, %d left of %d, shelf %d boxes, toast \"%s\"" % [cash - Campaign.credits(me), float(shops.call("supply", "gas")) - gas, int(shops.call("stock_left", "homie_depot", "gas_can")), left, units, toast])
 	window.call("show_tab", "tools")
 	await _ticks(1)

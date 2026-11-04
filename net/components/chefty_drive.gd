@@ -1587,6 +1587,8 @@ func _build_hand(entry: Dictionary) -> Node3D:
 	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	tag.modulate = Color(1.0, 0.85, 0.55)
 	tag.position = Vector3(0.0, 2.2, 0.0)
+	# p1-ui: kept off the HUD, the screen's edges and the other names (ui/overheads.gd).
+	tag.add_to_group("overhead_signs")
 	holder.add_child(tag)
 	return holder
 

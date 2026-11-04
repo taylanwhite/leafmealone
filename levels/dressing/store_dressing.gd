@@ -15,6 +15,11 @@ const _Trees = preload("res://props/trees.gd")
 const _YardModels = preload("res://props/yard_models.gd")
 const _Neighborhood = preload("res://levels/dressing/neighborhood.gd")
 const _MeshKit = preload("res://props/mesh_kit.gd")
+## Where the checkout's register sits on the counter (m from its middle; the
+## counter's top runs 1.7 m each way and 0.55 m front to back): on Marty's side,
+## at his elbow, its screen to him. Set dressing.
+const REGISTER_X: float = -0.6
+const REGISTER_Z: float = -0.35
 const _Stylized = preload("res://props/stylized.gd")
 const _Grass = preload("res://props/grass.gd")
 const _ShelfStock = preload("res://props/shelf_stock.gd")
@@ -346,8 +351,11 @@ static func _checkout(root: Node3D, zone: Node3D) -> void:
 	kit.rbox(base + Vector3(0.0, 0.55, 0.0), Vector3(1.6, 0.55, 0.45), Color(0.62, 0.44, 0.28), 8.0)
 	kit.rbox(base + Vector3(0.0, 1.12, 0.0), Vector3(1.7, 0.04, 0.55), Color(0.85, 0.82, 0.76), 6.0)
 	kit.rbox(base + Vector3(0.0, 0.55, 0.47), Vector3(1.55, 0.4, 0.02), ORANGE, 8.0)
-	kit.rbox(base + Vector3(0.9, 1.3, 0.05), Vector3(0.22, 0.14, 0.18), DARK, 4.0)
-	kit.rbox(base + Vector3(0.9, 1.5, -0.08), Vector3(0.18, 0.12, 0.02), Color(0.3, 0.6, 0.5), 4.0, {"shade": false})
+	# The register at Marty's elbow on the back edge (p1-ui, NB-M1): not between
+	# him and the customer, and not at the counter's end either, where it sat
+	# in the near corner of a customer's view, cut by the frame's edge.
+	kit.rbox(base + Vector3(REGISTER_X, 1.3, REGISTER_Z), Vector3(0.22, 0.14, 0.18), DARK, 4.0)
+	kit.rbox(base + Vector3(REGISTER_X, 1.5, REGISTER_Z - 0.13), Vector3(0.18, 0.12, 0.02), Color(0.3, 0.6, 0.5), 4.0, {"shade": false})
 	for x: float in [-2.0, 2.0]:
 		for z: float in [-1.2, 1.2]:
 			kit.tube(PackedVector3Array([base + Vector3(x, 0.0, z), base + Vector3(x, 2.9, z)]), PackedFloat32Array([0.06, 0.06]), DARK, 8, {"jitter": 0.0})
