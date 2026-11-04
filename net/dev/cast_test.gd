@@ -87,9 +87,17 @@ const _VanArrival = preload("res://net/run_events/shuttle.gd")
 const PHASE_B_WORDS: bool = true
 const _Doodles = preload("res://props/doodles.gd")
 const _Overheads = preload("res://ui/overheads.gd")
-## Step 18 builds them this size (m), as the street does (levels/dressing/street_life.gd).
-const WORDS_POSTER_SIZE := Vector2(0.3, 0.41)
-const WORDS_NOTE_SIZES: Array[Vector2] = [Vector2(0.17, 0.17), Vector2(0.19, 0.19)]
+const _BuildQueue = preload("res://levels/build_queue.gd")
+## Step 18 builds them the size the street does (levels/dressing/street_life.gd).
+const _StreetLife = preload("res://levels/dressing/street_life.gd")
+const WORDS_POSTER_SIZE: Vector2 = _StreetLife.POSTER_SIZE
+const WORDS_NOTE_SIZES: Array[Vector2] = [_StreetLife.NOTE_SIZE, _StreetLife.NOTE_SIZE_LARGE]
+## Step 18's street: a block's near-side lamps this far apart (m), the acorn
+## suburb's spacing (a multiple of the poster count, which once gave every post
+## the same poster), and how many block seeds it tries.
+const WORDS_BLOCK_SPACING: float = 24.0
+const WORDS_BLOCK_LAMPS: int = 10
+const WORDS_BLOCK_SEEDS: int = 6
 ## Steps 13-16: crew outfits and name tags on a networked crew (cast:4).
 const PHASE_C_CREW: bool = true
 ## Step 17: barks reach the client (cast:6).
@@ -463,7 +471,69 @@ func _words(scratch: Node3D) -> void:
 			tallest = maxf(tallest, _printed(line, card, key, view_at_nearest))
 	look["words_line_share_at_nearest"] = tallest
 	holder.queue_free()
+	_words_placed(scratch)
 	print("[CastTest] step 18: %d posters and %d notes carry their words; the tallest line is %.1f%% of the view at %.2f m (the cap is %.1f%%): %s" % [_Doodles.POSTERS.size(), _Doodles.NOTES.size(), tallest * 100.0, Constants.WORDS_NEAREST_M, Constants.P1_SIGN_LINE_MAX * 100.0, _problems.size() == before])
+
+
+## Step 18, as placed: a block's lamp posts don't all carry one poster and
+## neighbors differ, the mailbox note changes with the block, the store's
+## counter doesn't repeat Rusty's door, and the town's lamp posters fade with
+## their lamps (paper, back and seal) while the ink keeps its own fade.
+func _words_placed(scratch: Node3D) -> void:
+	var lamps := PackedVector3Array()
+	for index: int in WORDS_BLOCK_LAMPS:
+		lamps.append(Vector3(-130.0 + WORDS_BLOCK_SPACING * (0.75 + float(index)), 0.0, 22.0))
+	var opts := {"lamp": "acorn", "street_z": 27.0, "mailbox": "mailbox_post", "mailbox_at": Vector3(3.2, 0.0, 19.9)}
+	var mailbox_keys := {}
+	for block: int in WORDS_BLOCK_SEEDS:
+		var street := Node3D.new()
+		scratch.add_child(street)
+		var dressed := _StreetLife.dress_block(street, lamps, "", false, 9000 + block * 37, opts)
+		_BuildQueue.finish(get_tree())
+		var keys: Array[String] = []
+		for card: Node in dressed.get_children():
+			var key := str(card.get_meta("words", ""))
+			if _Doodles.POSTERS.has(key):
+				keys.append(key)
+			elif _Doodles.NOTES.has(key):
+				mailbox_keys[key] = true
+		var repeats := 0
+		for index: int in range(1, keys.size()):
+			repeats += 1 if keys[index] == keys[index - 1] else 0
+		var kinds := {}
+		for key: String in keys:
+			kinds[key] = true
+		_look(keys.size() < 2 or (kinds.size() > 1 and repeats == 0), "18 block %d's %d lamp posters on %.0f m spacing are %d kinds, %d neighbors repeating" % [block, keys.size(), WORDS_BLOCK_SPACING, kinds.size(), repeats])
+		street.free()
+	_look(mailbox_keys.size() > 1, "18 the yard mailbox's note changes with the block (%d kinds over %d blocks)" % [mailbox_keys.size(), WORDS_BLOCK_SEEDS])
+	var rustys := _Doodles.note_key(_StreetLife.RUSTYS_NOTE_SEED)
+	for index: int in 3:
+		var counter := _Doodles.note_key(_StreetLife.COUNTER_NOTE_SEED + index)
+		_look(counter != rustys, "18 the counter's note %d (%s) isn't Rusty's door's" % [index, counter])
+	var town := Node3D.new()
+	scratch.add_child(town)
+	var spots: Array = []
+	for index: int in _Doodles.POSTERS.size() * 2:
+		spots.append([Vector3(float(index) * 3.0, 0.0, 0.0), 0.0])
+	var posted := _StreetLife.dress_town_lamps(town, spots, 4242, Vector3.ZERO)
+	_BuildQueue.finish(get_tree())
+	var papers := 0
+	for card: Node in posted.get_children():
+		if not card is MeshInstance3D:
+			continue
+		papers += 1
+		var key := str(card.get_meta("words", ""))
+		var back := card.get_node_or_null("Back") as GeometryInstance3D
+		var title := card.get_node_or_null("Title") as Label3D
+		_look(is_equal_approx((card as GeometryInstance3D).visibility_range_end, Constants.TOWN_SMALL_VISIBLE_METERS) and back != null and is_equal_approx(back.visibility_range_end, Constants.TOWN_SMALL_VISIBLE_METERS), "18 the town lamp's %s fades with the town's small things" % key)
+		_look(title != null and is_equal_approx(title.visibility_range_end, Constants.WORDS_VISIBLE_M), "18 the town lamp's %s keeps its ink's own fade" % key)
+		var seal := card.get_node_or_null("NiceSeal")
+		if seal != null:
+			for part: Node in seal.find_children("*", "GeometryInstance3D", true, false):
+				_look(is_equal_approx((part as GeometryInstance3D).visibility_range_end, Constants.TOWN_SMALL_VISIBLE_METERS), "18 the town lamp's courtesy seal fades with its paper")
+	_look(papers > 0, "18 the town's lamps downtown carry posters (%d of %d)" % [papers, spots.size()])
+	town.free()
+	print("[CastTest] step 18: posters vary down a %.0f m block, %d mailbox notes, the town's %d lamp posters fade" % [WORDS_BLOCK_SPACING, mailbox_keys.size(), papers])
 
 
 ## Step 18: one printed label's rules; returns its line's share of the view at

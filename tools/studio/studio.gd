@@ -818,15 +818,16 @@ func _van(root: Node3D, detail: bool) -> void:
 ## sticky note under them at door height, and a lamp post with a poster on it.
 func _words(root: Node3D) -> void:
 	var doodles := preload("res://props/doodles.gd")
+	var street := preload("res://levels/dressing/street_life.gd")
 	var wall := _LowPoly.box(root, Vector3(3.4, 2.4, 0.1), Vector3(0.0, 1.2, -0.05), Color(0.78, 0.76, 0.72))
 	_LowPoly.paint(wall, "stucco")
 	for index: int in doodles.POSTERS.size():
-		doodles.place_poster(root, index, Vector3(-1.35 + float(index) * 0.54, 1.75, 0.0), Vector3.BACK, Vector2(0.3, 0.41), [0.05, -0.08, 0.0, 0.1, -0.04, 0.07][index])
+		doodles.place_poster(root, index, Vector3(-1.35 + float(index) * 0.54, 1.75, 0.0), Vector3.BACK, street.POSTER_SIZE, [0.05, -0.08, 0.0, 0.1, -0.04, 0.07][index])
 	for index: int in doodles.NOTES.size():
-		doodles.place_note(root, index, Vector3(-1.35 + float(index) * 0.54, 1.12, 0.0), Vector3.BACK, Vector2(0.19, 0.19), [-0.2, 0.15, 0.05, -0.1, 0.25, -0.05][index])
+		doodles.place_note(root, index, Vector3(-1.35 + float(index) * 0.54, 1.12, 0.0), Vector3.BACK, street.NOTE_SIZE_LARGE, [-0.2, 0.15, 0.05, -0.1, 0.25, -0.05][index])
 	var post := _LowPoly.cylinder(root, 0.09, 5.2, Vector3(2.4, 2.6, 0.8), Color(0.22, 0.24, 0.26), false, 8)
 	_LowPoly.paint(post, "metal")
-	doodles.place_poster(root, 1, Vector3(2.4, 1.95, 0.8 + 0.102), Vector3.BACK, Vector2(0.3, 0.41), -0.06)
+	doodles.place_poster(root, 1, Vector3(2.4, 1.95, 0.8 + 0.102), Vector3.BACK, street.POSTER_SIZE, -0.06)
 	var near := str(_options.get("view", "")) == "near"
 	var eye := Constants.WORDS_NEAREST_M
 	root.set_meta("views", [
