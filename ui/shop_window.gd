@@ -504,7 +504,8 @@ func _actions(id: String, data: Dictionary, wallet: int, shops: Node, open: bool
 	if kind == "service":
 		var dents := int(shops.call("chefty_dents")) if shops != null else 0
 		return [{"text": _Strings.SHOP_UI["shop_repair_buy"], "enabled": why == "" and dents > 0, "do": "buy", "qty": maxi(dents, 1)}]
-	if kind == "consumable":
+	# A seasonal sack (shops:9) is a thing you carry out, one at a time.
+	if kind == "consumable" and not Catalog.is_kit(id):
 		var out: Array[Dictionary] = []
 		for qty: int in Constants.SHOP_QTY_STEPS:
 			out.append({"text": str(_Strings.SHOP_UI["shop_buy_qty"]) % qty, "enabled": _blocker(id, qty, wallet, shops, open, data) == "", "do": "buy", "qty": qty})

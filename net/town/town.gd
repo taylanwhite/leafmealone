@@ -653,6 +653,10 @@ func _can_do(task: String, size: int) -> bool:
 	if task == "skim_pool" and size != 2:
 		return false
 	var tool := str(Constants.TASK_TOOLS.get(task, ""))
+	# shops:9: seasonal work is asked for whenever its sack is on Marty's shelf
+	# (the card says "needs a sack of fertilizer"): that's what sells the sack.
+	if Constants.SEASONAL_TASKS.has(task):
+		return _JobBoard.seasonal_in_season(task, _Seasons.of_day(_day)) and Campaign.is_for_sale(StringName(str(Catalog.SACK_ITEMS.get(tool, ""))))
 	return tool == "" or Campaign.crew_tools().has(tool)
 
 

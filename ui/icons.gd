@@ -62,6 +62,8 @@ const IDS: PackedStringArray = [
 	"task_rake_leaves", "task_pick_litter", "task_pull_weeds", "task_mow_lawn",
 	"task_clean_gutters", "task_wash_windows", "task_power_wash", "task_trim_hedges",
 	"task_paint_fence", "task_clear_roof", "task_skim_pool",
+	# shops:9: the seasonal sack work.
+	"task_fertilize_lawn", "task_seed_lawn", "task_salt_walk",
 	# Rank badges (256): a shield with a 3D emblem, Rake Rookie to The Lawnfather.
 	"rank_0", "rank_1", "rank_2", "rank_3", "rank_4", "rank_5", "rank_6", "rank_7", "rank_8",
 	# Stats (128, flat).
@@ -177,6 +179,9 @@ static func for_kind(kind: String) -> String:
 
 
 static func for_tool(tool_id: String) -> String:
+	# shops:9: a seasonal sack is drawn as the supply it is (icons:catalog's art).
+	if Catalog.is_sack(tool_id):
+		return for_shop_item(StringName(str(Catalog.SACK_ITEMS[tool_id])))
 	return "tool_" + tool_id
 
 

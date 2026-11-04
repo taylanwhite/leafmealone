@@ -59,6 +59,13 @@ const HOLDS: Dictionary = {
 	"gas_can": {"at": Vector3(0.3, 0.5, -0.22), "grips": [Vector3(0.0, 0.4, 0.0), Vector3.INF]},
 	"lawn_mower": {"grips": [Vector3(0.19, 0.95, 0.95), Vector3(-0.19, 0.95, 0.95)]},
 	"ladder": {"at": Vector3(0.33, 1.59, 0.0), "roll": PI * 0.5, "tilt": -0.08, "grips": [Vector3(0.0, 0.0, -0.35), Vector3.INF]},
+	# shops:9: a seasonal sack hugged against the right of the chest by its sides
+	# (the hands about 1.08 m up), so through your own eyes its mouth shows at the
+	# bottom right and the lawn ahead stays clear, its open top tipped
+	# ahead, ready to flick out (props/sack_spread.gd shakes it about the grips).
+	"fertilizer_bag": {"at": Vector3(0.2, 0.78, -0.4), "tilt": -0.5, "pivot": Vector3(0.0, 0.3, 0.0), "grips": [Vector3(0.235, 0.3, 0.0), Vector3(-0.235, 0.3, 0.0)]},
+	"grass_seed": {"at": Vector3(0.2, 0.84, -0.38), "tilt": -0.5, "pivot": Vector3(0.0, 0.24, 0.0), "grips": [Vector3(0.195, 0.24, 0.0), Vector3(-0.195, 0.24, 0.0)]},
+	"rock_salt": {"at": Vector3(0.2, 0.82, -0.39), "tilt": -0.5, "pivot": Vector3(0.0, 0.26, 0.0), "grips": [Vector3(0.215, 0.26, 0.0), Vector3(-0.215, 0.26, 0.0)]},
 }
 ## The pressure washer's wand grips, in the wand's space: [right, left].
 const WAND_GRIPS: Array[Vector3] = [Vector3(0.0, -0.11, 0.1), Vector3(-0.03, -0.02, -0.3)]
@@ -140,6 +147,12 @@ static func dress(prop: Node3D, kind: String, color: Color) -> void:
 		var stream: Node3D = load("res://props/water_stream.gd").new()
 		stream.name = "WaterStream"
 		prop.add_child(stream)
+	# shops:9: a seasonal sack slumps as it empties, shakes and throws while it's
+	# poured, and folds away empty (props/sack_spread.gd).
+	if Catalog.is_sack(kind) and prop.get_node_or_null("SackSpread") == null:
+		var spread: Node3D = load("res://props/sack_spread.gd").new()
+		spread.name = "SackSpread"
+		prop.add_child(spread)
 	# Tools make their running noise where they are, for everyone nearby.
 	if load("res://audio/tool_sound.gd").LOOPS.has(kind) and prop.get_node_or_null("ToolSound") == null:
 		var sound: Node = load("res://audio/tool_sound.gd").new()

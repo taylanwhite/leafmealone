@@ -1034,6 +1034,45 @@ SOUNDS["sawhorse_tip"] = (sawhorse_tip, 2, 0.8)
 SOUNDS["hedge_plow"] = (hedge_plow, 3, 0.75)
 
 
+# ---- shops:9 seasonal sacks (props/sack_spread.gd)
+def sack_shake(variant: int) -> list[float]:
+    """One flick of a sack of fertilizer, seed or salt: the paper bag's 'fsht' as it
+    jerks forward, then the granules leaving it and pattering down a few metres
+    off, a dry hiss of tiny ticks that spreads out and thins."""
+    rng = random.Random(9100 + variant)
+    out = silence(0.62)
+    # The paper: a short scuffed rustle, brightest at the jerk.
+    fsht = bandpass(noise(rng, 0.11), 2600.0 + variant * 180.0, 0.9)
+    mix_into(out, envelope(fsht, 0.006, 0.07), 0.0, 0.8)
+    mix_into(out, decay(lowpass(noise(rng, 0.06), 700.0), 45.0), 0.0, 0.45)
+    # The pour leaving the mouth: a soft hiss under the ticks.
+    mix_into(out, envelope(highpass(noise(rng, 0.3), 4200.0), 0.03, 0.18), 0.06, 0.18)
+    # The granules: a spray of tiny clicks, densest as they land.
+    for index in range(46):
+        at = 0.05 + rng.betavariate(2.0, 3.0) * 0.5
+        tick_ = decay(bandpass(noise(rng, 0.012), rng.uniform(3500.0, 7000.0), 3.0), 400.0)
+        mix_into(out, tick_, at, rng.uniform(0.12, 0.35))
+    return out
+
+
+def sack_fold() -> list[float]:
+    """An empty sack folded flat and stuffed away: crinkle, crinkle-crunch, and a
+    soft papery pat as it's squashed."""
+    rng = random.Random(9177)
+    out = silence(0.6)
+    for index in range(7):
+        at = index * 0.055 + rng.uniform(0.0, 0.02)
+        snap = decay(bandpass(noise(rng, 0.03), rng.uniform(1800.0, 3600.0), 2.0), 90.0)
+        mix_into(out, snap, at, 0.55 - index * 0.04)
+    mix_into(out, envelope(bandpass(noise(rng, 0.25), 1500.0, 0.8), 0.02, 0.15), 0.02, 0.35)
+    mix_into(out, decay(lowpass(noise(rng, 0.08), 500.0), 40.0), 0.4, 0.7)
+    return out
+
+
+SOUNDS["sack_shake"] = (sack_shake, 3, 0.55)
+SOUNDS["sack_fold"] = (sack_fold, 0, 0.6)
+
+
 def write(name: str, samples: list[float], peak_level: float) -> None:
     path = OUT / f"{name}.wav"
     peak = max(1e-6, max(abs(value) for value in samples))

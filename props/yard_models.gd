@@ -119,6 +119,9 @@ static func _build_kind(kit: RefCounted, kind: String, color: Color, size: Vecto
 			_paint_bucket(kit)
 		"gas_can":
 			_ShopModels.gas_can(kit)
+		# shops:9: the seasonal sacks, as they stand on Marty's shelf.
+		"fertilizer_bag", "grass_seed", "rock_salt":
+			_ShopModels.build_into(kit, kind)
 		_:
 			kit.call("rbox", Vector3(0.0, size.y * 0.5, 0.0), size * 0.5, color, 6.0)
 

@@ -17,11 +17,13 @@ const IDS: Array[String] = ["autumn", "winter", "spring", "summer"]
 ## How much of a yard's leaves come back, by season.
 const LEAVES: Array[float] = [1.0, 0.3, 0.45, 0.25]
 ## Work clients ask for more often, by season (one is added to a job when the crew can do it).
+## shops:9: the seasonal sack work (Constants.SEASONAL_TASKS) is asked for only
+## here, last in each list: salt in winter, seed and feed in spring, feed in summer.
 const FAVORED: Array = [
 	["clean_gutters", "clear_roof"],
-	["clean_gutters", "clear_roof", "power_wash", "wash_windows"],
-	["pull_weeds", "mow_lawn", "trim_hedges", "pick_litter"],
-	["mow_lawn", "skim_pool", "paint_fence", "wash_windows", "trim_hedges"],
+	["clean_gutters", "clear_roof", "power_wash", "wash_windows", "salt_walk"],
+	["pull_weeds", "mow_lawn", "trim_hedges", "pick_litter", "seed_lawn", "fertilize_lawn"],
+	["mow_lawn", "skim_pool", "paint_fence", "wash_windows", "trim_hedges", "fertilize_lawn"],
 ]
 ## Pay on top, by season: nobody wants to be out in the cold.
 const PAY_BONUS: Array[float] = [0.0, 0.15, 0.0, 0.05]

@@ -931,7 +931,7 @@ func _grids() -> void:
 	var no_lawn := _no_lawn.duplicate()
 	# No grass to mow on the front walk either (it grew through the paving).
 	var walk := _walk_rect.grow(0.15) if _walk_rect.has_area() else Rect2()
-	var lawn: int = _tasks.call("define_grid", "mow_lawn", to_global(Vector3(-YARD_HALF, 0.0, -YARD_HALF)), Vector2(YARD_HALF * 2.0, YARD_HALF * 2.0), 1.0, func(center: Vector3) -> bool:
+	var on_lawn := func(center: Vector3) -> bool:
 		var local := lot_global.to_local(center)
 		var at := Vector2(local.x, local.z)
 		if house.grow(-0.3).has_point(at) or Rect2(-2.2, 3.0, 4.4, 17.5).has_point(at) or walk.has_point(at):
@@ -940,7 +940,7 @@ func _grids() -> void:
 			if rect.has_point(at):
 				return false
 		return true
-	)
+	var lawn: int = _tasks.call("define_grid", "mow_lawn", to_global(Vector3(-YARD_HALF, 0.0, -YARD_HALF)), Vector2(YARD_HALF * 2.0, YARD_HALF * 2.0), 1.0, on_lawn)
 	_looks.call("add_lawn", lawn)
 	var noise := FastNoiseLite.new()
 	noise.seed = _rng.randi()
@@ -949,6 +949,56 @@ func _grids() -> void:
 		return noise.get_noise_2d(center.x, center.z) > 0.1
 	)
 	_looks.call("add_stains", stains)
+	_seasonal_grids(on_lawn, walk)
+
+
+## shops:9: the seasonal work every yard could be asked for, after every other
+## grid so their indices never move (docs/GAME.md "Seasonal work"): the whole
+## lawn to feed, the bare patches to overseed, and the drive and front walk to
+## salt. The patches come from their own rng (hash([job_seed, "bare"])), never
+## the yard's, whose draws are frozen.
+func _seasonal_grids(on_lawn: Callable, walk: Rect2) -> void:
+	var lot_global := get_parent() as Node3D
+	var feed_cell := float(Constants.SEASONAL_GRID_CELL["fertilize_lawn"])
+	_looks.call("add_seasonal", _tasks.call("define_grid", "fertilize_lawn", to_global(Vector3(-YARD_HALF, 0.0, -YARD_HALF)), Vector2(YARD_HALF * 2.0, YARD_HALF * 2.0), feed_cell, on_lawn))
+	var bare := RandomNumberGenerator.new()
+	bare.seed = hash([_job_seed, "bare"])
+	var patches: Array = []
+	var want := bare.randi_range(Constants.SEED_PATCHES.x, Constants.SEED_PATCHES.y)
+	for _try: int in want * 12:
+		if patches.size() >= want:
+			break
+		var at := Vector3(bare.randf_range(-YARD_HALF + 3.0, YARD_HALF - 3.0), 0.0, bare.randf_range(-YARD_HALF + 3.0, YARD_HALF - 3.0))
+		var radius := bare.randf_range(Constants.SEED_PATCH_RADIUS.x, Constants.SEED_PATCH_RADIUS.y)
+		if not bool(on_lawn.call(to_global(at))):
+			continue
+		# Kept in the lot's space, the one the include below measures in.
+		at = lot_global.to_local(to_global(at))
+		if patches.any(func(other: Array) -> bool: return (other[0] as Vector3).distance_to(at) < float(other[1]) + radius + 2.0):
+			continue
+		patches.append([at, radius, bare.randf() * TAU])
+	var seed_cell := float(Constants.SEASONAL_GRID_CELL["seed_lawn"])
+	_looks.call("add_seasonal", _tasks.call("define_grid", "seed_lawn", to_global(Vector3(-YARD_HALF, 0.0, -YARD_HALF)), Vector2(YARD_HALF * 2.0, YARD_HALF * 2.0), seed_cell, func(center: Vector3) -> bool:
+		if not bool(on_lawn.call(center)):
+			return false
+		var local := lot_global.to_local(center)
+		for patch: Array in patches:
+			var offset := Vector2(local.x - (patch[0] as Vector3).x, local.z - (patch[0] as Vector3).z)
+			# A lumpy edge: the radius wobbles round the patch.
+			var wobble := 1.0 + 0.22 * sin(offset.angle() * 3.0 + float(patch[2]))
+			if offset.length() <= float(patch[1]) * wobble:
+				return true
+		return false
+	))
+	# The drive (x -2.1 to 2.1, z 3 to 20 here) and the front walk up to the porch.
+	var drive := Rect2(-2.1, 3.0, 4.2, 17.0)
+	var paved := drive.merge(walk) if walk.has_area() else drive
+	var salt_cell := float(Constants.SEASONAL_GRID_CELL["salt_walk"])
+	_looks.call("add_seasonal", _tasks.call("define_grid", "salt_walk", to_global(Vector3(paved.position.x, 0.0, paved.position.y)), paved.size, salt_cell, func(center: Vector3) -> bool:
+		var local := lot_global.to_local(center)
+		var at := Vector2(local.x, local.z)
+		return drive.has_point(at) or (walk.has_area() and walk.has_point(at))
+	))
 
 
 ## Leaves pile up thickest under the trees and thin out between them; none fall

@@ -24,7 +24,16 @@ var _tasks: Node
 var _spots: Dictionary = {}
 var _lawns: Dictionary = {}
 var _stains: Dictionary = {}
+## shops:9: the seasonal grids (fertilize_lawn, seed_lawn, salt_walk): grid ->
+## {task, layers: [{multi, slots, look}]}, null until setup builds them.
+var _seasonal: Dictionary = {}
+## The seed grid while overseeding is asked for: the lawn's tufts on its bare
+## patches are dirt-short (_place_lawn_cell).
+var _bare_grid: int = -1
+## The feed grid while feeding is asked for: the lawn's tufts are tinted by it.
+var _feed_grid: int = -1
 static var _grime: Texture2D
+static var _speckle: Texture2D
 static var _meshes: Dictionary = {}
 
 
@@ -38,6 +47,9 @@ func setup(tasks: Node) -> void:
 	tasks.connect("cell_changed", _on_cell_changed)
 	for index: int in _spots:
 		_on_spot_changed(index, int(tasks.call("spot", index)["amount"]))
+	# shops:9: before the lawn, which leaves the bare patches bare.
+	for grid: Variant in _seasonal.keys():
+		_build_seasonal(int(grid))
 	for grid: int in _lawns:
 		_build_lawn(grid)
 	for grid: int in _stains:
@@ -276,6 +288,14 @@ func _place_lawn_cell(grid_index: int, cell: int, amount: int) -> void:
 	# Mowed rows alternate a little lighter and darker: lawn stripes.
 	var stripe := Color(1.06, 1.06, 0.98) if x % 2 == 0 else Color(0.9, 0.95, 0.9)
 	var tint := Color.WHITE if amount > 0 else stripe
+	# shops:9: a lawn waiting to be fed is straw-yellow under the green, and
+	# greens up as the prills land (the tufts show it, however tall they stand).
+	if _feed_grid >= 0:
+		tint = tint * Color.WHITE.lerp(HUNGRY_TINT, _feed_left(corner + Vector3((float(x) + 0.5) * cell_size, 0.0, (float(z) + 0.5) * cell_size)))
+	# shops:9: a bare patch waiting for seed has only stubble, gone brown.
+	if _bare_grid >= 0 and _is_bare(corner + Vector3((float(x) + 0.5) * cell_size, 0.0, (float(z) + 0.5) * cell_size)):
+		height = BARE_STUBBLE
+		tint = BARE_TINT
 	for tuft: int in TUFTS_PER_CELL:
 		var at := corner + Vector3((float(x) + rng.randf()) * cell_size, 0.0, (float(z) + rng.randf()) * cell_size)
 		var size := rng.randf_range(0.8, 1.2)
@@ -339,6 +359,197 @@ func _on_cell_changed(grid_index: int, cell: int, amount: int) -> void:
 		_place_lawn_cell(grid_index, cell, amount)
 	elif _stains.has(grid_index) and _stains[grid_index] != null and (_stains[grid_index]["slots"] as Dictionary).has(cell):
 		_color_stain(grid_index, cell, amount)
+	elif _seasonal.has(grid_index) and _seasonal[grid_index] != null:
+		_color_seasonal(grid_index, cell, amount)
+
+
+# ---------------------------------------------------------------- seasonal work (shops:9)
+
+## How short a bare patch's stubble stands (a share of uncut grass), and its tint.
+const BARE_STUBBLE: float = 0.06
+const BARE_TINT := Color(0.62, 0.5, 0.34)
+## A hungry lawn's tufts, multiplied in where it hasn't been fed (all of it at the start).
+const HUNGRY_TINT := Color(1.3, 1.08, 0.42)
+## Each seasonal task's look, layer by layer: what's left to do fades out as the
+## cells are worked ("left"), what was spread fades in ("done"), or stays put
+## ("always"). Per layer: the quad's size (in cells), its height over the
+## ground (m), its texture (grime: soft blotches, speckle: granules), its color
+## at full strength, and whether it's glossy (ice).
+## - fertilize_lawn: a hungry lawn's straw-yellow blotches give way to blue-white prills.
+## - seed_lawn: brown bare patches stay brown, and fill with straw-colored seed.
+## - salt_walk: glossy ice on the drive gives way to wet, dark concrete and white salt.
+const SEASONAL_LOOKS: Dictionary = {
+	"fertilize_lawn": [
+		{"when": "left", "size": 1.25, "y": 0.02, "texture": "grime", "color": Color(0.82, 0.74, 0.3, 0.6)},
+		{"when": "done", "size": 1.0, "y": 0.026, "texture": "speckle", "color": Color(0.86, 0.92, 1.0, 1.0)},
+	],
+	"seed_lawn": [
+		{"when": "always", "size": 1.7, "y": 0.018, "texture": "grime", "color": Color(0.42, 0.3, 0.19, 0.95)},
+		{"when": "done", "size": 1.2, "y": 0.024, "texture": "speckle", "color": Color(0.93, 0.84, 0.52, 1.0)},
+	],
+	"salt_walk": [
+		{"when": "left", "size": 1.7, "y": 0.042, "texture": "grime", "color": Color(0.5, 0.7, 0.95, 0.85), "gloss": true},
+		{"when": "done", "size": 1.5, "y": 0.041, "texture": "grime", "color": Color(0.2, 0.21, 0.24, 0.6)},
+		{"when": "done", "size": 1.0, "y": 0.046, "texture": "speckle", "color": Color(0.98, 0.98, 0.96, 1.0)},
+	],
+}
+
+
+## shops:9: a seasonal grid (lot_generator.gd _seasonal_grids). It's drawn only
+## when the homeowner asked for it; a yard that didn't shows nothing of it.
+func add_seasonal(grid: int) -> void:
+	_seasonal[grid] = null
+
+
+func _build_seasonal(grid_index: int) -> void:
+	var entry: Dictionary = _tasks.call("grid", grid_index)
+	var task := str(entry["task"])
+	if not (_tasks.get("active") as PackedStringArray).has(task) or not SEASONAL_LOOKS.has(task):
+		_seasonal.erase(grid_index)
+		return
+	if task == "seed_lawn":
+		_bare_grid = grid_index
+	if task == "fertilize_lawn":
+		_feed_grid = grid_index
+	var mask: PackedByteArray = entry["mask"]
+	var included := PackedInt32Array()
+	for index: int in mask.size():
+		if mask[index] == 1:
+			included.append(index)
+	var slots: Dictionary = {}
+	for slot: int in included.size():
+		slots[included[slot]] = slot
+	var width: int = entry["width"]
+	var cell_size: float = entry["cell"]
+	var corner: Vector3 = entry["corner"]
+	var layers: Array = []
+	for look: Dictionary in (SEASONAL_LOOKS[task] as Array):
+		var multi := MultiMesh.new()
+		multi.transform_format = MultiMesh.TRANSFORM_3D
+		multi.use_colors = true
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE * cell_size * float(look["size"])
+		quad.orientation = PlaneMesh.FACE_Y
+		multi.mesh = quad
+		multi.instance_count = included.size()
+		var material := StandardMaterial3D.new()
+		material.albedo_texture = _speckle_texture() if str(look["texture"]) == "speckle" else _grime_texture()
+		material.vertex_color_use_as_albedo = true
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.roughness = 0.06 if bool(look.get("gloss", false)) else 0.8
+		material.metallic_specular = 0.9 if bool(look.get("gloss", false)) else 0.3
+		var view := MultiMeshInstance3D.new()
+		view.multimesh = multi
+		view.material_override = material
+		view.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		view.name = "Seasonal_%s_%d" % [task, layers.size()]
+		add_child(view)
+		view.global_transform = Transform3D.IDENTITY
+		for slot: int in included.size():
+			var cell := included[slot]
+			var rng := RandomNumberGenerator.new()
+			rng.seed = cell * 31 + grid_index * 7 + layers.size()
+			var at := corner + Vector3((float(cell % width) + 0.5) * cell_size, float(look["y"]), (float(cell / width) + 0.5) * cell_size)
+			at += Vector3(rng.randf_range(-0.2, 0.2), 0.0, rng.randf_range(-0.2, 0.2)) * cell_size
+			multi.set_instance_transform(slot, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.85, 1.2)), at))
+		layers.append({"multi": multi, "look": look})
+	_seasonal[grid_index] = {"task": task, "slots": slots, "layers": layers}
+	var amounts: PackedByteArray = entry["amounts"]
+	for cell: int in slots:
+		_color_seasonal(grid_index, cell, amounts[cell])
+
+
+func _color_seasonal(grid_index: int, cell: int, amount: int) -> void:
+	var data: Dictionary = _seasonal[grid_index]
+	var slots: Dictionary = data["slots"]
+	if not slots.has(cell):
+		return
+	var left := float(amount) / 100.0
+	for layer: Dictionary in (data["layers"] as Array):
+		var look: Dictionary = layer["look"]
+		var color: Color = look["color"]
+		var share := 1.0
+		match str(look["when"]):
+			"left":
+				share = left
+			"done":
+				share = 1.0 - left
+		(layer["multi"] as MultiMesh).set_instance_color(int(slots[cell]), Color(color.r, color.g, color.b, color.a * share))
+	if grid_index == _feed_grid:
+		_retint_lawn_under(grid_index, cell)
+
+
+## The lawn's 1 m cells under one feed cell, placed again for its new tint.
+func _retint_lawn_under(grid_index: int, cell: int) -> void:
+	var feed: Dictionary = _tasks.call("grid", grid_index)
+	var size := float(feed["cell"])
+	var origin := (feed["corner"] as Vector3) + Vector3(float(cell % int(feed["width"])) * size, 0.0, float(cell / int(feed["width"])) * size)
+	for lawn_index: Variant in _lawns:
+		var lawn: Variant = _lawns[lawn_index]
+		if lawn == null:
+			continue
+		var entry: Dictionary = (lawn as Dictionary)["entry"]
+		var step := float(entry["cell"])
+		var corner: Vector3 = entry["corner"]
+		var slots: Dictionary = (lawn as Dictionary)["slots"]
+		var amounts: PackedByteArray = entry["amounts"]
+		var from := Vector2i(floori((origin.x - corner.x) / step + 0.01), floori((origin.z - corner.z) / step + 0.01))
+		var count := maxi(roundi(size / step), 1)
+		for dz: int in count:
+			for dx: int in count:
+				var x := from.x + dx
+				var z := from.y + dz
+				if x < 0 or z < 0 or x >= int(entry["width"]) or z >= int(entry["depth"]):
+					continue
+				var index := x + z * int(entry["width"])
+				if slots.has(index):
+					_place_lawn_cell(int(lawn_index), index, amounts[index])
+
+
+## How much feeding is left where a world point is (0 to 1; 0 off the feed grid).
+func _feed_left(at: Vector3) -> float:
+	var entry: Dictionary = _tasks.call("grid", _feed_grid)
+	var cell := float(entry["cell"])
+	var local := at - (entry["corner"] as Vector3)
+	var x := int(floor(local.x / cell))
+	var z := int(floor(local.z / cell))
+	if x < 0 or z < 0 or x >= int(entry["width"]) or z >= int(entry["depth"]):
+		return 0.0
+	return float((entry["amounts"] as PackedByteArray)[x + z * int(entry["width"])]) / 100.0
+
+
+## Whether a world point is on a bare patch of the seed grid (_bare_grid).
+func _is_bare(at: Vector3) -> bool:
+	var entry: Dictionary = _tasks.call("grid", _bare_grid)
+	var cell := float(entry["cell"])
+	var local := at - (entry["corner"] as Vector3)
+	var x := int(floor(local.x / cell))
+	var z := int(floor(local.z / cell))
+	if x < 0 or z < 0 or x >= int(entry["width"]) or z >= int(entry["depth"]):
+		return false
+	return (entry["mask"] as PackedByteArray)[x + z * int(entry["width"])] == 1
+
+
+## Granules, made once: a scatter of small dots on nothing.
+static func _speckle_texture() -> Texture2D:
+	if _speckle != null:
+		return _speckle
+	var image := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	image.fill(Color(1.0, 1.0, 1.0, 0.0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 909
+	for _dot: int in 70:
+		var center := Vector2(rng.randf_range(5.0, 59.0), rng.randf_range(5.0, 59.0))
+		var radius := rng.randf_range(0.9, 1.8)
+		var shade := rng.randf_range(0.82, 1.0)
+		for y: int in range(int(center.y - 3.0), int(center.y + 4.0)):
+			for x: int in range(int(center.x - 3.0), int(center.x + 4.0)):
+				var d := Vector2(x, y).distance_to(center)
+				if d <= radius:
+					image.set_pixel(x, y, Color(shade, shade, shade, 1.0))
+	image.generate_mipmaps()
+	_speckle = ImageTexture.create_from_image(image)
+	return _speckle
 
 
 # ---------------------------------------------------------------- effects
@@ -370,6 +581,10 @@ func work_fx(task: String, at: Vector3, with_sound := true) -> void:
 		"pull_weeds": [Color(0.4, 0.28, 0.18), Vector3.UP, 2.5],
 		"pick_litter": [Color(0.9, 0.9, 0.85), Vector3.UP, 2.0],
 		"skim_pool": [Color(0.6, 0.85, 1.0, 0.85), Vector3.UP, 2.2],
+		# shops:9: granules bouncing where the throw lands (the throw itself is the sack's).
+		"fertilize_lawn": [Color(0.86, 0.92, 1.0), Vector3.UP, 0.9],
+		"seed_lawn": [Color(0.93, 0.84, 0.52), Vector3.UP, 0.8],
+		"salt_walk": [Color(0.98, 0.98, 0.96), Vector3.UP, 1.1],
 	}
 	var style: Array = colors.get(task, [Color.WHITE, Vector3.UP, 1.5])
 	var particles := CPUParticles3D.new()

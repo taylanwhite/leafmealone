@@ -39,6 +39,25 @@ func _run(lot: Node) -> void:
 		outcomes[task] = done
 		all_ok = all_ok and ok
 		print("[WorkTest] %s: %d%% done, ok=%s" % [task, int(done * 100.0), ok])
+	# shops:9: every seasonal job came from a sack handed over into the arms, that
+	# shook and drained while it was poured; and a sack poured dry folds away.
+	var seasonal := false
+	for task: String in outcomes:
+		if not Constants.SEASONAL_TASKS.has(task):
+			continue
+		seasonal = true
+		var sack: Dictionary = result.get("sack_" + task, {})
+		all_ok = all_ok and bool(result.get("sack_handed_" + str(Constants.TASK_TOOLS[task]), false)) and bool(sack.get("shook", false)) and float(sack.get("to", 100.0)) < float(sack.get("from", 0.0))
+	# --all-tasks asks for the season's sack work too: none missing.
+	var job_board := preload("res://levels/job_board.gd")
+	for task: String in Constants.SEASONAL_TASKS:
+		if job_board.seasonal_in_season(task, job_board.season_now()) and not outcomes.has(task):
+			print("[WorkTest] %s is in season but the yard didn't ask for it" % task)
+			all_ok = false
+	if seasonal:
+		var dry := await _sack_runs_dry()
+		result["sack_dry"] = dry
+		all_ok = all_ok and dry
 	# Get paid: each task should be on the receipt at full pay.
 	var owner_node := get_tree().get_first_node_in_group("homeowner") as Node3D
 	_drop_held()
@@ -69,14 +88,21 @@ func _do_task(tasks: Node, task: String) -> float:
 	await _ticks(2)
 	if tool != "":
 		var item := _prop(tool)
+		# shops:9: a seasonal sack is bought, not brought: Marty hands it over the
+		# way a buy does (net/kit/kit.gd host_deliver), into your arms.
+		if item == null and Catalog.is_sack(tool):
+			item = await _bought_sack(tool)
 		if item == null:
 			print("[WorkTest] %s: no %s came along" % [task, tool])
 			return 0.0
-		_move_to(item.global_position + Vector3(0.0, 0.0, 1.0))
-		await _ticks(2)
-		item.call("request_grab")
-		await _ticks(3)
-	if task == "clear_roof":
+		if int(item.get("held_by")) != Net.local_peer_id():
+			_move_to(item.global_position + Vector3(0.0, 0.0, 1.0))
+			await _ticks(2)
+			item.call("request_grab")
+			await _ticks(3)
+	if Constants.SEASONAL_TASKS.has(task):
+		await _spread(tasks, task)
+	elif task == "clear_roof":
 		await _roof(tasks)
 	elif task == "wash_windows":
 		await _windows(tasks)
@@ -314,6 +340,80 @@ func _wash(tasks: Node) -> void:
 			if ((tasks.call("grid", grid_index) as Dictionary)["amounts"] as PackedByteArray)[cell] == 0:
 				break
 			tasks.call("request_work", "power_wash", center, Vector3.LEFT)
+
+
+## shops:9: a sack the way a buy makes one (kit.host_deliver): it's held out in
+## front of you and comes into your arms. Null when it never did.
+func _bought_sack(kind: String) -> Node3D:
+	var kit := get_tree().get_first_node_in_group("kit")
+	if kit == null:
+		return null
+	_drop_held()
+	await _ticks(2)
+	kit.call("host_deliver", Net.local_peer_id(), kind, Catalog.TIER_STOCK)
+	await get_tree().create_timer(Constants.KIT_TAKE_HANDOFF_SECONDS + 0.3).timeout
+	var sack: Node3D = null
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if str(node.get("kind")) == kind and int(node.get("held_by")) == Net.local_peer_id() and not node.is_queued_for_deletion():
+			sack = node as Node3D
+	var held := sack != null
+	print("[WorkTest] a %s handed over: in my arms %s" % [kind, held])
+	result["sack_handed_" + kind] = held
+	return sack if held else null
+
+
+## shops:9: pour the sack in your arms across the task's grid the way left click
+## does (equipment/rake.gd _spread: the throw lands TASK_REACH ahead of your
+## feet), cell by cell, facing +x; and check the sack shook and drained.
+func _spread(tasks: Node, task: String) -> void:
+	var grid_index := _grid_of(tasks, task)
+	if grid_index < 0:
+		return
+	var sack := _prop(str(Constants.TASK_TOOLS[task]))
+	var full := float(sack.get("fuel")) if sack != null else 0.0
+	var shook := false
+	var grid: Dictionary = tasks.call("grid", grid_index)
+	var corner: Vector3 = grid["corner"]
+	var width: int = grid["width"]
+	var cell_size: float = grid["cell"]
+	var forward := Vector3.RIGHT
+	var reach := float(Constants.TASK_REACH[task])
+	var facing := Basis(Vector3.UP, -PI * 0.5)
+	var me := _own_player()
+	for cell: int in (grid["mask"] as PackedByteArray).size():
+		if (grid["mask"] as PackedByteArray)[cell] != 1:
+			continue
+		var center := corner + Vector3((float(cell % width) + 0.5) * cell_size, 0.0, (float(cell / width) + 0.5) * cell_size)
+		for _try: int in 10:
+			if ((tasks.call("grid", grid_index) as Dictionary)["amounts"] as PackedByteArray)[cell] == 0 or not is_instance_valid(sack):
+				break
+			me.call("apply_network_teleport", Transform3D(facing, center - forward * reach + Vector3(0.0, 0.1, 0.0)))
+			await get_tree().physics_frame
+			tasks.call("request_work", task, me.global_position + forward * reach, forward)
+			shook = shook or (is_instance_valid(sack) and bool(sack.get("spraying")))
+	var left := float(sack.get("fuel")) if is_instance_valid(sack) else 0.0
+	print("[WorkTest] %s: the sack shook %s, %.0f%% -> %.0f%% full" % [task, shook, full, left])
+	result["sack_" + task] = {"shook": shook, "from": snappedf(full, 0.1), "to": snappedf(left, 0.1)}
+
+
+## shops:9: a sack poured dry folds away and frees your arms.
+func _sack_runs_dry() -> bool:
+	var sack := await _bought_sack("grass_seed")
+	var tasks := get_tree().get_first_node_in_group("job_tasks")
+	if sack == null or tasks == null:
+		return false
+	sack.set("fuel", 0.2)
+	var me := _own_player()
+	tasks.call("request_work", "seed_lawn", me.global_position + Vector3.RIGHT * float(Constants.TASK_REACH["seed_lawn"]), Vector3.RIGHT)
+	var emptied := is_equal_approx(float(sack.get("fuel")), 0.0)
+	await get_tree().create_timer(Constants.SACK_FOLD_SECONDS + 0.3).timeout
+	var gone := not is_instance_valid(sack) or sack.is_queued_for_deletion()
+	var hands_free := true
+	for node: Node in get_tree().get_nodes_in_group("props"):
+		if int(node.get("held_by")) == Net.local_peer_id():
+			hands_free = false
+	print("[WorkTest] a sack poured dry: emptied %s, gone %s, hands free %s" % [emptied, gone, hands_free])
+	return emptied and gone and hands_free
 
 
 func _grid_of(tasks: Node, task: String) -> int:

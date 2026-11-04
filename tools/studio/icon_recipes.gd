@@ -66,6 +66,8 @@ const FAMILY_COLORS: Dictionary = {
 	"paint": Color(0.96, 0.88, 0.7),
 	"hedges": Color(0.18, 0.44, 0.26),
 	"by_hand": Color(0.98, 0.8, 0.28),
+	# shops:9: salting the drive.
+	"winter": Color(0.6, 0.78, 0.94),
 }
 ## Rank shield fill and rim, Rake Rookie (0) to The Lawnfather (8): wood, orange,
 ## kraft, bronze, green, silver, gold, purple, then black and gold.
@@ -138,6 +140,10 @@ const RECIPES: Dictionary = {
 	"task_paint_fence": {"kind": "badge", "px": 256, "shape": "disc", "family": "paint", "build": "build_task_paint_fence", "yaw": 0.0},
 	"task_clear_roof": {"kind": "badge", "px": 256, "shape": "disc", "family": "heights", "build": "build_task_clear_roof", "yaw": 0.0},
 	"task_skim_pool": {"kind": "badge", "px": 256, "shape": "disc", "family": "water", "build": "build_task_skim_pool", "yaw": 0.0},
+	# shops:9: the seasonal sack work (Constants.SEASONAL_TASKS).
+	"task_fertilize_lawn": {"kind": "badge", "px": 256, "shape": "disc", "family": "lawn", "build": "build_task_fertilize_lawn", "yaw": 200.0},
+	"task_seed_lawn": {"kind": "badge", "px": 256, "shape": "disc", "family": "lawn", "build": "build_task_seed_lawn", "yaw": 200.0},
+	"task_salt_walk": {"kind": "badge", "px": 256, "shape": "disc", "family": "winter", "build": "build_task_salt_walk", "yaw": 200.0},
 	# ---- rank badges (256): a shield climbing wood to black-and-gold, an emblem on it
 	"rank_0": {"kind": "badge", "px": 256, "shape": "shield", "rank": 0, "build": "build_model", "model": "rake", "yaw": 200.0, "tilt": Vector3(0.0, 0.0, -38.0)},
 	"rank_1": {"kind": "badge", "px": 256, "shape": "shield", "rank": 1, "build": "build_leaf", "yaw": 0.0},
@@ -549,6 +555,48 @@ static func build_task_paint_fence(root: Node3D, _recipe: Dictionary) -> void:
 		kit.rbox(Vector3(0.0, y, -0.05), Vector3(0.48, 0.04, 0.025), _TaskLooks.FADED_PAINT.darkened(0.2), 8.0, {"detail": 2})
 	_commit(root, kit)
 	_add_model(root, "paint_roller", Vector3(0.42, 0.42, 0.2), Basis(Vector3.UP, -0.4) * Basis(Vector3.RIGHT, 1.0), Color.WHITE, 1.4)
+
+
+## shops:9: a strip of lawn, hungry yellow on one side and fed green on the
+## other, with the fertilizer sack tipped over it and its prills spilling.
+static func build_task_fertilize_lawn(root: Node3D, _recipe: Dictionary) -> void:
+	var kit := _MeshKit.new()
+	kit.rbox(Vector3(-0.26, 0.03, 0.0), Vector3(0.26, 0.04, 0.5), Color(0.66, 0.62, 0.28), 6.0, {"detail": 2})
+	kit.rbox(Vector3(0.26, 0.03, 0.0), Vector3(0.26, 0.04, 0.5), Color(0.3, 0.56, 0.22), 6.0, {"detail": 2})
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 51
+	for index: int in 16:
+		kit.blob(Vector3(rng.randf_range(-0.05, 0.45), 0.08, rng.randf_range(-0.4, 0.4)), Vector3(0.022, 0.018, 0.022), Color(0.86, 0.92, 1.0), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+	_commit(root, kit)
+	_add_model(root, "fertilizer_bag", Vector3(-0.2, 0.06, -0.05), Basis(Vector3.UP, 0.5) * Basis(Vector3.BACK, -0.95), Color.WHITE, 1.15)
+
+
+## shops:9: a bald spot of dirt in the lawn, speckled with seed, and the seed bag.
+static func build_task_seed_lawn(root: Node3D, _recipe: Dictionary) -> void:
+	var kit := _MeshKit.new()
+	kit.rbox(Vector3(0.0, 0.03, 0.0), Vector3(0.55, 0.04, 0.5), Color(0.34, 0.6, 0.25), 6.0, {"detail": 2})
+	kit.blob(Vector3(0.12, 0.06, 0.05), Vector3(0.32, 0.03, 0.28), Color(0.42, 0.3, 0.19), {"detail": 2, "lumps": 0.3, "lump_scale": 3.0, "flat": true, "jitter": 0.04, "seed": 8})
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 52
+	for index: int in 18:
+		kit.blob(Vector3(0.12 + rng.randf_range(-0.24, 0.24), 0.095, 0.05 + rng.randf_range(-0.2, 0.2)), Vector3(0.018, 0.012, 0.026), Color(0.93, 0.84, 0.52), {"detail": 1, "lumps": 0.0, "flat": false, "jitter": 0.0, "shade": false})
+	_commit(root, kit)
+	_add_model(root, "grass_seed", Vector3(-0.32, 0.06, -0.12), Basis(Vector3.UP, 0.4), Color.WHITE, 1.3)
+
+
+## shops:9: a slab of drive glazed with ice on one side, salted dark and wet on
+## the other, and the salt bag.
+static func build_task_salt_walk(root: Node3D, _recipe: Dictionary) -> void:
+	var kit := _MeshKit.new()
+	kit.rbox(Vector3(0.0, 0.0, 0.0), Vector3(0.55, 0.05, 0.45), Color(0.6, 0.6, 0.58), 7.0, {"detail": 2})
+	kit.rbox(Vector3(-0.27, 0.055, 0.0), Vector3(0.26, 0.012, 0.43), Color(0.82, 0.92, 1.0), 6.0, {"detail": 2})
+	kit.rbox(Vector3(0.27, 0.052, 0.0), Vector3(0.26, 0.008, 0.43), Color(0.36, 0.37, 0.4), 6.0, {"detail": 2})
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 53
+	for index: int in 16:
+		kit.blob(Vector3(0.27 + rng.randf_range(-0.22, 0.22), 0.075, rng.randf_range(-0.38, 0.38)), Vector3(0.024, 0.02, 0.024), Color(0.98, 0.98, 0.96), {"detail": 1, "lumps": 0.2, "flat": false, "jitter": 0.0, "shade": false})
+	_commit(root, kit)
+	_add_model(root, "rock_salt", Vector3(-0.3, 0.07, -0.1), Basis(Vector3.UP, 0.3), Color.WHITE, 1.2)
 
 
 ## A slab of shingles buried in leaves.

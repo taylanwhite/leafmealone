@@ -137,11 +137,16 @@ static func choose_tasks(rng: RandomNumberGenerator, size: int = 1) -> PackedStr
 	var owned := Campaign.crew_tools()
 	var possible: Array[String] = []
 	var unowned: Array[String] = []
+	var all_tasks := bool(Net.dev_options().get("all_tasks"))
 	for task: String in Constants.TASK_TOOLS:
 		if task == "rake_leaves":
 			continue
 		# Only big yards have a pool.
 		if task == "skim_pool" and size != 2:
+			continue
+		# shops:9: seasonal work is the season's own pick (town.gd, Seasons.FAVORED),
+		# never this draw; --all-tasks asks for what's in season.
+		if Constants.SEASONAL_TASKS.has(task) and not (all_tasks and seasonal_in_season(task, season_now())):
 			continue
 		var tool := str(Constants.TASK_TOOLS[task])
 		if bool(Net.dev_options().get("all_tasks")) or tool == "" or owned.has(tool):
@@ -163,6 +168,23 @@ static func choose_tasks(rng: RandomNumberGenerator, size: int = 1) -> PackedStr
 			break
 		chosen_tasks.append(task)
 	return chosen_tasks
+
+
+## shops:9: whether a seasonal task can be asked for in this season (a
+## Seasons.of_day index): its sack (Constants.TASK_TOOLS) is on Homie Depot's
+## shelf then (Catalog "seasons").
+static func seasonal_in_season(task: String, season: int) -> bool:
+	var sack := str(Constants.TASK_TOOLS.get(task, ""))
+	return Catalog.is_sack(sack) and Catalog.is_in_season(str(Catalog.SACK_ITEMS[sack]), season)
+
+
+## Today's season: the day clock's, or --start-day's before the clock is up.
+static func season_now() -> int:
+	var tree := Engine.get_main_loop() as SceneTree
+	var clock := tree.get_first_node_in_group("day_clock") if tree != null else null
+	if clock != null:
+		return int(clock.call("season"))
+	return Seasons.of_day(maxi(int(Net.dev_options().get("start_day")), 1))
 
 
 static func _shuffle(items: Array[String], rng: RandomNumberGenerator) -> void:

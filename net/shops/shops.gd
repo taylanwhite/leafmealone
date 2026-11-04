@@ -1184,6 +1184,9 @@ func _apply(peer_id: int, shop: String, item: String, qty: int) -> String:
 			if chefty != null and chefty.has_method("host_repair"):
 				chefty.call("host_repair")
 		"consumable":
+			# shops:9: a seasonal sack is a thing (made above, Catalog.is_kit), not a count.
+			if Catalog.is_kit(item):
+				return "ok"
 			var per := float(Constants.SUPPLY_PER_ITEM.get(item, 0))
 			_set_supply(str(entry.get("supply", "")), supply(str(entry.get("supply", ""))) + per * float(qty))
 		"snack":

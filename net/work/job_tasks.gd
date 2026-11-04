@@ -188,6 +188,11 @@ func host_work(task: String, at: Vector3, radius: float, seconds: float, peer_id
 
 
 func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector3) -> void:
+	# shops:9: a sack flicked out pours whether or not this yard asked for it
+	# (granules on a lawn nobody wanted fed are granules gone); _spread checks it.
+	if Constants.SEASONAL_TASKS.has(task):
+		_spread(peer_id, task, origin)
+		return
 	if not active.has(task):
 		return
 	var player := _player(peer_id)
@@ -312,6 +317,31 @@ func _handle_work(peer_id: int, task: String, origin: Vector3, direction: Vector
 	if done > 0:
 		Campaign.record_stat(peer_id, &"objectives", float(done) / 100.0)
 		_fx(task, hit)
+
+
+## Host (shops:9): one tick of a seasonal sack flicked out (Constants.
+## SEASONAL_TASKS): the holder has a sack of the task's kind with some left, and
+## the throw lands within the task's reach ahead of them. The sack shakes on
+## every peer (mark_spraying) and drains a tick's worth (net_prop.gd
+## host_use_sack, which folds it away empty); the cells the throw lands on take
+## the work, if the homeowner asked for it.
+func _spread(peer_id: int, task: String, origin: Vector3) -> void:
+	var player := _player(peer_id)
+	var sack := _held(peer_id, str(Constants.TASK_TOOLS.get(task, "")))
+	if player == null or sack == null or float(sack.get("fuel")) <= 0.0:
+		return
+	var reach := float(Constants.TASK_REACH.get(task, 2.0)) + float(Constants.SACK_SWATH.get(task, 1.0)) + 1.0
+	if Vector2(player.global_position.x - origin.x, player.global_position.z - origin.z).length() > reach:
+		return
+	sack.call("mark_spraying")
+	sack.call("host_use_sack", WORK_TICK)
+	if not active.has(task):
+		return
+	var at := Vector3(origin.x, player.global_position.y, origin.z)
+	var done := _work_cells(task, at, float(Constants.SACK_SWATH.get(task, 1.0)), float(Constants.TASK_WORK_RATE.get(task, 100.0)) * WORK_TICK)
+	if done > 0:
+		Campaign.record_stat(peer_id, &"objectives", float(done) / 100.0)
+		_fx(task, at)
 
 
 func _work_spot(index: int, amount: float) -> int:
@@ -640,6 +670,9 @@ func _rpc_request_snapshot() -> void:
 		values.append(int(_spots[index]["amount"]))
 	_rpc_spots.rpc_id(peer_id, indices, values)
 	for grid_index: int in _grids.size():
+		# A grid nobody asked for is all zeros on the joiner already (activate).
+		if not active.has(str(_grids[grid_index]["task"])):
+			continue
 		var amounts: PackedByteArray = _grids[grid_index]["amounts"]
 		var cells := PackedInt32Array()
 		for index: int in amounts.size():

@@ -90,9 +90,12 @@ const ITEMS: Dictionary = {
 	"lawn_bags": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "lawn_bags", "model": "bag_roll"},
 	"big_bags": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "big_bags", "model": "bag_roll_big"},
 	"gas_can": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "gas", "model": "gas_can"},
-	"fertilizer": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "fertilizer", "seasons": ["spring", "summer"], "model": "fertilizer_bag"},
-	"grass_seed": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "grass_seed", "seasons": ["spring"], "model": "grass_seed"},
-	"rock_salt": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "rock_salt", "seasons": ["winter"], "model": "rock_salt"},
+	# shops:9: the seasonal sacks are things, not a count: each one bought is a sack
+	# for the crew's kit (tool, tier), like a rake (net/kit/kit.gd). "supply" names
+	# its icon family (ui/icons.gd supply_<supply>).
+	"fertilizer": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "fertilizer", "seasons": ["spring", "summer"], "model": "fertilizer_bag", "tool": "fertilizer_bag", "tier": 1},
+	"grass_seed": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "grass_seed", "seasons": ["spring"], "model": "grass_seed", "tool": "grass_seed", "tier": 1},
+	"rock_salt": {"shop": "homie_depot", "tab": "supplies", "kind": "consumable", "supply": "rock_salt", "seasons": ["winter"], "model": "rock_salt", "tool": "rock_salt", "tier": 1},
 	# ---- Homie Depot: workwear.
 	"hat_hd_cap": {"shop": "homie_depot", "tab": "workwear", "kind": "cosmetic", "slot": "hat", "style": "hd_cap"},
 	"hat_beanie": {"shop": "homie_depot", "tab": "workwear", "kind": "cosmetic", "slot": "hat", "style": "beanie"},
@@ -210,8 +213,20 @@ static func shop_gate(shop: String) -> String:
 	return str((SHOPS.get(shop, {}) as Dictionary).get("gate", ""))
 
 
+## The seasonal sacks (shops:9): the prop kind -> the catalog item that sells it.
+const SACK_ITEMS: Dictionary = {"fertilizer_bag": "fertilizer", "grass_seed": "grass_seed", "rock_salt": "rock_salt"}
+
+
+## Whether a prop kind is a seasonal sack (SACK_ITEMS).
+static func is_sack(kind: String) -> bool:
+	return SACK_ITEMS.has(kind)
+
+
 ## The item id for a tool at a tier: "hose_used", "hose", "hose_mk2", "hose_mk3".
+## A sack has the one: its catalog item ("fertilizer").
 static func tool_item(tool: String, tier: int) -> String:
+	if SACK_ITEMS.has(tool):
+		return str(SACK_ITEMS[tool]) if tier == TIER_STOCK else ""
 	if tool == "rake":
 		return RAKE_ITEMS[tier] if tier >= TIER_USED and tier <= TIER_MK3 else ""
 	match tier:

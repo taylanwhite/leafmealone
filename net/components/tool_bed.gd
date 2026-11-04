@@ -79,6 +79,14 @@ static func slot_for(kind: String, taken: Array, side: float = 0.0) -> String:
 			if not taken.has("floor:%d" % index):
 				return "floor:%d" % index
 		return ""
+	# shops:9: a seasonal sack lies flat across a pair of rack spots ("sack:<p>",
+	# p even, covering p and p + 1), so it reads as a sack and not a fin.
+	if Catalog.is_sack(kind):
+		for index: int in _rack_order(side):
+			var pair := index - index % 2
+			if pair + 1 < Constants.KIT_RACK_SLOTS_X.size() and not taken.has("rack:%d" % pair) and not taken.has("rack:%d" % (pair + 1)):
+				return "sack:%d" % pair
+		return ""
 	for index: int in _rack_order(side):
 		if not taken.has("rack:%d" % index):
 			return "rack:%d" % index
@@ -118,7 +126,13 @@ static func _rack_order(side: float = 0.0) -> Array[int]:
 func _taken() -> Array:
 	var out: Array = []
 	for entry: Dictionary in tools:
-		out.append(str(entry["slot"]))
+		var slot := str(entry["slot"])
+		out.append(slot)
+		# A sack covers the two rack spots it lies across.
+		if slot.begins_with("sack:"):
+			var pair := int(slot.trim_prefix("sack:"))
+			out.append("rack:%d" % pair)
+			out.append("rack:%d" % (pair + 1))
 	return out
 
 
@@ -144,8 +158,10 @@ static func slot_pose(kind: String, tier: int, slot: String) -> Transform3D:
 	var longest := axes[0]
 	var middle := axes[1]
 	var shortest := axes[2]
-	var up_axis := middle if slot != "ladder" else shortest
-	var across_axis := shortest if slot != "ladder" else middle
+	# The ladder and a sack (shops:9) lie flat; tools stand on their sides.
+	var flat := slot == "ladder" or slot.begins_with("sack:")
+	var up_axis := middle if not flat else shortest
+	var across_axis := shortest if not flat else middle
 	var columns: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
 	columns[longest] = Vector3(0.0, 0.0, 1.0)
 	columns[up_axis] = Vector3(0.0, 1.0, 0.0)
@@ -160,6 +176,10 @@ static func slot_pose(kind: String, tier: int, slot: String) -> Transform3D:
 	if slot.begins_with("rack:") and int(slot.trim_prefix("rack:")) % 2 == 1:
 		basis = Basis(Vector3.UP, PI) * basis
 	var turned := Transform3D(basis, Vector3.ZERO) * box
+	if slot.begins_with("sack:"):
+		var pair := clampi(int(slot.trim_prefix("sack:")), 0, Constants.KIT_RACK_SLOTS_X.size() - 2)
+		var between := Vector3((Constants.KIT_RACK_SLOTS_X[pair] + Constants.KIT_RACK_SLOTS_X[pair + 1]) * 0.5, Constants.KIT_RACK_Y, Constants.KIT_RACK_Z)
+		return Transform3D(basis, between - Vector3(turned.get_center().x, turned.position.y, turned.get_center().z))
 	var spot := Constants.KIT_LADDER_ON_RACK if slot == "ladder" else Vector3(Constants.KIT_RACK_SLOTS_X[clampi(int(slot.trim_prefix("rack:")), 0, Constants.KIT_RACK_SLOTS_X.size() - 1)], Constants.KIT_RACK_Y, Constants.KIT_RACK_Z)
 	return Transform3D(basis, spot - Vector3(turned.get_center().x, turned.position.y, turned.get_center().z))
 

@@ -301,6 +301,10 @@ const SOUNDS: Dictionary = {
 	# fx-yard: the town's edge gives (net/components/chefty_crash.gd).
 	"sawhorse_tip": {"variants": 2, "bus": &"Sfx", "gap_ms": 60, "voice": false, "loop": false, "max_seconds": 1.0, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
 	"hedge_plow": {"variants": 3, "bus": &"Sfx", "gap_ms": 120, "voice": false, "loop": false, "max_seconds": 0.9, "db": 0.0, "max_distance": Constants.CHEFTY_SOUND_MAX_DISTANCE},
+	# shops:9: a seasonal sack flicked out across the yard (props/sack_spread.gd,
+	# one per shake, on the frame it jerks), and an empty one folded away.
+	"sack_shake": {"variants": 3, "bus": &"Sfx", "gap_ms": 120, "voice": false, "loop": false, "max_seconds": 0.8, "db": Constants.SACK_SHAKE_DB, "shuffle": true},
+	"sack_fold": {"variants": 0, "bus": &"Sfx", "gap_ms": Constants.SFX_DEFAULT_GAP_MS, "voice": false, "loop": false, "max_seconds": 0.8, "db": 0.0},
 }
 
 
