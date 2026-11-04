@@ -16,6 +16,7 @@ extends Node
 ##   ["down", action] / ["up", action]
 ##   ["look", dx, dy]            turn: mouse motion in pixels (right, down)
 ##   ["click", x, y]             left mouse click at a screen position
+##   ["wheel", x, y, notches]    the mouse wheel there: up (zoom in) for positive notches
 ##   ["wait", seconds]
 ##   ["text", "..."]             type into whatever has focus
 ## Playtesting (docs/PLAYTEST.md):
@@ -379,6 +380,8 @@ func _run(id: int, steps: Array) -> void:
 					errors.append(went_by_road)
 			"click":
 				await _click(Vector2(float(step[1]), float(step[2])))
+			"wheel":
+				await _wheel(Vector2(float(step[1]), float(step[2])), int(step[3]) if step.size() > 3 else 1)
 			"wait":
 				await _seconds(float(step[1]))
 			"text":
@@ -789,6 +792,24 @@ func _click(at: Vector2) -> void:
 		button.position = at
 		button.global_position = at
 		Input.parse_input_event(button)
+		await get_tree().process_frame
+
+
+## The pointer to at, then notches of the wheel there (up for positive), a frame apart.
+func _wheel(at: Vector2, notches: int) -> void:
+	var motion := InputEventMouseMotion.new()
+	motion.position = at
+	motion.global_position = at
+	Input.parse_input_event(motion)
+	await get_tree().process_frame
+	for notch: int in absi(notches):
+		for pressed: bool in [true, false]:
+			var button := InputEventMouseButton.new()
+			button.button_index = MOUSE_BUTTON_WHEEL_UP if notches > 0 else MOUSE_BUTTON_WHEEL_DOWN
+			button.pressed = pressed
+			button.position = at
+			button.global_position = at
+			Input.parse_input_event(button)
 		await get_tree().process_frame
 
 
