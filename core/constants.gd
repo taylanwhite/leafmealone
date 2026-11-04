@@ -5835,8 +5835,11 @@ const CHEFTY_CLIMB_TAILGATE_ROW_Z: float = 1.4
 const CHEFTY_BOARD_TURN_SECONDS: float = 1.0
 ## A client that hears the legacy ride leave later than this (s) starts it from
 ## the curb anyway, so the truck never jumps on its first frame; it makes the
-## time up at the end with the arrival's catch-up.
+## time up over the trip's first CHEFTY_RIDE_LATE_MAKEUP_SECONDS (s), running a
+## little quick, so it reaches the far curb with the host (made up at the curb,
+## it lurched 3-5 m into it).
 const CHEFTY_RIDE_LATE_START_MAX: float = 0.05
+const CHEFTY_RIDE_LATE_MAKEUP_SECONDS: float = 3.0
 ## After the cash, Chefty waits longer for the crew still out on the yard: when
 ## its window has this little left (s) and someone's still coming, it goes on
 ## this much longer (s, a last-call honk each time), up to this long in all (s).

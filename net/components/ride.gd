@@ -58,6 +58,10 @@ var _uturn: bool = false
 var _trip_t: float = 1.0
 ## The riders the trip under way set off with (who get off when it lands).
 var _trip_riders: Array = []
+## A client that heard of the trip late: how late (s) past the pull-away it
+## allows, made up by _late_until (server time) (_late_offset).
+var _late_by: float = 0.0
+var _late_until: float = 0.0
 
 ## p1-depart, the honk-and-wait (docs/GAME.md "Leaving together"): Chefty parked
 ## with the crew climbing in, honking, until _leave_at (server time). The host
@@ -110,7 +114,7 @@ func _physics_process(delta: float) -> void:
 	if not _riding:
 		return
 	var duration := maxf(_duration, 0.1)
-	var along := clampf((Net.server_time() - _start_time) / duration, 0.0, 1.0)
+	var along := clampf((Net.server_time() - _start_time - _late_offset()) / duration, 0.0, 1.0)
 	# Chefty's legacy ride pulls away and pulls in (p1-arrive): at an even pace it
 	# hit the curb at 125 m/s, so a client's clock a few ms off, or a rider's
 	# replicated pose one update old, put that rider metres from where they got
@@ -122,6 +126,15 @@ func _physics_process(delta: float) -> void:
 	_place(1.0 - eased if _reverse else eased)
 	if Net.is_host() and along >= 1.0:
 		_arrive()
+
+
+## How far behind the host's clock this peer runs the trip right now (s): all of
+## a client's lateness as it pulls away, none of it once the time's made up.
+func _late_offset() -> float:
+	if _late_by <= 0.0:
+		return 0.0
+	var left := clampf((_late_until - Net.server_time()) / maxf(Constants.CHEFTY_RIDE_LATE_MAKEUP_SECONDS, 0.01), 0.0, 1.0)
+	return _late_by * left
 
 
 ## A client whose truck was still short of the curb when the host said it had
@@ -835,9 +848,14 @@ func _rpc_depart(start_time: float, riders: Array, destination_zone: int, durati
 	# A client hears of the departure a ping late (on a busy machine its clock
 	# estimate trails further): starting the trip that far in made the truck jump
 	# 2-3 m on its first frame (fx-chefty, play: rec_board_fr frame 109). It pulls
-	# away from the curb here too, and catches up at the end (_step_catchup).
+	# away from the curb here too, and makes the time up over the trip's first
+	# CHEFTY_RIDE_LATE_MAKEUP_SECONDS (a few percent quicker, while it's on the
+	# straight), so it reaches the far curb with the host: made up at the end it
+	# was a 3-5 m lurch into the curb (review: rec_fetch_3p frames 354, 640).
+	_late_by = 0.0
 	if not Net.is_host():
-		_start_time = maxf(start_time, Net.server_time() - Constants.CHEFTY_RIDE_LATE_START_MAX)
+		_late_by = maxf(0.0, Net.server_time() - Constants.CHEFTY_RIDE_LATE_START_MAX - start_time)
+		_late_until = Net.server_time() + Constants.CHEFTY_RIDE_LATE_MAKEUP_SECONDS
 	_duration = duration
 	_destination = destination_zone
 	var was_reversed := _reverse

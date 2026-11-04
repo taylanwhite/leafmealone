@@ -559,6 +559,12 @@ func on_ride_arrived(destination: int) -> void:
 	if destination == Net.Zone.STORE and _fetching and not town_map:
 		# Back for a straggler (fx-chefty): the yard and its job carry on.
 		_fetch_arrived(chefty)
+	elif destination == Net.Zone.STORE and _home_after_trip and not town_map and not Net.players_in_zone(Net.Zone.LOT).is_empty():
+		# Paid while it was on the road: back out for the crew still on the yard.
+		_after_turnaround(chefty, func() -> void:
+			if _home_after_trip:
+				chefty.call("drive_empty", Net.Zone.LOT)
+		)
 	elif destination == Net.Zone.STORE:
 		_free_lot_when_empty()
 		# Back at the store with junk in the bed: it hops out for Rusty's.
@@ -566,6 +572,18 @@ func on_ride_arrived(destination: int) -> void:
 			chefty.call("unload_junk")
 	elif destination == Net.Zone.LOT and town_map:
 		on_crew_arrived()
+	elif destination == Net.Zone.LOT and _home_after_trip:
+		# Paid while Chefty was out on a trip (fx-chefty review): it's back at the
+		# yard for the crew, and after a beat (whoever rode out is off) it honks
+		# and waits to take them home, like any job's end.
+		_home_after_trip = false
+		_fetch_for.clear()
+		_after_turnaround(chefty, func() -> void:
+			if Net.players_in_zone(Net.Zone.LOT).is_empty():
+				_free_lot_when_empty()
+			else:
+				_open_boarding(chefty, Net.Zone.STORE)
+		)
 	elif destination == Net.Zone.LOT:
 		# The homeowner's patience starts when the crew shows up, not at the store.
 		Campaign.start_job_clock()
@@ -580,8 +598,8 @@ func on_ride_arrived(destination: int) -> void:
 		# Someone at the pad asked for it while it was on its way: it turns round
 		# for them after a beat (the crew's off and clear of it).
 		if not _fetch_for.is_empty() and chefty != null:
-			get_tree().create_timer(Constants.CHEFTY_FETCH_TURNAROUND_SECONDS).timeout.connect(func() -> void:
-				if is_instance_valid(chefty) and not _fetch_for.is_empty():
+			_after_turnaround(chefty, func() -> void:
+				if not _fetch_for.is_empty():
 					_start_fetch(chefty)
 			)
 	elif destination == Net.Zone.BORDER:
@@ -677,6 +695,7 @@ func _load_job_lot() -> void:
 
 
 func _free_lot() -> void:
+	_home_after_trip = false
 	var hires := get_node_or_null("Hires")
 	if hires != null:
 		hires.call("despawn")
@@ -957,6 +976,11 @@ func _host_depart(peer_id: int = 0) -> void:
 		if peer_id != 0 and ride.has_method("trip_destination") and int(ride.call("trip_destination")) == Net.Zone.LOT and _players_near(%TruckPad.global_position).has(peer_id):
 			_fetch_for[peer_id] = true
 		return
+	# A yard that's paid for is done with: whoever Chefty left on it comes home
+	# now, and the next trip goes to the next job (fx-chefty review: a teammate
+	# left behind kept the paid yard loaded, and E here drove the crew back to it).
+	if not _is_boarding(ride) and (peer_id == 0 or _players_near(%TruckPad.global_position).has(peer_id)):
+		_release_paid_lot()
 	# No job to go to: nobody texted, or it's past 2 AM and the crew needs sleep.
 	if not can_depart():
 		return
@@ -1002,13 +1026,26 @@ func _start_fetch(ride: Node) -> void:
 ## they've wandered off it goes back out to the crew empty.
 func _fetch_arrived(ride: Node) -> void:
 	_fetching = false
+	if _home_after_trip:
+		# The homeowner paid while it was on its way here (fx-chefty review): the
+		# job's done, so nobody's going out to it. It turns round for the crew on
+		# the yard instead, and takes them home.
+		_fetch_for.clear()
+		_after_turnaround(ride, func() -> void:
+			if _home_after_trip and not bool(ride.call("is_riding")) and not _is_boarding(ride):
+				ride.call("drive_empty", Net.Zone.LOT)
+		)
+		return
+	_release_paid_lot()
 	var waiting: Array[int] = []
 	for peer_id: Variant in _fetch_for.keys():
 		if _players_near(%TruckPad.global_position).has(int(peer_id)):
 			waiting.append(int(peer_id))
 	_fetch_for.clear()
 	if waiting.is_empty() or not can_depart():
-		ride.call("drive_empty", Net.Zone.LOT)
+		# Back out to the crew on the yard; with nobody out there it stays put.
+		if not Net.players_in_zone(Net.Zone.LOT).is_empty():
+			ride.call("drive_empty", Net.Zone.LOT)
 		return
 	_open_boarding(ride, Net.Zone.LOT)
 	_board_opener = waiting[0]
@@ -1028,6 +1065,38 @@ func _free_lot_when_empty() -> void:
 			return
 	_lot_free_pending = false
 	_free_lot()
+
+
+## Host, the legacy map: the yard in the slot is paid for and settled (the
+## job's closed), but still loaded: someone Chefty left on it hasn't walked off.
+func _paid_lot_loaded() -> bool:
+	return not town_map and %LotSlot.get_child_count() > 0 and not Campaign.is_job_open()
+
+
+## Host (fx-chefty review): the crew moves on from a paid yard (E at the pad,
+## or Chefty back at the store for a straggler). Whoever's still standing on it
+## comes home to the store, as everyone left over did before the stragglers'
+## wait, and the yard goes, so the next trip loads the next job instead of
+## driving back to the paid one. Not while Chefty is fetching the crew home.
+func _release_paid_lot() -> void:
+	if not _paid_lot_loaded() or _home_after_trip:
+		return
+	for peer_id: int in Net.peer_ids():
+		if Net.player_zone(peer_id) == Net.Zone.LOT:
+			Net.move_player_to_zone(peer_id, Net.Zone.STORE)
+	_lot_free_pending = false
+	_free_lot()
+
+
+## Host: then() after CHEFTY_FETCH_TURNAROUND_SECONDS, if Chefty's still here and
+## parked (whoever just rode in is off and clear of it first).
+func _after_turnaround(ride: Node, then: Callable) -> void:
+	if ride == null:
+		return
+	get_tree().create_timer(Constants.CHEFTY_FETCH_TURNAROUND_SECONDS).timeout.connect(func() -> void:
+		if is_instance_valid(ride) and not bool(ride.call("is_riding")) and not _is_boarding(ride):
+			then.call()
+	)
 
 
 ## Host: Chefty starts its honk-and-wait toward destination.
@@ -1133,6 +1202,11 @@ func _host_leave() -> void:
 		return
 	_all_aboard_at = -1.0
 	_go_now = false
+	if _pending_finish.is_empty() and not Campaign.is_job_open():
+		# Settled already (paid while Chefty was out fetching, fx-chefty review):
+		# this window was just the ride home.
+		_host_take_home()
+		return
 	var pending := _pending_finish
 	_pending_finish = {}
 	var paid := float(pending.get("paid", -1.0))
@@ -1230,6 +1304,10 @@ var _fetch_for: Dictionary = {}
 var _fetching: bool = false
 ## Host: the yard is paid for and Chefty's home, but someone's still standing on it.
 var _lot_free_pending: bool = false
+## Host (fx-chefty review): the job settled while Chefty was away from the yard
+## (on the road, or honking at the store for a straggler): it goes back out for
+## the crew and takes them home.
+var _home_after_trip: bool = false
 
 
 ## Whether Chefty can head out: a yard is waiting (or a test seed), and the
@@ -1272,8 +1350,31 @@ func _host_settle(paid: float, details: Dictionary) -> void:
 	var chefty := get_node_or_null("Rides/Chefty")
 	if chefty != null:
 		chefty.call("clear_bags")
+	_host_take_home()
+
+
+## Host: the job's settled; Chefty takes whoever's on the yard home.
+func _host_take_home() -> void:
 	var ride := get_node_or_null("Rides/Chefty")
-	if ride == null or bool(ride.call("is_riding")):
+	if ride == null:
+		return
+	if bool(ride.call("is_riding")):
+		# fx-chefty review: paid while Chefty was on the road (fetching a
+		# straggler): it comes back for the crew once this trip's done
+		# (on_ride_arrived, _fetch_arrived). It used to just never come.
+		_home_after_trip = true
+		return
+	if _is_boarding(ride) and int(ride.call("boarding_destination")) == Net.Zone.LOT:
+		# Honking at the store for a straggler when the cash came: nobody's going
+		# out to a finished job. Whoever's aboard hops out, and Chefty goes out
+		# empty for the crew instead.
+		ride.call("cancel_boarding")
+		_fetch_for.clear()
+		_home_after_trip = true
+		_after_turnaround(ride, func() -> void:
+			if _home_after_trip:
+				ride.call("drive_empty", Net.Zone.LOT)
+		)
 		return
 	if _is_boarding(ride):
 		_gather_lot(ride)

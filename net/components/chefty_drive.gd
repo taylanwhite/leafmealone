@@ -218,6 +218,8 @@ var _seats_said := PackedInt32Array()
 ## fx-chefty: who is still climbing in or sliding over, drawn on every peer from
 ## the seat changes (net/components/seat_moves.gd): peer -> {move, start}.
 var _moves: Dictionary = {}
+## Tests: how many climbs and seat changes this peer has drawn as a move.
+var _moves_seen: int = 0
 ## The hired hands last seen working (npcs/crew_hand.gd), by name: {at (world),
 ## yaw, time}, so a hand who walks back to the truck climbs in from there.
 var _hand_seen: Dictionary = {}
@@ -476,6 +478,8 @@ func _start_moves(before: PackedInt32Array) -> void:
 			_moves.erase(peer_id)
 			continue
 		_moves[peer_id] = {"move": move, "start": now}
+		if _SeatMoves.seconds(move) > 0.0:
+			_moves_seen += 1
 		if player.has_method("reset_physics_interpolation"):
 			player.reset_physics_interpolation()
 
@@ -2075,6 +2079,7 @@ func dev_report() -> Dictionary:
 		"trip_label": trip_label(),
 		"trips_seen": _trips_seen,
 		"chauffeur_seen": _chauffeur_seen.duplicate(),
+		"moves_seen": _moves_seen,
 		"cosmetic": _cosmetic_report(),
 		"job_value": _job_value,
 	}

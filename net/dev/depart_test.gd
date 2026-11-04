@@ -37,9 +37,23 @@ extends Node
 ##             host aboard hops them out (not glued to the seat).
 ##   hold      the host boards with the client off by the store: holding E sends
 ##             Chefty off at once with just the host.
+##   midway    hold's Chefty still on its way out to the yard, the client presses
+##             E at the pad: it drops the host off, turns round after
+##             CHEFTY_FETCH_TURNAROUND_SECONDS empty, honks and waits at the
+##             store, the client climbs in and rides out (fx-chefty).
 ##   stranded  Chefty parked at the yard, the client at the store's pad: Chefty
 ##             drives back down the road for them empty (fx-chefty), honks and
 ##             waits at the store, they climb in, and it takes them there.
+##   behind    the cash taken with the client out on the yard, past
+##             CHEFTY_BOARD_GATHER_REACH; the host climbs in and holds E: Chefty
+##             goes without them (never pulled in from across the yard), and the
+##             paid yard stays while they stand on it. E at the store's pad then
+##             brings them home and loads a new yard, not the paid one (review
+##             of fx-chefty: the crew was driven back to the paid yard).
+##   paid_away the client calls Chefty back from the store; the host is paid
+##             while it's on the road: the job settles, Chefty doesn't take the
+##             client out to a finished job but turns round for the host, honks
+##             and waits on the yard, takes the host home, and the yard goes.
 ## The client reports what it saw by its own probe: seated while Chefty waited,
 ## its climb drawn as a hop (not a pop), the honks heard.
 
@@ -48,7 +62,7 @@ const _Economy = preload("res://core/economy.gd")
 const _Strings = preload("res://ui/strings.gd")
 const JOIN_WAIT_SECONDS: float = 30.0
 const RIDE_WAIT_SECONDS: float = 20.0
-const STEPS: Array[String] = ["verdict", "split", "hop_out", "wait", "late", "early", "beat", "gone", "hold", "stranded"]
+const STEPS: Array[String] = ["verdict", "split", "hop_out", "wait", "late", "early", "beat", "gone", "hold", "midway", "stranded", "behind", "paid_away"]
 ## A peer id nobody has: a boarder who then leaves the game (gone).
 const GHOST: int = 999
 
@@ -126,8 +140,14 @@ func _run() -> void:
 		return _finish("gone")
 	if not await _check_hold():
 		return _finish("hold")
+	if not await _check_midway():
+		return _finish("midway")
 	if not await _check_stranded():
 		return _finish("stranded")
+	if not await _check_behind():
+		return _finish("behind")
+	if not await _check_paid_away():
+		return _finish("paid_away")
 	_finish("")
 
 
@@ -388,7 +408,11 @@ func _check_stranded() -> bool:
 	var client := _client_id()
 	var parked := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.LOT and not bool(chefty.call("is_riding")), RIDE_WAIT_SECONDS)
 	var away := parked and not bool(chefty.call("parked_at_store"))
-	_teleport(client, _pad() + Vector3(0.0, 0.5, 3.2))
+	# (midway took the client out to the yard: back to the store.)
+	if Net.player_zone(client) != Net.Zone.STORE:
+		Net.move_player_to_zone(client, Net.Zone.STORE)
+		await _seconds(0.6)
+	await _to_pad(client)
 	await _seconds(1.0)
 	var honks := int(chefty.get("honks"))
 	_world().call("_host_depart", client)
@@ -401,6 +425,139 @@ func _check_stranded() -> bool:
 	var honked := int(chefty.get("honks")) > honks
 	var arrived := await _until(func() -> bool: return Net.player_zone(client) == Net.Zone.LOT, RIDE_WAIT_SECONDS)
 	return _step("stranded", away and came_back and waiting and honked and arrived, "Chefty parked at the yard %s; the client at the pad: it drives back for them empty %s, honks %s and they climb in %s, at the yard %s" % [away, came_back, honked, waiting, arrived])
+
+
+## Hold sent Chefty off with just the host; the client, left at the store,
+## presses E at the pad while it's still driving out: it drops the host at the
+## yard, turns round for them after a beat, empty, and takes them out.
+func _check_midway() -> bool:
+	var chefty := _chefty()
+	var world := _world()
+	var host := Net.local_peer_id()
+	var client := _client_id()
+	var riding_out := bool(chefty.call("is_riding")) and int(chefty.call("trip_destination")) == Net.Zone.LOT
+	_teleport(client, _pad() + Vector3(0.0, 0.5, 3.2))
+	await _seconds(0.8)
+	world.call("_host_depart", client)
+	await _ticks(2)
+	var asked := (world.get("_fetch_for") as Dictionary).has(client) and int(chefty.call("seat_of", client)) < 0 and bool(chefty.call("is_riding"))
+	var dropped := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.LOT and not bool(chefty.call("is_riding")), RIDE_WAIT_SECONDS)
+	var landed_at := Net.server_time()
+	var turned := await _until(func() -> bool: return bool(chefty.call("is_riding")) and int(chefty.call("trip_destination")) == Net.Zone.STORE, Constants.CHEFTY_FETCH_TURNAROUND_SECONDS + 2.0)
+	var beat := Net.server_time() - landed_at
+	var empty := turned and int(chefty.call("seat_of", host)) < 0 and Net.player_zone(host) == Net.Zone.LOT
+	var climbed := await _until(func() -> bool: return bool(chefty.call("is_boarding")) and (chefty.call("boarders") as Array).has(client), RIDE_WAIT_SECONDS)
+	var arrived := await _until(func() -> bool: return Net.player_zone(client) == Net.Zone.LOT and not bool(chefty.call("is_riding")), RIDE_WAIT_SECONDS)
+	# The hired hands hop off once per yard: the yard remembers it (hands_off),
+	# so Chefty's second arrival doesn't round them up again.
+	var slot := world.get_node("%LotSlot")
+	var once := slot.get_child_count() > 0 and slot.get_child(0).has_meta("hands_off")
+	return _step("midway", riding_out and asked and dropped and turned and beat >= Constants.CHEFTY_FETCH_TURNAROUND_SECONDS - 0.2 and empty and climbed and arrived and once,
+		"on its way out %s, the client at the pad asked %s, dropped the host %s, turned round empty after %.1f s %s %s, the client climbed in at the store %s, at the yard %s, hands off once for the yard %s" % [riding_out, asked, dropped, beat, turned, empty, climbed, arrived, once])
+
+
+## The cash with the client way out on the yard: Chefty goes without them when
+## the host holds E, and the paid yard stays while they're on it. Then the host
+## presses E at the store's pad: the paid yard goes (the client comes home with
+## it) and the trip loads a new one.
+func _check_behind() -> bool:
+	await _seconds(1.0)
+	var chefty := _chefty()
+	var world := _world()
+	var host := Net.local_peer_id()
+	var client := _client_id()
+	var slot := world.get_node("%LotSlot")
+	var owner_node := get_tree().get_first_node_in_group("homeowner") as Node3D
+	if owner_node == null or slot.get_child_count() == 0:
+		return _step("behind", false, "no yard or homeowner (yard loaded %s)" % [slot.get_child_count() > 0])
+	var lot_before := str(slot.get_child(0).name)
+	await _put(host, owner_node.global_position + Vector3(0.0, 0.5, 1.5))
+	# Out on the yard, past the gather's reach (until the host sees them there:
+	# they've only just hopped down off Chefty).
+	var bed: Vector3 = (chefty.call("bed_transform") as Transform3D) * Vector3(0.0, 0.0, 0.7)
+	var far_off := 0.0
+	for _try: int in 8:
+		_teleport(client, _lot_far())
+		await _seconds(0.5)
+		var body := world.get_node("%Players").get_node_or_null(str(client)) as Node3D
+		far_off = Vector2(body.global_position.x - bed.x, body.global_position.z - bed.z).length() if body != null else 0.0
+		if far_off > Constants.CHEFTY_BOARD_GATHER_REACH + 1.0:
+			break
+	# (A bag in the bed: no bags is no pay.)
+	chefty.call("accept_bags", 1, 12)
+	owner_node.set("dev_done_share", Constants.HOMEOWNER_SETTLE_DONE + 0.05)
+	owner_node.call("_handle_talk", host)
+	var offered := await _until(func() -> bool: return int(owner_node.get("_phase")) == 2, 6.0)
+	owner_node.call("_handle_take", host)
+	await _ticks(3)
+	var honking := bool(chefty.call("is_boarding")) and int(chefty.call("boarding_destination")) == Net.Zone.STORE
+	_teleport(host, (chefty.call("bed_transform") as Transform3D) * Vector3(0.0, 0.5, 3.4))
+	var aboard := await _until(func() -> bool: return (chefty.call("boarders") as Array).has(host), 2.0)
+	await _seconds(Constants.CHEFTY_BOARD_CLIMB_SECONDS + 0.2)
+	world.call("boarding_go_now")
+	var went := await _until(func() -> bool: return bool(chefty.call("is_riding")), 3.0)
+	var left := went and int(chefty.call("seat_of", client)) < 0 and Net.player_zone(client) == Net.Zone.LOT
+	var client_was := "seat %d, zone %s, %.1f m off" % [int(chefty.call("seat_of", client)), Net.Zone.keys()[Net.player_zone(client)], far_off]
+	var home := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.STORE and not bool(chefty.call("is_riding")), RIDE_WAIT_SECONDS)
+	await _ticks(3)
+	var kept := slot.get_child_count() > 0 and str(slot.get_child(0).name) == lot_before and not Campaign.is_job_open() and Net.player_zone(client) == Net.Zone.LOT
+	# E at the pad: the paid yard goes with whoever's on it, and Chefty takes
+	# the host to a new one.
+	_teleport(host, _pad() + Vector3(0.0, 0.5, 3.2))
+	await _seconds(0.8)
+	world.call("request_depart")
+	await _ticks(3)
+	var released := Net.player_zone(client) == Net.Zone.STORE and slot.get_child_count() == 0 and bool(chefty.call("is_boarding")) and int(chefty.call("boarding_destination")) == Net.Zone.LOT
+	await _seconds(0.5)
+	_teleport(client, _store_far())
+	await _until(func() -> bool: return (chefty.call("boarders") as Array).has(host), 2.0)
+	await _seconds(Constants.CHEFTY_BOARD_CLIMB_SECONDS + 0.2)
+	world.call("boarding_go_now")
+	await _until(func() -> bool: return bool(chefty.call("is_riding")), 3.0)
+	var lot_after := str(slot.get_child(0).name) if slot.get_child_count() > 0 else ""
+	var fresh := lot_after != "" and lot_after != lot_before and Campaign.is_job_open()
+	var out := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.LOT and not bool(chefty.call("is_riding")), RIDE_WAIT_SECONDS)
+	return _step("behind", offered and honking and aboard and left and home and kept and released and fresh and out,
+		"the cash %s, honking %s, the host aboard %s, went without the client out on the yard %s (%s), home %s, the paid yard kept while they're on it %s; E at the pad: the client home and the paid yard gone %s, a new yard (%s -> %s) %s, the host out there %s" % [offered, honking, aboard, left, client_was, home, kept, released, lot_before, lot_after, fresh, out])
+
+
+## The client at the store calls Chefty back from the yard, and the homeowner
+## pays the host while it's on the road: the job settles now; back at the store
+## it turns round without the client (nobody goes out to a finished job), honks
+## and waits on the yard, takes the host home, and the yard goes.
+func _check_paid_away() -> bool:
+	await _seconds(1.0)
+	var chefty := _chefty()
+	var world := _world()
+	var host := Net.local_peer_id()
+	var client := _client_id()
+	var slot := world.get_node("%LotSlot")
+	var owner_node := get_tree().get_first_node_in_group("homeowner") as Node3D
+	if owner_node == null:
+		return _step("paid_away", false, "no homeowner on the yard")
+	await _put(host, owner_node.global_position + Vector3(0.0, 0.5, 1.5))
+	await _to_pad(client)
+	await _seconds(0.5)
+	world.call("_host_depart", client)
+	await _ticks(3)
+	var fetching := bool(chefty.call("is_riding")) and int(chefty.call("trip_destination")) == Net.Zone.STORE
+	# (A bag in the bed: no bags is no pay.)
+	chefty.call("accept_bags", 1, 12)
+	owner_node.set("dev_done_share", Constants.HOMEOWNER_SETTLE_DONE + 0.05)
+	owner_node.call("_handle_talk", host)
+	var offered := await _until(func() -> bool: return int(owner_node.get("_phase")) == 2, 6.0)
+	owner_node.call("_handle_take", host)
+	await _ticks(3)
+	var settled := not Campaign.is_job_open() and bool(chefty.call("is_riding"))
+	var turned := await _until(func() -> bool: return bool(chefty.call("is_riding")) and int(chefty.call("trip_destination")) == Net.Zone.LOT, RIDE_WAIT_SECONDS + Constants.CHEFTY_FETCH_TURNAROUND_SECONDS + 1.0)
+	var no_client := turned and int(chefty.call("seat_of", client)) < 0 and Net.player_zone(client) == Net.Zone.STORE
+	var honking := await _until(func() -> bool: return bool(chefty.call("is_boarding")) and int(chefty.call("boarding_destination")) == Net.Zone.STORE, RIDE_WAIT_SECONDS + Constants.CHEFTY_FETCH_TURNAROUND_SECONDS + 1.0)
+	_teleport(host, (chefty.call("bed_transform") as Transform3D) * Vector3(0.0, 0.5, 3.4))
+	var aboard := await _until(func() -> bool: return (chefty.call("boarders") as Array).has(host), 2.0)
+	var home := await _until(func() -> bool: return Net.player_zone(host) == Net.Zone.STORE and not bool(chefty.call("is_riding")), RIDE_WAIT_SECONDS)
+	var freed := await _until(func() -> bool: return slot.get_child_count() == 0, 2.0)
+	return _step("paid_away", fetching and offered and settled and turned and no_client and honking and aboard and home and freed,
+		"Chefty on its way back for the client %s, the cash %s, settled on the road %s, turned round for the host without the client %s %s, honking on the yard %s, the host aboard %s, home %s, the yard gone %s" % [fetching, offered, settled, turned, no_client, honking, aboard, home, freed])
 
 
 # ---------------------------------------------------------------- helpers
@@ -428,6 +585,27 @@ func _teleport(peer_id: int, at: Vector3) -> void:
 		node.call("apply_network_teleport", xf)
 	else:
 		node.rpc_id(peer_id, "_rpc_teleport", xf)
+
+
+## peer_id to at, until the host sees them there (someone just off Chefty is
+## still hopping down, and the hop wins over a teleport).
+func _put(peer_id: int, at: Vector3) -> void:
+	for _try: int in 8:
+		_teleport(peer_id, at)
+		await _seconds(0.4)
+		var body := _world().get_node("%Players").get_node_or_null(str(peer_id)) as Node3D
+		if body != null and Vector2(body.global_position.x - at.x, body.global_position.z - at.z).length() < 1.0:
+			return
+
+
+## peer_id onto the store's pad, until the host sees them there (a zone move's
+## own spawn can land after the teleport).
+func _to_pad(peer_id: int) -> void:
+	for _try: int in 8:
+		_teleport(peer_id, _pad() + Vector3(0.0, 0.5, 3.2))
+		await _seconds(0.5)
+		if (_world().call("_players_near", _pad()) as Array).has(peer_id):
+			return
 
 
 func _pad() -> Vector3:
