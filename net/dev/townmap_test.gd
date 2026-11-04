@@ -22,6 +22,7 @@ const _Surroundings = preload("res://levels/dressing/surroundings.gd")
 const _BuildQueue = preload("res://levels/build_queue.gd")
 const _Streamer = preload("res://levels/town/town_streamer.gd")
 const _Outskirts = preload("res://levels/town/outskirts.gd")
+const _TownLine = preload("res://levels/town/town_line.gd")
 ## No single step of the world's build may take longer than this (ms, headless):
 ## steps are one tree, one body, one parcel's solids. A stall is a frame, and a
 ## frame past ENet's patience drops a joining player (driving chunk E).
@@ -281,6 +282,7 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 	_verdict(off == enabled - 1 and back == enabled, "a slot's house turns off and on (%d, then %d)" % [off, back], problems)
 	var space := (world as Node3D).get_world_3d().direct_space_state
 	_check_outskirts(space, problems)
+	_check_town_line(world, space, problems)
 	var query := PhysicsRayQueryParameters3D.create(Vector3(200.0, 5.0, 200.0), Vector3(200.0, -5.0, 200.0), 1)
 	var hit := space.intersect_ray(query)
 	_verdict(not hit.is_empty() and absf(float((hit["position"] as Vector3).y) + 0.02) < 0.05, "the town's ground is solid out in the country (%s)" % hit.get("position", "nothing"), problems)
@@ -293,6 +295,107 @@ func _check_colliders(world: Node, problems: Array[String]) -> void:
 		_verdict(reach <= sand + 0.01, "the town's grass stops at the border's sand (z %.1f, sand from %.1f)" % [reach, sand], problems)
 	else:
 		_verdict(false, "the town's ground and the border zone exist", problems)
+
+
+## p1-world: the town line (levels/town/town_line.gd). It stands inside the
+## town's ground, and everything of the town stands inside it with room to walk
+## round: every yard and house across the street, every road (and its
+## sidewalks), the lake, the Field Office and the outskirts' solids (a country
+## tree may stand in the hedge or past it: they're seeded over the whole ground). A ray out across each side from inside stops at its hedge; one down
+## each closed road from the asphalt's end stops at the barricade, which stands
+## past the road's last point. The dressing has a hedge stretch for every 64 m
+## and the four closed roads.
+func _check_town_line(world: Node, space: PhysicsDirectSpaceState3D, problems: Array[String]) -> void:
+	var line := Constants.TOWN_LINE_RECT
+	var room := Constants.TOWN_LINE_WALL_INSIDE + 2.0
+	var bounds := Rect2(TownMap.TOWN_BOUNDS.position.x, TownMap.TOWN_BOUNDS.position.z, TownMap.TOWN_BOUNDS.size.x, TownMap.TOWN_BOUNDS.size.z)
+	var within := bounds.encloses(line.grow(Constants.TOWN_LINE_WALL_DEPTH - Constants.TOWN_LINE_WALL_INSIDE))
+	var outside: Array[String] = []
+	var rects: Array = []
+	for house_id: int in TownMap.house_count():
+		rects.append(["yard %d" % house_id, TownMap.yard_rect(house_id)])
+	for slot: Dictionary in TownMap.dressing_slots():
+		rects.append(["across", TownMap.dressing_rect(slot)])
+	rects.append(["lake", TownMap.LAKE])
+	for edge: Array in TownMap.road_edges():
+		var half := TownMap.edge_half_width(edge)
+		for end: Vector3 in [TownMap.edge_from(edge), TownMap.edge_to(edge)]:
+			rects.append([TownMap.edge_key(edge), Rect2(end.x - half, end.z - half, half * 2.0, half * 2.0)])
+	var office := TownMap.FIELD_OFFICE
+	rects.append(["field office", Rect2(office.x - 8.0, office.z - 8.0, 16.0, 16.0)])
+	for solid: Array in _Outskirts.solids():
+		var center: Vector3 = solid[1]
+		rects.append(["outskirts", Rect2(center.x - 1.0, center.z - 1.0, 2.0, 2.0)])
+	for entry: Array in rects:
+		if not line.grow(-room).encloses(entry[1]):
+			outside.append("%s %s" % [entry[0], entry[1]])
+	_verdict(within and outside.is_empty(), "the town line stands inside the town's ground %s, with the whole town inside it (outside: %s)" % [within, outside.slice(0, 6)], problems)
+	var stopped: Array[String] = []
+	var middle := line.get_center()
+	for probe: Array in [[Vector2(middle.x + 37.0, line.position.y), Vector2(0.0, -1.0)], [Vector2(middle.x - 53.0, line.end.y), Vector2(0.0, 1.0)], [Vector2(line.position.x, middle.y + 41.0), Vector2(-1.0, 0.0)], [Vector2(line.end.x, middle.y - 29.0), Vector2(1.0, 0.0)]]:
+		var on: Vector2 = probe[0]
+		var out: Vector2 = probe[1]
+		var from := Vector3(on.x - out.x * 12.0, 1.2, on.y - out.y * 12.0)
+		var to := Vector3(on.x + out.x * 12.0, 1.2, on.y + out.y * 12.0)
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, to, 1))
+		# At the wall's inside face, short of the fence's rails (review p1-world:
+		# Chefty ended up skewered on a fence that stood in front of the wall).
+		var short := -1.0
+		if not hit.is_empty():
+			short = Vector2((hit["position"] as Vector3).x, (hit["position"] as Vector3).z).distance_to(on)
+		var ok := absf(short - Constants.TOWN_LINE_WALL_INSIDE) <= 0.1 and short > _TownLine.FENCE_IN + 0.1
+		stopped.append("%s %.2f %s" % [on, short, ok])
+		if not ok:
+			problems.append("the hedge at %s (stops %.2f m inside the line, the fence at %.2f)" % [on, short, _TownLine.FENCE_IN])
+	_verdict(stopped.all(func(entry: String) -> bool: return entry.ends_with("true")), "a ray out across each side stops at the hedge, before the fence (%s)" % [stopped], [] as Array[String])
+	# Each gravel track's farm gate is shut: a ray out along the track from
+	# inside stops at the gate itself, not at a wall in front of it; one across
+	# each barrel stops at the barrel.
+	var gates: Array[String] = []
+	for closure: Dictionary in _TownLine.closures():
+		var gate: Vector3 = closure["gate"]
+		var out: Vector3 = closure["out"]
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(gate - out * 12.0 + Vector3.UP * 1.0, gate + out * 6.0 + Vector3.UP * 1.0, 1))
+		var at_gate := not hit.is_empty() and (hit["position"] as Vector3).distance_to(gate + Vector3.UP * 1.0) < 0.4
+		var barrels := 0
+		for spot: Vector3 in _TownLine.barrels(closure):
+			var across := space.intersect_ray(PhysicsRayQueryParameters3D.create(spot + Vector3(3.0 * signf(spot.x - gate.x), 0.5, 0.0), spot + Vector3.UP * 0.5, 1))
+			barrels += 1 if not across.is_empty() else 0
+		gates.append("%s %s/%d" % [closure["key"], at_gate, barrels])
+		if not at_gate or barrels != 2:
+			problems.append("closed road %s: the gate stops a ray %s, %d of 2 barrels solid" % [closure["key"], at_gate, barrels])
+	_verdict(gates.all(func(entry: String) -> bool: return entry.ends_with("true/2")), "each farm gate is shut and each barrel solid (%s)" % [gates], [] as Array[String])
+	var closed: Array[String] = []
+	var nodes := TownMap.road_nodes()
+	for closure: Dictionary in _TownLine.closures():
+		var end: Vector3 = closure["end"]
+		var out: Vector3 = closure["out"]
+		var at := _TownLine.barricade_at(closure)
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(end - out * 6.0 + Vector3.UP * 0.6, end + out * 20.0 + Vector3.UP * 0.6, 1))
+		var blocked := not hit.is_empty() and (hit["position"] as Vector3).distance_to(at + Vector3.UP * 0.6) < 1.0
+		# Past the road graph's last point that way, so routes never reach it.
+		var last := Vector3.ZERO
+		for id: Variant in nodes:
+			var point: Vector3 = nodes[id]
+			if absf(point.x - end.x) < 0.5 and (point - end).dot(out) <= 0.0 and (last == Vector3.ZERO or (point - last).dot(out) > 0.0):
+				last = point
+		var past := (at - last).dot(out) >= Constants.TOWN_LINE_BARRICADE_OUT
+		closed.append("%s %s/%s" % [closure["key"], blocked, past])
+		if not blocked or not past:
+			problems.append("closed road %s: barricade hit %s, past the road %s" % [closure["key"], blocked, past])
+	var dressed := world.get_node_or_null("TownDressing/TownLine")
+	var stretches := 0
+	var closures := 0
+	if dressed != null:
+		for child: Node in dressed.get_children():
+			stretches += 1 if String(child.name).begins_with("Hedge") else 0
+			closures += 1 if String(child.name).begins_with("Closed_") else 0
+	var want := 0
+	for side: Array in _TownLine.sides():
+		want += maxi(1, ceili((side[0] as Vector2).distance_to(side[1]) / Constants.TOWN_LINE_SEGMENT))
+	_verdict(closed.size() == 4 and stretches == want and closures == 4, "the closed roads %s; dressed: %d of %d hedge stretches, %d closures" % [closed, stretches, want, closures], [] as Array[String])
+	if stretches != want or closures != 4:
+		problems.append("town line dressing: %d of %d stretches, %d closures" % [stretches, want, closures])
 
 
 ## Driving chunk E2: the outskirts (levels/town/outskirts.gd) and Main Street's

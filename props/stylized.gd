@@ -96,13 +96,17 @@ const CLOUD_SHADER := """
 shader_type spatial;
 render_mode unshaded, fog_disabled, cull_back, shadows_disabled;
 
+// The hour's light on them (levels/day_sky.gd): white by day, sunset-lit, then
+// dim blue under the moon.
+uniform vec3 light = vec3(1.0);
+
 vec3 to_linear(vec3 c) {
 	c = max(c, vec3(0.0));
 	return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
 
 void fragment() {
-	ALBEDO = to_linear(COLOR.rgb);
+	ALBEDO = to_linear(COLOR.rgb * light);
 }
 """
 

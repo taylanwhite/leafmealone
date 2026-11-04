@@ -62,7 +62,8 @@ extends Node
 
 ##   ["drive", x, z, timeout, top]  at Chefty's wheel: drive there along the roads
 ##                                 (W/S and A/D as eased strengths, slowing for
-##                                 corners), up to top m/s (driving:E2)
+##                                 corners), up to top m/s (driving:E2); a sixth
+##                                 word "direct" goes straight there, off-road
 ## A "look" bigger than LOOK_EASE_ABOVE pixels is eased over several frames (a
 ## hand on a mouse), so the recorder's cam_snap flags mean the game, not the agent.
 ## Actions are the names in project.godot's input map (move_forward, interact,
@@ -344,7 +345,7 @@ func _run(id: int, steps: Array) -> void:
 
 			"drive":
 				# drive x z [timeout] [top speed m/s]: at Chefty's wheel, along the roads (driving:E2).
-				var went_by_road: String = await _drive(Vector3(float(step[1]), 0.0, float(step[2])), float(step[3]) if step.size() > 3 else 90.0, float(step[4]) if step.size() > 4 else Constants.CHEFTY_TOP_SPEED)
+				var went_by_road: String = await _drive(Vector3(float(step[1]), 0.0, float(step[2])), float(step[3]) if step.size() > 3 else 90.0, float(step[4]) if step.size() > 4 else Constants.CHEFTY_TOP_SPEED, step.size() > 5 and str(step[5]) == "direct")
 				if went_by_road != "":
 					errors.append(went_by_road)
 			"click":
@@ -674,14 +675,15 @@ func _goto(to: Vector3, timeout: float, arrive: float = GOTO_ARRIVE_METERS) -> S
 ## drive takes): W and S, A and D eased to a strength like a gamepad stick,
 ## along TownMap.route's roads, slowing for corners and pulling up at the end.
 ## Steers for a point a speed-dependent way down the route. "" when there.
-func _drive(to: Vector3, timeout: float, top: float) -> String:
+func _drive(to: Vector3, timeout: float, top: float, direct: bool = false) -> String:
 	var chefty := get_tree().get_first_node_in_group("chefty") as Node3D
 	if chefty == null or not chefty.has_method("body_transform"):
 		return "drive: no drivable Chefty"
 	if int(chefty.call("driver")) != Net.local_peer_id():
 		return "drive: not at Chefty's wheel"
 	var start: Vector3 = (chefty.call("body_transform") as Transform3D).origin
-	var route := TownMap.route(start, to)
+	# "direct": straight there across the fields, no roads (p1-world's edge takes).
+	var route := PackedVector3Array() if direct else TownMap.route(start, to)
 	route.insert(0, Vector3(start.x, 0.0, start.z))
 	route.append(Vector3(to.x, 0.0, to.z))
 	var index := 1

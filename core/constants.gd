@@ -5615,3 +5615,96 @@ const CHEFTY_ODOMETER_RESYNC_M: float = 40.0
 const CHEFTY_SEAT_PROMPT_CONE: float = 0.3
 const CHEFTY_SEAT_PROMPT_REACH: float = 4.0
 const CHEFTY_SEAT_PROMPT_UP := Vector2(1.25, 1.75)
+
+# ---- p1-world: day and night (levels/day_sky.gd, docs/GAME.md "Day and night")
+## The light at each hour of the clock (7 to 26; 26 is 2 AM), eased between keys:
+## the sky's top and horizon colors (the haze takes the horizon's), the light's
+## color and strength, its pitch and yaw (degrees, rotation_degrees: the sun is
+## up when pitch is below 0, and sets toward yaw -75), the sky light's strength,
+## how much of it comes from the sky (the rest is DAY_SKY_NIGHT_AMBIENT), and how
+## far night has come (the stars, the windows) and the lamps (on at dusk). The
+## 16:30 key is levels/shared_look.gd's own late afternoon, the light the art was
+## made in (art_test checks they match). The clouds, which take no light of their
+## own, are tinted by clouds. From 19.4 to 19.6 the light is dark
+## while it swaps from the setting sun to the moon.
+const DAY_SKY_KEYS: Array = [
+	{"hour": 7.0, "top": Color(0.42, 0.58, 0.8), "horizon": Color(0.98, 0.8, 0.66), "light": Color(1.0, 0.8, 0.62), "energy": 0.85, "pitch": -9.0, "yaw": 112.0, "ambient": 0.6, "sky_share": 1.0, "night": 0.0, "lamps": 0.15, "clouds": Color(1.0, 0.88, 0.82)},
+	{"hour": 8.5, "top": Color(0.36, 0.57, 0.85), "horizon": Color(0.9, 0.85, 0.76), "light": Color(1.0, 0.9, 0.78), "energy": 1.2, "pitch": -24.0, "yaw": 85.0, "ambient": 0.72, "sky_share": 1.0, "night": 0.0, "lamps": 0.0, "clouds": Color(1.0, 1.0, 1.0)},
+	{"hour": 12.5, "top": Color(0.3, 0.54, 0.87), "horizon": Color(0.84, 0.86, 0.84), "light": Color(1.0, 0.96, 0.9), "energy": 1.45, "pitch": -52.0, "yaw": 20.0, "ambient": 0.8, "sky_share": 1.0, "night": 0.0, "lamps": 0.0, "clouds": Color(1.0, 1.0, 1.0)},
+	{"hour": 16.5, "top": Color(0.33, 0.55, 0.82), "horizon": Color(0.96, 0.82, 0.64), "light": Color(1.0, 0.87, 0.7), "energy": 1.35, "pitch": -32.0, "yaw": -38.0, "ambient": 0.75, "sky_share": 1.0, "night": 0.0, "lamps": 0.0, "clouds": Color(1.0, 1.0, 1.0)},
+	{"hour": 18.0, "top": Color(0.34, 0.46, 0.72), "horizon": Color(1.0, 0.68, 0.44), "light": Color(1.0, 0.68, 0.42), "energy": 1.1, "pitch": -14.0, "yaw": -60.0, "ambient": 0.66, "sky_share": 1.0, "night": 0.0, "lamps": 0.0, "clouds": Color(1.0, 0.9, 0.8)},
+	{"hour": 18.8, "top": Color(0.26, 0.28, 0.52), "horizon": Color(0.98, 0.48, 0.34), "light": Color(1.0, 0.46, 0.26), "energy": 0.5, "pitch": -4.0, "yaw": -72.0, "ambient": 0.52, "sky_share": 0.85, "night": 0.1, "lamps": 0.35, "clouds": Color(1.0, 0.66, 0.55)},
+	{"hour": 19.4, "top": Color(0.1, 0.12, 0.3), "horizon": Color(0.42, 0.3, 0.42), "light": Color(0.7, 0.45, 0.45), "energy": 0.0, "pitch": -2.0, "yaw": -78.0, "ambient": 0.48, "sky_share": 0.6, "night": 0.6, "lamps": 0.9, "clouds": Color(0.45, 0.38, 0.5)},
+	{"hour": 19.6, "top": Color(0.07, 0.09, 0.24), "horizon": Color(0.3, 0.25, 0.4), "light": Color(0.6, 0.7, 1.0), "energy": 0.0, "pitch": -42.0, "yaw": 150.0, "ambient": 0.52, "sky_share": 0.5, "night": 0.75, "lamps": 1.0, "clouds": Color(0.3, 0.3, 0.42)},
+	{"hour": 20.3, "top": Color(0.02, 0.035, 0.1), "horizon": Color(0.1, 0.13, 0.24), "light": Color(0.62, 0.72, 1.0), "energy": 0.32, "pitch": -42.0, "yaw": 150.0, "ambient": 0.56, "sky_share": 0.35, "night": 1.0, "lamps": 1.0, "clouds": Color(0.16, 0.19, 0.3)},
+	{"hour": 26.0, "top": Color(0.015, 0.025, 0.08), "horizon": Color(0.08, 0.1, 0.2), "light": Color(0.6, 0.7, 1.0), "energy": 0.3, "pitch": -50.0, "yaw": 175.0, "ambient": 0.54, "sky_share": 0.35, "night": 1.0, "lamps": 1.0, "clouds": Color(0.13, 0.16, 0.26)},
+]
+## The hour whose key is shared_look's look (a world with no clock shows it).
+const DAY_SKY_ART_HOUR: float = 16.5
+## The look moves on each time the clock has gone this far (hours; 0.01 is under
+## a real second), so the sky's light isn't reworked every frame.
+const DAY_SKY_STEP_HOURS: float = 0.01
+## The night's sky light where it doesn't come from the dark sky: moonlit blue.
+const DAY_SKY_NIGHT_AMBIENT := Color(0.34, 0.4, 0.56)
+## How often (s) the lamps, windows and headlights are looked for again.
+const DAY_SKY_SCAN_SECONDS: float = 2.0
+## The street lamps nearest the camera that cast real light: how many, their
+## color, reach (m) and strength, how long one takes to fade in or out (s), how
+## often (s) they're moved to the nearest lamps, how far from the camera (m) a
+## lamp can have one (it fades out over the last 40%), and where under the lens.
+const DAY_SKY_LAMP_LIGHTS: int = 8
+const DAY_SKY_LAMP_COLOR := Color(1.0, 0.82, 0.55)
+const DAY_SKY_LAMP_RANGE: float = 13.0
+const DAY_SKY_LAMP_ENERGY: float = 2.2
+const DAY_SKY_LAMP_FADE_SECONDS: float = 0.6
+const DAY_SKY_POOL_SECONDS: float = 0.25
+const DAY_SKY_POOL_REACH: float = 55.0
+const DAY_SKY_LAMP_DROP := Vector3(0.0, -0.5, 0.0)
+## The lamp lenses' glow by day and at night, times what each was built with.
+const DAY_SKY_LAMP_DAY: float = 0.15
+const DAY_SKY_LAMP_NIGHT: float = 2.5
+## The houses' windows at night: their glow's color and strength.
+const DAY_SKY_WINDOW_COLOR := Color(1.0, 0.76, 0.42)
+const DAY_SKY_WINDOW_ENERGY: float = 0.9
+## Chefty's (and Lunch Money's) headlight beams at night: strength, reach (m),
+## half-angle (degrees), and how far they tip down (degrees).
+const DAY_SKY_HEADLIGHT_ENERGY: float = 3.0
+const DAY_SKY_HEADLIGHT_RANGE: float = 28.0
+const DAY_SKY_HEADLIGHT_ANGLE: float = 34.0
+const DAY_SKY_HEADLIGHT_TILT: float = 7.0
+## The stars: the map's size (equirectangular), how many, and their seed.
+const DAY_SKY_STAR_MAP := Vector2i(2048, 1024)
+const DAY_SKY_STARS: int = 1500
+const DAY_SKY_STAR_SEED: int = 2718
+
+# ---- p1-world: the town line (levels/town/town_line.gd, docs/GAME.md "The edge of town")
+## Gutterford's hedgerow runs round this rect (x, z), inside TownMap.TOWN_BOUNDS
+## and outside every road, yard, house and the lake (townmap_test checks).
+const TOWN_LINE_RECT := Rect2(-135.0, -510.0, 1020.0, 1020.0)
+## The hedge's solid wall: how high and how deep (m), its inside face this far
+## inside the line (m). The split-rail fence stands a hand inside that face, so
+## whatever reaches the hedge stops just short of the rails, never through them.
+## The wall breaks at each farm gate, which is solid itself.
+const TOWN_LINE_WALL_HEIGHT: float = 4.0
+const TOWN_LINE_WALL_DEPTH: float = 3.4
+const TOWN_LINE_WALL_INSIDE: float = 1.9
+## The hedge's lumps this far apart (m), drawn in stretches this long (m, one
+## mesh each), with a field tree standing out of this share of the lumps, and
+## drawn out to this far (m; the haze has it long before).
+const TOWN_LINE_HEDGE_STEP: float = 3.0
+const TOWN_LINE_SEGMENT: float = 64.0
+const TOWN_LINE_TREE_SHARE: float = 0.22
+const TOWN_LINE_VISIBLE_METERS: float = 420.0
+## The hills past the hedge: between these distances out (m), about this far apart.
+const TOWN_LINE_HILLS_OUT := Vector2(70.0, 150.0)
+const TOWN_LINE_HILL_SPACING: float = 55.0
+## A closed road: the barricade stands this far past the asphalt's end (m), the
+## gravel track is this wide (m) and runs this far past the gate (m), and the
+## gate in the hedge is twice this wide (m).
+const TOWN_LINE_BARRICADE_OUT: float = 2.5
+const TOWN_LINE_TRACK_WIDTH: float = 4.2
+const TOWN_LINE_TRACK_PAST: float = 45.0
+const TOWN_LINE_GATE_HALF: float = 2.6
+## Depot Road's asphalt runs this far each way from the store (store_dressing.gd
+## draws it past TownMap.DEPOT_Z), so its barricades stand past that.
+const TOWN_LINE_DEPOT_ASPHALT_END: float = 160.0

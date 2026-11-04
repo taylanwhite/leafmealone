@@ -86,4 +86,5 @@ static func _lamp(root: Node3D, at: Vector3, yaw: float) -> void:
 	_LowPoly.paint(_LowPoly.cylinder(lamp, LAMP_BASE_RADIUS, 0.5, Vector3(0.0, 0.25, 0.0), pole, false, 8), "metal")
 	_LowPoly.paint(_LowPoly.box(lamp, Vector3(0.1, 0.1, 1.3), Vector3(0.0, 5.15, 0.6), pole), "metal")
 	_LowPoly.paint(_LowPoly.box(lamp, Vector3(0.42, 0.18, 0.62), Vector3(0.0, 5.08, 1.25), pole), "metal")
-	_LowPoly.glow(lamp, Vector3(0.34, 0.04, 0.52), Vector3(0.0, 4.98, 1.25), Color(1.0, 0.9, 0.7), 0.6)
+	# The lens: brighter at night, and the nearest few light the street (levels/day_sky.gd).
+	_LowPoly.glow(lamp, Vector3(0.34, 0.04, 0.52), Vector3(0.0, 4.98, 1.25), Color(1.0, 0.9, 0.7), 0.6).add_to_group("street_lamps")

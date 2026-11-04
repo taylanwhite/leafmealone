@@ -4,7 +4,8 @@ extends Node
 ## (docs/SPINE.md): the clock starts at 7 AM, XP waits until bedtime, one
 ## sleeper of two doesn't end the day, two do, banked XP ranks the crew up with
 ## the unlocks it brings, rank gates the shop, quiet hours pay more, 2 AM closes
-## the day, and the day and the XP are saved. A joined client named Target
+## the day, the day and the XP are saved, and the world's light follows the hour
+## (p1-world, levels/day_sky.gd, the client's too: "sky"). A joined client named Target
 ## should report the same day and XP at the end ("day" in the probe report).
 ## Each step prints a [DayTest] line.
 
@@ -50,6 +51,10 @@ func _run() -> void:
 	var quiet := bool(clock.call("is_quiet_hours")) and absf(float(clock.call("pay_bonus")) - Constants.QUIET_HOURS_PAY_BONUS) < 0.001
 	print("[DayTest] at %s it's quiet hours, +%d%% pay: %s" % [clock.call("clock_text"), int(float(clock.call("pay_bonus")) * 100.0), quiet])
 	ok = ok and quiet
+	# p1-world: the light follows the clock (levels/day_sky.gd): night at 10 PM,
+	# a high bright sun at noon, and the late-afternoon key is shared_look's own.
+	var sky_ok: bool = await _check_sky(clock)
+	ok = ok and sky_ok
 	_set_hour(clock, 26.5)
 	var closed := bool(clock.call("is_closed")) and not bool(world.call("can_depart"))
 	print("[DayTest] at %s the day is closed and Chefty stays put: %s" % [clock.call("clock_text"), closed])
@@ -95,6 +100,54 @@ func _run() -> void:
 	await get_tree().create_timer(1.0).timeout
 	result = {"ok": ok, "done": true}
 	print("[DayTest] all ok: %s" % ok)
+
+
+## The world's light (levels/day_sky.gd) shows the clock's hour: at 10 PM the
+## moon (a dim blue light), a dark sky with the stars out, the lamps on and the
+## sky light mostly moonlit blue; at noon a high strong sun and no stars; between
+## the keys it eases (nothing jumps from one hour to the next); and the 16:30 key
+## is levels/shared_look.gd's late afternoon, the light the art was made in.
+func _check_sky(clock: Node) -> bool:
+	var sky := get_tree().get_first_node_in_group("day_sky")
+	var world := get_tree().get_first_node_in_group("world") as Node
+	if sky == null or world == null:
+		print("[DayTest] the sky follows the clock: no DaySky: false")
+		return false
+	var sun := world.get_node("Sun") as DirectionalLight3D
+	var environment := (world.get_node("WorldEnvironment") as WorldEnvironment).environment
+	var material := environment.sky.sky_material as ProceduralSkyMaterial
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var shown: Dictionary = sky.get("shown")
+	var night := absf(float(shown.get("hour", 0.0)) - float(clock.call("hour"))) < 0.05 and sun.light_energy < 0.5 and sun.light_color.b > sun.light_color.r \
+		and material.sky_top_color.get_luminance() < 0.08 and material.sky_cover_modulate.a > 0.95 and float(shown["lamps"]) > 0.95 and environment.ambient_light_sky_contribution < 0.5
+	print("[DayTest] at %s the light is night: moon %.2f %s, sky top %s, stars %.2f, lamps %.2f: %s" % [clock.call("clock_text"), sun.light_energy, sun.light_color, material.sky_top_color, material.sky_cover_modulate.a, float(shown["lamps"]), night])
+	_set_hour(clock, 12.0)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var noon := sun.light_energy > 1.3 and sun.rotation_degrees.x < -45.0 and material.sky_cover_modulate.a < 0.01 and material.sky_top_color.get_luminance() > 0.4
+	print("[DayTest] at %s the sun is high and strong (%.2f, pitch %.0f), no stars: %s" % [clock.call("clock_text"), sun.light_energy, sun.rotation_degrees.x, noon])
+	# Eased: a minute of the clock never moves the light far, sunset and the swap to the moon included.
+	var _DaySky: Script = sky.get_script()
+	var biggest := 0.0
+	var at := 7.0
+	while at < 26.0:
+		var a: Dictionary = _DaySky.call("look_for", at)
+		var b: Dictionary = _DaySky.call("look_for", at + 1.0 / 60.0)
+		biggest = maxf(biggest, maxf(absf(float(a["energy"]) - float(b["energy"])), absf(float(a["ambient"]) - float(b["ambient"]))))
+		var top_a: Color = a["top"]
+		var top_b: Color = b["top"]
+		biggest = maxf(biggest, Vector3(top_a.r - top_b.r, top_a.g - top_b.g, top_a.b - top_b.b).length())
+		at += 1.0 / 60.0
+	var eased := biggest < 0.05
+	print("[DayTest] a minute of the clock moves the light at most %.3f: %s" % [biggest, eased])
+	var _SharedLook := preload("res://levels/shared_look.gd")
+	var art: Dictionary = _DaySky.call("look_for", Constants.DAY_SKY_ART_HOUR)
+	var same := (art["top"] as Color).is_equal_approx(_SharedLook.SKY_TOP) and (art["horizon"] as Color).is_equal_approx(_SharedLook.SKY_HORIZON) \
+		and (art["light"] as Color).is_equal_approx(_SharedLook.SUN_COLOR) and is_equal_approx(float(art["energy"]), _SharedLook.SUN_ENERGY) \
+		and Vector2(float(art["pitch"]), float(art["yaw"])).is_equal_approx(Vector2(_SharedLook.SUN_ROTATION_DEGREES.x, _SharedLook.SUN_ROTATION_DEGREES.y))
+	print("[DayTest] the %.1f h light is shared_look's late afternoon: %s" % [Constants.DAY_SKY_ART_HOUR, same])
+	return night and noon and eased and same
 
 
 ## Host: move the clock to this hour of the day (7 to 26) by moving its start.

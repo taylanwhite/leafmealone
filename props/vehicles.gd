@@ -502,6 +502,19 @@ static func _lights(look: Node3D, front_z: float, height: float, back_z: float) 
 	for side: float in [-1.0, 1.0]:
 		_LowPoly.glow(look, Vector3(0.3, 0.2, 0.05), Vector3(side * 0.85, height, front_z), Color(1.0, 0.95, 0.75), 2.5)
 		_LowPoly.glow(look, Vector3(0.18, 0.26, 0.05), Vector3(side * 0.95, 1.2, back_z + 0.08), Color(0.9, 0.12, 0.08), 1.5)
+	# One beam for both lamps, on after dusk (levels/day_sky.gd, group "headlights").
+	var beam := SpotLight3D.new()
+	beam.name = "Headlights"
+	beam.light_color = Color(1.0, 0.95, 0.8)
+	beam.spot_range = Constants.DAY_SKY_HEADLIGHT_RANGE
+	beam.spot_angle = Constants.DAY_SKY_HEADLIGHT_ANGLE
+	beam.spot_attenuation = 0.8
+	beam.shadow_enabled = false
+	beam.visible = false
+	beam.position = Vector3(0.0, height, front_z - 0.15)
+	beam.rotation_degrees.x = -Constants.DAY_SKY_HEADLIGHT_TILT
+	beam.add_to_group("headlights")
+	look.add_child(beam)
 
 
 # ---- Lunch Money (shops chunk 6): Dot's food truck
